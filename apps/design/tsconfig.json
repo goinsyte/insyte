@@ -1,0 +1,47 @@
+{
+  /*
+   * The reference's product section, the front door and the marketing section: everything under
+   * `src/` but the brand book, which is `tsconfig.brand.json`.
+   *
+   * Two programs, not one, because each file-routed section generates a route tree that augments
+   * `FileRoutesByPath`, and both trees declare `/` — one program cannot hold two declarations of
+   * the same route path. At run time they never meet either: `src/main.tsx` mounts one section per
+   * page load, through `import.meta.glob`, which the typechecker does not follow.
+   *
+   * Otherwise the console's options, carried as they were: `module: preserve` + `moduleResolution:
+   * bundler` for the generated route tree's extensionless imports, and the two strictness flags
+   * off because the screens it typechecks (`@insyte/ui/app`) are reproduced code — see
+   * `packages/ui/tsconfig.src.json`. TypeScript checks an imported `.tsx` under the importing
+   * project's options, so this program re-checks every screen it reaches, with the route tree
+   * registered: a `<Link to>` in a screen is held to a route that exists.
+   */
+  "extends": "../../tsconfig.base.json",
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    // Every screen, part, store and hook of the product, and the seam, by path rather than only
+    // through imports, so a file no route reaches yet is still checked — as the console's own
+    // `src/**` include did.
+    "../../packages/ui/src/app/**/*.ts",
+    "../../packages/ui/src/app/**/*.tsx",
+    "../../packages/ui/src/data-source/**/*.ts"
+  ],
+  "exclude": ["src/brand/**"],
+  "compilerOptions": {
+    "noEmit": true,
+    // The repo root, because the include reaches into `packages/ui`.
+    "rootDir": "../..",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "tsBuildInfoFile": ".tsbuildinfo/app.tsbuildinfo",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"]
+  }
+}

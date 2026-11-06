@@ -1,0 +1,40 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "insyte-design",
+  /*
+   * Static assets only: no `main`, no script, no bindings. The reference has no server concern —
+   * every section is client state over fixtures — so the Worker is the asset handler and nothing
+   * else, and a binding added here is a question about whether this is still a reference.
+   *
+   * `single-page-application`: a path with no file behind it (`/app/orders/ord_5001`,
+   * `/brand/type`, `/site/prijzen`) answers with `index.html`, and `src/main.tsx` mounts the right
+   * section for it.
+   */
+  "compatibility_date": "2026-10-26",
+  /*
+   * Production: `insyte-design` on workers.dev, behind Cloudflare Access (an Access application on
+   * the hostname, made in the account's Zero Trust settings; it does not live in this file). Preview
+   * URLs are off here: each version would get a hostname of its own, and production has one.
+   */
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+  },
+  "observability": {
+    "enabled": true,
+  },
+  "env": {
+    /*
+     * Staging: `insyte-design-staging`, deployed from `main` by CI. Preview URLs are on here and
+     * only here, because each pull request uploads a version under the alias `pr-<number>`
+     * (`pr-12-insyte-design-staging.<subdomain>.workers.dev`). Access covers the staging hostname
+     * and the `*-insyte-design-staging` previews with one application. docs/ci.md has the pipeline.
+     */
+    "staging": {
+      "workers_dev": true,
+      "preview_urls": true,
+    },
+  },
+}

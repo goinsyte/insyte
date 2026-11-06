@@ -1,0 +1,584 @@
+/*
+ * The landing page's stylesheet: De Blauwdruk, set as a website.
+ *
+ * Built on `@insyte/tokens` like the console, not on the legacy `globals.css` the one-to-one port
+ * used to read. Both `apps/marketing` and the design canvas import this one file, so the page looks
+ * the same in either.
+ *
+ * Flat brand surfaces and nothing else: arc-tint for the hero and the close, paper, mist and glacier
+ * between, and `abyss` for the chapters. No glow, no grid behind the copy, no gradient grounds, and
+ * no black: every dark field is the abyss family and every ink on it is the mesh ramp.
+ */
+
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/archivo/standard.css";
+@import "@insyte/tokens/tokens.css";
+
+@source "./";
+@source "../icons.tsx";
+
+@theme {
+  --default-transition-duration: var(--duration-quick);
+  --default-transition-timing-function: var(--ease-out-quart);
+
+  /* Two display steps above the product's eleven. A tool is read at one DPI all day; a landing page
+     has a headline, and 60px is a screen figure, not a headline. Same tracking law: tighter as it
+     grows, and never past the -0.04em floor. */
+  --text-display-sm: 48px;
+  --text-display-sm--line-height: 50px;
+  --text-display-sm--letter-spacing: -0.036em;
+  --text-display: 72px;
+  --text-display--line-height: 72px;
+  --text-display--letter-spacing: -0.04em;
+}
+
+@layer base {
+  html {
+    background: var(--glacier);
+    color-scheme: light;
+    scrollbar-color: var(--ink-5) transparent;
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    background: var(--glacier);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: var(--arc);
+    color: var(--mesh-ink);
+  }
+
+  :where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--arc);
+    outline-offset: 2px;
+  }
+
+  /* On a chapter the ring is chalk: arc on abyss is 1.6:1 and a ring nobody can see is no ring. */
+  :where(.chapter) :where(a, button, [tabindex]):focus-visible {
+    outline-color: var(--mesh-ink);
+  }
+
+  :where(a) {
+    text-underline-offset: 0.2em;
+    text-decoration-thickness: from-font;
+  }
+
+  :where(td, th, output, time, data) {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :where(button, [role="button"], [role="tab"], summary) {
+    cursor: pointer;
+  }
+
+  h1, h2, h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+}
+
+/* ── Surfaces ────────────────────────────────────────────────────────────────────────────────── */
+
+/* A chapter: flat abyss. */
+@utility chapter-ground {
+  background-color: var(--abyss);
+  color: var(--mesh-ink);
+}
+
+/* A plate inside a chapter: one step lighter than the ground, held by an inset chalk line. */
+@utility plate {
+  position: relative;
+  background-color: var(--abyss-2);
+  color: var(--mesh-ink);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--mesh-ink) 10%, transparent);
+  isolation: isolate;
+}
+
+@utility hairline {
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ink) 9%, transparent);
+}
+
+@utility chalk-line {
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--mesh-ink) 12%, transparent);
+}
+
+@utility panel {
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ink) 9%, transparent);
+}
+
+@utility field {
+  background: color-mix(in oklch, var(--ink) 4.5%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ink) 7%, transparent);
+}
+
+/* The product window: a surface that has left the page, so it carries the one real shadow on the
+   page — a short offset and a soft fall, tinted from abyss. A shadow, not a glow. */
+@utility window-lift {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklch, var(--ink) 10%, transparent),
+    0 1px 2px color-mix(in oklch, var(--abyss) 8%, transparent),
+    0 24px 48px -28px color-mix(in oklch, var(--abyss) 35%, transparent);
+}
+
+@utility figure {
+  font-family: var(--font-display);
+  font-stretch: 88%;
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.045em;
+  line-height: 0.82;
+}
+
+/* The construction rails: two thin verticals at the edges of the content column, the way a drawing
+   marks where the part ends. Every section draws them at the same x, so they read as one line down
+   the page. Pseudo-elements, so they cost no markup; hidden on a phone, where the column is the
+   screen. */
+@utility rails {
+  position: relative;
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    width: 1px;
+    pointer-events: none;
+    background: repeating-linear-gradient(180deg, color-mix(in oklch, var(--mesh-ink) 18%, transparent) 0 5px, transparent 5px 10px);
+  }
+  &::before {
+    left: 0;
+  }
+  @media (width < 48rem) {
+    &::before,
+    &::after {
+      display: none;
+    }
+  }
+  &::after {
+    right: 0;
+  }
+}
+
+@utility rails-ink {
+  position: relative;
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    width: 1px;
+    pointer-events: none;
+    background: repeating-linear-gradient(180deg, color-mix(in oklch, var(--ink) 14%, transparent) 0 5px, transparent 5px 10px);
+  }
+  &::before {
+    left: 0;
+  }
+  @media (width < 48rem) {
+    &::before,
+    &::after {
+      display: none;
+    }
+  }
+  &::after {
+    right: 0;
+  }
+}
+
+/* A dashed construction rule, horizontal or vertical: the drawing's own hairline, 5 on 5. */
+@utility dash-x {
+  background: repeating-linear-gradient(90deg, color-mix(in oklch, var(--ink) 14%, transparent) 0 5px, transparent 5px 10px);
+}
+
+@utility dash-y {
+  background: repeating-linear-gradient(180deg, color-mix(in oklch, var(--ink) 14%, transparent) 0 5px, transparent 5px 10px);
+}
+
+@utility dash-x-chalk {
+  background: repeating-linear-gradient(90deg, color-mix(in oklch, var(--mesh-ink) 18%, transparent) 0 5px, transparent 5px 10px);
+}
+
+@utility dash-y-chalk {
+  background: repeating-linear-gradient(180deg, color-mix(in oklch, var(--mesh-ink) 18%, transparent) 0 5px, transparent 5px 10px);
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ── The brand's own patterns, on abyss ─────────────────────────────────────────────────────────
+   From the token set (`pattern` in tokens.ts): the Drift hatch — the mark's three offset squares at
+   the step they offset by — and the 32px drafting grid. Chalk at a few percent, so they are felt
+   rather than seen, and faded toward the copy with a mask (a mask, not a light). */
+
+@utility hatch-chalk {
+  background-image:
+    radial-gradient(circle at 4px 4px, color-mix(in oklch, var(--mesh-ink) 13%, transparent) 1.4px, transparent 1.5px),
+    radial-gradient(circle at 12px 12px, color-mix(in oklch, var(--mesh-ink) 9%, transparent) 1.4px, transparent 1.5px),
+    radial-gradient(circle at 20px 20px, color-mix(in oklch, var(--mesh-ink) 5.5%, transparent) 1.4px, transparent 1.5px);
+  background-size: var(--pattern-hatch) var(--pattern-hatch);
+}
+
+@utility drafting-chalk {
+  background-image:
+    repeating-linear-gradient(0deg, color-mix(in oklch, var(--mesh-ink) 5%, transparent) 0 1px, transparent 1px var(--pattern-grid)),
+    repeating-linear-gradient(90deg, color-mix(in oklch, var(--mesh-ink) 5%, transparent) 0 1px, transparent 1px var(--pattern-grid));
+}
+
+/* ── The product renders ─────────────────────────────────────────────────────────────────────────
+   A screen is drawn at the console's own scale and zoomed to its column rather than reflowed: a
+   dashboard squeezed into a phone is a different dashboard. The hero's Start screen is 1180px
+   (cropped below `sm`); a tour's focused screen is 760px. */
+
+.window-canvas {
+  width: 760px;
+  zoom: 0.47;
+}
+
+@media (min-width: 640px) {
+  .window-canvas {
+    width: 1180px;
+    zoom: 0.5;
+  }
+}
+
+@media (min-width: 768px) {
+  .window-canvas {
+    zoom: 0.6;
+  }
+}
+
+@media (min-width: 1024px) {
+  .window-canvas {
+    zoom: 0.8;
+  }
+}
+
+/* From 1280 the window takes the wrapper's width rather than scaling up: the extra room goes to the
+   queue's columns and the right-hand cards, the type stays the size it is at 1440. The wrapper is
+   inset 12px a side and the window keeps a 32px gutter inside it; it stops at 1640px. */
+@media (min-width: 1280px) {
+  .window-canvas {
+    zoom: 0.96;
+    width: min(calc((100vw - 88px) / 0.96), 1640px);
+  }
+}
+
+@media (min-width: 1440px) {
+  .window-canvas {
+    zoom: 1;
+    width: min(calc(100vw - 88px), 1640px);
+  }
+}
+
+.tour-canvas {
+  width: 880px;
+  zoom: 0.4;
+}
+
+@media (min-width: 640px) {
+  .tour-canvas {
+    zoom: 0.66;
+  }
+}
+
+@media (min-width: 768px) {
+  .tour-canvas {
+    zoom: 0.78;
+  }
+}
+
+@media (min-width: 1024px) {
+  .tour-canvas {
+    zoom: 0.6;
+  }
+}
+
+/* From 1280 the window takes 7/12 of the column and bleeds 48px past the frame. */
+@media (min-width: 1280px) {
+  .tour-canvas {
+    zoom: 0.76;
+  }
+}
+
+/* The column caps at 1180px, so above it the tour stays the size it is at 1440. */
+
+/* A word of a revealing sentence: dim until the reading line (`--p`) passes its place (`--i`). */
+.reveal-word {
+  opacity: clamp(0.22, calc((var(--p, 1) - var(--i, 0)) * 9 + 0.22), 1);
+}
+
+
+/* The orbit of services in "how it works": the ring turns once a minute and each mark turns back
+   against it, so the logos stay upright. Still under reduced motion. */
+@keyframes orbit-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.orbit-ring {
+  animation: orbit-turn 60s linear infinite;
+}
+
+.orbit-mark {
+  animation: orbit-turn 60s linear infinite reverse;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbit-ring,
+  .orbit-mark {
+    animation: none;
+  }
+}
+
+/* The automation marquee: two rows of the template library drifting in opposite directions. The
+   track holds the list twice and moves by half its width, so the loop has no seam. It stops under
+   the pointer or focus; under reduced motion it is a still, wrapped list. */
+@keyframes marquee-left {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.marquee {
+  mask-image: linear-gradient(90deg, transparent, black 8%, black 92%, transparent);
+}
+
+.marquee-track {
+  width: max-content;
+  animation: marquee-left var(--marquee-duration, 60s) linear infinite;
+}
+
+.marquee-track[data-reverse="true"] {
+  animation-direction: reverse;
+}
+
+.marquee:hover .marquee-track,
+.marquee:focus-within .marquee-track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee {
+    mask-image: none;
+  }
+
+  .marquee-track {
+    width: auto;
+    flex-wrap: wrap;
+    animation: none;
+  }
+
+  .marquee-copy {
+    display: none;
+  }
+}
+
+/* Out of the content column to the page's edges: the column is centred at 1180px with 16px (32px
+   from `sm`) of padding, so this is the negative of whatever lies outside its content box. */
+.bleed {
+  margin-inline: calc(-1 * (max(0px, (100vw - 1180px) / 2) + 16px));
+}
+
+@media (min-width: 640px) {
+  .bleed {
+    margin-inline: calc(-1 * (max(0px, (100vw - 1180px) / 2) + 32px));
+  }
+}
+
+/* A comparison check drawn in when its rows are scrolled to (the icons carry `pathLength` 1). The
+   server and reduced motion keep it drawn; only a group rewound by `usePlay` starts undrawn. */
+.draw-check path {
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 520ms var(--ease-out-expo) calc(var(--d, 0) * 40ms + 120ms);
+}
+
+[data-play="false"] .draw-check path {
+  stroke-dashoffset: 1;
+  transition: none;
+}
+
+/* The role matrix on /beveiliging scrubs with the page from 768px; below it, it is drawn whole. */
+@media (width < 48rem) {
+  .role-matrix {
+    --p: 1 !important;
+  }
+}
+
+/* A tour screen inside a page's product moment or hero, re-zoomed to its column. Unlayered, like
+   `.tour-canvas` itself, so it wins over that rule rather than over a utility. */
+.tour-in-moment .tour-canvas {
+  zoom: 0.4;
+}
+
+@media (min-width: 640px) {
+  .tour-in-moment .tour-canvas {
+    zoom: 0.66;
+  }
+}
+
+@media (min-width: 1024px) {
+  .tour-in-moment .tour-canvas {
+    zoom: 0.58;
+  }
+}
+
+@media (min-width: 1280px) {
+  .tour-in-moment .tour-canvas {
+    zoom: 0.7;
+  }
+}
+
+.tour-in-hero .tour-canvas {
+  zoom: 1;
+}
+
+/* The schematic's pulses (pages/schematic.tsx): a short dash running along a connector, out of
+   sight half its period. Paused off screen and in a hidden tab; absent under reduced motion. */
+@keyframes schematic-pulse {
+  from {
+    stroke-dashoffset: 200;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.schematic-pulse {
+  stroke-dashoffset: 200;
+  animation: schematic-pulse 6s linear infinite;
+}
+
+.schematic[data-run="false"] .schematic-pulse {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .schematic-pulses {
+    display: none;
+  }
+}
+
+/* The 32px drafting grid in ink, for light grounds; faded with a mask like its chalk twin. */
+@utility drafting-ink {
+  background-image:
+    repeating-linear-gradient(0deg, color-mix(in oklch, var(--ink) 5%, transparent) 0 1px, transparent 1px var(--pattern-grid)),
+    repeating-linear-gradient(90deg, color-mix(in oklch, var(--ink) 5%, transparent) 0 1px, transparent 1px var(--pattern-grid));
+}
+
+/* The Drift hatch in ink, for light grounds. */
+@utility hatch-ink {
+  background-image:
+    radial-gradient(circle at 4px 4px, color-mix(in oklch, var(--ink) 10%, transparent) 1.4px, transparent 1.5px),
+    radial-gradient(circle at 12px 12px, color-mix(in oklch, var(--ink) 7%, transparent) 1.4px, transparent 1.5px),
+    radial-gradient(circle at 20px 20px, color-mix(in oklch, var(--ink) 4.5%, transparent) 1.4px, transparent 1.5px);
+  background-size: var(--pattern-hatch) var(--pattern-hatch);
+}
+
+/* ── /variants: the hero-background lab (pages/variants/) ─────────────────────────────────────
+   Each animation pauses when its layer is off screen or the tab is hidden (`data-run`), and stops
+   under reduced motion. Nothing here is used on a live page until a variant is chosen. */
+@keyframes variant-shimmer {
+  from {
+    mask-position: 140% 0;
+  }
+  to {
+    mask-position: -40% 0;
+  }
+}
+
+.variant-shimmer {
+  mask-image: linear-gradient(115deg, transparent 40%, black 50%, transparent 60%);
+  mask-size: 250% 100%;
+  animation: variant-shimmer 9s linear infinite;
+}
+
+@keyframes variant-drift {
+  to {
+    transform: translate(48px, 48px);
+  }
+}
+
+.variant-drift {
+  animation: variant-drift 24s linear infinite;
+}
+
+@keyframes variant-scan {
+  from {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  to {
+    transform: translateY(var(--scan-to, 640px));
+    opacity: 0;
+  }
+}
+
+.variant-scan {
+  animation: variant-scan 7s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@keyframes variant-wire {
+  0% {
+    stroke-dashoffset: 100;
+    opacity: 1;
+  }
+  8% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  20% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+
+.variant-wire {
+  stroke-dashoffset: 100;
+  opacity: 0;
+  animation: variant-wire 8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.variant-layer[data-run="false"] .variant-anim {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .variant-anim {
+    animation: none;
+  }
+
+  .variant-wire {
+    stroke-dashoffset: 0;
+    opacity: 0.5;
+  }
+}

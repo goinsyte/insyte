@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "include": [],
+  "compilerOptions": {
+    "outDir": "${configDir}/dist",
+    "rootDir": "${configDir}/src",
+    "incremental": true,
+    "composite": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleDetection": "force",
+    "verbatimModuleSyntax": true,
+    "allowJs": false,
+    "rewriteRelativeImportExtensions": true,
+    "erasableSyntaxOnly": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    /*
+     * From saas-starter rather than from effect-cloudflare-full-stack, which does not set it.
+     *
+     * The only strictness the two references disagreed on where the SaaS starter was the stricter
+     * of the two, so it is taken on top of the Cloudflare baseline rather than dropped with the
+     * rest of that repo's conventions.
+     */
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "stripInternal": false,
+    "skipLibCheck": true,
+    "noErrorTruncation": true,
+    "types": [],
+    "jsx": "react-jsx",
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "namespaceImportPackages": ["effect", "@effect/*"],
+        "diagnosticSeverity": { "globalErrorInEffectFailure": "off" },
+        /*
+         * The Effect diagnostics GATE, inherited deliberately from effect-cloudflare-full-stack.
+         *
+         * Upstream found all three of these settings mattered: `tsc -b` exited 0 while emitting
+         * `multipleEffectProvide` warnings, and `ignoreEffectErrorsInTscExitCode: true` swallowed
+         * genuine ERRORS too — in one case a gate script that annotated its queries as unfailable
+         * while every one of them could fail with `SqlError`.
+         *
+         * saas-starter takes the other route and sets `"diagnostics": false`, turning them off
+         * entirely. Deliberately NOT copied: a check that cannot fail is worth less than no check,
+         * because it still looks like coverage.
+         *
+         * Suggestions are VISIBLE but do not gate — they are idiom advice, worth reading rather
+         * than obeying. Upstream had one turn out to be a real bug: `Schema.Number` where the
+         * comment claimed integer minor units, so NaN and Infinity were accepted.
+         */
+        "includeSuggestionsInTsc": true,
+        "ignoreEffectWarningsInTscExitCode": false,
+        "ignoreEffectErrorsInTscExitCode": false
+      }
+    ]
+  }
+}

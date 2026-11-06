@@ -1,0 +1,79 @@
+{
+  "lineWidth": 120,
+  "indentWidth": 2,
+  "newLineKind": "lf",
+  "typescript": {
+    "semiColons": "asi",
+    "quoteStyle": "alwaysDouble",
+    "trailingCommas": "never",
+    "operatorPosition": "maintain",
+    "arrowFunction.useParentheses": "force"
+  },
+  "json": {},
+  "markdown": {},
+  "excludes": [
+    "**/node_modules",
+    "**/dist",
+    "**/build",
+    "**/.output",
+    "**/*.tsbuildinfo",
+    "**/coverage",
+    // Agent skill packages and harness config installed by their own tools; reformatting them would fight updates.
+    ".agents/",
+    ".claude/skills/",
+    ".claude/agents/",
+    ".claude/worktrees/",
+    ".github/skills/",
+    ".github/agents/",
+    ".github/hooks/",
+    ".codex/",
+    ".wrangler/",
+    // Written by impeccable's hook on every run, in its own layout; formatting it fights the tool.
+    "**/.impeccable/hook.cache.json",
+    "**/worker-configuration.d.ts",
+    "**/routeTree.gen.ts",
+    "bun.lock",
+    /*
+     * Ported code, kept byte-identical to the legacy repo (the port scripts are retired; git and the
+     * ADRs are the record).
+     *
+     * Formatting a port is editing it, and not only in theory: one dprint pass over the dashboard
+     * turned `<HeaderCell className="w-[80px]"> </HeaderCell>` into an empty element in three files,
+     * dropping a whitespace child. That is a rendered difference and a type error, produced by a
+     * tool whose job is to change nothing. So these paths keep legacy's tabs and semicolons.
+     *
+     * `packages/ui/src/app/lib/{env,auth-client,api}.ts` are written here rather than ported and sit
+     * inside one of these directories because the ported code imports them by those paths. They are
+     * written in this repo's style; they are simply not checked for it.
+     */
+    /*
+     * The console's screens, parts, stores, hooks and libraries, moved from `apps/console` into
+     * `packages/ui/src/app/` (ADR-0026), with the same exclusion they had there: they keep the legacy
+     * tabs and semicolons they were ported in. `lib/{env,auth-client,api}.ts` are written here and
+     * were never checked for style either; they sit where the ported code imports them.
+     */
+    "packages/ui/src/app/",
+    /*
+     * The route statements the reference keeps, lifted verbatim out of the console's route files,
+     * and the fixtures (`lib/mock-data`, `lib/scenario.ts`, `lib/affiliate-data.ts`), moved whole. The
+     * console's two authored routes (`__root.tsx`, `index.tsx`) are formatted.
+     */
+    "apps/design/src/app/routes/_admin/",
+    "apps/design/src/app/routes/_aff/",
+    "apps/design/src/app/routes/_supplier/",
+    "apps/design/src/app/routes/onboarding/",
+    "apps/design/src/app/routes/invitations.$invitationId.tsx",
+    "apps/design/src/app/routes/login.tsx",
+    "apps/design/src/app/routes/register.tsx",
+    "apps/design/src/app/fixtures/mock-data/",
+    "apps/design/src/app/fixtures/scenario.ts",
+    "apps/design/src/app/fixtures/affiliate-data.ts",
+    // The seam's record types, lifted verbatim from the fixtures above.
+    "packages/ui/src/data-source/types.ts"
+  ],
+  "plugins": [
+    "https://plugins.dprint.dev/typescript-0.93.4.wasm",
+    "https://plugins.dprint.dev/json-0.21.1.wasm",
+    "https://plugins.dprint.dev/markdown-0.20.0.wasm"
+  ]
+}

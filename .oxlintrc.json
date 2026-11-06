@@ -1,0 +1,105 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "import",
+    "typescript",
+    "unicorn"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "env": {
+    "es2024": true
+  },
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/.output/**",
+    "**/coverage/**",
+    "vendor/**",
+    /*
+     * Agent skill packages, installed into the working tree and not part of this repo — they are untracked, so
+     * they never reach CI and only ever broke `preflight` locally. Same reasoning as the vendored Effect source
+     * below: upstream's code, upstream's lint rules, and advice we cannot act on.
+     */
+    ".agents/**",
+    ".claude/skills/**",
+    // Impeccable's install for the other harnesses (Copilot, Codex) and its Claude Code agent definitions.
+    ".claude/agents/**",
+    // Agent worktrees (`git worktree`, created by Claude Code agents): another checkout of this repo, not code to lint.
+    ".claude/worktrees/**",
+    ".github/skills/**",
+    ".github/agents/**",
+    ".github/hooks/**",
+    ".codex/**",
+    ".wrangler/**",
+    "**/worker-configuration.d.ts",
+    "**/routeTree.gen.ts",
+    /*
+     * Ported code: the dashboard and legacy's component library, byte-identical to the legacy repo.
+     * (The brand book left this list on 1 November 2026, when it was rebuilt; ADR-0026's addendum.)
+     * Since ADR-0026 the dashboard lives in
+     * `packages/ui/src/app/`, its route statements and fixtures in `apps/design/src/app/`.
+     *
+     * Not linted, for the same reason the vendored sources above are not: upstream's code, upstream's
+     * rules, and advice nobody here can act on — every fix would be an edit to a port. The one thing
+     * it would have caught in this repo is style (shadowed names, `sort` vs `toSorted`), which is not
+     * what these files are held to. `packages/ui/src/app/lib/{env,auth-client,api}.ts` are written here
+     * and sit under one of these paths because the ported code imports them by it; they are linted
+     * through the exception below.
+     */
+    "packages/ui/src/components/**",
+    "packages/ui/src/app/**",
+    "packages/ui/src/data-source/types.ts",
+    "apps/design/src/app/routes/_admin/**",
+    "apps/design/src/app/routes/_aff/**",
+    "apps/design/src/app/routes/_supplier/**",
+    "apps/design/src/app/routes/onboarding/**",
+    "apps/design/src/app/routes/invitations.$invitationId.tsx",
+    "apps/design/src/app/routes/login.tsx",
+    "apps/design/src/app/routes/register.tsx",
+    "apps/design/src/app/fixtures/mock-data/**",
+    "apps/design/src/app/fixtures/scenario.ts",
+    "apps/design/src/app/fixtures/affiliate-data.ts",
+    "!packages/ui/src/app/lib/env.ts",
+    "!packages/ui/src/app/lib/auth-client.ts",
+    "!packages/ui/src/app/lib/api.ts"
+  ],
+  "rules": {
+    "no-console": "warn",
+    "typescript/no-explicit-any": "warn",
+    "typescript/consistent-type-imports": "error",
+    "no-await-in-loop": "off",
+    "no-underscore-dangle": "off"
+  },
+  "overrides": [
+    {
+      // A stylesheet is imported for its effect; there is nothing to assign. Scoped to the files
+      // that own a document's entry rather than allowed everywhere — the reference has one per
+      // section, because its sections cannot share a stylesheet (ADR-0026).
+      "files": [
+        "apps/*/src/main.tsx",
+        "apps/design/src/*/main.tsx",
+        "apps/design/src/app/boot.tsx",
+        "apps/design/src/brand/tokens.tsx"
+      ],
+      "rules": {
+        "import/no-unassigned-import": "off"
+      }
+    },
+    {
+      "files": [
+        "scripts/**/*.ts",
+        // Package build scripts: a generator that says what it wrote is doing its job.
+        "packages/*/build.ts"
+      ],
+      "rules": {
+        "no-console": "off",
+        "unicorn/no-array-sort": "off"
+      }
+    }
+  ]
+}

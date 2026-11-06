@@ -1,0 +1,903 @@
+/*
+ * The operator console's stylesheet.
+ *
+ * It used to be one line — `@import "@insyte/ui/styles/globals.css"` — which is the LEGACY design
+ * system, ported with the screens. That file is still there and three surfaces still read it: the
+ * marketing landing page and the brand book, both one-to-one ports whose job is to keep looking
+ * exactly like the thing they were copied from, and the design canvas that hosts them. Touching it
+ * would move all three.
+ *
+ * So the console gets its own, built on `@insyte/tokens` instead, which is what ADR-0002 said the
+ * end of the port would look like. What that buys, concretely:
+ *
+ * - One set of values, generated. The legacy sheet declared most of them three or four times —
+ *   canonical, shadcn slot, legacy alias, `@theme` re-export — and nothing kept them agreeing.
+ * - Both themes, because `tokens.css` renders the night map under the same names.
+ * - No `--font-mono`, so a `font-mono` utility does not silently exist for something to reach for.
+ * - No `* { @apply border-border }`, which is what put a hairline on 393 elements that never asked.
+ *
+ * The world is De Blauwdruk: the cyanotype, the plan drawn in white on blue before anything is
+ * built. The pieces of it that are not a token live below as utilities, so a component asks for
+ * `plate` or `hatch` rather than re-deriving a repeating gradient each time.
+ */
+
+@import "tailwindcss";
+/*
+ * The enter/exit keyframes the primitives have always named and never had.
+ *
+ * `packages/ui`'s components carry `data-[state=open]:animate-in fade-in-0 zoom-in-95` and so on —
+ * the shadcn convention — and those utilities come from this package, which only the LEGACY
+ * stylesheet imported. So in the console every menu, dialog, popover, sheet and tooltip appeared
+ * and vanished on the same frame: not a design choice, a missing import. This is the line that
+ * makes the markup true.
+ */
+@import "tw-animate-css";
+@import "@fontsource-variable/inter";
+/* `standard` rather than `wght`: Archivo's width axis is the reason it is here, and the monumental
+   figure is set narrow, the way drafting lettering is. */
+@import "@fontsource-variable/archivo/standard.css";
+@import "@insyte/tokens/tokens.css";
+
+@source "./**/*.{ts,tsx}";
+@source "../**/*.{ts,tsx}";
+
+/*
+ * `.dark` is the single mechanism, set on `<html>` before first paint by the inline script in
+ * `index.html`. `tokens.css` also carries a `prefers-color-scheme` block, which is the no-JS
+ * fallback for the VALUES; this variant is what makes `dark:` utilities agree with it, and they only
+ * agree if one thing decides. A variant keyed to the media query and values keyed to a class drift
+ * apart the moment somebody picks a theme.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * What a transition costs when nobody names a duration.
+ *
+ * 149 of the console's transitions are a bare `transition-colors`, which took Tailwind's default:
+ * 150ms on `cubic-bezier(0.4, 0, 0.2, 1)`. That is a tooltip's worth of time on a symmetric curve,
+ * and it reads as a jump — the thing is simply a different colour on the next frame. The default is
+ * moved to the motion set's own numbers instead, so an unnamed transition is the SAME transition as
+ * a named one and `duration-[160ms]` written by hand stops being the only way to get the curve.
+ *
+ * Decelerating, not symmetric: the surface leaves quickly and arrives slowly, which is what makes a
+ * state change feel caused rather than scheduled.
+ */
+@theme {
+  --default-transition-duration: var(--duration-quick);
+  --default-transition-timing-function: var(--ease-out-quart);
+}
+
+@layer base {
+  /*
+   * Deliberately no `* { border-color: … }`. The legacy sheet set a border colour on every element
+   * in the document and then spent 393 utilities turning borders on; in this world separation is a
+   * surface change and adjacent fields meet, so an element that wants a line asks for one.
+   */
+  html {
+    background: var(--glacier);
+    color-scheme: light;
+    /* The scrollbar is a surface too. */
+    scrollbar-color: var(--ink-5) transparent;
+  }
+
+  html:where(.dark) {
+    color-scheme: dark;
+    scrollbar-color: var(--ink-4) transparent;
+  }
+
+  body {
+    background: var(--glacier);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    /* `cv11` is Inter's single-storey ‘a’ off — the straight-sided ‘l’ and ‘1’ that keep a dense
+       column of figures and codes from closing up. */
+    font-feature-settings: "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* A key cap is a word on a tile, not data: the browser's monospace default does not apply. */
+  kbd {
+    font-family: inherit;
+  }
+
+  /*
+   * The surfaces nobody draws, which ship with browser defaults belonging to no design system.
+   * Every one of these is visible every day in a tool somebody lives in.
+   */
+  ::selection {
+    background: var(--arc);
+    color: var(--mesh-ink);
+  }
+
+  :where(input, textarea, [contenteditable]) {
+    caret-color: var(--arc);
+  }
+
+  /* One focus ring, from the brand, on everything. The halo is the soft step so the ring itself
+     stays a crisp 2px rather than a glow. */
+  :where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--arc);
+    outline-offset: 1px;
+  }
+
+  :where(a) {
+    text-underline-offset: 0.2em;
+    text-decoration-thickness: from-font;
+  }
+
+  /* Figures in the product are compared and copied. They line up because they are tabular, not
+     because they are monospaced — which is the whole reason this system ships no mono face. */
+  :where(td, th, output, time, data) {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
+   * The hand, declared once. A button is a button whether it is a `<button>`, a menu item or a tab,
+   * and every one of them was getting `cursor-pointer` written on it by hand or not at all — which
+   * is why half the console felt live and half felt like a document. Tailwind's preflight sets
+   * `cursor: default` on `button`, so this is not the browser default being restored; it is a
+   * decision, made in one place, that the pointer means "this responds".
+   */
+  :where(button, [role="button"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="switch"], summary, label[for], input[type="checkbox"], input[type="radio"], input[type="range"], select) {
+    cursor: pointer;
+  }
+
+  :where(button, [role="button"], [role="tab"], [role="menuitem"], [role="option"], input, select, textarea):disabled,
+  :where([aria-disabled="true"]) {
+    cursor: not-allowed;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--ink-5);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: var(--radius-pill);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--ink-4);
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    background: var(--ink-4);
+  }
+}
+
+/*
+ * The monumental figure, and plate numbers. The two places the display face is allowed.
+ *
+ * Narrow, because drafting lettering is monoline and slightly narrow — ISO 3098 is the reference and
+ * Archivo's width axis is why this face was chosen over setting Inter larger.
+ */
+@utility figure {
+  font-family: var(--font-display);
+  font-stretch: 88%;
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.045em;
+  line-height: 0.82;
+}
+
+/*
+ * A plate: the ground a proposal is drawn on.
+ *
+ * `abyss` carrying the drafting grid at the tokenised pitch, and one faint rule travelling down it,
+ * like a drawing being scanned. The rule is the only ambient motion in the product.
+ */
+@utility plate {
+  position: relative;
+  background-color: var(--abyss);
+  color: var(--mesh-ink);
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      color-mix(in oklch, var(--mesh-ink) 8%, transparent) 0 1px,
+      transparent 1px var(--pattern-grid)
+    ),
+    repeating-linear-gradient(
+      90deg,
+      color-mix(in oklch, var(--mesh-ink) 8%, transparent) 0 1px,
+      transparent 1px var(--pattern-grid)
+    );
+  isolation: isolate;
+}
+
+@utility plate-scan {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklch, var(--mesh-ink-2) 55%, transparent),
+    transparent
+  );
+  animation: plate-scan var(--duration-scan) var(--ease-mesh) infinite;
+  pointer-events: none;
+}
+
+/*
+ * The board: the plate's daylight sibling, and the ground the automation canvas is drawn on.
+ *
+ * Same grid at the same pitch, in graphite instead of chalk. The canvas used to carry its own
+ * 18px dot field at `rgba(15, 23, 42, 0.08)` — a third pattern, at a pitch nothing else uses, in a
+ * colour that does not invert at night.
+ */
+@utility board {
+  background-color: var(--mist);
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      color-mix(in oklch, var(--ink) 6%, transparent) 0 1px,
+      transparent 1px var(--pattern-grid)
+    ),
+    repeating-linear-gradient(
+      90deg,
+      color-mix(in oklch, var(--ink) 6%, transparent) 0 1px,
+      transparent 1px var(--pattern-grid)
+    );
+}
+
+/*
+ * The hatch: the Drift mark's three offset squares, at the step they offset by.
+ *
+ * It fills a cell that has nothing to say — an empty state, the foot of a panel, the gap under a
+ * short list — which is the alternative to an icon in a circle and to a card with one sentence in it.
+ */
+@utility hatch {
+  background-image:
+    radial-gradient(circle at 4px 4px, color-mix(in oklch, var(--ink) 10%, transparent) 1.6px, transparent 1.7px),
+    radial-gradient(circle at 12px 12px, color-mix(in oklch, var(--ink) 7%, transparent) 1.6px, transparent 1.7px),
+    radial-gradient(circle at 20px 20px, color-mix(in oklch, var(--ink) 4.5%, transparent) 1.6px, transparent 1.7px);
+  background-size: var(--pattern-hatch) var(--pattern-hatch);
+}
+
+/* The same field on a plate, where the ink is the chalk rather than the graphite. */
+@utility hatch-on-plate {
+  background-image:
+    radial-gradient(circle at 4px 4px, color-mix(in oklch, var(--mesh-ink) 16%, transparent) 1.6px, transparent 1.7px),
+    radial-gradient(circle at 12px 12px, color-mix(in oklch, var(--mesh-ink) 11%, transparent) 1.6px, transparent 1.7px),
+    radial-gradient(circle at 20px 20px, color-mix(in oklch, var(--mesh-ink) 7%, transparent) 1.6px, transparent 1.7px);
+  background-size: var(--pattern-hatch) var(--pattern-hatch);
+}
+
+/*
+ * A panel: paper on the canvas, borderless.
+ *
+ * The shadow is felt rather than seen — an offset and a soft blur, never a zero-offset halo. At
+ * night it drops the shadow entirely and relies on tone, because a shadow on a dark ground is a
+ * smudge.
+ *
+ * No radius here either, for the reason given under `field`: the caller names it.
+ */
+/*
+ * A table that is wider than the window, scrolling as one piece rather than clipping.
+ *
+ * Six list screens draw their rows as a fixed-column grid inside a `paper` plate. On a desktop that
+ * is exactly right; below about 760px the columns had nowhere to go and the plate simply cut the
+ * last one off mid-badge — a status the operator could see the left half of. Columns that must line
+ * up do not reflow, so the honest answer is to let the whole table slide under a stationary frame.
+ *
+ * The frame keeps the rounding and the surface; `> *` is every band inside it — head, rows, the
+ * pager — so they slide together and stay in register. From `sm` up the min-width is below the
+ * column width anyway and nothing scrolls.
+ */
+@utility table-scroll {
+  overflow-x: auto;
+  /* Not `overflow-hidden` beside it: one axis has to scroll while the other still clips the corners,
+     and a single `overflow: hidden` would decide both. */
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+
+  & > * {
+    min-width: 760px;
+  }
+}
+
+/*
+ * The one line this system draws.
+ *
+ * A 1px edge, INSET, mixed from `ink` so one declaration is correct in both themes — a light-theme
+ * override and a dark-theme override are two chances to disagree. Inset costs no layout, follows any
+ * radius the caller names, and composes with a real shadow on the surfaces that genuinely float.
+ */
+@utility hairline {
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ink) 9%, transparent);
+}
+
+/*
+ * A panel: paper on glacier, held by an edge rather than lifted by a shadow.
+ *
+ * It used to carry a two-stop drop shadow, and with `paper` sitting a hair off `glacier` that shadow
+ * was doing all the separating — twenty-odd white rectangles each floating a different distance off
+ * the page, which is the "white cards with drop shadows" look. The surface change plus one line says
+ * the same thing flat, and flat is what lets a dense screen stay readable.
+ */
+@utility panel {
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ink) 9%, transparent);
+}
+
+/*
+ * A panel that has left the page: a menu, a dialog, a sheet. Same paper, lifted further, and it
+ * keeps its shadow at night because a floating surface has to read as floating on any ground.
+ */
+@utility panel-raised {
+  background: var(--paper);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklch, var(--ink) 9%, transparent),
+    0 2px 6px color-mix(in oklch, black 8%, transparent),
+    0 28px 70px -24px color-mix(in oklch, black 30%, transparent);
+}
+
+/*
+ * A field: filled, not outlined.
+ *
+ * An input in this system is a tinted well with an inset edge, so a form reads as a set of filled
+ * slots rather than as a stack of empty boxes. Focus turns the fill to paper and the edge to brand.
+ *
+ * It deliberately sets no radius. A utility and a `rounded-*` class both declaring `border-radius`
+ * resolve by stylesheet order, not by the order they appear in the markup, so `field rounded-sm`
+ * would silently keep the wrong one. The caller names the radius.
+ */
+@utility field {
+  background: color-mix(in oklch, var(--ink) 4.5%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ink) 7%, transparent);
+  color: var(--ink);
+  transition:
+    background-color var(--duration-quick) var(--ease-out-quart),
+    box-shadow var(--duration-quick) var(--ease-out-quart);
+}
+
+/*
+ * The focus halo: one hairline in Arc and a soft 4px bloom around it.
+ *
+ * `routes/login.tsx` had been naming `focus-visible:ring-focus` since the port, and the console
+ * never defined it — the only thing the sign-in inputs did on focus was nothing. It is a named
+ * utility rather than a ring-* chain because it is the same halo on every control that takes one.
+ */
+@utility ring-focus {
+  box-shadow:
+    0 0 0 1px var(--arc),
+    0 0 0 4px var(--arc-soft);
+}
+
+@utility field-hover {
+  background: color-mix(in oklch, var(--ink) 7%, transparent);
+}
+
+/*
+ * A flooded row: how selection is said.
+ *
+ * Never a ring, never an outline, never a left border. The field takes the colour and the ink on it
+ * becomes the ink for a dark ground — which is why `arc` pairs with `mesh-ink` in the tokens.
+ */
+@utility flood {
+  background: var(--abyss);
+  color: var(--mesh-ink);
+}
+
+@utility flood-arc {
+  background: var(--arc);
+  color: var(--mesh-ink);
+}
+
+/*
+ * The signature interaction: a plate unrolls, then its line draws itself.
+ *
+ * Two authored moments, in order, on one curve. `plate-unroll` wipes the ground in from the right;
+ * `line-draw` sweeps a mask down the drawing so the white line appears to be ruled rather than to
+ * fade up. Both start from an already-visible default under reduced motion.
+ */
+@keyframes plate-unroll {
+  from {
+    clip-path: inset(0 0 0 100%);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes line-draw {
+  from {
+    mask-size: 100% 0%;
+  }
+  to {
+    mask-size: 100% 100%;
+  }
+}
+
+@keyframes plate-scan {
+  from {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  to {
+    transform: translateY(var(--plate-scan-travel, 520px));
+    opacity: 0;
+  }
+}
+
+@utility unroll {
+  animation: plate-unroll var(--duration-base) var(--ease-out-expo) both;
+}
+
+@utility draw {
+  mask-image: linear-gradient(180deg, black 0 100%);
+  mask-repeat: no-repeat;
+  mask-position: top left;
+  animation: line-draw var(--duration-slow) var(--ease-out-expo) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /*
+   * Nothing travels and nothing arrives: the plate paints already-drawn and the scanning rule never
+   * runs. Not `animation: none` on everything — the END state is what must show, which is what
+   * `both` plus a forced final frame gives.
+   */
+  .unroll,
+  .draw {
+    animation: none;
+  }
+
+  .draw {
+    mask-image: none;
+  }
+
+  .plate-scan {
+    display: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Translation layer, and the only part of this file with an expiry date.
+ *
+ * These came from the legacy stylesheet and are still named by routes this design pass does not
+ * reach — supplier, affiliate and the remaining admin screens. Without them those routes would not
+ * break loudly, they would render with a transparent panel and no shadow, which is worse.
+ *
+ * Each is TRANSLATED into this world rather than reproduced from the old one, and each goes when its
+ * last caller is rewritten; `grep -rn <name> apps/console/src` says when. Four are already gone —
+ * `font-mono`, `bg-cream-wash`, `rounded-tile` and `shadow-tile` — and `font-mono` is why this block exists at all:
+ * every legacy use of it was a figure that needed to line up, so it resolved to tabular numerals on
+ * the sans, and then the 80 call sites were rewritten to say `tabular-nums` outright.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+@utility shadow-primary {
+  box-shadow: 0 1px 2px color-mix(in oklch, var(--abyss) 18%, transparent);
+}
+
+@utility shadow-on-mesh {
+  box-shadow: 0 1px 2px color-mix(in oklch, black 22%, transparent);
+}
+
+@utility shadow-modal {
+  box-shadow:
+    0 2px 6px color-mix(in oklch, black 6%, transparent),
+    0 28px 70px -24px color-mix(in oklch, black 26%, transparent);
+}
+
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Translation layer, part two: the ATMOSPHERE the ported auth screens name.
+ *
+ * `/login` and the onboarding shell are one-to-one ports, and they ask for a set of classes the
+ * legacy stylesheet declared and this one did not: `bg-stripe-mesh-dark`, `bg-dot-grid`,
+ * `bg-vignette`, `glow-orb`, `anim-orb-drift`. The result was not a quieter login screen, it was a
+ * BROKEN one — the mesh panel painted nothing, so its white headline sat invisible on `glacier`, and
+ * the three orbs, having lost `position: absolute`, stacked as 720px blocks and made the page
+ * 2,076px tall. Measured in the browser, not guessed at.
+ *
+ * So they are translated, the same way `font-mono` was: the legacy file hardcoded
+ * `oklch(22% 0.23 270)` and `oklch(48% 0.215 270)` into every gradient — the un-repaired `abyss` and
+ * `arc`, values the sRGB gamut test later rejected. Here they are the tokens, which also means the
+ * night map reaches them.
+ *
+ * These go when `/login` and onboarding are redesigned in this world; `grep -rn glow-orb
+ * apps/console/src` says when. Atmosphere is rare and earned, and two screens is already the budget.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+@layer components {
+  .bg-stripe-mesh-dark {
+    background-color: var(--abyss);
+    background-image:
+      radial-gradient(58% 70% at 92% 4%, color-mix(in oklch, var(--arc) 62%, transparent) 0%, transparent 62%),
+      radial-gradient(52% 70% at 4% 96%, color-mix(in oklch, var(--sky) 46%, transparent) 0%, transparent 62%),
+      radial-gradient(46% 60% at 98% 96%, color-mix(in oklch, var(--powder) 22%, transparent) 0%, transparent 60%);
+  }
+
+  .bg-stripe-mesh {
+    background-color: var(--glacier);
+    background-image:
+      radial-gradient(58% 70% at 92% 6%, color-mix(in oklch, var(--arc) 6%, transparent) 0%, transparent 62%),
+      radial-gradient(52% 70% at 4% 94%, color-mix(in oklch, var(--sky) 7%, transparent) 0%, transparent 62%);
+  }
+
+  /*
+   * The AI's own room. One caller left — the Ask Insyte sheet — and it keeps the atmosphere because
+   * the sheet IS the AI surface; everywhere else Insyte now speaks on a flat `abyss` block.
+   */
+  .bg-ai-mesh {
+    background-color: var(--abyss);
+    background-image:
+      radial-gradient(70% 90% at 12% 0%, color-mix(in oklch, var(--arc) 40%, transparent) 0%, transparent 65%),
+      radial-gradient(60% 80% at 100% 100%, color-mix(in oklch, var(--sky) 28%, transparent) 0%, transparent 65%);
+  }
+
+  /* Dots at 24px, the legacy spacing. The plate's drafting grid is 32px and is a different thing:
+     that one measures, this one is atmosphere. */
+  .bg-dot-grid {
+    background-image: radial-gradient(color-mix(in oklch, var(--mesh-ink) 8%, transparent) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  /* Contrast on a lit mesh is measured against the DARKEST region, which is this. */
+  .bg-vignette {
+    background: radial-gradient(
+      120% 100% at 50% 50%,
+      transparent 40%,
+      color-mix(in oklch, var(--abyss) 58%, transparent) 100%
+    );
+  }
+
+  .glow-orb {
+    position: absolute;
+    z-index: 0;
+    border-radius: 9999px;
+    filter: blur(60px);
+    pointer-events: none;
+  }
+
+  .glow-orb--arc,
+  .glow-orb--electric {
+    background: radial-gradient(closest-side, color-mix(in oklch, var(--arc) 85%, transparent) 0%, transparent 70%);
+  }
+
+  .glow-orb--sky {
+    background: radial-gradient(closest-side, color-mix(in oklch, var(--sky) 65%, transparent) 0%, transparent 72%);
+  }
+
+  .glow-orb--mint {
+    background: radial-gradient(closest-side, color-mix(in oklch, var(--powder) 45%, transparent) 0%, transparent 75%);
+  }
+
+  .anim-orb-drift {
+    animation: orb-drift 18s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    will-change: transform;
+  }
+
+  .anim-orb-drift-slow {
+    animation: orb-drift 28s cubic-bezier(0.4, 0, 0.6, 1) infinite reverse;
+    will-change: transform;
+  }
+}
+
+@keyframes orb-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(-40px, 30px, 0) scale(1.06);
+  }
+  66% {
+    transform: translate3d(30px, -20px, 0) scale(0.96);
+  }
+}
+
+/*
+ * Onboarding's fields are /login's: white on the grey ground, no inset rule. The shared form
+ * primitives draw the console's filled field, which on this ground read as a grey slot in a grey
+ * page; scoping the change here keeps every dialog as it is.
+ */
+.onboarding-form .field {
+  background: var(--paper);
+  box-shadow: none;
+}
+
+.onboarding-form .field:hover {
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ink) 10%, transparent);
+}
+
+/* ── Glyphs, alive ────────────────────────────────────────────────────────────────────────────────
+   `components/common/glyph.tsx`. Every stroke in the icon set has pathLength 1, so the draw-in is a
+   dash of 1 offset by 1 and run to 0, on any glyph. The filled squares (the set's dots) are not
+   strokes: they arrive with a short scale instead. Host hover plays the glyph's one gesture. */
+
+.glyph-draw :is(path, circle, rect):not([fill="currentColor"]) {
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: 1;
+  animation: glyph-draw var(--duration-slow) var(--ease-out-expo) var(--glyph-delay, 0ms) forwards;
+}
+.glyph-draw :is(path, rect)[fill="currentColor"] {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: glyph-dot var(--duration-base) var(--ease-out-expo) calc(var(--glyph-delay, 0ms) + 220ms) both;
+}
+/* Strokes after the first start a beat later, so a glyph is drawn in the order it would be. */
+.glyph-draw > :is(path, circle, rect):not([fill="currentColor"]):nth-child(2) { animation-delay: calc(var(--glyph-delay, 0ms) + 70ms); }
+.glyph-draw > :is(path, circle, rect):not([fill="currentColor"]):nth-child(3) { animation-delay: calc(var(--glyph-delay, 0ms) + 140ms); }
+.glyph-draw > :is(path, circle, rect):not([fill="currentColor"]):nth-child(n + 4) { animation-delay: calc(var(--glyph-delay, 0ms) + 200ms); }
+
+@keyframes glyph-draw {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes glyph-dot {
+  from { transform: scale(0); }
+  to { transform: scale(1); }
+}
+
+.glyph { transform-box: fill-box; transform-origin: center; }
+.glyph-swing { transform-origin: 50% 12%; }
+
+.glyph-host:hover .glyph-drive, .glyph-drive:hover { animation: glyph-drive 420ms var(--ease-out-expo); }
+.glyph-host:hover .glyph-swing, .glyph-swing:hover { animation: glyph-swing 520ms var(--ease-out-expo); }
+.glyph-host:hover .glyph-lift, .glyph-lift:hover { animation: glyph-lift 420ms var(--ease-out-expo); }
+.glyph-host:hover .glyph-turn, .glyph-turn:hover { animation: glyph-turn 520ms var(--ease-out-expo); }
+.glyph-host:hover .glyph-pop, .glyph-pop:hover { animation: glyph-pop 360ms var(--ease-out-expo); }
+.glyph-host:hover .glyph-nudge, .glyph-nudge:hover { animation: glyph-nudge 420ms var(--ease-out-expo); }
+.glyph-blink :is(path, rect)[fill="currentColor"] { animation: glyph-blink 2.4s var(--ease-mesh) infinite; }
+
+@keyframes glyph-drive {
+  0% { transform: translateX(0); }
+  40% { transform: translateX(2.5px); }
+  100% { transform: translateX(0); }
+}
+@keyframes glyph-swing {
+  0% { transform: rotate(0); }
+  25% { transform: rotate(14deg); }
+  55% { transform: rotate(-9deg); }
+  80% { transform: rotate(4deg); }
+  100% { transform: rotate(0); }
+}
+@keyframes glyph-lift {
+  0% { transform: translateY(0); }
+  45% { transform: translateY(-2.5px); }
+  100% { transform: translateY(0); }
+}
+@keyframes glyph-turn {
+  from { transform: rotate(0); }
+  to { transform: rotate(-360deg); }
+}
+@keyframes glyph-pop {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+@keyframes glyph-nudge {
+  0% { transform: translate(0, 0); }
+  45% { transform: translate(1.5px, -1.5px); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes glyph-blink {
+  0%, 60%, 100% { opacity: 1; }
+  75% { opacity: 0.25; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glyph-draw :is(path, circle, rect),
+  .glyph,
+  .glyph-blink :is(path, rect) {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+}
+
+/* ── Home board grounds ───────────────────────────────────────────────────────────────────────────
+   A widget's ground is the operator's choice: white, the light Arc tint, or grey; the queue keeps
+   the brand's Abyss glow. `--band` is the stripe a widget's rows alternate with, set from the ground
+   so a list reads the same on any of them. */
+
+@utility bg-band {
+  background-color: var(--band, var(--mist));
+}
+
+.widget-paper { background-color: var(--paper); --band: var(--mist); }
+/* No stripes on light blue: two tones of blue and white in one card was one too many. */
+.widget-tint { background-color: var(--arc-tint); --band: transparent; }
+.widget-mist { background-color: var(--mist); --band: var(--paper); }
+.widget-mesh { --band: rgb(255 255 255 / 0.05); }
+
+/* react-grid-layout, drawn in this system rather than its stylesheet: items glide on the out-expo
+   curve, the slot a dragged widget will land in is a dashed Arc wash, and the resize grip is ours. */
+.react-grid-layout { position: relative; transition: height var(--duration-base) var(--ease-out-expo); }
+.react-grid-item { transition: transform var(--duration-base) var(--ease-out-expo), width var(--duration-base) var(--ease-out-expo), height var(--duration-base) var(--ease-out-expo); }
+.react-grid-item.resizing, .react-grid-item.react-draggable-dragging { transition: none; z-index: 3; will-change: transform; }
+.react-grid-item.react-draggable-dragging > article { box-shadow: 0 24px 60px -24px rgb(0 0 0 / 0.35); outline: 2px solid var(--arc); }
+.react-grid-item.react-grid-placeholder {
+  border-radius: var(--radius-tile);
+  background: color-mix(in oklch, var(--arc) 8%, transparent);
+  outline: 2px dashed color-mix(in oklch, var(--arc) 45%, transparent);
+  outline-offset: -2px;
+  transition-duration: 120ms;
+  z-index: 2;
+  user-select: none;
+}
+.react-grid-item.react-grid-placeholder.placeholder-resizing { transition: none; }
+.react-resizable-hide > .react-resizable-handle { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .react-grid-layout, .react-grid-item { transition: none; }
+}
+
+/* Settings is a grey sheet, so its wells are white, as /login's are on its grey half. */
+.settings-sheet .field {
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ink) 7%, transparent);
+}
+.settings-sheet .field:hover {
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ink) 14%, transparent);
+}
+
+/* Density, from the area panel's Customize dialog. Compact is the system's own measure; comfortable
+   opens table rows and panel rows by a step for an operator who reads rather than scans. */
+html[data-density="comfortable"] .density-cell { height: 44px; }
+html[data-density="comfortable"] .density-row { height: 32px; }
+
+/* ── Ask Insyte ───────────────────────────────────────────────────────────────────────────────────
+   The agent's motion, after beautifului.dev's agent kit, on the system's own durations and curves:
+   a label that shimmers while it works, words that resolve out of a light blur at the leading edge,
+   a caret that holds while it writes, chips that pop in where they are named, parts that rise in
+   once the answer settles, and a spinner drawn as one Arc quarter on an ink ring. */
+
+.ask-shimmer {
+  background-image: linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: ask-shimmer 1.4s linear infinite;
+}
+@keyframes ask-shimmer {
+  from { background-position: 150% center; }
+  to { background-position: -50% center; }
+}
+.ask-word { animation: ask-word var(--duration-base) var(--ease-out-quart) both; }
+@keyframes ask-word {
+  from { opacity: 0; filter: blur(4px); }
+  to { opacity: 1; filter: blur(0); }
+}
+.ask-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  translate: 0 2px;
+  border-radius: 1px;
+  background: var(--arc);
+}
+.ask-pop { animation: ask-pop var(--duration-base) var(--ease-out-expo) both; }
+@keyframes ask-pop {
+  from { opacity: 0; transform: translateY(-1px) scale(0.9); }
+  to { opacity: 1; transform: translateY(-1px) scale(1); }
+}
+.ask-rise { animation: ask-rise var(--duration-slow) var(--ease-out-expo) both; }
+@keyframes ask-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.ask-spin {
+  border: 1.5px solid color-mix(in oklch, var(--ink) 14%, transparent);
+  border-top-color: var(--arc);
+  animation: ask-spin 700ms linear infinite;
+}
+@keyframes ask-spin { to { transform: rotate(360deg); } }
+.ask-mark-working { animation: ask-breathe 1.6s var(--ease-mesh) infinite; }
+@keyframes ask-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--arc) 0%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in oklch, var(--arc) 22%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ask-shimmer { animation: none; color: var(--ink-2); background: none; }
+  .ask-word, .ask-pop, .ask-rise, .ask-mark-working { animation: none; }
+  .ask-spin { animation-duration: 2.4s; }
+}
+
+/* /login's dot grid, in ink, for a light ground: the margin around the settings sheet. */
+.bg-dot-grid-ink {
+  background-image: radial-gradient(color-mix(in oklch, var(--ink) 13%, transparent) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Live (PLAN 41): a visitor who just arrived or moved a step rings once, a square widening out. */
+.live-ping { animation: live-ping 1.6s var(--ease-out-expo) both; }
+@keyframes live-ping {
+  from { transform: scale(0.6); opacity: 0.9; }
+  to { transform: scale(2.6); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-ping { animation: none; opacity: 0; }
+}
+
+/*
+ * Arriving (ADR-0028). What the operator sees while a screen's data is on its way.
+ *
+ * A bone is the shape of a thing that has not arrived: a tinted well the size of the text or the
+ * control it stands in for, never a grey card. Every bone on the page shares ONE light band — the
+ * gradient is fixed to the viewport, so it is one scan crossing the whole drawing rather than forty
+ * shimmers out of step — and it rests between passes so a slow screen does not strobe.
+ */
+@utility bone {
+  background-color: color-mix(in oklch, var(--ink) 6.5%, transparent);
+  background-image: linear-gradient(
+    100deg,
+    transparent 0 42%,
+    color-mix(in oklch, var(--paper) 62%, transparent) 50%,
+    transparent 58% 100%
+  );
+  background-size: 200vw 100%;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  animation: bone-scan 2.1s var(--ease-mesh) infinite;
+}
+
+/* The same bone on a plate: chalk on abyss, and the band is chalk too. */
+@utility bone-plate {
+  background-color: color-mix(in oklch, var(--mesh-ink) 11%, transparent);
+  background-image: linear-gradient(
+    100deg,
+    transparent 0 42%,
+    color-mix(in oklch, var(--mesh-ink) 16%, transparent) 50%,
+    transparent 58% 100%
+  );
+  background-size: 200vw 100%;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  animation: bone-scan 2.1s var(--ease-mesh) infinite;
+}
+
+@keyframes bone-scan {
+  from { background-position: -150vw 0; }
+  78%, to { background-position: 50vw 0; }
+}
+
+/* What arrives settles in: a fade and a two-pixel rise, once. */
+.stream-in { animation: stream-in 260ms var(--ease-out-quart) both; }
+@keyframes stream-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* The navigation line: arc, two pixels, at the top of the work column. */
+.nav-progress {
+  transform-origin: left;
+  animation: nav-progress var(--nav-progress-ms, 900ms) var(--ease-out-expo) both;
+}
+@keyframes nav-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(0.86); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bone, .bone-plate { animation: none; background-image: none; }
+  .stream-in, .nav-progress { animation: none; }
+}

@@ -1,0 +1,26 @@
+{
+  // Tests, typechecked as a STANDALONE project — no project reference to the source, for the reasons
+  // the Cloudflare starter's own packages give: a referenced project must emit declarations, and
+  // nothing here is published, so paying for declaration emit to satisfy a reference fights the
+  // design. `erasableSyntaxOnly` is relaxed here, as it is there.
+  "extends": "../../tsconfig.base.json",
+  "include": ["**/test/**/*.ts", "build.ts"],
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "noEmit": true,
+    "rootDir": ".",
+    "declaration": false,
+    "declarationMap": false,
+    "erasableSyntaxOnly": false,
+    "allowImportingTsExtensions": true,
+    /*
+     * ES2023 here and NOT in the base, which is the same split the Cloudflare starter makes for its
+     * gate scripts: tests run in node under vitest, product code may end up in workerd, and widening
+     * the lib repo-wide would let a package reach for an API the runtime may not have. `Array#toSorted`
+     * is what needs it — oxlint's unicorn rule asks for it over the mutating `sort`.
+     */
+    "lib": ["ES2023"],
+    "types": ["node"]
+  }
+}

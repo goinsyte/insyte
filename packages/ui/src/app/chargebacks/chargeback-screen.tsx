@@ -1,0 +1,597 @@
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "../../components/dropdown-menu";
+import { ArrowRight, Check, FileText, Loader, MoreHorizontal, Sparkles, Trash2, Upload } from "../../icons";
+import { getRouteApi } from "@tanstack/react-router";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useRef, useState } from "react";
+import { toast } from "sonner";
+import { ConfirmDialog } from "../common/confirm-dialog";
+import { DetailShell } from "../common/detail-shell";
+import { EmptyState } from "../common/empty-state";
+import { PageGuide } from "../common/page-guide";
+import { BrandLogo } from "../marketplace/brand-logos";
+import { formatCurrency, formatDate, formatDateTime } from "../lib/format";
+import type { Chargeback } from "../lib/types/domain";
+import { undoable } from "../lib/undo";
+import { cn } from "../lib/utils";
+import { useWorkspace } from "../stores/workspace-store";
+
+const Route = getRouteApi("/_admin/chargebacks/$chargebackId");
+
+const STATUS: Record<string, { label: string; bg: string; fg: string }> = {
+	awaiting_evidence: {
+		label: "Wacht op bewijs",
+		bg: "var(--signal-amber-bg)",
+		fg: "var(--signal-amber)",
+	},
+	submitted: {
+		label: "Ingediend",
+		bg: "var(--arc-tint)",
+		fg: "var(--arc-ink)",
+	},
+	won: {
+		label: "Gewonnen",
+		bg: "var(--signal-green-bg)",
+		fg: "var(--signal-green)",
+	},
+	lost: {
+		label: "Verloren",
+		bg: "var(--signal-red-bg)",
+		fg: "var(--signal-red)",
+	},
+};
+
+const GUIDE = [
+	{ title: "Bewijs verzamelen", body: "Insyte stelt het pakket samen: de scan van de vervoerder, de bezorgfoto, de antwoorden van de klant en de originele factuur.", art: "log" },
+	{ title: "Controleren en indienen", body: "Controleer wat is toegevoegd en dien het dan in. Er gaat niets naar de aanbieder tot je dat doet.", art: "lock" },
+	{ title: "De uitspraak", body: "De uitspraak komt meestal binnen 30 dagen. Insyte houdt het in de gaten.", art: "notify" },
+] as const;
+
+const PROVIDER: Record<Chargeback["provider"], string> = { stripe: "Stripe", klarna: "Klarna", paypal: "PayPal" };
+
+export function ChargebackDetail() {
+	const { id } = Route.useLoaderData();
+	const c = useWorkspace((s) => s.chargebacks.find((x) => x.id === id)) as Chargeback;
+	const all = useWorkspace((s) => s.chargebacks);
+	const buildEvidence = useWorkspace((s) => s.buildEvidence);
+	const submitEvidence = useWorkspace((s) => s.submitEvidence);
+	const acceptChargeback = useWorkspace((s) => s.acceptChargeback);
+	const restoreChargeback = useWorkspace((s) => s.restoreChargeback);
+	const [building, setBuilding] = useState(false);
+	const [confirm, setConfirm] = useState<"submit" | "accept" | null>(null);
+	const [packDismissed, setPackDismissed] = useState(false);
+	const fileInput = useRef<HTMLInputElement>(null);
+	const status = STATUS[c.status] ?? STATUS.awaiting_evidence;
+	const provider = PROVIDER[c.provider];
+	const open = c.status === "awaiting_evidence" || c.status === "open";
+
+	// The win rate is counted from the cases on file, not asserted: the pack used to say "~78%".
+	const decided = all.filter((x) => x.status === "won" || x.status === "lost");
+	const won = decided.filter((x) => x.status === "won").length;
+
+	async function draw() {
+		setBuilding(true);
+		await buildEvidence(c.id);
+		setBuilding(false);
+	}
+
+	function attach(files: FileList | null) {
+		if (!files || files.length === 0) return;
+		const before = c;
+		useWorkspace.setState((s) => ({
+			chargebacks: s.chargebacks.map((x) =>
+				x.id === c.id
+					? {
+							...x,
+							evidence_files: [
+								...x.evidence_files,
+								...Array.from(files).map((f) => ({ name: f.name, size: f.size, kind: "upload" })),
+							],
+						}
+					: x,
+			),
+		}));
+		undoable(`${files.length === 1 ? files[0]?.name : `${files.length} bestanden`} toegevoegd`, () => restoreChargeback(before));
+	}
+
+	function removeFile(name: string) {
+		const before = c;
+		useWorkspace.setState((s) => ({
+			chargebacks: s.chargebacks.map((x) =>
+				x.id === c.id ? { ...x, evidence_files: x.evidence_files.filter((f) => f.name !== name) } : x,
+			),
+		}));
+		undoable(`${name} verwijderd`, () => restoreChargeback(before));
+	}
+
+	const daysLeft = Math.ceil(
+		(new Date(c.deadline_at).getTime() - Date.now()) / 86_400_000,
+	);
+	const deadlineTone =
+		daysLeft < 3 ? "danger" : daysLeft < 7 ? "warning" : "neutral";
+
+	const showAiPack = open && !packDismissed;
+
+	return (
+		<DetailShell
+			crumb={{ label: "Chargebacks", to: "/chargebacks" }}
+			title={c.customer_name}
+			badge={
+				<span
+					className="inline-flex h-[20px] shrink-0 items-center rounded-sm px-1.5 font-medium text-xs"
+					style={{ background: status.bg, color: status.fg }}
+				>
+					{status.label}
+				</span>
+			}
+			meta={
+				/* The reason has its own panel two inches below; a heading that restates the body is
+				   the thing this pass is removing everywhere. */
+				<span className="flex items-center gap-2">
+					<BrandLogo brand={c.provider} name={provider} size={16} />
+					<span>{provider}</span>
+					<span className="text-ink-4">·</span>
+					<span>{c.case_number}</span>
+					<span className="text-ink-4">·</span>
+					<span className="text-ink">
+						{formatCurrency(c.amount, c.currency)}
+					</span>
+					<DeadlinePill
+						daysLeft={daysLeft}
+						date={c.deadline_at}
+						tone={deadlineTone}
+					/>
+				</span>
+			}
+			actions={
+				<>
+					<input
+						ref={fileInput}
+						type="file"
+						multiple
+						className="hidden"
+						onChange={(e) => {
+							attach(e.target.files);
+							e.target.value = "";
+						}}
+					/>
+					{open ? (
+						<button
+							type="button"
+							onClick={() => fileInput.current?.click()}
+							className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-xs text-ink transition-colors hover:bg-ink/6"
+						>
+							<Upload className="size-3.5" strokeWidth={1.75} />
+							Bewijs toevoegen
+						</button>
+					) : null}
+					{open ? (
+						<button
+							type="button"
+							disabled={c.evidence_files.length === 0}
+							title={c.evidence_files.length === 0 ? "Voeg eerst bewijs toe of stel het samen" : undefined}
+							onClick={() => setConfirm("submit")}
+							className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-2.5 font-medium text-xs text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2 disabled:pointer-events-none disabled:opacity-45"
+						>
+							Indienen bij {provider}
+							<ArrowRight className="size-3.5" strokeWidth={1.75} />
+						</button>
+					) : null}
+					<DropdownMenu>
+						<DropdownMenuTrigger asChild>
+							<button
+								type="button"
+								aria-label="Meer acties"
+								className="flex size-8 items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-ink/6 hover:text-ink"
+							>
+								<MoreHorizontal className="size-4" />
+							</button>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="end" className="w-52">
+							<DropdownMenuItem
+								onClick={() => {
+									void navigator.clipboard?.writeText(c.case_number);
+									toast(`${c.case_number} gekopieerd`);
+								}}
+							>
+								Zaaknummer kopiëren
+							</DropdownMenuItem>
+							{open ? (
+								<DropdownMenuItem variant="destructive" onClick={() => setConfirm("accept")}>
+									Geschil accepteren
+								</DropdownMenuItem>
+							) : null}
+						</DropdownMenuContent>
+					</DropdownMenu>
+					<ConfirmDialog
+						open={confirm === "submit"}
+						onOpenChange={(v) => !v && setConfirm(null)}
+						title={`${c.evidence_files.length} ${c.evidence_files.length === 1 ? "document" : "documenten"} indienen bij ${provider}?`}
+						description={`${provider} beoordeelt wat je stuurt zoals het is; je kunt daarna niets meer toevoegen. Er wordt ${formatCurrency(c.amount, c.currency)} betwist.`}
+						confirmLabel={`Indienen bij ${provider}`}
+						onConfirm={() => {
+							submitEvidence(c.id);
+							setConfirm(null);
+							toast.success(`Bewijs ingediend bij ${provider}`, {
+								description: `${c.case_number} · uitspraak meestal binnen 30 dagen`,
+							});
+						}}
+					/>
+					<ConfirmDialog
+						open={confirm === "accept"}
+						onOpenChange={(v) => !v && setConfirm(null)}
+						title="Geschil accepteren?"
+						description={`${formatCurrency(c.amount, c.currency)} gaat terug naar ${c.customer_name} en de zaak sluit als verloren.`}
+						confirmLabel="Accepteren en terugbetalen"
+						tone="destructive"
+						onConfirm={() => {
+							acceptChargeback(c.id);
+							setConfirm(null);
+							toast(`${c.case_number} geaccepteerd`);
+						}}
+					/>
+				</>
+			}
+		>
+			<div className="grid gap-3 lg:grid-cols-[1fr_360px]">
+				<div className="flex min-w-0 flex-col gap-3">
+					{/* AI Evidence Pack — the canonical mesh-dark AI moment. */}
+					{showAiPack ? (
+						<AiEvidencePack
+							caseNumber={c.case_number}
+							provider={provider}
+							files={c.evidence_files.length}
+							building={building}
+							record={decided.length > 0 ? `${won} van ${decided.length} beslechte zaken gewonnen` : undefined}
+							onDraw={draw}
+							onSubmit={() => setConfirm("submit")}
+							onDismiss={() => setPackDismissed(true)}
+						/>
+					) : c.status === "submitted" ? (
+						<section className="flex items-center gap-3 rounded-lg bg-arc-tint px-4 py-3">
+							<Check className="size-4 text-arc-ink" strokeWidth={2.25} />
+							<p className="text-base text-ink">
+								Ingediend bij {provider}.
+							</p>
+						</section>
+					) : null}
+
+					{/* Reason card — flat, hairline border. */}
+					<section className="panel flex flex-col gap-2 rounded-lg p-4">
+						<span
+							className="font-medium text-xs text-ink-2"
+						>
+							Reden
+						</span>
+						<p className="text-md text-ink leading-[1.55]">{c.reason}</p>
+						<p className="text-sm text-ink-3 leading-none">
+							Ingediend door <span className="capitalize">{c.provider}</span> op{" "}
+							<span className="tabular-nums">
+								{formatDate(c.opened_at)}
+							</span>
+						</p>
+					</section>
+
+					{/* Evidence — file list with AI-attached items marked. */}
+					<section className="panel flex flex-col gap-2 rounded-lg p-4">
+						<div className="flex items-center justify-between">
+							<span
+								className="font-medium text-xs text-ink-2"
+							>
+								Bewijs · {c.evidence_files.length}
+							</span>
+							{open ? (
+								<button
+									type="button"
+									onClick={() => fileInput.current?.click()}
+									className="flex h-7 items-center gap-1.5 rounded-md px-2 font-medium text-sm text-ink-2 leading-none transition-colors hover:bg-ink/6 hover:text-ink"
+								>
+									<Upload className="size-3.5" strokeWidth={1.75} />
+									Uploaden
+								</button>
+							) : null}
+						</div>
+						{c.evidence_files.length === 0 ? (
+							<EmptyState
+								compact
+								kind="chargebacks"
+								title="Nog geen bestanden."
+								body="Insyte verzamelt bewijs uit de gekoppelde winkels."
+								action={{
+									label: "Bewijspakket samenstellen",
+									onClick: () => void draw(),
+								}}
+							/>
+						) : (
+							<ul className="flex flex-col divide-y divide-ink/7">
+								<AnimatePresence initial={false}>
+									{c.evidence_files.map((f) => (
+										<EvidenceRow
+											key={f.name}
+											file={f}
+											removable={open}
+											onRemove={() => removeFile(f.name)}
+										/>
+									))}
+								</AnimatePresence>
+							</ul>
+						)}
+					</section>
+				</div>
+
+				<div className="flex flex-col gap-3">
+					{/* Quick facts */}
+					<section className="panel flex flex-col gap-3 rounded-lg p-4">
+						<span
+							className="font-medium text-xs text-ink-2"
+						>
+							Feiten van de zaak
+						</span>
+						<dl className="flex flex-col gap-3 text-sm">
+							<Fact label="Aanbieder" value={c.provider} capitalize />
+							<Fact label="Zaak-ID" value={c.case_number} mono />
+							{c.order_id ? (
+								<Fact label="Bestelling" value={c.order_id} mono />
+							) : null}
+							<Fact
+								label="Bedrag"
+								value={formatCurrency(c.amount, c.currency)}
+								mono
+								strong
+							/>
+							<Fact label="Ingediend" value={formatDate(c.opened_at)} mono />
+							<Fact label="Deadline" value={formatDate(c.deadline_at)} mono />
+						</dl>
+					</section>
+
+					{/* Timeline */}
+					<section className="panel flex flex-col gap-3 rounded-lg p-4">
+						<span
+							className="font-medium text-xs text-ink-2"
+						>
+							Tijdlijn
+						</span>
+						{c.timeline.length === 0 ? (
+							<EmptyState
+								compact
+								kind="tickets"
+								title="Nog geen gebeurtenissen."
+								body="Elke melding, upload en indiening bij deze zaak komt hier, op volgorde."
+							/>
+						) : (
+							<ol className="relative flex flex-col gap-4 pl-4">
+								<span
+									className="absolute top-1.5 bottom-1.5 left-[5px] w-px bg-ink/10"
+									aria-hidden
+								/>
+								{c.timeline.map((t) => {
+									const isAi = t.actor.toLowerCase().includes("insyte ai");
+									return (
+										<li
+											key={`${t.at}-${t.event}`}
+											className="relative flex flex-col gap-0.5"
+										>
+											<span
+												className={cn(
+													"absolute top-1 -left-[14px] size-[7px] rounded-full",
+													isAi ? "bg-arc" : "bg-ink-4",
+												)}
+												aria-hidden
+											/>
+											<span className="font-medium text-base text-ink leading-[1.3]">
+												{t.event}
+											</span>
+											<div className="flex items-center gap-2 font-medium text-xs text-ink-3 leading-none">
+												<span
+													className={cn(
+														isAi ? "font-medium text-arc-ink" : undefined,
+													)}
+												>
+													{t.actor}
+												</span>
+												<span className="text-ink-3">·</span>
+												<span className="tabular-nums">
+													{formatDateTime(t.at)}
+												</span>
+											</div>
+										</li>
+									);
+								})}
+							</ol>
+						)}
+					</section>
+				</div>
+			</div>
+			<PageGuide id="chargebacks.case" title="Chargeback" steps={GUIDE} />
+		</DetailShell>
+	);
+}
+
+/* --------------------------------- AI Evidence Pack --------------------------------- */
+
+function AiEvidencePack({
+	caseNumber,
+	provider,
+	files,
+	building,
+	record,
+	onDraw,
+	onSubmit,
+	onDismiss,
+}: {
+	caseNumber: string;
+	provider: string;
+	files: number;
+	building: boolean;
+	/** The record on file, counted rather than claimed. */
+	record?: string;
+	onDraw: () => void;
+	onSubmit: () => void;
+	onDismiss: () => void;
+}) {
+	const ready = files > 0 && !building;
+	return (
+		<section className="plate flex flex-col gap-3 overflow-hidden rounded-lg p-4 text-mesh-ink">
+			<div className="flex items-center justify-between gap-4">
+				<div className="flex items-center gap-2 font-medium text-xs">
+					<Sparkles className="size-3.5 text-mesh-ink" strokeWidth={1.75} />
+					<span className="text-mesh-ink">Bewijspakket</span>
+				</div>
+				{record ? <span className="text-mesh-ink-3 text-xs tabular-nums">{record}</span> : null}
+			</div>
+
+			<div className="flex flex-col gap-1.5">
+				<h2 className="font-medium text-xl text-mesh-ink">
+					{building
+						? `Verzamelen · ${files} van 4`
+						: ready
+							? `${files} ${files === 1 ? "document" : "documenten"} klaar voor ${provider}.`
+							: `Insyte kan het bewijs voor ${caseNumber} samenstellen.`}
+				</h2>
+			</div>
+
+			<div className="flex items-center gap-2">
+				{ready ? (
+					<button
+						type="button"
+						onClick={onSubmit}
+						className="group/btn flex h-8 items-center justify-center gap-1.5 rounded-md bg-paper px-3 font-medium text-abyss text-xs transition-colors hover:bg-arc-tint"
+					>
+						Indienen bij {provider}
+						<ArrowRight className="size-3.5 transition-transform group-hover/btn:translate-x-0.5" strokeWidth={2} />
+					</button>
+				) : (
+					<button
+						type="button"
+						onClick={onDraw}
+						disabled={building}
+						className="flex h-8 items-center justify-center gap-1.5 rounded-md bg-paper px-3 font-medium text-abyss text-xs transition-colors hover:bg-arc-tint disabled:opacity-80"
+					>
+						{building ? <Loader className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" strokeWidth={1.75} />}
+						{building ? "Pakket samenstellen" : "Bewijspakket samenstellen"}
+					</button>
+				)}
+				<button
+					type="button"
+					onClick={onDismiss}
+					className="ml-auto flex h-8 items-center rounded-md px-2.5 font-medium text-sm text-mesh-ink-2 transition-colors hover:bg-mesh-ink/8 hover:text-mesh-ink"
+				>
+					Niet nu
+				</button>
+			</div>
+		</section>
+	);
+}
+
+function EvidenceRow({
+	file,
+	removable,
+	onRemove,
+}: {
+	file: { name: string; size: number; kind: string };
+	removable: boolean;
+	onRemove: () => void;
+}) {
+	const still = useReducedMotion();
+	const drawn = file.kind !== "upload";
+	return (
+		<motion.li
+			layout={still ? false : "position"}
+			initial={still ? false : { opacity: 0, x: -8 }}
+			animate={{ opacity: 1, x: 0 }}
+			exit={{ opacity: 0, height: 0 }}
+			transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+			className="group flex items-center gap-3 overflow-hidden py-2.5"
+		>
+			<span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-mist">
+				<FileText className="size-3.5 text-ink-3" strokeWidth={1.75} />
+			</span>
+			<div className="flex min-w-0 flex-1 flex-col">
+				<span className="truncate font-medium text-base text-ink leading-none">{file.name}</span>
+				<div className="mt-1 flex items-center gap-2 text-xs text-ink-3 leading-none">
+					<span className="tabular-nums">{Math.max(1, Math.round(file.size / 1024))} KB</span>
+					<span>·</span>
+					<span className={cn(drawn && "font-medium text-arc-ink")}>{drawn ? "Samengesteld door Insyte" : "Door jou geüpload"}</span>
+				</div>
+			</div>
+			{removable ? (
+				<button
+					type="button"
+					onClick={onRemove}
+					aria-label={`${file.name} verwijderen`}
+					className="flex size-7 items-center justify-center rounded-md text-ink-3 opacity-0 transition hover:bg-signal-red-bg hover:text-signal-red focus-visible:opacity-100 group-hover:opacity-100"
+				>
+					<Trash2 className="size-3.5" />
+				</button>
+			) : null}
+		</motion.li>
+	);
+}
+
+/* --------------------------------- Bits --------------------------------- */
+
+function Fact({
+	label,
+	value,
+	mono,
+	strong,
+	capitalize,
+}: {
+	label: string;
+	value: string;
+	mono?: boolean;
+	strong?: boolean;
+	capitalize?: boolean;
+}) {
+	return (
+		<div className="flex items-baseline justify-between gap-3">
+			<dt className="text-ink-3">{label}</dt>
+			<dd
+				className={cn(
+					mono ? "tabular-nums" : "",
+					capitalize ? "capitalize" : "",
+					strong ? "font-medium text-ink" : "font-medium text-ink-2",
+					"truncate text-right",
+				)}
+			>
+				{value}
+			</dd>
+		</div>
+	);
+}
+
+function DeadlinePill({
+	daysLeft,
+	date,
+	tone,
+}: {
+	daysLeft: number;
+	date: string;
+	tone: "danger" | "warning" | "neutral";
+}) {
+	const tones = {
+		danger: { bg: "var(--signal-red-bg)", fg: "var(--signal-red)" },
+		warning: { bg: "var(--signal-amber-bg)", fg: "var(--signal-amber)" },
+		neutral: { bg: "var(--mist)", fg: "var(--ink-3)" },
+	};
+	const t = tones[tone];
+	const label =
+		daysLeft < 0
+			? `${Math.abs(daysLeft)} d verlopen`
+			: daysLeft === 0
+				? "Vandaag"
+				: `nog ${daysLeft} d`;
+	return (
+		<span
+			className="inline-flex h-5 items-center gap-1 rounded px-1.5 font-medium text-xs leading-none"
+			style={{ background: t.bg, color: t.fg }}
+			title={formatDate(date)}
+		>
+			<span className="tabular-nums">{label}</span>
+		</span>
+	);
+}

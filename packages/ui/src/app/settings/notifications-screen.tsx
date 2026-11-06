@@ -1,0 +1,260 @@
+import { Checkbox } from "../../components/checkbox";
+import { Switch } from "../../components/switch";
+import { Bell, Eye, Mail, Moon, Send } from "../../icons";
+import { Link } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
+import { PageGuide } from "../common/page-guide";
+import { FieldRow, INPUT_CLASS, SelectInput, UnsavedBar } from "./form";
+import { SettingCard } from "./setting-card";
+import { CHANNELS, type Channel, EVENT_GROUPS, EVENTS, type EventDef, heard, type NotifyPrefs } from "../lib/notifications";
+import { cn } from "../lib/utils";
+import { useNotifications } from "../stores/notifications-store";
+import { useSettings } from "../stores/settings-store";
+import { useWorkspace } from "../stores/workspace-store";
+
+const SLACK_CHANNELS = ["#northwind-ops", "#operations", "#customer-service", "Privébericht aan mij"];
+const DIGEST_TIMES = ["06:00", "07:00", "07:30", "08:00", "08:30", "09:00", "10:00"];
+
+const GUIDE = [
+	{ title: "Waar het heen gaat", body: "Een melding komt in de app, per e-mail, als push op je telefoon of in Slack. Per gebeurtenis kies je welke.", art: "notify" },
+	{ title: "In de app", body: "Deze kolom beslist wat in je meldingen en het klokje verschijnt. Zet je hem uit, dan verdwijnt die gebeurtenis uit beide.", art: "rules" },
+	{ title: "Stille uren", body: "Push en Slack wachten tot de stille uren voorbij zijn, in je eigen tijdzone. In de app en per e-mail komt alles gewoon binnen.", art: "hours" },
+	{ title: "Dagelijks overzicht", body: "Elke werkdag één e-mail met wat ongelezen is, wat vandaag afloopt en wat Insyte heeft klaargezet.", art: "log" },
+	{ title: "Automatisch volgen", body: "Een record dat je volgt laat elke update horen onder Overig, ook als die niet aan jou gericht is.", art: "people" },
+] as const;
+
+/**
+ * What the operator hears, where, and when.
+ *
+ * The page is one matrix: every event the workspace raises, grouped the way the product is, against
+ * the four places a notification can go. "In de app" is the switch the inbox and the dropdown read, so
+ * turning one off takes those rows out of both. Under it, the hours push and Slack keep quiet, the
+ * morning digest, and the rules for which records you follow without asking.
+ */
+export function NotificationSettings() {
+	const saved = useNotifications((s) => s.prefs);
+	const setPrefs = useNotifications((s) => s.setPrefs);
+	const notes = useNotifications((s) => s.notes);
+	const alerts = useSettings((s) => s.alerts);
+	const email = useWorkspace((s) => s.members.find((m) => m.id === "mem_elena")?.email ?? "elena@northwindclothing.co");
+	const [draft, setDraft] = useState<NotifyPrefs>(saved);
+	const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+
+	const admin = useMemo(() => notes.filter((n) => n.persona === "admin" && n.state !== "cleared"), [notes]);
+	const shown = admin.filter((n) => heard(n, draft)).length;
+
+	const setEvent = (key: string, patch: Partial<NotifyPrefs["events"][string]>) =>
+		setDraft((d) => {
+			const current = d.events[key] ?? { app: false, email: false, push: false, slack: false, onlyMine: false };
+			return { ...d, events: { ...d.events, [key]: { ...current, ...patch } } };
+		});
+
+	const threshold = (e: EventDef) =>
+		e.threshold === "delayHours" ? `Na ${alerts.delayHours} uur` : e.threshold === "disputeAmount" ? `Vanaf $${alerts.disputeAmount}` : null;
+
+	return (
+		<>
+			<SettingCard title="Kanalen" icon={Send}>
+				<div className="flex flex-col">
+					<FieldRow label="E-mail">
+						<span className={cn(INPUT_CLASS, "flex items-center text-ink-2")}>{email}</span>
+					</FieldRow>
+					<FieldRow label="Mobiel push">
+						<button
+							type="button"
+							onClick={(e) => {
+								e.preventDefault();
+								toast.success("Testmelding verstuurd", { description: "Hij komt binnen op elk apparaat waar je push hebt toegestaan." });
+							}}
+							className="field flex h-9 w-fit items-center gap-2 rounded-md px-3 font-medium text-base text-ink hover:field-hover"
+						>
+							<Bell className="size-4 text-ink-3" strokeWidth={1.75} />
+							Testmelding sturen
+						</button>
+					</FieldRow>
+					<FieldRow label="Slack">
+						<SelectInput value={draft.slackChannel} onChange={(v) => setDraft((d) => ({ ...d, slackChannel: v }))} options={SLACK_CHANNELS} />
+					</FieldRow>
+				</div>
+			</SettingCard>
+
+			<SettingCard
+				title="Wat je hoort"
+				icon={Bell}
+				subtitle={`${shown} van ${admin.length} in de app`}
+			>
+				<div className="overflow-hidden rounded-xl bg-paper shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
+					<div className="hidden grid-cols-[minmax(0,1fr)_repeat(4,76px)] items-end gap-2 px-4 pt-3 pb-2 sm:grid">
+						<span className="text-ink-3 text-xs">Gebeurtenis</span>
+						{CHANNELS.map((c) => (
+							<span key={c.id} className="text-center font-medium text-ink-2 text-xs">
+								{c.label}
+							</span>
+						))}
+					</div>
+					{EVENT_GROUPS.map(({ group, icon: Icon }) => {
+						const rows = EVENTS.filter((e) => e.group === group);
+						return (
+							<section key={group} aria-label={group}>
+								<h3 className="flex items-center gap-2 bg-mist px-4 py-1.5 font-medium text-ink-2 text-sm">
+									<Icon className="size-3.5 text-ink-3" strokeWidth={1.75} />
+									{group}
+								</h3>
+								<ul className="[&>li+li]:shadow-[inset_0_1px_0_color-mix(in_oklch,var(--ink)_7%,transparent)]">
+									{rows.map((e) => {
+										const p = draft.events[e.key] ?? { ...e.defaults, onlyMine: false };
+										const t = threshold(e);
+										return (
+											<li key={e.key} className="grid grid-cols-1 gap-x-2 gap-y-2.5 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_repeat(4,76px)] sm:items-center">
+												<div className="flex min-w-0 flex-col gap-1">
+													<span className={cn("font-medium text-base", p.app ? "text-ink" : "text-ink-2")}>{e.label}</span>
+													<span className="text-ink-3 text-sm">
+														{e.detail}
+														{t ? (
+															<>
+																{" "}
+																<Link
+																	to="/settings/profile"
+																	hash="alerts"
+																	className="text-arc-ink underline decoration-arc-ink/35 underline-offset-2 hover:decoration-arc-ink"
+																>
+																	{t}, wijzigen
+																</Link>
+															</>
+														) : null}
+													</span>
+													{e.mine ? (
+														// biome-ignore lint/a11y/noLabelWithoutControl: the checkbox is inside
+														<label className="mt-0.5 flex w-fit cursor-pointer items-center gap-2 text-ink-2 text-sm">
+															<Checkbox checked={p.onlyMine} onCheckedChange={(v) => setEvent(e.key, { onlyMine: v === true })} />
+															Alleen als het mij betreft
+														</label>
+													) : null}
+												</div>
+												<div className="grid grid-cols-4 gap-2 sm:contents">
+													{CHANNELS.map((c) => (
+														<ChannelSwitch
+															key={c.id}
+															channel={c.id}
+															short={c.short}
+															label={`${e.label}: ${c.label}`}
+															on={p[c.id]}
+															onChange={(v) => setEvent(e.key, { [c.id]: v })}
+														/>
+													))}
+												</div>
+											</li>
+										);
+									})}
+								</ul>
+							</section>
+						);
+					})}
+				</div>
+			</SettingCard>
+
+			<SettingCard title="Stille uren" icon={Moon}>
+				<div className="flex flex-col">
+					<FieldRow label="Stille uren aan">
+						<span className="flex h-9 items-center">
+							<Switch checked={draft.quiet.on} onCheckedChange={(v) => setDraft((d) => ({ ...d, quiet: { ...d.quiet, on: v } }))} aria-label="Stille uren aan" />
+						</span>
+					</FieldRow>
+					<FieldRow label="Van en tot" hint="Europe/Amsterdam">
+						<span className="flex items-center gap-2">
+							<input
+								type="time"
+								value={draft.quiet.from}
+								disabled={!draft.quiet.on}
+								onChange={(e) => setDraft((d) => ({ ...d, quiet: { ...d.quiet, from: e.target.value } }))}
+								aria-label="Stil vanaf"
+								className={cn(INPUT_CLASS, "w-32 tabular-nums disabled:opacity-50")}
+							/>
+							<span className="text-ink-3 text-sm">tot</span>
+							<input
+								type="time"
+								value={draft.quiet.to}
+								disabled={!draft.quiet.on}
+								onChange={(e) => setDraft((d) => ({ ...d, quiet: { ...d.quiet, to: e.target.value } }))}
+								aria-label="Stil tot"
+								className={cn(INPUT_CLASS, "w-32 tabular-nums disabled:opacity-50")}
+							/>
+						</span>
+					</FieldRow>
+					<FieldRow label="Weekend">
+						<span className="flex h-9 items-center">
+							<Switch
+								checked={draft.quiet.weekend}
+								disabled={!draft.quiet.on}
+								onCheckedChange={(v) => setDraft((d) => ({ ...d, quiet: { ...d.quiet, weekend: v } }))}
+								aria-label="Weekend stil"
+							/>
+						</span>
+					</FieldRow>
+				</div>
+			</SettingCard>
+
+			<SettingCard title="Dagelijks overzicht" icon={Mail}>
+				<div className="flex flex-col">
+					<FieldRow label="Overzicht sturen">
+						<span className="flex h-9 items-center">
+							<Switch checked={draft.digest.on} onCheckedChange={(v) => setDraft((d) => ({ ...d, digest: { ...d.digest, on: v } }))} aria-label="Dagelijks overzicht sturen" />
+						</span>
+					</FieldRow>
+					<FieldRow label="Om" hint={draft.digest.on ? `Elke werkdag naar ${email}.` : "Staat uit."}>
+						<SelectInput value={draft.digest.at} onChange={(v) => setDraft((d) => ({ ...d, digest: { ...d.digest, at: v } }))} options={DIGEST_TIMES} />
+					</FieldRow>
+				</div>
+			</SettingCard>
+
+			<SettingCard title="Volg automatisch" icon={Eye}>
+				<div className="flex flex-col">
+					<FollowRow label="Aan mij toegewezen" on={draft.follow.assigned} onChange={(v) => setDraft((d) => ({ ...d, follow: { ...d.follow, assigned: v } }))} />
+					<FollowRow label="Waarin ik vermeld word" on={draft.follow.mentioned} onChange={(v) => setDraft((d) => ({ ...d, follow: { ...d.follow, mentioned: v } }))} />
+					<FollowRow label="Die ik heb gemaakt" on={draft.follow.created} onChange={(v) => setDraft((d) => ({ ...d, follow: { ...d.follow, created: v } }))} />
+				</div>
+			</SettingCard>
+
+			<UnsavedBar
+				visible={dirty}
+				onDiscard={() => setDraft(saved)}
+				onSave={() => {
+					if (draft.quiet.on && draft.quiet.from === draft.quiet.to) {
+						toast.error("Stille uren hebben een begin en een eind nodig die niet gelijk zijn");
+						return;
+					}
+					const before = saved;
+					setPrefs(draft);
+					toast.success("Meldingen opgeslagen", {
+						description: `Je ziet nu ${shown} van ${admin.length} meldingen in de app.`,
+						action: { label: "Ongedaan maken", onClick: () => {
+							setPrefs(before);
+							setDraft(before);
+						} },
+					});
+				}}
+			/>
+			<PageGuide id="settings.notifications" title="Meldingen" steps={GUIDE} />
+		</>
+	);
+}
+
+function ChannelSwitch({ channel, short, label, on, onChange }: { channel: Channel; short: string; label: string; on: boolean; onChange: (v: boolean) => void }) {
+	return (
+		<span className="flex flex-col items-center gap-1 sm:justify-center" data-channel={channel}>
+			<span className="text-ink-3 text-xs sm:hidden">{short}</span>
+			<Switch checked={on} onCheckedChange={onChange} aria-label={label} />
+		</span>
+	);
+}
+
+function FollowRow({ label, on, onChange }: { label: string; on: boolean; onChange: (v: boolean) => void }) {
+	return (
+		<FieldRow label={label}>
+			<span className="flex h-9 items-center">
+				<Switch checked={on} onCheckedChange={onChange} aria-label={label} />
+			</span>
+		</FieldRow>
+	);
+}

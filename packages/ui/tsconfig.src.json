@@ -1,0 +1,48 @@
+{
+  /*
+   * The components every surface renders. Imports `@insyte/tokens` and nothing else of ours, which is
+   * the direction ADR-0001 exists to forbid: a surface may import this package, this package may not
+   * import a surface.
+   *
+   * The directory shape, and what is deliberately not here yet:
+   *
+   *   src/components/ the primitives — generated from the shadcn registry, then rewritten on Base UI
+     *   src/lib/       `cn`, and anything else with no JSX in it
+   *   src/brand/     the brand kit's pieces      — arrives with `apps/brand`
+   *   src/marketing/ the landing page's sections, redesigned on these tokens (no longer a port)
+   *   src/app/       the product: shell, every area's screens and parts, stores, hooks — moved from
+   *                  `apps/console`, typechecked by the host (ADR-0026)
+   *   src/data-source/ the seam those screens read their data through
+   *   src/brand/book/ the brand book (`/brand`), rebuilt 1 November 2026 — typechecked by its host
+   *   src/motion/    the token-bound transitions — arrives when something animates
+   *
+   * `motion` is named rather than created. An empty directory is a promise nobody can check, and it
+   * would mean a dependency this package does not yet have a reason to carry.
+   */
+  "extends": "../../tsconfig.base.json",
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  // The ported code is its own project; see `tsconfig.ported.json` for why.
+  "exclude": [
+    "**/test/**",
+    "src/brand/mark.tsx",
+    "src/brand/marks.tsx",
+    "src/lib/contact-email.tsx",
+    /*
+     * The product's screens, the seam and the brand book's chapters. They are typechecked by the
+     * host that registers their route tree — `apps/design/tsconfig.json` and `tsconfig.brand.json`
+     * include them by path — because a screen's `<Link to>` and `Route.useSearch()` are only typed
+     * against a route tree, and only a host has one. Checked here, unregistered, every search
+     * param would be `any`. A future `apps/console` includes them the same way.
+     */
+    "src/app/**",
+    "src/data-source/**",
+    "src/brand/book/**"
+  ],
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo",
+    "jsx": "react-jsx",
+    "types": []
+  }
+}

@@ -1,0 +1,23 @@
+# The playground's walls (ADR-0029). The local hooks can be skipped with --no-verify; this cannot,
+# once `main` requires it to pass.
+name: scope
+
+on:
+  pull_request:
+
+jobs:
+  scope:
+    if: startsWith(github.head_ref, 'playground/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      # Through env, not interpolated: a branch name is attacker-controlled text in a shell line.
+      - run: bun scripts/scope.ts --branch "$HEAD_REF" --base "origin/$BASE_REF"
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}

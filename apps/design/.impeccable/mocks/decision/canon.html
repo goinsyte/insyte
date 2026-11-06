@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Insyte — the category standard</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--purple:#7B68EE;--pink:#FF5C8A;--navy:#1A1A2E;--line:#E7E7EE;--quiet:#6B6B80;--ground:#FBFBFD}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{font:400 14px/20px Inter,system-ui,sans-serif;color:var(--navy);background:#fff;display:flex}
+.rail{width:56px;flex:0 0 56px;background:var(--navy);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px}
+.logo{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--purple),var(--pink));margin-bottom:10px}
+.tile{width:32px;height:32px;border-radius:8px;display:grid;place-items:center}.tile b{width:15px;height:15px;border-radius:4px;background:#45456A}
+.tile.on{background:#2E2E4D}.tile.on b{background:var(--purple)}
+.avatar{margin-top:auto;width:28px;height:28px;border-radius:50%;background:var(--pink)}
+.tree{width:248px;flex:0 0 248px;border-right:1px solid var(--line);padding:12px 10px;background:var(--ground)}
+.org{display:flex;align-items:center;gap:8px;font:600 14px/32px Inter;padding:0 6px}
+.org i{width:20px;height:20px;border-radius:6px;background:var(--purple)}
+.srch{height:32px;border:1px solid var(--line);border-radius:8px;background:#fff;margin:8px 0 14px;display:flex;align-items:center;padding:0 10px;font-size:13px;color:var(--quiet)}
+.grp{font-size:11px;font-weight:600;color:var(--quiet);text-transform:uppercase;letter-spacing:.06em;padding:12px 6px 6px}
+.row{height:30px;display:flex;align-items:center;gap:9px;padding:0 6px;border-radius:7px;font-size:13px;color:#3E3E5C}
+.row i{width:10px;height:10px;border-radius:3px;flex:0 0 10px}
+.row.on{background:#EEEBFE;color:var(--purple);font-weight:500}
+.row s{margin-left:auto;text-decoration:none;color:var(--quiet);font-size:12px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:1px 7px}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.bar{height:52px;display:flex;align-items:center;gap:10px;padding:0 20px;border-bottom:1px solid var(--line)}
+.bar h1{font:600 17px/22px Inter;margin-right:6px}
+.crumb{font-size:13px;color:var(--quiet)}
+.views{display:flex;gap:2px;margin-left:16px}
+.v{height:30px;padding:0 12px;border-radius:7px;font-size:13px;color:var(--quiet);display:grid;place-items:center}
+.v.on{background:#EEEBFE;color:var(--purple);font-weight:500}
+.btn{margin-left:auto;height:32px;border-radius:8px;background:var(--purple);color:#fff;display:grid;place-items:center;padding:0 14px;font:500 13px Inter}
+.ghost{height:32px;border:1px solid var(--line);border-radius:8px;display:grid;place-items:center;padding:0 12px;font-size:13px;color:#3E3E5C}
+.kpis{display:flex;gap:16px;padding:18px 20px}
+.kpi{flex:1;border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.kpi .l{font-size:12px;color:var(--quiet)}
+.kpi .n{font:600 26px/32px Inter;margin-top:5px;font-variant-numeric:tabular-nums}
+.kpi .d{font-size:12px;color:#2E9E6B;margin-top:2px}
+.sec{padding:0 20px}
+.sechead{display:flex;align-items:center;gap:8px;height:34px;font-size:13px;font-weight:600}
+.sechead u{width:9px;height:9px;border-radius:50%;text-decoration:none}
+.sechead s{text-decoration:none;color:var(--quiet);font-weight:400}
+.tbl{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.hl{height:34px;display:flex;align-items:center;gap:12px;padding:0 14px;font-size:12px;color:var(--quiet);background:var(--ground);border-bottom:1px solid var(--line)}
+.item{height:40px;display:flex;align-items:center;gap:12px;padding:0 14px;font-size:13px;border-bottom:1px solid var(--line)}
+.item:last-child{border-bottom:0}
+.item .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{height:22px;border-radius:11px;padding:0 10px;display:grid;place-items:center;font-size:12px;font-weight:500}
+.ava{width:24px;height:24px;border-radius:50%;border:2px solid #fff}
+.stack{display:flex}
+.stack .ava+.ava{margin-left:-8px}
+.n{font-variant-numeric:tabular-nums;color:var(--quiet)}
+</style></head><body>
+<nav class="rail"><div class="logo"></div>
+<div class="tile on"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="avatar"></div></nav>
+<aside class="tree"><div class="org"><i></i>Northwind Clothing Co.</div><div class="srch">Search…</div>
+<div class="grp">Spaces</div>
+<div class="row on"><i style="background:var(--purple)"></i>Dashboard</div>
+<div class="row"><i style="background:var(--pink)"></i>Tickets<s>24</s></div>
+<div class="row"><i style="background:#2E9E6B"></i>Chats<s>6</s></div>
+<div class="row"><i style="background:#F0A030"></i>Inbox<s>41</s></div>
+<div class="row"><i style="background:#3BA3E0"></i>Orders<s>60</s></div>
+<div class="row"><i style="background:#9B59D0"></i>Customers</div>
+<div class="row"><i style="background:#2E9E6B"></i>Products</div>
+<div class="grp">Finance</div>
+<div class="row"><i style="background:#E0493B"></i>Chargebacks<s>5</s></div>
+<div class="row"><i style="background:#3BA3E0"></i>Analytics</div>
+<div class="grp">Workspace</div>
+<div class="row"><i style="background:#F0A030"></i>Automations</div>
+<div class="row"><i style="background:#9B59D0"></i>Marketplace</div>
+<div class="row"><i style="background:#8A8AA3"></i>Settings</div></aside>
+<div class="main">
+<header class="bar"><h1>Dashboard</h1><span class="crumb">Northwind EU</span>
+<div class="views"><div class="v on">Overview</div><div class="v">Analytics</div><div class="v">Financial</div><div class="v">Operational</div></div>
+<div class="ghost">Filter</div><div class="btn">New</div></header>
+<div class="kpis">
+  <div class="kpi"><div class="l">Revenue, 14 days</div><div class="n">€38.412</div><div class="d">+6,2%</div></div>
+  <div class="kpi"><div class="l">Open tickets</div><div class="n">24</div><div class="d" style="color:#E0493B">+3 today</div></div>
+  <div class="kpi"><div class="l">Orders at supplier</div><div class="n">18</div><div class="d">3 at risk</div></div>
+  <div class="kpi"><div class="l">Open chargebacks</div><div class="n">5</div><div class="d" style="color:#E0493B">€1.204 at stake</div></div>
+</div>
+<div class="sec">
+  <div class="sechead"><u style="background:var(--pink)"></u>Needs you <s>17</s></div>
+  <div class="tbl">
+    <div class="hl"><span style="flex:1">Task</span><span style="width:120px">Status</span><span style="width:112px">Store</span><span style="width:84px">Value</span><span style="width:76px">Due</span><span style="width:68px">Assignee</span></div>
+    <div class="item"><span class="t">Chargeback DSP-2204 · Klarna, evidence gathered</span><span style="width:120px"><span class="pill" style="background:#FDE7EB;color:#C02B4E">Urgent</span></span><span class="n" style="width:112px">Northwind EU</span><span class="n" style="width:84px">€248,00</span><span class="n" style="width:76px">Today</span><span style="width:68px"><span class="stack"><i class="ava" style="background:var(--purple)"></i><i class="ava" style="background:var(--pink)"></i></span></span></div>
+    <div class="item"><span class="t">3 orders at risk of late delivery · supplier Allure</span><span style="width:120px"><span class="pill" style="background:#FDE7EB;color:#C02B4E">Urgent</span></span><span class="n" style="width:112px">Northwind US</span><span class="n" style="width:84px">€612,40</span><span class="n" style="width:76px">Today</span><span style="width:68px"><span class="stack"><i class="ava" style="background:#3BA3E0"></i></span></span></div>
+    <div class="item"><span class="t">Ticket #5142 · refund asked twice, no reply sent</span><span style="width:120px"><span class="pill" style="background:#FEF2E0;color:#A86A12">In progress</span></span><span class="n" style="width:112px">Northwind EU</span><span class="n" style="width:84px">€89,95</span><span class="n" style="width:76px">Tomorrow</span><span style="width:68px"><span class="stack"><i class="ava" style="background:#2E9E6B"></i></span></span></div>
+    <div class="item"><span class="t">Customer Sofía Kim asked about a missing parcel</span><span style="width:120px"><span class="pill" style="background:#FEF2E0;color:#A86A12">In progress</span></span><span class="n" style="width:112px">Northwind EU</span><span class="n" style="width:84px">€72,50</span><span class="n" style="width:76px">6h</span><span style="width:68px"><span class="stack"><i class="ava" style="background:var(--pink)"></i></span></span></div>
+    <div class="item"><span class="t">SKU-2148 stock will run out in 2 days</span><span style="width:120px"><span class="pill" style="background:#EEEBFE;color:#5A47C8">Planned</span></span><span class="n" style="width:112px">Northwind US</span><span class="n" style="width:84px">€1.204,00</span><span class="n" style="width:76px">2d</span><span style="width:68px"><span class="stack"><i class="ava" style="background:#F0A030"></i></span></span></div>
+    <div class="item"><span class="t">Refund template replies 18% under average</span><span style="width:120px"><span class="pill" style="background:#EEEBFE;color:#5A47C8">Planned</span></span><span class="n" style="width:112px">All stores</span><span class="n" style="width:84px">—</span><span class="n" style="width:76px">1d</span><span style="width:68px"><span class="stack"><i class="ava" style="background:#9B59D0"></i></span></span></div>
+    <div class="item"><span class="t">Order #10418 shipped · DHL, tracking sent</span><span style="width:120px"><span class="pill" style="background:#E6F6EE;color:#1F7A52">Done</span></span><span class="n" style="width:112px">Northwind EU</span><span class="n" style="width:84px">€134,00</span><span class="n" style="width:76px">—</span><span style="width:68px"><span class="stack"><i class="ava" style="background:#3BA3E0"></i></span></span></div>
+    <div class="item"><span class="t">Payout €4.180,00 confirmed by Stripe</span><span style="width:120px"><span class="pill" style="background:#E6F6EE;color:#1F7A52">Done</span></span><span class="n" style="width:112px">All stores</span><span class="n" style="width:84px">€4.180,00</span><span class="n" style="width:76px">—</span><span style="width:68px"><span class="stack"><i class="ava" style="background:var(--purple)"></i></span></span></div>
+    <div class="item"><span class="t">Northwind UK is not connected yet</span><span style="width:120px"><span class="pill" style="background:#F1F1F5;color:#6B6B80">Blocked</span></span><span class="n" style="width:112px">Northwind UK</span><span class="n" style="width:84px">—</span><span class="n" style="width:76px">—</span><span style="width:68px"><span class="stack"><i class="ava" style="background:#8A8AA3"></i></span></span></div>
+  </div>
+</div></div></body></html>

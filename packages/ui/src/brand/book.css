@@ -1,0 +1,448 @@
+/*
+ * The brand book's stylesheet (`/brand`, rebuilt 1 November 2026).
+ *
+ * The book documents the system it is drawn in, so it is built on the same sheet the product is:
+ * `app.css` brings Tailwind, `@insyte/tokens`, the two faces and every product utility a specimen
+ * needs (`plate`, `hatch`, the glyph draw-in, the plate's unroll and scan). It scans the whole of
+ * `packages/ui/src`, so the marketing parts the book renders get their classes too.
+ *
+ * What the product sheet does not carry is the marketing site's construction language — the
+ * drafting grid on light grounds, the dashed rails and rules, the chalk line, the two display
+ * steps and the illustrations' keyframes. Those are restated below, value for value, from
+ * `marketing/landing.css`. Restated rather than imported because both sheets import Tailwind and
+ * declare a `plate` utility of their own, and two `@import "tailwindcss"` in one document emit the
+ * base layer twice. If one of them changes in `landing.css`, it changes here.
+ *
+ * No glow, no gradient ground, no black: dark is `abyss`, ink on it is the mesh ramp.
+ */
+@import "../app/app.css";
+
+@source "./";
+
+@theme {
+  /* The marketing site's two display steps, as `landing.css` declares them. */
+  --text-display-sm: 48px;
+  --text-display-sm--line-height: 50px;
+  --text-display-sm--letter-spacing: -0.036em;
+  --text-display: 72px;
+  --text-display--line-height: 72px;
+  --text-display--letter-spacing: -0.04em;
+
+  /* The book's own two steps, set only in the display face (`figure`): the cover's word and the
+     chapter number. A plate number, which is one of the face's two places. */
+  --text-plate: 128px;
+  --text-plate--line-height: 0.86;
+  --text-plate--letter-spacing: -0.045em;
+  --text-numeral: 240px;
+  --text-numeral--line-height: 0.8;
+  --text-numeral--letter-spacing: -0.045em;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 128px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    background: var(--paper);
+  }
+
+  h1, h2, h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* On abyss or arc the ring is chalk: arc on abyss is 1.6:1, and a ring nobody can see is no ring. */
+  :where([data-ground="dark"]) :where(a, button, input, [tabindex]):focus-visible {
+    outline-color: var(--mesh-ink);
+  }
+}
+
+/* ── The construction language, from `marketing/landing.css` ─────────────────────────────────── */
+
+@utility chalk-line {
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--mesh-ink) 12%, transparent);
+}
+
+@utility window-lift {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklch, var(--ink) 10%, transparent),
+    0 1px 2px color-mix(in oklch, var(--abyss) 8%, transparent),
+    0 24px 48px -28px color-mix(in oklch, var(--abyss) 35%, transparent);
+}
+
+@utility rails {
+  position: relative;
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    width: 1px;
+    pointer-events: none;
+    background: repeating-linear-gradient(180deg, color-mix(in oklch, var(--mesh-ink) 18%, transparent) 0 5px, transparent 5px 10px);
+  }
+  &::before {
+    left: 0;
+  }
+  &::after {
+    right: 0;
+  }
+  @media (width < 48rem) {
+    &::before,
+    &::after {
+      display: none;
+    }
+  }
+}
+
+@utility rails-ink {
+  position: relative;
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    width: 1px;
+    pointer-events: none;
+    background: repeating-linear-gradient(180deg, color-mix(in oklch, var(--ink) 14%, transparent) 0 5px, transparent 5px 10px);
+  }
+  &::before {
+    left: 0;
+  }
+  &::after {
+    right: 0;
+  }
+  @media (width < 48rem) {
+    &::before,
+    &::after {
+      display: none;
+    }
+  }
+}
+
+@utility dash-x {
+  background: repeating-linear-gradient(90deg, color-mix(in oklch, var(--ink) 14%, transparent) 0 5px, transparent 5px 10px);
+}
+
+@utility dash-y {
+  background: repeating-linear-gradient(180deg, color-mix(in oklch, var(--ink) 14%, transparent) 0 5px, transparent 5px 10px);
+}
+
+@utility dash-x-chalk {
+  background: repeating-linear-gradient(90deg, color-mix(in oklch, var(--mesh-ink) 18%, transparent) 0 5px, transparent 5px 10px);
+}
+
+@utility dash-y-chalk {
+  background: repeating-linear-gradient(180deg, color-mix(in oklch, var(--mesh-ink) 18%, transparent) 0 5px, transparent 5px 10px);
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility hatch-chalk {
+  background-image:
+    radial-gradient(circle at 4px 4px, color-mix(in oklch, var(--mesh-ink) 13%, transparent) 1.4px, transparent 1.5px),
+    radial-gradient(circle at 12px 12px, color-mix(in oklch, var(--mesh-ink) 9%, transparent) 1.4px, transparent 1.5px),
+    radial-gradient(circle at 20px 20px, color-mix(in oklch, var(--mesh-ink) 5.5%, transparent) 1.4px, transparent 1.5px);
+  background-size: var(--pattern-hatch) var(--pattern-hatch);
+}
+
+@utility drafting-chalk {
+  background-image:
+    repeating-linear-gradient(0deg, color-mix(in oklch, var(--mesh-ink) 5%, transparent) 0 1px, transparent 1px var(--pattern-grid)),
+    repeating-linear-gradient(90deg, color-mix(in oklch, var(--mesh-ink) 5%, transparent) 0 1px, transparent 1px var(--pattern-grid));
+}
+
+@utility drafting-ink {
+  background-image:
+    repeating-linear-gradient(0deg, color-mix(in oklch, var(--ink) 5%, transparent) 0 1px, transparent 1px var(--pattern-grid)),
+    repeating-linear-gradient(90deg, color-mix(in oklch, var(--ink) 5%, transparent) 0 1px, transparent 1px var(--pattern-grid));
+}
+
+@utility hatch-ink {
+  background-image:
+    radial-gradient(circle at 4px 4px, color-mix(in oklch, var(--ink) 10%, transparent) 1.4px, transparent 1.5px),
+    radial-gradient(circle at 12px 12px, color-mix(in oklch, var(--ink) 7%, transparent) 1.4px, transparent 1.5px),
+    radial-gradient(circle at 20px 20px, color-mix(in oklch, var(--ink) 4.5%, transparent) 1.4px, transparent 1.5px);
+  background-size: var(--pattern-hatch) var(--pattern-hatch);
+}
+
+/* ── The illustrations' motion, from `marketing/landing.css` ─────────────────────────────────── */
+
+@keyframes orbit-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.orbit-ring {
+  animation: orbit-turn 60s linear infinite;
+}
+
+.orbit-mark {
+  animation: orbit-turn 60s linear infinite reverse;
+}
+
+@keyframes marquee-left {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.marquee {
+  mask-image: linear-gradient(90deg, transparent, black 8%, black 92%, transparent);
+}
+
+.marquee-track {
+  width: max-content;
+  animation: marquee-left var(--marquee-duration, 60s) linear infinite;
+}
+
+.marquee-track[data-reverse="true"] {
+  animation-direction: reverse;
+}
+
+.marquee:hover .marquee-track,
+.marquee:focus-within .marquee-track {
+  animation-play-state: paused;
+}
+
+@keyframes schematic-pulse {
+  from {
+    stroke-dashoffset: 200;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.schematic-pulse {
+  stroke-dashoffset: 200;
+  animation: schematic-pulse 6s linear infinite;
+}
+
+.schematic[data-run="false"] .schematic-pulse {
+  animation-play-state: paused;
+}
+
+@keyframes variant-shimmer {
+  from {
+    mask-position: 140% 0;
+  }
+  to {
+    mask-position: -40% 0;
+  }
+}
+
+.variant-shimmer {
+  mask-image: linear-gradient(115deg, transparent 40%, black 50%, transparent 60%);
+  mask-size: 250% 100%;
+  animation: variant-shimmer 9s linear infinite;
+}
+
+@keyframes variant-drift {
+  to {
+    transform: translate(48px, 48px);
+  }
+}
+
+.variant-drift {
+  animation: variant-drift 24s linear infinite;
+}
+
+@keyframes variant-scan {
+  from {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  to {
+    transform: translateY(var(--scan-to, 640px));
+    opacity: 0;
+  }
+}
+
+.variant-scan {
+  animation: variant-scan 7s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@keyframes variant-wire {
+  0% {
+    stroke-dashoffset: 100;
+    opacity: 1;
+  }
+  8% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  20% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+
+.variant-wire {
+  stroke-dashoffset: 100;
+  opacity: 0;
+  animation: variant-wire 8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.variant-layer[data-run="false"] .variant-anim {
+  animation-play-state: paused;
+}
+
+/* The curve specimens' ball: runs the width of its track and back, on whichever curve it names. */
+@keyframes book-travel {
+  0%,
+  12% {
+    transform: translateX(0);
+  }
+  50%,
+  62% {
+    transform: translateX(calc(var(--track, 240px) - 100%));
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+.book-travel {
+  animation: book-travel 2.4s var(--curve, var(--ease-out-expo)) infinite;
+}
+
+/* ── The specimen controls ──────────────────────────────────────────────────────────────────────
+   A specimen cell carries `data-paused` (Pauzeren) and `data-still` (Zonder beweging); the book's
+   root carries `data-still` when the reader turns motion off for the whole book. Paused freezes
+   every CSS animation where it stands. Still is the reduced-motion path, scoped: every drawing shows
+   its end state, exactly as `prefers-reduced-motion` paints it. The motion/react pieces read the
+   same two flags from the specimen's context. */
+
+[data-paused="true"] *,
+[data-paused="true"] *::before,
+[data-paused="true"] *::after {
+  animation-play-state: paused !important;
+}
+
+[data-still="true"] .glyph-draw :is(path, circle, rect),
+[data-still="true"] .glyph,
+[data-still="true"] .glyph-blink :is(path, rect) {
+  animation: none !important;
+  stroke-dashoffset: 0 !important;
+}
+
+[data-still="true"] :is(.unroll, .draw, .orbit-ring, .orbit-mark, .variant-anim, .schematic-pulse, .book-travel) {
+  animation: none !important;
+}
+
+[data-still="true"] .draw {
+  mask-image: none;
+}
+
+[data-still="true"] :is(.plate-scan, .schematic-pulses) {
+  display: none;
+}
+
+[data-still="true"] .variant-wire {
+  stroke-dashoffset: 0;
+  opacity: 0.5;
+}
+
+[data-still="true"] .marquee {
+  mask-image: none;
+}
+
+[data-still="true"] .marquee-track {
+  width: auto;
+  flex-wrap: wrap;
+  animation: none !important;
+}
+
+[data-still="true"] .marquee-copy {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbit-ring,
+  .orbit-mark,
+  .book-travel {
+    animation: none;
+  }
+
+  .marquee {
+    mask-image: none;
+  }
+
+  .marquee-track {
+    width: auto;
+    flex-wrap: wrap;
+    animation: none;
+  }
+
+  .marquee-copy {
+    display: none;
+  }
+
+  .schematic-pulses {
+    display: none;
+  }
+
+  .variant-anim {
+    animation: none;
+  }
+
+  .variant-wire {
+    stroke-dashoffset: 0;
+    opacity: 0.5;
+  }
+}
+
+/* ── The book's construction cell ───────────────────────────────────────────────────────────────
+   A specimen cell inside a panel is a cell of the drawing, not a card on a card: four dashed edges,
+   drawn as backgrounds so they cost no border and sit square, as a drawing's cells do. Ink on light
+   grounds, chalk on abyss. A cell may still carry its own ground colour. */
+
+@utility ruled {
+  background-image:
+    repeating-linear-gradient(90deg, color-mix(in oklch, var(--ink) 16%, transparent) 0 5px, transparent 5px 10px),
+    repeating-linear-gradient(90deg, color-mix(in oklch, var(--ink) 16%, transparent) 0 5px, transparent 5px 10px),
+    repeating-linear-gradient(180deg, color-mix(in oklch, var(--ink) 16%, transparent) 0 5px, transparent 5px 10px),
+    repeating-linear-gradient(180deg, color-mix(in oklch, var(--ink) 16%, transparent) 0 5px, transparent 5px 10px);
+  background-size: 100% 1px, 100% 1px, 1px 100%, 1px 100%;
+  background-position: top left, bottom left, top left, top right;
+  background-repeat: no-repeat;
+}
+
+@utility ruled-chalk {
+  background-image:
+    repeating-linear-gradient(90deg, color-mix(in oklch, var(--mesh-ink) 20%, transparent) 0 5px, transparent 5px 10px),
+    repeating-linear-gradient(90deg, color-mix(in oklch, var(--mesh-ink) 20%, transparent) 0 5px, transparent 5px 10px),
+    repeating-linear-gradient(180deg, color-mix(in oklch, var(--mesh-ink) 20%, transparent) 0 5px, transparent 5px 10px),
+    repeating-linear-gradient(180deg, color-mix(in oklch, var(--mesh-ink) 20%, transparent) 0 5px, transparent 5px 10px);
+  background-size: 100% 1px, 100% 1px, 1px 100%, 1px 100%;
+  background-position: top left, bottom left, top left, top right;
+  background-repeat: no-repeat;
+}

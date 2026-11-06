@@ -1,0 +1,168 @@
+# The pipeline: gate every change, then deploy the design reference through three environments.
+#
+#   pull request  -> preflight + build + journey -> preview     (pr-<n>-insyte-design-staging)
+#   push to main  -> preflight + build + journey -> staging     (insyte-design-staging)
+#                                                -> production  (insyte-design), after approval
+#
+# Every deployed hostname sits behind Cloudflare Access, so a preview is as private as production.
+# What each environment needs on GitHub and in Cloudflare is in docs/ci.md.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # One run per branch or PR; a newer push replaces an older run that has not finished.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  WORKERS_SUBDOMAIN: ishak-73d.workers.dev
+
+jobs:
+  preflight:
+    name: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      # format:check, check (tsc), lint, hygiene (knip, syncpack, secretlint), unit tests.
+      - run: bun run preflight:ci
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @insyte/design build
+      # Built to prove it builds; the marketing Worker has no deploy target yet.
+      - run: bun run --filter @insyte/marketing build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: design-dist
+          path: apps/design/dist
+          retention-days: 7
+
+  journey:
+    name: journey (e2e)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      # Builds the reference and serves the production bundle (playwright.config.ts).
+      - run: bun run e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
+
+  preview:
+    name: deploy · preview
+    # Not for forks: their runs get no secrets, and their code should not reach the account.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: [preflight, build, journey]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: preview
+      url: https://pr-${{ github.event.pull_request.number }}-insyte-design-staging.${{ env.WORKERS_SUBDOMAIN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: design-dist
+          path: apps/design/dist
+      # A version of the staging Worker under a stable alias; staging itself keeps serving main.
+      - run: bunx wrangler versions upload --env staging --preview-alias "pr-$PR" --message "PR $PR at $SHA"
+        working-directory: apps/design
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+
+  staging:
+    name: deploy · staging
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [preflight, build, journey]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    environment:
+      name: staging
+      url: https://insyte-design-staging.${{ env.WORKERS_SUBDOMAIN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: design-dist
+          path: apps/design/dist
+      - run: bunx wrangler deploy --env staging --message "main $GITHUB_SHA"
+        working-directory: apps/design
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+
+  production:
+    name: deploy · production
+    # The same build staging got. The `production` environment's required reviewers are the gate:
+    # the job waits on GitHub until someone approves it.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [staging]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    environment:
+      name: production
+      url: https://insyte-design.${{ env.WORKERS_SUBDOMAIN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: design-dist
+          path: apps/design/dist
+      - run: bunx wrangler deploy --message "main $GITHUB_SHA"
+        working-directory: apps/design
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}

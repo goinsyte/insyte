@@ -1,0 +1,20 @@
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      glob: "*.{ts,tsx,json,jsonc,md}"
+      run: bunx dprint check {staged_files}
+    lint:
+      glob: "*.{ts,tsx}"
+      run: bunx oxlint --disable-nested-config {staged_files}
+    secrets:
+      run: bunx secretlint --secretlintignore .secretlintignore {staged_files}
+    scope:
+      run: bun scripts/scope.ts
+
+pre-push:
+  commands:
+    scope:
+      run: bun scripts/scope.ts --base main
+    check:
+      run: bun run check

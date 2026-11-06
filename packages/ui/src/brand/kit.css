@@ -1,0 +1,33 @@
+@import "tailwindcss";
+@import "@insyte/tokens/tokens.css";
+@import "@fontsource-variable/inter";
+/* `standard` rather than `wght`: Archivo is here for its WIDTH axis. */
+@import "@fontsource-variable/archivo/standard.css";
+
+/* Tailwind scans the app it is configured in; the specimens live in a sibling package. */
+@source "../";
+
+@layer base {
+  body {
+    @apply bg-glacier font-sans text-ink antialiased;
+  }
+}
+
+/*
+ * The one keyframe this page defines, for the curve specimens in `@insyte/ui/brand/motion`.
+ *
+ * It lives here rather than in the package because a package owns no stylesheet in this repo: the
+ * app composes Tailwind, the tokens and the faces. The component names this animation, so moving
+ * or renaming it breaks the specimens — which is the trade for not giving a component package a
+ * stylesheet of its own.
+ */
+@keyframes brand-travel {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  50% {
+    transform: translateX(calc(100cqw - 100%));
+  }
+}

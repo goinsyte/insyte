@@ -1,0 +1,30 @@
+{
+  "name": "@insyte/design",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "build:full": "REFERENCE_SECTIONS=all vite build",
+    "preview": "vite preview",
+    "deploy": "vite build && wrangler deploy",
+    "deploy:dry": "vite build && wrangler deploy --dry-run"
+  },
+  "dependencies": {
+    "@insyte/ui": "workspace:*",
+    "@tanstack/react-router": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "catalog:",
+    "@tanstack/router-plugin": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "vite": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

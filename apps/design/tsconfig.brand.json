@@ -1,0 +1,15 @@
+{
+  // The brand book's section: its own program, for the route-tree reason `tsconfig.json` gives.
+  // The options are the old `apps/brand` app's, which were the console's.
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/brand/**/*.ts",
+    "src/brand/**/*.tsx",
+    "../../packages/ui/src/brand/book/**/*.ts",
+    "../../packages/ui/src/brand/book/**/*.tsx"
+  ],
+  "exclude": [],
+  "compilerOptions": {
+    "tsBuildInfoFile": ".tsbuildinfo/brand.tsbuildinfo"
+  }
+}

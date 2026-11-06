@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Insyte — De Blauwdruk</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--glacier:#F2F2F2;--mist:#FAFAFA;--paper:#fff;--arc:#3E2BD4;--arcsoft:#BFC2F2;--arctint:#E7E8F8;
+--abyss:#251A86;--abyss2:#2B1C9B;--powder:#C9CFE2;--ink:#2F2F2F;--ink2:#5E5E5E;--ink3:#7E7E7E;--ink4:#9B9B9B;
+--red:#C5392B;--amber:#8C6A1E;--green:#1E7A5E;--chalk:#FBFBF8}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{font:400 14px/20px Inter,system-ui,sans-serif;color:var(--ink);background:var(--glacier);display:flex;-webkit-font-smoothing:antialiased}
+.rail{width:52px;flex:0 0 52px;background:var(--mist);display:flex;flex-direction:column;align-items:center;padding:10px 0;gap:3px}
+.mark{width:26px;height:26px;position:relative;margin-bottom:14px}
+.mark i{position:absolute;width:11px;height:11px;border-radius:3px;background:var(--arc)}
+.mark i:nth-child(1){left:0;top:0}.mark i:nth-child(2){left:7px;top:7px;background:var(--arcsoft)}.mark i:nth-child(3){left:14px;top:14px;background:var(--abyss)}
+.tile{width:34px;height:30px;border-radius:9px;display:grid;place-items:center}
+.tile b{width:14px;height:14px;border-radius:4px;background:var(--ink4)}
+.tile.on{background:var(--abyss)}.tile.on b{background:var(--chalk)}
+.tile.sig{position:relative}.tile.sig:after{content:"";position:absolute;right:5px;top:3px;width:6px;height:6px;border-radius:50%;background:var(--red)}
+.avatar{margin-top:auto;width:28px;height:28px;border-radius:50%;background:var(--arcsoft)}
+.panel{width:224px;flex:0 0 224px;background:var(--mist);padding:10px 8px}
+.org{font:500 13px/28px Inter;padding:0 8px}
+.seek{height:30px;border-radius:9px;background:rgba(47,47,47,.045);margin:4px 0 14px;display:flex;align-items:center;padding:0 10px;font-size:13px;color:var(--ink4)}
+.grp{font-size:12px;color:var(--ink4);padding:12px 8px 4px}
+.row{height:28px;display:flex;align-items:center;gap:9px;padding:0 8px;border-radius:7px;font-size:13px;color:var(--ink2)}
+.row b{width:13px;height:13px;border-radius:4px;background:var(--ink4);flex:0 0 13px}
+.row.on{background:var(--arctint);color:var(--arc);font-weight:500}.row.on b{background:var(--arc)}
+.row s{margin-left:auto;text-decoration:none;color:var(--ink4);font-size:13px;font-variant-numeric:tabular-nums}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.top{height:48px;display:flex;align-items:center;gap:10px;padding:0 16px;background:var(--mist)}
+.store{display:flex;align-items:center;gap:8px;font-size:13px;height:30px;padding:0 11px;border-radius:9px;background:rgba(47,47,47,.045)}
+.store u{width:8px;height:8px;border-radius:50%;background:var(--green);text-decoration:none}
+.search{flex:1;max-width:320px;height:30px;border-radius:9px;background:rgba(47,47,47,.045);display:flex;align-items:center;padding:0 10px;font-size:13px;color:var(--ink4)}
+.voor{margin-left:auto;height:30px;border-radius:9px;background:var(--abyss);color:var(--chalk);display:flex;align-items:center;padding:0 13px;font:500 13px Inter}
+.ico{width:30px;height:30px;border-radius:9px;background:rgba(47,47,47,.045)}
+.work{flex:1;display:flex;min-height:0}
+.queue{flex:1;min-width:0;background:var(--paper);display:flex;flex-direction:column}
+.qhead{display:flex;align-items:flex-end;gap:16px;padding:24px 28px 12px}
+.qhead .big{font:400 60px/.8 Inter;letter-spacing:-.045em}
+.qhead p{font-size:14px;color:var(--ink2);padding-bottom:6px}
+.tabs{display:flex;gap:4px;padding:0 28px 10px}
+.tab{height:28px;padding:0 12px;border-radius:8px;font-size:13px;color:var(--ink2);display:grid;place-items:center}
+.tab.on{background:var(--arctint);color:var(--arc);font-weight:500}
+.hl{height:26px;display:flex;align-items:center;gap:14px;padding:0 28px;font-size:13px;color:var(--ink4)}
+.item{height:34px;display:flex;align-items:center;gap:14px;padding:0 28px;font-size:13px}
+.item:nth-child(odd){background:var(--mist)}
+.item u{width:7px;height:7px;border-radius:50%;text-decoration:none;flex:0 0 7px}
+.item .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .n{font-variant-numeric:tabular-nums;color:var(--ink2)}
+.item.sel{background:var(--abyss);color:var(--chalk)}
+.item.sel .n{color:var(--powder)}
+/* the plate: the proposal drawn as a blueprint before it becomes a record */
+.plate{width:436px;flex:0 0 436px;background:var(--abyss);color:var(--chalk);position:relative;overflow:hidden;display:flex;flex-direction:column;
+background-image:repeating-linear-gradient(0deg,rgba(251,251,248,.085) 0 1px,transparent 1px 32px),repeating-linear-gradient(90deg,rgba(251,251,248,.085) 0 1px,transparent 1px 32px)}
+.pbar{height:40px;display:flex;align-items:center;gap:10px;padding:0 24px;background:rgba(251,251,248,.07);font-size:13px;color:var(--arcsoft)}
+.pbar b{font-weight:400;color:var(--chalk)}
+.pbody{padding:26px 24px 0}
+.pbody h3{font:400 26px/31px Inter;letter-spacing:-.025em}
+.pbody p{font-size:13px;line-height:19px;color:var(--powder);margin-top:12px;max-width:340px}
+/* the drawing: white line, dimensioned, nothing drawn that does not measure something */
+.draw{margin:24px 24px 0;height:208px;position:relative}
+.dim{position:absolute;left:0;right:46px;top:0;height:1px;background:rgba(251,251,248,.5)}
+.dim:before,.dim:after{content:"";position:absolute;top:-4px;width:1px;height:9px;background:rgba(251,251,248,.7)}
+.dim:before{left:0}.dim:after{right:0}
+.dimlbl{position:absolute;right:0;top:-9px;font-size:13px;color:var(--chalk);font-variant-numeric:tabular-nums}
+.before,.after{position:absolute;left:0;width:300px;padding:12px 14px;background:rgba(37,26,134,.6);outline:1px solid rgba(251,251,248,.5)}
+.before{top:26px}.after{top:120px;outline:1px solid var(--chalk);background:rgba(62,43,212,.35)}
+.before .k,.after .k{font-size:13px;color:var(--arcsoft)}
+.before .v,.after .v{font-size:15px;margin-top:4px;font-variant-numeric:tabular-nums}
+.lead{position:absolute;left:150px;top:72px;width:1px;height:48px;background:rgba(251,251,248,.55)}
+.leadlbl{position:absolute;left:162px;top:84px;font-size:13px;color:var(--powder)}
+.wit{position:absolute;right:0;top:120px;width:40px;height:1px;background:rgba(251,251,248,.5)}
+.witlbl{position:absolute;right:0;top:132px;font-size:13px;color:var(--chalk)}
+.acts{margin:auto 24px 24px;display:flex;gap:8px}
+.btn{height:38px;border-radius:10px;display:grid;place-items:center;padding:0 18px;font:500 13px Inter}
+.pri{background:var(--chalk);color:var(--abyss)}.sec{background:rgba(251,251,248,.13);color:var(--chalk)}
+.foot{padding:0 24px 18px;font-size:13px;color:var(--arcsoft)}
+</style></head><body>
+<nav class="rail"><div class="mark"><i></i><i></i><i></i></div>
+<div class="tile on"><b></b></div><div class="tile sig"><b></b></div><div class="tile"><b></b></div><div class="tile sig"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="avatar"></div></nav>
+<aside class="panel"><div class="org">Northwind Clothing Co.</div><div class="seek">Search or do…</div>
+<div class="grp">Operations</div>
+<div class="row on"><b></b>Dashboard</div><div class="row"><b></b>Tickets<s>24</s></div><div class="row"><b></b>Chats<s>6</s></div><div class="row"><b></b>Inbox<s>41</s></div><div class="row"><b></b>Orders<s>60</s></div><div class="row"><b></b>Customers</div><div class="row"><b></b>Products</div>
+<div class="grp">Money</div><div class="row"><b></b>Chargebacks<s>5</s></div><div class="row"><b></b>Analytics</div>
+<div class="grp">Build</div><div class="row"><b></b>Automations</div><div class="row"><b></b>Marketplace</div><div class="row"><b></b>Settings</div></aside>
+<div class="main">
+<header class="top"><div class="store"><u></u>Northwind EU</div><div class="search">Search orders, tickets, customers…</div><div class="voor">3 proposals</div><div class="ico"></div><div class="ico"></div></header>
+<div class="work">
+  <section class="queue">
+    <div class="qhead"><div class="big">17</div><p>need you before the day ends · 60 orders open, 24 tickets, €38.412 over 14 days</p></div>
+    <div class="tabs"><div class="tab on">Everything</div><div class="tab">Money</div><div class="tab">Customers</div><div class="tab">Supply</div><div class="tab">Done today</div></div>
+    <div class="hl"><span style="width:7px"></span><span style="flex:1">Record</span><span style="width:116px">Store</span><span style="width:88px">Value</span><span style="width:66px">Left</span></div>
+    <div class="item sel"><u style="background:var(--red)"></u><span class="t">Chargeback DSP-2204 · Klarna, evidence gathered</span><span class="n" style="width:116px">Northwind EU</span><span class="n" style="width:88px">€248,00</span><span class="n" style="width:66px">4h 10m</span></div>
+    <div class="item"><u style="background:var(--red)"></u><span class="t">3 orders at risk of late delivery · supplier Allure</span><span class="n" style="width:116px">Northwind US</span><span class="n" style="width:88px">€612,40</span><span class="n" style="width:66px">today</span></div>
+    <div class="item"><u style="background:var(--amber)"></u><span class="t">Ticket #5142 · refund asked twice, no reply sent</span><span class="n" style="width:116px">Northwind EU</span><span class="n" style="width:88px">€89,95</span><span class="n" style="width:66px">1d</span></div>
+    <div class="item"><u style="background:var(--amber)"></u><span class="t">Customer Sofía Kim asked about a missing parcel</span><span class="n" style="width:116px">Northwind EU</span><span class="n" style="width:88px">€72,50</span><span class="n" style="width:66px">6h</span></div>
+    <div class="item"><u style="background:var(--amber)"></u><span class="t">SKU-2148 stock will run out in 2 days</span><span class="n" style="width:116px">Northwind US</span><span class="n" style="width:88px">€1.204,00</span><span class="n" style="width:66px">2d</span></div>
+    <div class="item"><u style="background:var(--amber)"></u><span class="t">Refund template replies 18% under average</span><span class="n" style="width:116px">All stores</span><span class="n" style="width:88px">—</span><span class="n" style="width:66px">1d</span></div>
+    <div class="item"><u style="background:var(--green)"></u><span class="t">Order #10418 shipped · DHL, tracking sent</span><span class="n" style="width:116px">Northwind EU</span><span class="n" style="width:88px">€134,00</span><span class="n" style="width:66px">—</span></div>
+    <div class="item"><u style="background:var(--green)"></u><span class="t">Payout €4.180,00 confirmed by Stripe</span><span class="n" style="width:116px">All stores</span><span class="n" style="width:88px">€4.180,00</span><span class="n" style="width:66px">—</span></div>
+    <div class="item"><u style="background:var(--ink4)"></u><span class="t">Northwind UK is not connected yet</span><span class="n" style="width:116px">Northwind UK</span><span class="n" style="width:88px">—</span><span class="n" style="width:66px">—</span></div>
+    <div class="item"><u style="background:var(--green)"></u><span class="t">Automation “Late supplier chase” ran on 11 orders</span><span class="n" style="width:116px">All stores</span><span class="n" style="width:88px">—</span><span class="n" style="width:66px">—</span></div>
+  </section>
+  <aside class="plate">
+    <div class="pbar">Plate <b>DSP-2204</b> · drawn, not filed · 4.2 confidence</div>
+    <div class="pbody">
+      <h3>Submit the Klarna evidence</h3>
+      <p>Drawn as it would be filed. Four documents gathered: carrier scan, delivery photo, two customer replies, original invoice.</p>
+    </div>
+    <div class="draw">
+      <div class="dim"></div><div class="dimlbl">4h 10m to 18:00</div>
+      <div class="before"><div class="k">As the record stands</div><div class="v">Open · no evidence filed · €248,00 at risk</div></div>
+      <div class="lead"></div><div class="leadlbl">what this plate changes</div>
+      <div class="after"><div class="k">As drawn</div><div class="v">Submitted · 4 documents · €248,00 contested</div></div>
+      <div class="wit"></div><div class="witlbl">Northwind EU</div>
+    </div>
+    <div class="acts"><div class="btn pri">File it as drawn</div><div class="btn sec">Redraw</div><div class="btn sec">Discard the plate</div></div>
+    <div class="foot">Two more plates are drawn and waiting.</div>
+  </aside>
+</div></div></body></html>

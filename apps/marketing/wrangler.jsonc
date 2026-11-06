@@ -1,0 +1,24 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "insyte-marketing",
+  /*
+   * OUR entry, not `@tanstack/react-start/server-entry`.
+   *
+   * Cloudflare's framework guide points `main` at the package export, which is the right default.
+   * This site needs three branches in front of it — the redirects to the product, `robots.txt` and
+   * `sitemap.xml` — so `src/server.ts` wraps Start's own handler rather than reimplementing it. See
+   * the comment there for why each one is answered before the router rather than as a route.
+   */
+  "main": "./src/server.ts",
+  "compatibility_date": "2026-10-26",
+  // Required by Start's server entry, which reaches Node builtins through the framework.
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+  },
+  /*
+   * No bindings, and that is the point of Phase 1: this site has no database, no session, no API and
+   * no secret. Everything it serves is in the bundle. A binding added here is a question about
+   * whether the page still needs to be a Worker at all.
+   */
+}

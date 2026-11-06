@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Insyte — De Veilingklok</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100,600;100,700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--green:#0E3B2E;--deep:#092720;--amber:#F0B429;--red:#C8372D;--chalk:#F4F1EA;--paper:#FCFBF7;--quiet:#5F6B64}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{font:400 14px/20px Inter,system-ui,sans-serif;color:#13211C;background:#E9EEEA;display:flex}
+.rail{width:52px;flex:0 0 52px;background:var(--deep);display:flex;flex-direction:column;align-items:center;padding:10px 0;gap:4px}
+.mark{width:26px;height:26px;position:relative;margin-bottom:14px}
+.mark i{position:absolute;width:11px;height:11px;border-radius:3px;background:var(--amber)}
+.mark i:nth-child(2){left:7px;top:7px;background:var(--chalk)}.mark i:nth-child(3){left:14px;top:14px;background:#2F6B55}
+.mark i:nth-child(1){left:0;top:0}
+.tile{width:32px;height:32px;border-radius:9px;display:grid;place-items:center}.tile b{width:14px;height:14px;border-radius:3px;background:#3E6A5B}
+.tile.on{background:var(--amber)}.tile.on b{background:var(--deep)}
+.tile.sig{position:relative}.tile.sig:after{content:"";position:absolute;right:3px;top:3px;width:7px;height:7px;border-radius:50%;background:var(--red)}
+.avatar{margin-top:auto;width:28px;height:28px;border-radius:50%;background:#2F6B55}
+.panel{width:224px;flex:0 0 224px;background:var(--green);color:#CFE0D7;padding:10px 8px}
+.org{font:500 13px/28px Inter;color:#fff;padding:0 8px}
+.seek{height:30px;border-radius:9px;background:#0A2F25;margin:4px 0 12px;display:flex;align-items:center;padding:0 10px;font-size:13px;color:#5E8878}
+.grp{font-size:11px;color:#5E8878;padding:10px 8px 4px}
+.row{height:28px;display:flex;align-items:center;gap:9px;padding:0 8px;border-radius:7px;font-size:13px;color:#AFC9BD}
+.row b{width:13px;height:13px;border-radius:3px;background:#2F6B55;flex:0 0 13px}
+.row.on{background:#0A2F25;color:#fff}.row.on b{background:var(--amber)}
+.row s{margin-left:auto;text-decoration:none;color:#5E8878;font-size:12px}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.top{height:48px;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--green);color:#CFE0D7}
+.store{display:flex;align-items:center;gap:7px;font-size:13px;color:#fff;background:#0A2F25;height:30px;padding:0 11px;border-radius:9px}
+.store u{width:8px;height:8px;border-radius:50%;background:var(--amber);text-decoration:none}
+.search{flex:1;max-width:300px;height:30px;border-radius:9px;background:#0A2F25;display:flex;align-items:center;padding:0 10px;font-size:13px;color:#5E8878}
+.voor{margin-left:auto;height:30px;border-radius:9px;background:var(--amber);color:var(--deep);display:flex;align-items:center;padding:0 12px;font:500 13px Inter}
+.ico{width:30px;height:30px;border-radius:9px;background:#0A2F25}
+.canvas{flex:1;display:flex;gap:12px;padding:12px;min-height:0}
+.clock{width:396px;flex:0 0 396px;background:var(--green);border-radius:16px;padding:24px;display:flex;flex-direction:column;align-items:center;color:var(--chalk)}
+.lbl{font-size:12px;color:#8FB3A3;align-self:flex-start}
+.dial{width:300px;height:300px;border-radius:50%;margin:18px 0 10px;position:relative;
+background:conic-gradient(var(--red) 0 24%,rgba(244,241,234,.14) 24% 100%);display:grid;place-items:center}
+.dial:after{content:"";position:absolute;inset:26px;border-radius:50%;background:var(--deep)}
+.fig{position:relative;z-index:1;text-align:center}
+.fig .n{font:700 92px/.84 Archivo,Inter,sans-serif;font-stretch:100%;letter-spacing:-.04em;color:var(--amber)}
+.fig .u{font-size:13px;color:#8FB3A3;margin-top:8px}
+.clock h2{font:600 24px/28px Archivo,Inter,sans-serif;letter-spacing:-.02em;text-align:center;margin-top:6px}
+.clock p{font-size:13px;line-height:19px;color:#A8C3B6;text-align:center;margin-top:10px}
+.acts{display:flex;gap:8px;margin-top:20px}
+.btn{height:38px;border-radius:10px;display:grid;place-items:center;padding:0 18px;font:500 13px Inter}
+.pri{background:var(--amber);color:var(--deep)}.sec{background:#0A2F25;color:#A8C3B6}
+.lots{flex:1;min-width:0;background:var(--paper);border-radius:16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 1px 2px rgb(0 0 0/.04),0 10px 26px -14px rgb(0 0 0/.14)}
+.lotshead{display:flex;align-items:flex-end;gap:16px;padding:22px 24px 12px}
+.big{font:700 64px/.82 Archivo,Inter,sans-serif;letter-spacing:-.035em}
+.lotshead p{font-size:13px;color:var(--quiet);padding-bottom:5px}
+.tabs{display:flex;gap:4px;padding:0 24px 10px}
+.tab{height:28px;padding:0 12px;border-radius:8px;font-size:13px;color:var(--quiet);display:grid;place-items:center}
+.tab.on{background:var(--green);color:var(--chalk);font-weight:500}
+.hl{height:26px;display:flex;align-items:center;gap:12px;padding:0 24px;font-size:12px;color:var(--quiet)}
+.item{height:30px;display:flex;align-items:center;gap:12px;padding:0 24px;font-size:13px}
+.item:nth-child(even){background:#F3F5F1}
+.item .bar{width:52px;height:5px;border-radius:3px;background:#DCE3DC;flex:0 0 52px;overflow:hidden}
+.item .bar i{display:block;height:5px;background:var(--red)}
+.item .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .n{font-variant-numeric:tabular-nums;color:var(--quiet)}
+.item .w{font-weight:500}
+</style></head><body>
+<nav class="rail"><div class="mark"><i></i><i></i><i></i></div>
+<div class="tile on"><b></b></div><div class="tile sig"><b></b></div><div class="tile"><b></b></div><div class="tile sig"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="avatar"></div></nav>
+<aside class="panel"><div class="org">Northwind Clothing Co.</div><div class="seek">Search or do…</div>
+<div class="grp">Operations</div>
+<div class="row on"><b></b>Dashboard</div><div class="row"><b></b>Tickets<s>24</s></div><div class="row"><b></b>Chats<s>6</s></div><div class="row"><b></b>Inbox<s>41</s></div><div class="row"><b></b>Orders<s>60</s></div><div class="row"><b></b>Customers</div><div class="row"><b></b>Products</div>
+<div class="grp">Money</div><div class="row"><b></b>Chargebacks<s>5</s></div><div class="row"><b></b>Analytics</div>
+<div class="grp">Build</div><div class="row"><b></b>Automations</div><div class="row"><b></b>Marketplace</div><div class="row"><b></b>Settings</div></aside>
+<div class="main">
+<header class="top"><div class="store"><u></u>Northwind EU</div><div class="search">Search orders, tickets, customers…</div><div class="voor">3 proposals</div><div class="ico"></div><div class="ico"></div></header>
+<div class="canvas">
+  <section class="clock">
+    <div class="lbl">On the clock · closes today 18:00</div>
+    <div class="dial"><div class="fig"><div class="n">4:10</div><div class="u">left to submit Klarna evidence</div></div></div>
+    <h2>Chargeback DSP-2204 · €248,00</h2>
+    <p>Four documents gathered to 4.2 confidence. The hand does not stop until you press.</p>
+    <div class="acts"><div class="btn pri">Submit now</div><div class="btn sec">Adjust</div><div class="btn sec">Let it pass</div></div>
+  </section>
+  <section class="lots">
+    <div class="lotshead"><div class="big">17</div><p>lots on the clock before the day ends</p></div>
+    <div class="tabs"><div class="tab on">Needs you</div><div class="tab">At supplier</div><div class="tab">Waiting on customer</div><div class="tab">Done today</div></div>
+    <div class="hl"><span style="width:52px">Left</span><span style="flex:1">Lot</span><span style="width:112px">Store</span><span style="width:84px">Value</span></div>
+    <div class="item"><span class="bar"><i style="width:14%"></i></span><span class="t w">Chargeback DSP-2204 · Klarna, evidence gathered</span><span class="n" style="width:112px">Northwind EU</span><span class="n" style="width:84px">€248,00</span></div>
+    <div class="item"><span class="bar"><i style="width:22%"></i></span><span class="t w">3 orders at risk of late delivery · supplier Allure</span><span class="n" style="width:112px">Northwind US</span><span class="n" style="width:84px">€612,40</span></div>
+    <div class="item"><span class="bar"><i style="width:38%;background:#B98B2E"></i></span><span class="t">Ticket #5142 · refund asked twice, no reply sent</span><span class="n" style="width:112px">Northwind EU</span><span class="n" style="width:84px">€89,95</span></div>
+    <div class="item"><span class="bar"><i style="width:46%;background:#B98B2E"></i></span><span class="t">Customer Sofía Kim asked about a missing parcel</span><span class="n" style="width:112px">Northwind EU</span><span class="n" style="width:84px">€72,50</span></div>
+    <div class="item"><span class="bar"><i style="width:58%;background:#B98B2E"></i></span><span class="t">SKU-2148 stock will run out in 2 days</span><span class="n" style="width:112px">Northwind US</span><span class="n" style="width:84px">€1.204,00</span></div>
+    <div class="item"><span class="bar"><i style="width:64%;background:#B98B2E"></i></span><span class="t">Refund template replies 18% under average</span><span class="n" style="width:112px">All stores</span><span class="n" style="width:84px">—</span></div>
+    <div class="item"><span class="bar"><i style="width:80%;background:#4F8A6B"></i></span><span class="t">Order #10418 shipped · DHL, tracking sent</span><span class="n" style="width:112px">Northwind EU</span><span class="n" style="width:84px">€134,00</span></div>
+    <div class="item"><span class="bar"><i style="width:92%;background:#4F8A6B"></i></span><span class="t">Payout €4.180,00 confirmed by Stripe</span><span class="n" style="width:112px">All stores</span><span class="n" style="width:84px">€4.180,00</span></div>
+    <div class="item"><span class="bar"></span><span class="t">Northwind UK is not connected yet</span><span class="n" style="width:112px">Northwind UK</span><span class="n" style="width:84px">—</span></div>
+    <div class="item"><span class="bar"><i style="width:100%;background:#4F8A6B"></i></span><span class="t">Automation “Late supplier chase” ran on 11 orders</span><span class="n" style="width:112px">All stores</span><span class="n" style="width:84px">—</span></div>
+  </section>
+</div></div></body></html>

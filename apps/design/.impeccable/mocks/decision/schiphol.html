@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Insyte — Terminal Yellow</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100,500;100,600;100,700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--yellow:#FFD500;--black:#0B0B0B;--white:#fff;--red:#D32F2F;--amber:#B98B2E;--ground:#F4F4F2;--quiet:#6B6B68}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{font:400 14px/20px Inter,system-ui,sans-serif;color:var(--black);background:var(--ground);display:flex}
+.rail{width:52px;flex:0 0 52px;background:var(--black);display:flex;flex-direction:column;align-items:center;padding:10px 0;gap:4px}
+.mark{width:26px;height:26px;position:relative;margin-bottom:14px}
+.mark i{position:absolute;width:11px;height:11px;border-radius:2px;background:var(--yellow)}
+.mark i:nth-child(1){left:0;top:0}.mark i:nth-child(2){left:7px;top:7px;background:#fff}.mark i:nth-child(3){left:14px;top:14px;background:#5A5A58}
+.tile{width:32px;height:32px;border-radius:7px;display:grid;place-items:center}.tile b{width:14px;height:14px;border-radius:2px;background:#5A5A58}
+.tile.on{background:var(--yellow)}.tile.on b{background:var(--black)}
+.tile.sig{position:relative}.tile.sig:after{content:"";position:absolute;right:3px;top:3px;width:7px;height:7px;border-radius:50%;background:var(--red)}
+.avatar{margin-top:auto;width:28px;height:28px;border-radius:50%;background:#3A3A38}
+.panel{width:224px;flex:0 0 224px;background:var(--black);color:#D4D4D2;padding:10px 8px}
+.org{font:500 13px/28px Inter;color:#fff;padding:0 8px}
+.seek{height:30px;border-radius:7px;background:#1C1C1A;margin:4px 0 12px;display:flex;align-items:center;padding:0 10px;font-size:13px;color:#6B6B68}
+.grp{font-size:11px;color:#6B6B68;padding:10px 8px 4px}
+.row{height:28px;display:flex;align-items:center;gap:9px;padding:0 8px;border-radius:6px;font-size:13px;color:#B4B4B1}
+.row b{width:13px;height:13px;border-radius:2px;background:#4A4A48;flex:0 0 13px}
+.row.on{background:var(--yellow);color:var(--black);font-weight:500}.row.on b{background:var(--black)}
+.row s{margin-left:auto;text-decoration:none;color:#6B6B68;font-size:12px}
+.row.on s{color:var(--black)}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.top{height:48px;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--black);color:#D4D4D2}
+.store{display:flex;align-items:center;gap:7px;font-size:13px;color:#fff;background:#1C1C1A;height:30px;padding:0 11px;border-radius:7px}
+.store u{width:8px;height:8px;border-radius:50%;background:var(--yellow);text-decoration:none}
+.search{flex:1;max-width:300px;height:30px;border-radius:7px;background:#1C1C1A;display:flex;align-items:center;padding:0 10px;font-size:13px;color:#6B6B68}
+.voor{margin-left:auto;height:30px;border-radius:7px;background:var(--yellow);color:var(--black);display:flex;align-items:center;padding:0 12px;font:500 13px Inter}
+.ico{width:30px;height:30px;border-radius:7px;background:#1C1C1A}
+.work{flex:1;display:flex;flex-direction:column;min-height:0;padding:12px;gap:12px}
+.band{background:var(--yellow);border-radius:4px;padding:16px 20px;display:flex;align-items:center;gap:22px}
+.band .pict{width:52px;height:52px;background:var(--black);border-radius:3px;flex:0 0 52px;display:grid;place-items:center}
+.band .pict span{width:22px;height:22px;background:var(--yellow);border-radius:2px;display:block}
+.band .msg{flex:1;min-width:0}
+.band .msg h1{font:600 30px/34px Archivo,Inter,sans-serif;letter-spacing:-.028em}
+.band .msg p{font-size:14px;margin-top:5px}
+.band .gate{text-align:right}
+.band .gate .n{font:700 76px/.82 Archivo,Inter,sans-serif;letter-spacing:-.04em}
+.band .gate .u{font-size:13px;margin-top:7px}
+.below{flex:1;display:flex;gap:12px;min-height:0}
+.queue{flex:1;min-width:0;background:var(--white);border-radius:4px;display:flex;flex-direction:column;overflow:hidden}
+.qhead{display:flex;align-items:center;gap:4px;padding:16px 20px 10px}
+.qhead h2{font:500 16px/20px Inter;margin-right:auto}
+.tab{height:28px;padding:0 12px;border-radius:4px;font-size:13px;color:var(--quiet);display:grid;place-items:center}
+.tab.on{background:var(--black);color:#fff;font-weight:500}
+.hl{height:26px;display:flex;align-items:center;gap:12px;padding:0 20px;font-size:12px;color:var(--quiet)}
+.item{height:32px;display:flex;align-items:center;gap:12px;padding:0 20px;font-size:13px}
+.item:nth-child(even){background:#F7F7F5}
+.item .sq{width:14px;height:14px;border-radius:2px;flex:0 0 14px}
+.item .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .n{font-variant-numeric:tabular-nums;color:var(--quiet)}
+.item .min{font-variant-numeric:tabular-nums;font-weight:500}
+.item.lead{background:var(--black);color:#fff}
+.item.lead .n{color:#A4A4A1}
+.side{width:360px;flex:0 0 360px;display:flex;flex-direction:column;gap:12px}
+.flap{background:var(--black);border-radius:4px;padding:18px 20px;color:#fff}
+.flap .lbl{font-size:12px;color:var(--yellow);margin-bottom:12px}
+.flap h3{font:600 20px/25px Archivo,Inter,sans-serif;letter-spacing:-.02em}
+.flap .rowx{display:flex;justify-content:space-between;font-size:13px;color:#B4B4B1;padding:7px 0;font-variant-numeric:tabular-nums}
+.flap .acts{display:flex;gap:8px;margin-top:14px}
+.btn{height:36px;border-radius:4px;display:grid;place-items:center;padding:0 16px;font:500 13px Inter}
+.pri{background:var(--yellow);color:var(--black)}.sec{background:#2A2A28;color:#D4D4D2}
+.stats{background:var(--white);border-radius:4px;padding:18px 20px;flex:1}
+.stats .lbl{font-size:12px;color:var(--quiet);margin-bottom:14px}
+.stats .big{font:700 46px/.9 Archivo,Inter,sans-serif;letter-spacing:-.035em}
+.stats .sub{font-size:13px;color:var(--quiet);margin-top:6px}
+.spark{height:46px;margin-top:18px;display:flex;align-items:flex-end;gap:3px}
+.spark i{flex:1;background:#DCDCDA;border-radius:1px}
+</style></head><body>
+<nav class="rail"><div class="mark"><i></i><i></i><i></i></div>
+<div class="tile on"><b></b></div><div class="tile sig"><b></b></div><div class="tile"><b></b></div><div class="tile sig"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="avatar"></div></nav>
+<aside class="panel"><div class="org">Northwind Clothing Co.</div><div class="seek">Search or do…</div>
+<div class="grp">Operations</div>
+<div class="row on"><b></b>Dashboard</div><div class="row"><b></b>Tickets<s>24</s></div><div class="row"><b></b>Chats<s>6</s></div><div class="row"><b></b>Inbox<s>41</s></div><div class="row"><b></b>Orders<s>60</s></div><div class="row"><b></b>Customers</div><div class="row"><b></b>Products</div>
+<div class="grp">Money</div><div class="row"><b></b>Chargebacks<s>5</s></div><div class="row"><b></b>Analytics</div>
+<div class="grp">Build</div><div class="row"><b></b>Automations</div><div class="row"><b></b>Marketplace</div><div class="row"><b></b>Settings</div></aside>
+<div class="main">
+<header class="top"><div class="store"><u></u>Northwind EU</div><div class="search">Search orders, tickets, customers…</div><div class="voor">3 proposals</div><div class="ico"></div><div class="ico"></div></header>
+<div class="work">
+  <div class="band">
+    <div class="pict"><span></span></div>
+    <div class="msg"><h1>Klarna evidence, submit before 18:00</h1><p>Chargeback DSP-2204 · €248,00 · Northwind EU · 4 of 4 documents gathered</p></div>
+    <div class="gate"><div class="n">4:10</div><div class="u">left on the window</div></div>
+  </div>
+  <div class="below">
+    <section class="queue">
+      <div class="qhead"><h2>17 need you before the day ends</h2><div class="tab on">Needs you</div><div class="tab">At supplier</div><div class="tab">Waiting</div><div class="tab">Done</div></div>
+      <div class="hl"><span style="width:14px"></span><span style="flex:1">Record</span><span style="width:112px">Store</span><span style="width:84px">Value</span><span style="width:62px">Left</span></div>
+      <div class="item lead"><span class="sq" style="background:var(--red)"></span><span class="t">Chargeback DSP-2204 · Klarna, evidence gathered</span><span class="n" style="width:112px">Northwind EU</span><span class="n" style="width:84px">€248,00</span><span class="min" style="width:62px">4h 10m</span></div>
+      <div class="item"><span class="sq" style="background:var(--red)"></span><span class="t">3 orders at risk of late delivery · supplier Allure</span><span class="n" style="width:112px">Northwind US</span><span class="n" style="width:84px">€612,40</span><span class="min" style="width:62px">today</span></div>
+      <div class="item"><span class="sq" style="background:var(--amber)"></span><span class="t">Ticket #5142 · refund asked twice, no reply sent</span><span class="n" style="width:112px">Northwind EU</span><span class="n" style="width:84px">€89,95</span><span class="min" style="width:62px">1d</span></div>
+      <div class="item"><span class="sq" style="background:var(--amber)"></span><span class="t">Customer Sofía Kim asked about a missing parcel</span><span class="n" style="width:112px">Northwind EU</span><span class="n" style="width:84px">€72,50</span><span class="min" style="width:62px">6h</span></div>
+      <div class="item"><span class="sq" style="background:var(--amber)"></span><span class="t">SKU-2148 stock will run out in 2 days</span><span class="n" style="width:112px">Northwind US</span><span class="n" style="width:84px">€1.204,00</span><span class="min" style="width:62px">2d</span></div>
+      <div class="item"><span class="sq" style="background:var(--amber)"></span><span class="t">Refund template replies 18% under average</span><span class="n" style="width:112px">All stores</span><span class="n" style="width:84px">—</span><span class="min" style="width:62px">1d</span></div>
+      <div class="item"><span class="sq" style="background:#4F8A6B"></span><span class="t">Order #10418 shipped · DHL, tracking sent</span><span class="n" style="width:112px">Northwind EU</span><span class="n" style="width:84px">€134,00</span><span class="min" style="width:62px">—</span></div>
+      <div class="item"><span class="sq" style="background:#4F8A6B"></span><span class="t">Payout €4.180,00 confirmed by Stripe</span><span class="n" style="width:112px">All stores</span><span class="n" style="width:84px">€4.180,00</span><span class="min" style="width:62px">—</span></div>
+      <div class="item"><span class="sq" style="background:#9A9A97"></span><span class="t">Northwind UK is not connected yet</span><span class="n" style="width:112px">Northwind UK</span><span class="n" style="width:84px">—</span><span class="min" style="width:62px">—</span></div>
+      <div class="item"><span class="sq" style="background:#4F8A6B"></span><span class="t">Automation “Late supplier chase” ran on 11 orders</span><span class="n" style="width:112px">All stores</span><span class="n" style="width:84px">—</span><span class="min" style="width:62px">—</span></div>
+    </section>
+    <div class="side">
+      <div class="flap"><div class="lbl">Proposal · 4.2 confidence</div>
+        <h3>Submit the gathered evidence</h3>
+        <div class="rowx"><span>Carrier scan</span><span>attached</span></div>
+        <div class="rowx"><span>Delivery photo</span><span>attached</span></div>
+        <div class="rowx"><span>Customer replies</span><span>2 attached</span></div>
+        <div class="rowx"><span>Original invoice</span><span>attached</span></div>
+        <div class="acts"><div class="btn pri">Submit</div><div class="btn sec">Adjust</div><div class="btn sec">Dismiss</div></div>
+      </div>
+      <div class="stats"><div class="lbl">Revenue, last 14 days · all stores</div>
+        <div class="big">€38.412</div><div class="sub">up 6,2% on the fortnight before</div>
+        <div class="spark"><i style="height:38%"></i><i style="height:52%"></i><i style="height:44%"></i><i style="height:61%"></i><i style="height:49%"></i><i style="height:72%"></i><i style="height:66%"></i><i style="height:58%"></i><i style="height:81%"></i><i style="height:74%"></i><i style="height:69%"></i><i style="height:88%"></i><i style="height:79%"></i><i style="height:100%;background:#0B0B0B"></i></div>
+      </div>
+    </div>
+  </div>
+</div></div></body></html>

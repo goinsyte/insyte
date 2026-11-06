@@ -1,0 +1,5 @@
+/*
+ * The landing page's stylesheet lives beside the page, in `@insyte/ui/marketing/landing.css`, so the
+ * design canvas renders the same thing. It is built on `@insyte/tokens` and imports Tailwind itself.
+ */
+@import "@insyte/ui/marketing/landing.css";

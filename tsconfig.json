@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.base.json",
+  "include": [],
+  /*
+   * Every project, in dependency order. A package is added here the moment it exists, because
+   * `tsc -b` only checks what this list names — a package missing from it is a package nothing
+   * typechecks, which looks identical to a package that passes.
+   *
+   * The apps are not here: `apps/design` (two programs, `tsconfig.json` and `tsconfig.brand.json`)
+   * and `apps/marketing` are non-composite single projects, because each owns a generated route
+   * tree that needs its own module resolution. `bun run check` runs `tsc -p` over them by name, in
+   * the same command.
+   */
+  "references": [
+    { "path": "./packages/tokens" },
+    { "path": "./packages/ui" }
+  ]
+}

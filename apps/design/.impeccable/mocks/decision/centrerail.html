@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Insyte — Centre Rail</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--glacier:#F2F2F2;--mist:#FAFAFA;--paper:#fff;--arc:#3E2BD4;--arctint:#E7E8F8;--abyss:#251A86;
+--ink:#2F2F2F;--ink2:#5E5E5E;--ink3:#7E7E7E;--ink4:#9B9B9B;--hair:#DCDCDC;--red:#C5392B;--amber:#8C6A1E;--green:#1E7A5E}
+*{margin:0;padding:0;box-sizing:border-box;border-radius:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{font:400 14px/21px Inter,system-ui,sans-serif;color:var(--ink);background:var(--glacier);display:flex}
+.rail{width:52px;flex:0 0 52px;background:var(--glacier);border-right:1px solid var(--hair);display:flex;flex-direction:column;align-items:center;padding:10px 0;gap:2px}
+.mark{width:24px;height:24px;position:relative;margin-bottom:14px}
+.mark i{position:absolute;width:10px;height:10px;background:var(--ink)}
+.mark i:nth-child(1){left:0;top:0}.mark i:nth-child(2){left:7px;top:7px;background:var(--arc)}.mark i:nth-child(3){left:14px;top:14px;background:var(--ink4)}
+.tile{width:34px;height:28px;display:grid;place-items:center}
+.tile b{width:12px;height:12px;background:var(--ink4)}
+.tile.on b{background:var(--arc)}
+.tile.on{box-shadow:inset 2px 0 0 var(--arc)}
+.panel{width:224px;flex:0 0 224px;border-right:1px solid var(--hair);padding:10px 0;background:var(--glacier)}
+.org{font:500 13px/26px Inter;padding:0 14px}
+.seek{height:28px;border:1px solid var(--hair);background:var(--paper);margin:6px 14px 14px;display:flex;align-items:center;padding:0 8px;font-size:13px;color:var(--ink4)}
+.grp{font-size:12px;color:var(--ink4);padding:12px 14px 3px}
+.row{height:26px;display:flex;align-items:center;gap:9px;padding:0 14px;font-size:13px;color:var(--ink2)}
+.row b{width:11px;height:11px;background:var(--ink4);flex:0 0 11px}
+.row.on{background:var(--arctint);color:var(--arc);font-weight:500;box-shadow:inset 2px 0 0 var(--arc)}.row.on b{background:var(--arc)}
+.row s{margin-left:auto;text-decoration:none;color:var(--ink4);font-size:13px;font-variant-numeric:tabular-nums}
+.main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--paper)}
+.top{height:46px;display:flex;align-items:center;gap:10px;padding:0 20px;border-bottom:1px solid var(--hair)}
+.store{display:flex;align-items:center;gap:8px;font-size:13px;height:26px;padding:0 9px;border:1px solid var(--hair)}
+.store u{width:7px;height:7px;background:var(--green);text-decoration:none}
+.search{flex:1;max-width:300px;height:26px;border:1px solid var(--hair);display:flex;align-items:center;padding:0 8px;font-size:13px;color:var(--ink4)}
+.voor{margin-left:auto;height:28px;background:var(--ink);color:var(--paper);display:flex;align-items:center;padding:0 12px;font:500 13px Inter}
+.ico{width:28px;height:28px;border:1px solid var(--hair)}
+/* two work columns twinned around a fixed centre rail of keys, inside a wide margin */
+.sheet{flex:1;display:flex;min-height:0;padding:30px 0 0}
+.margin{width:112px;flex:0 0 112px;padding:4px 16px 0 20px}
+.margin .mk{font-size:13px;color:var(--ink3);padding:3px 0}
+.margin .mk.on{color:var(--arc)}
+.col{flex:1;min-width:0;padding-right:8px}
+.colhead{display:flex;align-items:baseline;gap:12px;padding:0 0 10px}
+.colhead .big{font:400 50px/.82 Inter;letter-spacing:-.04em}
+.colhead p{font-size:13px;color:var(--ink2)}
+.ruled{border-top:1px solid var(--ink)}
+.item{height:30px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--hair);font-size:13px}
+.item .d{width:11px;height:11px;flex:0 0 11px;border:1px solid var(--ink3)}
+.item .d.f{background:var(--ink)}
+.item .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .n{font-variant-numeric:tabular-nums;color:var(--ink2);width:76px;text-align:right}
+.item.spent{color:var(--ink4)}
+.item.spent .t{text-decoration:line-through}
+.item.sel{background:var(--arctint);box-shadow:inset 2px 0 0 var(--arc)}
+/* the rail: the one moving part */
+.centre{width:92px;flex:0 0 92px;border-left:1px solid var(--ink);border-right:1px solid var(--ink);padding:4px 0;display:flex;flex-direction:column;align-items:center;gap:0}
+.key{width:100%;height:30px;display:grid;place-items:center;font-size:13px;color:var(--ink3);border-bottom:1px solid var(--hair)}
+.key.on{background:var(--arc);color:var(--paper);font-weight:500}
+.key.detent{box-shadow:inset 0 -2px 0 var(--ink)}
+.apparatus{width:316px;flex:0 0 316px;padding:4px 20px 0 16px}
+.apparatus .lbl{font-size:12px;color:var(--arc);padding-bottom:8px}
+.apparatus h3{font:400 21px/26px Inter;letter-spacing:-.018em;padding-bottom:10px;border-bottom:1px solid var(--ink)}
+.apparatus p{font-size:13px;line-height:20px;color:var(--ink2);padding:10px 0}
+.kv div{display:flex;font-size:13px;padding:4px 0;border-bottom:1px solid var(--hair);font-variant-numeric:tabular-nums}
+.kv div b{width:120px;font-weight:400;color:var(--ink3)}
+.acts{display:flex;gap:0;margin-top:16px}
+.btn{height:32px;display:grid;place-items:center;padding:0 14px;font:500 13px Inter;background:var(--ink);color:var(--paper)}
+.btn.o{background:var(--paper);color:var(--ink);border:1px solid var(--ink)}
+</style></head><body>
+<nav class="rail"><div class="mark"><i></i><i></i><i></i></div>
+<div class="tile on"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div></nav>
+<aside class="panel"><div class="org">Northwind Clothing Co.</div><div class="seek">Search or do…</div>
+<div class="grp">Operations</div>
+<div class="row on"><b></b>Dashboard</div><div class="row"><b></b>Tickets<s>24</s></div><div class="row"><b></b>Chats<s>6</s></div><div class="row"><b></b>Inbox<s>41</s></div><div class="row"><b></b>Orders<s>60</s></div><div class="row"><b></b>Customers</div><div class="row"><b></b>Products</div>
+<div class="grp">Money</div><div class="row"><b></b>Chargebacks<s>5</s></div><div class="row"><b></b>Analytics</div>
+<div class="grp">Build</div><div class="row"><b></b>Automations</div><div class="row"><b></b>Marketplace</div><div class="row"><b></b>Settings</div></aside>
+<div class="main">
+<header class="top"><div class="store"><u></u>Northwind EU</div><div class="search">Search orders, tickets, customers…</div><div class="voor">3 proposals</div><div class="ico"></div><div class="ico"></div></header>
+<div class="sheet">
+  <div class="margin"><div class="mk on">Needs you</div><div class="mk">Money</div><div class="mk">Customers</div><div class="mk">Supply</div><div class="mk">Done today</div></div>
+  <div class="col">
+    <div class="colhead"><div class="big">17</div><p>need you before the day ends</p></div>
+    <div class="ruled">
+      <div class="item sel"><span class="d f"></span><span class="t">Chargeback DSP-2204 · Klarna, evidence gathered</span><span class="n">€248,00</span></div>
+      <div class="item"><span class="d f"></span><span class="t">3 orders at risk of late delivery · Allure</span><span class="n">€612,40</span></div>
+      <div class="item"><span class="d"></span><span class="t">Ticket #5142 · refund asked twice</span><span class="n">€89,95</span></div>
+      <div class="item"><span class="d"></span><span class="t">Sofía Kim asked about a missing parcel</span><span class="n">€72,50</span></div>
+      <div class="item"><span class="d"></span><span class="t">SKU-2148 runs out in 2 days</span><span class="n">€1.204,00</span></div>
+      <div class="item"><span class="d"></span><span class="t">Refund template 18% under average</span><span class="n">—</span></div>
+      <div class="item spent"><span class="d f"></span><span class="t">Order #10418 shipped · DHL</span><span class="n">€134,00</span></div>
+      <div class="item spent"><span class="d f"></span><span class="t">Payout confirmed by Stripe</span><span class="n">€4.180,00</span></div>
+    </div>
+  </div>
+  <div class="centre">
+    <div class="key on">All</div><div class="key detent">Due</div><div class="key">€</div><div class="key">Store</div><div class="key detent">Age</div><div class="key">Who</div><div class="key">Tag</div><div class="key">⌘K</div>
+  </div>
+  <div class="col">
+    <div class="colhead"><div class="big">5</div><p>open chargebacks, €1.204 at stake</p></div>
+    <div class="ruled">
+      <div class="item"><span class="d f"></span><span class="t">DSP-2204 · Klarna · evidence ready</span><span class="n">4h 10m</span></div>
+      <div class="item"><span class="d"></span><span class="t">DSP-2198 · Stripe · awaiting bank</span><span class="n">3d</span></div>
+      <div class="item"><span class="d"></span><span class="t">DSP-2187 · Klarna · customer replied</span><span class="n">5d</span></div>
+      <div class="item spent"><span class="d f"></span><span class="t">DSP-2160 · won</span><span class="n">—</span></div>
+      <div class="item spent"><span class="d"></span><span class="t">DSP-2144 · lost</span><span class="n">—</span></div>
+    </div>
+  </div>
+  <div class="apparatus">
+    <div class="lbl">Proposal · 4.2 confidence</div>
+    <h3>Submit the Klarna evidence on DSP-2204</h3>
+    <p>Four documents gathered for you. Nothing is filed until you file it.</p>
+    <div class="kv"><div><b>Window closes</b>today, 18:00</div><div><b>At risk</b>€248,00</div><div><b>Store</b>Northwind EU</div><div><b>Evidence</b>4 of 4</div></div>
+    <div class="acts"><div class="btn">File it</div><div class="btn o">Adjust</div><div class="btn o">Discard</div></div>
+  </div>
+</div></div></body></html>

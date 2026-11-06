@@ -1,0 +1,43 @@
+{
+  /*
+   * The ported pieces: the mark (`InsyteMark` = `MarkDrift`, which the product renders) and the contact
+   * address.
+   *
+   * Its own project, with two strictness options turned off, because this code is REPRODUCED rather
+   * than authored here: the legacy app compiled without `noUncheckedIndexedAccess` and without
+   * `exactOptionalPropertyTypes`, and every error they raise in it is a place where the original
+   * indexes a literal array or forwards an optional prop. Satisfying them would mean editing a port,
+   * which is the one thing a port may not do.
+   *
+   * The landing page used to be here too. It was redesigned on `@insyte/tokens` on 28 October 2026,
+   * so it is this repo's own code now and `tsconfig.src.json` holds it to the full set.
+   *
+   * The line is kept visible rather than relaxed repo-wide: `tsconfig.src.json` still holds this
+   * package's OWN code — the generated primitives, the token kit, `cn` — to the full set.
+   */
+  "extends": "../../tsconfig.base.json",
+  "include": [
+    "src/brand/mark.tsx",
+    "src/brand/marks.tsx",
+    "src/lib/contact-email.tsx",
+    // `cn`, which those three read. Listed rather than referenced: it is authored here and stays in
+    // `tsconfig.src.json` under the full strictness, and a file may belong to two noEmit projects.
+    "src/lib/utils.ts"
+  ],
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "tsBuildInfoFile": ".tsbuildinfo/ported.tsbuildinfo",
+    "jsx": "react-jsx",
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
+    /*
+     * `contact-email.tsx` reads `import.meta.env`, which is Vite's shape rather than Node's, and the
+     * legacy app typechecked with exactly this reference. A hand-written ambient declaration was
+     * tried first and does not merge: `moduleDetection: "force"` in the base config makes every file
+     * a module, so a `declare global` in a `.d.ts` of a `"type": "module"` package is scoped to
+     * itself. Hence `vite` as a devDependency for a types-only reference.
+     */
+    "types": ["vite/client"]
+  }
+}

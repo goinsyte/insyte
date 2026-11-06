@@ -1,0 +1,21 @@
+{
+  "source": [
+    "package.json",
+    "packages/*/*/package.json",
+    "apps/*/package.json",
+    "evals/package.json",
+    "scripts/package.json"
+  ],
+  "versionGroups": [
+    {
+      "label": "Bun's catalog is the single source of truth for shared versions; syncpack cannot range-compare `catalog:`",
+      "dependencies": [
+        "**"
+      ],
+      "specifierTypes": [
+        "alias"
+      ],
+      "isIgnored": true
+    }
+  ]
+}

@@ -1,0 +1,120 @@
+import { Link } from "@tanstack/react-router";
+import { Fragment, type ReactNode } from "react";
+import { type ChatRecordRef, chargebacks, orders } from "../../data-source";
+
+const ORDER_ID = new Map(orders.map((o) => [o.number, o.id]));
+const CASE_ID = new Map(chargebacks.map((c) => [c.case_number, c.id]));
+
+/**
+ * A chat message's text, formatted the way the composer writes it: **bold**, _italic_, ~~struck~~,
+ * `code`, [a link](https://…), a bare https:// link, "- " lines as a list, and @mentions of the
+ * team marked. An order number (SO-12204) or a chargeback (DSP-2210) becomes a link to that record,
+ * on the reader's own side of the product; in the team chat it opens beside the conversation. Nothing else is interpreted; what was typed is what shows.
+ */
+const INLINE = /(\*\*[^*]+\*\*|~~[^~]+~~|`[^`]+`|_[^_\s][^_]*_|\[[^\]]+\]\(https?:\/\/[^)\s]+\)|https?:\/\/[^\s)]+|@[\p{L}\p{N}_]+|\bSO-\d{5}\b|\bDSP-\d{4}\b)/gu;
+
+const CHIP = "inline-flex h-5 translate-y-[-1px] items-center rounded-[5px] bg-arc-tint px-1.5 align-middle font-medium text-arc-ink text-sm leading-none hover:bg-arc/15";
+
+function inline(text: string, handles: ReadonlySet<string>, key: string, orderBase: string, onRecord?: (ref: ChatRecordRef) => void): ReactNode[] {
+	return text.split(INLINE).map((part, i) => {
+		const k = `${key}-${i}`;
+		const orderId = /^SO-\d{5}$/.test(part) ? ORDER_ID.get(part) : undefined;
+		const caseId = /^DSP-\d{4}$/.test(part) ? CASE_ID.get(part) : undefined;
+		/* In the team chat a record opens beside the conversation instead of leaving it. */
+		if (onRecord && (orderId || caseId))
+			return (
+				<button key={k} type="button" onClick={() => onRecord(orderId ? { kind: "order", id: orderId } : { kind: "chargeback", id: caseId as string })} className={CHIP}>
+					{part}
+				</button>
+			);
+		if (orderId)
+			return (
+				<Link
+					key={k}
+					to={`${orderBase}/${orderId}` as never}
+					className={CHIP}
+				>
+					{part}
+				</Link>
+			);
+		if (part.startsWith("**") && part.endsWith("**") && part.length > 4)
+			return (
+				<strong key={k} className="font-medium text-ink">
+					{part.slice(2, -2)}
+				</strong>
+			);
+		if (part.startsWith("~~") && part.endsWith("~~") && part.length > 4) return <s key={k}>{part.slice(2, -2)}</s>;
+		if (part.startsWith("`") && part.endsWith("`") && part.length > 2)
+			return (
+				<code key={k} className="rounded-md bg-ink/6 px-1.5 py-px font-sans font-medium text-sm text-ink-2">
+					{part.slice(1, -1)}
+				</code>
+			);
+		if (/^_[^_]+_$/.test(part)) return <em key={k}>{part.slice(1, -1)}</em>;
+		const link = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(part);
+		if (link)
+			return (
+				<a key={k} href={link[2]} target="_blank" rel="noreferrer" className="text-arc-ink underline underline-offset-2">
+					{link[1]}
+				</a>
+			);
+		if (/^https?:\/\//.test(part))
+			return (
+				<a key={k} href={part} target="_blank" rel="noreferrer" className="break-all text-arc-ink underline underline-offset-2">
+					{part}
+				</a>
+			);
+		if (part.startsWith("@") && handles.has(part.slice(1).toLowerCase()))
+			return (
+				<span key={k} className="rounded-sm bg-arc-tint px-0.5 font-medium text-arc-ink">
+					{part}
+				</span>
+			);
+		return <Fragment key={k}>{part}</Fragment>;
+	});
+}
+
+export function MessageBody({
+	body,
+	handles,
+	orderBase = "/orders",
+	onRecord,
+}: {
+	body: string;
+	handles: ReadonlySet<string>;
+	orderBase?: string;
+	onRecord?: (ref: ChatRecordRef) => void;
+}) {
+	const blocks: Array<{ kind: "p"; lines: string[] } | { kind: "ul"; items: string[] }> = [];
+	for (const line of body.split("\n")) {
+		const item = /^\s*[-•]\s+(.*)$/.exec(line);
+		const last = blocks[blocks.length - 1];
+		if (item) {
+			if (last?.kind === "ul") last.items.push(item[1] ?? "");
+			else blocks.push({ kind: "ul", items: [item[1] ?? ""] });
+		} else if (last?.kind === "p") last.lines.push(line);
+		else blocks.push({ kind: "p", lines: [line] });
+	}
+	return (
+		<div className="flex flex-col gap-1 text-base text-ink/90 leading-[1.6]">
+			{blocks.map((b, i) =>
+				b.kind === "ul" ? (
+					<ul key={i} className="flex list-disc flex-col gap-0.5 pl-5 marker:text-ink-3">
+						{b.items.map((it, j) => (
+							<li key={j}>{inline(it, handles, `${i}-${j}`, orderBase, onRecord)}</li>
+						))}
+					</ul>
+				) : (
+					<p key={i} className="whitespace-pre-wrap">
+						{b.lines.map((l, j) => (
+							<Fragment key={j}>
+								{j > 0 ? "\n" : null}
+								{inline(l, handles, `${i}-${j}`, orderBase, onRecord)}
+							</Fragment>
+						))}
+					</p>
+				),
+			)}
+		</div>
+	);
+}

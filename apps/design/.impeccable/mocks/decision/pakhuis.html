@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Insyte — Het Pakhuis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,600;125,700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--lime:#F2EEE6;--tar:#15110E;--brick:#9A5B38;--menie:#D14A20;--paper:#FBF9F5;--ink:#15110E;--quiet:#6E6358}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{font:400 14px/20px Inter,system-ui,sans-serif;color:var(--ink);background:var(--lime);display:flex}
+.rail{width:52px;background:var(--tar);display:flex;flex-direction:column;align-items:center;padding:10px 0;gap:4px;flex:0 0 52px}
+.mark{width:26px;height:26px;position:relative;margin-bottom:14px}
+.mark i{position:absolute;width:11px;height:11px;border-radius:3px;background:var(--menie)}
+.mark i:nth-child(1){left:0;top:0}.mark i:nth-child(2){left:7px;top:7px;background:#E8DFD2}.mark i:nth-child(3){left:14px;top:14px;background:var(--brick)}
+.tile{width:32px;height:32px;border-radius:9px;display:grid;place-items:center}
+.tile b{width:14px;height:14px;border-radius:3px;background:#8A7F72}
+.tile.on{background:var(--brick)}.tile.on b{background:var(--lime)}
+.tile.sig{position:relative}.tile.sig:after{content:"";position:absolute;right:3px;top:3px;width:7px;height:7px;border-radius:50%;background:var(--menie)}
+.avatar{margin-top:auto;width:28px;height:28px;border-radius:50%;background:var(--brick)}
+.panel{width:224px;flex:0 0 224px;background:var(--tar);color:#E8DFD2;padding:10px 8px}
+.org{font:500 13px/28px Inter;color:#fff;padding:0 8px}
+.seek{height:30px;border-radius:9px;background:#241D18;margin:4px 0 12px;display:flex;align-items:center;padding:0 10px;font-size:13px;color:#8A7F72}
+.grp{font-size:11px;color:#6E6358;padding:10px 8px 4px}
+.row{height:28px;display:flex;align-items:center;gap:9px;padding:0 8px;border-radius:7px;font-size:13px;color:#C8BCAC}
+.row b{width:13px;height:13px;border-radius:3px;background:#5A5048;flex:0 0 13px}
+.row.on{background:#2C231C;color:#fff}.row.on b{background:var(--menie)}
+.row s{margin-left:auto;text-decoration:none;color:#8A7F72;font-size:12px}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.top{height:48px;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--tar);color:#E8DFD2}
+.store{display:flex;align-items:center;gap:7px;font-size:13px;color:#fff;background:#241D18;height:30px;padding:0 11px;border-radius:9px}
+.store u{width:8px;height:8px;border-radius:50%;background:#4F8A6B;text-decoration:none}
+.search{flex:1;max-width:300px;height:30px;border-radius:9px;background:#241D18;display:flex;align-items:center;padding:0 10px;font-size:13px;color:#6E6358}
+.voor{margin-left:auto;height:30px;border-radius:9px;background:var(--menie);color:#fff;display:flex;align-items:center;padding:0 12px;gap:8px;font:500 13px Inter}
+.ico{width:30px;height:30px;border-radius:9px;background:#241D18}
+.canvas{flex:1;display:flex;gap:12px;padding:12px;min-height:0}
+.bay{background:var(--paper);border-radius:16px;box-shadow:0 1px 2px rgb(0 0 0/.04),0 10px 26px -14px rgb(0 0 0/.14);overflow:hidden;display:flex;flex-direction:column}
+.queue{flex:1;min-width:0}
+.bayhead{display:flex;align-items:flex-end;gap:16px;padding:22px 24px 14px}
+.big{font:700 72px/.82 Archivo,Inter,sans-serif;font-stretch:125%;letter-spacing:-.035em}
+.bayhead p{font-size:13px;color:var(--quiet);padding-bottom:6px}
+.tabs{display:flex;gap:4px;padding:0 24px 10px}
+.tab{height:28px;padding:0 12px;border-radius:8px;font-size:13px;color:var(--quiet);display:grid;place-items:center}
+.tab.on{background:var(--ink);color:var(--paper);font-weight:500}
+.hl{height:28px;display:flex;align-items:center;gap:12px;padding:0 24px;font-size:13px;color:var(--quiet)}
+.item{height:34px;display:flex;align-items:center;gap:12px;padding:0 24px;font-size:13px}
+.item:nth-child(even){background:#F6F2EA}
+.item u{width:6px;height:6px;border-radius:50%;text-decoration:none;flex:0 0 6px}
+.item .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .n{font-variant-numeric:tabular-nums;color:var(--quiet)}
+.item .w{font-weight:500}
+.hoist{width:420px;flex:0 0 420px;background:var(--tar);border-radius:16px;position:relative;overflow:hidden;display:flex;flex-direction:column;
+background-image:repeating-linear-gradient(0deg,rgba(232,223,210,.07) 0 1px,transparent 1px 16px),repeating-linear-gradient(90deg,rgba(232,223,210,.07) 0 1px,transparent 1px 16px)}
+.beam{height:14px;background:var(--brick);margin:0}
+.line{position:absolute;left:50%;top:14px;width:1px;height:92px;background:rgba(232,223,210,.55)}
+.load{margin:106px 20px 0;background:#1F1813;border-radius:14px;padding:20px}
+.lbl{font-size:12px;color:#A4866B;margin-bottom:12px}
+.load h2{font:600 26px/30px Archivo,Inter,sans-serif;font-stretch:125%;color:#FBF9F5;letter-spacing:-.025em}
+.load p{font-size:13px;line-height:19px;color:#A89C8E;margin-top:10px}
+.delta{margin-top:16px;display:flex;flex-direction:column;gap:7px}
+.delta div{display:flex;gap:10px;font-size:13px;color:#C8BCAC;font-variant-numeric:tabular-nums}
+.delta div b{color:#6E6358;width:96px;font-weight:400}
+.acts{display:flex;gap:8px;margin-top:20px}
+.btn{height:36px;border-radius:10px;display:grid;place-items:center;padding:0 16px;font:500 13px Inter}
+.pri{background:var(--menie);color:#fff}.sec{background:#2C231C;color:#C8BCAC}
+.foot{margin-top:auto;padding:16px 20px;font-size:12px;color:#6E6358}
+</style></head><body>
+<nav class="rail"><div class="mark"><i></i><i></i><i></i></div>
+<div class="tile on"><b></b></div><div class="tile sig"><b></b></div><div class="tile"><b></b></div><div class="tile sig"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="avatar"></div></nav>
+<aside class="panel"><div class="org">Northwind Clothing Co.</div><div class="seek">Search or do…</div>
+<div class="grp">Operations</div>
+<div class="row on"><b></b>Dashboard</div><div class="row"><b></b>Tickets<s>24</s></div><div class="row"><b></b>Chats<s>6</s></div><div class="row"><b></b>Inbox<s>41</s></div><div class="row"><b></b>Orders<s>60</s></div><div class="row"><b></b>Customers</div><div class="row"><b></b>Products</div>
+<div class="grp">Money</div>
+<div class="row"><b></b>Chargebacks<s>5</s></div><div class="row"><b></b>Analytics</div>
+<div class="grp">Build</div>
+<div class="row"><b></b>Automations</div><div class="row"><b></b>Marketplace</div><div class="row"><b></b>Settings</div></aside>
+<div class="main">
+<header class="top"><div class="store"><u></u>Northwind EU</div><div class="search">Search orders, tickets, customers…</div><div class="voor">3 proposals</div><div class="ico"></div><div class="ico"></div></header>
+<div class="canvas">
+  <section class="bay queue">
+    <div class="bayhead"><div class="big">17</div><p>things need you before the day ends</p></div>
+    <div class="tabs"><div class="tab on">Needs you</div><div class="tab">At supplier</div><div class="tab">Waiting on customer</div><div class="tab">Done today</div></div>
+    <div class="hl"><span style="flex:1">Record</span><span style="width:120px">Store</span><span style="width:84px">Value</span><span style="width:70px">Left</span></div>
+    <div class="item"><u style="background:#C8372D"></u><span class="t w">Chargeback DSP-2204 · Klarna, evidence gathered</span><span class="n" style="width:120px">Northwind EU</span><span class="n" style="width:84px">€248,00</span><span class="n" style="width:70px">4h 10m</span></div>
+    <div class="item"><u style="background:#C8372D"></u><span class="t w">3 orders at risk of late delivery · supplier Allure</span><span class="n" style="width:120px">Northwind US</span><span class="n" style="width:84px">€612,40</span><span class="n" style="width:70px">today</span></div>
+    <div class="item"><u style="background:#B98B2E"></u><span class="t">Ticket #5142 · refund asked twice, no reply sent</span><span class="n" style="width:120px">Northwind EU</span><span class="n" style="width:84px">€89,95</span><span class="n" style="width:70px">1d</span></div>
+    <div class="item"><u style="background:#B98B2E"></u><span class="t">Refund template replies 18% under average</span><span class="n" style="width:120px">All stores</span><span class="n" style="width:84px">—</span><span class="n" style="width:70px">1d</span></div>
+    <div class="item"><u style="background:#4F8A6B"></u><span class="t">Order #10418 shipped · DHL, tracking sent</span><span class="n" style="width:120px">Northwind EU</span><span class="n" style="width:84px">€134,00</span><span class="n" style="width:70px">—</span></div>
+    <div class="item"><u style="background:#B98B2E"></u><span class="t">SKU-2148 stock will run out in 2 days</span><span class="n" style="width:120px">Northwind US</span><span class="n" style="width:84px">€1.204,00</span><span class="n" style="width:70px">2d</span></div>
+    <div class="item"><u style="background:#4F8A6B"></u><span class="t">Payout €4.180,00 confirmed by Stripe</span><span class="n" style="width:120px">All stores</span><span class="n" style="width:84px">€4.180,00</span><span class="n" style="width:70px">—</span></div>
+    <div class="item"><u style="background:#8A7F72"></u><span class="t">Northwind UK is not connected yet</span><span class="n" style="width:120px">Northwind UK</span><span class="n" style="width:84px">—</span><span class="n" style="width:70px">—</span></div>
+    <div class="item"><u style="background:#B98B2E"></u><span class="t">Customer Sofía Kim asked about a missing parcel</span><span class="n" style="width:120px">Northwind EU</span><span class="n" style="width:84px">€72,50</span><span class="n" style="width:70px">6h</span></div>
+    <div class="item"><u style="background:#4F8A6B"></u><span class="t">Automation “Late supplier chase” ran on 11 orders</span><span class="n" style="width:120px">All stores</span><span class="n" style="width:84px">—</span><span class="n" style="width:70px">—</span></div>
+  </section>
+  <section class="hoist">
+    <div class="beam"></div><div class="line"></div>
+    <div class="load">
+      <div class="lbl">Raised on the hoist · 4.2 confidence</div>
+      <h2>Submit the Klarna evidence on DSP-2204</h2>
+      <p>Four documents were gathered for you: the carrier scan, the delivery photo, the customer's two replies and the original invoice. Nothing is sent until you pull it in.</p>
+      <div class="delta"><div><b>Chargeback</b>DSP-2204 · €248,00</div><div><b>Window closes</b>today, 18:00</div><div><b>Store</b>Northwind EU</div><div><b>Evidence</b>4 of 4 gathered</div></div>
+      <div class="acts"><div class="btn pri">Pull it in</div><div class="btn sec">Adjust</div><div class="btn sec">Lower it</div></div>
+    </div>
+    <div class="foot">Two more wait at the foot of the shaft.</div>
+  </section>
+</div></div></body></html>

@@ -1,0 +1,18 @@
+{
+  "name": "@insyte/tokens",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./package.json": "./package.json",
+    "./tokens.css": "./src/tokens.css",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build:css": "bun build.ts",
+    "check:css": "bun build.ts --check"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  }
+}

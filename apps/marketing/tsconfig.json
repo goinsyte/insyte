@@ -1,0 +1,32 @@
+{
+  /*
+   * ONE project for this app, not the src/test split a package uses — the same call the Cloudflare
+   * starter's console makes, and for the same two reasons.
+   *
+   * `module: preserve` + `moduleResolution: bundler` rather than the base's NodeNext: Vite bundles
+   * this app and Node never resolves it, and TanStack Router's generated `routeTree.gen.ts` writes
+   * extensionless relative imports that NodeNext rejects. The generator owns that file, so the
+   * resolution mode has to meet it rather than the other way round.
+   */
+  "extends": "../../tsconfig.base.json",
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "tsBuildInfoFile": ".tsbuildinfo/marketing.tsbuildinfo",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "paths": { "@/*": ["./src/*"] },
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    /*
+     * - vite/client: `?url` imports, which is how the stylesheet reaches the document head
+     * - @cloudflare/workers-types: this app has a server half, in `src/server.ts`
+     * - node: `node:url` in the Vite config
+     */
+    "types": ["vite/client", "@cloudflare/workers-types", "node"]
+  }
+}

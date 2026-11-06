@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Insyte — Star Atlas</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--abyss:#251A86;--abyss2:#2B1C9B;--deep:#1C1366;--chalk:#FBFBF8;--arc:#3E2BD4;--arcsoft:#BFC2F2;
+--powder:#C9CFE2;--amber:#C9A14A;--red:#E0705F;--green:#6FC5A3;--glacier:#F2F2F2;--ink4:#9B9B9B}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{font:400 14px/20px Inter,system-ui,sans-serif;color:var(--chalk);background:var(--deep);display:flex}
+.rail{width:52px;flex:0 0 52px;background:var(--deep);display:flex;flex-direction:column;align-items:center;padding:10px 0;gap:3px}
+.mark{width:26px;height:26px;position:relative;margin-bottom:14px}
+.mark i{position:absolute;width:11px;height:11px;border-radius:3px;background:var(--chalk)}
+.mark i:nth-child(1){left:0;top:0}.mark i:nth-child(2){left:7px;top:7px;background:var(--arcsoft)}.mark i:nth-child(3){left:14px;top:14px;background:var(--arc)}
+.tile{width:34px;height:30px;border-radius:9px;display:grid;place-items:center}
+.tile b{width:14px;height:14px;border-radius:4px;background:rgba(251,251,248,.3)}
+.tile.on{background:var(--arc)}.tile.on b{background:var(--chalk)}
+.tile.sig{position:relative}.tile.sig:after{content:"";position:absolute;right:5px;top:3px;width:6px;height:6px;border-radius:50%;background:var(--red)}
+.avatar{margin-top:auto;width:28px;height:28px;border-radius:50%;background:var(--arcsoft)}
+.panel{width:224px;flex:0 0 224px;background:var(--deep);padding:10px 8px}
+.org{font:500 13px/28px Inter;padding:0 8px}
+.seek{height:30px;border-radius:9px;background:rgba(251,251,248,.07);margin:4px 0 14px;display:flex;align-items:center;padding:0 10px;font-size:13px;color:rgba(251,251,248,.45)}
+.grp{font-size:12px;color:rgba(251,251,248,.42);padding:12px 8px 4px}
+.row{height:28px;display:flex;align-items:center;gap:9px;padding:0 8px;border-radius:7px;font-size:13px;color:var(--powder)}
+.row b{width:13px;height:13px;border-radius:4px;background:rgba(251,251,248,.3);flex:0 0 13px}
+.row.on{background:var(--arc);color:var(--chalk);font-weight:500}.row.on b{background:var(--chalk)}
+.row s{margin-left:auto;text-decoration:none;color:rgba(251,251,248,.45);font-size:13px;font-variant-numeric:tabular-nums}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.top{height:48px;display:flex;align-items:center;gap:10px;padding:0 16px;background:var(--deep)}
+.store{display:flex;align-items:center;gap:8px;font-size:13px;height:30px;padding:0 11px;border-radius:9px;background:rgba(251,251,248,.07)}
+.store u{width:8px;height:8px;border-radius:50%;background:var(--green);text-decoration:none}
+.search{flex:1;max-width:320px;height:30px;border-radius:9px;background:rgba(251,251,248,.07);display:flex;align-items:center;padding:0 10px;font-size:13px;color:rgba(251,251,248,.45)}
+.voor{margin-left:auto;height:30px;border-radius:9px;background:var(--chalk);color:var(--abyss);display:flex;align-items:center;padding:0 13px;font:500 13px Inter}
+.ico{width:30px;height:30px;border-radius:9px;background:rgba(251,251,248,.07)}
+.work{flex:1;display:flex;min-height:0}
+/* the plate: every open record is a point scaled to what is at stake */
+.plate{flex:1;min-width:0;background:var(--abyss);position:relative;overflow:hidden}
+.plate:before{content:"";position:absolute;inset:0;background-image:repeating-linear-gradient(0deg,rgba(251,251,248,.055) 0 1px,transparent 1px 72px),repeating-linear-gradient(90deg,rgba(251,251,248,.055) 0 1px,transparent 1px 72px)}
+.phead{position:absolute;left:28px;top:24px;z-index:2}
+.phead .big{font:400 56px/.82 Inter;letter-spacing:-.045em}
+.phead p{font-size:14px;color:var(--powder);margin-top:10px}
+.pt{position:absolute;border-radius:50%;background:var(--chalk);z-index:2}
+.lbl{position:absolute;font-size:13px;color:var(--powder);z-index:2;white-space:nowrap}
+.lbl b{color:var(--chalk);font-weight:400}
+.ring{position:absolute;border-radius:50%;border:1.5px solid var(--arc);z-index:1}
+.cline{position:absolute;height:1px;background:rgba(251,251,248,.28);transform-origin:0 0;z-index:1}
+.ramp{position:absolute;left:28px;bottom:22px;display:flex;align-items:flex-end;gap:14px;z-index:2}
+.ramp .s{display:flex;flex-direction:column;align-items:center;gap:7px;font-size:13px;color:var(--powder)}
+.ramp .s i{display:block;border-radius:50%;background:var(--chalk)}
+/* the apparatus */
+.ap{width:392px;flex:0 0 392px;background:var(--deep);display:flex;flex-direction:column;padding:24px 26px}
+.ap .k{font-size:13px;color:var(--amber);margin-bottom:14px}
+.ap h3{font:400 25px/30px Inter;letter-spacing:-.025em}
+.ap p{font-size:13px;line-height:19px;color:var(--powder);margin-top:12px}
+.kv{margin-top:18px}
+.kv div{display:flex;font-size:13px;padding:6px 0;font-variant-numeric:tabular-nums}
+.kv div b{width:124px;font-weight:400;color:rgba(251,251,248,.5)}
+.acts{display:flex;gap:8px;margin-top:22px}
+.btn{height:36px;border-radius:10px;display:grid;place-items:center;padding:0 16px;font:500 13px Inter}
+.pri{background:var(--chalk);color:var(--abyss)}.sec{background:rgba(251,251,248,.13);color:var(--chalk)}
+.idx{margin-top:auto}
+.idx .ih{font-size:13px;color:rgba(251,251,248,.5);padding-bottom:8px}
+.idx div.r{display:flex;align-items:center;gap:10px;font-size:13px;height:26px;color:var(--powder)}
+.idx div.r i{border-radius:50%;background:var(--chalk);flex:0 0 auto}
+.idx div.r span{margin-left:auto;font-variant-numeric:tabular-nums;color:rgba(251,251,248,.5)}
+</style></head><body>
+<nav class="rail"><div class="mark"><i></i><i></i><i></i></div>
+<div class="tile on"><b></b></div><div class="tile sig"><b></b></div><div class="tile"><b></b></div><div class="tile sig"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="tile"><b></b></div><div class="avatar"></div></nav>
+<aside class="panel"><div class="org">Northwind Clothing Co.</div><div class="seek">Search or do…</div>
+<div class="grp">Operations</div>
+<div class="row on"><b></b>Dashboard</div><div class="row"><b></b>Tickets<s>24</s></div><div class="row"><b></b>Chats<s>6</s></div><div class="row"><b></b>Inbox<s>41</s></div><div class="row"><b></b>Orders<s>60</s></div><div class="row"><b></b>Customers</div><div class="row"><b></b>Products</div>
+<div class="grp">Money</div><div class="row"><b></b>Chargebacks<s>5</s></div><div class="row"><b></b>Analytics</div>
+<div class="grp">Build</div><div class="row"><b></b>Automations</div><div class="row"><b></b>Marketplace</div><div class="row"><b></b>Settings</div></aside>
+<div class="main">
+<header class="top"><div class="store"><u></u>Northwind EU</div><div class="search">Search orders, tickets, customers…</div><div class="voor">3 proposals</div><div class="ico"></div><div class="ico"></div></header>
+<div class="work">
+  <section class="plate">
+    <div class="phead"><div class="big">17</div><p>open records, placed by when they are due and sized by what is at stake</p></div>
+    <div class="cline" style="left:398px;top:318px;width:132px;transform:rotate(26deg)"></div>
+    <div class="cline" style="left:398px;top:318px;width:160px;transform:rotate(-14deg)"></div>
+    <div class="ring" style="left:368px;top:288px;width:60px;height:60px"></div>
+    <div class="pt" style="left:384px;top:304px;width:28px;height:28px"></div>
+    <div class="lbl" style="left:424px;top:352px"><b>DSP-2204</b> · €248,00 · 4h 10m</div>
+    <div class="pt" style="left:528px;top:390px;width:22px;height:22px"></div>
+    <div class="lbl" style="left:556px;top:394px">Allure delay · €612,40</div>
+    <div class="pt" style="left:552px;top:258px;width:26px;height:26px"></div>
+    <div class="lbl" style="left:584px;top:262px">SKU-2148 · €1.204,00</div>
+    <div class="pt" style="left:238px;top:446px;width:12px;height:12px"></div>
+    <div class="lbl" style="left:256px;top:444px">#5142 · €89,95</div>
+    <div class="pt" style="left:682px;top:468px;width:11px;height:11px"></div>
+    <div class="lbl" style="left:700px;top:466px">Sofía Kim · €72,50</div>
+    <div class="pt" style="left:300px;top:218px;width:9px;height:9px;background:var(--amber)"></div>
+    <div class="lbl" style="left:316px;top:214px">Refund template degraded</div>
+    <div class="pt" style="left:792px;top:328px;width:18px;height:18px;background:var(--green)"></div>
+    <div class="lbl" style="left:818px;top:330px">Payout €4.180,00 confirmed</div>
+    <div class="pt" style="left:172px;top:330px;width:7px;height:7px;background:rgba(251,251,248,.4)"></div>
+    <div class="lbl" style="left:186px;top:326px;color:rgba(251,251,248,.5)">Northwind UK not connected</div>
+    <div class="pt" style="left:632px;top:206px;width:10px;height:10px"></div>
+    <div class="pt" style="left:470px;top:502px;width:8px;height:8px"></div>
+    <div class="pt" style="left:860px;top:430px;width:13px;height:13px"></div>
+    <div class="ramp">
+      <div class="s"><i style="width:28px;height:28px"></i>€1k+</div>
+      <div class="s"><i style="width:20px;height:20px"></i>€500</div>
+      <div class="s"><i style="width:13px;height:13px"></i>€100</div>
+      <div class="s"><i style="width:8px;height:8px"></i>under €50</div>
+      <div class="s" style="margin-left:18px"><i style="width:13px;height:13px;background:var(--amber)"></i>degraded</div>
+      <div class="s"><i style="width:13px;height:13px;background:var(--green)"></i>settled</div>
+    </div>
+  </section>
+  <aside class="ap">
+    <div class="k">Under the eye · proposal · 4.2 confidence</div>
+    <h3>Submit the Klarna evidence on DSP-2204</h3>
+    <p>Four documents gathered: carrier scan, delivery photo, two customer replies, original invoice. Nothing is sent until you send it.</p>
+    <div class="kv"><div><b>At stake</b>€248,00</div><div><b>Window closes</b>today, 18:00</div><div><b>Store</b>Northwind EU</div><div><b>Evidence</b>4 of 4 gathered</div></div>
+    <div class="acts"><div class="btn pri">Send it</div><div class="btn sec">Adjust</div><div class="btn sec">Discard</div></div>
+    <div class="idx"><div class="ih">Index · brightest first</div>
+      <div class="r"><i style="width:14px;height:14px"></i>SKU-2148 stock<span>€1.204</span></div>
+      <div class="r"><i style="width:12px;height:12px"></i>Allure delay<span>€612</span></div>
+      <div class="r"><i style="width:11px;height:11px"></i>DSP-2204<span>€248</span></div>
+      <div class="r"><i style="width:8px;height:8px"></i>Ticket #5142<span>€90</span></div>
+    </div>
+  </aside>
+</div></div></body></html>

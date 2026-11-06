@@ -1,0 +1,16 @@
+{
+  // The design system's values, and the maths that reads them. Imports nothing but the standard
+  // library: this package is the boundary every surface reads tokens through, so a dependency here
+  // would be a dependency in the brand kit, the Figma exporter and eventually the email templates.
+  "extends": "../../tsconfig.base.json",
+  "include": ["src/**/*.ts"],
+  // Tests are their own project. Overlapping includes would put a file in two projects, which
+  // `tsc -b` rejects.
+  "exclude": ["**/test/**"],
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo",
+    "types": []
+  }
+}

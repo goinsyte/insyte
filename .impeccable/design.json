@@ -1,0 +1,569 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-27T00:00:00.000Z",
+  "title": "Design System: Insyte",
+  "extensions": {
+    "colorMeta": {
+      "glacier": {
+        "role": "neutral",
+        "displayName": "Glacier",
+        "canonical": "oklch(0.965 0 0)",
+        "dark": "oklch(0.185 0 0)",
+        "tonalRamp": [
+          "oklch(0.28 0 0)",
+          "oklch(0.4 0 0)",
+          "oklch(0.49 0 0)",
+          "oklch(0.68 0 0)",
+          "oklch(0.78 0 0)",
+          "oklch(0.83 0 0)",
+          "oklch(0.89 0 0)",
+          "oklch(0.965 0 0)"
+        ]
+      },
+      "mist": { "role": "neutral", "displayName": "Mist", "canonical": "oklch(0.984 0 0)", "dark": "oklch(0.225 0 0)" },
+      "paper": { "role": "neutral", "displayName": "Paper", "canonical": "oklch(1 0 0)", "dark": "oklch(0.255 0 0)" },
+      "arc": {
+        "role": "primary",
+        "displayName": "Arc (Royal Azure)",
+        "canonical": "oklch(0.48 0.215 270)",
+        "dark": "oklch(0.48 0.215 270)",
+        "tonalRamp": [
+          "oklch(0.284 0.186 270)",
+          "oklch(0.322 0.21 270)",
+          "oklch(0.48 0.215 270)",
+          "oklch(0.62 0.14 270)",
+          "oklch(0.74 0.12 270)",
+          "oklch(0.84 0.078 270)",
+          "oklch(0.94 0.028 270)",
+          "oklch(0.98 0.012 270)"
+        ]
+      },
+      "arc-soft": {
+        "role": "primary",
+        "displayName": "Arc Soft",
+        "canonical": "oklch(0.84 0.078 270)",
+        "dark": "oklch(0.62 0.14 270)"
+      },
+      "arc-tint": {
+        "role": "primary",
+        "displayName": "Arc Tint",
+        "canonical": "oklch(0.94 0.028 270)",
+        "dark": "oklch(0.305 0.055 270)"
+      },
+      "arc-ink": {
+        "role": "primary",
+        "displayName": "Arc Ink",
+        "canonical": "oklch(0.48 0.215 270)",
+        "dark": "oklch(0.74 0.12 270)",
+        "note": "The only brand value that moves between themes, because text is the one place it has to."
+      },
+      "abyss": {
+        "role": "secondary",
+        "displayName": "Abyss",
+        "canonical": "oklch(0.284 0.186 270)",
+        "dark": "oklch(0.284 0.186 270)"
+      },
+      "abyss-2": {
+        "role": "secondary",
+        "displayName": "Abyss 2",
+        "canonical": "oklch(0.322 0.21 270)",
+        "dark": "oklch(0.322 0.21 270)"
+      },
+      "sky": {
+        "role": "tertiary",
+        "displayName": "Sky",
+        "canonical": "oklch(0.72 0.13 260)",
+        "dark": "oklch(0.56 0.14 260)",
+        "note": "Atmosphere only. Unpaired in the tokens: nothing may put text on it."
+      },
+      "powder": {
+        "role": "tertiary",
+        "displayName": "Powder",
+        "canonical": "oklch(0.82 0.04 270)",
+        "dark": "oklch(0.44 0.05 270)",
+        "note": "Atmosphere only. Unpaired."
+      },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "oklch(0.28 0 0)", "dark": "oklch(0.965 0 0)" },
+      "ink-2": { "role": "neutral", "displayName": "Ink 2", "canonical": "oklch(0.4 0 0)", "dark": "oklch(0.84 0 0)" },
+      "ink-3": {
+        "role": "neutral",
+        "displayName": "Ink 3",
+        "canonical": "oklch(0.49 0 0)",
+        "dark": "oklch(0.76 0 0)",
+        "note": "The lowest step that may carry text."
+      },
+      "ink-4": {
+        "role": "neutral",
+        "displayName": "Ink 4",
+        "canonical": "oklch(0.68 0 0)",
+        "dark": "oklch(0.6 0 0)",
+        "note": "Not text. Disabled glyphs, gridlines, scrollbar thumb."
+      },
+      "ink-5": {
+        "role": "neutral",
+        "displayName": "Ink 5",
+        "canonical": "oklch(0.78 0 0)",
+        "dark": "oklch(0.5 0 0)",
+        "note": "Not text. Rules, ticks, dividers."
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(0.89 0 0)",
+        "dark": "oklch(0.3 0 0)"
+      },
+      "hairline-strong": {
+        "role": "neutral",
+        "displayName": "Hairline Strong",
+        "canonical": "oklch(0.83 0 0)",
+        "dark": "oklch(0.38 0 0)"
+      },
+      "mesh-ink": {
+        "role": "neutral",
+        "displayName": "Mesh Ink",
+        "canonical": "oklch(0.98 0.01 100)",
+        "dark": "oklch(0.98 0.01 100)",
+        "note": "Ink for dark grounds. Pinned in both themes."
+      },
+      "mesh-ink-2": {
+        "role": "neutral",
+        "displayName": "Mesh Ink 2",
+        "canonical": "oklch(0.86 0.025 270)",
+        "dark": "oklch(0.86 0.025 270)"
+      },
+      "mesh-ink-3": {
+        "role": "neutral",
+        "displayName": "Mesh Ink 3",
+        "canonical": "oklch(0.72 0.035 270)",
+        "dark": "oklch(0.72 0.035 270)"
+      },
+      "mesh-hairline": {
+        "role": "neutral",
+        "displayName": "Mesh Hairline",
+        "canonical": "oklch(0.36 0.08 270)",
+        "dark": "oklch(0.36 0.08 270)"
+      },
+      "person-1": {
+        "role": "tertiary",
+        "displayName": "Person 1",
+        "canonical": "oklch(0.845 0.075 250)",
+        "dark": "oklch(0.845 0.075 250)"
+      },
+      "person-2": {
+        "role": "tertiary",
+        "displayName": "Person 2",
+        "canonical": "oklch(0.855 0.085 340)",
+        "dark": "oklch(0.855 0.085 340)"
+      },
+      "person-3": {
+        "role": "tertiary",
+        "displayName": "Person 3",
+        "canonical": "oklch(0.875 0.115 90)",
+        "dark": "oklch(0.875 0.115 90)"
+      },
+      "person-4": {
+        "role": "tertiary",
+        "displayName": "Person 4",
+        "canonical": "oklch(0.855 0.085 155)",
+        "dark": "oklch(0.855 0.085 155)"
+      },
+      "person-5": {
+        "role": "tertiary",
+        "displayName": "Person 5",
+        "canonical": "oklch(0.85 0.08 30)",
+        "dark": "oklch(0.85 0.08 30)"
+      },
+      "person-6": {
+        "role": "tertiary",
+        "displayName": "Person 6",
+        "canonical": "oklch(0.85 0.075 300)",
+        "dark": "oklch(0.85 0.075 300)"
+      },
+      "person-ink": {
+        "role": "tertiary",
+        "displayName": "Person Ink",
+        "canonical": "oklch(0.3 0.015 270)",
+        "dark": "oklch(0.3 0.015 270)",
+        "note": "Pinned ink on all six identity fields."
+      },
+      "signal-green": {
+        "role": "tertiary",
+        "displayName": "Signal Green",
+        "canonical": "oklch(0.51 0.115 160)",
+        "dark": "oklch(0.8 0.14 160)"
+      },
+      "signal-green-bg": {
+        "role": "tertiary",
+        "displayName": "Signal Green Tint",
+        "canonical": "oklch(0.94 0.055 160)",
+        "dark": "oklch(0.3 0.055 160)"
+      },
+      "signal-amber": {
+        "role": "tertiary",
+        "displayName": "Signal Amber",
+        "canonical": "oklch(0.525 0.113 70)",
+        "dark": "oklch(0.84 0.13 85)"
+      },
+      "signal-amber-bg": {
+        "role": "tertiary",
+        "displayName": "Signal Amber Tint",
+        "canonical": "oklch(0.94 0.048 75)",
+        "dark": "oklch(0.3 0.05 75)"
+      },
+      "signal-red": {
+        "role": "tertiary",
+        "displayName": "Signal Red",
+        "canonical": "oklch(0.545 0.2 22)",
+        "dark": "oklch(0.78 0.125 22)"
+      },
+      "signal-red-bg": {
+        "role": "tertiary",
+        "displayName": "Signal Red Tint",
+        "canonical": "oklch(0.94 0.03 22)",
+        "dark": "oklch(0.31 0.06 22)"
+      }
+    },
+    "typographyMeta": {
+      "2xs": { "displayName": "2XS", "purpose": "A count in a badge, a tick on an axis. Never prose." },
+      "xs": {
+        "displayName": "XS",
+        "purpose": "Column heads, timestamps, units, pager text, the quiet half of a two-line cell."
+      },
+      "sm": {
+        "displayName": "SM",
+        "purpose": "Dense rows, chips, menu items, buttons, inputs — anything in a list the eye runs down."
+      },
+      "base": {
+        "displayName": "Base",
+        "purpose": "The default: body, rail and panel labels, the line of a row that carries the record."
+      },
+      "md": { "displayName": "MD", "purpose": "One sentence under a title. The largest size still set at 400." },
+      "lg": { "displayName": "LG", "purpose": "A page title, a dialog title, a section heading inside a modal." },
+      "xl": { "displayName": "XL", "purpose": "A plate heading. One per screen." },
+      "2xl": { "displayName": "2XL", "purpose": "A modal's title, and the label beside a screen figure." },
+      "3xl": { "displayName": "3XL", "purpose": "A screen's figure, where the screen has one." },
+      "4xl": { "displayName": "4XL", "purpose": "Between the figure and the monument." },
+      "5xl": { "displayName": "5XL", "purpose": "The monumental figure. One shipped use, on the dashboard." },
+      "figure": {
+        "displayName": "Figure",
+        "purpose": "The `figure` utility: display face at 88% width, tabular lining numerals, 0.82 line-height. The monumental figure and plate numbers, nowhere else."
+      }
+    },
+    "shadows": [
+      {
+        "name": "hairline",
+        "value": "inset 0 0 0 1px color-mix(in oklch, var(--ink) 9%, transparent)",
+        "purpose": "The one line this system draws: a data boundary. Inset, so it costs no layout and follows any radius."
+      },
+      {
+        "name": "field-edge",
+        "value": "inset 0 0 0 1px color-mix(in oklch, var(--ink) 7%, transparent)",
+        "purpose": "The lip of a filled well — inputs, selects, the outline button."
+      },
+      {
+        "name": "panel",
+        "value": "inset 0 0 0 1px color-mix(in oklch, var(--ink) 9%, transparent)",
+        "purpose": "A panel: paper on glacier, held by an edge rather than lifted by a shadow. No drop shadow."
+      },
+      {
+        "name": "panel-raised",
+        "value": "inset 0 0 0 1px color-mix(in oklch, var(--ink) 9%, transparent), 0 2px 6px color-mix(in oklch, black 8%, transparent), 0 28px 70px -24px color-mix(in oklch, black 30%, transparent)",
+        "purpose": "A surface that has left the page: menu, popover, select, dialog, sheet. Kept in both themes."
+      },
+      {
+        "name": "ring-focus",
+        "value": "0 0 0 1px var(--arc), 0 0 0 4px var(--arc-soft)",
+        "purpose": "The focus bloom on a control that takes one, beside the document-level 2px arc outline."
+      },
+      {
+        "name": "shadow-primary",
+        "value": "0 1px 2px color-mix(in oklch, var(--abyss) 18%, transparent)",
+        "purpose": "One hair of weight under a primary button. Flattened to a single stop."
+      },
+      {
+        "name": "shadow-on-mesh",
+        "value": "0 1px 2px color-mix(in oklch, black 22%, transparent)",
+        "purpose": "The same, on a dark ground."
+      },
+      {
+        "name": "shadow-modal",
+        "value": "0 2px 6px color-mix(in oklch, black 6%, transparent), 0 28px 70px -24px color-mix(in oklch, black 26%, transparent)",
+        "purpose": "Translation-layer shadow still named by the ported auth and admin screens."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out-quart",
+        "value": "cubic-bezier(0.25, 1, 0.5, 1)",
+        "purpose": "The default: anything arriving or changing state. Also the stylesheet's default transition curve."
+      },
+      {
+        "name": "ease-out-expo",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "A longer arrival, crossing a meaningful distance: the plate unroll and the line draw."
+      },
+      {
+        "name": "ease-mesh",
+        "value": "cubic-bezier(0.4, 0, 0.6, 1)",
+        "purpose": "Ambient only — the plate's scanning rule and the orb drift. Symmetrical because it never arrives."
+      },
+      {
+        "name": "duration-instant",
+        "value": "80ms",
+        "purpose": "A tap, immediate feedback. Table row colour changes."
+      },
+      {
+        "name": "duration-quick",
+        "value": "160ms",
+        "purpose": "A hover or a state shift on something already on screen. The stylesheet's default duration."
+      },
+      {
+        "name": "duration-base",
+        "value": "240ms",
+        "purpose": "The default for anything entering or leaving; the plate unroll."
+      },
+      { "name": "duration-slow", "value": "420ms", "purpose": "An enter animation; the line draw." },
+      { "name": "duration-scan", "value": "6000ms", "purpose": "The rule travelling down a plate's drafting grid." },
+      { "name": "duration-ambient", "value": "18000ms", "purpose": "Ambient drift only." },
+      {
+        "name": "popup-transition",
+        "value": "150ms ease-out-quart on opacity, scale 0.98→1, 4px translate, origin var(--transform-origin)",
+        "purpose": "Every anchored surface opens and closes on this one string, as an interruptible state transition rather than a keyframe."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "transition-duration: 1ms !important; animation-duration: 1ms !important; unroll/draw/plate-scan disabled",
+        "purpose": "The stylesheet's reduced-motion block; authored motion components also gate on useReducedMotion and keep the end state visible."
+      }
+    ],
+    "patterns": [
+      {
+        "name": "pattern-grid",
+        "value": "32px",
+        "purpose": "The drafting grid a plate (and the daylight board) is drawn on. Plate grounds only, never the canvas."
+      },
+      {
+        "name": "pattern-hatch",
+        "value": "24px",
+        "purpose": "The mark's three offset squares, filling a cell that has nothing to say."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      {
+        "name": "table-scroll",
+        "value": "760px",
+        "purpose": "Below this a wide table slides as one piece under a stationary frame instead of reflowing."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-default",
+      "description": "The one action a view earns: the plate colour carrying the chalk.",
+      "html": "<button class=\"ds-btn-primary\">Create order</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 0 16px; border: none; border-radius: var(--radius-control, 9px); background: var(--abyss, oklch(0.284 0.186 270)); color: var(--mesh-ink, oklch(0.98 0.01 100)); font-family: var(--font-sans, \"Inter Variable\", system-ui, sans-serif); font-size: 13px; line-height: 18px; letter-spacing: -0.01em; font-weight: 500; box-shadow: 0 1px 2px color-mix(in oklch, var(--abyss, oklch(0.284 0.186 270)) 18%, transparent); cursor: pointer; transition: background-color 160ms cubic-bezier(0.25,1,0.5,1), box-shadow 160ms cubic-bezier(0.25,1,0.5,1), color 160ms cubic-bezier(0.25,1,0.5,1); } .ds-btn-primary:hover { background: var(--abyss-2, oklch(0.322 0.21 270)); } .ds-btn-primary:active { background: var(--abyss, oklch(0.284 0.186 270)); } .ds-btn-primary:focus-visible { outline: 2px solid var(--arc, oklch(0.48 0.215 270)); outline-offset: 1px; }"
+    },
+    {
+      "name": "Outline Button (the filled well)",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "The secondary action. Named `outline`, painted as the same tinted well an input is — a secondary action and an editable slot have the same standing.",
+      "html": "<button class=\"ds-btn-outline\">Export</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 0 16px; border: none; border-radius: var(--radius-control, 9px); background: color-mix(in oklch, var(--ink, oklch(0.28 0 0)) 4.5%, transparent); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ink, oklch(0.28 0 0)) 7%, transparent); color: var(--ink, oklch(0.28 0 0)); font-family: var(--font-sans, \"Inter Variable\", system-ui, sans-serif); font-size: 13px; line-height: 18px; letter-spacing: -0.01em; font-weight: 500; cursor: pointer; transition: background-color 160ms cubic-bezier(0.25,1,0.5,1), box-shadow 160ms cubic-bezier(0.25,1,0.5,1); } .ds-btn-outline:hover { background: color-mix(in oklch, var(--ink, oklch(0.28 0 0)) 7%, transparent); } .ds-btn-outline:active { background: color-mix(in oklch, var(--ink, oklch(0.28 0 0)) 10%, transparent); } .ds-btn-outline:focus-visible { outline: 2px solid var(--arc, oklch(0.48 0.215 270)); outline-offset: 1px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "A tertiary action inside a toolbar or a row: no ground until hovered.",
+      "html": "<button class=\"ds-btn-ghost\">Clear</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 8px; border: none; border-radius: var(--radius-control, 9px); background: transparent; color: var(--ink-3, oklch(0.49 0 0)); font-family: var(--font-sans, \"Inter Variable\", system-ui, sans-serif); font-size: 12px; line-height: 16px; letter-spacing: -0.005em; font-weight: 500; cursor: pointer; transition: background-color 160ms cubic-bezier(0.25,1,0.5,1), color 160ms cubic-bezier(0.25,1,0.5,1); } .ds-btn-ghost:hover { background: color-mix(in oklch, var(--ink, oklch(0.28 0 0)) 6%, transparent); color: var(--ink, oklch(0.28 0 0)); } .ds-btn-ghost:focus-visible { outline: 2px solid var(--arc, oklch(0.48 0.215 270)); outline-offset: 1px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Filled, not outlined. Focus turns the fill to paper, so the slot being typed into is the lightest thing on the form.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Search orders\" />",
+      "css": ".ds-input { height: 36px; width: 260px; padding: 4px 12px; border: none; border-radius: var(--radius-control, 9px); background: color-mix(in oklch, var(--ink, oklch(0.28 0 0)) 4.5%, transparent); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ink, oklch(0.28 0 0)) 7%, transparent); color: var(--ink, oklch(0.28 0 0)); font-family: var(--font-sans, \"Inter Variable\", system-ui, sans-serif); font-size: 13px; line-height: 18px; letter-spacing: -0.01em; caret-color: var(--arc, oklch(0.48 0.215 270)); transition: background-color 160ms cubic-bezier(0.25,1,0.5,1), box-shadow 160ms cubic-bezier(0.25,1,0.5,1); } .ds-input::placeholder { color: var(--ink-3, oklch(0.49 0 0)); } .ds-input:hover { background: color-mix(in oklch, var(--ink, oklch(0.28 0 0)) 7%, transparent); } .ds-input:focus-visible { background: var(--paper, oklch(1 0 0)); outline: 2px solid var(--arc, oklch(0.48 0.215 270)); outline-offset: 1px; } .ds-input[aria-invalid=\"true\"] { background: var(--signal-red-bg, oklch(0.94 0.03 22)); }"
+    },
+    {
+      "name": "Status Pill",
+      "kind": "chip",
+      "refersTo": "badge-default",
+      "description": "A status is a signal ink on its own tint, plus a word. Pill radius, sentence case, tabular figures, no border.",
+      "html": "<span class=\"ds-pill ds-pill--warning\">Delayed</span><span class=\"ds-pill ds-pill--success\">Fulfilled</span>",
+      "css": ".ds-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: none; border-radius: 9999px; font-family: var(--font-sans, \"Inter Variable\", system-ui, sans-serif); font-size: 12px; line-height: 16px; letter-spacing: -0.005em; font-weight: 500; font-variant-numeric: tabular-nums; } .ds-pill--success { background: var(--signal-green-bg, oklch(0.94 0.055 160)); color: var(--signal-green, oklch(0.51 0.115 160)); } .ds-pill--warning { background: var(--signal-amber-bg, oklch(0.94 0.048 75)); color: var(--signal-amber, oklch(0.525 0.113 70)); } .ds-pill--info { background: var(--arc-tint, oklch(0.94 0.028 270)); color: var(--arc-ink, oklch(0.48 0.215 270)); } .ds-pill--neutral { background: var(--mist, oklch(0.984 0 0)); color: var(--ink-3, oklch(0.49 0 0)); }"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Paper on the canvas, held by an inset hairline rather than lifted by a shadow. A panel inside a panel drops its ground and keeps only its padding.",
+      "html": "<div class=\"ds-panel\"><div class=\"ds-panel__title\">Supplier hand-offs</div><div class=\"ds-panel__desc\">Four orders waiting on confirmation.</div></div>",
+      "css": ".ds-panel { display: flex; flex-direction: column; gap: 6px; padding: 24px; border-radius: var(--radius-tile, 12px); background: var(--paper, oklch(1 0 0)); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ink, oklch(0.28 0 0)) 9%, transparent); color: var(--ink, oklch(0.28 0 0)); font-family: var(--font-sans, \"Inter Variable\", system-ui, sans-serif); } .ds-panel__title { font-size: 15px; line-height: 1; letter-spacing: -0.01em; font-weight: 600; } .ds-panel__desc { font-size: 13px; line-height: 18px; letter-spacing: -0.01em; color: var(--ink-3, oklch(0.49 0 0)); } .ds-panel .ds-panel { background: transparent; box-shadow: none; padding-left: 0; padding-right: 0; }"
+    },
+    {
+      "name": "Area Panel Navigation",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "The 224px area panel in mist. Active is the arc-tint wash with arc ink — never a left border, never a ring — and the count sits at the end in tabular figures.",
+      "html": "<nav class=\"ds-nav\"><div class=\"ds-nav__group\">Fulfilment</div><a class=\"ds-nav__item ds-nav__item--active\" href=\"#\">Needs you<span class=\"ds-nav__count\">12</span></a><a class=\"ds-nav__item\" href=\"#\">All orders<span class=\"ds-nav__count\">486</span></a><a class=\"ds-nav__item\" href=\"#\">Chargebacks<span class=\"ds-nav__count\">3</span></a></nav>",
+      "css": ".ds-nav { display: flex; flex-direction: column; width: 224px; padding: 10px 8px; background: var(--mist, oklch(0.984 0 0)); font-family: var(--font-sans, \"Inter Variable\", system-ui, sans-serif); } .ds-nav__group { padding: 12px 8px 4px; font-size: 12px; line-height: 16px; font-weight: 500; color: var(--ink-3, oklch(0.49 0 0)); } .ds-nav__item { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: var(--radius-control, 9px); color: var(--ink-2, oklch(0.4 0 0)); font-size: 14px; line-height: 20px; letter-spacing: -0.011em; font-weight: 500; text-decoration: none; cursor: pointer; transition: background-color 160ms cubic-bezier(0.25,1,0.5,1), color 160ms cubic-bezier(0.25,1,0.5,1); } .ds-nav__item:hover { background: color-mix(in oklch, var(--ink, oklch(0.28 0 0)) 6%, transparent); color: var(--ink, oklch(0.28 0 0)); } .ds-nav__item--active, .ds-nav__item--active:hover { background: var(--arc-tint, oklch(0.94 0.028 270)); color: var(--arc-ink, oklch(0.48 0.215 270)); } .ds-nav__count { margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink-3, oklch(0.49 0 0)); } .ds-nav__item--active .ds-nav__count { color: var(--arc-ink, oklch(0.48 0.215 270)); } .ds-nav__item:focus-visible { outline: 2px solid var(--arc, oklch(0.48 0.215 270)); outline-offset: 1px; }"
+    },
+    {
+      "name": "Icon Rail",
+      "kind": "nav",
+      "refersTo": "rail-item-active",
+      "description": "52px of abyss, present on every screen. Active is a filled arc tile; in the app it is one tile that travels between icons via layoutId rather than fading.",
+      "html": "<nav class=\"ds-rail\"><span class=\"ds-rail__item ds-rail__item--active\" aria-current=\"page\"><svg viewBox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z\"/><path d=\"M3 7.5 12 12l9-4.5\"/><path d=\"M12 12v9\"/></svg></span><span class=\"ds-rail__item\"><svg viewBox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"9\" cy=\"8\" r=\"3.4\"/><path d=\"M3 20c0-3.3 2.7-5.6 6-5.6s6 2.3 6 5.6\"/></svg></span><span class=\"ds-rail__rule\"></span><span class=\"ds-rail__item\"><svg viewBox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\"><circle cx=\"5\" cy=\"12\" r=\"1\"/><circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/></svg></span></nav>",
+      "css": ".ds-rail { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 52px; padding: 10px 0; background: var(--abyss, oklch(0.284 0.186 270)); } .ds-rail__item { display: flex; align-items: center; justify-content: center; width: 34px; height: 30px; border-radius: var(--radius-control, 9px); color: color-mix(in oklch, var(--mesh-ink, oklch(0.98 0.01 100)) 60%, transparent); cursor: pointer; transition: background-color 160ms cubic-bezier(0.25,1,0.5,1), color 160ms cubic-bezier(0.25,1,0.5,1); } .ds-rail__item:hover { background: color-mix(in oklch, var(--mesh-ink, oklch(0.98 0.01 100)) 12%, transparent); color: var(--mesh-ink, oklch(0.98 0.01 100)); } .ds-rail__item--active, .ds-rail__item--active:hover { background: var(--arc, oklch(0.48 0.215 270)); color: var(--mesh-ink, oklch(0.98 0.01 100)); } .ds-rail__item:active { transform: scale(0.92); } .ds-rail__rule { width: 24px; height: 1px; margin: 8px 0; background: color-mix(in oklch, var(--mesh-ink, oklch(0.98 0.01 100)) 15%, transparent); }"
+    },
+    {
+      "name": "Data Table",
+      "kind": "custom",
+      "refersTo": "table-row-cell",
+      "description": "One table for every list: paper tile with a hairline, mist head at 32px, 36px rows, 12px gutters, 13px type. The row rule is the one thing a hairline is for.",
+      "html": "<div class=\"ds-table\"><table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th class=\"ds-table__num\">Total</th></tr></thead><tbody><tr><td>SO-12200</td><td>Noor de Vries</td><td><span class=\"ds-table__pill\">Delayed</span></td><td class=\"ds-table__num\">€248,00</td></tr><tr><td>SO-12199</td><td>Jonas Peeters</td><td><span class=\"ds-table__pill ds-table__pill--ok\">Fulfilled</span></td><td class=\"ds-table__num\">€89,50</td></tr></tbody></table></div>",
+      "css": ".ds-table { overflow: hidden; border-radius: var(--radius-tile, 12px); background: var(--paper, oklch(1 0 0)); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ink, oklch(0.28 0 0)) 9%, transparent); font-family: var(--font-sans, \"Inter Variable\", system-ui, sans-serif); } .ds-table table { width: 100%; border-collapse: collapse; text-align: left; } .ds-table thead tr { background: var(--mist, oklch(0.984 0 0)); } .ds-table th { height: 32px; padding: 0 12px; font-size: 12px; line-height: 16px; letter-spacing: -0.005em; font-weight: 500; color: var(--ink-3, oklch(0.49 0 0)); white-space: nowrap; } .ds-table td { height: 36px; padding: 0 12px; font-size: 13px; line-height: 18px; letter-spacing: -0.01em; color: var(--ink-2, oklch(0.4 0 0)); border-top: 1px solid color-mix(in oklch, var(--ink, oklch(0.28 0 0)) 7%, transparent); white-space: nowrap; } .ds-table tbody tr { transition: background-color 80ms cubic-bezier(0.25,1,0.5,1); } .ds-table tbody tr:hover { background: color-mix(in oklch, var(--ink, oklch(0.28 0 0)) 3%, transparent); } .ds-table__num { text-align: right; font-variant-numeric: tabular-nums; } .ds-table__pill { display: inline-flex; padding: 2px 8px; border-radius: 9999px; font-size: 12px; font-weight: 500; background: var(--signal-amber-bg, oklch(0.94 0.048 75)); color: var(--signal-amber, oklch(0.525 0.113 70)); } .ds-table__pill--ok { background: var(--signal-green-bg, oklch(0.94 0.055 160)); color: var(--signal-green, oklch(0.51 0.115 160)); }"
+    },
+    {
+      "name": "Plate",
+      "kind": "custom",
+      "refersTo": "plate",
+      "description": "A proposal drawn as a blueprint before it becomes a record: abyss ground, 32px drafting grid, chalk line work, identity in a title block at the foot.",
+      "html": "<section class=\"ds-plate\"><h2 class=\"ds-plate__heading\">Hold the Northwind restock until Thursday</h2><p class=\"ds-plate__body\">The supplier confirmed a two-day delay. Holding keeps one shipment instead of two.</p><div class=\"ds-plate__dim\">48 h</div><div class=\"ds-plate__rule\"></div><footer class=\"ds-plate__block\"><span>PL-0412</span><span>Proposed</span><span>0.82</span></footer></section>",
+      "css": ".ds-plate { position: relative; isolation: isolate; overflow: hidden; width: 436px; padding: 28px 24px 16px; border-radius: var(--radius-tile, 12px); background-color: var(--abyss, oklch(0.284 0.186 270)); color: var(--mesh-ink, oklch(0.98 0.01 100)); font-family: var(--font-sans, \"Inter Variable\", system-ui, sans-serif); background-image: repeating-linear-gradient(0deg, color-mix(in oklch, var(--mesh-ink, oklch(0.98 0.01 100)) 8%, transparent) 0 1px, transparent 1px 32px), repeating-linear-gradient(90deg, color-mix(in oklch, var(--mesh-ink, oklch(0.98 0.01 100)) 8%, transparent) 0 1px, transparent 1px 32px); } .ds-plate__heading { margin: 0; font-size: 24px; line-height: 31px; letter-spacing: -0.025em; font-weight: 500; } .ds-plate__body { margin: 12px 0 0; font-size: 14px; line-height: 19px; color: var(--mesh-ink-2, oklch(0.86 0.025 270)); } .ds-plate__dim { margin-top: 24px; text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; } .ds-plate__rule { position: relative; height: 1px; margin-top: 4px; background: color-mix(in oklch, var(--mesh-ink, oklch(0.98 0.01 100)) 50%, transparent); } .ds-plate__block { display: flex; justify-content: space-between; margin-top: 28px; padding-top: 10px; border-top: 1px solid var(--mesh-hairline, oklch(0.36 0.08 270)); font-size: 12px; color: var(--mesh-ink-3, oklch(0.72 0.035 270)); font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Empty State",
+      "kind": "custom",
+      "refersTo": "panel",
+      "description": "A drawn mark in the console's own hand — a dashed slot where the records would be, the record's glyph in strokes, one arc accent — then a title, one line of body, and the action.",
+      "html": "<div class=\"ds-empty\"><svg class=\"ds-empty__mark\" viewBox=\"0 0 72 72\" width=\"72\" height=\"72\" fill=\"none\"><rect x=\"8\" y=\"12\" width=\"56\" height=\"48\" rx=\"10\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-dasharray=\"5 5\" class=\"ds-empty__slot\"/><g transform=\"translate(24 24)\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"ds-empty__glyph\"><path d=\"M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z\"/><path d=\"M3 7.5 12 12l9-4.5\"/><path d=\"M12 12v9\"/></g><circle cx=\"56\" cy=\"18\" r=\"3\" class=\"ds-empty__dot\"/></svg><h3 class=\"ds-empty__title\">No orders need you</h3><p class=\"ds-empty__body\">Everything that arrived today is already on its way. New orders land here as they come in.</p><button class=\"ds-empty__action\">Create order</button></div>",
+      "css": ".ds-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 56px 24px; text-align: center; font-family: var(--font-sans, \"Inter Variable\", system-ui, sans-serif); } .ds-empty__mark { color: var(--ink-4, oklch(0.68 0 0)); } .ds-empty__slot { animation: ds-empty-march 9s linear infinite; } .ds-empty__glyph { color: var(--ink-3, oklch(0.49 0 0)); animation: ds-empty-breathe 4s cubic-bezier(0.4,0,0.6,1) infinite; } .ds-empty__dot { fill: var(--arc, oklch(0.48 0.215 270)); animation: ds-empty-breathe 4s cubic-bezier(0.4,0,0.6,1) infinite; } @keyframes ds-empty-march { to { stroke-dashoffset: -40; } } @keyframes ds-empty-breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } } .ds-empty__title { margin: 0; font-size: 15px; line-height: 22px; letter-spacing: -0.014em; font-weight: 500; color: var(--ink, oklch(0.28 0 0)); } .ds-empty__body { margin: 0; max-width: 420px; font-size: 14px; line-height: 1.6; color: var(--ink-3, oklch(0.49 0 0)); } .ds-empty__action { height: 32px; padding: 0 12px; border: none; border-radius: var(--radius-control, 9px); background: var(--abyss, oklch(0.284 0.186 270)); color: var(--mesh-ink, oklch(0.98 0.01 100)); font-size: 12px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px color-mix(in oklch, var(--abyss, oklch(0.284 0.186 270)) 18%, transparent); transition: background-color 160ms cubic-bezier(0.25,1,0.5,1); } .ds-empty__action:hover { background: var(--abyss-2, oklch(0.322 0.21 270)); } @media (prefers-reduced-motion: reduce) { .ds-empty__slot, .ds-empty__glyph, .ds-empty__dot { animation: none; } }"
+    },
+    {
+      "name": "Menu / Raised Panel",
+      "kind": "custom",
+      "refersTo": "dialog",
+      "description": "Anything that has left the page: paper, inset hairline plus a two-stop shadow, 4px padding around 36px items. Opens as a 150ms interruptible transition from its trigger's origin.",
+      "html": "<div class=\"ds-menu\"><div class=\"ds-menu__label\">Columns</div><button class=\"ds-menu__item\">Order</button><button class=\"ds-menu__item\">Customer</button><div class=\"ds-menu__sep\"></div><button class=\"ds-menu__item\">Supplier</button></div>",
+      "css": ".ds-menu { width: 192px; padding: 4px; border-radius: var(--radius-tile, 12px); background: var(--paper, oklch(1 0 0)); color: var(--ink, oklch(0.28 0 0)); font-family: var(--font-sans, \"Inter Variable\", system-ui, sans-serif); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ink, oklch(0.28 0 0)) 9%, transparent), 0 2px 6px color-mix(in oklch, black 8%, transparent), 0 28px 70px -24px color-mix(in oklch, black 30%, transparent); transition: opacity 150ms cubic-bezier(0.25,1,0.5,1), scale 150ms cubic-bezier(0.25,1,0.5,1); } .ds-menu__label { padding: 6px 8px; font-size: 12px; color: var(--ink-3, oklch(0.49 0 0)); } .ds-menu__item { display: flex; align-items: center; width: 100%; height: 36px; padding: 0 10px; border: none; background: transparent; border-radius: var(--radius-control, 9px); color: var(--ink, oklch(0.28 0 0)); font-size: 13px; line-height: 18px; letter-spacing: -0.01em; font-weight: 500; text-align: left; cursor: pointer; transition: background-color 160ms cubic-bezier(0.25,1,0.5,1); } .ds-menu__item:hover { background: var(--arc-tint, oklch(0.94 0.028 270)); } .ds-menu__item:focus-visible { outline: 2px solid var(--arc, oklch(0.48 0.215 270)); outline-offset: 1px; } .ds-menu__sep { height: 1px; margin: 4px -1px; background: var(--hairline, oklch(0.89 0 0)); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "De Blauwdruk",
+    "overview": "The cyanotype: the plan drawn in white on blue before anything is built. The console is a drawing board, not a dashboard. A proposal the product is still deciding about is drawn as a plate — abyss ground, chalk line work, a 32px drafting grid, a title block at the foot — and once it becomes a record it moves onto paper, where it is read as rows. That is the whole personality: the blue is where the product is proposing, the paper is where the operator is working.\n\nThe system's one aesthetic commitment is that the canvas is colourless. The ink ramp is achromatic — chroma exactly zero, both themes — so the only chromatic thing in a product surface is the brand hue, Royal Azure at hue 270. Everything interactive is that hue and nothing decorative is. The second commitment is that separation is a surface change: glacier → mist → paper is the layering, panels are flat, and a hairline is reserved for a data boundary. Both themes ship as equals, under the same token names.\n\nDensity is where it earns it. A table runs 32px heads, 36px rows, 12px gutters and 13px type; a plate breathes. The type scale is fixed pixels at a ~1.15 ratio, eleven steps, because an operator reads this at one DPI all day and a clamp() heading that shrinks inside a panel is worse, not better.",
+    "keyCharacteristics": [
+      "One hue (Royal Azure, 270) on an achromatic ground; chroma 0 everywhere else in product surfaces.",
+      "Flat by default: surfaces separate, shadows are for things that have left the page.",
+      "Filled, not outlined: a secondary button and an input are the same well.",
+      "Fixed pixel type ramp, eleven steps, each carrying its own line-height and tracking.",
+      "Sentence case, no uppercase micro-labels, no second face except the figure.",
+      "Motion is a transition between two states, decelerating, and always gated on reduced motion."
+    ],
+    "rules": [
+      {
+        "name": "The One Hue Rule",
+        "body": "Product surfaces carry exactly one chromatic family: hue 270. The ink ramp is chroma 0 in both themes, so a coloured grey anywhere is a defect, not a choice.",
+        "section": "colors"
+      },
+      {
+        "name": "The Arc Is State Rule",
+        "body": "The arc family is interactive state and the brand. It is never decoration: no arc-tinted section backgrounds, no arc borders for emphasis, no arc icon that is not a control.",
+        "section": "colors"
+      },
+      {
+        "name": "The Three Inks Rule",
+        "body": "Only ink, ink-2 and ink-3 carry text. ink-4 and ink-5 are marks — gridlines, ticks, disabled glyphs — and putting a word in them fails the contrast the product commits to.",
+        "section": "colors"
+      },
+      {
+        "name": "The Pinned Field Rule",
+        "body": "A field that is an identity (arc, abyss, person-1…6) holds its value in both themes, and the ink on it is pinned (mesh-ink, person-ink) rather than inherited.",
+        "section": "colors"
+      },
+      {
+        "name": "The Word With The Colour Rule",
+        "body": "A status is a signal ink on its own signal tint and a word. Colour is never the only signal.",
+        "section": "colors"
+      },
+      {
+        "name": "The No Mono Rule",
+        "body": "Monospace is a claim that the characters are data. Figures line up because they are tabular-nums on the sans — set globally on td, th, output, time, data — not because they wear a typewriter. The console ships zero font-mono in markup and the stylesheet defines no --font-mono, so the utility cannot be reached for.",
+        "section": "typography"
+      },
+      {
+        "name": "The Two Places Rule",
+        "body": "The display face is allowed on the monumental figure and on plate numbers. Nowhere else; a second face without a job costs a token and buys nothing.",
+        "section": "typography"
+      },
+      {
+        "name": "The Sentence Case Rule",
+        "body": "Sentence case everywhere — headings, buttons, column labels, nav, status pills. No uppercase eyebrows, no track-spaced micro labels, no kickers.",
+        "section": "typography"
+      },
+      {
+        "name": "The Scale Or Nothing Rule",
+        "body": "Eleven steps and nothing between them. A half-pixel size (text-[12.5px]) is a value nudged until one screen looked right.",
+        "section": "typography"
+      },
+      {
+        "name": "The Field Stops Rule",
+        "body": "Two adjacent regions are told apart by their surfaces meeting, not by a line between them. If two regions share a surface and need to be distinguished, one of them is in the wrong place.",
+        "section": "layout"
+      },
+      {
+        "name": "The One Row Rule",
+        "body": "A list screen spends one row before the data: title, trail, meta, actions. No eyebrow, no standing description, no KPI strip. Anything true to say on first run is said in the table's empty state.",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat Panel Rule",
+        "body": "A panel is a surface and an edge. If it needs a drop shadow to be found, it is on the wrong ground.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Nested Panel Rule",
+        "body": "A panel inside a panel drops its ground and its shadow and keeps only its padding — enforced off the DOM in Card, so the double-framed box fails quietly instead of shipping.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do take every value from packages/tokens/src/tokens.ts. It is the only place a colour, radius, type step, easing or duration is written down; the stylesheet, the brand kit and the Figma exporter all read it.",
+      "Do separate regions with a surface change: glacier → mist → paper.",
+      "Do keep a hairline for data boundaries only — a table row, an input, a group break in the rail.",
+      "Do fill, don't outline: a secondary button is the same well as an input.",
+      "Do ask for a type role (text-sm, text-lg), which carries its own line-height and tracking.",
+      "Do spend arc on state — focus, selection, active, link — and arc-ink when the brand has to be text.",
+      "Do write sentence case, and let weight and colour carry hierarchy rather than size.",
+      "Do line figures up with tabular-nums on the sans.",
+      "Do gate every animation on useReducedMotion (or the stylesheet's reduced-motion block) and make sure the end state is what shows when motion is off.",
+      "Do use one named motion token: out-quart for state, out-expo for an arrival, 80/160/240/420ms."
+    ],
+    "donts": [
+      "Don't use font-mono or declare a mono face. Figures are tabular, not typewritten.",
+      "Don't put a border on a section, a card or a page header.",
+      "Don't write an arbitrary type or tracking value (text-[12.5px], tracking-[-0.01em]); if a step is missing, the scale is what changes.",
+      "Don't reach outside the radius ladder (rounded-2xl and up), and don't put a rounded-* class on utilities that already decide radius — the caller names it once.",
+      "Don't put text on sky, powder, ink-4 or ink-5.",
+      "Don't use arc as decoration: no arc-washed sections, no brand-coloured icon that is not a control, no text-arc (use arc-ink).",
+      "Don't mark selection or the active state with a ring, an outline or a left border. The field takes the colour.",
+      "Don't stack atmosphere. One mesh per page at most, and only where the brand actually speaks; the plate's scanning rule is the product's single piece of ambient motion.",
+      "Don't add an eyebrow, a kicker or a standing description above a heading, and don't add a second explanatory row to a list screen.",
+      "Don't use a Lucide glyph in a grey disc as an empty state; name a kind and let the drawn mark do it.",
+      "Don't reach for a shadcn slot name (bg-card, border-border) in new work. The slots exist so vendored primitives resolve; authored surfaces name the token."
+    ],
+    "notCanonized": [
+      "The command palette's shortcut hint still sets font-mono (packages/ui/src/components/command.tsx:158) — recorded as drift, not as a rule, and the No Mono Rule stands.",
+      "apps/console/src/components/common/data-table.tsx is the legacy table, still used by two supplier routes, drawing border border-border on bg-card. It is not the table this system documents.",
+      "The console's not-yet-redrawn surfaces (auth, onboarding, marketplace, _admin/_aff/_supplier, several app-shell popups) carry arbitrary type and tracking values and section borders. Ported fidelity, not house style."
+    ]
+  }
+}

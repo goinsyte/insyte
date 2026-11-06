@@ -1,0 +1,315 @@
+/* Generated from src/tokens.ts by `bun build.ts`. Do not edit. */
+
+:root {
+  --glacier: oklch(0.965 0 0);
+  --mist: oklch(0.984 0 0);
+  --paper: oklch(1 0 0);
+  --arc: oklch(0.48 0.215 270);
+  --arc-soft: oklch(0.84 0.078 270);
+  --arc-tint: oklch(0.94 0.028 270);
+  --arc-ink: oklch(0.48 0.215 270);
+  --abyss: oklch(0.284 0.186 270);
+  --abyss-2: oklch(0.322 0.21 270);
+  --sky: oklch(0.72 0.13 260);
+  --powder: oklch(0.82 0.04 270);
+  --ink: oklch(0.28 0 0);
+  --ink-2: oklch(0.4 0 0);
+  --ink-3: oklch(0.49 0 0);
+  --ink-4: oklch(0.68 0 0);
+  --ink-5: oklch(0.78 0 0);
+  --hairline: oklch(0.89 0 0);
+  --hairline-strong: oklch(0.83 0 0);
+  --mesh-ink: oklch(0.98 0.01 100);
+  --mesh-ink-2: oklch(0.86 0.025 270);
+  --mesh-ink-3: oklch(0.72 0.035 270);
+  --mesh-hairline: oklch(0.36 0.08 270);
+  --person-1: oklch(0.845 0.075 250);
+  --person-2: oklch(0.855 0.085 340);
+  --person-3: oklch(0.875 0.115 90);
+  --person-4: oklch(0.855 0.085 155);
+  --person-5: oklch(0.85 0.08 30);
+  --person-6: oklch(0.85 0.075 300);
+  --person-ink: oklch(0.3 0.015 270);
+  --signal-green: oklch(0.51 0.115 160);
+  --signal-green-bg: oklch(0.94 0.055 160);
+  --signal-amber: oklch(0.525 0.113 70);
+  --signal-amber-bg: oklch(0.94 0.048 75);
+  --signal-red: oklch(0.545 0.2 22);
+  --signal-red-bg: oklch(0.94 0.03 22);
+
+  --background: var(--glacier);
+  --foreground: var(--ink);
+  --card: var(--paper);
+  --card-foreground: var(--ink);
+  --popover: var(--paper);
+  --popover-foreground: var(--ink);
+  --primary: var(--abyss);
+  --primary-foreground: var(--mesh-ink);
+  --secondary: var(--mist);
+  --secondary-foreground: var(--ink);
+  --muted: var(--mist);
+  --muted-foreground: var(--ink-3);
+  --accent: var(--arc-tint);
+  --accent-foreground: var(--ink);
+  --destructive: var(--signal-red);
+  --destructive-foreground: var(--paper);
+  --border: var(--hairline);
+  --input: var(--hairline-strong);
+  --ring: var(--arc);
+
+  --radius-pill: 9999px;
+  --radius-chip: 6px;
+  --radius-control: 9px;
+  --radius-tile: 12px;
+  --radius-tile-hero: 16px;
+  /* shadcn's own baseline, which its primitives read directly. The control radius is the one a
+     button and an input use, so that is what it points at. */
+  --radius: 9px;
+
+  /* The two drawn fields. Their pitch is a token because the brand kit states it and the stylesheet
+     paints it, and the two disagreeing is how a pattern page goes stale. */
+  --pattern-grid: 32px;
+  --pattern-hatch: 24px;
+}
+
+/* Both themes are equals, so the dark map is the same names at night rather than an override list.
+   The media query is guarded by `:not(.light)` so an explicit daylight choice beats the system
+   preference, and `.dark` sets it outright for an explicit night choice. Order matters: the class
+   comes last so it wins at equal specificity. */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --glacier: oklch(0.185 0 0);
+    --mist: oklch(0.225 0 0);
+    --paper: oklch(0.255 0 0);
+    --arc: oklch(0.48 0.215 270);
+    --arc-soft: oklch(0.62 0.14 270);
+    --arc-tint: oklch(0.305 0.055 270);
+    --arc-ink: oklch(0.74 0.12 270);
+    --abyss: oklch(0.284 0.186 270);
+    --abyss-2: oklch(0.322 0.21 270);
+    --sky: oklch(0.56 0.14 260);
+    --powder: oklch(0.44 0.05 270);
+    --ink: oklch(0.965 0 0);
+    --ink-2: oklch(0.84 0 0);
+    --ink-3: oklch(0.76 0 0);
+    --ink-4: oklch(0.6 0 0);
+    --ink-5: oklch(0.5 0 0);
+    --hairline: oklch(0.3 0 0);
+    --hairline-strong: oklch(0.38 0 0);
+    --mesh-ink: oklch(0.98 0.01 100);
+    --mesh-ink-2: oklch(0.86 0.025 270);
+    --mesh-ink-3: oklch(0.72 0.035 270);
+    --mesh-hairline: oklch(0.36 0.08 270);
+    --person-1: oklch(0.845 0.075 250);
+    --person-2: oklch(0.855 0.085 340);
+    --person-3: oklch(0.875 0.115 90);
+    --person-4: oklch(0.855 0.085 155);
+    --person-5: oklch(0.85 0.08 30);
+    --person-6: oklch(0.85 0.075 300);
+    --person-ink: oklch(0.3 0.015 270);
+    --signal-green: oklch(0.8 0.14 160);
+    --signal-green-bg: oklch(0.3 0.055 160);
+    --signal-amber: oklch(0.84 0.13 85);
+    --signal-amber-bg: oklch(0.3 0.05 75);
+    --signal-red: oklch(0.78 0.125 22);
+    --signal-red-bg: oklch(0.31 0.06 22);
+  }
+}
+
+.dark {
+    --glacier: oklch(0.185 0 0);
+    --mist: oklch(0.225 0 0);
+    --paper: oklch(0.255 0 0);
+    --arc: oklch(0.48 0.215 270);
+    --arc-soft: oklch(0.62 0.14 270);
+    --arc-tint: oklch(0.305 0.055 270);
+    --arc-ink: oklch(0.74 0.12 270);
+    --abyss: oklch(0.284 0.186 270);
+    --abyss-2: oklch(0.322 0.21 270);
+    --sky: oklch(0.56 0.14 260);
+    --powder: oklch(0.44 0.05 270);
+    --ink: oklch(0.965 0 0);
+    --ink-2: oklch(0.84 0 0);
+    --ink-3: oklch(0.76 0 0);
+    --ink-4: oklch(0.6 0 0);
+    --ink-5: oklch(0.5 0 0);
+    --hairline: oklch(0.3 0 0);
+    --hairline-strong: oklch(0.38 0 0);
+    --mesh-ink: oklch(0.98 0.01 100);
+    --mesh-ink-2: oklch(0.86 0.025 270);
+    --mesh-ink-3: oklch(0.72 0.035 270);
+    --mesh-hairline: oklch(0.36 0.08 270);
+    --person-1: oklch(0.845 0.075 250);
+    --person-2: oklch(0.855 0.085 340);
+    --person-3: oklch(0.875 0.115 90);
+    --person-4: oklch(0.855 0.085 155);
+    --person-5: oklch(0.85 0.08 30);
+    --person-6: oklch(0.85 0.075 300);
+    --person-ink: oklch(0.3 0.015 270);
+    --signal-green: oklch(0.8 0.14 160);
+    --signal-green-bg: oklch(0.3 0.055 160);
+    --signal-amber: oklch(0.84 0.13 85);
+    --signal-amber-bg: oklch(0.3 0.05 75);
+    --signal-red: oklch(0.78 0.125 22);
+    --signal-red-bg: oklch(0.31 0.06 22);
+}
+
+/* And the mirror of it. `.light` has to RESTATE the daylight map rather than only negate the media
+   query, because the two classes are used for two different jobs: at `:root` they choose the theme,
+   but on an element they scope one — a thumbnail that previews the night theme while the app is in
+   daylight, or the reverse. A `.light` that is only a negation cannot do the second. */
+.light {
+  --glacier: oklch(0.965 0 0);
+  --mist: oklch(0.984 0 0);
+  --paper: oklch(1 0 0);
+  --arc: oklch(0.48 0.215 270);
+  --arc-soft: oklch(0.84 0.078 270);
+  --arc-tint: oklch(0.94 0.028 270);
+  --arc-ink: oklch(0.48 0.215 270);
+  --abyss: oklch(0.284 0.186 270);
+  --abyss-2: oklch(0.322 0.21 270);
+  --sky: oklch(0.72 0.13 260);
+  --powder: oklch(0.82 0.04 270);
+  --ink: oklch(0.28 0 0);
+  --ink-2: oklch(0.4 0 0);
+  --ink-3: oklch(0.49 0 0);
+  --ink-4: oklch(0.68 0 0);
+  --ink-5: oklch(0.78 0 0);
+  --hairline: oklch(0.89 0 0);
+  --hairline-strong: oklch(0.83 0 0);
+  --mesh-ink: oklch(0.98 0.01 100);
+  --mesh-ink-2: oklch(0.86 0.025 270);
+  --mesh-ink-3: oklch(0.72 0.035 270);
+  --mesh-hairline: oklch(0.36 0.08 270);
+  --person-1: oklch(0.845 0.075 250);
+  --person-2: oklch(0.855 0.085 340);
+  --person-3: oklch(0.875 0.115 90);
+  --person-4: oklch(0.855 0.085 155);
+  --person-5: oklch(0.85 0.08 30);
+  --person-6: oklch(0.85 0.075 300);
+  --person-ink: oklch(0.3 0.015 270);
+  --signal-green: oklch(0.51 0.115 160);
+  --signal-green-bg: oklch(0.94 0.055 160);
+  --signal-amber: oklch(0.525 0.113 70);
+  --signal-amber-bg: oklch(0.94 0.048 75);
+  --signal-red: oklch(0.545 0.2 22);
+  --signal-red-bg: oklch(0.94 0.03 22);
+}
+
+@theme inline {
+  --color-glacier: var(--glacier);
+  --color-mist: var(--mist);
+  --color-paper: var(--paper);
+  --color-arc: var(--arc);
+  --color-arc-soft: var(--arc-soft);
+  --color-arc-tint: var(--arc-tint);
+  --color-arc-ink: var(--arc-ink);
+  --color-abyss: var(--abyss);
+  --color-abyss-2: var(--abyss-2);
+  --color-sky: var(--sky);
+  --color-powder: var(--powder);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+  --color-ink-5: var(--ink-5);
+  --color-hairline: var(--hairline);
+  --color-hairline-strong: var(--hairline-strong);
+  --color-mesh-ink: var(--mesh-ink);
+  --color-mesh-ink-2: var(--mesh-ink-2);
+  --color-mesh-ink-3: var(--mesh-ink-3);
+  --color-mesh-hairline: var(--mesh-hairline);
+  --color-person-1: var(--person-1);
+  --color-person-2: var(--person-2);
+  --color-person-3: var(--person-3);
+  --color-person-4: var(--person-4);
+  --color-person-5: var(--person-5);
+  --color-person-6: var(--person-6);
+  --color-person-ink: var(--person-ink);
+  --color-signal-green: var(--signal-green);
+  --color-signal-green-bg: var(--signal-green-bg);
+  --color-signal-amber: var(--signal-amber);
+  --color-signal-amber-bg: var(--signal-amber-bg);
+  --color-signal-red: var(--signal-red);
+  --color-signal-red-bg: var(--signal-red-bg);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* The type scale. Eleven steps and nothing between them, each carrying its own line-height and
+     tracking so a call site asks for a ROLE rather than re-deriving three values. Tailwind's own
+     default scale is overwritten here on purpose: two scales under one set of names is how the
+     legacy stylesheet ended up with rounded-xl meaning two different things. */
+  --text-2xs: 11px;
+  --text-2xs--line-height: 14px;
+  --text-2xs--letter-spacing: 0em;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-xs--letter-spacing: -0.005em;
+  --text-sm: 13px;
+  --text-sm--line-height: 18px;
+  --text-sm--letter-spacing: -0.01em;
+  --text-base: 14px;
+  --text-base--line-height: 20px;
+  --text-base--letter-spacing: -0.011em;
+  --text-md: 15px;
+  --text-md--line-height: 22px;
+  --text-md--letter-spacing: -0.014em;
+  --text-lg: 17px;
+  --text-lg--line-height: 24px;
+  --text-lg--letter-spacing: -0.018em;
+  --text-xl: 20px;
+  --text-xl--line-height: 26px;
+  --text-xl--letter-spacing: -0.022em;
+  --text-2xl: 24px;
+  --text-2xl--line-height: 30px;
+  --text-2xl--letter-spacing: -0.026em;
+  --text-3xl: 30px;
+  --text-3xl--line-height: 34px;
+  --text-3xl--letter-spacing: -0.03em;
+  --text-4xl: 40px;
+  --text-4xl--line-height: 44px;
+  --text-4xl--letter-spacing: -0.034em;
+  --text-5xl: 60px;
+  --text-5xl--line-height: 60px;
+  --text-5xl--letter-spacing: -0.038em;
+
+  /* Tailwind's radius scale, mapped ONTO the five roles rather than sitting beside them. The legacy
+     stylesheet shipped both ladders at once, so `rounded-xl` and `rounded-tile` were different
+     things and no one could say which was correct. */
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --font-sans: "General Sans", "Inter Variable", system-ui, -apple-system, sans-serif;
+  --font-display: "Archivo Variable", "Inter Variable", system-ui, sans-serif;
+
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-mesh: cubic-bezier(0.4, 0, 0.6, 1);
+
+  --duration-instant: 80ms;
+  --duration-quick: 160ms;
+  --duration-base: 240ms;
+  --duration-slow: 420ms;
+  --duration-scan: 6000ms;
+  --duration-ambient: 18000ms;
+}

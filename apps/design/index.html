@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Insyte · referentie</title>
+    <meta name="description" content="Het hele productontwerp van Insyte op één plek: het product, de marketingsite en het merkboek, zonder backend." />
+    <!-- A reference, never a page to find: every section, the marketing copy included. -->
+    <meta name="robots" content="noindex" />
+    <!--
+      One bar, daylight, because the reference opens in daylight whatever the system says (below).
+      The value is the repaired `glacier` from
+      `packages/tokens`; the single value that used to sit here was the legacy stylesheet's
+      `oklch(22% 0.23 270)`, which is outside sRGB and was never what the browser painted.
+    -->
+    <meta name="theme-color" content="oklch(0.965 0 0)" />
+    <meta property="og:title" content="Insyte" />
+    <meta property="og:description" content="Quiet by default. Loud when it matters." />
+    <meta property="og:type" content="website" />
+    <!--
+      The document head legacy builds in `__root.tsx`'s `head()`, which under SSR is the same thing:
+      the tags above, the two font links below and the favicon. General Sans is render-blocking and
+      third-party, exactly as legacy loads it; the self-hosted faces arrive through the stylesheet.
+
+      (The brand book loads General Sans the same way: it is the face it documents. The self-hosted
+      faces arrive through its stylesheet.)
+    -->
+    <link rel="preconnect" href="https://api.fontshare.com" crossorigin="anonymous" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!--
+      The theme, decided before first paint so the canvas never flashes the wrong one. `.dark` is the
+      single mechanism: `tokens.css` swaps every value under it and `app.css` keys the `dark:`
+      variant to it, so the utilities and the values can never disagree. The `prefers-color-scheme`
+      block in `tokens.css` is what covers this script not running at all.
+
+      Each section's document, decided the same way, from the path. `/app` opens in daylight unless
+      the visitor chose night, or chose "auto" and the system is dark, in Instellingen; the system
+      preference alone never picks night. `/site` is drawn in the daylight map whatever the system says, as the
+      marketing site's root route does (`<html lang="nl" class="light">`), and so is `/brand`, the
+      brand book, which is Dutch. The console and the generated token kit were `lang="en"` documents,
+      and keep that.
+    -->
+    <script>
+      (function () {
+        var p = location.pathname;
+        var html = document.documentElement;
+        var under = function (s) { return p === s || p.indexOf(s + "/") === 0; };
+        if (under("/app")) {
+          html.lang = "en";
+          try {
+            var saved = localStorage.getItem("insyte-theme");
+            var dark = saved === "dark" || (saved === "auto" && matchMedia("(prefers-color-scheme: dark)").matches);
+            document.documentElement.classList.add(dark ? "dark" : "light");
+          } catch (_) {
+            document.documentElement.classList.add("light");
+          }
+        } else if (under("/site")) {
+          html.classList.add("light");
+        } else if (under("/brand/tokens")) {
+          html.lang = "en";
+        } else {
+          html.classList.add("light");
+        }
+        /*
+         * General Sans, from Fontshare, render-blocking, exactly as the console's and the brand book's
+         * `index.html` and the marketing site's root route load it. Written rather than linked
+         * because one page never loaded it — the generated token kit (`/brand/tokens`, the old
+         * `tokens.html`) — and loading it there would change what the kit paints.
+         */
+        if (!under("/brand/tokens")) {
+          document.write(
+            '<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600&display=swap" />'
+          );
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!--
+      The console's first paint (ADR-0028): the Drift mark on glacier, at the exact centre and size
+      the React boot screen then animates from, so the hand-over from this HTML to the app does not
+      move it by a pixel. React replaces it on mount. On the real stack the server sends the shell
+      itself here; the reference has no server, so this is the honest stand-in for the bytes before
+      the script runs. Skipped at the "Direct" pace and on the signed-out screens, which have their
+      own first paint.
+    -->
+    <style>
+      .boot-first { position: fixed; inset: 0; background: oklch(0.965 0 0); }
+      html.dark .boot-first { background: oklch(0.185 0 0); }
+      .boot-first svg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+    </style>
+    <script>
+      (function () {
+        var p = location.pathname;
+        if (!(p === "/app" || p.indexOf("/app/") === 0)) return;
+        if (/^\/app\/(login|register|invitations|onboarding|retour)/.test(p)) return;
+        try {
+          var asked = new URLSearchParams(location.search).get("laden");
+          if (asked === "uit" || asked === "direct") return;
+          if (!asked && localStorage.getItem("insyte:pace") === "off") return;
+        } catch (_) {}
+        document.getElementById("root").innerHTML =
+          '<div class="boot-first" role="status" aria-label="Insyte wordt geopend">' +
+          '<svg width="56" height="56" viewBox="0 0 64 64" aria-hidden="true">' +
+          '<rect x="2" y="2" width="38" height="38" rx="7" fill="oklch(86% 0.060 270)"/>' +
+          '<rect x="13" y="13" width="38" height="38" rx="7" fill="oklch(56% 0.140 270)"/>' +
+          '<rect x="24" y="24" width="38" height="38" rx="7" fill="oklch(0.284 0.186 270)"/>' +
+          '<g fill="#ffffff" opacity="0.55"><rect x="44" y="30" width="10" height="3" rx="1.5"/>' +
+          '<rect x="44" y="36" width="14" height="3" rx="1.5"/><rect x="44" y="42" width="8" height="3" rx="1.5"/></g>' +
+          "</svg></div>";
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
