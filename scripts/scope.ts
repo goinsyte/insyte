@@ -15,16 +15,7 @@
  * pull request is checked out detached.
  */
 import { execFileSync } from "node:child_process"
-
-const ALLOW = [
-  "apps/design/src/app/",
-  "apps/design/public/",
-  "packages/ui/src/app/",
-  "packages/ui/test/"
-]
-
-/** Inside the allowed folders, still not the playground's: the marketing site's sections. */
-const DENY = ["packages/ui/src/app/marketing-sections/"]
+import { ALLOW, DENY, inPlayground } from "./playground-paths.ts"
 
 const git = (...args: string[]) => execFileSync("git", args, { encoding: "utf8" }).trim()
 
@@ -44,7 +35,7 @@ const changed = (base
   .split("\n")
   .filter(Boolean)
 
-const outside = changed.filter((f) => !ALLOW.some((a) => f.startsWith(a)) || DENY.some((d) => f.startsWith(d)))
+const outside = changed.filter((f) => !inPlayground(f))
 
 if (outside.length > 0) {
   console.error(`\n${branch} is a playground branch: it may change the product demo only.\n`)

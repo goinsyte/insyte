@@ -2,7 +2,8 @@
 
 ## Playground branches
 
-If the current branch is `playground/*` (`git rev-parse --abbrev-ref HEAD`), change only:
+If the current branch is `playground/*` (`git rev-parse --abbrev-ref HEAD`), or this checkout is the playground fork
+(`origin` is `goinsyte/insyte-playground`), change only:
 
 - `packages/ui/src/app/**` (not `marketing-sections/`)
 - `apps/design/src/app/**`
