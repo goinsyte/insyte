@@ -8,6 +8,8 @@
  *
  *   bun scripts/scope.ts                 staged files (pre-commit)
  *   bun scripts/scope.ts --base main     everything on this branch since main (pre-push, CI)
+ *   ... --enforce                        apply the walls whatever the branch is called (CI, for a pull
+ *                                        request opened by anyone outside the maintainers)
  *
  * On any branch that is not `playground/*` it passes without looking. CI passes `--branch`, since a
  * pull request is checked out detached.
@@ -33,7 +35,7 @@ const arg = (name: string) => {
 
 // `symbolic-ref`, not `rev-parse --abbrev-ref`: the latter fails on a branch with no commits yet.
 const branch = arg("--branch") ?? git("symbolic-ref", "--short", "HEAD")
-if (!branch.startsWith("playground/")) process.exit(0)
+if (!process.argv.includes("--enforce") && !branch.startsWith("playground/")) process.exit(0)
 
 const base = arg("--base")
 const changed = (base

@@ -1,13 +1,20 @@
-# The playground's walls (ADR-0029). The local hooks can be skipped with --no-verify; this cannot,
-# once `main` requires it to pass.
+# The playground's walls. The local hooks can be skipped with --no-verify; this cannot, once `main`
+# requires it to pass.
+#
+# It runs on every pull request. A `playground/*` branch is checked whoever opened it, and a pull request
+# opened by anyone outside MAINTAINERS is checked whatever its branch is called: a branch made in the
+# browser (Claude Code on the web, the GitHub editor) does not have to follow the naming convention.
 name: scope
 
 on:
   pull_request:
 
+env:
+  # GitHub logins, space-separated, that may change anything through a reviewed pull request.
+  MAINTAINERS: ishakdeveloper
+
 jobs:
   scope:
-    if: startsWith(github.head_ref, 'playground/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,7 +24,11 @@ jobs:
         with:
           bun-version-file: .bun-version
       # Through env, not interpolated: a branch name is attacker-controlled text in a shell line.
-      - run: bun scripts/scope.ts --branch "$HEAD_REF" --base "origin/$BASE_REF"
+      - run: |
+          enforce=""
+          case " $MAINTAINERS " in *" $AUTHOR "*) ;; *) enforce="--enforce" ;; esac
+          bun scripts/scope.ts --branch "$HEAD_REF" --base "origin/$BASE_REF" $enforce
         env:
           HEAD_REF: ${{ github.head_ref }}
           BASE_REF: ${{ github.base_ref }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
