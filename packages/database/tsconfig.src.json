@@ -3,6 +3,7 @@
   // arrives with `Connect.ts` in M1.2.
   "extends": "../../tsconfig.base.json",
   "include": ["src/**/*.ts"],
+  "exclude": ["**/test/**"],
   "compilerOptions": {
     "noEmit": true,
     "rootDir": ".",

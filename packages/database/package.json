@@ -10,5 +10,9 @@
   "dependencies": {
     "@insyte/domain": "workspace:*",
     "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/sql-pg": "catalog:",
+    "vitest": "catalog:"
   }
 }

@@ -11,6 +11,8 @@
    */
   "ignore": ["repos/**"],
   "ignoreDependencies": [
+    // The Workers built-in modules (`cloudflare:workers`, `cloudflare:test`), not an npm package.
+    "cloudflare",
     // Referenced by .secretlintrc.json, which knip does not parse.
     "@secretlint/secretlint-rule-preset-recommend",
   ],
