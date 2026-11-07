@@ -1,0 +1,33 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  /*
+   * The API Worker for local development and the worker tests. No `env` blocks: preview, staging and production are
+   * declared once in infra (alchemy stages, M0.6), not as copies of this file.
+   */
+  "name": "insyte-api",
+  "main": "src/Main.ts",
+  "compatibility_date": "2026-10-26",
+  // `enable_request_signal`: a client that goes away aborts `request.signal`, and `toWebHandler` interrupts the fiber.
+  "compatibility_flags": ["nodejs_compat", "enable_request_signal"],
+  /*
+   * Logs, traces and Issues, each named: `enabled` alone turns on logs only. Sampled at 100 % through the MVP
+   * (17 §1). The Sentry destinations are added per account in infra (17 §7).
+   */
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 1 },
+    "issues": { "enabled": true },
+  },
+  // Next to Neon (aws-eu-central-1): a request is several sequential queries, the response is small.
+  "placement": { "region": "aws:eu-central-1" },
+  "dev": { "port": 8787 },
+  // 02 §5.1, local column. Read through `platform/Bindings.ts` only.
+  "vars": {
+    "ENVIRONMENT": "local",
+    "LOG_LEVEL": "Debug",
+    "OTEL_SERVICE_NAME": "insyte-api",
+    // Cloudflare's always-passes test key; each environment has its own widget.
+    "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
+  },
+}

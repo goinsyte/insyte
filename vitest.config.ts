@@ -10,6 +10,8 @@ import { defineConfig } from "vitest/config"
 export default defineConfig({
   test: {
     projects: [
+      // The API Worker, inside workerd. Its own config: the Cloudflare plugin belongs to that project only.
+      "apps/api/vitest.config.ts",
       {
         // The shared values: ids, money, the permission catalogue. Pure, so `node`.
         test: {
