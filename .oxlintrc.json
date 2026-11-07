@@ -71,6 +71,7 @@
     // Graduated (08 §3): wired to the API, so held to this repo's rules.
     "!packages/ui/src/app/auth/login-screen.tsx",
     "!packages/ui/src/app/onboarding/shared-steps.tsx",
+    "!packages/ui/src/app/onboarding/admin-steps.tsx",
     "!packages/ui/src/app/lib/form-errors.ts"
   ],
   "rules": {

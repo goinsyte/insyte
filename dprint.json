@@ -57,7 +57,7 @@
     /*
      * Listed entry by entry rather than as the directory, because dprint cannot un-exclude a file inside an excluded
      * directory. What is missing has graduated (08 §3): edited for the backend, so formatted like code written here
-     * (`auth/login-screen.tsx`, `onboarding/shared-steps.tsx`, `lib/form-errors.ts`; `lib/auth-client.ts` and `lib/errors.ts` are
+     * (`auth/login-screen.tsx`, `onboarding/shared-steps.tsx`, `onboarding/admin-steps.tsx`, `lib/form-errors.ts`; `lib/auth-client.ts` and `lib/errors.ts` are
      * written here). The list only shrinks.
      */
     "packages/ui/src/app/access/",
@@ -138,7 +138,6 @@
     "packages/ui/src/app/marketing-sections/",
     "packages/ui/src/app/marketplace/",
     "packages/ui/src/app/notifications/",
-    "packages/ui/src/app/onboarding/admin-steps.tsx",
     "packages/ui/src/app/onboarding/affiliate-steps.tsx",
     "packages/ui/src/app/onboarding/brand-copy.ts",
     "packages/ui/src/app/onboarding/first-analysis-steps.tsx",

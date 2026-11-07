@@ -58,6 +58,7 @@
         "src/app/**",
         "!src/app/auth/login-screen.tsx",
         "!src/app/onboarding/shared-steps.tsx",
+        "!src/app/onboarding/admin-steps.tsx",
         "!src/app/lib/form-errors.ts",
       ],
     },
