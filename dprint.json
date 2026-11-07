@@ -18,6 +18,8 @@
     "**/.output",
     "**/*.tsbuildinfo",
     "**/coverage",
+    // The vendored Effect source (git subtree): formatting it would be editing upstream.
+    "repos/",
     // Agent skill packages and harness config installed by their own tools; reformatting them would fight updates.
     ".agents/",
     ".claude/skills/",

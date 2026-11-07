@@ -14,7 +14,9 @@ pre-commit:
 
 pre-push:
   commands:
+    branches:
+      run: bun scripts/branches.ts
     scope:
-      run: bun scripts/scope.ts --base main
+      run: bun scripts/scope.ts --base origin/staging
     check:
       run: bun run check

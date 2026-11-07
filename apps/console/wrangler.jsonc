@@ -1,0 +1,24 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  /*
+   * The console: TanStack Start on a Worker (ADR-0033). It renders the document and forwards `/api/*` to the API Worker
+   * by service binding, so the browser sees one origin and the session cookie stays host-only (ADR-0038). No `env`
+   * blocks: the deployed environments are alchemy stages (M0.6).
+   */
+  "name": "insyte-console",
+  "main": "./src/server.ts",
+  "compatibility_date": "2026-10-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 1 },
+    "issues": { "enabled": true },
+  },
+  "placement": { "region": "aws:eu-central-1" },
+  // `vite dev` runs the API beside it (`auxiliaryWorkers` in vite.config.ts), so this binding resolves locally too.
+  "services": [{ "binding": "API", "service": "insyte-api" }],
+  "vars": {
+    "ENVIRONMENT": "local",
+  },
+}

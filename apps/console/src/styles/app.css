@@ -1,0 +1,3 @@
+/* The product's stylesheet (`@insyte/tokens` underneath), plus this app's own files as Tailwind sources. */
+@import "@insyte/ui/app/app.css";
+@source "../**/*.{ts,tsx}";

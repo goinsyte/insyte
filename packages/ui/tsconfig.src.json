@@ -1,8 +1,8 @@
 {
   /*
-   * The components every surface renders. Imports `@insyte/tokens` and nothing else of ours, which is
-   * the direction ADR-0001 exists to forbid: a surface may import this package, this package may not
-   * import a surface.
+   * The components every surface renders. Imports `@insyte/tokens` and `@insyte/domain` (the permission
+   * catalogue the server also checks) and no surface, which is the direction ADR-0001 exists to forbid:
+   * a surface may import this package, this package may not import a surface.
    *
    * The directory shape, and what is deliberately not here yet:
    *

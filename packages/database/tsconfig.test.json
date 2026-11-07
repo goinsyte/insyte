@@ -1,0 +1,16 @@
+{
+  // Tests, typechecked as a standalone project with no reference to the source: a referenced project must emit
+  // declarations, and nothing here is published. `bun run check` runs it by name.
+  "extends": "../../tsconfig.base.json",
+  "include": ["test/**/*.ts"],
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "noEmit": true,
+    "rootDir": ".",
+    "declaration": false,
+    "declarationMap": false,
+    "lib": ["ES2023"],
+    "types": ["node"]
+  }
+}

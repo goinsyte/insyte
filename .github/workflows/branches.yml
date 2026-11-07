@@ -1,0 +1,24 @@
+# The branch model (docs/branches.md): a pull request's branch name, and whether it may merge into its base.
+# `main` takes only `staging` (a release) and `hotfix/*`; everything else targets `staging`.
+name: branches
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  branches:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      # Through env, not interpolated: a branch name is attacker-controlled text in a shell line.
+      - run: bun scripts/branches.ts --branch "$HEAD_REF" --base "$BASE_REF"
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}

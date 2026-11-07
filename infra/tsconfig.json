@@ -1,0 +1,17 @@
+{
+  /*
+   * The deploy process's project: alchemy runs here and nowhere else (14 §2). Not composite; nothing imports it.
+   */
+  "extends": "../tsconfig.base.json",
+  "include": ["*.ts"],
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "tsBuildInfoFile": ".tsbuildinfo/infra.tsbuildinfo",
+    "lib": ["ES2023"],
+    "types": ["node"]
+  }
+}

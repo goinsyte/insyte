@@ -28,6 +28,7 @@
     "@dnd-kit/utilities": "catalog:",
     "@fontsource-variable/archivo": "catalog:",
     "@fontsource-variable/inter": "catalog:",
+    "@insyte/domain": "workspace:*",
     "@insyte/tokens": "workspace:*",
     "@tanstack/react-form": "catalog:",
     "@tanstack/react-router": "catalog:",

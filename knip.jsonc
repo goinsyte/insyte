@@ -1,18 +1,29 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   /*
-   * No `ignore` list, deliberately.
+   * One `ignore` entry, for a directory that exists: the vendored Effect source (git subtree), read by
+   * agents and reviewers and imported by nothing.
    *
-   * Upstream carries seven entries for agent skill directories installed by their own tools. None of
+   * Upstream also carries entries for agent skill directories installed by their own tools. None of
    * them exist here, because impeccable is used from the user-level install rather than vendored, and
    * knip reports an ignore matching nothing as a configuration hint — which is how those stale
-   * entries were found. Re-add one when a directory it names actually appears.
+   * entries were found. Add one only when a directory it names actually appears.
    */
+  "ignore": ["repos/**"],
   "ignoreDependencies": [
+    // The Workers built-in modules (`cloudflare:workers`, `cloudflare:test`), not an npm package.
+    "cloudflare",
     // Referenced by .secretlintrc.json, which knip does not parse.
     "@secretlint/secretlint-rule-preset-recommend",
   ],
   "workspaces": {
+    // The Claude Code hook is run by .claude/settings.json, which knip does not read.
+    ".": {
+      "entry": [".claude/hooks/*.ts"],
+    },
+    "packages/domain": {
+      "entry": ["test/**/*.ts"],
+    },
     // Tests are entry points, not dead code. `build.ts` is found through the package's own scripts.
     "packages/tokens": {
       "entry": ["test/**/*.ts"],
@@ -39,6 +50,15 @@
        * editing a port. (The brand book's chapters need no entry: every export they have is read.)
        */
       "ignore": ["src/app/**"],
+    },
+    "apps/console": {
+      // The Worker's entry is `main` in wrangler.jsonc; routes are discovered by TanStack Start's plugin and imported
+      // only by the generated route tree.
+      "entry": ["src/routes/**/*.tsx"],
+    },
+    "infra": {
+      // Read by the alchemy CLI, which knip does not follow.
+      "entry": ["app.ts", "shared.ts"],
     },
     "apps/marketing": {
       // The Worker's entry is `main` in wrangler.jsonc, which knip finds on its own. Routes are

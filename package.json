@@ -10,7 +10,8 @@
   "workspaces": {
     "packages": [
       "packages/*",
-      "apps/*"
+      "apps/*",
+      "infra"
     ],
     "catalog": {
       "qrcode-generator": "1.4.4",
@@ -18,7 +19,7 @@
       "@dnd-kit/sortable": "10.0.0",
       "@dnd-kit/utilities": "3.2.2",
       "@cloudflare/vite-plugin": "^1.65.0",
-      "@cloudflare/workers-types": "^5.20261026.1",
+      "@cloudflare/workers-types": "5.20261026.1",
       "@fontsource-variable/archivo": "^5.3.0",
       "@fontsource-variable/inter": "^5.3.0",
       "@tailwindcss/vite": "^4.3.3",
@@ -49,12 +50,23 @@
       "vitest": "5.0.2",
       "wrangler": "4.153.0",
       "zod": "4.6.5",
-      "zustand": "5.0.13"
+      "zustand": "5.0.13",
+      "effect": "4.1.2",
+      "@cloudflare/vitest-plugin": "1.6.0",
+      "@effect/sql-pg": "4.1.2",
+      "@effect/atom-react": "4.1.2",
+      "@sentry/react": "11.11.0",
+      "@sentry/vite-plugin": "11.11.0",
+      "@effect/platform-bun": "4.1.2",
+      "@effect/platform-node": "4.1.2",
+      "alchemy": "2.0.0-beta.85",
+      "@alchemy.run/cloudflare": "2.0.0-beta.85",
+      "@alchemy.run/neon": "2.0.0-beta.85"
     }
   },
   "scripts": {
     "prepare": "effect-tsgo patch --oxlint && (git rev-parse --git-dir >/dev/null 2>&1 && lefthook install || true)",
-    "check": "tsc -b tsconfig.json && tsc -p packages/tokens/tsconfig.test.json && tsc -p packages/ui/tsconfig.test.json && tsc -p apps/design/tsconfig.json && tsc -p apps/design/tsconfig.brand.json && tsc -p apps/marketing/tsconfig.json && tsc -p tsconfig.tools.json",
+    "check": "tsc -b tsconfig.json && tsc -p packages/domain/tsconfig.test.json && tsc -p packages/database/tsconfig.test.json && tsc -p packages/tokens/tsconfig.test.json && tsc -p packages/ui/tsconfig.test.json && tsc -p apps/design/tsconfig.json && tsc -p apps/design/tsconfig.brand.json && tsc -p apps/marketing/tsconfig.json && tsc -p apps/api/tsconfig.json && tsc -p apps/console/tsconfig.json && tsc -p tsconfig.tools.json && tsc -p infra/tsconfig.json",
     "check:watch": "tsc -b tsconfig.json --watch",
     "format": "dprint fmt",
     "format:check": "dprint check",
@@ -70,14 +82,28 @@
     "deps:check": "syncpack lint",
     "deps:update": "syncpack update",
     "scope": "bun scripts/scope.ts --base main",
-    "hygiene": "bun run knip && bun run deps:check && bun run secrets",
+    "hygiene": "bun run knip && bun run deps:check && bun run secrets && bun run effect:verify && bun run migrations:check && bun run boundaries && bun run bindings:check && bun run licences",
+    "effect:verify": "bun scripts/effect-verify.ts",
     "preflight": "bun run format && bun run check && bun run lint && bun run hygiene && bun run test",
     "preflight:ci": "bun run format:check && bun run check && bun run lint && bun run hygiene && bun run test",
     "dev": "bun run design",
     "design": "bun run --filter @insyte/design dev",
     "design:build": "bun run --filter @insyte/design build",
     "design:deploy:dry": "bun run --filter @insyte/design deploy:dry",
-    "marketing": "bun run --filter @insyte/marketing dev"
+    "marketing": "bun run --filter @insyte/marketing dev",
+    "api": "bun run --filter @insyte/api-worker dev",
+    "console": "bun run --filter @insyte/console dev",
+    "db:up": "docker compose up -d --wait",
+    "db:down": "docker compose down",
+    "db:reset": "docker compose down -v && docker compose up -d --wait",
+    "db:migrate": "bun scripts/migrate.ts",
+    "migrations:check": "bun scripts/migrations-check.ts",
+    "api:smoke": "bun scripts/smoke-api.ts",
+    "console:smoke": "bun scripts/smoke-console.ts",
+    "boundaries": "bun scripts/boundaries.ts",
+    "bindings:check": "bun scripts/bindings-check.ts",
+    "bundle:check": "bun scripts/bundle-check.ts",
+    "licences": "bun scripts/licences.ts"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.5",
@@ -85,7 +111,11 @@
     "@playwright/test": "1.58.2",
     "@secretlint/secretlint-rule-preset-recommend": "13.0.6",
     "@types/node": "catalog:",
+    "@effect/sql-pg": "catalog:",
+    "@insyte/database": "workspace:*",
+    "@insyte/modules": "workspace:*",
     "dprint": "0.57.4",
+    "effect": "catalog:",
     "knip": "6.38.0",
     "lefthook": "2.1.14",
     "oxlint": "1.85.0",

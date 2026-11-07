@@ -12,6 +12,10 @@
    * the same command.
    */
   "references": [
+    { "path": "./packages/domain" },
+    { "path": "./packages/database" },
+    { "path": "./packages/api" },
+    { "path": "./packages/modules" },
     { "path": "./packages/tokens" },
     { "path": "./packages/ui" }
   ]

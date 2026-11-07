@@ -1,0 +1,13 @@
+{
+  // `Db`, the only door to Postgres (04 §6). Imports `effect` and `@insyte/domain`; the one `cloudflare:sockets` import
+  // arrives with `Connect.ts` in M1.2.
+  "extends": "../../tsconfig.base.json",
+  "include": ["src/**/*.ts"],
+  "exclude": ["**/test/**"],
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo",
+    "types": []
+  }
+}

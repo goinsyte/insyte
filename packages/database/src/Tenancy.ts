@@ -1,0 +1,31 @@
+/*
+ * The tenant tables and their policy (06 §1). Every table with a `workspace_id` that a request reads is here, and
+ * gets its policy from `tenantTable`, never by hand: two locks, the static predicate check (boundaries) and forced
+ * row level security, so a statement that forgets its `workspace_id` reads nothing rather than another workspace.
+ */
+
+/** Every tenant table, by name. A migration that creates one adds it here in the same pull request. */
+export const TENANT_TABLES = [
+  "workspace_counters",
+  "audit_events",
+  "outbox",
+  "undo_tokens",
+  "idempotency_keys",
+  "files"
+] as const
+export type TenantTable = (typeof TENANT_TABLES)[number]
+
+/**
+ * The statements that put a tenant table behind the workspace policy: rows are visible and writable only where
+ * `workspace_id` is the request's (`app.workspace_id`, set by `Db`). `membersOnly` adds a restrictive policy so a
+ * partner principal (supplier contact, affiliate) sees nothing, whatever the workspace.
+ */
+export const tenantTable = (table: TenantTable, options: { readonly membersOnly?: boolean } = {}): Array<string> => [
+  `alter table ${table} enable row level security`,
+  `alter table ${table} force row level security`,
+  `create policy ${table}_ws on ${table} as permissive for all
+     using (workspace_id = app_workspace_id()) with check (workspace_id = app_workspace_id())`,
+  ...(options.membersOnly === true
+    ? [`create policy ${table}_members on ${table} as restrictive for all using (app_is_member_side())`]
+    : [])
+]
