@@ -99,8 +99,10 @@ const busyMembers = (): Member[] => [
 	SEED_MEMBERS[5]!,
 ];
 
-/** On the first day the owner is the whole team. */
-export const members: Member[] = byScenario({ empty: SEED_MEMBERS.slice(0, 1), settled: SEED_MEMBERS, busy: busyMembers });
+/** On the first day the owner is the whole team. Every state's team, for the seed (`scripts/seed.ts`). */
+export const membersByScenario = { empty: SEED_MEMBERS.slice(0, 1), settled: SEED_MEMBERS, busy: busyMembers };
+
+export const members: Member[] = byScenario(membersByScenario);
 
 export const roles = [
 	{

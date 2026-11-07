@@ -9,6 +9,7 @@
         "@effect/sql-pg": "catalog:",
         "@effect/tsgo": "0.46.1",
         "@insyte/database": "workspace:*",
+        "@insyte/domain": "workspace:*",
         "@insyte/modules": "workspace:*",
         "@playwright/test": "1.58.2",
         "@secretlint/secretlint-rule-preset-recommend": "13.0.6",

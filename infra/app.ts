@@ -36,8 +36,8 @@ const OBSERVABILITY = {
 const TEAM_POLICY_ID = "e885a0e2-97f8-4a1b-ba8e-cd9c500e51dc"
 
 /**
- * Where a stage's data lives. A preview gets its own Neon branch of the migrated nonprod `main`, which expires after a
- * week even if teardown never runs. Staging and production connect to their project's `main` by host (a GitHub
+ * Where a stage's data lives. A preview gets its own Neon branch of `preview-base` (`previews.ts`: staging's schema and
+ * the three scenario workspaces, nobody's data), which expires after a week even if teardown never runs. Staging and production connect to their project's `main` by host (a GitHub
  * variable), and the stack creates nothing in Neon for them: adopting `main` would let `alchemy destroy` delete it.
  */
 const Database = Effect.gen(function*() {
@@ -46,7 +46,7 @@ const Database = Effect.gen(function*() {
     ? yield* Neon.Branch("Db", {
       project: { projectId: yield* Config.String("NEON_PROJECT_ID") },
       name: stage,
-      parentBranch: { name: "main" },
+      parentBranch: { name: "preview-base" },
       expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString()
     })
     : undefined
