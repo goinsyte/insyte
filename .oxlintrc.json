@@ -20,6 +20,8 @@
     "**/.output/**",
     "**/coverage/**",
     "vendor/**",
+    // The vendored Effect source (git subtree at the pinned tag, 04 header): upstream's code and upstream's rules.
+    "repos/**",
     /*
      * Agent skill packages, installed into the working tree and not part of this repo — they are untracked, so
      * they never reach CI and only ever broke `preflight` locally. Same reasoning as the vendored Effect source
