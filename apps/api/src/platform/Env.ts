@@ -20,6 +20,12 @@ declare global {
       readonly VERSION?: string
       readonly LOG_LEVEL?: string
       readonly TURNSTILE_SITE_KEY?: string
+      /** A secret: verifies Turnstile tokens. Absent locally, where nothing asks for Turnstile (`HumanCheck.ts`). */
+      readonly TURNSTILE_SECRET_KEY?: string
+      /** `off` admits every address; anything else, or absent, keeps the beta gate shut (M2.2). */
+      readonly BETA_GATE?: string
+      /** Comma-separated domains admitted on this stage beside `beta_allowlist`. */
+      readonly BETA_ALLOWED_DOMAINS?: string
       /** The console's Sentry DSN, public by design; returned by `GET /api/config`. */
       readonly SENTRY_DSN?: string
       readonly OTEL_SERVICE_NAME?: string

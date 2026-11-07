@@ -45,7 +45,14 @@ const authJourney = async (): Promise<string | undefined> => {
   const post = (path: string, body: unknown, cookie = "") =>
     fetch(`${origin}${path}`, {
       method: "POST",
-      headers: { ...headers, origin, "content-type": "application/json", ...(cookie === "" ? {} : { cookie }) },
+      headers: {
+        ...headers,
+        origin,
+        "content-type": "application/json",
+        // Cloudflare's published dummy token, which the test secret previews carry accepts (M2.2; infra/app.ts).
+        "x-turnstile-token": "XXXX.DUMMY.TOKEN.XXXX",
+        ...(cookie === "" ? {} : { cookie })
+      },
       body: JSON.stringify(body)
     })
   const signUp = await post("/api/auth/sign-up/email", { name: "Smoke", email, password })

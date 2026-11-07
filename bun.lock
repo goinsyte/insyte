@@ -35,6 +35,7 @@
         "@insyte/database": "workspace:*",
         "@insyte/domain": "workspace:*",
         "@insyte/integrations-better-auth": "workspace:*",
+        "@insyte/integrations-turnstile": "workspace:*",
         "@insyte/modules": "workspace:*",
         "effect": "catalog:",
       },
@@ -166,6 +167,10 @@
         "better-auth": "catalog:",
         "kysely": "catalog:",
       },
+    },
+    "packages/integrations/turnstile": {
+      "name": "@insyte/integrations-turnstile",
+      "version": "0.0.0",
     },
     "packages/modules": {
       "name": "@insyte/modules",
@@ -595,6 +600,8 @@
     "@insyte/infra": ["@insyte/infra@workspace:infra"],
 
     "@insyte/integrations-better-auth": ["@insyte/integrations-better-auth@workspace:packages/integrations/better-auth"],
+
+    "@insyte/integrations-turnstile": ["@insyte/integrations-turnstile@workspace:packages/integrations/turnstile"],
 
     "@insyte/marketing": ["@insyte/marketing@workspace:apps/marketing"],
 

@@ -44,5 +44,7 @@
     "OTEL_SERVICE_NAME": "insyte-api",
     // Cloudflare's always-passes test key; each environment has its own widget.
     "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
+    // The beta gate is shut locally too; the reserved test domain is admitted, so the tests can register.
+    "BETA_ALLOWED_DOMAINS": "example.com",
   },
 }

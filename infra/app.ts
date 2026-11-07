@@ -1,7 +1,7 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
 import * as Neon from "@alchemy.run/neon"
 import * as Alchemy from "alchemy"
-import { Config, Effect, Layer } from "effect"
+import { Config, Effect, Layer, Redacted } from "effect"
 import { SENTRY_LOGS, SENTRY_TRACES } from "./shared.ts"
 
 /*
@@ -74,6 +74,23 @@ export default Alchemy.Stack(
     const environment = stage.startsWith("pr-") ? "preview" : stage
     const { branch, hyperdrive } = yield* Database
 
+    /*
+     * Turnstile (M2.2). Previews use Cloudflare's published test keys: they always pass, so the console's browser tests
+     * get a token without solving anything, and the account's widget count is not spent on one widget per PR. Staging
+     * and production get a widget each, for the console's own hostname, once the CI token may manage Turnstile
+     * (`TURNSTILE_WIDGET=on` in the environment); until then they keep the test keys too.
+     */
+    const consoleHost = `insyte-console-${stage}.${WORKERS_SUBDOMAIN}`
+    const ownWidget = environment !== "preview" &&
+      (yield* Config.String("TURNSTILE_WIDGET").pipe(Config.withDefault("off"))) === "on"
+    const widget = ownWidget
+      ? yield* Cloudflare.Turnstile.Widget("Turnstile", {
+        name: `insyte-${stage}`,
+        domains: [consoleHost],
+        mode: "managed"
+      })
+      : undefined
+
     const api = yield* Cloudflare.Worker("Api", {
       name: `insyte-api-${stage}`,
       main: "../apps/api/src/Main.ts",
@@ -88,7 +105,7 @@ export default Alchemy.Stack(
         RATE_LIMITER: Cloudflare.DurableObject("RateLimiter", { className: "RateLimiter" }),
         ENVIRONMENT: environment,
         // better-auth: cookies, links in mail and the CSRF check name the console's origin (18 §2).
-        CONSOLE_ORIGIN: `https://insyte-console-${stage}.${WORKERS_SUBDOMAIN}`,
+        CONSOLE_ORIGIN: `https://${consoleHost}`,
         BETTER_AUTH_SECRET: Config.Redacted("BETTER_AUTH_SECRET"),
         VERSION: yield* Config.String("GITHUB_SHA").pipe(Config.withDefault("dev")),
         LOG_LEVEL: environment === "preview" ? "Debug" : "Info",
@@ -101,8 +118,10 @@ export default Alchemy.Stack(
         OTEL_EXPORTER_OTLP_HEADERS: Config.Redacted("OTEL_EXPORTER_OTLP_HEADERS"),
         OTEL_BSP_SCHEDULE_DELAY: yield* Config.String("OTEL_BSP_SCHEDULE_DELAY").pipe(Config.withDefault("3600000")),
         SENTRY_DSN: yield* Config.String("SENTRY_DSN").pipe(Config.withDefault("")),
-        // Cloudflare's always-passes test key until each environment has its widget (infra/shared.ts).
-        TURNSTILE_SITE_KEY: "1x00000000000000000000AA"
+        TURNSTILE_SITE_KEY: widget?.sitekey ?? "1x00000000000000000000AA",
+        TURNSTILE_SECRET_KEY: widget?.secret ?? Redacted.make("1x0000000000000000000000000000000AA"),
+        // Invite-only (M2.2): beside `beta_allowlist`, the reserved test domain is admitted off production, for the tests.
+        BETA_ALLOWED_DOMAINS: environment === "production" ? "" : "example.com"
       }
     })
 

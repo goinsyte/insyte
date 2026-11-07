@@ -2,6 +2,7 @@ import { useContext, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { appHref, siteHref } from "../../data-source/hrefs"
 import { Store, TrendingUp, Truck } from "../../icons"
+import { HumanCheck } from "../auth/human-check"
 import { Field, TextField } from "../common/form-dialog"
 import { authClient } from "../lib/auth-client"
 import { persistStep } from "../lib/onboarding-api"
@@ -78,9 +79,12 @@ export function sharedHeadSteps({
           email: d.email ?? "",
           password: d.password ?? "",
           name: d.name ?? "",
-          callbackURL: verifiedLanding()
+          callbackURL: verifiedLanding(),
+          turnstileToken: d.turnstile || undefined
         })
         if (error) {
+          // The token is spent either way; the widget fetches the next one for the retry.
+          patch({ turnstileAttempt: String(Number(d.turnstileAttempt ?? 0) + 1) })
           // Thrown → the shell shows it inline beneath the fields.
           throw new Error(error.message ?? "Je account kon niet worden aangemaakt.")
         }
@@ -127,6 +131,10 @@ export function sharedHeadSteps({
               type="password"
             />
           </Field>
+          <HumanCheck
+            onToken={(token) => patch({ turnstile: token ?? "" })}
+            attempt={Number(d.turnstileAttempt ?? 0)}
+          />
           <p className="text-xs text-ink-3 leading-normal">
             Door verder te gaan ga je akkoord met onze{" "}
             <a

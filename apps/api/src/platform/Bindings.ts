@@ -41,6 +41,10 @@ export class AuthSettings extends Context.Service<AuthSettings, {
   readonly secret: Redacted.Redacted
   /** The breached-password check (M2.3) asks HIBP over the network: deployed stages only, so local runs stay offline. */
   readonly checkBreachedPasswords: boolean
+  /** The beta gate (M2.2): `false` only where the stage turns it off (`BETA_GATE=off`). */
+  readonly betaGate: boolean
+  /** Domains every address of which is admitted on this stage, beside `beta_allowlist`: `example.com` off production. */
+  readonly betaDomains: ReadonlyArray<string>
 }>()("api-worker/AuthSettings") {
   static readonly layer = Layer.effect(
     AuthSettings,
@@ -54,7 +58,12 @@ export class AuthSettings extends Context.Service<AuthSettings, {
       return {
         consoleOrigin: yield* Config.String("CONSOLE_ORIGIN"),
         secret,
-        checkBreachedPasswords: environment !== "local"
+        checkBreachedPasswords: environment !== "local",
+        betaGate: (yield* Config.String("BETA_GATE").pipe(Config.withDefault("on"))) !== "off",
+        betaDomains: (yield* Config.String("BETA_ALLOWED_DOMAINS").pipe(Config.withDefault("")))
+          .split(",")
+          .map((domain) => domain.trim().toLowerCase())
+          .filter((domain) => domain.length > 0)
       }
     })
   )

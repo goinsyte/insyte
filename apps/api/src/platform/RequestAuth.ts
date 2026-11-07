@@ -3,6 +3,7 @@ import { makeAuth } from "@insyte/integrations-better-auth/Auth"
 import { isBreached } from "@insyte/integrations-better-auth/Breached"
 import { Mailer } from "@insyte/modules/shared/domain/Mailer"
 import { Effect, Redacted } from "effect"
+import { admitted } from "./BetaGate.ts"
 import { AuthSettings } from "./Bindings.ts"
 
 /**
@@ -21,6 +22,15 @@ export const requestAuth = Effect.gen(function*() {
       run(db.routing((sql) => sql.withoutTransforms().unsafe<object>(text, [...parameters]))),
     baseURL: settings.consoleOrigin,
     secret: Redacted.value(settings.secret),
+    // A lookup that fails refuses: the gate stays shut rather than open when the database does not answer.
+    admits: (email) =>
+      run(
+        admitted(email).pipe(
+          Effect.provideService(AuthSettings, settings),
+          Effect.provideService(Db, db),
+          Effect.orElseSucceed(() => false)
+        )
+      ),
     isBreached: settings.checkBreachedPasswords ? (password) => isBreached(password) : undefined,
     // better-auth awaits this; a failed send is logged, never a 500 on the visitor's form.
     sendMail: (mail) =>

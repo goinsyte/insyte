@@ -19,6 +19,7 @@ import { FormError } from "../common/form-error"
 import { authClient } from "../lib/auth-client"
 import { applyServerError, serverFormMessage } from "../lib/form-errors"
 import { GoogleButton, OAuthDivider } from "../onboarding/oauth-buttons"
+import { HumanCheck } from "./human-check"
 
 const Route = getRouteApi("/login")
 
@@ -28,6 +29,10 @@ export function LoginPage() {
   const dest = redirect ?? "/dashboard"
   const [show, setShow] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
+  // The human check joins the form once the server asks for it (a warm address or IP); each try spends its token.
+  const [humanAsked, setHumanAsked] = useState(false)
+  const [humanToken, setHumanToken] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
 
   const form = useForm({
     defaultValues: { email: "", password: "" },
@@ -41,9 +46,12 @@ export function LoginPage() {
     onSubmit: async ({ value, formApi }) => {
       const { error } = await authClient.signIn.email({
         email: value.email,
-        password: value.password
+        password: value.password,
+        turnstileToken: humanToken ?? undefined
       })
       if (error) {
+        if (error.code === "TURNSTILE_REQUIRED") setHumanAsked(true)
+        if (humanAsked) setAttempt((n) => n + 1)
         applyServerError(
           formApi,
           error,
@@ -160,6 +168,8 @@ export function LoginPage() {
               )}
             </form.Field>
 
+            {humanAsked ? <HumanCheck onToken={setHumanToken} attempt={attempt} /> : null}
+
             <form.Subscribe selector={(s) => s.errorMap.onServer}>
               {(onServer) => <FormError message={serverFormMessage(onServer)} />}
             </form.Subscribe>
@@ -220,6 +230,8 @@ function ResetPasswordDialog({
   const [email, setEmail] = useState("")
   const [state, setState] = useState<"form" | "sending" | "sent">("form")
   const [error, setError] = useState<string | null>(null)
+  const [humanToken, setHumanToken] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
 
   // Each opening starts fresh, from whatever is already in the sign-in email field.
   // biome-ignore lint/correctness/useExhaustiveDependencies: refill only when the dialog opens.
@@ -240,8 +252,10 @@ function ResetPasswordDialog({
     // The answer is the same whether or not the address has an account, so "sent" says nothing about which.
     const { error: failed } = await authClient.requestPasswordReset({
       email: email.trim(),
-      redirectTo: appHref("/reset-password")
+      redirectTo: appHref("/reset-password"),
+      turnstileToken: humanToken ?? undefined
     })
+    setAttempt((n) => n + 1)
     if (failed) {
       setError(failed.message ?? "De resetlink kon niet worden verstuurd. Probeer het opnieuw.")
       setState("form")
@@ -305,6 +319,7 @@ function ResetPasswordDialog({
                 />
                 <FieldError errors={[error ? { message: error } : undefined]} />
               </Field>
+              <HumanCheck onToken={setHumanToken} attempt={attempt} />
               <DialogFooter>
                 <button
                   type="button"

@@ -38,6 +38,9 @@ const answer = async <A>(
 
 const TRY_AGAIN = "Er ging iets mis. Probeer het opnieuw."
 
+/** The human check's token, where the edge guards read it (`x-turnstile-token`). */
+const human = (token: string | undefined) => token === undefined ? {} : { headers: { "x-turnstile-token": token } }
+
 export const consoleAuthClient: AuthClient = {
   getSession: async () => {
     const result = await answer(client().getSession(), TRY_AGAIN)
@@ -45,20 +48,30 @@ export const consoleAuthClient: AuthClient = {
     return result
   },
   signIn: {
-    email: async (credentials) => {
-      const result = await answer(client().signIn.email(credentials), "Inloggen mislukt. Controleer je gegevens.")
+    email: async ({ turnstileToken, ...credentials }) => {
+      const result = await answer(
+        client().signIn.email({ ...credentials, fetchOptions: human(turnstileToken) }),
+        "Inloggen mislukt. Controleer je gegevens."
+      )
       if (result.data !== null) identify(result.data.user.id)
       return result
     },
     social: (request) => answer(client().signIn.social(request), "Inloggen met Google lukte niet. Probeer het opnieuw.")
   },
   signUp: {
-    email: (account) => answer(client().signUp.email(account), "Je account kon niet worden aangemaakt.")
+    email: ({ turnstileToken, ...account }) =>
+      answer(
+        client().signUp.email({ ...account, fetchOptions: human(turnstileToken) }),
+        "Je account kon niet worden aangemaakt."
+      )
   },
   sendVerificationEmail: (request) =>
     answer(client().sendVerificationEmail(request), "De mail kon niet opnieuw worden verstuurd."),
-  requestPasswordReset: (request) =>
-    answer(client().requestPasswordReset(request), "De resetlink kon niet worden verstuurd. Probeer het opnieuw."),
+  requestPasswordReset: ({ turnstileToken, ...request }) =>
+    answer(
+      client().requestPasswordReset({ ...request, fetchOptions: human(turnstileToken) }),
+      "De resetlink kon niet worden verstuurd. Probeer het opnieuw."
+    ),
   resetPassword: (request) =>
     answer(client().resetPassword(request), "Je wachtwoord kon niet worden gewijzigd. Probeer het opnieuw."),
   signOut: async () => {

@@ -94,3 +94,25 @@ describe("the edge guards", () => {
     expect(response.status).toBe(413)
   })
 })
+
+describe("the beta gate", () => {
+  it("refuses an address that is neither admitted nor on the allowlist, and sends it nothing", async () => {
+    const email = `outsider-${run}@example.org`
+    const response = await post("/api/auth/sign-up/email", { name: "Buiten", email, password: "correct-horse-battery" })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ code: "BETA_CLOSED" })
+    const mail = await (await call(`http://api.test/api/__dev/mail?to=${encodeURIComponent(email)}`)).json() as {
+      mails: ReadonlyArray<unknown>
+    }
+    expect(mail.mails).toEqual([])
+  })
+
+  it("admits an address on the stage's admitted domain", async () => {
+    const response = await post("/api/auth/sign-up/email", {
+      name: "Binnen",
+      email: `insider-${run}@example.com`,
+      password: "correct-horse-battery"
+    })
+    expect(response.status).toBe(200)
+  })
+})
