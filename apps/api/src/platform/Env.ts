@@ -26,6 +26,12 @@ declare global {
       readonly GOOGLE_CLIENT_ID?: string
       /** A secret: Google's OAuth client secret. */
       readonly GOOGLE_CLIENT_SECRET?: string
+      /** `resend` sends mail through Resend; anything else, or absent, captures it for the dev route (02 §5.1). */
+      readonly MAIL_ADAPTER?: string
+      /** The sender, `Insyte <noreply@mail.goinsyte.com>` by default. */
+      readonly MAIL_FROM?: string
+      /** A secret: Resend's sending key, where `MAIL_ADAPTER=resend`. */
+      readonly RESEND_API_KEY?: string
       /** `off` admits every address; anything else, or absent, keeps the beta gate shut (M2.2). */
       readonly BETA_GATE?: string
       /** Comma-separated domains admitted on this stage beside `beta_allowlist`. */

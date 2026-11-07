@@ -8,7 +8,10 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
+    "@insyte/database": "workspace:*",
+    "@insyte/modules": "workspace:*",
     "better-auth": "catalog:",
+    "effect": "catalog:",
     "kysely": "catalog:",
     "zod": "catalog:"
   }

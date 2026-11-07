@@ -101,6 +101,19 @@ export default Alchemy.Stack(
       ? { GOOGLE_CLIENT_ID: googleClientId, GOOGLE_CLIENT_SECRET: googleClientSecret.value }
       : {}
 
+    /*
+     * Mail (02 §5.1): previews always capture (the browser tests read the links back); staging and production send
+     * through Resend once their environment says `MAIL_ADAPTER=resend` and has the key (the domain must be verified in
+     * Resend first), and capture until then.
+     */
+    const mailAdapter = environment === "preview"
+      ? "capture"
+      : yield* Config.String("MAIL_ADAPTER").pipe(Config.withDefault("capture"))
+    const resendKey = yield* Config.Redacted("RESEND_API_KEY").pipe(Config.option)
+    const mail = mailAdapter === "resend" && Option.isSome(resendKey)
+      ? { MAIL_ADAPTER: "resend", RESEND_API_KEY: resendKey.value }
+      : { MAIL_ADAPTER: "capture" }
+
     const api = yield* Cloudflare.Worker("Api", {
       name: `insyte-api-${stage}`,
       main: "../apps/api/src/Main.ts",
@@ -132,7 +145,11 @@ export default Alchemy.Stack(
         TURNSTILE_SECRET_KEY: widget?.secret ?? Redacted.make("1x0000000000000000000000000000000AA"),
         // Invite-only (M2.2): beside `beta_allowlist`, the reserved test domain is admitted off production, for the tests.
         BETA_ALLOWED_DOMAINS: environment === "production" ? "" : "example.com",
-        ...google
+        ...google,
+        ...mail,
+        // An unset GitHub variable arrives empty, not missing: empty means the default.
+        MAIL_FROM: (yield* Config.String("MAIL_FROM").pipe(Config.withDefault(""))) ||
+          "Insyte <noreply@mail.goinsyte.com>"
       }
     })
 

@@ -1,7 +1,7 @@
+import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
 import { Effect } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { guarded } from "../../platform/EdgeGuards.ts"
-import { requestAuth } from "../../platform/RequestAuth.ts"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 
 /*
@@ -17,7 +17,7 @@ export const AuthRoutes = HttpRouter.add(
     const request = yield* HttpServerRequest.toWeb(yield* HttpServerRequest.HttpServerRequest)
     const response = yield* guarded(request, (allowed) =>
       Effect.gen(function*() {
-        const auth = yield* requestAuth
+        const auth = yield* (yield* BetterAuth).forRequest
         return yield* Effect.promise(() => auth.handler(allowed))
       }).pipe(withRequestDb, Effect.withSpan("Auth.handler")))
     return HttpServerResponse.fromWeb(response)

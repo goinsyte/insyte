@@ -1,0 +1,15 @@
+{
+  "name": "@insyte/integrations-resend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@insyte/modules": "workspace:*",
+    "@insyte/tokens": "workspace:*",
+    "effect": "catalog:"
+  }
+}
