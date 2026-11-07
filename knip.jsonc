@@ -58,7 +58,7 @@
     },
     "infra": {
       // Read by the alchemy CLI, which knip does not follow.
-      "entry": ["app.ts"],
+      "entry": ["app.ts", "shared.ts"],
     },
     "apps/marketing": {
       // The Worker's entry is `main` in wrangler.jsonc, which knip finds on its own. Routes are

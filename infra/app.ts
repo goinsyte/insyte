@@ -2,6 +2,7 @@ import * as Cloudflare from "@alchemy.run/cloudflare"
 import * as Neon from "@alchemy.run/neon"
 import * as Alchemy from "alchemy"
 import { Config, Effect, Layer } from "effect"
+import { SENTRY_LOGS, SENTRY_TRACES } from "./shared.ts"
 
 /*
  * The per-stage stack (14 §3): `pr-<n>` for a pull request's preview, later `staging` and `production`. Everything a
@@ -14,6 +15,22 @@ import { Config, Effect, Layer } from "effect"
  */
 
 const COMPATIBILITY_DATE = "2026-10-26"
+
+/**
+ * Logs, traces and Issues for every Worker, sampled at 100 % through the MVP (17 §1), and exported to Sentry through
+ * the account's destinations (`shared.ts`).
+ */
+const OBSERVABILITY = {
+  enabled: true,
+  logs: { enabled: true, headSamplingRate: 1, invocationLogs: true, persist: true, destinations: [SENTRY_LOGS] },
+  traces: { enabled: true, headSamplingRate: 1, persist: true, destinations: [SENTRY_TRACES] }
+}
+
+/**
+ * The reusable Access policy "Insyte reference": the people who may open any Insyte surface (Ishak and the founder, by
+ * one-time email PIN). It already gates the design reference; the console joins it in every stage.
+ */
+const TEAM_POLICY_ID = "e885a0e2-97f8-4a1b-ba8e-cd9c500e51dc"
 
 /**
  * Where a stage's data lives. A preview gets its own Neon branch of the migrated nonprod `main`, which expires after a
@@ -61,7 +78,7 @@ export default Alchemy.Stack(
       placement: { region: "aws:eu-central-1" },
       // Reached only through the console's service binding, never on a public hostname of its own.
       workersDev: false,
-      observability: { enabled: true },
+      observability: OBSERVABILITY,
       env: {
         HYPERDRIVE: hyperdrive,
         ENVIRONMENT: environment,
@@ -81,6 +98,13 @@ export default Alchemy.Stack(
       }
     })
 
+    // CI's smoke test gets past Access with a service token (CF_ACCESS_CLIENT_ID / _SECRET in each environment).
+    const ci = yield* Cloudflare.Access.Policy("Ci", {
+      name: `insyte-ci-${stage}`,
+      decision: "non_identity",
+      include: ["anyValidServiceToken"]
+    })
+
     const console = yield* Cloudflare.Worker("Console", {
       name: `insyte-console-${stage}`,
       // TanStack Start's build output, uploaded as built: `bun run --filter @insyte/console build` runs first.
@@ -89,7 +113,13 @@ export default Alchemy.Stack(
       assets: { directory: "../apps/console/dist/client" },
       compatibility: { date: COMPATIBILITY_DATE, flags: ["nodejs_compat"] },
       placement: { region: "aws:eu-central-1" },
-      observability: { enabled: true },
+      observability: OBSERVABILITY,
+      // Every stage behind Access until the cut-over decides what is public (18 §5).
+      access: {
+        name: `Insyte console · ${stage}`,
+        sessionDuration: "24h",
+        policies: [{ policyId: TEAM_POLICY_ID }, ci]
+      },
       env: { API: api, ENVIRONMENT: environment }
     })
 
