@@ -225,7 +225,7 @@ test("@auth back from Google with a refusal, the sign-in screen says why", async
   await expect(page.getByRole("alert")).toHaveCount(0)
 })
 
-test("@onboarding a new admin reaches the organisation step, and every return resumes there", async ({ browser, page, request }) => {
+test("@onboarding a new admin runs onboarding to Start, and every return resumes where they were", async ({ browser, page, request }) => {
   const email = `e2e-${Date.now().toString(36)}-onboarding@example.com`
   const password = "een-lang-wachtwoord"
   await page.goto("/onboarding")
@@ -259,9 +259,29 @@ test("@onboarding a new admin reaches the organisation step, and every return re
   // Founding: an empty name is refused in Dutch; a name and a free URL found the workspace, and a reload stays there.
   await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
   await expect(page.getByText("Vul een naam voor je werkruimte in.")).toBeVisible()
-  await page.getByLabel("Naam werkruimte").fill(`Allure ${Date.now().toString(36)}`)
+  const workspace = `Allure ${Date.now().toString(36)}`
+  await page.getByLabel("Naam werkruimte").fill(workspace)
   await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
-  await expect(page.getByRole("heading", { name: "Je werkruimte staat klaar." })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Kies een abonnement om te proberen." })).toBeVisible()
   await page.reload()
-  await expect(page.getByRole("heading", { name: "Je werkruimte staat klaar." })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Kies een abonnement om te proberen." })).toBeVisible()
+
+  // The trial starts without a card; the store is left for Start, which skips the steps a store needs.
+  await page.getByRole("button", { name: "Gratis proefperiode starten" }).click()
+  await expect(page.getByRole("heading", { name: "Koppel Shopify." })).toBeVisible()
+  await page.getByRole("button", { name: "Nu overslaan" }).click()
+  await expect(page.getByRole("heading", { name: "Je bent binnen." })).toBeVisible()
+  await page.getByRole("button", { name: "Dashboard openen" }).click()
+
+  // Start: the setup plate for the new workspace, and a ticked task that stays ticked.
+  await expect(page).toHaveURL(/\/dashboard$/)
+  await expect(page.getByRole("heading", { name: `Nog 7 stappen, dan draait Insyte voor ${workspace}` })).toBeVisible()
+  await page.getByRole("button", { name: `"2FA voor iedereen inschakelen" markeren als klaar` }).click()
+  await expect(page.getByRole("heading", { name: `Nog 6 stappen, dan draait Insyte voor ${workspace}` })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole("heading", { name: `Nog 6 stappen, dan draait Insyte voor ${workspace}` })).toBeVisible()
+
+  // Done is done: onboarding sends them to Start.
+  await page.goto("/onboarding")
+  await expect(page).toHaveURL(/\/dashboard$/)
 })

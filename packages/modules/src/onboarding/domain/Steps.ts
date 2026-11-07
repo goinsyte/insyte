@@ -54,7 +54,7 @@ export const next = (track: Track, step: Step, facts: Facts): Step => {
       case "plan":
         return "store"
       case "store":
-        // "Later koppelen" leaves the store for the Start checklist and goes straight to ready.
+        // Skipping the store ("Nu overslaan") leaves it for the Start checklist and goes straight to ready.
         return facts.storeConnected ? "sync" : "ready"
       case "sync":
         return facts.backfillDone ? "analysis" : "sync"

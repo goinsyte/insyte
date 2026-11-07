@@ -7,10 +7,17 @@ import { type Facts, next, positionOf, Step, Track } from "../domain/Steps.ts"
 
 /*
  * The person's progress row, read and written as that person (`Db.forUser`, user-scoped RLS). Before a workspace there
- * is one open row per person; the organisation step fills in its workspace, and finishing the track closes it.
+ * is one open row per person; the organisation step fills in its workspace, and finishing the track closes it. A closed
+ * row is still the person's answer: they are done, not starting over.
  */
 
-const Row = Schema.Struct({ track: Track, step: Step, answers: Answers, workspaceId: Schema.NullOr(Schema.String) })
+const Row = Schema.Struct({
+  track: Track,
+  step: Step,
+  answers: Answers,
+  workspaceId: Schema.NullOr(Schema.String),
+  completed: Schema.Boolean
+})
 export type Row = typeof Row.Type
 
 /** What the machine knows about this person and their progress today. Stores and backfills join with M6. */
@@ -22,17 +29,26 @@ export const factsOf = (user: SessionUser, row: Pick<Row, "workspaceId">): Facts
 })
 
 export const stateOf = (row: Row): OnboardingState =>
-  new OnboardingState({ track: row.track, step: row.step, answers: row.answers, ...positionOf(row.track, row.step) })
+  new OnboardingState({
+    track: row.track,
+    step: row.step,
+    answers: row.answers,
+    ...positionOf(row.track, row.step),
+    completed: row.completed
+  })
 
 const decodeRow = Schema.decodeUnknownEffect(Row)
 
-/** The open row, created on first read: a signed-in person has an account, so they start past `account`. */
+/**
+ * The open row, else the last finished one; created on first read: a signed-in person has an account, so they start
+ * past `account`.
+ */
 export const loadProgress = Effect.fn("Onboarding.loadProgress")(function*() {
   const user = yield* CurrentUser
   const db = yield* Db
   const select = (sql: Parameters<Parameters<typeof db.forUser>[0]>[0]) =>
-    sql`select track, step, answers, workspace_id from onboarding_progress
-        where completed_at is null order by started_at limit 1`
+    sql`select track, step, answers, workspace_id, completed_at is not null as completed from onboarding_progress
+        order by completed_at desc nulls first, started_at limit 1`
   const found = yield* db.forUser((sql) =>
     Effect.gen(function*() {
       const rows = yield* select(sql)

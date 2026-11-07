@@ -2,6 +2,7 @@ import type { Invalid } from "@insyte/domain/Errors"
 import type { UserId, WorkspaceId } from "@insyte/domain/Ids"
 import { Context, type Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
+import type { PlanId } from "./Billing.ts"
 
 /*
  * Founding a workspace, as a port (16 §3): onboarding's organisation step calls it, the workspaces slice implements it,
@@ -60,3 +61,20 @@ export class WorkspaceFounder extends Context.Service<WorkspaceFounder, {
     owner: UserId
   ) => Effect.Effect<ReadonlyArray<string>, Invalid, SqlClient.SqlClient>
 }>()("shared/WorkspaceFounder") {}
+
+/**
+ * What onboarding's later steps change on the workspace, as a port (as `WorkspaceFounder`): both run on the caller's
+ * transaction inside the workspace, as its member, and are audited there.
+ *
+ * @effect-expect-leaking SqlClient
+ */
+export class WorkspaceSetup extends Context.Service<WorkspaceSetup, {
+  /** The trial on the chosen plan: `plan`, `trial_ends_at` `TRIAL_DAYS` from now. No card and no Stripe call (M13). */
+  readonly startTrial: (
+    id: WorkspaceId,
+    plan: PlanId,
+    by: UserId
+  ) => Effect.Effect<void, never, SqlClient.SqlClient>
+  /** Onboarding is done for the workspace: `onboarding_completed_at`, after which the session lands on Start. */
+  readonly completeOnboarding: (id: WorkspaceId, by: UserId) => Effect.Effect<void, never, SqlClient.SqlClient>
+}>()("shared/WorkspaceSetup") {}

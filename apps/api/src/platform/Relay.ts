@@ -41,6 +41,14 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
         distinctId: event.userId,
         groups: { workspace: event.workspaceId }
       }
+    case "onboarding.step_completed":
+      return {
+        outboxId: id,
+        event: "onboarding_step_completed",
+        distinctId: event.userId,
+        groups: { workspace: event.workspaceId },
+        properties: { step: event.step }
+      }
   }
 }
 

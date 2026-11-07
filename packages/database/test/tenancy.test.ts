@@ -68,6 +68,7 @@ const found = (user: SessionUser, workspaceId: WorkspaceId) =>
         }, ${workspaceId}, ${user.id}, 'owner')`
         yield* sql`insert into teams (id, workspace_id, name) values (${mintId("team")}, ${workspaceId}, 'Team')`
         yield* sql`insert into workspace_counters (workspace_id, kind) values (${workspaceId}, 'order')`
+        yield* sql`insert into setup_tasks (workspace_id, task) values (${workspaceId}, 'connect_store')`
         yield* sql`insert into outbox (id, workspace_id, event, payload) values (${
           mintId("obx")
         }, ${workspaceId}, 'test', '{}')`
@@ -82,6 +83,7 @@ const POPULATED = [
   ["members", "workspace_id"],
   ["teams", "workspace_id"],
   ["workspace_counters", "workspace_id"],
+  ["setup_tasks", "workspace_id"],
   ["outbox", "workspace_id"]
 ] as const
 

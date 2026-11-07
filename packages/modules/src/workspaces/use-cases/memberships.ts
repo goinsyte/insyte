@@ -14,6 +14,8 @@ export interface Membership {
   readonly memberId: string
   readonly workspaceId: WorkspaceId
   readonly workspaceName: string
+  /** The workspace finished onboarding: the session lands on Start rather than in onboarding. */
+  readonly onboarded: boolean
   readonly principal: Principal
 }
 
@@ -21,6 +23,7 @@ interface Row {
   readonly id: string
   readonly workspaceId: WorkspaceId
   readonly workspaceName: string
+  readonly onboarded: boolean
   readonly roleId: string
   readonly roleLabel: string
   readonly roleVersion: number
@@ -40,7 +43,8 @@ export const memberships = Effect.fn("Workspaces.memberships")(function*() {
   const db = yield* Db
   const rows = yield* db.forUser((sql) =>
     sql<Row>`
-      select m.id, m.workspace_id, w.name as workspace_name, m.role_id, r.label as role_label, r.version as role_version,
+      select m.id, m.workspace_id, w.name as workspace_name,
+             w.onboarding_completed_at is not null as onboarded, m.role_id, r.label as role_label, r.version as role_version,
              r.levels, r.specials, r.refund_limit_minor, r.stores as role_stores, m.stores as member_stores
       from members m
       join workspaces w on w.id = m.workspace_id
@@ -52,6 +56,7 @@ export const memberships = Effect.fn("Workspaces.memberships")(function*() {
     memberId: row.id,
     workspaceId: row.workspaceId,
     workspaceName: row.workspaceName,
+    onboarded: row.onboarded,
     principal: {
       kind: "member",
       id: row.id,
