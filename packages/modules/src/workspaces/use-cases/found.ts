@@ -4,6 +4,8 @@ import { SYSTEM_DEFAULTS } from "@insyte/domain/Permissions"
 import { Effect } from "effect"
 import { SqlClient, type SqlError } from "effect/sql"
 import type { ValidWorkspace } from "../../shared/domain/Workspaces.ts"
+import * as Audit from "../../shared/use-cases/Audit.ts"
+import * as Outbox from "../../shared/use-cases/Outbox.ts"
 
 /*
  * Founding a workspace (M3.1), on the caller's transaction, which has the new workspace as `app.workspace_id`: so every
@@ -31,11 +33,17 @@ export const found = Effect.fn("Workspaces.found")(
                        ${role.refundLimit === null ? null : Math.round(role.refundLimit * 100)},
                        ${JSON.stringify(role.stores)}::jsonb)`
     }
-    yield* sql`insert into members (id, workspace_id, user_id, role_id) values (${
-      mintId("mem")
-    }, ${id}, ${owner}, 'owner')`
+    const member = mintId("mem")
+    yield* sql`insert into members (id, workspace_id, user_id, role_id) values (${member}, ${id}, ${owner}, 'owner')`
     for (const kind of COUNTER_KINDS) {
       yield* sql`insert into workspace_counters (workspace_id, kind) values (${id}, ${kind})`
     }
+    yield* Audit.write(sql, id, { kind: "member", id: member }, {
+      action: "workspace.created",
+      subjectType: "workspace",
+      subjectId: id,
+      diff: { name: workspace.name, slug: workspace.slug }
+    })
+    return [yield* Outbox.write(sql, id, { type: "workspace.created", workspaceId: id, userId: owner })]
   }
 )

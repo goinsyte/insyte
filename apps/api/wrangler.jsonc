@@ -37,6 +37,19 @@
   // The edge guards' counters (M2.3): one instance per IP or hashed address, SQLite-backed.
   "durable_objects": { "bindings": [{ "name": "RATE_LIMITER", "class_name": "RateLimiter" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RateLimiter"] }],
+  // The outbox relay (M1.4): committed events' ids onto EVENTS, consumed by this Worker; the minute cron sweeps.
+  "queues": {
+    "producers": [{ "binding": "EVENTS", "queue": "insyte-events" }],
+    "consumers": [
+      {
+        "queue": "insyte-events",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "dead_letter_queue": "insyte-events-dlq",
+      },
+    ],
+  },
+  "triggers": { "crons": ["* * * * *"] },
   "vars": {
     "ENVIRONMENT": "local",
     "CONSOLE_ORIGIN": "http://localhost:4300",

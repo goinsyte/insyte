@@ -1,4 +1,5 @@
 import type { RateLimiter } from "./RateLimiter.ts"
+import type { EventsMessage } from "./Relay.ts"
 
 /*
  * What `env` holds (02 §5.1). Merged into `Cloudflare.Env`, which types `env` from `cloudflare:workers`. Bindings join
@@ -11,6 +12,8 @@ declare global {
       readonly HYPERDRIVE: Hyperdrive
       /** Sign-in, sign-up and mail limits per IP and per address (`RateLimiter`, M2.3). */
       readonly RATE_LIMITER: DurableObjectNamespace<RateLimiter>
+      /** The outbox relay's queue (M1.4): committed events' ids, consumed by this Worker's `queue` handler. */
+      readonly EVENTS: Queue<EventsMessage>
       readonly ENVIRONMENT: "local" | "preview" | "staging" | "production"
       /** The console's origin: better-auth's baseURL, cookies and links in mail (18 §2). */
       readonly CONSOLE_ORIGIN: string
@@ -34,6 +37,9 @@ declare global {
       readonly RESEND_API_KEY?: string
       /** `off` turns off the limits per IP (previews, behind Access); anything else, or absent, keeps them (M2.3). */
       readonly IP_LIMITS?: string
+      /** A secret: PostHog's project key. Absent: product events are captured for the dev route instead (17 §5). */
+      readonly POSTHOG_API_KEY?: string
+      readonly POSTHOG_HOST?: string
       /** `off` admits every address; anything else, or absent, keeps the beta gate shut (M2.2). */
       readonly BETA_GATE?: string
       /** Comma-separated domains admitted on this stage beside `beta_allowlist`. */

@@ -1,4 +1,6 @@
 import { Db } from "@insyte/database/Db"
+import type { WorkspaceId } from "@insyte/domain/Ids"
+import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect, Layer } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { AppInfo } from "../../platform/Bindings.ts"
@@ -58,4 +60,54 @@ const AuthEventsOf = HttpRouter.add(
   }).pipe(withRequestDb)
 )
 
-export const DevRoutes = Layer.mergeAll(CapturedMail, AuthEventsOf)
+const workspaceParam = Effect.map(
+  HttpServerRequest.HttpServerRequest,
+  (request) => new URL(request.url, "http://local").searchParams.get("workspace") ?? ""
+)
+
+const notInProduction = Effect.map(AppInfo, ({ environment }) => environment !== "production")
+
+/**
+ * `GET /api/__dev/outbox?workspace=<id>`: one workspace's outbox events and whether each was relayed, read in that
+ * workspace's scope. For the relay's worker tests. Refused in production.
+ */
+const OutboxOf = HttpRouter.add(
+  "GET",
+  "/api/__dev/outbox",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const db = yield* Db
+    const events = yield* db.scopedFor((sql) =>
+      sql<{ id: string; event: string; relayedAt: Date | null }>`
+        select id, event, relayed_at from outbox order by created_at`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe({ events })
+  }).pipe(withRequestDb)
+)
+
+/**
+ * `GET /api/__dev/product-events?workspace=<id>`: what the product-analytics sink captured for one workspace, where the
+ * stage has no PostHog key (`captured_product_events`). Refused in production.
+ */
+const ProductEventsOf = HttpRouter.add(
+  "GET",
+  "/api/__dev/product-events",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const db = yield* Db
+    const events = yield* db.routing((sql) =>
+      sql<{ outboxId: string; event: string; distinctId: string; groups: Record<string, string> }>`
+        select outbox_id, event, distinct_id, groups from captured_product_events
+        where groups ->> 'workspace' = ${workspace} order by captured_at`
+    )
+    return HttpServerResponse.jsonUnsafe({ events })
+  }).pipe(withRequestDb)
+)
+
+export const DevRoutes = Layer.mergeAll(CapturedMail, AuthEventsOf, OutboxOf, ProductEventsOf)
