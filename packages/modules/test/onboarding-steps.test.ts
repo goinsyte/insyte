@@ -27,7 +27,7 @@ describe("the onboarding machine", () => {
     expect(next("admin", "organization", verified)).toBe("organization")
     expect(next("admin", "organization", { ...verified, hasWorkspace: true })).toBe("plan")
     expect(next("admin", "plan", verified)).toBe("store")
-    expect(next("admin", "store", verified)).toBe("ready") // "Later koppelen"
+    expect(next("admin", "store", verified)).toBe("ready") // skipped: "Nu overslaan"
     expect(next("admin", "store", { ...verified, storeConnected: true })).toBe("sync")
     expect(next("admin", "sync", verified)).toBe("sync")
     expect(next("admin", "sync", { ...verified, backfillDone: true })).toBe("analysis")

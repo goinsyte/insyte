@@ -18,7 +18,10 @@ export const RpcRoutes = RpcHttp(ConsoleRpcs, RPC_PATH)
 export const RpcContext = Layer.mergeAll(
   SystemHandlers,
   SessionHandlers.pipe(Layer.provide(Workspaces.layer)),
-  OnboardingHandlers.pipe(Layer.provide(Onboarding.layer), Layer.provide(Workspaces.founder))
+  OnboardingHandlers.pipe(
+    Layer.provide(Onboarding.layer),
+    Layer.provide(Layer.mergeAll(Workspaces.founder, Workspaces.setup))
+  )
 ).pipe(
   Layer.provideMerge(RpcSerialization.layerNdjson)
 )

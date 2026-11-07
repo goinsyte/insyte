@@ -37,6 +37,6 @@ export class SessionMe extends Schema.Class<SessionMe>("domain/SessionMe")({
   principals: Schema.Array(PrincipalSummary),
   /** The one requests act as: the session's choice, else the newest (`Session.switchPrincipal` arrives with a second). */
   activePrincipal: Schema.NullOr(PrincipalSummary),
-  /** `/onboarding` without a workspace; the principal's landing after M3. */
+  /** `/onboarding` until the active workspace finished onboarding, then Start (`/dashboard`). */
   landing: Schema.String
 }) {}

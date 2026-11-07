@@ -3,9 +3,10 @@ import { describe, expect, it } from "vitest"
 import { call, onboarding, sessionMe } from "./support.ts"
 
 /*
- * The onboarding machine through the Worker (step 2, M4.1): a new person starts at the role, choosing "admin" moves
- * them to the organisation step, and every later read, from this browser or another, resumes there. Only the current
- * step can be finished; signed out, there is no onboarding to read.
+ * The onboarding machine through the Worker (steps 2 and 3, M4.1): a new person starts at the role, choosing "admin"
+ * moves them to the organisation step, and every later read, from this browser or another, resumes there. The plan
+ * starts the trial, the store is left for later, and ready lands them on Start, whose checklist they can tick. Only the
+ * current step can be finished; signed out, there is no onboarding to read.
  */
 
 const ORIGIN = "http://localhost:4300"
@@ -76,6 +77,42 @@ describe("the onboarding machine", () => {
     expect(me.activePrincipal).toEqual(me.principals[0])
   })
 
+  it("starts the trial, leaves the store for later, and lands on Start once ready", async () => {
+    expect(valueOf(await sessionMe(cookie)).landing).toBe("/onboarding")
+    expect(valueOf(await onboarding.advance({ step: "plan", plan: "growth", cycle: "annual" }, cookie))).toMatchObject({
+      step: "store",
+      answers: { plan: "growth", cycle: "annual" },
+      index: 5
+    })
+    expect(valueOf(await onboarding.advance({ step: "store", choice: "later" }, cookie))).toMatchObject({
+      step: "ready",
+      answers: { store: "later" },
+      index: 9,
+      completed: false
+    })
+    expect(valueOf(await onboarding.advance({ step: "ready" }, cookie))).toMatchObject({
+      step: "ready",
+      completed: true
+    })
+    expect(valueOf(await sessionMe(cookie)).landing).toBe("/dashboard")
+    // Done is done: another browser reads it, and a replayed step changes nothing.
+    expect(valueOf(await onboarding.me(await signIn()))).toMatchObject({ step: "ready", completed: true })
+    expect(valueOf(await onboarding.advance({ step: "ready" }, cookie))).toMatchObject({ completed: true })
+
+    const workspace = valueOf(await sessionMe(cookie)).principals[0]!.workspaceId
+    const { events } = await (await call(`http://api.test/api/__dev/outbox?workspace=${workspace}`)).json() as {
+      events: Array<{ event: string }>
+    }
+    expect(events.filter((e) => e.event === "onboarding.step_completed")).toHaveLength(3)
+  })
+
+  it("shows Start's checklist for the workspace, and keeps what the operator ticks", async () => {
+    expect(valueOf(await onboarding.start(cookie))).toMatchObject({ workspaceName: "Allure Co.", done: [] })
+    expect(valueOf(await onboarding.completeTask({ task: "security", done: true }, cookie)).done).toEqual(["security"])
+    expect(valueOf(await onboarding.start(await signIn())).done).toEqual(["security"])
+    expect(valueOf(await onboarding.completeTask({ task: "security", done: false }, cookie)).done).toEqual([])
+  })
+
   it("refuses a slug that is taken, and an empty name, by field, and founds nothing", async () => {
     const other = `other-${Date.now().toString(36)}@example.com`
     expect((await post("/api/auth/sign-up/email", { name: "Ander", email: other, password })).status).toBe(200)
@@ -125,6 +162,8 @@ describe("the onboarding machine", () => {
     // Nothing half-written: still at the organisation step, with no workspace.
     expect(valueOf(await onboarding.me(third))).toMatchObject({ step: "organization" })
     expect(valueOf(await sessionMe(third)).principals).toEqual([])
+    const noStart = await onboarding.start(third)
+    expect(Exit.isFailure(noStart) && JSON.stringify(noStart.cause)).toContain("NotCurrentStep")
   })
 
   it("is not there to read when signed out", async () => {

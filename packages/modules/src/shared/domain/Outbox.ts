@@ -7,7 +7,13 @@ import { Context, type Effect, Schema } from "effect"
  */
 
 export const OutboxEvent = Schema.Union([
-  Schema.Struct({ type: Schema.Literal("workspace.created"), workspaceId: Schema.String, userId: Schema.String })
+  Schema.Struct({ type: Schema.Literal("workspace.created"), workspaceId: Schema.String, userId: Schema.String }),
+  Schema.Struct({
+    type: Schema.Literal("onboarding.step_completed"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    step: Schema.String
+  })
 ])
 export type OutboxEvent = typeof OutboxEvent.Type
 

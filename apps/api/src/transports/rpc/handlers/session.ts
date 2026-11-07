@@ -8,15 +8,22 @@ export const SessionHandlers = SessionRpcs.toLayer(Effect.gen(function*() {
   return SessionRpcs.of({
     "Session.me": Effect.fn("Session.me")(function*() {
       const user = yield* CurrentUser
-      const principals = (yield* workspaces.memberships).map((m): PrincipalSummary => ({
+      const memberships = yield* workspaces.memberships
+      const principals = memberships.map((m): PrincipalSummary => ({
         kind: "member",
         id: m.memberId,
         workspaceId: m.workspaceId,
         workspaceName: m.workspaceName,
         roleLabel: m.principal.role.label
       }))
-      // Onboarding runs until its last step lands on Start (step 3.3); until then everyone lands in onboarding.
-      return new SessionMe({ user, principals, activePrincipal: principals[0] ?? null, landing: "/onboarding" })
+      // Start once the active workspace finished onboarding; until then, onboarding (which resumes where they were).
+      const onboarded = memberships[0]?.onboarded === true
+      return new SessionMe({
+        user,
+        principals,
+        activePrincipal: principals[0] ?? null,
+        landing: onboarded ? "/dashboard" : "/onboarding"
+      })
     })
   })
 }))

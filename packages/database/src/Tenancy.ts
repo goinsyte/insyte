@@ -14,7 +14,8 @@ export const TENANT_TABLES = [
   "files",
   "roles",
   "teams",
-  "members"
+  "members",
+  "setup_tasks"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 
