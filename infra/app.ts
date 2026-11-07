@@ -145,6 +145,8 @@ export default Alchemy.Stack(
         TURNSTILE_SECRET_KEY: widget?.secret ?? Redacted.make("1x0000000000000000000000000000000AA"),
         // Invite-only (M2.2): beside `beta_allowlist`, the reserved test domain is admitted off production, for the tests.
         BETA_ALLOWED_DOMAINS: environment === "production" ? "" : "example.com",
+        // Previews sit behind Access, and their browser tests all come from one CI runner: no limits per IP there.
+        IP_LIMITS: environment === "preview" ? "off" : "on",
         ...google,
         ...mail,
         // An unset GitHub variable arrives empty, not missing: empty means the default.
