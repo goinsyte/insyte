@@ -13,15 +13,9 @@ import { migrate, MIGRATIONS_TABLE } from "@insyte/database/Migrator"
 import { Migrations } from "@insyte/modules/shared/tables/Migrations"
 import { Effect, Redacted } from "effect"
 import { SqlClient } from "effect/sql"
-import { LOCAL_OWNER_URL } from "./lib/local-db.ts"
+import { ownerUrl } from "./lib/owner-url.ts"
 
-const arg = (name: string) => {
-  const i = process.argv.indexOf(name)
-  return i === -1 ? undefined : process.argv[i + 1]
-}
-
-const local = process.argv.includes("--local")
-const environment = local ? "local" : arg("--env")
+const { environment, url } = ownerUrl()
 if (environment === undefined) {
   console.error("Say where: --local, or --env <preview|staging|production>.")
   process.exit(1)
@@ -30,13 +24,6 @@ if (environment === "production" && process.env["CI"] !== "true") {
   console.error("Production is migrated by CI only (backend · migrate production), never from a laptop.")
   process.exit(1)
 }
-const host = arg("--host")
-const ownerPassword = process.env["INSYTE_OWNER_DB_PASSWORD"]
-const url = local
-  ? LOCAL_OWNER_URL
-  : host !== undefined && ownerPassword !== undefined
-  ? `postgresql://insyte_owner:${encodeURIComponent(ownerPassword)}@${host}/insyte?sslmode=require`
-  : process.env["DATABASE_URL_OWNER"]
 if (url === undefined || url === "") {
   console.error("Set DATABASE_URL_OWNER, or pass --host with INSYTE_OWNER_DB_PASSWORD set.")
   process.exit(1)

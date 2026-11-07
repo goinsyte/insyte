@@ -1,8 +1,8 @@
 # The backend's deployed environments (03 §2; 14 §6), through alchemy (infra/app.ts).
 #
-#   pull request (same repo)  -> build the console, deploy stage pr-<n> (Neon branch, Hyperdrive, API, console),
-#                                migrate that branch, smoke the console
-#   push to staging           -> migrate nonprod main, deploy stage staging, smoke
+#   pull request (same repo)  -> preview-base (infra/previews.ts), build the console, deploy stage pr-<n> (a Neon
+#                                branch of preview-base, Hyperdrive, API, console), migrate that branch, smoke
+#   push to staging           -> migrate nonprod main, deploy stage staging, smoke, refresh preview-base
 #   push to main              -> migrate prod main, deploy stage production, smoke
 #
 # Migrations run before the deploy: they are expand-only, so the running code keeps working on the new schema.
@@ -45,9 +45,37 @@ jobs:
       - run: bunx alchemy deploy shared.ts --stage shared --yes --no-input
         working-directory: infra
 
+  preview-base:
+    name: backend · preview-base
+    # What every preview's database forks (infra/previews.ts): staging's schema and the three scenario workspaces. A new
+    # one gets main's migration ledger (and its first seed) here; staging's run migrates and reseeds it afterwards.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: preview
+    concurrency:
+      group: alchemy-previews
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bunx alchemy deploy previews.ts --stage nonprod --yes --no-input
+        working-directory: infra
+      - run: bun scripts/preview-base.ts --adopt
+        env:
+          INSYTE_OWNER_DB_PASSWORD: ${{ secrets.INSYTE_OWNER_DB_PASSWORD }}
+
   preview:
     name: backend · preview
-    needs: shared
+    needs: [shared, preview-base]
     # Fork PRs get no secrets, and their code should not reach the account.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
@@ -97,6 +125,10 @@ jobs:
         working-directory: infra
       - name: migrate the preview's branch
         run: bun run db:migrate --env preview --host "$(bun scripts/neon-branch-host.ts "$STAGE")"
+        env:
+          INSYTE_OWNER_DB_PASSWORD: ${{ secrets.INSYTE_OWNER_DB_PASSWORD }}
+      - name: the scenario workspaces are there
+        run: bun run db:seed --env preview --host "$(bun scripts/neon-branch-host.ts "$STAGE")" --check
         env:
           INSYTE_OWNER_DB_PASSWORD: ${{ secrets.INSYTE_OWNER_DB_PASSWORD }}
       - name: smoke the preview
@@ -181,6 +213,11 @@ jobs:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: bun scripts/smoke-stage.ts "https://insyte-console-staging.$WORKERS_SUBDOMAIN"
+      # What the next previews fork: staging's migrations and the scenario workspaces (infra/previews.ts).
+      - name: refresh preview-base
+        run: bun scripts/preview-base.ts
+        env:
+          DATABASE_URL_OWNER: ${{ secrets.DATABASE_URL_OWNER }}
 
   production:
     name: backend · production
