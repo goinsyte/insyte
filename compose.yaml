@@ -1,0 +1,28 @@
+name: insyte
+
+# Local Postgres, the same major and pgvector as Neon (PG18, pgvector 0.8.6). Port 55443, away from any Postgres
+# already on the machine (55433, the docs' first choice, is taken here by another project). The init scripts make the roles exactly as Neon gets them (infra/db/roles.sql), then give
+# them local passwords; run once, on first start of an empty volume. `bun run db:up` / `db:down`.
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg18
+    ports:
+      - "55443:5432"
+    environment:
+      POSTGRES_DB: insyte
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres-local-only
+    volumes:
+      - ./infra/db/roles.sql:/docker-entrypoint-initdb.d/10-roles.sql:ro
+      - ./infra/db/local.sql:/docker-entrypoint-initdb.d/20-local.sql:ro
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      # Over TCP: the temporary server the init scripts run against listens on the socket only, so a socket check
+      # reports healthy before the database exists.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d insyte"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:

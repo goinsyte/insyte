@@ -4,13 +4,15 @@ import { NotFound } from "../transports/http/NotFound.ts"
 import { RequestContext } from "../transports/http/RequestContext.ts"
 import { SystemRoutes } from "../transports/http/SystemRoutes.ts"
 import { RpcContext, RpcRoutes } from "../transports/rpc/RpcRoutes.ts"
+import { WithDbLive } from "../transports/rpc/WithDbLive.ts"
 import { AppInfo, ConfigLive } from "./Bindings.ts"
+import { HyperdriveConnect } from "./Hyperdrive.ts"
 import { ObservabilityLive } from "./Observability.ts"
 
 /*
  * The composition root (16 §5): every implementation is chosen here, and the layer is built once per isolate. Nothing
- * that holds a socket belongs in it: a Worker forbids I/O objects shared across requests, so the database arrives per
- * request through a middleware (M1.2).
+ * that holds a socket belongs in it: a Worker forbids I/O objects shared across requests, so the database connection
+ * is opened per request (`RequestDb.ts`), and the layer holds only the way to open one (`HyperdriveConnect`).
  */
 
 const Transports = Layer.mergeAll(SystemRoutes, RpcRoutes, RequestContext, NotFound)
@@ -23,6 +25,9 @@ const SyncScheduler = Layer.succeed(Scheduler.Scheduler, new Scheduler.MixedSche
 
 export const AppLayer = Transports.pipe(
   Layer.provideMerge(RpcContext),
+  Layer.provideMerge(WithDbLive),
+  // Read per request by the routes and the RPC middleware; building it opens no socket.
+  Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),
   Layer.provideMerge(AppInfo.layer),
   Layer.provide([FetchHttpClient.layer, HttpServer.layerServices]),
