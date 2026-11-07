@@ -1,5 +1,5 @@
 import { Context, Schema } from "effect"
-import { UserId } from "./Ids.ts"
+import { UserId, WorkspaceId } from "./Ids.ts"
 
 /*
  * The signed-in person, before any workspace (M2.4). better-auth vouches for the user; which workspace and principal
@@ -20,12 +20,23 @@ export type SessionUser = typeof SessionUser.Type
 /** Provided by the `Authenticated` RPC middleware from the session cookie. */
 export class CurrentUser extends Context.Service<CurrentUser, SessionUser>()("domain/CurrentUser") {}
 
+/** One way the person may act, as the session lists it: today a membership; partner principals join in M16. */
+export const PrincipalSummary = Schema.Struct({
+  kind: Schema.Literal("member"),
+  id: Schema.String,
+  workspaceId: WorkspaceId,
+  workspaceName: Schema.String,
+  roleLabel: Schema.String
+})
+export type PrincipalSummary = typeof PrincipalSummary.Type
+
 /** What the console needs after sign-in: who, as whom, and where they land (widgets/01). */
 export class SessionMe extends Schema.Class<SessionMe>("domain/SessionMe")({
   user: SessionUser,
-  /** Every principal the user may act as; empty until the first workspace (M3). */
-  principals: Schema.Array(Schema.String),
-  activePrincipal: Schema.Null,
+  /** Every principal the person may act as, newest first; empty before their first workspace. */
+  principals: Schema.Array(PrincipalSummary),
+  /** The one requests act as: the session's choice, else the newest (`Session.switchPrincipal` arrives with a second). */
+  activePrincipal: Schema.NullOr(PrincipalSummary),
   /** `/onboarding` without a workspace; the principal's landing after M3. */
   landing: Schema.String
 }) {}

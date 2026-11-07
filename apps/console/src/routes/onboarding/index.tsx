@@ -1,12 +1,13 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import { authClient } from "@insyte/ui/app/lib/auth-client"
+import { fieldCopy } from "@insyte/ui/app/lib/errors"
 import { search } from "@insyte/ui/app/onboarding/onboarding-search"
 import { OnboardingShell, type StepDef } from "@insyte/ui/app/onboarding/onboarding-shell"
-import { organizationStep } from "@insyte/ui/app/onboarding/organization-step"
+import { type NewWorkspace, organizationStep } from "@insyte/ui/app/onboarding/organization-step"
 import { sharedHeadSteps } from "@insyte/ui/app/onboarding/shared-steps"
 import { useOnboardingState } from "@insyte/ui/app/onboarding/use-onboarding-state"
 import { createFileRoute } from "@tanstack/react-router"
-import { Effect } from "effect"
+import { Cause, Effect, Exit } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { useEffect } from "react"
 import { advanceOnboardingAtom, ONBOARDING, onboardingMeAtom } from "../../data/onboarding.ts"
@@ -30,6 +31,14 @@ export const Route = createFileRoute("/onboarding/")({
   },
   component: ConsoleOnboarding
 })
+
+const WORKSPACE_READY: StepDef = {
+  id: "workspace-ready",
+  title: "Je werkruimte staat klaar.",
+  subtitle: "De volgende stappen, je abonnement en je winkel, zijn nog niet beschikbaar. Je kunt dit venster sluiten.",
+  hidePrimary: true,
+  content: null
+}
 
 const NOT_YET: StepDef = {
   id: "next",
@@ -71,10 +80,18 @@ function ConsoleOnboarding() {
     // Recorded on the server; its answer, read again through `ONBOARDING`, moves the screen on.
     setPersona: (persona) => void advance({ payload: { step: "role", persona }, reactivityKeys: ONBOARDING })
   })
+  // Founds the workspace on the server; a refusal comes back as the sentence for its first field.
+  const create = async (workspace: NewWorkspace) => {
+    const exit = await advance({ payload: { step: "organization", ...workspace }, reactivityKeys: ONBOARDING })
+    if (Exit.isSuccess(exit)) return undefined
+    const failure = Cause.findErrorOption(exit.cause)
+    if (failure._tag === "Some" && failure.value._tag === "Invalid") return fieldCopy(failure.value.fields)
+    return "Je werkruimte kon niet worden aangemaakt. Probeer het opnieuw."
+  }
   const tail = state.persona === null
     ? []
     : state.persona === "admin"
-    ? [organizationStep({ data: state.data, patch: state.patch, next: state.next })]
+    ? [organizationStep({ data: state.data, patch: state.patch, next: state.next, onCreate: create }), WORKSPACE_READY]
     : [NOT_YET]
 
   return (

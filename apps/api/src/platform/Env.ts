@@ -32,6 +32,8 @@ declare global {
       readonly MAIL_FROM?: string
       /** A secret: Resend's sending key, where `MAIL_ADAPTER=resend`. */
       readonly RESEND_API_KEY?: string
+      /** `off` turns off the limits per IP (previews, behind Access); anything else, or absent, keeps them (M2.3). */
+      readonly IP_LIMITS?: string
       /** `off` admits every address; anything else, or absent, keeps the beta gate shut (M2.2). */
       readonly BETA_GATE?: string
       /** Comma-separated domains admitted on this stage beside `beta_allowlist`. */

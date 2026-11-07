@@ -11,7 +11,10 @@ export const TENANT_TABLES = [
   "outbox",
   "undo_tokens",
   "idempotency_keys",
-  "files"
+  "files",
+  "roles",
+  "teams",
+  "members"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

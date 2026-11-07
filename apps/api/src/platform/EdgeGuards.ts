@@ -105,7 +105,7 @@ export const guarded = <E, R>(
     if (buckets === undefined) return yield* handle(request)
 
     const limits = yield* RateLimits
-    const ip = clientIp(request)
+    const ip = limits.ipLimits ? clientIp(request) : null
     const email = emailIn(body)
     const addressKey = email === undefined ? undefined : yield* Effect.promise(() => emailKey(email))
 

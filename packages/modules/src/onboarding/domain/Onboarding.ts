@@ -1,9 +1,11 @@
 import { Schema } from "effect"
+import { CreateWorkspaceInput } from "../../shared/domain/Workspaces.ts"
 import { Step, Track } from "./Steps.ts"
 
 /*
- * What the console reads and sends (M4.1). `advance` takes one member per step: today the shared head (`account` and
- * `verify` carry nothing; the server checks the facts) and `role`; the admin tail's members join with step 3 and M6.
+ * What the console reads and sends (M4.1). `advance` takes one member per step: the shared head (`account` and `verify`
+ * carry nothing; the server checks the facts), `role`, and the admin track's `organization`, which founds the
+ * workspace; the rest of the admin tail joins with step 3.3 and M6.
  */
 
 export const Answers = Schema.Struct({
@@ -23,7 +25,9 @@ export class OnboardingState extends Schema.Class<OnboardingState>("onboarding/O
 export const AdvanceInput = Schema.Union([
   Schema.Struct({ step: Schema.Literal("account") }),
   Schema.Struct({ step: Schema.Literal("verify") }),
-  Schema.Struct({ step: Schema.Literal("role"), persona: Track })
+  Schema.Struct({ step: Schema.Literal("role"), persona: Track }),
+  // The workspace's facts as the form has them; checked by the founding, which answers `Invalid` per field.
+  Schema.Struct({ step: Schema.Literal("organization"), ...CreateWorkspaceInput.fields })
 ])
 export type AdvanceInput = typeof AdvanceInput.Type
 

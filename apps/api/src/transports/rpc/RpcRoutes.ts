@@ -1,5 +1,6 @@
 import { ConsoleRpcs, RPC_PATH } from "@insyte/api/ConsoleRpcs"
 import { Onboarding } from "@insyte/modules/onboarding/Onboarding"
+import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Layer } from "effect"
 import { RpcSerialization } from "effect/rpc"
 import { OnboardingHandlers } from "./handlers/onboarding.ts"
@@ -16,8 +17,8 @@ export const RpcRoutes = RpcHttp(ConsoleRpcs, RPC_PATH)
  */
 export const RpcContext = Layer.mergeAll(
   SystemHandlers,
-  SessionHandlers,
-  OnboardingHandlers.pipe(Layer.provide(Onboarding.layer))
+  SessionHandlers.pipe(Layer.provide(Workspaces.layer)),
+  OnboardingHandlers.pipe(Layer.provide(Onboarding.layer), Layer.provide(Workspaces.founder))
 ).pipe(
   Layer.provideMerge(RpcSerialization.layerNdjson)
 )

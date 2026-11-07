@@ -1,3 +1,4 @@
+import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentPrincipal, CurrentWorkspace, type Principal } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
 import { Context, Effect, Layer } from "effect"
@@ -21,6 +22,11 @@ export interface DbService {
    * (`onboarding_progress`, `auth_events`) show their own rows and every tenant table shows nothing.
    */
   readonly forUser: InTransaction<CurrentUser>
+  /**
+   * As the signed-in person inside one workspace, before they have a principal there: founding a workspace (its first
+   * rows pass the tenant policies they will always pass), and resolving the person's principal in it.
+   */
+  readonly asUserIn: (workspaceId: WorkspaceId) => InTransaction<CurrentUser>
   /** Background work that resolved its workspace (a queue, a Workflow step, a cron fan-out). Runs as `system`. */
   readonly scopedFor: InTransaction<CurrentWorkspace>
   /** Routing lookups only, through security-definer functions: shop domain → workspace, key prefix → key. */
@@ -74,6 +80,17 @@ export const makeDb = (connection: Effect.Effect<SqlClient.SqlClient, SqlError.S
         (user) =>
           Effect.flatMap(connection, (sql) =>
             sql.withTransaction(Effect.andThen(sql`select set_config('app.user_id', ${user.id}, true)`, f(sql))))
+      ),
+    asUserIn: (workspaceId) => (f) =>
+      Effect.flatMap(
+        Effect.service(CurrentUser),
+        (user) =>
+          Effect.flatMap(connection, (sql) =>
+            sql.withTransaction(Effect.andThen(
+              sql`select set_config('app.user_id', ${user.id}, true), set_config('app.workspace_id', ${workspaceId}, true),
+                       set_config('app.principal_kind', 'member', true)`,
+              f(sql)
+            )))
       ),
     scopedFor: (f) =>
       Effect.flatMap(
