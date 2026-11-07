@@ -42,6 +42,31 @@
         "wrangler": "catalog:",
       },
     },
+    "apps/console": {
+      "name": "@insyte/console",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/atom-react": "catalog:",
+        "@insyte/api": "workspace:*",
+        "@insyte/ui": "workspace:*",
+        "@tanstack/react-router": "catalog:",
+        "@tanstack/react-start": "catalog:",
+        "effect": "catalog:",
+        "react": "catalog:",
+        "react-dom": "catalog:",
+      },
+      "devDependencies": {
+        "@cloudflare/vite-plugin": "catalog:",
+        "@cloudflare/workers-types": "catalog:",
+        "@tailwindcss/vite": "catalog:",
+        "@types/node": "catalog:",
+        "@types/react": "catalog:",
+        "@types/react-dom": "catalog:",
+        "@vitejs/plugin-react": "catalog:",
+        "vite": "catalog:",
+        "wrangler": "catalog:",
+      },
+    },
     "apps/design": {
       "name": "@insyte/design",
       "version": "0.0.0",
@@ -177,6 +202,7 @@
     "@dnd-kit/core": "6.3.1",
     "@dnd-kit/sortable": "10.0.0",
     "@dnd-kit/utilities": "3.2.2",
+    "@effect/atom-react": "4.1.2",
     "@effect/sql-pg": "4.1.2",
     "@fontsource-variable/archivo": "^5.3.0",
     "@fontsource-variable/inter": "^5.3.0",
@@ -313,6 +339,8 @@
     "@dprint/win32-arm64": ["@dprint/win32-arm64@0.57.4", "", { "os": "win32", "cpu": "arm64" }, "sha512-bGEtcSjl6T4xjwr9nUF5kgd3174NP7yb338+Ulqq5DMYcSN4ibI62eVQKBTuyLWByz56aVOL06dj8pKTUzn+yQ=="],
 
     "@dprint/win32-x64": ["@dprint/win32-x64@0.57.4", "", { "os": "win32", "cpu": "x64" }, "sha512-P91JJG2sDvK+SvZHdqjKygy7fYABbMH1KYop+WCowyjZUin09977qltdXwJ1vb77Cbi2OD0GWUuAlqO0PjNmaw=="],
+
+    "@effect/atom-react": ["@effect/atom-react@4.1.2", "", { "peerDependencies": { "effect": "^4.1.2", "react": ">=19.0.0 <20.0.0", "scheduler": ">=0.25.0 <0.29.0" } }, "sha512-XRAm4lks2kzNFQIz9QTGKR02CaDTR9VJNRXDjDAR8OzM15ybrK4YkB7OlFZ9U+hxXe3DXJZx7RU1/xI2Em2PGQ=="],
 
     "@effect/language-service": ["@effect/language-service@0.87.5", "", { "bin": { "effect-language-service": "cli.js" } }, "sha512-np/zJgk71/PyHxtoqyUKLYcpQhoRBI+L6+1Z0ILk35JSQ/lvXzwlwOwddYZLDkeC4bdF2ukKekqKlla/F88R5w=="],
 
@@ -461,6 +489,8 @@
     "@insyte/api": ["@insyte/api@workspace:packages/api"],
 
     "@insyte/api-worker": ["@insyte/api-worker@workspace:apps/api"],
+
+    "@insyte/console": ["@insyte/console@workspace:apps/console"],
 
     "@insyte/database": ["@insyte/database@workspace:packages/database"],
 

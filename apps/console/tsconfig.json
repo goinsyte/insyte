@@ -1,0 +1,21 @@
+{
+  /*
+   * One project for this app, as `apps/marketing`: `module: preserve` + `bundler`, because Vite bundles it and the
+   * generated `routeTree.gen.ts` writes extensionless imports NodeNext rejects.
+   */
+  "extends": "../../tsconfig.base.json",
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "tsBuildInfoFile": ".tsbuildinfo/console.tsbuildinfo",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client", "@cloudflare/workers-types", "node"]
+  }
+}
