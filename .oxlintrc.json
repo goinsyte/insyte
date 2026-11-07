@@ -68,7 +68,10 @@
     "apps/design/src/app/fixtures/affiliate-data.ts",
     "!packages/ui/src/app/lib/env.ts",
     "!packages/ui/src/app/lib/auth-client.ts",
-    "!packages/ui/src/app/lib/api.ts"
+    "!packages/ui/src/app/lib/api.ts",
+    // Graduated (08 §3): wired to the API, so held to this repo's rules.
+    "!packages/ui/src/app/auth/login-screen.tsx",
+    "!packages/ui/src/app/onboarding/shared-steps.tsx"
   ],
   "rules": {
     "no-console": "warn",
