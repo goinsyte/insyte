@@ -18,7 +18,7 @@
       "@dnd-kit/sortable": "10.0.0",
       "@dnd-kit/utilities": "3.2.2",
       "@cloudflare/vite-plugin": "^1.65.0",
-      "@cloudflare/workers-types": "^5.20261026.1",
+      "@cloudflare/workers-types": "5.20261026.1",
       "@fontsource-variable/archivo": "^5.3.0",
       "@fontsource-variable/inter": "^5.3.0",
       "@tailwindcss/vite": "^4.3.3",
@@ -49,7 +49,8 @@
       "vitest": "5.0.2",
       "wrangler": "4.153.0",
       "zod": "4.6.5",
-      "zustand": "5.0.13"
+      "zustand": "5.0.13",
+      "effect": "4.1.2"
     }
   },
   "scripts": {
@@ -70,7 +71,8 @@
     "deps:check": "syncpack lint",
     "deps:update": "syncpack update",
     "scope": "bun scripts/scope.ts --base main",
-    "hygiene": "bun run knip && bun run deps:check && bun run secrets",
+    "hygiene": "bun run knip && bun run deps:check && bun run secrets && bun run effect:verify",
+    "effect:verify": "bun scripts/effect-verify.ts",
     "preflight": "bun run format && bun run check && bun run lint && bun run hygiene && bun run test",
     "preflight:ci": "bun run format:check && bun run check && bun run lint && bun run hygiene && bun run test",
     "dev": "bun run design",
@@ -86,6 +88,7 @@
     "@secretlint/secretlint-rule-preset-recommend": "13.0.6",
     "@types/node": "catalog:",
     "dprint": "0.57.4",
+    "effect": "catalog:",
     "knip": "6.38.0",
     "lefthook": "2.1.14",
     "oxlint": "1.85.0",
