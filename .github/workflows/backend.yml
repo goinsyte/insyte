@@ -104,7 +104,7 @@ jobs:
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-        run: bun scripts/smoke-stage.ts "https://insyte-console-$STAGE.$WORKERS_SUBDOMAIN"
+        run: bun scripts/smoke-stage.ts "https://insyte-console-$STAGE.$WORKERS_SUBDOMAIN" --auth-journey
 
   staging:
     name: backend · staging
