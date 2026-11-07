@@ -50,7 +50,12 @@
        * editing a port. (The brand book's chapters need no entry: every export they have is read.)
        */
       // Graduated files (08 §3) are reported like any other.
-      "ignore": ["src/app/**", "!src/app/auth/login-screen.tsx", "!src/app/onboarding/shared-steps.tsx"],
+      "ignore": [
+        "src/app/**",
+        "!src/app/auth/login-screen.tsx",
+        "!src/app/onboarding/shared-steps.tsx",
+        "!src/app/lib/form-errors.ts",
+      ],
     },
     "apps/console": {
       // The Worker's entry is `main` in wrangler.jsonc; routes are discovered by TanStack Start's plugin and imported
