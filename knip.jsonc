@@ -51,6 +51,11 @@
        */
       "ignore": ["src/app/**"],
     },
+    "apps/console": {
+      // The Worker's entry is `main` in wrangler.jsonc; routes are discovered by TanStack Start's plugin and imported
+      // only by the generated route tree.
+      "entry": ["src/routes/**/*.tsx"],
+    },
     "apps/marketing": {
       // The Worker's entry is `main` in wrangler.jsonc, which knip finds on its own. Routes are
       // discovered by TanStack Start's plugin and imported only by the generated route tree.
