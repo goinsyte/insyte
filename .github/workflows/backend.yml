@@ -42,6 +42,15 @@ jobs:
       INSYTE_APP_DB_PASSWORD: ${{ secrets.INSYTE_APP_DB_PASSWORD }}
       GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
       STAGE: pr-${{ github.event.pull_request.number }}
+      OTEL_TRACES_EXPORTER: ${{ vars.OTEL_TRACES_EXPORTER }}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT }}
+      OTEL_EXPORTER_OTLP_HEADERS: ${{ vars.OTEL_EXPORTER_OTLP_HEADERS }}
+      OTEL_BSP_SCHEDULE_DELAY: ${{ vars.OTEL_BSP_SCHEDULE_DELAY }}
+      SENTRY_DSN: ${{ vars.SENTRY_DSN }}
+      # The console's build reads these (Vite): Sentry in the browser, tagged with the environment and the commit.
+      VITE_SENTRY_DSN: ${{ vars.SENTRY_DSN }}
+      VITE_ENVIRONMENT: preview
+      VITE_VERSION: ${{ github.event.pull_request.head.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -89,6 +98,15 @@ jobs:
       DATABASE_HOST: ${{ vars.DATABASE_HOST }}
       INSYTE_APP_DB_PASSWORD: ${{ secrets.INSYTE_APP_DB_PASSWORD }}
       GITHUB_SHA: ${{ github.sha }}
+      OTEL_TRACES_EXPORTER: ${{ vars.OTEL_TRACES_EXPORTER }}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT }}
+      OTEL_EXPORTER_OTLP_HEADERS: ${{ vars.OTEL_EXPORTER_OTLP_HEADERS }}
+      OTEL_BSP_SCHEDULE_DELAY: ${{ vars.OTEL_BSP_SCHEDULE_DELAY }}
+      SENTRY_DSN: ${{ vars.SENTRY_DSN }}
+      # The console's build reads these (Vite): Sentry in the browser, tagged with the environment and the commit.
+      VITE_SENTRY_DSN: ${{ vars.SENTRY_DSN }}
+      VITE_ENVIRONMENT: staging
+      VITE_VERSION: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -131,6 +149,15 @@ jobs:
       DATABASE_HOST: ${{ vars.DATABASE_HOST }}
       INSYTE_APP_DB_PASSWORD: ${{ secrets.INSYTE_APP_DB_PASSWORD }}
       GITHUB_SHA: ${{ github.sha }}
+      OTEL_TRACES_EXPORTER: ${{ vars.OTEL_TRACES_EXPORTER }}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT }}
+      OTEL_EXPORTER_OTLP_HEADERS: ${{ vars.OTEL_EXPORTER_OTLP_HEADERS }}
+      OTEL_BSP_SCHEDULE_DELAY: ${{ vars.OTEL_BSP_SCHEDULE_DELAY }}
+      SENTRY_DSN: ${{ vars.SENTRY_DSN }}
+      # The console's build reads these (Vite): Sentry in the browser, tagged with the environment and the commit.
+      VITE_SENTRY_DSN: ${{ vars.SENTRY_DSN }}
+      VITE_ENVIRONMENT: production
+      VITE_VERSION: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

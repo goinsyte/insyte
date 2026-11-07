@@ -21,9 +21,12 @@ const RegisterFlush = Layer.effectDiscard(Effect.gen(function*() {
 }))
 
 const Tracing = Layer.unwrap(Effect.gen(function*() {
-  const { version } = yield* AppInfo
+  const { environment, version } = yield* AppInfo
   return RegisterFlush.pipe(
-    Layer.provideMerge(OtlpTracer.layerFromConfig({ resource: { serviceVersion: version } }))
+    Layer.provideMerge(OtlpTracer.layerFromConfig({
+      // One Sentry project per app; the environment tells preview, staging and production apart inside it.
+      resource: { serviceVersion: version, attributes: { "deployment.environment": environment } }
+    }))
   )
 }))
 

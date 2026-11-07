@@ -17,7 +17,8 @@ const SECURITY_HEADERS: Record<string, string> = {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    "connect-src 'self'",
+    // Sentry's EU ingest, for browser errors and spans (17 §4).
+    "connect-src 'self' https://*.ingest.de.sentry.io",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'"

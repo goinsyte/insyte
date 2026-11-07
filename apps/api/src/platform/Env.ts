@@ -12,6 +12,8 @@ declare global {
       readonly VERSION?: string
       readonly LOG_LEVEL?: string
       readonly TURNSTILE_SITE_KEY?: string
+      /** The console's Sentry DSN, public by design; returned by `GET /api/config`. */
+      readonly SENTRY_DSN?: string
       readonly OTEL_SERVICE_NAME?: string
       readonly OTEL_TRACES_EXPORTER?: string
       readonly OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?: string
