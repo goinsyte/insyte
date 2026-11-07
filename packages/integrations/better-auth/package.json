@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "better-auth": "catalog:",
-    "kysely": "catalog:"
+    "kysely": "catalog:",
+    "zod": "catalog:"
   }
 }

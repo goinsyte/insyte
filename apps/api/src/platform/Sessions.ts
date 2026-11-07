@@ -29,6 +29,7 @@ export const userFrom = Effect.fn("Sessions.userFrom")(function*(headers: Header
     email: found.user.email,
     name: found.user.name,
     emailVerified: found.user.emailVerified,
-    image: found.user.image ?? null
+    image: found.user.image ?? null,
+    twoFactorEnabled: found.user.twoFactorEnabled === true
   }))
 })

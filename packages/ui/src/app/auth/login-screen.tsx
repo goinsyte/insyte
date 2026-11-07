@@ -45,12 +45,12 @@ export function LoginPage() {
     onSubmit: async ({ value, formApi }) => {
       const attemptSignIn = (turnstileToken: string | undefined) =>
         authClient.signIn.email({ email: value.email, password: value.password, turnstileToken })
-      let { error } = await attemptSignIn(humanAsked ? await human.token() : undefined)
+      let { data, error } = await attemptSignIn(humanAsked ? await human.token() : undefined)
       if (humanAsked) human.spent()
       // Asked for the first time: show the check, wait for its token, and send once more, without a second click.
       if (error?.code === "TURNSTILE_REQUIRED" && !humanAsked) {
         setHumanAsked(true)
-        ;({ error } = await attemptSignIn(await human.token()))
+        ;({ data, error } = await attemptSignIn(await human.token()))
         human.spent()
       }
       if (error) {
@@ -59,6 +59,11 @@ export function LoginPage() {
           error,
           "Inloggen mislukt. Controleer je gegevens."
         )
+        return
+      }
+      // The password was right and the account asks for a second factor: the code, then on to where it was going.
+      if (data?.twoFactorRedirect === true) {
+        navigate({ to: "/login/two-factor", search: redirect === undefined ? {} : { redirect } })
         return
       }
       navigate({ to: dest, search: {} as never })

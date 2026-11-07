@@ -1,5 +1,6 @@
 import { betterAuth, type BetterAuthOptions } from "better-auth"
 import { APIError, createAuthMiddleware } from "better-auth/api"
+import { twoFactor } from "better-auth/plugins"
 import { type Execute, executeDialect } from "./Dialect.ts"
 import { typeId } from "./Ids.ts"
 
@@ -52,7 +53,13 @@ const breachedPasswordGuard = (isBreached: (password: string) => Promise<boolean
   })
 
 /** Prefix per better-auth model, so its ids read like ours in logs and joins. */
-const PREFIX: Record<string, string> = { user: "usr", session: "ses", account: "acc", verification: "ver" }
+const PREFIX: Record<string, string> = {
+  user: "usr",
+  session: "ses",
+  account: "acc",
+  verification: "ver",
+  twoFactor: "tfa"
+}
 
 /** Every column snake_case, spelled out: better-auth's `casing` option does nothing at 1.7 (12 §3). */
 const COLUMNS = {
@@ -79,6 +86,31 @@ const COLUMNS = {
   },
   verification: { expiresAt: "expires_at", createdAt: "created_at", updatedAt: "updated_at" }
 } as const
+
+/*
+ * TOTP and backup codes (12 §2, M2): asked for on sign-in once enabled (`twoFactorRedirect`), with "Dit apparaat 30 dagen
+ * onthouden". Backup codes are stored encrypted with the secret; the plugin's own lockout stands (10 failures → 15
+ * minutes) beside our limits on the password step. Enrolment is the security settings page (M3). Its types reach into
+ * zod, which is why zod is a dependency here: a declaration must be able to name them.
+ */
+const twoFactorPlugin = () =>
+  twoFactor({
+    issuer: "Insyte",
+    backupCodeOptions: { storeBackupCodes: "encrypted" },
+    trustDeviceMaxAge: 30 * 24 * 60 * 60,
+    schema: {
+      user: { fields: { twoFactorEnabled: "two_factor_enabled" } },
+      twoFactor: {
+        modelName: "two_factor",
+        fields: {
+          backupCodes: "backup_codes",
+          userId: "user_id",
+          failedVerificationCount: "failed_verification_count",
+          lockedUntil: "locked_until"
+        }
+      }
+    }
+  })
 
 export const authOptions = (config: AuthConfig, database: BetterAuthOptions["database"]) =>
   ({
@@ -140,6 +172,7 @@ export const authOptions = (config: AuthConfig, database: BetterAuthOptions["dat
         activePrincipalKind: { type: "string", required: false, input: false, fieldName: "active_principal_kind" }
       }
     },
+    plugins: [twoFactorPlugin()],
     advanced: {
       // __Secure-insyte.session; HttpOnly; Secure; SameSite=Lax; Path=/; no Domain: host-only (18 §3).
       cookiePrefix: "insyte",

@@ -37,7 +37,7 @@ export interface AuthClient {
     /** `turnstileToken` once the server has asked for one (`TURNSTILE_REQUIRED`, a warm address or IP). */
     readonly email: (
       credentials: { email: string; password: string; turnstileToken?: string | undefined }
-    ) => AuthResult<unknown>
+    ) => AuthResult<{ readonly twoFactorRedirect?: boolean | undefined }>
     /** A full-page handoff to the provider; `callbackURL` is absolute, on the product's origin. */
     readonly social: (request: { provider: "google"; callbackURL: string }) => AuthResult<unknown>
   }
@@ -60,6 +60,11 @@ export interface AuthClient {
   ) => AuthResult<unknown>
   readonly resetPassword: (request: { newPassword: string; token: string }) => AuthResult<unknown>
   readonly signOut: () => AuthResult<unknown>
+  /** The second step of a sign-in that answered `twoFactorRedirect`: an authenticator code, or a backup code. */
+  readonly twoFactor: {
+    readonly verifyTotp: (request: { code: string; trustDevice: boolean }) => AuthResult<unknown>
+    readonly verifyBackupCode: (request: { code: string; trustDevice: boolean }) => AuthResult<unknown>
+  }
   readonly organization: {
     readonly create: (workspace: { name: string; slug: string }) => AuthResult<{ readonly id: string }>
   }

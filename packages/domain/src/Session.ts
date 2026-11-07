@@ -11,7 +11,9 @@ export const SessionUser = Schema.Struct({
   email: Schema.String,
   name: Schema.String,
   emailVerified: Schema.Boolean,
-  image: Schema.NullOr(Schema.String)
+  image: Schema.NullOr(Schema.String),
+  /** Whether sign-in asks for a TOTP or a backup code after the password (M2). */
+  twoFactorEnabled: Schema.Boolean
 })
 export type SessionUser = typeof SessionUser.Type
 

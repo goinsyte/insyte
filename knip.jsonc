@@ -42,6 +42,10 @@
       // (`todaysFocus`, `settingsNav`), as it did in `apps/console/src/lib`, which was ignored too.
       "ignore": ["src/app/fixtures/**"],
     },
+    "packages/integrations/better-auth": {
+      // Never imported: there so a declaration can name the two-factor plugin's types, which reach into zod.
+      "ignoreDependencies": ["zod"],
+    },
     "packages/ui": {
       /*
        * The console's screens and parts (`src/app/`), excluded from the export-level report for the
