@@ -60,7 +60,8 @@ export const demoAuthClient: AuthClient = {
    * frontend port is for.
    */
   signIn: {
-    email: (_credentials: { email: string; password: string }) => ok(session),
+    // Never paused for a second factor: the reference's one person has none (open `/login/two-factor` to see it).
+    email: (_credentials: { email: string; password: string }) => ok({ twoFactorRedirect: false }),
 
     /*
      * Real social sign-in is a full-page handoff: better-auth sends the browser to the provider and
@@ -86,6 +87,12 @@ export const demoAuthClient: AuthClient = {
 
   /* The one session is the reference's whole premise, so signing out keeps it: the screen still navigates. */
   signOut: () => ok(null),
+
+  /* Any code passes: the screen's own validation and states are what the reference shows. */
+  twoFactor: {
+    verifyTotp: (_request: { code: string; trustDevice: boolean }) => ok(session),
+    verifyBackupCode: (_request: { code: string; trustDevice: boolean }) => ok(session)
+  },
 
   organization: {
     /** The onboarding step patches the returned id into its state and sends it on to

@@ -1,4 +1,5 @@
 import { type APIRequestContext, expect, type Page, test as base } from "@playwright/test"
+import { createHmac } from "node:crypto"
 
 /*
  * Step 1's journey (15, "Done when"): register → the mail → verify → onboarding; signing in before verifying and with
@@ -140,4 +141,55 @@ test("@auth an address that is not invited is told Insyte is invite-only", async
   await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
   await expect(page.getByText(/^Insyte is nog alleen op uitnodiging\./)).toBeVisible()
   await expect(page.getByRole("heading", { name: "Maak je account aan." })).toBeVisible()
+})
+
+/** RFC 6238, what an authenticator app shows, from an `otpauth://` URI's base32 secret. */
+const totp = (totpURI: string, at = Date.now()) => {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+  const bits = [...(new URL(totpURI).searchParams.get("secret") ?? "").toUpperCase()]
+    .map((c) => alphabet.indexOf(c).toString(2).padStart(5, "0"))
+    .join("")
+  const key = Buffer.from(bits.match(/.{8}/g)!.map((b) => Number.parseInt(b, 2)))
+  const counter = Buffer.alloc(8)
+  counter.writeBigUInt64BE(BigInt(Math.floor(at / 30_000)))
+  const mac = createHmac("sha1", key).update(counter).digest()
+  const offset = mac[mac.length - 1]! & 0x0f
+  return String((mac.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).padStart(6, "0")
+}
+
+test("@auth an account with two-factor on is asked for the code after the password", async ({ page, request }) => {
+  const email = `e2e-${Date.now().toString(36)}-2fa@example.com`
+  const password = "een-lang-wachtwoord"
+  await page.goto("/onboarding")
+  await page.getByLabel("Zakelijk e-mailadres").fill(email)
+  await page.getByLabel("Volledige naam").fill("Eva Tester")
+  await page.getByLabel(/^Wachtwoord/).fill(password)
+  await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Check je inbox." })).toBeVisible()
+  await page.goto(await mailLink(request, email, "auth.verify"))
+  await expect(page.getByRole("heading", { name: "Aan welke kant van de bestelling sta jij?" })).toBeVisible()
+
+  // Enrolment's screen is the security settings page (M3); here the signed-in browser enrols through the API.
+  const origin = new URL(page.url()).origin
+  const enabled = await page.request.post("/api/auth/two-factor/enable", { data: { password }, headers: { origin } })
+  expect(enabled.status()).toBe(200)
+  const { totpURI } = await enabled.json() as { totpURI: string }
+  const confirmed = await page.request.post("/api/auth/two-factor/verify-totp", {
+    data: { code: totp(totpURI) },
+    headers: { origin }
+  })
+  expect(confirmed.status()).toBe(200)
+
+  await page.getByRole("button", { name: "Onboarding sluiten" }).click()
+  await expect(page).toHaveURL(/\/login/)
+  await signIn(page, email, password)
+  await expect(page).toHaveURL(/\/login\/two-factor/)
+  await expect(page.getByRole("heading", { name: "Tweestapsverificatie" })).toBeVisible()
+  await page.getByLabel("Code").fill("000000")
+  await page.getByRole("button", { name: "Bevestigen" }).click()
+  await expect(page.getByText(/^Deze code klopt niet\./)).toBeVisible()
+  // The next window's code: the current one was spent confirming the enrolment.
+  await page.getByLabel("Code").fill(totp(totpURI, Date.now() + 30_000))
+  await page.getByRole("button", { name: "Bevestigen" }).click()
+  await expect(page.getByRole("heading", { name: "Aan welke kant van de bestelling sta jij?" })).toBeVisible()
 })

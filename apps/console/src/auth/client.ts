@@ -1,6 +1,7 @@
 import type { AuthClient, AuthError, AuthResult } from "@insyte/ui/app/lib/auth-client"
 import { authErrorCopy } from "@insyte/ui/app/lib/errors"
 import { createAuthClient } from "better-auth/client"
+import { twoFactorClient } from "better-auth/client/plugins"
 import { identify } from "../observability.ts"
 
 /*
@@ -15,8 +16,10 @@ import { identify } from "../observability.ts"
  * Every error leaves here as Dutch copy (`authErrorCopy`); better-auth's English never reaches a screen.
  */
 
-let made: ReturnType<typeof createAuthClient> | undefined
-const client = () => (made ??= createAuthClient({ basePath: "/api/auth" }))
+// `twoFactorClient` without its redirect: the sign-in screen sends the person on to `/login/two-factor` itself.
+const make = () => createAuthClient({ basePath: "/api/auth", plugins: [twoFactorClient()] })
+let made: ReturnType<typeof make> | undefined
+const client = () => (made ??= make())
 
 /** better-auth's answer, with its error turned into a sentence a person can act on. */
 const answer = async <A>(
@@ -49,12 +52,19 @@ export const consoleAuthClient: AuthClient = {
   },
   signIn: {
     email: async ({ turnstileToken, ...credentials }) => {
-      const result = await answer(
+      const result = await answer<unknown>(
         client().signIn.email({ ...credentials, fetchOptions: human(turnstileToken) }),
         "Inloggen mislukt. Controleer je gegevens."
       )
-      if (result.data !== null) identify(result.data.user.id)
-      return result
+      // Either signed in (a user), or paused for the second factor (`twoFactorRedirect`, no user yet: identified after).
+      const data = result.data as
+        | { readonly twoFactorRedirect?: unknown; readonly user?: { readonly id: string } }
+        | null
+      if (data?.user !== undefined) identify(data.user.id)
+      return {
+        data: data === null ? null : { twoFactorRedirect: data.twoFactorRedirect === true },
+        error: result.error
+      }
     },
     social: (request) => answer(client().signIn.social(request), "Inloggen met Google lukte niet. Probeer het opnieuw.")
   },
@@ -78,6 +88,21 @@ export const consoleAuthClient: AuthClient = {
     const result = await answer(client().signOut(), "Uitloggen lukte niet. Probeer het opnieuw.")
     if (result.error === null) identify(null)
     return result
+  },
+  twoFactor: {
+    verifyTotp: async (request) => {
+      const result = await answer(client().twoFactor.verifyTotp(request), "De code kon niet worden gecontroleerd.")
+      if (result.data !== null) identify(result.data.user.id)
+      return result
+    },
+    verifyBackupCode: async (request) => {
+      const result = await answer(
+        client().twoFactor.verifyBackupCode(request),
+        "De back-upcode kon niet worden gecontroleerd."
+      )
+      if (result.data !== null) identify(result.data.user.id)
+      return result
+    }
   },
   organization: {
     // Workspaces arrive in step 3; until then the onboarding step that creates one says so (11 §7.3).

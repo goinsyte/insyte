@@ -3,6 +3,7 @@ import platform from "./migrations/0002_platform.ts"
 import auth from "./migrations/0003_auth.ts"
 import capturedMail from "./migrations/0004_captured_mail.ts"
 import betaAllowlist from "./migrations/0005_beta_allowlist.ts"
+import authTwoFactor from "./migrations/0006_auth_two_factor.ts"
 
 /**
  * Every migration, by its permanent key, in the order they were written (06; 15). A new migration is a new file and a
@@ -13,5 +14,6 @@ export const Migrations = {
   "0002_platform": platform,
   "0003_auth": auth,
   "0004_captured_mail": capturedMail,
-  "0005_beta_allowlist": betaAllowlist
+  "0005_beta_allowlist": betaAllowlist,
+  "0006_auth_two_factor": authTwoFactor
 }

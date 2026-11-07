@@ -20,6 +20,11 @@ const AUTH: Record<string, string> = {
   PASSWORD_BREACHED: "Dit wachtwoord komt voor in bekende datalekken. Kies een ander.",
   RATE_LIMITED: "Te veel pogingen. Wacht even en probeer het opnieuw.",
   TURNSTILE_REQUIRED: "Bevestig even dat je een mens bent en probeer het opnieuw.",
+  INVALID_CODE: "Deze code klopt niet. Controleer de tijd op je telefoon en probeer de volgende code.",
+  INVALID_BACKUP_CODE: "Deze back-upcode klopt niet of is al gebruikt.",
+  INVALID_TWO_FACTOR_COOKIE: "Je inlogpoging is verlopen. Log opnieuw in.",
+  TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE: "Te veel foute codes. Log opnieuw in.",
+  ACCOUNT_TEMPORARILY_LOCKED: "Te veel foute codes. Je account is een kwartier geblokkeerd.",
   BETA_CLOSED: "Insyte is nog alleen op uitnodiging. Laat je e-mailadres achter, dan laten we het je weten.",
   NOT_YET_AVAILABLE: "Dit deel van Insyte is nog niet beschikbaar."
 }
