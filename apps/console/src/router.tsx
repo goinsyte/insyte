@@ -1,3 +1,5 @@
+// FIRST: the composition root, before any screen can be reached.
+import "./install.ts"
 import { RegistryContext } from "@effect/atom-react"
 import { createRouter } from "@tanstack/react-router"
 import { AtomRegistry, Hydration } from "effect/reactivity"

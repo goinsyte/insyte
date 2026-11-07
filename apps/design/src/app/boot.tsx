@@ -1,4 +1,6 @@
 // The app proper, loaded by `main.tsx` once the data source is installed.
+// FIRST: the demo auth client, which reads the installed data source as it loads.
+import "./install-auth.ts"
 import { createRouter, RouterProvider } from "@tanstack/react-router"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"

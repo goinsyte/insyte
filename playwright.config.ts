@@ -14,6 +14,8 @@ const external = process.env.BASE_URL
 
 export default defineConfig({
   testDir: "e2e",
+  // The console's journeys run against a real API: `playwright.console.config.ts`.
+  testIgnore: "console/**",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

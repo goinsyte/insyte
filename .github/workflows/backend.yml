@@ -105,6 +105,19 @@ jobs:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: bun scripts/smoke-stage.ts "https://insyte-console-$STAGE.$WORKERS_SUBDOMAIN" --auth-journey
+      # The console's journeys (step 1's `@auth`) in a browser, on the preview, against its own Neon branch.
+      - run: bunx playwright install --with-deps chromium
+      - name: the console's journeys on the preview
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: CONSOLE_URL="https://insyte-console-$STAGE.$WORKERS_SUBDOMAIN" bun run e2e:console
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-console
+          path: playwright-report-console
+          retention-days: 7
 
   staging:
     name: backend · staging

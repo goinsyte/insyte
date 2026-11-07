@@ -54,6 +54,26 @@ if (opened.status === 302 && opened.headers.get("location")?.startsWith("/login"
   fail("GET /onboarding is gated; it must stay open")
 }
 
+// The sign-in pages render on the server with their own copy, so a visitor sees the form before any script runs.
+for (
+  const [path, says] of [["/login", "Inloggen"], ["/onboarding", "Maak je account aan."], [
+    "/reset-password?token=t",
+    "Nieuw wachtwoord"
+  ], ["/reset-password", "Deze link werkt niet meer"]] as const
+) {
+  const page = await fetch(`${base}${path}`)
+  if (page.status !== 200) fail(`GET ${path}: ${page.status}`)
+  if (!(await page.text()).includes(says)) fail(`GET ${path}: the HTML does not say "${says}"`)
+}
+const register = await fetch(`${base}/register`, { redirect: "manual" })
+if (register.status !== 307 && register.status !== 302 || !register.headers.get("location")?.endsWith("/onboarding")) {
+  fail(`GET /register: expected a redirect to /onboarding, got ${register.status} ${register.headers.get("location")}`)
+}
+const landing = await fetch(`${base}/dashboard`, { redirect: "manual" })
+if (landing.status !== 302 || landing.headers.get("location") !== "/login?redirect=%2Fdashboard") {
+  fail(`GET /dashboard signed out: expected sign-in with the way back, got ${landing.status}`)
+}
+
 const status = await fetch(`${base}/status`)
 const html = await status.text()
 if (status.status !== 200) fail(`GET /status: ${status.status}`)
@@ -70,4 +90,6 @@ const health = await fetch(`${base}/api/health`)
 if (health.status !== 200) fail(`GET /api/health through the console: ${health.status}`)
 
 preview.kill()
-console.log("console:smoke: /status server-renders the database's answer, through the API binding")
+console.log(
+  "console:smoke: /status server-renders the database's answer, through the API binding; the sign-in pages render"
+)

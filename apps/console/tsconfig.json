@@ -1,7 +1,13 @@
 {
   /*
-   * One project for this app, as `apps/marketing`: `module: preserve` + `bundler`, because Vite bundles it and the
-   * generated `routeTree.gen.ts` writes extensionless imports NodeNext rejects.
+   * The host program: the routes and every screen they reach, as `apps/design/tsconfig.json` checks them (ADR-0026).
+   * `module: preserve` + `bundler`, because Vite bundles it and the generated `routeTree.gen.ts` writes extensionless
+   * imports NodeNext rejects.
+   *
+   * TypeScript checks an imported `.tsx` under the importing program's options, and the screens are reproduced code
+   * that compiles without `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`; so this program has them off,
+   * as the design reference's has. The console's own logic is held to both by `tsconfig.strict.json`, which reaches
+   * no screen.
    */
   "extends": "../../tsconfig.base.json",
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
@@ -15,6 +21,8 @@
     "module": "preserve",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["vite/client", "@cloudflare/workers-types", "node"]
   }

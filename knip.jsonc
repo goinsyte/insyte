@@ -49,7 +49,13 @@
        * exports helpers only one screen reads — and deleting an export to satisfy knip would be
        * editing a port. (The brand book's chapters need no entry: every export they have is read.)
        */
-      "ignore": ["src/app/**"],
+      // Graduated files (08 §3) are reported like any other.
+      "ignore": [
+        "src/app/**",
+        "!src/app/auth/login-screen.tsx",
+        "!src/app/onboarding/shared-steps.tsx",
+        "!src/app/lib/form-errors.ts",
+      ],
     },
     "apps/console": {
       // The Worker's entry is `main` in wrangler.jsonc; routes are discovered by TanStack Start's plugin and imported
