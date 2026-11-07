@@ -1,44 +1,60 @@
+import { ConfigProvider, Effect, Exit, Layer } from "effect"
+import { HttpClient, HttpClientResponse } from "effect/http"
 import { describe, expect, it } from "vitest"
-import { verifyTurnstile } from "../src/Turnstile.ts"
+import { Turnstile } from "../src/Turnstile.ts"
 
-const answering = (body: unknown, seen: Array<FormData> = [], status = 200): typeof fetch =>
-  ((_: RequestInfo | URL, init?: RequestInit) => {
-    seen.push(init?.body as FormData)
-    return Promise.resolve(new Response(JSON.stringify(body), { status }))
-  }) as typeof fetch
-
-describe("verifyTurnstile", () => {
-  it("sends the secret, the token and the visitor's IP, and passes on Cloudflare's success", async () => {
-    const seen: Array<FormData> = []
-    const result = await verifyTurnstile(
-      { secret: "s3cret", token: "tok", remoteIp: "203.0.113.9" },
-      answering({ success: true }, seen)
-    )
-    expect(result).toEqual({ success: true, errors: [] })
-    expect(seen[0]?.get("secret")).toBe("s3cret")
-    expect(seen[0]?.get("response")).toBe("tok")
-    expect(seen[0]?.get("remoteip")).toBe("203.0.113.9")
-  })
-
-  it("refuses what Cloudflare refuses, with its reasons", async () => {
-    expect(
-      await verifyTurnstile(
-        { secret: "s", token: "t" },
-        answering({ success: false, "error-codes": ["timeout-or-duplicate"] })
+/* The service against a fake Cloudflare: an `HttpClient` that answers from a function and records what it was sent. */
+const cloudflare = (answer: () => Response | Promise<Response>, sent: Array<URLSearchParams> = []) =>
+  Turnstile.layer.pipe(
+    Layer.provide(Layer.succeed(
+      HttpClient.HttpClient,
+      HttpClient.make((request) =>
+        Effect.promise(async () => {
+          sent.push(new URLSearchParams(new TextDecoder().decode((request.body as { body: Uint8Array }).body)))
+          return HttpClientResponse.fromWeb(request, await answer())
+        })
       )
+    )),
+    Layer.provide(ConfigProvider.layer(ConfigProvider.fromEnvRecord({ TURNSTILE_SECRET_KEY: "s3cret" })))
+  )
+
+const verify = (token: string, layer: ReturnType<typeof cloudflare>) =>
+  Effect.runPromiseExit(
+    Effect.flatMap(Effect.service(Turnstile), (t) => t.verify(token, "203.0.113.9")).pipe(
+      Effect.provide(layer)
     )
-      .toEqual({ success: false, errors: ["timeout-or-duplicate"] })
+  )
+
+describe("Turnstile", () => {
+  it("sends the secret, the token and the visitor's IP, and passes on Cloudflare's success", async () => {
+    const sent: Array<URLSearchParams> = []
+    const result = await verify("tok", cloudflare(() => Response.json({ success: true }), sent))
+    expect(result).toEqual(Exit.succeed({ success: true, errors: [] }))
+    expect(sent[0]?.get("secret")).toBe("s3cret")
+    expect(sent[0]?.get("response")).toBe("tok")
+    expect(sent[0]?.get("remoteip")).toBe("203.0.113.9")
   })
 
-  it("fails closed: no token, an error status, or no answer", async () => {
-    let called = false
-    const never = (() => {
-      called = true
-      return Promise.reject(new Error("offline"))
-    }) as typeof fetch
-    expect((await verifyTurnstile({ secret: "s", token: "" }, never)).success).toBe(false)
-    expect(called).toBe(false)
-    expect((await verifyTurnstile({ secret: "s", token: "t" }, answering({}, [], 500))).success).toBe(false)
-    expect((await verifyTurnstile({ secret: "s", token: "t" }, never)).success).toBe(false)
+  it("passes on Cloudflare's refusal, with its reasons", async () => {
+    const result = await verify(
+      "tok",
+      cloudflare(() => Response.json({ success: false, "error-codes": ["timeout-or-duplicate"] }))
+    )
+    expect(result).toEqual(Exit.succeed({ success: false, errors: ["timeout-or-duplicate"] }))
+  })
+
+  it("refuses a missing token without asking Cloudflare", async () => {
+    const sent: Array<URLSearchParams> = []
+    expect(await verify("", cloudflare(() => Response.json({ success: true }), sent))).toEqual(
+      Exit.succeed({ success: false, errors: ["missing-input-response"] })
+    )
+    expect(sent).toEqual([])
+  })
+
+  it("is unavailable when Cloudflare errors or answers something else", async () => {
+    for (const answer of [() => new Response("", { status: 500 }), () => new Response("not json")]) {
+      const result = await verify("tok", cloudflare(answer))
+      expect(Exit.isFailure(result) && JSON.stringify(result.cause)).toContain("TurnstileUnavailable")
+    }
   })
 })

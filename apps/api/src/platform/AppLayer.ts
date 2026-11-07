@@ -1,5 +1,10 @@
-import { Layer, Scheduler } from "effect"
-import { FetchHttpClient, HttpServer } from "effect/http"
+import type { Connect } from "@insyte/database/Connect"
+import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
+import { PwnedPasswords } from "@insyte/integrations-better-auth/PwnedPasswords"
+import { ResendMailer } from "@insyte/integrations-resend/ResendMailer"
+import type { Mailer } from "@insyte/modules/shared/domain/Mailer"
+import { Config, Effect, Layer, Scheduler } from "effect"
+import { FetchHttpClient, type HttpClient, HttpServer } from "effect/http"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
 import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
@@ -8,7 +13,8 @@ import { SystemRoutes } from "../transports/http/SystemRoutes.ts"
 import { AuthenticatedLive } from "../transports/rpc/AuthenticatedLive.ts"
 import { RpcContext, RpcRoutes } from "../transports/rpc/RpcRoutes.ts"
 import { WithDbLive } from "../transports/rpc/WithDbLive.ts"
-import { AppInfo, AuthSettings, ConfigLive } from "./Bindings.ts"
+import { AuthHooksLive } from "./AuthHooks.ts"
+import { AppInfo, BetaSettings, ConfigLive } from "./Bindings.ts"
 import { HumanCheck } from "./HumanCheck.ts"
 import { HyperdriveConnect } from "./Hyperdrive.ts"
 import { MailerCapture } from "./Mail.ts"
@@ -29,16 +35,37 @@ const Transports = Layer.mergeAll(SystemRoutes, AuthRoutes, DevRoutes, RpcRoutes
  */
 const SyncScheduler = Layer.succeed(Scheduler.Scheduler, new Scheduler.MixedScheduler("sync"))
 
+/** Where mail goes (02 §5.1): a table the dev route reads (local, tests, previews), or Resend where the stage says so. */
+const MailerLive = Layer.unwrap(
+  Effect.map(
+    Config.String("MAIL_ADAPTER").pipe(Config.withDefault("capture")),
+    (adapter): Layer.Layer<Mailer, Config.ConfigError, Connect | HttpClient.HttpClient> =>
+      adapter === "resend" ? ResendMailer : MailerCapture
+  )
+)
+
+/** The breached-password check asks HIBP from deployed stages only, so local runs and the worker tests stay offline. */
+const PwnedPasswordsLive = Layer.unwrap(
+  Effect.map(
+    Config.String("ENVIRONMENT"),
+    (environment): Layer.Layer<PwnedPasswords, never, HttpClient.HttpClient> =>
+      environment === "local" ? PwnedPasswords.layerOffline : PwnedPasswords.layer
+  )
+)
+
 export const AppLayer = Transports.pipe(
   Layer.provideMerge(RpcContext),
   Layer.provideMerge(WithDbLive),
   Layer.provideMerge(AuthenticatedLive),
-  // Read per request by the auth routes. The capture adapter until Resend arrives (MAIL_ADAPTER, 02 §5.1).
-  Layer.provideMerge(MailerCapture),
+  // better-auth, built per request by the auth routes and the session check, over the app's hooks.
+  Layer.provideMerge(BetterAuth.layer),
+  Layer.provideMerge(AuthHooksLive),
+  Layer.provideMerge(PwnedPasswordsLive),
+  Layer.provideMerge(MailerLive),
   // The edge guards' counters; the Durable Object binding is read per call.
   Layer.provideMerge(RateLimits.layer),
   Layer.provideMerge(HumanCheck.layer),
-  Layer.provideMerge(AuthSettings.layer),
+  Layer.provideMerge(BetaSettings.layer),
   // Read per request by the routes and the RPC middleware; building it opens no socket.
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),

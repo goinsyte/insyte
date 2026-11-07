@@ -1,8 +1,8 @@
 import { Db } from "@insyte/database/Db"
 import { UserId } from "@insyte/domain/Ids"
 import type { SessionUser } from "@insyte/domain/Session"
+import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
 import { Effect, Option, Schema } from "effect"
-import { requestAuth } from "./RequestAuth.ts"
 
 /*
  * The session cookie → the signed-in user, the one door every RPC and server render goes through (12 §5). Two checks:
@@ -14,7 +14,7 @@ import { requestAuth } from "./RequestAuth.ts"
 const decodeUserId = Schema.decodeUnknownOption(UserId)
 
 export const userFrom = Effect.fn("Sessions.userFrom")(function*(headers: Headers) {
-  const auth = yield* requestAuth
+  const auth = yield* (yield* BetterAuth).forRequest
   const found = yield* Effect.promise(() => auth.api.getSession({ headers })).pipe(
     Effect.orElseSucceed(() => null)
   )

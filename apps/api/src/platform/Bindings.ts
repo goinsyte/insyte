@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers"
-import { Config, ConfigProvider, Context, Effect, Layer, Option, Redacted } from "effect"
+import { Config, ConfigProvider, Context, Effect, Layer } from "effect"
 
 /*
  * The only file that reads `env` (04 §13). String vars and secrets become Effect `Config`; a binding (Hyperdrive, a
@@ -32,48 +32,23 @@ export class AppInfo extends Context.Service<AppInfo, {
 }
 
 /**
- * What better-auth needs from the environment (12 §4): the console's origin (cookies, links in mail, the CSRF check)
- * and the signing secret. Locally a fixed development secret stands in, so `wrangler dev` and the tests need no
- * `.dev.vars`; every deployed stage gets its own from its GitHub environment.
+ * Who may create an account while Insyte is invite-only (M2.2), beside `beta_allowlist`: the stage may turn the gate off
+ * (`BETA_GATE=off`) or admit whole domains (`BETA_ALLOWED_DOMAINS`, `example.com` off production for the tests).
+ * better-auth's own settings are its integration's to read (`BetterAuth`).
  */
-export class AuthSettings extends Context.Service<AuthSettings, {
-  readonly consoleOrigin: string
-  readonly secret: Redacted.Redacted
-  /** The breached-password check (M2.3) asks HIBP over the network: deployed stages only, so local runs stay offline. */
-  readonly checkBreachedPasswords: boolean
-  /** The beta gate (M2.2): `false` only where the stage turns it off (`BETA_GATE=off`). */
-  readonly betaGate: boolean
-  /** Domains every address of which is admitted on this stage, beside `beta_allowlist`: `example.com` off production. */
-  readonly betaDomains: ReadonlyArray<string>
-  /** Google sign-in, where the stage has both halves of its OAuth client (staging and production; not previews). */
-  readonly google: { readonly clientId: string; readonly clientSecret: Redacted.Redacted } | undefined
-}>()("api-worker/AuthSettings") {
+export class BetaSettings extends Context.Service<BetaSettings, {
+  readonly gate: boolean
+  readonly domains: ReadonlyArray<string>
+}>()("api-worker/BetaSettings") {
   static readonly layer = Layer.effect(
-    AuthSettings,
+    BetaSettings,
     Effect.gen(function*() {
-      const environment = yield* EnvironmentConfig
-      const secret = yield* Config.Redacted("BETTER_AUTH_SECRET").pipe(
-        environment === "local"
-          ? Config.withDefault(Redacted.make("local-development-secret-never-deployed-0123456789"))
-          : (config) => config
-      )
       return {
-        consoleOrigin: yield* Config.String("CONSOLE_ORIGIN"),
-        secret,
-        checkBreachedPasswords: environment !== "local",
-        betaGate: (yield* Config.String("BETA_GATE").pipe(Config.withDefault("on"))) !== "off",
-        betaDomains: (yield* Config.String("BETA_ALLOWED_DOMAINS").pipe(Config.withDefault("")))
+        gate: (yield* Config.String("BETA_GATE").pipe(Config.withDefault("on"))) !== "off",
+        domains: (yield* Config.String("BETA_ALLOWED_DOMAINS").pipe(Config.withDefault("")))
           .split(",")
           .map((domain) => domain.trim().toLowerCase())
-          .filter((domain) => domain.length > 0),
-        google: yield* Effect.map(
-          Config.all([
-            Config.String("GOOGLE_CLIENT_ID").pipe(Config.withDefault("")),
-            Config.Redacted("GOOGLE_CLIENT_SECRET").pipe(Config.option)
-          ]),
-          ([clientId, clientSecret]) =>
-            clientId !== "" && Option.isSome(clientSecret) ? { clientId, clientSecret: clientSecret.value } : undefined
-        )
+          .filter((domain) => domain.length > 0)
       }
     })
   )

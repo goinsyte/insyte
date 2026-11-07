@@ -35,6 +35,7 @@
         "@insyte/database": "workspace:*",
         "@insyte/domain": "workspace:*",
         "@insyte/integrations-better-auth": "workspace:*",
+        "@insyte/integrations-resend": "workspace:*",
         "@insyte/integrations-turnstile": "workspace:*",
         "@insyte/modules": "workspace:*",
         "effect": "catalog:",
@@ -164,14 +165,29 @@
       "name": "@insyte/integrations-better-auth",
       "version": "0.0.0",
       "dependencies": {
+        "@insyte/database": "workspace:*",
+        "@insyte/modules": "workspace:*",
         "better-auth": "catalog:",
+        "effect": "catalog:",
         "kysely": "catalog:",
         "zod": "catalog:",
+      },
+    },
+    "packages/integrations/resend": {
+      "name": "@insyte/integrations-resend",
+      "version": "0.0.0",
+      "dependencies": {
+        "@insyte/modules": "workspace:*",
+        "@insyte/tokens": "workspace:*",
+        "effect": "catalog:",
       },
     },
     "packages/integrations/turnstile": {
       "name": "@insyte/integrations-turnstile",
       "version": "0.0.0",
+      "dependencies": {
+        "effect": "catalog:",
+      },
     },
     "packages/modules": {
       "name": "@insyte/modules",
@@ -601,6 +617,8 @@
     "@insyte/infra": ["@insyte/infra@workspace:infra"],
 
     "@insyte/integrations-better-auth": ["@insyte/integrations-better-auth@workspace:packages/integrations/better-auth"],
+
+    "@insyte/integrations-resend": ["@insyte/integrations-resend@workspace:packages/integrations/resend"],
 
     "@insyte/integrations-turnstile": ["@insyte/integrations-turnstile@workspace:packages/integrations/turnstile"],
 

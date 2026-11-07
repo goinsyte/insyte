@@ -1,7 +1,13 @@
+import { Config, Context, Effect, Layer, Redacted, Schema } from "effect"
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
+
 /*
  * Cloudflare Turnstile, checked on the server (M2.2): the token the widget gave the browser goes to `siteverify` with
- * the widget's secret, and only a `success` answer counts. Unlike the breached-password check this one fails closed:
- * a check that cannot be made is a check not passed, and the visitor can simply try again.
+ * the widget's secret, and only a `success` answer counts.
+ *
+ * `verify` answers Cloudflare's verdict, or fails with `TurnstileUnavailable` when no verdict could be had (Cloudflare
+ * did not answer, or answered something else). The caller decides what an unavailable check means; the edge guards
+ * fail closed: a check that cannot be made is a check not passed, and the visitor can simply try again.
  *
  * Previews and local runs use Cloudflare's published test keys (`1x…AA` always passes), so a browser test can get a
  * token without solving anything; staging and production have their own widget (`infra/app.ts`).
@@ -15,28 +21,44 @@ export interface Verification {
   readonly errors: ReadonlyArray<string>
 }
 
-/** Whether a widget token is genuine, single-use and for this secret's widget. */
-export const verifyTurnstile = async (
-  input: { readonly secret: string; readonly token: string; readonly remoteIp?: string | undefined },
-  fetcher: typeof fetch = fetch,
-  timeoutMs = 3000
-): Promise<Verification> => {
-  if (input.token.length === 0 || input.token.length > 2048) {
-    return { success: false, errors: ["missing-input-response"] }
-  }
-  const form = new FormData()
-  form.append("secret", input.secret)
-  form.append("response", input.token)
-  if (input.remoteIp !== undefined) form.append("remoteip", input.remoteIp)
-  try {
-    const response = await fetcher(SITEVERIFY, { method: "POST", body: form, signal: AbortSignal.timeout(timeoutMs) })
-    if (!response.ok) return { success: false, errors: [`siteverify-${response.status}`] }
-    const body = await response.json() as { success?: unknown; "error-codes"?: unknown }
-    return {
-      success: body.success === true,
-      errors: Array.isArray(body["error-codes"]) ? body["error-codes"].map(String) : []
-    }
-  } catch (error) {
-    return { success: false, errors: [`siteverify-unreachable: ${String(error)}`] }
-  }
+export class TurnstileUnavailable extends Schema.TaggedError<TurnstileUnavailable>()("TurnstileUnavailable", {
+  reason: Schema.String
+}) {}
+
+const Answer = Schema.Struct({
+  success: Schema.Boolean,
+  "error-codes": Schema.optional(Schema.Array(Schema.String))
+})
+
+export class Turnstile extends Context.Service<Turnstile, {
+  readonly verify: (token: string, remoteIp: string | undefined) => Effect.Effect<Verification, TurnstileUnavailable>
+}>()("integrations/Turnstile") {
+  /** With the stage's widget secret, `TURNSTILE_SECRET_KEY`. */
+  static readonly layer = Layer.effect(
+    Turnstile,
+    Effect.gen(function*() {
+      const secret = yield* Config.Redacted("TURNSTILE_SECRET_KEY")
+      const client = yield* HttpClient.HttpClient
+      const verify = Effect.fn("Turnstile.verify")(function*(token: string, remoteIp: string | undefined) {
+        if (token.length === 0 || token.length > 2048) {
+          return { success: false, errors: ["missing-input-response"] } satisfies Verification
+        }
+        const request = HttpClientRequest.post(SITEVERIFY).pipe(
+          HttpClientRequest.bodyUrlParams({
+            secret: Redacted.value(secret),
+            response: token,
+            ...(remoteIp === undefined ? {} : { remoteip: remoteIp })
+          })
+        )
+        const answer = yield* client.execute(request).pipe(
+          Effect.flatMap(HttpClientResponse.filterStatusOk),
+          Effect.flatMap(HttpClientResponse.schemaBodyJson(Answer)),
+          Effect.timeout("3 seconds"),
+          Effect.mapError((error) => new TurnstileUnavailable({ reason: String(error) }))
+        )
+        return { success: answer.success, errors: answer["error-codes"] ?? [] } satisfies Verification
+      })
+      return { verify }
+    })
+  )
 }
