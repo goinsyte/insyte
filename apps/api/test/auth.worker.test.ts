@@ -1,5 +1,6 @@
+import { Exit } from "effect"
 import { describe, expect, it } from "vitest"
-import { call } from "./support.ts"
+import { call, sessionMe } from "./support.ts"
 
 /*
  * better-auth through the Worker (M2.1): sign up, the verification mail captured, verify, sign in, the session, sign
@@ -67,6 +68,21 @@ describe("better-auth on the API Worker", () => {
     cookie = cookiesOf(response)
   })
 
+  it("answers Session.me with the user, landing in onboarding before any workspace", async () => {
+    const exit = await sessionMe(cookie)
+    expect(Exit.isSuccess(exit) && exit.value).toMatchObject({
+      user: { email, emailVerified: true },
+      principals: [],
+      activePrincipal: null,
+      landing: "/onboarding"
+    })
+  })
+
+  it("refuses Session.me without a session", async () => {
+    const exit = await sessionMe()
+    expect(Exit.isFailure(exit) && JSON.stringify(exit.cause)).toContain("Unauthenticated")
+  })
+
   it("reads the session back, verified", async () => {
     const response = await call("http://api.test/api/auth/get-session", { headers: { cookie } })
     const session = await response.json() as {
@@ -101,6 +117,9 @@ describe("better-auth on the API Worker", () => {
     const token = cookie.split("; ").find((c) => c.startsWith("insyte.session="))!
     const after = await call("http://api.test/api/auth/get-session", { headers: { cookie: token } })
     expect(await after.json()).toBeNull()
+    // Our check reads the row: the old cookies, cache cookie included, are refused at once.
+    const replay = await sessionMe(cookie)
+    expect(Exit.isFailure(replay) && JSON.stringify(replay.cause)).toContain("Unauthenticated")
   })
 
   it("sends a reset mail, and a new password works once", async () => {

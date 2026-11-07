@@ -1,3 +1,4 @@
+import { SessionRpcs } from "./rpc/SessionRpcs.ts"
 import { SystemRpcs } from "./rpc/SystemRpcs.ts"
 
 /** Where the console calls every RPC. The client and the server name the same path. */
@@ -7,4 +8,4 @@ export const RPC_PATH = "/api/rpc/v1"
  * Every group the console calls, merged into the one the server mounts and the client is built from. A slice's group
  * joins with `.merge(…)` when it lands.
  */
-export const ConsoleRpcs = SystemRpcs
+export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs)
