@@ -28,10 +28,40 @@ const TEAM_SIZES = [
   { id: "large", label: "Meer dan 20", hint: "Meerdere winkels" }
 ] as const
 
-export function organizationStep({ data, patch, next }: {
+/** The workspace as a host founds it: country as its ISO code, team size as the server's band. */
+export interface NewWorkspace {
+  readonly name: string
+  readonly slug: string
+  readonly country: string
+  readonly teamSize: string
+}
+
+const COUNTRY_CODE: Record<(typeof COUNTRIES)[number], string> = {
+  Nederland: "NL",
+  "Verenigde Staten": "US",
+  "Verenigd Koninkrijk": "GB",
+  Duitsland: "DE",
+  Frankrijk: "FR",
+  Italië: "IT",
+  Spanje: "ES"
+}
+
+const TEAM_BAND: Record<(typeof TEAM_SIZES)[number]["id"], string> = {
+  solo: "1",
+  small: "2-5",
+  mid: "6-20",
+  large: "21+"
+}
+
+/**
+ * `onCreate` founds the workspace where the host has a server (the console: `Onboarding.advance`) and answers a sentence
+ * when it refused; without it, the reference's own call runs.
+ */
+export function organizationStep({ data, patch, next, onCreate }: {
   data: OnboardingData
   patch: (p: OnboardingData) => void
   next: () => void
+  onCreate?: ((workspace: NewWorkspace) => Promise<string | undefined>) | undefined
 }): StepDef {
   const d = data as Record<string, string | undefined>
   return {
@@ -41,6 +71,18 @@ export function organizationStep({ data, patch, next }: {
     subtitle: "Naam, huisstijl en land kun je altijd wijzigen in de instellingen.",
     canContinue: true,
     onPrimary: async () => {
+      if (onCreate !== undefined) {
+        const refused = await onCreate({
+          name: d.orgName ?? "",
+          slug: d.slug ?? "",
+          country: COUNTRY_CODE[(d.country as (typeof COUNTRIES)[number]) ?? "Nederland"] ?? "NL",
+          teamSize: TEAM_BAND[(d.teamSize as (typeof TEAM_SIZES)[number]["id"]) ?? "solo"] ?? "1"
+        })
+        // Thrown → the shell shows it inline beneath the fields.
+        if (refused !== undefined) throw new Error(refused)
+        next()
+        return
+      }
       const { data: org, error } = await authClient.organization.create({
         name: d.orgName ?? "",
         slug: d.slug ?? ""

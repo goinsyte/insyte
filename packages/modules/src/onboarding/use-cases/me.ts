@@ -10,7 +10,9 @@ import { factsOf, loadProgress, saveProgress, stateOf } from "./progress.ts"
 export const me = Effect.fn("Onboarding.me")(function*() {
   const user = yield* CurrentUser
   const row = yield* loadProgress()
-  const step = row.step === "account" || row.step === "verify" ? next(row.track, row.step, factsOf(user)) : row.step
+  const step = row.step === "account" || row.step === "verify"
+    ? next(row.track, row.step, factsOf(user, row))
+    : row.step
   if (step === row.step) return stateOf(row)
   const moved = { ...row, step }
   yield* saveProgress(moved)

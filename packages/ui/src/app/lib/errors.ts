@@ -36,6 +36,26 @@ const AUTH: Record<string, string> = {
   NOT_YET_AVAILABLE: "Dit deel van Insyte is nog niet beschikbaar."
 }
 
+/** A field the server refused, by its reason code (05 §2.4): the sentence under the field. */
+const FIELDS: Record<string, string> = {
+  "name.required": "Vul een naam voor je werkruimte in.",
+  "name.too_long": "Deze naam is te lang: maximaal 80 tekens.",
+  "slug.required": "Kies een URL voor je werkruimte.",
+  "slug.format": "Gebruik kleine letters, cijfers en streepjes, zonder streepje aan het begin of eind.",
+  "slug.taken": "Deze URL is al in gebruik. Kies een andere.",
+  "country.invalid": "Kies een land uit de lijst.",
+  "teamSize.invalid": "Kies een teamgrootte."
+}
+
+/** The sentence for the first refused field, in the order the form shows them. */
+export const fieldCopy = (fields: Record<string, string>): string => {
+  for (const field of ["name", "slug", "country", "teamSize", ...Object.keys(fields)]) {
+    const reason = fields[field]
+    if (reason !== undefined) return FIELDS[`${field}.${reason}`] ?? "Controleer de gegevens en probeer het opnieuw."
+  }
+  return "Controleer de gegevens en probeer het opnieuw."
+}
+
 /** How long to wait, as the sentence says it: "1 minuut", "15 minuten". Rounded up, so the wait is never short. */
 const minutes = (seconds: number) => {
   const n = Math.max(1, Math.ceil(seconds / 60))

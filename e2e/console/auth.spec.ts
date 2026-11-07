@@ -255,4 +255,13 @@ test("@onboarding a new admin reaches the organisation step, and every return re
   await signIn(elsewhere, email, password)
   await expect(elsewhere.getByRole("heading", { name: "Geef je werkruimte een naam." })).toBeVisible()
   await other.close()
+
+  // Founding: an empty name is refused in Dutch; a name and a free URL found the workspace, and a reload stays there.
+  await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
+  await expect(page.getByText("Vul een naam voor je werkruimte in.")).toBeVisible()
+  await page.getByLabel("Naam werkruimte").fill(`Allure ${Date.now().toString(36)}`)
+  await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Je werkruimte staat klaar." })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole("heading", { name: "Je werkruimte staat klaar." })).toBeVisible()
 })
