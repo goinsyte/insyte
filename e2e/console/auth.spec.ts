@@ -131,3 +131,13 @@ test("@auth a password from a known breach is refused at registration", async ({
   await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
   await expect(page.getByText("Dit wachtwoord komt voor in bekende datalekken. Kies een ander.")).toBeVisible()
 })
+
+test("@auth an address that is not invited is told Insyte is invite-only", async ({ page }) => {
+  await page.goto("/onboarding")
+  await page.getByLabel("Zakelijk e-mailadres").fill(`e2e-${Date.now().toString(36)}@example.org`)
+  await page.getByLabel("Volledige naam").fill("Eva Tester")
+  await page.getByLabel(/^Wachtwoord/).fill("een-lang-wachtwoord")
+  await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
+  await expect(page.getByText(/^Insyte is nog alleen op uitnodiging\./)).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Maak je account aan." })).toBeVisible()
+})

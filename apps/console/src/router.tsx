@@ -1,4 +1,5 @@
-// FIRST: the composition root, before any screen can be reached.
+// FIRST: the composition root, before any screen can be reached. Imported for what it installs, so unassigned.
+// oxlint-disable-next-line import/no-unassigned-import
 import "./install.ts"
 import { RegistryContext } from "@effect/atom-react"
 import { createRouter } from "@tanstack/react-router"

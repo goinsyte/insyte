@@ -10,6 +10,7 @@ import type { Taken } from "./RateLimiter.ts"
 
 export class RateLimits extends Context.Service<RateLimits, {
   readonly take: (key: string, bucket: string, limit: number, windowSeconds: number) => Effect.Effect<Taken>
+  readonly peek: (key: string, bucket: string, windowSeconds: number) => Effect.Effect<number>
   readonly lockedFor: (key: string) => Effect.Effect<{ readonly seconds: number; readonly failures: number }>
   readonly fail: (key: string, threshold: number, windowSeconds: number, baseSeconds: number) => Effect.Effect<number>
   readonly clear: (key: string) => Effect.Effect<void>
@@ -21,6 +22,8 @@ export class RateLimits extends Context.Service<RateLimits, {
         { ok: true, retryAfterSeconds: 0 },
         () => env.RATE_LIMITER.getByName(key).take(bucket, limit, windowSeconds)
       ),
+    peek: (key, bucket, windowSeconds) =>
+      call("peek", 0, () => env.RATE_LIMITER.getByName(key).peek(bucket, windowSeconds)),
     lockedFor: (key) =>
       call<{ seconds: number; failures: number }>(
         "lockedFor",

@@ -45,6 +45,12 @@ export class RateLimiter extends DurableObject {
     return { ok: true, retryAfterSeconds: 0 }
   }
 
+  /** How many attempts the current window of `bucket` holds, without counting one. */
+  async peek(bucket: string, windowSeconds: number): Promise<number> {
+    const window = await this.ctx.storage.get<Window>(`window:${bucket}`)
+    return window === undefined || Date.now() - window.start >= windowSeconds * 1000 ? 0 : window.count
+  }
+
   /** Seconds the address stays locked, and how many failures the current window holds. */
   async lockedFor(): Promise<{ readonly seconds: number; readonly failures: number }> {
     const ledger = (await this.ctx.storage.get<Ledger>("ledger")) ?? NO_LEDGER

@@ -9,6 +9,7 @@ import { AuthenticatedLive } from "../transports/rpc/AuthenticatedLive.ts"
 import { RpcContext, RpcRoutes } from "../transports/rpc/RpcRoutes.ts"
 import { WithDbLive } from "../transports/rpc/WithDbLive.ts"
 import { AppInfo, AuthSettings, ConfigLive } from "./Bindings.ts"
+import { HumanCheck } from "./HumanCheck.ts"
 import { HyperdriveConnect } from "./Hyperdrive.ts"
 import { MailerCapture } from "./Mail.ts"
 import { ObservabilityLive } from "./Observability.ts"
@@ -36,6 +37,7 @@ export const AppLayer = Transports.pipe(
   Layer.provideMerge(MailerCapture),
   // The edge guards' counters; the Durable Object binding is read per call.
   Layer.provideMerge(RateLimits.layer),
+  Layer.provideMerge(HumanCheck.layer),
   Layer.provideMerge(AuthSettings.layer),
   // Read per request by the routes and the RPC middleware; building it opens no socket.
   Layer.provideMerge(HyperdriveConnect),

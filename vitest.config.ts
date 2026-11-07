@@ -12,6 +12,8 @@ export default defineConfig({
     projects: [
       // The API Worker, inside workerd. Its own config: the Cloudflare plugin belongs to that project only.
       "apps/api/vitest.config.ts",
+      // The same Worker with a Turnstile secret: the human check's refusals, offline.
+      "apps/api/vitest.turnstile.config.ts",
       {
         // The gate scripts' rules, as pure functions with a planted violation each.
         test: {

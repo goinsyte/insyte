@@ -14,12 +14,14 @@ const start = createStartHandler(defaultStreamHandler)
 const SECURITY_HEADERS: Record<string, string> = {
   "content-security-policy": [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'",
+    // Cloudflare Turnstile: its script, its iframe and its calls (M2.2).
+    "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
+    "frame-src https://challenges.cloudflare.com",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
     // Sentry's EU ingest, for browser errors and spans (17 §4).
-    "connect-src 'self' https://*.ingest.de.sentry.io",
+    "connect-src 'self' https://*.ingest.de.sentry.io https://challenges.cloudflare.com",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'"

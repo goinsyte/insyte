@@ -25,6 +25,8 @@ export interface AuthConfig {
   readonly secret: string
   /** Must not reject: a failed send is logged by the caller, never surfaced as a 500. */
   readonly sendMail: (mail: AuthMail) => Promise<void>
+  /** Whether an address may create an account while Insyte is invite-only (M2.2). Absent: everyone may. */
+  readonly admits?: ((email: string) => Promise<boolean>) | undefined
   /** Whether a new password appears in a known breach (`Breached.ts`). Absent: no check (local and the worker tests). */
   readonly isBreached?: ((password: string) => Promise<boolean>) | undefined
 }
@@ -90,6 +92,22 @@ export const authOptions = (config: AuthConfig, database: BetterAuthOptions["dat
     // Ours: per IP and per email, in front of these routes (M2.3). better-auth's keys by IP and path only.
     rateLimit: { enabled: false },
     ...(config.isBreached === undefined ? {} : { hooks: { before: breachedPasswordGuard(config.isBreached) } }),
+    // The beta gate, where every account is born (password now, Google in step 1.5): refused before the row exists.
+    ...(config.admits === undefined ? {} : {
+      databaseHooks: {
+        user: {
+          create: {
+            before: async (user: { email: string }) => {
+              if (!(await config.admits!(user.email))) {
+                // 400, not 403: sign-up turns a 403 from here into its generic duplicate-address success, which would
+                // tell the visitor their account exists.
+                throw new APIError("BAD_REQUEST", { code: "BETA_CLOSED", message: "Insyte is invite-only for now." })
+              }
+            }
+          }
+        }
+      }
+    }),
     user: { fields: COLUMNS.user },
     account: { fields: COLUMNS.account },
     verification: { fields: COLUMNS.verification, storeIdentifier: "hashed" },

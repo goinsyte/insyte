@@ -19,6 +19,7 @@ import { FormError } from "../common/form-error"
 import { authClient } from "../lib/auth-client"
 import { applyServerError, serverFormMessage } from "../lib/form-errors"
 import { GoogleButton, OAuthDivider } from "../onboarding/oauth-buttons"
+import { createHumanCheck, HumanCheck } from "./human-check"
 
 const Route = getRouteApi("/login")
 
@@ -28,6 +29,9 @@ export function LoginPage() {
   const dest = redirect ?? "/dashboard"
   const [show, setShow] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
+  // The human check joins the form once the server asks for it (a warm address or IP); each try spends its token.
+  const [humanAsked, setHumanAsked] = useState(false)
+  const [human] = useState(createHumanCheck)
 
   const form = useForm({
     defaultValues: { email: "", password: "" },
@@ -39,10 +43,16 @@ export function LoginPage() {
       })
     },
     onSubmit: async ({ value, formApi }) => {
-      const { error } = await authClient.signIn.email({
-        email: value.email,
-        password: value.password
-      })
+      const attemptSignIn = (turnstileToken: string | undefined) =>
+        authClient.signIn.email({ email: value.email, password: value.password, turnstileToken })
+      let { error } = await attemptSignIn(humanAsked ? await human.token() : undefined)
+      if (humanAsked) human.spent()
+      // Asked for the first time: show the check, wait for its token, and send once more, without a second click.
+      if (error?.code === "TURNSTILE_REQUIRED" && !humanAsked) {
+        setHumanAsked(true)
+        ;({ error } = await attemptSignIn(await human.token()))
+        human.spent()
+      }
       if (error) {
         applyServerError(
           formApi,
@@ -160,6 +170,8 @@ export function LoginPage() {
               )}
             </form.Field>
 
+            {humanAsked ? <HumanCheck controller={human} /> : null}
+
             <form.Subscribe selector={(s) => s.errorMap.onServer}>
               {(onServer) => <FormError message={serverFormMessage(onServer)} />}
             </form.Subscribe>
@@ -220,6 +232,7 @@ function ResetPasswordDialog({
   const [email, setEmail] = useState("")
   const [state, setState] = useState<"form" | "sending" | "sent">("form")
   const [error, setError] = useState<string | null>(null)
+  const [human] = useState(createHumanCheck)
 
   // Each opening starts fresh, from whatever is already in the sign-in email field.
   // biome-ignore lint/correctness/useExhaustiveDependencies: refill only when the dialog opens.
@@ -240,8 +253,10 @@ function ResetPasswordDialog({
     // The answer is the same whether or not the address has an account, so "sent" says nothing about which.
     const { error: failed } = await authClient.requestPasswordReset({
       email: email.trim(),
-      redirectTo: appHref("/reset-password")
+      redirectTo: appHref("/reset-password"),
+      turnstileToken: await human.token()
     })
+    human.spent()
     if (failed) {
       setError(failed.message ?? "De resetlink kon niet worden verstuurd. Probeer het opnieuw.")
       setState("form")
@@ -305,6 +320,7 @@ function ResetPasswordDialog({
                 />
                 <FieldError errors={[error ? { message: error } : undefined]} />
               </Field>
+              <HumanCheck controller={human} />
               <DialogFooter>
                 <button
                   type="button"

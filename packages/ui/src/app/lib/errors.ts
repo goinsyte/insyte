@@ -19,6 +19,8 @@ const AUTH: Record<string, string> = {
   EMAIL_ALREADY_VERIFIED: "Je e-mailadres is al bevestigd. Je kunt inloggen.",
   PASSWORD_BREACHED: "Dit wachtwoord komt voor in bekende datalekken. Kies een ander.",
   RATE_LIMITED: "Te veel pogingen. Wacht even en probeer het opnieuw.",
+  TURNSTILE_REQUIRED: "Bevestig even dat je een mens bent en probeer het opnieuw.",
+  BETA_CLOSED: "Insyte is nog alleen op uitnodiging. Laat je e-mailadres achter, dan laten we het je weten.",
   NOT_YET_AVAILABLE: "Dit deel van Insyte is nog niet beschikbaar."
 }
 
