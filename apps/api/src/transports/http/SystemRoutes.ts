@@ -56,7 +56,13 @@ const PublicConfig = HttpRouter.add(
   Effect.gen(function*() {
     const turnstileSiteKey = yield* Config.String("TURNSTILE_SITE_KEY").pipe(Config.withDefault(""))
     const sentryDsn = yield* Config.String("SENTRY_DSN").pipe(Config.withDefault(""))
-    return HttpServerResponse.jsonUnsafe({ turnstileSiteKey, sentryDsn, signInProviders: [], flags: {} })
+    const google = (yield* Config.String("GOOGLE_CLIENT_ID").pipe(Config.withDefault(""))) !== ""
+    return HttpServerResponse.jsonUnsafe({
+      turnstileSiteKey,
+      sentryDsn,
+      signInProviders: google ? ["password", "google"] : ["password"],
+      flags: {}
+    })
   })
 )
 

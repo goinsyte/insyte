@@ -25,6 +25,13 @@ const AUTH: Record<string, string> = {
   INVALID_TWO_FACTOR_COOKIE: "Je inlogpoging is verlopen. Log opnieuw in.",
   TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE: "Te veel foute codes. Log opnieuw in.",
   ACCOUNT_TEMPORARILY_LOCKED: "Te veel foute codes. Je account is een kwartier geblokkeerd.",
+  // Google's round trip, as better-auth names its failures on the way back (`?error=` on the sign-in screen).
+  access_denied: "Je hebt het inloggen met Google afgebroken.",
+  email_not_verified: "Dit Google-account heeft geen bevestigd e-mailadres.",
+  account_already_linked_to_different_user: "Dit Google-account hoort al bij een ander Insyte-account.",
+  unable_to_link_account: "Dit Google-account kon niet aan je account worden gekoppeld.",
+  oauth_provider_not_found: "Inloggen met Google is hier niet beschikbaar. Log in met je e-mailadres.",
+  PROVIDER_NOT_FOUND: "Inloggen met Google is hier niet beschikbaar. Log in met je e-mailadres.",
   BETA_CLOSED: "Insyte is nog alleen op uitnodiging. Laat je e-mailadres achter, dan laten we het je weten.",
   NOT_YET_AVAILABLE: "Dit deel van Insyte is nog niet beschikbaar."
 }

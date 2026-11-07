@@ -23,6 +23,8 @@ const uiModules = [
       [...readFileSync(file, "utf8").matchAll(/from\s+"(@insyte\/ui\/app\/[^"]+)"/g)].map((m) => m[1]!)
     )
   )
+  // A fresh array, so sorting it in place changes nothing else (`toSorted` is past this project's `lib`).
+  // oxlint-disable-next-line unicorn/no-array-sort
 ].sort()
 
 describe("the screens the console mounts", () => {

@@ -23,6 +23,9 @@ export const requestAuth = Effect.gen(function*() {
       run(db.routing((sql) => sql.withoutTransforms().unsafe<object>(text, [...parameters]))),
     baseURL: settings.consoleOrigin,
     secret: Redacted.value(settings.secret),
+    google: settings.google === undefined
+      ? undefined
+      : { clientId: settings.google.clientId, clientSecret: Redacted.value(settings.google.clientSecret) },
     // A lookup that fails refuses: the gate stays shut rather than open when the database does not answer.
     admits: (email) =>
       run(

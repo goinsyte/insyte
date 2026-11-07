@@ -208,3 +208,13 @@ test("@auth an account with two-factor on is asked for the code after the passwo
   await page.getByRole("button", { name: "Bevestigen" }).click()
   await expect(page.getByRole("heading", { name: "Aan welke kant van de bestelling sta jij?" })).toBeVisible()
 })
+
+test("@auth back from Google with a refusal, the sign-in screen says why", async ({ page }) => {
+  await page.goto("/login?error=BETA_CLOSED")
+  await expect(page.getByText(/^Insyte is nog alleen op uitnodiging\./)).toBeVisible()
+  await page.goto("/login?error=access_denied")
+  await expect(page.getByText("Je hebt het inloggen met Google afgebroken.")).toBeVisible()
+  // Not a code: dropped, and the form shows nothing.
+  await page.goto("/login?error=%3Cscript%3E")
+  await expect(page.getByRole("alert")).toHaveCount(0)
+})

@@ -43,7 +43,10 @@ const SIGN_IN_FINISHES = new Set([
   "/sign-in/email",
   "/verify-email",
   "/two-factor/verify-totp",
-  "/two-factor/verify-backup-code"
+  "/two-factor/verify-backup-code",
+  // Google's return, under its route pattern and as called.
+  "/callback/:id",
+  "/callback/google"
 ])
 
 const emailIn = (body: unknown) =>

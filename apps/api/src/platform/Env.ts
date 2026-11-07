@@ -22,6 +22,10 @@ declare global {
       readonly TURNSTILE_SITE_KEY?: string
       /** A secret: verifies Turnstile tokens. Absent locally, where nothing asks for Turnstile (`HumanCheck.ts`). */
       readonly TURNSTILE_SECRET_KEY?: string
+      /** Google's OAuth client for this stage (not a secret: it is in every sign-in URL). Absent on previews. */
+      readonly GOOGLE_CLIENT_ID?: string
+      /** A secret: Google's OAuth client secret. */
+      readonly GOOGLE_CLIENT_SECRET?: string
       /** `off` admits every address; anything else, or absent, keeps the beta gate shut (M2.2). */
       readonly BETA_GATE?: string
       /** Comma-separated domains admitted on this stage beside `beta_allowlist`. */

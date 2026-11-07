@@ -1,7 +1,7 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
 import * as Neon from "@alchemy.run/neon"
 import * as Alchemy from "alchemy"
-import { Config, Effect, Layer, Redacted } from "effect"
+import { Config, Effect, Layer, Option, Redacted } from "effect"
 import { SENTRY_LOGS, SENTRY_TRACES } from "./shared.ts"
 
 /*
@@ -91,6 +91,16 @@ export default Alchemy.Stack(
       })
       : undefined
 
+    /*
+     * Google sign-in (M2.5), on staging and production once their GitHub environment has the stage's OAuth client: the
+     * id is a variable (public), the secret a secret. Previews never: Google cannot list a redirect URI per PR.
+     */
+    const googleClientId = yield* Config.String("GOOGLE_CLIENT_ID").pipe(Config.withDefault(""))
+    const googleClientSecret = yield* Config.Redacted("GOOGLE_CLIENT_SECRET").pipe(Config.option)
+    const google = environment !== "preview" && googleClientId !== "" && Option.isSome(googleClientSecret)
+      ? { GOOGLE_CLIENT_ID: googleClientId, GOOGLE_CLIENT_SECRET: googleClientSecret.value }
+      : {}
+
     const api = yield* Cloudflare.Worker("Api", {
       name: `insyte-api-${stage}`,
       main: "../apps/api/src/Main.ts",
@@ -121,7 +131,8 @@ export default Alchemy.Stack(
         TURNSTILE_SITE_KEY: widget?.sitekey ?? "1x00000000000000000000AA",
         TURNSTILE_SECRET_KEY: widget?.secret ?? Redacted.make("1x0000000000000000000000000000000AA"),
         // Invite-only (M2.2): beside `beta_allowlist`, the reserved test domain is admitted off production, for the tests.
-        BETA_ALLOWED_DOMAINS: environment === "production" ? "" : "example.com"
+        BETA_ALLOWED_DOMAINS: environment === "production" ? "" : "example.com",
+        ...google
       }
     })
 
