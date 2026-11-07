@@ -89,6 +89,21 @@ test("@auth register, verify, sign out and in, reset the password", async ({ pag
   await expect(page.getByText("E-mailadres of wachtwoord klopt niet.")).toBeVisible()
   await signIn(page, email, "nog-een-lang-wachtwoord")
   await expect(page.getByRole("heading", { name: "Aan welke kant van de bestelling sta jij?" })).toBeVisible()
+
+  // The account's log holds what just happened to it (M2.6).
+  const { events } = await (await request.get(`/api/__dev/auth-events?email=${encodeURIComponent(email)}`)).json() as {
+    events: Array<{ kind: string }>
+  }
+  expect(events.map((e) => e.kind)).toEqual(
+    expect.arrayContaining([
+      "sign_up",
+      "sign_in",
+      "sign_in_failed",
+      "sign_out",
+      "password_reset_requested",
+      "password_changed"
+    ])
+  )
 })
 
 test("@auth signing in before verifying says why", async ({ page }) => {
