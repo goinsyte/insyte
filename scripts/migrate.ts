@@ -1,8 +1,9 @@
 /*
  * Applies the migrations (M1.1). As `insyte_owner`, never as the app's role.
  *
- *   bun run db:migrate --local            the compose database
- *   bun run db:migrate --env staging      DATABASE_URL_OWNER from the environment (CI, per GitHub environment)
+ *   bun run db:migrate --local                      the compose database
+ *   bun run db:migrate --env staging                DATABASE_URL_OWNER from the environment (CI, per GitHub environment)
+ *   bun run db:migrate --env preview --host <host>  a preview's Neon branch, as insyte_owner with INSYTE_OWNER_DB_PASSWORD
  *
  * Prints the host it is about to change, refuses production outside CI, and afterwards checks that every key in the
  * manifest is recorded.
@@ -29,9 +30,15 @@ if (environment === "production" && process.env["CI"] !== "true") {
   console.error("Production is migrated by CI only (backend · migrate production), never from a laptop.")
   process.exit(1)
 }
-const url = local ? LOCAL_OWNER_URL : process.env["DATABASE_URL_OWNER"]
+const host = arg("--host")
+const ownerPassword = process.env["INSYTE_OWNER_DB_PASSWORD"]
+const url = local
+  ? LOCAL_OWNER_URL
+  : host !== undefined && ownerPassword !== undefined
+  ? `postgresql://insyte_owner:${encodeURIComponent(ownerPassword)}@${host}/insyte?sslmode=require`
+  : process.env["DATABASE_URL_OWNER"]
 if (url === undefined || url === "") {
-  console.error("DATABASE_URL_OWNER is not set.")
+  console.error("Set DATABASE_URL_OWNER, or pass --host with INSYTE_OWNER_DB_PASSWORD set.")
   process.exit(1)
 }
 console.log(`Migrating ${environment} on ${new URL(url).host}`)

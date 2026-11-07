@@ -1,0 +1,85 @@
+import * as Cloudflare from "@alchemy.run/cloudflare"
+import * as Neon from "@alchemy.run/neon"
+import * as Alchemy from "alchemy"
+import { Config, Effect, Layer } from "effect"
+
+/*
+ * The per-stage stack (14 §3): `pr-<n>` for a pull request's preview, later `staging` and `production`. Everything a
+ * stage owns lives here, so `alchemy destroy --stage pr-<n>` removes exactly that preview and nothing shared. Our
+ * Workers stay plain modules: this file names their entries and bindings, and app code never imports alchemy.
+ *
+ * Step 0 deploys what the walking skeleton needs: a Neon branch per preview, Hyperdrive to it as insyte_app, the API
+ * Worker behind it and the console in front. Queues, R2, KV, Durable Objects and Workflows join with the step that
+ * first uses them.
+ */
+
+const COMPATIBILITY_DATE = "2026-10-26"
+
+const Database = Effect.gen(function*() {
+  const { stage } = yield* Alchemy.Stack
+  const projectId = yield* Config.String("NEON_PROJECT_ID")
+  // A preview gets its own branch of the migrated `main`, which expires after a week even if teardown never runs.
+  const branch = yield* Neon.Branch("Db", {
+    project: { projectId },
+    name: stage,
+    parentBranch: { name: "main" },
+    expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString()
+  })
+  const hyperdrive = yield* Cloudflare.Hyperdrive.Connection("Hd", {
+    origin: {
+      scheme: "postgres",
+      host: branch.origin.host,
+      port: 5432,
+      database: "insyte",
+      user: "insyte_app",
+      password: yield* Config.Redacted("INSYTE_APP_DB_PASSWORD")
+    },
+    // A read after a write must see the write.
+    caching: { disabled: true }
+  })
+  return { branch, hyperdrive }
+})
+
+export default Alchemy.Stack(
+  "insyte",
+  // Neon's provider uses the HTTP client Cloudflare's provides, so they are composed in order, not side by side.
+  { providers: Neon.providers().pipe(Layer.provideMerge(Cloudflare.providers())), state: Cloudflare.state() },
+  Effect.gen(function*() {
+    const { stage } = yield* Alchemy.Stack
+    const environment = stage.startsWith("pr-") ? "preview" : stage
+    const { branch, hyperdrive } = yield* Database
+
+    const api = yield* Cloudflare.Worker("Api", {
+      name: `insyte-api-${stage}`,
+      main: "../apps/api/src/Main.ts",
+      compatibility: { date: COMPATIBILITY_DATE, flags: ["nodejs_compat", "enable_request_signal"] },
+      placement: { region: "aws:eu-central-1" },
+      // Reached only through the console's service binding, never on a public hostname of its own.
+      workersDev: false,
+      observability: { enabled: true },
+      env: {
+        HYPERDRIVE: hyperdrive,
+        ENVIRONMENT: environment,
+        VERSION: yield* Config.String("GITHUB_SHA").pipe(Config.withDefault("dev")),
+        LOG_LEVEL: environment === "preview" ? "Debug" : "Info",
+        OTEL_SERVICE_NAME: "insyte-api",
+        // Cloudflare's always-passes test key until each environment has its widget (infra/shared.ts).
+        TURNSTILE_SITE_KEY: "1x00000000000000000000AA"
+      }
+    })
+
+    const console = yield* Cloudflare.Worker("Console", {
+      name: `insyte-console-${stage}`,
+      // TanStack Start's build output, uploaded as built: `bun run --filter @insyte/console build` runs first.
+      main: "../apps/console/dist/server/index.js",
+      bundle: false,
+      assets: { directory: "../apps/console/dist/client" },
+      compatibility: { date: COMPATIBILITY_DATE, flags: ["nodejs_compat"] },
+      placement: { region: "aws:eu-central-1" },
+      observability: { enabled: true },
+      env: { API: api, ENVIRONMENT: environment }
+    })
+
+    return { console: console.url.as<string>(), api: api.workerName, branch: branch.branchId }
+  })
+)

@@ -1,0 +1,62 @@
+# The backend's deployed environments (03 §2; 14 §6), through alchemy (infra/app.ts).
+#
+#   pull request (same repo)  -> build the console, deploy stage pr-<n> (Neon branch, Hyperdrive, API, console),
+#                                migrate that branch, smoke the console
+#
+# The design reference keeps its own pipeline in ci.yml. Staging and production stages join this file next.
+name: backend
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  WORKERS_SUBDOMAIN: ishak-73d.workers.dev
+
+jobs:
+  preview:
+    name: backend · preview
+    # Fork PRs get no secrets, and their code should not reach the account.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: preview
+      url: https://insyte-console-pr-${{ github.event.pull_request.number }}.${{ env.WORKERS_SUBDOMAIN }}/status
+    # alchemy has no state locking: one deploy per stage at a time, never cancelled midway.
+    concurrency:
+      group: alchemy-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+      INSYTE_APP_DB_PASSWORD: ${{ secrets.INSYTE_APP_DB_PASSWORD }}
+      GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
+      STAGE: pr-${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @insyte/console build
+      - run: bunx alchemy provider check-env infra/app.ts
+      # Provisions the account's state store the first time, adopts it after.
+      - run: bunx alchemy state bootstrap --config infra/app.ts --no-input
+      - run: bunx alchemy deploy infra/app.ts --stage "$STAGE" --yes --no-input
+      - name: migrate the preview's branch
+        run: bun run db:migrate --env preview --host "$(bun scripts/neon-branch-host.ts "$STAGE")"
+        env:
+          INSYTE_OWNER_DB_PASSWORD: ${{ secrets.INSYTE_OWNER_DB_PASSWORD }}
+      - name: smoke the preview
+        run: |
+          url="https://insyte-console-$STAGE.$WORKERS_SUBDOMAIN/status"
+          for i in $(seq 1 20); do
+            if curl -fsS "$url" | grep -q 'data-testid="database"><span[^>]*>ok<'; then echo "$url: database ok"; exit 0; fi
+            sleep 6
+          done
+          echo "$url never said the database is ok"; curl -sS "$url" | head -c 2000; exit 1
