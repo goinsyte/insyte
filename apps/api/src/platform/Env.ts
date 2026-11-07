@@ -1,3 +1,5 @@
+import type { RateLimiter } from "./RateLimiter.ts"
+
 /*
  * What `env` holds (02 §5.1). Merged into `Cloudflare.Env`, which types `env` from `cloudflare:workers`. Bindings join
  * with the step that first uses them, with the name infra gives them.
@@ -7,6 +9,8 @@ declare global {
     interface Env {
       /** Postgres through Hyperdrive, as `insyte_app`. Caching off: a read after a write must see the write. */
       readonly HYPERDRIVE: Hyperdrive
+      /** Sign-in, sign-up and mail limits per IP and per address (`RateLimiter`, M2.3). */
+      readonly RATE_LIMITER: DurableObjectNamespace<RateLimiter>
       readonly ENVIRONMENT: "local" | "preview" | "staging" | "production"
       /** The console's origin: better-auth's baseURL, cookies and links in mail (18 §2). */
       readonly CONSOLE_ORIGIN: string

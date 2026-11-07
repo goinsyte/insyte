@@ -29,6 +29,14 @@ export default defineConfig({
         }
       },
       {
+        // The integrations' pure parts (the breached-password lookup, with a fake `fetch`). `node`.
+        test: {
+          name: "integrations",
+          include: ["packages/integrations/*/test/**/*.test.ts"],
+          environment: "node"
+        }
+      },
+      {
         // The shared values: ids, money, the permission catalogue. Pure, so `node`.
         test: {
           name: "domain",

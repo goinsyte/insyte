@@ -1,4 +1,5 @@
 import { betterAuth, type BetterAuthOptions } from "better-auth"
+import { APIError, createAuthMiddleware } from "better-auth/api"
 import { type Execute, executeDialect } from "./Dialect.ts"
 import { typeId } from "./Ids.ts"
 
@@ -24,7 +25,29 @@ export interface AuthConfig {
   readonly secret: string
   /** Must not reject: a failed send is logged by the caller, never surfaced as a 500. */
   readonly sendMail: (mail: AuthMail) => Promise<void>
+  /** Whether a new password appears in a known breach (`Breached.ts`). Absent: no check (local and the worker tests). */
+  readonly isBreached?: ((password: string) => Promise<boolean>) | undefined
 }
+
+/** Where a new password arrives, and the body field it arrives in: sign-up, reset and change-password (M2.3). */
+const NEW_PASSWORD: Record<string, "password" | "newPassword"> = {
+  "/sign-up/email": "password",
+  "/reset-password": "newPassword",
+  "/change-password": "newPassword"
+}
+
+/** Refuses a new password that appears in a known breach, before better-auth stores anything. */
+const breachedPasswordGuard = (isBreached: (password: string) => Promise<boolean>) =>
+  createAuthMiddleware(async (ctx) => {
+    const field = NEW_PASSWORD[ctx.path]
+    const password = field === undefined ? undefined : (ctx.body as Record<string, unknown> | undefined)?.[field]
+    if (typeof password === "string" && await isBreached(password)) {
+      throw new APIError("BAD_REQUEST", {
+        code: "PASSWORD_BREACHED",
+        message: "This password appears in known data breaches. Choose another."
+      })
+    }
+  })
 
 /** Prefix per better-auth model, so its ids read like ours in logs and joins. */
 const PREFIX: Record<string, string> = { user: "usr", session: "ses", account: "acc", verification: "ver" }
@@ -66,6 +89,7 @@ export const authOptions = (config: AuthConfig, database: BetterAuthOptions["dat
     telemetry: { enabled: false },
     // Ours: per IP and per email, in front of these routes (M2.3). better-auth's keys by IP and path only.
     rateLimit: { enabled: false },
+    ...(config.isBreached === undefined ? {} : { hooks: { before: breachedPasswordGuard(config.isBreached) } }),
     user: { fields: COLUMNS.user },
     account: { fields: COLUMNS.account },
     verification: { fields: COLUMNS.verification, storeIdentifier: "hashed" },

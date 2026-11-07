@@ -12,6 +12,7 @@ import { AppInfo, AuthSettings, ConfigLive } from "./Bindings.ts"
 import { HyperdriveConnect } from "./Hyperdrive.ts"
 import { MailerCapture } from "./Mail.ts"
 import { ObservabilityLive } from "./Observability.ts"
+import { RateLimits } from "./RateLimits.ts"
 
 /*
  * The composition root (16 §5): every implementation is chosen here, and the layer is built once per isolate. Nothing
@@ -33,6 +34,8 @@ export const AppLayer = Transports.pipe(
   Layer.provideMerge(AuthenticatedLive),
   // Read per request by the auth routes. The capture adapter until Resend arrives (MAIL_ADAPTER, 02 §5.1).
   Layer.provideMerge(MailerCapture),
+  // The edge guards' counters; the Durable Object binding is read per call.
+  Layer.provideMerge(RateLimits.layer),
   Layer.provideMerge(AuthSettings.layer),
   // Read per request by the routes and the RPC middleware; building it opens no socket.
   Layer.provideMerge(HyperdriveConnect),

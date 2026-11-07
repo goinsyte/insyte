@@ -261,9 +261,10 @@ function ResetPasswordDialog({
                   <Mail className="size-4" strokeWidth={1.75} />
                 </span>
                 <DialogTitle>Check je inbox</DialogTitle>
+                {/* Worded so it holds whether or not the address has an account: the dialog never says which (M2.3). */}
                 <DialogDescription>
-                  We hebben een resetlink gestuurd naar{" "}
-                  <span className="font-medium text-ink">{email.trim()}</span>. De link is 30 minuten geldig.
+                  Als <span className="font-medium text-ink">{email.trim()}</span>{" "}
+                  bij ons bekend is, ontvang je een resetlink. De link is 30 minuten geldig.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
