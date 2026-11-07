@@ -3,9 +3,8 @@ import { useState } from "react"
 import { firstAnalysisSeed } from "../../data-source"
 import { Check, Loader } from "../../icons"
 import { ME } from "../automations/workflow-store"
-import { Field, SelectField, TextField } from "../common/form-dialog"
+import { Field } from "../common/form-dialog"
 import { useCountUp } from "../hooks/use-count-up"
-import { authClient } from "../lib/auth-client"
 import { persistStep } from "../lib/onboarding-api"
 import { cn } from "../lib/utils"
 import { BrandLogo } from "../marketplace/brand-logos"
@@ -20,6 +19,7 @@ import {
   proposedLevels
 } from "./first-analysis-steps"
 import type { StepDef } from "./onboarding-shell"
+import { organizationStep } from "./organization-step"
 import { SelectionGroup, SelectionTile } from "./selection-tile"
 import type { OnboardingData } from "./use-onboarding-state"
 
@@ -35,23 +35,6 @@ function normalizeShop(input?: string): string | null {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(handle)) return null
   return `${handle}.myshopify.com`
 }
-
-const COUNTRIES = [
-  "Nederland",
-  "Verenigde Staten",
-  "Verenigd Koninkrijk",
-  "Duitsland",
-  "Frankrijk",
-  "Italië",
-  "Spanje"
-] as const
-
-const TEAM_SIZES = [
-  { id: "solo", label: "Alleen ik", hint: "Solo-ondernemer" },
-  { id: "small", label: "2 tot 5", hint: "Klein team" },
-  { id: "mid", label: "6 tot 20", hint: "Groeiend team" },
-  { id: "large", label: "Meer dan 20", hint: "Meerdere winkels" }
-] as const
 
 type Plan = {
   id: "starter" | "growth" | "scale"
@@ -98,87 +81,7 @@ export function adminSteps(
   const shopConnected = data.shopConnected === true
 
   return [
-    {
-      id: "organization",
-      title: "Geef je werkruimte een naam.",
-      busyLabel: "Werkruimte wordt aangemaakt",
-      subtitle: "Naam, huisstijl en land kun je altijd wijzigen in de instellingen.",
-      canContinue: true,
-      onPrimary: async () => {
-        const { data: org, error } = await authClient.organization.create({
-          name: d.orgName ?? "",
-          slug: d.slug ?? ""
-        })
-        if (error) {
-          // Thrown → the shell shows it inline beneath the fields.
-          throw new Error(error.message ?? "Je werkruimte kon niet worden aangemaakt.")
-        }
-        patch({ organizationId: org?.id })
-        persistStep("organization", {
-          organizationId: org?.id,
-          country: d.country,
-          teamSize: d.teamSize
-        })
-        next()
-      },
-      content: (
-        <>
-          <Field label="Naam werkruimte">
-            <TextField
-              value={(d.orgName as string) ?? ""}
-              onChange={(v) => {
-                patch({
-                  orgName: v,
-                  slug: v
-                    .toLowerCase()
-                    .replace(/[^a-z0-9]+/g, "-")
-                    .replace(/(^-|-$)/g, "")
-                })
-              }}
-              placeholder="Allure Co."
-            />
-          </Field>
-          <Field label="URL werkruimte">
-            <div className="field flex h-11 items-center overflow-hidden rounded-lg focus-within:outline-2 focus-within:outline-arc">
-              <span className="pl-3.5 text-base text-ink-3">
-                goinsyte.com/
-              </span>
-              <input
-                value={(d.slug as string) ?? ""}
-                onChange={(e) => patch({ slug: e.target.value })}
-                className="h-full min-w-0 flex-1 bg-transparent pr-3.5 text-base text-ink outline-none placeholder:text-ink-3"
-                placeholder="allure"
-              />
-            </div>
-          </Field>
-          <Field label="Land">
-            <SelectField
-              value={(d.country as (typeof COUNTRIES)[number]) ?? "Nederland"}
-              onChange={(v) => patch({ country: v })}
-              options={COUNTRIES}
-            />
-          </Field>
-          <Field label="Teamgrootte">
-            <SelectionGroup
-              mode="single"
-              value={(d.teamSize as string) ?? "solo"}
-              onChange={(v) => patch({ teamSize: v as string })}
-              columns={2}
-              label="Teamgrootte"
-            >
-              {TEAM_SIZES.map((t) => (
-                <SelectionTile
-                  key={t.id}
-                  id={t.id}
-                  label={t.label}
-                  hint={t.hint}
-                />
-              ))}
-            </SelectionGroup>
-          </Field>
-        </>
-      )
-    },
+    organizationStep({ data, patch, next }),
     {
       id: "plan",
       title: "Kies een abonnement om te proberen.",

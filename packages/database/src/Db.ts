@@ -1,4 +1,5 @@
 import { CurrentPrincipal, CurrentWorkspace, type Principal } from "@insyte/domain/Principal"
+import { CurrentUser } from "@insyte/domain/Session"
 import { Context, Effect, Layer } from "effect"
 import { SqlClient, type SqlError } from "effect/sql"
 
@@ -15,6 +16,11 @@ type InTransaction<Extra> = <A, E, R>(
 export interface DbService {
   /** As the request's principal. */
   readonly scoped: InTransaction<CurrentPrincipal>
+  /**
+   * As the signed-in person, before any workspace: only `app.user_id` is set, so the user-scoped tables
+   * (`onboarding_progress`, `auth_events`) show their own rows and every tenant table shows nothing.
+   */
+  readonly forUser: InTransaction<CurrentUser>
   /** Background work that resolved its workspace (a queue, a Workflow step, a cron fan-out). Runs as `system`. */
   readonly scopedFor: InTransaction<CurrentWorkspace>
   /** Routing lookups only, through security-definer functions: shop domain → workspace, key prefix → key. */
@@ -62,6 +68,13 @@ export const makeDb = (connection: Effect.Effect<SqlClient.SqlClient, SqlError.S
           partnerId: p.partnerId,
           userId: p.userId
         }, f)),
+    forUser: (f) =>
+      Effect.flatMap(
+        Effect.service(CurrentUser),
+        (user) =>
+          Effect.flatMap(connection, (sql) =>
+            sql.withTransaction(Effect.andThen(sql`select set_config('app.user_id', ${user.id}, true)`, f(sql))))
+      ),
     scopedFor: (f) =>
       Effect.flatMap(
         Effect.service(CurrentWorkspace),

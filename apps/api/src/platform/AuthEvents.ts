@@ -1,6 +1,6 @@
 import { Db } from "@insyte/database/Db"
+import { mintId } from "@insyte/domain/Ids"
 import type { AuthEvent } from "@insyte/integrations-better-auth/Events"
-import { typeId } from "@insyte/integrations-better-auth/Ids"
 import { Effect } from "effect"
 
 /*
@@ -16,6 +16,6 @@ export const recordAuthEvent = Effect.fn("AuthEvents.record")(function*(event: A
   const userAgent = headers?.get("user-agent")?.slice(0, 512) ?? null
   yield* db.routing((sql) =>
     sql`insert into auth_events (id, user_id, kind, ip, user_agent, country)
-        values (${typeId("aev")}, ${event.userId}, ${event.kind}, ${ip}, ${userAgent}, ${country})`
+        values (${mintId("aev")}, ${event.userId}, ${event.kind}, ${ip}, ${userAgent}, ${country})`
   )
 })

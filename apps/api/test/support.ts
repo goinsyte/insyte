@@ -38,3 +38,17 @@ export const sessionMe = (cookie?: string) =>
     const client = yield* RpcClient.make(ConsoleRpcs)
     return yield* client["Session.me"](undefined, cookie === undefined ? {} : { headers: { cookie } })
   }).pipe(Effect.scoped, Effect.provide(RpcProtocol), Effect.runPromiseExit)
+
+/** `Onboarding.me` and `Onboarding.advance` over RPC, as the console calls them, signed in with `cookie`. */
+export const onboarding = {
+  me: (cookie?: string) =>
+    Effect.gen(function*() {
+      const client = yield* RpcClient.make(ConsoleRpcs)
+      return yield* client["Onboarding.me"](undefined, cookie === undefined ? {} : { headers: { cookie } })
+    }).pipe(Effect.scoped, Effect.provide(RpcProtocol), Effect.runPromiseExit),
+  advance: (input: Parameters<RpcClient.FromGroup<typeof ConsoleRpcs>["Onboarding.advance"]>[0], cookie: string) =>
+    Effect.gen(function*() {
+      const client = yield* RpcClient.make(ConsoleRpcs)
+      return yield* client["Onboarding.advance"](input, { headers: { cookie } })
+    }).pipe(Effect.scoped, Effect.provide(RpcProtocol), Effect.runPromiseExit)
+}

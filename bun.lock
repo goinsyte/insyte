@@ -55,6 +55,7 @@
         "@effect/atom-react": "catalog:",
         "@insyte/api": "workspace:*",
         "@insyte/domain": "workspace:*",
+        "@insyte/modules": "workspace:*",
         "@insyte/ui": "workspace:*",
         "@sentry/react": "catalog:",
         "@tanstack/react-router": "catalog:",
@@ -136,6 +137,7 @@
       "dependencies": {
         "@insyte/database": "workspace:*",
         "@insyte/domain": "workspace:*",
+        "@insyte/modules": "workspace:*",
         "effect": "catalog:",
       },
     },
@@ -166,6 +168,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@insyte/database": "workspace:*",
+        "@insyte/domain": "workspace:*",
         "@insyte/modules": "workspace:*",
         "better-auth": "catalog:",
         "effect": "catalog:",
@@ -194,6 +197,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@insyte/database": "workspace:*",
+        "@insyte/domain": "workspace:*",
         "effect": "catalog:",
       },
     },

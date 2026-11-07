@@ -218,3 +218,33 @@ test("@auth back from Google with a refusal, the sign-in screen says why", async
   await page.goto("/login?error=%3Cscript%3E")
   await expect(page.getByRole("alert")).toHaveCount(0)
 })
+
+test("@onboarding a new admin reaches the organisation step, and every return resumes there", async ({ browser, page, request }) => {
+  const email = `e2e-${Date.now().toString(36)}-onboarding@example.com`
+  const password = "een-lang-wachtwoord"
+  await page.goto("/onboarding")
+  await page.getByLabel("Zakelijk e-mailadres").fill(email)
+  await page.getByLabel("Volledige naam").fill("Eva Tester")
+  await page.getByLabel(/^Wachtwoord/).fill(password)
+  await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Check je inbox." })).toBeVisible()
+  await page.goto(await mailLink(request, email, "auth.verify"))
+  await expect(page.getByRole("heading", { name: "Aan welke kant van de bestelling sta jij?" })).toBeVisible()
+
+  await page.getByText("Mijn winkel inrichten").click()
+  await expect(page.getByRole("heading", { name: "Geef je werkruimte een naam." })).toBeVisible()
+
+  // A reload, and a bare /onboarding, open on the step the server holds.
+  await page.reload()
+  await expect(page.getByRole("heading", { name: "Geef je werkruimte een naam." })).toBeVisible()
+  await page.goto("/onboarding")
+  await expect(page.getByRole("heading", { name: "Geef je werkruimte een naam." })).toBeVisible()
+
+  // Another browser: sign in, and the landing is the same step.
+  const other = await browser.newContext()
+  const elsewhere = await other.newPage()
+  await elsewhere.goto("/login")
+  await signIn(elsewhere, email, password)
+  await expect(elsewhere.getByRole("heading", { name: "Geef je werkruimte een naam." })).toBeVisible()
+  await other.close()
+})
