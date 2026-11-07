@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { call } from "./support.ts"
 
 /*
- * Turnstile in the edge guards (M2.2), on a Worker that has a secret (`vitest.turnstile.config.ts`): sign-up and a
+ * Turnstile in the edge guards (M2.2), on a Worker that has a secret (`vitest.configured.config.ts`): sign-up and a
  * reset request always ask for it; sign-in asks once the address is warm, after three failures.
  */
 

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers"
-import { Config, ConfigProvider, Context, Effect, Layer, Redacted } from "effect"
+import { Config, ConfigProvider, Context, Effect, Layer, Option, Redacted } from "effect"
 
 /*
  * The only file that reads `env` (04 §13). String vars and secrets become Effect `Config`; a binding (Hyperdrive, a
@@ -45,6 +45,8 @@ export class AuthSettings extends Context.Service<AuthSettings, {
   readonly betaGate: boolean
   /** Domains every address of which is admitted on this stage, beside `beta_allowlist`: `example.com` off production. */
   readonly betaDomains: ReadonlyArray<string>
+  /** Google sign-in, where the stage has both halves of its OAuth client (staging and production; not previews). */
+  readonly google: { readonly clientId: string; readonly clientSecret: Redacted.Redacted } | undefined
 }>()("api-worker/AuthSettings") {
   static readonly layer = Layer.effect(
     AuthSettings,
@@ -63,7 +65,15 @@ export class AuthSettings extends Context.Service<AuthSettings, {
         betaDomains: (yield* Config.String("BETA_ALLOWED_DOMAINS").pipe(Config.withDefault("")))
           .split(",")
           .map((domain) => domain.trim().toLowerCase())
-          .filter((domain) => domain.length > 0)
+          .filter((domain) => domain.length > 0),
+        google: yield* Effect.map(
+          Config.all([
+            Config.String("GOOGLE_CLIENT_ID").pipe(Config.withDefault("")),
+            Config.Redacted("GOOGLE_CLIENT_SECRET").pipe(Config.option)
+          ]),
+          ([clientId, clientSecret]) =>
+            clientId !== "" && Option.isSome(clientSecret) ? { clientId, clientSecret: clientSecret.value } : undefined
+        )
       }
     })
   )

@@ -23,7 +23,7 @@ const uiModules = [
       [...readFileSync(file, "utf8").matchAll(/from\s+"(@insyte\/ui\/app\/[^"]+)"/g)].map((m) => m[1]!)
     )
   )
-].sort()
+].toSorted()
 
 describe("the screens the console mounts", () => {
   it("are found in its routes", () => {

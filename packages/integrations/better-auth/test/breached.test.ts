@@ -31,8 +31,8 @@ describe("isBreached", () => {
     const failing = (() => Promise.reject(new Error("offline"))) as typeof fetch
     const refusing = (() => Promise.resolve(new Response("", { status: 503 }))) as typeof fetch
     const hanging =
-      ((_: RequestInfo | URL, init?: RequestInit) =>
-        new Promise((_, reject) =>
+      ((_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise((_resolve, reject) =>
           init?.signal?.addEventListener("abort", () => reject(new Error("aborted")))
         )) as typeof fetch
     expect(await isBreached("password123", failing)).toBe(false)

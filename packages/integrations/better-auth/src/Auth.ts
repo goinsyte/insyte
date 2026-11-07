@@ -33,6 +33,8 @@ export interface AuthConfig {
   readonly isBreached?: ((password: string) => Promise<boolean>) | undefined
   /** Stores what happened to an account (`Events.ts`, M2.6). Must not reject. Absent: nothing is recorded. */
   readonly recordEvent?: RecordEvent | undefined
+  /** "Doorgaan met Google" (M2.5). Absent: password only (previews: Google cannot list a hostname per PR). */
+  readonly google?: { readonly clientId: string; readonly clientSecret: string } | undefined
 }
 
 /** Where a new password arrives, and the body field it arrives in: sign-up, reset and change-password (M2.3). */
@@ -124,6 +126,18 @@ export const authOptions = (config: AuthConfig, database: BetterAuthOptions["dat
     basePath: "/api/auth",
     secret: config.secret,
     trustedOrigins: [config.baseURL],
+    // Every OAuth error lands on our sign-in screen with `?error=<code>`, which says it in Dutch; never better-auth's page.
+    onAPIError: { errorURL: `${config.baseURL}/login` },
+    ...(config.google === undefined ? {} : {
+      socialProviders: {
+        google: {
+          clientId: config.google.clientId,
+          clientSecret: config.google.clientSecret,
+          // A person with several Google accounts picks one, rather than being signed in as whichever is current.
+          prompt: "select_account" as const
+        }
+      }
+    }),
     database,
     telemetry: { enabled: false },
     // Ours: per IP and per email, in front of these routes (M2.3). better-auth's keys by IP and path only.
@@ -156,7 +170,13 @@ export const authOptions = (config: AuthConfig, database: BetterAuthOptions["dat
       }
     },
     user: { fields: COLUMNS.user },
-    account: { fields: COLUMNS.account },
+    account: {
+      fields: COLUMNS.account,
+      // Google's tokens are kept encrypted; Insyte asks Google for nothing after sign-in (12 §4).
+      encryptOAuthTokens: true,
+      // Google vouches for the address, so a Google sign-in with an existing password account's address joins it.
+      accountLinking: { enabled: true, trustedProviders: ["google"] }
+    },
     verification: { fields: COLUMNS.verification, storeIdentifier: "hashed" },
     emailAndPassword: {
       enabled: true,

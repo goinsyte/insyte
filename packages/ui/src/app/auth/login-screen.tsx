@@ -17,6 +17,7 @@ import { Eye, EyeOff, Loader, Mail } from "../../icons"
 import { ContactEmail } from "../../lib/contact-email"
 import { FormError } from "../common/form-error"
 import { authClient } from "../lib/auth-client"
+import { authErrorCopy } from "../lib/errors"
 import { applyServerError, serverFormMessage } from "../lib/form-errors"
 import { GoogleButton, OAuthDivider } from "../onboarding/oauth-buttons"
 import { createHumanCheck, HumanCheck } from "./human-check"
@@ -25,7 +26,11 @@ const Route = getRouteApi("/login")
 
 export function LoginPage() {
   const navigate = useNavigate()
-  const { redirect } = Route.useSearch()
+  const { redirect, error: returnedWith } = Route.useSearch()
+  // Back from Google with a failure (`?error=<code>`): said in the form's message slot until a sign-in says otherwise.
+  const oauthError = returnedWith === undefined
+    ? undefined
+    : authErrorCopy(returnedWith, "Inloggen met Google is niet gelukt. Probeer het opnieuw.")
   const dest = redirect ?? "/dashboard"
   const [show, setShow] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
@@ -178,7 +183,7 @@ export function LoginPage() {
             {humanAsked ? <HumanCheck controller={human} /> : null}
 
             <form.Subscribe selector={(s) => s.errorMap.onServer}>
-              {(onServer) => <FormError message={serverFormMessage(onServer)} />}
+              {(onServer) => <FormError message={serverFormMessage(onServer) ?? oauthError} />}
             </form.Subscribe>
 
             <form.Subscribe
