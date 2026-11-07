@@ -7,9 +7,9 @@
  * and still merged without anyone re-reading the foundations.
  *
  *   bun scripts/scope.ts                 staged files (pre-commit)
- *   bun scripts/scope.ts --base main     everything on this branch since main (pre-push, CI)
- *   ... --enforce                        apply the walls whatever the branch is called (CI, for a pull
- *                                        request opened by anyone outside the maintainers)
+ *   bun scripts/scope.ts --base origin/staging   everything on this branch since staging (pre-push, CI)
+ *   ... --enforce                                apply the walls whatever the branch is called (CI, for a
+ *                                                pull request opened by anyone outside the maintainers)
  *
  * On any branch that is not `playground/*` it passes without looking. CI passes `--branch`, since a
  * pull request is checked out detached.

@@ -1,5 +1,11 @@
 # Agents
 
+## Branches
+
+Never commit to `main` or `staging`. Branch from `staging` as `<type>/<topic>` (`feat/`, `fix/`, `ci/`, `docs/`,
+`chore/`, `refactor/`, `test/`, `perf/`; `hotfix/` from `main` only for production) and open the pull request into
+`staging`. Details: `docs/branches.md`.
+
 ## Playground branches
 
 If the current branch is `playground/*` (`git rev-parse --abbrev-ref HEAD`), or this checkout is the playground fork

@@ -1,9 +1,11 @@
 # The pipeline: gate every change, then deploy the design reference through three environments.
 #
-#   pull request  -> preflight + build + journey -> preview     (pr-<n>-insyte-design-staging)
-#   push to main  -> preflight + build + journey -> staging     (insyte-design-staging)
-#                                                -> production  (insyte-design), after approval
+#   pull request     -> preflight + build + journey -> preview     (pr-<n>-insyte-design-staging)
+#   push to staging  -> preflight + build + journey -> staging     (insyte-design-staging)
+#   push to main     -> preflight + build + journey -> production  (insyte-design)
 #
+# Work merges into `staging`; `main` only takes a release pull request from `staging` or a hotfix
+# (docs/branches.md), so a push to `main` is always a deliberate release.
 # Every deployed hostname sits behind Cloudflare Access, so a preview is as private as production.
 # Pinned to ubuntu-24.04: `ubuntu-latest` moved to 26.04, where Playwright cannot install Chromium yet.
 # What each environment needs on GitHub and in Cloudflare is in docs/ci.md.
@@ -12,7 +14,7 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, staging]
   workflow_dispatch:
 
 concurrency:
@@ -104,7 +106,7 @@ jobs:
         with:
           name: design-dist
           path: apps/design/dist
-      # A version of the staging Worker under a stable alias; staging itself keeps serving main.
+      # A version of the staging Worker under a stable alias; staging itself keeps serving the staging branch.
       - run: bunx wrangler versions upload --env staging --preview-alias "pr-$PR" --message "PR $PR at $SHA"
         working-directory: apps/design
         env:
@@ -115,7 +117,7 @@ jobs:
 
   staging:
     name: deploy · staging
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
     needs: [preflight, build, journey]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -135,7 +137,7 @@ jobs:
         with:
           name: design-dist
           path: apps/design/dist
-      - run: bunx wrangler deploy --env staging --message "main $GITHUB_SHA"
+      - run: bunx wrangler deploy --env staging --message "staging $GITHUB_SHA"
         working-directory: apps/design
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -143,10 +145,10 @@ jobs:
 
   production:
     name: deploy · production
-    # The same build staging got. The `production` environment's required reviewers are the gate:
-    # the job waits on GitHub until someone approves it.
+    # The free plan has no required reviewers on a private repo, so the gate is the merge into `main`:
+    # a release from `staging` (already deployed and checked there) or a hotfix, merged by a maintainer.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [staging]
+    needs: [preflight, build, journey]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     concurrency:
