@@ -19,6 +19,9 @@
     ".": {
       "entry": [".claude/hooks/*.ts"],
     },
+    "packages/domain": {
+      "entry": ["test/**/*.ts"],
+    },
     // Tests are entry points, not dead code. `build.ts` is found through the package's own scripts.
     "packages/tokens": {
       "entry": ["test/**/*.ts"],

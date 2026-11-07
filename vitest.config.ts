@@ -11,6 +11,14 @@ export default defineConfig({
   test: {
     projects: [
       {
+        // The shared values: ids, money, the permission catalogue. Pure, so `node`.
+        test: {
+          name: "domain",
+          include: ["packages/domain/test/**/*.test.ts"],
+          environment: "node"
+        }
+      },
+      {
         /*
          * The design system's values. Pure functions over colour, so `node` is enough.
          *

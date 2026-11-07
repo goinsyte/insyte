@@ -63,6 +63,24 @@
         "wrangler": "catalog:",
       },
     },
+    "packages/database": {
+      "name": "@insyte/database",
+      "version": "0.0.0",
+      "dependencies": {
+        "@insyte/domain": "workspace:*",
+        "effect": "catalog:",
+      },
+    },
+    "packages/domain": {
+      "name": "@insyte/domain",
+      "version": "0.0.0",
+      "dependencies": {
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "vitest": "catalog:",
+      },
+    },
     "packages/tokens": {
       "name": "@insyte/tokens",
       "version": "0.0.0",
@@ -80,6 +98,7 @@
         "@dnd-kit/utilities": "catalog:",
         "@fontsource-variable/archivo": "catalog:",
         "@fontsource-variable/inter": "catalog:",
+        "@insyte/domain": "workspace:*",
         "@insyte/tokens": "workspace:*",
         "@tanstack/react-form": "catalog:",
         "@tanstack/react-router": "catalog:",
@@ -393,7 +412,11 @@
 
     "@img/sharp-win32-x64": ["@img/sharp-win32-x64@0.35.5", "", { "os": "win32", "cpu": "x64" }, "sha512-x76eH0vEiHlcMQu8Y8IenntaACtddpT6W0wmXtWrnKcnKI7ME5DdgqhAD6SEWOEl1v2zDvkZDhFA9KnURwpfqg=="],
 
+    "@insyte/database": ["@insyte/database@workspace:packages/database"],
+
     "@insyte/design": ["@insyte/design@workspace:apps/design"],
+
+    "@insyte/domain": ["@insyte/domain@workspace:packages/domain"],
 
     "@insyte/marketing": ["@insyte/marketing@workspace:apps/marketing"],
 
