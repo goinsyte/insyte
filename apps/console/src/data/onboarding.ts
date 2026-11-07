@@ -1,5 +1,5 @@
 import { Unauthenticated } from "@insyte/domain/Errors"
-import { OnboardingState } from "@insyte/modules/onboarding/domain/Onboarding"
+import { NotCurrentStep, OnboardingState, StartChecklist } from "@insyte/modules/onboarding/domain/Onboarding"
 import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
@@ -27,3 +27,23 @@ export const onboardingMeAtom = Atom.serializable(
 )
 
 export const advanceOnboardingAtom = ConsoleClient.mutation("Onboarding.advance")
+
+/**
+ * Start's first-run checklist (`Onboarding.start`), primed by `/dashboard`'s loader like `onboardingMeAtom`; ticking a
+ * task answers the new checklist and refreshes it through `START`.
+ */
+export const START = ["onboarding.start"] as const
+
+export const startAtom = Atom.serializable(
+  ConsoleClient.query("Onboarding.start", undefined, { reactivityKeys: START }),
+  {
+    key: "onboarding.start",
+    schema: AsyncResult.Schema({
+      success: StartChecklist,
+      error: Schema.Union([NotCurrentStep, Unauthenticated, RpcClientError.RpcClientError])
+    }),
+    skipInitialRun: true
+  }
+)
+
+export const completeTaskAtom = ConsoleClient.mutation("Onboarding.completeTask")

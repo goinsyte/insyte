@@ -1,13 +1,15 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
+import type { AdvanceInput } from "@insyte/modules/onboarding/domain/Onboarding"
 import { authClient } from "@insyte/ui/app/lib/auth-client"
 import { fieldCopy } from "@insyte/ui/app/lib/errors"
+import { planStep, readyStep, storeStep } from "@insyte/ui/app/onboarding/admin-tail-steps"
 import { search } from "@insyte/ui/app/onboarding/onboarding-search"
 import { OnboardingShell, type StepDef } from "@insyte/ui/app/onboarding/onboarding-shell"
 import { type NewWorkspace, organizationStep } from "@insyte/ui/app/onboarding/organization-step"
 import { sharedHeadSteps } from "@insyte/ui/app/onboarding/shared-steps"
 import { useOnboardingState } from "@insyte/ui/app/onboarding/use-onboarding-state"
-import { createFileRoute } from "@tanstack/react-router"
-import { Cause, Effect, Exit } from "effect"
+import { createFileRoute, redirect } from "@tanstack/react-router"
+import { Cause, Effect, Exit, Option } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { useEffect } from "react"
 import { advanceOnboardingAtom, ONBOARDING, onboardingMeAtom } from "../../data/onboarding.ts"
@@ -18,8 +20,9 @@ import { advanceOnboardingAtom, ONBOARDING, onboardingMeAtom } from "../../data/
  * a role is `Onboarding.advance`. Signed out (account, verify) the steps run locally, and the verification link lands
  * on `?step=2`, signed in.
  *
- * Built so far: the shared head and the admin track's organisation step, whose workspace arrives in step 3. The rest of
- * the admin track and the partner tracks say they are not available yet (11 §7.3).
+ * Built so far: the shared head and the admin track up to ready (organisation founds the workspace, plan starts the
+ * trial, the store is left for Start until M6), which lands on Start. Sync, analysis and offline follow a connected
+ * store (M6, M15); the partner tracks say they are not available yet (11 §7.3). A finished person is sent to Start.
  */
 export const Route = createFileRoute("/onboarding/")({
   validateSearch: search,
@@ -27,18 +30,19 @@ export const Route = createFileRoute("/onboarding/")({
   loader: async ({ context }) => {
     // Mounted so the value survives until the registry is dehydrated into the document.
     context.registry.mount(onboardingMeAtom)
-    await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, onboardingMeAtom)))
+    const me = await Effect.runPromise(Effect.option(AtomRegistry.getResult(context.registry, onboardingMeAtom)))
+    if (Option.isSome(me) && me.value.completed) throw redirect({ to: "/dashboard" })
   },
   component: ConsoleOnboarding
 })
 
-const WORKSPACE_READY: StepDef = {
-  id: "workspace-ready",
-  title: "Je werkruimte staat klaar.",
-  subtitle: "De volgende stappen, je abonnement en je winkel, zijn nog niet beschikbaar. Je kunt dit venster sluiten.",
+/** Sync, analysis and offline follow a connected store (M6, M15); skipping the store never reaches them. */
+const AFTER_A_STORE = (["sync", "analysis", "offline"] as const).map((id): StepDef => ({
+  id,
+  title: "Deze stap volgt zodra je winkel is gekoppeld.",
   hidePrimary: true,
   content: null
-}
+}))
 
 const NOT_YET: StepDef = {
   id: "next",
@@ -88,10 +92,45 @@ function ConsoleOnboarding() {
     if (failure._tag === "Some" && failure.value._tag === "Invalid") return fieldCopy(failure.value.fields)
     return "Je werkruimte kon niet worden aangemaakt. Probeer het opnieuw."
   }
+  // The later steps move to where the server says: skipping the store skips the steps a store would need.
+  const finish = async (payload: Exclude<AdvanceInput, { step: "organization" }>) => {
+    const exit = await advance({ payload, reactivityKeys: ONBOARDING })
+    if (Exit.isFailure(exit)) throw new Error("Dit kon niet worden opgeslagen. Probeer het opnieuw.")
+    state.setStepIndex(exit.value.index)
+    return exit.value
+  }
+  const { data, patch, next } = state
   const tail = state.persona === null
     ? []
     : state.persona === "admin"
-    ? [organizationStep({ data: state.data, patch: state.patch, next: state.next, onCreate: create }), WORKSPACE_READY]
+    ? [
+      organizationStep({ data, patch, next, onCreate: create }),
+      planStep({
+        data,
+        patch,
+        next,
+        onStart: async (plan, cycle) => {
+          await finish({ step: "plan", plan, cycle })
+        }
+      }),
+      storeStep({
+        data,
+        patch,
+        next,
+        onSkip: async () => {
+          await finish({ step: "store", choice: "later" })
+        }
+      }),
+      ...AFTER_A_STORE,
+      readyStep({
+        data,
+        finish: () => undefined,
+        onReady: async () => {
+          await finish({ step: "ready" })
+          await navigate({ to: "/dashboard" })
+        }
+      })
+    ]
     : [NOT_YET]
 
   return (
