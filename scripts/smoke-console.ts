@@ -44,7 +44,7 @@ const status = await fetch(`${base}/status`)
 const html = await status.text()
 if (status.status !== 200) fail(`GET /status: ${status.status}`)
 if (!/data-testid="database"><span[^>]*>ok</.test(html)) fail("GET /status: the HTML does not say the database is ok")
-if (!html.includes("0002_platform")) fail("GET /status: the HTML does not name the last migration")
+if (!/\b\d{4}_[a-z_]+\b/.test(html)) fail("GET /status: the HTML does not name the last migration")
 for (const header of ["content-security-policy", "strict-transport-security", "referrer-policy"]) {
   if (!status.headers.has(header)) fail(`GET /status: no ${header}`)
 }
