@@ -8,6 +8,6 @@ import { call, health } from "./support.ts"
  */
 it("serves RPC when the isolate's first request was a 404", async () => {
   expect((await call("http://api.test/nope")).status).toBe(404)
-  expect(await health()).toMatchObject({ version: "dev" })
-  expect(await health()).toMatchObject({ version: "dev" })
+  expect(await health()).toMatchObject({ database: "ok" })
+  expect(await health()).toMatchObject({ database: "ok" })
 })

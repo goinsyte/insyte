@@ -1,0 +1,14 @@
+{
+  "name": "@insyte/modules",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@insyte/database": "workspace:*",
+    "effect": "catalog:"
+  }
+}

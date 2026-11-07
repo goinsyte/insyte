@@ -13,6 +13,22 @@ export default defineConfig({
       // The API Worker, inside workerd. Its own config: the Cloudflare plugin belongs to that project only.
       "apps/api/vitest.config.ts",
       {
+        // The gate scripts' rules, as pure functions with a planted violation each.
+        test: {
+          name: "scripts",
+          include: ["scripts/test/**/*.test.ts"],
+          environment: "node"
+        }
+      },
+      {
+        // Against the compose database as insyte_app: run `bun run db:up && bun run db:migrate --local` first.
+        test: {
+          name: "db",
+          include: ["packages/database/test/**/*.test.ts"],
+          environment: "node"
+        }
+      },
+      {
         // The shared values: ids, money, the permission catalogue. Pure, so `node`.
         test: {
           name: "domain",

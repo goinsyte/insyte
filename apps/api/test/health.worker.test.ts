@@ -2,10 +2,20 @@ import { describe, expect, it } from "vitest"
 import { call, health } from "./support.ts"
 
 describe("the API Worker", () => {
-  it("answers GET /api/health with what runs where", async () => {
+  it("answers GET /api/health with what runs where, through Hyperdrive to Postgres", async () => {
     const response = await call("http://api.test/api/health")
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ version: "dev", environment: "local" })
+    expect(await response.json()).toEqual({ version: "dev", environment: "local", db: "ok" })
+  })
+
+  it("proves on GET /api/health/deep that it connects as insyte_app, without BYPASSRLS", async () => {
+    const response = await call("http://api.test/api/health/deep")
+    expect(await response.json()).toEqual({
+      ok: true,
+      role: "insyte_app",
+      bypassesRls: false,
+      migratedTo: "0002_platform"
+    })
   })
 
   it("gives every response its trace id as Insyte-Request-Id", async () => {
@@ -37,6 +47,11 @@ describe("the API Worker", () => {
   })
 
   it("serves System.health over RPC to the console's client", async () => {
-    expect(await health()).toMatchObject({ version: "dev", environment: "local" })
+    expect(await health()).toMatchObject({
+      version: "dev",
+      environment: "local",
+      database: "ok",
+      migratedTo: "0002_platform"
+    })
   })
 })

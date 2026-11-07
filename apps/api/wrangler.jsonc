@@ -22,6 +22,17 @@
   // Next to Neon (aws-eu-central-1): a request is several sequential queries, the response is small.
   "placement": { "region": "aws:eu-central-1" },
   "dev": { "port": 8787 },
+  /*
+   * Postgres, as insyte_app. `localConnectionString` is the compose database (`bun run db:up`), used by `wrangler dev`
+   * and the worker tests; each deployed environment gets its own Hyperdrive config from infra (M0.6), caching off.
+   */
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "00000000000000000000000000000000",
+      "localConnectionString": "postgres://insyte_app:insyte_app_local@localhost:55443/insyte",
+    },
+  ],
   // 02 §5.1, local column. Read through `platform/Bindings.ts` only.
   "vars": {
     "ENVIRONMENT": "local",
