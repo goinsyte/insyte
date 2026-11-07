@@ -13,6 +13,10 @@
     "@secretlint/secretlint-rule-preset-recommend",
   ],
   "workspaces": {
+    // The Claude Code hook is run by .claude/settings.json, which knip does not read.
+    ".": {
+      "entry": [".claude/hooks/*.ts"],
+    },
     // Tests are entry points, not dead code. `build.ts` is found through the package's own scripts.
     "packages/tokens": {
       "entry": ["test/**/*.ts"],
