@@ -3,6 +3,7 @@ import { makeAuth } from "@insyte/integrations-better-auth/Auth"
 import { isBreached } from "@insyte/integrations-better-auth/Breached"
 import { Mailer } from "@insyte/modules/shared/domain/Mailer"
 import { Effect, Redacted } from "effect"
+import { recordAuthEvent } from "./AuthEvents.ts"
 import { admitted } from "./BetaGate.ts"
 import { AuthSettings } from "./Bindings.ts"
 
@@ -29,6 +30,14 @@ export const requestAuth = Effect.gen(function*() {
           Effect.provideService(AuthSettings, settings),
           Effect.provideService(Db, db),
           Effect.orElseSucceed(() => false)
+        )
+      ),
+    // A lost event is logged, never a failed sign-in.
+    recordEvent: (event) =>
+      run(
+        recordAuthEvent(event).pipe(
+          Effect.provideService(Db, db),
+          Effect.catch((error) => Effect.logWarning(`auth event ${event.kind} not recorded: ${String(error)}`))
         )
       ),
     isBreached: settings.checkBreachedPasswords ? (password) => isBreached(password) : undefined,

@@ -2,6 +2,7 @@ import { betterAuth, type BetterAuthOptions } from "better-auth"
 import { APIError, createAuthMiddleware } from "better-auth/api"
 import { twoFactor } from "better-auth/plugins"
 import { type Execute, executeDialect } from "./Dialect.ts"
+import { eventsAfter, eventsBefore, type RecordEvent } from "./Events.ts"
 import { typeId } from "./Ids.ts"
 
 /*
@@ -30,6 +31,8 @@ export interface AuthConfig {
   readonly admits?: ((email: string) => Promise<boolean>) | undefined
   /** Whether a new password appears in a known breach (`Breached.ts`). Absent: no check (local and the worker tests). */
   readonly isBreached?: ((password: string) => Promise<boolean>) | undefined
+  /** Stores what happened to an account (`Events.ts`, M2.6). Must not reject. Absent: nothing is recorded. */
+  readonly recordEvent?: RecordEvent | undefined
 }
 
 /** Where a new password arrives, and the body field it arrives in: sign-up, reset and change-password (M2.3). */
@@ -40,17 +43,19 @@ const NEW_PASSWORD: Record<string, "password" | "newPassword"> = {
 }
 
 /** Refuses a new password that appears in a known breach, before better-auth stores anything. */
-const breachedPasswordGuard = (isBreached: (password: string) => Promise<boolean>) =>
-  createAuthMiddleware(async (ctx) => {
-    const field = NEW_PASSWORD[ctx.path]
-    const password = field === undefined ? undefined : (ctx.body as Record<string, unknown> | undefined)?.[field]
-    if (typeof password === "string" && await isBreached(password)) {
-      throw new APIError("BAD_REQUEST", {
-        code: "PASSWORD_BREACHED",
-        message: "This password appears in known data breaches. Choose another."
-      })
-    }
-  })
+const refuseBreached = async (
+  isBreached: (password: string) => Promise<boolean>,
+  ctx: { readonly path: string; readonly body?: unknown }
+) => {
+  const field = NEW_PASSWORD[ctx.path]
+  const password = field === undefined ? undefined : (ctx.body as Record<string, unknown> | undefined)?.[field]
+  if (typeof password === "string" && await isBreached(password)) {
+    throw new APIError("BAD_REQUEST", {
+      code: "PASSWORD_BREACHED",
+      message: "This password appears in known data breaches. Choose another."
+    })
+  }
+}
 
 /** Prefix per better-auth model, so its ids read like ours in logs and joins. */
 const PREFIX: Record<string, string> = {
@@ -123,23 +128,33 @@ export const authOptions = (config: AuthConfig, database: BetterAuthOptions["dat
     telemetry: { enabled: false },
     // Ours: per IP and per email, in front of these routes (M2.3). better-auth's keys by IP and path only.
     rateLimit: { enabled: false },
-    ...(config.isBreached === undefined ? {} : { hooks: { before: breachedPasswordGuard(config.isBreached) } }),
-    // The beta gate, where every account is born (password now, Google in step 1.5): refused before the row exists.
-    ...(config.admits === undefined ? {} : {
-      databaseHooks: {
-        user: {
-          create: {
-            before: async (user: { email: string }) => {
-              if (!(await config.admits!(user.email))) {
-                // 400, not 403: sign-up turns a 403 from here into its generic duplicate-address success, which would
-                // tell the visitor their account exists.
-                throw new APIError("BAD_REQUEST", { code: "BETA_CLOSED", message: "Insyte is invite-only for now." })
-              }
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        if (config.isBreached !== undefined) await refuseBreached(config.isBreached, ctx)
+        if (config.recordEvent !== undefined) await eventsBefore(ctx, config.recordEvent)
+      }),
+      after: createAuthMiddleware(async (ctx) => {
+        if (config.recordEvent !== undefined) await eventsAfter(ctx, config.recordEvent)
+      })
+    },
+    databaseHooks: {
+      user: {
+        create: {
+          // The beta gate, where every account is born (password now, Google later): refused before the row exists.
+          before: async (user: { email: string }) => {
+            if (config.admits !== undefined && !(await config.admits(user.email))) {
+              // 400, not 403: sign-up turns a 403 from here into its generic duplicate-address success, which would
+              // tell the visitor their account exists.
+              throw new APIError("BAD_REQUEST", { code: "BETA_CLOSED", message: "Insyte is invite-only for now." })
             }
+          },
+          // The real new account, which sign-up's answer is not for an address that already has one.
+          after: async (user: { id: string }, ctx?: { readonly request?: Request | undefined } | null) => {
+            await config.recordEvent?.({ kind: "sign_up", userId: user.id, request: ctx?.request ?? undefined })
           }
         }
       }
-    }),
+    },
     user: { fields: COLUMNS.user },
     account: { fields: COLUMNS.account },
     verification: { fields: COLUMNS.verification, storeIdentifier: "hashed" },
@@ -150,6 +165,9 @@ export const authOptions = (config: AuthConfig, database: BetterAuthOptions["dat
       minPasswordLength: 8,
       resetPasswordTokenExpiresIn: 30 * 60,
       revokeSessionsOnPasswordReset: true,
+      onPasswordReset: async ({ user }, request) => {
+        await config.recordEvent?.({ kind: "password_changed", userId: user.id, request })
+      },
       sendResetPassword: ({ user, url }) => config.sendMail({ kind: "auth.reset", to: user.email, url }),
       // Someone signs up with an address that already has an account: tell its owner, show the visitor nothing new.
       onExistingUserSignUp: ({ user }) => config.sendMail({ kind: "auth.signup_existing", to: user.email })
