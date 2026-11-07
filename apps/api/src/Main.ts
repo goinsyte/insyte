@@ -4,6 +4,9 @@ import { AppLayer } from "./platform/AppLayer.ts"
 import type { Env } from "./platform/Env.ts"
 import { Telemetry } from "./platform/Observability.ts"
 
+// The Durable Object classes this Worker hosts; infra and `wrangler.jsonc` bind them by these names.
+export { RateLimiter } from "./platform/RateLimiter.ts"
+
 /** Module scope: the layer is built once per isolate, and building it does no request-time I/O. */
 const web = HttpRouter.toWebHandler(AppLayer)
 

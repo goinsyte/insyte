@@ -65,7 +65,7 @@ test("@auth register, verify, sign out and in, reset the password", async ({ pag
 
   // The wrong password is named, in Dutch; the right one lands on the person's landing, the role step.
   await signIn(page, email, "niet-het-wachtwoord")
-  await expect(page.getByText("Dit e-mailadres en wachtwoord horen niet bij elkaar.")).toBeVisible()
+  await expect(page.getByText("E-mailadres of wachtwoord klopt niet.")).toBeVisible()
   await signIn(page, email, password)
   await expect(page.getByRole("heading", { name: "Aan welke kant van de bestelling sta jij?" })).toBeVisible()
   await page.getByRole("button", { name: "Onboarding sluiten" }).click()
@@ -76,6 +76,7 @@ test("@auth register, verify, sign out and in, reset the password", async ({ pag
   await page.getByRole("dialog").getByLabel("Zakelijk e-mailadres").fill(email)
   await page.getByRole("button", { name: "Resetlink versturen" }).click()
   await expect(page.getByRole("heading", { name: "Check je inbox" })).toBeVisible()
+  await expect(page.getByText("bij ons bekend is, ontvang je een resetlink")).toBeVisible()
   await page.goto(await mailLink(request, email, "auth.reset"))
   await expect(page).toHaveURL(/\/reset-password\?token=/)
   await page.getByLabel("Nieuw wachtwoord").fill("nog-een-lang-wachtwoord")
@@ -84,7 +85,7 @@ test("@auth register, verify, sign out and in, reset the password", async ({ pag
   await expect(page.getByRole("heading", { name: "Wachtwoord gewijzigd" })).toBeVisible()
   await page.getByRole("link", { name: "Inloggen" }).click()
   await signIn(page, email, password)
-  await expect(page.getByText("Dit e-mailadres en wachtwoord horen niet bij elkaar.")).toBeVisible()
+  await expect(page.getByText("E-mailadres of wachtwoord klopt niet.")).toBeVisible()
   await signIn(page, email, "nog-een-lang-wachtwoord")
   await expect(page.getByRole("heading", { name: "Aan welke kant van de bestelling sta jij?" })).toBeVisible()
 })
@@ -107,4 +108,26 @@ test("@auth a signed-out deep link goes to sign-in with the way back", async ({ 
   await page.goto("/orders?view=open")
   await expect(page).toHaveURL(/\/login\?redirect=%2Forders%3Fview%3Dopen$/)
   await expect(page.getByRole("heading", { name: "Inloggen" })).toBeVisible()
+})
+
+test("@auth five wrong passwords lock the address, and the form says for how long", async ({ page }) => {
+  const email = `e2e-${Date.now().toString(36)}-locked@example.com`
+  await page.goto("/login")
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    await signIn(page, email, `fout-${attempt}`)
+    await expect(page.getByText("E-mailadres of wachtwoord klopt niet.")).toBeVisible()
+  }
+  await signIn(page, email, "fout-6")
+  await expect(page.getByText("Te veel pogingen. Probeer het over 15 minuten opnieuw.")).toBeVisible()
+})
+
+test("@auth a password from a known breach is refused at registration", async ({ page }) => {
+  // The check asks HIBP, which only deployed stages do (local runs stay offline).
+  test.skip(process.env.CONSOLE_URL === undefined, "the breached-password check runs on deployed stages only")
+  await page.goto("/onboarding")
+  await page.getByLabel("Zakelijk e-mailadres").fill(`e2e-${Date.now().toString(36)}-breached@example.com`)
+  await page.getByLabel("Volledige naam").fill("Eva Tester")
+  await page.getByLabel(/^Wachtwoord/).fill("password123")
+  await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
+  await expect(page.getByText("Dit wachtwoord komt voor in bekende datalekken. Kies een ander.")).toBeVisible()
 })

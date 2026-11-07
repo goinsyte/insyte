@@ -26,8 +26,13 @@ const answer = async <A>(
   // A network failure rejects instead of answering; it is an error like any other, with no code.
   const { data, error } = await call.catch(() => ({ data: null, error: { code: undefined, status: 0 } }))
   if (error === null) return { data, error: null }
-  const code = error.status === 429 ? "TOO_MANY_REQUESTS" : error.code
-  const failed: AuthError = { code, message: authErrorCopy(code, fallback) }
+  // The edge guards answer 429 with the seconds to wait; any other 429 is a limit too, without them.
+  const code = error.status === 429 ? "RATE_LIMITED" : error.code
+  const wait = (error as { retryAfterSeconds?: unknown }).retryAfterSeconds
+  const failed: AuthError = {
+    code,
+    message: authErrorCopy(code, fallback, typeof wait === "number" ? wait : undefined)
+  }
   return { data: null, error: failed }
 }
 

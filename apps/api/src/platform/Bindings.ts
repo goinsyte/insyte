@@ -39,6 +39,8 @@ export class AppInfo extends Context.Service<AppInfo, {
 export class AuthSettings extends Context.Service<AuthSettings, {
   readonly consoleOrigin: string
   readonly secret: Redacted.Redacted
+  /** The breached-password check (M2.3) asks HIBP over the network: deployed stages only, so local runs stay offline. */
+  readonly checkBreachedPasswords: boolean
 }>()("api-worker/AuthSettings") {
   static readonly layer = Layer.effect(
     AuthSettings,
@@ -49,7 +51,11 @@ export class AuthSettings extends Context.Service<AuthSettings, {
           ? Config.withDefault(Redacted.make("local-development-secret-never-deployed-0123456789"))
           : (config) => config
       )
-      return { consoleOrigin: yield* Config.String("CONSOLE_ORIGIN"), secret }
+      return {
+        consoleOrigin: yield* Config.String("CONSOLE_ORIGIN"),
+        secret,
+        checkBreachedPasswords: environment !== "local"
+      }
     })
   )
 }

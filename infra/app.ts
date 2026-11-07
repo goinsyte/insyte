@@ -10,7 +10,7 @@ import { SENTRY_LOGS, SENTRY_TRACES } from "./shared.ts"
  * Workers stay plain modules: this file names their entries and bindings, and app code never imports alchemy.
  *
  * Step 0 deploys what the walking skeleton needs: the stage's database (a Neon branch per preview), Hyperdrive to it as
- * insyte_app, the API Worker behind it and the console in front. Queues, R2, KV, Durable Objects and Workflows join with the step that
+ * insyte_app, the API Worker behind it and the console in front. Queues, R2, KV, further Durable Objects and Workflows join with the step that
  * first uses them.
  */
 
@@ -84,6 +84,8 @@ export default Alchemy.Stack(
       observability: OBSERVABILITY,
       env: {
         HYPERDRIVE: hyperdrive,
+        // The edge guards' counters (M2.3), hosted by this Worker (`RateLimiter` in Main.ts); SQLite-backed.
+        RATE_LIMITER: Cloudflare.DurableObject("RateLimiter", { className: "RateLimiter" }),
         ENVIRONMENT: environment,
         // better-auth: cookies, links in mail and the CSRF check name the console's origin (18 §2).
         CONSOLE_ORIGIN: `https://insyte-console-${stage}.${WORKERS_SUBDOMAIN}`,

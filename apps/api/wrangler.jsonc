@@ -34,6 +34,9 @@
     },
   ],
   // 02 §5.1, local column. Read through `platform/Bindings.ts` only.
+  // The edge guards' counters (M2.3): one instance per IP or hashed address, SQLite-backed.
+  "durable_objects": { "bindings": [{ "name": "RATE_LIMITER", "class_name": "RateLimiter" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RateLimiter"] }],
   "vars": {
     "ENVIRONMENT": "local",
     "CONSOLE_ORIGIN": "http://localhost:4300",
