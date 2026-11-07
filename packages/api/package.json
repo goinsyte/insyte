@@ -10,6 +10,7 @@
   "dependencies": {
     "@insyte/database": "workspace:*",
     "@insyte/domain": "workspace:*",
+    "@insyte/modules": "workspace:*",
     "effect": "catalog:"
   }
 }

@@ -24,3 +24,14 @@ describe("Ids", () => {
     expect(() => Schema.decodeSync(WorkspaceId)(valid)).toThrow()
   })
 })
+
+describe("mintId", () => {
+  it("mints ids the schemas accept, in creation order", async () => {
+    const { mintId, UserId } = await import("../src/Ids.ts")
+    const first = mintId("usr")
+    await new Promise((resolve) => setTimeout(resolve, 2))
+    const second = mintId("usr")
+    expect(Schema.decodeSync(UserId)(first)).toBe(first)
+    expect(first < second).toBe(true)
+  })
+})

@@ -39,6 +39,14 @@ export default defineConfig({
         }
       },
       {
+        // The slices' pure parts (the onboarding machine). `node`, no database.
+        test: {
+          name: "modules",
+          include: ["packages/modules/test/**/*.test.ts"],
+          environment: "node"
+        }
+      },
+      {
         // The shared values: ids, money, the permission catalogue. Pure, so `node`.
         test: {
           name: "domain",

@@ -5,6 +5,7 @@ import capturedMail from "./migrations/0004_captured_mail.ts"
 import betaAllowlist from "./migrations/0005_beta_allowlist.ts"
 import authTwoFactor from "./migrations/0006_auth_two_factor.ts"
 import authEvents from "./migrations/0007_auth_events.ts"
+import onboarding from "./migrations/0008_onboarding.ts"
 
 /**
  * Every migration, by its permanent key, in the order they were written (06; 15). A new migration is a new file and a
@@ -17,5 +18,6 @@ export const Migrations = {
   "0004_captured_mail": capturedMail,
   "0005_beta_allowlist": betaAllowlist,
   "0006_auth_two_factor": authTwoFactor,
-  "0007_auth_events": authEvents
+  "0007_auth_events": authEvents,
+  "0008_onboarding": onboarding
 }

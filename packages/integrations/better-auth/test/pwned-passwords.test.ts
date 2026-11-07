@@ -28,17 +28,18 @@ const isBreached = (password: string, layer: ReturnType<typeof hibp>) =>
     Effect.flatMap(Effect.service(PwnedPasswords), (p) => p.isBreached(password)).pipe(Effect.provide(layer))
   )
 
+const found = () => Promise.resolve(new Response(`0018A45C4D1DEF81644B54AB7F969B88D65:1\r\n${SUFFIX}:2254650`))
+const padded = () => Promise.resolve(new Response(`${SUFFIX}:0\r\n0018A45C4D1DEF81644B54AB7F969B88D65:3`))
+
 describe("PwnedPasswords", () => {
   it("sends only the first five characters of the hash, padded, and finds the suffix in the answer", async () => {
     const seen: Array<string> = []
-    const answer = () => Promise.resolve(new Response(`0018A45C4D1DEF81644B54AB7F969B88D65:1\r\n${SUFFIX}:2254650`))
-    expect(await isBreached("password123", hibp(answer, seen))).toBe(true)
+    expect(await isBreached("password123", hibp(found, seen))).toBe(true)
     expect(seen).toEqual([`https://api.pwnedpasswords.com/range/${PREFIX} true`])
   })
 
   it("does not count a padding line (count 0) or another suffix", async () => {
-    const answer = () => Promise.resolve(new Response(`${SUFFIX}:0\r\n0018A45C4D1DEF81644B54AB7F969B88D65:3`))
-    expect(await isBreached("password123", hibp(answer))).toBe(false)
+    expect(await isBreached("password123", hibp(padded))).toBe(false)
   })
 
   it("fails open when HIBP errors, refuses, or does not answer in time", async () => {

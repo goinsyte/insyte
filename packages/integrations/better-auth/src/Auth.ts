@@ -1,9 +1,9 @@
+import { mintId } from "@insyte/domain/Ids"
 import { betterAuth, type BetterAuthOptions } from "better-auth"
 import { APIError, createAuthMiddleware } from "better-auth/api"
 import { twoFactor } from "better-auth/plugins"
 import { type Execute, executeDialect } from "./Dialect.ts"
 import { eventsAfter, eventsBefore, type RecordEvent } from "./Events.ts"
-import { typeId } from "./Ids.ts"
 
 /*
  * better-auth authenticates; Insyte authorises (ADR-0032, 12). This file is the whole configuration: email and
@@ -219,7 +219,7 @@ export const authOptions = (config: AuthConfig, database: BetterAuthOptions["dat
       ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] },
       // `validateSchema: false`: the instance is built per request, and auth:check proves the schema in CI instead.
       database: {
-        generateId: ({ model }) => typeId(PREFIX[model] ?? model.slice(0, 3)),
+        generateId: ({ model }) => mintId(PREFIX[model] ?? model.slice(0, 3)),
         validateSchema: false
       }
     }

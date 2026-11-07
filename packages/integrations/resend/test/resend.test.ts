@@ -72,9 +72,10 @@ describe("Resend", () => {
   })
 })
 
+const mailer = (http: Layer.Layer<HttpClient.HttpClient>) =>
+  ResendMailer.pipe(Layer.provide(http), Layer.provide(config))
+
 describe("ResendMailer", () => {
-  const mailer = (http: Layer.Layer<HttpClient.HttpClient>) =>
-    ResendMailer.pipe(Layer.provide(http), Layer.provide(config))
   const url = "https://app.example/api/auth/verify-email?token=a"
 
   it("sends the Dutch mail of the kind, from MAIL_FROM, with a stable idempotency key", async () => {

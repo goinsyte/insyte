@@ -10,8 +10,14 @@ import { createHmac } from "node:crypto"
 const test = base.extend<{ page: Page }>({
   page: async ({ page }, use) => {
     const errors: Array<string> = []
-    page.on("pageerror", (e) => errors.push(String(e)))
+    const logged: Array<string> = []
+    page.on("pageerror", (e) => errors.push(`${String(e)} @ ${page.url()}`))
+    // What the console said, for the report when a page error needs its context (a hydration mismatch says little).
+    page.on("console", (m) => {
+      if (m.type() === "error" || m.type() === "warning") logged.push(`${m.type()}: ${m.text()} @ ${page.url()}`)
+    })
     await use(page)
+    if (errors.length > 0) await test.info().attach("console", { body: logged.join("\n"), contentType: "text/plain" })
     expect(errors, "uncaught errors on the page").toEqual([])
   }
 })
@@ -217,4 +223,36 @@ test("@auth back from Google with a refusal, the sign-in screen says why", async
   // Not a code: dropped, and the form shows nothing.
   await page.goto("/login?error=%3Cscript%3E")
   await expect(page.getByRole("alert")).toHaveCount(0)
+})
+
+test("@onboarding a new admin reaches the organisation step, and every return resumes there", async ({ browser, page, request }) => {
+  const email = `e2e-${Date.now().toString(36)}-onboarding@example.com`
+  const password = "een-lang-wachtwoord"
+  await page.goto("/onboarding")
+  await page.getByLabel("Zakelijk e-mailadres").fill(email)
+  await page.getByLabel("Volledige naam").fill("Eva Tester")
+  await page.getByLabel(/^Wachtwoord/).fill(password)
+  await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Check je inbox." })).toBeVisible()
+  await page.goto(await mailLink(request, email, "auth.verify"))
+  await expect(page.getByRole("heading", { name: "Aan welke kant van de bestelling sta jij?" })).toBeVisible()
+
+  await page.getByText("Mijn winkel inrichten").click()
+  await expect(page.getByRole("heading", { name: "Geef je werkruimte een naam." })).toBeVisible()
+
+  // A reload, and a bare /onboarding, open on the step the server holds.
+  await page.reload()
+  await expect(page.getByRole("heading", { name: "Geef je werkruimte een naam." })).toBeVisible()
+  await page.goto("/onboarding")
+  await expect(page.getByRole("heading", { name: "Geef je werkruimte een naam." })).toBeVisible()
+
+  // Another browser: sign in, and the landing is the same step.
+  // A new context gets none of the project's options by itself: the base URL, and on a preview the Access headers.
+  const { baseURL, extraHTTPHeaders } = test.info().project.use
+  const other = await browser.newContext({ baseURL, ...(extraHTTPHeaders === undefined ? {} : { extraHTTPHeaders }) })
+  const elsewhere = await other.newPage()
+  await elsewhere.goto("/login")
+  await signIn(elsewhere, email, password)
+  await expect(elsewhere.getByRole("heading", { name: "Geef je werkruimte een naam." })).toBeVisible()
+  await other.close()
 })
