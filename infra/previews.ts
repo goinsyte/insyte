@@ -4,9 +4,13 @@ import * as Alchemy from "alchemy"
 import { Config, Effect, Layer } from "effect"
 
 /*
- * What every preview's database starts from (M1.5, 14 §2): `preview-base`, a schema-only copy of nonprod `main`, so it
- * holds staging's schema and none of staging's rows. CI keeps it current (`scripts/preview-base.ts`): staging's run
- * migrates and seeds it with the three scenario workspaces; each `pr-<n>` branch (`app.ts`) forks it with that data.
+ * What every preview's database starts from (M1.5, 14 §2): `preview-base`, forked once from nonprod `main` and then
+ * emptied of every row but the migration ledger and seeded with the three scenario workspaces (`scripts/preview-base.ts`
+ * on its first run). From there it only moves forward: staging's run applies staging's migrations and reseeds it, and it
+ * is never copied from `main` again, so staging's rows do not come back. Each `pr-<n>` branch (`app.ts`) forks it.
+ *
+ * A plain fork, not Neon's schema-only branch: that one recreates every object as `neondb_owner`, so `insyte_owner` owns
+ * nothing it migrates and the relay's security-definer functions run as a role the outbox policy does not name.
  *
  * Its own stack, deployed as stage `nonprod` by the preview job: `shared.ts` also runs where NEON_PROJECT_ID is the
  * production project, and a preview's `alchemy destroy` must never reach the branch every preview forks. Not protected:
@@ -19,8 +23,7 @@ export default Alchemy.Stack(
     const base = yield* Neon.Branch("PreviewBase", {
       project: { projectId: yield* Config.String("NEON_PROJECT_ID") },
       name: "preview-base",
-      parentBranch: { name: "main" },
-      initSource: "schema-only"
+      parentBranch: { name: "main" }
     })
     return { branch: base.branchId, host: base.origin.host }
   })

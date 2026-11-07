@@ -48,7 +48,7 @@ jobs:
   preview-base:
     name: backend · preview-base
     # What every preview's database forks (infra/previews.ts): staging's schema and the three scenario workspaces. A new
-    # one gets main's migration ledger (and its first seed) here; staging's run migrates and reseeds it afterwards.
+    # one is emptied of main's rows and seeded here; staging's run migrates and reseeds it afterwards.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -69,7 +69,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bunx alchemy deploy previews.ts --stage nonprod --yes --no-input
         working-directory: infra
-      - run: bun scripts/preview-base.ts --adopt
+      - run: bun scripts/preview-base.ts --first
         env:
           INSYTE_OWNER_DB_PASSWORD: ${{ secrets.INSYTE_OWNER_DB_PASSWORD }}
 

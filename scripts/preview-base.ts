@@ -1,15 +1,16 @@
 /*
- * Keeps `preview-base` (infra/previews.ts) what every preview branches from (M1.5, 03 §2.2): staging's schema, the
- * three scenario workspaces, and nobody's data. The branch is a schema-only copy of nonprod `main`, so it arrives with
- * the migrations table but none of its rows; it is given `main`'s, which name exactly the migrations its schema came
- * from.
+ * Keeps `preview-base` (infra/previews.ts) what every preview forks (M1.5, 03 §2.2): staging's schema, the three
+ * scenario workspaces, and nobody's data. The branch is a fork of nonprod `main`; on its first run (no scenario
+ * workspace yet) every row but the migration ledger is removed and the seed written. After that it is never copied from
+ * `main` again, so staging's rows cannot return.
  *
- *   bun scripts/preview-base.ts --adopt   a PR's run: the ledger, and the seed only if the branch never had one; never
- *                                         a migration, so a PR's own migrations cannot reach the other PRs
- *   bun scripts/preview-base.ts           staging's run, after migrating `main`: the ledger, the migrations, the seed
+ *   bun scripts/preview-base.ts --first   a PR's run: only that first emptying and seed, never a migration, so a PR's own
+ *                                         migrations cannot reach the other PRs
+ *   bun scripts/preview-base.ts           staging's run, after migrating `main`: the same first run if needed, then
+ *                                         staging's migrations and the seed again
  *
  * Needs NEON_API_KEY and NEON_PROJECT_ID (nonprod), and `insyte_owner`'s password as INSYTE_OWNER_DB_PASSWORD or inside
- * DATABASE_URL_OWNER: a branch made from `main` keeps its roles' passwords.
+ * DATABASE_URL_OWNER: a fork keeps its parent's roles and passwords.
  */
 import { PgClient } from "@effect/sql-pg"
 import { migrate, MIGRATIONS_TABLE } from "@insyte/database/Migrator"
@@ -20,7 +21,7 @@ import { branchHost } from "./lib/neon.ts"
 import { ownerUrlFor } from "./lib/owner-url.ts"
 import { seed, seeded } from "./lib/seed.ts"
 
-const adoptOnly = process.argv.includes("--adopt")
+const firstOnly = process.argv.includes("--first")
 const fromUrl = process.env["DATABASE_URL_OWNER"]
 const password = process.env["INSYTE_OWNER_DB_PASSWORD"] ??
   (fromUrl === undefined || fromUrl === "" ? undefined : decodeURIComponent(new URL(fromUrl).password))
@@ -28,46 +29,30 @@ if (password === undefined) {
   console.error("preview-base: needs INSYTE_OWNER_DB_PASSWORD or DATABASE_URL_OWNER")
   process.exit(1)
 }
-const client = (host: string) => PgClient.layer({ url: Redacted.make(ownerUrlFor(host, password)) })
+const host = await branchHost("preview-base")
+console.log(`preview-base on ${host}`)
 
-const [mainHost, baseHost] = await Promise.all([branchHost("main"), branchHost("preview-base")])
-console.log(`preview-base on ${baseHost}`)
+/** Every table the app writes, in the schemas the migrations create, but the ledger. */
+const empty = Effect.gen(function*() {
+  const sql = yield* SqlClient.SqlClient
+  const tables = yield* sql<{ name: string }>`
+    select format('%I.%I', schemaname, tablename) as name from pg_tables
+    where schemaname in ('public', 'auth') and not (schemaname = 'public' and tablename = ${MIGRATIONS_TABLE})`
+  if (tables.length > 0) yield* sql.unsafe(`truncate ${tables.map((t) => t.name).join(", ")} cascade`)
+  console.log(`  emptied ${tables.length} tables of the rows forked from main`)
+})
 
-interface Entry {
-  readonly migration_id: number
-  readonly name: string
-  readonly created_at: Date
-}
-const ledger = Effect.flatMap(
-  SqlClient.SqlClient,
-  (sql) => sql<Entry>`select migration_id, name, created_at from ${sql(MIGRATIONS_TABLE)} order by migration_id`
+const program = Effect.gen(function*() {
+  if ((yield* seeded).length === 0) {
+    yield* empty
+    for (const w of yield* seed) console.log(`  seeded ${w.scenario}: ${w.workspaceId} (first run)`)
+  }
+  if (firstOnly) return
+  const applied = yield* migrate(Migrations)
+  for (const [id, name] of applied) console.log(`  applied ${String(id).padStart(4, "0")}_${name}`)
+  for (const w of yield* seed) console.log(`  seeded ${w.scenario}: ${w.workspaceId}`)
+})
+
+await Effect.runPromise(
+  program.pipe(Effect.provide(PgClient.layer({ url: Redacted.make(ownerUrlFor(host, password)) })))
 )
-
-const recorded = await Effect.runPromise(ledger.pipe(Effect.provide(client(baseHost))))
-if (recorded.length === 0) {
-  const fromMain = await Effect.runPromise(ledger.pipe(Effect.provide(client(mainHost))))
-  await Effect.runPromise(
-    Effect.flatMap(
-      SqlClient.SqlClient,
-      (sql) =>
-        Effect.forEach(fromMain, (e) =>
-          sql`insert into ${sql(MIGRATIONS_TABLE)} (migration_id, name, created_at)
-            values (${e.migration_id}, ${e.name}, ${e.created_at})`)
-    ).pipe(Effect.provide(client(baseHost)))
-  )
-  console.log(`  adopted main's ledger: ${fromMain.length} migrations`)
-}
-if (adoptOnly) {
-  const bootstrap = Effect.gen(function*() {
-    if ((yield* seeded).length > 0) return
-    for (const w of yield* seed) console.log(`  seeded ${w.scenario}: ${w.workspaceId} (first seed)`)
-  })
-  await Effect.runPromise(bootstrap.pipe(Effect.provide(client(baseHost))))
-} else {
-  const program = Effect.gen(function*() {
-    const applied = yield* migrate(Migrations)
-    for (const [id, name] of applied) console.log(`  applied ${String(id).padStart(4, "0")}_${name}`)
-    for (const w of yield* seed) console.log(`  seeded ${w.scenario}: ${w.workspaceId}`)
-  })
-  await Effect.runPromise(program.pipe(Effect.provide(client(baseHost))))
-}
