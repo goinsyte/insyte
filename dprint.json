@@ -175,7 +175,6 @@
     "apps/design/src/app/routes/_supplier/",
     "apps/design/src/app/routes/onboarding/",
     "apps/design/src/app/routes/invitations.$invitationId.tsx",
-    "apps/design/src/app/routes/login.tsx",
     "apps/design/src/app/routes/register.tsx",
     "apps/design/src/app/fixtures/mock-data/",
     "apps/design/src/app/fixtures/scenario.ts",
