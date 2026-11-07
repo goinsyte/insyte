@@ -2,7 +2,7 @@ import { useContext, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { appHref, siteHref } from "../../data-source/hrefs"
 import { Store, TrendingUp, Truck } from "../../icons"
-import { HumanCheck } from "../auth/human-check"
+import { createHumanCheck, HumanCheck } from "../auth/human-check"
 import { Field, TextField } from "../common/form-dialog"
 import { authClient } from "../lib/auth-client"
 import { persistStep } from "../lib/onboarding-api"
@@ -80,11 +80,10 @@ export function sharedHeadSteps({
           password: d.password ?? "",
           name: d.name ?? "",
           callbackURL: verifiedLanding(),
-          turnstileToken: d.turnstile || undefined
+          turnstileToken: await accountHuman.token()
         })
+        accountHuman.spent()
         if (error) {
-          // The token is spent either way; the widget fetches the next one for the retry.
-          patch({ turnstileAttempt: String(Number(d.turnstileAttempt ?? 0) + 1) })
           // Thrown → the shell shows it inline beneath the fields.
           throw new Error(error.message ?? "Je account kon niet worden aangemaakt.")
         }
@@ -131,10 +130,7 @@ export function sharedHeadSteps({
               type="password"
             />
           </Field>
-          <HumanCheck
-            onToken={(token) => patch({ turnstile: token ?? "" })}
-            attempt={Number(d.turnstileAttempt ?? 0)}
-          />
+          <HumanCheck controller={accountHuman} />
           <p className="text-xs text-ink-3 leading-normal">
             Door verder te gaan ga je akkoord met onze{" "}
             <a
@@ -210,6 +206,10 @@ export function sharedHeadSteps({
 }
 
 export const SHARED_HEAD_LENGTH = 3
+
+/** The account step's human check. One for the module: the step builder runs on every render, and one account step is
+ * mounted at a time. */
+const accountHuman = createHumanCheck()
 
 /** Where the verification link lands, signed in: the role step (`?step=2`). A function: hrefs are configured at boot. */
 const verifiedLanding = () => appHref("/onboarding?step=2")
