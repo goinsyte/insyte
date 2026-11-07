@@ -17,14 +17,14 @@ const filesUnder = (dir: string): Array<string> =>
     return statSync(path).isDirectory() ? filesUnder(path) : /\.tsx?$/.test(entry) ? [path] : []
   })
 
-// A fresh array, so sorting it in place changes nothing else (`toSorted` is past this project's `lib`).
-// oxlint-disable-next-line unicorn/no-array-sort
 const uiModules = [
   ...new Set(
     filesUnder(ROUTES).flatMap((file) =>
       [...readFileSync(file, "utf8").matchAll(/from\s+"(@insyte\/ui\/app\/[^"]+)"/g)].map((m) => m[1]!)
     )
   )
+  // A fresh array, so sorting it in place changes nothing else (`toSorted` is past this project's `lib`).
+  // oxlint-disable-next-line unicorn/no-array-sort
 ].sort()
 
 describe("the screens the console mounts", () => {
