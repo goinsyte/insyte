@@ -8,27 +8,32 @@ import { Config, Effect, Layer } from "effect"
  * stage owns lives here, so `alchemy destroy --stage pr-<n>` removes exactly that preview and nothing shared. Our
  * Workers stay plain modules: this file names their entries and bindings, and app code never imports alchemy.
  *
- * Step 0 deploys what the walking skeleton needs: a Neon branch per preview, Hyperdrive to it as insyte_app, the API
- * Worker behind it and the console in front. Queues, R2, KV, Durable Objects and Workflows join with the step that
+ * Step 0 deploys what the walking skeleton needs: the stage's database (a Neon branch per preview), Hyperdrive to it as
+ * insyte_app, the API Worker behind it and the console in front. Queues, R2, KV, Durable Objects and Workflows join with the step that
  * first uses them.
  */
 
 const COMPATIBILITY_DATE = "2026-10-26"
 
+/**
+ * Where a stage's data lives. A preview gets its own Neon branch of the migrated nonprod `main`, which expires after a
+ * week even if teardown never runs. Staging and production connect to their project's `main` by host (a GitHub
+ * variable), and the stack creates nothing in Neon for them: adopting `main` would let `alchemy destroy` delete it.
+ */
 const Database = Effect.gen(function*() {
   const { stage } = yield* Alchemy.Stack
-  const projectId = yield* Config.String("NEON_PROJECT_ID")
-  // A preview gets its own branch of the migrated `main`, which expires after a week even if teardown never runs.
-  const branch = yield* Neon.Branch("Db", {
-    project: { projectId },
-    name: stage,
-    parentBranch: { name: "main" },
-    expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString()
-  })
+  const branch = stage.startsWith("pr-")
+    ? yield* Neon.Branch("Db", {
+      project: { projectId: yield* Config.String("NEON_PROJECT_ID") },
+      name: stage,
+      parentBranch: { name: "main" },
+      expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString()
+    })
+    : undefined
   const hyperdrive = yield* Cloudflare.Hyperdrive.Connection("Hd", {
     origin: {
       scheme: "postgres",
-      host: branch.origin.host,
+      host: branch === undefined ? yield* Config.String("DATABASE_HOST") : branch.origin.host,
       port: 5432,
       database: "insyte",
       user: "insyte_app",
@@ -80,6 +85,6 @@ export default Alchemy.Stack(
       env: { API: api, ENVIRONMENT: environment }
     })
 
-    return { console: console.url.as<string>(), api: api.workerName, branch: branch.branchId }
+    return { console: console.url.as<string>(), api: api.workerName, branch: branch?.branchId }
   })
 )

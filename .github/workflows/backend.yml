@@ -2,12 +2,17 @@
 #
 #   pull request (same repo)  -> build the console, deploy stage pr-<n> (Neon branch, Hyperdrive, API, console),
 #                                migrate that branch, smoke the console
+#   push to staging           -> migrate nonprod main, deploy stage staging, smoke
+#   push to main              -> migrate prod main, deploy stage production, smoke
 #
-# The design reference keeps its own pipeline in ci.yml. Staging and production stages join this file next.
+# Migrations run before the deploy: they are expand-only, so the running code keeps working on the new schema.
+# `main` only takes a release from staging or a hotfix (docs/branches.md). The design reference keeps ci.yml.
 name: backend
 
 on:
   pull_request:
+  push:
+    branches: [staging, main]
 
 permissions:
   contents: read
@@ -19,7 +24,7 @@ jobs:
   preview:
     name: backend · preview
     # Fork PRs get no secrets, and their code should not reach the account.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment:
@@ -59,7 +64,91 @@ jobs:
       - name: smoke the preview
         run: |
           url="https://insyte-console-$STAGE.$WORKERS_SUBDOMAIN/status"
-          for i in $(seq 1 20); do
+          for _ in $(seq 1 20); do
+            if curl -fsS "$url" | grep -q 'data-testid="database"><span[^>]*>ok<'; then echo "$url: database ok"; exit 0; fi
+            sleep 6
+          done
+          echo "$url never said the database is ok"; curl -sS "$url" | head -c 2000; exit 1
+
+  staging:
+    name: backend · staging
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: staging
+      url: https://insyte-console-staging.${{ env.WORKERS_SUBDOMAIN }}/status
+    concurrency:
+      group: alchemy-staging
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+      DATABASE_HOST: ${{ vars.DATABASE_HOST }}
+      INSYTE_APP_DB_PASSWORD: ${{ secrets.INSYTE_APP_DB_PASSWORD }}
+      GITHUB_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @insyte/console build
+      - run: bunx alchemy provider check-env --config app.ts
+        working-directory: infra
+      - run: bun run db:migrate --env staging
+        env:
+          DATABASE_URL_OWNER: ${{ secrets.DATABASE_URL_OWNER }}
+      - run: bunx alchemy deploy app.ts --stage staging --yes --no-input
+        working-directory: infra
+      - name: smoke staging
+        run: |
+          url="https://insyte-console-staging.$WORKERS_SUBDOMAIN/status"
+          for _ in $(seq 1 20); do
+            if curl -fsS "$url" | grep -q 'data-testid="database"><span[^>]*>ok<'; then echo "$url: database ok"; exit 0; fi
+            sleep 6
+          done
+          echo "$url never said the database is ok"; curl -sS "$url" | head -c 2000; exit 1
+
+  production:
+    name: backend · production
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: https://insyte-console-production.${{ env.WORKERS_SUBDOMAIN }}/status
+    concurrency:
+      group: alchemy-production
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+      DATABASE_HOST: ${{ vars.DATABASE_HOST }}
+      INSYTE_APP_DB_PASSWORD: ${{ secrets.INSYTE_APP_DB_PASSWORD }}
+      GITHUB_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @insyte/console build
+      - run: bunx alchemy provider check-env --config app.ts
+        working-directory: infra
+      - run: bun run db:migrate --env production
+        env:
+          DATABASE_URL_OWNER: ${{ secrets.DATABASE_URL_OWNER }}
+      - run: bunx alchemy deploy app.ts --stage production --yes --no-input
+        working-directory: infra
+      - name: smoke production
+        run: |
+          url="https://insyte-console-production.$WORKERS_SUBDOMAIN/status"
+          for _ in $(seq 1 20); do
             if curl -fsS "$url" | grep -q 'data-testid="database"><span[^>]*>ok<'; then echo "$url: database ok"; exit 0; fi
             sleep 6
           done
