@@ -48,5 +48,12 @@ const rpc = await fetch(`${base}/api/rpc/v1`, {
 const frame = await rpc.text()
 if (!frame.includes(`"database":"ok"`)) fail(`System.health: ${rpc.status} ${frame}`)
 
+// better-auth, built per request: a cold isolate's first auth call must answer, not hang (12 §9, S4).
+const session = await fetch(`${base}/api/auth/get-session`)
+const sessionBody = (await session.text()).trim()
+if (session.status !== 200 || sessionBody !== "null") {
+  fail(`GET /api/auth/get-session: ${session.status} ${sessionBody}`)
+}
+
 dev.kill()
-console.log("api:smoke: health and System.health answer through Hyperdrive under wrangler dev")
+console.log("api:smoke: health, System.health and better-auth answer through Hyperdrive under wrangler dev")

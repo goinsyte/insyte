@@ -16,6 +16,9 @@ import { SENTRY_LOGS, SENTRY_TRACES } from "./shared.ts"
 
 const COMPATIBILITY_DATE = "2026-10-26"
 
+/** The account's workers.dev subdomain: each stage's console lives at insyte-console-<stage>.<this> until the cut-over. */
+const WORKERS_SUBDOMAIN = "ishak-73d.workers.dev"
+
 /**
  * Logs, traces and Issues for every Worker, sampled at 100 % through the MVP (17 §1), and exported to Sentry through
  * the account's destinations (`shared.ts`).
@@ -82,6 +85,9 @@ export default Alchemy.Stack(
       env: {
         HYPERDRIVE: hyperdrive,
         ENVIRONMENT: environment,
+        // better-auth: cookies, links in mail and the CSRF check name the console's origin (18 §2).
+        CONSOLE_ORIGIN: `https://insyte-console-${stage}.${WORKERS_SUBDOMAIN}`,
+        BETTER_AUTH_SECRET: Config.Redacted("BETTER_AUTH_SECRET"),
         VERSION: yield* Config.String("GITHUB_SHA").pipe(Config.withDefault("dev")),
         LOG_LEVEL: environment === "preview" ? "Debug" : "Info",
         OTEL_SERVICE_NAME: "insyte-api",

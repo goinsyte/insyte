@@ -16,6 +16,7 @@
     { "path": "./packages/database" },
     { "path": "./packages/api" },
     { "path": "./packages/modules" },
+    { "path": "./packages/integrations/better-auth" },
     { "path": "./packages/tokens" },
     { "path": "./packages/ui" }
   ]

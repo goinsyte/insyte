@@ -11,6 +11,8 @@
     "@effect/sql-pg": "catalog:",
     "@insyte/api": "workspace:*",
     "@insyte/database": "workspace:*",
+    "@insyte/integrations-better-auth": "workspace:*",
+    "@insyte/modules": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

@@ -8,6 +8,10 @@ declare global {
       /** Postgres through Hyperdrive, as `insyte_app`. Caching off: a read after a write must see the write. */
       readonly HYPERDRIVE: Hyperdrive
       readonly ENVIRONMENT: "local" | "preview" | "staging" | "production"
+      /** The console's origin: better-auth's baseURL, cookies and links in mail (18 §2). */
+      readonly CONSOLE_ORIGIN: string
+      /** A secret: signs better-auth's cookies and tokens. Absent locally (a fixed development value stands in). */
+      readonly BETTER_AUTH_SECRET?: string
       /** The commit sha, set by the deploy. Absent locally. */
       readonly VERSION?: string
       readonly LOG_LEVEL?: string
