@@ -21,8 +21,33 @@ env:
   WORKERS_SUBDOMAIN: ishak-73d.workers.dev
 
 jobs:
+  shared:
+    name: backend · shared
+    # What the account holds once (infra/shared.ts): Sentry destinations. Every stage's deploy waits for it.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: ${{ github.event_name == 'pull_request' && 'preview' || (github.ref == 'refs/heads/main' && 'production' || 'staging') }}
+    concurrency:
+      group: alchemy-shared
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT }}
+      OTEL_EXPORTER_OTLP_HEADERS: ${{ vars.OTEL_EXPORTER_OTLP_HEADERS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bunx alchemy deploy shared.ts --stage shared --yes --no-input
+        working-directory: infra
+
   preview:
     name: backend · preview
+    needs: shared
     # Fork PRs get no secrets, and their code should not reach the account.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
@@ -58,6 +83,9 @@ jobs:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - run: bun run --filter @insyte/console build
+        env:
+          # Uploads the browser source maps to Sentry, then deletes them from the build.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       # alchemy is installed in infra/, with its Effect peers; `bunx` from the root would fetch a bare copy.
       - run: bunx alchemy provider check-env --config app.ts
         working-directory: infra
@@ -71,16 +99,21 @@ jobs:
         env:
           INSYTE_OWNER_DB_PASSWORD: ${{ secrets.INSYTE_OWNER_DB_PASSWORD }}
       - name: smoke the preview
+        # Past Access with the CI service token.
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           url="https://insyte-console-$STAGE.$WORKERS_SUBDOMAIN/status"
           for _ in $(seq 1 20); do
-            if curl -fsS "$url" | grep -q 'data-testid="database"><span[^>]*>ok<'; then echo "$url: database ok"; exit 0; fi
+            if curl -fsS -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" "$url" | grep -q 'data-testid="database"><span[^>]*>ok<'; then echo "$url: database ok"; exit 0; fi
             sleep 6
           done
-          echo "$url never said the database is ok"; curl -sS "$url" | head -c 2000; exit 1
+          echo "$url never said the database is ok"; curl -sS -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" "$url" | head -c 2000; exit 1
 
   staging:
     name: backend · staging
+    needs: shared
     if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -114,6 +147,9 @@ jobs:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - run: bun run --filter @insyte/console build
+        env:
+          # Uploads the browser source maps to Sentry, then deletes them from the build.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       - run: bunx alchemy provider check-env --config app.ts
         working-directory: infra
       - run: bun run db:migrate --env staging
@@ -122,16 +158,21 @@ jobs:
       - run: bunx alchemy deploy app.ts --stage staging --yes --no-input
         working-directory: infra
       - name: smoke staging
+        # Past Access with the CI service token.
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           url="https://insyte-console-staging.$WORKERS_SUBDOMAIN/status"
           for _ in $(seq 1 20); do
-            if curl -fsS "$url" | grep -q 'data-testid="database"><span[^>]*>ok<'; then echo "$url: database ok"; exit 0; fi
+            if curl -fsS -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" "$url" | grep -q 'data-testid="database"><span[^>]*>ok<'; then echo "$url: database ok"; exit 0; fi
             sleep 6
           done
-          echo "$url never said the database is ok"; curl -sS "$url" | head -c 2000; exit 1
+          echo "$url never said the database is ok"; curl -sS -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" "$url" | head -c 2000; exit 1
 
   production:
     name: backend · production
+    needs: shared
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -165,6 +206,9 @@ jobs:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - run: bun run --filter @insyte/console build
+        env:
+          # Uploads the browser source maps to Sentry, then deletes them from the build.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       - run: bunx alchemy provider check-env --config app.ts
         working-directory: infra
       - run: bun run db:migrate --env production
@@ -173,10 +217,14 @@ jobs:
       - run: bunx alchemy deploy app.ts --stage production --yes --no-input
         working-directory: infra
       - name: smoke production
+        # Past Access with the CI service token.
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           url="https://insyte-console-production.$WORKERS_SUBDOMAIN/status"
           for _ in $(seq 1 20); do
-            if curl -fsS "$url" | grep -q 'data-testid="database"><span[^>]*>ok<'; then echo "$url: database ok"; exit 0; fi
+            if curl -fsS -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" "$url" | grep -q 'data-testid="database"><span[^>]*>ok<'; then echo "$url: database ok"; exit 0; fi
             sleep 6
           done
-          echo "$url never said the database is ok"; curl -sS "$url" | head -c 2000; exit 1
+          echo "$url never said the database is ok"; curl -sS -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" "$url" | head -c 2000; exit 1

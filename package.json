@@ -56,6 +56,7 @@
       "@effect/sql-pg": "4.1.2",
       "@effect/atom-react": "4.1.2",
       "@sentry/react": "11.11.0",
+      "@sentry/vite-plugin": "11.11.0",
       "@effect/platform-bun": "4.1.2",
       "@effect/platform-node": "4.1.2",
       "alchemy": "2.0.0-beta.85",
