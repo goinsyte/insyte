@@ -35,6 +35,7 @@ describe("the API Worker", () => {
     const response = await call("http://api.test/api/config")
     expect(await response.json()).toEqual({
       turnstileSiteKey: "1x00000000000000000000AA",
+      sentryDsn: "",
       signInProviders: [],
       flags: {}
     })

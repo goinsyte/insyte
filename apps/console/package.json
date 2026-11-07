@@ -11,6 +11,7 @@
     "@effect/atom-react": "catalog:",
     "@insyte/api": "workspace:*",
     "@insyte/ui": "workspace:*",
+    "@sentry/react": "catalog:",
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",
     "effect": "catalog:",

@@ -68,6 +68,14 @@ export default Alchemy.Stack(
         VERSION: yield* Config.String("GITHUB_SHA").pipe(Config.withDefault("dev")),
         LOG_LEVEL: environment === "preview" ? "Debug" : "Info",
         OTEL_SERVICE_NAME: "insyte-api",
+        // Spans to Sentry over OTLP (17 §7). The header carries the project's public key; bound as a secret anyway.
+        OTEL_TRACES_EXPORTER: yield* Config.String("OTEL_TRACES_EXPORTER").pipe(Config.withDefault("none")),
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: yield* Config.String("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT").pipe(
+          Config.withDefault("")
+        ),
+        OTEL_EXPORTER_OTLP_HEADERS: Config.Redacted("OTEL_EXPORTER_OTLP_HEADERS"),
+        OTEL_BSP_SCHEDULE_DELAY: yield* Config.String("OTEL_BSP_SCHEDULE_DELAY").pipe(Config.withDefault("3600000")),
+        SENTRY_DSN: yield* Config.String("SENTRY_DSN").pipe(Config.withDefault("")),
         // Cloudflare's always-passes test key until each environment has its widget (infra/shared.ts).
         TURNSTILE_SITE_KEY: "1x00000000000000000000AA"
       }

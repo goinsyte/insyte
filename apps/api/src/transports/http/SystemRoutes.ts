@@ -55,7 +55,8 @@ const PublicConfig = HttpRouter.add(
   "/api/config",
   Effect.gen(function*() {
     const turnstileSiteKey = yield* Config.String("TURNSTILE_SITE_KEY").pipe(Config.withDefault(""))
-    return HttpServerResponse.jsonUnsafe({ turnstileSiteKey, signInProviders: [], flags: {} })
+    const sentryDsn = yield* Config.String("SENTRY_DSN").pipe(Config.withDefault(""))
+    return HttpServerResponse.jsonUnsafe({ turnstileSiteKey, sentryDsn, signInProviders: [], flags: {} })
   })
 )
 

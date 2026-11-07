@@ -25,6 +25,8 @@ jobs:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
       INSYTE_APP_DB_PASSWORD: ${{ secrets.INSYTE_APP_DB_PASSWORD }}
+      # The stack reads it while declaring the API; destroy evaluates the declaration too.
+      OTEL_EXPORTER_OTLP_HEADERS: ${{ vars.OTEL_EXPORTER_OTLP_HEADERS }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

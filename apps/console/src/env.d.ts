@@ -9,4 +9,13 @@ declare global {
   }
 }
 
+/** Build-time values (Vite), public by design: set per environment by the deploy's console build. */
+declare global {
+  interface ImportMetaEnv {
+    readonly VITE_SENTRY_DSN?: string
+    readonly VITE_ENVIRONMENT?: string
+    readonly VITE_VERSION?: string
+  }
+}
+
 export {}
