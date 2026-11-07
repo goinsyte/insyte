@@ -77,7 +77,8 @@ export function sharedHeadSteps({
         const { error } = await authClient.signUp.email({
           email: d.email ?? "",
           password: d.password ?? "",
-          name: d.name ?? ""
+          name: d.name ?? "",
+          callbackURL: verifiedLanding()
         })
         if (error) {
           // Thrown → the shell shows it inline beneath the fields.
@@ -152,11 +153,16 @@ export function sharedHeadSteps({
       canContinue: true,
       primaryLabel: "Ik heb op de link geklikt",
       busyLabel: "Controleren",
-      onPrimary: () => {
+      onPrimary: async () => {
+        // The link signs the person in where it is opened, so this tab sees the session once they have clicked it.
+        const { data: signedIn } = await authClient.getSession()
+        if (signedIn?.user.emailVerified !== true) {
+          throw new Error("Je e-mailadres is nog niet bevestigd. Klik op de link in de mail en kom dan terug.")
+        }
         persistStep("verify")
         next()
       },
-      content: <VerifyActions />
+      content: <VerifyActions email={d.email ?? ""} />
     },
     {
       id: "role",
@@ -197,11 +203,14 @@ export function sharedHeadSteps({
 
 export const SHARED_HEAD_LENGTH = 3
 
+/** Where the verification link lands, signed in: the role step (`?step=2`). A function: hrefs are configured at boot. */
+const verifiedLanding = () => appHref("/onboarding?step=2")
+
 const RESEND_COOLDOWN_S = 30
 
 /* Resend waits 30 seconds between sends, so a second tap cannot pile up emails; Wrong address?
    is the shell's Back, which lands on the account step with the email still filled in. */
-function VerifyActions() {
+function VerifyActions({ email }: { readonly email: string }) {
   const back = useContext(OnboardingBackContext)
   const [sentAt, setSentAt] = useState<Date | null>(null)
   const [now, setNow] = useState(() => Date.now())
@@ -221,11 +230,13 @@ function VerifyActions() {
         <button
           type="button"
           disabled={left > 0}
-          onClick={() => {
+          onClick={async () => {
             const at = new Date()
             setSentAt(at)
             setNow(at.getTime())
-            toast.success("Verificatiemail opnieuw verstuurd")
+            const { error } = await authClient.sendVerificationEmail({ email, callbackURL: verifiedLanding() })
+            if (error) toast.error(error.message ?? "De mail kon niet opnieuw worden verstuurd.")
+            else toast.success("Verificatiemail opnieuw verstuurd")
           }}
           className="font-medium text-arc-ink transition-colors hover:text-ink disabled:pointer-events-none disabled:text-ink-3"
         >

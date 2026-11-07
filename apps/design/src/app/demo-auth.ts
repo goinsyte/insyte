@@ -1,38 +1,35 @@
 /**
- * NOT PORTED — written for this repo. See ADR-0004, and ADR-0005 for why the check is gone.
+ * The design reference's auth client: answers the calls the screens make from the fixtures. Written for this repo
+ * (ADR-0004); the seam it fills is `@insyte/ui/app/lib/auth-client`, and the console fills it with better-auth's.
  *
- * Legacy builds a better-auth React client against the Elysia server: `baseURL` points at
- * `/api/auth/**`, the session rides in a cross-origin cookie, and the organization plugin shares an
- * access-control instance with the server so client-side permission checks resolve against the same
- * source of truth.
+ * Legacy's dashboard layout calls `getSession()` before rendering anything, so a client with no server would redirect
+ * every screen to `/login`. This stand-in is deliberately NOT a fake auth system: there is one session, it is always
+ * present, and nothing here decides anything. The point is that the gate, the sign-in form, the reset dialog and the
+ * onboarding steps run unedited.
  *
- * None of that exists here, and the consequence is not cosmetic: the dashboard's layout route calls
- * `getSession()` before rendering anything, so a client with no server redirects every screen to
- * `/login`. That is why the legacy dashboard cannot be rendered locally and why this port has no
- * rendered comparison.
+ * Which means the sign-in form signs no one in. It validates with its own schema, shows its own pending and error
+ * states, and then navigates, the same thing it does against the real client, except that the session it lands on was
+ * already there. Nothing is sent anywhere; there is nothing to send it to.
  *
- * This stand-in answers the calls the ported screens make, from `lib/mock-data` — the same place
- * every other number on these screens comes from. It is deliberately NOT a fake auth system: there
- * is one session, it is always present, and nothing here decides anything. The point is that the
- * ported gate, the store selector, the team screen, the sign-in form and the eight onboarding steps
- * run unedited.
- *
- * Which means the sign-in form signs no one in. It validates with its own zod schema, shows its own
- * pending and error states, and then navigates — the same thing it does against the real client,
- * except that the session it lands on was already there. Nothing is sent anywhere; there is nothing
- * to send it to.
+ * Installed by `install-auth.ts`, which `boot.tsx` imports first: it reads the data source at module load, so it must
+ * run after `install.ts`, and only the dynamic import of `boot.tsx` guarantees that in the bundle.
  */
-import { currentUserByPersona } from "../../data-source"
-import { members } from "../../data-source"
-import { org } from "../../data-source"
-import { useTeam } from "../stores/team-store"
+import type { AuthClient } from "@insyte/ui/app/lib/auth-client"
+import { useTeam } from "@insyte/ui/app/stores/team-store"
+import { currentUserByPersona, members, org } from "@insyte/ui/data-source"
 
 /* The admin persona, which is the one the dashboard's layout route gates on. */
 const currentUser = currentUserByPersona.admin
 
 const session = {
   session: { id: "session_mock", userId: currentUser.id, expiresAt: new Date(2099, 0, 1) },
-  user: { id: currentUser.id, name: currentUser.name, email: currentUser.email, image: currentUser.avatar_url }
+  user: {
+    id: currentUser.id,
+    name: currentUser.name,
+    email: currentUser.email,
+    emailVerified: true,
+    image: currentUser.avatar_url
+  }
 }
 
 /** Better-auth's organization shape, as the two screens that read it use it. */
@@ -53,12 +50,8 @@ const activeOrganization = {
  * way: `if (error)` first, then the data. So does this. */
 const ok = <A>(data: A) => Promise.resolve({ data, error: null as { message?: string } | null })
 
-const failed = (message: string) => Promise.resolve({ data: null, error: { message } })
-
-export const authClient = {
+export const demoAuthClient: AuthClient = {
   getSession: () => Promise.resolve({ data: session, error: null }),
-
-  useActiveOrganization: () => ({ data: activeOrganization, error: null, isPending: false }),
 
   /*
    * Email sign-in and sign-up, which succeed for any input that passes the form's own validators.
@@ -85,6 +78,15 @@ export const authClient = {
     email: (_account: { email: string; password: string; name: string }) => ok(session)
   },
 
+  /* No mail server: each send "goes out" after a beat, so the dialog's pending state is seen, and lands nowhere. */
+  sendVerificationEmail: (_request: { email: string; callbackURL?: string | undefined }) => ok(null),
+  requestPasswordReset: (_request: { email: string; redirectTo: string }) =>
+    new Promise((resolve) => setTimeout(() => resolve({ data: null, error: null }), 700)),
+  resetPassword: (_request: { newPassword: string; token: string }) => ok(null),
+
+  /* The one session is the reference's whole premise, so signing out keeps it: the screen still navigates. */
+  signOut: () => ok(null),
+
   organization: {
     /** The onboarding step patches the returned id into its state and sends it on to
      * `persistStep`, so this answers with the organisation the rest of the app already shows,
@@ -93,26 +95,6 @@ export const authClient = {
       /* "Nieuwe werkruimte" in the switcher runs this same step; the new one joins the person's list. */
       if (useTeam.getState().creatingWorkspace) useTeam.getState().addWorkspace(name)
       return ok({ ...activeOrganization, name, slug })
-    },
-
-    /*
-     * The invite-accept landing, which is the one call here that can fail — and should, because its
-     * route renders four different outcomes and three of them are failures.
-     *
-     * The mock workspace has one pending invitation, Amber's, so that id is accepted and anything
-     * else is not found. Legacy's route maps a "not found" message to its expired screen; that
-     * mapping is its own, and it is left exactly as written.
-     */
-    acceptInvitation: ({ invitationId }: { invitationId: string }) => {
-      const pending = members.find((member) => member.status === "invited" && member.id === invitationId)
-      return pending ? ok({ invitation: { id: pending.id }, member: pending }) : failed("Invitation not found.")
-    },
-
-    /*
-     * Succeeds, because the screen's own code is what is being ported: it toasts on success and
-     * shows the error otherwise, and a stand-in that always failed would show an error state as the
-     * normal one. Nothing is sent anywhere — there is no server to send it to.
-     */
-    inviteMember: (_invite: { email: string; role: string; organizationId?: string }) => ok(null)
+    }
   }
 }

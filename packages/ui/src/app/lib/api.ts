@@ -58,19 +58,23 @@ const ok = <A>(data: A) => Promise.resolve({ data, error: null })
 
 const DAYS: Record<string, number> = { "7d": 7, "30d": 30, "90d": 90 }
 
-const dated = orders.toSorted((a, b) => a.created_at.localeCompare(b.created_at))
+/* Functions, not values: this module loads in the console too (the onboarding steps reach it), where no data source is
+   installed and a read at load would throw. */
+const dated = () => orders.toSorted((a, b) => a.created_at.localeCompare(b.created_at))
 
 /** The mock orders are dated across 2026; "now" is the last of them, so a range is never empty. */
-const latest = new Date(dated[dated.length - 1]?.created_at ?? Date.now())
+const latestOf = (sorted: ReadonlyArray<Order>) => new Date(sorted[sorted.length - 1]?.created_at ?? Date.now())
 
 const within = (range: string): Array<Order> => {
+  const sorted = dated()
+  const latest = latestOf(sorted)
   if (range === "ytd") {
     const start = new Date(Date.UTC(latest.getUTCFullYear(), 0, 1)).toISOString()
-    return dated.filter((order) => order.created_at >= start)
+    return sorted.filter((order) => order.created_at >= start)
   }
   const days = DAYS[range] ?? 30
   const start = new Date(latest.getTime() - days * 86_400_000).toISOString()
-  return dated.filter((order) => order.created_at >= start)
+  return sorted.filter((order) => order.created_at >= start)
 }
 
 const metricsFor = (range: string): Metrics => {
@@ -155,7 +159,7 @@ export const api = {
   },
 
   operators: {
-    orders: { get: () => ok<Array<Order>>(dated) },
+    orders: { get: () => ok<Array<Order>>(dated()) },
     products: product,
     customers: { get: () => ok<Array<Customer>>(customers) },
     stores: {

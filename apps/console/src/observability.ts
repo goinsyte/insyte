@@ -20,3 +20,6 @@ export const startObservability = () => {
     propagateTraceparent: true
   })
 }
+
+/** Who the errors happen to, by id only (17 §5): set after sign-in and on a known session, cleared on sign-out. */
+export const identify = (userId: string | null) => Sentry.setUser(userId === null ? null : { id: userId })

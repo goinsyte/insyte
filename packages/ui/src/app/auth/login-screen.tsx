@@ -34,7 +34,8 @@ export function LoginPage() {
     validators: {
       onSubmit: z.object({
         email: z.email("Vul een geldig e-mailadres in."),
-        password: z.string().min(8, "Minimaal 8 tekens.")
+        // The length rule is registration's and reset's; signing in only needs a password (05 §3.1).
+        password: z.string().min(1, "Vul je wachtwoord in.")
       })
     },
     onSubmit: async ({ value, formApi }) => {
@@ -206,7 +207,7 @@ export function LoginPage() {
 
 /* --------------------------------- RESET PASSWORD --------------------------------- */
 
-/* The demo has no mail server: the link "goes out" after a beat and the dialog says where. */
+/* Mails a link to `/reset-password`; the installed client decides whether anything is really sent. */
 function ResetPasswordDialog({
   open,
   onOpenChange,
@@ -229,14 +230,24 @@ function ResetPasswordDialog({
     setError(null)
   }, [open])
 
-  function send() {
+  async function send() {
     if (!z.email().safeParse(email.trim()).success) {
       setError("Vul een geldig e-mailadres in.")
       return
     }
     setError(null)
     setState("sending")
-    setTimeout(() => setState("sent"), 700)
+    // The answer is the same whether or not the address has an account, so "sent" says nothing about which.
+    const { error: failed } = await authClient.requestPasswordReset({
+      email: email.trim(),
+      redirectTo: appHref("/reset-password")
+    })
+    if (failed) {
+      setError(failed.message ?? "De resetlink kon niet worden verstuurd. Probeer het opnieuw.")
+      setState("form")
+      return
+    }
+    setState("sent")
   }
 
   return (
@@ -274,7 +285,7 @@ function ResetPasswordDialog({
               className="grid gap-4"
               onSubmit={(e) => {
                 e.preventDefault()
-                send()
+                void send()
               }}
             >
               <DialogHeader>
@@ -319,7 +330,7 @@ const PRIMARY_SM =
 
 /* --------------------------------- BRAND HALF --------------------------------- */
 
-function BrandHalf() {
+export function BrandHalf() {
   return (
     <aside className="relative isolate flex flex-col overflow-hidden bg-stripe-mesh-dark px-6 py-8 text-mesh-ink sm:px-10 sm:py-10 lg:px-12 lg:py-12 xl:px-16">
       <MeshAtmosphere />
@@ -423,11 +434,11 @@ function MeshAtmosphere() {
 
 /* --------------------------------- BITS --------------------------------- */
 
-const INPUT_CLASS =
+export const INPUT_CLASS =
   "h-11 w-full rounded-lg bg-paper px-3.5 text-[14px] leading-none text-ink placeholder:text-ink-3 outline-none transition-shadow " +
   "focus-visible:ring-focus"
 
-function FieldError({
+export function FieldError({
   errors
 }: {
   errors: ReadonlyArray<{ message?: string } | undefined>
@@ -441,7 +452,7 @@ function FieldError({
   )
 }
 
-function Field({
+export function Field({
   label,
   children
 }: {

@@ -13,8 +13,8 @@
 import type { AnyFormApi } from "@tanstack/react-form"
 
 export type ServerFormError = {
-  form?: string
-  fields?: Record<string, string>
+  form?: string | undefined
+  fields?: Record<string, string> | undefined
 }
 
 type Envelope = {
@@ -73,6 +73,9 @@ export function applyServerError(
 
 /** Read the form-level message out of `form.state.errorMap.onServer`. */
 export function serverFormMessage(onServer: unknown): string | undefined {
+  // TanStack Form splits a `{ form, fields }` error itself: the fields go to each field's meta and `onServer` keeps the
+  // form-level part alone, which is the string. Read only as an object, no server error ever showed.
+  if (typeof onServer === "string") return onServer || undefined
   if (!onServer || typeof onServer !== "object" || !("form" in onServer)) {
     return undefined
   }
