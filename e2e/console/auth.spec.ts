@@ -10,8 +10,14 @@ import { createHmac } from "node:crypto"
 const test = base.extend<{ page: Page }>({
   page: async ({ page }, use) => {
     const errors: Array<string> = []
-    page.on("pageerror", (e) => errors.push(String(e)))
+    const logged: Array<string> = []
+    page.on("pageerror", (e) => errors.push(`${String(e)} @ ${page.url()}`))
+    // What the console said, for the report when a page error needs its context (a hydration mismatch says little).
+    page.on("console", (m) => {
+      if (m.type() === "error" || m.type() === "warning") logged.push(`${m.type()}: ${m.text()} @ ${page.url()}`)
+    })
     await use(page)
+    if (errors.length > 0) await test.info().attach("console", { body: logged.join("\n"), contentType: "text/plain" })
     expect(errors, "uncaught errors on the page").toEqual([])
   }
 })
@@ -241,7 +247,9 @@ test("@onboarding a new admin reaches the organisation step, and every return re
   await expect(page.getByRole("heading", { name: "Geef je werkruimte een naam." })).toBeVisible()
 
   // Another browser: sign in, and the landing is the same step.
-  const other = await browser.newContext()
+  // A new context gets none of the project's options by itself: the base URL, and on a preview the Access headers.
+  const { baseURL, extraHTTPHeaders } = test.info().project.use
+  const other = await browser.newContext({ baseURL, ...(extraHTTPHeaders === undefined ? {} : { extraHTTPHeaders }) })
   const elsewhere = await other.newPage()
   await elsewhere.goto("/login")
   await signIn(elsewhere, email, password)
