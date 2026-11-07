@@ -10,6 +10,7 @@
   "workspaces": {
     "packages": [
       "packages/*",
+      "packages/integrations/*",
       "apps/*",
       "infra"
     ],
@@ -57,6 +58,8 @@
       "@effect/atom-react": "4.1.2",
       "@sentry/react": "11.11.0",
       "@sentry/vite-plugin": "11.11.0",
+      "better-auth": "1.7.18",
+      "kysely": "0.29.8",
       "@effect/platform-bun": "4.1.2",
       "@effect/platform-node": "4.1.2",
       "alchemy": "2.0.0-beta.85",
@@ -82,7 +85,7 @@
     "deps:check": "syncpack lint",
     "deps:update": "syncpack update",
     "scope": "bun scripts/scope.ts --base main",
-    "hygiene": "bun run knip && bun run deps:check && bun run secrets && bun run effect:verify && bun run migrations:check && bun run boundaries && bun run bindings:check && bun run licences",
+    "hygiene": "bun run knip && bun run deps:check && bun run secrets && bun run effect:verify && bun run migrations:check && bun run boundaries && bun run bindings:check && bun run licences && bun run auth:check",
     "effect:verify": "bun scripts/effect-verify.ts",
     "preflight": "bun run format && bun run check && bun run lint && bun run hygiene && bun run test",
     "preflight:ci": "bun run format:check && bun run check && bun run lint && bun run hygiene && bun run test",
@@ -103,17 +106,20 @@
     "boundaries": "bun scripts/boundaries.ts",
     "bindings:check": "bun scripts/bindings-check.ts",
     "bundle:check": "bun scripts/bundle-check.ts",
-    "licences": "bun scripts/licences.ts"
+    "licences": "bun scripts/licences.ts",
+    "auth:schema": "bun scripts/auth-schema.ts",
+    "auth:check": "bun scripts/auth-schema.ts --check"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.5",
+    "@effect/sql-pg": "catalog:",
     "@effect/tsgo": "0.46.1",
+    "@insyte/database": "workspace:*",
+    "@insyte/modules": "workspace:*",
     "@playwright/test": "1.58.2",
     "@secretlint/secretlint-rule-preset-recommend": "13.0.6",
     "@types/node": "catalog:",
-    "@effect/sql-pg": "catalog:",
-    "@insyte/database": "workspace:*",
-    "@insyte/modules": "workspace:*",
+    "better-auth": "catalog:",
     "dprint": "0.57.4",
     "effect": "catalog:",
     "knip": "6.38.0",

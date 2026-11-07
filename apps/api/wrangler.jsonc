@@ -36,6 +36,7 @@
   // 02 §5.1, local column. Read through `platform/Bindings.ts` only.
   "vars": {
     "ENVIRONMENT": "local",
+    "CONSOLE_ORIGIN": "http://localhost:4300",
     "LOG_LEVEL": "Debug",
     "OTEL_SERVICE_NAME": "insyte-api",
     // Cloudflare's always-passes test key; each environment has its own widget.

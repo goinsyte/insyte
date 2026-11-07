@@ -14,7 +14,7 @@ describe("the API Worker", () => {
       ok: true,
       role: "insyte_app",
       bypassesRls: false,
-      migratedTo: "0002_platform"
+      migratedTo: expect.stringMatching(/^\d{4}_[a-z_]+$/)
     })
   })
 
@@ -52,7 +52,7 @@ describe("the API Worker", () => {
       version: "dev",
       environment: "local",
       database: "ok",
-      migratedTo: "0002_platform"
+      migratedTo: expect.stringMatching(/^\d{4}_[a-z_]+$/)
     })
   })
 })

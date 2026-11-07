@@ -25,6 +25,7 @@ jobs:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
       INSYTE_APP_DB_PASSWORD: ${{ secrets.INSYTE_APP_DB_PASSWORD }}
+      BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
       # The stack reads it while declaring the API; destroy evaluates the declaration too.
       OTEL_EXPORTER_OTLP_HEADERS: ${{ vars.OTEL_EXPORTER_OTLP_HEADERS }}
     steps:

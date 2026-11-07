@@ -1,12 +1,15 @@
 import { Layer, Scheduler } from "effect"
 import { FetchHttpClient, HttpServer } from "effect/http"
+import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
+import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
 import { RequestContext } from "../transports/http/RequestContext.ts"
 import { SystemRoutes } from "../transports/http/SystemRoutes.ts"
 import { RpcContext, RpcRoutes } from "../transports/rpc/RpcRoutes.ts"
 import { WithDbLive } from "../transports/rpc/WithDbLive.ts"
-import { AppInfo, ConfigLive } from "./Bindings.ts"
+import { AppInfo, AuthSettings, ConfigLive } from "./Bindings.ts"
 import { HyperdriveConnect } from "./Hyperdrive.ts"
+import { MailerCapture } from "./Mail.ts"
 import { ObservabilityLive } from "./Observability.ts"
 
 /*
@@ -15,7 +18,7 @@ import { ObservabilityLive } from "./Observability.ts"
  * is opened per request (`RequestDb.ts`), and the layer holds only the way to open one (`HyperdriveConnect`).
  */
 
-const Transports = Layer.mergeAll(SystemRoutes, RpcRoutes, RequestContext, NotFound)
+const Transports = Layer.mergeAll(SystemRoutes, AuthRoutes, DevRoutes, RpcRoutes, RequestContext, NotFound)
 
 /**
  * The sync scheduler, for the layer and for requests: Effect's guidance for Workers (`HttpRouter.toWebHandler`), so a
@@ -26,6 +29,9 @@ const SyncScheduler = Layer.succeed(Scheduler.Scheduler, new Scheduler.MixedSche
 export const AppLayer = Transports.pipe(
   Layer.provideMerge(RpcContext),
   Layer.provideMerge(WithDbLive),
+  // Read per request by the auth routes. The capture adapter until Resend arrives (MAIL_ADAPTER, 02 §5.1).
+  Layer.provideMerge(MailerCapture),
+  Layer.provideMerge(AuthSettings.layer),
   // Read per request by the routes and the RPC middleware; building it opens no socket.
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),

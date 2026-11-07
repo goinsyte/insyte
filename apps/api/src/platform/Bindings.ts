@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers"
-import { Config, ConfigProvider, Context, Effect, Layer } from "effect"
+import { Config, ConfigProvider, Context, Effect, Layer, Redacted } from "effect"
 
 /*
  * The only file that reads `env` (04 §13). String vars and secrets become Effect `Config`; a binding (Hyperdrive, a
@@ -27,6 +27,29 @@ export class AppInfo extends Context.Service<AppInfo, {
         version: yield* Config.String("VERSION").pipe(Config.withDefault("dev")),
         environment: yield* EnvironmentConfig
       }
+    })
+  )
+}
+
+/**
+ * What better-auth needs from the environment (12 §4): the console's origin (cookies, links in mail, the CSRF check)
+ * and the signing secret. Locally a fixed development secret stands in, so `wrangler dev` and the tests need no
+ * `.dev.vars`; every deployed stage gets its own from its GitHub environment.
+ */
+export class AuthSettings extends Context.Service<AuthSettings, {
+  readonly consoleOrigin: string
+  readonly secret: Redacted.Redacted
+}>()("api-worker/AuthSettings") {
+  static readonly layer = Layer.effect(
+    AuthSettings,
+    Effect.gen(function*() {
+      const environment = yield* EnvironmentConfig
+      const secret = yield* Config.Redacted("BETTER_AUTH_SECRET").pipe(
+        environment === "local"
+          ? Config.withDefault(Redacted.make("local-development-secret-never-deployed-0123456789"))
+          : (config) => config
+      )
+      return { consoleOrigin: yield* Config.String("CONSOLE_ORIGIN"), secret }
     })
   )
 }
