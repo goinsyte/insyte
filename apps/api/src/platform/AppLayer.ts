@@ -1,9 +1,11 @@
 import type { Connect } from "@insyte/database/Connect"
 import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
 import { PwnedPasswords } from "@insyte/integrations-better-auth/PwnedPasswords"
+import { PostHogAnalytics } from "@insyte/integrations-posthog/PostHog"
 import { ResendMailer } from "@insyte/integrations-resend/ResendMailer"
 import type { Mailer } from "@insyte/modules/shared/domain/Mailer"
-import { Config, Effect, Layer, Scheduler } from "effect"
+import type { ProductAnalytics } from "@insyte/modules/shared/domain/ProductAnalytics"
+import { Config, Effect, Layer, Option, Scheduler } from "effect"
 import { FetchHttpClient, type HttpClient, HttpServer } from "effect/http"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
 import { DevRoutes } from "../transports/http/DevRoutes.ts"
@@ -19,7 +21,9 @@ import { HumanCheck } from "./HumanCheck.ts"
 import { HyperdriveConnect } from "./Hyperdrive.ts"
 import { MailerCapture } from "./Mail.ts"
 import { ObservabilityLive } from "./Observability.ts"
+import { ProductAnalyticsCapture } from "./ProductAnalyticsCapture.ts"
 import { RateLimits } from "./RateLimits.ts"
+import { RelayLive } from "./Relay.ts"
 
 /*
  * The composition root (16 §5): every implementation is chosen here, and the layer is built once per isolate. Nothing
@@ -44,6 +48,15 @@ const MailerLive = Layer.unwrap(
   )
 )
 
+/** Product analytics (17 §5): PostHog where the stage has a key, a captured row the dev route reads where it has none. */
+const ProductAnalyticsLive = Layer.unwrap(
+  Effect.map(
+    Config.Redacted("POSTHOG_API_KEY").pipe(Config.option),
+    (key): Layer.Layer<ProductAnalytics, Config.ConfigError, Connect | HttpClient.HttpClient> =>
+      Option.isSome(key) ? PostHogAnalytics : ProductAnalyticsCapture
+  )
+)
+
 /** The breached-password check asks HIBP from deployed stages only, so local runs and the worker tests stay offline. */
 const PwnedPasswordsLive = Layer.unwrap(
   Effect.map(
@@ -57,6 +70,8 @@ export const AppLayer = Transports.pipe(
   Layer.provideMerge(RpcContext),
   Layer.provideMerge(WithDbLive),
   Layer.provideMerge(AuthenticatedLive),
+  // Committed events onto the queue, after commit (the outbox relay's kick).
+  Layer.provideMerge(RelayLive),
   // better-auth, built per request by the auth routes and the session check, over the app's hooks.
   Layer.provideMerge(BetterAuth.layer),
   Layer.provideMerge(AuthHooksLive),
@@ -71,6 +86,19 @@ export const AppLayer = Transports.pipe(
   Layer.provideMerge(ObservabilityLive),
   Layer.provideMerge(AppInfo.layer),
   Layer.provide([FetchHttpClient.layer, HttpServer.layerServices]),
+  Layer.provide(ConfigLive),
+  Layer.provideMerge(SyncScheduler)
+)
+
+/**
+ * What the queue consumer and the minute cron run on (M1.4): a connection per invocation, product analytics, the
+ * relay's kick for anything a sink writes, and the same configuration, logging and spans as the routes. No routes.
+ */
+export const BackgroundLayer = Layer.mergeAll(ProductAnalyticsLive, RelayLive).pipe(
+  Layer.provideMerge(HyperdriveConnect),
+  Layer.provideMerge(ObservabilityLive),
+  Layer.provideMerge(AppInfo.layer),
+  Layer.provide(FetchHttpClient.layer),
   Layer.provide(ConfigLive),
   Layer.provideMerge(SyncScheduler)
 )

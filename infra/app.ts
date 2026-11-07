@@ -114,16 +114,30 @@ export default Alchemy.Stack(
       ? { MAIL_ADAPTER: "resend", RESEND_API_KEY: resendKey.value }
       : { MAIL_ADAPTER: "capture" }
 
+    /*
+     * The outbox relay (M1.4): committed events' ids go onto EVENTS, which this stage's API Worker consumes; what fails
+     * its retries lands in the dead-letter queue. EU jurisdiction, which can only be set at creation. The minute sweep
+     * for events a kick missed runs on staging and production only: an account has few cron triggers, and a preview
+     * each would spend them.
+     */
+    const events = yield* Cloudflare.Queues.Queue("Events", { name: `insyte-events-${stage}`, jurisdiction: "eu" })
+    const deadEvents = yield* Cloudflare.Queues.Queue("EventsDlq", {
+      name: `insyte-events-dlq-${stage}`,
+      jurisdiction: "eu"
+    })
+
     const api = yield* Cloudflare.Worker("Api", {
       name: `insyte-api-${stage}`,
       main: "../apps/api/src/Main.ts",
       compatibility: { date: COMPATIBILITY_DATE, flags: ["nodejs_compat", "enable_request_signal"] },
       placement: { region: "aws:eu-central-1" },
+      ...(environment === "preview" ? {} : { crons: ["* * * * *"] }),
       // Reached only through the console's service binding, never on a public hostname of its own.
       workersDev: false,
       observability: OBSERVABILITY,
       env: {
         HYPERDRIVE: hyperdrive,
+        EVENTS: events,
         // The edge guards' counters (M2.3), hosted by this Worker (`RateLimiter` in Main.ts); SQLite-backed.
         RATE_LIMITER: Cloudflare.DurableObject("RateLimiter", { className: "RateLimiter" }),
         ENVIRONMENT: environment,
@@ -153,6 +167,13 @@ export default Alchemy.Stack(
         MAIL_FROM: (yield* Config.String("MAIL_FROM").pipe(Config.withDefault(""))) ||
           "Insyte <noreply@mail.goinsyte.com>"
       }
+    })
+
+    yield* Cloudflare.Queues.Consumer("EventsConsumer", {
+      queueId: events.queueId,
+      scriptName: api.workerName,
+      deadLetterQueue: deadEvents.queueName,
+      settings: { batchSize: 10, maxWaitTimeMs: 1000, maxRetries: 5 }
     })
 
     // CI's smoke test gets past Access with a service token (CF_ACCESS_CLIENT_ID / _SECRET in each environment).

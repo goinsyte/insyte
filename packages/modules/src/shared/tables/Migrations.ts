@@ -7,6 +7,7 @@ import authTwoFactor from "./migrations/0006_auth_two_factor.ts"
 import authEvents from "./migrations/0007_auth_events.ts"
 import onboarding from "./migrations/0008_onboarding.ts"
 import workspaces from "./migrations/0009_workspaces.ts"
+import relay from "./migrations/0010_relay.ts"
 
 /**
  * Every migration, by its permanent key, in the order they were written (06; 15). A new migration is a new file and a
@@ -21,5 +22,6 @@ export const Migrations = {
   "0006_auth_two_factor": authTwoFactor,
   "0007_auth_events": authEvents,
   "0008_onboarding": onboarding,
-  "0009_workspaces": workspaces
+  "0009_workspaces": workspaces,
+  "0010_relay": relay
 }

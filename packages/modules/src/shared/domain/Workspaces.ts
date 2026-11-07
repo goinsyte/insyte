@@ -50,10 +50,13 @@ export const validateWorkspace = (
 }
 
 export class WorkspaceFounder extends Context.Service<WorkspaceFounder, {
-  /** The workspace, its five system roles, its counters and its owner. `Invalid { slug: "taken" }` when in use. */
+  /**
+   * The workspace, its five system roles, its counters and its owner, audited, with `workspace.created` in the outbox:
+   * answers the outbox ids for the relay's kick after commit. `Invalid { slug: "taken" }` when the address is in use.
+   */
   readonly found: (
     id: WorkspaceId,
     workspace: ValidWorkspace,
     owner: UserId
-  ) => Effect.Effect<void, Invalid, SqlClient.SqlClient>
+  ) => Effect.Effect<ReadonlyArray<string>, Invalid, SqlClient.SqlClient>
 }>()("shared/WorkspaceFounder") {}
