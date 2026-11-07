@@ -2,7 +2,6 @@ import {
 	AlertTriangle,
 	AtSign,
 	BarChart3,
-	BellRing,
 	Box,
 	Calendar,
 	Check,
@@ -11,19 +10,15 @@ import {
 	Globe,
 	type IconComponent,
 	Inbox,
-	Mail,
 	MessagesSquare,
 	Pin,
 	Plus,
 	Rocket,
-	ShieldCheck,
 	ShoppingBag,
 	Sparkle,
 	Star,
-	Store,
 	Ticket,
 	Truck,
-	UserPlus,
 	Users,
 	Workflow,
 	X,
@@ -60,6 +55,9 @@ import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
 import { useHome, type WidgetId, type WidgetSize, type WidgetTone } from "../stores/home-store";
 import { useWorkspace } from "../stores/workspace-store";
+import { setupTasks, Struck, type Task, TickBox } from "./setup-checklist";
+
+export { Struck, TickBox };
 
 /**
  * The home board's widgets.
@@ -346,14 +344,6 @@ export const WIDGETS: Record<WidgetId, WidgetDef> = {
 
 /* ─── Setup ─────────────────────────────────────────────────────────────── */
 
-type Task = {
-	id: string;
-	label: string;
-	to: string;
-	done: boolean;
-	auto: boolean;
-	icon: IconComponent;
-};
 
 export function useSetupTasks(): Task[] {
 	const stores = useWorkspace((s) => s.stores);
@@ -361,18 +351,12 @@ export function useSetupTasks(): Task[] {
 	const integrations = useWorkspace((s) => s.integrations);
 	const ticked = useHome((s) => s.ticked);
 	const connected = (k: string) => integrations.some((i) => i.key === k && i.status === "connected");
-	const manual = (id: string) => ticked.includes(id);
-	/* The first three are facts the workspace already knows; the rest are the onboarding checklist's
-	   "do it later" items, which only the operator can say they have done. */
-	return [
-		{ id: "store", label: "Een Shopify-winkel koppelen", to: "/settings/stores", done: stores.some((s) => s.status === "connected"), auto: true, icon: Store },
-		{ id: "inbox", label: "Je support-inbox koppelen", to: "/settings/integrations", done: connected("gmail") || connected("outlook"), auto: true, icon: Mail },
-		{ id: "team", label: "Een collega uitnodigen", to: "/settings/team", done: members.length > 1, auto: true, icon: UserPlus },
-		{ id: "supplier", label: "Een leverancier koppelen", to: "/settings/integrations", done: manual("supplier"), auto: false, icon: Truck },
-		{ id: "automation", label: "Een startautomatisering aanzetten", to: "/automations", done: manual("automation"), auto: false, icon: Workflow },
-		{ id: "security", label: "2FA voor iedereen inschakelen", to: "/settings/security", done: manual("security"), auto: false, icon: ShieldCheck },
-		{ id: "alerts", label: "Drempels voor meldingen kiezen", to: "/settings/profile#alerts", done: manual("alerts"), auto: false, icon: BellRing },
-	];
+	const facts: Record<"store" | "inbox" | "team", boolean> = {
+		store: stores.some((s) => s.status === "connected"),
+		inbox: connected("gmail") || connected("outlook"),
+		team: members.length > 1,
+	};
+	return setupTasks((id) => (id === "store" || id === "inbox" || id === "team" ? facts[id] : ticked.includes(id)));
 }
 
 function SetupWidget() {
@@ -879,75 +863,6 @@ function Stat({ label, value }: { label: string; value: string }) {
 			<span className="text-xs text-ink-3">{label}</span>
 			<span className="font-medium text-lg text-ink tabular-nums">{value}</span>
 		</div>
-	);
-}
-
-/**
- * The tick. Ticking draws the check in — the same pen stroke every glyph arrives with — on an arc
- * field that pops once; unticking just clears it. Square for a checklist item, round for a to-do.
- */
-export function TickBox({
-	done,
-	onToggle,
-	label,
-	round = false,
-	disabled = false,
-	title,
-}: {
-	done: boolean;
-	onToggle: () => void;
-	label: string;
-	round?: boolean;
-	disabled?: boolean;
-	title?: string;
-}) {
-	const still = useReducedMotion();
-	return (
-		<button
-			type="button"
-			disabled={disabled}
-			onClick={onToggle}
-			aria-pressed={done}
-			aria-label={done ? `"${label}" markeren als niet klaar` : `"${label}" markeren als klaar`}
-			title={title}
-			className={cn(
-				"relative flex size-4 shrink-0 cursor-pointer items-center justify-center transition-colors disabled:cursor-default",
-				round ? "rounded-full" : "rounded-[5px]",
-				done ? "bg-arc text-mesh-ink" : "bg-paper ring-1 ring-ink/25 hover:ring-arc",
-			)}
-		>
-			<AnimatePresence initial={false}>
-				{done ? (
-					<motion.span
-						key="tick"
-						className="flex"
-						initial={still ? false : { scale: 0.6 }}
-						animate={{ scale: 1 }}
-						exit={{ opacity: 0, transition: { duration: 0.1 } }}
-						transition={{ type: "spring", stiffness: 640, damping: 22 }}
-					>
-						<Glyph icon={Check} size={round ? 10 : 12} />
-					</motion.span>
-				) : null}
-			</AnimatePresence>
-		</button>
-	);
-}
-
-/** A strike-through that is drawn across the words, left to right, rather than switched on. */
-export function Struck({ on, children }: { on: boolean; children: ReactNode }) {
-	const still = useReducedMotion();
-	return (
-		<span className="relative">
-			{children}
-			<motion.span
-				aria-hidden
-				className="pointer-events-none absolute top-1/2 left-0 h-px w-full origin-left bg-ink-3"
-				initial={false}
-				animate={{ scaleX: on ? 1 : 0 }}
-				transition={still ? { duration: 0 } : { duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-			/>
-		</span>
 	);
 }
 
