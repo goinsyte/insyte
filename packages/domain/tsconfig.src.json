@@ -1,0 +1,17 @@
+{
+  // The values every layer shares: ids, money, errors, the principal and the permission catalogue. Imports only
+  // `effect` (08 §2).
+  //
+  // `types: []`: the console imports this package too, so no platform global may be ambient here. A file that wants
+  // `R2Bucket` or `process` is in the wrong package.
+  "extends": "../../tsconfig.base.json",
+  "include": ["src/**/*.ts"],
+  "exclude": ["**/test/**"],
+  "compilerOptions": {
+    "noEmit": true,
+    // The package, not `src`: `test/` sits beside `src/`.
+    "rootDir": ".",
+    "tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo",
+    "types": []
+  }
+}
