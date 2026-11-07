@@ -31,3 +31,10 @@ export const health = () =>
     const client = yield* RpcClient.make(ConsoleRpcs)
     return yield* client["System.health"]()
   }).pipe(Effect.scoped, Effect.provide(RpcProtocol), Effect.runPromise)
+
+/** `Session.me` over RPC, with a cookie when given: the console's call after sign-in. */
+export const sessionMe = (cookie?: string) =>
+  Effect.gen(function*() {
+    const client = yield* RpcClient.make(ConsoleRpcs)
+    return yield* client["Session.me"](undefined, cookie === undefined ? {} : { headers: { cookie } })
+  }).pipe(Effect.scoped, Effect.provide(RpcProtocol), Effect.runPromiseExit)

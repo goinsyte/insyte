@@ -5,6 +5,7 @@ import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
 import { RequestContext } from "../transports/http/RequestContext.ts"
 import { SystemRoutes } from "../transports/http/SystemRoutes.ts"
+import { AuthenticatedLive } from "../transports/rpc/AuthenticatedLive.ts"
 import { RpcContext, RpcRoutes } from "../transports/rpc/RpcRoutes.ts"
 import { WithDbLive } from "../transports/rpc/WithDbLive.ts"
 import { AppInfo, AuthSettings, ConfigLive } from "./Bindings.ts"
@@ -29,6 +30,7 @@ const SyncScheduler = Layer.succeed(Scheduler.Scheduler, new Scheduler.MixedSche
 export const AppLayer = Transports.pipe(
   Layer.provideMerge(RpcContext),
   Layer.provideMerge(WithDbLive),
+  Layer.provideMerge(AuthenticatedLive),
   // Read per request by the auth routes. The capture adapter until Resend arrives (MAIL_ADAPTER, 02 §5.1).
   Layer.provideMerge(MailerCapture),
   Layer.provideMerge(AuthSettings.layer),

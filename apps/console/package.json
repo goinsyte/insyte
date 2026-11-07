@@ -10,6 +10,7 @@
   "dependencies": {
     "@effect/atom-react": "catalog:",
     "@insyte/api": "workspace:*",
+    "@insyte/domain": "workspace:*",
     "@insyte/ui": "workspace:*",
     "@sentry/react": "catalog:",
     "@tanstack/react-router": "catalog:",

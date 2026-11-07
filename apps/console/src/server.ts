@@ -1,3 +1,4 @@
+import { CONSOLE_ROUTES, safeRedirect } from "@insyte/domain/Redirect"
 import { createStartHandler, defaultStreamHandler } from "@tanstack/react-start/server"
 import { env } from "cloudflare:workers"
 
@@ -31,10 +32,33 @@ const SECURITY_HEADERS: Record<string, string> = {
 
 const isApi = (pathname: string) => pathname === "/api" || pathname.startsWith("/api/")
 
+/** Reached before an account exists: the first onboarding steps and an invitation's landing (M2.4). */
+const OPEN_ROUTES = new Set(["onboarding", "invitations"])
+
+/** better-auth's session cookie: `__Secure-` on https, plain on local http. */
+const hasSessionCookie = (request: Request) =>
+  /(?:^|;\s*)(?:__Secure-)?insyte\.session=/.test(request.headers.get("cookie") ?? "")
+
+/**
+ * The session gate (ADR-0028, M2.4): a signed-out visitor asking for an app route goes to sign-in before any HTML,
+ * with where they were going as a safe `redirect`. Only the cookie's presence is checked here; the API checks that it
+ * is valid on the first RPC, and the client gate handles an expired one.
+ */
+const signInFirst = (request: Request): Response | undefined => {
+  const url = new URL(request.url)
+  const first = url.pathname.split("/")[1] ?? ""
+  const isAppRoute = (CONSOLE_ROUTES as ReadonlyArray<string>).includes(first) && !OPEN_ROUTES.has(first)
+  if (request.method !== "GET" || !isAppRoute || hasSessionCookie(request)) return undefined
+  const login = new URL("/login", url)
+  const back = safeRedirect(`${url.pathname}${url.search}`)
+  if (back !== undefined) login.searchParams.set("redirect", back)
+  return new Response(null, { status: 302, headers: { location: `${login.pathname}${login.search}` } })
+}
+
 export default {
   async fetch(request: Request): Promise<Response> {
     if (isApi(new URL(request.url).pathname)) return env.API.fetch(request)
-    const response = await start(request)
+    const response = signInFirst(request) ?? await start(request)
     const secured = new Response(response.body, response)
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) secured.headers.set(name, value)
     // A page holds the visitor's data: never cached by anyone in between.

@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@insyte/database": "workspace:*",
+    "@insyte/domain": "workspace:*",
     "effect": "catalog:"
   }
 }

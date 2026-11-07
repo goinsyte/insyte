@@ -5,7 +5,8 @@
  *   bun run console:smoke   (after `bun run --filter @insyte/console build`, with the database up and migrated)
  *
  * Asserts the server render: `/status` comes back with the database's answer already in the HTML, `/` redirects
- * before any HTML, every page carries the security headers, and `/api/*` reaches the API by service binding.
+ * before any HTML, a signed-out app route goes to sign-in with a safe way back, every page carries the security
+ * headers, and `/api/*` reaches the API by service binding.
  */
 import { spawn } from "node:child_process"
 import { setTimeout as sleep } from "node:timers/promises"
@@ -38,6 +39,19 @@ if (!ready) fail("vite preview did not answer within 60 s")
 const front = await fetch(base, { redirect: "manual" })
 if (front.status !== 302 || !front.headers.get("location")?.endsWith("/status")) {
   fail(`GET /: expected a 302 to /status, got ${front.status} ${front.headers.get("location")}`)
+}
+
+const gated = await fetch(`${base}/orders?view=open`, { redirect: "manual" })
+if (gated.status !== 302 || gated.headers.get("location") !== "/login?redirect=%2Forders%3Fview%3Dopen") {
+  fail(
+    `GET /orders signed out: expected a 302 to sign-in with the way back, got ${gated.status} ${
+      gated.headers.get("location")
+    }`
+  )
+}
+const opened = await fetch(`${base}/onboarding`, { redirect: "manual" })
+if (opened.status === 302 && opened.headers.get("location")?.startsWith("/login")) {
+  fail("GET /onboarding is gated; it must stay open")
 }
 
 const status = await fetch(`${base}/status`)
