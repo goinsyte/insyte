@@ -56,11 +56,6 @@ export default statements(
    )`,
   `create trigger roles_touch before update on roles for each row execute function touch_updated_at()`,
   tenantTable("roles"),
-  // The role of each of a person's own memberships: the session names it before any workspace is chosen.
-  `create policy roles_mine on roles as permissive for select using (exists (
-     select 1 from members m
-     where m.workspace_id = roles.workspace_id and m.role_id = roles.id and m.user_id = app_user_id() and m.deactivated_at is null
-   ))`,
   //
   `create table teams (
      id           text primary key,
@@ -89,6 +84,11 @@ export default statements(
   "create index members_active on members (workspace_id) where deactivated_at is null",
   "create index members_user on members (user_id) where deactivated_at is null",
   tenantTable("members"),
+  // The role of each of a person's own memberships: the session names it before any workspace is chosen.
+  `create policy roles_mine on roles as permissive for select using (exists (
+     select 1 from members m
+     where m.workspace_id = roles.workspace_id and m.role_id = roles.id and m.user_id = app_user_id() and m.deactivated_at is null
+   ))`,
   // A person's own memberships, in every workspace: the session's list of principals.
   "create policy members_own on members as permissive for select using (user_id = app_user_id())",
   // Exactly one active owner per workspace, checked when the transaction commits (a transfer passes through two).
