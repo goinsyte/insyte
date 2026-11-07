@@ -74,7 +74,7 @@
     "deps:check": "syncpack lint",
     "deps:update": "syncpack update",
     "scope": "bun scripts/scope.ts --base main",
-    "hygiene": "bun run knip && bun run deps:check && bun run secrets && bun run effect:verify && bun run migrations:check",
+    "hygiene": "bun run knip && bun run deps:check && bun run secrets && bun run effect:verify && bun run migrations:check && bun run boundaries && bun run bindings:check && bun run licences",
     "effect:verify": "bun scripts/effect-verify.ts",
     "preflight": "bun run format && bun run check && bun run lint && bun run hygiene && bun run test",
     "preflight:ci": "bun run format:check && bun run check && bun run lint && bun run hygiene && bun run test",
@@ -91,7 +91,11 @@
     "db:migrate": "bun scripts/migrate.ts",
     "migrations:check": "bun scripts/migrations-check.ts",
     "api:smoke": "bun scripts/smoke-api.ts",
-    "console:smoke": "bun scripts/smoke-console.ts"
+    "console:smoke": "bun scripts/smoke-console.ts",
+    "boundaries": "bun scripts/boundaries.ts",
+    "bindings:check": "bun scripts/bindings-check.ts",
+    "bundle:check": "bun scripts/bundle-check.ts",
+    "licences": "bun scripts/licences.ts"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.5",

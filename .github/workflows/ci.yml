@@ -52,6 +52,8 @@ jobs:
       - run: bun run api:smoke
       # The built console with the API beside it: the walking skeleton's page, server-rendered from Postgres.
       - run: bun run console:smoke
+      # No server code in the console's browser bundle; the API bundle under the 10 MiB alarm.
+      - run: bun run bundle:check
 
   build:
     name: build
