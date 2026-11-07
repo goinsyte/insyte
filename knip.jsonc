@@ -56,6 +56,10 @@
       // only by the generated route tree.
       "entry": ["src/routes/**/*.tsx"],
     },
+    "infra": {
+      // Read by the alchemy CLI, which knip does not follow.
+      "entry": ["app.ts"],
+    },
     "apps/marketing": {
       // The Worker's entry is `main` in wrangler.jsonc, which knip finds on its own. Routes are
       // discovered by TanStack Start's plugin and imported only by the generated route tree.
