@@ -16,7 +16,7 @@ bun run design                          # http://localhost:4311/app
 ```
 
 Before you start something new, bring the playground up to date with Insyte: **Sync fork** on the repository page
-on GitHub, then `git checkout main && git pull`.
+on GitHub, then `git checkout staging && git pull`, and branch from there.
 
 The demo has no backend: every screen runs on fixtures. `?scenario=empty|settled|busy` switches between
 Eerste dag, Gewone dinsdag and Drukke week.
@@ -50,6 +50,6 @@ refuses such an edit before it is made. The pull request is checked again on Git
 
 ## Handing it over
 
-Push your branch to `insyte-playground` and open a pull request against `goinsyte/insyte` `main`. Describe what the feature is for and which parts you are sure of.
+Push your branch to `insyte-playground` and open a pull request against `goinsyte/insyte` `staging`. Describe what the feature is for and which parts you are sure of.
 We treat it as your requirements, not as finished code. We merge it as-is when it already follows the
 rules, or rebuild it to them.
