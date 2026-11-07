@@ -44,10 +44,14 @@ jobs:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - run: bun run --filter @insyte/console build
-      - run: bunx alchemy provider check-env infra/app.ts
+      # alchemy is installed in infra/, with its Effect peers; `bunx` from the root would fetch a bare copy.
+      - run: bunx alchemy provider check-env --config app.ts
+        working-directory: infra
       # Provisions the account's state store the first time, adopts it after.
-      - run: bunx alchemy state bootstrap --config infra/app.ts --no-input
-      - run: bunx alchemy deploy infra/app.ts --stage "$STAGE" --yes --no-input
+      - run: bunx alchemy state bootstrap --config app.ts --no-input
+        working-directory: infra
+      - run: bunx alchemy deploy app.ts --stage "$STAGE" --yes --no-input
+        working-directory: infra
       - name: migrate the preview's branch
         run: bun run db:migrate --env preview --host "$(bun scripts/neon-branch-host.ts "$STAGE")"
         env:

@@ -31,4 +31,5 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      - run: bunx alchemy destroy infra/app.ts --stage "pr-${{ github.event.pull_request.number }}" --yes --no-input
+      - run: bunx alchemy destroy app.ts --stage "pr-${{ github.event.pull_request.number }}" --yes --no-input
+        working-directory: infra
