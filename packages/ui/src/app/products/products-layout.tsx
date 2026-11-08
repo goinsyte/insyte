@@ -1,5 +1,6 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useOpenedAsModal } from "../common/detail-shell";
+import { DemoProductsSource } from "./demo-source";
 import { ProductsPage } from "./products-screen";
 
 /**
@@ -17,7 +18,11 @@ export function ProductsLayout() {
 	});
 	return (
 		<>
-			{atIndex || asModal ? <ProductsPage /> : null}
+			{atIndex || asModal ? (
+				<DemoProductsSource>
+					<ProductsPage />
+				</DemoProductsSource>
+			) : null}
 			<Outlet />
 		</>
 	);

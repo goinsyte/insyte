@@ -1,167 +1,38 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useReturns } from "../stores/returns-store";
-import { useAllComplaints, useQuality } from "../stores/quality-store";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Archive, BadgePercent, Check, Copy, Download, Edit3, Plus, Sparkles, Star, Truck } from "../../icons";
+import { Plus, Sparkles, Star } from "../../icons";
 import { CategoriesView } from "./categories-view";
-import { LowStockPlate } from "./low-stock-plate";
-import { MarginDialog } from "./margin-dialog";
-import { categoryOf, marginOf, type Stock, stockOf, unitsOf } from "../lib/catalog";
+import type { Stock } from "../lib/catalog";
 import { useViews } from "../stores/views-store";
-import { useCallback, useMemo, useState } from "react";
-import { toast } from "sonner";
-import { copyLines, counted, exportCsv } from "../lib/bulk";
+import { type ReactElement, useCallback, useMemo, useState } from "react";
 import { useSearchCut } from "../filters/use-search-cut";
 import { useOnCreate } from "../stores/create-intent";
-import { useWorkspace } from "../stores/workspace-store";
-import { undoable } from "../lib/undo";
 import { useAskInsyte } from "../shell/ask-insyte-context";
-import { OPEN_AS_MODAL } from "../common/detail-shell";
 import { EmptyState } from "../common/empty-state";
-import { DemoAreaEmpty as AreaEmpty } from "../marketing-sections/closings";
-import { ListClosing } from "../marketing-sections/closings";
+import { AreaEmpty } from "../common/area-empty";
 import { PageHeader } from "../common/page-header";
-import { NewProductDialog } from "./new-product-dialog";
+import { Blocked } from "../access/blocked";
 import { ProductThumb } from "../product/product-thumb";
-import {
-	DataTable,
-	type Facet,
-	facetFilter,
-	type RowAction,
-} from "../table/data-table";
-import { useProducts } from "../hooks/use-operator-data";
+import { DataTable, facetFilter } from "../table/data-table";
 import { formatCurrency } from "../lib/format";
-import { suppliers } from "../../data-source";
 import type { Product } from "../lib/types/domain";
+import { type ProductRow as Row, type TeamGate, useProductsSource } from "./source";
 
-type Row = Product & {
-	stock: Stock;
-	category: string;
-	margin: number;
-	supplierName: string;
-	avgDelivery: string;
-	feedback: string;
-	sku: string;
-};
-
-/* A status change on picked products, with one Undo for the lot. */
-function setStatus(rows: ReadonlyArray<Row>, status: Product["status"]) {
-	const ws = useWorkspace.getState();
-	const before = ws.productEdits;
-	ws.editProducts(Object.fromEntries(rows.map((r) => [r.id, { status }])));
-	const verb = status === "archived" ? "gearchiveerd" : status === "active" ? "op actief gezet" : "op concept gezet";
-	undoable(`${counted(rows.length, "product", "producten")} ${verb}`, () => useWorkspace.getState().restoreProducts(before));
+/** A control the role may not use: disabled, with what is missing, from the host's answer. */
+function GateBy({ gate, children }: { gate: TeamGate; children: ReactElement }) {
+	return gate.ok ? children : <Blocked reason={gate.reason}>{children}</Blocked>;
 }
 
-/* The selection bar's actions on products. A restock request is a ticket on the board, addressed
-   to the supplier, so it is followed up like every other piece of work. */
-const productActions = (openMargins: (rows: Row[]) => void): ReadonlyArray<RowAction<Row>> => [
-	{
-		id: "restock",
-		needs: { perm: "products", arg: 2 },
-		label: "Bijbestelling aanvragen",
-		icon: Truck,
-		group: "Leveranciers",
-		shortcut: "r",
-		bar: true,
-		applies: (p) => p.stock !== "available",
-		run: (rows) => {
-			const { createTicket } = useWorkspace.getState();
-			for (const p of rows)
-				createTicket({
-					title: `${p.title} bijbestellen bij ${p.supplierName}`,
-					description: `${p.title} (${p.sku}) is ${p.stock === "out" ? "uitverkocht" : "bijna op"}. Vraag ${p.supplierName} wanneer er nieuwe voorraad komt.`,
-					priority: p.stock === "out" ? "high" : "medium",
-				});
-			toast(`${counted(rows.length, "bijbestelling", "bijbestellingen")} opgesteld op het bord`);
-		},
-	},
-	{
-		id: "margins",
-		label: "Marges herberekenen",
-		icon: BadgePercent,
-		group: "Prijzen",
-		shortcut: "p",
-		bar: true,
-		run: (rows) => openMargins([...rows]),
-	},
-	{
-		id: "active",
-		needs: { perm: "products", arg: 2 },
-		label: "Op actief zetten",
-		icon: Check,
-		group: "Status",
-		applies: (p) => p.status !== "active",
-		run: (rows) => setStatus(rows, "active"),
-	},
-	{
-		id: "draft",
-		needs: { perm: "products", arg: 2 },
-		label: "Op concept zetten",
-		icon: Edit3,
-		group: "Status",
-		applies: (p) => p.status !== "draft",
-		run: (rows) => setStatus(rows, "draft"),
-	},
-	{
-		id: "archive",
-		needs: { perm: "products", arg: 3 },
-		label: "Archiveren",
-		icon: Archive,
-		group: "Status",
-		applies: (p) => p.status !== "archived",
-		destructive: true,
-		run: (rows) => setStatus(rows, "archived"),
-	},
-	{
-		id: "copy",
-		label: "SKU's kopiëren",
-		icon: Copy,
-		group: "Exporteren",
-		shortcut: "c",
-		bar: true,
-		run: (rows) => copyLines(rows.map((p) => p.sku), counted(rows.length, "SKU", "SKU's")),
-	},
-	{
-		id: "csv",
-		needs: { perm: "data.export" },
-		label: "Exporteren als CSV",
-		icon: Download,
-		group: "Exporteren",
-		run: (rows) =>
-			exportCsv(
-				"producten",
-				["Product", "SKU", "Leverancier", "Prijs", "Marge", "Voorraad"],
-				rows.map((p) => [p.title, p.sku, p.supplierName, p.price, p.margin, p.stock]),
-			),
-	},
-];
-
-const FACETS: ReadonlyArray<Facet> = [
-	{
-		id: "stock",
-		label: "Voorraad",
-		options: [
-			{ value: "available", label: "Op voorraad" },
-			{ value: "low", label: "Lage voorraad" },
-			{ value: "out", label: "Uitverkocht" },
-		],
-	},
-	{
-		id: "supplier",
-		label: "Leverancier",
-		options: suppliers.map((s) => ({ value: s.name, label: s.name })),
-	},
-];
 
 export function ProductsPage() {
 	const navigate = useNavigate();
 	const ask = useAskInsyte();
-	const { data: products, loading } = useProducts();
+	const source = useProductsSource();
+	const { products, loading, NewProduct, Margin, LowStock, Closing } = source;
 	const [newOpen, setNewOpen] = useState(false);
-	const createProduct = useWorkspace((s) => s.createProduct);
-	const removeProduct = useWorkspace((s) => s.removeProduct);
 	useOnCreate("product", useCallback(() => setNewOpen(true), []));
+	// Adding a product, where the host can: the button and the empty states offer it then.
+	const create = NewProduct === undefined ? undefined : { label: "Product toevoegen", onClick: () => setNewOpen(true) };
 	useSearchCut("products", "status", {
 		active: { field: "status", values: ["active"] },
 		draft: { field: "status", values: ["draft"] },
@@ -170,63 +41,18 @@ export function ProductsPage() {
 		attention_complaints: { field: "complaints", values: ["ja"] },
 		attention_checks: { field: "checkRunning", values: ["ja"] },
 	});
-	// Aandacht (PLAN 26): what the returns queue and the quality checks say about each product.
-	const returnRecords = useReturns((s) => s.records);
-	const complaints = useAllComplaints();
-	const checks = useQuality((s) => s.checks);
-	const orders = useWorkspace((s) => s.orders);
-	const attention = useMemo(() => {
-		const out = new Map<string, { returnHigh: boolean; complaints: number; checkRunning: boolean }>();
-		const sold = new Map<string, number>();
-		for (const o of orders) for (const l of o.line_items) sold.set(l.product_id, (sold.get(l.product_id) ?? 0) + l.quantity);
-		const back = new Map<string, number>();
-		for (const r of returnRecords) if (r.status !== "rejected") for (const i of r.items) back.set(i.productId, (back.get(i.productId) ?? 0) + i.qty);
-		for (const p of products) {
-			const rate = (sold.get(p.id) ?? 0) > 0 ? (back.get(p.id) ?? 0) / (sold.get(p.id) ?? 1) : 0;
-			out.set(p.id, {
-				returnHigh: rate > 0.1,
-				complaints: complaints.filter((c) => c.productId === p.id && Date.parse(c.at) > Date.now() - 30 * 86_400_000).length,
-				checkRunning: checks.some((c) => c.productId === p.id && (c.status === "requested" || c.status === "submitted")),
-			});
-		}
-		return out;
-	}, [orders, returnRecords, complaints, checks, products]);
+	// Aandacht (PLAN 26): what the returns queue and the quality checks say about each product, as the host knows it.
+	const attention = useMemo(() => new Map(products.map((p) => [p.id, source.attentionOf(p)])), [products, source.attentionOf]);
 
 	const view = useRouterState({ select: (s) => (s.location.search as { view?: string }).view });
 	const setDraft = useViews((s) => s.setDraft);
 	const [margining, setMargining] = useState<Row[] | null>(null);
-	const actions = useMemo(() => productActions(setMargining), []);
+	const actions = useMemo(() => source.actions(setMargining), [source.actions]);
 
 	/* Stock, SKU, margin and category come from the product itself — its variants, its cost — so
-	   the list, the product page and the low-stock advice say the same thing. */
-	const rows = useMemo<Array<Row>>(
-		() =>
-			products.map((p, i) => {
-				const supplier = suppliers.find((s) => s.id === p.supplier_id);
-				return {
-					...p,
-					stock: stockOf(p),
-					category: categoryOf(p.title),
-					margin: marginOf(p.price, p.cost),
-					supplierName: supplier?.name ?? "—",
-					avgDelivery: `${((i % 7) + 3 + (i % 3) * 0.3).toLocaleString("nl-NL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} d`,
-					feedback: (3.5 + ((i * 7) % 15) / 10).toLocaleString("nl-NL", { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
-					sku: (p.variants[0]?.sku ?? "").replace(/-[SML]$/, "") || "—",
-				};
-			}),
-		[products],
-	);
-
-	const standing = useMemo(() => {
-		if (rows.length === 0) return undefined;
-		const low = rows.filter((p) => p.stock !== "available").length;
-		const avg = rows.reduce((s, p) => s + p.margin, 0) / rows.length;
-		// What the stock on hand cost to buy: cost times the units across every variant.
-		const value = rows.reduce((s, p) => s + (p.cost ?? 0) * unitsOf(p), 0);
-		return `${rows.length} ${rows.length === 1 ? "product" : "producten"} · ${low} moeten worden bijbesteld · ${Math.round(
-			avg * 100,
-		)}% gemiddelde marge · ${formatCurrency(value)} op de plank`;
-	}, [rows]);
+	   the list, the product page and the low-stock advice say the same thing (the host's `rowOf`). */
+	const rows = useMemo<Array<Row>>(() => products.map((p, i) => source.rowOf(p, i)), [products, source.rowOf]);
+	const standing = useMemo(() => source.standing(rows), [rows, source.standing]);
 
 	const columns = useMemo<Array<ColumnDef<Row, unknown>>>(
 		() => [
@@ -355,20 +181,22 @@ export function ProductsPage() {
 				meta={standing}
 				actions={
 					<>
-						<button
-							type="button"
-							onClick={() => setNewOpen(true)}
-							className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-xs text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2"
-						>
-							<Plus className="size-3.5" strokeWidth={2} />
-							Nieuw product
-						</button>
+						<GateBy gate={source.canCreate}>
+							<button
+								type="button"
+								onClick={() => setNewOpen(true)}
+								className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-xs text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2"
+							>
+								<Plus className="size-3.5" strokeWidth={2} />
+								Nieuw product
+							</button>
+						</GateBy>
 					</>
 				}
 			/>
 
 			<div className="min-w-0 px-5 pb-6">
-				{view === "categories" ? (
+				{view === "categories" && source.categories ? (
 					<CategoriesView
 						products={products}
 						onOpen={(category) => {
@@ -383,27 +211,27 @@ export function ProductsPage() {
 					/>
 				) : (
 					<>
-				<LowStockPlate products={products} />
+				{LowStock ? <LowStock products={products as Product[]} /> : null}
 				{!loading && products.length === 0 ? (
-					<AreaEmpty area="products" action={{ label: "Product toevoegen", onClick: () => setNewOpen(true) }} />
+					<AreaEmpty area="products" action={create} starts={source.starts} />
 				) : (
 					<DataTable
 						columns={columns}
 						data={rows}
 						loading={loading}
-						facets={FACETS}
+						facets={source.facets}
 						actions={actions}
 						noun={["product", "products"]}
-						initialVisibility={{ status: false, returnHigh: false, complaints: false, checkRunning: false }}
+						initialVisibility={{
+							status: false,
+							returnHigh: false,
+							complaints: false,
+							checkRunning: false,
+							...Object.fromEntries(source.hidden.map((id) => [id, false])),
+						}}
 						getRowId={(r) => r.id}
 						searchPlaceholder="Producten zoeken"
-						onRowClick={(p) =>
-							navigate({
-								to: "/products/$productId",
-								params: { productId: p.id },
-								state: OPEN_AS_MODAL,
-							})
-						}
+						onRowClick={source.open}
 						toolbarEnd={
 							<button
 								type="button"
@@ -419,10 +247,7 @@ export function ProductsPage() {
 								kind="products"
 								title="Geen producten voor deze filters."
 								body="Pas de filters aan of wis ze."
-								action={{
-									label: "Nieuw product",
-									onClick: () => setNewOpen(true),
-								}}
+								action={create && { ...create, label: "Nieuw product" }}
 							/>
 						}
 					/>
@@ -430,26 +255,11 @@ export function ProductsPage() {
 					</>
 				)}
 			</div>
-			<ListClosing area="products" empty={products.length === 0} />
+			{Closing ? <Closing empty={products.length === 0} /> : null}
 
-			<MarginDialog open={margining !== null} onOpenChange={(v) => !v && setMargining(null)} picked={margining ?? []} />
+			{Margin ? <Margin open={margining !== null} onOpenChange={(v) => !v && setMargining(null)} picked={margining ?? []} /> : null}
 
-			<NewProductDialog
-				open={newOpen}
-				onOpenChange={setNewOpen}
-				onCreate={(input) => {
-					const product = createProduct({
-						title: input.title,
-						price: input.price,
-						cost: input.cost,
-						margin: input.price > 0 ? Math.round(((input.price - input.cost) / input.price) * 100) : undefined,
-						status: input.status === "active" ? "active" : "draft",
-						description: input.description,
-						sku: input.sku,
-					});
-					undoable(`${product.title} aangemaakt als ${product.status === "active" ? "actief" : "concept"}`, () => removeProduct(product.id));
-				}}
-			/>
+			{NewProduct ? <NewProduct open={newOpen} onOpenChange={setNewOpen} /> : null}
 		</div>
 	);
 }

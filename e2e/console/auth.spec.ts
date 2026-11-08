@@ -298,7 +298,11 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   // Not an allowlisted domain: the invitation is their way past the beta gate.
   const colleague = `e2e-${Date.now().toString(36)}-colleague@invited.test`
   const invite = async () => {
-    await page.getByRole("button", { name: "Collega uitnodigen" }).first().click()
+    // A click before the page has hydrated opens nothing: try until the dialog is there.
+    await expect(async () => {
+      await page.getByRole("button", { name: "Collega uitnodigen" }).first().click()
+      await expect(page.getByLabel("E-mailadressen")).toBeVisible({ timeout: 2_000 })
+    }).toPass()
     await page.getByLabel("E-mailadressen").fill(colleague)
     await page.getByLabel("E-mailadressen").press("Enter")
     await page.getByRole("button", { name: "Uitnodiging versturen" }).click()
@@ -462,4 +466,10 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await page.goto("/orders")
   await expect(page.getByRole("heading", { name: "Nog geen bestellingen" })).toBeVisible()
   await expect(page.getByRole("button", { name: "Winkel koppelen" })).toBeVisible()
+  // @customers @products (step 8.4c): the same first day on Klanten and Producten.
+  await page.goto("/customers")
+  await expect(page.getByRole("heading", { name: "Nog geen klanten" })).toBeVisible()
+  await page.goto("/products")
+  await expect(page.getByRole("heading", { name: "Nog geen producten" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Uit Shopify importeren" })).toBeVisible()
 })

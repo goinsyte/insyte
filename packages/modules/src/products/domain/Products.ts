@@ -14,6 +14,8 @@ export class ProductRow extends Schema.Class<ProductRow>("products/ProductRow")(
   tags: Schema.Array(Schema.String),
   image: Schema.NullOr(Schema.String),
   variantCount: Schema.Int,
+  /** The first variant's SKU, for the list's column and search. */
+  sku: Schema.NullOr(Schema.String),
   priceMinMinor: Schema.NullOr(Schema.Int),
   priceMaxMinor: Schema.NullOr(Schema.Int),
   currency: Schema.String,

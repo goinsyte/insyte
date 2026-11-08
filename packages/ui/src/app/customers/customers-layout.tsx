@@ -1,6 +1,7 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useOpenedAsModal } from "../common/detail-shell";
 import { CustomersPage } from "./customers-screen";
+import { DemoCustomersSource } from "./demo-source";
 
 /**
  * The list lives here rather than in `index.tsx`, so that opening a record does not unmount it.
@@ -17,7 +18,11 @@ export function CustomersLayout() {
 	});
 	return (
 		<>
-			{atIndex || asModal ? <CustomersPage /> : null}
+			{atIndex || asModal ? (
+				<DemoCustomersSource>
+					<CustomersPage />
+				</DemoCustomersSource>
+			) : null}
 			<Outlet />
 		</>
 	);
