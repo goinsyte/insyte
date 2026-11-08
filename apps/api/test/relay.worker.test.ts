@@ -77,8 +77,10 @@ describe("the outbox relay", () => {
     const me = await sessionMe(cookie)
     workspace = Exit.isSuccess(me) ? me.value.principals[0]!.workspaceId : ""
     const { events } = await outboxOf(workspace)
-    expect(events.map((e) => e.event)).toEqual(["workspace.created"])
-    outboxId = events[0]!.id
+    // Beside it, the realtime signals of the audited writes (records.changed, step 7.2).
+    const created = events.filter((e) => e.event !== "records.changed")
+    expect(created.map((e) => e.event)).toEqual(["workspace.created"])
+    outboxId = created[0]!.id
   })
 
   it("delivers it to product analytics once, however often the consumer runs", async () => {
@@ -88,7 +90,7 @@ describe("the outbox relay", () => {
     expect(events).toEqual([
       expect.objectContaining({ outboxId, event: "workspace_created", groups: { workspace } })
     ])
-    expect((await outboxOf(workspace)).events[0]!.relayedAt).not.toBeNull()
+    expect((await outboxOf(workspace)).events.find((e) => e.id === outboxId)!.relayedAt).not.toBeNull()
   })
 
   it("leaves the minute sweep nothing of it to send again", async () => {

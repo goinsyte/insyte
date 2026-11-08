@@ -45,6 +45,14 @@ export const OutboxEvent = Schema.Union([
     requestId: Schema.String,
     memberId: Schema.String,
     state: Schema.Literals(["granted", "declined"])
+  }),
+  // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
+  // to refetch what they show of that kind. Ids only, never the record.
+  Schema.Struct({
+    type: Schema.Literal("records.changed"),
+    workspaceId: Schema.String,
+    kind: Schema.String,
+    ids: Schema.Array(Schema.String)
   })
 ])
 export type OutboxEvent = typeof OutboxEvent.Type
@@ -57,3 +65,13 @@ export class Relay extends Context.Service<Relay, {
   /** `afterSeconds`: the events wait out an undo window (`outbox.not_before`), so the queue holds them that long. */
   readonly kick: (outboxIds: ReadonlyArray<string>, options?: { readonly afterSeconds?: number }) => Effect.Effect<void>
 }>()("shared/Relay") {}
+
+/**
+ * The request's events still to kick (M5.1): a write that records its change (`Audit.write`) adds the event here, and
+ * the transport kicks them once the request's transactions have committed (`WithDbLive`). Absent outside a request
+ * (a script, the queue's consumer), where the minute sweep delivers them.
+ */
+export const PendingEvents = Context.Reference<{ readonly add: (outboxId: string) => void } | undefined>(
+  "shared/PendingEvents",
+  { defaultValue: () => undefined }
+)

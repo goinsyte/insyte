@@ -11,6 +11,7 @@ import { FetchHttpClient, type HttpClient, HttpServer } from "effect/http"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
 import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
+import { RealtimeRoutes } from "../transports/http/RealtimeRoutes.ts"
 import { RequestContext } from "../transports/http/RequestContext.ts"
 import { SystemRoutes } from "../transports/http/SystemRoutes.ts"
 import { KeyDoor } from "../transports/public/KeyDoor.ts"
@@ -45,6 +46,7 @@ const Transports = Layer.mergeAll(
   AuthRoutes,
   DevRoutes,
   RpcRoutes,
+  RealtimeRoutes,
   PublicApiRoutes,
   McpRoutes,
   RequestContext,

@@ -14,6 +14,7 @@ import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { myAccessAtom } from "../data/access.ts"
 import { sessionMeAtom } from "../data/session.ts"
 import { teamAtom } from "../data/team.ts"
+import { LiveUpdates } from "../realtime/live-updates.tsx"
 import { useConsoleTeamSource } from "../team/team-source.ts"
 
 /**
@@ -104,6 +105,7 @@ function Loaded({ team }: { team: Team }) {
   const source = useConsoleTeamSource(team)
   return (
     <main className="min-h-svh bg-paper text-ink">
+      <LiveUpdates />
       <TeamSourceProvider value={source}>
         <SettingsSheet title="Team" icon={Users}>
           <TeamPage />

@@ -35,8 +35,17 @@
   ],
   // 02 §5.1, local column. Read through `platform/Bindings.ts` only.
   // The edge guards' counters (M2.3): one instance per IP or hashed address, SQLite-backed.
-  "durable_objects": { "bindings": [{ "name": "RATE_LIMITER", "class_name": "RateLimiter" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RateLimiter"] }],
+  // The realtime rooms (M5.1): one per audience, sockets only (hibernation API).
+  "durable_objects": {
+    "bindings": [
+      { "name": "RATE_LIMITER", "class_name": "RateLimiter" },
+      { "name": "ROOMS", "class_name": "RoomDurableObject" },
+    ],
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] },
+    { "tag": "v2", "new_sqlite_classes": ["RoomDurableObject"] },
+  ],
   // The outbox relay (M1.4): committed events' ids onto EVENTS, consumed by this Worker; the minute cron sweeps.
   "queues": {
     "producers": [{ "binding": "EVENTS", "queue": "insyte-events" }],

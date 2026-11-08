@@ -340,6 +340,8 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await invitee.getByRole("button", { name: `Naar ${workspace}` }).click()
   await expect(invitee).toHaveURL(/\/dashboard$/)
   await expect(invitee.getByText(`Je zit in ${workspace}`)).toBeVisible()
+  // @realtime (step 7.2): the founder's open Team page shows the new colleague without a reload.
+  await expect(page.getByText("Amber Lewis")).toBeVisible({ timeout: 15_000 })
   const mails = await (await request.get(`/api/__dev/mail?to=${encodeURIComponent(colleague)}`)).json() as {
     mails: Array<{ kind: string }>
   }
