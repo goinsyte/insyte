@@ -19,6 +19,7 @@ import { OnboardingHandlers } from "./handlers/onboarding.ts"
 import { PrefsHandlers } from "./handlers/prefs.ts"
 import { RolesHandlers } from "./handlers/roles.ts"
 import { SessionHandlers } from "./handlers/session.ts"
+import { ShellHandlers } from "./handlers/shell.ts"
 import { SystemHandlers } from "./handlers/system.ts"
 import { RpcHttp } from "./RpcHttp.ts"
 
@@ -42,7 +43,10 @@ export const RpcContext = Layer.mergeAll(
   RolesHandlers.pipe(Layer.provide(RolesService.layer)),
   DeveloperHandlers.pipe(Layer.provide(ApiKeys.layer)),
   PrefsHandlers.pipe(Layer.provide(PrefsService.layer)),
-  NotificationsHandlers.pipe(Layer.provide(NotificationsService.layer))
+  NotificationsHandlers.pipe(Layer.provide(NotificationsService.layer)),
+  ShellHandlers.pipe(
+    Layer.provide(Layer.mergeAll(Members.layer, NotificationsService.layer, PrefsService.layer, Workspaces.layer))
+  )
 ).pipe(
   Layer.provideMerge(RpcSerialization.layerNdjson)
 )

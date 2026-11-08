@@ -141,13 +141,18 @@ const realtime = (event: Extract<OutboxEvent, { type: "records.changed" }>) =>
   ).pipe(Effect.withSpan("Relay.realtime"))
 
 /** The notifications sink (M5.2): rows for whoever should hear of the event, then each one's tabs their count. */
-const notifications = (event: OutboxEvent, sql: SqlClient.SqlClient) =>
-  Effect.gen(function*() {
+const notifications = Effect.fn("Relay.notifications")(
+  function*(event: OutboxEvent, sql: SqlClient.SqlClient) {
     const heard = yield* fanOut(sql, event.workspaceId, event)
     const room = roomOf(event.workspaceId)
-    yield* Effect.forEach(heard, ({ recipientId, unread }) =>
-      Effect.promise(() => room.sendTo(recipientId, { v: 1, type: "notes.changed", unread })))
-  }).pipe(Effect.orDie, Effect.withSpan("Relay.notifications"))
+    yield* Effect.forEach(
+      heard,
+      ({ recipientId, unread }) =>
+        Effect.promise(() => room.sendTo(recipientId, { v: 1, type: "notes.changed", unread }))
+    )
+  },
+  Effect.orDie
+)
 
 const NOTIFIED = new Set<OutboxEvent["type"]>(["member.joined", "access.requested", "access.decided"])
 
