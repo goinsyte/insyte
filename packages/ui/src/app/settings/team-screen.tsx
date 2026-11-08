@@ -12,6 +12,7 @@ import { PendingInvites } from "../team/pending-invites";
 import { SeatMeter } from "../team/seat-meter";
 import { Blocked } from "../access/blocked";
 import { PageGuide } from "../common/page-guide";
+import { TeamDenied, TeamRefusalNotice } from "../team/refusal";
 import { type TeamGate, useTeamSource } from "../team/source";
 
 const GUIDE = [
@@ -54,20 +55,29 @@ export function TeamPage() {
 					</div>
 				}
 			>
+				<TeamRefusalNotice scope="members" />
 				<SeatMeter onBuy={source.buySeats} />
 				<MemberTable onOpen={setOpenId} onInvite={invite} />
 			</SettingCard>
 
-			{/* Without the right to invite, the invitations and the link are read, not worked. */}
+			{/* Without the right to invite, the invitations are read, not worked; the link is not shown at all. */}
 			<fieldset disabled={!inviteGate.ok} className="contents">
 				<SettingCard id="uitnodigingen" title={`Openstaande uitnodigingen · ${invites.length}`} icon={Mail}>
+					<TeamRefusalNotice scope="invitations" className="mb-3" />
 					<PendingInvites onInvite={invite} />
 				</SettingCard>
-
-				<SettingCard title="Uitnodigen via link" icon={Link2}>
-					<InviteLinkSection />
-				</SettingCard>
 			</fieldset>
+
+			<SettingCard title="Uitnodigen via link" icon={Link2}>
+				{inviteGate.ok ? (
+					<>
+						<TeamRefusalNotice scope="link" className="mb-4" />
+						<InviteLinkSection />
+					</>
+				) : (
+					<TeamDenied level={2} title="Je rol kan de uitnodigingslink niet zien" />
+				)}
+			</SettingCard>
 
 			<InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} onBulk={() => setBulkOpen(true)} />
 			<BulkInviteDialog open={bulkOpen} onOpenChange={setBulkOpen} />

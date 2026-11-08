@@ -1,4 +1,6 @@
 import { createContext, useContext } from "react";
+import type { Denial } from "../access/denial";
+import type { Level, Permission } from "../lib/permissions";
 import type { Invite, InviteLink, StoreAccess } from "../lib/team-core";
 import type { RoleDef as Role } from "@insyte/domain/Permissions";
 
@@ -31,6 +33,12 @@ export type TeamSeats = { total: number; used: number; active: number; pending: 
 /** Whether the signed-in person may, and if not the sentence that says what their role misses. */
 export type TeamGate = { ok: boolean; reason: string };
 
+/** Where on the page a refused action happened, so the refusal is said there. */
+export type RefusalScope = "members" | "invitations" | "link" | "invite";
+
+/** A write the server refused for want of a permission, and where it was asked. */
+export type TeamRefusal = { scope: RefusalScope; denial: Denial; retry: () => void };
+
 export type InviteRow = { email: string; roleId: string; stores: StoreAccess; message?: string };
 
 export interface TeamSource {
@@ -44,6 +52,13 @@ export interface TeamSource {
 	roles: ReadonlyArray<Role>;
 	stores: ReadonlyArray<{ id: string; name: string }>;
 	can: { invite: TeamGate; manage: TeamGate };
+	/** Why a permission is missing, in the denied states' words, from this workspace's roles and people. */
+	denialFor: (perm: Permission, arg?: Level | number) => Denial;
+	/** Asks the people who can grant it, answering how to take the request back; absent where the host cannot take one yet. */
+	askAccess?: ((perm: Permission, arg?: Level | number) => (() => void) | undefined) | undefined;
+	/** The last write refused for a missing permission, until it is dismissed or retried. */
+	refusal: TeamRefusal | null;
+	dismissRefusal: () => void;
 	/** A pending invitation's own link, when the host can give it. */
 	inviteUrl: (id: string) => string | undefined;
 	/** Opens the landing as the invitee sees it; absent where the host has no such view. */

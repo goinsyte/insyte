@@ -1070,6 +1070,22 @@ does the same in the ⌘K menu. A settings page the role may read but not change
 in one `mist` line, and a page that is only a form becomes one disabled fieldset. A role limited to
 stores sees only those in the store switcher and the order list.
 
+**Denied in place** (`access/denied.tsx`, `access/denial.ts`). Between the whole page and the single
+control sit the parts of a page the role may open: a card, a table's rows, a dialog's body. Each
+keeps its frame and title and puts one compact panel where its content would be, on `mist`, left-
+aligned like the compact empty state: the locked mark at 48px, a title in the part's own words ("Je
+rol kan de uitnodigingslink niet zien"), then one sentence with the permission as a chip on `paper`
+("Daarvoor is [Team en rollen · Bewerken] nodig. Je rol Klantenservice heeft dat niet; Beheerder en
+Eigenaar hebben het wel."), the people who can grant it as up to three overlapping discs and their
+names, Toegang vragen (`abyss`, small) or "Gevraagd zojuist" in the green pill once asked, with Undo,
+and a quiet Details that folds out the permission's id (`team.manage`), the refused action and the
+time in mono on `paper`, for support. A table keeps its header and toolbar and takes the panel as its
+one row, without the `mist`. When the server refuses what the screen offered (the role changed, or
+the screen did not know), the refusal is said where it was asked, not in a toast: an amber notice
+with the lock, "Dat ging niet door.", the same sentence and chip, then Toegang vragen in `arc-ink`,
+Opnieuw proberen and Details, dismissable. The whole page keeps the no-access page above. Nothing
+denied ever covers the work, shakes, or turns red.
+
 **Looking through a role.** The persona chip has "Bekijk als rol": the console then is exactly what
 someone in that role sees, with one `abyss` line across the top of the work — "Je bekijkt Insyte als
 Klantenservice · Terug". It persists per browser until Terug.

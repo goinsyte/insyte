@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Field, SelectField, TextAreaField } from "../common/form-dialog";
 import { GHOST_BTN, PRIMARY_BTN, StorePicker } from "./bits";
 import { abilitiesOf, roleLabel } from "./role-text";
+import { TeamDenied, TeamRefusalNotice } from "./refusal";
 import { type InviteRow, useSourceInviteRoles, useTeamSource } from "./source";
 import { counted } from "../lib/counted";
 import { EMAIL, isExpired, type StoreAccess } from "../lib/team-core";
@@ -99,6 +100,26 @@ export function InviteDialog({ open, onOpenChange, onBulk }: { open: boolean; on
 			reset();
 			onOpenChange(false);
 		});
+	}
+
+	// A role that may not invite gets the dialog's own answer, not a form it cannot send.
+	if (!source.can.invite.ok) {
+		return (
+			<Dialog open={open} onOpenChange={onOpenChange}>
+				<DialogContent className="sm:max-w-[600px]">
+					<DialogHeader>
+						<DialogTitle>Collega's uitnodigen</DialogTitle>
+						<DialogDescription>Ze krijgen een e-mail met een link en tellen als plek tot ze accepteren of de link verloopt.</DialogDescription>
+					</DialogHeader>
+					<TeamDenied level={2} title="Je rol kan geen collega's uitnodigen" size="dialog" />
+					<DialogFooter>
+						<button type="button" onClick={() => onOpenChange(false)} className={GHOST_BTN}>
+							Sluiten
+						</button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+		);
 	}
 
 	return (
@@ -222,6 +243,8 @@ export function InviteDialog({ open, onOpenChange, onBulk }: { open: boolean; on
 						<TextAreaField value={message} onChange={setMessage} placeholder="Begin met de chargeback-wachtrij, ik loop de eerste week met je mee." rows={2} />
 					</Field>
 				</div>
+
+				<TeamRefusalNotice scope="invite" />
 
 				<DialogFooter className="sm:justify-between">
 					<p className={cn("text-sm tabular-nums", over ? "font-medium text-signal-red" : "text-ink-2")}>

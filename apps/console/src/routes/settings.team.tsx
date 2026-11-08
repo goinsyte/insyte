@@ -1,12 +1,15 @@
 import { useAtomValue } from "@effect/atom-react"
+import { Forbidden } from "@insyte/domain/Errors"
 import type { Team } from "@insyte/modules/members/domain/Team"
+import { DeniedPanel } from "@insyte/ui/app/access/denied"
+import type { Level, Permission } from "@insyte/ui/app/lib/permissions"
 import { PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
 import { SettingsSheet } from "@insyte/ui/app/settings/settings-sheet"
 import { TeamPage } from "@insyte/ui/app/settings/team-screen"
 import { TeamSourceProvider } from "@insyte/ui/app/team/source"
 import { Users } from "@insyte/ui/icons"
 import { createFileRoute, redirect } from "@tanstack/react-router"
-import { Effect, Option } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { sessionMeAtom } from "../data/session.ts"
 import { teamAtom } from "../data/team.ts"
@@ -56,8 +59,38 @@ function TeamRoute() {
     : AsyncResult.isWaiting(result)
     ? Option.getOrUndefined(AsyncResult.value(result))
     : undefined
-  if (team === undefined) return <Pending />
-  return <Loaded team={team} />
+  if (team !== undefined) return <Loaded team={team} />
+  // The role may not see the team: the server said which permission, and that is what the page says.
+  const refused = AsyncResult.isFailure(result)
+    ? result.cause.reasons.find((r) => r._tag === "Fail" && isForbidden(r.error))
+    : undefined
+  if (refused !== undefined && refused._tag === "Fail" && isForbidden(refused.error)) {
+    return <Refused forbidden={refused.error} />
+  }
+  return <Pending />
+}
+
+const isForbidden = Schema.is(Forbidden)
+
+function Refused({ forbidden }: { forbidden: Forbidden }) {
+  return (
+    <main className="min-h-svh bg-paper text-ink">
+      <SettingsSheet title="Team" icon={Users}>
+        <DeniedPanel
+          title="Je rol kan het team niet zien"
+          denial={{
+            perm: forbidden.permission as Permission,
+            arg: forbidden.level as Level,
+            roleLabel: forbidden.roleLabel,
+            grantingRoles: [],
+            granters: [],
+            request: { state: "none" },
+            action: "Team.get"
+          }}
+        />
+      </SettingsSheet>
+    </main>
+  )
 }
 
 function Loaded({ team }: { team: Team }) {

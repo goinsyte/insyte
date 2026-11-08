@@ -1,18 +1,21 @@
 import { useAtomSet } from "@effect/atom-react"
+import { Forbidden } from "@insyte/domain/Errors"
 import type { AreaId, Level, RoleDef as Role, SpecialId } from "@insyte/domain/Permissions"
 import { canRole } from "@insyte/domain/Permissions"
 import type { Team } from "@insyte/modules/members/domain/Team"
-import { permissionName } from "@insyte/ui/app/lib/permissions"
+import { grantersOf, grantingRoles } from "@insyte/ui/app/access/denial"
+import { type Permission, permissionName } from "@insyte/ui/app/lib/permissions"
 import type { Invite } from "@insyte/ui/app/lib/team-core"
-import type { TeamGate, TeamSource } from "@insyte/ui/app/team/source"
-import { Cause, Exit } from "effect"
-import { useMemo } from "react"
+import type { RefusalScope, TeamGate, TeamRefusal, TeamSource } from "@insyte/ui/app/team/source"
+import { Cause, Exit, Schema } from "effect"
+import { useMemo, useState } from "react"
 import { toast } from "sonner"
 import { TEAM, teamWrites } from "../data/team.ts"
 
 /*
  * The team screens' source in the console: `Team.get` as they read it, and each action as its RPC, refreshing the page
- * through `TEAM`. A refusal is said here, in Dutch, and the action answers `false`, so the screen offers no undo. What
+ * through `TEAM`. A missing permission (`Forbidden`) is said where it was asked, as the denied states say it; any other
+ * refusal is said here once, in Dutch. Either way the action answers `false`, so the screen offers no undo. What
  * the console has no screen or server for yet is left out (the view as the invitee, handing over ownership, stores
  * until M6), and buying seats waits for billing (M13).
  */
@@ -41,7 +44,9 @@ const ADDRESS_REASONS: Record<string, string> = {
   unknown: "krijgt een rol die niet bestaat"
 }
 
-/** The server's refusal, said once. */
+const isForbidden = Schema.is(Forbidden)
+
+/** The server's refusal, said once (a missing permission is said in place instead, `TeamRefusal`). */
 const refused = (error: unknown) => {
   const tagged = error as { _tag?: string; [field: string]: unknown }
   switch (tagged._tag) {
@@ -75,13 +80,10 @@ const refused = (error: unknown) => {
   }
 }
 
-/** Runs one write, refreshing the page after; `undefined` when the server refused (and said why). */
-const run = async <A>(write: Promise<Exit.Exit<A, unknown>>): Promise<A | undefined> => {
-  const exit = await write
-  if (Exit.isSuccess(exit)) return exit.value
+/** The typed failure of a write's exit, or the defect squashed: what the server said. */
+const failureOf = <A, E>(exit: Exit.Failure<A, E>): unknown => {
   const failure = exit.cause.reasons.find((r) => r._tag === "Fail")
-  refused(failure === undefined ? Cause.squash(exit.cause) : failure.error)
-  return undefined
+  return failure === undefined ? Cause.squash(exit.cause) : failure.error
 }
 
 const asInvite = (i: Team["invitations"][number]): Invite => ({
@@ -119,6 +121,46 @@ export function useConsoleTeamSource(team: Team): TeamSource {
   const roles = useMemo(() => team.roles.map(roleOf), [team.roles])
   const mine = roles.find((r) => r.id === team.members.find((m) => m.id === team.me)?.roleId)
   const keys = { reactivityKeys: TEAM }
+  const [refusal, setRefusal] = useState<TeamRefusal | null>(null)
+  const people = team.members.map((m) => ({ id: m.id, name: m.name, role: m.roleLabel }))
+
+  const denialFor = (perm: Permission, arg?: Level | number) => ({
+    perm,
+    ...(arg === undefined ? {} : { arg }),
+    roleLabel: mine?.label ?? "",
+    grantingRoles: grantingRoles(roles, perm, arg),
+    granters: grantersOf(roles, people),
+    // Asking arrives with access requests (M3.5); until then the denied states only explain.
+    request: { state: "none" } as const
+  })
+
+  /**
+   * Runs one write and refreshes the page after. A missing permission (`Forbidden`) is said where the write was asked,
+   * with the server's words for what is missing; anything else is said once as a toast. `undefined` when it did not
+   * take.
+   */
+  const run = async <A>(
+    scope: RefusalScope,
+    action: string,
+    attempt: () => Promise<Exit.Exit<A, unknown>>
+  ): Promise<A | undefined> => {
+    const exit = await attempt()
+    if (Exit.isSuccess(exit)) {
+      setRefusal(null)
+      return exit.value
+    }
+    const error = failureOf(exit)
+    if (isForbidden(error)) {
+      setRefusal({
+        scope,
+        denial: { ...denialFor(error.permission as Permission, error.level as Level), action, at: Date.now() },
+        retry: () => void run(scope, action, attempt)
+      })
+    } else {
+      refused(error)
+    }
+    return undefined
+  }
 
   return {
     me: team.me,
@@ -147,6 +189,9 @@ export function useConsoleTeamSource(team: Team): TeamSource {
     roles,
     stores: [],
     can: { invite: gate(mine, 2), manage: gate(mine, 3) },
+    denialFor,
+    refusal,
+    dismissRefusal: () => setRefusal(null),
     inviteUrl: (id) => team.invitations.find((i) => i.id === id)?.url ?? undefined,
     buySeats: () =>
       void toast("Extra plekken komen met Facturatie", {
@@ -154,26 +199,53 @@ export function useConsoleTeamSource(team: Team): TeamSource {
       }),
 
     send: async (rows) => {
-      const sent = await run(write.send({ payload: { rows: rows.map((r) => ({ ...r })) }, ...keys }))
+      const sent = await run(
+        "invite",
+        "Invitations.send",
+        () => write.send({ payload: { rows: rows.map((r) => ({ ...r })) }, ...keys })
+      )
       if (sent === undefined) return undefined
       const addresses = new Set(rows.map((r) => r.email.trim().toLowerCase()))
       return sent.invitations.filter((i) => addresses.has(i.email)).map(asInvite)
     },
-    unsend: async (ids) => took(await run(write.revoke({ payload: { ids: [...ids] }, ...keys }))),
-    revoke: async (id) => took(await run(write.revoke({ payload: { ids: [id] }, ...keys }))),
-    restoreInvite: async (id) => took(await run(write.restore({ payload: { id }, ...keys }))),
-    resend: async (id) => took(await run(write.resend({ payload: { id }, ...keys }))),
-    undoResend: async (id) => took(await run(write.undoResend({ payload: { id }, ...keys }))),
-    setInviteRole: async (id, roleId) => took(await run(write.setInvitationRole({ payload: { id, roleId }, ...keys }))),
-    setMemberRole: async (id, roleId) => took(await run(write.setMemberRole({ payload: { id, roleId }, ...keys }))),
+    unsend: async (ids) =>
+      took(await run("invite", "Invitations.revoke", () => write.revoke({ payload: { ids: [...ids] }, ...keys }))),
+    revoke: async (id) =>
+      took(await run("invitations", "Invitations.revoke", () => write.revoke({ payload: { ids: [id] }, ...keys }))),
+    restoreInvite: async (id) =>
+      took(await run("invitations", "Invitations.restore", () => write.restore({ payload: { id }, ...keys }))),
+    resend: async (id) =>
+      took(await run("invitations", "Invitations.resend", () => write.resend({ payload: { id }, ...keys }))),
+    undoResend: async (id) =>
+      took(await run("invitations", "Invitations.undoResend", () => write.undoResend({ payload: { id }, ...keys }))),
+    setInviteRole: async (id, roleId) =>
+      took(
+        await run("invitations", "Invitations.setRole", () =>
+          write.setInvitationRole({ payload: { id, roleId }, ...keys }))
+      ),
+    setMemberRole: async (id, roleId) =>
+      took(await run("members", "Members.setRole", () => write.setMemberRole({ payload: { id, roleId }, ...keys }))),
     // Stores arrive with Shopify (M6); until then everyone works in every store.
     setMemberStores: () => Promise.resolve(false),
     setDeactivated: async (id, deactivated) =>
-      took(await run((deactivated ? write.deactivate : write.reactivate)({ payload: { id }, ...keys }))),
-    remove: async (id) => took(await run(write.remove({ payload: { id }, ...keys }))),
-    restoreMember: async (id) => took(await run(write.restoreMember({ payload: { id }, ...keys }))),
-    setLink: async (patch) => took(await run(write.setLink({ payload: patch, ...keys }))),
-    regenerateLink: async () => took(await run(write.regenerateLink({ payload: undefined, ...keys }))),
-    undoRegenerateLink: async () => took(await run(write.undoRegenerateLink({ payload: undefined, ...keys })))
+      took(
+        await run(
+          "members",
+          deactivated ? "Members.deactivate" : "Members.reactivate",
+          () => (deactivated ? write.deactivate : write.reactivate)({ payload: { id }, ...keys })
+        )
+      ),
+    remove: async (id) =>
+      took(await run("members", "Members.remove", () => write.remove({ payload: { id }, ...keys }))),
+    restoreMember: async (id) =>
+      took(await run("members", "Members.restore", () => write.restoreMember({ payload: { id }, ...keys }))),
+    setLink: async (patch) =>
+      took(await run("link", "InviteLink.set", () => write.setLink({ payload: patch, ...keys }))),
+    regenerateLink: async () =>
+      took(await run("link", "InviteLink.regenerate", () => write.regenerateLink({ payload: undefined, ...keys }))),
+    undoRegenerateLink: async () =>
+      took(
+        await run("link", "InviteLink.undoRegenerate", () => write.undoRegenerateLink({ payload: undefined, ...keys }))
+      )
   }
 }
