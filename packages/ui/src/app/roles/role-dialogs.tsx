@@ -6,8 +6,7 @@ import { HolderDiscs, holdersLine, LevelMark, useHolders } from "./bits";
 import { GHOST_BTN, PRIMARY_BTN, Segmented } from "../team/bits";
 import { AREAS, euro, type RoleDef, SPECIALS, storeScopeLabel } from "../lib/permissions";
 import { cn } from "../lib/utils";
-import { useSettings } from "../stores/settings-store";
-import { useWorkspace } from "../stores/workspace-store";
+import { useRolesSource } from "./source";
 
 const BLANK = "__leeg";
 
@@ -23,7 +22,7 @@ export function NewRoleDialog({
 	initialFrom?: string;
 	onCreate: (label: string, from: string | null) => void;
 }) {
-	const roles = useSettings((s) => s.roles);
+	const roles = useRolesSource().roles;
 	const [name, setName] = useState("");
 	const [from, setFrom] = useState(initialFrom ?? "service");
 	useEffect(() => {
@@ -89,7 +88,7 @@ export function DeleteRoleDialog({ role, onClose, onConfirm }: { role: RoleDef |
 }
 
 function DeleteBody({ role, onClose, onConfirm }: { role: RoleDef; onClose: () => void; onConfirm: (role: RoleDef, toId: string) => void }) {
-	const roles = useSettings((s) => s.roles);
+	const roles = useRolesSource().roles;
 	const holders = useHolders(role);
 	const targets = roles.filter((r) => r.id !== "owner" && r.id !== role.id);
 	const [to, setTo] = useState(role.basedOn && targets.some((t) => t.id === role.basedOn) ? role.basedOn : "view");
@@ -133,8 +132,7 @@ type Row = { key: string; label: string; cells: Array<{ text: string; level?: 0 
  * its cells in full ink; "Alleen verschillen" hides the rest, which is usually the question.
  */
 export function CompareDialog({ open, onOpenChange, initial }: { open: boolean; onOpenChange: (v: boolean) => void; initial: string[] }) {
-	const roles = useSettings((s) => s.roles);
-	const stores = useWorkspace((s) => s.stores);
+	const { roles, stores } = useRolesSource();
 	const [ids, setIds] = useState<string[]>(initial);
 	const [only, setOnly] = useState<"all" | "diff">("all");
 	useEffect(() => {

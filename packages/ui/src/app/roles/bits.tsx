@@ -1,10 +1,9 @@
 import { PersonDisc } from "../team/bits";
-import type { Level, RoleDef } from "../lib/permissions";
-import type { Holders } from "../lib/role-actions";
+import type { Level } from "../lib/permissions";
 import { cn } from "../lib/utils";
-import { useDeveloper } from "../stores/developer-store";
-import { useTeam } from "../stores/team-store";
-import { useWorkspace } from "../stores/workspace-store";
+import type { Holders } from "./source";
+
+export { useHolders } from "./source";
 
 /**
  * A level drawn as the mark's own device: three small squares, filled up to the level. Geen is three
@@ -18,20 +17,6 @@ export function LevelMark({ level, className }: { level: Level; className?: stri
 			))}
 		</span>
 	);
-}
-
-/** Who holds a role right now, read live so the counts move when someone's role changes. */
-export function useHolders(role: Pick<RoleDef, "id" | "label">): Holders {
-	const members = useWorkspace((s) => s.members);
-	const invites = useTeam((s) => s.invites);
-	const linkRole = useTeam((s) => s.link.roleId);
-	const keys = useDeveloper((s) => s.apiKeys);
-	return {
-		members: members.filter((m) => m.role === role.label).map((m) => ({ id: m.id, name: m.name })),
-		invites: invites.filter((i) => i.roleId === role.id).length,
-		link: linkRole === role.id,
-		keys: keys.filter((k) => k.status === "active" && k.access.kind === "role" && k.access.roleId === role.id).length,
-	};
 }
 
 export function holdersLine(h: Holders): string {

@@ -3,6 +3,7 @@ import { Access } from "@insyte/modules/access/Access"
 import { Landing } from "@insyte/modules/members/Landing"
 import { Members } from "@insyte/modules/members/Members"
 import { Onboarding } from "@insyte/modules/onboarding/Onboarding"
+import { RolesService } from "@insyte/modules/roles/RolesService"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Layer } from "effect"
 import { RpcSerialization } from "effect/rpc"
@@ -10,6 +11,7 @@ import { AccessHandlers } from "./handlers/access.ts"
 import { LandingHandlers } from "./handlers/landing.ts"
 import { MembersHandlers } from "./handlers/members.ts"
 import { OnboardingHandlers } from "./handlers/onboarding.ts"
+import { RolesHandlers } from "./handlers/roles.ts"
 import { SessionHandlers } from "./handlers/session.ts"
 import { SystemHandlers } from "./handlers/system.ts"
 import { RpcHttp } from "./RpcHttp.ts"
@@ -30,7 +32,8 @@ export const RpcContext = Layer.mergeAll(
   ),
   MembersHandlers.pipe(Layer.provide(Members.layer)),
   LandingHandlers.pipe(Layer.provide(Landing.layer)),
-  AccessHandlers.pipe(Layer.provide(Access.layer))
+  AccessHandlers.pipe(Layer.provide(Access.layer)),
+  RolesHandlers.pipe(Layer.provide(RolesService.layer))
 ).pipe(
   Layer.provideMerge(RpcSerialization.layerNdjson)
 )

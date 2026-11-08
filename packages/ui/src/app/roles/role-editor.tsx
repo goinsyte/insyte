@@ -3,13 +3,12 @@ import { ArrowDown, ArrowUp, ChevronLeft, Copy, Edit3, Grid2x2, Lock, RotateCcw,
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Blocked } from "../access/gate";
+import { Blocked } from "../access/blocked";
 import { UnsavedBar } from "../settings/form";
 import { SettingCard, StatusPill } from "../settings/setting-card";
 import { HolderDiscs, holdersLine, useHolders } from "./bits";
 import { LevelMatrix } from "./level-matrix";
-import { GHOST_BTN, WELL_BTN } from "../team/bits";
-import { StoreAccessPicker } from "../team/store-access-picker";
+import { GHOST_BTN, StorePicker, WELL_BTN } from "../team/bits";
 import {
 	AREA_BY_ID,
 	type AreaId,
@@ -24,12 +23,9 @@ import {
 	SPECIALS,
 	SYSTEM_DEFAULTS,
 } from "../lib/permissions";
-import { createRole, renameRole } from "../lib/role-actions";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { useGate } from "../stores/access-store";
-import { useSettings } from "../stores/settings-store";
-import { useWorkspace } from "../stores/workspace-store";
+import { useRolesSource } from "./source";
 
 const pick = (r: RoleDef): Permissions => ({ levels: r.levels, specials: r.specials, refundLimit: r.refundLimit, stores: r.stores });
 
@@ -40,10 +36,10 @@ const pick = (r: RoleDef): Permissions => ({ levels: r.levels, specials: r.speci
  */
 export function RoleEditor({ role, onDelete, onCompare }: { role: RoleDef; onDelete: (r: RoleDef) => void; onCompare: (ids: string[]) => void }) {
 	const navigate = useNavigate();
-	const roles = useSettings((s) => s.roles);
-	const stores = useWorkspace((s) => s.stores);
+	const source = useRolesSource();
+	const { roles, stores } = source;
 	const holders = useHolders(role);
-	const manage = useGate("team", 3);
+	const manage = source.can.manage;
 	const owner = role.id === "owner";
 	const readOnly = owner || !manage.ok;
 	const [draft, setDraft] = useState<Permissions>(() => pick(role));
@@ -70,24 +66,29 @@ export function RoleEditor({ role, onDelete, onCompare }: { role: RoleDef; onDel
 
 	function save() {
 		const before = pick(role);
-		useSettings.getState().updateRole(role.id, draft);
-		undoable(`${role.label} opgeslagen`, () => useSettings.getState().updateRole(role.id, before), holders.members.length ? `Geldt meteen voor ${holdersLine(holders)}.` : undefined);
+		void source.update(role.id, draft).then((ok) => {
+			if (ok) undoable(`${role.label} opgeslagen`, () => void source.update(role.id, before), holders.members.length ? `Geldt meteen voor ${holdersLine(holders)}.` : undefined);
+		});
 	}
 
 	function duplicate() {
-		const copy = createRole(`Kopie van ${role.label}`, role.id);
-		useSettings.getState().updateRole(copy.id, draft);
-		void navigate({ to: "/settings/roles", search: { role: copy.id, nieuw: "1" } });
-		undoable(`${copy.label} gemaakt`, () => {
-			useSettings.getState().removeRole(copy.id);
-			void navigate({ to: "/settings/roles", search: {} });
+		const label = `Kopie van ${role.label}`;
+		void source.create(label, role.id).then(async (id) => {
+			if (id === undefined) return;
+			await source.update(id, draft);
+			void navigate({ to: "/settings/roles", search: { role: id, nieuw: "1" } });
+			undoable(`${label} gemaakt`, () => {
+				void source.remove(id, null);
+				void navigate({ to: "/settings/roles", search: {} });
+			});
 		});
 	}
 
 	function reset() {
 		const before = pick(role);
-		useSettings.getState().resetRole(role.id);
-		undoable(`${role.label} staat weer op de standaard`, () => useSettings.getState().updateRole(role.id, before));
+		void source.reset(role.id).then((ok) => {
+			if (ok) undoable(`${role.label} staat weer op de standaard`, () => void source.update(role.id, before));
+		});
 	}
 
 	return (
@@ -197,7 +198,7 @@ export function RoleEditor({ role, onDelete, onCompare }: { role: RoleDef; onDel
 							<p className="text-base text-ink">Alle winkels, ook die later gekoppeld worden.</p>
 						) : (
 							<fieldset disabled={readOnly} className="disabled:opacity-60">
-								<StoreAccessPicker value={draft.stores} onChange={(stores) => setDraft((d) => ({ ...d, stores }))} />
+								<StorePicker stores={stores} value={draft.stores} onChange={(stores) => setDraft((d) => ({ ...d, stores }))} />
 							</fieldset>
 						)}
 					</SettingCard>
@@ -252,7 +253,8 @@ function Notice({ icon: Icon, children }: { icon: typeof Lock; children: React.R
 
 /** The role's name: the title, and for a custom role a pencil that turns it into a field in place. */
 function RoleTitle({ role, readOnly, holders }: { role: RoleDef; readOnly: boolean; holders: string }) {
-	const roles = useSettings((s) => s.roles);
+	const source = useRolesSource();
+	const roles = source.roles;
 	const fresh = new URLSearchParams(typeof window === "undefined" ? "" : window.location.search).get("nieuw") === "1";
 	const [editing, setEditing] = useState(fresh && role.custom === true && !readOnly);
 	const [name, setName] = useState(role.label);
@@ -268,8 +270,9 @@ function RoleTitle({ role, readOnly, holders }: { role: RoleDef; readOnly: boole
 			return;
 		}
 		const before = role.label;
-		const undo = renameRole(role.id, label);
-		if (undo) undoable(`${before} heet nu ${label}`, undo, holders);
+		void source.rename(role.id, label).then((ok) => {
+			if (ok) undoable(`${before} heet nu ${label}`, () => void source.rename(role.id, before), holders);
+		});
 	}
 
 	return (
