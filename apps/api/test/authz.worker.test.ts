@@ -1,4 +1,5 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
 import { Exit } from "effect"
@@ -8,7 +9,7 @@ import { cookiesOf, mailsTo, ok, ORIGIN, password, pastUndo, person, post, relay
 import { call, rpc, sessionMe } from "./support.ts"
 
 /*
- * The authorisation matrix (07 §3.4, step 5.4): every team, invitation, access and roles RPC as each of the five system
+ * The authorisation matrix (07 §3.4, step 5.4): every team, invitation, access, roles and API-key RPC as each of the five system
  * roles, against the committed table (`authz.expected.json`). A call is denied when the server answers `Forbidden`;
  * anything else (an answer, `NotFound`, `Invalid`) is allowed. Payloads name records that do not exist where a write
  * would change the workspace, so the run leaves it as it found it. A permission change is a reviewed diff of that table,
@@ -48,10 +49,30 @@ const PAYLOADS: Record<string, unknown> = {
   "Roles.rename": { id: "rol_none", label: "Iets" },
   "Roles.reset": { id: "rol_none" },
   "Roles.remove": { id: "rol_none", to: "view" },
-  "Roles.restore": { id: "rol_none" }
+  "Roles.restore": { id: "rol_none" },
+  "ApiKeys.list": undefined,
+  "ApiKeys.activity": { id: "key_none" },
+  "ApiKeys.create": {
+    label: "",
+    access: { kind: "role", roleId: "view" },
+    stores: "all",
+    expiresInDays: 30,
+    ips: [],
+    agent: false
+  },
+  "ApiKeys.update": { id: "key_none", label: "Iets" },
+  "ApiKeys.rotate": { id: "key_none", graceMs: 0 },
+  "ApiKeys.endGrace": { id: "key_none" },
+  "ApiKeys.revoke": { id: "key_none" },
+  "ApiKeys.restore": { id: "key_none" }
 }
 
-const manifest = [...MembersRpcs.requests.keys(), ...AccessRpcs.requests.keys(), ...RolesRpcs.requests.keys()]
+const manifest = [
+  ...MembersRpcs.requests.keys(),
+  ...AccessRpcs.requests.keys(),
+  ...RolesRpcs.requests.keys(),
+  ...DeveloperRpcs.requests.keys()
+]
 
 /** A colleague in the owner's workspace with this role, through the mailed invitation. */
 const join = async (email: string) => {
@@ -89,7 +110,7 @@ describe("the authorisation matrix", () => {
     for (const c of colleagues) cookies[c.role] = await join(c.email)
   }, 120_000)
 
-  it("has a row for every RPC in the team, access and roles groups, and a payload for each", () => {
+  it("has a row for every RPC in the team, access, roles and API-key groups, and a payload for each", () => {
     expect([...manifest].sort()).toEqual(Object.keys(table).sort())
     expect(Object.keys(PAYLOADS).sort()).toEqual(Object.keys(table).sort())
   })

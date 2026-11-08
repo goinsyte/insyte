@@ -13,6 +13,7 @@ import invitations from "./migrations/0012_invitations.ts"
 import invitationLanding from "./migrations/0014_invitation_landing.ts"
 import accessRequests from "./migrations/0015_access_requests.ts"
 import rolesRestore from "./migrations/0016_roles_restore.ts"
+import apiKeys from "./migrations/0017_api_keys.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -35,5 +36,6 @@ export const Migrations = {
   "0013_removed_members": removedMembers,
   "0014_invitation_landing": invitationLanding,
   "0015_access_requests": accessRequests,
-  "0016_roles_restore": rolesRestore
+  "0016_roles_restore": rolesRestore,
+  "0017_api_keys": apiKeys
 }

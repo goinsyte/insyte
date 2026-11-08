@@ -1,9 +1,8 @@
 import { Check, Copy, Plus, X } from "../../icons";
 import { Fragment, useState } from "react";
 import { PersonDisc } from "../team/bits";
-import { fallbackName, IP } from "../lib/developer";
+import { IP } from "../lib/developer-core";
 import { cn } from "../lib/utils";
-import { useWorkspace } from "../stores/workspace-store";
 
 /*
  * The small parts the keys and webhooks pages share. Ids, prefixes, secrets, paths and payloads are
@@ -49,10 +48,8 @@ export function CopyButton({ value, label = "Kopiëren", className, tone = "well
 	);
 }
 
-/** Who made it: their disc and first name. */
-export function MadeBy({ memberId }: { memberId: string }) {
-	const member = useWorkspace((s) => s.members.find((m) => m.id === memberId));
-	const name = member?.name ?? fallbackName(memberId);
+/** Who made it: their disc and first name, from whatever the screen knows of them. */
+export function MadeByName({ memberId, name }: { memberId: string; name: string }) {
 	return (
 		<span className="inline-flex min-w-0 items-center gap-1.5">
 			<PersonDisc seed={memberId} name={name} size={18} />
