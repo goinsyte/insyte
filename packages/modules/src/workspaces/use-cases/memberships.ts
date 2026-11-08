@@ -49,7 +49,7 @@ export const memberships = Effect.fn("Workspaces.memberships")(function*() {
       from members m
       join workspaces w on w.id = m.workspace_id
       join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
-      where m.user_id = ${user.id} and m.deactivated_at is null
+      where m.user_id = ${user.id} and m.deactivated_at is null and m.removed_at is null
       order by m.joined_at desc`
   )
   return rows.map((row): Membership => ({

@@ -63,12 +63,16 @@ const found = (user: SessionUser, workspaceId: WorkspaceId) =>
       Effect.gen(function*() {
         yield* sql`insert into workspaces (id, name, slug) values (${workspaceId}, ${user.name}, ${`t-${runId}-${user.name}`})`
         yield* sql`insert into roles (id, workspace_id, label, kind, levels) values ('owner', ${workspaceId}, 'Eigenaar', 'system', '{}')`
-        yield* sql`insert into members (id, workspace_id, user_id, role_id) values (${
-          mintId("mem")
-        }, ${workspaceId}, ${user.id}, 'owner')`
+        const memberId = mintId("mem")
+        yield* sql`insert into members (id, workspace_id, user_id, role_id) values (${memberId}, ${workspaceId}, ${user.id}, 'owner')`
         yield* sql`insert into teams (id, workspace_id, name) values (${mintId("team")}, ${workspaceId}, 'Team')`
         yield* sql`insert into workspace_counters (workspace_id, kind) values (${workspaceId}, 'order')`
         yield* sql`insert into setup_tasks (workspace_id, task) values (${workspaceId}, 'connect_store')`
+        yield* sql`insert into invitations (id, workspace_id, email, token_hash, role_id, invited_by, expires_at)
+                   values (${mintId("inv")}, ${workspaceId}, ${`invitee-${user.name}@example.com`}, '\\x00', 'owner',
+                           ${memberId}, now() + interval '7 days')`
+        yield* sql`insert into invite_links (workspace_id, token_hash, role_id, days, expires_at)
+                   values (${workspaceId}, '\\x00', 'owner', 7, now() + interval '7 days')`
         yield* sql`insert into outbox (id, workspace_id, event, payload) values (${
           mintId("obx")
         }, ${workspaceId}, 'test', '{}')`
@@ -84,6 +88,8 @@ const POPULATED = [
   ["teams", "workspace_id"],
   ["workspace_counters", "workspace_id"],
   ["setup_tasks", "workspace_id"],
+  ["invitations", "workspace_id"],
+  ["invite_links", "workspace_id"],
   ["outbox", "workspace_id"]
 ] as const
 

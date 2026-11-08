@@ -5,6 +5,7 @@ import { PostHogAnalytics } from "@insyte/integrations-posthog/PostHog"
 import { ResendMailer } from "@insyte/integrations-resend/ResendMailer"
 import type { Mailer } from "@insyte/modules/shared/domain/Mailer"
 import type { ProductAnalytics } from "@insyte/modules/shared/domain/ProductAnalytics"
+import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Config, Effect, Layer, Option, Scheduler } from "effect"
 import { FetchHttpClient, type HttpClient, HttpServer } from "effect/http"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
@@ -13,12 +14,14 @@ import { NotFound } from "../transports/http/NotFound.ts"
 import { RequestContext } from "../transports/http/RequestContext.ts"
 import { SystemRoutes } from "../transports/http/SystemRoutes.ts"
 import { AuthenticatedLive } from "../transports/rpc/AuthenticatedLive.ts"
+import { MemberLive } from "../transports/rpc/MemberLive.ts"
 import { RpcContext, RpcRoutes } from "../transports/rpc/RpcRoutes.ts"
 import { WithDbLive } from "../transports/rpc/WithDbLive.ts"
 import { AuthHooksLive } from "./AuthHooks.ts"
 import { AppInfo, BetaSettings, ConfigLive } from "./Bindings.ts"
 import { HumanCheck } from "./HumanCheck.ts"
 import { HyperdriveConnect } from "./Hyperdrive.ts"
+import { InvitationLinksLive } from "./InvitationLinks.ts"
 import { MailerCapture } from "./Mail.ts"
 import { ObservabilityLive } from "./Observability.ts"
 import { ProductAnalyticsCapture } from "./ProductAnalyticsCapture.ts"
@@ -70,8 +73,10 @@ export const AppLayer = Transports.pipe(
   Layer.provideMerge(RpcContext),
   Layer.provideMerge(WithDbLive),
   Layer.provideMerge(AuthenticatedLive),
+  Layer.provideMerge(MemberLive.pipe(Layer.provide(Workspaces.layer))),
   // Committed events onto the queue, after commit (the outbox relay's kick).
   Layer.provideMerge(RelayLive),
+  Layer.provideMerge(InvitationLinksLive),
   // better-auth, built per request by the auth routes and the session check, over the app's hooks.
   Layer.provideMerge(BetterAuth.layer),
   Layer.provideMerge(AuthHooksLive),
@@ -91,10 +96,11 @@ export const AppLayer = Transports.pipe(
 )
 
 /**
- * What the queue consumer and the minute cron run on (M1.4): a connection per invocation, product analytics, the
- * relay's kick for anything a sink writes, and the same configuration, logging and spans as the routes. No routes.
+ * What the queue consumer and the minute cron run on (M1.4): a connection per invocation, the sinks' ports (product
+ * analytics, mail and the links it carries), the relay's kick for anything a sink writes, and the same configuration,
+ * logging and spans as the routes. No routes.
  */
-export const BackgroundLayer = Layer.mergeAll(ProductAnalyticsLive, RelayLive).pipe(
+export const BackgroundLayer = Layer.mergeAll(ProductAnalyticsLive, MailerLive, InvitationLinksLive, RelayLive).pipe(
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),
   Layer.provideMerge(AppInfo.layer),

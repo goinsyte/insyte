@@ -9,6 +9,8 @@ import onboarding from "./migrations/0008_onboarding.ts"
 import workspaces from "./migrations/0009_workspaces.ts"
 import relay from "./migrations/0010_relay.ts"
 import setupTasks from "./migrations/0011_setup_tasks.ts"
+import invitations from "./migrations/0012_invitations.ts"
+import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
  * Every migration, by its permanent key, in the order they were written (06; 15). A new migration is a new file and a
@@ -25,5 +27,7 @@ export const Migrations = {
   "0008_onboarding": onboarding,
   "0009_workspaces": workspaces,
   "0010_relay": relay,
-  "0011_setup_tasks": setupTasks
+  "0011_setup_tasks": setupTasks,
+  "0012_invitations": invitations,
+  "0013_removed_members": removedMembers
 }

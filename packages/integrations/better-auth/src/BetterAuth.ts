@@ -26,7 +26,7 @@ export class AuthHooks extends Context.Service<AuthHooks, {
 }>()("integrations/better-auth/AuthHooks") {}
 
 /** Locally a fixed secret stands in, so `wrangler dev` and the worker tests need no `.dev.vars`; never deployed. */
-const LOCAL_SECRET = Redacted.make("local-development-secret-never-deployed-0123456789")
+export const LOCAL_SECRET = Redacted.make("local-development-secret-never-deployed-0123456789")
 
 /**
  * @effect-expect-leaking Db

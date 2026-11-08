@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import { renderAuthMail } from "../src/AuthMails.ts"
 import { Resend } from "../src/Resend.ts"
 import { ResendMailer } from "../src/ResendMailer.ts"
+import { renderTeamInvite } from "../src/TeamMails.ts"
 
 interface Seen {
   readonly url: string
@@ -122,5 +123,23 @@ describe("renderAuthMail", () => {
     expect(existing.subject).toBe("Je hebt al een account bij Insyte")
     expect(existing.html).not.toContain("<a href")
     expect(() => renderAuthMail("auth.verify", undefined)).toThrow("needs a link")
+  })
+})
+
+describe("the invitation mail", () => {
+  it("names the workspace, who asked and as what, quotes their note escaped, and links to the landing", () => {
+    const mail = renderTeamInvite("https://app.example/invitations/inv_1?k=abc", {
+      workspace: "Northwind",
+      inviter: "Elena Hart",
+      role: "Klantenservice",
+      message: "Welkom <b>Amber</b>",
+      expiresAt: new Date("2026-11-15T12:00:00Z")
+    })
+    expect(mail.subject).toBe("Elena Hart nodigt je uit voor Northwind")
+    expect(mail.text).toContain("Elena Hart nodigde je uit om als Klantenservice mee te werken in Northwind op Insyte.")
+    expect(mail.text).toContain("Uitnodiging bekijken: https://app.example/invitations/inv_1?k=abc")
+    expect(mail.text).toContain("tot 15 november")
+    expect(mail.html).toContain("Welkom &lt;b&gt;Amber&lt;/b&gt;")
+    expect(mail.html).not.toContain("<b>Amber</b>")
   })
 })

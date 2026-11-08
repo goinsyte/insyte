@@ -1,7 +1,7 @@
 import { ConsoleRpcs, RPC_PATH } from "@insyte/api/ConsoleRpcs"
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { env } from "cloudflare:workers"
-import { Effect, Layer } from "effect"
+import { Effect, type Exit, Layer } from "effect"
 import { FetchHttpClient } from "effect/http"
 import { RpcClient, RpcSerialization } from "effect/rpc"
 import worker from "../src/Main.ts"
@@ -65,3 +65,17 @@ export const onboarding = {
       return yield* client["Onboarding.completeTask"](input, { headers: { cookie } })
     }).pipe(Effect.scoped, Effect.provide(RpcProtocol), Effect.runPromiseExit)
 }
+
+type Client = RpcClient.FromGroup<typeof ConsoleRpcs>
+
+/** Any console RPC by name, signed in with `cookie`: what a slice's tests call it through. */
+export const rpc = <K extends keyof Client>(name: K, payload: Parameters<Client[K]>[0], cookie?: string) =>
+  Effect.gen(function*() {
+    const client = (yield* RpcClient.make(ConsoleRpcs)) as unknown as Record<
+      string,
+      (payload: unknown, options: { headers: Record<string, string> }) => Effect.Effect<unknown, unknown>
+    >
+    return yield* client[name]!(payload, { headers: cookie === undefined ? {} : { cookie } })
+  }).pipe(Effect.scoped, Effect.provide(RpcProtocol), Effect.runPromiseExit) as Promise<
+    Exit.Exit<Effect.Success<ReturnType<Client[K]>>, Effect.Error<ReturnType<Client[K]>>>
+  >
