@@ -11,6 +11,7 @@ import { FetchHttpClient, type HttpClient, HttpServer } from "effect/http"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
 import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
+import { PublicApiRoutes } from "../transports/http/PublicApiRoutes.ts"
 import { RequestContext } from "../transports/http/RequestContext.ts"
 import { SystemRoutes } from "../transports/http/SystemRoutes.ts"
 import { AuthenticatedLive } from "../transports/rpc/AuthenticatedLive.ts"
@@ -36,7 +37,15 @@ import { RelayLive } from "./Relay.ts"
  * is opened per request (`RequestDb.ts`), and the layer holds only the way to open one (`HyperdriveConnect`).
  */
 
-const Transports = Layer.mergeAll(SystemRoutes, AuthRoutes, DevRoutes, RpcRoutes, RequestContext, NotFound)
+const Transports = Layer.mergeAll(
+  SystemRoutes,
+  AuthRoutes,
+  DevRoutes,
+  RpcRoutes,
+  PublicApiRoutes,
+  RequestContext,
+  NotFound
+)
 
 /**
  * The sync scheduler, for the layer and for requests: Effect's guidance for Workers (`HttpRouter.toWebHandler`), so a

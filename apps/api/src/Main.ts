@@ -1,4 +1,4 @@
-import { tracing } from "cloudflare:workers"
+import { env, tracing } from "cloudflare:workers"
 import { ManagedRuntime } from "effect"
 import { HttpRouter } from "effect/http"
 import { AppLayer, BackgroundLayer } from "./platform/AppLayer.ts"
@@ -18,6 +18,7 @@ const background = ManagedRuntime.make(BackgroundLayer)
 
 export default {
   async fetch(request, _env, ctx) {
+    if (!servedHere(request)) return Response.json({ error: { code: "not_found" } }, { status: 404 })
     const response = await web.handler(continueTrace(request))
     ctx.waitUntil(Telemetry.flush()) // spans leave after the response is out (17 §1)
     return response
@@ -38,6 +39,16 @@ export default {
     ctx.waitUntil(background.runPromise(withRequestDb(sweep())).finally(() => Telemetry.flush()))
   }
 } satisfies ExportedHandler<Env, EventsMessage>
+
+/**
+ * On the Worker's own public hostname only the public API answers (M19.2): `/v1`. Everything else (auth, the RPC, the
+ * dev routes) is reached through the console's service binding, on the console's origin.
+ */
+const servedHere = (request: Request): boolean => {
+  const url = new URL(request.url)
+  if (env.PUBLIC_API_HOST === undefined || url.host !== env.PUBLIC_API_HOST) return true
+  return url.pathname === "/v1" || url.pathname.startsWith("/v1/")
+}
 
 /**
  * Which trace a request joins. Effect reads `traceparent` itself; this only decides which one it sees (17 §1). A

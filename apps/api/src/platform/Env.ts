@@ -15,6 +15,11 @@ declare global {
       /** The outbox relay's queue (M1.4): committed events' ids, consumed by this Worker's `queue` handler. */
       readonly EVENTS: Queue<EventsMessage>
       readonly ENVIRONMENT: "local" | "preview" | "staging" | "production"
+      /**
+       * The Worker's own public hostname (`*.workers.dev`), where only the public API answers (M19.2). Locally a name
+       * no request carries but a test's.
+       */
+      readonly PUBLIC_API_HOST?: string
       /** The console's origin: better-auth's baseURL, cookies and links in mail (18 §2). */
       readonly CONSOLE_ORIGIN: string
       /** A secret: signs better-auth's cookies and tokens. Absent locally (a fixed development value stands in). */
