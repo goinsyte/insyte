@@ -19,6 +19,9 @@ const open = async (cookie: string) => {
   return { socket, frames }
 }
 
+/** The frame a role change sends. */
+const isRole = (f: { type: string; [field: string]: unknown }) => f.type === "records.changed" && f["kind"] === "role"
+
 const until = async (check: () => boolean, what: string) => {
   for (let i = 0; i < 50; i++) {
     if (check()) return
@@ -52,8 +55,6 @@ describe("realtime", () => {
     // A recorded change in Live B.V. reaches its room.
     const role = ok(await rpc("Roles.create", { label: "Retourbalie", from: "service" }, owner.cookie))
     await relay(workspace)
-    const isRole = (f: { type: string; [field: string]: unknown }) =>
-      f.type === "records.changed" && f["kind"] === "role"
     await until(() => tab.frames.some(isRole), "records.changed for the role")
     const changed = tab.frames.find(isRole)
     expect(changed).toMatchObject({ v: 1, kind: "role", ids: [expect.any(String)] })
