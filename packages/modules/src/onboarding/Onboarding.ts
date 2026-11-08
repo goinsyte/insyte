@@ -9,7 +9,8 @@ import type {
   CompleteTaskInput,
   NotCurrentStep,
   OnboardingState,
-  StartChecklist
+  StartChecklist,
+  StepNotReady
 } from "./domain/Onboarding.ts"
 import { advance } from "./use-cases/advance.ts"
 import { me } from "./use-cases/me.ts"
@@ -24,7 +25,9 @@ import { completeTask, start } from "./use-cases/start.ts"
  */
 export class Onboarding extends Context.Service<Onboarding, {
   readonly me: Effect.Effect<OnboardingState, never, Db | CurrentUser>
-  readonly advance: (input: AdvanceInput) => Effect.Effect<OnboardingState, NotCurrentStep | Invalid, Db | CurrentUser>
+  readonly advance: (
+    input: AdvanceInput
+  ) => Effect.Effect<OnboardingState, NotCurrentStep | StepNotReady | Invalid, Db | CurrentUser>
   readonly start: Effect.Effect<StartChecklist, NotCurrentStep, Db | CurrentUser>
   readonly completeTask: (
     input: CompleteTaskInput

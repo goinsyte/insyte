@@ -4,7 +4,8 @@ import {
   CompleteTaskInput,
   NotCurrentStep,
   OnboardingState,
-  StartChecklist
+  StartChecklist,
+  StepNotReady
 } from "@insyte/modules/onboarding/domain/Onboarding"
 import { Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/rpc"
@@ -20,7 +21,7 @@ export class OnboardingRpcs extends RpcGroup.make(
   Rpc.make("Onboarding.advance", {
     payload: AdvanceInput,
     success: OnboardingState,
-    error: Schema.Union([NotCurrentStep, Invalid])
+    error: Schema.Union([NotCurrentStep, StepNotReady, Invalid])
   }),
   Rpc.make("Onboarding.start", { success: StartChecklist, error: NotCurrentStep }),
   Rpc.make("Onboarding.completeTask", { payload: CompleteTaskInput, success: StartChecklist, error: NotCurrentStep })

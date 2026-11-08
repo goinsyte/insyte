@@ -41,7 +41,10 @@ const HISTORY_DAYS = 730
 const queryOf = (resource: Resource, since: string) =>
   resource === "products" ? PRODUCTS_QUERY : resource === "customers" ? CUSTOMERS_QUERY : ordersQuery(since)
 
-/** The store is importing: `connecting` until the backfill finishes, and every resource's checkpoint cleared. */
+/**
+ * The store is importing: `connecting` until the backfill finishes, and every resource's checkpoint cleared. `null`
+ * for a store disconnected (or needing the operator) before its import began: there is nothing to import.
+ */
 export const prepare = Effect.fn("Stores.backfill.prepare")(function*(storeId: string) {
   const db = yield* Db
   return yield* db.scopedFor((sql) =>
@@ -49,7 +52,7 @@ export const prepare = Effect.fn("Stores.backfill.prepare")(function*(storeId: s
       const [store] = yield* sql<{ connectionId: string; shop: string; currency: string | null }>`
         update stores set status = 'connecting' where id = ${storeId} and status in ('connected', 'connecting')
         returning connection_id, shop_domain as shop, currency`
-      if (store === undefined) return yield* Effect.die(new Error(`store ${storeId} is not connected`))
+      if (store === undefined) return null
       for (const resource of RESOURCES) {
         yield* sql`insert into sync_cursors (connection_id, workspace_id, resource, backfill_state)
                    values (${store.connectionId}, app_workspace_id(), ${resource}, '{"phase":"queued"}')
@@ -62,7 +65,7 @@ export const prepare = Effect.fn("Stores.backfill.prepare")(function*(storeId: s
         shop: store.shop,
         currency: store.currency ?? "EUR",
         since
-      } satisfies BackfillContext
+      } satisfies BackfillContext as BackfillContext | null
     })
   )
 })

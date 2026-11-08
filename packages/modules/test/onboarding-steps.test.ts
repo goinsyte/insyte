@@ -30,7 +30,7 @@ describe("the onboarding machine", () => {
     expect(next("admin", "store", verified)).toBe("ready") // skipped: "Nu overslaan"
     expect(next("admin", "store", { ...verified, storeConnected: true })).toBe("sync")
     expect(next("admin", "sync", verified)).toBe("sync")
-    expect(next("admin", "sync", { ...verified, backfillDone: true })).toBe("analysis")
+    expect(next("admin", "sync", { ...verified, backfillDone: true })).toBe("ready") // analysis waits for M6.5
     expect(next("admin", "analysis", verified)).toBe("offline")
     expect(next("admin", "offline", verified)).toBe("ready")
     expect(next("admin", "ready", verified)).toBe("ready")

@@ -36,8 +36,9 @@ export const ConnectRoutes = HttpRouter.add(
     return yield* Effect.flatMap(Effect.service(StoresService), (stores) => stores.callback(query)).pipe(
       Effect.map((connected) => back(connected.returnPath, { connected: "shopify", store: connected.storeId })),
       Effect.catchTags({
-        StoreConnectedElsewhere: () => Effect.succeed(back("/settings/stores", { error: "elsewhere" })),
-        ConnectFailed: (e) => Effect.succeed(back("/settings/stores", { error: e.reason }))
+        StoreConnectedElsewhere: (e) =>
+          Effect.succeed(back(e.returnPath ?? "/settings/stores", { error: "elsewhere" })),
+        ConnectFailed: (e) => Effect.succeed(back(e.returnPath ?? "/settings/stores", { error: e.reason }))
       }),
       Effect.provideService(CurrentPrincipal, active.principal)
     )

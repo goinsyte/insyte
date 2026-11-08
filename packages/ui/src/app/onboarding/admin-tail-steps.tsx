@@ -99,14 +99,17 @@ export function planStep({ data, patch, next, onStart }: {
 }
 
 /**
- * `onSkip` leaves the store for later where the host has a server and cannot connect one yet (the console before M6):
- * the field is shown but cannot connect, and the step can only be skipped.
+ * `onSkip` leaves the store for later where the host has a server. `onConnect` is how that host connects one (the
+ * console since M6.2: to Shopify's approval page, back to the next step); without it the field is shown but cannot
+ * connect, and the step can only be skipped. The design app simulates the hand-off.
  */
-export function storeStep({ data, patch, next, onSkip }: {
+export function storeStep({ data, patch, next, onSkip, onConnect }: {
   data: OnboardingData
   patch: (p: OnboardingData) => void
   next: () => void
   onSkip?: (() => Promise<void>) | undefined
+  /** Sends the person to Shopify for `<handle>.myshopify.com`; resolves only if it could not (and said why). */
+  onConnect?: ((domain: string) => Promise<void>) | undefined
 }): StepDef {
   const shopConnected = data.shopConnected === true
   return {
@@ -130,7 +133,8 @@ export function storeStep({ data, patch, next, onSkip }: {
       <ShopifyConnect
         data={data as Record<string, string | boolean | undefined>}
         patch={patch}
-        connectable={onSkip === undefined}
+        connectable={onSkip === undefined || onConnect !== undefined}
+        onConnect={onConnect}
       />
     )
   }
@@ -244,12 +248,15 @@ type Phase = "idle" | "opening" | "approving" | "connected"
 function ShopifyConnect({
   data,
   patch,
-  connectable
+  connectable,
+  onConnect
 }: {
   data: Record<string, string | boolean | undefined>
   patch: (p: OnboardingData) => void
-  /** `false` where the host cannot connect a store yet (the console before M6): the step can only be skipped. */
+  /** `false` where the host cannot connect a store yet: the step can only be skipped. */
   connectable: boolean
+  /** The host's real hand-off; without it the steps are simulated. */
+  onConnect?: ((domain: string) => Promise<void>) | undefined
 }) {
   const still = useReducedMotion()
   const domain = normalizeShop(data.shopDomain as string)
@@ -258,6 +265,12 @@ function ShopifyConnect({
   async function connect() {
     if (!domain) return
     setPhase("opening")
+    if (onConnect !== undefined) {
+      // The browser leaves for Shopify; it comes back here only if the host could not send it (and said why).
+      await onConnect(domain)
+      setPhase("idle")
+      return
+    }
     await new Promise((r) => setTimeout(r, 700))
     setPhase("approving")
     await new Promise((r) => setTimeout(r, 900))

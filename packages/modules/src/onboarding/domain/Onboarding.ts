@@ -6,15 +6,15 @@ import { Step, Track } from "./Steps.ts"
 /*
  * What the console reads and sends (M4.1). `advance` takes one member per step: the shared head (`account` and `verify`
  * carry nothing; the server checks the facts), `role`, and the admin track's `organization` (founds the workspace),
- * `plan` (starts the trial), `store` (until M6 only "later") and `ready` (ends onboarding). `sync`, `analysis` and
- * `offline` follow a connected store, so they join with M6 and M15.
+ * `plan` (starts the trial), `store` ("later", or "connected" once Shopify gave the workspace a store), `sync` (once
+ * the store's first import is in) and `ready` (ends onboarding). `analysis` and `offline` join with M6.5 and M15.
  */
 
 export const Answers = Schema.Struct({
   persona: Schema.optional(Track),
   plan: Schema.optional(PlanId),
   cycle: Schema.optional(BillingCycle),
-  store: Schema.optional(Schema.Literal("later"))
+  store: Schema.optional(Schema.Literals(["later", "connected"]))
 })
 export type Answers = typeof Answers.Type
 
@@ -36,11 +36,19 @@ export const AdvanceInput = Schema.Union([
   // The workspace's facts as the form has them; checked by the founding, which answers `Invalid` per field.
   Schema.Struct({ step: Schema.Literal("organization"), ...CreateWorkspaceInput.fields }),
   Schema.Struct({ step: Schema.Literal("plan"), plan: PlanId, cycle: BillingCycle }),
-  // Connecting arrives with M6; until then the step can only be left for the Start checklist.
-  Schema.Struct({ step: Schema.Literal("store"), choice: Schema.Literal("later") }),
+  // Left for the Start checklist, or connected: the server checks the workspace has the store (M6.2).
+  Schema.Struct({ step: Schema.Literal("store"), choice: Schema.Literals(["later", "connected"]) }),
+  // The first import is in (M6.3): the server checks it.
+  Schema.Struct({ step: Schema.Literal("sync") }),
   Schema.Struct({ step: Schema.Literal("ready") })
 ])
 export type AdvanceInput = typeof AdvanceInput.Type
+
+/** The step's fact is not true yet: no connected store, or its first import is not in. */
+export class StepNotReady extends Schema.TaggedError<StepNotReady>()("StepNotReady", {
+  step: Step,
+  missing: Schema.Literals(["store", "import"])
+}) {}
 
 /** Only the current step can be finished: a stale tab or a replayed request is told where the person really is. */
 export class NotCurrentStep extends Schema.TaggedError<NotCurrentStep>()("NotCurrentStep", {

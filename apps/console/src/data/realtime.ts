@@ -7,6 +7,7 @@ import { ConsoleClient } from "./client.ts"
 import { KEYS } from "./developer.ts"
 import { FRAME, NOTES, presenceAtom } from "./frame.ts"
 import { ACCESS_LIST, ROLES } from "./roles.ts"
+import { STORE_SYNC, STORES } from "./stores.ts"
 import { TEAM } from "./team.ts"
 
 /*
@@ -22,7 +23,8 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   invite_link: TEAM,
   role: [...ROLES, ...TEAM],
   access_request: [...ACCESS, ...ACCESS_LIST],
-  api_key: KEYS
+  api_key: KEYS,
+  store: [...STORES, ...STORE_SYNC]
 }
 const EVERYTHING = [...new Set(Object.values(REFETCH).flat())]
 
@@ -45,6 +47,10 @@ const connection = (reconnected: boolean, present: (memberIds: ReadonlyArray<str
         if (frame.value.type === "hello" && reconnected) { for (const key of EVERYTHING) keys.add(key) }
         if (frame.value.type === "notes.changed") { for (const key of [...NOTES, ...FRAME]) keys.add(key) }
         if (frame.value.type === "records.changed") { for (const key of REFETCH[frame.value.kind] ?? []) keys.add(key) }
+        // A store's import moved on: its counts, and the store itself once it is in.
+        if (frame.value.type === "job.progress") {
+          for (const key of frame.value.label === "done" ? [...STORE_SYNC, ...STORES] : STORE_SYNC) keys.add(key)
+        }
       }
       if (keys.size > 0) yield* Reactivity.invalidate([...keys])
     }
