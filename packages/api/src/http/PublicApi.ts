@@ -13,8 +13,8 @@ import {
 
 /*
  * The public API (M19.2, api.md §6): REST under `/v1`, a bearer API key, JSON in snake_case English. What a key may do
- * is its access as the catalogue allows it through the API; this first cut reads: the key itself, the team and the
- * roles. Its OpenAPI document is generated from this file, and the reference at `/v1/docs` is drawn from that.
+ * is its access as the catalogue allows it through the API; it reads: the key itself, the team and the roles, and the
+ * orders, products and customers (M6.4). Its OpenAPI document is generated from this file, and the reference at `/v1/docs` is drawn from that.
  */
 
 /* ── errors ─────────────────────────────────────────────────────────────────────────────────────── */
@@ -41,7 +41,11 @@ export const ScopeMissingV1 = envelope("ScopeMissingV1", 403, { scope: Schema.St
 /** Over the key's rate (120 a minute, 10 a second); `retry_after` in seconds. */
 export const RateLimitedV1 = envelope("RateLimitedV1", 429, { retry_after: Schema.Int })
 
+/** A query parameter that cannot be read: an unknown cursor, a page size out of range. */
+export const InvalidRequestV1 = envelope("InvalidRequestV1", 400, { field: Schema.String })
+
 export type ScopeMissingV1 = typeof ScopeMissingV1.Type
+export type InvalidRequestV1 = typeof InvalidRequestV1.Type
 
 /* ── what a key is ──────────────────────────────────────────────────────────────────────────────── */
 
@@ -94,6 +98,80 @@ export const Role = Schema.Struct({
 
 const List = <S extends Schema.Top>(item: S) => Schema.Struct({ data: Schema.Array(item) })
 
+const Money = Schema.Struct({ amount_minor: Schema.Int, currency: Schema.String })
+
+export const Order = Schema.Struct({
+  id: Schema.String,
+  number: Schema.String,
+  store_id: Schema.String,
+  customer: Schema.Struct({
+    id: Schema.NullOr(Schema.String),
+    name: Schema.String,
+    email: Schema.NullOr(Schema.String)
+  }),
+  status: Schema.String,
+  payment_status: Schema.String,
+  fulfillment_status: Schema.String,
+  total: Money,
+  tags: Schema.Array(Schema.String),
+  line_count: Schema.Int,
+  tracking: Schema.NullOr(Schema.Struct({ carrier: Schema.NullOr(Schema.String), number: Schema.String })),
+  placed_at: Schema.String,
+  updated_at: Schema.String
+}).annotate({ identifier: "Order" })
+
+export const Product = Schema.Struct({
+  id: Schema.String,
+  store_id: Schema.String,
+  title: Schema.String,
+  handle: Schema.String,
+  status: Schema.String,
+  vendor: Schema.NullOr(Schema.String),
+  product_type: Schema.NullOr(Schema.String),
+  tags: Schema.Array(Schema.String),
+  image: Schema.NullOr(Schema.String),
+  variant_count: Schema.Int,
+  price: Schema.Struct({
+    min_minor: Schema.NullOr(Schema.Int),
+    max_minor: Schema.NullOr(Schema.Int),
+    currency: Schema.String
+  }),
+  available: Schema.NullOr(Schema.Int),
+  updated_at: Schema.String
+}).annotate({ identifier: "Product" })
+
+export const Customer = Schema.Struct({
+  id: Schema.String,
+  store_id: Schema.String,
+  name: Schema.String,
+  email: Schema.NullOr(Schema.String),
+  phone: Schema.NullOr(Schema.String),
+  country: Schema.NullOr(Schema.String),
+  tags: Schema.Array(Schema.String),
+  orders_count: Schema.Int,
+  lifetime_value: Money,
+  last_order_at: Schema.NullOr(Schema.String),
+  updated_at: Schema.String
+}).annotate({ identifier: "Customer" })
+
+/** A page: the rows, the cursor for the next (`null` at the end), and how many match in all. */
+const Page = <S extends Schema.Top>(item: S) =>
+  Schema.Struct({ data: Schema.Array(item), next_cursor: Schema.NullOr(Schema.String), total: Schema.Int })
+
+/** What every list reads from its query string. */
+export const ListQuery = Schema.Struct({
+  limit: Schema.optional(Schema.FiniteFromString),
+  cursor: Schema.optional(Schema.String),
+  q: Schema.optional(Schema.String),
+  store_id: Schema.optional(Schema.String),
+  status: Schema.optional(Schema.String)
+})
+export type ListQuery = typeof ListQuery.Type
+
+export const OrderPageV1 = Page(Order)
+export const ProductPageV1 = Page(Product)
+export const CustomerPageV1 = Page(Customer)
+
 /* ── the API ────────────────────────────────────────────────────────────────────────────────────── */
 
 export class KeyGroup extends HttpApiGroup.make("key")
@@ -120,8 +198,35 @@ export class TeamGroup extends HttpApiGroup.make("team")
   .annotate(OpenApi.Title, "Team")
 {}
 
+export class CommerceGroup extends HttpApiGroup.make("commerce")
+  .add(
+    HttpApiEndpoint.get("orders", "/orders", {
+      query: ListQuery,
+      success: OrderPageV1,
+      error: [ScopeMissingV1, InvalidRequestV1]
+    }).annotate(
+      OpenApi.Description,
+      "The workspace's orders as Shopify holds them, newest first: `q` searches number and customer, `status` one status, `cursor` the next page. Needs `orders.read`."
+    ),
+    HttpApiEndpoint.get("products", "/products", {
+      query: ListQuery,
+      success: ProductPageV1,
+      error: [ScopeMissingV1, InvalidRequestV1]
+    }).annotate(
+      OpenApi.Description,
+      "The workspace's products by title, with their price range and stock. Needs `products.read`."
+    ),
+    HttpApiEndpoint.get("customers", "/customers", {
+      query: ListQuery,
+      success: CustomerPageV1,
+      error: [ScopeMissingV1, InvalidRequestV1]
+    }).annotate(OpenApi.Description, "The workspace's customers by name. Needs `customers.read`.")
+  )
+  .annotate(OpenApi.Title, "Commerce")
+{}
+
 export class PublicApi extends HttpApi.make("insyte")
-  .add(KeyGroup, TeamGroup)
+  .add(KeyGroup, TeamGroup, CommerceGroup)
   .middleware(ApiKeyAuth)
   .prefix("/v1")
   .annotate(OpenApi.Title, "Insyte API")

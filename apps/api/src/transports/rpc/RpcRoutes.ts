@@ -1,17 +1,21 @@
 import { ConsoleRpcs, RPC_PATH } from "@insyte/api/ConsoleRpcs"
 import { Access } from "@insyte/modules/access/Access"
+import { CustomersService } from "@insyte/modules/customers/Customers"
 import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
 import { Landing } from "@insyte/modules/members/Landing"
 import { Members } from "@insyte/modules/members/Members"
 import { NotificationsService } from "@insyte/modules/notifications/NotificationsService"
 import { Onboarding } from "@insyte/modules/onboarding/Onboarding"
+import { OrdersService } from "@insyte/modules/orders/Orders"
 import { PrefsService } from "@insyte/modules/prefs/PrefsService"
+import { ProductsService } from "@insyte/modules/products/Products"
 import { RolesService } from "@insyte/modules/roles/RolesService"
 import { StoresService } from "@insyte/modules/stores/Stores"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Layer } from "effect"
 import { RpcSerialization } from "effect/rpc"
 import { AccessHandlers } from "./handlers/access.ts"
+import { CommerceHandlers } from "./handlers/commerce.ts"
 import { DeveloperHandlers } from "./handlers/developer.ts"
 import { LandingHandlers } from "./handlers/landing.ts"
 import { MembersHandlers } from "./handlers/members.ts"
@@ -47,8 +51,21 @@ export const RpcContext = Layer.mergeAll(
   PrefsHandlers.pipe(Layer.provide(PrefsService.layer)),
   NotificationsHandlers.pipe(Layer.provide(NotificationsService.layer)),
   StoresHandlers.pipe(Layer.provide(StoresService.layer)),
+  CommerceHandlers.pipe(
+    Layer.provide(Layer.mergeAll(OrdersService.layer, ProductsService.layer, CustomersService.layer))
+  ),
   ShellHandlers.pipe(
-    Layer.provide(Layer.mergeAll(Members.layer, NotificationsService.layer, PrefsService.layer, Workspaces.layer))
+    Layer.provide(
+      Layer.mergeAll(
+        Members.layer,
+        NotificationsService.layer,
+        PrefsService.layer,
+        Workspaces.layer,
+        OrdersService.layer,
+        ProductsService.layer,
+        CustomersService.layer
+      )
+    )
   )
 ).pipe(
   Layer.provideMerge(RpcSerialization.layerNdjson)

@@ -79,7 +79,14 @@ describe("the MCP server", () => {
     const listed = await mcp(agent.secret, "tools/list")
     expect(listed.status).toBe(200)
     const tools = listed.message.result.tools as Array<{ name: string; annotations?: { readOnlyHint?: boolean } }>
-    expect(tools.map((t) => t.name).toSorted()).toEqual(["list_members", "list_roles", "whoami"])
+    expect(tools.map((t) => t.name).toSorted()).toEqual([
+      "list_customers",
+      "list_members",
+      "list_orders",
+      "list_products",
+      "list_roles",
+      "whoami"
+    ])
     expect(tools.every((t) => t.annotations?.readOnlyHint === true)).toBe(true)
   })
 

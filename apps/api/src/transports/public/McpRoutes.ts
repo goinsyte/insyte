@@ -41,14 +41,18 @@ const Tools = McpServer.toolkit(InsyteTools).pipe(
   Layer.provide(InsyteTools.toLayer(Effect.map(Effect.service(Resources), (read) => ({
     whoami: () => read.me,
     list_members: () => read.members,
-    list_roles: () => read.roles
+    list_roles: () => read.roles,
+    list_orders: (query) => read.orders(query),
+    list_products: (query) => read.products(query),
+    list_customers: (query) => read.customers(query)
   }))))
 )
 
 export const McpRoutes = McpServer.layerHttpRequestScoped({
   name: "Insyte",
   version: "1.0.0",
-  instructions: "Insyte for dropshipping operators. Read the workspace's team and roles with the key's scopes.",
+  instructions:
+    "Insyte for dropshipping operators. Read the workspace's team and roles, and its orders, products and customers, with the key's scopes.",
   path: "/mcp",
   protocols: [McpProtocol.v2026_07_28],
   registrations: Tools
