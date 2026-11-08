@@ -4,6 +4,7 @@ import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
 import { Landing } from "@insyte/modules/members/Landing"
 import { Members } from "@insyte/modules/members/Members"
 import { Onboarding } from "@insyte/modules/onboarding/Onboarding"
+import { PrefsService } from "@insyte/modules/prefs/PrefsService"
 import { RolesService } from "@insyte/modules/roles/RolesService"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Layer } from "effect"
@@ -13,6 +14,7 @@ import { DeveloperHandlers } from "./handlers/developer.ts"
 import { LandingHandlers } from "./handlers/landing.ts"
 import { MembersHandlers } from "./handlers/members.ts"
 import { OnboardingHandlers } from "./handlers/onboarding.ts"
+import { PrefsHandlers } from "./handlers/prefs.ts"
 import { RolesHandlers } from "./handlers/roles.ts"
 import { SessionHandlers } from "./handlers/session.ts"
 import { SystemHandlers } from "./handlers/system.ts"
@@ -36,7 +38,8 @@ export const RpcContext = Layer.mergeAll(
   LandingHandlers.pipe(Layer.provide(Landing.layer)),
   AccessHandlers.pipe(Layer.provide(Access.layer)),
   RolesHandlers.pipe(Layer.provide(RolesService.layer)),
-  DeveloperHandlers.pipe(Layer.provide(ApiKeys.layer))
+  DeveloperHandlers.pipe(Layer.provide(ApiKeys.layer)),
+  PrefsHandlers.pipe(Layer.provide(PrefsService.layer))
 ).pipe(
   Layer.provideMerge(RpcSerialization.layerNdjson)
 )

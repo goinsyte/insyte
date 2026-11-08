@@ -59,7 +59,7 @@ const found = (user: SessionUser, workspaceId: WorkspaceId) =>
       sql`insert into auth."user" (id, name, email, email_verified, created_at, updated_at)
           values (${user.id}, ${user.name}, ${user.email}, true, now(), now())`
     )
-    yield* db.asUserIn(workspaceId)((sql) =>
+    return yield* db.asUserIn(workspaceId)((sql) =>
       Effect.gen(function*() {
         yield* sql`insert into workspaces (id, name, slug) values (${workspaceId}, ${user.name}, ${`t-${runId}-${user.name}`})`
         yield* sql`insert into roles (id, workspace_id, label, kind, levels) values ('owner', ${workspaceId}, 'Eigenaar', 'system', '{}')`
@@ -84,9 +84,16 @@ const found = (user: SessionUser, workspaceId: WorkspaceId) =>
         yield* sql`insert into outbox (id, workspace_id, event, payload) values (${
           mintId("obx")
         }, ${workspaceId}, 'test', '{}')`
+        return memberId
       })
     ).pipe(Effect.provideService(CurrentUser, user))
   })
+
+const members: Record<string, string> = {}
+
+/** As one member, by id: the member-own tables (0018) answer to the principal's id. */
+const asMember = (id: string, workspaceId: WorkspaceId, user: SessionUser) =>
+  Effect.provideService(CurrentPrincipal, { ...memberOf(workspaceId, user), id })
 
 /** The tables both workspaces have rows in, by the column that names the workspace. */
 const POPULATED = [
@@ -106,7 +113,8 @@ const POPULATED = [
 
 describe("tenancy", () => {
   it("founds two workspaces, each as its owner", async () => {
-    await run(Effect.andThen(found(alice, wsA), found(bob, wsB)))
+    members["a"] = await run(found(alice, wsA))
+    members["b"] = await run(found(bob, wsB))
   })
 
   it("shows a member of A nothing of B, through every populated table, even asked for B by name", async () => {
@@ -163,6 +171,40 @@ describe("tenancy", () => {
       )
     )
     expect(exit._tag).toBe("Failure")
+  })
+
+  it("keeps a member's own corner (prefs, views, to-dos, recents) to that member", async () => {
+    const seen = await run(
+      Effect.gen(function*() {
+        const db = yield* Db
+        yield* db.scoped((sql) =>
+          Effect.gen(function*() {
+            yield* sql`insert into user_prefs (workspace_id, member_id, section, value)
+                       values (${wsA}, ${members["a"]!}, 'board', '{}')`
+            yield* sql`insert into saved_views (id, workspace_id, member_id, list_key, name, filter)
+                       values (${mintId("view")}, ${wsA}, ${members["a"]!}, 'orders', 'Vertraagd', '{}')`
+            yield* sql`insert into todos (id, workspace_id, member_id, text)
+                       values (${mintId("todo")}, ${wsA}, ${members["a"]!}, 'Bel Linyi')`
+            yield* sql`insert into recents (workspace_id, member_id, path, kind, label)
+                       values (${wsA}, ${members["a"]!}, '/orders/ord_1', 'order', 'SO-1')`
+          })
+        ).pipe(asMember(members["a"]!, wsA, alice))
+        const count = (table: string) => (sql: Parameters<Parameters<typeof db.scoped>[0]>[0]) =>
+          Effect.map(sql<{ n: string }>`select count(*)::text as n from ${sql(table)}`, ([r]) => Number(r!.n))
+        const tables = ["user_prefs", "saved_views", "todos", "recents"]
+        const own = yield* Effect.forEach(tables, (t) => db.scoped(count(t)).pipe(asMember(members["a"]!, wsA, alice)))
+        const colleague = yield* Effect.forEach(
+          tables,
+          (t) => db.scoped(count(t)).pipe(asMember("mem_other", wsA, alice))
+        )
+        const elsewhere = yield* Effect.forEach(
+          tables,
+          (t) => db.scoped(count(t)).pipe(asMember(members["b"]!, wsB, bob))
+        )
+        return { own, colleague, elsewhere }
+      })
+    )
+    expect(seen).toEqual({ own: [1, 1, 1, 1], colleague: [0, 0, 0, 0], elsewhere: [0, 0, 0, 0] })
   })
 
   it("has its policy, forced, on every tenant table", async () => {
