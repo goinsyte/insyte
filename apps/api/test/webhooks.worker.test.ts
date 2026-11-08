@@ -1,14 +1,10 @@
-import {
-  createExecutionContext,
-  createScheduledController,
-  introspectWorkflow,
-  waitOnExecutionContext
-} from "cloudflare:test"
+import { createExecutionContext, createScheduledController, waitOnExecutionContext } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
 import worker from "../src/Main.ts"
-import { ok, person, relay, run } from "./journeys.ts"
-import { call, rpc, sessionMe } from "./support.ts"
+import { ok, run } from "./journeys.ts"
+import { importedStore } from "./shops.ts"
+import { call, rpc } from "./support.ts"
 
 /*
  * Shopify's webhooks and the reconcile sweep (step 8.3, M6.3), against the recorded twin. A delivery is verified on its
@@ -27,26 +23,7 @@ interface Mirror {
 }
 
 /** A connected, imported `upd-*` store of its own. */
-const imported = async (tag: string) => {
-  await using workflows = await introspectWorkflow(env.SHOPIFY_BACKFILL)
-  await workflows.modifyAll(async (m) => {
-    await m.disableSleeps()
-  })
-  const owner = await person(`hooks-${tag}`, `Hooks ${tag} B.V.`)
-  const workspace = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
-  const shop = `upd-${tag}-${run}.myshopify.com`
-  const { authorizeUrl } = ok(await rpc("Stores.beginConnect", { shopDomain: shop, returnPath: "/" }, owner.cookie))
-  const state = new URL(authorizeUrl).searchParams.get("state")!
-  const landed = await call(
-    `http://api.test/api/connect/shopify/callback?${new URLSearchParams({ code: "abc", shop, state, hmac: "valid" })}`,
-    { headers: { cookie: owner.cookie }, redirect: "manual" }
-  )
-  const storeId = new URL(landed.headers.get("location")!, "http://console").searchParams.get("store")!
-  await relay(workspace)
-  const [instance] = await workflows.get()
-  await instance!.waitForStatus("complete")
-  return { ...owner, workspace, shop, storeId }
-}
+const imported = (tag: string) => importedStore(tag, "upd")
 
 const mirrorOf = async (store: { workspace: string; storeId: string }) =>
   (await (await call(`http://api.test/api/__dev/stores/mirror?workspace=${store.workspace}&store=${store.storeId}`))

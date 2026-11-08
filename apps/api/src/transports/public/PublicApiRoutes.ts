@@ -42,10 +42,24 @@ const TeamLive = HttpApiBuilder.group(
     )
 )
 
+const CommerceLive = HttpApiBuilder.group(
+  PublicApi,
+  "commerce",
+  (handlers) =>
+    Effect.map(
+      Effect.service(Resources),
+      (read) =>
+        handlers
+          .handle("orders", ({ query }) => read.orders(query))
+          .handle("products", ({ query }) => read.products(query))
+          .handle("customers", ({ query }) => read.customers(query))
+    )
+)
+
 export const PublicApiRoutes = Layer.mergeAll(
   HttpApiBuilder.layer(PublicApi, { openapiPath: "/v1/openapi.json" }),
   HttpApiScalar.layerCdn(PublicApi, { path: "/v1/docs" })
 ).pipe(
-  Layer.provide(Layer.mergeAll(KeyLive, TeamLive)),
+  Layer.provide(Layer.mergeAll(KeyLive, TeamLive, CommerceLive)),
   Layer.provide(ApiKeyAuthLive)
 )

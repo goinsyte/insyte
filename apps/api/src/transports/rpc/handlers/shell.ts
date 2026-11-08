@@ -1,9 +1,12 @@
 import { Frame, ShellRpcs } from "@insyte/api/rpc/ShellRpcs"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
+import { CustomersService } from "@insyte/modules/customers/Customers"
 import { Members } from "@insyte/modules/members/Members"
 import { NotificationsService } from "@insyte/modules/notifications/NotificationsService"
+import { OrdersService } from "@insyte/modules/orders/Orders"
 import { PrefsService } from "@insyte/modules/prefs/PrefsService"
+import { ProductsService } from "@insyte/modules/products/Products"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect } from "effect"
 
@@ -12,8 +15,16 @@ import { Effect } from "effect"
  * principal, the member's preferences, their notification counts and the team's faces, all at once.
  */
 
-/** What the server counts per area. Nothing yet: each area's step adds its own (orders in M6, tickets in M11, …). */
-const countsFor = (_area: string) => Effect.succeed({} as Record<string, number>)
+/**
+ * The panel's cuts the server counts, per area (each area's step adds its own: tickets in M11, …), keyed as the panel
+ * keys them (`countKey`). Orders (M6.4): open is everything not yet shipped; "delayed" and "at supplier" wait for M8.
+ */
+const ORDER_CUTS: Record<string, ReadonlyArray<string>> = {
+  "/orders?status=open": ["placed", "paid", "at_supplier"],
+  "/orders?status=processing": ["at_supplier"],
+  "/orders?status=shipped": ["shipped"],
+  "/orders?status=cancelled": ["cancelled"]
+}
 
 /** The area a path is in: its first segment. */
 const areaOf = (path: string) => path.split("/").find((segment) => segment !== "") ?? "dashboard"
@@ -23,6 +34,30 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
   const notes = yield* NotificationsService
   const prefs = yield* PrefsService
   const workspaces = yield* Workspaces
+  const orders = yield* OrdersService
+  const products = yield* ProductsService
+  const customers = yield* CustomersService
+  const SEARCHES = {
+    order: (q: string, limit: number) => orders.search(q, limit),
+    product: (q: string, limit: number) => products.search(q, limit),
+    customer: (q: string, limit: number) => customers.search(q, limit)
+  } as const
+
+  const countsFor = (area: string) => {
+    if (area !== "orders") return Effect.succeed({} as Record<string, number>)
+    return orders.statusCounts.pipe(
+      Effect.map((byStatus) =>
+        Object.fromEntries(
+          Object.entries(ORDER_CUTS).map((
+            [key, statuses]
+          ) => [key, statuses.reduce((n, s) => n + (byStatus[s] ?? 0), 0)])
+        )
+      ),
+      // A role that cannot see the orders gets no counts, not a refusal: the panel just shows none.
+      Effect.catchTag("Forbidden", () => Effect.succeed({} as Record<string, number>))
+    )
+  }
+
   return ShellRpcs.of({
     "Shell.frame": ({ path }) =>
       Effect.gen(function*() {
@@ -47,6 +82,10 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
           proposals: null
         })
       }),
-    "Nav.counts": ({ area }) => countsFor(area)
+    "Nav.counts": ({ area }) => countsFor(area),
+    "Search.records": ({ q, kinds, limit }) =>
+      Effect.forEach(kinds ?? (["order", "customer", "product"] as const), (kind) => SEARCHES[kind](q, limit ?? 5), {
+        concurrency: 1
+      }).pipe(Effect.map((perKind) => perKind.flat()))
   })
 }))

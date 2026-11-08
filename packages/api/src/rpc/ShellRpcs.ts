@@ -2,6 +2,7 @@ import { RoleSnapshot } from "@insyte/domain/Principal"
 import { Teammate } from "@insyte/modules/members/domain/Team"
 import { NoteCounts } from "@insyte/modules/notifications/domain/Notifications"
 import { Prefs } from "@insyte/modules/prefs/domain/Prefs"
+import { SearchHit, SearchKind } from "@insyte/modules/shared/domain/Search"
 import { Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/rpc"
 import { Authenticated } from "./Authenticated.ts"
@@ -37,7 +38,16 @@ export class Frame extends Schema.Class<Frame>("shell/Frame")({
 
 export class ShellRpcs extends RpcGroup.make(
   Rpc.make("Shell.frame", { payload: Schema.Struct({ path: Schema.String }), success: Frame }),
-  Rpc.make("Nav.counts", { payload: Schema.Struct({ area: Schema.String }), success: NavCounts })
+  Rpc.make("Nav.counts", { payload: Schema.Struct({ area: Schema.String }), success: NavCounts }),
+  // The one search (api.md): the palette, the bookmark picker, Ask's `@`. Kinds join as their tables land.
+  Rpc.make("Search.records", {
+    payload: Schema.Struct({
+      q: Schema.String,
+      kinds: Schema.optional(Schema.Array(SearchKind)),
+      limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 20 })))
+    }),
+    success: Schema.Array(SearchHit)
+  })
 )
   // Innermost first: `Member` needs the person (`Authenticated`) and the connection (`WithDb`) around it.
   .middleware(Member)

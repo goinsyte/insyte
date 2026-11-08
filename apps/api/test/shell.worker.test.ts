@@ -33,6 +33,12 @@ describe("the frame", () => {
     const theirs = ok(await rpc("Shell.frame", { path: "/dashboard" }, colleague))
     expect(theirs.teammates).toEqual(frame.teammates)
     expect(theirs.role).toMatchObject({ id: "service" })
-    expect(ok(await rpc("Nav.counts", { area: "orders" }, colleague))).toEqual({})
+    // Orders are counted (M6.4): a workspace without a store has none of any kind, which is a count, not a guess.
+    expect(ok(await rpc("Nav.counts", { area: "orders" }, colleague))).toEqual({
+      "/orders?status=open": 0,
+      "/orders?status=processing": 0,
+      "/orders?status=shipped": 0,
+      "/orders?status=cancelled": 0
+    })
   })
 })

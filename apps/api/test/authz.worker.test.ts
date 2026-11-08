@@ -1,4 +1,5 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
@@ -70,7 +71,13 @@ const PAYLOADS: Record<string, unknown> = {
   "Stores.list": undefined,
   "Stores.syncStatus": { id: "sto_none" },
   "Stores.beginConnect": { shopDomain: "missing-shop", returnPath: "/" },
-  "Stores.disconnect": { id: "sto_none" }
+  "Stores.disconnect": { id: "sto_none" },
+  "Orders.list": {},
+  "Orders.get": { id: "ord_none" },
+  "Products.list": {},
+  "Products.get": { id: "prd_none" },
+  "Customers.list": {},
+  "Customers.get": { id: "cus_none" }
 }
 
 const manifest = [
@@ -78,7 +85,8 @@ const manifest = [
   ...AccessRpcs.requests.keys(),
   ...RolesRpcs.requests.keys(),
   ...DeveloperRpcs.requests.keys(),
-  ...StoresRpcs.requests.keys()
+  ...StoresRpcs.requests.keys(),
+  ...CommerceRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {
