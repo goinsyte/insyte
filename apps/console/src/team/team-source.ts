@@ -1,15 +1,23 @@
-import { useAtomSet } from "@effect/atom-react"
+import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import { Forbidden } from "@insyte/domain/Errors"
-import type { AreaId, Level, RoleDef as Role, SpecialId } from "@insyte/domain/Permissions"
-import { canRole } from "@insyte/domain/Permissions"
+import {
+  AREA_IDS,
+  type AreaId,
+  canRole,
+  type Level,
+  type RoleDef as Role,
+  type SpecialId
+} from "@insyte/domain/Permissions"
 import type { Team } from "@insyte/modules/members/domain/Team"
 import { grantersOf, grantingRoles } from "@insyte/ui/app/access/denial"
 import { type Permission, permissionName } from "@insyte/ui/app/lib/permissions"
 import type { Invite } from "@insyte/ui/app/lib/team-core"
 import type { RefusalScope, TeamGate, TeamRefusal, TeamSource } from "@insyte/ui/app/team/source"
-import { Cause, Exit, Schema } from "effect"
+import { Cause, Exit, Option, Schema } from "effect"
+import { AsyncResult } from "effect/reactivity"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
+import { ACCESS, accessWrites, myAccessAtom } from "../data/access.ts"
 import { TEAM, teamWrites } from "../data/team.ts"
 
 /*
@@ -73,6 +81,8 @@ const refused = (error: unknown) => {
           ? "Er ging intussen een nieuwere uitnodiging naar dit adres."
           : "De werkruimte is intussen veranderd. Kijk het nog eens na."
       })
+    case "AlreadyAllowed":
+      return void toast("Je rol heeft dit al", { description: "Laad de pagina opnieuw om het te gebruiken." })
     case "NotFound":
       return void toast.error("Die bestaat niet meer", { description: "Iemand anders was je voor." })
     default:
@@ -122,7 +132,21 @@ export function useConsoleTeamSource(team: Team): TeamSource {
   const mine = roles.find((r) => r.id === team.members.find((m) => m.id === team.me)?.roleId)
   const keys = { reactivityKeys: TEAM }
   const [refusal, setRefusal] = useState<TeamRefusal | null>(null)
+  const myAccess = useAtomValue(myAccessAtom)
+  const requested = Option.getOrElse(AsyncResult.value(myAccess), () => [])
+  const askFor = useAtomSet(accessWrites.request, { mode: "promiseExit" })
+  const withdraw = useAtomSet(accessWrites.withdraw, { mode: "promiseExit" })
   const people = team.members.map((m) => ({ id: m.id, name: m.name, role: m.roleLabel }))
+
+  /** What became of the member's last request for this area: open, declined, or none (a special has none). */
+  const requestState = (perm: Permission) => {
+    const last = requested.find((r) => r.area === perm && (r.state === "open" || r.state === "declined"))
+    return last === undefined
+      ? ({ state: "none" } as const)
+      : last.state === "open"
+      ? ({ state: "open", at: last.createdAt } as const)
+      : ({ state: "declined", at: last.decidedAt ?? last.createdAt } as const)
+  }
 
   const denialFor = (perm: Permission, arg?: Level | number) => ({
     perm,
@@ -130,8 +154,7 @@ export function useConsoleTeamSource(team: Team): TeamSource {
     roleLabel: mine?.label ?? "",
     grantingRoles: grantingRoles(roles, perm, arg),
     granters: grantersOf(roles, people),
-    // Asking arrives with access requests (M3.5); until then the denied states only explain.
-    request: { state: "none" } as const
+    request: requestState(perm)
   })
 
   /**
@@ -190,6 +213,23 @@ export function useConsoleTeamSource(team: Team): TeamSource {
     stores: [],
     can: { invite: gate(mine, 2), manage: gate(mine, 3) },
     denialFor,
+    askAccess: async (perm, arg) => {
+      // A special action is asked through its area; the catalogue's levels are all a request can name.
+      if (!(AREA_IDS as ReadonlyArray<string>).includes(perm)) return undefined
+      const level = ((arg as Level | undefined) ?? 1) as 1 | 2 | 3
+      const exit = await askFor({
+        payload: { area: perm as AreaId, level, path: window.location.pathname },
+        reactivityKeys: ACCESS
+      })
+      if (Exit.isFailure(exit)) {
+        refused(failureOf(exit))
+        return undefined
+      }
+      const open = exit.value.find((r) => r.area === perm && r.state === "open")
+      return open === undefined
+        ? undefined
+        : () => void withdraw({ payload: { id: open.id }, reactivityKeys: ACCESS })
+    },
     refusal,
     dismissRefusal: () => setRefusal(null),
     inviteUrl: (id) => team.invitations.find((i) => i.id === id)?.url ?? undefined,

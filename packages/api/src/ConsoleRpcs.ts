@@ -1,3 +1,4 @@
+import { AccessRpcs } from "./rpc/AccessRpcs.ts"
 import { InvitationRpcs, LandingRpcs } from "./rpc/LandingRpcs.ts"
 import { MembersRpcs } from "./rpc/MembersRpcs.ts"
 import { OnboardingRpcs } from "./rpc/OnboardingRpcs.ts"
@@ -13,3 +14,4 @@ export const RPC_PATH = "/api/rpc/v1"
  */
 export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).merge(MembersRpcs).merge(LandingRpcs)
   .merge(InvitationRpcs)
+  .merge(AccessRpcs)

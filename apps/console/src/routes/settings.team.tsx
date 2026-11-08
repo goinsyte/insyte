@@ -11,6 +11,7 @@ import { Users } from "@insyte/ui/icons"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
+import { myAccessAtom } from "../data/access.ts"
 import { sessionMeAtom } from "../data/session.ts"
 import { teamAtom } from "../data/team.ts"
 import { useConsoleTeamSource } from "../team/team-source.ts"
@@ -36,7 +37,13 @@ export const Route = createFileRoute("/settings/team")({
   loader: async ({ context }) => {
     // Mounted so the value survives until the registry is dehydrated into the document.
     context.registry.mount(teamAtom)
-    await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, teamAtom)))
+    context.registry.mount(myAccessAtom)
+    await Effect.runPromise(
+      Effect.all([
+        Effect.ignore(AtomRegistry.getResult(context.registry, teamAtom)),
+        Effect.ignore(AtomRegistry.getResult(context.registry, myAccessAtom))
+      ], { concurrency: "unbounded" })
+    )
   },
   pendingComponent: Pending,
   component: TeamRoute
