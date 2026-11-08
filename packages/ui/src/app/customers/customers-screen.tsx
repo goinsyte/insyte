@@ -1,50 +1,40 @@
-import { useNavigate } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { ArrowRight, Copy, Download, GitMerge, Mail, Plus, Send, Sparkles, Tag, Ticket } from "../../icons";
+import { ArrowRight, GitMerge, Plus, Sparkles } from "../../icons";
 import { TagDialog } from "../common/tag-dialog";
-import { KlaviyoDialog } from "./bulk-dialogs";
-import { MergeReview } from "./merge-review";
-import { type DuplicateGroup, findDuplicates } from "../lib/duplicates";
-import { useCallback, useMemo, useState } from "react";
+import type { DuplicateGroup } from "../lib/duplicates";
+import { type ReactElement, useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { copyLines, counted, exportCsv } from "../lib/bulk";
 import { useSearchCut } from "../filters/use-search-cut";
 import { useOnCreate } from "../stores/create-intent";
-import { useWorkspace } from "../stores/workspace-store";
-import { undoable } from "../lib/undo";
 import { useAskInsyte } from "../shell/ask-insyte-context";
-import { OPEN_AS_MODAL } from "../common/detail-shell";
 import { EmptyState } from "../common/empty-state";
-import { DemoAreaEmpty as AreaEmpty } from "../marketing-sections/closings";
-import { ListClosing } from "../marketing-sections/closings";
+import { AreaEmpty } from "../common/area-empty";
 import { PageHeader } from "../common/page-header";
 import { PageGuide } from "../common/page-guide";
-import {
-	type CustomerStatus,
-	CustomerStatusBadge,
-	deriveCustomerStatus,
-} from "./customer-status-badge";
-import { NewCustomerDialog } from "./new-customer-dialog";
-import {
-	DataTable,
-	type Facet,
-	facetFilter,
-	type RowAction,
-} from "../table/data-table";
-import { useCustomers } from "../hooks/use-operator-data";
+import { Blocked } from "../access/blocked";
+import { CustomerStatusBadge } from "./customer-status-badge";
+import { DataTable, type Facet, facetFilter } from "../table/data-table";
 import { formatCurrency, initials } from "../lib/format";
 import { countryFlag, countryName } from "../lib/format-flag";
 import { personStyle } from "../lib/person-color";
 import type { Customer } from "../lib/types/domain";
+import { type CustomerRow as Row, type TeamGate, useCustomersSource } from "./source";
+
+/** A control the role may not use: disabled, with what is missing, from the host's answer. */
+function GateBy({ gate, children }: { gate: TeamGate; children: ReactElement }) {
+	return gate.ok ? children : <Blocked reason={gate.reason}>{children}</Blocked>;
+}
 
 /*
  * The line beside the title is counted from the profiles on screen: how many, how many are new, and
  * how many look like the same person twice — the last a pile of work with a name on it, and a facet
  * you can click. It used to be "42.318 customers · 38 look like duplicates", figures nobody could
  * trace to anything.
+ *
+ * Store-free: the profiles, what they may become and the dialogs that change them come from the host (`source.tsx`;
+ * the design app's `demo-source.tsx`, the console's over `Customers.list`).
  */
 
-type Row = Customer & { status: CustomerStatus; aov: number };
 
 const GUIDE = [
 	{ title: "Al je klanten", body: "Elke klant die bij een gekoppelde winkel bestelde, staat hier, met bestellingen, tickets en chargebacks al gekoppeld.", art: "people" },
@@ -77,101 +67,14 @@ const FACETS: ReadonlyArray<Facet> = [
 	},
 ];
 
-/* The selection bar's actions on customers. Mail goes out through the operator's own client, so
-   nothing is sent on their behalf without them pressing send. */
-type Openers = { tag: (rows: Row[]) => void; merge: (rows: Row[]) => void; klaviyo: (rows: Row[]) => void };
-
-const customerActions = (open: Openers): ReadonlyArray<RowAction<Row>> => [
-	{
-		id: "email",
-		needs: { perm: "customers", arg: 2 },
-		label: "E-mailen",
-		icon: Mail,
-		group: "Contact",
-		shortcut: "m",
-		bar: true,
-		run: (rows) => {
-			window.location.href = `mailto:?bcc=${encodeURIComponent(rows.map((c) => c.email).join(","))}`;
-		},
-	},
-	{
-		id: "ticket",
-		needs: { perm: "support", arg: 2 },
-		label: "Ticket per klant openen",
-		icon: Ticket,
-		group: "Contact",
-		shortcut: "t",
-		bar: true,
-		run: (rows) => {
-			const { createTicket } = useWorkspace.getState();
-			for (const c of rows)
-				createTicket({
-					title: `Opvolgen met ${c.name}`,
-					description: `${c.name} (${c.email}) · ${c.orders_count} ${c.orders_count === 1 ? "bestelling" : "bestellingen"}, ${formatCurrency(c.lifetime_value)} in totaal.`,
-					priority: "medium",
-					related_entity: { type: "customer", id: c.id, label: c.name },
-				});
-			toast(`${counted(rows.length, "ticket", "tickets")} geopend op het bord`);
-		},
-	},
-	{
-		id: "tag",
-		needs: { perm: "customers", arg: 2 },
-		label: "Label toevoegen",
-		icon: Tag,
-		group: "Ordenen",
-		shortcut: "g",
-		bar: true,
-		run: (rows) => open.tag([...rows]),
-	},
-	{
-		id: "merge",
-		needs: { perm: "customers.merge" },
-		label: "Samenvoegen tot één profiel",
-		icon: GitMerge,
-		group: "Ordenen",
-		run: (rows) => open.merge([...rows]),
-	},
-	{
-		id: "klaviyo",
-		needs: { perm: "customers", arg: 2 },
-		label: "Synchroniseren naar Klaviyo",
-		icon: Send,
-		group: "Contact",
-		shortcut: "k",
-		run: (rows) => open.klaviyo([...rows]),
-	},
-	{
-		id: "copy",
-		label: "E-mailadressen kopiëren",
-		icon: Copy,
-		group: "Exporteren",
-		shortcut: "c",
-		run: (rows) => copyLines(rows.map((c) => c.email), counted(rows.length, "adres", "adressen")),
-	},
-	{
-		id: "csv",
-		needs: { perm: "data.export" },
-		label: "Exporteren als CSV",
-		icon: Download,
-		group: "Exporteren",
-		run: (rows) =>
-			exportCsv(
-				"klanten",
-				["Naam", "E-mail", "Bestellingen", "Klantwaarde", "Status"],
-				rows.map((c) => [c.name, c.email, c.orders_count, c.lifetime_value, c.status]),
-			),
-	},
-];
-
 export function CustomersPage() {
-	const navigate = useNavigate();
 	const ask = useAskInsyte();
-	const { data: customers, loading } = useCustomers();
+	const source = useCustomersSource();
+	const { customers, loading, NewCustomer, Klaviyo, Merge, Closing } = source;
 	const [newOpen, setNewOpen] = useState(false);
-	const createCustomer = useWorkspace((s) => s.createCustomer);
-	const removeCustomer = useWorkspace((s) => s.removeCustomer);
 	useOnCreate("customer", useCallback(() => setNewOpen(true), []));
+	// Adding a customer, where the host can: the button and the empty states offer it then.
+	const create = NewCustomer === undefined ? undefined : { label: "Klant toevoegen", onClick: () => setNewOpen(true) };
 	useSearchCut("customers", "segment", {
 		new: { field: "status", values: ["new"] },
 		vip: { field: "status", values: ["loyal"] },
@@ -179,16 +82,15 @@ export function CustomersPage() {
 		blocked: { field: "status", values: ["duplicate"] },
 	});
 
-	const notDuplicates = useWorkspace((s) => s.notDuplicates);
-	const groups = useMemo(() => findDuplicates(customers, notDuplicates), [customers, notDuplicates]);
+	const groups = source.duplicates;
 	const rows = useMemo<Array<Row>>(() => {
 		const dup = new Set(groups.flatMap((g) => g.ids));
 		return customers.map((c) => ({
 			...c,
-			status: dup.has(c.id) ? "duplicate" : deriveCustomerStatus(c),
+			status: dup.has(c.id) ? "duplicate" : source.statusOf(c),
 			aov: c.orders_count ? c.lifetime_value / c.orders_count : 0,
 		}));
-	}, [customers, groups]);
+	}, [customers, groups, source.statusOf]);
 	const standing = useMemo(() => {
 		const fresh = rows.filter((r) => r.status === "new").length;
 		const dup = groups.reduce((n, g) => n + g.ids.length, 0);
@@ -201,7 +103,7 @@ export function CustomersPage() {
 	const [review, setReview] = useState<{ groups: DuplicateGroup[] } | null>(null);
 	const actions = useMemo(
 		() =>
-			customerActions({
+			source.actions({
 				tag: setTagging,
 				klaviyo: setSyncing,
 				merge: (picked) => {
@@ -214,7 +116,7 @@ export function CustomersPage() {
 					else toast("Kies twee of meer profielen om samen te voegen, of bekijk de profielen die Insyte vond.");
 				},
 			}),
-		[groups],
+		[groups, source.actions],
 	);
 
 	const columns = useMemo<Array<ColumnDef<Row, unknown>>>(
@@ -320,13 +222,11 @@ export function CustomersPage() {
 				header: "Laatste bestelling",
 				size: 124,
 				cell: (ctx) => (
-					<span className="tabular-nums">
-						{formatLastOrder(ctx.row.original.created_at, ctx.row.original.id)}
-					</span>
+					<span className="tabular-nums">{source.lastOrder(ctx.row.original)}</span>
 				),
 			},
 		],
-		[],
+		[source.lastOrder],
 	);
 
 	return (
@@ -336,14 +236,16 @@ export function CustomersPage() {
 				meta={standing}
 				actions={
 					<>
-						<button
-							type="button"
-							onClick={() => setNewOpen(true)}
-							className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-xs text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2"
-						>
-							<Plus className="size-3.5" strokeWidth={2} />
-							Nieuwe klant
-						</button>
+						<GateBy gate={source.canCreate}>
+							<button
+								type="button"
+								onClick={() => setNewOpen(true)}
+								className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-xs text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2"
+							>
+								<Plus className="size-3.5" strokeWidth={2} />
+								Nieuwe klant
+							</button>
+						</GateBy>
 					</>
 				}
 			/>
@@ -352,7 +254,7 @@ export function CustomersPage() {
 				{groups.length > 0 ? (
 					<button
 						type="button"
-						onClick={() => setReview({ groups })}
+						onClick={() => setReview({ groups: [...groups] })}
 						className="group/dup mb-3 flex w-full cursor-pointer items-center gap-2.5 rounded-lg bg-arc-tint px-3.5 py-2.5 text-left text-base text-arc-ink transition-colors hover:bg-arc/15"
 					>
 						<GitMerge className="size-4 shrink-0" strokeWidth={1.75} />
@@ -368,7 +270,7 @@ export function CustomersPage() {
 					</button>
 				) : null}
 				{!loading && customers.length === 0 ? (
-					<AreaEmpty area="customers" action={{ label: "Klant toevoegen", onClick: () => setNewOpen(true) }} />
+					<AreaEmpty area="customers" action={create} starts={source.starts} />
 				) : (
 					<DataTable
 						columns={columns}
@@ -380,13 +282,7 @@ export function CustomersPage() {
 						getRowId={(r) => r.id}
 						searchPlaceholder="Klanten zoeken"
 						initialSorting={[{ id: "clv", desc: true }]}
-						onRowClick={(c) =>
-							navigate({
-								to: "/customers/$customerId",
-								params: { customerId: c.id },
-									state: OPEN_AS_MODAL,
-							})
-						}
+						onRowClick={source.open}
 						toolbarEnd={
 							<button
 								type="button"
@@ -402,26 +298,15 @@ export function CustomersPage() {
 								kind="customers"
 								title="Geen klanten voor deze filters."
 								body="Pas de filters aan of wis ze."
-								action={{
-									label: "Nieuwe klant",
-									onClick: () => setNewOpen(true),
-								}}
+								action={create && { ...create, label: "Nieuwe klant" }}
 							/>
 						}
 					/>
 				)}
 			</div>
-			<ListClosing area="customers" empty={customers.length === 0} />
+			{Closing ? <Closing empty={customers.length === 0} /> : null}
 
-			<NewCustomerDialog
-				open={newOpen}
-				onOpenChange={setNewOpen}
-				onCreate={(input) => {
-					const customer = createCustomer({ name: input.name, email: input.email, phone: input.phone || undefined, tags: input.tags });
-					undoable(`${customer.name} toegevoegd`, () => removeCustomer(customer.id));
-					navigate({ to: "/customers/$customerId", params: { customerId: customer.id }, state: OPEN_AS_MODAL });
-				}}
-			/>
+			{NewCustomer ? <NewCustomer open={newOpen} onOpenChange={setNewOpen} /> : null}
 			<TagDialog
 				open={tagging !== null}
 				onOpenChange={(v) => !v && setTagging(null)}
@@ -429,31 +314,14 @@ export function CustomersPage() {
 				known={knownTags}
 				noun={["klant", "klanten"]}
 				description="Labels gaan mee met het profiel, naar segmenten, automatiseringen en Klaviyo."
-				onApply={(tags, mode) => {
-					const ws = useWorkspace.getState();
-					const snapshot = { e: ws.customerEdits, n: ws.notDuplicates };
-					ws.tagCustomers(tagging ?? [], tags, mode);
-					const n = tagging?.length ?? 0;
-					undoable(
-						`${tags.length === 1 ? `“${tags[0]}”` : `${tags.length} labels`} ${mode === "add" ? "toegevoegd aan" : "verwijderd van"} ${n} ${n === 1 ? "klant" : "klanten"}`,
-						() => useWorkspace.getState().restoreCustomers(snapshot.e, snapshot.n),
-					);
-				}}
+				onApply={(tags, mode) => source.applyTags?.(tagging ?? [], tags, mode)}
 			/>
-			<KlaviyoDialog open={syncing !== null} onOpenChange={(v) => !v && setSyncing(null)} picked={syncing ?? []} />
-			<MergeReview open={review !== null} onOpenChange={(v) => !v && setReview(null)} groups={review?.groups ?? []} customers={customers} />
+			{Klaviyo ? <Klaviyo open={syncing !== null} onOpenChange={(v) => !v && setSyncing(null)} picked={syncing ?? []} /> : null}
+			{Merge ? (
+				<Merge open={review !== null} onOpenChange={(v) => !v && setReview(null)} groups={review?.groups ?? []} customers={customers as Customer[]} />
+			) : null}
 			<PageGuide id="customers.list" title="Klanten" steps={GUIDE} />
 		</div>
 	);
 }
 
-function formatLastOrder(createdAt: string, id: string): string {
-	const seed = id.charCodeAt(id.length - 1);
-	const d = new Date(createdAt);
-	d.setDate(d.getDate() + (seed % 30));
-	return new Intl.DateTimeFormat("nl-NL", {
-		month: "short",
-		day: "2-digit",
-		year: "numeric",
-	}).format(d);
-}

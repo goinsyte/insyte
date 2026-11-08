@@ -35,6 +35,7 @@ interface Row {
   readonly tags: ReadonlyArray<string>
   readonly images: ReadonlyArray<string>
   readonly variantCount: number
+  readonly sku: string | null
   readonly priceMin: string | null
   readonly priceMax: string | null
   readonly currency: string | null
@@ -55,6 +56,7 @@ const toRow = (r: Row) =>
     tags: r.tags,
     image: r.images[0] ?? null,
     variantCount: r.variantCount,
+    sku: r.sku,
     priceMinMinor: r.priceMin === null ? null : Number(r.priceMin),
     priceMaxMinor: r.priceMax === null ? null : Number(r.priceMax),
     currency: r.currency ?? "EUR",
@@ -65,6 +67,7 @@ const toRow = (r: Row) =>
 const SELECT = `p.id, p.store_id, p.shopify_id, p.title, p.handle, p.status, p.vendor, p.product_type, p.tags, p.images,
   p.external_updated_at, s.currency,
   (select count(*) from variants v where v.product_id = p.id)::int as variant_count,
+  (select v.sku from variants v where v.product_id = p.id and v.sku is not null order by v.position limit 1) as sku,
   (select min(v.price_minor) from variants v where v.product_id = p.id) as price_min,
   (select max(v.price_minor) from variants v where v.product_id = p.id) as price_max,
   (select sum(i.available) from inventory_levels i join variants v on v.id = i.variant_id
