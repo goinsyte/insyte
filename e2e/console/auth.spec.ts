@@ -340,18 +340,15 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await invitee.getByRole("button", { name: `Naar ${workspace}` }).click()
   await expect(invitee).toHaveURL(/\/dashboard$/)
   await expect(invitee.getByText(`Je zit in ${workspace}`)).toBeVisible()
-  // @realtime (step 7.2): the founder's open Team page shows the new colleague without a reload. Not behind Access:
-  // a browser's WebSocket handshake carries cookies but not CI's service-token headers, so Access answers it with a
-  // 302 (a person signed in to Access has its cookie). The local journey covers it.
-  if (extraHTTPHeaders === undefined) {
-    await expect(page.getByText("Amber Lewis")).toBeVisible({ timeout: 15_000 })
-    // @shell (step 7.5): the bell counts it at once, and says who joined.
-    const bell = page.getByRole("button", { name: "Meldingen (1 ongelezen)" })
-    await expect(bell).toBeVisible({ timeout: 15_000 })
-    await bell.click()
-    await expect(page.getByText("accepteerde je uitnodiging")).toBeVisible()
-    await page.keyboard.press("Escape")
-  }
+  // @realtime (step 7.2): the founder's open Team page shows the new colleague without a reload; on a preview too,
+  // since `/api/realtime` bypasses Access (it checks the session itself).
+  await expect(page.getByText("Amber Lewis")).toBeVisible({ timeout: 15_000 })
+  // @shell (step 7.5): the bell counts it at once, and says who joined.
+  const bell = page.getByRole("button", { name: "Meldingen (1 ongelezen)" })
+  await expect(bell).toBeVisible({ timeout: 15_000 })
+  await bell.click()
+  await expect(page.getByText("accepteerde je uitnodiging")).toBeVisible()
+  await page.keyboard.press("Escape")
   const mails = await (await request.get(`/api/__dev/mail?to=${encodeURIComponent(colleague)}`)).json() as {
     mails: Array<{ kind: string }>
   }
