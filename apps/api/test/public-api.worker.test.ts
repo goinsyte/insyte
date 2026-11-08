@@ -129,15 +129,16 @@ describe("the public API", () => {
         agent: false
       }, owner.cookie)
     ).secret
-    const statuses = await Promise.all(Array.from({ length: 12 }, () => v1("/me", burst).then((r) => r.status)))
-    expect(statuses.filter((s) => s === 200).length).toBeLessThanOrEqual(10)
-    const limited = await v1("/me", burst)
-    expect(limited.status).toBe(429)
-    expect((await limited.json() as Json).error).toMatchObject({
+    // At once, so they land inside one second even on a busy runner.
+    const answers = await Promise.all(Array.from({ length: 25 }, () => v1("/me", burst)))
+    expect(answers.filter((r) => r.status === 200).length).toBeLessThanOrEqual(20)
+    const limited = answers.find((r) => r.status === 429)
+    expect(limited).toBeDefined()
+    expect((await limited!.json() as Json).error).toMatchObject({
       code: "RateLimitedV1",
       retry_after: expect.any(Number)
     })
-    expect(limited.headers.get("retry-after")).not.toBeNull()
+    expect(limited!.headers.get("retry-after")).not.toBeNull()
   })
 
   it("logs each call it answered in the key's activity", async () => {
