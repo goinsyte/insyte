@@ -5,8 +5,8 @@ import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
 import { Exit } from "effect"
 import { beforeAll, describe, expect, it } from "vitest"
 import expected from "./authz.expected.json" with { type: "json" }
-import { cookiesOf, mailsTo, ok, ORIGIN, password, pastUndo, person, post, relay, run } from "./journeys.ts"
-import { call, rpc, sessionMe } from "./support.ts"
+import { join, ok, pastUndo, person, relay, run } from "./journeys.ts"
+import { rpc, sessionMe } from "./support.ts"
 
 /*
  * The authorisation matrix (07 §3.4, step 5.4): every team, invitation, access, roles and API-key RPC as each of the five system
@@ -74,21 +74,6 @@ const manifest = [
   ...RolesRpcs.requests.keys(),
   ...DeveloperRpcs.requests.keys()
 ]
-
-/** A colleague in the owner's workspace with this role, through the mailed invitation. */
-const join = async (email: string) => {
-  const url = new URL((await mailsTo(email))[0]!.url)
-  const id = url.pathname.split("/").pop()!
-  const k = url.searchParams.get("k")!
-  await call("http://api.test/api/auth/sign-up/email", {
-    method: "POST",
-    headers: { origin: ORIGIN, "content-type": "application/json", "x-insyte-invitation": `${id}.${k}` },
-    body: JSON.stringify({ name: email.split("@")[0], email, password })
-  })
-  const cookie = cookiesOf(await post("/api/auth/sign-in/email", { email, password }))
-  ok(await rpc("Landing.accept", { id, k }, cookie))
-  return cookie
-}
 
 describe("the authorisation matrix", () => {
   const cookies = {} as Record<Role, string>

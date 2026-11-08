@@ -40,5 +40,12 @@ export const RecordsChanged = Schema.Struct({
 })
 export type RecordsChanged = typeof RecordsChanged.Type
 
-export const Frame = Schema.Union([Hello, PresenceFrame, RecordsChanged])
+/** The member's notifications changed: sent to that member's tabs only, with their unread count for the bell. */
+export const NotesChanged = Schema.Struct({
+  v: Schema.Literal(1),
+  type: Schema.Literal("notes.changed"),
+  unread: Schema.Int
+})
+
+export const Frame = Schema.Union([Hello, PresenceFrame, RecordsChanged, NotesChanged])
 export type Frame = typeof Frame.Type

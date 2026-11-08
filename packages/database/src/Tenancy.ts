@@ -24,7 +24,9 @@ export const TENANT_TABLES = [
   "user_prefs",
   "saved_views",
   "todos",
-  "recents"
+  "recents",
+  "notifications",
+  "notification_prefs"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 
