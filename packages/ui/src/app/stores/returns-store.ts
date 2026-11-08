@@ -23,7 +23,7 @@ import { effectHooks } from "./agent-log-store";
  * taken back returns its way back; a refund cannot, and its caller asks first.
  */
 
-type State = {
+export type ReturnsState = {
 	records: ReturnRecord[];
 	settings: ReturnSettings;
 	scenario: Scenario;
@@ -47,7 +47,7 @@ function tracking(carrier: Carrier, n: number) {
 	return carrier === "PostNL" ? `3SNWD00${tail}` : carrier === "DHL" ? `JJD0003900${tail}` : carrier === "DPD" ? `0522294${tail}` : `1Z999AA1${tail}`;
 }
 
-export const useReturns = create<State>()(
+export const useReturns = create<ReturnsState>()(
 	persist(
 		(set, get) => {
 			/** Changes some records and returns the undo that puts exactly those back. */
@@ -148,7 +148,7 @@ export const useReturns = create<State>()(
 			version: 1,
 			partialize: (s) => ({ records: s.records, settings: s.settings, scenario: s.scenario }),
 			merge: (persisted, current) => {
-				const p = persisted as Partial<State> | undefined;
+				const p = persisted as Partial<ReturnsState> | undefined;
 				if (!p || p.scenario !== SCENARIO) return current;
 				return { ...current, records: p.records ?? current.records, settings: { ...current.settings, ...p.settings } };
 			},

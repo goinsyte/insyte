@@ -3,7 +3,7 @@ import { Maximize2, Plus, X } from "../../icons";
 import { useNavigate } from "@tanstack/react-router";
 import { InsyteMark } from "../ask/parts";
 import { Thread } from "../ask/thread";
-import { useAsk } from "../stores/ask-store";
+import { useAsk } from "./state";
 
 /**
  * Ask Insyte, as a drawer beside whatever the operator is looking at.

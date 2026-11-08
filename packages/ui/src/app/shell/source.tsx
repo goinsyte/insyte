@@ -1,0 +1,117 @@
+import { createContext, type ReactNode, useContext } from "react";
+import type { DataSource } from "../../data-source";
+import type { WorkflowState } from "../automations/node-types";
+import type { ActiveStore } from "../hooks/use-active-store";
+import type { usePersonaSelection as PersonaSelectionHook } from "../hooks/use-persona";
+import type { SupplierOrderRow } from "../hooks/use-supplier-orders";
+import type { LoadingState } from "../loading/pace";
+import type { AgentLogEntry } from "../lib/agent-log";
+import type { Note } from "../lib/notifications";
+import type { Customer, Product } from "../lib/types/domain";
+import type { QueueRow } from "../orders/forwarding";
+import type { InboxState } from "../stores/inbox-store";
+import type { Extension } from "../lib/types/domain";
+import type { AccessState, useCurrentRole as CurrentRoleHook } from "../stores/access-store";
+import type { AskState } from "../stores/ask-store";
+import type { AutonomyState } from "../stores/autonomy-store";
+import type { ChatState } from "../stores/chat-store";
+import type { CoursesState } from "../stores/courses-store";
+import type { HomeState } from "../stores/home-store";
+import type { MarketplaceModalActions } from "../stores/marketplace-modal-store";
+import type { NavActions, NavState } from "../stores/nav-store";
+import type { NotificationsState } from "../stores/notifications-store";
+import type { PanelState } from "../stores/panel-store";
+import type { PinsState } from "../stores/pins-store";
+import type { ReturnsState } from "../stores/returns-store";
+import type { SettingsDepthState } from "../stores/settings-depth-store";
+import type { SettingsState } from "../stores/settings-store";
+import type { SheetsState } from "../stores/sheets-store";
+import type { TeamState, useSeats as SeatsHook } from "../stores/team-store";
+import type { ViewsState } from "../stores/views-store";
+import type { WorkspaceState } from "../stores/workspace-store";
+import type { useMarketplaceState as MarketplaceStateHook } from "../hooks/use-marketplace-state";
+import type { useNavPrefs as NavPrefsHook } from "../hooks/use-nav-prefs";
+
+/**
+ * What the frame reads and does, from whoever hosts it (as `team/source.tsx` for Team): the design app answers from
+ * its demo stores (`DemoShellSource`), the console from the server (`Shell.frame`, preferences, notifications,
+ * presence). Each part is the slice of a store the frame reads, under the store's own names, so the frame's parts
+ * read it through `shell/state.ts` exactly as they read the stores. Records of areas a host does not have yet are
+ * empty there, and the frame shows what it shows for an empty workspace.
+ */
+export interface ShellSource {
+	panel: PanelState;
+	pins: PinsState;
+	views: ViewsState;
+	notifications: Pick<NotificationsState, "notes" | "prefs" | "setRead" | "wake">;
+	home: Pick<HomeState, "widgets" | "engine" | "add" | "remove" | "setEngine">;
+	nav: NavState & NavActions;
+	settingsDepth: Pick<SettingsDepthState, "keys" | "gotoOn">;
+	access: Pick<AccessState, "viewAs" | "setViewAs">;
+	autonomy: Pick<AutonomyState, "budget">;
+	ask: Pick<AskState, "start">;
+	marketplaceModal: Pick<MarketplaceModalActions, "openModal">;
+	team: Pick<
+		TeamState,
+		| "workspaces"
+		| "activeWorkspaceId"
+		| "workspaceInvites"
+		| "acceptWorkspaceInvite"
+		| "declineWorkspaceInvite"
+		| "restoreWorkspaceInvite"
+		| "leaveWorkspace"
+		| "switchWorkspace"
+		| "setCreatingWorkspace"
+	>;
+	workspace: Pick<WorkspaceState, "tickets" | "orders" | "chargebacks" | "queue" | "members" | "integrations" | "createdCustomers">;
+	returns: Pick<ReturnsState, "records">;
+	sheets: Pick<SheetsState, "sheets" | "folders">;
+	courses: Pick<CoursesState, "courses" | "questions">;
+	chat: Pick<ChatState, "pinned" | "created">;
+	settings: Pick<SettingsState, "roles">;
+	loading: Pick<LoadingState, "pace" | "setPace">;
+	/* What the stores' own hooks work out, worked out by the host. */
+	persona: ReturnType<typeof PersonaSelectionHook>;
+	activeStore: { active: ActiveStore | undefined; stores: ReadonlyArray<ActiveStore>; setActive: (id: string) => void };
+	seats: ReturnType<typeof SeatsHook>;
+	currentRole: ReturnType<typeof CurrentRoleHook>;
+	workflows: Record<string, WorkflowState>;
+	supplierOrders: ReadonlyArray<SupplierOrderRow>;
+	marketplace: ReturnType<typeof MarketplaceStateHook>;
+	navPrefs: ReturnType<typeof NavPrefsHook>;
+	extensions: ReadonlyArray<Extension>;
+	/** The persona's notifications, minus what their settings keep out of the app. */
+	heardNotes: ReadonlyArray<Note>;
+	inbox: Pick<InboxState, "threads">;
+	/** What Insyte did, newest first (the agent log's rows). */
+	agentEntries: ReadonlyArray<AgentLogEntry>;
+	/** The forwarding queue's rows as of this minute. */
+	queueRows: ReadonlyArray<QueueRow>;
+	/** The operator's products and customers as their lists show them (with this session's own). */
+	operator: { products: ReadonlyArray<Product>; customers: ReadonlyArray<Customer> };
+	/** The workspace's records and people as the frame reads them directly: names, presence, palette and panel lists. */
+	data: Pick<
+		DataSource,
+		| "currentUserByPersona"
+		| "navByPersona"
+		| "members"
+		| "presenceById"
+		| "lastActionById"
+		| "customers"
+		| "products"
+		| "automations"
+		| "conversations"
+	>;
+}
+
+const ShellSourceContext = createContext<ShellSource | null>(null);
+
+export function ShellSourceProvider({ value, children }: { value: ShellSource; children: ReactNode }) {
+	return <ShellSourceContext.Provider value={value}>{children}</ShellSourceContext.Provider>;
+}
+
+export function useShellSource(): ShellSource {
+	const source = useContext(ShellSourceContext);
+	if (source === null) throw new Error("The frame needs a ShellSourceProvider around it.");
+	return source;
+}

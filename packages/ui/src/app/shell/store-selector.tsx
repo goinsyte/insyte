@@ -13,14 +13,12 @@ import { ConnectStoreDialog } from "../shops/connect-store-dialog";
 import { FirstRunHint } from "../team/first-run-hint";
 import { InviteDialog } from "../team/invite-dialog";
 import { WorkspaceSwitchOverlay } from "../team/workspace-switch";
-import { type ActiveStore, useActiveStore } from "../hooks/use-active-store";
+import type { ActiveStore } from "../hooks/use-active-store";
 import { formatRelative } from "../lib/format";
 import type { Workspace, WorkspaceInvite } from "../lib/team";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { useActiveWorkspace, useSeats, useTeam } from "../stores/team-store";
-import { useCan } from "../stores/access-store";
-import { useWorkspace } from "../stores/workspace-store";
+import { useActiveStore, useActiveWorkspace, useCan, useSeats, useTeam, useWorkspace } from "./state";
 
 const initialsOf = (name: string) =>
 	name
@@ -49,7 +47,8 @@ export function StoreSelector({
 	const navigate = useNavigate();
 	const { active, stores, setActive } = useActiveStore();
 	const current = useActiveWorkspace();
-	const workspaces = useTeam((s) => s.workspaces);
+	const team = useTeam((s) => s);
+	const workspaces = team.workspaces;
 	const pending = useTeam((s) => s.workspaceInvites);
 	const memberCount = useWorkspace((s) => s.members.filter((m) => m.status === "active").length);
 	const seats = useSeats();
@@ -63,17 +62,17 @@ export function StoreSelector({
 	const several = workspaces.length > 1 || pending.length > 0;
 
 	function accept(inv: WorkspaceInvite) {
-		const ws = useTeam.getState().acceptWorkspaceInvite(inv.id);
+		const ws = team.acceptWorkspaceInvite(inv.id);
 		if (!ws) return;
 		toast.success(`Je zit nu in ${ws.name}`, {
 			description: `Als ${ws.role}. Je vindt het hier tussen je werkruimtes.`,
-			action: { label: "Openen", onClick: () => useTeam.getState().switchWorkspace(ws.id) },
+			action: { label: "Openen", onClick: () => team.switchWorkspace(ws.id) },
 		});
 	}
 
 	function decline(inv: WorkspaceInvite) {
-		const gone = useTeam.getState().declineWorkspaceInvite(inv.id);
-		if (gone) undoable(`Uitnodiging van ${inv.workspace} geweigerd`, () => useTeam.getState().restoreWorkspaceInvite(gone.invite, gone.index), `${inv.invitedBy} krijgt te zien dat je niet meedoet.`);
+		const gone = team.declineWorkspaceInvite(inv.id);
+		if (gone) undoable(`Uitnodiging van ${inv.workspace} geweigerd`, () => team.restoreWorkspaceInvite(gone.invite, gone.index), `${inv.invitedBy} krijgt te zien dat je niet meedoet.`);
 	}
 
 	const Trigger =
@@ -131,7 +130,7 @@ export function StoreSelector({
 							{workspaces.map((w) => (
 								<DropdownMenuItem
 									key={w.id}
-									onClick={() => w.id !== current.id && useTeam.getState().switchWorkspace(w.id)}
+									onClick={() => w.id !== current.id && team.switchWorkspace(w.id)}
 									className="h-11 gap-2.5 px-2"
 								>
 									<span className={cn("flex size-6 shrink-0 items-center justify-center rounded-md font-medium text-2xs", w.id === current.id ? "bg-abyss text-mesh-ink" : "bg-ink/7 text-ink-2")}>
@@ -204,7 +203,7 @@ export function StoreSelector({
 						<DropdownMenuItem
 							className="h-8 gap-2.5 px-2"
 							onClick={() => {
-								useTeam.getState().setCreatingWorkspace(true);
+								team.setCreatingWorkspace(true);
 								void navigate({ to: "/onboarding", search: { persona: "admin", step: 3 } });
 							}}
 						>
@@ -255,7 +254,7 @@ export function StoreSelector({
 				onConfirm={() => {
 					if (!leaving) return;
 					const name = leaving.name;
-					useTeam.getState().leaveWorkspace(leaving.id);
+					team.leaveWorkspace(leaving.id);
 					setLeaving(null);
 					toast.success(`Je hebt ${name} verlaten`);
 					void navigate({ to: "/dashboard", search: {} as never });

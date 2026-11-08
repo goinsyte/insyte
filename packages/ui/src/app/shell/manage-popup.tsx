@@ -21,25 +21,14 @@ import {
 } from "../../icons";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { useMarketplaceState } from "../hooks/use-marketplace-state";
-import {
-	MAX_RAIL_ADDONS,
-	type ThemeMode,
-	useNavPrefs,
-} from "../hooks/use-nav-prefs";
-import { usePersonaSelection } from "../hooks/use-persona";
+import { MAX_RAIL_ADDONS, type ThemeMode } from "../hooks/use-nav-prefs";
 import { RAIL_BY_PERSONA } from "../lib/app-shell-config";
 import { initials } from "../lib/format";
-import { extensions as allExtensions } from "../../data-source";
-import {
-	lastActionById,
-	members,
-	type Presence,
-	presenceById,
-} from "../../data-source";
+import type { Presence } from "../../data-source";
 import { personStyle } from "../lib/person-color";
 import { cn } from "../lib/utils";
-import { MAX_PINNED_FRIENDS } from "../stores/nav-store";
+import { MAX_PINNED_FRIENDS } from "../lib/nav-limits";
+import { useExtensions, useMarketplaceState, useNavPrefs, usePersonaSelection, useShellData } from "./state";
 
 export type ManageTab = "apps" | "people" | "view" | "theme";
 
@@ -118,6 +107,7 @@ export function ManagePopup({
 }
 
 function AppsTab() {
+	const allExtensions = useExtensions();
 	const { installedIds } = useMarketplaceState();
 	const { isAddonPinned, pinnedCount, togglePinned } = useNavPrefs();
 	const installedApps = allExtensions.filter((e) =>
@@ -529,6 +519,7 @@ function ThemePreviewFace() {
 }
 
 function PeopleTab() {
+	const { members, presenceById, lastActionById } = useShellData();
 	const { state, isFriendPinned, togglePinnedFriend } = useNavPrefs();
 	const pinned = state.pinnedFriends.length;
 

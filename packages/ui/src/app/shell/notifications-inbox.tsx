@@ -4,12 +4,11 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { Glyph } from "../common/glyph";
-import { NoteLead, NoteSentence, useHeardNotes, useNow } from "../notifications/note-parts";
-import { usePersonaSelection } from "../hooks/use-persona";
+import { NoteLead, NoteSentence, useNow } from "../notifications/note-parts";
 import { DAY_GROUPS, dayGroup, type Note, noteTime, stateOf } from "../lib/notifications";
 import { PERSONA_CHROME } from "../lib/persona-chrome";
 import { cn } from "../lib/utils";
-import { useNotifications } from "../stores/notifications-store";
+import { useHeardNotes, useNotifications, usePersonaSelection, useShellData } from "./state";
 
 /**
  * Notifications, as a list of who did what.
@@ -39,7 +38,8 @@ const SHOWN = 40;
 export function NotificationsInbox() {
 	const { persona } = usePersonaSelection();
 	const now = useNow();
-	const heardNotes = useHeardNotes(persona);
+	const heardNotes = useHeardNotes();
+	const { presenceById } = useShellData();
 	const setRead = useNotifications((s) => s.setRead);
 	const wake = useNotifications((s) => s.wake);
 	const navigate = useNavigate();
@@ -182,7 +182,7 @@ export function NotificationsInbox() {
 													}}
 													className="glyph-host flex items-start gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-ink/4"
 												>
-													<NoteLead note={n} />
+													<NoteLead note={n} presence={n.actor?.kind === "member" ? (presenceById[n.actor.id] ?? "offline") : undefined} />
 													<span className="flex min-w-0 flex-1 flex-col gap-0.5 pr-5">
 														<NoteSentence note={n} className={cn("text-base leading-snug", n.read ? "text-ink-2" : "text-ink")} />
 														{n.detail ? (

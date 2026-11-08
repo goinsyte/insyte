@@ -6,49 +6,40 @@ import { panelForPath } from "../lib/app-shell-config";
 import { WorkspaceName } from "../team/workspace-name";
 import type { SubPanelItem } from "../lib/types/sub-panel";
 import { cn } from "../lib/utils";
-import { isDrawn, isNeedsYou, useWorkspace } from "../stores/workspace-store";
-import { useChatStore } from "../stores/chat-store";
+import { isDrawn, isNeedsYou } from "../lib/queue-state";
 import { useCreateIntent } from "../stores/create-intent";
 import type { Conversation, Ticket, TicketSource } from "../lib/types/domain";
 import { SourceMark } from "../tickets/source-mark";
 import { BrandLogo } from "../marketplace/brand-logos";
 import { MAILBOXES, mailboxStatus, PROVIDER_LABEL } from "../lib/mailboxes";
-import { type ThreadState, useInbox } from "../stores/inbox-store";
+import type { ThreadState } from "../stores/inbox-store";
 import { recommendations, usesAi } from "../automations/library";
 import { AutomationsPanelExtras } from "../automations/panel-extras";
 import type { WorkflowState } from "../automations/node-types";
-import { useWorkflows } from "../automations/workflow-store";
 import { TEMPLATES } from "../lib/automation-templates";
-import { useCustomers, useProducts } from "../hooks/use-operator-data";
 import { deriveCustomerStatus } from "../customers/customer-status-badge";
-import { conversations } from "../../data-source";
 import type { Chargeback, Customer, Order } from "../lib/types/domain";
-import { inSupplierView, type SupplierOrderRow, type SupplierView, useSupplierOrders } from "../hooks/use-supplier-orders";
+import { inSupplierView, type SupplierOrderRow, type SupplierView } from "../hooks/use-supplier-orders";
 import { isAssignedTo, ME } from "../lib/assignees";
 import { inView, SOURCE, sourceOf, type TicketView } from "../lib/ticket-source";
 import type { SubPanelConfig } from "../lib/types/sub-panel";
 import { List, MessagesSquare, User } from "../../icons";
-import { usePanel } from "../stores/panel-store";
 import { Settings, Sparkle } from "../../icons";
 import { heard, isPrimary, type Note, type NotifyPrefs, SOURCE_ORDER, SOURCES, stateOf } from "../lib/notifications";
-import { useNotifications } from "../stores/notifications-store";
 import { areaForPath, permissionName } from "../lib/permissions";
-import { useCan, useCanOpen, useCurrentRole } from "../stores/access-store";
 import { Folder, Lock } from "../../icons";
 import { CustomizeButton } from "./customize-panel";
-import { useAgentEntries } from "../stores/agent-log-store";
-import { useCourses } from "../stores/courses-store";
-import { useSheets } from "../stores/sheets-store";
 import type { Folder as SheetFolder, Sheet } from "../lib/sheets";
 import type { Course, CourseQuestion } from "../lib/courses";
-import { useReturns } from "../stores/returns-store";
 import type { ReturnRecord } from "../lib/returns";
 import { CHANNEL_LABEL, CHAT_CHANNELS } from "../lib/channels";
-import { ChannelMark } from "../inbox/channel-parts";
-import { isForwardView, type QueueRow, useQueueRows } from "../orders/forwarding";
+import { ChannelMark } from "../inbox/channel-mark";
+import { isForwardView } from "../lib/forwarding";
+import type { QueueRow } from "../orders/forwarding";
 import { type ForwardView, inView as forwardInView } from "../lib/forwarding";
 import { type AgentLogEntry, canUndo } from "../lib/agent-log";
 import { ReportSection, ShortcutsSection } from "./panel-shortcuts";
+import { useAgentLogEntries, useCan, useCanOpen, useChatStore, useCourses, useCurrentRole, useForwardingRows, useInboxThreads, useNotifications, useOperator, usePanel, useReturns, useSheets, useShellData, useSupplierOrders, useWorkflows, useWorkspace } from "./state";
 
 /**
  * The area panel: 224px of `mist`, adjacent to the rail, carrying where you are.
@@ -67,6 +58,7 @@ export function SubPanel() {
 		unknown
 	>;
 	const navigate = useNavigate();
+	const { conversations } = useShellData();
 
 	const sections = usePanel((s) => s.sections);
 	const hidden = usePanel((s) => s.hidden);
@@ -79,27 +71,26 @@ export function SubPanel() {
 	const pinnedChats = useChatStore((s) => s.pinned);
 	const tickets = useWorkspace((s) => s.tickets);
 	const integrations = useWorkspace((s) => s.integrations);
-	const threads = useInbox((s) => s.threads);
+	const threads = useInboxThreads();
 	const workflows = useWorkflows();
 	const supplierRows = useSupplierOrders();
 	const orders = useWorkspace((s) => s.orders);
 	const chargebacks = useWorkspace((s) => s.chargebacks);
 	const notes = useNotifications((s) => s.notes);
 	const notePrefs = useNotifications((s) => s.prefs);
-	const { data: products } = useProducts();
-	const { data: customers } = useCustomers();
+	const { products, customers } = useOperator();
 	const recommendedCount = useMemo(
 		() => recommendations({ orders, products, customers, chargebacks, tickets }, workflows).length,
 		[orders, products, customers, chargebacks, tickets, workflows],
 	);
 
-	const agentEntries = useAgentEntries();
+	const agentEntries = useAgentLogEntries();
 	const returnRecords = useReturns((s) => s.records);
 	const courses = useCourses((s) => s.courses);
 	const questions = useCourses((s) => s.questions);
 	const sheetList = useSheets((s) => s.sheets);
 	const sheetFolders = useSheets((s) => s.folders);
-	const queueRows = useQueueRows(Math.floor(Date.now() / 60_000) * 60_000);
+	const queueRows = useForwardingRows();
 	const can = useCan();
 	const role = useCurrentRole();
 	const base = panelForPath(pathname);
@@ -111,7 +102,7 @@ export function SubPanel() {
 		base.title === "Meldingen"
 			? withNotifications(base, pathname, notes, notePrefs)
 			: base.title === "Chats"
-			? withChats(base, created, pinnedChats)
+			? withChats(base, created, pinnedChats, conversations)
 			: pathname.startsWith("/orders") || pathname.startsWith("/customers") || pathname.startsWith("/chargebacks")
 				? withCounts(base, orders, customers, chargebacks, queueRows)
 			: base.title === "Tickets"
@@ -326,7 +317,12 @@ function SubPanelLink({
  * Chats' panel is partly the operator's: channels and DMs started here join the seeded ones, and a
  * pinned conversation moves to the top of its group.
  */
-function withChats(cfg: SubPanelConfig, created: ReadonlyArray<Conversation>, pinned: ReadonlyArray<string>): SubPanelConfig {
+function withChats(
+	cfg: SubPanelConfig,
+	created: ReadonlyArray<Conversation>,
+	pinned: ReadonlyArray<string>,
+	conversations: ReadonlyArray<Conversation>,
+): SubPanelConfig {
 	const item = (c: Conversation) => ({
 		to: "/chats",
 		label: c.type === "group" ? `# ${c.name}` : c.name,

@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware";
 import type { ChatAction, ChatReaction, RichMessage } from "../../data-source";
 import type { Conversation } from "../lib/types/domain";
 
-type State = {
+export type ChatState = {
 	drafts: Record<string, string>; // conversation_id -> draft text
 	extra: Record<string, RichMessage[]>; // conversation_id -> appended messages
 	reactions: Record<string, ChatReaction[]>; // message_id -> current reactions
@@ -22,7 +22,7 @@ type State = {
 	typing: Record<string, string | undefined>;
 };
 
-type Actions = {
+export type ChatActions = {
 	setDraft: (conversationId: string, value: string) => void;
 	appendMessage: (conversationId: string, msg: RichMessage) => void;
 	setReactions: (messageId: string, reactions: ChatReaction[]) => void;
@@ -39,7 +39,7 @@ type Actions = {
 	setTyping: (conversationId: string, who: string | undefined) => void;
 };
 
-export const useChatStore = create<State & Actions>()(
+export const useChatStore = create<ChatState & ChatActions>()(
 	persist(
 		(set, get) => ({
 			drafts: {},

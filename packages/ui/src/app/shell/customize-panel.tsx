@@ -36,18 +36,12 @@ import {
 import { motion } from "motion/react";
 import { type ReactNode, useState } from "react";
 import { WIDGETS } from "../dashboard/widgets";
-import { usePersonaSelection } from "../hooks/use-persona";
 import { railItemsForPersona } from "../lib/app-shell-config";
 import { cn } from "../lib/utils";
-import { useHome, type WidgetId } from "../stores/home-store";
-import { useNavStore } from "../stores/nav-store";
-import {
-	type Density,
-	type PanelSection,
-	SECTION_LABEL,
-	type ShortcutStyle,
-	usePanel,
-} from "../stores/panel-store";
+import type { WidgetId } from "../stores/home-store";
+import { SECTION_LABEL } from "../lib/panel-sections";
+import type { Density, PanelSection, ShortcutStyle } from "../stores/panel-store";
+import { useHome, useNavStore, usePanel, usePersonaSelection } from "./state";
 
 /**
  * Customize, as ClickUp has it at the foot of its sidebar: one dialog for how the shell is laid

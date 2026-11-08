@@ -13,7 +13,7 @@ import type { Group } from "../lib/filter";
 
 export type SavedView = { id: string; name: string; filter: Group; pinned: boolean };
 
-type ViewsState = {
+export type ViewsState = {
 	views: Record<string, SavedView[]>;
 	active: Record<string, string | null>;
 	/** The working filter per list, so moving away and back keeps what was being built. */

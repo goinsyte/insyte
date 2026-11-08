@@ -44,7 +44,7 @@ export type AccessRequest = {
 	state: "open" | "granted" | "declined";
 };
 
-type AccessState = {
+export type AccessState = {
 	viewAs: string | null;
 	requests: AccessRequest[];
 	setViewAs: (roleId: string | null) => void;

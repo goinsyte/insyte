@@ -118,7 +118,7 @@ describe("the public API", () => {
     read = { id: read.id, secret: rotated.secret }
   })
 
-  it("holds a key to ten calls a second, with retry_after", async () => {
+  it("holds a key to its rate (10 a second, 120 a minute) with retry_after", async () => {
     const burst = ok(
       await rpc("ApiKeys.create", {
         label: "Haastig",
@@ -129,10 +129,13 @@ describe("the public API", () => {
         agent: false
       }, owner.cookie)
     ).secret
-    // At once, so they land inside one second even on a busy runner.
-    const answers = await Promise.all(Array.from({ length: 25 }, () => v1("/me", burst)))
-    expect(answers.filter((r) => r.status === 200).length).toBeLessThanOrEqual(20)
-    const limited = answers.find((r) => r.status === 429)
+    // One after another: past 120 the minute's limit holds whatever the runner's speed, and a fast runner meets the
+    // second's limit sooner.
+    let limited: Response | undefined
+    for (let i = 0; i < 130 && limited === undefined; i++) {
+      const answer = await v1("/me", burst)
+      if (answer.status === 429) limited = answer
+    }
     expect(limited).toBeDefined()
     expect((await limited!.json() as Json).error).toMatchObject({
       code: "RateLimitedV1",

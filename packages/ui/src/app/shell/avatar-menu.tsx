@@ -8,7 +8,6 @@ import {
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useShellDialog } from "./shell-dialogs";
 import { BudgetBar } from "../ai/budget-bar";
-import { useAutonomy } from "../stores/autonomy-store";
 import {
 	Building,
 	Check,
@@ -25,12 +24,10 @@ import {
 	Users,
 } from "../../icons";
 import { toast } from "sonner";
-import { useActiveStore } from "../hooks/use-active-store";
-import { usePersonaSelection } from "../hooks/use-persona";
 import { personStyle } from "../lib/person-color";
 import { initials } from "../lib/format";
-import { currentUserByPersona } from "../../data-source";
 import { PERSONA_CHROME } from "../lib/persona-chrome";
+import { useActiveStore, useAutonomy, usePersonaSelection, useShellData } from "./state";
 
 const MENU_ICON = {
 	profile: UserCog,
@@ -54,7 +51,7 @@ const MENU_ICON = {
  */
 export function AvatarMenu({ side = "bottom" }: { side?: "top" | "right" | "bottom" | "left" }) {
 	const { persona } = usePersonaSelection();
-	const user = currentUserByPersona[persona];
+	const user = useShellData().currentUserByPersona[persona];
 
 	return (
 		<DropdownMenu>
@@ -86,7 +83,7 @@ export function AvatarMenuContent({
 }) {
 	const { persona } = usePersonaSelection();
 	const admin = persona === "admin";
-	const user = currentUserByPersona[persona];
+	const user = useShellData().currentUserByPersona[persona];
 	const { active, stores, setActive } = useActiveStore();
 	const show = useShellDialog((s) => s.show);
 	const navigate = useNavigate();

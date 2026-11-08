@@ -12,15 +12,12 @@ import { motion, useReducedMotion } from "motion/react";
 import { useState } from "react";
 import { AppDetailModal } from "../marketplace/app-detail-modal";
 import { AvatarMenu } from "./avatar-menu";
-import { useMarketplaceState } from "../hooks/use-marketplace-state";
-import { useNavPrefs } from "../hooks/use-nav-prefs";
 import { railItemsForPersona } from "../lib/app-shell-config";
-import { extensions as allExtensions } from "../../data-source";
 import type { Extension } from "../lib/types/domain";
 import type { Persona } from "../lib/types/persona";
 import { cn } from "../lib/utils";
 import { PERSONA_CHROME } from "../lib/persona-chrome";
-import { useCanOpen } from "../stores/access-store";
+import { useCanOpen, useExtensions, useMarketplaceState, useNavPrefs } from "./state";
 
 /**
  * The rail: 52px of `abyss`, the mark at its head, the avatar at its foot.
@@ -67,6 +64,7 @@ export function IconRail({
 
 	const admin = persona === "admin";
 	// Apps the brand installed are the brand's: a supplier or affiliate never sees them.
+	const allExtensions = useExtensions();
 	const installedApps = allExtensions
 		.filter(() => admin)
 		.filter((e) => installedIds.includes(e.id))

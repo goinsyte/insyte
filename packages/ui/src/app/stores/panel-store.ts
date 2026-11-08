@@ -11,15 +11,11 @@ export type PanelSection = "navigation" | "report" | "shortcuts";
 export type ShortcutStyle = "ruler" | "drawer" | "classic";
 export type Density = "compact" | "comfortable";
 
-export const SECTION_LABEL: Record<PanelSection, { label: string; hint: string }> = {
-	navigation: { label: "Navigatie", hint: "De pagina's en selecties van dit onderdeel" },
-	report: { label: "Weekrapport", hint: "Het rapport van maandag, tot je het hebt gelezen" },
-	shortcuts: { label: "Snelkoppelingen", hint: "Vastgezette items, opgeslagen weergaven en wat je opende" },
-};
+export { SECTION_LABEL } from "../lib/panel-sections";
 
 const DEFAULT_SECTIONS: PanelSection[] = ["navigation", "report", "shortcuts"];
 
-type PanelState = {
+export type PanelState = {
 	sections: PanelSection[];
 	hidden: PanelSection[];
 	style: ShortcutStyle;

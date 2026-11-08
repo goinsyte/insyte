@@ -23,7 +23,7 @@ const ROLE_SEED = (): Role[] => [
 	...byScenario({ empty: [] as Role[], settled: SEED_CUSTOM, busy: () => BUSY_CUSTOM }),
 ];
 
-type SettingsState = {
+export type SettingsState = {
 	plan: PlanTier;
 	cycle: BillingCycle;
 	/** The date the subscription stops, once the operator has cancelled it. */

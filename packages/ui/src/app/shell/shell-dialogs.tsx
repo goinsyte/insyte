@@ -1,5 +1,4 @@
 import { GOTO_DEFAULTS } from "../lib/settings-depth";
-import { useSettingsDepth } from "../stores/settings-depth-store";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/dialog";
 import { MessagesSquare, Ticket } from "../../icons";
 import { useNavigate } from "@tanstack/react-router";
@@ -7,13 +6,11 @@ import { useMemo } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
 import { ConnectStoreDialog } from "../shops/connect-store-dialog";
-import { useActiveStore } from "../hooks/use-active-store";
 import { isAssignedTo } from "../lib/assignees";
 import { initials } from "../lib/format";
-import { lastActionById, presenceById } from "../../data-source";
 import { personStyle } from "../lib/person-color";
 import { cn } from "../lib/utils";
-import { useWorkspace } from "../stores/workspace-store";
+import { useActiveStore, useSettingsDepth, useShellData, useWorkspace } from "./state";
 
 /*
  * Dialogs the shell's menus open. A dialog rendered inside a dropdown unmounts when the menu closes,
@@ -153,6 +150,7 @@ const PRESENCE: Record<string, { dot: string; label: string }> = {
 };
 
 function MemberDialog({ memberId, onClose }: { memberId: string | null; onClose: () => void }) {
+	const { presenceById, lastActionById } = useShellData();
 	const member = useWorkspace((s) => s.members.find((m) => m.id === memberId));
 	// Select the list and filter outside the selector: a selector that returns a new array every read
 	// sends the store into an endless re-render.

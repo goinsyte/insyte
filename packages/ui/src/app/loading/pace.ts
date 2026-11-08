@@ -44,7 +44,7 @@ function initialPace(): Pace {
 	return "live";
 }
 
-type State = {
+export type LoadingState = {
 	pace: Pace;
 	/** The cold start is over: the brand has handed over to the shell. Once per page load. */
 	booted: boolean;
@@ -58,7 +58,7 @@ type State = {
 
 const startPace = initialPace();
 
-export const useLoading = create<State>()((set) => ({
+export const useLoading = create<LoadingState>()((set) => ({
 	pace: startPace,
 	booted: startPace === "off",
 	pending: 0,

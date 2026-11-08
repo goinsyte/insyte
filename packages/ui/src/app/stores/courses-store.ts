@@ -9,7 +9,7 @@ import { type Block, type Chapter, type Course, type CourseQuestion, newId, type
  * operator changes. Every change returns the undo that puts exactly that back.
  */
 
-type State = {
+export type CoursesState = {
 	scenario: Scenario;
 	chapters: Chapter[];
 	courses: Course[];
@@ -41,10 +41,10 @@ type State = {
 
 const now = () => new Date().toISOString();
 
-export const useCourses = create<State>()(
+export const useCourses = create<CoursesState>()(
 	persist(
 		(set, get) => {
-			const swap = <K extends "courses" | "chapters" | "questions">(key: K, before: State[K]) => () => set({ [key]: before } as Partial<State>);
+			const swap = <K extends "courses" | "chapters" | "questions">(key: K, before: CoursesState[K]) => () => set({ [key]: before } as Partial<CoursesState>);
 			const progressFor = (courseId: string, memberId: string): Progress =>
 				get().progress.find((p) => p.courseId === courseId && p.memberId === memberId) ?? { courseId, memberId, done: [], answers: {}, attempts: 0, startedAt: now() };
 			const putProgress = (p: Progress) =>
@@ -177,7 +177,7 @@ export const useCourses = create<State>()(
 			version: 1,
 			partialize: (s) => ({ scenario: s.scenario, chapters: s.chapters, courses: s.courses, progress: s.progress, questions: s.questions }),
 			merge: (persisted, current) => {
-				const p = persisted as Partial<State> | undefined;
+				const p = persisted as Partial<CoursesState> | undefined;
 				if (!p || p.scenario !== SCENARIO) return current;
 				return { ...current, ...p };
 			},

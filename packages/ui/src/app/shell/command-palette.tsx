@@ -9,14 +9,11 @@ import {
 } from "../../components/command";
 import { useNavigate } from "@tanstack/react-router";
 import { CornerDownLeft, ShoppingBag, Sparkles, Ticket, User } from "../../icons";
-import { customers } from "../../data-source";
-import { navByPersona } from "../../data-source";
 import type { Persona } from "../lib/types/persona";
 import { useState } from "react";
-import { useWorkspace } from "../stores/workspace-store";
 import { CREATE_ITEMS, useStartCreate } from "./new-menu";
-import { useReturns } from "../stores/returns-store";
 import { RotateCcw } from "../../icons";
+import { useReturns, useShellData, useWorkspace } from "./state";
 
 type CommandPaletteProps = {
 	open: boolean;
@@ -34,6 +31,7 @@ export function CommandPalette({
 }: CommandPaletteProps) {
 	const navigate = useNavigate();
 	const start = useStartCreate();
+	const { navByPersona, customers } = useShellData();
 	const nav = navByPersona[persona];
 	const orders = useWorkspace((s) => s.orders);
 	const tickets = useWorkspace((s) => s.tickets);

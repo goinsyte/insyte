@@ -12,7 +12,7 @@ import { type AuditEntry, GOTO_DEFAULTS, type SettingsDepthSeed } from "../lib/s
 
 type Section = Exclude<keyof SettingsDepthSeed, "audit" | "trash">;
 
-type State = SettingsDepthSeed & {
+export type SettingsDepthState = SettingsDepthSeed & {
 	scenario: Scenario;
 	/** Go-to keys by action id, and whether G-then-key is on at all. */
 	keys: Record<string, string>;
@@ -27,7 +27,7 @@ type State = SettingsDepthSeed & {
 
 const DEFAULT_KEYS = Object.fromEntries(GOTO_DEFAULTS.map((g) => [g.id, g.key]));
 
-export const useSettingsDepth = create<State>()(
+export const useSettingsDepth = create<SettingsDepthState>()(
 	persist(
 		(set, get) => ({
 			...settingsDepthSeed,
@@ -35,10 +35,10 @@ export const useSettingsDepth = create<State>()(
 			keys: DEFAULT_KEYS,
 			gotoOn: true,
 			save: (key, next, log) => {
-				const before = { [key]: get()[key], audit: get().audit } as Partial<State>;
+				const before = { [key]: get()[key], audit: get().audit } as Partial<SettingsDepthState>;
 				const at = new Date().toISOString();
 				const lines: AuditEntry[] = log.changes.map(([field, b, a]) => ({ id: newId("a"), at, who: log.who, page: log.page, to: log.to, field, before: b || "—", after: a || "—" }));
-				set({ [key]: next, audit: [...lines, ...get().audit] } as Partial<State>);
+				set({ [key]: next, audit: [...lines, ...get().audit] } as Partial<SettingsDepthState>);
 				return () => set(before);
 			},
 			restore: (ids) => {
@@ -64,7 +64,7 @@ export const useSettingsDepth = create<State>()(
 			version: 1,
 			partialize: (s) => ({ scenario: s.scenario, shipping: s.shipping, links: s.links, brand: s.brand, domain: s.domain, vat: s.vat, privacy: s.privacy, audit: s.audit, trash: s.trash, keys: s.keys, gotoOn: s.gotoOn }),
 			merge: (persisted, current) => {
-				const p = persisted as Partial<State> | undefined;
+				const p = persisted as Partial<SettingsDepthState> | undefined;
 				if (!p || p.scenario !== SCENARIO) return current;
 				return { ...current, ...p, keys: { ...DEFAULT_KEYS, ...p.keys } };
 			},

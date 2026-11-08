@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Check, Clock, Lock, MessageCircle, Send, Sparkle } from "../../icons";
 import { InsyteMark } from "../ask/parts";
 import { FormDialog } from "../common/form-dialog";
-import { BrandLogo } from "../marketplace/brand-logos";
+import { ChannelMark } from "./channel-mark";
 import {
 	CHANNEL_LABEL,
 	type ChannelId,
@@ -25,16 +25,7 @@ import { useWorkspace } from "../stores/workspace-store";
  */
 
 /** A channel's mark: the vendor's own logo, or Insyte's glyph on `abyss` for the website chat. */
-export function ChannelMark({ channel, size = 16 }: { channel: Exclude<ChannelId, "email">; size?: number }) {
-	if (channel === "webchat") {
-		return (
-			<span title="Websitechat" aria-label="Websitechat" className="inline-flex shrink-0 items-center justify-center rounded-[5px] bg-abyss text-mesh-ink" style={{ width: size, height: size }}>
-				<MessageCircle style={{ width: size * 0.62, height: size * 0.62 }} strokeWidth={1.75} />
-			</span>
-		);
-	}
-	return <BrandLogo brand={channel} name={CHANNEL_LABEL[channel]} size={size} />;
-}
+export { ChannelMark };
 
 export function useChannelStatus(channel: Exclude<ChannelId, "email">) {
 	const it = useWorkspace((s) => s.integrations.find((i) => i.key === channel));

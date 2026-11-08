@@ -108,7 +108,7 @@ const seedTodos = (): Todo[] => [
 
 type Snapshot = { widgets: PlacedWidget[]; grid: GridBox[] };
 
-type HomeState = {
+export type HomeState = {
 	/** The tab last read, for an address without `?view=`. */
 	view: HomeView;
 	setView: (v: HomeView) => void;
