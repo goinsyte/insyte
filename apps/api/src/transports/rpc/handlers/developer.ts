@@ -1,6 +1,6 @@
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
-import { Effect } from "effect"
+import { Config, Effect } from "effect"
 
 export const DeveloperHandlers = DeveloperRpcs.toLayer(Effect.gen(function*() {
   const keys = yield* ApiKeys
@@ -12,6 +12,16 @@ export const DeveloperHandlers = DeveloperRpcs.toLayer(Effect.gen(function*() {
     "ApiKeys.rotate": ({ id, graceMs }) => keys.rotate(id, graceMs),
     "ApiKeys.endGrace": ({ id }) => keys.endGrace(id),
     "ApiKeys.revoke": ({ id }) => keys.revoke(id),
-    "ApiKeys.restore": ({ id }) => keys.restore(id)
+    "ApiKeys.restore": ({ id }) => keys.restore(id),
+    "ApiKeys.endpoints": () =>
+      Config.String("PUBLIC_API_HOST").pipe(
+        Config.option,
+        Effect.map((host) =>
+          host._tag === "None"
+            ? { api: null, mcp: null }
+            : { api: `https://${host.value}/v1`, mcp: `https://${host.value}/mcp` }
+        ),
+        Effect.orDie
+      )
   })
 }))

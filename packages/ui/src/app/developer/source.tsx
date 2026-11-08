@@ -4,7 +4,7 @@ import type { ApiKey, ApiRequest } from "../lib/developer-core";
 import type { TeamGate } from "../team/source";
 
 /**
- * What Instellingen → API-sleutels reads and does, from whoever hosts it (as `team/source.tsx` for Team): the design
+ * What Instellingen → API-sleutels (and Agents en MCP) reads and does, from whoever hosts it (as `team/source.tsx` for Team): the design
  * app answers from its demo stores and simulated logs, the console from the server. Every write resolves once it took;
  * a host that refuses says why itself.
  */
@@ -18,6 +18,8 @@ export interface DeveloperSource {
 	can: { manage: TeamGate };
 	/** The signed-in member, who makes the keys. */
 	me: string;
+	/** Where an MCP client connects (M19.3): the API's own host, `/mcp`. */
+	mcpUrl: string;
 	/** The webhook endpoints, for the card that links to them; absent where the host has none yet. */
 	webhooks?: { count: number; failing: number } | undefined;
 	/** A person's name, for "Gemaakt door". */

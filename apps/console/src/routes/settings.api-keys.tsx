@@ -9,7 +9,7 @@ import { Key } from "@insyte/ui/icons"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { Effect, Option } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
-import { keysAtom } from "../data/developer.ts"
+import { endpointsAtom, keysAtom } from "../data/developer.ts"
 import { rolesAtom } from "../data/roles.ts"
 import { sessionMeAtom } from "../data/session.ts"
 import { useConsoleDeveloperSource } from "../team/developer-source.ts"
@@ -34,10 +34,12 @@ export const Route = createFileRoute("/settings/api-keys")({
     // Mounted so the values survive until the registry is dehydrated into the document.
     context.registry.mount(keysAtom)
     context.registry.mount(rolesAtom)
+    context.registry.mount(endpointsAtom)
     await Effect.runPromise(
       Effect.all([
         Effect.ignore(AtomRegistry.getResult(context.registry, keysAtom)),
-        Effect.ignore(AtomRegistry.getResult(context.registry, rolesAtom))
+        Effect.ignore(AtomRegistry.getResult(context.registry, rolesAtom)),
+        Effect.ignore(AtomRegistry.getResult(context.registry, endpointsAtom))
       ], { concurrency: "unbounded" })
     )
   },
@@ -56,14 +58,22 @@ function Pending() {
 function KeysRoute() {
   const keysResult = useAtomValue(keysAtom)
   const rolesResult = useAtomValue(rolesAtom)
+  const endpointsResult = useAtomValue(endpointsAtom)
   const keys = Option.getOrUndefined(AsyncResult.value(keysResult))
   const roles = Option.getOrUndefined(AsyncResult.value(rolesResult))
-  if (keys === undefined || roles === undefined) return <Pending />
-  return <Loaded keys={keys} roles={roles} />
+  const endpoints = Option.getOrUndefined(AsyncResult.value(endpointsResult))
+  if (keys === undefined || roles === undefined || endpoints === undefined) return <Pending />
+  return <Loaded keys={keys} roles={roles} endpoints={endpoints} />
 }
 
-function Loaded({ keys, roles }: { keys: ReadonlyArray<ApiKeyView>; roles: Roles }) {
-  const source = useConsoleDeveloperSource(keys, roles)
+function Loaded(
+  { keys, roles, endpoints }: {
+    keys: ReadonlyArray<ApiKeyView>
+    roles: Roles
+    endpoints: { readonly mcp: string | null }
+  }
+) {
+  const source = useConsoleDeveloperSource(keys, roles, endpoints)
   return (
     <main className="min-h-svh bg-paper text-ink">
       <DeveloperSourceProvider value={source}>

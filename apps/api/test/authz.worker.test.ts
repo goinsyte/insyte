@@ -64,7 +64,8 @@ const PAYLOADS: Record<string, unknown> = {
   "ApiKeys.rotate": { id: "key_none", graceMs: 0 },
   "ApiKeys.endGrace": { id: "key_none" },
   "ApiKeys.revoke": { id: "key_none" },
-  "ApiKeys.restore": { id: "key_none" }
+  "ApiKeys.restore": { id: "key_none" },
+  "ApiKeys.endpoints": undefined
 }
 
 const manifest = [

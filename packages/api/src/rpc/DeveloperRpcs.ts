@@ -14,6 +14,8 @@ import { Authenticated } from "./Authenticated.ts"
 import { Member } from "./Member.ts"
 import { WithDb } from "./WithDb.ts"
 
+export const Endpoints = Schema.Struct({ api: Schema.NullOr(Schema.String), mcp: Schema.NullOr(Schema.String) })
+
 /**
  * Instellingen → API-sleutels (M19.1): the keys and each key's request log for whoever may see the integrations, and
  * making, rotating and revoking them for whoever manages them. Never reachable by a key itself.
@@ -50,7 +52,9 @@ export class DeveloperRpcs extends RpcGroup.make(
     payload: KeyRef,
     success: Schema.Array(ApiKeyView),
     error: Schema.Union([Forbidden, NotFound])
-  })
+  }),
+  /** Where a key is used (M19.2, M19.3): the API's own host, its REST base and its MCP endpoint. Not a secret. */
+  Rpc.make("ApiKeys.endpoints", { success: Endpoints })
 )
   // Innermost first: `Member` needs the person (`Authenticated`) and the connection (`WithDb`) around it.
   .middleware(Member)
