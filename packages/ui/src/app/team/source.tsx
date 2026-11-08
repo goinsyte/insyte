@@ -55,7 +55,7 @@ export interface TeamSource {
 	/** Why a permission is missing, in the denied states' words, from this workspace's roles and people. */
 	denialFor: (perm: Permission, arg?: Level | number) => Denial;
 	/** Asks the people who can grant it, answering how to take the request back; absent where the host cannot take one yet. */
-	askAccess?: ((perm: Permission, arg?: Level | number) => (() => void) | undefined) | undefined;
+	askAccess?: ((perm: Permission, arg?: Level | number) => Promise<(() => void) | undefined>) | undefined;
 	/** The last write refused for a missing permission, until it is dismissed or retried. */
 	refusal: TeamRefusal | null;
 	dismissRefusal: () => void;

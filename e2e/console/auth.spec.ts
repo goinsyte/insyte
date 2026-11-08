@@ -349,6 +349,15 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await invitee.goto("/settings/team")
   await expect(invitee.getByText("Je rol kan de uitnodigingslink niet zien")).toBeVisible()
   await expect(invitee.getByRole("status").filter({ hasText: "Team en rollen · Bewerken" })).toBeVisible()
+  // @rbac (step 5.2): asking for it lands with whoever may grant it, says so with Undo, and holds on a reload.
+  const linkDenied = invitee.getByRole("status").filter({ hasText: "Je rol kan de uitnodigingslink niet zien" })
+  await linkDenied.getByRole("button", { name: "Toegang vragen" }).click()
+  await expect(invitee.getByText("Verzoek verstuurd")).toBeVisible()
+  await expect(linkDenied.getByText(/^Gevraagd /)).toBeVisible()
+  await invitee.reload()
+  await expect(
+    invitee.getByRole("status").filter({ hasText: "Je rol kan de uitnodigingslink niet zien" }).getByText(/^Gevraagd /)
+  ).toBeVisible()
   await invitee.getByRole("button", { name: "Acties voor Amber Lewis" }).click()
   await invitee.getByRole("menuitem", { name: "Alleen lezen" }).click()
   const refusal = invitee.getByRole("alert").filter({ hasText: "Dat ging niet door." })

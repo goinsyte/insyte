@@ -96,9 +96,9 @@ export function DemoTeamSource({ children }: { children: ReactNode }) {
 		can: { invite, manage },
 		denialFor,
 		askAccess: (perm, arg) => {
-			if (isSpecial(perm)) return undefined;
+			if (isSpecial(perm)) return Promise.resolve(undefined);
 			const req = useAccess.getState().request({ roleId: role.id, area: perm, level: ((arg as Level | undefined) ?? 1) as Level, path, memberId: "" });
-			return () => useAccess.getState().withdraw(req.id);
+			return Promise.resolve(() => useAccess.getState().withdraw(req.id));
 		},
 		refusal,
 		dismissRefusal: () => setRefusal(null),

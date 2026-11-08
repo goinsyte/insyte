@@ -31,6 +31,20 @@ export const OutboxEvent = Schema.Union([
     memberId: Schema.String,
     userId: Schema.String,
     via: Schema.Literals(["invitation", "link"])
+  }),
+  // A member asked for access (M5 tells whoever may grant it), and the answer (M5 tells the member).
+  Schema.Struct({
+    type: Schema.Literal("access.requested"),
+    workspaceId: Schema.String,
+    requestId: Schema.String,
+    memberId: Schema.String
+  }),
+  Schema.Struct({
+    type: Schema.Literal("access.decided"),
+    workspaceId: Schema.String,
+    requestId: Schema.String,
+    memberId: Schema.String,
+    state: Schema.Literals(["granted", "declined"])
   })
 ])
 export type OutboxEvent = typeof OutboxEvent.Type

@@ -17,7 +17,8 @@ export const TENANT_TABLES = [
   "members",
   "setup_tasks",
   "invitations",
-  "invite_links"
+  "invite_links",
+  "access_requests"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

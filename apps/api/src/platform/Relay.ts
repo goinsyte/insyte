@@ -84,6 +84,10 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
         groups: { workspace: event.workspaceId },
         properties: { via: event.via }
       }
+    case "access.requested":
+    case "access.decided":
+      // Notifications are their business (M5); the product events do not count them.
+      return undefined
   }
 }
 

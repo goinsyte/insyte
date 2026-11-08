@@ -8,8 +8,8 @@ import { type RefusalScope, type TeamSource, useTeamSource } from "./source";
 function asker(source: TeamSource, denial: Denial) {
 	const askAccess = source.askAccess;
 	if (!askAccess) return undefined;
-	return (perm: Permission, arg?: Level | number) => {
-		const undo = askAccess(perm, arg);
+	return async (perm: Permission, arg?: Level | number) => {
+		const undo = await askAccess(perm, arg);
 		if (!undo) return;
 		const first = denial.granters.map((g) => g.name.split(" ")[0] ?? g.name);
 		undoable(
@@ -30,7 +30,7 @@ export function TeamRefusalNotice({ scope, className }: { scope: RefusalScope; c
 	return (
 		<DeniedRefusal
 			denial={refusal.denial}
-			onAsk={ask ? () => ask(perm, arg) : undefined}
+			onAsk={ask ? () => void ask(perm, arg) : undefined}
 			onRetry={refusal.retry}
 			onDismiss={source.dismissRefusal}
 			className={className}
@@ -43,5 +43,5 @@ export function TeamDenied({ level, title, size = "section" }: { level: Level; t
 	const source = useTeamSource();
 	const denial = source.denialFor("team", level);
 	const ask = asker(source, denial);
-	return <DeniedPanel denial={denial} title={title} size={size} onAsk={ask ? () => ask("team", level) : undefined} />;
+	return <DeniedPanel denial={denial} title={title} size={size} onAsk={ask ? () => void ask("team", level) : undefined} />;
 }

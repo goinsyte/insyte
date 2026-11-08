@@ -71,6 +71,8 @@ const found = (user: SessionUser, workspaceId: WorkspaceId) =>
         yield* sql`insert into invitations (id, workspace_id, email, token_hash, role_id, invited_by, expires_at)
                    values (${mintId("inv")}, ${workspaceId}, ${`invitee-${user.name}@example.com`}, '\\x00', 'owner',
                            ${memberId}, now() + interval '7 days')`
+        yield* sql`insert into access_requests (id, workspace_id, member_id, role_id, area, level)
+                   values (${mintId("acr")}, ${workspaceId}, ${memberId}, 'owner', 'team', 3)`
         yield* sql`insert into invite_links (workspace_id, token_hash, role_id, days, expires_at)
                    values (${workspaceId}, '\\x00', 'owner', 7, now() + interval '7 days')`
         yield* sql`insert into outbox (id, workspace_id, event, payload) values (${
@@ -90,6 +92,7 @@ const POPULATED = [
   ["setup_tasks", "workspace_id"],
   ["invitations", "workspace_id"],
   ["invite_links", "workspace_id"],
+  ["access_requests", "workspace_id"],
   ["outbox", "workspace_id"]
 ] as const
 
