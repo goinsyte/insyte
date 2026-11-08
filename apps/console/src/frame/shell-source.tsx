@@ -1,9 +1,11 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { Frame } from "@insyte/api/rpc/ShellRpcs"
 import type { AreaId, Level, RoleDef, SpecialId } from "@insyte/domain/Permissions"
+import { panelForPath } from "@insyte/ui/app/lib/app-shell-config"
 import { navByPersona } from "@insyte/ui/app/lib/nav-config"
 import { navActions, navPrefsOf } from "@insyte/ui/app/lib/nav-model"
 import { DEFAULT_PREFS, type Note, type NotifyPrefs } from "@insyte/ui/app/lib/notifications"
+import { withServerCounts } from "@insyte/ui/app/lib/panel-counts"
 import type { Member } from "@insyte/ui/app/lib/types/domain"
 import { type ShellSource, ShellSourceProvider } from "@insyte/ui/app/shell/source"
 import type { NavState } from "@insyte/ui/app/stores/nav-store"
@@ -252,6 +254,11 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
       ConnectStore: null
     },
     workspaceName: frame.workspace.name,
+    // ADR-0028: the design's demo counts dropped, the server's in their place.
+    panelFor: (pathname) => {
+      const cfg = panelForPath(pathname)
+      return cfg === null ? null : withServerCounts(cfg, frame.counts)
+    },
     automationsPanel: { recommended: 0, ai: 0, Extras: null },
     operator: { products: NO_ROWS, customers: NO_ROWS },
     data: {
