@@ -150,11 +150,11 @@ export function useConsoleRolesSource(data: Roles): RolesSource {
       : undefined,
     askAccess: listDenied
       ? async () => {
-        const mine = await run(write.ask({
+        const answered = await run(write.ask({
           payload: { area: "team", level: 3, path: "/settings/roles" },
           reactivityKeys: ACCESS
         }))
-        const open = mine?.find((r) => r.area === "team" && r.state === "open")
+        const open = answered?.find((r) => r.area === "team" && r.state === "open")
         return open === undefined
           ? undefined
           : () => void write.withdraw({ payload: { id: open.id }, reactivityKeys: ACCESS })
