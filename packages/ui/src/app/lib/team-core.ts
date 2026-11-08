@@ -68,3 +68,21 @@ export function nameFromEmail(email: string) {
 }
 
 export const EMAIL = /^[^\s@,;]+@[^\s@,;]+\.[a-z]{2,}$/i
+
+/** What a supplier can be given in the portal. Orders with their products is the portal itself. */
+export const PORTAL_SCOPES = [
+  {
+    id: "orders",
+    label: "Bestellingen met hun producten",
+    detail: "Hun regels, de kostprijs en het verzendadres. Nooit het e-mailadres of telefoonnummer van de klant.",
+    fixed: true
+  },
+  { id: "stock", label: "Voorraad en levertijd bijwerken", detail: "Wat ze opgeven zie je terug op de productpagina." },
+  { id: "statements", label: "Afrekeningen", detail: "Wat Northwind per maand voor hun regels betaalt." },
+  { id: "chat", label: "Chat met jullie team", detail: "Eén gedeeld kanaal, zichtbaar aan beide kanten." },
+  {
+    id: "media",
+    label: "Productfoto's en video's aanleveren",
+    detail: "Ze verschijnen bij het product als aangeleverd door de leverancier."
+  }
+] as const

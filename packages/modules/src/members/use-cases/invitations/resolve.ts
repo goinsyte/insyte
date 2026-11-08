@@ -5,7 +5,7 @@ import { CurrentViewer } from "@insyte/domain/Session"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import * as Audit from "../../../shared/use-cases/Audit.ts"
-import type { LandingRef } from "../../domain/Landing.ts"
+import type { LandingRef, LandingState } from "../../domain/Landing.ts"
 import { classify, MISSING } from "./landing.ts"
 import { route } from "./route.ts"
 
@@ -27,8 +27,12 @@ export const resolve = Effect.fn("Landing.resolve")(function*(ref: LandingRef) {
   return yield* inWorkspace(found.workspaceId, (sql) => classify(sql, ref, found, user))
 })
 
-/** "Nieuwe uitnodiging vragen" or "om een plek vragen": once, recorded for the inviter (M5 tells them). */
-const ask = (column: "requested_new_at" | "seat_requested_at", when: "expired" | "full", action: string) =>
+/**
+ * Asking the inviter, once, recorded for them (M5 tells them): a new invitation ("Nieuwe uitnodiging vragen" when it
+ * lapsed, "<naam> mailen" when it was revoked, "<naam> vragen mijn werkadres uit te nodigen" to the wrong account) or
+ * a seat ("om een plek vragen"). The landing never shows the inviter's address, so it asks through here.
+ */
+const ask = (column: "requested_new_at" | "seat_requested_at", when: ReadonlyArray<LandingState>, action: string) =>
   Effect.fn(`Landing.${action}`)(function*(ref: LandingRef) {
     const { user } = yield* CurrentViewer
     const found = yield* route(ref)
@@ -36,7 +40,7 @@ const ask = (column: "requested_new_at" | "seat_requested_at", when: "expired" |
     return yield* inWorkspace(found.workspaceId, (sql) =>
       Effect.gen(function*() {
         const before = yield* classify(sql, ref, found, user)
-        if (before.state !== when || before.requested) return before
+        if (!when.includes(before.state) || before.requested) return before
         yield* sql`update invitations set ${sql(column)} = now() where id = ${ref.id}`
         yield* Audit.write(sql, found.workspaceId, { kind: "system", id: "landing" }, {
           action: `member.invitation_${action}`,
@@ -47,5 +51,5 @@ const ask = (column: "requested_new_at" | "seat_requested_at", when: "expired" |
       }))
   })
 
-export const requestNew = ask("requested_new_at", "expired", "requested_new")
-export const requestSeat = ask("seat_requested_at", "full", "seat_requested")
+export const requestNew = ask("requested_new_at", ["expired", "revoked", "other-account"], "requested_new")
+export const requestSeat = ask("seat_requested_at", ["full"], "seat_requested")

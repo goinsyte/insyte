@@ -3,7 +3,7 @@ import { byScenario, longEmail, longName } from "../../data-source";
 import { suppliers } from "../../data-source";
 import type { PlanTier } from "../stores/settings-store";
 import { appHref } from "../../data-source/hrefs";
-import { DAY, type Invite, type InviteLink, type MemberMeta, type StoreAccess } from "./team-core";
+import { DAY, type Invite, type InviteLink, type MemberMeta, PORTAL_SCOPES, type StoreAccess } from "./team-core";
 
 /**
  * The people around a workspace who are not yet in it, and the workspaces around the person.
@@ -15,7 +15,7 @@ import { DAY, type Invite, type InviteLink, type MemberMeta, type StoreAccess } 
  * beside it in `memberMeta`, keyed by the member's id.
  */
 
-export { DAY, EMAIL, type Invite, type InviteLink, isExpired, LINK_DAYS, type MemberMeta, nameFromEmail, type StoreAccess, token } from "./team-core";
+export { DAY, EMAIL, PORTAL_SCOPES, type Invite, type InviteLink, isExpired, LINK_DAYS, type MemberMeta, nameFromEmail, type StoreAccess, token } from "./team-core";
 /** Seats per plan, as Billing prices them. */
 export const PLAN_SEATS: Record<PlanTier, number> = { starter: 3, growth: 6, scale: 12 };
 
@@ -168,14 +168,6 @@ export type PortalAccess = {
 	inviteId?: string;
 };
 
-/** What a supplier can be given in the portal. Orders with their products is the portal itself. */
-export const PORTAL_SCOPES = [
-	{ id: "orders", label: "Bestellingen met hun producten", detail: "Hun regels, de kostprijs en het verzendadres. Nooit het e-mailadres of telefoonnummer van de klant.", fixed: true },
-	{ id: "stock", label: "Voorraad en levertijd bijwerken", detail: "Wat ze opgeven zie je terug op de productpagina." },
-	{ id: "statements", label: "Afrekeningen", detail: "Wat Northwind per maand voor hun regels betaalt." },
-	{ id: "chat", label: "Chat met jullie team", detail: "Eén gedeeld kanaal, zichtbaar aan beide kanten." },
-	{ id: "media", label: "Productfoto's en video's aanleveren", detail: "Ze verschijnen bij het product als aangeleverd door de leverancier." },
-] as const;
 
 const PORTAL_SEED: Record<string, PortalStatus> = { sup_allure: "active", sup_dpc: "none", sup_kestrel: "active", sup_blackcedar: "invited" };
 
