@@ -37,6 +37,7 @@ export function DemoDeveloperSource({ children }: { children: ReactNode }) {
 			return { requests, usage };
 		},
 		create: (input) => Promise.resolve(useDeveloper.getState().createKey(input)),
+		mcpUrl: "https://insyte-api-staging.ishak-73d.workers.dev/mcp",
 		update: (id, patch) => {
 			useDeveloper.getState().updateKey(id, {
 				...(patch.label === undefined ? {} : { label: patch.label }),

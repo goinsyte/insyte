@@ -11,9 +11,12 @@ import { FetchHttpClient, type HttpClient, HttpServer } from "effect/http"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
 import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
-import { PublicApiRoutes } from "../transports/http/PublicApiRoutes.ts"
 import { RequestContext } from "../transports/http/RequestContext.ts"
 import { SystemRoutes } from "../transports/http/SystemRoutes.ts"
+import { KeyDoor } from "../transports/public/KeyDoor.ts"
+import { McpRoutes } from "../transports/public/McpRoutes.ts"
+import { PublicApiRoutes } from "../transports/public/PublicApiRoutes.ts"
+import { Resources } from "../transports/public/Resources.ts"
 import { AuthenticatedLive } from "../transports/rpc/AuthenticatedLive.ts"
 import { MemberLive } from "../transports/rpc/MemberLive.ts"
 import { RpcContext, RpcRoutes } from "../transports/rpc/RpcRoutes.ts"
@@ -43,6 +46,7 @@ const Transports = Layer.mergeAll(
   DevRoutes,
   RpcRoutes,
   PublicApiRoutes,
+  McpRoutes,
   RequestContext,
   NotFound
 )
@@ -81,7 +85,8 @@ const PwnedPasswordsLive = Layer.unwrap(
 )
 
 export const AppLayer = Transports.pipe(
-  Layer.provideMerge(RpcContext),
+  // The RPC handlers; the public API's and the MCP server's way in, and what a key reads (M19.2, M19.3).
+  Layer.provideMerge(Layer.mergeAll(RpcContext, KeyDoor.layer, Resources.layer)),
   Layer.provideMerge(WithDbLive),
   Layer.provideMerge(AuthenticatedLive),
   Layer.provideMerge(ViewerLive),

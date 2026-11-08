@@ -1,42 +1,29 @@
-import { useState } from "react";
-import { toast } from "sonner";
 import { Link } from "@tanstack/react-router";
 import { Bot, Key, Link2, Plug, Shield, Sparkle, Webhook } from "../../icons";
 import { PageGuide } from "../common/page-guide";
-import { SoonChip } from "../common/soon-chip";
-import { Token } from "../developer/bits";
+import { CopyButton, Token } from "../developer/bits";
+import { useDeveloperSource } from "../developer/source";
 import { BandedList, BandedRow, SettingCard, SettingsItem, StatusPill } from "../settings/setting-card";
 import { formatRelative } from "../lib/format";
-import { scopeSummary } from "../lib/developer";
-import { useDeveloper } from "../stores/developer-store";
-import { useSettings } from "../stores/settings-store";
-
-const INTEREST = "insyte:agents-mcp-interest";
+import { scopeSummary } from "../lib/developer-core";
 
 /**
  * Instellingen → Technisch → Agents en MCP (`/settings/agents`, PLAN 31, ADR-0027): what agent-ready
- * means for the operator's own AI tools. The public API and webhooks work today through API keys;
- * the MCP server is not built and is drawn as _Binnenkort_ everywhere — its address greyed, nothing
- * that pretends to connect. The same in every design state, because nothing of it exists yet.
+ * means for the operator's own AI tools. The public API and the MCP server both take an API key and
+ * act with its rights; the agent keys are listed here, the server's address is ready to copy. Reads
+ * the same source as API-sleutels.
  */
 const GUIDE = [
-	{ title: "Agent-ready", body: "Je eigen AI-tools lezen en werken in Insyte met de rechten van een rol: via de API en webhooks nu, via MCP binnenkort.", art: "keys" },
+	{ title: "Agent-ready", body: "Je eigen AI-tools lezen en werken in Insyte met de rechten van een rol: via de API, MCP en webhooks.", art: "keys" },
 	{ title: "Rechten", body: "Per rol of per onderdeel, lezen of schrijven. Team, facturatie en de API zelf zijn nooit bereikbaar met een sleutel.", art: "roles" },
 	{ title: "Dezelfde regels", body: "Elke schrijfactie volgt Zelfstandigheid. Wat op Eerst vragen staat, komt als voorstel bij jou, net als bij Insyte.", art: "rules" },
-	{ title: "MCP", body: "Zodra de server live is, logt een MCP-client in zoals een API-sleutel, met dezelfde rechten.", art: "webhook" },
+	{ title: "MCP", body: "Een MCP-client logt in met een API-sleutel, met dezelfde rechten. Elke aanroep staat in het verzoeklog van die sleutel.", art: "webhook" },
 ] as const;
 
 export function AgentsPage() {
-	const all = useDeveloper((s) => s.apiKeys);
-	const keys = all.filter((k) => k.agent && k.status === "active");
-	const roles = useSettings((s) => s.roles);
-	const [interested, setInterested] = useState(() => {
-		try {
-			return window.localStorage.getItem(INTEREST) === "1";
-		} catch {
-			return false;
-		}
-	});
+	const source = useDeveloperSource();
+	const keys = source.keys.filter((k) => k.agent && k.status === "active");
+	const roles = source.roles;
 
 	return (
 		<>
@@ -45,7 +32,7 @@ export function AgentsPage() {
 					{keys.length === 0 ? (
 						<li className="flex items-center justify-between gap-3 px-3.5 py-3 text-ink-3 text-sm">
 							Nog geen sleutel voor een agent
-							<Link to="/settings/api-keys" className="font-medium text-arc-ink hover:underline">
+							<Link to={"/settings/api-keys" as never} className="font-medium text-arc-ink hover:underline">
 								Sleutel maken
 							</Link>
 						</li>
@@ -67,35 +54,16 @@ export function AgentsPage() {
 				</BandedList>
 			</SettingCard>
 
-			<SettingCard
-				title="MCP-server"
-				icon={Plug}
-				action={<SoonChip />}
-			>
-				<div className="flex flex-wrap items-center gap-3 rounded-xl bg-paper px-4 py-3 shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
-					<div className="flex flex-1 flex-wrap items-center gap-2">
+			<SettingCard title="MCP-server" icon={Plug} action={<StatusPill tone="info" label="Live" />}>
+				<div className="flex flex-col gap-2 rounded-xl bg-paper px-4 py-3 shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
+					<div className="flex flex-wrap items-center gap-3">
 						<span className="text-ink-3 text-sm">Serveradres</span>
-						<span aria-disabled className="inline-flex h-8 items-center rounded-md bg-ink/5 px-3 text-ink-3 text-sm tabular-nums">
-							mcp.goinsyte.com/northwind
-						</span>
-						<StatusPill tone="neutral" label="Nog niet beschikbaar" />
+						<span className="order-last basis-full break-all rounded-md bg-ink/5 px-3 py-1.5 text-ink text-sm tabular-nums leading-5 sm:order-none sm:basis-0 sm:flex-1">{source.mcpUrl}</span>
+						<CopyButton value={source.mcpUrl} className="ml-auto sm:ml-0" />
 					</div>
-					<button
-						type="button"
-						disabled={interested}
-						onClick={() => {
-							try {
-								window.localStorage.setItem(INTEREST, "1");
-							} catch {
-								// Private mode: the toast still says it, the page simply forgets after a reload.
-							}
-							setInterested(true);
-							toast("We laten het je weten", { description: "Je hoort het zodra de MCP-server voor je werkruimte klaar is." });
-						}}
-						className="field flex h-8 w-fit items-center rounded-md px-3 font-medium text-ink text-sm hover:field-hover disabled:cursor-default disabled:opacity-60"
-					>
-						{interested ? "Je staat op de lijst" : "Laat het me weten"}
-					</button>
+					<p className="text-ink-3 text-sm leading-normal">
+						Log in met een API-sleutel als <Token>Authorization: Bearer</Token>, met de rechten van die sleutel.
+					</p>
 				</div>
 			</SettingCard>
 

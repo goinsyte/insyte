@@ -418,4 +418,10 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await expect(page.getByText("Voorraadfeed ingetrokken")).toBeVisible()
   await page.reload()
   await expect(page.getByRole("button", { name: "1 ingetrokken sleutel tonen" })).toBeVisible()
+
+  // @mcp (step 6.3): Agents en MCP shows the live server's address, ready to copy.
+  await page.goto("/settings/agents")
+  await expect(page.getByText("Nog geen sleutel voor een agent")).toBeVisible()
+  await expect(page.getByText(/^https:\/\/.+\/mcp$/)).toBeVisible()
+  await expect(page.getByText("Live", { exact: true })).toBeVisible()
 })

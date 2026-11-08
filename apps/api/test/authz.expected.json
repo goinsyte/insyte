@@ -250,5 +250,12 @@
     "service": "deny",
     "finance": "deny",
     "view": "deny"
+  },
+  "ApiKeys.endpoints": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
   }
 }

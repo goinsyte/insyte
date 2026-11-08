@@ -1,3 +1,4 @@
+import { Endpoints } from "@insyte/api/rpc/DeveloperRpcs"
 import { Forbidden, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
 import { ApiKeyView } from "@insyte/modules/developer/domain/ApiKey"
 import { Schema } from "effect"
@@ -36,3 +37,16 @@ export const keyWrites = {
   revoke: ConsoleClient.mutation("ApiKeys.revoke"),
   restore: ConsoleClient.mutation("ApiKeys.restore")
 } as const
+
+/** Where a key is used: the public API's base and the MCP server's address, from the API's own config. */
+export const endpointsAtom = Atom.serializable(
+  ConsoleClient.query("ApiKeys.endpoints", undefined),
+  {
+    key: "api-endpoints",
+    schema: AsyncResult.Schema({
+      success: Endpoints,
+      error: Schema.Union([NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
+    }),
+    skipInitialRun: true
+  }
+)

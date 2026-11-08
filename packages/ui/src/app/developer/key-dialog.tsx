@@ -2,7 +2,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Check, Key } from "../../icons";
 import { useEffect, useState } from "react";
 import { Switch } from "../../components/switch";
-import { SoonChip } from "../common/soon-chip";
 import { Field, SelectField, TextField } from "../common/form-dialog";
 import { CopyButton, IpInput, Token } from "./bits";
 import { GHOST_BTN, PRIMARY_BTN, Segmented, StorePicker } from "../team/bits";
@@ -143,11 +142,8 @@ export function CreateKeyDialog({ open, onOpenChange }: { open: boolean; onOpenC
 
 							<label className="flex items-start justify-between gap-3 rounded-lg bg-mist px-3 py-2.5">
 								<span className="flex flex-col gap-0.5">
-									<span className="flex items-center gap-2 font-medium text-ink text-sm">
-										Gebruiken met een agent
-										<SoonChip label="MCP binnenkort" />
-									</span>
-									<span className="text-ink-3 text-xs leading-normal">Voor je eigen AI-tools, met dezelfde rechten. Wat de agent schrijft, volgt Zelfstandigheid: bij Eerst vragen wordt het een voorstel in Insyte.</span>
+									<span className="flex items-center gap-2 font-medium text-ink text-sm">Gebruiken met een agent</span>
+									<span className="text-ink-3 text-xs leading-normal">Voor je eigen AI-tools, via de API of MCP, met dezelfde rechten. Wat de agent schrijft, volgt Zelfstandigheid: bij Eerst vragen wordt het een voorstel in Insyte.</span>
 								</span>
 								<Switch checked={agent} onCheckedChange={setAgent} aria-label="Gebruiken met een agent" />
 							</label>

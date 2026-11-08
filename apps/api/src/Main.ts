@@ -41,13 +41,14 @@ export default {
 } satisfies ExportedHandler<Env, EventsMessage>
 
 /**
- * On the Worker's own public hostname only the public API answers (M19.2): `/v1`. Everything else (auth, the RPC, the
- * dev routes) is reached through the console's service binding, on the console's origin.
+ * On the Worker's own public hostname only the public API and the MCP server answer (M19.2, M19.3): `/v1` and
+ * `/mcp`. Everything else (auth, the RPC, the dev routes) is reached through the console's service binding, on the
+ * console's origin.
  */
 const servedHere = (request: Request): boolean => {
   const url = new URL(request.url)
   if (env.PUBLIC_API_HOST === undefined || url.host !== env.PUBLIC_API_HOST) return true
-  return url.pathname === "/v1" || url.pathname.startsWith("/v1/")
+  return url.pathname === "/mcp" || url.pathname === "/v1" || url.pathname.startsWith("/v1/")
 }
 
 /**
