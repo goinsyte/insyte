@@ -13,6 +13,16 @@ export const OutboxEvent = Schema.Union([
     workspaceId: Schema.String,
     userId: Schema.String,
     step: Schema.String
+  }),
+  // The invitation's mail, once the undo window has passed; the round says which link it carries.
+  Schema.Struct({
+    type: Schema.Literal("member.invited"),
+    workspaceId: Schema.String,
+    invitationId: Schema.String,
+    /** The inviting member, and their person for analytics. */
+    invitedBy: Schema.String,
+    userId: Schema.String,
+    round: Schema.Int
   })
 ])
 export type OutboxEvent = typeof OutboxEvent.Type
@@ -22,5 +32,6 @@ export type OutboxEvent = typeof OutboxEvent.Type
  * delivers them now rather than at the next sweep (the minute cron catches anything a kick missed).
  */
 export class Relay extends Context.Service<Relay, {
-  readonly kick: (outboxIds: ReadonlyArray<string>) => Effect.Effect<void>
+  /** `afterSeconds`: the events wait out an undo window (`outbox.not_before`), so the queue holds them that long. */
+  readonly kick: (outboxIds: ReadonlyArray<string>, options?: { readonly afterSeconds?: number }) => Effect.Effect<void>
 }>()("shared/Relay") {}

@@ -29,3 +29,6 @@ export class Invalid extends Schema.TaggedError<Invalid>()("Invalid", {
 }) {}
 
 export class Unauthenticated extends Schema.TaggedError<Unauthenticated>()("Unauthenticated", {}) {}
+
+/** Signed in, but a member of no workspace yet: the console sends them to onboarding. */
+export class NoWorkspace extends Schema.TaggedError<NoWorkspace>()("NoWorkspace", {}) {}

@@ -27,7 +27,7 @@ const C = {
 const escape = (value: string) =>
   value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;")
 
-interface Copy {
+export interface Copy {
   readonly subject: string
   readonly heading: string
   readonly lead: string
@@ -64,12 +64,20 @@ const COPY: Record<AuthMailKind, Copy> = {
 export const renderAuthMail = (kind: AuthMailKind, url: string | undefined): Rendered => {
   const copy = COPY[kind]
   if (copy.action !== undefined && url === undefined) throw new Error(`${kind} needs a link`)
-  const link = copy.action !== undefined ? url : undefined
+  return layout({ ...copy, link: copy.action !== undefined ? url : undefined })
+}
+
+/** The one layout every mail shares: the wordmark, a heading, a lead, a quote, one button and a muted footnote. */
+export const layout = (
+  copy: Copy & { readonly quote?: string | undefined; readonly link?: string | undefined }
+): Rendered => {
+  const link = copy.link
 
   const text = [
     copy.heading,
     "",
     copy.lead,
+    ...(copy.quote === undefined ? [] : ["", `"${copy.quote}"`]),
     ...(link === undefined ? [] : ["", `${copy.action}: ${link}`]),
     "",
     copy.after,
@@ -77,6 +85,12 @@ export const renderAuthMail = (kind: AuthMailKind, url: string | undefined): Ren
     "Insyte"
   ]
     .join("\n")
+
+  const quote = copy.quote === undefined
+    ? ""
+    : `<p style="margin:20px 0 0;padding:12px 16px;background:${C.page};border-radius:8px;font-size:15px;line-height:1.55;color:${C.ink}">${
+      escape(copy.quote)
+    }</p>`
 
   const button = link === undefined
     ? ""
@@ -100,6 +114,7 @@ export const renderAuthMail = (kind: AuthMailKind, url: string | undefined): Ren
 <p style="margin:0 0 24px;font-size:15px;font-weight:600;color:${C.ink}">insyte</p>
 <h1 style="margin:0 0 12px;font-size:20px;line-height:1.3;font-weight:600;color:${C.ink}">${escape(copy.heading)}</h1>
 <p style="margin:0;font-size:15px;line-height:1.55;color:${C.ink}">${escape(copy.lead)}</p>
+${quote}
 ${button}
 <p style="margin:0;color:${C.muted};font-size:13px;line-height:1.5">${escape(copy.after)}</p>
 </td></tr></table>

@@ -81,8 +81,8 @@ const OutboxOf = HttpRouter.add(
     const workspace = yield* workspaceParam
     const db = yield* Db
     const events = yield* db.scopedFor((sql) =>
-      sql<{ id: string; event: string; relayedAt: Date | null }>`
-        select id, event, relayed_at from outbox order by created_at`
+      sql<{ id: string; event: string; payload: Record<string, unknown>; relayedAt: Date | null; cancelled: boolean }>`
+        select id, event, payload, relayed_at, cancelled_at is not null as cancelled from outbox order by created_at`
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
     return HttpServerResponse.jsonUnsafe({ events })
   }).pipe(withRequestDb)
@@ -110,4 +110,26 @@ const ProductEventsOf = HttpRouter.add(
   }).pipe(withRequestDb)
 )
 
-export const DevRoutes = Layer.mergeAll(CapturedMail, AuthEventsOf, OutboxOf, ProductEventsOf)
+/**
+ * `POST /api/__dev/outbox/due?workspace=<id>`: ends the undo window of the workspace's events still waiting it out, as
+ * if their seconds had passed, so a test need not sleep through them. Refused in production.
+ */
+const OutboxDue = HttpRouter.add(
+  "POST",
+  "/api/__dev/outbox/due",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const db = yield* Db
+    const due = yield* db.scopedFor((sql) =>
+      sql<{ id: string }>`
+        update outbox set not_before = now() - interval '1 second'
+        where relayed_at is null and cancelled_at is null and not_before > now() returning id`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe({ due: due.map((row) => row.id) })
+  }).pipe(withRequestDb)
+)
+
+export const DevRoutes = Layer.mergeAll(CapturedMail, AuthEventsOf, OutboxOf, OutboxDue, ProductEventsOf)

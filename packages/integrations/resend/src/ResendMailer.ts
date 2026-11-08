@@ -1,11 +1,12 @@
 import { type Mail, Mailer, MailNotSent } from "@insyte/modules/shared/domain/Mailer"
 import { Config, Effect, Layer } from "effect"
-import { renderAuthMail } from "./AuthMails.ts"
+import { renderAuthMail, type Rendered } from "./AuthMails.ts"
 import { Resend } from "./Resend.ts"
+import { renderTeamInvite } from "./TeamMails.ts"
 
 /*
  * The `Mailer` port over Resend (16 §3): staging and production, where `MAIL_ADAPTER=resend`. The adapter owns the
- * template (`AuthMails.ts`) and the sender, `MAIL_FROM`: `noreply@mail.goinsyte.com` once that domain is verified in
+ * templates (`AuthMails.ts`, `TeamMails.ts`) and the sender, `MAIL_FROM`: `noreply@mail.goinsyte.com` once that domain is verified in
  * Resend. A mail that does not go is `MailNotSent` with Resend's reason; the caller logs it and goes on.
  */
 
@@ -19,6 +20,13 @@ const idempotencyKey = (mail: Mail) =>
     return `${mail.kind}/${[...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")}`
   })
 
+/** The mail's subject and bodies, by its kind. A mail missing what its kind needs is a bug: it throws. */
+const render = (mail: Mail): Rendered => {
+  if (mail.kind !== "team.invite") return renderAuthMail(mail.kind, mail.url)
+  if (mail.url === undefined || mail.invitation === undefined) throw new Error("team.invite needs a link and its facts")
+  return renderTeamInvite(mail.url, mail.invitation)
+}
+
 export const ResendMailer = Layer.effect(
   Mailer,
   Effect.gen(function*() {
@@ -27,7 +35,7 @@ export const ResendMailer = Layer.effect(
     return Mailer.of({
       send: Effect.fn("ResendMailer.send")(function*(mail: Mail) {
         const rendered = yield* Effect.try({
-          try: () => renderAuthMail(mail.kind, mail.url),
+          try: () => render(mail),
           catch: (error) => new MailNotSent({ kind: mail.kind, reason: String(error) })
         })
         yield* resend.send({ from, to: mail.to, ...rendered, idempotencyKey: yield* idempotencyKey(mail) }).pipe(
