@@ -205,6 +205,19 @@ export default Alchemy.Stack(
       env: { API: api, ENVIRONMENT: environment }
     })
 
+    /*
+     * The realtime socket (M5.1) past Access: a browser's WebSocket handshake carries cookies but no custom headers, so
+     * CI's service token cannot reach it and Access answered with a 302. `/api/realtime` checks the session cookie
+     * itself, and a session is only had by signing in behind Access, so this one path bypasses it (founder's decision,
+     * 2026-11-08). A host-and-path application takes precedence over the Worker's own.
+     */
+    yield* Cloudflare.Access.Application("RealtimeBypass", {
+      type: "self_hosted",
+      name: `Insyte realtime · ${stage}`,
+      domain: `${consoleHost}/api/realtime`,
+      policies: [{ decision: "bypass", include: ["everyone"] }]
+    })
+
     return { console: console.url.as<string>(), api: api.workerName, branch: branch?.branchId }
   })
 )
