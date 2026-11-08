@@ -76,6 +76,14 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
         distinctId: event.userId,
         groups: { workspace: event.workspaceId }
       }
+    case "member.joined":
+      return {
+        outboxId: id,
+        event: "invitation_accepted",
+        distinctId: event.userId,
+        groups: { workspace: event.workspaceId },
+        properties: { via: event.via }
+      }
   }
 }
 

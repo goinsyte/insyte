@@ -15,13 +15,15 @@ import { PwnedPasswords } from "./PwnedPasswords.ts"
  */
 
 /**
- * The app's answers to better-auth's questions: may this address have an account; store this event. On the request's
- * connection, as better-auth's own queries are.
+ * The app's answers to better-auth's questions: may this address have an account; does the request carry proof of
+ * this address (an invitation's link, `INVITATION_HEADER`); store this event. On the request's connection, as
+ * better-auth's own queries are.
  *
  * @effect-expect-leaking Db
  */
 export class AuthHooks extends Context.Service<AuthHooks, {
   readonly admits: (email: string) => Effect.Effect<boolean, never, Db>
+  readonly vouches: (email: string, proof: string) => Effect.Effect<boolean, never, Db>
   readonly record: (event: AuthEvent) => Effect.Effect<void, never, Db>
 }>()("integrations/better-auth/AuthHooks") {}
 
@@ -75,6 +77,7 @@ export class BetterAuth extends Context.Service<BetterAuth, {
             ),
           isBreached: (password) => run(pwned.isBreached(password)),
           admits: (email) => run(hooks.admits(email)),
+          vouches: (email, proof) => run(hooks.vouches(email, proof)),
           recordEvent: (event) => run(hooks.record(event))
         })
       }).pipe(Effect.withSpan("BetterAuth.forRequest"))

@@ -29,6 +29,12 @@ export interface AuthConfig {
   readonly sendMail: (mail: AuthMail) => Promise<void>
   /** Whether an address may create an account while Insyte is invite-only (M2.2). Absent: everyone may. */
   readonly admits?: ((email: string) => Promise<boolean>) | undefined
+  /**
+   * Whether `proof` (the `INVITATION_HEADER` of a sign-up) shows the visitor holds an invitation for this address: then
+   * the account is admitted and born verified, without a verification mail, because the link proved the address
+   * (M3.4). Absent: nothing vouches.
+   */
+  readonly vouches?: ((email: string, proof: string) => Promise<boolean>) | undefined
   /** Whether a new password appears in a known breach (`Breached.ts`). Absent: no check (local and the worker tests). */
   readonly isBreached?: ((password: string) => Promise<boolean>) | undefined
   /** Stores what happened to an account (`Events.ts`, M2.6). Must not reject. Absent: nothing is recorded. */
@@ -36,6 +42,9 @@ export interface AuthConfig {
   /** "Doorgaan met Google" (M2.5). Absent: password only (previews: Google cannot list a hostname per PR). */
   readonly google?: { readonly clientId: string; readonly clientSecret: string } | undefined
 }
+
+/** The header a sign-up from the invitation landing carries: `<invitation id>.<its secret>`. */
+export const INVITATION_HEADER = "x-insyte-invitation"
 
 /** Where a new password arrives, and the body field it arrives in: sign-up, reset and change-password (M2.3). */
 const NEW_PASSWORD: Record<string, "password" | "newPassword"> = {
@@ -155,7 +164,15 @@ export const authOptions = (config: AuthConfig, database: BetterAuthOptions["dat
       user: {
         create: {
           // The beta gate, where every account is born (password now, Google later): refused before the row exists.
-          before: async (user: { email: string }) => {
+          before: async (
+            user: { email: string },
+            ctx?: { readonly headers?: Headers | undefined; readonly request?: Request | undefined } | null
+          ) => {
+            // An invitation's link proves the address: admitted, and verified from the start.
+            const proof = (ctx?.request?.headers ?? ctx?.headers)?.get(INVITATION_HEADER)
+            if (proof != null && config.vouches !== undefined && await config.vouches(user.email, proof)) {
+              return { data: { ...user, emailVerified: true } }
+            }
             if (config.admits !== undefined && !(await config.admits(user.email))) {
               // 400, not 403: sign-up turns a 403 from here into its generic duplicate-address success, which would
               // tell the visitor their account exists.
@@ -196,7 +213,9 @@ export const authOptions = (config: AuthConfig, database: BetterAuthOptions["dat
       sendOnSignUp: true,
       autoSignInAfterVerification: true,
       expiresIn: 24 * 60 * 60,
-      sendVerificationEmail: ({ user, url }) => config.sendMail({ kind: "auth.verify", to: user.email, url })
+      // An account an invitation vouched for is verified already: nothing to confirm.
+      sendVerificationEmail: ({ user, url }) =>
+        user.emailVerified ? Promise.resolve() : config.sendMail({ kind: "auth.verify", to: user.email, url })
     },
     session: {
       fields: COLUMNS.session,

@@ -23,6 +23,14 @@ export const OutboxEvent = Schema.Union([
     invitedBy: Schema.String,
     userId: Schema.String,
     round: Schema.Int
+  }),
+  // Someone accepted an invitation or used the shareable link (M5 tells the inviter).
+  Schema.Struct({
+    type: Schema.Literal("member.joined"),
+    workspaceId: Schema.String,
+    memberId: Schema.String,
+    userId: Schema.String,
+    via: Schema.Literals(["invitation", "link"])
   })
 ])
 export type OutboxEvent = typeof OutboxEvent.Type

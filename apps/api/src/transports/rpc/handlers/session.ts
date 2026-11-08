@@ -16,8 +16,10 @@ export const SessionHandlers = SessionRpcs.toLayer(Effect.gen(function*() {
         workspaceName: m.workspaceName,
         roleLabel: m.principal.role.label
       }))
-      // Start once the active workspace finished onboarding; until then, onboarding (which resumes where they were).
-      const onboarded = memberships[0]?.onboarded === true
+      // Start once the active workspace finished onboarding, or at once for whoever joined it; until then the founder
+      // goes on with onboarding (which resumes where they were).
+      const active = memberships[0]
+      const onboarded = active !== undefined && (active.onboarded || active.principal.role.id !== "owner")
       return new SessionMe({
         user,
         principals,
