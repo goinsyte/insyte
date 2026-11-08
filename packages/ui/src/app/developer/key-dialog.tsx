@@ -5,15 +5,12 @@ import { Switch } from "../../components/switch";
 import { SoonChip } from "../common/soon-chip";
 import { Field, SelectField, TextField } from "../common/form-dialog";
 import { CopyButton, IpInput, Token } from "./bits";
-import { GHOST_BTN, PRIMARY_BTN, Segmented } from "../team/bits";
-import { StoreAccessPicker } from "../team/store-access-picker";
-import { type ApiKey, EXPIRY, type KeyAccess, scopeSummary } from "../lib/developer";
+import { GHOST_BTN, PRIMARY_BTN, Segmented, StorePicker } from "../team/bits";
+import { type ApiKey, EXPIRY, type KeyAccess, scopeSummary } from "../lib/developer-core";
 import { type ApiAccess, API_AREAS, type AreaId, apiAccessOfRole, type StoreScope, scopesOf } from "../lib/permissions";
 import { cn } from "../lib/utils";
-import { useDeveloper } from "../stores/developer-store";
-import { useSettings } from "../stores/settings-store";
+import { useDeveloperSource } from "./source";
 
-const ME = "mem_elena";
 const DAY = 86_400_000;
 
 /**
@@ -23,7 +20,8 @@ const DAY = 86_400_000;
  * only closes after "Ik heb hem opgeslagen", because there is no second look.
  */
 export function CreateKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-	const roles = useSettings((s) => s.roles).filter((r) => r.id !== "owner");
+	const source = useDeveloperSource();
+	const roles = source.roles.filter((r) => r.id !== "owner");
 	const [step, setStep] = useState<"form" | "secret">("form");
 	const [label, setLabel] = useState("");
 	const [mode, setMode] = useState<KeyAccess["kind"]>("role");
@@ -61,17 +59,19 @@ export function CreateKeyDialog({ open, onOpenChange }: { open: boolean; onOpenC
 	function create() {
 		if (!ok) return;
 		const days = EXPIRY.find((e) => e.id === expiry)?.days ?? null;
-		const made = useDeveloper.getState().createKey({
+		void source.create({
 			label: label.trim(),
-			created_by: ME,
+			created_by: source.me,
 			access: mode === "role" ? { kind: "role", roleId } : { kind: "custom", scopes },
 			stores,
 			expires_at: days === null ? null : new Date(Date.now() + days * DAY).toISOString(),
 			ips,
 			agent,
+		}).then((made) => {
+			if (!made) return;
+			setFresh(made);
+			setStep("secret");
 		});
-		setFresh(made);
-		setStep("secret");
 	}
 
 	function close(v: boolean) {
@@ -127,7 +127,7 @@ export function CreateKeyDialog({ open, onOpenChange }: { open: boolean; onOpenC
 
 							<div className="flex flex-col gap-2">
 								<span className="font-medium text-ink-3 text-sm leading-none">Winkels</span>
-								<StoreAccessPicker value={stores} onChange={setStores} />
+								<StorePicker stores={source.stores} value={stores} onChange={setStores} />
 							</div>
 
 							<div className="flex flex-col gap-2">
@@ -215,7 +215,7 @@ const ACCESS: ReadonlyArray<{ id: ApiAccess; label: string }> = [
 
 /** Per area: nothing, read, or read and write — the scopes in the ids an automation uses. */
 export function ScopePicker({ value, onChange }: { value: Partial<Record<AreaId, ApiAccess>>; onChange: (v: Partial<Record<AreaId, ApiAccess>>) => void }) {
-	const all = (a: ApiAccess) => onChange(Object.fromEntries(API_AREAS.map((x) => [x.id, a])));
+	const all = (a: ApiAccess) => onChange(Object.fromEntries(API_AREAS.map((x) => [x.id, Math.min(a, x.apiMax ?? 2) as ApiAccess])));
 	return (
 		<div className="flex flex-col gap-1.5">
 			<div className="flex flex-wrap items-center gap-1 text-sm">
@@ -235,7 +235,7 @@ export function ScopePicker({ value, onChange }: { value: Partial<Record<AreaId,
 							<Icon className="size-3.5 shrink-0 text-ink-3" strokeWidth={1.75} />
 							<span className="min-w-0 flex-1 text-base text-ink">{a.label}</span>
 							<div role="radiogroup" aria-label={a.label} className="flex gap-0.5 rounded-md bg-ink/5 p-0.5">
-								{ACCESS.map((o) => (
+								{ACCESS.filter((o) => o.id <= (a.apiMax ?? 2)).map((o) => (
 									<button
 										key={o.id}
 										type="button"

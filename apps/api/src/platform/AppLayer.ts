@@ -23,6 +23,7 @@ import { AppInfo, BetaSettings, ConfigLive } from "./Bindings.ts"
 import { HumanCheck } from "./HumanCheck.ts"
 import { HyperdriveConnect } from "./Hyperdrive.ts"
 import { InvitationLinksLive } from "./InvitationLinks.ts"
+import { KeyHasherLive } from "./KeyHasher.ts"
 import { MailerCapture } from "./Mail.ts"
 import { ObservabilityLive } from "./Observability.ts"
 import { ProductAnalyticsCapture } from "./ProductAnalyticsCapture.ts"
@@ -78,7 +79,8 @@ export const AppLayer = Transports.pipe(
   Layer.provideMerge(MemberLive.pipe(Layer.provide(Workspaces.layer))),
   // Committed events onto the queue, after commit (the outbox relay's kick).
   Layer.provideMerge(RelayLive),
-  Layer.provideMerge(InvitationLinksLive),
+  // What the server's secret keys: invitation links and API keys.
+  Layer.provideMerge(Layer.mergeAll(InvitationLinksLive, KeyHasherLive)),
   // better-auth, built per request by the auth routes and the session check, over the app's hooks.
   Layer.provideMerge(BetterAuth.layer),
   Layer.provideMerge(AuthHooksLive),

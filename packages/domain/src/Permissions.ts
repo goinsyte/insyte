@@ -48,8 +48,10 @@ export type Area = {
   levels: ReadonlyArray<Level>
   /** What each level lets someone do, as the clause after "kan". Index by level. */
   can: Partial<Record<Level, string>>
-  /** Whether an API key can be given this area (team and billing are people-only). */
+  /** Whether an API key can be given this area (billing and changing the workspace are people-only). */
   api: boolean
+  /** The most a key may hold here, where less than read and write: the team is read-only for keys. */
+  apiMax?: ApiAccess
 }
 
 export const AREAS: ReadonlyArray<Area> = [
@@ -190,7 +192,10 @@ export const AREAS: ReadonlyArray<Area> = [
       2: "collega's uitnodigen",
       3: "team en rollen beheren, ook rollen wijzigen en mensen verwijderen"
     },
-    api: false
+    // A script or an agent may see who is in the team and which role they hold; inviting, removing and changing roles
+    // stay with people (decided 2026-11-08, step 6).
+    api: true,
+    apiMax: 1
   },
   {
     id: "billing",
@@ -528,12 +533,12 @@ export const API_AREAS = AREAS.filter((a) => a.api)
 /** `{ orders: 2, customers: 1 }` → ["orders.read", "orders.write", "customers.read"]. */
 export function scopesOf(access: Partial<Record<AreaId, ApiAccess>>): string[] {
   return API_AREAS.flatMap((a) => {
-    const v = access[a.id] ?? 0
+    const v = Math.min(access[a.id] ?? 0, a.apiMax ?? 2)
     return v === 0 ? [] : v === 1 ? [`${a.id}.read`] : [`${a.id}.read`, `${a.id}.write`]
   })
 }
 
 /** What a role means for a key: its levels read as read (1) or read and write (2 and up). */
 export function apiAccessOfRole(role: Permissions): Partial<Record<AreaId, ApiAccess>> {
-  return Object.fromEntries(API_AREAS.map((a) => [a.id, Math.min(2, role.levels[a.id]) as ApiAccess]))
+  return Object.fromEntries(API_AREAS.map((a) => [a.id, Math.min(a.apiMax ?? 2, role.levels[a.id]) as ApiAccess]))
 }

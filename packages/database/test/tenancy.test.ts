@@ -71,6 +71,12 @@ const found = (user: SessionUser, workspaceId: WorkspaceId) =>
         yield* sql`insert into invitations (id, workspace_id, email, token_hash, role_id, invited_by, expires_at)
                    values (${mintId("inv")}, ${workspaceId}, ${`invitee-${user.name}@example.com`}, '\\x00', 'owner',
                            ${memberId}, now() + interval '7 days')`
+        const keyId = mintId("key")
+        yield* sql`insert into api_keys (id, workspace_id, label, lookup, prefix, secret_hash, access, created_by)
+                   values (${keyId}, ${workspaceId}, 'Feed', ${`look${user.name}${runId}`}, 'ins_live_look', '\\x00',
+                           '{"kind":"role","roleId":"owner"}', ${memberId})`
+        yield* sql`insert into api_requests (workspace_id, key_id, method, path, status, ms)
+                   values (${workspaceId}, ${keyId}, 'GET', '/v1/me', 200, 12)`
         yield* sql`insert into access_requests (id, workspace_id, member_id, role_id, area, level)
                    values (${mintId("acr")}, ${workspaceId}, ${memberId}, 'owner', 'team', 3)`
         yield* sql`insert into invite_links (workspace_id, token_hash, role_id, days, expires_at)
@@ -93,6 +99,8 @@ const POPULATED = [
   ["invitations", "workspace_id"],
   ["invite_links", "workspace_id"],
   ["access_requests", "workspace_id"],
+  ["api_keys", "workspace_id"],
+  ["api_requests", "workspace_id"],
   ["outbox", "workspace_id"]
 ] as const
 

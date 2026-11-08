@@ -1,20 +1,17 @@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../components/dialog";
 import { RefreshCcw, Trash2 } from "../../icons";
-import { useMemo, useRef, useState } from "react";
-import { Gate } from "../access/gate";
+import { type ReactElement, useRef, useState } from "react";
+import { Blocked } from "../access/blocked";
 import { TextField } from "../common/form-dialog";
 import { StatusPill } from "../settings/setting-card";
-import { CopyButton, IpInput, MadeBy, Method, Notice, StatusCode, Token, UsageChart } from "./bits";
+import { CopyButton, IpInput, MadeByName, Method, Notice, StatusCode, Token, UsageChart } from "./bits";
 import { GHOST_BTN, PRIMARY_BTN, Segmented, WELL_BTN } from "../team/bits";
-import { type ApiKey, expiryState, GRACE, isRestricted, keyScopes, requestsFor, usageFor } from "../lib/developer";
+import { type ApiKey, expiryState, GRACE, isRestricted, keyScopes } from "../lib/developer-core";
 import { formatDate, formatDateTime, formatRelative } from "../lib/format";
 import { apiAccessOfRole, storeScopeLabel } from "../lib/permissions";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { useGate } from "../stores/access-store";
-import { useDeveloper } from "../stores/developer-store";
-import { useSettings } from "../stores/settings-store";
-import { useWorkspace } from "../stores/workspace-store";
+import { useDeveloperSource } from "./source";
 
 /**
  * One key: what it reaches, who made it, how much it is used and what it asked for lately. Its name
@@ -23,7 +20,7 @@ import { useWorkspace } from "../stores/workspace-store";
  * happens at once with Undo, and the key stops when the toast goes.
  */
 export function KeyDetailDialog({ keyId, onClose }: { keyId: string | null; onClose: () => void }) {
-	const key = useDeveloper((s) => s.apiKeys.find((k) => k.id === keyId));
+	const key = useDeveloperSource().keys.find((k) => k.id === keyId);
 	const top = useRef<HTMLDivElement>(null);
 	return (
 		<Dialog open={key !== undefined} onOpenChange={(v) => !v && onClose()}>
@@ -43,16 +40,15 @@ export function KeyDetailDialog({ keyId, onClose }: { keyId: string | null; onCl
 }
 
 function Body({ k, onClose }: { k: ApiKey; onClose: () => void }) {
-	const roles = useSettings((s) => s.roles);
-	const stores = useWorkspace((s) => s.stores);
-	const manage = useGate("integrations", 3);
+	const source = useDeveloperSource();
+	const { roles, stores } = source;
+	const manage = source.can.manage;
 	const roleAccess = (id: string) => {
 		const r = roles.find((x) => x.id === id);
 		return r ? apiAccessOfRole(r) : {};
 	};
 	const scopes = keyScopes(k, roleAccess);
-	const requests = useMemo(() => requestsFor(k, scopes), [k, scopes.join()]);
-	const usage = useMemo(() => usageFor(k), [k]);
+	const { requests, usage } = source.useActivity(k, scopes);
 	const exp = expiryState(k);
 	const revoked = k.status === "revoked";
 	const [name, setName] = useState(k.label);
@@ -66,20 +62,24 @@ function Body({ k, onClose }: { k: ApiKey; onClose: () => void }) {
 
 	function save() {
 		const before = { label: k.label, ips: k.ips };
-		useDeveloper.getState().updateKey(k.id, { label: name.trim() || k.label, ips });
-		undoable(`${name.trim() || k.label} bijgewerkt`, () => useDeveloper.getState().updateKey(k.id, before));
+		void source.update(k.id, { label: name.trim() || k.label, ips }).then((ok) => {
+			if (ok) undoable(`${name.trim() || k.label} bijgewerkt`, () => void source.update(k.id, before));
+		});
 	}
 
 	function rotate() {
 		const ms = GRACE.find((g) => g.id === grace)!.ms;
-		setSecret(useDeveloper.getState().rotateKey(k.id, ms));
-		setRotating(false);
+		void source.rotate(k.id, ms).then((made) => {
+			if (made !== undefined) setSecret(made);
+			setRotating(false);
+		});
 	}
 
 	function revoke() {
-		const undo = useDeveloper.getState().revokeKey(k.id);
 		onClose();
-		undoable(`${k.label} ingetrokken`, undo, "Wat deze sleutel gebruikt, krijgt vanaf nu een 401. Ongedaan maken kan zolang deze melding staat.");
+		void source.revoke(k.id).then((ok) => {
+			if (ok) undoable(`${k.label} ingetrokken`, () => void source.restore(k.id), "Wat deze sleutel gebruikt, krijgt vanaf nu een 401. Ongedaan maken kan zolang deze melding staat.");
+		});
 	}
 
 	return (
@@ -114,7 +114,7 @@ function Body({ k, onClose }: { k: ApiKey; onClose: () => void }) {
 					tone="amber"
 					action={
 						manage.ok ? (
-							<button type="button" onClick={() => useDeveloper.getState().endGrace(k.id)} className="flex h-7 items-center rounded-md px-2.5 font-medium text-sm text-ink hover:bg-ink/6">
+							<button type="button" onClick={() => void source.endGrace(k.id)} className="flex h-7 items-center rounded-md px-2.5 font-medium text-sm text-ink hover:bg-ink/6">
 								Oude nu stoppen
 							</button>
 						) : null
@@ -132,7 +132,7 @@ function Body({ k, onClose }: { k: ApiKey; onClose: () => void }) {
 					[
 						["Toegang", roleName],
 						["Winkels", storeScopeLabel(k.stores, stores).replace(/^./, (c) => c.toUpperCase())],
-						["Gemaakt", <span key="m" className="flex items-center gap-1.5"><MadeBy memberId={k.created_by} /> · {formatDate(k.created_at, { day: "numeric", month: "short" })}</span>],
+						["Gemaakt", <span key="m" className="flex items-center gap-1.5"><MadeByName memberId={k.created_by} name={source.personName(k.created_by)} /> · {formatDate(k.created_at, { day: "numeric", month: "short" })}</span>],
 						["Verloopt", k.expires_at ? formatDate(k.expires_at, { day: "numeric", month: "short", year: "numeric" }) : "Nooit"],
 					] as const
 				).map(([label, value]) => (
@@ -248,4 +248,10 @@ function Body({ k, onClose }: { k: ApiKey; onClose: () => void }) {
 			)}
 		</>
 	);
+}
+
+/** A control as it is when the role may manage keys; otherwise disabled, with what the role misses. */
+function Gate({ children, className }: { perm?: "integrations"; arg?: 3; className?: string; children: ReactElement }) {
+	const manage = useDeveloperSource().can.manage;
+	return manage.ok ? children : <Blocked reason={manage.reason} className={className}>{children}</Blocked>;
 }
