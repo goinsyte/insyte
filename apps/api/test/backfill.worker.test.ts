@@ -99,35 +99,35 @@ describe("a store's first import", () => {
     await workflows.modifyAll(async (m) => {
       await m.disableSleeps()
     })
-    const owner = await person(`backfill-onboarding`, "Onboarding B.V.")
-    ok(await onboarding.advance({ step: "plan", plan: "growth", cycle: "monthly" }, owner.cookie))
+    const founder = await person(`backfill-onboarding`, "Onboarding B.V.")
+    ok(await onboarding.advance({ step: "plan", plan: "growth", cycle: "monthly" }, founder.cookie))
     // No store yet: "connected" is not taken on the console's word.
-    expect(failure(await onboarding.advance({ step: "store", choice: "connected" }, owner.cookie))).toMatchObject({
+    expect(failure(await onboarding.advance({ step: "store", choice: "connected" }, founder.cookie))).toMatchObject({
       _tag: "StepNotReady",
       missing: "store"
     })
-    const workspace = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
+    const workspace = ok(await sessionMe(founder.cookie)).principals[0]!.workspaceId
     const shop = `bf-onboarding-${run}.myshopify.com`
     const { authorizeUrl } = ok(
-      await rpc("Stores.beginConnect", { shopDomain: shop, returnPath: "/onboarding" }, owner.cookie)
+      await rpc("Stores.beginConnect", { shopDomain: shop, returnPath: "/onboarding" }, founder.cookie)
     )
     const state = new URL(authorizeUrl).searchParams.get("state")!
-    const landed = await back(owner.cookie, { code: "abc", shop, state, hmac: "valid", timestamp: "1" })
+    const landed = await back(founder.cookie, { code: "abc", shop, state, hmac: "valid", timestamp: "1" })
     expect(landed.pathname).toBe("/onboarding")
-    expect(ok(await onboarding.advance({ step: "store", choice: "connected" }, owner.cookie))).toMatchObject({
+    expect(ok(await onboarding.advance({ step: "store", choice: "connected" }, founder.cookie))).toMatchObject({
       step: "sync",
       answers: { store: "connected" }
     })
     // The import is not in yet.
-    expect(failure(await onboarding.advance({ step: "sync" }, owner.cookie))).toMatchObject({
+    expect(failure(await onboarding.advance({ step: "sync" }, founder.cookie))).toMatchObject({
       _tag: "StepNotReady",
       missing: "import"
     })
     await relay(workspace)
     const [instance] = await workflows.get()
     await instance!.waitForStatus("complete")
-    expect(ok(await onboarding.advance({ step: "sync" }, owner.cookie))).toMatchObject({ step: "ready" })
-    expect(ok(await onboarding.start(owner.cookie)).done).toContain("store")
+    expect(ok(await onboarding.advance({ step: "sync" }, founder.cookie))).toMatchObject({ step: "ready" })
+    expect(ok(await onboarding.start(founder.cookie)).done).toContain("store")
   })
 
   it("refreshes a lapsing token once, however many ask", async () => {
