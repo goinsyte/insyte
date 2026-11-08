@@ -13,13 +13,10 @@ import { EmptyState } from "../common/empty-state";
 import { StatusPill } from "./setting-card";
 import { DataTable, type Facet, facetFilter } from "../table/data-table";
 import { PersonDisc } from "../team/bits";
-import { ME } from "../team/invite-dialog";
-import { storeAccessLabel, useInviteRoles } from "../team/roles";
+import { storeAccessLabel } from "../team/role-text";
+import { type TeamPerson, useSourceInviteRoles, useTeamSource } from "../team/source";
 import { formatRelative } from "../lib/format";
-import type { Member } from "../lib/types/domain";
 import { undoable } from "../lib/undo";
-import { useTeam } from "../stores/team-store";
-import { useWorkspace } from "../stores/workspace-store";
 
 /**
  * Who is in this workspace — one table, read from the workspace, used by every screen that lists
@@ -27,7 +24,7 @@ import { useWorkspace } from "../stores/workspace-store";
  * team page; this is the people who got in. A row opens the person; the menu does the quick things.
  */
 
-type Row = Member & { stores: string; deactivated: boolean; by: string; seen?: string };
+type Row = Omit<TeamPerson, "stores"> & { stores: string; by: string; seen?: string; me: boolean };
 
 const STATUS_FACET: Facet = {
 	id: "state",
@@ -39,22 +36,18 @@ const STATUS_FACET: Facet = {
 };
 
 export function MemberTable({ onOpen, onInvite }: { onOpen: (id: string) => void; onInvite: () => void }) {
-	const members = useWorkspace((s) => s.members);
-	const stores = useWorkspace((s) => s.stores);
-	const meta = useTeam((s) => s.memberMeta);
+	const { people: members, stores, me } = useTeamSource();
 
 	const rows = useMemo<Row[]>(
 		() =>
-			members
-				.filter((m) => m.status === "active")
-				.map((m) => ({
-					...m,
-					stores: m.role === "Eigenaar" ? "Alle winkels" : storeAccessLabel(stores, meta[m.id]?.stores),
-					deactivated: meta[m.id]?.deactivated === true,
-					by: members.find((x) => x.id === meta[m.id]?.invitedBy)?.name ?? "",
-					seen: meta[m.id]?.lastSeen ? new Date(meta[m.id]!.lastSeen!).toISOString() : m.last_active_at,
-				})),
-		[members, stores, meta],
+			members.map((m) => ({
+				...m,
+				stores: m.role === "Eigenaar" ? "Alle winkels" : storeAccessLabel(stores, m.stores),
+				by: members.find((x) => x.id === m.invitedBy)?.name ?? "",
+				seen: m.lastSeen === undefined ? undefined : new Date(m.lastSeen).toISOString(),
+				me: m.id === me,
+			})),
+		[members, stores, me],
 	);
 
 	const columns = useMemo<Array<ColumnDef<Row, unknown>>>(
@@ -73,7 +66,7 @@ export function MemberTable({ onOpen, onInvite }: { onOpen: (id: string) => void
 							<span className="flex min-w-0 flex-col">
 								<span className="truncate font-medium text-ink">
 									{m.name}
-									{m.id === ME ? <span className="font-normal text-ink-3"> · jij</span> : null}
+									{m.me ? <span className="font-normal text-ink-3"> · jij</span> : null}
 								</span>
 								<span className="truncate text-ink-3 text-xs">{m.email}</span>
 							</span>
@@ -158,9 +151,10 @@ export function MemberTable({ onOpen, onInvite }: { onOpen: (id: string) => void
 }
 
 function MemberActions({ member, onOpen }: { member: Row; onOpen: (id: string) => void }) {
-	const roles = useInviteRoles();
+	const roles = useSourceInviteRoles();
+	const source = useTeamSource();
 	const owner = member.role === "Eigenaar";
-	const me = member.id === ME;
+	const me = member.me;
 
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: a click guard, not a control
@@ -186,9 +180,10 @@ function MemberActions({ member, onOpen }: { member: Row; onOpen: (id: string) =
 							disabled={owner}
 							onClick={() => {
 								if (role.label === member.role) return;
-								const before = member.role;
-								useWorkspace.getState().setMemberRole(member.id, role.label);
-								undoable(`${member.name} is nu ${role.label}`, () => useWorkspace.getState().setMemberRole(member.id, before));
+								const before = roles.find((r) => r.label === member.role)?.id;
+								void source.setMemberRole(member.id, role.id).then((ok) => {
+									if (ok && before) undoable(`${member.name} is nu ${role.label}`, () => void source.setMemberRole(member.id, before));
+								});
 							}}
 						>
 							<span className="flex-1">{role.label}</span>
@@ -199,10 +194,12 @@ function MemberActions({ member, onOpen }: { member: Row; onOpen: (id: string) =
 					<DropdownMenuItem
 						disabled={owner || me}
 						onClick={() => {
-							useTeam.getState().setDeactivated(member.id, !member.deactivated);
-							undoable(member.deactivated ? `${member.name} kan weer inloggen` : `${member.name} gedeactiveerd`, () =>
-								useTeam.getState().setDeactivated(member.id, member.deactivated),
-							);
+							void source.setDeactivated(member.id, !member.deactivated).then((ok) => {
+								if (ok)
+									undoable(member.deactivated ? `${member.name} kan weer inloggen` : `${member.name} gedeactiveerd`, () =>
+										void source.setDeactivated(member.id, member.deactivated),
+									);
+							});
 						}}
 					>
 						{member.deactivated ? "Weer activeren" : "Deactiveren"}
@@ -211,8 +208,9 @@ function MemberActions({ member, onOpen }: { member: Row; onOpen: (id: string) =
 						variant="destructive"
 						disabled={owner || me}
 						onClick={() => {
-							const removed = useWorkspace.getState().removeMember(member.id);
-							if (removed) undoable(`${member.name} verwijderd`, () => useWorkspace.getState().restoreMember(removed.member, removed.index));
+							void source.remove(member.id).then((ok) => {
+								if (ok) undoable(`${member.name} verwijderd`, () => void source.restoreMember(member.id));
+							});
 						}}
 					>
 						Verwijderen uit werkruimte

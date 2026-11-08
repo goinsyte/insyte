@@ -126,7 +126,12 @@ describe("the invitation landing", () => {
   })
 
   it("gives the new member their role's rights, and no more", async () => {
-    expect(ok(await rpc("Team.get", undefined, amberCookie)).members).toHaveLength(2)
+    const seen = ok(await rpc("Team.get", undefined, amberCookie))
+    expect(seen.members).toHaveLength(2)
+    // Who may not invite sees who is asked, not the links that let them in.
+    expect(seen.link.url).toBeNull()
+    expect(seen.invitations.every((i) => i.url === null)).toBe(true)
+    expect(seen.roles.map((r) => r.id).slice(0, 1)).toEqual(["owner"])
     expect(
       failure(await rpc("Invitations.send", { rows: [{ email: tess, roleId: "view", stores: "all" }] }, amberCookie))
     ).toMatchObject({ _tag: "Forbidden", permission: "team", level: 2, roleLabel: "Klantenservice" })

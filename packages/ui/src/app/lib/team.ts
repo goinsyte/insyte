@@ -3,6 +3,7 @@ import { byScenario, longEmail, longName } from "../../data-source";
 import { suppliers } from "../../data-source";
 import type { PlanTier } from "../stores/settings-store";
 import { appHref } from "../../data-source/hrefs";
+import { DAY, type Invite, type InviteLink, type MemberMeta, type StoreAccess } from "./team-core";
 
 /**
  * The people around a workspace who are not yet in it, and the workspaces around the person.
@@ -14,75 +15,11 @@ import { appHref } from "../../data-source/hrefs";
  * beside it in `memberMeta`, keyed by the member's id.
  */
 
-export const DAY = 86_400_000;
-
+export { DAY, EMAIL, type Invite, type InviteLink, isExpired, LINK_DAYS, type MemberMeta, nameFromEmail, type StoreAccess, token } from "./team-core";
 /** Seats per plan, as Billing prices them. */
 export const PLAN_SEATS: Record<PlanTier, number> = { starter: 3, growth: 6, scale: 12 };
 
-export type StoreAccess = "all" | string[];
-
-export type Invite = {
-	id: string;
-	email: string;
-	/** The settings role it grants (`useSettings().roles`). */
-	roleId: string;
-	stores: StoreAccess;
-	message?: string;
-	/** Member id of whoever sent it. */
-	invitedBy: string;
-	sentAt: number;
-	expiresAt: number;
-	/** How many times it has been sent again. */
-	resent: number;
-	/** The workspace member row this invitation stands behind, for the seeded one. */
-	memberId?: string;
-};
-
-export type MemberMeta = {
-	stores: StoreAccess;
-	invitedBy?: string;
-	joinedAt: number;
-	/** When they were last in the console. The seeded members' own dates are months old. */
-	lastSeen?: number;
-	deactivated?: boolean;
-};
-
-export type InviteLink = {
-	enabled: boolean;
-	token: string;
-	roleId: string;
-	/** Days the link stays valid after it is made. */
-	days: 1 | 7 | 30;
-	createdAt: number;
-	/** People who joined through this link. */
-	joined: number;
-};
-
-export const LINK_DAYS: ReadonlyArray<{ id: InviteLink["days"]; label: string }> = [
-	{ id: 1, label: "24 uur" },
-	{ id: 7, label: "7 dagen" },
-	{ id: 30, label: "30 dagen" },
-];
-
-export const isExpired = (i: Invite, at = Date.now()) => i.expiresAt <= at;
-
-export const token = () => Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6);
-
 export const inviteUrl = (id: string) => `${typeof window === "undefined" ? "https://app.insyte.nl" : window.location.origin}${appHref(`/invitations/${id}`)}`;
-
-/** "amber.lewis@…" → "Amber Lewis", for an invitation that has only an address. */
-export function nameFromEmail(email: string) {
-	const local = email.split("@")[0] ?? email;
-	return (
-		local
-			.split(/[._-]+/)
-			.filter(Boolean)
-			.map((p) => p.charAt(0).toUpperCase() + p.slice(1))
-			.join(" ") || email
-	);
-}
-
-export const EMAIL = /^[^\s@,;]+@[^\s@,;]+\.[a-z]{2,}$/i;
 
 /* ── seeds ───────────────────────────────────────────────────────────────────────────────────── */
 

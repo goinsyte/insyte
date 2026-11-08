@@ -1,16 +1,14 @@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../components/dialog";
 import { CheckCircle2, Download, Upload, XCircle } from "../../icons";
-import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { Field, SelectField } from "../common/form-dialog";
 import { GHOST_BTN, PRIMARY_BTN, WELL_BTN } from "./bits";
-import { sendInvites, useAddressCheck } from "./invite-dialog";
-import { roleLabel, storeAccessLabel, useInviteRoles } from "./roles";
-import { counted } from "../lib/bulk";
-import type { StoreAccess } from "../lib/team";
+import { useAddressCheck, useSendInvites } from "./invite-dialog";
+import { roleLabel, storeAccessLabel } from "./role-text";
+import { useSourceInviteRoles, useTeamSource } from "./source";
+import { counted } from "../lib/counted";
+import type { StoreAccess } from "../lib/team-core";
 import { cn } from "../lib/utils";
-import { useSeats } from "../stores/team-store";
-import { useWorkspace } from "../stores/workspace-store";
 
 type Row = { line: number; email: string; roleId: string; stores: StoreAccess; problem?: string; note?: string };
 
@@ -23,11 +21,12 @@ const TEMPLATE = "e-mail,rol,winkels\namber@northwindclothing.co,Klantenservice,
  * inbox. Only the rows that are ready go out, and never more than the seats left.
  */
 export function BulkInviteDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-	const roles = useInviteRoles();
-	const shops = useWorkspace((s) => s.stores);
-	const seats = useSeats();
+	const roles = useSourceInviteRoles();
+	const source = useTeamSource();
+	const shops = source.stores;
+	const seats = source.seats;
 	const check = useAddressCheck();
-	const navigate = useNavigate();
+	const sendInvites = useSendInvites();
 	const [text, setText] = useState("");
 	const [fallbackRole, setFallbackRole] = useState("service");
 	const [file, setFile] = useState<string | null>(null);
@@ -209,7 +208,7 @@ export function BulkInviteDialog({ open, onOpenChange }: { open: boolean; onOpen
 									type="button"
 									onClick={() => {
 										onOpenChange(false);
-										void navigate({ to: "/settings/billing", hash: "plekken" });
+										source.buySeats();
 									}}
 									className="font-medium text-arc-ink underline decoration-arc-ink/35 underline-offset-2 hover:decoration-arc-ink"
 								>
@@ -228,9 +227,11 @@ export function BulkInviteDialog({ open, onOpenChange }: { open: boolean; onOpen
 							type="button"
 							disabled={sendable.length === 0}
 							onClick={() => {
-								sendInvites(sendable);
-								reset();
-								onOpenChange(false);
+								void sendInvites(sendable).then((made) => {
+									if (!made) return;
+									reset();
+									onOpenChange(false);
+								});
 							}}
 							className={PRIMARY_BTN}
 						>

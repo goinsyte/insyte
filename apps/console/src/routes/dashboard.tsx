@@ -15,7 +15,7 @@ import { sessionMeAtom } from "../data/session.ts"
  * cookie check catches a missing cookie first; this catches one the API no longer accepts.
  *
  * Start, for now, is its first-run page's setup plate and checklist (M4.1) from `Onboarding.start`, without the shell
- * (M5) and without the reference's links into screens the console does not have yet.
+ * (M5), linking only into the screens the console has (Team, step 4.3).
  */
 export const Route = createFileRoute("/dashboard")({
   beforeLoad: async ({ context }) => {
@@ -39,6 +39,9 @@ export const Route = createFileRoute("/dashboard")({
 
 /** Only the operator can say they did these; the rest tick themselves when the workspace has them. */
 const isManual = Schema.is(ManualSetupTask)
+
+/** The tasks whose screen the console has; the rest wait for theirs. */
+const canOpen = (task: { readonly id: SetupTaskId }) => task.id === "team"
 
 function Start() {
   const navigate = Route.useNavigate()
@@ -66,8 +69,8 @@ function Start() {
             Uitloggen
           </button>
         </div>
-        <SetupPlate tasks={tasks} workspace={checklist.workspaceName} canOpen={() => false} />
-        <SetupChecklist tasks={tasks} onToggle={toggle} canOpen={() => false} />
+        <SetupPlate tasks={tasks} workspace={checklist.workspaceName} canOpen={canOpen} />
+        <SetupChecklist tasks={tasks} onToggle={toggle} canOpen={canOpen} />
       </div>
     </main>
   )

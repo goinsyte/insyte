@@ -34,7 +34,9 @@ export class PendingInvitation extends Schema.Class<PendingInvitation>("members/
   sentAt: Schema.Finite,
   expiresAt: Schema.Finite,
   /** How many times it was sent again. */
-  resent: Schema.Int
+  resent: Schema.Int,
+  /** Its link, for "Link kopiëren": only for whoever may invite. */
+  url: Schema.NullOr(Schema.String)
 }) {}
 
 /** Active people plus open invitations take a seat; a lapsed invitation does not. */
@@ -58,7 +60,21 @@ export class InviteLink extends Schema.Class<InviteLink>("members/InviteLink")({
   days: LinkDays,
   createdAt: Schema.Finite,
   expiresAt: Schema.Finite,
-  joined: Schema.Int
+  joined: Schema.Int,
+  /** The address to pass on: only for whoever may invite, and only once the link exists. */
+  url: Schema.NullOr(Schema.String)
+}) {}
+
+/** A role of the workspace, as the pickers and the sentences under them read it (the catalogue's `RoleDef`). */
+export class TeamRole extends Schema.Class<TeamRole>("members/TeamRole")({
+  id: Schema.String,
+  label: Schema.String,
+  system: Schema.Boolean,
+  levels: Schema.Record(Schema.String, Schema.Literals([0, 1, 2, 3])),
+  specials: Schema.Record(Schema.String, Schema.Boolean),
+  /** Euros, as the catalogue counts them. */
+  refundLimit: Schema.NullOr(Schema.Finite),
+  stores: StoreAccess
 }) {}
 
 export class Team extends Schema.Class<Team>("members/Team")({
@@ -67,7 +83,9 @@ export class Team extends Schema.Class<Team>("members/Team")({
   members: Schema.Array(TeamMember),
   invitations: Schema.Array(PendingInvitation),
   seats: Seats,
-  link: InviteLink
+  link: InviteLink,
+  /** Every role of the workspace, the owner's first. */
+  roles: Schema.Array(TeamRole)
 }) {}
 
 /* ── writes ────────────────────────────────────────────────────────────────────────────────────── */

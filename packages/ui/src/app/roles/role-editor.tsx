@@ -8,7 +8,8 @@ import { UnsavedBar } from "../settings/form";
 import { SettingCard, StatusPill } from "../settings/setting-card";
 import { HolderDiscs, holdersLine, useHolders } from "./bits";
 import { LevelMatrix } from "./level-matrix";
-import { GHOST_BTN, StoreAccessPicker, WELL_BTN } from "../team/bits";
+import { GHOST_BTN, WELL_BTN } from "../team/bits";
+import { StoreAccessPicker } from "../team/store-access-picker";
 import {
 	AREA_BY_ID,
 	type AreaId,

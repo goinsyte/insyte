@@ -57,6 +57,7 @@ describe("the team on the server", () => {
       [ruben, "finance", ["store_eu"], null, 0]
     ])
     expect(team.seats).toMatchObject({ used: 3, pending: 2, free: 2 })
+    expect(team.invitations[0]?.url).toMatch(new RegExp(`^${ORIGIN}/invitations/inv_[0-9a-z]{26}\\?k=`))
 
     // Inside the window the consumer leaves them be.
     await consume((await outboxOf(workspace)).filter((e) => e.relayedAt === null).map((e) => e.id))

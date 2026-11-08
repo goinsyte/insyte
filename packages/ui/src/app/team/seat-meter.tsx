@@ -1,12 +1,12 @@
 import { cn } from "../lib/utils";
-import { useSeats } from "../stores/team-store";
+import { useTeamSource } from "./source";
 
 /**
  * The plan's seats as one line: a bar with a tick per seat, the count, and what fills it. Full is
  * said in words and in amber, with the way out beside it, never by the bar alone.
  */
 export function SeatMeter({ onBuy }: { onBuy: () => void }) {
-	const s = useSeats();
+	const s = useTeamSource().seats;
 	return (
 		<div className="flex flex-col gap-2 rounded-xl bg-paper px-3.5 py-3 shadow-[0_1px_2px_rgb(0_0_0/0.04)] sm:flex-row sm:items-center sm:gap-4">
 			<div className="flex shrink-0 items-baseline gap-1.5 tabular-nums">

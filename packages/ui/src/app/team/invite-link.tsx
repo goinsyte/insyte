@@ -3,12 +3,12 @@ import { Copy, RefreshCcw } from "../../icons";
 import { toast } from "sonner";
 import { SelectField } from "../common/form-dialog";
 import { Segmented, WELL_BTN } from "./bits";
-import { roleLabel, useInviteRoles } from "./roles";
+import { roleLabel } from "./role-text";
+import { useSourceInviteRoles, useTeamSource } from "./source";
 import { formatRelative } from "../lib/format";
-import { DAY, LINK_DAYS, inviteUrl } from "../lib/team";
+import { DAY, LINK_DAYS } from "../lib/team-core";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { useTeam } from "../stores/team-store";
 
 /**
  * One address anyone on the team can pass on, for when typing every colleague's email is the slow
@@ -16,9 +16,10 @@ import { useTeam } from "../stores/team-store";
  * kills the old one, with Undo. People who come in through it still take a seat.
  */
 export function InviteLinkSection() {
-	const link = useTeam((s) => s.link);
-	const roles = useInviteRoles();
-	const url = inviteUrl(`link_${link.token}`);
+	const source = useTeamSource();
+	const link = source.link;
+	const roles = useSourceInviteRoles();
+	const url = link.url;
 	const expiresAt = link.createdAt + link.days * DAY;
 	const lapsed = expiresAt <= Date.now();
 
@@ -38,8 +39,9 @@ export function InviteLinkSection() {
 					checked={link.enabled}
 					aria-label="Uitnodigen via link"
 					onCheckedChange={(v) => {
-						useTeam.getState().setLink({ enabled: v });
-						undoable(v ? "Link staat aan" : "Link staat uit", () => useTeam.getState().setLink({ enabled: !v }), v ? undefined : "Wie hem al heeft, komt er niet meer mee binnen.");
+						void source.setLink({ enabled: v }).then((ok) => {
+							if (ok) undoable(v ? "Link staat aan" : "Link staat uit", () => void source.setLink({ enabled: !v }), v ? undefined : "Wie hem al heeft, komt er niet meer mee binnen.");
+						});
 					}}
 				/>
 				<span className="text-base text-ink">{link.enabled ? "Iedereen met deze link kan deelnemen" : "Uit · alleen wie je per e-mail uitnodigt komt binnen"}</span>
@@ -64,8 +66,9 @@ export function InviteLinkSection() {
 							type="button"
 							tabIndex={link.enabled ? 0 : -1}
 							onClick={() => {
-								const before = useTeam.getState().regenerateLink();
-								undoable("Nieuwe link gemaakt", () => useTeam.getState().setLink(before), "De vorige link werkt niet meer.");
+								void source.regenerateLink().then((ok) => {
+									if (ok) undoable("Nieuwe link gemaakt", () => void source.undoRegenerateLink(), "De vorige link werkt niet meer.");
+								});
 							}}
 							className={cn(WELL_BTN, "h-9")}
 						>
@@ -79,12 +82,12 @@ export function InviteLinkSection() {
 					<span className="font-medium text-base text-ink">Rol bij deelnemen</span>
 					<SelectField
 						value={link.roleId}
-						onChange={(roleId) => useTeam.getState().setLink({ roleId })}
+						onChange={(roleId) => void source.setLink({ roleId })}
 						options={roles.map((r) => r.id)}
 						renderLabel={(id) => roleLabel(roles, id)}
 					/>
 					<span className="font-medium text-base text-ink">Geldig</span>
-					<Segmented label="Geldig" value={link.days} options={LINK_DAYS} onChange={(days) => useTeam.getState().setLink({ days })} />
+					<Segmented label="Geldig" value={link.days} options={LINK_DAYS} onChange={(days) => void source.setLink({ days })} />
 				</div>
 
 				<p className="text-ink-2 text-sm tabular-nums">
