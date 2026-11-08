@@ -6,6 +6,7 @@
   "exports": {
     "./app/app.css": "./src/app/app.css",
     "./app/lib/*": "./src/app/lib/*.ts",
+    "./app/access/denial": "./src/app/access/denial.ts",
     "./app/hooks/*": "./src/app/hooks/*.ts",
     "./app/stores/*": "./src/app/stores/*.ts",
     "./app/automations/workflow-store": "./src/app/automations/workflow-store.ts",

@@ -161,7 +161,7 @@ export const euro = (n: number) => new Intl.NumberFormat("nl-NL", { style: "curr
 /** "Koppelingen en API" → "koppelingen en API": a label in running text, its own capitals kept. */
 export const lower = (label: string) => label.charAt(0).toLowerCase() + label.slice(1);
 
-const joinNl = (parts: ReadonlyArray<string>) =>
+export const joinNl = (parts: ReadonlyArray<string>) =>
 	parts.length <= 1 ? (parts[0] ?? "") : `${parts.slice(0, -1).join(", ")} en ${parts.at(-1)}`;
 
 export function storeScopeLabel(scope: StoreScope, stores: ReadonlyArray<{ id: string; name: string }>) {

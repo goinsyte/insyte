@@ -344,6 +344,20 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   }
   expect(mails.mails.map((m) => m.kind)).toEqual(["team.invite"])
 
+  // @rbac (step 5.1): as Klantenservice the colleague reads the team but not the link, and what they may not do the
+  // server refuses, said in place with the permission it takes.
+  await invitee.goto("/settings/team")
+  await expect(invitee.getByText("Je rol kan de uitnodigingslink niet zien")).toBeVisible()
+  await expect(invitee.getByRole("status").filter({ hasText: "Team en rollen · Bewerken" })).toBeVisible()
+  await invitee.getByRole("button", { name: "Acties voor Amber Lewis" }).click()
+  await invitee.getByRole("menuitem", { name: "Alleen lezen" }).click()
+  const refusal = invitee.getByRole("alert").filter({ hasText: "Dat ging niet door." })
+  await expect(refusal).toContainText("Team en rollen · Beheren")
+  await expect(refusal).toContainText("Je rol Klantenservice heeft dat niet")
+  await refusal.getByRole("button", { name: "Details" }).click()
+  await expect(refusal).toContainText("team.manage")
+  await expect(refusal).toContainText("Members.setRole")
+
   // The link has done its work, and the founder sees their colleague in the team.
   await invitee.goto(landing)
   await expect(invitee.getByText(`${colleague} accepteerde deze uitnodiging op`, { exact: false })).toBeVisible()
