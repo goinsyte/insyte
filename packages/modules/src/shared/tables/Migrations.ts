@@ -15,6 +15,7 @@ import accessRequests from "./migrations/0015_access_requests.ts"
 import rolesRestore from "./migrations/0016_roles_restore.ts"
 import apiKeys from "./migrations/0017_api_keys.ts"
 import prefs from "./migrations/0018_prefs.ts"
+import notifications from "./migrations/0019_notifications.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -39,5 +40,6 @@ export const Migrations = {
   "0015_access_requests": accessRequests,
   "0016_roles_restore": rolesRestore,
   "0017_api_keys": apiKeys,
-  "0018_prefs": prefs
+  "0018_prefs": prefs,
+  "0019_notifications": notifications
 }

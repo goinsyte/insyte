@@ -2,6 +2,7 @@ import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { InvitationLinks } from "@insyte/modules/members/domain/Ports"
+import { fanOut } from "@insyte/modules/notifications/use-cases/fanout"
 import { Mailer } from "@insyte/modules/shared/domain/Mailer"
 import { type OutboxEvent, Relay } from "@insyte/modules/shared/domain/Outbox"
 import { ProductAnalytics, type ProductEvent } from "@insyte/modules/shared/domain/ProductAnalytics"
@@ -139,7 +140,22 @@ const realtime = (event: Extract<OutboxEvent, { type: "records.changed" }>) =>
     roomOf(event.workspaceId).broadcast({ v: 1, type: "records.changed", kind: event.kind, ids: [...event.ids] })
   ).pipe(Effect.withSpan("Relay.realtime"))
 
+/** The notifications sink (M5.2): rows for whoever should hear of the event, then each one's tabs their count. */
+const notifications = (event: OutboxEvent, sql: SqlClient.SqlClient) =>
+  Effect.gen(function*() {
+    const heard = yield* fanOut(sql, event.workspaceId, event)
+    const room = roomOf(event.workspaceId)
+    yield* Effect.forEach(heard, ({ recipientId, unread }) =>
+      Effect.promise(() => room.sendTo(recipientId, { v: 1, type: "notes.changed", unread })))
+  }).pipe(Effect.orDie, Effect.withSpan("Relay.notifications"))
+
+const NOTIFIED = new Set<OutboxEvent["type"]>(["member.joined", "access.requested", "access.decided"])
+
 const SINKS: ReadonlyArray<Sink> = [
+  {
+    name: "notifications",
+    run: (_id, event, sql) => NOTIFIED.has(event.type) ? notifications(event, sql) : undefined
+  },
   {
     name: "realtime",
     run: (_id, event) => event.type === "records.changed" ? realtime(event) : undefined

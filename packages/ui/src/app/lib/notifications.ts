@@ -98,6 +98,7 @@ export type EventKey =
 	| "automation.done"
 	| "chat.mention"
 	| "team.invite"
+	| "team.access"
 	| "integration.disconnected"
 	| "integration.sync"
 	| "insyte.proposal"
@@ -146,6 +147,7 @@ export const EVENTS: ReadonlyArray<EventDef> = [
 	{ key: "automation.done", group: "Automatiseringen", label: "Flow aangezet of gepauzeerd", detail: "Iemand verandert een flow die voor de werkruimte draait.", primary: false, defaults: ch(true, false, false, false) },
 	{ key: "chat.mention", group: "Team", label: "Vermelding", detail: "Iemand noemt je met @ in een chat of reactie.", primary: true, defaults: ch(true, false, true, true) },
 	{ key: "team.invite", group: "Team", label: "Uitnodigingen", detail: "Geaccepteerd, of bijna verlopen.", primary: false, defaults: ch(true, true, false, false) },
+	{ key: "team.access", group: "Team", label: "Toegangsverzoeken", detail: "Iemand vraagt om meer rechten, of er komt antwoord op een verzoek.", primary: true, defaults: ch(true, false, false, false) },
 	{ key: "integration.disconnected", group: "Koppelingen", label: "Koppeling verbroken", detail: "Een dienst geeft Insyte geen toegang meer.", primary: true, defaults: ch(true, true, false, false) },
 	{ key: "integration.sync", group: "Koppelingen", label: "Synchronisatie met fouten", detail: "Een sync is klaar, maar sloeg records over.", primary: false, defaults: ch(true, false, false, false) },
 	{ key: "insyte.proposal", group: "Insyte", label: "Voorstel klaar", detail: "Insyte heeft iets getekend dat jij kunt uitvoeren of negeren.", primary: true, defaults: ch(true, false, true, false) },

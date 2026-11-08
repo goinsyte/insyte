@@ -48,6 +48,19 @@ export class RoomDurableObject extends DurableObject<Cloudflare.Env> {
     this.send(frame)
   }
 
+  /** Sends a frame to one member's sockets only: their notifications, their count. */
+  sendTo(memberId: string, frame: unknown): void {
+    const text = JSON.stringify(frame)
+    for (const ws of this.ctx.getWebSockets()) {
+      if ((ws.deserializeAttachment() as Attachment).memberId !== memberId) continue
+      try {
+        ws.send(text)
+      } catch {
+        // Closing as we send: nothing to tell it.
+      }
+    }
+  }
+
   /** Who is here, for a test or a server-side read. */
   presence(): ReadonlyArray<{ readonly memberId: string; readonly since: number }> {
     return this.present()

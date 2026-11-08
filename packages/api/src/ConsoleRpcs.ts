@@ -2,6 +2,7 @@ import { AccessRpcs } from "./rpc/AccessRpcs.ts"
 import { DeveloperRpcs } from "./rpc/DeveloperRpcs.ts"
 import { InvitationRpcs, LandingRpcs } from "./rpc/LandingRpcs.ts"
 import { MembersRpcs } from "./rpc/MembersRpcs.ts"
+import { NotificationsRpcs } from "./rpc/NotificationsRpcs.ts"
 import { OnboardingRpcs } from "./rpc/OnboardingRpcs.ts"
 import { PrefsRpcs } from "./rpc/PrefsRpcs.ts"
 import { RolesRpcs } from "./rpc/RolesRpcs.ts"
@@ -21,3 +22,4 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(RolesRpcs)
   .merge(DeveloperRpcs)
   .merge(PrefsRpcs)
+  .merge(NotificationsRpcs)

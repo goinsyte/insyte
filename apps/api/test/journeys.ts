@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers"
 import { Cause, Exit } from "effect"
 import worker from "../src/Main.ts"
 import type { EventsMessage } from "../src/platform/Relay.ts"
-import { call, onboarding } from "./support.ts"
+import { call, onboarding, rpc } from "./support.ts"
 
 /*
  * What the team and landing journeys share: people made through the real sign-up, the captured mail, the outbox and
@@ -102,3 +102,18 @@ export const ok = <A, E>(exit: Exit.Exit<A, E>): A => {
 }
 export const failure = <A, E>(exit: Exit.Exit<A, E>) =>
   Exit.isFailure(exit) ? exit.cause.reasons.find((r) => r._tag === "Fail")?.error : undefined
+
+/** A colleague in the owner's workspace with this role, through the mailed invitation. */
+export const join = async (email: string) => {
+  const url = new URL((await mailsTo(email))[0]!.url)
+  const id = url.pathname.split("/").pop()!
+  const k = url.searchParams.get("k")!
+  await call("http://api.test/api/auth/sign-up/email", {
+    method: "POST",
+    headers: { origin: ORIGIN, "content-type": "application/json", "x-insyte-invitation": `${id}.${k}` },
+    body: JSON.stringify({ name: email.split("@")[0], email, password })
+  })
+  const cookie = cookiesOf(await post("/api/auth/sign-in/email", { email, password }))
+  ok(await rpc("Landing.accept", { id, k }, cookie))
+  return cookie
+}
