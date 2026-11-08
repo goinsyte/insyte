@@ -1,7 +1,7 @@
 import {
   type BulkPage,
   type BulkStatus,
-  ShopifyBulk,
+  ShopifyGraphql,
   ShopifyRefused,
   ShopifyThrottled,
   type ThrottleStatus
@@ -10,7 +10,8 @@ import { Config, Effect, Layer, Redacted, Schema, Stream } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
 
 /*
- * Bulk operations over the Admin GraphQL API (M6.3; integrations.md §2 "Backfill"), API 2026-01 and later: up to five
+ * The Admin GraphQL API (M6.3; integrations.md §2): one query (a webhook's object, the reconcile sweep's pages), and
+ * bulk operations for the backfill, API 2026-01 and later: up to five
  * per shop at once, each polled by its own id (`bulkOperation(id:)`; `currentBulkOperation` is deprecated). Every
  * answer carries the bucket (`extensions.cost.throttleStatus`) for the gate; a `THROTTLED` answer says how long to
  * wait. The result file is read from a byte offset with a range request, a page of whole lines at a time, so a
@@ -126,8 +127,8 @@ export const readLines = async (
 
 const unreadable = (reason: string) => new ShopifyRefused({ status: 0, reason: `bulk file ${reason}` })
 
-export const ShopifyBulkLive = Layer.effect(
-  ShopifyBulk,
+export const ShopifyGraphqlLive = Layer.effect(
+  ShopifyGraphql,
   Effect.gen(function*() {
     const version = yield* Config.String("SHOPIFY_API_VERSION").pipe(Config.withDefault("2026-10"))
     const http = yield* HttpClient.HttpClient
@@ -170,7 +171,8 @@ export const ShopifyBulkLive = Layer.effect(
       return { data: answer.data, throttle }
     })
 
-    return ShopifyBulk.of({
+    return ShopifyGraphql.of({
+      query: (shop, token, query, variables) => graphql(shop, token, query, variables),
       start: Effect.fn("Shopify.bulk.start")(function*(shop, token, query) {
         const { data, throttle } = yield* graphql(shop, token, START, { query })
         const started = yield* Schema.decodeUnknownEffect(Started)(data).pipe(

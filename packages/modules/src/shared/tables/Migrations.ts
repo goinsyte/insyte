@@ -18,6 +18,7 @@ import prefs from "./migrations/0018_prefs.ts"
 import notifications from "./migrations/0019_notifications.ts"
 import connections from "./migrations/0020_connections.ts"
 import commerce from "./migrations/0021_commerce.ts"
+import inbound from "./migrations/0022_inbound.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -45,5 +46,6 @@ export const Migrations = {
   "0018_prefs": prefs,
   "0019_notifications": notifications,
   "0020_connections": connections,
-  "0021_commerce": commerce
+  "0021_commerce": commerce,
+  "0022_inbound": inbound
 }

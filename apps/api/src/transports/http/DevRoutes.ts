@@ -189,8 +189,46 @@ const StoreConnection = HttpRouter.add(
   }).pipe(withRequestDb)
 )
 
+/**
+ * `GET /api/__dev/stores/mirror?workspace=<id>&store=<id>`: a store's mirrored orders and products by their states,
+ * and its deliveries, for the webhook and reconcile tests (the lists come with M6.4). Refused in production.
+ */
+const StoreMirror = HttpRouter.add(
+  "GET",
+  "/api/__dev/stores/mirror",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const store = new URL(request.url, "http://local").searchParams.get("store") ?? ""
+    const db = yield* Db
+    const mirror = yield* db.scopedFor((sql) =>
+      Effect.all({
+        store: sql<{ status: string }>`select status from stores where id = ${store}`.pipe(
+          Effect.map((rows) => rows[0]?.status ?? null)
+        ),
+        orders: sql<{ number: string; status: string; paymentStatus: string; customerName: string }>`
+          select number, status, payment_status, customer_name from orders where store_id = ${store} order by number`,
+        products: sql<{ title: string; status: string }>`
+          select title, status from products where store_id = ${store} order by title`,
+        customers: sql<{ name: string; email: string | null }>`
+          select name, email from customers where store_id = ${store} order by shopify_id`,
+        inbound: sql<{ topic: string; processed: boolean }>`
+          select topic, processed_at is not null as processed from inbound_events where store_id = ${store}
+          order by received_at`,
+        gdpr: sql<{ kind: string; completed: boolean }>`
+          select kind, completed_at is not null as completed from gdpr_requests order by received_at`
+      })
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe(mirror)
+  }).pipe(withRequestDb)
+)
+
 export const DevRoutes = Layer.mergeAll(
   StoreConnection,
+  StoreMirror,
   CapturedMail,
   AuthEventsOf,
   OutboxOf,

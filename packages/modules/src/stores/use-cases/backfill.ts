@@ -3,7 +3,7 @@ import { mintId } from "@insyte/domain/Ids"
 import { Config, Effect, Schema } from "effect"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { addLine, CUSTOMERS_QUERY, emptyBatch, ordersQuery, PRODUCTS_QUERY } from "../domain/Mirror.ts"
-import { type BulkStatus, ConnectionGate, ShopifyBulk } from "../domain/Ports.ts"
+import { type BulkStatus, ConnectionGate, ShopifyGraphql } from "../domain/Ports.ts"
 import { applyBatch } from "./mirror.ts"
 
 /*
@@ -26,6 +26,8 @@ export interface BackfillContext {
   readonly currency: string
   /** Orders created on or after this day (ISO date). */
   readonly since: string
+  /** When the import began: the reconcile sweep reads what changed from here (bulk files are a snapshot). */
+  readonly startedAt: string
 }
 
 /** The mirror's counts for a store, as the sync step and the dialog show them. */
@@ -64,7 +66,8 @@ export const prepare = Effect.fn("Stores.backfill.prepare")(function*(storeId: s
         connectionId: store.connectionId,
         shop: store.shop,
         currency: store.currency ?? "EUR",
-        since
+        since,
+        startedAt: new Date().toISOString()
       } satisfies BackfillContext as BackfillContext | null
     })
   )
@@ -81,10 +84,10 @@ const checkpoint = Effect.fn("Stores.backfill.checkpoint")(
 )
 
 /** One call through the gate: a token, the bucket's go-ahead, and what Shopify said the bucket holds now. */
-const throughGate = <A extends { readonly throttle: unknown }, E, R>(
-  ctx: BackfillContext,
+export const throughGate = <A extends { readonly throttle: unknown }, E, R>(
+  ctx: Pick<BackfillContext, "connectionId">,
   cost: number,
-  call: (token: Parameters<ShopifyBulk["Service"]["start"]>[1]) => Effect.Effect<A, E, R>
+  call: (token: Parameters<ShopifyGraphql["Service"]["start"]>[1]) => Effect.Effect<A, E, R>
 ) =>
   Effect.gen(function*() {
     const gate = yield* ConnectionGate
@@ -98,7 +101,7 @@ const throughGate = <A extends { readonly throttle: unknown }, E, R>(
 
 /** Asks Shopify to run the resource's bulk query; answers its operation id. */
 export const startBulk = Effect.fn("Stores.backfill.start")(function*(ctx: BackfillContext, resource: Resource) {
-  const bulk = yield* ShopifyBulk
+  const bulk = yield* ShopifyGraphql
   const { id } = yield* throughGate(ctx, 10, (token) => bulk.start(ctx.shop, token, queryOf(resource, ctx.since)))
   yield* checkpoint(ctx, resource, { phase: "running", bulkId: id })
   return id
@@ -107,7 +110,7 @@ export const startBulk = Effect.fn("Stores.backfill.start")(function*(ctx: Backf
 /** Where the operation is. A failed or expired one fails the step: the Workflow starts the resource again. */
 export const pollBulk = Effect.fn("Stores.backfill.poll")(
   function*(ctx: BackfillContext, resource: Resource, bulkId: string) {
-    const bulk = yield* ShopifyBulk
+    const bulk = yield* ShopifyGraphql
     const status = yield* throughGate(ctx, 1, (token) => bulk.status(ctx.shop, token, bulkId))
     if (status.status === "FAILED" || status.status === "CANCELED" || status.status === "EXPIRED") {
       return yield* Effect.die(new Error(`bulk ${resource} ${status.status}: ${status.errorCode ?? "no code"}`))
@@ -139,7 +142,7 @@ export const countsOf = Effect.fn("Stores.backfill.counts")(function*(storeId: s
 export const applyPage = Effect.fn("Stores.backfill.page")(
   function*(ctx: BackfillContext, resource: Resource, url: string | null, offset: number) {
     const lines = yield* Config.Int("SYNC_PAGE_LINES").pipe(Config.withDefault(2000))
-    const bulk = yield* ShopifyBulk
+    const bulk = yield* ShopifyGraphql
     const page = url === null ? { lines: [], next: offset, done: true } : yield* bulk.read(url, offset, lines).pipe(
       Effect.orDie
     )
@@ -160,7 +163,8 @@ export const finish = Effect.fn("Stores.backfill.finish")(function*(ctx: Backfil
       yield* sql`update stores set status = 'connected', last_synced_at = now()
                  where id = ${ctx.storeId} and status = 'connecting'`
       yield* sql`update connections set last_synced_at = now() where id = ${ctx.connectionId}`
-      yield* sql`update sync_cursors set watermark_at = now() where connection_id = ${ctx.connectionId}`
+      yield* sql`update sync_cursors set watermark_at = ${ctx.startedAt}::timestamptz
+                 where connection_id = ${ctx.connectionId}`
       const [workspace] = yield* sql<{ id: string }>`select app_workspace_id() as id`
       const workspaceId = workspace!.id
       return [

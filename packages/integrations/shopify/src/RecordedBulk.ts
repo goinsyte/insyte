@@ -175,3 +175,16 @@ export const RECORDED_BULK = {
 
 /** What the recorded store holds, as Shopify would count it. */
 export const RECORDED_COUNTS = { products: 3, variants: 4, customers: 3, orders: 5, lines: 6 } as const
+
+/**
+ * What Shopify holds now for an `upd-*` shop, where it differs from the import: order #1001 was shipped since (newer),
+ * and a stale read of order #1002 (older than the import) that must not roll it back.
+ */
+export const RECORDED_UPDATES: Readonly<Record<string, Record<string, unknown>>> = {
+  "gid://shopify/Order/1": {
+    displayFulfillmentStatus: "FULFILLED",
+    updatedAt: "2026-10-01T13:00:00Z",
+    fulfillments: [parcel(111, false)]
+  },
+  "gid://shopify/Order/2": { displayFinancialStatus: "PENDING", updatedAt: "2026-10-02T11:00:00Z" }
+}

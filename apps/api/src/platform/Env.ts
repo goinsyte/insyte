@@ -1,5 +1,6 @@
 import type { BackfillParams } from "../workflows/ShopifyBackfill.ts"
 import type { ConnectionGateObject } from "./ConnectionGate.ts"
+import type { IngestMessage } from "./IngestQueue.ts"
 import type { RateLimiter } from "./RateLimiter.ts"
 import type { EventsMessage } from "./Relay.ts"
 import type { RoomDurableObject } from "./Room.ts"
@@ -21,6 +22,8 @@ declare global {
       readonly CONNECTION_GATE: DurableObjectNamespace<ConnectionGateObject>
       /** A store's first import (M6.3): one instance per connect (`ShopifyBackfillWorkflow`). */
       readonly SHOPIFY_BACKFILL: Workflow<BackfillParams>
+      /** Shopify's webhooks (M6.3): received deliveries' ids, applied by this Worker's `queue` handler. */
+      readonly INGEST: Queue<IngestMessage>
       /** Lines per backfill page, 2000 by default; the worker tests read small pages. */
       readonly SYNC_PAGE_LINES?: string
       /** The outbox relay's queue (M1.4): committed events' ids, consumed by this Worker's `queue` handler. */

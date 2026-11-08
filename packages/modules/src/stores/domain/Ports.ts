@@ -40,6 +40,8 @@ export class ShopifyAdmin extends Context.Service<ShopifyAdmin, {
   /** Whether a shop answers at that address (Shopify serves 404 for one that does not exist). */
   readonly exists: (shop: string) => Effect.Effect<boolean>
   readonly exchange: (shop: string, code: string) => Effect.Effect<ShopifyTokens, ShopifyRefused>
+  /** A webhook is Shopify's: its `X-Shopify-Hmac-Sha256` is the base64 HMAC of the raw body with the app's secret. */
+  readonly verifyWebhook: (body: Uint8Array, hmac: string) => Effect.Effect<boolean>
   /** A fresh access token for the refresh token; the refresh token rotates, so the old one is spent. */
   readonly refresh: (
     shop: string,
@@ -48,7 +50,7 @@ export class ShopifyAdmin extends Context.Service<ShopifyAdmin, {
   readonly facts: (shop: string, accessToken: Redacted.Redacted<string>) => Effect.Effect<ShopFacts, ShopifyRefused>
 }>()("stores/ShopifyAdmin") {}
 
-/* ─── The backfill (M6.3): bulk operations, the gate in front of every call ─── */
+/* ─── The Admin GraphQL API (M6.3): bulk operations, single reads, the gate in front ─── */
 
 /** Shopify's leaky bucket after a call (`extensions.cost.throttleStatus`), in query cost points. */
 export interface ThrottleStatus {
@@ -77,7 +79,17 @@ export interface BulkPage {
   readonly done: boolean
 }
 
-export class ShopifyBulk extends Context.Service<ShopifyBulk, {
+export class ShopifyGraphql extends Context.Service<ShopifyGraphql, {
+  /** One Admin GraphQL query: `data` as Shopify answered it, and the bucket after it. */
+  readonly query: (
+    shop: string,
+    token: Redacted.Redacted<string>,
+    query: string,
+    variables: Record<string, unknown>
+  ) => Effect.Effect<
+    { readonly data: unknown; readonly throttle: ThrottleStatus | null },
+    ShopifyRefused | ShopifyThrottled
+  >
   readonly start: (
     shop: string,
     token: Redacted.Redacted<string>,
@@ -92,7 +104,7 @@ export class ShopifyBulk extends Context.Service<ShopifyBulk, {
     id: string
   ) => Effect.Effect<BulkStatus & { readonly throttle: ThrottleStatus | null }, ShopifyRefused | ShopifyThrottled>
   readonly read: (url: string, offset: number, maxLines: number) => Effect.Effect<BulkPage, ShopifyRefused>
-}>()("stores/ShopifyBulk") {}
+}>()("stores/ShopifyGraphql") {}
 
 /** The account cannot give a token: disconnected, or its refresh was refused (the operator reconnects). */
 export class TokenRefused extends Schema.TaggedError<TokenRefused>()("TokenRefused", {
@@ -120,3 +132,8 @@ export class Backfills extends Context.Service<Backfills, {
     input: { readonly key: string; readonly workspaceId: string; readonly storeId: string }
   ) => Effect.Effect<void>
 }>()("stores/Backfills") {}
+
+/** Hands a received webhook to the `ingest` consumer (M6.3): applied after the 200, retried by the queue. */
+export class IngestQueue extends Context.Service<IngestQueue, {
+  readonly enqueue: (input: { readonly inboundEventId: string; readonly workspaceId: string }) => Effect.Effect<void>
+}>()("stores/IngestQueue") {}

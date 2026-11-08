@@ -137,6 +137,19 @@ export const ShopifyAdminLive = Layer.effect(
           Effect.timeout("10 seconds"),
           Effect.orElseSucceed(() => true)
         ),
+      verifyWebhook: (body, hmac) =>
+        Effect.promise(async () => {
+          if (secret === "" || hmac === "") return false
+          const key = await crypto.subtle.importKey(
+            "raw",
+            new TextEncoder().encode(secret),
+            { name: "HMAC", hash: "SHA-256" },
+            false,
+            ["sign"]
+          )
+          const signed = new Uint8Array(await crypto.subtle.sign("HMAC", key, body as Uint8Array<ArrayBuffer>))
+          return same(btoa(String.fromCharCode(...signed)), hmac)
+        }),
       exchange: (shop: string, code: string) => tokens(shop, { code }),
       refresh: (shop: string, refreshToken: Redacted.Redacted<string>) =>
         tokens(shop, { grant_type: "refresh_token", refresh_token: Redacted.value(refreshToken) }),

@@ -16,6 +16,7 @@ import { NotFound } from "../transports/http/NotFound.ts"
 import { RealtimeRoutes } from "../transports/http/RealtimeRoutes.ts"
 import { RequestContext } from "../transports/http/RequestContext.ts"
 import { SystemRoutes } from "../transports/http/SystemRoutes.ts"
+import { WebhookRoutes } from "../transports/http/WebhookRoutes.ts"
 import { KeyDoor } from "../transports/public/KeyDoor.ts"
 import { McpRoutes } from "../transports/public/McpRoutes.ts"
 import { PublicApiRoutes } from "../transports/public/PublicApiRoutes.ts"
@@ -31,6 +32,7 @@ import { AppInfo, BetaSettings, ConfigLive } from "./Bindings.ts"
 import { ConnectionGateLive } from "./ConnectionGate.ts"
 import { HumanCheck } from "./HumanCheck.ts"
 import { HyperdriveConnect } from "./Hyperdrive.ts"
+import { IngestQueueLive } from "./IngestQueue.ts"
 import { InvitationLinksLive } from "./InvitationLinks.ts"
 import { KeyHasherLive } from "./KeyHasher.ts"
 import { MailerCapture } from "./Mail.ts"
@@ -39,7 +41,7 @@ import { ProductAnalyticsCapture } from "./ProductAnalyticsCapture.ts"
 import { RateLimits } from "./RateLimits.ts"
 import { RelayLive } from "./Relay.ts"
 import { SealerLive } from "./Seal.ts"
-import { ShopifyAdminChoice, ShopifyBulkChoice } from "./Shopify.ts"
+import { ShopifyAdminChoice, ShopifyGraphqlChoice } from "./Shopify.ts"
 
 /*
  * The composition root (16 §5): every implementation is chosen here, and the layer is built once per isolate. Nothing
@@ -54,6 +56,7 @@ const Transports = Layer.mergeAll(
   RpcRoutes,
   RealtimeRoutes,
   ConnectRoutes,
+  WebhookRoutes,
   PublicApiRoutes,
   McpRoutes,
   RequestContext,
@@ -106,7 +109,14 @@ export const AppLayer = Transports.pipe(
   // …and the sealer for external accounts' tokens, beside Shopify (M6.2).
   // …and the gate in front of every call for an external account (M6.3).
   Layer.provideMerge(
-    Layer.mergeAll(InvitationLinksLive, KeyHasherLive, SealerLive, ShopifyAdminChoice, ConnectionGateLive)
+    Layer.mergeAll(
+      InvitationLinksLive,
+      KeyHasherLive,
+      SealerLive,
+      ShopifyAdminChoice,
+      ConnectionGateLive,
+      IngestQueueLive
+    )
   ),
   // better-auth, built per request by the auth routes and the session check, over the app's hooks.
   Layer.provideMerge(BetterAuth.layer),
@@ -151,7 +161,7 @@ export const BackgroundLayer = Layer.mergeAll(
  * What the backfill Workflow's steps run on (M6.3): the background services, Shopify's bulk operations, and the gate
  * every call passes (`ConnectionGate.ts`), which holds the account's token and bucket.
  */
-export const SyncLayer = Layer.mergeAll(ShopifyBulkChoice, ConnectionGateLive, RelayLive).pipe(
+export const SyncLayer = Layer.mergeAll(ShopifyGraphqlChoice, ConnectionGateLive, RelayLive).pipe(
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),
   Layer.provideMerge(AppInfo.layer),
