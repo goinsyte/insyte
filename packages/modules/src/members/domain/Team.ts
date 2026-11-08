@@ -117,3 +117,11 @@ export class SeatLimitReached extends Schema.TaggedError<SeatLimitReached>()("Se
   total: Schema.Int,
   free: Schema.Int
 }) {}
+
+/** A teammate as everyone in the workspace sees them: the top bar's faces and a mention's names (M5). */
+export class Teammate extends Schema.Class<Teammate>("members/Teammate")({
+  id: Schema.String,
+  name: Schema.String,
+  image: Schema.NullOr(Schema.String),
+  roleLabel: Schema.String
+}) {}

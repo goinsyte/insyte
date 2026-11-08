@@ -5,7 +5,8 @@ import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
 import { Relay } from "../shared/domain/Outbox.ts"
 import { InvitationLinks } from "./domain/Ports.ts"
-import type { InviteRow, SeatLimitReached, SetLink, Team } from "./domain/Team.ts"
+import type { InviteRow, SeatLimitReached, SetLink, Team, Teammate } from "./domain/Team.ts"
+import { directory } from "./use-cases/directory.ts"
 import * as Invitations from "./use-cases/invitations.ts"
 import { send } from "./use-cases/invite.ts"
 import * as Link from "./use-cases/link.ts"
@@ -21,6 +22,8 @@ import { get } from "./use-cases/team.ts"
  */
 export class Members extends Context.Service<Members, {
   readonly get: Effect.Effect<Team, Forbidden, Db | CurrentPrincipal>
+  /** Every active member's name, face and role: what the top bar and mentions show, for any member. */
+  readonly directory: Effect.Effect<ReadonlyArray<Teammate>, never, Db | CurrentPrincipal>
   readonly send: (
     rows: ReadonlyArray<InviteRow>
   ) => Effect.Effect<Team, Forbidden | Invalid | SeatLimitReached, Db | CurrentPrincipal>
@@ -62,6 +65,7 @@ export class Members extends Context.Service<Members, {
         )
       return {
         get: run(get()),
+        directory: run(directory()),
         send: (rows) => run(send(rows)),
         revoke: (ids) => run(Invitations.revoke(ids)),
         restore: (id) => run(Invitations.restore(id)),
