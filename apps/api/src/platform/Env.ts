@@ -1,5 +1,6 @@
 import type { RateLimiter } from "./RateLimiter.ts"
 import type { EventsMessage } from "./Relay.ts"
+import type { RoomDurableObject } from "./Room.ts"
 
 /*
  * What `env` holds (02 §5.1). Merged into `Cloudflare.Env`, which types `env` from `cloudflare:workers`. Bindings join
@@ -12,6 +13,8 @@ declare global {
       readonly HYPERDRIVE: Hyperdrive
       /** Sign-in, sign-up and mail limits per IP and per address (`RateLimiter`, M2.3). */
       readonly RATE_LIMITER: DurableObjectNamespace<RateLimiter>
+      /** The realtime rooms (M5.1): one per audience, `ws:<workspace>`; sockets and presence only. */
+      readonly ROOMS: DurableObjectNamespace<RoomDurableObject>
       /** The outbox relay's queue (M1.4): committed events' ids, consumed by this Worker's `queue` handler. */
       readonly EVENTS: Queue<EventsMessage>
       readonly ENVIRONMENT: "local" | "preview" | "staging" | "production"

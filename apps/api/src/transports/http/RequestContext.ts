@@ -16,7 +16,10 @@ export const RequestContext = HttpRouter.middleware(
           onSome: (span) => span.traceId
         })
         const response = yield* httpEffect.pipe(Effect.annotateLogs({ trace_id: traceId, environment, version }))
-        return traceId === "" ? response : HttpServerResponse.setHeader(response, "insyte-request-id", traceId)
+        // A socket's 101 goes back as the room made it: a header added here would copy the response and drop the socket.
+        return traceId === "" || response.status === 101
+          ? response
+          : HttpServerResponse.setHeader(response, "insyte-request-id", traceId)
       })
   }),
   { global: true }

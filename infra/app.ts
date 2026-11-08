@@ -140,6 +140,8 @@ export default Alchemy.Stack(
         EVENTS: events,
         // The edge guards' counters (M2.3), hosted by this Worker (`RateLimiter` in Main.ts); SQLite-backed.
         RATE_LIMITER: Cloudflare.DurableObject("RateLimiter", { className: "RateLimiter" }),
+        // The realtime rooms (M5.1), hosted by this Worker (`RoomDurableObject` in Main.ts): sockets and presence only.
+        ROOMS: Cloudflare.DurableObject("Rooms", { className: "RoomDurableObject" }),
         ENVIRONMENT: environment,
         // Where `Main.ts` serves `/v1` and nothing else.
         PUBLIC_API_HOST: `insyte-api-${stage}.${WORKERS_SUBDOMAIN}`,

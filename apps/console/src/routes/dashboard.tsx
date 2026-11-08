@@ -7,6 +7,7 @@ import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { completeTaskAtom, START, startAtom } from "../data/onboarding.ts"
 import { sessionMeAtom } from "../data/session.ts"
+import { LiveUpdates } from "../realtime/live-updates.tsx"
 
 /**
  * Where sign-in lands when there is no `redirect` (the screen's default), and the console's first client gate (M2.4):
@@ -56,6 +57,7 @@ function Start() {
   }
   return (
     <main className="min-h-svh bg-background text-ink">
+      <LiveUpdates />
       <div className="mx-auto flex max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6">
         <div className="flex justify-end">
           <button

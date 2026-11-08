@@ -1,0 +1,58 @@
+import { Frame } from "@insyte/api/Frames"
+import { Effect, Option, Schedule, Schema } from "effect"
+import { Reactivity } from "effect/reactivity"
+import { Socket } from "effect/socket"
+import { ACCESS } from "./access.ts"
+import { ConsoleClient } from "./client.ts"
+import { KEYS } from "./developer.ts"
+import { ACCESS_LIST, ROLES } from "./roles.ts"
+import { TEAM } from "./team.ts"
+
+/*
+ * The tab's one socket (M5.1, ADR-0013): `/api/realtime` on the console's own origin. A `records.changed` frame
+ * refetches the queries that show that kind, through RPC, where the permission check runs; frames never carry a
+ * record. Lost, it reconnects with backoff, and after a gap refetches everything it maps, so nothing missed stays stale.
+ */
+
+/** What each kind of change refetches. A kind joins with the screen that shows it. */
+const REFETCH: Record<string, ReadonlyArray<string>> = {
+  member: [...TEAM, ...ROLES],
+  invitation: TEAM,
+  invite_link: TEAM,
+  role: [...ROLES, ...TEAM],
+  access_request: [...ACCESS, ...ACCESS_LIST],
+  api_key: KEYS
+}
+const EVERYTHING = [...new Set(Object.values(REFETCH).flat())]
+
+const decodeFrame = Schema.decodeUnknownOption(Schema.fromJsonString(Frame))
+const text = new TextDecoder()
+
+/** One connection: its frames until it closes. `reconnected` refetches everything once it says hello. */
+const connection = (reconnected: boolean) =>
+  Effect.gen(function*() {
+    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/realtime`
+    const reader = yield* (yield* Socket.makeWebSocket(url)).reader
+    while (true) {
+      const keys = new Set<string>()
+      for (const chunk of yield* reader.pull) {
+        const frame = decodeFrame(typeof chunk === "string" ? chunk : text.decode(chunk))
+        if (Option.isNone(frame)) continue
+        if (frame.value.type === "hello" && reconnected) { for (const key of EVERYTHING) keys.add(key) }
+        if (frame.value.type === "records.changed") { for (const key of REFETCH[frame.value.kind] ?? []) keys.add(key) }
+      }
+      if (keys.size > 0) yield* Reactivity.invalidate([...keys])
+    }
+  }).pipe(Effect.scoped)
+
+/** Mounted while a signed-in screen is open (`LiveUpdates`); the socket closes when the last one unmounts. */
+export const realtimeAtom = ConsoleClient.runtime.atom(
+  Effect.suspend(() => {
+    let attempts = 0
+    return Effect.suspend(() => connection(attempts++ > 0)).pipe(
+      // Doubling from half a second, never more than 30 s apart, for as long as the screen is open.
+      Effect.retry(Schedule.min([Schedule.exponential("500 millis"), Schedule.spaced("30 seconds")])),
+      Effect.provide(Socket.layerWebSocketConstructorGlobal)
+    )
+  })
+)

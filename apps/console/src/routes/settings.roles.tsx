@@ -14,6 +14,7 @@ import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { myAccessAtom } from "../data/access.ts"
 import { accessListAtom, rolesAtom } from "../data/roles.ts"
 import { sessionMeAtom } from "../data/session.ts"
+import { LiveUpdates } from "../realtime/live-updates.tsx"
 import { useConsoleRolesSource } from "../team/roles-source.ts"
 
 /**
@@ -99,6 +100,7 @@ function Loaded({ roles }: { roles: Roles }) {
   const source = useConsoleRolesSource(roles)
   return (
     <main className="min-h-svh bg-paper text-ink">
+      <LiveUpdates />
       <RolesSourceProvider value={source}>
         <SettingsSheet title="Rollen" icon={UserCog}>
           <RolesView roleId={role} verzoek={verzoek} />

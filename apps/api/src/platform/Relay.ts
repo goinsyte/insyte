@@ -8,6 +8,7 @@ import { ProductAnalytics, type ProductEvent } from "@insyte/modules/shared/doma
 import { env, waitUntil } from "cloudflare:workers"
 import { Effect, Layer, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
+import { roomOf } from "./Room.ts"
 
 /*
  * The outbox relay (M1.4). A use case's committed events are kicked onto the `EVENTS` queue (`RelayLive`); the minute
@@ -88,6 +89,8 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
     case "access.decided":
       // Notifications are their business (M5); the product events do not count them.
       return undefined
+    case "records.changed":
+      return undefined
   }
 }
 
@@ -130,7 +133,17 @@ const invitationMail = (event: Extract<OutboxEvent, { type: "member.invited" }>,
     })
   }).pipe(Effect.orDie)
 
+/** The realtime sink (M5.1): a changed record's kind and ids to its workspace's room; the tabs refetch. */
+const realtime = (event: Extract<OutboxEvent, { type: "records.changed" }>) =>
+  Effect.promise(() =>
+    roomOf(event.workspaceId).broadcast({ v: 1, type: "records.changed", kind: event.kind, ids: [...event.ids] })
+  ).pipe(Effect.withSpan("Relay.realtime"))
+
 const SINKS: ReadonlyArray<Sink> = [
+  {
+    name: "realtime",
+    run: (_id, event) => event.type === "records.changed" ? realtime(event) : undefined
+  },
   {
     name: "mail",
     run: (_id, event, sql) => event.type === "member.invited" ? invitationMail(event, sql) : undefined

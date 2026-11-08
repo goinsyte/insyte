@@ -12,6 +12,7 @@ import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { endpointsAtom, keysAtom } from "../data/developer.ts"
 import { rolesAtom } from "../data/roles.ts"
 import { sessionMeAtom } from "../data/session.ts"
+import { LiveUpdates } from "../realtime/live-updates.tsx"
 import { useConsoleDeveloperSource } from "../team/developer-source.ts"
 
 /**
@@ -77,6 +78,7 @@ function Loaded(
   const source = useConsoleDeveloperSource(keys, roles, endpoints)
   return (
     <main className="min-h-svh bg-paper text-ink">
+      <LiveUpdates />
       <DeveloperSourceProvider value={source}>
         <SettingsSheet title="Agents en MCP" icon={Bot}>
           <AgentsPage />
