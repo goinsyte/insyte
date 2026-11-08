@@ -37,7 +37,7 @@ const seedRecent = (): Shortcut[] => {
 	];
 };
 
-type PinsState = {
+export type PinsState = {
 	pinned: Shortcut[];
 	favourites: Shortcut[];
 	recent: Shortcut[];

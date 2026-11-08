@@ -10,12 +10,12 @@ import {
 } from "../../icons";
 import { PERSONA_CHROME } from "../lib/persona-chrome";
 import type { Persona } from "../lib/types/persona";
-import { isDrawn, useWorkspace } from "../stores/workspace-store";
-import { useMarketplaceModalStore } from "../stores/marketplace-modal-store";
+import { isDrawn } from "../lib/queue-state";
 import { NewMenu } from "./new-menu";
 import { NotificationsInbox } from "./notifications-inbox";
 import { StoreSelector } from "./store-selector";
 import { TopbarFriends } from "./topbar-friends";
+import { useMarketplaceModalStore, useWorkspace } from "./state";
 
 /**
  * The top bar: 48px of `mist`, inside the work column rather than across the window.

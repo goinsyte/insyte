@@ -45,7 +45,7 @@ const TONE: Record<NonNullable<Note["tone"]> | "none", string> = {
  * The row's leading mark: the person with their presence and reason, a connected service's logo,
  * Insyte's star on the plate colour, or — when nobody did it — the subject's glyph on its signal tint.
  */
-export function NoteLead({ note, size = 32 }: { note: Note; size?: number }) {
+export function NoteLead({ note, size = 32, presence: known }: { note: Note; size?: number; presence?: Presence }) {
 	const a = note.actor;
 	const glyph = Math.round(size * 0.47);
 	const box = { width: size, height: size };
@@ -59,7 +59,7 @@ export function NoteLead({ note, size = 32 }: { note: Note; size?: number }) {
 	if (a?.kind === "brand") return <BrandLogo brand={a.brand} name={a.name} size={size} />;
 	if (a?.kind === "member" || a?.kind === "person") {
 		const Reason = note.reason ? REASON[note.reason] : undefined;
-		const presence = a.kind === "member" ? (presenceById[a.id] ?? "offline") : undefined;
+		const presence = a.kind === "member" ? (known ?? presenceById?.[a.id] ?? "offline") : undefined;
 		return (
 			<span
 				className={cn("relative flex shrink-0 items-center justify-center rounded-full font-medium", size >= 32 ? "text-sm" : "text-xs")}

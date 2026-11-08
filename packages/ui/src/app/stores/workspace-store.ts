@@ -127,7 +127,7 @@ const SEED_INTEGRATIONS: WorkspaceIntegration[] = [
 	{ key: "anthropic", name: "Anthropic", description: "Claude, voor opgestelde antwoorden en voorstellen", category: "AI", status: "connected", syncedAt: "2026-10-27T08:14:00Z" },
 ];
 
-type State = {
+export type WorkspaceState = {
 	queue: QueueItem[];
 	/** Customers and products made in this session. The fixtures behind them come from the API mock. */
 	createdCustomers: Customer[];
@@ -160,7 +160,7 @@ type State = {
 	};
 };
 
-type Actions = {
+export type WorkspaceActions = {
 	fileQueue: (id: string) => QueueState | undefined;
 	discardQueue: (id: string) => QueueState | undefined;
 	restoreQueue: (id: string, state: QueueState) => void;
@@ -223,7 +223,7 @@ type Actions = {
 	syncIntegration: (key: string) => Promise<void>;
 
 
-	saveAccount: (account: State["account"]) => void;
+	saveAccount: (account: WorkspaceState["account"]) => void;
 };
 
 /** A service taking its time, at a length an operator would believe. */
@@ -253,7 +253,7 @@ const EVIDENCE = [
 	{ name: "original-invoice.pdf", size: 64_000, kind: "invoice" },
 ];
 
-export const useWorkspace = create<State & Actions>()((set, get) => {
+export const useWorkspace = create<WorkspaceState & WorkspaceActions>()((set, get) => {
 	const patchChargeback = (id: string, patch: (c: Chargeback) => Chargeback) =>
 		set((s) => ({ chargebacks: s.chargebacks.map((c) => (c.id === id ? patch(c) : c)) }));
 	const patchOrder = (id: string, patch: (o: Order) => Order) =>
@@ -711,6 +711,4 @@ export const useWorkspace = create<State & Actions>()((set, get) => {
 
 /* ── derived reads, so two screens never count the same thing two ways ───────────────────────── */
 
-export const isNeedsYou = (q: QueueItem) => q.state === "open" && (q.signal === "red" || q.signal === "amber");
-export const isDrawn = (q: QueueItem) => q.state === "open" && q.plate !== undefined;
-export const isOpen = (q: QueueItem) => q.state === "open";
+export { isDrawn, isNeedsYou, isOpen } from "../lib/queue-state";

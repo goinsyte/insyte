@@ -32,7 +32,7 @@ import { useWorkspace } from "./workspace-store";
 
 export type Welcome = { name: string; workspace: string; role: string };
 
-type TeamState = {
+export type TeamState = {
 	invites: Invite[];
 	/** Ids revoked in this session, so their link says so instead of looking new. */
 	revoked: string[];

@@ -45,6 +45,9 @@ export type ForwardPrefs = Record<string, { via: ForwardVia; auto: boolean }>;
 
 export type ForwardView = "to_forward" | "awaiting" | "forward_error";
 
+export const FORWARD_VIEWS: ReadonlyArray<ForwardView> = ["to_forward", "awaiting", "forward_error"];
+export const isForwardView = (v: unknown): v is ForwardView => typeof v === "string" && (FORWARD_VIEWS as ReadonlyArray<string>).includes(v);
+
 export const VIEW_LABEL: Record<ForwardView, string> = {
 	to_forward: "Te versturen",
 	awaiting: "Wacht op bevestiging",

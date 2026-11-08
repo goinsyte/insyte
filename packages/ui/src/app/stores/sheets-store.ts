@@ -11,7 +11,7 @@ import type { Folder, Sheet, Tab } from "../lib/sheets";
  * own undo stack can put any earlier state back; the rest return their undo like every store.
  */
 
-type State = {
+export type SheetsState = {
 	scenario: Scenario;
 	folders: Folder[];
 	sheets: Sheet[];
@@ -27,7 +27,7 @@ type State = {
 
 const now = () => new Date().toISOString();
 
-export const useSheets = create<State>()(
+export const useSheets = create<SheetsState>()(
 	persist(
 		(set, get) => {
 			const swap = (before: Sheet[]) => () => set({ sheets: before });
@@ -84,7 +84,7 @@ export const useSheets = create<State>()(
 			version: 1,
 			partialize: (s) => ({ scenario: s.scenario, folders: s.folders, sheets: s.sheets }),
 			merge: (persisted, current) => {
-				const p = persisted as Partial<State> | undefined;
+				const p = persisted as Partial<SheetsState> | undefined;
 				if (!p || p.scenario !== SCENARIO) return current;
 				return { ...current, ...p };
 			},

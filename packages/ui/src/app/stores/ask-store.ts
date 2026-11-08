@@ -20,7 +20,7 @@ export type Conversation = { id: string; title: string; at: number; turns: Turn[
 let n = 0;
 const id = (p: string) => `${p}${Date.now().toString(36)}${(n++).toString(36)}`;
 
-type AskState = {
+export type AskState = {
 	conversations: Conversation[];
 	active: string | null;
 	ask: (text: string) => void;

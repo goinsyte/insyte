@@ -14,7 +14,7 @@ import { SCENARIO, type Scenario } from "../../data-source";
  * mixed in, so `?scenario=busy` always shows the busy week.
  */
 
-type NotificationsState = {
+export type NotificationsState = {
 	scenario: Scenario;
 	notes: Note[];
 	prefs: NotifyPrefs;

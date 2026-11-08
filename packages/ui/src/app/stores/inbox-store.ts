@@ -51,7 +51,7 @@ function fromChannel(t: ChannelThread): ThreadState {
 /** Who the seed's threads are already with: some taken, most waiting for someone. */
 const SEED_ASSIGNEE: Record<string, string> = { th_2: "mem_elena", th_4: "mem_sofia", th_6: "mem_elena", th_9: "mem_ethan" };
 
-type InboxState = {
+export type InboxState = {
 	threads: ThreadState[];
 	update: (id: string, patch: Partial<ThreadState>) => void;
 	add: (t: ThreadState) => void;

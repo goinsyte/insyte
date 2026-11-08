@@ -17,15 +17,10 @@ import {
 import { Link, useRouterState } from "@tanstack/react-router";
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
-import { automations } from "../../data-source";
-import { customers } from "../../data-source";
-import { products } from "../../data-source";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { usePanel } from "../stores/panel-store";
-import { type Shortcut, type ShortcutKind, usePins } from "../stores/pins-store";
-import { useViews } from "../stores/views-store";
-import { useWorkspace } from "../stores/workspace-store";
+import type { Shortcut, ShortcutKind } from "../stores/pins-store";
+import { usePanel, usePins, useShellData, useViews, useWorkspace } from "./state";
 
 /**
  * The area panel's lower half: this week's report and the operator's shortcuts — what they pinned,
@@ -469,6 +464,7 @@ export function useRecentRecords() {
 	const visit = usePins((s) => s.visit);
 	const orders = useWorkspace((s) => s.orders);
 	const chargebacks = useWorkspace((s) => s.chargebacks);
+	const { customers, products, automations } = useShellData();
 
 	useEffect(() => {
 		const [, area, id] = pathname.split("/");

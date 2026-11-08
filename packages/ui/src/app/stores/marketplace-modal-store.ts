@@ -1,16 +1,16 @@
 import { create } from "zustand";
 
-type State = {
+export type MarketplaceModalState = {
 	open: boolean;
 };
 
-type Actions = {
+export type MarketplaceModalActions = {
 	openModal: () => void;
 	closeModal: () => void;
 	toggleModal: () => void;
 };
 
-export const useMarketplaceModalStore = create<State & Actions>()((set) => ({
+export const useMarketplaceModalStore = create<MarketplaceModalState & MarketplaceModalActions>()((set) => ({
 	open: false,
 	openModal: () => set({ open: true }),
 	closeModal: () => set({ open: false }),

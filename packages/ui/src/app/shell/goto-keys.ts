@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { GOTO_DEFAULTS } from "../lib/settings-depth";
-import { useSettingsDepth } from "../stores/settings-depth-store";
+import { useSettingsDepth } from "./state";
 
 /** Whether a key press belongs to whatever the person is typing in. */
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.closest("[role=grid],[role=dialog],[role=menu]") !== null);
@@ -12,11 +12,14 @@ const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isConte
  */
 export function useGoToKeys(enabled: boolean) {
 	const navigate = useNavigate();
+	// The latest keys, for a listener added once.
+	const depth = useRef({ gotoOn: false, keys: {} as Record<string, string> });
+	depth.current = useSettingsDepth((s) => ({ gotoOn: s.gotoOn, keys: s.keys }));
 	useEffect(() => {
 		if (!enabled) return;
 		let armed = 0;
 		const onKey = (e: KeyboardEvent) => {
-			const { gotoOn, keys } = useSettingsDepth.getState();
+			const { gotoOn, keys } = depth.current;
 			if (!gotoOn || e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
 			const k = e.key.length === 1 ? e.key.toUpperCase() : "";
 			if (!k) return;

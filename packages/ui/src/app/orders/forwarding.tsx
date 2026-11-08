@@ -52,8 +52,9 @@ const GUIDE = [
 	{ title: "Alleen hun eigen regels", body: "Elke leverancier krijgt alleen zijn eigen regels en het verzendadres, nooit de prijzen of de andere leveranciers.", art: "lock" },
 ] as const;
 
-export const FORWARD_VIEWS: ReadonlyArray<ForwardView> = ["to_forward", "awaiting", "forward_error"];
-export const isForwardView = (v: unknown): v is ForwardView => typeof v === "string" && (FORWARD_VIEWS as ReadonlyArray<string>).includes(v);
+import { FORWARD_VIEWS, isForwardView } from "../lib/forwarding";
+
+export { FORWARD_VIEWS, isForwardView };
 
 export const supplierLabel = (id: string) => suppliers.find((s) => s.id === id)?.name ?? NAMES[id] ?? id;
 const NAMES: Record<string, string> = { sup_allure: "Allure Fulfillment", sup_dpc: "DPC Apparel", sup_kestrel: "Kestrel Goods", sup_blackcedar: "Black Cedar Studio" };

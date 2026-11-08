@@ -6,17 +6,12 @@ import {
 	DropdownMenuTrigger,
 } from "../../components/dropdown-menu";
 import { MessageSquare, UserPlus, UserSquare } from "../../icons";
-import { useNavPrefs } from "../hooks/use-nav-prefs";
 import { initials } from "../lib/format";
-import {
-	lastActionById,
-	members,
-	type Presence,
-	presenceById,
-} from "../../data-source";
+import type { Presence } from "../../data-source";
 import { personStyle } from "../lib/person-color";
 import { cn } from "../lib/utils";
 import { useShellDialog } from "./shell-dialogs";
+import { useNavPrefs, useShellData } from "./state";
 
 const PRESENCE_DOT: Record<Presence, string> = {
 	online: "bg-signal-green",
@@ -37,6 +32,7 @@ const PRESENCE_LABEL: Record<Presence, string> = {
  */
 export function TopbarFriends({ onManage }: { onManage: () => void }) {
 	const { state, isFriendPinned } = useNavPrefs();
+	const { members, presenceById, lastActionById } = useShellData();
 	const pinned = members.filter((m) => isFriendPinned(m.id));
 	if (pinned.length === 0 && state.pinnedFriends.length === 0) {
 		// No pins at all — show only the manage affordance.

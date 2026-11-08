@@ -3,7 +3,9 @@ import { persist } from "zustand/middleware";
 
 export type ThemeMode = "light" | "dark" | "auto";
 export const MAX_RAIL_ADDONS = 4;
-export const MAX_PINNED_FRIENDS = 4;
+import { MAX_PINNED_FRIENDS } from "../lib/nav-limits";
+
+export { MAX_PINNED_FRIENDS };
 
 // Seeded with the four extensions that ship as installed in mock-data so the
 // rail's sticky-apps section reads as populated on first visit. Operators can
@@ -26,7 +28,7 @@ const DEFAULT_PINNED_FRIENDS = [
 
 export type Shortcut = { mod: string; key: string };
 
-type State = {
+export type NavState = {
 	hidden: string[];
 	order: string[];
 	pinnedAddons: string[];
@@ -35,7 +37,7 @@ type State = {
 	themeMode: ThemeMode;
 };
 
-type Actions = {
+export type NavActions = {
 	toggleHidden: (to: string) => void;
 	/** The whole rail order at once, for a drag. */
 	setOrder: (order: string[]) => void;
@@ -57,7 +59,7 @@ function ensureFullOrder(saved: string[], all: string[]) {
 	return result;
 }
 
-export const useNavStore = create<State & Actions>()(
+export const useNavStore = create<NavState & NavActions>()(
 	persist(
 		(set, get) => ({
 			hidden: [],

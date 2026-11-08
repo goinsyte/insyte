@@ -28,7 +28,7 @@ import {
  * a normal Tuesday does not leak into the first day.
  */
 
-type AutonomyState = {
+export type AutonomyState = {
 	policy: Policy;
 	version: number;
 	history: PolicyHistoryEntry[];
