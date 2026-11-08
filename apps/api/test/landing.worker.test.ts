@@ -155,6 +155,8 @@ describe("the invitation landing", () => {
 
     ok(await rpc("Invitations.revoke", { ids: [tessId] }, owner.cookie))
     expect((await resolve(tessRef)).state).toBe("revoked")
+    // A revoked one can still ask the inviter, who is never named by address.
+    expect(ok(await rpc("Landing.requestNew", tessRef))).toMatchObject({ state: "revoked", requested: true })
   })
 
   it("lets anyone in through the shareable link while it is on, as its role, until the seats run out", async () => {

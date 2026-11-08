@@ -39,8 +39,16 @@ export const ssoRequired = (policy: SsoPolicy, email: string) =>
 
 const roleOf = (sql: SqlClient.SqlClient, roleId: string) =>
   Effect.map(
-    sql<LandingRole>`select id, label, levels, specials from roles where id = ${roleId}`,
-    ([role]) => role ?? null
+    sql<Omit<LandingRole, "refundLimit"> & { refundLimitMinor: string | number | null }>`
+      select id, label, levels, specials, refund_limit_minor from roles where id = ${roleId}`,
+    ([role]): LandingRole | null =>
+      role === undefined ? null : {
+        id: role.id,
+        label: role.label,
+        levels: role.levels,
+        specials: role.specials,
+        refundLimit: role.refundLimitMinor === null ? null : Number(role.refundLimitMinor) / 100
+      }
   )
 
 /** Whoever the page speaks of as the one who asked: the inviter, or for the shareable link the owner. */
@@ -157,6 +165,10 @@ export const classify = Effect.fn("Landing.classify")(function*(
     at: (inv.acceptedAt ?? inv.expiresAt).getTime(),
     signedInAs,
     seats: seats.total,
-    requested: state === "expired" ? inv.requestedNew : state === "full" ? inv.seatRequested : false
+    requested: state === "full" ?
+      inv.seatRequested :
+      state === "expired" || state === "revoked" || state === "other-account"
+      ? inv.requestedNew
+      : false
   })
 })

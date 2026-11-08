@@ -26,7 +26,9 @@ export const LandingRole = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
   levels: Schema.Record(Schema.String, Schema.Literals([0, 1, 2, 3])),
-  specials: Schema.Record(Schema.String, Schema.Boolean)
+  specials: Schema.Record(Schema.String, Schema.Boolean),
+  /** Euros, as the catalogue counts them. */
+  refundLimit: Schema.NullOr(Schema.Finite)
 })
 export type LandingRole = typeof LandingRole.Type
 

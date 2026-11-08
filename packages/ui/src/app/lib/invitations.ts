@@ -1,9 +1,10 @@
 import { tierOf } from "../../data-source";
 import { members } from "../../data-source";
 import { suppliers } from "../../data-source";
-import { DAY, isExpired, PORTAL_SCOPES, type StoreAccess } from "./team";
+import { DAY, isExpired, PORTAL_SCOPES } from "./team";
 import { useProgram } from "../stores/affiliate-program-store";
 import { useTeam } from "../stores/team-store";
+import type { Landing } from "./invitation-types";
 
 /**
  * What an invitation link opens on, resolved from its id.
@@ -15,30 +16,7 @@ import { useTeam } from "../stores/team-store";
  * workspace, a supplier and an affiliate.
  */
 
-export type LandingState = "new" | "existing" | "other-account" | "expired" | "revoked" | "accepted" | "sso" | "full" | "supplier" | "affiliate" | "link" | "missing";
-
-export type Landing = {
-	id: string;
-	state: LandingState;
-	workspace: string;
-	inviter: { id: string; name: string; role: string };
-	email?: string;
-	name?: string;
-	roleId?: string;
-	stores: StoreAccess;
-	message?: string;
-	at?: number;
-	/** Supplier invitations: the company, and what it will see. */
-	company?: string;
-	supplierId?: string;
-	scopes?: string[];
-	/** Affiliate invitations. */
-	tier?: { label: string; rate: number };
-	code?: string;
-	/** Team invitations created in the session: accepting them adds the person. */
-	teamInviteId?: string;
-	affiliateInviteId?: string;
-};
+export type { Landing, LandingState } from "./invitation-types";
 
 export const SIGNED_IN_AS = { name: "Elena Hart", email: "elena@northwindclothing.co" };
 

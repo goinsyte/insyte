@@ -50,6 +50,11 @@ export interface AuthClient {
         name: string
         callbackURL?: string | undefined
         turnstileToken?: string | undefined
+        /**
+         * From an invitation's landing: `<invitation id>.<its secret>`. The server admits the address and takes it as
+         * verified, because the link proved it (M3.4).
+         */
+        invitation?: string | undefined
       }
     ) => AuthResult<unknown>
   }

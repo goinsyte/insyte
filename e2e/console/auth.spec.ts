@@ -294,7 +294,8 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await expect(page.getByText(email)).toBeVisible()
 
   // An invitation takes a seat; its undo takes it back before any mail goes.
-  const colleague = `e2e-${Date.now().toString(36)}-colleague@example.com`
+  // Not an allowlisted domain: the invitation is their way past the beta gate.
+  const colleague = `e2e-${Date.now().toString(36)}-colleague@invited.test`
   const invite = async () => {
     await page.getByRole("button", { name: "Collega uitnodigen" }).first().click()
     await page.getByLabel("E-mailadressen").fill(colleague)
@@ -321,4 +322,33 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   // The shareable link, turned on, shows its address.
   await page.getByRole("switch", { name: "Uitnodigen via link" }).click()
   await expect(page.getByLabel("Uitnodigingslink")).toHaveValue(/\/invitations\/link_[A-Za-z0-9_-]{16}$/)
+  // @team (step 4.4): the colleague opens the mail in a browser of their own, makes an account on the landing (no
+  // confirmation mail: the link proved the address), goes through the steps and lands in the workspace.
+  const landing = await mailLink(request, colleague, "team.invite")
+  const theirs = await browser.newContext({ baseURL, ...(extraHTTPHeaders === undefined ? {} : { extraHTTPHeaders }) })
+  const invitee = await theirs.newPage()
+  await invitee.goto(landing)
+  await expect(invitee.getByRole("heading", { name: `Word lid van ${workspace}` })).toBeVisible()
+  await expect(invitee.getByText("Als Klantenservice")).toBeVisible()
+  await invitee.getByLabel("Volledige naam").fill("Amber Lewis")
+  await invitee.getByLabel("Wachtwoord", { exact: true }).fill(password)
+  await invitee.getByRole("button", { name: "Account maken en deelnemen" }).click()
+  await expect(invitee.getByRole("heading", { name: "Hoe je team je herkent" })).toBeVisible()
+  await invitee.getByRole("button", { name: "Verder" }).click()
+  await expect(invitee.getByRole("heading", { name: "Wat je wilt horen" })).toBeVisible()
+  await invitee.getByRole("button", { name: `Naar ${workspace}` }).click()
+  await expect(invitee).toHaveURL(/\/dashboard$/)
+  await expect(invitee.getByText(`Je zit in ${workspace}`)).toBeVisible()
+  const mails = await (await request.get(`/api/__dev/mail?to=${encodeURIComponent(colleague)}`)).json() as {
+    mails: Array<{ kind: string }>
+  }
+  expect(mails.mails.map((m) => m.kind)).toEqual(["team.invite"])
+
+  // The link has done its work, and the founder sees their colleague in the team.
+  await invitee.goto(landing)
+  await expect(invitee.getByText(`${colleague} accepteerde deze uitnodiging op`, { exact: false })).toBeVisible()
+  await theirs.close()
+  await page.reload()
+  await expect(page.getByText("2 teamleden · 0 uitnodigingen open · 4 vrij")).toBeVisible()
+  await expect(page.getByText("Amber Lewis")).toBeVisible()
 })

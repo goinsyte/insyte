@@ -44,6 +44,14 @@ const TRY_AGAIN = "Er ging iets mis. Probeer het opnieuw."
 /** The human check's token, where the edge guards read it (`x-turnstile-token`). */
 const human = (token: string | undefined) => token === undefined ? {} : { headers: { "x-turnstile-token": token } }
 
+/** The human check's token and an invitation's proof, where the edge guards and the user hook read them. */
+const signUpHeaders = (token: string | undefined, invitation: string | undefined) => ({
+  headers: {
+    ...(token === undefined ? {} : { "x-turnstile-token": token }),
+    ...(invitation === undefined ? {} : { "x-insyte-invitation": invitation })
+  }
+})
+
 export const consoleAuthClient: AuthClient = {
   getSession: async () => {
     const result = await answer(client().getSession(), TRY_AGAIN)
@@ -69,9 +77,9 @@ export const consoleAuthClient: AuthClient = {
     social: (request) => answer(client().signIn.social(request), "Inloggen met Google lukte niet. Probeer het opnieuw.")
   },
   signUp: {
-    email: ({ turnstileToken, ...account }) =>
+    email: ({ turnstileToken, invitation, ...account }) =>
       answer(
-        client().signUp.email({ ...account, fetchOptions: human(turnstileToken) }),
+        client().signUp.email({ ...account, fetchOptions: signUpHeaders(turnstileToken, invitation) }),
         "Je account kon niet worden aangemaakt."
       )
   },
