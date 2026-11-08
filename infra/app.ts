@@ -102,8 +102,8 @@ export default Alchemy.Stack(
       : {}
 
     /*
-     * Shopify (M6.2), on staging and production once their GitHub environment has the app's client (the id a variable,
-     * the secret a secret) and the sealer's keyring, `SEAL_KEYS`: a store's token is never stored unsealed, so without
+     * Shopify (M6.2), on staging and production once their GitHub environment has the app's client (id and secret as
+     * secrets) and the sealer's keyring, `SEAL_KEYS`: a store's token is never stored unsealed, so without
      * the keys the stage says it cannot connect a store yet. Previews never: the app lists one redirect URL per stage
      * (`shopify/shopify.app.toml`), not one per PR.
      */

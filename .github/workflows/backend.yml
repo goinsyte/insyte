@@ -186,8 +186,8 @@ jobs:
       MAIL_ADAPTER: ${{ vars.MAIL_ADAPTER }}
       MAIL_FROM: ${{ vars.MAIL_FROM }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-      # Shopify: the app's client, and the keyring its tokens are sealed under; connecting waits for all three.
-      SHOPIFY_CLIENT_ID: ${{ vars.SHOPIFY_CLIENT_ID }}
+      # Shopify: the app's client (both as secrets) and the keyring its tokens are sealed under; connecting waits for all three.
+      SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
       SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
       SEAL_KEYS: ${{ secrets.SEAL_KEYS }}
       # The console's build reads these (Vite): Sentry in the browser, tagged with the environment and the commit.
@@ -258,8 +258,8 @@ jobs:
       MAIL_ADAPTER: ${{ vars.MAIL_ADAPTER }}
       MAIL_FROM: ${{ vars.MAIL_FROM }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-      # Shopify: the app's client, and the keyring its tokens are sealed under; connecting waits for all three.
-      SHOPIFY_CLIENT_ID: ${{ vars.SHOPIFY_CLIENT_ID }}
+      # Shopify: the app's client (both as secrets) and the keyring its tokens are sealed under; connecting waits for all three.
+      SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
       SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
       SEAL_KEYS: ${{ secrets.SEAL_KEYS }}
       # The console's build reads these (Vite): Sentry in the browser, tagged with the environment and the commit.
