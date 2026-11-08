@@ -107,7 +107,7 @@ describe("the MCP server", () => {
   it("turns away a request without a valid key with a 401 before any JSON-RPC", async () => {
     const none = await mcp(undefined, "tools/list")
     expect(none.status).toBe(401)
-    expect(none.message).toMatchObject({ error: { code: "unauthorized", reason: "missing" } })
+    expect(none.message).toMatchObject({ error: { code: "UnauthorizedV1", reason: "missing" } })
     expect((await mcp("ins_live_nope", "tools/list")).message.error.reason).toBe("malformed")
   })
 

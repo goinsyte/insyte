@@ -1,7 +1,7 @@
 import { ApiKeyAuth, PublicApi } from "@insyte/api/http/PublicApi"
 import { Effect, Layer, Redacted } from "effect"
 import { HttpApiBuilder, HttpApiScalar } from "effect/http-api"
-import { KeyDoor } from "./KeyDoor.ts"
+import { KeyDoor, refusal } from "./KeyDoor.ts"
 import { Resources } from "./Resources.ts"
 
 /*
@@ -13,7 +13,16 @@ const ApiKeyAuthLive = Layer.effect(
   ApiKeyAuth,
   Effect.map(
     Effect.service(KeyDoor),
-    (door) => ApiKeyAuth.of({ bearer: (handler, { credential }) => door.enter(Redacted.value(credential), handler) })
+    (door) =>
+      ApiKeyAuth.of({
+        bearer: (handler, { credential }) =>
+          door.enter(Redacted.value(credential), handler).pipe(
+            Effect.catchTags({
+              Refused: (e) => Effect.succeed(refusal(e)),
+              Throttled: (e) => Effect.succeed(refusal(e))
+            })
+          )
+      })
   )
 )
 

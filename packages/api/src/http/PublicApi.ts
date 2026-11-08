@@ -1,48 +1,67 @@
 import type { Db } from "@insyte/database/Db"
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Schema } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/http-api"
+import {
+  HttpApi,
+  HttpApiEndpoint,
+  HttpApiGroup,
+  HttpApiMiddleware,
+  HttpApiSchema,
+  HttpApiSecurity,
+  OpenApi
+} from "effect/http-api"
 
 /*
- * The public API (M19.2, 07 §3.5): REST under `/v1`, a bearer API key, JSON in English field names. What a key may do
+ * The public API (M19.2, api.md §6): REST under `/v1`, a bearer API key, JSON in snake_case English. What a key may do
  * is its access as the catalogue allows it through the API; this first cut reads: the key itself, the team and the
  * roles. Its OpenAPI document is generated from this file, and the reference at `/v1/docs` is drawn from that.
  */
 
 /* ── errors ─────────────────────────────────────────────────────────────────────────────────────── */
 
-export class Unauthorized extends Schema.TaggedError<Unauthorized>()("Unauthorized", {
-  /** `missing`, `malformed`, `unknown`, `revoked`, `expired` or `ip`. */
-  reason: Schema.String
-}, { httpApiStatus: 401 }) {}
+/**
+ * One envelope for every error (api.md §6): `{ error: { code, message, request_id, … } }`, `code` a frozen `…V1` tag,
+ * `request_id` the `Insyte-Request-Id` the response carries.
+ */
+const envelope = <const Code extends string, const Fields extends Schema.Struct.Fields>(
+  code: Code,
+  status: number,
+  fields: Fields
+) =>
+  Schema.Struct({
+    error: Schema.Struct({ code: Schema.Literal(code), message: Schema.String, request_id: Schema.String, ...fields })
+  }).pipe(HttpApiSchema.status(status)).annotate({ identifier: code })
 
+/** No key, or one that is malformed, unknown, revoked or expired; `reason` says which. */
+export const UnauthorizedV1 = envelope("UnauthorizedV1", 401, { reason: Schema.String })
+/** The key is fenced to addresses this call did not come from. */
+export const IpNotAllowedV1 = envelope("IpNotAllowedV1", 403, {})
 /** The key's access lacks a scope the endpoint needs, as `area.read` or `area.write`. */
-export class InsufficientScope extends Schema.TaggedError<InsufficientScope>()("InsufficientScope", {
-  scope: Schema.String
-}, { httpApiStatus: 403 }) {}
+export const ScopeMissingV1 = envelope("ScopeMissingV1", 403, { scope: Schema.String })
+/** Over the key's rate (120 a minute, 10 a second); `retry_after` in seconds. */
+export const RateLimitedV1 = envelope("RateLimitedV1", 429, { retry_after: Schema.Int })
 
-export class RateLimited extends Schema.TaggedError<RateLimited>()("RateLimited", {
-  retryAfter: Schema.Int
-}, { httpApiStatus: 429 }) {}
+export type ScopeMissingV1 = typeof ScopeMissingV1.Type
 
 /* ── what a key is ──────────────────────────────────────────────────────────────────────────────── */
 
-/** The authenticated key, beside its principal: what `/v1/me` answers without another query. */
+/** The authenticated key, beside its principal: what `/v1/me` answers, and the request's id for its errors. */
 export class CurrentApiKey extends Context.Service<CurrentApiKey, {
   readonly id: string
   readonly label: string
   readonly workspaceId: string
   readonly workspaceName: string
+  readonly requestId: string
 }>()("api/CurrentApiKey") {}
 
 /**
  * `Authorization: Bearer ins_live_…` → the key's principal and its request connection. Every endpoint is behind it;
- * a key over its rate gets 429 with `retryAfter`, and each answered call lands in the key's request log.
+ * every response carries `Insyte-Request-Id`, and each answered call lands in the key's request log.
  */
 export class ApiKeyAuth extends HttpApiMiddleware.Service<ApiKeyAuth, {
   provides: CurrentPrincipal | CurrentApiKey | Db
 }>()("api/ApiKeyAuth", {
-  error: [Unauthorized, RateLimited],
+  error: [UnauthorizedV1, IpNotAllowedV1, RateLimitedV1],
   security: { bearer: HttpApiSecurity.bearer }
 }) {}
 
@@ -61,8 +80,8 @@ export const Member = Schema.Struct({
   email: Schema.String,
   role: Schema.Struct({ id: Schema.String, label: Schema.String }),
   status: Schema.Literals(["active", "deactivated"]),
-  joinedAt: Schema.String,
-  lastActiveAt: Schema.NullOr(Schema.String)
+  joined_at: Schema.String,
+  last_active_at: Schema.NullOr(Schema.String)
 }).annotate({ identifier: "Member" })
 
 export const Role = Schema.Struct({
@@ -89,11 +108,11 @@ export class KeyGroup extends HttpApiGroup.make("key")
 
 export class TeamGroup extends HttpApiGroup.make("team")
   .add(
-    HttpApiEndpoint.get("members", "/members", { success: List(Member), error: InsufficientScope }).annotate(
+    HttpApiEndpoint.get("members", "/members", { success: List(Member), error: ScopeMissingV1 }).annotate(
       OpenApi.Description,
       "The workspace's members. Needs `team.read`."
     ),
-    HttpApiEndpoint.get("roles", "/roles", { success: List(Role), error: InsufficientScope }).annotate(
+    HttpApiEndpoint.get("roles", "/roles", { success: List(Role), error: ScopeMissingV1 }).annotate(
       OpenApi.Description,
       "The workspace's roles and what each may do per area. Needs `team.read`."
     )

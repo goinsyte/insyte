@@ -1,4 +1,4 @@
-import { CurrentApiKey, InsufficientScope } from "@insyte/api/http/PublicApi"
+import { CurrentApiKey, type ScopeMissingV1 } from "@insyte/api/http/PublicApi"
 import type { Forbidden } from "@insyte/domain/Errors"
 import { scopesOf } from "@insyte/domain/Permissions"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
@@ -15,8 +15,14 @@ const ACCESS = ["none", "read", "write", "manage"] as const
 
 const iso = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString())
 
-/** The use case's refusal as the scope the key misses. */
-const scope = (e: Forbidden) => new InsufficientScope({ scope: `${e.permission}.${e.level >= 2 ? "write" : "read"}` })
+/** The use case's refusal as the scope the key misses, in the V1 envelope. */
+const scopeMissing = (e: Forbidden) =>
+  Effect.flatMap(CurrentApiKey, (key) => {
+    const scope = `${e.permission}.${e.level >= 2 ? "write" : "read"}`
+    return Effect.fail<ScopeMissingV1>({
+      error: { code: "ScopeMissingV1", message: `This key lacks ${scope}.`, request_id: key.requestId, scope }
+    })
+  })
 
 const make = Effect.gen(function*() {
   const members = yield* Members
@@ -38,11 +44,11 @@ const make = Effect.gen(function*() {
           email: m.email,
           role: { id: m.roleId, label: m.roleLabel },
           status: m.deactivated ? "deactivated" as const : "active" as const,
-          joinedAt: iso(m.joinedAt)!,
-          lastActiveAt: iso(m.lastActiveAt)
+          joined_at: iso(m.joinedAt)!,
+          last_active_at: iso(m.lastActiveAt)
         }))
       })),
-      Effect.catchTag("Forbidden", (e) => Effect.fail(scope(e)))
+      Effect.catchTag("Forbidden", scopeMissing)
     ),
     roles: roles.list.pipe(
       Effect.map((list) => ({
@@ -53,7 +59,7 @@ const make = Effect.gen(function*() {
           access: Object.fromEntries(Object.entries(r.levels).map(([area, level]) => [area, ACCESS[level]!]))
         }))
       })),
-      Effect.catchTag("Forbidden", (e) => Effect.fail(scope(e)))
+      Effect.catchTag("Forbidden", scopeMissing)
     )
   }
 })

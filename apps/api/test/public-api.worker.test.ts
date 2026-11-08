@@ -44,7 +44,9 @@ describe("the public API", () => {
     read = await make("Leesrechten", { kind: "role", roleId: "view" })
     none = await make("Alleen bestellingen", { kind: "custom", scopes: { orders: 1 } })
 
-    const me = await json(await v1("/me", read.secret))
+    const answered = await v1("/me", read.secret)
+    expect(answered.headers.get("insyte-request-id")).toMatch(/^[0-9a-f]{32}$/)
+    const me = await json(answered)
     expect(me.status).toBe(200)
     expect(me.body).toMatchObject({
       key: { id: read.id, label: "Leesrechten" },
@@ -70,17 +72,25 @@ describe("the public API", () => {
     expect(roles.body.data[0].access.team).toBe("manage")
 
     const refused = await json(await v1("/members", none.secret))
-    expect(refused).toEqual({ status: 403, body: { _tag: "InsufficientScope", scope: "team.read" } })
+    expect(refused).toMatchObject({
+      status: 403,
+      body: { error: { code: "ScopeMissingV1", scope: "team.read", message: "This key lacks team.read." } }
+    })
   })
 
   it("turns away a missing, wrong, revoked or out-of-range key with a reason", async () => {
-    expect((await json(await v1("/me"))).status).toBe(401)
-    expect((await json(await v1("/me", "ins_live_nope"))).body).toMatchObject({ reason: "malformed" })
-    const wrong = `${read.secret.slice(0, -4)}AAAA`
-    expect((await json(await v1("/me", wrong))).body).toMatchObject({ _tag: "Unauthorized", reason: "unknown" })
+    const missing = await v1("/me")
+    expect(missing.status).toBe(401)
+    expect(missing.headers.get("www-authenticate")).toContain("Bearer")
+    const body = (await missing.json() as Json).error
+    expect(body).toMatchObject({ code: "UnauthorizedV1", reason: "missing" })
+    expect(missing.headers.get("insyte-request-id")).toBe(body.request_id)
+    expect((await json(await v1("/me", "ins_live_nope"))).body.error).toMatchObject({ reason: "malformed" })
+    const wrong = `${read.secret.slice(0, -4)}${read.secret.endsWith("AAAA") ? "BBBB" : "AAAA"}`
+    expect((await json(await v1("/me", wrong))).body.error).toMatchObject({ code: "UnauthorizedV1", reason: "unknown" })
 
     ok(await rpc("ApiKeys.revoke", { id: none.id }, owner.cookie))
-    expect((await json(await v1("/me", none.secret))).body).toMatchObject({ reason: "revoked" })
+    expect((await json(await v1("/me", none.secret))).body.error).toMatchObject({ reason: "revoked" })
 
     const fenced = ok(
       await rpc("ApiKeys.create", {
@@ -93,8 +103,9 @@ describe("the public API", () => {
       }, owner.cookie)
     )
     expect((await v1("/me", fenced.secret, { "cf-connecting-ip": "203.0.113.9" })).status).toBe(200)
-    expect((await json(await v1("/me", fenced.secret, { "cf-connecting-ip": "198.51.100.1" }))).body).toMatchObject({
-      reason: "ip"
+    expect(await json(await v1("/me", fenced.secret, { "cf-connecting-ip": "198.51.100.1" }))).toMatchObject({
+      status: 403,
+      body: { error: { code: "IpNotAllowedV1" } }
     })
   })
 
@@ -103,8 +114,30 @@ describe("the public API", () => {
     expect((await v1("/me", read.secret)).status).toBe(200)
     expect((await v1("/me", rotated.secret)).status).toBe(200)
     ok(await rpc("ApiKeys.endGrace", { id: read.id }, owner.cookie))
-    expect((await json(await v1("/me", read.secret))).body).toMatchObject({ reason: "unknown" })
+    expect((await json(await v1("/me", read.secret))).body.error).toMatchObject({ reason: "unknown" })
     read = { id: read.id, secret: rotated.secret }
+  })
+
+  it("holds a key to ten calls a second, with retry_after", async () => {
+    const burst = ok(
+      await rpc("ApiKeys.create", {
+        label: "Haastig",
+        access: { kind: "role", roleId: "view" },
+        stores: "all",
+        expiresInDays: 30,
+        ips: [],
+        agent: false
+      }, owner.cookie)
+    ).secret
+    const statuses = await Promise.all(Array.from({ length: 12 }, () => v1("/me", burst).then((r) => r.status)))
+    expect(statuses.filter((s) => s === 200).length).toBeLessThanOrEqual(10)
+    const limited = await v1("/me", burst)
+    expect(limited.status).toBe(429)
+    expect((await limited.json() as Json).error).toMatchObject({
+      code: "RateLimitedV1",
+      retry_after: expect.any(Number)
+    })
+    expect(limited.headers.get("retry-after")).not.toBeNull()
   })
 
   it("logs each call it answered in the key's activity", async () => {
