@@ -8,6 +8,7 @@ import { PRIMARY_BTN } from "../team/bits";
 import { type Delivery, delivered, EVENT_LABEL, type WebhookEndpoint } from "../lib/developer";
 import { formatDateTime, formatRelative } from "../lib/format";
 import { useDeveloper } from "../stores/developer-store";
+import { ZONE } from "../lib/format";
 
 /**
  * One delivery, opened from the log: what was sent (headers and body, as Insyte signed them), what
@@ -61,7 +62,7 @@ function Body({ d, endpoint, onClose, onOpen, ref }: { d: Delivery; endpoint: We
 						["Antwoord", <StatusCode key="s" status={d.status} />],
 						["Pogingen", `${d.attempts} van ${Math.max(endpoint.retry, 1)}`],
 						["Duur", d.status === null ? "> 10 s" : `${d.ms} ms`],
-						["Verstuurd", new Intl.DateTimeFormat("nl-NL", { hour: "2-digit", minute: "2-digit" }).format(new Date(d.at))],
+						["Verstuurd", new Intl.DateTimeFormat("nl-NL", { hour: "2-digit", minute: "2-digit", timeZone: ZONE }).format(new Date(d.at))],
 					] as const
 				).map(([k, v]) => (
 					<div key={k} className="flex min-w-0 flex-col gap-1 bg-paper px-5 py-3">

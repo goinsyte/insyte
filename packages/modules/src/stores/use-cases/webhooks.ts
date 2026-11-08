@@ -2,6 +2,8 @@ import { Db } from "@insyte/database/Db"
 import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect, Option, Schema } from "effect"
+import { Relay } from "../../shared/domain/Outbox.ts"
+import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { addLine, emptyBatch, flatten, gidOf, type MirrorKind, NODE_QUERY } from "../domain/Mirror.ts"
 import { ConnectionGate, IngestQueue, ShopifyAdmin, ShopifyGraphql } from "../domain/Ports.ts"
 import { throughGate } from "./backfill.ts"
@@ -101,9 +103,25 @@ export const apply = Effect.fn("Stores.webhooks.apply")(function*(inboundEventId
     >`select id, connection_id, shop_domain as shop, currency, status from stores where id = ${event.storeId}`
   )
   if (store !== undefined) yield* applyTopic(event.topic, event.body, store)
-  yield* db.scopedFor((sql) =>
-    sql`update inbound_events set processed_at = now(), error = null where id = ${inboundEventId}`
+  // A mirrored kind changed: the workspace's open lists of it read again (M5.1's realtime).
+  const kind = READS[event.topic]?.kind
+  const outboxIds = yield* db.scopedFor((sql) =>
+    Effect.gen(function*() {
+      yield* sql`update inbound_events set processed_at = now(), error = null where id = ${inboundEventId}`
+      if (kind === undefined) return []
+      const [workspace] = yield* sql<{ id: string }>`select app_workspace_id() as id`
+      const workspaceId = workspace!.id
+      return [
+        yield* Outbox.write(sql, workspaceId, {
+          type: "records.changed",
+          workspaceId,
+          kind: kind.toLowerCase(),
+          ids: []
+        })
+      ]
+    })
   )
+  if (outboxIds.length > 0) yield* (yield* Relay).kick(outboxIds)
 })
 
 const applyTopic = Effect.fn("Stores.webhooks.topic")(

@@ -22,6 +22,7 @@ import { cn } from "../lib/utils";
 import type { Shortcut, ShortcutKind } from "../stores/pins-store";
 import { usePanel, usePins, useShellData, useViews, useWorkspace } from "./state";
 import { useHydrated } from "../hooks/use-hydrated";
+import { ZONE } from "../lib/format";
 
 /**
  * The area panel's lower half: this week's report and the operator's shortcuts — what they pinned,
@@ -148,7 +149,7 @@ export function ReportSection() {
 		);
 	}
 
-	const when = new Intl.DateTimeFormat("nl-NL", { weekday: "long", hour: "2-digit", minute: "2-digit" }).format(report.monday);
+	const when = new Intl.DateTimeFormat("nl-NL", { weekday: "long", hour: "2-digit", minute: "2-digit", timeZone: ZONE }).format(report.monday);
 	return (
 		<motion.div
 			initial={still ? false : { opacity: 0, y: 4 }}
@@ -218,8 +219,8 @@ function Ruler({ reportShown }: { reportShown: boolean }) {
 	const split = nowIndex === -1 ? ticks.length : nowIndex;
 	const time = (t: number) =>
 		new Date(t).toDateString() === today
-			? new Intl.DateTimeFormat("nl-NL", { hour: "2-digit", minute: "2-digit" }).format(t)
-			: new Intl.DateTimeFormat("nl-NL", { weekday: "short" }).format(t);
+			? new Intl.DateTimeFormat("nl-NL", { hour: "2-digit", minute: "2-digit", timeZone: ZONE }).format(t)
+			: new Intl.DateTimeFormat("nl-NL", { weekday: "short", timeZone: ZONE }).format(t);
 
 	return (
 		<div className="flex flex-col gap-3 pt-4">

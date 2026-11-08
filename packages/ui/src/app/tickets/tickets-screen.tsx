@@ -35,7 +35,7 @@ import { inView, SOURCE, sourceOf, type TicketView, VIEW_LABEL } from "../lib/ti
 import { TicketModal } from "./ticket-modal";
 import { ticketsStore, useTickets } from "./tickets-store";
 import type { Ticket, TicketStatus } from "../lib/types/domain";
-import { AreaEmpty } from "../common/area-empty";
+import { DemoAreaEmpty as AreaEmpty } from "../marketing-sections/closings";
 import { ListClosing } from "../marketing-sections/closings";
 import { cn } from "../lib/utils";
 

@@ -1,5 +1,6 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useOpenedAsModal } from "../common/detail-shell";
+import { DemoOrdersSource } from "./demo-source";
 import { OrdersList } from "./orders-screen";
 
 /**
@@ -20,7 +21,11 @@ export function OrdersLayout() {
 	});
 	return (
 		<>
-			{atIndex || asModal ? <OrdersList /> : null}
+			{atIndex || asModal ? (
+				<DemoOrdersSource>
+					<OrdersList />
+				</DemoOrdersSource>
+			) : null}
 			<Outlet />
 		</>
 	);

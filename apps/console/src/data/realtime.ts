@@ -6,6 +6,7 @@ import { ACCESS } from "./access.ts"
 import { ConsoleClient } from "./client.ts"
 import { KEYS } from "./developer.ts"
 import { FRAME, NOTES, presenceAtom } from "./frame.ts"
+import { ORDERS } from "./orders.ts"
 import { ACCESS_LIST, ROLES } from "./roles.ts"
 import { STORE_SYNC, STORES } from "./stores.ts"
 import { TEAM } from "./team.ts"
@@ -24,7 +25,8 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   role: [...ROLES, ...TEAM],
   access_request: [...ACCESS, ...ACCESS_LIST],
   api_key: KEYS,
-  store: [...STORES, ...STORE_SYNC]
+  store: [...STORES, ...STORE_SYNC, ...ORDERS],
+  order: ORDERS
 }
 const EVERYTHING = [...new Set(Object.values(REFETCH).flat())]
 

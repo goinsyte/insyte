@@ -28,7 +28,7 @@ import type { PortalStatus } from "../lib/team";
 import type { Product, Supplier } from "../lib/types/domain";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { AreaEmpty } from "../common/area-empty";
+import { DemoAreaEmpty as AreaEmpty } from "../marketing-sections/closings";
 import { ListClosing } from "../marketing-sections/closings";
 import { useTeam } from "../stores/team-store";
 import { useWorkspace } from "../stores/workspace-store";
