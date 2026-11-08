@@ -2,10 +2,10 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type ThemeMode = "light" | "dark" | "auto";
-export const MAX_RAIL_ADDONS = 4;
 import { MAX_PINNED_FRIENDS } from "../lib/nav-limits";
+import { ensureFullOrder, MAX_RAIL_ADDONS, navActions } from "../lib/nav-model";
 
-export { MAX_PINNED_FRIENDS };
+export { MAX_PINNED_FRIENDS, MAX_RAIL_ADDONS };
 
 // Seeded with the four extensions that ship as installed in mock-data so the
 // rail's sticky-apps section reads as populated on first visit. Operators can
@@ -52,12 +52,6 @@ export type NavActions = {
 	setThemeMode: (mode: ThemeMode) => void;
 };
 
-function ensureFullOrder(saved: string[], all: string[]) {
-	const result: string[] = [];
-	for (const k of saved) if (all.includes(k)) result.push(k);
-	for (const k of all) if (!result.includes(k)) result.push(k);
-	return result;
-}
 
 export const useNavStore = create<NavState & NavActions>()(
 	persist(
@@ -72,60 +66,7 @@ export const useNavStore = create<NavState & NavActions>()(
 			},
 			themeMode: "light",
 
-			toggleHidden: (to) => {
-				const next = get().hidden.includes(to)
-					? get().hidden.filter((x) => x !== to)
-					: [...get().hidden, to];
-				set({ hidden: next });
-			},
-
-			setOrder: (order) => set({ order }),
-
-			moveRailItem: (to, direction, allKeys) => {
-				const order = get().order;
-				const current =
-					order.length === 0 ? [...allKeys] : ensureFullOrder(order, allKeys);
-				const idx = current.indexOf(to);
-				if (idx === -1) return;
-				const swap = direction === "up" ? idx - 1 : idx + 1;
-				if (swap < 0 || swap >= current.length) return;
-				const next = [...current];
-				[next[idx], next[swap]] = [next[swap], next[idx]];
-				set({ order: next });
-			},
-
-			togglePinned: (id) => {
-				const current = get().pinnedAddons;
-				const has = current.includes(id);
-				if (has) {
-					set({ pinnedAddons: current.filter((x) => x !== id) });
-					return true;
-				}
-				if (current.length >= MAX_RAIL_ADDONS) return false;
-				set({ pinnedAddons: [...current, id] });
-				return true;
-			},
-
-			togglePinnedFriend: (id) => {
-				const current = get().pinnedFriends;
-				const has = current.includes(id);
-				if (has) {
-					set({ pinnedFriends: current.filter((x) => x !== id) });
-					return true;
-				}
-				if (current.length >= MAX_PINNED_FRIENDS) return false;
-				set({ pinnedFriends: [...current, id] });
-				return true;
-			},
-
-			setShortcut: (to, shortcut) => {
-				const next = { ...get().shortcuts };
-				if (shortcut === null) delete next[to];
-				else next[to] = shortcut;
-				set({ shortcuts: next });
-			},
-
-			setThemeMode: (themeMode) => set({ themeMode }),
+			...navActions(get, set),
 		}),
 		{
 			name: "insyte:nav-prefs:v6",

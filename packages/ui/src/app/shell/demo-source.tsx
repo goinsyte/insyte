@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useMemo } from "react";
 import {
 	automations,
 	conversations,
@@ -11,6 +11,8 @@ import {
 	presenceById,
 	products,
 } from "../../data-source";
+import { recommendations, usesAi } from "../automations/library";
+import { AutomationsPanelExtras } from "../automations/panel-extras";
 import { useWorkflows } from "../automations/workflow-store";
 import { useActiveStore } from "../hooks/use-active-store";
 import { useMarketplaceState } from "../hooks/use-marketplace-state";
@@ -22,7 +24,7 @@ import { useLoading } from "../loading/pace";
 import { useQueueRows } from "../orders/forwarding";
 import { useAgentEntries } from "../stores/agent-log-store";
 import { useInbox } from "../stores/inbox-store";
-import { useHeardNotes } from "../notifications/note-parts";
+import { useHeardNotes } from "../notifications/heard";
 import { useAccess, useCurrentRole } from "../stores/access-store";
 import { useAsk } from "../stores/ask-store";
 import { useAutonomy } from "../stores/autonomy-store";
@@ -41,6 +43,12 @@ import { useSheets } from "../stores/sheets-store";
 import { useSeats, useTeam } from "../stores/team-store";
 import { useViews } from "../stores/views-store";
 import { useWorkspace } from "../stores/workspace-store";
+import { FirstRunHint } from "../team/first-run-hint";
+import { InviteDialog } from "../team/invite-dialog";
+import { WorkspaceSwitchOverlay } from "../team/workspace-switch";
+import { AppDetailModal } from "../marketplace/app-detail-modal";
+import { ConnectStoreDialog } from "../shops/connect-store-dialog";
+import { CustomizeButton } from "./customize-panel";
 import { type ShellSource, ShellSourceProvider } from "./source";
 
 /** The frame in the design app: every part answered from the demo stores, as before the seam. */
@@ -49,6 +57,16 @@ export function DemoShellSource({ children }: { children: ReactNode }) {
 	const persona = usePersonaSelection();
 	const { data: operatorProducts } = useProducts();
 	const { data: operatorCustomers } = useCustomers();
+	const workflows = useWorkflows();
+	const workspace = useWorkspace();
+	const recommended = useMemo(
+		() =>
+			recommendations(
+				{ orders: workspace.orders, products: operatorProducts, customers: operatorCustomers, chargebacks: workspace.chargebacks, tickets: workspace.tickets },
+				workflows,
+			).length,
+		[workspace.orders, operatorProducts, operatorCustomers, workspace.chargebacks, workspace.tickets, workflows],
+	);
 	const source: ShellSource = {
 		panel: usePanel(),
 		pins: usePins(),
@@ -62,7 +80,7 @@ export function DemoShellSource({ children }: { children: ReactNode }) {
 		ask: useAsk(),
 		marketplaceModal: useMarketplaceModalStore(),
 		team: useTeam(),
-		workspace: useWorkspace(),
+		workspace,
 		returns: useReturns(),
 		sheets: useSheets(),
 		courses: useCourses(),
@@ -73,7 +91,7 @@ export function DemoShellSource({ children }: { children: ReactNode }) {
 		activeStore: { active: store.active, stores: store.stores, setActive: store.setActive },
 		seats: useSeats(),
 		currentRole: useCurrentRole(),
-		workflows: useWorkflows(),
+		workflows,
 		supplierOrders: useSupplierOrders(),
 		marketplace: useMarketplaceState(),
 		navPrefs: useNavPrefs(),
@@ -82,6 +100,9 @@ export function DemoShellSource({ children }: { children: ReactNode }) {
 		inbox: useInbox(),
 		agentEntries: useAgentEntries(),
 		queueRows: useQueueRows(Math.floor(Date.now() / 60_000) * 60_000),
+		slots: { Customize: CustomizeButton, AppDetail: AppDetailModal, WorkspaceSwitch: WorkspaceSwitchOverlay, FirstRunHint, Invite: InviteDialog, ConnectStore: ConnectStoreDialog },
+		workspaceName: workspace.account.workspace,
+		automationsPanel: { recommended, ai: Object.values(workflows).filter(usesAi).length, Extras: AutomationsPanelExtras },
 		operator: { products: operatorProducts, customers: operatorCustomers },
 		data: { currentUserByPersona, navByPersona, members, presenceById, lastActionById, customers, products, automations, conversations },
 	};

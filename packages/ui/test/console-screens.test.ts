@@ -5,11 +5,11 @@ import { describe, expect, it } from "vitest"
 /*
  * Every `@insyte/ui` module a console route imports loads with no data source installed. The console installs none
  * (ADR-0034), so a read of the seam while a module loads throws there before anything renders, as `lib/api.ts`'s sorted
- * orders and the demo auth stub's session did. The list is read from the routes, so a route that starts mounting a
- * screen is covered by the same test.
+ * orders and the demo auth stub's session did. The list is read from the console's source (its routes and the frame),
+ * so a module that starts mounting a screen is covered by the same test.
  */
 
-const ROUTES = new URL("../../../apps/console/src/routes/", import.meta.url).pathname
+const CONSOLE = new URL("../../../apps/console/src/", import.meta.url).pathname
 
 const filesUnder = (dir: string): Array<string> =>
   readdirSync(dir).flatMap((entry) => {
@@ -19,8 +19,11 @@ const filesUnder = (dir: string): Array<string> =>
 
 const uiModules = [
   ...new Set(
-    filesUnder(ROUTES).flatMap((file) =>
-      [...readFileSync(file, "utf8").matchAll(/from\s+"(@insyte\/ui\/app\/[^"]+)"/g)].map((m) => m[1]!)
+    filesUnder(CONSOLE).flatMap((file) =>
+      // An `import type` is erased: only what loads counts.
+      [...readFileSync(file, "utf8").matchAll(/^import (?!type )[^;]*?from\s+"(@insyte\/ui\/app\/[^"]+)"/gms)].map((
+        m
+      ) => m[1]!)
     )
   )
   // A fresh array, so sorting it in place changes nothing else (`toSorted` is past this project's `lib`).

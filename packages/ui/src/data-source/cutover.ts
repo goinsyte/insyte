@@ -17,7 +17,7 @@ export const CUTOVER: Record<string, { readonly status: SeamStatus; readonly mil
   designControls: { status: "demo-only", milestone: "M0" },
   org: { status: "demo", milestone: "M3" },
   currentUserByPersona: { status: "demo", milestone: "M2/M3" },
-  navByPersona: { status: "code", milestone: "M4/M5" },
+  navByPersona: { status: "code", milestone: "M4/M5" }, // lib/nav-config.ts since step 7.4
   stores: { status: "demo", milestone: "M6" },
   members: { status: "demo", milestone: "M3" },
   presenceById: { status: "demo", milestone: "M5" },

@@ -404,8 +404,12 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
 
   // @keys (step 6.1): the founder makes an API key and sees the secret once, then rotates it and revokes it.
   await page.goto("/settings/api-keys")
-  await page.getByRole("button", { name: "Sleutel aanmaken" }).first().click()
   const making = page.getByRole("dialog")
+  // A click before the page has hydrated opens nothing: try until the dialog is there.
+  await expect(async () => {
+    await page.getByRole("button", { name: "Sleutel aanmaken" }).first().click()
+    await expect(making).toBeVisible({ timeout: 2_000 })
+  }).toPass()
   await making.getByPlaceholder("Voorraadfeed magazijn").fill("Voorraadfeed")
   await making.getByRole("button", { name: "Sleutel aanmaken" }).click()
   await expect(making.getByRole("heading", { name: "Voorraadfeed is klaar" })).toBeVisible()

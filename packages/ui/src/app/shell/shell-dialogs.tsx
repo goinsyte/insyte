@@ -5,12 +5,11 @@ import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
-import { ConnectStoreDialog } from "../shops/connect-store-dialog";
 import { isAssignedTo } from "../lib/assignees";
 import { initials } from "../lib/format";
 import { personStyle } from "../lib/person-color";
 import { cn } from "../lib/utils";
-import { useActiveStore, useSettingsDepth, useShellData, useWorkspace } from "./state";
+import { useActiveStore, useSettingsDepth, useShellData, useShellSlots, useWorkspace } from "./state";
 
 /*
  * Dialogs the shell's menus open. A dialog rendered inside a dropdown unmounts when the menu closes,
@@ -32,16 +31,19 @@ export function ShellDialogs() {
 	const open = useShellDialog((s) => s.open);
 	const close = useShellDialog((s) => s.close);
 	const { setActive } = useActiveStore();
+	const { ConnectStore } = useShellSlots();
 	return (
 		<>
-			<ConnectStoreDialog
-				open={open?.kind === "connect-store"}
-				onOpenChange={(v) => !v && close()}
-				onConnected={(store) => {
-					setActive(store.id);
-					toast.success(`Je bekijkt nu ${store.name}`);
-				}}
-			/>
+			{ConnectStore ? (
+				<ConnectStore
+					open={open?.kind === "connect-store"}
+					onOpenChange={(v) => !v && close()}
+					onConnected={(store) => {
+						setActive(store.id);
+						toast.success(`Je bekijkt nu ${store.name}`);
+					}}
+				/>
+			) : null}
 			<ShortcutsDialog open={open?.kind === "shortcuts"} onClose={close} />
 			<MemberDialog memberId={open?.kind === "member" ? open.memberId : null} onClose={close} />
 		</>

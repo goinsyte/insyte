@@ -62,10 +62,4 @@ export function useSupplierOrders(): SupplierOrderRow[] {
 }
 
 /** The cuts the area panel and the list share. */
-export type SupplierView = "to_accept" | "to_ship" | "late" | "problem" | "shipped" | "all";
-
-export function inSupplierView(r: SupplierOrderRow, v: SupplierView): boolean {
-	if (v === "all") return true;
-	if (v === "late") return (r.status === "to_accept" || r.status === "to_ship") && r.due === "late";
-	return r.status === v;
-}
+export { inSupplierView, type SupplierView } from "../lib/supplier-views";

@@ -8,13 +8,11 @@ import { SettingsSheet } from "@insyte/ui/app/settings/settings-sheet"
 import { TeamPage } from "@insyte/ui/app/settings/team-screen"
 import { TeamSourceProvider } from "@insyte/ui/app/team/source"
 import { Users } from "@insyte/ui/icons"
-import { createFileRoute, redirect } from "@tanstack/react-router"
+import { createFileRoute } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { myAccessAtom } from "../data/access.ts"
-import { sessionMeAtom } from "../data/session.ts"
 import { teamAtom } from "../data/team.ts"
-import { LiveUpdates } from "../realtime/live-updates.tsx"
 import { useConsoleTeamSource } from "../team/team-source.ts"
 
 /**
@@ -23,17 +21,7 @@ import { useConsoleTeamSource } from "../team/team-source.ts"
  * the reference's own settings skeleton stands in. Signed out it is sign-in with the way back; a person still in
  * onboarding goes on with it.
  */
-export const Route = createFileRoute("/settings/team")({
-  beforeLoad: async ({ context }) => {
-    const me = await Effect.runPromise(
-      AtomRegistry.getResult(context.registry, sessionMeAtom).pipe(
-        Effect.asSome,
-        Effect.catchTag("Unauthenticated", () => Effect.succeedNone)
-      )
-    )
-    if (Option.isNone(me)) throw redirect({ to: "/login", search: { redirect: "/settings/team" } })
-    if (me.value.landing !== "/dashboard") throw redirect({ href: me.value.landing })
-  },
+export const Route = createFileRoute("/_frame/settings/team")({
   head: () => ({ meta: [{ title: "Team · Insyte" }] }),
   loader: async ({ context }) => {
     // Mounted so the value survives until the registry is dehydrated into the document.
@@ -53,9 +41,9 @@ export const Route = createFileRoute("/settings/team")({
 /** What the reference shows while this page loads. */
 function Pending() {
   return (
-    <main className="min-h-svh bg-paper text-ink">
+    <div className="flex min-h-full flex-col bg-paper text-ink">
       <PageSkeleton kind="settings" title="Team" />
-    </main>
+    </div>
   )
 }
 
@@ -82,7 +70,7 @@ const isForbidden = Schema.is(Forbidden)
 
 function Refused({ forbidden }: { forbidden: Forbidden }) {
   return (
-    <main className="min-h-svh bg-paper text-ink">
+    <div className="flex min-h-full flex-col bg-paper text-ink">
       <SettingsSheet title="Team" icon={Users}>
         <DeniedPanel
           title="Je rol kan het team niet zien"
@@ -97,20 +85,19 @@ function Refused({ forbidden }: { forbidden: Forbidden }) {
           }}
         />
       </SettingsSheet>
-    </main>
+    </div>
   )
 }
 
 function Loaded({ team }: { team: Team }) {
   const source = useConsoleTeamSource(team)
   return (
-    <main className="min-h-svh bg-paper text-ink">
-      <LiveUpdates />
+    <div className="flex min-h-full flex-col bg-paper text-ink">
       <TeamSourceProvider value={source}>
         <SettingsSheet title="Team" icon={Users}>
           <TeamPage />
         </SettingsSheet>
       </TeamSourceProvider>
-    </main>
+    </div>
   )
 }

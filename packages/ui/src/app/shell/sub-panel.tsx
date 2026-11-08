@@ -1,9 +1,7 @@
-import { useMemo } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { Plus, Search } from "../../icons";
 import { motion, useReducedMotion } from "motion/react";
 import { panelForPath } from "../lib/app-shell-config";
-import { WorkspaceName } from "../team/workspace-name";
 import type { SubPanelItem } from "../lib/types/sub-panel";
 import { cn } from "../lib/utils";
 import { isDrawn, isNeedsYou } from "../lib/queue-state";
@@ -13,13 +11,12 @@ import { SourceMark } from "../tickets/source-mark";
 import { BrandLogo } from "../marketplace/brand-logos";
 import { MAILBOXES, mailboxStatus, PROVIDER_LABEL } from "../lib/mailboxes";
 import type { ThreadState } from "../stores/inbox-store";
-import { recommendations, usesAi } from "../automations/library";
-import { AutomationsPanelExtras } from "../automations/panel-extras";
 import type { WorkflowState } from "../automations/node-types";
 import { TEMPLATES } from "../lib/automation-templates";
 import { deriveCustomerStatus } from "../customers/customer-status-badge";
 import type { Chargeback, Customer, Order } from "../lib/types/domain";
-import { inSupplierView, type SupplierOrderRow, type SupplierView } from "../hooks/use-supplier-orders";
+import type { SupplierOrderRow } from "../hooks/use-supplier-orders";
+import { inSupplierView, type SupplierView } from "../lib/supplier-views";
 import { isAssignedTo, ME } from "../lib/assignees";
 import { inView, SOURCE, sourceOf, type TicketView } from "../lib/ticket-source";
 import type { SubPanelConfig } from "../lib/types/sub-panel";
@@ -28,18 +25,17 @@ import { Settings, Sparkle } from "../../icons";
 import { heard, isPrimary, type Note, type NotifyPrefs, SOURCE_ORDER, SOURCES, stateOf } from "../lib/notifications";
 import { areaForPath, permissionName } from "../lib/permissions";
 import { Folder, Lock } from "../../icons";
-import { CustomizeButton } from "./customize-panel";
 import type { Folder as SheetFolder, Sheet } from "../lib/sheets";
 import type { Course, CourseQuestion } from "../lib/courses";
 import type { ReturnRecord } from "../lib/returns";
 import { CHANNEL_LABEL, CHAT_CHANNELS } from "../lib/channels";
 import { ChannelMark } from "../inbox/channel-mark";
 import { isForwardView } from "../lib/forwarding";
-import type { QueueRow } from "../orders/forwarding";
+import type { QueueRow } from "../lib/queue-row";
 import { type ForwardView, inView as forwardInView } from "../lib/forwarding";
 import { type AgentLogEntry, canUndo } from "../lib/agent-log";
 import { ReportSection, ShortcutsSection } from "./panel-shortcuts";
-import { useAgentLogEntries, useCan, useCanOpen, useChatStore, useCourses, useCurrentRole, useForwardingRows, useInboxThreads, useNotifications, useOperator, usePanel, useReturns, useSheets, useShellData, useSupplierOrders, useWorkflows, useWorkspace } from "./state";
+import { useAgentLogEntries, useAutomationsPanel, useCan, useCanOpen, useChatStore, useCourses, useCurrentRole, useForwardingRows, useInboxThreads, useNotifications, useOperator, usePanel, useReturns, useSheets, useShellData, useShellSlots, useSupplierOrders, useWorkflows, useWorkspace, useWorkspaceName } from "./state";
 
 /**
  * The area panel: 224px of `mist`, adjacent to the rail, carrying where you are.
@@ -78,11 +74,10 @@ export function SubPanel() {
 	const chargebacks = useWorkspace((s) => s.chargebacks);
 	const notes = useNotifications((s) => s.notes);
 	const notePrefs = useNotifications((s) => s.prefs);
-	const { products, customers } = useOperator();
-	const recommendedCount = useMemo(
-		() => recommendations({ orders, products, customers, chargebacks, tickets }, workflows).length,
-		[orders, products, customers, chargebacks, tickets, workflows],
-	);
+	const { customers } = useOperator();
+	const automationsPanel = useAutomationsPanel();
+	const { Customize } = useShellSlots();
+	const workspaceName = useWorkspaceName();
 
 	const agentEntries = useAgentLogEntries();
 	const returnRecords = useReturns((s) => s.records);
@@ -112,7 +107,7 @@ export function SubPanel() {
 					: pathname.startsWith("/supplier/orders")
 						? withSupplierOrders(base, supplierRows)
 						: base.title === "Automatiseringen"
-						? withAutomations(base, workflows, recommendedCount)
+						? withAutomations(base, workflows, automationsPanel.recommended, automationsPanel.ai)
 						: base.title === "Vraag Insyte"
 						? withAgentLog(base, agentEntries)
 						: base.title === "Retouren"
@@ -127,7 +122,7 @@ export function SubPanel() {
 		<aside className="flex w-56 shrink-0 flex-col overflow-hidden bg-mist px-2 py-2.5">
 			<header className="flex h-7 shrink-0 items-center px-2">
 				<span className="truncate font-medium text-base text-ink leading-none">
-					<WorkspaceName />
+					{workspaceName}
 				</span>
 			</header>
 
@@ -177,7 +172,7 @@ export function SubPanel() {
 										}
 									/>
 								))}
-								{cfg.title === "Automatiseringen" && si === cfg.sections.length - 1 ? <AutomationsPanelExtras /> : null}
+								{cfg.title === "Automatiseringen" && si === cfg.sections.length - 1 && automationsPanel.Extras ? <automationsPanel.Extras /> : null}
 							</div>
 						))
 					) : id === "report" ? (
@@ -190,7 +185,7 @@ export function SubPanel() {
 
 			{/* Customize, where ClickUp keeps it: the foot of the panel, clear of the persona switcher
 			    that floats over the bottom-left corner in this demo. */}
-			<div className="shrink-0 pt-2 pb-9">{partner ? null : <CustomizeButton />}</div>
+			<div className="shrink-0 pt-2 pb-9">{partner || !Customize ? null : <Customize />}</div>
 		</aside>
 	);
 }
@@ -461,12 +456,12 @@ function withInbox(
 }
 
 /** Automations' panel, counted from the workflows: every flow, the drafts, the runs, the library. */
-function withAutomations(cfg: SubPanelConfig, workflows: Record<string, WorkflowState>, recommended: number): SubPanelConfig {
+function withAutomations(cfg: SubPanelConfig, workflows: Record<string, WorkflowState>, recommended: number, ai: number): SubPanelConfig {
 	const flows = Object.values(workflows);
 	const counts: Record<string, number> = {
 		all: flows.length,
 		drafts: flows.filter((w) => w.status === "draft").length,
-		ai: flows.filter(usesAi).length,
+		ai,
 		history: flows.reduce((n, w) => n + w.history.length, 0),
 		templates: TEMPLATES.length,
 		recommended,

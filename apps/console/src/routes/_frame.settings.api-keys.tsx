@@ -6,30 +6,18 @@ import { PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
 import { ApiKeysPage } from "@insyte/ui/app/settings/api-keys-screen"
 import { SettingsSheet } from "@insyte/ui/app/settings/settings-sheet"
 import { Key } from "@insyte/ui/icons"
-import { createFileRoute, redirect } from "@tanstack/react-router"
+import { createFileRoute } from "@tanstack/react-router"
 import { Effect, Option } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { endpointsAtom, keysAtom } from "../data/developer.ts"
 import { rolesAtom } from "../data/roles.ts"
-import { sessionMeAtom } from "../data/session.ts"
-import { LiveUpdates } from "../realtime/live-updates.tsx"
 import { useConsoleDeveloperSource } from "../team/developer-source.ts"
 
 /**
  * Instellingen → API-sleutels (step 6.1, M19.1): the reference's keys page over `ApiKeys.list` (and the roles a key may
  * hold), in the settings sheet, without the shell (M5). The loader reads both on the server.
  */
-export const Route = createFileRoute("/settings/api-keys")({
-  beforeLoad: async ({ context }) => {
-    const me = await Effect.runPromise(
-      AtomRegistry.getResult(context.registry, sessionMeAtom).pipe(
-        Effect.asSome,
-        Effect.catchTag("Unauthenticated", () => Effect.succeedNone)
-      )
-    )
-    if (Option.isNone(me)) throw redirect({ to: "/login", search: { redirect: "/settings/api-keys" } })
-    if (me.value.landing !== "/dashboard") throw redirect({ href: me.value.landing })
-  },
+export const Route = createFileRoute("/_frame/settings/api-keys")({
   head: () => ({ meta: [{ title: "API-sleutels · Insyte" }] }),
   loader: async ({ context }) => {
     // Mounted so the values survive until the registry is dehydrated into the document.
@@ -50,9 +38,9 @@ export const Route = createFileRoute("/settings/api-keys")({
 
 function Pending() {
   return (
-    <main className="min-h-svh bg-paper text-ink">
+    <div className="flex min-h-full flex-col bg-paper text-ink">
       <PageSkeleton kind="settings" title="API-sleutels" />
-    </main>
+    </div>
   )
 }
 
@@ -76,13 +64,12 @@ function Loaded(
 ) {
   const source = useConsoleDeveloperSource(keys, roles, endpoints)
   return (
-    <main className="min-h-svh bg-paper text-ink">
-      <LiveUpdates />
+    <div className="flex min-h-full flex-col bg-paper text-ink">
       <DeveloperSourceProvider value={source}>
         <SettingsSheet title="API-sleutels" icon={Key}>
           <ApiKeysPage />
         </SettingsSheet>
       </DeveloperSourceProvider>
-    </main>
+    </div>
   )
 }

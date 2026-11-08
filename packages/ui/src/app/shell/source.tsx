@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext } from "react";
+import { type ComponentType, createContext, type ReactNode, useContext } from "react";
 import type { DataSource } from "../../data-source";
 import type { WorkflowState } from "../automations/node-types";
 import type { ActiveStore } from "../hooks/use-active-store";
@@ -8,7 +8,7 @@ import type { LoadingState } from "../loading/pace";
 import type { AgentLogEntry } from "../lib/agent-log";
 import type { Note } from "../lib/notifications";
 import type { Customer, Product } from "../lib/types/domain";
-import type { QueueRow } from "../orders/forwarding";
+import type { QueueRow } from "../lib/queue-row";
 import type { InboxState } from "../stores/inbox-store";
 import type { Extension } from "../lib/types/domain";
 import type { AccessState, useCurrentRole as CurrentRoleHook } from "../stores/access-store";
@@ -87,6 +87,29 @@ export interface ShellSource {
 	agentEntries: ReadonlyArray<AgentLogEntry>;
 	/** The forwarding queue's rows as of this minute. */
 	queueRows: ReadonlyArray<QueueRow>;
+	/**
+	 * Parts of the frame that belong to features a host may not have yet: Customize (with Start's widgets), an
+	 * installed app's detail, connecting a store. `null` leaves them out.
+	 */
+	slots: {
+		Customize: ComponentType | null;
+		AppDetail: ComponentType<{ extension: Extension | null; open: boolean; onOpenChange: (open: boolean) => void }> | null;
+		WorkspaceSwitch: ComponentType | null;
+		/** Inviting a colleague from the store menu (Team's own dialog, over the host's Team source). */
+		Invite: ComponentType<{ open: boolean; onOpenChange: (open: boolean) => void }> | null;
+		/** The welcome after joining or making a workspace. */
+		FirstRunHint: ComponentType | null;
+		ConnectStore: ComponentType<{
+			open: boolean;
+			onOpenChange: (open: boolean) => void;
+			initialDomain?: string | undefined;
+			onConnected: (store: { id: string; name: string }) => void;
+		}> | null;
+	};
+	/** The name of the workspace the console is in. */
+	workspaceName: string;
+	/** Automations' panel: flows Insyte recommends, flows that use AI, and what the panel shows under its list. */
+	automationsPanel: { recommended: number; ai: number; Extras: ComponentType | null };
 	/** The operator's products and customers as their lists show them (with this session's own). */
 	operator: { products: ReadonlyArray<Product>; customers: ReadonlyArray<Customer> };
 	/** The workspace's records and people as the frame reads them directly: names, presence, palette and panel lists. */

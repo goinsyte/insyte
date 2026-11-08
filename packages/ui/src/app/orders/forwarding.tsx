@@ -27,7 +27,7 @@ import {
 	VIEW_LABEL,
 	waitedLabel,
 } from "../lib/forwarding";
-import type { Order, OrderLineItem } from "../lib/types/domain";
+import type { Order } from "../lib/types/domain";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
 import { suppliers } from "../../data-source";
@@ -59,7 +59,8 @@ export { FORWARD_VIEWS, isForwardView };
 export const supplierLabel = (id: string) => suppliers.find((s) => s.id === id)?.name ?? NAMES[id] ?? id;
 const NAMES: Record<string, string> = { sup_allure: "Allure Fulfillment", sup_dpc: "DPC Apparel", sup_kestrel: "Kestrel Goods", sup_blackcedar: "Black Cedar Studio" };
 
-export type QueueRow = LegRow & { order: Order; lines: OrderLineItem[] };
+export type { QueueRow } from "../lib/queue-row";
+import type { QueueRow } from "../lib/queue-row";
 
 /** Every leg with its order and its lines, for one view. */
 export function useQueueRows(now: number, view?: ForwardView): QueueRow[] {

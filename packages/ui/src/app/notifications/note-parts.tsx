@@ -1,14 +1,12 @@
 import { AtSign, type IconComponent, Sparkle, UserPlus } from "../../icons";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Glyph } from "../common/glyph";
 import { BrandLogo } from "../marketplace/brand-logos";
 import { initials } from "../lib/format";
 import { type Presence, presenceById } from "../../data-source";
-import { heard, type Note, SOURCES } from "../lib/notifications";
+import { type Note, SOURCES } from "../lib/notifications";
 import { personStyle } from "../lib/person-color";
-import type { Persona } from "../lib/types/persona";
 import { cn } from "../lib/utils";
-import { useNotifications } from "../stores/notifications-store";
 
 /** The clock the lists group and snooze by, ticking once a minute. */
 export function useNow(every = 60_000) {
@@ -20,12 +18,6 @@ export function useNow(every = 60_000) {
 	return now;
 }
 
-/** A persona's notifications, minus the ones its settings say not to show in the app. */
-export function useHeardNotes(persona: Persona) {
-	const notes = useNotifications((s) => s.notes);
-	const prefs = useNotifications((s) => s.prefs);
-	return useMemo(() => notes.filter((n) => n.persona === persona && heard(n, prefs)), [notes, prefs, persona]);
-}
 
 const PRESENCE_DOT: Record<Presence, string> = {
 	online: "bg-signal-green",

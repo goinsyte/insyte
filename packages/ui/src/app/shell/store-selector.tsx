@@ -9,16 +9,12 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "../common/confirm-dialog";
-import { ConnectStoreDialog } from "../shops/connect-store-dialog";
-import { FirstRunHint } from "../team/first-run-hint";
-import { InviteDialog } from "../team/invite-dialog";
-import { WorkspaceSwitchOverlay } from "../team/workspace-switch";
 import type { ActiveStore } from "../hooks/use-active-store";
 import { formatRelative } from "../lib/format";
 import type { Workspace, WorkspaceInvite } from "../lib/team";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { useActiveStore, useActiveWorkspace, useCan, useSeats, useTeam, useWorkspace } from "./state";
+import { useActiveStore, useActiveWorkspace, useCan, useSeats, useShellSlots, useTeam, useWorkspace } from "./state";
 
 const initialsOf = (name: string) =>
 	name
@@ -48,6 +44,7 @@ export function StoreSelector({
 	const { active, stores, setActive } = useActiveStore();
 	const current = useActiveWorkspace();
 	const team = useTeam((s) => s);
+	const { WorkspaceSwitch, FirstRunHint, ConnectStore, Invite } = useShellSlots();
 	const workspaces = team.workspaces;
 	const pending = useTeam((s) => s.workspaceInvites);
 	const memberCount = useWorkspace((s) => s.members.filter((m) => m.status === "active").length);
@@ -195,7 +192,7 @@ export function StoreSelector({
 
 					<div className="flex flex-col gap-px px-1.5 pb-1.5">
 						<DropdownMenuItem asChild className="h-8 gap-2.5 px-2">
-							<Link to="/settings/profile">
+							<Link to={"/settings/profile" as never}>
 								<Settings />
 								Werkruimte-instellingen
 							</Link>
@@ -222,7 +219,7 @@ export function StoreSelector({
 					<div className="p-1.5 pt-0">
 						<DropdownMenuItem
 							disabled={!can("team", 2)}
-							onClick={() => (seats.full ? void navigate({ to: "/settings/billing", hash: "plekken" }) : setInviting(true))}
+							onClick={() => (seats.full ? void navigate({ to: "/settings/billing" as never, hash: "plekken" }) : setInviting(true))}
 							className="h-auto gap-2.5 rounded-lg bg-abyss p-2.5 text-mesh-ink data-[highlighted]:bg-abyss-2 data-[highlighted]:text-mesh-ink"
 						>
 							<span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-mesh-ink/12">
@@ -241,9 +238,9 @@ export function StoreSelector({
 				</DropdownMenuContent>
 			</DropdownMenu>
 
-			<FirstRunHint />
-			<WorkspaceSwitchOverlay />
-			<InviteDialog open={inviting} onOpenChange={setInviting} />
+			{FirstRunHint ? <FirstRunHint /> : null}
+			{WorkspaceSwitch ? <WorkspaceSwitch /> : null}
+			{Invite ? <Invite open={inviting} onOpenChange={setInviting} /> : null}
 			<ConfirmDialog
 				open={leaving !== null}
 				onOpenChange={(v) => !v && setLeaving(null)}
@@ -260,15 +257,17 @@ export function StoreSelector({
 					void navigate({ to: "/dashboard", search: {} as never });
 				}}
 			/>
-			<ConnectStoreDialog
-				open={connecting !== null}
-				onOpenChange={(open) => !open && setConnecting(null)}
-				initialDomain={connecting?.domain}
-				onConnected={(store) => {
-					setActive(store.id);
-					toast.success(`Je bekijkt nu ${store.name}`);
-				}}
-			/>
+			{ConnectStore ? (
+				<ConnectStore
+					open={connecting !== null}
+					onOpenChange={(open) => !open && setConnecting(null)}
+					initialDomain={connecting?.domain}
+					onConnected={(store) => {
+						setActive(store.id);
+						toast.success(`Je bekijkt nu ${store.name}`);
+					}}
+				/>
+			) : null}
 		</div>
 	);
 }

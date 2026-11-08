@@ -2,12 +2,10 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import { ManualSetupTask } from "@insyte/modules/onboarding/domain/Onboarding"
 import { SetupChecklist, SetupPlate, type SetupTaskId, setupTasks } from "@insyte/ui/app/dashboard/setup-checklist"
 import { authClient } from "@insyte/ui/app/lib/auth-client"
-import { createFileRoute, redirect } from "@tanstack/react-router"
-import { Effect, Option, Schema } from "effect"
+import { createFileRoute } from "@tanstack/react-router"
+import { Effect, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { completeTaskAtom, START, startAtom } from "../data/onboarding.ts"
-import { sessionMeAtom } from "../data/session.ts"
-import { LiveUpdates } from "../realtime/live-updates.tsx"
 
 /**
  * Where sign-in lands when there is no `redirect` (the screen's default), and the console's first client gate (M2.4):
@@ -18,17 +16,7 @@ import { LiveUpdates } from "../realtime/live-updates.tsx"
  * Start, for now, is its first-run page's setup plate and checklist (M4.1) from `Onboarding.start`, without the shell
  * (M5), linking only into the screens the console has (Team, step 4.3).
  */
-export const Route = createFileRoute("/dashboard")({
-  beforeLoad: async ({ context }) => {
-    const me = await Effect.runPromise(
-      AtomRegistry.getResult(context.registry, sessionMeAtom).pipe(
-        Effect.asSome,
-        Effect.catchTag("Unauthenticated", () => Effect.succeedNone)
-      )
-    )
-    if (Option.isNone(me)) throw redirect({ to: "/login", search: { redirect: "/dashboard" } })
-    if (me.value.landing !== "/dashboard") throw redirect({ href: me.value.landing })
-  },
+export const Route = createFileRoute("/_frame/dashboard")({
   head: () => ({ meta: [{ title: "Start · Insyte" }] }),
   loader: async ({ context }) => {
     // Mounted so the value survives until the registry is dehydrated into the document.
@@ -56,8 +44,7 @@ function Start() {
     void complete({ payload: { task: id, done: !checklist.done.includes(id) }, reactivityKeys: START })
   }
   return (
-    <main className="min-h-svh bg-background text-ink">
-      <LiveUpdates />
+    <div className="flex min-h-full flex-col bg-background text-ink">
       <div className="mx-auto flex max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6">
         <div className="flex justify-end">
           <button
@@ -74,6 +61,6 @@ function Start() {
         <SetupPlate tasks={tasks} workspace={checklist.workspaceName} canOpen={canOpen} />
         <SetupChecklist tasks={tasks} onToggle={toggle} canOpen={canOpen} />
       </div>
-    </main>
+    </div>
   )
 }

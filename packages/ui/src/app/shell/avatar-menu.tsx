@@ -190,13 +190,13 @@ export function AvatarMenuContent({
 				{admin ? (
 					<>
 						<DropdownMenuItem asChild>
-							<Link to="/settings/profile">
+							<Link to={"/settings/profile" as never}>
 								<UserCog className="size-3.5" />
 								Profiel bewerken
 							</Link>
 						</DropdownMenuItem>
 						<DropdownMenuItem asChild>
-							<Link to="/settings/security">
+							<Link to={"/settings/security" as never}>
 								<Shield className="size-3.5" />
 								Beveiliging
 							</Link>
@@ -242,7 +242,7 @@ function AiSpendItem() {
 	return (
 		<div className="px-1 pb-1">
 			<DropdownMenuItem asChild>
-				<Link to="/settings/ai/limits" className="flex flex-col items-stretch gap-1.5">
+				<Link to={"/settings/ai/limits" as never} className="flex flex-col items-stretch gap-1.5">
 					<span className="text-sm text-ink-2">Insyte AI deze maand</span>
 					<BudgetBar used={budget.used} limit={budget.limit} />
 				</Link>
