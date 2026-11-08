@@ -1,4 +1,5 @@
-import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router"
+import { Toaster } from "@insyte/ui/components/sonner"
+import { ClientOnly, createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router"
 import type { AtomRegistry } from "effect/reactivity"
 import type { ReactNode } from "react"
 import appCss from "../styles/app.css?url"
@@ -30,6 +31,13 @@ function RootDocument({ children }: { readonly children: ReactNode }) {
       </head>
       <body className="antialiased">
         {children}
+        {
+          /* Where the screens say what they did, with their undo (`undoable`). In the browser only: it reads the
+            system's colour scheme there, which the server cannot know. */
+        }
+        <ClientOnly>
+          <Toaster richColors position="bottom-center" />
+        </ClientOnly>
         <Scripts />
       </body>
     </html>

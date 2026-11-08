@@ -1,5 +1,5 @@
 import { FileText, Link2, Mail, Plus } from "../../icons";
-import { useNavigate } from "@tanstack/react-router";
+import type { ReactElement } from "react";
 import { useState } from "react";
 import { MemberTable } from "./member-table";
 import { SectionAction, SettingCard } from "./setting-card";
@@ -10,10 +10,9 @@ import { InviteLinkSection } from "../team/invite-link";
 import { MemberDialog } from "../team/member-dialog";
 import { PendingInvites } from "../team/pending-invites";
 import { SeatMeter } from "../team/seat-meter";
-import { Gate } from "../access/gate";
+import { Blocked } from "../access/blocked";
 import { PageGuide } from "../common/page-guide";
-import { useGate } from "../stores/access-store";
-import { useSeats, useTeam } from "../stores/team-store";
+import { type TeamGate, useTeamSource } from "../team/source";
 
 const GUIDE = [
 	{ title: "Plekken op je abonnement", body: "De plekken bepalen of je iemand kunt uitnodigen. Zijn ze allemaal bezet, dan koop je er hier een bij.", art: "people" },
@@ -26,15 +25,14 @@ const GUIDE = [
  * invite button becomes the way to buy one.
  */
 export function TeamPage() {
-	const navigate = useNavigate();
-	const seats = useSeats();
-	const invites = useTeam((s) => s.invites);
+	const source = useTeamSource();
+	const { seats, invites } = source;
 	const [inviteOpen, setInviteOpen] = useState(false);
 	const [bulkOpen, setBulkOpen] = useState(false);
 	const [openId, setOpenId] = useState<string | null>(null);
-	const inviteGate = useGate("team", 2);
+	const inviteGate = source.can.invite;
 
-	const invite = () => (seats.full ? void navigate({ to: "/settings/billing", hash: "plekken" }) : setInviteOpen(true));
+	const invite = () => (seats.full ? source.buySeats() : setInviteOpen(true));
 
 	return (
 		<>
@@ -42,21 +40,21 @@ export function TeamPage() {
 				title={`Teamleden · ${seats.active}`}
 				action={
 					<div className="flex items-center gap-1.5">
-						<Gate perm="team" arg={2}>
+						<Gated gate={inviteGate}>
 							<button type="button" onClick={() => setBulkOpen(true)} disabled={seats.full} className={WELL_BTN}>
 								<FileText className="size-3.5" strokeWidth={1.75} />
 								<span className="hidden sm:inline">CSV importeren</span>
 							</button>
-						</Gate>
-						<Gate perm="team" arg={2}>
+						</Gated>
+						<Gated gate={inviteGate}>
 							<SectionAction icon={<Plus className="size-3.5" strokeWidth={2} />} onClick={invite}>
 								{seats.full ? "Plek bijkopen" : "Collega uitnodigen"}
 							</SectionAction>
-						</Gate>
+						</Gated>
 					</div>
 				}
 			>
-				<SeatMeter onBuy={() => void navigate({ to: "/settings/billing", hash: "plekken" })} />
+				<SeatMeter onBuy={source.buySeats} />
 				<MemberTable onOpen={setOpenId} onInvite={invite} />
 			</SettingCard>
 
@@ -77,4 +75,9 @@ export function TeamPage() {
 			<PageGuide id="settings.team" title="Team" steps={GUIDE} />
 		</>
 	);
+}
+
+/** The control as it is when the role may; otherwise disabled, with what the role misses. */
+function Gated({ gate, children }: { gate: TeamGate; children: ReactElement }) {
+	return gate.ok ? children : <Blocked reason={gate.reason}>{children}</Blocked>;
 }

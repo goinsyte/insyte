@@ -1,16 +1,14 @@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../components/dialog";
 import { FileText, X } from "../../icons";
-import { useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { Field, SelectField, TextAreaField } from "../common/form-dialog";
-import { GHOST_BTN, PRIMARY_BTN, StoreAccessPicker } from "./bits";
-import { roleLabel, useAbilities, useInviteRoles } from "./roles";
-import { counted } from "../lib/bulk";
-import { DAY, EMAIL, type Invite, isExpired, type StoreAccess, token } from "../lib/team";
+import { GHOST_BTN, PRIMARY_BTN, StorePicker } from "./bits";
+import { abilitiesOf, roleLabel } from "./role-text";
+import { type InviteRow, useSourceInviteRoles, useTeamSource } from "./source";
+import { counted } from "../lib/counted";
+import { EMAIL, isExpired, type StoreAccess } from "../lib/team-core";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { useSeats, useTeam } from "../stores/team-store";
-import { useWorkspace } from "../stores/workspace-store";
 
 /** Who is signed in: the owner of the demo workspace. */
 export const ME = "mem_elena";
@@ -19,13 +17,12 @@ type Verdict = { ok: true } | { ok: false; reason: string };
 
 /** Why an address cannot be invited, or that it can. Shared with the CSV import. */
 export function useAddressCheck() {
-	const members = useWorkspace((s) => s.members);
-	const invites = useTeam((s) => s.invites);
+	const { people: members, invites } = useTeamSource();
 	return (email: string, earlier: ReadonlyArray<string> = []): Verdict => {
 		const e = email.trim().toLowerCase();
 		if (!EMAIL.test(e)) return { ok: false, reason: "Geen geldig e-mailadres" };
 		if (earlier.includes(e)) return { ok: false, reason: "Staat er al tussen" };
-		if (members.some((m) => m.status === "active" && m.email.toLowerCase() === e)) return { ok: false, reason: "Zit al in het team" };
+		if (members.some((m) => m.email.toLowerCase() === e)) return { ok: false, reason: "Zit al in het team" };
 		const open = invites.find((i) => i.email.toLowerCase() === e);
 		if (open && !isExpired(open)) return { ok: false, reason: "Heeft al een uitnodiging" };
 		return { ok: true };
@@ -33,31 +30,18 @@ export function useAddressCheck() {
 }
 
 /** Send the invitations, with Undo; a lapsed invitation to the same address is replaced. */
-export function sendInvites(rows: ReadonlyArray<{ email: string; roleId: string; stores: StoreAccess; message?: string }>) {
-	const team = useTeam.getState();
-	const lapsed = team.invites.filter((i) => rows.some((r) => r.email.toLowerCase() === i.email.toLowerCase()));
-	const now = Date.now();
-	const made: Invite[] = rows.map((r) => ({
-		id: lapsed.find((i) => i.email.toLowerCase() === r.email.toLowerCase())?.id ?? `inv_${token()}`,
-		email: r.email.trim(),
-		roleId: r.roleId,
-		stores: r.stores,
-		message: r.message?.trim() || undefined,
-		invitedBy: ME,
-		sentAt: now,
-		expiresAt: now + 7 * DAY,
-		resent: 0,
-	}));
-	team.addInvites(made);
-	undoable(
-		made.length === 1 ? `Uitnodiging verstuurd naar ${made[0]?.email}` : `${counted(made.length, "uitnodiging", "uitnodigingen")} verstuurd`,
-		() => {
-			useTeam.setState((s) => ({ invites: s.invites.filter((i) => !made.some((m) => m.id === i.id)) }));
-			if (lapsed.length > 0) useTeam.getState().addInvites(lapsed);
-		},
-		"Ze krijgen een e-mail met een link die 7 dagen geldig is.",
-	);
-	return made;
+export function useSendInvites() {
+	const source = useTeamSource();
+	return async (rows: ReadonlyArray<InviteRow>) => {
+		const made = await source.send(rows.map((r) => ({ ...r, email: r.email.trim(), message: r.message?.trim() || undefined })));
+		if (!made) return undefined;
+		undoable(
+			made.length === 1 ? `Uitnodiging verstuurd naar ${made[0]?.email}` : `${counted(made.length, "uitnodiging", "uitnodigingen")} verstuurd`,
+			() => void source.unsend(made.map((m) => m.id)),
+			"Ze krijgen een e-mail met een link die 7 dagen geldig is.",
+		);
+		return made;
+	};
 }
 
 /**
@@ -67,10 +51,11 @@ export function sendInvites(rows: ReadonlyArray<{ email: string; roleId: string;
  * counted in the foot, and the send is refused past them, with the way to buy more.
  */
 export function InviteDialog({ open, onOpenChange, onBulk }: { open: boolean; onOpenChange: (v: boolean) => void; onBulk?: () => void }) {
-	const roles = useInviteRoles();
-	const seats = useSeats();
+	const roles = useSourceInviteRoles();
+	const source = useTeamSource();
+	const seats = source.seats;
 	const check = useAddressCheck();
-	const navigate = useNavigate();
+	const sendInvites = useSendInvites();
 	const [emails, setEmails] = useState<string[]>([]);
 	const [draft, setDraft] = useState("");
 	const [roleId, setRoleId] = useState("service");
@@ -78,7 +63,7 @@ export function InviteDialog({ open, onOpenChange, onBulk }: { open: boolean; on
 	const [message, setMessage] = useState("");
 	const [tried, setTried] = useState(false);
 	const input = useRef<HTMLInputElement>(null);
-	const abilities = useAbilities(roleId);
+	const abilities = abilitiesOf(source.roles, source.stores, roleId);
 
 	function reset() {
 		setEmails([]);
@@ -109,9 +94,11 @@ export function InviteDialog({ open, onOpenChange, onBulk }: { open: boolean; on
 		setTried(true);
 		if (draft.trim()) commit(draft);
 		if (good.length === 0 || bad > 0 || over) return;
-		sendInvites(good.map((email) => ({ email, roleId, stores, message })));
-		reset();
-		onOpenChange(false);
+		void sendInvites(good.map((email) => ({ email, roleId, stores, message }))).then((made) => {
+			if (!made) return;
+			reset();
+			onOpenChange(false);
+		});
 	}
 
 	return (
@@ -228,7 +215,7 @@ export function InviteDialog({ open, onOpenChange, onBulk }: { open: boolean; on
 
 					<div className="flex flex-col gap-1.5">
 						<span className="font-medium text-ink-3 text-sm leading-none">Winkels</span>
-						<StoreAccessPicker value={stores} onChange={setStores} />
+						<StorePicker value={stores} onChange={setStores} stores={source.stores} />
 					</div>
 
 					<Field label="Persoonlijk bericht (optioneel)">
@@ -245,7 +232,7 @@ export function InviteDialog({ open, onOpenChange, onBulk }: { open: boolean; on
 									type="button"
 									onClick={() => {
 										onOpenChange(false);
-										void navigate({ to: "/settings/billing", hash: "plekken" });
+										source.buySeats();
 									}}
 									className="font-medium text-arc-ink underline decoration-arc-ink/35 underline-offset-2 hover:decoration-arc-ink"
 								>

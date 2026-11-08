@@ -12,7 +12,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { canRole, type Level, type Permission, permissionName } from "../lib/permissions";
 import { cn } from "../lib/utils";
-import { useCurrentRole } from "../stores/access-store";
+import { useGateRole } from "../access/gate-role";
 
 /**
  * What a screen can do to the rows it lists.
@@ -58,11 +58,11 @@ export function SelectionBar<T>({
 	const count = rows.length;
 	const what = `${count} ${count === 1 ? noun[0] : noun[1]}`;
 
-	const role = useCurrentRole();
+	const role = useGateRole();
 	const usable = useMemo(
 		() =>
 			actions.map((a) => {
-				const blocked = a.needs && !canRole(role, a.needs.perm, a.needs.arg) ? `Je rol ${role.label} mist ${permissionName(a.needs.perm, a.needs.arg)}` : null;
+				const blocked = a.needs && role !== null && !canRole(role, a.needs.perm, a.needs.arg) ? `Je rol ${role.label} mist ${permissionName(a.needs.perm, a.needs.arg)}` : null;
 				const targets = blocked ? [] : a.applies ? rows.filter(a.applies) : rows;
 				return { action: a, targets, blocked };
 			}),

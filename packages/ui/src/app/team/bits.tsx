@@ -1,9 +1,8 @@
 import { Check } from "../../icons";
 import { initials } from "../lib/format";
 import { personStyle } from "../lib/person-color";
-import type { StoreAccess } from "../lib/team";
+import type { StoreAccess } from "../lib/team-core";
 import { cn } from "../lib/utils";
-import { useWorkspace } from "../stores/workspace-store";
 
 /** The disc that stands in for a person: their colour, their initials. */
 export function PersonDisc({ seed, name, size = 24, src }: { seed: string; name: string; size?: number; src?: string }) {
@@ -34,8 +33,7 @@ const CHIP = "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium
  * Which of the workspace's stores a person may open: all of them (and any connected later), or a
  * pick. The pick can never be empty — choosing none would invite someone into nothing.
  */
-export function StoreAccessPicker({ value, onChange }: { value: StoreAccess; onChange: (v: StoreAccess) => void }) {
-	const stores = useWorkspace((s) => s.stores);
+export function StorePicker({ value, onChange, stores }: { value: StoreAccess; onChange: (v: StoreAccess) => void; stores: ReadonlyArray<{ id: string; name: string }> }) {
 	const all = value === "all";
 	const picked = all ? stores.map((s) => s.id) : value;
 	return (

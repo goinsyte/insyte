@@ -225,7 +225,9 @@ test("@auth back from Google with a refusal, the sign-in screen says why", async
   await expect(page.getByRole("alert")).toHaveCount(0)
 })
 
-test("@onboarding a new admin runs onboarding to Start, and every return resumes where they were", async ({ browser, page, request }) => {
+test("@onboarding @team a new admin runs onboarding to Start, every return resumes, and Team invites a colleague", async ({ browser, page, request }) => {
+  // The whole of onboarding, then a mail that waits out the undo window and the queue.
+  test.setTimeout(240_000)
   const email = `e2e-${Date.now().toString(36)}-onboarding@example.com`
   const password = "een-lang-wachtwoord"
   await page.goto("/onboarding")
@@ -284,4 +286,39 @@ test("@onboarding a new admin runs onboarding to Start, and every return resumes
   // Done is done: onboarding sends them to Start.
   await page.goto("/onboarding")
   await expect(page).toHaveURL(/\/dashboard$/)
+
+  // @team (step 4.3): Start opens Team, where the founder is alone on the trial's seats.
+  await page.getByRole("link", { name: "Openen" }).first().click()
+  await expect(page).toHaveURL(/\/settings\/team$/)
+  await expect(page.getByText("1 teamlid · 0 uitnodigingen open · 5 vrij")).toBeVisible()
+  await expect(page.getByText(email)).toBeVisible()
+
+  // An invitation takes a seat; its undo takes it back before any mail goes.
+  const colleague = `e2e-${Date.now().toString(36)}-colleague@example.com`
+  const invite = async () => {
+    await page.getByRole("button", { name: "Collega uitnodigen" }).first().click()
+    await page.getByLabel("E-mailadressen").fill(colleague)
+    await page.getByLabel("E-mailadressen").press("Enter")
+    await page.getByRole("button", { name: "Uitnodiging versturen" }).click()
+    await expect(page.getByText(`Uitnodiging verstuurd naar ${colleague}`)).toBeVisible()
+  }
+  await invite()
+  await expect(page.getByText("Openstaande uitnodigingen · 1")).toBeVisible()
+  await expect(page.getByText("1 teamlid · 1 uitnodiging open · 4 vrij")).toBeVisible()
+  await page.getByRole("button", { name: "Ongedaan maken" }).click()
+  await expect(page.getByText("Openstaande uitnodigingen · 0")).toBeVisible()
+
+  // Sent and left: it holds on a reload, and the mail goes once the undo window has passed.
+  await invite()
+  await page.reload()
+  await expect(page.getByText(colleague)).toBeVisible()
+  await expect.poll(async () => {
+    const res = await request.get(`/api/__dev/mail?to=${encodeURIComponent(colleague)}`)
+    const { mails } = await res.json() as { mails: Array<{ kind: string }> }
+    return mails.map((m) => m.kind)
+  }, { message: "the invitation mail", timeout: 60_000 }).toEqual(["team.invite"])
+
+  // The shareable link, turned on, shows its address.
+  await page.getByRole("switch", { name: "Uitnodigen via link" }).click()
+  await expect(page.getByLabel("Uitnodigingslink")).toHaveValue(/\/invitations\/link_[A-Za-z0-9_-]{16}$/)
 })

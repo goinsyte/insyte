@@ -7,25 +7,23 @@ import {
 	DropdownMenuTrigger,
 } from "../../components/dropdown-menu";
 import { Check, Copy, ExternalLink, MoreHorizontal, RotateCcw, Send } from "../../icons";
-import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { EmptyState } from "../common/empty-state";
 import { BandedList, StatusPill } from "../settings/setting-card";
 import { AddressDisc, WELL_BTN } from "./bits";
-import { roleLabel, storeAccessLabel, useInviteRoles } from "./roles";
+import { roleLabel, storeAccessLabel } from "./role-text";
+import { useSourceInviteRoles, useTeamSource } from "./source";
 import { formatRelative } from "../lib/format";
-import { type Invite, inviteUrl, isExpired } from "../lib/team";
+import { type Invite, isExpired } from "../lib/team-core";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { useTeam } from "../stores/team-store";
-import { useWorkspace } from "../stores/workspace-store";
 
-export async function copyInviteLink(id: string) {
+export async function copyInviteLink(url: string) {
 	try {
-		await navigator.clipboard.writeText(inviteUrl(id));
+		await navigator.clipboard.writeText(url);
 		toast.success("Link gekopieerd", { description: "Alleen het adres waarvoor hij is, kan hem gebruiken." });
 	} catch {
-		toast.error("Kopiëren lukte niet", { description: inviteUrl(id) });
+		toast.error("Kopiëren lukte niet", { description: url });
 	}
 }
 
@@ -35,7 +33,7 @@ export async function copyInviteLink(id: string) {
  * got in" is worth knowing. Revoking has Undo; changing the role applies to the invitation as sent.
  */
 export function PendingInvites({ onInvite }: { onInvite: () => void }) {
-	const invites = useTeam((s) => s.invites);
+	const invites = useTeamSource().invites;
 	const sorted = [...invites].sort((a, b) => Number(isExpired(a)) - Number(isExpired(b)) || b.sentAt - a.sentAt);
 
 	if (invites.length === 0) {
@@ -60,22 +58,23 @@ export function PendingInvites({ onInvite }: { onInvite: () => void }) {
 }
 
 function InviteRow({ invite }: { invite: Invite }) {
-	const roles = useInviteRoles();
-	const stores = useWorkspace((s) => s.stores);
-	const members = useWorkspace((s) => s.members);
-	const navigate = useNavigate();
+	const roles = useSourceInviteRoles();
+	const source = useTeamSource();
+	const { stores, people: members } = source;
 	const expired = isExpired(invite);
 	const by = members.find((m) => m.id === invite.invitedBy)?.name ?? "Iemand uit je team";
+	const url = source.inviteUrl(invite.id);
 
 	function resend() {
-		const before = invite;
-		useTeam.getState().resendInvite(invite.id);
-		undoable(`Opnieuw verstuurd naar ${invite.email}`, () => useTeam.getState().addInvites([before]), "De nieuwe link is 7 dagen geldig; de oude werkt niet meer.");
+		void source.resend(invite.id).then((ok) => {
+			if (ok) undoable(`Opnieuw verstuurd naar ${invite.email}`, () => void source.undoResend(invite.id), "De nieuwe link is 7 dagen geldig; de oude werkt niet meer.");
+		});
 	}
 
 	function revoke() {
-		const gone = useTeam.getState().removeInvite(invite.id);
-		if (gone) undoable(`Uitnodiging aan ${invite.email} ingetrokken`, () => useTeam.getState().restoreInvite(gone), "De link werkt niet meer. De plek is weer vrij.");
+		void source.revoke(invite.id).then((ok) => {
+			if (ok) undoable(`Uitnodiging aan ${invite.email} ingetrokken`, () => void source.restoreInvite(invite.id), "De link werkt niet meer. De plek is weer vrij.");
+		});
 	}
 
 	return (
@@ -103,8 +102,8 @@ function InviteRow({ invite }: { invite: Invite }) {
 					type="button"
 					aria-label={`Link voor ${invite.email} kopiëren`}
 					title="Link kopiëren"
-					disabled={expired}
-					onClick={() => void copyInviteLink(invite.id)}
+					disabled={expired || url === undefined}
+					onClick={() => url && void copyInviteLink(url)}
 					className={cn(WELL_BTN, "w-8 px-0")}
 				>
 					<Copy className="size-3.5" strokeWidth={1.75} />
@@ -127,8 +126,9 @@ function InviteRow({ invite }: { invite: Invite }) {
 								onClick={() => {
 									if (r.id === invite.roleId) return;
 									const before = invite.roleId;
-									useTeam.getState().setInviteRole(invite.id, r.id);
-									undoable(`${invite.email} wordt ${r.label}`, () => useTeam.getState().setInviteRole(invite.id, before));
+									void source.setInviteRole(invite.id, r.id).then((ok) => {
+										if (ok) undoable(`${invite.email} wordt ${r.label}`, () => void source.setInviteRole(invite.id, before));
+									});
 								}}
 							>
 								<span className="flex-1">{r.label}</span>
@@ -136,10 +136,12 @@ function InviteRow({ invite }: { invite: Invite }) {
 							</DropdownMenuItem>
 						))}
 						<DropdownMenuSeparator />
-						<DropdownMenuItem onClick={() => void navigate({ to: "/invitations/$invitationId", params: { invitationId: invite.id } })}>
-							<ExternalLink />
-							Bekijken zoals {invite.email.split("@")[0]} het ziet
-						</DropdownMenuItem>
+						{source.preview ? (
+							<DropdownMenuItem onClick={() => source.preview?.(invite.id)}>
+								<ExternalLink />
+								Bekijken zoals {invite.email.split("@")[0]} het ziet
+							</DropdownMenuItem>
+						) : null}
 						<DropdownMenuItem variant="destructive" onClick={revoke}>
 							Uitnodiging intrekken
 						</DropdownMenuItem>

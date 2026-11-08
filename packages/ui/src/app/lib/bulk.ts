@@ -39,10 +39,7 @@ export function patchMany<K extends keyof Collections>(
 	);
 }
 
-/** "3 orders" / "1 order". */
-export function counted(n: number, one: string, many: string) {
-	return `${n} ${n === 1 ? one : many}`;
-}
+export { counted } from "./counted";
 
 /** Copies, and says so — the one bulk action that has nothing to undo. */
 export function copyLines(lines: ReadonlyArray<string>, what: string) {
