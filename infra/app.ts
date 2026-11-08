@@ -158,6 +158,13 @@ export default Alchemy.Stack(
         RATE_LIMITER: Cloudflare.DurableObject("RateLimiter", { className: "RateLimiter" }),
         // The realtime rooms (M5.1), hosted by this Worker (`RoomDurableObject` in Main.ts): sockets and presence only.
         ROOMS: Cloudflare.DurableObject("Rooms", { className: "RoomDurableObject" }),
+        // The gate per external account (M6.3), hosted by this Worker (`ConnectionGateObject`): token and bucket.
+        CONNECTION_GATE: Cloudflare.DurableObject("ConnectionGate", { className: "ConnectionGateObject" }),
+        // A store's first import (M6.3), hosted by this Worker (`ShopifyBackfillWorkflow`); one per stage.
+        SHOPIFY_BACKFILL: Cloudflare.Workflow("ShopifyBackfill", {
+          className: "ShopifyBackfillWorkflow",
+          workflowName: `insyte-shopify-backfill-${stage}`
+        }),
         ENVIRONMENT: environment,
         // Where `Main.ts` serves `/v1` and nothing else.
         PUBLIC_API_HOST: `insyte-api-${stage}.${WORKERS_SUBDOMAIN}`,

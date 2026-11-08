@@ -17,6 +17,7 @@ import apiKeys from "./migrations/0017_api_keys.ts"
 import prefs from "./migrations/0018_prefs.ts"
 import notifications from "./migrations/0019_notifications.ts"
 import connections from "./migrations/0020_connections.ts"
+import commerce from "./migrations/0021_commerce.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -43,5 +44,6 @@ export const Migrations = {
   "0017_api_keys": apiKeys,
   "0018_prefs": prefs,
   "0019_notifications": notifications,
-  "0020_connections": connections
+  "0020_connections": connections,
+  "0021_commerce": commerce
 }

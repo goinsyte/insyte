@@ -4,7 +4,8 @@ import {
   ShopifyUnavailable,
   ShopNotFound,
   StoreRef,
-  StoreView
+  StoreView,
+  SyncStatus
 } from "@insyte/modules/stores/domain/Stores"
 import { Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/rpc"
@@ -13,8 +14,9 @@ import { Member } from "./Member.ts"
 import { WithDb } from "./WithDb.ts"
 
 /**
- * Instellingen → Winkels and onboarding's store step (M6.2): the workspace's stores, connecting a Shopify store (the
- * approval page's address; Shopify comes back to `/api/connect/shopify/callback`), and disconnecting one. Reading is
+ * Instellingen → Winkels and onboarding's store step (M6.2, M6.3): the workspace's stores, connecting a Shopify store
+ * (the approval page's address; Shopify comes back to `/api/connect/shopify/callback`), its first import's progress,
+ * and disconnecting one. Reading is
  * `settings` Bekijken, the rest Beheren; never reachable by a key (`settings` is `api: false`).
  */
 export class StoresRpcs extends RpcGroup.make(
@@ -24,6 +26,7 @@ export class StoresRpcs extends RpcGroup.make(
     success: Schema.Struct({ authorizeUrl: Schema.String }),
     error: Schema.Union([Forbidden, ShopifyUnavailable, ShopNotFound])
   }),
+  Rpc.make("Stores.syncStatus", { payload: StoreRef, success: SyncStatus, error: Schema.Union([Forbidden, NotFound]) }),
   Rpc.make("Stores.disconnect", {
     payload: StoreRef,
     success: Schema.Array(StoreView),

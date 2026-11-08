@@ -20,6 +20,19 @@ export class StoreView extends Schema.Class<StoreView>("stores/StoreView")({
   lastSyncedAt: Schema.NullOr(Schema.Finite)
 }) {}
 
+/** Where a store's first import is (M6.3): per resource, and the mirror's counts so far. */
+export const SyncPhase = Schema.Literals(["queued", "running", "reading", "done"])
+export class SyncStatus extends Schema.Class<SyncStatus>("stores/SyncStatus")({
+  storeId: Schema.String,
+  status: StoreStatus,
+  lastSyncedAt: Schema.NullOr(Schema.Finite),
+  counts: Schema.Struct({ products: Schema.Int, customers: Schema.Int, orders: Schema.Int }),
+  resources: Schema.Array(Schema.Struct({
+    resource: Schema.Literals(["products", "customers", "orders"]),
+    phase: SyncPhase
+  }))
+}) {}
+
 /** A shop address as typed (`northwind`, `northwind.myshopify.com`, a full URL) and where to come back to. */
 export const BeginConnect = Schema.Struct({ shopDomain: Schema.String, returnPath: Schema.String })
 export type BeginConnect = typeof BeginConnect.Type

@@ -40,11 +40,18 @@
     "bindings": [
       { "name": "RATE_LIMITER", "class_name": "RateLimiter" },
       { "name": "ROOMS", "class_name": "RoomDurableObject" },
+      // The gate per external account (M6.3): token refresh single-flight, the vendor's bucket.
+      { "name": "CONNECTION_GATE", "class_name": "ConnectionGateObject" },
     ],
   },
+  // A store's first import (M6.3): durable steps, resumed where they stopped.
+  "workflows": [
+    { "binding": "SHOPIFY_BACKFILL", "name": "insyte-shopify-backfill", "class_name": "ShopifyBackfillWorkflow" },
+  ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] },
     { "tag": "v2", "new_sqlite_classes": ["RoomDurableObject"] },
+    { "tag": "v3", "new_sqlite_classes": ["ConnectionGateObject"] },
   ],
   // The outbox relay (M1.4): committed events' ids onto EVENTS, consumed by this Worker; the minute cron sweeps.
   "queues": {

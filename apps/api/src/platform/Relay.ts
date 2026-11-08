@@ -6,6 +6,7 @@ import { fanOut } from "@insyte/modules/notifications/use-cases/fanout"
 import { Mailer } from "@insyte/modules/shared/domain/Mailer"
 import { type OutboxEvent, Relay } from "@insyte/modules/shared/domain/Outbox"
 import { ProductAnalytics, type ProductEvent } from "@insyte/modules/shared/domain/ProductAnalytics"
+import { Backfills } from "@insyte/modules/stores/domain/Ports"
 import { env, waitUntil } from "cloudflare:workers"
 import { Effect, Layer, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
@@ -40,7 +41,7 @@ export const RelayLive = Layer.succeed(Relay, {
       )
 })
 
-type SinkServices = ProductAnalytics | Mailer | InvitationLinks
+type SinkServices = ProductAnalytics | Mailer | InvitationLinks | Backfills
 
 /** What a sink does with an event, in the event's workspace; `undefined` when the event is not its business. */
 interface Sink {
@@ -89,6 +90,8 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
     case "access.requested":
     case "access.decided":
       // Notifications are their business (M5); the product events do not count them.
+      return undefined
+    case "store.synced":
       return undefined
     case "store.connected":
       return {
@@ -176,6 +179,17 @@ const SINKS: ReadonlyArray<Sink> = [
   {
     name: "mail",
     run: (_id, event, sql) => event.type === "member.invited" ? invitationMail(event, sql) : undefined
+  },
+  {
+    // A connected store's first import (M6.3): one Workflow per connect, named by this event.
+    name: "backfill",
+    run: (id, event) =>
+      event.type === "store.connected"
+        ? Effect.flatMap(
+          Effect.service(Backfills),
+          (backfills) => backfills.start({ key: `bf-${id}`, workspaceId: event.workspaceId, storeId: event.storeId })
+        )
+        : undefined
   },
   {
     name: "posthog",

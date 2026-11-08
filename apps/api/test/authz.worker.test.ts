@@ -68,6 +68,7 @@ const PAYLOADS: Record<string, unknown> = {
   "ApiKeys.restore": { id: "key_none" },
   "ApiKeys.endpoints": undefined,
   "Stores.list": undefined,
+  "Stores.syncStatus": { id: "sto_none" },
   "Stores.beginConnect": { shopDomain: "missing-shop", returnPath: "/" },
   "Stores.disconnect": { id: "sto_none" }
 }

@@ -265,6 +265,13 @@
     "finance": "deny",
     "view": "allow"
   },
+  "Stores.syncStatus": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "allow"
+  },
   "Stores.beginConnect": {
     "owner": "allow",
     "admin": "allow",

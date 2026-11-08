@@ -3,11 +3,8 @@ import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
 import { PwnedPasswords } from "@insyte/integrations-better-auth/PwnedPasswords"
 import { PostHogAnalytics } from "@insyte/integrations-posthog/PostHog"
 import { ResendMailer } from "@insyte/integrations-resend/ResendMailer"
-import { ShopifyAdminLive } from "@insyte/integrations-shopify/ShopifyAdmin"
-import { ShopifyRecorded } from "@insyte/integrations-shopify/ShopifyRecorded"
 import type { Mailer } from "@insyte/modules/shared/domain/Mailer"
 import type { ProductAnalytics } from "@insyte/modules/shared/domain/ProductAnalytics"
-import type { ShopifyAdmin } from "@insyte/modules/stores/domain/Ports"
 import { StoresService } from "@insyte/modules/stores/Stores"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Config, Effect, Layer, Option, Scheduler } from "effect"
@@ -29,7 +26,9 @@ import { RpcContext, RpcRoutes } from "../transports/rpc/RpcRoutes.ts"
 import { ViewerLive } from "../transports/rpc/ViewerLive.ts"
 import { WithDbLive } from "../transports/rpc/WithDbLive.ts"
 import { AuthHooksLive } from "./AuthHooks.ts"
+import { BackfillsLive } from "./Backfills.ts"
 import { AppInfo, BetaSettings, ConfigLive } from "./Bindings.ts"
+import { ConnectionGateLive } from "./ConnectionGate.ts"
 import { HumanCheck } from "./HumanCheck.ts"
 import { HyperdriveConnect } from "./Hyperdrive.ts"
 import { InvitationLinksLive } from "./InvitationLinks.ts"
@@ -40,6 +39,7 @@ import { ProductAnalyticsCapture } from "./ProductAnalyticsCapture.ts"
 import { RateLimits } from "./RateLimits.ts"
 import { RelayLive } from "./Relay.ts"
 import { SealerLive } from "./Seal.ts"
+import { ShopifyAdminChoice, ShopifyBulkChoice } from "./Shopify.ts"
 
 /*
  * The composition root (16 §5): every implementation is chosen here, and the layer is built once per isolate. Nothing
@@ -84,15 +84,6 @@ const ProductAnalyticsLive = Layer.unwrap(
   )
 )
 
-/** Shopify (M6.2): its recorded twin where the stage says `SHOPIFY_ADAPTER=recorded` (the worker tests), else the API. */
-const ShopifyAdminChoice = Layer.unwrap(
-  Effect.map(
-    Config.String("SHOPIFY_ADAPTER").pipe(Config.withDefault("shopify")),
-    (adapter): Layer.Layer<ShopifyAdmin, Config.ConfigError, HttpClient.HttpClient> =>
-      adapter === "recorded" ? ShopifyRecorded : ShopifyAdminLive
-  )
-)
-
 /** The breached-password check asks HIBP from deployed stages only, so local runs and the worker tests stay offline. */
 const PwnedPasswordsLive = Layer.unwrap(
   Effect.map(
@@ -113,7 +104,10 @@ export const AppLayer = Transports.pipe(
   Layer.provideMerge(RelayLive),
   // What the server's secret keys: invitation links and API keys.
   // …and the sealer for external accounts' tokens, beside Shopify (M6.2).
-  Layer.provideMerge(Layer.mergeAll(InvitationLinksLive, KeyHasherLive, SealerLive, ShopifyAdminChoice)),
+  // …and the gate in front of every call for an external account (M6.3).
+  Layer.provideMerge(
+    Layer.mergeAll(InvitationLinksLive, KeyHasherLive, SealerLive, ShopifyAdminChoice, ConnectionGateLive)
+  ),
   // better-auth, built per request by the auth routes and the session check, over the app's hooks.
   Layer.provideMerge(BetterAuth.layer),
   Layer.provideMerge(AuthHooksLive),
@@ -137,7 +131,27 @@ export const AppLayer = Transports.pipe(
  * analytics, mail and the links it carries), the relay's kick for anything a sink writes, and the same configuration,
  * logging and spans as the routes. No routes.
  */
-export const BackgroundLayer = Layer.mergeAll(ProductAnalyticsLive, MailerLive, InvitationLinksLive, RelayLive).pipe(
+export const BackgroundLayer = Layer.mergeAll(
+  ProductAnalyticsLive,
+  MailerLive,
+  InvitationLinksLive,
+  RelayLive,
+  // `store.connected` starts the store's backfill (M6.3).
+  BackfillsLive
+).pipe(
+  Layer.provideMerge(HyperdriveConnect),
+  Layer.provideMerge(ObservabilityLive),
+  Layer.provideMerge(AppInfo.layer),
+  Layer.provide(FetchHttpClient.layer),
+  Layer.provide(ConfigLive),
+  Layer.provideMerge(SyncScheduler)
+)
+
+/**
+ * What the backfill Workflow's steps run on (M6.3): the background services, Shopify's bulk operations, and the gate
+ * every call passes (`ConnectionGate.ts`), which holds the account's token and bucket.
+ */
+export const SyncLayer = Layer.mergeAll(ShopifyBulkChoice, ConnectionGateLive, RelayLive).pipe(
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),
   Layer.provideMerge(AppInfo.layer),

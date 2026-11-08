@@ -1,3 +1,5 @@
+import type { BackfillParams } from "../workflows/ShopifyBackfill.ts"
+import type { ConnectionGateObject } from "./ConnectionGate.ts"
 import type { RateLimiter } from "./RateLimiter.ts"
 import type { EventsMessage } from "./Relay.ts"
 import type { RoomDurableObject } from "./Room.ts"
@@ -15,6 +17,12 @@ declare global {
       readonly RATE_LIMITER: DurableObjectNamespace<RateLimiter>
       /** The realtime rooms (M5.1): one per audience, `ws:<workspace>`; sockets and presence only. */
       readonly ROOMS: DurableObjectNamespace<RoomDurableObject>
+      /** The gate per external account (M6.3): its token, its bucket; by connection id (`ConnectionGate.ts`). */
+      readonly CONNECTION_GATE: DurableObjectNamespace<ConnectionGateObject>
+      /** A store's first import (M6.3): one instance per connect (`ShopifyBackfillWorkflow`). */
+      readonly SHOPIFY_BACKFILL: Workflow<BackfillParams>
+      /** Lines per backfill page, 2000 by default; the worker tests read small pages. */
+      readonly SYNC_PAGE_LINES?: string
       /** The outbox relay's queue (M1.4): committed events' ids, consumed by this Worker's `queue` handler. */
       readonly EVENTS: Queue<EventsMessage>
       readonly ENVIRONMENT: "local" | "preview" | "staging" | "production"
