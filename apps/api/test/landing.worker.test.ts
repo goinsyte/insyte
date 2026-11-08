@@ -79,7 +79,9 @@ describe("the invitation landing", () => {
 
   it("is no invitation at all without its secret, or with the wrong one", async () => {
     expect((await resolve({ id: amberRef.id })).state).toBe("missing")
-    expect((await resolve({ id: amberRef.id, k: `${amberRef.k.slice(0, -1)}x` })).state).toBe("missing")
+    // The last character changed to one it is not, whatever it was.
+    const wrong = `${amberRef.k.slice(0, -1)}${amberRef.k.endsWith("x") ? "y" : "x"}`
+    expect((await resolve({ id: amberRef.id, k: wrong })).state).toBe("missing")
     expect((await resolve({ id: "inv_00000000000000000000000000", k: "x" })).workspace).toBeNull()
   })
 
