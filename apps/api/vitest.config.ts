@@ -7,7 +7,8 @@ export default defineConfig({
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
       // Shopify's recorded twin: CI never calls Shopify (integrations.md §1.1).
-      miniflare: { bindings: { SHOPIFY_ADAPTER: "recorded" } }
+      // Pages of four lines, so a line item lands in a later page than its order.
+      miniflare: { bindings: { SHOPIFY_ADAPTER: "recorded", SYNC_PAGE_LINES: "4" } }
     })
   ],
   test: {

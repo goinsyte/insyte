@@ -167,7 +167,30 @@ const InvitationLapse = HttpRouter.add(
   }).pipe(withRequestDb)
 )
 
+/**
+ * `GET /api/__dev/stores/connection?workspace=<id>&store=<id>`: a store's connection id, which names its gate (M6.3),
+ * so the worker tests can ask the gate directly. Ids only. Refused in production.
+ */
+const StoreConnection = HttpRouter.add(
+  "GET",
+  "/api/__dev/stores/connection",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const store = new URL(request.url, "http://local").searchParams.get("store") ?? ""
+    const db = yield* Db
+    const [row] = yield* db.scopedFor((sql) =>
+      sql<{ connectionId: string }>`select connection_id from stores where id = ${store}`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe({ connectionId: row?.connectionId ?? null })
+  }).pipe(withRequestDb)
+)
+
 export const DevRoutes = Layer.mergeAll(
+  StoreConnection,
   CapturedMail,
   AuthEventsOf,
   OutboxOf,

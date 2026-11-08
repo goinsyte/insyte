@@ -53,6 +53,12 @@ export const OutboxEvent = Schema.Union([
     storeId: Schema.String,
     userId: Schema.String
   }),
+  // A store's first import is in (M6.3): the onboarding moves past `sync`, and the first analysis may start.
+  Schema.Struct({
+    type: Schema.Literal("store.synced"),
+    workspaceId: Schema.String,
+    storeId: Schema.String
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

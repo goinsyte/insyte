@@ -47,5 +47,20 @@ export const NotesChanged = Schema.Struct({
   unread: Schema.Int
 })
 
-export const Frame = Schema.Union([Hello, PresenceFrame, RecordsChanged, NotesChanged])
+/**
+ * A long job moved on (M6.3): a store's first import, page by page, with the mirror's counts so far. The onboarding's
+ * sync step and Winkels draw it; the counts are figures, not records.
+ */
+export const JobProgress = Schema.Struct({
+  v: Schema.Literal(1),
+  type: Schema.Literal("job.progress"),
+  kind: Schema.Literal("store_backfill"),
+  storeId: Schema.String,
+  /** The resource being read now, or `done` once the import is in. */
+  label: Schema.Literals(["products", "customers", "orders", "done"]),
+  counts: Schema.Struct({ products: Schema.Int, customers: Schema.Int, orders: Schema.Int })
+})
+export type JobProgress = typeof JobProgress.Type
+
+export const Frame = Schema.Union([Hello, PresenceFrame, RecordsChanged, NotesChanged, JobProgress])
 export type Frame = typeof Frame.Type

@@ -11,6 +11,7 @@ export const StoresHandlers = StoresRpcs.toLayer(Effect.gen(function*() {
   return StoresRpcs.of({
     "Stores.list": () => stores.list,
     "Stores.beginConnect": (input) => stores.beginConnect(input, `${origin}${CALLBACK_PATH}`),
+    "Stores.syncStatus": ({ id }) => stores.syncStatus(id),
     "Stores.disconnect": ({ id }) => stores.disconnect(id)
   })
 }))

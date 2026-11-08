@@ -32,7 +32,15 @@ export const TENANT_TABLES = [
   "connection_incidents",
   "oauth_states",
   "sync_cursors",
-  "stores"
+  "stores",
+  "products",
+  "variants",
+  "inventory_levels",
+  "customers",
+  "orders",
+  "order_lines",
+  "fulfilments",
+  "refunds"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

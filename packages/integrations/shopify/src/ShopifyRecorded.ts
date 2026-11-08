@@ -1,10 +1,22 @@
-import { type ShopFacts, ShopifyAdmin, ShopifyRefused } from "@insyte/modules/stores/domain/Ports"
+import {
+  type BulkStatus,
+  type ShopFacts,
+  ShopifyAdmin,
+  ShopifyBulk,
+  ShopifyRefused,
+  type ShopifyTokens
+} from "@insyte/modules/stores/domain/Ports"
 import { Effect, Layer, Redacted } from "effect"
+import { RECORDED_BULK } from "./RecordedBulk.ts"
+import { readLines } from "./ShopifyBulk.ts"
 
 /*
  * Shopify's recorded twin (integrations.md §1.1): the worker tests and local runs without an app connect a store
  * through it, so CI never calls Shopify. Any shop exists but `missing-*`; the code `refused` is refused, like a
- * replayed one; every callback signed `valid` verifies. The facts are what a fresh development store reports.
+ * replayed one; every callback signed `valid` verifies. The facts are what a fresh development store reports. The code
+ * `short` gives a token that is already due for a refresh; a refresh token from the code `revoked` is refused, as a
+ * store that uninstalled the app answers. Bulk operations finish on the second poll with `RecordedBulk`'s files
+ * (an `empty-*` shop finds nothing).
  */
 
 export const RECORDED_FACTS: ShopFacts = {
@@ -14,6 +26,56 @@ export const RECORDED_FACTS: ShopFacts = {
   country: "NL",
   planName: "Development"
 }
+
+/** How many refreshes the twin answered in this isolate: the gate's single flight shows as one. */
+let refreshes = 0
+export const recordedRefreshes = () => refreshes
+
+const issued = (code: string, lifetimeMs: number): ShopifyTokens => ({
+  accessToken: Redacted.make(`recorded-access-${code}`),
+  refreshToken: Redacted.make(`recorded-refresh-${code}`),
+  expiresAt: new Date(Date.now() + lifetimeMs),
+  refreshExpiresAt: new Date(Date.now() + 90 * 86_400_000),
+  scopes: ["read_orders", "read_products", "read_customers"]
+})
+
+const RECORDED_HOST = "https://recorded.shopify.test/bulk/"
+const resourceOf = (query: string): keyof typeof RECORDED_BULK =>
+  query.includes("products {") ? "products" : query.includes("customers {") ? "customers" : "orders"
+const polls = new Map<string, number>()
+
+export const ShopifyBulkRecorded = Layer.succeed(ShopifyBulk)(ShopifyBulk.of({
+  start: (shop, _token, query) =>
+    Effect.succeed({
+      id: `gid://shopify/BulkOperation/${shop.startsWith("empty-") ? "empty" : resourceOf(query)}-${Date.now()}`,
+      throttle: { maximumAvailable: 2000, currentlyAvailable: 1990, restoreRate: 100 }
+    }),
+  status: (_shop, _token, id) => {
+    const seen = (polls.get(id) ?? 0) + 1
+    polls.set(id, seen)
+    const resource = id.split("/").at(-1)!.split("-")[0]!
+    const status: BulkStatus["status"] = seen < 2 ? "RUNNING" : "COMPLETED"
+    const done = status === "COMPLETED"
+    return Effect.succeed({
+      status,
+      errorCode: null,
+      objectCount: done && resource !== "empty"
+        ? RECORDED_BULK[resource as keyof typeof RECORDED_BULK].split("\n").length - 1
+        : 0,
+      url: done && resource !== "empty" ? `${RECORDED_HOST}${resource}.jsonl` : null,
+      throttle: { maximumAvailable: 2000, currentlyAvailable: 1999, restoreRate: 100 }
+    })
+  },
+  read: (url, offset, maxLines) =>
+    Effect.tryPromise({
+      try: () => {
+        const resource = url.slice(RECORDED_HOST.length).replace(/\.jsonl$/, "") as keyof typeof RECORDED_BULK
+        const bytes = new TextEncoder().encode(RECORDED_BULK[resource]).subarray(offset)
+        return readLines(new Blob([bytes]).stream(), 0, offset, maxLines)
+      },
+      catch: (error) => new ShopifyRefused({ status: 0, reason: String(error) })
+    })
+}))
 
 export const ShopifyRecorded = Layer.succeed(ShopifyAdmin)(ShopifyAdmin.of({
   configured: true,
@@ -26,12 +88,12 @@ export const ShopifyRecorded = Layer.succeed(ShopifyAdmin)(ShopifyAdmin.of({
   exchange: (_shop, code) =>
     code === "refused"
       ? Effect.fail(new ShopifyRefused({ status: 400, reason: "invalid_request" }))
-      : Effect.succeed({
-        accessToken: Redacted.make(`recorded-access-${code}`),
-        refreshToken: Redacted.make(`recorded-refresh-${code}`),
-        expiresAt: new Date(Date.now() + 3_600_000),
-        refreshExpiresAt: new Date(Date.now() + 90 * 86_400_000),
-        scopes: ["read_orders", "read_products", "read_customers"]
-      }),
+      : Effect.succeed(issued(code, code === "short" ? 60_000 : 3_600_000)),
+  refresh: (_shop, refreshToken) => {
+    const spent = Redacted.value(refreshToken)
+    if (spent.includes("revoked")) return Effect.fail(new ShopifyRefused({ status: 401, reason: "invalid_grant" }))
+    refreshes++
+    return Effect.succeed(issued(`r${refreshes}`, 3_600_000))
+  },
   facts: () => Effect.succeed(RECORDED_FACTS)
 }))

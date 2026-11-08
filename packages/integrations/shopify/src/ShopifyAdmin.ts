@@ -83,6 +83,33 @@ export const ShopifyAdminLive = Layer.effect(
     const id = Option.getOrElse(clientId, () => "")
     const secret = Option.match(clientSecret, { onNone: () => "", onSome: Redacted.value })
 
+    /** The token endpoint, for a code (install) or a refresh token (the gate's refresh); both answer the same shape. */
+    const tokens = Effect.fn("Shopify.tokens")(function*(shop: string, grant: Record<string, string>) {
+      const response = yield* client.execute(
+        HttpClientRequest.post(`https://${shop}/admin/oauth/access_token`).pipe(
+          HttpClientRequest.bodyJsonUnsafe({ client_id: id, client_secret: secret, expiring: 1, ...grant })
+        )
+      ).pipe(
+        Effect.timeout("15 seconds"),
+        Effect.mapError((error) =>
+          refused(
+            "response" in error ? error.response?.status ?? 0 : 0,
+            `token request failed: ${error._tag}`
+          )
+        )
+      )
+      const body = yield* HttpClientResponse.schemaBodyJson(Exchanged)(response).pipe(
+        Effect.mapError(() => refused(response.status, "token answer unreadable"))
+      )
+      return {
+        accessToken: Redacted.make(body.access_token),
+        refreshToken: body.refresh_token === undefined ? null : Redacted.make(body.refresh_token),
+        expiresAt: after(body.expires_in),
+        refreshExpiresAt: after(body.refresh_token_expires_in),
+        scopes: body.scope.split(",").filter((s) => s !== "")
+      } satisfies ShopifyTokens
+    })
+
     return ShopifyAdmin.of({
       configured: id !== "" && secret !== "",
       authorizeUrl: ({ shop, state, redirectUri }) => {
@@ -110,26 +137,9 @@ export const ShopifyAdminLive = Layer.effect(
           Effect.timeout("10 seconds"),
           Effect.orElseSucceed(() => true)
         ),
-      exchange: Effect.fn("Shopify.exchange")(function*(shop: string, code: string) {
-        const response = yield* client.execute(
-          HttpClientRequest.post(`https://${shop}/admin/oauth/access_token`).pipe(
-            HttpClientRequest.bodyJsonUnsafe({ client_id: id, client_secret: secret, code, expiring: 1 })
-          )
-        ).pipe(
-          Effect.timeout("15 seconds"),
-          Effect.mapError((error) => refused(0, `exchange failed: ${error._tag}`))
-        )
-        const body = yield* HttpClientResponse.schemaBodyJson(Exchanged)(response).pipe(
-          Effect.mapError(() => refused(response.status, "exchange answer unreadable"))
-        )
-        return {
-          accessToken: Redacted.make(body.access_token),
-          refreshToken: body.refresh_token === undefined ? null : Redacted.make(body.refresh_token),
-          expiresAt: after(body.expires_in),
-          refreshExpiresAt: after(body.refresh_token_expires_in),
-          scopes: body.scope.split(",").filter((s) => s !== "")
-        } satisfies ShopifyTokens
-      }),
+      exchange: (shop: string, code: string) => tokens(shop, { code }),
+      refresh: (shop: string, refreshToken: Redacted.Redacted<string>) =>
+        tokens(shop, { grant_type: "refresh_token", refresh_token: Redacted.value(refreshToken) }),
       facts: Effect.fn("Shopify.facts")(function*(shop: string, accessToken: Redacted.Redacted<string>) {
         const response = yield* client.execute(
           HttpClientRequest.post(`https://${shop}/admin/api/${version}/graphql.json`).pipe(

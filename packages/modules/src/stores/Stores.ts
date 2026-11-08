@@ -5,14 +5,15 @@ import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
 import { Relay } from "../shared/domain/Outbox.ts"
 import { Sealer } from "../shared/domain/Sealer.ts"
-import { ShopifyAdmin } from "./domain/Ports.ts"
+import { ConnectionGate, ShopifyAdmin } from "./domain/Ports.ts"
 import type {
   BeginConnect,
   ConnectFailed,
   ShopifyUnavailable,
   ShopNotFound,
   StoreConnectedElsewhere,
-  StoreView
+  StoreView,
+  SyncStatus
 } from "./domain/Stores.ts"
 import * as Connect from "./use-cases/connect.ts"
 import * as Stores from "./use-cases/stores.ts"
@@ -20,8 +21,8 @@ import * as Stores from "./use-cases/stores.ts"
 type R = Db | CurrentPrincipal
 
 /**
- * The stores slice (M6.2): the workspace's Shopify stores, connecting one and letting it go. Shopify, the sealer and the
- * relay are ports, taken when the layer is built.
+ * The stores slice (M6.2, M6.3): the workspace's Shopify stores, connecting one, its first import's progress, and
+ * letting it go. Shopify, the sealer, the relay and the gate are ports, taken when the layer is built.
  *
  * @effect-expect-leaking Db CurrentPrincipal
  */
@@ -35,6 +36,7 @@ export class StoresService extends Context.Service<StoresService, {
     query: Readonly<Record<string, string>>
   ) => Effect.Effect<Connect.Connected, ConnectFailed | StoreConnectedElsewhere, R>
   readonly disconnect: (id: string) => Effect.Effect<ReadonlyArray<StoreView>, Forbidden | NotFound, R>
+  readonly syncStatus: (id: string) => Effect.Effect<SyncStatus, Forbidden | NotFound, R>
 }>()("modules/StoresService") {
   // A database that does not answer is a defect, as everywhere.
   static readonly layer = Layer.effect(
@@ -43,18 +45,21 @@ export class StoresService extends Context.Service<StoresService, {
       const shopify = yield* ShopifyAdmin
       const sealer = yield* Sealer
       const relay = yield* Relay
+      const gate = yield* ConnectionGate
       const run = <A, E, Req>(effect: Effect.Effect<A, E | SqlError.SqlError, Req>) =>
         effect.pipe(
           Effect.provideService(ShopifyAdmin, shopify),
           Effect.provideService(Sealer, sealer),
           Effect.provideService(Relay, relay),
+          Effect.provideService(ConnectionGate, gate),
           Effect.catchIf(SqlError.isSqlError, Effect.die)
         )
       return {
         list: run(Stores.list()),
         beginConnect: (input, redirectUri) => run(Connect.beginConnect(input, redirectUri)),
         callback: (query) => run(Connect.callback(query)),
-        disconnect: (id) => run(Stores.disconnect(id))
+        disconnect: (id) => run(Stores.disconnect(id)),
+        syncStatus: (id) => run(Stores.syncStatus(id))
       }
     })
   )
