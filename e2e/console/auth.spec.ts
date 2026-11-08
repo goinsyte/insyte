@@ -227,7 +227,8 @@ test("@auth back from Google with a refusal, the sign-in screen says why", async
 
 test("@onboarding @team a new admin runs onboarding to Start, every return resumes, and Team invites a colleague", async ({ browser, page, request }) => {
   // The whole of onboarding, then a mail that waits out the undo window and the queue.
-  test.setTimeout(240_000)
+  // Then the colleague's journey, roles, API keys and Agents en MCP: on a preview that is more than four minutes.
+  test.setTimeout(360_000)
   const email = `e2e-${Date.now().toString(36)}-onboarding@example.com`
   const password = "een-lang-wachtwoord"
   await page.goto("/onboarding")
