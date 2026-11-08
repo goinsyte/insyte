@@ -8,6 +8,10 @@ import { call, rpc } from "./support.ts"
  * Worker's own hostname nothing but `/v1` answers.
  */
 
+// A response body, read loosely as a client would.
+// eslint-disable-next-line typescript/no-explicit-any
+type Json = any
+
 const HOST = "http://api.public.test"
 
 const v1 = (path: string, token?: string, headers: Record<string, string> = {}) =>
@@ -15,7 +19,7 @@ const v1 = (path: string, token?: string, headers: Record<string, string> = {}) 
     headers: { ...(token === undefined ? {} : { authorization: `Bearer ${token}` }), ...headers }
   })
 
-const json = async (response: Response) => ({ status: response.status, body: await response.json() as any })
+const json = async (response: Response) => ({ status: response.status, body: await response.json() as Json })
 
 describe("the public API", () => {
   let owner = { email: "", cookie: "" }

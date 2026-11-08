@@ -132,7 +132,7 @@ export default Alchemy.Stack(
       compatibility: { date: COMPATIBILITY_DATE, flags: ["nodejs_compat", "enable_request_signal"] },
       placement: { region: "aws:eu-central-1" },
       ...(environment === "preview" ? {} : { crons: ["* * * * *"] }),
-      // The public API (M19.2) on the Worker's own hostname; everything else only through the console's binding.
+      // The public API and the MCP server (M19.2, M19.3) on the Worker's own hostname; the rest only through the console.
       workersDev: true,
       observability: OBSERVABILITY,
       env: {
