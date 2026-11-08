@@ -51,6 +51,7 @@ export const useOperator = () => useShellSource().operator;
 export const useAutomationsPanel = () => useShellSource().automationsPanel;
 export const useShellSlots = () => useShellSource().slots;
 export const useWorkspaceName = () => useShellSource().workspaceName;
+export const usePanelFor = () => useShellSource().panelFor;
 
 /** The workspace the chrome is in. */
 export const useActiveWorkspace = () => {

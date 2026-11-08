@@ -49,6 +49,7 @@ import { WorkspaceSwitchOverlay } from "../team/workspace-switch";
 import { AppDetailModal } from "../marketplace/app-detail-modal";
 import { ConnectStoreDialog } from "../shops/connect-store-dialog";
 import { CustomizeButton } from "./customize-panel";
+import { panelForPath } from "../lib/app-shell-config";
 import { type ShellSource, ShellSourceProvider } from "./source";
 
 /** The frame in the design app: every part answered from the demo stores, as before the seam. */
@@ -102,6 +103,7 @@ export function DemoShellSource({ children }: { children: ReactNode }) {
 		queueRows: useQueueRows(Math.floor(Date.now() / 60_000) * 60_000),
 		slots: { Customize: CustomizeButton, AppDetail: AppDetailModal, WorkspaceSwitch: WorkspaceSwitchOverlay, FirstRunHint, Invite: InviteDialog, ConnectStore: ConnectStoreDialog },
 		workspaceName: workspace.account.workspace,
+		panelFor: panelForPath,
 		automationsPanel: { recommended, ai: Object.values(workflows).filter(usesAi).length, Extras: AutomationsPanelExtras },
 		operator: { products: operatorProducts, customers: operatorCustomers },
 		data: { currentUserByPersona, navByPersona, members, presenceById, lastActionById, customers, products, automations, conversations },

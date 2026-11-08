@@ -1,7 +1,6 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { Plus, Search } from "../../icons";
 import { motion, useReducedMotion } from "motion/react";
-import { panelForPath } from "../lib/app-shell-config";
 import type { SubPanelItem } from "../lib/types/sub-panel";
 import { cn } from "../lib/utils";
 import { isDrawn, isNeedsYou } from "../lib/queue-state";
@@ -35,7 +34,7 @@ import type { QueueRow } from "../lib/queue-row";
 import { type ForwardView, inView as forwardInView } from "../lib/forwarding";
 import { type AgentLogEntry, canUndo } from "../lib/agent-log";
 import { ReportSection, ShortcutsSection } from "./panel-shortcuts";
-import { useAgentLogEntries, useAutomationsPanel, useCan, useCanOpen, useChatStore, useCourses, useCurrentRole, useForwardingRows, useInboxThreads, useNotifications, useOperator, usePanel, useReturns, useSheets, useShellData, useShellSlots, useSupplierOrders, useWorkflows, useWorkspace, useWorkspaceName } from "./state";
+import { useAgentLogEntries, useAutomationsPanel, useCan, useCanOpen, useChatStore, useCourses, useCurrentRole, useForwardingRows, useInboxThreads, useNotifications, useOperator, usePanel, usePanelFor, useReturns, useSheets, useShellData, useShellSlots, useSupplierOrders, useWorkflows, useWorkspace, useWorkspaceName } from "./state";
 
 /**
  * The area panel: 224px of `mist`, adjacent to the rail, carrying where you are.
@@ -78,6 +77,7 @@ export function SubPanel() {
 	const automationsPanel = useAutomationsPanel();
 	const { Customize } = useShellSlots();
 	const workspaceName = useWorkspaceName();
+	const panelFor = usePanelFor();
 
 	const agentEntries = useAgentLogEntries();
 	const returnRecords = useReturns((s) => s.records);
@@ -88,7 +88,7 @@ export function SubPanel() {
 	const queueRows = useForwardingRows();
 	const can = useCan();
 	const role = useCurrentRole();
-	const base = panelForPath(pathname);
+	const base = panelFor(pathname);
 	if (!base) return null;
 	// Making something new in an area needs Bewerken there; without it the button says what is missing.
 	const ctaNeed = base.cta?.to ? areaForPath(base.cta.to) : null;

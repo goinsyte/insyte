@@ -7,6 +7,7 @@ import type { SupplierOrderRow } from "../hooks/use-supplier-orders";
 import type { LoadingState } from "../loading/pace";
 import type { AgentLogEntry } from "../lib/agent-log";
 import type { Note } from "../lib/notifications";
+import type { SubPanelConfig } from "../lib/types/sub-panel";
 import type { Customer, Product } from "../lib/types/domain";
 import type { QueueRow } from "../lib/queue-row";
 import type { InboxState } from "../stores/inbox-store";
@@ -106,6 +107,8 @@ export interface ShellSource {
 			onConnected: (store: { id: string; name: string }) => void;
 		}> | null;
 	};
+	/** The area panel for a path, with the counts the host stands behind (`panelForPath`, or the server's figures). */
+	panelFor: (pathname: string) => SubPanelConfig | null;
 	/** The name of the workspace the console is in. */
 	workspaceName: string;
 	/** Automations' panel: flows Insyte recommends, flows that use AI, and what the panel shows under its list. */
