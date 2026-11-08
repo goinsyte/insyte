@@ -40,7 +40,9 @@ export const TENANT_TABLES = [
   "orders",
   "order_lines",
   "fulfilments",
-  "refunds"
+  "refunds",
+  "inbound_events",
+  "gdpr_requests"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

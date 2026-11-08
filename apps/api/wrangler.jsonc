@@ -55,13 +55,24 @@
   ],
   // The outbox relay (M1.4): committed events' ids onto EVENTS, consumed by this Worker; the minute cron sweeps.
   "queues": {
-    "producers": [{ "binding": "EVENTS", "queue": "insyte-events" }],
+    "producers": [
+      { "binding": "EVENTS", "queue": "insyte-events" },
+      // Shopify's webhooks (M6.3): received deliveries, applied after the 200.
+      { "binding": "INGEST", "queue": "insyte-ingest" },
+    ],
     "consumers": [
       {
         "queue": "insyte-events",
         "max_batch_size": 10,
         "max_batch_timeout": 1,
         "dead_letter_queue": "insyte-events-dlq",
+      },
+      {
+        "queue": "insyte-ingest",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 8,
+        "dead_letter_queue": "insyte-ingest-dlq",
       },
     ],
   },

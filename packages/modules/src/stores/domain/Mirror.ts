@@ -44,51 +44,103 @@ export const toMinor = (amount: string | number, currency: string): number => {
   return sign * Number(`${whole}${padded}`)
 }
 
-/* ─── The bulk queries (API 2026-10) ─────────────────────────────────────── */
+/* ─── The queries (API 2026-10): one selection per object, for bulk and single reads ─── */
+
+const PRODUCT_FIELDS = `id title handle descriptionHtml status vendor productType tags createdAt updatedAt
+  featuredMedia { preview { image { url } } }`
+const VARIANT_FIELDS = "id title sku price compareAtPrice position inventoryItem { id }"
+const CUSTOMER_FIELDS = `id firstName lastName displayName tags numberOfOrders createdAt updatedAt
+  defaultEmailAddress { emailAddress marketingState }
+  defaultPhoneNumber { phoneNumber }
+  amountSpent { amount currencyCode }
+  defaultAddress { address1 address2 city zip province countryCodeV2 }`
+const ORDER_FIELDS = `id name email displayFinancialStatus displayFulfillmentStatus currencyCode tags note
+  processedAt createdAt cancelledAt updatedAt sourceName discountCode paymentGatewayNames
+  totalPriceSet { shopMoney { amount } } subtotalPriceSet { shopMoney { amount } }
+  totalShippingPriceSet { shopMoney { amount } } totalTaxSet { shopMoney { amount } }
+  totalDiscountsSet { shopMoney { amount } }
+  customer { id displayName }
+  shippingAddress { name address1 address2 city zip province countryCodeV2 phone }
+  fulfillments(first: 50) { id status displayStatus createdAt deliveredAt trackingInfo(first: 1) { company number url } }
+  refunds(first: 50) { id createdAt note totalRefundedSet { shopMoney { amount currencyCode } } }
+  transactions(first: 5) { kind status gateway paymentDetails { ... on CardPaymentDetails { number } } }`
+const LINE_FIELDS =
+  "id title variantTitle quantity sku originalUnitPriceSet { shopMoney { amount } } variant { id } product { id }"
 
 export const PRODUCTS_QUERY = `{
-  products {
-    edges { node {
-      id title handle descriptionHtml status vendor productType tags createdAt updatedAt
-      featuredMedia { preview { image { url } } }
-      variants { edges { node { id title sku price compareAtPrice position inventoryItem { id } } } }
-    } }
-  }
+  products { edges { node { ${PRODUCT_FIELDS} variants { edges { node { ${VARIANT_FIELDS} } } } } } }
 }`
 
 export const CUSTOMERS_QUERY = `{
-  customers {
-    edges { node {
-      id firstName lastName displayName tags numberOfOrders createdAt updatedAt
-      defaultEmailAddress { emailAddress marketingState }
-      defaultPhoneNumber { phoneNumber }
-      amountSpent { amount currencyCode }
-      defaultAddress { address1 address2 city zip province countryCodeV2 }
-    } }
-  }
+  customers { edges { node { ${CUSTOMER_FIELDS} } } }
 }`
 
 /** Orders created on or after `since` (ISO date): the history `read_all_orders` allows, else Shopify's 60 days. */
 export const ordersQuery = (since: string): string =>
   `{
   orders(query: "created_at:>=${since}") {
-    edges { node {
-      id name email displayFinancialStatus displayFulfillmentStatus currencyCode tags note
-      processedAt createdAt cancelledAt updatedAt sourceName discountCode paymentGatewayNames
-      totalPriceSet { shopMoney { amount } } subtotalPriceSet { shopMoney { amount } }
-      totalShippingPriceSet { shopMoney { amount } } totalTaxSet { shopMoney { amount } }
-      totalDiscountsSet { shopMoney { amount } }
-      customer { id displayName }
-      shippingAddress { name address1 address2 city zip province countryCodeV2 phone }
-      fulfillments(first: 50) { id status displayStatus createdAt deliveredAt trackingInfo(first: 1) { company number url } }
-      refunds(first: 50) { id createdAt note totalRefundedSet { shopMoney { amount currencyCode } } }
-      transactions(first: 5) { kind status gateway paymentDetails { ... on CardPaymentDetails { number } } }
-      lineItems { edges { node {
-        id title variantTitle quantity sku originalUnitPriceSet { shopMoney { amount } } variant { id } product { id }
-      } } }
-    } }
+    edges { node { ${ORDER_FIELDS} lineItems { edges { node { ${LINE_FIELDS} } } } } }
   }
 }`
+
+/** The kinds a webhook or the reconcile sweep reads one by one, by their gid's type. */
+export type MirrorKind = "Product" | "Customer" | "Order"
+
+/** One object by its gid, as it is now, with its children (a webhook names it; this reads it). */
+export const NODE_QUERY = `query($id: ID!) {
+  node(id: $id) {
+    ... on Product { ${PRODUCT_FIELDS} variants(first: 250) { edges { node { ${VARIANT_FIELDS} } } } }
+    ... on Customer { ${CUSTOMER_FIELDS} }
+    ... on Order { ${ORDER_FIELDS} lineItems(first: 250) { edges { node { ${LINE_FIELDS} } } } }
+  }
+}`
+
+export const CHANGED_PAGE = 50
+
+/** A page of what changed since a moment (the reconcile sweep), oldest change first. */
+export const changedQuery = (kind: MirrorKind): string => {
+  const field = kind === "Product" ? "products" : kind === "Customer" ? "customers" : "orders"
+  const children = kind === "Product"
+    ? `variants(first: 100) { edges { node { ${VARIANT_FIELDS} } } }`
+    : kind === "Order"
+    ? `lineItems(first: 100) { edges { node { ${LINE_FIELDS} } } }`
+    : ""
+  const fields = kind === "Product" ? PRODUCT_FIELDS : kind === "Customer" ? CUSTOMER_FIELDS : ORDER_FIELDS
+  return `query($q: String!, $after: String) {
+  ${field}(first: ${CHANGED_PAGE}, after: $after, query: $q, sortKey: UPDATED_AT) {
+    pageInfo { hasNextPage endCursor }
+    edges { node { ${fields} ${children} } }
+  }
+}`
+}
+
+/** `gid://shopify/<type>/<id>` from a webhook's numeric id. */
+export const gidOf = (type: MirrorKind, id: string | number) => `gid://shopify/${type}/${id}`
+
+const isConnection = (value: unknown): value is { readonly edges: ReadonlyArray<{ readonly node: unknown }> } =>
+  typeof value === "object" && value !== null && "edges" in value && Array.isArray((value as { edges: unknown }).edges)
+
+/**
+ * A node as a bulk file would hold it: the node without its connections, then each child with `__parentId`. So a
+ * webhook's read and the reconcile sweep's pages go through the same `addLine` as the backfill.
+ */
+export const flatten = (node: unknown): Array<unknown> => {
+  if (typeof node !== "object" || node === null) return []
+  const parent: Record<string, unknown> = {}
+  const children: Array<unknown> = []
+  const id = (node as { id?: unknown }).id
+  for (const [key, value] of Object.entries(node)) {
+    if (!isConnection(value)) {
+      parent[key] = value
+      continue
+    }
+    for (const edge of value.edges) {
+      const [child, ...grand] = flatten(edge.node)
+      if (child !== undefined) children.push({ ...(child as object), __parentId: id }, ...grand)
+    }
+  }
+  return [parent, ...children]
+}
 
 /* ─── Rows, keyed by Shopify ids; the upsert resolves Insyte's ids ──────── */
 

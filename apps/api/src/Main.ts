@@ -3,6 +3,7 @@ import { ManagedRuntime } from "effect"
 import { HttpRouter } from "effect/http"
 import { AppLayer, BackgroundLayer } from "./platform/AppLayer.ts"
 import type { Env } from "./platform/Env.ts"
+import { ingest, type IngestMessage, reconcile, syncRuntime } from "./platform/Ingest.ts"
 import { Telemetry } from "./platform/Observability.ts"
 import { deliver, type EventsMessage, sweep } from "./platform/Relay.ts"
 import { withRequestDb } from "./platform/RequestDb.ts"
@@ -28,31 +29,40 @@ export default {
     return response
   },
 
-  /** The outbox relay's consumer (M1.4). A throw leaves the batch to the queue's retries, then its dead letters. */
+  /**
+   * The outbox relay's consumer (M1.4): a throw leaves the batch to the queue's retries, then its dead letters. And
+   * Shopify's webhooks (M6.3), each delivery acked or retried on its own.
+   */
   async queue(batch, _env, ctx) {
+    if (batch.queue.startsWith("insyte-ingest")) return ingest(batch as MessageBatch<IngestMessage>)
+    const events = batch as MessageBatch<EventsMessage>
     try {
-      await background.runPromise(withRequestDb(deliver(batch.messages.flatMap((m) => m.body.outboxIds))))
+      await background.runPromise(withRequestDb(deliver(events.messages.flatMap((m) => m.body.outboxIds))))
       batch.ackAll()
     } finally {
       ctx.waitUntil(Telemetry.flush())
     }
   },
 
-  /** Every minute: the relay's sweep for events a kick missed. */
-  scheduled(_controller, _env, ctx) {
+  /** Every minute: the relay's sweep for events a kick missed; every fifteenth, the stores' reconcile (M6.3). */
+  scheduled(controller, _env, ctx) {
     ctx.waitUntil(background.runPromise(withRequestDb(sweep())).finally(() => Telemetry.flush()))
+    if (new Date(controller.scheduledTime).getUTCMinutes() % 15 === 0) {
+      ctx.waitUntil(syncRuntime.runPromise(reconcile).finally(() => Telemetry.flush()))
+    }
   }
-} satisfies ExportedHandler<Env, EventsMessage>
+} satisfies ExportedHandler<Env, EventsMessage | IngestMessage>
 
 /**
- * On the Worker's own public hostname only the public API and the MCP server answer (M19.2, M19.3): `/v1` and
- * `/mcp`. Everything else (auth, the RPC, the dev routes) is reached through the console's service binding, on the
+ * On the Worker's own public hostname only the public API, the MCP server and Shopify's webhooks answer (M19.2, M19.3,
+ * M6.3): `/v1`, `/mcp` and `/hooks/shopify`. Everything else (auth, the RPC, the dev routes) is reached through the console's service binding, on the
  * console's origin.
  */
 const servedHere = (request: Request): boolean => {
   const url = new URL(request.url)
   if (env.PUBLIC_API_HOST === undefined || url.host !== env.PUBLIC_API_HOST) return true
-  return url.pathname === "/mcp" || url.pathname === "/v1" || url.pathname.startsWith("/v1/")
+  return url.pathname === "/mcp" || url.pathname === "/v1" || url.pathname.startsWith("/v1/") ||
+    url.pathname === "/hooks/shopify"
 }
 
 /**

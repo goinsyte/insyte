@@ -16,8 +16,8 @@ import {
 } from "@insyte/modules/stores/use-cases/backfill"
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers"
 import { NonRetryableError } from "cloudflare:workflows"
-import { Cause, Effect, Exit, ManagedRuntime } from "effect"
-import { SyncLayer } from "../platform/AppLayer.ts"
+import { Cause, Effect, Exit } from "effect"
+import { syncRuntime as runtime } from "../platform/Ingest.ts"
 import { Telemetry } from "../platform/Observability.ts"
 import { withRequestDb } from "../platform/RequestDb.ts"
 import { roomOf } from "../platform/Room.ts"
@@ -35,8 +35,6 @@ export interface BackfillParams {
   readonly workspaceId: string
   readonly storeId: string
 }
-
-const runtime = ManagedRuntime.make(SyncLayer)
 
 const RETRY: WorkflowStepConfig = {
   retries: { limit: 8, delay: "15 seconds", backoff: "exponential" },

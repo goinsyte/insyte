@@ -1,7 +1,7 @@
 import { ShopifyAdminLive } from "@insyte/integrations-shopify/ShopifyAdmin"
-import { ShopifyBulkLive } from "@insyte/integrations-shopify/ShopifyBulk"
-import { ShopifyBulkRecorded, ShopifyRecorded } from "@insyte/integrations-shopify/ShopifyRecorded"
-import type { ShopifyAdmin, ShopifyBulk } from "@insyte/modules/stores/domain/Ports"
+import { ShopifyGraphqlLive } from "@insyte/integrations-shopify/ShopifyGraphql"
+import { ShopifyGraphqlRecorded, ShopifyRecorded } from "@insyte/integrations-shopify/ShopifyRecorded"
+import type { ShopifyAdmin, ShopifyGraphql } from "@insyte/modules/stores/domain/Ports"
 import { Config, Effect, Layer } from "effect"
 import type { HttpClient } from "effect/http"
 
@@ -23,10 +23,10 @@ export const ShopifyAdminChoice = Layer.unwrap(
   )
 )
 
-export const ShopifyBulkChoice = Layer.unwrap(
+export const ShopifyGraphqlChoice = Layer.unwrap(
   Effect.map(
     recorded,
-    (twin): Layer.Layer<ShopifyBulk, Config.ConfigError, HttpClient.HttpClient> =>
-      twin ? ShopifyBulkRecorded : ShopifyBulkLive
+    (twin): Layer.Layer<ShopifyGraphql, Config.ConfigError, HttpClient.HttpClient> =>
+      twin ? ShopifyGraphqlRecorded : ShopifyGraphqlLive
   )
 )

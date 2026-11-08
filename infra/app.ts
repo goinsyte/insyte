@@ -142,6 +142,13 @@ export default Alchemy.Stack(
       jurisdiction: "eu"
     })
 
+    // Shopify's webhooks (M6.3): received deliveries' ids, applied by this stage's API Worker; EU like the events.
+    const ingest = yield* Cloudflare.Queues.Queue("Ingest", { name: `insyte-ingest-${stage}`, jurisdiction: "eu" })
+    const deadIngest = yield* Cloudflare.Queues.Queue("IngestDlq", {
+      name: `insyte-ingest-dlq-${stage}`,
+      jurisdiction: "eu"
+    })
+
     const api = yield* Cloudflare.Worker("Api", {
       name: `insyte-api-${stage}`,
       main: "../apps/api/src/Main.ts",
@@ -154,6 +161,7 @@ export default Alchemy.Stack(
       env: {
         HYPERDRIVE: hyperdrive,
         EVENTS: events,
+        INGEST: ingest,
         // The edge guards' counters (M2.3), hosted by this Worker (`RateLimiter` in Main.ts); SQLite-backed.
         RATE_LIMITER: Cloudflare.DurableObject("RateLimiter", { className: "RateLimiter" }),
         // The realtime rooms (M5.1), hosted by this Worker (`RoomDurableObject` in Main.ts): sockets and presence only.
@@ -203,6 +211,13 @@ export default Alchemy.Stack(
       scriptName: api.workerName,
       deadLetterQueue: deadEvents.queueName,
       settings: { batchSize: 10, maxWaitTimeMs: 1000, maxRetries: 5 }
+    })
+
+    yield* Cloudflare.Queues.Consumer("IngestConsumer", {
+      queueId: ingest.queueId,
+      scriptName: api.workerName,
+      deadLetterQueue: deadIngest.queueName,
+      settings: { batchSize: 10, maxWaitTimeMs: 1000, maxRetries: 8 }
     })
 
     // CI's smoke test gets past Access with a service token (CF_ACCESS_CLIENT_ID / _SECRET in each environment).
