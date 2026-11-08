@@ -6,9 +6,8 @@ import { Schema } from "effect"
  * whole `Team`, so the page shows what the server holds without a second read.
  */
 
-/** Every store, or these. A member's stores narrow their role's, never widen them. */
-export const StoreAccess = Schema.Union([Schema.Literal("all"), Schema.Array(Schema.String)])
-export type StoreAccess = typeof StoreAccess.Type
+export { StoreAccess } from "../../shared/domain/Stores.ts"
+import { StoreAccess } from "../../shared/domain/Stores.ts"
 
 export class TeamMember extends Schema.Class<TeamMember>("members/TeamMember")({
   id: Schema.String,

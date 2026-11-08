@@ -370,6 +370,28 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   // The link has done its work, and the founder sees their colleague in the team.
   await invitee.goto(landing)
   await expect(invitee.getByText(`${colleague} accepteerde deze uitnodiging op`, { exact: false })).toBeVisible()
+  // @rbac (step 5.3): the founder grants the request on Rollen; the area goes up on Klantenservice, so the colleague
+  // sees the link at once. The request list stays theirs to see: it takes Beheren.
+  await page.goto("/settings/roles")
+  await expect(page.getByText("Amber Lewis vraagt om")).toBeVisible()
+  await page.getByRole("button", { name: "Toekennen aan Klantenservice" }).click()
+  await expect(page.getByText("Klantenservice kan nu collega's uitnodigen")).toBeVisible()
+  await invitee.goto("/settings/team")
+  await expect(invitee.getByLabel("Uitnodigingslink")).toBeVisible()
+  await expect(invitee.getByText("Je rol kan de uitnodigingslink niet zien")).toHaveCount(0)
+  await invitee.goto("/settings/roles")
+  await expect(invitee.getByText("Je rol kan de toegangsverzoeken niet zien")).toBeVisible()
+
+  // A new role from Klantenservice opens in the editor, and holds on a reload.
+  await page.getByRole("button", { name: "Nieuwe rol" }).click()
+  await page.getByPlaceholder("Retourbalie").fill("Retourbalie")
+  await page.getByRole("button", { name: "Rol maken" }).click()
+  await expect(page).toHaveURL(/\/settings\/roles\?role=rol_/)
+  await expect(page.getByRole("heading", { name: "Retourbalie" })).toBeVisible()
+  await page.reload()
+  await expect(page.getByText("Gemaakt vanuit Klantenservice.")).toBeVisible()
+  await page.goto("/settings/team")
+
   await theirs.close()
   await page.reload()
   await expect(page.getByText("2 teamleden · 0 uitnodigingen open · 4 vrij")).toBeVisible()

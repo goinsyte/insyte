@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { type Search, RolesPage } from "@insyte/ui/app/settings/roles-screen";
+import type { Search } from "@insyte/ui/app/settings/roles-screen";
+import { RolesPage } from "@insyte/ui/app/settings/roles-page";
 
 export const Route = createFileRoute("/_admin/settings/roles")({
 	validateSearch: (s: Record<string, unknown>): Search => ({

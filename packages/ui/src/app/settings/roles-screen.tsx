@@ -1,4 +1,4 @@
-import { useNavigate, getRouteApi } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { EmptyState } from "../common/empty-state";
 import { PageGuide } from "../common/page-guide";
@@ -6,11 +6,8 @@ import { CompareDialog, DeleteRoleDialog, NewRoleDialog } from "../roles/role-di
 import { RoleEditor } from "../roles/role-editor";
 import { RoleList } from "../roles/role-list";
 import type { RoleDef } from "../lib/permissions";
-import { createRole, holderCount, holdersOf, reassignAndRemove } from "../lib/role-actions";
 import { undoable } from "../lib/undo";
-import { useSettings } from "../stores/settings-store";
-
-const Route = getRouteApi("/_admin/settings/roles");
+import { holderCount, useRolesSource } from "../roles/source";
 
 export type Search = { role?: string; verzoek?: string; nieuw?: string };
 
@@ -27,21 +24,23 @@ const GUIDE = [
  * link to a role is a link. Creating, duplicating and deleting are kept here because they move
  * people between roles; the editor keeps its own draft.
  */
-export function RolesPage() {
-	const { role: roleId, verzoek } = Route.useSearch();
+export function RolesView({ roleId, verzoek }: { roleId?: string | undefined; verzoek?: string | undefined }) {
 	const navigate = useNavigate();
-	const roles = useSettings((s) => s.roles);
+	const source = useRolesSource();
+	const roles = source.roles;
 	const [creating, setCreating] = useState<{ from?: string } | null>(null);
 	const [deleting, setDeleting] = useState<RoleDef | null>(null);
 	const [comparing, setComparing] = useState<string[] | null>(null);
 	const open = roleId ? roles.find((r) => r.id === roleId) : undefined;
 
 	function create(label: string, from: string | null, rename = false) {
-		const role = createRole(label, from);
-		void navigate({ to: "/settings/roles", search: { role: role.id, nieuw: rename ? "1" : undefined } });
-		undoable(`${label} gemaakt`, () => {
-			useSettings.getState().removeRole(role.id);
-			void navigate({ to: "/settings/roles", search: {} });
+		void source.create(label, from).then((id) => {
+			if (id === undefined) return;
+			void navigate({ to: "/settings/roles", search: { role: id, nieuw: rename ? "1" : undefined } });
+			undoable(`${label} gemaakt`, () => {
+				void source.remove(id, null);
+				void navigate({ to: "/settings/roles", search: {} });
+			});
 		});
 	}
 
@@ -51,10 +50,11 @@ export function RolesPage() {
 
 	/** Nobody holds it: it goes at once, with Undo. Somebody does: they are moved first. */
 	function remove(r: RoleDef) {
-		if (holderCount(holdersOf(r)) > 0) return setDeleting(r);
-		const gone = useSettings.getState().removeRole(r.id);
-		if (roleId === r.id) void navigate({ to: "/settings/roles", search: {} });
-		if (gone) undoable(`${r.label} verwijderd`, () => useSettings.getState().addRole(gone.role, gone.index));
+		if (holderCount(source.holders(r)) > 0) return setDeleting(r);
+		void source.remove(r.id, null).then((ok) => {
+			if (roleId === r.id) void navigate({ to: "/settings/roles", search: {} });
+			if (ok) undoable(`${r.label} verwijderd`, () => void source.restore(r.id));
+		});
 	}
 
 	return (
@@ -78,11 +78,12 @@ export function RolesPage() {
 				onClose={() => setDeleting(null)}
 				onConfirm={(r, to) => {
 					const target = roles.find((x) => x.id === to);
-					const n = holdersOf(r).members.length;
-					const undo = reassignAndRemove(r.id, to);
+					const n = source.holders(r).members.length;
 					setDeleting(null);
-					if (roleId === r.id) void navigate({ to: "/settings/roles", search: {} });
-					if (undo) undoable(`${r.label} verwijderd`, undo, n ? `${n === 1 ? "1 teamlid staat" : `${n} teamleden staan`} nu op ${target?.label}.` : undefined);
+					void source.remove(r.id, to).then((ok) => {
+						if (roleId === r.id) void navigate({ to: "/settings/roles", search: {} });
+						if (ok) undoable(`${r.label} verwijderd`, () => void source.restore(r.id), n ? `${n === 1 ? "1 teamlid staat" : `${n} teamleden staan`} nu op ${target?.label}.` : undefined);
+					});
 				}}
 			/>
 			<CompareDialog open={comparing !== null} onOpenChange={(v) => !v && setComparing(null)} initial={comparing ?? []} />

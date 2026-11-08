@@ -7,18 +7,24 @@ import {
 } from "../../components/dropdown-menu";
 import { ChevronRight, Columns3, Copy, Edit3, Lock, MoreHorizontal, Plus, Trash2, UserCog, Users } from "../../icons";
 import { useNavigate } from "@tanstack/react-router";
-import { Gate } from "../access/gate";
+import type { ReactElement } from "react";
+import { toast } from "sonner";
+import { Blocked } from "../access/blocked";
+import { DeniedPanel } from "../access/denied";
 import { HolderDiscs, holdersLine, useHolders } from "./bits";
 import { SectionAction, SettingCard, StatusPill } from "../settings/setting-card";
 import { PersonDisc, WELL_BTN } from "../team/bits";
-import { railItemsForPersona } from "../lib/app-shell-config";
 import { formatRelative } from "../lib/format";
-import { AREA_BY_ID, diff, levelLabel, type RoleDef, storeScopeLabel, summaryLine, SYSTEM_DEFAULTS } from "../lib/permissions";
+import { AREA_BY_ID, diff, joinNl, levelLabel, type RoleDef, storeScopeLabel, summaryLine, SYSTEM_DEFAULTS } from "../lib/permissions";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { type AccessRequest, useAccess, useGate } from "../stores/access-store";
-import { useSettings } from "../stores/settings-store";
-import { useWorkspace } from "../stores/workspace-store";
+import { type RoleRequest, useRolesSource } from "./source";
+
+/** A control as it is when the role may manage the team; otherwise disabled, with what the role misses. */
+function Gate({ children }: { perm?: "team"; arg?: 3; children: ReactElement }) {
+	const manage = useRolesSource().can.manage;
+	return manage.ok ? children : <Blocked reason={manage.reason}>{children}</Blocked>;
+}
 
 /**
  * Every role in the workspace: the five every workspace has, then the team's own. A row says what
@@ -38,7 +44,7 @@ export function RoleList({
 	onCompare: (ids: string[]) => void;
 	highlight?: string;
 }) {
-	const roles = useSettings((s) => s.roles);
+	const roles = useRolesSource().roles;
 	const system = roles.filter((r) => r.system);
 	const custom = roles.filter((r) => r.custom);
 
@@ -109,9 +115,10 @@ function Group({ label, children }: { label: string; children: React.ReactNode }
 
 function RoleRow({ role, onDuplicate, onDelete, onCompare }: { role: RoleDef; onDuplicate: (r: RoleDef) => void; onDelete: (r: RoleDef) => void; onCompare: (ids: string[]) => void }) {
 	const navigate = useNavigate();
-	const stores = useWorkspace((s) => s.stores);
+	const source = useRolesSource();
+	const stores = source.stores;
 	const holders = useHolders(role);
-	const manage = useGate("team", 3);
+	const manage = source.can.manage;
 	const owner = role.id === "owner";
 	const base = SYSTEM_DEFAULTS[role.id];
 	const altered = role.system && !owner && base !== undefined && diff(base, role, stores).length > 0;
@@ -177,14 +184,31 @@ function RoleRow({ role, onDuplicate, onDelete, onCompare }: { role: RoleDef; on
 	);
 }
 
-/** "Tickets" for /tickets: the rail's name for the page a request was made from. */
-function pageName(path: string) {
-	return railItemsForPersona("admin").find((i) => path === i.to || path.startsWith(`${i.to}/`))?.label ?? path;
-}
-
 /** Requests from no-access pages, waiting for an owner or an admin. */
 function AccessRequests({ highlight }: { highlight?: string }) {
-	const requests = useAccess((s) => s.requests).filter((r) => r.state === "open");
+	const source = useRolesSource();
+	const requests = source.requests;
+	const denial = source.requestsDenial;
+	const askAccess = source.askAccess;
+	const ask =
+		askAccess && denial
+			? () =>
+					void askAccess().then((undo) => {
+						if (!undo) return;
+						const first = denial.granters.map((g) => g.name.split(" ")[0] ?? g.name);
+						undoable("Verzoek verstuurd", undo, first.length === 0 ? undefined : `${joinNl(first)} ${first.length === 1 ? "krijgt" : "krijgen"} een melding.`);
+					})
+			: undefined;
+	// Who may not manage the team does not see who asked: the card says so, in its list's place.
+	if (requests === null) {
+		return source.requestsDenial ? (
+			<SettingCard title="Toegangsverzoeken" icon={Lock}>
+				<div className="overflow-hidden rounded-xl bg-paper shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
+					<DeniedPanel size="table" denial={source.requestsDenial} title="Je rol kan de toegangsverzoeken niet zien" onAsk={ask} />
+				</div>
+			</SettingCard>
+		) : null;
+	}
 	if (requests.length === 0) return null;
 	return (
 		<SettingCard title={`Toegangsverzoeken · ${requests.length}`} icon={Lock}>
@@ -197,28 +221,35 @@ function AccessRequests({ highlight }: { highlight?: string }) {
 	);
 }
 
-function RequestRow({ req, highlight }: { req: AccessRequest; highlight: boolean }) {
-	const member = useWorkspace((s) => s.members.find((m) => m.id === req.memberId));
-	const role = useSettings((s) => s.roles.find((r) => r.id === req.roleId));
-	const manage = useGate("team", 3);
+function RequestRow({ req, highlight }: { req: RoleRequest; highlight: boolean }) {
+	const source = useRolesSource();
+	const member = req.memberName ? { id: req.memberId, name: req.memberName } : undefined;
+	const role = source.roles.find((r) => r.id === req.roleId);
+	const manage = source.can.manage;
 	const area = AREA_BY_ID[req.area];
 	const name = member?.name ?? `Iemand met de rol ${role?.label ?? "die er niet meer is"}`;
+	const pageName = source.pageName;
 
 	function grant() {
 		if (!role) return;
 		const before = role.levels[req.area];
-		useSettings.getState().updateRole(role.id, { levels: { ...role.levels, [req.area]: Math.max(before, req.level) as typeof before } });
-		useAccess.getState().resolve(req.id, "granted");
-		undoable(`${role.label} kan nu ${area.can[req.level] ?? area.label.toLowerCase()}`, () => {
-			const now = useSettings.getState().roles.find((r) => r.id === role.id);
-			if (now) useSettings.getState().updateRole(role.id, { levels: { ...now.levels, [req.area]: before } });
-			useAccess.getState().resolve(req.id, "open");
-		}, `${name} ziet het meteen.`);
+		void source.grant(req).then((ok) => {
+			if (!ok) return;
+			undoable(`${role.label} kan nu ${area.can[req.level] ?? area.label.toLowerCase()}`, () => {
+				const now = source.roles.find((r) => r.id === role.id) ?? role;
+				void source.update(role.id, { levels: { ...now.levels, [req.area]: before }, specials: now.specials, refundLimit: now.refundLimit, stores: now.stores });
+				void source.reopen?.(req);
+			}, `${name} ziet het meteen.`);
+		});
 	}
 
 	function decline() {
-		useAccess.getState().resolve(req.id, "declined");
-		undoable(`Verzoek van ${name} geweigerd`, () => useAccess.getState().resolve(req.id, "open"));
+		void source.decline(req).then((ok) => {
+			if (!ok) return;
+			const reopen = source.reopen;
+			if (reopen) undoable(`Verzoek van ${name} geweigerd`, () => void reopen(req));
+			else toast(`Verzoek van ${name} geweigerd`);
+		});
 	}
 
 	return (
