@@ -46,6 +46,13 @@ export const OutboxEvent = Schema.Union([
     memberId: Schema.String,
     state: Schema.Literals(["granted", "declined"])
   }),
+  // A store was connected (M6.2): the backfill starts (M6.3), product analytics counts it.
+  Schema.Struct({
+    type: Schema.Literal("store.connected"),
+    workspaceId: Schema.String,
+    storeId: Schema.String,
+    userId: Schema.String
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

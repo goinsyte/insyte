@@ -438,4 +438,23 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await expect(page.getByText("Nog geen sleutel voor een agent")).toBeVisible()
   await expect(page.getByText(/^https:\/\/.+\/mcp$/)).toBeVisible()
   await expect(page.getByText("Live", { exact: true })).toBeVisible()
+
+  // @stores (step 8.1): Winkels lists the workspace's stores, none yet. Connecting an address Shopify does not know is
+  // refused before Shopify opens (a stage without the Shopify app says it cannot connect yet); a refusal from the
+  // callback is said once and leaves the address.
+  await page.goto("/settings/stores")
+  await expect(page.getByText("Shopify-winkels · 0")).toBeVisible()
+  const connecting = page.getByRole("dialog")
+  await expect(async () => {
+    await page.getByRole("button", { name: "Winkel koppelen" }).click()
+    await expect(connecting).toBeVisible({ timeout: 2_000 })
+  }).toPass()
+  await connecting.getByPlaceholder("northwind-nl").fill(`insyte-e2e-${Date.now().toString(36)}`)
+  await connecting.getByRole("button", { name: "Doorgaan naar Shopify" }).click()
+  await connecting.getByRole("button", { name: "Goedkeuren en koppelen" }).click()
+  await expect(page.getByText(/^(Die winkel bestaat niet|Koppelen met Shopify kan hier nog niet)$/)).toBeVisible()
+  await expect(connecting.getByRole("button", { name: "Goedkeuren en koppelen" })).toBeEnabled()
+  await page.goto("/settings/stores?error=elsewhere")
+  await expect(page.getByText("Deze winkel hangt aan een andere werkruimte")).toBeVisible()
+  await expect(page).toHaveURL(/\/settings\/stores$/)
 })

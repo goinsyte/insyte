@@ -1,0 +1,68 @@
+import { Db } from "@insyte/database/Db"
+import { NotFound } from "@insyte/domain/Errors"
+import * as Policy from "@insyte/domain/Policy"
+import { CurrentPrincipal } from "@insyte/domain/Principal"
+import { Effect } from "effect"
+import type { SqlClient } from "effect/sql"
+import * as Audit from "../../shared/use-cases/Audit.ts"
+import { type StoreStatus, StoreView } from "../domain/Stores.ts"
+
+/*
+ * Instellingen → Winkels (M6.2): the workspace's stores, read at `settings` Bekijken; disconnecting one is Beheren.
+ * Disconnecting keeps the store's records (Shopify's `shop/redact` purges them 48 hours after an uninstall, M6.3) and
+ * forgets its tokens at once.
+ */
+
+interface Row {
+  readonly id: string
+  readonly name: string
+  readonly shopDomain: string
+  readonly status: StoreStatus
+  readonly currency: string | null
+  readonly country: string | null
+  readonly timezone: string | null
+  readonly connectedAt: Date | null
+  readonly lastSyncedAt: Date | null
+}
+
+export const readStores = (sql: SqlClient.SqlClient) =>
+  Effect.map(
+    sql<Row>`select id, name, shop_domain, status, currency, country, timezone, connected_at, last_synced_at
+             from stores order by status = 'disconnected', created_at`,
+    (rows) =>
+      rows.map((r) =>
+        new StoreView({
+          ...r,
+          connectedAt: r.connectedAt?.getTime() ?? null,
+          lastSyncedAt: r.lastSyncedAt?.getTime() ?? null
+        })
+      )
+  )
+
+export const list = Effect.fn("Stores.list")(function*() {
+  yield* Policy.require("settings", 1)
+  const db = yield* Db
+  return yield* db.scoped(readStores)
+})
+
+export const disconnect = Effect.fn("Stores.disconnect")(function*(id: string) {
+  yield* Policy.require("settings", 3)
+  const principal = yield* CurrentPrincipal
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const [store] = yield* sql<{ connectionId: string }>`
+        select connection_id from stores where id = ${id} and status <> 'disconnected' for update`
+      if (store === undefined) return yield* new NotFound({ entity: "store", id })
+      yield* sql`update stores set status = 'disconnected', disconnected_at = now() where id = ${id}`
+      yield* sql`update connections set status = 'disconnected' where id = ${store.connectionId}`
+      yield* sql`delete from connection_credentials where connection_id = ${store.connectionId}`
+      yield* Audit.write(sql, principal.workspaceId, { kind: "member", id: principal.id }, {
+        action: "store.disconnected",
+        subjectType: "store",
+        subjectId: id
+      })
+      return yield* readStores(sql)
+    })
+  )
+})

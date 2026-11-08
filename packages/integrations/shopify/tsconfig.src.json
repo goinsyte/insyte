@@ -1,0 +1,12 @@
+{
+  // Shopify's Admin API for the API Worker: OAuth, the shop's facts and (from M6.3) bulk exports. `fetch` only.
+  "extends": "../../../tsconfig.base.json",
+  "include": ["src/**/*.ts"],
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo",
+    "lib": ["ES2023", "DOM"],
+    "types": []
+  }
+}

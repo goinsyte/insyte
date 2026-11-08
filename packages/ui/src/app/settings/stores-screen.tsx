@@ -9,24 +9,20 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { BrandLogo } from "../marketplace/brand-logos";
 import { BandedList, BandedRow, SectionAction, SettingCard, StatusPill } from "./setting-card";
-import { ConnectStoreDialog } from "../shops/connect-store-dialog";
 import { undoable } from "../lib/undo";
-import { useWorkspace } from "../stores/workspace-store";
+import { useStoresSource } from "../shops/source";
 
 /**
  * The Shopify stores this workspace reads. The same three the store switcher shows — they used to
  * be five different ones, "Glamour DE" and "Harper's BAZAAR" among them, which no other screen had
  * ever heard of.
+ *
+ * The stores and what they do come from the host (`shops/source.tsx`). Where a disconnect cannot be
+ * taken back (the console: the token is gone, only Shopify can grant a new one) it is said without
+ * an undo, and the row offers to connect again.
  */
 export function StoresPage() {
-	const stores = useWorkspace((s) => s.stores);
-	const activeId = useWorkspace((s) => s.activeStoreId);
-	const setActive = useWorkspace((s) => s.setActiveStore);
-	const disconnectStore = useWorkspace((s) => s.disconnectStore);
-	const restore = (id: string, status: "connected") =>
-		useWorkspace.setState((s) => ({
-			stores: s.stores.map((st) => (st.id === id ? { ...st, status, connected: true } : st)),
-		}));
+	const { stores, activeId, setActive, disconnect, restore, Connect: ConnectStoreDialog } = useStoresSource();
 	const [connecting, setConnecting] = useState<{ domain?: string } | null>(null);
 
 	return (
@@ -54,7 +50,7 @@ export function StoresPage() {
 									) : null}
 								</span>
 							}
-							detail={`${s.domain} · ${s.currency}`}
+							detail={s.currency ? `${s.domain} · ${s.currency}` : s.domain}
 							trailing={
 								<>
 									{s.status === "connecting" ? (
@@ -87,7 +83,10 @@ export function StoresPage() {
 											</button>
 										</DropdownMenuTrigger>
 										<DropdownMenuContent align="end" className="w-48">
-											<DropdownMenuItem disabled={s.status !== "connected" || s.id === activeId} onClick={() => setActive(s.id)}>
+											<DropdownMenuItem
+												disabled={setActive === undefined || s.status !== "connected" || s.id === activeId}
+												onClick={() => setActive?.(s.id)}
+											>
 												Naar deze winkel wisselen
 											</DropdownMenuItem>
 											<DropdownMenuItem
@@ -100,9 +99,11 @@ export function StoresPage() {
 											<DropdownMenuItem
 												variant="destructive"
 												disabled={s.status !== "connected"}
-												onClick={() => {
-													disconnectStore(s.id);
-													undoable(`${s.name} ontkoppeld`, () => restore(s.id, "connected"), "Insyte leest de winkel niet meer. In Shopify verandert niets.");
+												onClick={async () => {
+													if (!(await disconnect(s.id))) return;
+													const said = "Insyte leest de winkel niet meer. In Shopify verandert niets.";
+													if (restore === undefined) toast.success(`${s.name} ontkoppeld`, { description: said });
+													else undoable(`${s.name} ontkoppeld`, () => restore(s.id), said);
 												}}
 											>
 												Ontkoppelen
@@ -120,6 +121,7 @@ export function StoresPage() {
 				onOpenChange={(open) => !open && setConnecting(null)}
 				initialDomain={connecting?.domain}
 				onConnected={(store) => {
+					if (setActive === undefined) return;
 					setActive(store.id);
 					toast.success(`Je bekijkt nu ${store.name}`);
 				}}

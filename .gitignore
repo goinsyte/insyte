@@ -62,3 +62,8 @@ apps/*/src/*/routeTree.gen.ts
 playwright-report/
 test-results/
 playwright-report-console/
+
+# The Shopify app's configuration as deployed (it names the app's client id) and the CLI's local cache. The committed
+# template is `shopify/shopify.app.toml.example`.
+shopify/shopify.app.toml
+shopify/.shopify/
