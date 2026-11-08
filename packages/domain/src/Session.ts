@@ -40,3 +40,11 @@ export class SessionMe extends Schema.Class<SessionMe>("domain/SessionMe")({
   /** `/onboarding` until the active workspace finished onboarding, then Start (`/dashboard`). */
   landing: Schema.String
 }) {}
+
+/**
+ * Whoever opened a public page: the signed-in person, or nobody. Provided by the `Viewer` RPC middleware, for the
+ * pages that answer differently to the person they are for (the invitation landing).
+ */
+export class CurrentViewer extends Context.Service<CurrentViewer, { readonly user: SessionUser | null }>()(
+  "domain/CurrentViewer"
+) {}

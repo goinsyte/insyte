@@ -1,81 +1,23 @@
-import { createExecutionContext, createMessageBatch, getQueueResult } from "cloudflare:test"
-import { env } from "cloudflare:workers"
-import { Cause, Exit } from "effect"
 import { describe, expect, it } from "vitest"
-import worker from "../src/Main.ts"
-import type { EventsMessage } from "../src/platform/Relay.ts"
-import { call, onboarding, rpc, sessionMe } from "./support.ts"
+import {
+  consume,
+  failure,
+  mailsTo,
+  ok,
+  ORIGIN,
+  outboxOf,
+  pastUndo,
+  person,
+  productEventsOf,
+  relay,
+  run
+} from "./journeys.ts"
+import { rpc, sessionMe } from "./support.ts"
 
 /*
  * Instellingen → Team on the server (step 4.1, M3.3–M3.4), through the Worker: the owner's team page, invitations sent
  * and mailed only after the undo window, every undo the page offers, the seats, the shareable link, and the refusals.
  */
-
-const ORIGIN = "http://localhost:4300"
-const run = Date.now().toString(36)
-const password = "correct-horse-battery"
-
-const post = (path: string, body: unknown) =>
-  call(`http://api.test${path}`, {
-    method: "POST",
-    headers: { origin: ORIGIN, "content-type": "application/json" },
-    body: JSON.stringify(body)
-  })
-const cookiesOf = (response: Response) => response.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ")
-
-const mailsTo = async (to: string) =>
-  (await (await call(`http://api.test/api/__dev/mail?to=${encodeURIComponent(to)}`)).json() as {
-    mails: Array<{ kind: string; url: string }>
-  }).mails
-
-/** A verified, signed-in person; with `workspace`, its founder too. */
-const person = async (tag: string, workspace?: string) => {
-  const email = `team-${run}-${tag}@example.com`
-  await post("/api/auth/sign-up/email", { name: `Persoon ${tag}`, email, password })
-  const link = new URL((await mailsTo(email))[0]!.url)
-  await call(`http://api.test${link.pathname}${link.search}`, { redirect: "manual" })
-  const cookie = cookiesOf(await post("/api/auth/sign-in/email", { email, password }))
-  if (workspace !== undefined) {
-    await onboarding.advance({ step: "role", persona: "admin" }, cookie)
-    await onboarding.advance(
-      { step: "organization", name: workspace, slug: `team-${run}-${tag}`, country: "NL", teamSize: "2-5" },
-      cookie
-    )
-  }
-  return { email, cookie }
-}
-
-const outboxOf = async (workspace: string) =>
-  (await (await call(`http://api.test/api/__dev/outbox?workspace=${workspace}`)).json() as {
-    events: Array<
-      { id: string; event: string; payload: Record<string, unknown>; relayedAt: string | null; cancelled: boolean }
-    >
-  }).events
-const productEventsOf = async (workspace: string) =>
-  (await (await call(`http://api.test/api/__dev/product-events?workspace=${workspace}`)).json() as {
-    events: Array<{ event: string; distinctId: string }>
-  }).events
-
-/** The relay's consumer, as the queue calls it, for every event of the workspace not yet relayed. */
-const relay = async (workspace: string) => {
-  const outboxIds = (await outboxOf(workspace)).filter((e) => e.relayedAt === null).map((e) => e.id)
-  const ctx = createExecutionContext()
-  const batch = createMessageBatch<EventsMessage>("insyte-events", [
-    { id: `m-${Math.random()}`, timestamp: new Date(), attempts: 1, body: { outboxIds } }
-  ])
-  await worker.queue(batch, env, ctx)
-  return getQueueResult(batch, ctx)
-}
-/** As if the undo window had passed. */
-const pastUndo = (workspace: string) =>
-  call(`http://api.test/api/__dev/outbox/due?workspace=${workspace}`, { method: "POST" })
-
-const ok = <A, E>(exit: Exit.Exit<A, E>): A => {
-  if (Exit.isSuccess(exit)) return exit.value
-  throw new Error(Cause.pretty(exit.cause))
-}
-const failure = <A, E>(exit: Exit.Exit<A, E>) =>
-  Exit.isFailure(exit) ? exit.cause.reasons.find((r) => r._tag === "Fail")?.error : undefined
 
 describe("the team on the server", () => {
   const amber = `amber-${run}@example.com`
@@ -117,7 +59,7 @@ describe("the team on the server", () => {
     expect(team.seats).toMatchObject({ used: 3, pending: 2, free: 2 })
 
     // Inside the window the consumer leaves them be.
-    await relay(workspace)
+    await consume((await outboxOf(workspace)).filter((e) => e.relayedAt === null).map((e) => e.id))
     expect(await mailsTo(amber)).toEqual([])
     expect((await outboxOf(workspace)).filter((e) => e.event === "member.invited" && e.relayedAt === null))
       .toHaveLength(2)

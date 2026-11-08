@@ -1,11 +1,12 @@
 import { AuthHooks } from "@insyte/integrations-better-auth/BetterAuth"
 import { Effect, Layer } from "effect"
 import { recordAuthEvent } from "./AuthEvents.ts"
-import { admitted } from "./BetaGate.ts"
+import { admitted, vouched } from "./BetaGate.ts"
 import { BetaSettings } from "./Bindings.ts"
 
 /**
- * The app's half of better-auth (`AuthHooks`): the beta gate over `beta_allowlist`, and the security log over
+ * The app's half of better-auth (`AuthHooks`): the beta gate over `beta_allowlist` and open invitations, an
+ * invitation's proof of an address, and the security log over
  * `auth_events`, each on the request's connection. A lookup that fails refuses (the gate stays shut rather than open);
  * an event that cannot be stored is logged, never a failed sign-in.
  */
@@ -16,6 +17,7 @@ export const AuthHooksLive = Layer.effect(
     return AuthHooks.of({
       admits: (email) =>
         admitted(email).pipe(Effect.provideService(BetaSettings, settings), Effect.orElseSucceed(() => false)),
+      vouches: (email, proof) => vouched(email, proof).pipe(Effect.orElseSucceed(() => false)),
       record: (event) =>
         recordAuthEvent(event).pipe(
           Effect.catch((error) => Effect.logWarning(`auth event ${event.kind} not recorded: ${String(error)}`))

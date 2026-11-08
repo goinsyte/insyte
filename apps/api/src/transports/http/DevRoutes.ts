@@ -81,8 +81,19 @@ const OutboxOf = HttpRouter.add(
     const workspace = yield* workspaceParam
     const db = yield* Db
     const events = yield* db.scopedFor((sql) =>
-      sql<{ id: string; event: string; payload: Record<string, unknown>; relayedAt: Date | null; cancelled: boolean }>`
-        select id, event, payload, relayed_at, cancelled_at is not null as cancelled from outbox order by created_at`
+      sql<
+        {
+          id: string
+          event: string
+          payload: Record<string, unknown>
+          relayedAt: Date | null
+          cancelled: boolean
+          due: boolean
+        }
+      >`
+        select id, event, payload, relayed_at, cancelled_at is not null as cancelled,
+               coalesce(not_before, created_at) <= now() as due
+        from outbox order by created_at`
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
     return HttpServerResponse.jsonUnsafe({ events })
   }).pipe(withRequestDb)
@@ -132,4 +143,35 @@ const OutboxDue = HttpRouter.add(
   }).pipe(withRequestDb)
 )
 
-export const DevRoutes = Layer.mergeAll(CapturedMail, AuthEventsOf, OutboxOf, OutboxDue, ProductEventsOf)
+/**
+ * `POST /api/__dev/invitations/lapse?workspace=<id>&id=<invitation>`: the invitation's week is over, so the landing's
+ * expired state can be tried without waiting it out. Refused in production.
+ */
+const InvitationLapse = HttpRouter.add(
+  "POST",
+  "/api/__dev/invitations/lapse",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const id = new URL(request.url, "http://local").searchParams.get("id") ?? ""
+    const db = yield* Db
+    const lapsed = yield* db.scopedFor((sql) =>
+      sql<{ id: string }>`
+        update invitations set expires_at = now() - interval '1 day', sent_at = now() - interval '8 days'
+        where id = ${id} returning id`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe({ lapsed: lapsed.length })
+  }).pipe(withRequestDb)
+)
+
+export const DevRoutes = Layer.mergeAll(
+  CapturedMail,
+  AuthEventsOf,
+  OutboxOf,
+  OutboxDue,
+  InvitationLapse,
+  ProductEventsOf
+)

@@ -16,6 +16,7 @@ import { SystemRoutes } from "../transports/http/SystemRoutes.ts"
 import { AuthenticatedLive } from "../transports/rpc/AuthenticatedLive.ts"
 import { MemberLive } from "../transports/rpc/MemberLive.ts"
 import { RpcContext, RpcRoutes } from "../transports/rpc/RpcRoutes.ts"
+import { ViewerLive } from "../transports/rpc/ViewerLive.ts"
 import { WithDbLive } from "../transports/rpc/WithDbLive.ts"
 import { AuthHooksLive } from "./AuthHooks.ts"
 import { AppInfo, BetaSettings, ConfigLive } from "./Bindings.ts"
@@ -73,6 +74,7 @@ export const AppLayer = Transports.pipe(
   Layer.provideMerge(RpcContext),
   Layer.provideMerge(WithDbLive),
   Layer.provideMerge(AuthenticatedLive),
+  Layer.provideMerge(ViewerLive),
   Layer.provideMerge(MemberLive.pipe(Layer.provide(Workspaces.layer))),
   // Committed events onto the queue, after commit (the outbox relay's kick).
   Layer.provideMerge(RelayLive),
