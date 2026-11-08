@@ -5,6 +5,7 @@ import { Socket } from "effect/socket"
 import { ACCESS } from "./access.ts"
 import { ConsoleClient } from "./client.ts"
 import { KEYS } from "./developer.ts"
+import { FRAME, NOTES, presenceAtom } from "./frame.ts"
 import { ACCESS_LIST, ROLES } from "./roles.ts"
 import { TEAM } from "./team.ts"
 
@@ -29,7 +30,7 @@ const decodeFrame = Schema.decodeUnknownOption(Schema.fromJsonString(Frame))
 const text = new TextDecoder()
 
 /** One connection: its frames until it closes. `reconnected` refetches everything once it says hello. */
-const connection = (reconnected: boolean) =>
+const connection = (reconnected: boolean, present: (memberIds: ReadonlyArray<string>) => void) =>
   Effect.gen(function*() {
     const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/realtime`
     const reader = yield* (yield* Socket.makeWebSocket(url)).reader
@@ -38,7 +39,11 @@ const connection = (reconnected: boolean) =>
       for (const chunk of yield* reader.pull) {
         const frame = decodeFrame(typeof chunk === "string" ? chunk : text.decode(chunk))
         if (Option.isNone(frame)) continue
+        if (frame.value.type === "hello" || frame.value.type === "presence") {
+          present(frame.value.presence.map((p) => p.memberId))
+        }
         if (frame.value.type === "hello" && reconnected) { for (const key of EVERYTHING) keys.add(key) }
+        if (frame.value.type === "notes.changed") { for (const key of [...NOTES, ...FRAME]) keys.add(key) }
         if (frame.value.type === "records.changed") { for (const key of REFETCH[frame.value.kind] ?? []) keys.add(key) }
       }
       if (keys.size > 0) yield* Reactivity.invalidate([...keys])
@@ -46,10 +51,11 @@ const connection = (reconnected: boolean) =>
   }).pipe(Effect.scoped)
 
 /** Mounted while a signed-in screen is open (`LiveUpdates`); the socket closes when the last one unmounts. */
-export const realtimeAtom = ConsoleClient.runtime.atom(
+export const realtimeAtom = ConsoleClient.runtime.atom((get) =>
   Effect.suspend(() => {
     let attempts = 0
-    return Effect.suspend(() => connection(attempts++ > 0)).pipe(
+    const present = (memberIds: ReadonlyArray<string>) => get.set(presenceAtom, memberIds)
+    return Effect.suspend(() => connection(attempts++ > 0, present)).pipe(
       // Doubling from half a second, never more than 30 s apart, for as long as the screen is open.
       Effect.retry(Schedule.min([Schedule.exponential("500 millis"), Schedule.spaced("30 seconds")])),
       Effect.provide(Socket.layerWebSocketConstructorGlobal)

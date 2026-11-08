@@ -8,13 +8,11 @@ import { RolesSourceProvider } from "@insyte/ui/app/roles/source"
 import { RolesView } from "@insyte/ui/app/settings/roles-screen"
 import { SettingsSheet } from "@insyte/ui/app/settings/settings-sheet"
 import { UserCog } from "@insyte/ui/icons"
-import { createFileRoute, redirect } from "@tanstack/react-router"
+import { createFileRoute } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { myAccessAtom } from "../data/access.ts"
 import { accessListAtom, rolesAtom } from "../data/roles.ts"
-import { sessionMeAtom } from "../data/session.ts"
-import { LiveUpdates } from "../realtime/live-updates.tsx"
 import { useConsoleRolesSource } from "../team/roles-source.ts"
 
 /**
@@ -22,22 +20,12 @@ import { useConsoleRolesSource } from "../team/roles-source.ts"
  * settings sheet, without the shell (M5). The loader reads both on the server; until they are in, the reference's
  * settings skeleton stands in.
  */
-export const Route = createFileRoute("/settings/roles")({
+export const Route = createFileRoute("/_frame/settings/roles")({
   validateSearch: (s: Record<string, unknown>): { role?: string; verzoek?: string; nieuw?: "1" } => ({
     ...(typeof s["role"] === "string" ? { role: s["role"] } : {}),
     ...(typeof s["verzoek"] === "string" ? { verzoek: s["verzoek"] } : {}),
     ...(s["nieuw"] === "1" || s["nieuw"] === 1 ? { nieuw: "1" as const } : {})
   }),
-  beforeLoad: async ({ context }) => {
-    const me = await Effect.runPromise(
-      AtomRegistry.getResult(context.registry, sessionMeAtom).pipe(
-        Effect.asSome,
-        Effect.catchTag("Unauthenticated", () => Effect.succeedNone)
-      )
-    )
-    if (Option.isNone(me)) throw redirect({ to: "/login", search: { redirect: "/settings/roles" } })
-    if (me.value.landing !== "/dashboard") throw redirect({ href: me.value.landing })
-  },
   head: () => ({ meta: [{ title: "Rollen · Insyte" }] }),
   loader: async ({ context }) => {
     // Mounted so the values survive until the registry is dehydrated into the document.
@@ -60,9 +48,9 @@ const isForbidden = Schema.is(Forbidden)
 
 function Pending() {
   return (
-    <main className="min-h-svh bg-paper text-ink">
+    <div className="flex min-h-full flex-col bg-paper text-ink">
       <PageSkeleton kind="settings" title="Rollen" />
-    </main>
+    </div>
   )
 }
 
@@ -74,7 +62,7 @@ function RolesRoute() {
   if (refused !== undefined && refused._tag === "Fail" && isForbidden(refused.error)) {
     const f = refused.error
     return (
-      <main className="min-h-svh bg-paper text-ink">
+      <div className="flex min-h-full flex-col bg-paper text-ink">
         <SettingsSheet title="Rollen" icon={UserCog}>
           <DeniedPanel
             title="Je rol kan de rollen niet zien"
@@ -89,7 +77,7 @@ function RolesRoute() {
             }}
           />
         </SettingsSheet>
-      </main>
+      </div>
     )
   }
   return <Pending />
@@ -99,13 +87,12 @@ function Loaded({ roles }: { roles: Roles }) {
   const { role, verzoek } = Route.useSearch()
   const source = useConsoleRolesSource(roles)
   return (
-    <main className="min-h-svh bg-paper text-ink">
-      <LiveUpdates />
+    <div className="flex min-h-full flex-col bg-paper text-ink">
       <RolesSourceProvider value={source}>
         <SettingsSheet title="Rollen" icon={UserCog}>
           <RolesView roleId={role} verzoek={verzoek} />
         </SettingsSheet>
       </RolesSourceProvider>
-    </main>
+    </div>
   )
 }

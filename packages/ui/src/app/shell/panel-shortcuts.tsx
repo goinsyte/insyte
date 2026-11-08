@@ -21,6 +21,7 @@ import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
 import type { Shortcut, ShortcutKind } from "../stores/pins-store";
 import { usePanel, usePins, useShellData, useViews, useWorkspace } from "./state";
+import { useHydrated } from "../hooks/use-hydrated";
 
 /**
  * The area panel's lower half: this week's report and the operator's shortcuts — what they pinned,
@@ -140,7 +141,7 @@ export function ReportSection() {
 			<div className="flex h-8 items-center gap-2 px-2 text-sm">
 				<span className="size-1.5 shrink-0 rounded-[2px] bg-arc" aria-hidden />
 				<span className="min-w-0 flex-1 truncate text-ink-2">Rapport week {report.week}</span>
-				<Link to="/analytics" onClick={report.put} className="font-medium text-arc-ink hover:underline">
+				<Link to={"/analytics" as never} onClick={report.put} className="font-medium text-arc-ink hover:underline">
 					Lezen
 				</Link>
 			</div>
@@ -167,7 +168,7 @@ export function ReportSection() {
 				{when}
 			</p>
 			<p className="pr-5 font-medium text-base text-ink leading-snug">Het rapport van week {report.week} staat klaar</p>
-			<Link to="/analytics" className="mt-1 flex items-center gap-1 self-start font-medium text-sm text-arc-ink hover:underline">
+			<Link to={"/analytics" as never} className="mt-1 flex items-center gap-1 self-start font-medium text-sm text-arc-ink hover:underline">
 				Rapport lezen
 				<ArrowRight className="size-3.5" strokeWidth={2} />
 			</Link>
@@ -179,7 +180,9 @@ export function ReportSection() {
 
 export function ShortcutsSection({ reportShown }: { reportShown: boolean }) {
 	const style = usePanel((s) => s.style);
-	if (style === "ruler") return <Ruler reportShown={reportShown} />;
+	// The ruler is drawn against the clock in the reader's time zone, so only once the page is the browser's.
+	const hydrated = useHydrated();
+	if (style === "ruler") return hydrated ? <Ruler reportShown={reportShown} /> : null;
 	if (style === "drawer") return <Drawer />;
 	return <Classic />;
 }

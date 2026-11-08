@@ -2,7 +2,7 @@ import { RotateCcw, Box, ChartLine, CornerDownLeft, Database, type IconComponent
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { Glyph } from "../common/glyph";
-import { useHeardNotes } from "../notifications/note-parts";
+import { useHeardNotes } from "../notifications/heard";
 import { supplierFollowUps } from "../lib/home/day";
 import { pulse } from "../lib/home/pulse";
 import { automations } from "../../data-source";

@@ -140,3 +140,4 @@ export function forwardSentence(legs: ReadonlyArray<Pick<Leg, "orderId" | "suppl
 	const suppliers = new Set(legs.map((l) => l.supplierId)).size;
 	return `${orders} ${orders === 1 ? "bestelling" : "bestellingen"} naar ${suppliers} ${suppliers === 1 ? "leverancier" : "leveranciers"} doorsturen`;
 }
+

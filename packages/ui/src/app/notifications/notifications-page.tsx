@@ -7,7 +7,8 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "../common/empty-state";
 import { PageHeader } from "../common/page-header";
-import { NoteLead, NoteSentence, useHeardNotes, useNow } from "./note-parts";
+import { NoteLead, NoteSentence, useNow } from "./note-parts";
+import { useHeardNotes } from "./heard";
 import { NotePreview } from "./note-preview";
 import { type RowAction, SelectionBar } from "../table/selection-bar";
 import {

@@ -7,10 +7,11 @@ import { type ShellSource, useShellSource } from "./source";
  * parts without the demo stores.
  */
 
-const slice =
-	<K extends keyof ShellSource>(key: K) =>
-	<T>(selector: (state: ShellSource[K]) => T): T =>
-		selector(useShellSource()[key]);
+function slice<K extends keyof ShellSource>(key: K) {
+	return function useSlice<T>(selector: (state: ShellSource[K]) => T): T {
+		return selector(useShellSource()[key]);
+	};
+}
 
 export const usePanel = slice("panel");
 export const usePins = slice("pins");
@@ -47,6 +48,9 @@ export const useInboxThreads = () => useShellSource().inbox.threads;
 export const useAgentLogEntries = () => useShellSource().agentEntries;
 export const useForwardingRows = () => useShellSource().queueRows;
 export const useOperator = () => useShellSource().operator;
+export const useAutomationsPanel = () => useShellSource().automationsPanel;
+export const useShellSlots = () => useShellSource().slots;
+export const useWorkspaceName = () => useShellSource().workspaceName;
 
 /** The workspace the chrome is in. */
 export const useActiveWorkspace = () => {

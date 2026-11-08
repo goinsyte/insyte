@@ -147,7 +147,7 @@ function PersonCard({
 
 			<div className="px-1 py-1">
 				<DropdownMenuItem asChild>
-					<Link to="/chats" search={{ id: `conv_dm_${id}` } as never}>
+					<Link to={"/chats" as never} search={{ id: `conv_dm_${id}` } as never}>
 						<MessageSquare className="size-3.5" />
 						Bericht sturen
 					</Link>
