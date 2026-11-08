@@ -204,9 +204,7 @@ export function DataTable<T>({
 	const table = useReactTable({
 		data: filtered,
 		columns: allColumns,
-		getRowId: getRowId
-			? (row, index) => getRowId(row) || String(index)
-			: undefined,
+		...(getRowId ? { getRowId: (row: T, index: number) => getRowId(row) || String(index) } : {}),
 		enableRowSelection: picking,
 		state: {
 			sorting,

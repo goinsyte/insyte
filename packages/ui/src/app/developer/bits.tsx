@@ -3,6 +3,7 @@ import { Fragment, useState } from "react";
 import { PersonDisc } from "../team/bits";
 import { IP } from "../lib/developer-core";
 import { cn } from "../lib/utils";
+import { ZONE } from "../lib/format";
 
 /*
  * The small parts the keys and webhooks pages share. Ids, prefixes, secrets, paths and payloads are
@@ -218,7 +219,7 @@ export function UsageChart({ days }: { days: ReadonlyArray<{ day: string; count:
 	const total = days.reduce((n, d) => n + d.count, 0);
 	const errors = days.reduce((n, d) => n + d.errors, 0);
 	const fmt = new Intl.NumberFormat("nl-NL");
-	const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short" });
+	const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short", timeZone: ZONE });
 	const W = 14 * 24;
 	return (
 		<figure className="flex flex-col gap-2">

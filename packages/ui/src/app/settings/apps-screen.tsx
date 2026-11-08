@@ -29,6 +29,7 @@ import { useMarketplaceState } from "../hooks/use-marketplace-state";
 import { extensions as allExtensions } from "../../data-source";
 import type { Extension } from "../lib/types/domain";
 import { cn } from "../lib/utils";
+import { ZONE } from "../lib/format";
 
 export function SettingsAppsPage() {
 	const { records, isInstalled, uninstall, markOpened } = useMarketplaceState();
@@ -226,5 +227,6 @@ function formatWhen(iso?: string) {
 		month: "short",
 		day: "numeric",
 		year: "numeric",
+		timeZone: ZONE
 	}).format(d);
 }

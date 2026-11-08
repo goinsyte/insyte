@@ -119,7 +119,14 @@ export function DashboardClosing({ firstDay = false }: { firstDay?: boolean }) {
 
 /* ── the lists ───────────────────────────────────────────────────────────────────────────────── */
 
-export type Area = "orders" | "customers" | "products" | "tickets" | "chargebacks" | "suppliers";
+export type { Area } from "../common/area-empty";
+import { type Area, AreaEmpty } from "../common/area-empty";
+
+/** A list's first day in the design app: the area's empty page, with the closings' rows as its places to start. */
+export function DemoAreaEmpty({ area, action, onInvite }: { area: Area; action?: { label: string; onClick: () => void } | undefined; onInvite?: () => void }) {
+	const starts = useListStarts(area, onInvite);
+	return <AreaEmpty area={area} action={action} starts={starts} />;
+}
 
 const AREA_LABEL: Record<Area, string> = {
 	orders: "Bestellingen",

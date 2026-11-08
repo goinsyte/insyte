@@ -1,3 +1,4 @@
+import { ZONE } from "./format"
 import { API_AREAS, type ApiAccess, type AreaId, scopesOf, type StoreScope } from "./permissions"
 
 /*
@@ -75,10 +76,14 @@ export function expiryState(k: Pick<ApiKey, "expires_at" | "status">, at = Date.
   return {
     tone: "none",
     label: `Verloopt ${
-      new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short", year: "numeric" }).format(
-        new Date(k.expires_at)
-      )
-    }`
+      // One zone on the server and in the browser, or a key expiring near midnight shows two dates (React #418).
+      new Intl.DateTimeFormat("nl-NL", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: ZONE
+      })
+        .format(new Date(k.expires_at))}`
   }
 }
 

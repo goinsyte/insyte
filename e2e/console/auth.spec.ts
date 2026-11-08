@@ -457,4 +457,9 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await page.goto("/settings/stores?error=elsewhere")
   await expect(page.getByText("Deze winkel hangt aan een andere werkruimte")).toBeVisible()
   await expect(page).toHaveURL(/\/settings\/stores$/)
+
+  // @orders (step 8.4b): Bestellingen is the reference's list over `Orders.list`; without a store it is the first day.
+  await page.goto("/orders")
+  await expect(page.getByRole("heading", { name: "Nog geen bestellingen" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Winkel koppelen" })).toBeVisible()
 })

@@ -85,6 +85,8 @@ export type Order = {
 	total: number;
 	currency: Currency;
 	line_items: OrderLineItem[];
+	/** How many lines, where the host lists orders without them (the console's list, M6.4). */
+	line_count?: number;
 	shipping_address?: Address;
 	tracking_number?: string;
 	carrier?: string;

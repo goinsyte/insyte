@@ -28,6 +28,12 @@ export function formatPercent(value: number, fractionDigits = 1) {
 	return `${value > 0 ? "+" : ""}${n}%`;
 }
 
+/**
+ * The zone every date is shown in: Insyte's own (the workspace's arrives with its settings). Named, so the console's
+ * server (UTC) and the browser write the same day and hour, and hydration never meets two dates.
+ */
+export const ZONE = "Europe/Amsterdam";
+
 export function formatDate(
 	value: string | Date,
 	options?: Intl.DateTimeFormatOptions,
@@ -37,6 +43,7 @@ export function formatDate(
 		month: "short",
 		day: "numeric",
 		year: "numeric",
+		timeZone: ZONE,
 		...options,
 	}).format(d);
 }

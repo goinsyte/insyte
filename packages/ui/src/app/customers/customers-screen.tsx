@@ -15,7 +15,7 @@ import { undoable } from "../lib/undo";
 import { useAskInsyte } from "../shell/ask-insyte-context";
 import { OPEN_AS_MODAL } from "../common/detail-shell";
 import { EmptyState } from "../common/empty-state";
-import { AreaEmpty } from "../common/area-empty";
+import { DemoAreaEmpty as AreaEmpty } from "../marketing-sections/closings";
 import { ListClosing } from "../marketing-sections/closings";
 import { PageHeader } from "../common/page-header";
 import { PageGuide } from "../common/page-guide";

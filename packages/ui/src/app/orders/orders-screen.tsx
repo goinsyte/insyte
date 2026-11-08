@@ -1,37 +1,25 @@
-import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { ForwardingList, isForwardView } from "./forwarding";
+import { useRouterState } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Copy, Download, MessageSquare, Plus, Send, Sparkles, AlertTriangle, Tag, Truck, XCircle } from "../../icons";
+import { Plus, Sparkles } from "../../icons";
+import type { ReactElement } from "react";
 import { TagDialog } from "../common/tag-dialog";
 import { isSystemTag, tagLabel } from "../lib/order-tags";
 import { useCallback, useMemo, useState } from "react";
-import { toast } from "sonner";
-import { copyLines, counted, exportCsv, patchMany } from "../lib/bulk";
 import { useSearchCut } from "../filters/use-search-cut";
 import { useOnCreate } from "../stores/create-intent";
-import { useWorkspace } from "../stores/workspace-store";
-import { undoable } from "../lib/undo";
 import { useAskInsyte } from "../shell/ask-insyte-context";
 import { EmptyState } from "../common/empty-state";
 import { AreaEmpty } from "../common/area-empty";
-import { ListClosing } from "../marketing-sections/closings";
-import { OPEN_AS_MODAL } from "../common/detail-shell";
 import { PageHeader } from "../common/page-header";
 import { PageGuide } from "../common/page-guide";
-import { NewOrderDialog } from "./new-order-dialog";
 import { OrderStatusBadge } from "./order-status-badge";
-import {
-	DataTable,
-	type Facet,
-	facetFilter,
-	type RowAction,
-} from "../table/data-table";
-import { useOrders } from "../hooks/use-operator-data";
-import { useStoreScope } from "../stores/access-store";
-import { Gate } from "../access/gate";
+import { DataTable, type Facet, facetFilter } from "../table/data-table";
+import { Blocked } from "../access/blocked";
 import { formatCurrency } from "../lib/format";
+import { isForwardView } from "../lib/forwarding";
 import type { Order } from "../lib/types/domain";
-import { SUPPLIERS, supplierName } from "../lib/order-supplier";
+import { type TeamGate, useOrdersSource } from "./source";
+import { ZONE } from "../lib/format";
 
 /*
  * The screen used to open with four stacked rows before a single order: a title, a sentence of
@@ -40,14 +28,15 @@ import { SUPPLIERS, supplierName } from "../lib/order-supplier";
  *
  * What survived is the one line an operator opens Orders for, beside the heading, and the cuts the
  * tab strip was making — now facets, which compose instead of taking turns.
+ *
+ * Store-free: the orders, what they may become, and the parts that make and forward them come from the host
+ * (`source.tsx`; the design app's `demo-source.tsx`, the console's over `Orders.list`).
  */
 
-const STORES = [
-	"Zenith Tech",
-	"Blue Ocean",
-	"Pinnacle Designs",
-	"TechSphere",
-] as const;
+/** A control the role may not use: disabled, with what is missing, as `Gate` draws it from the host's answer. */
+function GateBy({ gate, children }: { gate: TeamGate; children: ReactElement }) {
+	return gate.ok ? children : <Blocked reason={gate.reason}>{children}</Blocked>;
+}
 
 /* The facet's values are the order's real status, so its counts ARE the data rather than a second
    definition of it kept in agreement by hand. `delayed` is the one derived value: an order at risk
@@ -56,150 +45,18 @@ function cut(o: Order): string {
 	return o.tags.includes("at_risk") ? "delayed" : o.status;
 }
 
-const isClosed = (o: Order) => o.status === "cancelled" || o.status === "refunded";
-const now = () => new Date().toISOString();
-
-/* What the selection bar and its ⌘K menu offer on orders. Each one changes the workspace, and the
-   ones that change a record come back with one Undo for the whole selection. */
-const orderActions = (openTags: (rows: Order[]) => void): ReadonlyArray<RowAction<Order>> => [
-	{
-		id: "tag",
-		needs: { perm: "orders", arg: 2 },
-		label: "Label toevoegen",
-		icon: Tag,
-		group: "Ordenen",
-		shortcut: "g",
-		run: (rows) => openTags([...rows]),
-	},
-	{
-		id: "fulfil",
-		needs: { perm: "orders", arg: 2 },
-		label: "Als afgehandeld markeren",
-		icon: Truck,
-		group: "Afhandeling",
-		shortcut: "f",
-		bar: true,
-		applies: (o) => !isClosed(o) && o.fulfillment_status !== "fulfilled",
-		run: (rows) =>
-			patchMany(
-				"orders",
-				rows.map((o) => o.id),
-				(o) => ({ ...o, status: "shipped", fulfillment_status: "fulfilled", updated_at: now() }),
-				`${counted(rows.length, "bestelling", "bestellingen")} als afgehandeld gemarkeerd`,
-			),
-	},
-	{
-		id: "flag",
-		needs: { perm: "orders", arg: 2 },
-		label: "Als vertraagd markeren",
-		icon: AlertTriangle,
-		group: "Afhandeling",
-		shortcut: "d",
-		bar: true,
-		applies: (o) => !isClosed(o) && !o.tags.includes("at_risk"),
-		run: (rows) =>
-			patchMany(
-				"orders",
-				rows.map((o) => o.id),
-				(o) => ({ ...o, tags: [...o.tags, "at_risk"] }),
-				`${counted(rows.length, "bestelling", "bestellingen")} als vertraagd gemarkeerd`,
-			),
-	},
-	{
-		id: "unflag",
-		needs: { perm: "orders", arg: 2 },
-		label: "Vertraging wissen",
-		icon: AlertTriangle,
-		group: "Afhandeling",
-		applies: (o) => o.tags.includes("at_risk"),
-		run: (rows) =>
-			patchMany(
-				"orders",
-				rows.map((o) => o.id),
-				(o) => ({ ...o, tags: o.tags.filter((t) => t !== "at_risk") }),
-				`Vertraging gewist bij ${counted(rows.length, "bestelling", "bestellingen")}`,
-			),
-	},
-	{
-		id: "tracking",
-		needs: { perm: "orders", arg: 2 },
-		label: "Track & trace-update sturen",
-		icon: Send,
-		group: "Klanten",
-		applies: (o) => o.tracking_number !== undefined && !isClosed(o),
-		// The email itself is simulated; the order keeps a "tracking sent" tag, which the detail shows.
-		run: (rows) =>
-			patchMany(
-				"orders",
-				rows.map((o) => o.id),
-				(o) => ({ ...o, tags: [...o.tags.filter((t) => t !== "tracking_sent"), "tracking_sent"], updated_at: now() }),
-				`Track & trace-update gestuurd naar ${counted(rows.length, "klant", "klanten")}`,
-			),
-	},
-	{
-		id: "follow-up",
-		needs: { perm: "support", arg: 2 },
-		label: "Opvolging voor leverancier opstellen",
-		icon: MessageSquare,
-		group: "Klanten",
-		applies: (o) => !isClosed(o) && o.fulfillment_status !== "fulfilled",
-		run: (rows) => {
-			const { createTicket } = useWorkspace.getState();
-			for (const o of rows)
-				createTicket({
-					title: `Overdrachtsdatum bevestigen voor ${o.number}`,
-					description: `Vraag de leverancier om de overdrachtsdatum en het track & trace-nummer van ${o.number} en laat het daarna ${o.customer_name} weten.`,
-					priority: o.tags.includes("at_risk") ? "high" : "medium",
-					related_entity: { type: "order", id: o.id, label: o.number },
-				});
-			toast(`${counted(rows.length, "ticket", "tickets")} opgesteld op het bord`);
-		},
-	},
-	{
-		id: "copy",
-		label: "Bestelnummers kopiëren",
-		icon: Copy,
-		group: "Exporteren",
-		shortcut: "c",
-		run: (rows) => copyLines(rows.map((o) => o.number), counted(rows.length, "bestelnummer", "bestelnummers")),
-	},
-	{
-		id: "csv",
-		needs: { perm: "data.export" },
-		label: "Exporteren als CSV",
-		icon: Download,
-		group: "Exporteren",
-		run: (rows) =>
-			exportCsv(
-				"bestellingen",
-				["Bestelling", "Klant", "E-mail", "Status", "Totaal", "Geplaatst"],
-				rows.map((o) => [o.number, o.customer_name, o.customer_email, o.status, o.total, o.created_at]),
-			),
-	},
-	{
-		id: "cancel",
-		needs: { perm: "orders", arg: 2 },
-		label: "Bestellingen annuleren",
-		icon: XCircle,
-		group: "Onomkeerbaar",
-		destructive: true,
-		applies: (o) => !isClosed(o) && o.status !== "shipped" && o.status !== "delivered",
-		run: (rows) =>
-			patchMany(
-				"orders",
-				rows.map((o) => o.id),
-				(o) => ({ ...o, status: "cancelled", updated_at: now() }),
-				`${counted(rows.length, "bestelling", "bestellingen")} geannuleerd`,
-			),
-	},
-];
+export const isClosed = (o: Order) => o.status === "cancelled" || o.status === "refunded";
 
 const GUIDE = [
 	{ title: "Al je bestellingen", body: "Bestellingen komen binnen een minuut na een winkelsynchronisatie binnen, met artikelen, klant en leverancier al gekoppeld.", art: "parcel" },
 	{ title: "Labels", body: "Labels zijn van jou, om op te sorteren en te filteren. Vertraagd en Track & trace verstuurd zet Insyte zelf.", art: "rules" },
 ] as const;
 
-const FACETS: ReadonlyArray<Facet> = [
+/** The list's facets: Status from the orders themselves, Winkel and Leverancier from the host. */
+const facetsOf = (
+	stores: ReadonlyArray<{ value: string; label: string }>,
+	suppliers: ReadonlyArray<{ value: string; label: string }>,
+): ReadonlyArray<Facet> => [
 	{
 		id: "cut",
 		label: "Status",
@@ -217,30 +74,33 @@ const FACETS: ReadonlyArray<Facet> = [
 	{
 		id: "store",
 		label: "Winkel",
-		options: STORES.map((s) => ({ value: s, label: s })),
+		options: stores,
 	},
 	{
 		id: "supplier",
 		label: "Leverancier",
-		options: SUPPLIERS.map((s) => ({ value: s, label: s })),
+		options: suppliers,
 	},
 ];
 
 export function OrdersList() {
 	const view = useRouterState({ select: (s) => (s.location.search as Record<string, unknown>).view });
-	return isForwardView(view) ? <ForwardingList key={view} view={view} /> : <AllOrders />;
+	const { Forwarding } = useOrdersSource();
+	return isForwardView(view) && Forwarding ? <Forwarding key={view} view={view} /> : <AllOrders />;
 }
 
 function AllOrders() {
-	const navigate = useNavigate();
 	const ask = useAskInsyte();
-	const { data: allOrders, loading } = useOrders();
-	// A role limited to some stores sees only their orders; the count beside the title follows.
-	const scope = useStoreScope();
-	const orders = useMemo(() => (scope ? allOrders.filter((o) => scope.includes(o.store_id)) : allOrders), [allOrders, scope]);
+	const source = useOrdersSource();
+	const { orders: allOrders, loading, storeName, supplierName, NewOrder, Closing } = source;
+	// The host hands over the orders the role may see: a role limited to some stores sees only theirs.
+	const orders = allOrders as Order[];
 	const [newOpen, setNewOpen] = useState(false);
 	const [tagging, setTagging] = useState<Order[] | null>(null);
-	const actions = useMemo(() => orderActions(setTagging), []);
+	const actions = useMemo(() => source.actions(setTagging), [source.actions]);
+	const facets = useMemo(() => facetsOf(source.stores, source.suppliers), [source.stores, source.suppliers]);
+	// Making a draft order, where the host can: the empty states offer it then.
+	const create = NewOrder === undefined ? undefined : { label: "Nieuwe conceptbestelling", onClick: () => setNewOpen(true) };
 	// Counted from the orders on screen, so the line beside the title is always true.
 	const standing = useMemo(() => {
 		const open = orders.filter((o) => ["placed", "paid", "at_supplier"].includes(o.status)).length;
@@ -249,8 +109,6 @@ function AllOrders() {
 		return `${open} wachten op afhandeling · ${transit} onderweg · ${delayed} vertraagd`;
 	}, [orders]);
 	const knownTags = useMemo(() => [...new Set(orders.flatMap((o) => o.tags).filter((t) => !isSystemTag(t)))], [orders]);
-	const createOrder = useWorkspace((s) => s.createOrder);
-	const removeOrder = useWorkspace((s) => s.removeOrder);
 	useOnCreate("order", useCallback(() => setNewOpen(true), []));
 	useSearchCut("orders", "status", {
 		open: { field: "cut", values: ["placed", "paid", "at_supplier", "delayed"] },
@@ -303,12 +161,12 @@ function AllOrders() {
 			},
 			{
 				id: "items",
-				accessorFn: (o) => o.line_items.length,
+				accessorFn: (o) => o.line_count ?? o.line_items.length,
 				header: "Artikelen",
 				size: 64,
 				cell: (c) => (
 					<span className="tabular-nums">
-						{c.row.original.line_items.length}
+						{c.row.original.line_count ?? c.row.original.line_items.length}
 					</span>
 				),
 			},
@@ -357,7 +215,7 @@ function AllOrders() {
 				),
 			},
 		],
-		[],
+		[storeName, supplierName],
 	);
 
 	return (
@@ -366,7 +224,7 @@ function AllOrders() {
 				title="Bestellingen"
 				meta={standing}
 				actions={
-					<Gate perm="orders" arg={2}>
+					<GateBy gate={source.canCreate}>
 						<button
 							type="button"
 							onClick={() => setNewOpen(true)}
@@ -375,32 +233,26 @@ function AllOrders() {
 							<Plus className="size-3.5" strokeWidth={2} />
 							Nieuwe bestelling
 						</button>
-					</Gate>
+					</GateBy>
 				}
 			/>
 
 			<div className="min-w-0 px-5 pb-6">
 				{!loading && allOrders.length === 0 ? (
-					<AreaEmpty area="orders" action={{ label: "Nieuwe conceptbestelling", onClick: () => setNewOpen(true) }} />
+					<AreaEmpty area="orders" action={create} starts={source.starts} />
 				) : (
 					<DataTable
 						columns={columns}
 						data={orders}
 						loading={loading}
-						facets={FACETS}
+						facets={facets}
 						actions={actions}
 						initialVisibility={{ tags: false }}
 						noun={["order", "orders"]}
 						getRowId={(o) => o.id}
 						searchPlaceholder="Bestellingen zoeken"
 						initialSorting={[{ id: "placed", desc: true }]}
-						onRowClick={(o) =>
-							navigate({
-								to: "/orders/$orderId",
-								params: { orderId: o.id },
-								state: OPEN_AS_MODAL,
-							})
-						}
+						onRowClick={source.open}
 						toolbarEnd={
 							<button
 								type="button"
@@ -416,16 +268,13 @@ function AllOrders() {
 								kind="orders"
 								title="Geen bestellingen voor deze filters."
 								body="Pas de filters aan of wis ze."
-								action={{
-									label: "Nieuwe conceptbestelling",
-									onClick: () => setNewOpen(true),
-								}}
+								action={create}
 							/>
 						}
 					/>
 				)}
 			</div>
-			<ListClosing area="orders" empty={allOrders.length === 0} />
+			{Closing ? <Closing empty={allOrders.length === 0} /> : null}
 
 			<TagDialog
 				open={tagging !== null}
@@ -434,45 +283,12 @@ function AllOrders() {
 				known={knownTags}
 				noun={["bestelling", "bestellingen"]}
 				description="Labels zijn van jou, om op te sorteren en te filteren. Vertraagd en Track & trace verstuurd zet Insyte zelf en die blijven staan."
-				onApply={(tags, mode) => {
-					const n = tagging?.length ?? 0;
-					patchMany(
-						"orders",
-						(tagging ?? []).map((o) => o.id),
-						(o) => ({
-							...o,
-							tags: mode === "add" ? [...new Set([...o.tags, ...tags])] : o.tags.filter((t) => !tags.includes(t)),
-							updated_at: now(),
-						}),
-						`${tags.length === 1 ? `“${tags[0]}”` : `${tags.length} labels`} ${mode === "add" ? "toegevoegd aan" : "verwijderd van"} ${counted(n, "bestelling", "bestellingen")}`,
-					);
-				}}
+				onApply={(tags, mode) => source.applyTags?.(tagging ?? [], tags, mode)}
 			/>
-			<NewOrderDialog
-				open={newOpen}
-				onOpenChange={setNewOpen}
-				onCreate={(input) => {
-					const order = createOrder(input);
-					undoable(`Conceptbestelling ${order.number} aangemaakt`, () => removeOrder(order.id));
-					navigate({ to: "/orders/$orderId", params: { orderId: order.id }, state: OPEN_AS_MODAL });
-				}}
-			/>
+			{NewOrder ? <NewOrder open={newOpen} onOpenChange={setNewOpen} /> : null}
 			<PageGuide id="orders.list" title="Bestellingen" steps={GUIDE} />
 		</div>
 	);
-}
-
-function storeName(id: string) {
-	switch (id) {
-		case "store_us":
-			return "Zenith Tech";
-		case "store_eu":
-			return "Blue Ocean";
-		case "store_uk":
-			return "Pinnacle Designs";
-		default:
-			return "TechSphere";
-	}
 }
 
 function formatPlacedAt(iso: string) {
@@ -483,5 +299,6 @@ function formatPlacedAt(iso: string) {
 		hour: "2-digit",
 		minute: "2-digit",
 		hour12: false,
+		timeZone: ZONE
 	}).format(d);
 }

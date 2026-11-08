@@ -1,12 +1,17 @@
 import { useNavigate } from "@tanstack/react-router";
+import type { IndexItem } from "../marketing-sections/link-index";
 import { EmptyPage } from "./empty-page";
 import type { EmptyKind } from "./empty-icon";
-import { type Area, useListStarts } from "../marketing-sections/closings";
+
+export type Area = "orders" | "customers" | "products" | "tickets" | "chargebacks" | "suppliers";
 
 /**
  * A list on the first day: the area's `EmptyPage`, worded for the area, with the list's own closing
  * rows as the places to start. The page passes its own primary action (the button that adds a
  * record there); the secondary is where the records will come from.
+ *
+ * Store-free: the places to start are the host's (`starts`); the design app's lists read them from the
+ * closings (`DemoAreaEmpty` in `marketing-sections/closings.tsx`), the console has none yet.
  */
 
 const COPY: Record<Area, { kind: EmptyKind; noun: string; title: string; body: string; source: { label: string; to: string } }> = {
@@ -54,9 +59,16 @@ const COPY: Record<Area, { kind: EmptyKind; noun: string; title: string; body: s
 	},
 };
 
-export function AreaEmpty({ area, action, onInvite }: { area: Area; action?: { label: string; onClick: () => void }; onInvite?: () => void }) {
+export function AreaEmpty({
+	area,
+	action,
+	starts,
+}: {
+	area: Area;
+	action?: { label: string; onClick: () => void } | undefined;
+	starts?: IndexItem[] | undefined;
+}) {
 	const navigate = useNavigate();
-	const starts = useListStarts(area, onInvite);
 	const c = COPY[area];
 	const source = { label: c.source.label, onClick: () => void navigate({ to: c.source.to }) };
 	return (
