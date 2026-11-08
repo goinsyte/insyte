@@ -90,6 +90,14 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
     case "access.decided":
       // Notifications are their business (M5); the product events do not count them.
       return undefined
+    case "store.connected":
+      return {
+        outboxId: id,
+        event: "store_connected",
+        distinctId: event.userId,
+        groups: { workspace: event.workspaceId },
+        properties: { platform: "shopify" }
+      }
     case "records.changed":
       return undefined
   }

@@ -2,6 +2,7 @@ import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
+import { StoresRpcs } from "@insyte/api/rpc/StoresRpcs"
 import { Exit } from "effect"
 import { beforeAll, describe, expect, it } from "vitest"
 import expected from "./authz.expected.json" with { type: "json" }
@@ -65,14 +66,18 @@ const PAYLOADS: Record<string, unknown> = {
   "ApiKeys.endGrace": { id: "key_none" },
   "ApiKeys.revoke": { id: "key_none" },
   "ApiKeys.restore": { id: "key_none" },
-  "ApiKeys.endpoints": undefined
+  "ApiKeys.endpoints": undefined,
+  "Stores.list": undefined,
+  "Stores.beginConnect": { shopDomain: "missing-shop", returnPath: "/" },
+  "Stores.disconnect": { id: "sto_none" }
 }
 
 const manifest = [
   ...MembersRpcs.requests.keys(),
   ...AccessRpcs.requests.keys(),
   ...RolesRpcs.requests.keys(),
-  ...DeveloperRpcs.requests.keys()
+  ...DeveloperRpcs.requests.keys(),
+  ...StoresRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

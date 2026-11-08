@@ -38,6 +38,7 @@
         "@insyte/integrations-better-auth": "workspace:*",
         "@insyte/integrations-posthog": "workspace:*",
         "@insyte/integrations-resend": "workspace:*",
+        "@insyte/integrations-shopify": "workspace:*",
         "@insyte/integrations-turnstile": "workspace:*",
         "@insyte/modules": "workspace:*",
         "effect": "catalog:",
@@ -193,6 +194,14 @@
       "dependencies": {
         "@insyte/modules": "workspace:*",
         "@insyte/tokens": "workspace:*",
+        "effect": "catalog:",
+      },
+    },
+    "packages/integrations/shopify": {
+      "name": "@insyte/integrations-shopify",
+      "version": "0.0.0",
+      "dependencies": {
+        "@insyte/modules": "workspace:*",
         "effect": "catalog:",
       },
     },
@@ -636,6 +645,8 @@
     "@insyte/integrations-posthog": ["@insyte/integrations-posthog@workspace:packages/integrations/posthog"],
 
     "@insyte/integrations-resend": ["@insyte/integrations-resend@workspace:packages/integrations/resend"],
+
+    "@insyte/integrations-shopify": ["@insyte/integrations-shopify@workspace:packages/integrations/shopify"],
 
     "@insyte/integrations-turnstile": ["@insyte/integrations-turnstile@workspace:packages/integrations/turnstile"],
 

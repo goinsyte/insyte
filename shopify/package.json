@@ -1,0 +1,6 @@
+{
+  "name": "@insyte/shopify-app",
+  "private": true,
+  "version": "0.0.0",
+  "description": "The Shopify app's configuration (shopify.app.toml): pushed with `shopify app deploy --path shopify`."
+}

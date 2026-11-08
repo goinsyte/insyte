@@ -1,0 +1,59 @@
+# The Insyte Shopify app (integrations.md §2, M6): public, unlisted, not embedded. This file is the app's
+# configuration; push it with `shopify app deploy --path shopify` (the Shopify CLI, signed in to the app's org).
+# Staging for now; production gets its own app config when it goes live.
+
+# Copy this file to `shopify.app.toml` (git-ignored) and paste the app's Client ID (Dev Dashboard → your app →
+# Settings) below. Never put the client secret in it: that lives in `.env.local` and the GitHub environments.
+client_id = ""
+name = "Insyte"
+application_url = "https://insyte-console-staging.ishak-73d.workers.dev"
+embedded = false
+
+[access_scopes]
+# What the console reads now (step 8) and writes from step 9, asked once so a store approves the app once.
+# `read_all_orders` (history past 60 days) needs Shopify's approval first and joins before production.
+scopes = "read_orders,write_orders,read_customers,write_customers,read_products,write_products,read_inventory,write_inventory,read_locations,read_fulfillments,write_merchant_managed_fulfillment_orders,read_returns,write_draft_orders,write_discounts"
+
+[auth]
+# Where Shopify sends the operator back after they approve the app: the console's own origin, per stage.
+redirect_urls = [
+  "http://localhost:4300/api/connect/shopify/callback",
+  "https://insyte-console-staging.ishak-73d.workers.dev/api/connect/shopify/callback"
+]
+
+[webhooks]
+api_version = "2026-10"
+
+  # App-specific subscriptions, so Shopify keeps them through failures. Delivered to the API's public host (not behind
+  # Access), verified by HMAC before anything is read.
+  [[webhooks.subscriptions]]
+  topics = [
+    "orders/create",
+    "orders/updated",
+    "orders/paid",
+    "orders/cancelled",
+    "orders/edited",
+    "fulfillments/create",
+    "fulfillments/update",
+    "refunds/create",
+    "products/create",
+    "products/update",
+    "products/delete",
+    "inventory_levels/update",
+    "customers/create",
+    "customers/update",
+    "customers/delete",
+    "draft_orders/update",
+    "app/uninstalled",
+    "shop/update",
+    "bulk_operations/finish"
+  ]
+  uri = "https://insyte-api-staging.ishak-73d.workers.dev/hooks/shopify"
+
+  # Shopify's privacy webhooks, required for every public app.
+  [[webhooks.subscriptions]]
+  compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+  uri = "https://insyte-api-staging.ishak-73d.workers.dev/hooks/shopify"
+
+[pos]
+embedded = false

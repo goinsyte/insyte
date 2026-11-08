@@ -19,6 +19,7 @@
     { "path": "./packages/integrations/better-auth" },
     { "path": "./packages/integrations/turnstile" },
     { "path": "./packages/integrations/resend" },
+    { "path": "./packages/integrations/shopify" },
     { "path": "./packages/integrations/posthog" },
     { "path": "./packages/tokens" },
     { "path": "./packages/ui" }

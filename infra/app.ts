@@ -102,6 +102,22 @@ export default Alchemy.Stack(
       : {}
 
     /*
+     * Shopify (M6.2), on staging and production once their GitHub environment has the app's client (the id a variable,
+     * the secret a secret) and the sealer's keyring, `SEAL_KEYS`: a store's token is never stored unsealed, so without
+     * the keys the stage says it cannot connect a store yet. Previews never: the app lists one redirect URL per stage
+     * (`shopify/shopify.app.toml`), not one per PR.
+     */
+    const sealKeys = environment === "preview"
+      ? Option.none()
+      : yield* Config.Redacted("SEAL_KEYS").pipe(Config.option)
+    const shopifyClientId = yield* Config.String("SHOPIFY_CLIENT_ID").pipe(Config.withDefault(""))
+    const shopifyClientSecret = yield* Config.Redacted("SHOPIFY_CLIENT_SECRET").pipe(Config.option)
+    const seal = Option.isSome(sealKeys) ? { SEAL_KEYS: sealKeys.value } : {}
+    const shopify = Option.isSome(sealKeys) && shopifyClientId !== "" && Option.isSome(shopifyClientSecret)
+      ? { SHOPIFY_CLIENT_ID: shopifyClientId, SHOPIFY_CLIENT_SECRET: shopifyClientSecret.value }
+      : {}
+
+    /*
      * Mail (02 §5.1): previews always capture (the browser tests read the links back); staging and production send
      * through Resend once their environment says `MAIL_ADAPTER=resend` and has the key (the domain must be verified in
      * Resend first), and capture until then.
@@ -166,6 +182,8 @@ export default Alchemy.Stack(
         // Previews sit behind Access, and their browser tests all come from one CI runner: no limits per IP there.
         IP_LIMITS: environment === "preview" ? "off" : "on",
         ...google,
+        ...seal,
+        ...shopify,
         ...mail,
         // An unset GitHub variable arrives empty, not missing: empty means the default.
         MAIL_FROM: (yield* Config.String("MAIL_FROM").pipe(Config.withDefault(""))) ||

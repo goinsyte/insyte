@@ -7,6 +7,7 @@ import { NotificationsService } from "@insyte/modules/notifications/Notification
 import { Onboarding } from "@insyte/modules/onboarding/Onboarding"
 import { PrefsService } from "@insyte/modules/prefs/PrefsService"
 import { RolesService } from "@insyte/modules/roles/RolesService"
+import { StoresService } from "@insyte/modules/stores/Stores"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Layer } from "effect"
 import { RpcSerialization } from "effect/rpc"
@@ -20,6 +21,7 @@ import { PrefsHandlers } from "./handlers/prefs.ts"
 import { RolesHandlers } from "./handlers/roles.ts"
 import { SessionHandlers } from "./handlers/session.ts"
 import { ShellHandlers } from "./handlers/shell.ts"
+import { StoresHandlers } from "./handlers/stores.ts"
 import { SystemHandlers } from "./handlers/system.ts"
 import { RpcHttp } from "./RpcHttp.ts"
 
@@ -44,6 +46,7 @@ export const RpcContext = Layer.mergeAll(
   DeveloperHandlers.pipe(Layer.provide(ApiKeys.layer)),
   PrefsHandlers.pipe(Layer.provide(PrefsService.layer)),
   NotificationsHandlers.pipe(Layer.provide(NotificationsService.layer)),
+  StoresHandlers.pipe(Layer.provide(StoresService.layer)),
   ShellHandlers.pipe(
     Layer.provide(Layer.mergeAll(Members.layer, NotificationsService.layer, PrefsService.layer, Workspaces.layer))
   )

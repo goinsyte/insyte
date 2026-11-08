@@ -23,6 +23,15 @@ declare global {
        * no request carries but a test's.
        */
       readonly PUBLIC_API_HOST?: string
+      /** The Shopify app (M6.2): its client id (a var) and secret; without both, stores can only be connected later. */
+      readonly SHOPIFY_CLIENT_ID?: string
+      readonly SHOPIFY_CLIENT_SECRET?: string
+      /** The Admin API version, `2026-10` by default (integrations.md §2). */
+      readonly SHOPIFY_API_VERSION?: string
+      /** `recorded`: Shopify's recorded twin answers (the worker tests). Anything else, or absent, is Shopify. */
+      readonly SHOPIFY_ADAPTER?: string
+      /** A secret: the sealer's keyring, comma-separated base64 keys, newest first (integrations.md §1.2). */
+      readonly SEAL_KEYS?: string
       /** The console's origin: better-auth's baseURL, cookies and links in mail (18 §2). */
       readonly CONSOLE_ORIGIN: string
       /** A secret: signs better-auth's cookies and tokens. Absent locally (a fixed development value stands in). */

@@ -3,12 +3,17 @@ import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
 import { PwnedPasswords } from "@insyte/integrations-better-auth/PwnedPasswords"
 import { PostHogAnalytics } from "@insyte/integrations-posthog/PostHog"
 import { ResendMailer } from "@insyte/integrations-resend/ResendMailer"
+import { ShopifyAdminLive } from "@insyte/integrations-shopify/ShopifyAdmin"
+import { ShopifyRecorded } from "@insyte/integrations-shopify/ShopifyRecorded"
 import type { Mailer } from "@insyte/modules/shared/domain/Mailer"
 import type { ProductAnalytics } from "@insyte/modules/shared/domain/ProductAnalytics"
+import type { ShopifyAdmin } from "@insyte/modules/stores/domain/Ports"
+import { StoresService } from "@insyte/modules/stores/Stores"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Config, Effect, Layer, Option, Scheduler } from "effect"
 import { FetchHttpClient, type HttpClient, HttpServer } from "effect/http"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
+import { ConnectRoutes } from "../transports/http/ConnectRoutes.ts"
 import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
 import { RealtimeRoutes } from "../transports/http/RealtimeRoutes.ts"
@@ -34,6 +39,7 @@ import { ObservabilityLive } from "./Observability.ts"
 import { ProductAnalyticsCapture } from "./ProductAnalyticsCapture.ts"
 import { RateLimits } from "./RateLimits.ts"
 import { RelayLive } from "./Relay.ts"
+import { SealerLive } from "./Seal.ts"
 
 /*
  * The composition root (16 §5): every implementation is chosen here, and the layer is built once per isolate. Nothing
@@ -47,6 +53,7 @@ const Transports = Layer.mergeAll(
   DevRoutes,
   RpcRoutes,
   RealtimeRoutes,
+  ConnectRoutes,
   PublicApiRoutes,
   McpRoutes,
   RequestContext,
@@ -77,6 +84,15 @@ const ProductAnalyticsLive = Layer.unwrap(
   )
 )
 
+/** Shopify (M6.2): its recorded twin where the stage says `SHOPIFY_ADAPTER=recorded` (the worker tests), else the API. */
+const ShopifyAdminChoice = Layer.unwrap(
+  Effect.map(
+    Config.String("SHOPIFY_ADAPTER").pipe(Config.withDefault("shopify")),
+    (adapter): Layer.Layer<ShopifyAdmin, Config.ConfigError, HttpClient.HttpClient> =>
+      adapter === "recorded" ? ShopifyRecorded : ShopifyAdminLive
+  )
+)
+
 /** The breached-password check asks HIBP from deployed stages only, so local runs and the worker tests stay offline. */
 const PwnedPasswordsLive = Layer.unwrap(
   Effect.map(
@@ -88,7 +104,7 @@ const PwnedPasswordsLive = Layer.unwrap(
 
 export const AppLayer = Transports.pipe(
   // The RPC handlers; the public API's and the MCP server's way in, and what a key reads (M19.2, M19.3).
-  Layer.provideMerge(Layer.mergeAll(RpcContext, KeyDoor.layer, Resources.layer)),
+  Layer.provideMerge(Layer.mergeAll(RpcContext, KeyDoor.layer, Resources.layer, StoresService.layer)),
   Layer.provideMerge(WithDbLive),
   Layer.provideMerge(AuthenticatedLive),
   Layer.provideMerge(ViewerLive),
@@ -96,7 +112,8 @@ export const AppLayer = Transports.pipe(
   // Committed events onto the queue, after commit (the outbox relay's kick).
   Layer.provideMerge(RelayLive),
   // What the server's secret keys: invitation links and API keys.
-  Layer.provideMerge(Layer.mergeAll(InvitationLinksLive, KeyHasherLive)),
+  // …and the sealer for external accounts' tokens, beside Shopify (M6.2).
+  Layer.provideMerge(Layer.mergeAll(InvitationLinksLive, KeyHasherLive, SealerLive, ShopifyAdminChoice)),
   // better-auth, built per request by the auth routes and the session check, over the app's hooks.
   Layer.provideMerge(BetterAuth.layer),
   Layer.provideMerge(AuthHooksLive),
