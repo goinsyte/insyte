@@ -55,16 +55,43 @@ async function run<A>(write: Promise<Exit.Exit<A, unknown>>): Promise<A | undefi
   return undefined
 }
 
+/** Why a connection came back without a store, as the callback names it. */
+const NOT_CONNECTED: Record<string, { title: string; description: string }> = {
+  elsewhere: {
+    title: "Deze winkel hangt aan een andere werkruimte",
+    description: "Ontkoppel hem daar eerst, dan kun je hem hier koppelen."
+  },
+  shop: { title: "Shopify gaf een andere winkel terug", description: "Probeer het opnieuw met hetzelfde adres." }
+}
+const FAILED = { title: "Koppelen is niet gelukt", description: "Probeer het opnieuw." }
+
+/** Says, once, why Shopify's way back brought no store. */
+export const notConnected = (error: string) => {
+  const said = NOT_CONNECTED[error] ?? FAILED
+  toast.error(said.title, { description: said.description })
+}
+
+/**
+ * Sends the browser to Shopify's approval page for `domain`, coming back to `returnPath`; resolves only when it could
+ * not (and said why).
+ */
+export function useBeginConnect(returnPath: string) {
+  const begin = useAtomSet(storeWrites.beginConnect, { mode: "promiseExit" })
+  return async (domain: string): Promise<void> => {
+    const started = await run(begin({ payload: { shopDomain: domain, returnPath } }))
+    if (started !== undefined) window.location.assign(started.authorizeUrl)
+  }
+}
+
 /** The dialog in the console: approving sends the browser to Shopify; a refusal stays and says why. */
 function ConsoleConnectStore(props: ConnectStoreProps) {
-  const begin = useAtomSet(storeWrites.beginConnect, { mode: "promiseExit" })
+  const begin = useBeginConnect(RETURN)
   return (
     <ConnectStoreFlow
       {...props}
       handoff
       connect={async (domain) => {
-        const started = await run(begin({ payload: { shopDomain: domain, returnPath: RETURN } }))
-        if (started !== undefined) window.location.assign(started.authorizeUrl)
+        await begin(domain)
         return undefined
       }}
     />

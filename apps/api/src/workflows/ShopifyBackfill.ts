@@ -54,7 +54,9 @@ export class ShopifyBackfillWorkflow extends WorkflowEntrypoint<Cloudflare.Env, 
     const progress = (label: JobProgress["label"], counts: MirrorCounts) =>
       roomOf(workspaceId).broadcast({ v: 1, type: "job.progress", kind: "store_backfill", storeId, label, counts })
 
-    const ctx: BackfillContext = await step.do("prepare", RETRY, () => exec(prepare(storeId)))
+    const ctx: BackfillContext | null = await step.do("prepare", RETRY, () => exec(prepare(storeId)))
+    // Disconnected before the import began: nothing to read.
+    if (ctx === null) return null
     try {
       for (const resource of RESOURCES) await this.#resource(step, exec, progress, ctx, resource)
       const done = await step.do("finish", RETRY, () => exec(finish(ctx)))

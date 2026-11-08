@@ -2,8 +2,8 @@ import { RECORDED_COUNTS } from "@insyte/integrations-shopify/RecordedBulk"
 import { introspectWorkflow, introspectWorkflowInstance } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
-import { ok, person, relay, run } from "./journeys.ts"
-import { call, rpc, sessionMe } from "./support.ts"
+import { failure, ok, person, relay, run } from "./journeys.ts"
+import { call, onboarding, rpc, sessionMe } from "./support.ts"
 
 /*
  * A store's first import (step 8.2, M6.3), against Shopify's recorded twin read four lines a page: connecting starts
@@ -92,6 +92,42 @@ describe("a store's first import", () => {
     await env.SHOPIFY_BACKFILL.create({ id, params: { workspaceId: owner.workspace, storeId: owner.storeId } })
     await instance.waitForStatus("complete")
     expect(ok(await rpc("Stores.syncStatus", { id: owner.storeId }, owner.cookie)).counts).toEqual(EXPECTED)
+  })
+
+  it("takes onboarding from the store step through sync to ready, each fact checked on the server", async () => {
+    await using workflows = await introspectWorkflow(env.SHOPIFY_BACKFILL)
+    await workflows.modifyAll(async (m) => {
+      await m.disableSleeps()
+    })
+    const founder = await person(`backfill-onboarding`, "Onboarding B.V.")
+    ok(await onboarding.advance({ step: "plan", plan: "growth", cycle: "monthly" }, founder.cookie))
+    // No store yet: "connected" is not taken on the console's word.
+    expect(failure(await onboarding.advance({ step: "store", choice: "connected" }, founder.cookie))).toMatchObject({
+      _tag: "StepNotReady",
+      missing: "store"
+    })
+    const workspace = ok(await sessionMe(founder.cookie)).principals[0]!.workspaceId
+    const shop = `bf-onboarding-${run}.myshopify.com`
+    const { authorizeUrl } = ok(
+      await rpc("Stores.beginConnect", { shopDomain: shop, returnPath: "/onboarding" }, founder.cookie)
+    )
+    const state = new URL(authorizeUrl).searchParams.get("state")!
+    const landed = await back(founder.cookie, { code: "abc", shop, state, hmac: "valid", timestamp: "1" })
+    expect(landed.pathname).toBe("/onboarding")
+    expect(ok(await onboarding.advance({ step: "store", choice: "connected" }, founder.cookie))).toMatchObject({
+      step: "sync",
+      answers: { store: "connected" }
+    })
+    // The import is not in yet.
+    expect(failure(await onboarding.advance({ step: "sync" }, founder.cookie))).toMatchObject({
+      _tag: "StepNotReady",
+      missing: "import"
+    })
+    await relay(workspace)
+    const [instance] = await workflows.get()
+    await instance!.waitForStatus("complete")
+    expect(ok(await onboarding.advance({ step: "sync" }, founder.cookie))).toMatchObject({ step: "ready" })
+    expect(ok(await onboarding.start(founder.cookie)).done).toContain("store")
   })
 
   it("refreshes a lapsing token once, however many ask", async () => {

@@ -1,4 +1,4 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react"
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { AdvanceInput } from "@insyte/modules/onboarding/domain/Onboarding"
 import { authClient } from "@insyte/ui/app/lib/auth-client"
 import { fieldCopy } from "@insyte/ui/app/lib/errors"
@@ -7,12 +7,17 @@ import { search } from "@insyte/ui/app/onboarding/onboarding-search"
 import { OnboardingShell, type StepDef } from "@insyte/ui/app/onboarding/onboarding-shell"
 import { type NewWorkspace, organizationStep } from "@insyte/ui/app/onboarding/organization-step"
 import { sharedHeadSteps } from "@insyte/ui/app/onboarding/shared-steps"
+import { SyncProgress, type SyncRowData, syncStep } from "@insyte/ui/app/onboarding/sync-progress"
 import { useOnboardingState } from "@insyte/ui/app/onboarding/use-onboarding-state"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { Cause, Effect, Exit, Option } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
+import { toast } from "sonner"
 import { advanceOnboardingAtom, ONBOARDING, onboardingMeAtom } from "../../data/onboarding.ts"
+import { storesAtom, syncStatusAtom } from "../../data/stores.ts"
+import { LiveUpdates } from "../../realtime/live-updates.tsx"
+import { notConnected, useBeginConnect } from "../../stores/stores-source.tsx"
 
 /**
  * Onboarding (step 2, M4.1): the design reference's shell and steps, with the progress on the server. The loader reads
@@ -21,8 +26,10 @@ import { advanceOnboardingAtom, ONBOARDING, onboardingMeAtom } from "../../data/
  * on `?step=2`, signed in.
  *
  * Built so far: the shared head and the admin track up to ready (organisation founds the workspace, plan starts the
- * trial, the store is left for Start until M6), which lands on Start. Sync, analysis and offline follow a connected
- * store (M6, M15); the partner tracks say they are not available yet (11 §7.3). A finished person is sent to Start.
+ * trial, the store connects through Shopify or waits on Start), which lands on Start. Shopify's way back is
+ * `?connected=shopify` (the store step is then recorded as connected) or `?error=`; the sync step shows the first
+ * import as it lands, live. Analysis and offline follow (M6.5, M15); the partner tracks say they are not available yet
+ * (11 §7.3). A finished person is sent to Start.
  */
 export const Route = createFileRoute("/onboarding/")({
   validateSearch: search,
@@ -32,17 +39,60 @@ export const Route = createFileRoute("/onboarding/")({
     context.registry.mount(onboardingMeAtom)
     const me = await Effect.runPromise(Effect.option(AtomRegistry.getResult(context.registry, onboardingMeAtom)))
     if (Option.isSome(me) && me.value.completed) throw redirect({ to: "/dashboard" })
+    // The sync step reads the store it imports: in the document too.
+    if (Option.isSome(me) && me.value.step === "sync") {
+      context.registry.mount(storesAtom)
+      await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, storesAtom)))
+    }
   },
   component: ConsoleOnboarding
 })
 
-/** Sync, analysis and offline follow a connected store (M6, M15); skipping the store never reaches them. */
-const AFTER_A_STORE = (["sync", "analysis", "offline"] as const).map((id): StepDef => ({
+/** Analysis and offline follow the import (M6.5, M15); until they are built, an imported store goes on to ready. */
+const AFTER_THE_IMPORT = (["analysis", "offline"] as const).map((id): StepDef => ({
   id,
   title: "Deze stap volgt zodra je winkel is gekoppeld.",
   hidePrimary: true,
   content: null
 }))
+
+const SYNC_LABELS = [
+  { id: "products", label: "Producten" },
+  { id: "customers", label: "Klanten" },
+  { id: "orders", label: "Bestellingen" }
+] as const
+
+/** The workspace's store being imported, or "no store" (the reference's own copy for that). */
+function ConsoleSync() {
+  const stores = Option.getOrUndefined(AsyncResult.value(useAtomValue(storesAtom))) ?? []
+  const store = stores.find((s) => s.status !== "disconnected")
+  if (store === undefined) return <SyncProgress connected={false} rows={[]} />
+  return <SyncOf storeId={store.id} />
+}
+
+/** The mirror's counts as they land: every page's frame refetches them, and a slow poll covers a lost socket. */
+function SyncOf({ storeId }: { storeId: string }) {
+  const status = Option.getOrUndefined(AsyncResult.value(useAtomValue(syncStatusAtom(storeId))))
+  const refresh = useAtomRefresh(syncStatusAtom(storeId))
+  const done = status?.lastSyncedAt !== null && status?.lastSyncedAt !== undefined
+  useEffect(() => {
+    if (done) return
+    const timer = setInterval(refresh, 4000)
+    return () => clearInterval(timer)
+  }, [done, refresh])
+  const rows: Array<SyncRowData> = SYNC_LABELS.map((r, i) => ({
+    ...r,
+    to: status?.counts[r.id] ?? 0,
+    delay: i * 250,
+    done: done || status?.resources.find((x) => x.resource === r.id)?.phase === "done"
+  }))
+  return (
+    <>
+      <LiveUpdates />
+      <SyncProgress connected rows={rows} live />
+    </>
+  )
+}
 
 const NOT_YET: StepDef = {
   id: "next",
@@ -53,7 +103,9 @@ const NOT_YET: StepDef = {
 }
 
 function ConsoleOnboarding() {
-  const { step } = Route.useSearch()
+  const { step, connected, error } = Route.useSearch()
+  // Shopify's way back, as the page arrived: the address is rewritten to the step at once.
+  const arrival = useRef({ connected, error })
   const navigate = Route.useNavigate()
   const me = useAtomValue(onboardingMeAtom)
   const server = AsyncResult.isSuccess(me) ? me.value : undefined
@@ -99,6 +151,20 @@ function ConsoleOnboarding() {
     state.setStepIndex(exit.value.index)
     return exit.value
   }
+  const beginConnect = useBeginConnect("/onboarding")
+
+  // Back from Shopify: a connected store is the store step's answer; a refusal is said once.
+  useEffect(() => {
+    if (server === undefined) return
+    const { connected: back, error: refused } = arrival.current
+    arrival.current = { connected: undefined, error: undefined }
+    if (refused !== undefined) notConnected(refused)
+    else if (back !== undefined && server.step === "store") {
+      void finish({ step: "store", choice: "connected" }).catch((e: Error) => toast.error(e.message))
+    }
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
+  }, [server === undefined])
+
   const { data, patch, next } = state
   const tail = state.persona === null
     ? []
@@ -119,9 +185,28 @@ function ConsoleOnboarding() {
         next,
         onSkip: async () => {
           await finish({ step: "store", choice: "later" })
-        }
+        },
+        onConnect: beginConnect
       }),
-      ...AFTER_A_STORE,
+      {
+        ...syncStep({
+          connected: true,
+          rows: [],
+          canContinue: true,
+          onPrimary: async () => {
+            const exit = await advance({ payload: { step: "sync" }, reactivityKeys: ONBOARDING })
+            if (Exit.isSuccess(exit)) return state.setStepIndex(exit.value.index)
+            const failure = Cause.findErrorOption(exit.cause)
+            throw new Error(
+              failure._tag === "Some" && failure.value._tag === "StepNotReady"
+                ? "De eerste import is nog bezig. Nog even geduld."
+                : "Dit kon niet worden opgeslagen. Probeer het opnieuw."
+            )
+          }
+        }),
+        content: <ConsoleSync />
+      },
+      ...AFTER_THE_IMPORT,
       readyStep({
         data,
         finish: () => undefined,

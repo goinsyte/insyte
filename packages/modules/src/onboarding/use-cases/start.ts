@@ -7,8 +7,8 @@ import { loadProgress } from "./progress.ts"
 
 /*
  * Start's first-run page (M4.1): the workspace onboarding founded and how far its setup is, read inside it as the
- * person. `team` is done once someone else has joined; a store (M6) and an inbox (M11) are not connectable yet, so those
- * two stay open. The rest are the operator's word, in `setup_tasks`.
+ * person. `team` is done once someone else has joined, `store` once a store is connected (M6.2); an inbox (M11) is not
+ * connectable yet, so it stays open. The rest are the operator's word, in `setup_tasks`.
  */
 
 /** The workspace this person's onboarding founded; only someone past the organisation step has one. */
@@ -29,7 +29,10 @@ export const start = Effect.fn("Onboarding.start")(function*() {
         from workspaces w where w.id = ${workspaceId}`
       const ticked = yield* sql<{ task: SetupTask }>`
         select task from setup_tasks where done_at is not null and dismissed_at is null`
+      const [store] = yield* sql<{ connected: boolean }>`
+        select exists (select 1 from stores where status <> 'disconnected') as connected`
       const done: Array<SetupTask> = Number(workspace?.members ?? 0) > 1 ? ["team"] : []
+      if (store?.connected === true) done.push("store")
       for (const { task } of ticked) if (task !== "store" && task !== "inbox" && task !== "team") done.push(task)
       return new StartChecklist({ workspaceName: workspace?.name ?? "", done })
     })

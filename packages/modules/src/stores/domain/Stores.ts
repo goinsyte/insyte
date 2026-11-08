@@ -44,7 +44,9 @@ export class ShopNotFound extends Schema.TaggedError<ShopNotFound>()("ShopNotFou
 
 /** The shop is connected to another workspace; it is never moved silently. */
 export class StoreConnectedElsewhere extends Schema.TaggedError<StoreConnectedElsewhere>()("StoreConnectedElsewhere", {
-  shopDomain: Schema.String
+  shopDomain: Schema.String,
+  /** Where the flow began, to say it there. */
+  returnPath: Schema.optional(Schema.String)
 }) {}
 
 /** This stage has no Shopify app (no client id and secret): stores can only be connected later. */
@@ -52,7 +54,9 @@ export class ShopifyUnavailable extends Schema.TaggedError<ShopifyUnavailable>()
 
 /** The callback could not be trusted or completed: the state was unknown, used or late, or Shopify said no. */
 export class ConnectFailed extends Schema.TaggedError<ConnectFailed>()("ConnectFailed", {
-  reason: Schema.Literals(["signature", "state", "shop", "exchange"])
+  reason: Schema.Literals(["signature", "state", "shop", "exchange"]),
+  /** Where the flow began, once the state was found; an unknown state has none. */
+  returnPath: Schema.optional(Schema.String)
 }) {}
 
 /** Normalise what was typed to `<handle>.myshopify.com`, or `undefined` when it cannot be a Shopify address. */

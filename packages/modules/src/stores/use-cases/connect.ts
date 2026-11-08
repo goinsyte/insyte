@@ -74,20 +74,21 @@ export const callback = Effect.fn("Stores.connectCallback")(function*(query: Rea
     })
   )
   if (state === undefined) return yield* new ConnectFailed({ reason: "state" })
-  if (shop === undefined || shop !== state.accountRef) return yield* new ConnectFailed({ reason: "shop" })
+  const returnPath = state.returnPath
+  if (shop === undefined || shop !== state.accountRef) return yield* new ConnectFailed({ reason: "shop", returnPath })
 
   const [elsewhere] = yield* db.routing((sql) =>
     sql<{ workspaceId: WorkspaceId }>`select workspace_id from route_shop(${shop})`
   )
   if (elsewhere !== undefined && elsewhere.workspaceId !== principal.workspaceId) {
-    return yield* new StoreConnectedElsewhere({ shopDomain: shop })
+    return yield* new StoreConnectedElsewhere({ shopDomain: shop, returnPath })
   }
 
   const tokens = yield* shopify.exchange(shop, query["code"] ?? "").pipe(
-    Effect.mapError(() => new ConnectFailed({ reason: "exchange" }))
+    Effect.mapError(() => new ConnectFailed({ reason: "exchange", returnPath }))
   )
   const facts = yield* shopify.facts(shop, tokens.accessToken).pipe(
-    Effect.mapError(() => new ConnectFailed({ reason: "exchange" }))
+    Effect.mapError(() => new ConnectFailed({ reason: "exchange", returnPath }))
   )
   const sealed = yield* sealer.seal(JSON.stringify({
     accessToken: Redacted.value(tokens.accessToken),
@@ -150,7 +151,7 @@ export const callback = Effect.fn("Stores.connectCallback")(function*(query: Rea
       (e): e is SqlError.SqlError =>
         SqlError.isSqlError(e) &&
         /stores_shop_connected/.test(String((e.cause as { cause?: unknown })?.cause ?? e.cause)),
-      () => Effect.fail(new StoreConnectedElsewhere({ shopDomain: shop }))
+      () => Effect.fail(new StoreConnectedElsewhere({ shopDomain: shop, returnPath }))
     )
   )
   yield* (yield* Relay).kick([connected.outboxId])

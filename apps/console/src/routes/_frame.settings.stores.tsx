@@ -14,7 +14,7 @@ import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { useEffect } from "react"
 import { toast } from "sonner"
 import { storesAtom } from "../data/stores.ts"
-import { useConsoleStoresSource } from "../stores/stores-source.tsx"
+import { notConnected, useConsoleStoresSource } from "../stores/stores-source.tsx"
 
 /**
  * Instellingen → Winkels (step 8.1, M6.2): the reference's stores page over `Stores.list`, in the settings sheet. The
@@ -36,16 +36,6 @@ export const Route = createFileRoute("/_frame/settings/stores")({
   pendingComponent: Pending,
   component: StoresRoute
 })
-
-/** Why a connection came back without a store, as the callback names it. */
-const NOT_CONNECTED: Record<string, { title: string; description: string }> = {
-  elsewhere: {
-    title: "Deze winkel hangt aan een andere werkruimte",
-    description: "Ontkoppel hem daar eerst, dan kun je hem hier koppelen."
-  },
-  shop: { title: "Shopify gaf een andere winkel terug", description: "Probeer het opnieuw met hetzelfde adres." }
-}
-const FAILED = { title: "Koppelen is niet gelukt", description: "Probeer het opnieuw." }
 
 function Pending() {
   return (
@@ -107,8 +97,7 @@ function Loaded({ stores }: { stores: ReadonlyArray<StoreView> }) {
       const name = stores.find((s) => s.id === store)?.name
       toast.success(name === undefined ? "Je winkel is gekoppeld" : `${name} is gekoppeld`)
     } else {
-      const said = NOT_CONNECTED[error ?? ""] ?? FAILED
-      toast.error(said.title, { description: said.description })
+      notConnected(error ?? "")
     }
     void navigate({ search: {}, replace: true })
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- once per arrival

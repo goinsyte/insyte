@@ -1,5 +1,5 @@
 import { Db } from "@insyte/database/Db"
-import { mintId } from "@insyte/domain/Ids"
+import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentUser, type SessionUser } from "@insyte/domain/Session"
 import { Effect, Schema } from "effect"
 import { Answers, OnboardingState } from "../domain/Onboarding.ts"
@@ -20,12 +20,32 @@ const Row = Schema.Struct({
 })
 export type Row = typeof Row.Type
 
-/** What the machine knows about this person and their progress today. Stores and backfills join with M6. */
-export const factsOf = (user: SessionUser, row: Pick<Row, "workspaceId">): Facts => ({
+/** The workspace's store, as the machine needs it: connected (or importing), and whether its first import is in. */
+export interface StoreFacts {
+  readonly connected: boolean
+  readonly synced: boolean
+}
+
+const NO_STORE: StoreFacts = { connected: false, synced: false }
+
+/** What the machine knows about this person and their progress today. */
+export const factsOf = (user: SessionUser, row: Pick<Row, "workspaceId">, store: StoreFacts = NO_STORE): Facts => ({
   emailVerified: user.emailVerified,
   hasWorkspace: row.workspaceId !== null,
-  storeConnected: false,
-  backfillDone: false
+  storeConnected: store.connected,
+  backfillDone: store.synced
+})
+
+/** The workspace's store facts, read inside it as the person (the stores table is the workspace's). */
+export const storeFactsOf = Effect.fn("Onboarding.storeFacts")(function*(workspaceId: WorkspaceId | null) {
+  if (workspaceId === null) return NO_STORE
+  const db = yield* Db
+  const [row] = yield* db.asUserIn(workspaceId)((sql) =>
+    sql<StoreFacts>`
+      select exists (select 1 from stores where status in ('connecting', 'connected')) as connected,
+             exists (select 1 from stores where status = 'connected' and last_synced_at is not null) as synced`
+  )
+  return row ?? NO_STORE
 })
 
 export const stateOf = (row: Row): OnboardingState =>
