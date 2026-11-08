@@ -78,3 +78,11 @@ export class WithSecret extends Schema.Class<WithSecret>("developer/WithSecret")
   key: ApiKeyView,
   secret: Schema.String
 }) {}
+
+/**
+ * A bearer token the public API turns away (M19.2), with why: a machine reason for the log and the 401's `reason`,
+ * never which part of a token was wrong beyond that.
+ */
+export class KeyRefused extends Schema.TaggedError<KeyRefused>()("KeyRefused", {
+  reason: Schema.Literals(["missing", "malformed", "unknown", "revoked", "expired", "ip"])
+}) {}

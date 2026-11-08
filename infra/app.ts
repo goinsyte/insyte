@@ -132,8 +132,8 @@ export default Alchemy.Stack(
       compatibility: { date: COMPATIBILITY_DATE, flags: ["nodejs_compat", "enable_request_signal"] },
       placement: { region: "aws:eu-central-1" },
       ...(environment === "preview" ? {} : { crons: ["* * * * *"] }),
-      // Reached only through the console's service binding, never on a public hostname of its own.
-      workersDev: false,
+      // The public API (M19.2) on the Worker's own hostname; everything else only through the console's binding.
+      workersDev: true,
       observability: OBSERVABILITY,
       env: {
         HYPERDRIVE: hyperdrive,
@@ -141,6 +141,8 @@ export default Alchemy.Stack(
         // The edge guards' counters (M2.3), hosted by this Worker (`RateLimiter` in Main.ts); SQLite-backed.
         RATE_LIMITER: Cloudflare.DurableObject("RateLimiter", { className: "RateLimiter" }),
         ENVIRONMENT: environment,
+        // Where `Main.ts` serves `/v1` and nothing else.
+        PUBLIC_API_HOST: `insyte-api-${stage}.${WORKERS_SUBDOMAIN}`,
         // better-auth: cookies, links in mail and the CSRF check name the console's origin (18 §2).
         CONSOLE_ORIGIN: `https://${consoleHost}`,
         BETTER_AUTH_SECRET: Config.Redacted("BETTER_AUTH_SECRET"),
