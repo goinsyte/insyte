@@ -282,9 +282,24 @@ export class CommerceGroup extends HttpApiGroup.make("commerce")
 {}
 
 /** What every write reads from its headers: the caller's key for doing it once. */
-const Writes = { "idempotency-key": Schema.optional(Schema.String) }
+/**
+ * Every write names an `Idempotency-Key`; a missing one is refused with `InvalidRequestV1` by the handler, so the
+ * refusal comes in the V1 envelope rather than as a bare schema error.
+ */
+const Writes = {
+  "idempotency-key": Schema.optional(Schema.String).annotate({
+    description: "Required. A value of your own, up to 255 characters; send the same one when you retry."
+  })
+}
 const ById = { id: Schema.String }
-const WriteErrors = [ScopeMissingV1, NotFoundV1, ConflictV1, ValidationFailedV1, IdempotencyKeyReusedV1]
+const WriteErrors = [
+  ScopeMissingV1,
+  NotFoundV1,
+  ConflictV1,
+  ValidationFailedV1,
+  IdempotencyKeyReusedV1,
+  InvalidRequestV1
+]
 
 export class OrdersGroup extends HttpApiGroup.make("orders")
   .add(

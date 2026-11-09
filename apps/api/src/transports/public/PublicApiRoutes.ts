@@ -2,7 +2,7 @@ import { ApiKeyAuth, PublicApi } from "@insyte/api/http/PublicApi"
 import { Effect, Layer, Redacted } from "effect"
 import { HttpApiBuilder, HttpApiScalar } from "effect/http-api"
 import { KeyDoor, refusal } from "./KeyDoor.ts"
-import { Resources } from "./Resources.ts"
+import { keyOf, Resources } from "./Resources.ts"
 
 /*
  * The public API's server half (M19.2): every endpoint behind the key door, answered from the shared reads and, for
@@ -68,23 +68,28 @@ const OrdersLive = HttpApiBuilder.group(
           .handle("order", ({ params }) => act.order(params.id))
           .handle(
             "tags",
-            ({ params, payload, headers }) => act.tagOrder(params.id, payload, headers["idempotency-key"])
+            ({ params, payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.tagOrder(params.id, payload, key))
           )
           .handle(
             "note",
-            ({ params, payload, headers }) => act.noteOrder(params.id, payload, headers["idempotency-key"])
+            ({ params, payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.noteOrder(params.id, payload, key))
           )
           .handle(
             "shippingAddress",
-            ({ params, payload, headers }) => act.shipOrderTo(params.id, payload, headers["idempotency-key"])
+            ({ params, payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.shipOrderTo(params.id, payload, key))
           )
           .handle(
             "cancel",
-            ({ params, payload, headers }) => act.cancelOrder(params.id, payload, headers["idempotency-key"])
+            ({ params, payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.cancelOrder(params.id, payload, key))
           )
           .handle(
             "refund",
-            ({ params, payload, headers }) => act.refundOrder(params.id, payload, headers["idempotency-key"])
+            ({ params, payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.refundOrder(params.id, payload, key))
           )
     )
 )
