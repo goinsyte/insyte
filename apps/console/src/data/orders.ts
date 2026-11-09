@@ -1,5 +1,5 @@
-import { Forbidden, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
-import { OrderPage } from "@insyte/modules/orders/domain/Orders"
+import { Forbidden, NotFound, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
+import { OrderDetail, OrderPage } from "@insyte/modules/orders/domain/Orders"
 import { CursorInvalid, FilterFieldUnknown } from "@insyte/modules/shared/domain/Filter"
 import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
@@ -34,4 +34,22 @@ export const ordersAtom = Atom.serializable(
     }),
     skipInitialRun: true
   }
+)
+
+/**
+ * One order with its lines, parcels and refunds: primed by the record's loader on a server render, read in the browser
+ * when a row opens it (the list's row draws the header meanwhile). A change to any order refreshes it.
+ */
+export const orderAtom = Atom.family((id: string) =>
+  Atom.serializable(
+    ConsoleClient.query("Orders.get", { id }, { reactivityKeys: ORDERS }),
+    {
+      key: `order:${id}`,
+      schema: AsyncResult.Schema({
+        success: OrderDetail,
+        error: Schema.Union([Forbidden, NotFound, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
+      }),
+      skipInitialRun: true
+    }
+  )
 )

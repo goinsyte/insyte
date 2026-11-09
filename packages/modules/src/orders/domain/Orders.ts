@@ -59,7 +59,9 @@ export const OrderLine = Schema.Struct({
   title: Schema.String,
   variantTitle: Schema.NullOr(Schema.String),
   quantity: Schema.Int,
-  unitPriceMinor: Schema.Int
+  unitPriceMinor: Schema.Int,
+  /** The product's first photograph, where the line names a product Insyte holds. */
+  imageUrl: Schema.NullOr(Schema.String)
 })
 
 export const Fulfilment = Schema.Struct({
@@ -81,8 +83,17 @@ export const Refund = Schema.Struct({
   createdAt: Schema.Finite
 })
 
+/** The customer as the order's sidebar shows them: how often they ordered and for how much, as Shopify keeps it. */
+export const OrderCustomer = Schema.Struct({
+  ordersCount: Schema.Int,
+  lifetimeValueMinor: Schema.Int,
+  currency: Schema.NullOr(Schema.String)
+})
+
 export class OrderDetail extends Schema.Class<OrderDetail>("orders/OrderDetail")({
   order: OrderRow,
+  /** Null for a guest order, or a customer since erased (`customers/redact`). */
+  customer: Schema.NullOr(OrderCustomer),
   subtotalMinor: Schema.Int,
   shippingMinor: Schema.Int,
   taxMinor: Schema.Int,

@@ -327,5 +327,26 @@
     "service": "allow",
     "finance": "allow",
     "view": "allow"
+  },
+  "FirstAnalysis.get": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "FirstAnalysis.start": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "FirstAnalysis.prepare": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
   }
 }

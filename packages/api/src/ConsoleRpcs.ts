@@ -1,6 +1,7 @@
 import { AccessRpcs } from "./rpc/AccessRpcs.ts"
 import { CommerceRpcs } from "./rpc/CommerceRpcs.ts"
 import { DeveloperRpcs } from "./rpc/DeveloperRpcs.ts"
+import { FirstAnalysisRpcs } from "./rpc/FirstAnalysisRpcs.ts"
 import { InvitationRpcs, LandingRpcs } from "./rpc/LandingRpcs.ts"
 import { MembersRpcs } from "./rpc/MembersRpcs.ts"
 import { NotificationsRpcs } from "./rpc/NotificationsRpcs.ts"
@@ -29,3 +30,4 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(ShellRpcs)
   .merge(StoresRpcs)
   .merge(CommerceRpcs)
+  .merge(FirstAnalysisRpcs)

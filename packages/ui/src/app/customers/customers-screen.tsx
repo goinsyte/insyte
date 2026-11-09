@@ -193,7 +193,7 @@ export function CustomersPage() {
 				size: 100,
 				cell: (ctx) => (
 					<span className="font-medium text-ink tabular-nums">
-						{formatCurrency(ctx.row.original.lifetime_value)}
+						{formatCurrency(ctx.row.original.lifetime_value, source.currencyOf?.(ctx.row.original))}
 					</span>
 				),
 			},
@@ -204,7 +204,7 @@ export function CustomersPage() {
 				size: 100,
 				cell: (ctx) => (
 					<span className="tabular-nums">
-						{formatCurrency(ctx.row.original.aov)}
+						{formatCurrency(ctx.row.original.aov, source.currencyOf?.(ctx.row.original))}
 					</span>
 				),
 			},
@@ -226,7 +226,7 @@ export function CustomersPage() {
 				),
 			},
 		],
-		[source.lastOrder],
+		[source.lastOrder, source.currencyOf],
 	);
 
 	return (

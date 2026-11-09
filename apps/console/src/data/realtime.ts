@@ -6,6 +6,7 @@ import { ACCESS } from "./access.ts"
 import { ConsoleClient } from "./client.ts"
 import { CUSTOMERS } from "./customers.ts"
 import { KEYS } from "./developer.ts"
+import { FIRST_ANALYSIS } from "./first-analysis.ts"
 import { FRAME, NOTES, presenceAtom } from "./frame.ts"
 import { ORDERS } from "./orders.ts"
 import { PRODUCTS } from "./products.ts"
@@ -30,7 +31,8 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   store: [...STORES, ...STORE_SYNC, ...ORDERS, ...CUSTOMERS, ...PRODUCTS],
   order: [...ORDERS, ...CUSTOMERS],
   customer: CUSTOMERS,
-  product: PRODUCTS
+  product: PRODUCTS,
+  first_analysis: FIRST_ANALYSIS
 }
 const EVERYTHING = [...new Set(Object.values(REFETCH).flat())]
 

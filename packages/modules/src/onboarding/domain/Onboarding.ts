@@ -40,6 +40,8 @@ export const AdvanceInput = Schema.Union([
   Schema.Struct({ step: Schema.Literal("store"), choice: Schema.Literals(["later", "connected"]) }),
   // The first import is in (M6.3): the server checks it.
   Schema.Struct({ step: Schema.Literal("sync") }),
+  // The first analysis read and its choices kept (`FirstAnalysis.prepare`, M6.5).
+  Schema.Struct({ step: Schema.Literal("analysis") }),
   Schema.Struct({ step: Schema.Literal("ready") })
 ])
 export type AdvanceInput = typeof AdvanceInput.Type

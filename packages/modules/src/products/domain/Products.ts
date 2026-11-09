@@ -36,6 +36,8 @@ export const Variant = Schema.Struct({
 
 export class ProductDetail extends Schema.Class<ProductDetail>("products/ProductDetail")({
   product: ProductRow,
+  /** Every photograph, in Shopify's order (the row carries the first). */
+  images: Schema.Array(Schema.String),
   descriptionHtml: Schema.String,
   variants: Schema.Array(Variant)
 }) {}

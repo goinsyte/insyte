@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { failure, ok } from "./journeys.ts"
+import { failure, ok, person } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"
 
@@ -20,6 +20,10 @@ const rule = (field: string, op: string, value: string | Array<string>) => ({
   join: "and" as const,
   children: [{ kind: "rule" as const, id: "r", field, op: op as "any", value }]
 })
+
+/** The journey's store: the recorded twin imported into the caller's workspace (`POST /api/__dev/stores/seed`). */
+const seed = (cookie?: string) =>
+  call("http://api.test/api/__dev/stores/seed", { method: "POST", headers: cookie === undefined ? {} : { cookie } })
 
 describe("the commerce lists", () => {
   let store = { cookie: "", workspace: "", shop: "", storeId: "" }
@@ -58,11 +62,12 @@ describe("the commerce lists", () => {
     })
   })
 
-  it("opens an order with its lines, parcels and refunds", async () => {
+  it("opens an order with its lines, its customer, parcels and refunds", async () => {
     const [delivered] = ok(await rpc("Orders.list", { q: "1002" }, store.cookie)).rows
     const detail = ok(await rpc("Orders.get", { id: delivered!.id }, store.cookie))
     expect(detail.order.status).toBe("delivered")
-    expect(detail.lines).toMatchObject([{ title: "Wollen trui", quantity: 1, unitPriceMinor: 8900 }])
+    expect(detail.lines).toMatchObject([{ title: "Wollen trui", quantity: 1, unitPriceMinor: 8900, imageUrl: null }])
+    expect(detail.customer).toEqual({ ordersCount: 2, lifetimeValueMinor: 13895, currency: "EUR" })
     expect(detail.fulfilments).toMatchObject([{ carrier: "PostNL", trackingStatus: "delivered" }])
     const [refunded] = ok(await rpc("Orders.list", { q: "1004" }, store.cookie)).rows
     expect(ok(await rpc("Orders.get", { id: refunded!.id }, store.cookie)).refunds).toMatchObject([
@@ -77,6 +82,7 @@ describe("the commerce lists", () => {
     expect(products.rows[1]).toMatchObject({ variantCount: 2, priceMinMinor: 4995, priceMaxMinor: 4995 })
     const linen = ok(await rpc("Products.get", { id: products.rows[1]!.id }, store.cookie))
     expect(linen.variants.map((v) => v.sku)).toEqual(["LIN-M", "LIN-L"])
+    expect(linen).toMatchObject({ images: [], descriptionHtml: "<p>Linnen overhemd</p>" })
     expect(ok(await rpc("Products.list", { q: "TAS-1" }, store.cookie)).rows.map((p) => p.title)).toEqual([
       "Canvas tas"
     ])
@@ -159,5 +165,17 @@ describe("the commerce lists", () => {
       : JSON.parse(text)
     const tool = JSON.parse(message.result.content[0].text) as Json
     expect(tool.data.map((o: Json) => o.id)).toEqual(all.data.map((o: Json) => o.id))
+  })
+
+  it("seeds the recorded store into a person's workspace for the console's journey", async () => {
+    const owner = await person("seed", "Seed B.V.")
+    expect((await seed()).status).toBe(401)
+    expect((await seed(owner.cookie)).status).toBe(200)
+    // Twice is the same store, not a second one.
+    const { storeId } = await (await seed(owner.cookie)).json() as Json
+    const orders = ok(await rpc("Orders.list", {}, owner.cookie))
+    expect(orders.counts.total).toBe(5)
+    expect(new Set(orders.rows.map((o) => o.storeId))).toEqual(new Set([storeId]))
+    expect(ok(await rpc("Products.list", {}, owner.cookie)).counts.total).toBe(3)
   })
 })

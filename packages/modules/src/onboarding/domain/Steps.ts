@@ -57,10 +57,10 @@ export const next = (track: Track, step: Step, facts: Facts): Step => {
         // Skipping the store ("Nu overslaan") leaves it for the Start checklist and goes straight to ready.
         return facts.storeConnected ? "sync" : "ready"
       case "sync":
-        // The first analysis (M6.5) and the offline plan (M15) are not built yet: an imported store goes to ready.
-        return facts.backfillDone ? "ready" : "sync"
+        return facts.backfillDone ? "analysis" : "sync"
       case "analysis":
-        return "offline"
+        // The offline plan sets autonomy (M15): until it is built, the analysis goes straight to ready.
+        return "ready"
       default:
         return "ready"
     }

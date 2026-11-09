@@ -12,7 +12,8 @@ embedded = false
 [access_scopes]
 # What the console reads now (step 8) and writes from step 9, asked once so a store approves the app once.
 # `read_all_orders` (history past 60 days) needs Shopify's approval first and joins before production.
-scopes = "read_orders,write_orders,read_customers,write_customers,read_products,write_products,read_inventory,write_inventory,read_locations,read_fulfillments,write_merchant_managed_fulfillment_orders,read_returns,write_draft_orders,write_discounts"
+# `read_legal_policies`: the first analysis reads the shipping and refund policies (step 8.5).
+scopes = "read_orders,write_orders,read_customers,write_customers,read_products,write_products,read_inventory,write_inventory,read_locations,read_fulfillments,write_merchant_managed_fulfillment_orders,read_returns,write_draft_orders,write_discounts,read_legal_policies"
 
 [auth]
 # Where Shopify sends the operator back after they approve the app: the console's own origin, per stage.

@@ -1,6 +1,6 @@
 import { type ComponentType, createContext, useContext } from "react";
 import type { Stock } from "../lib/catalog";
-import type { Product } from "../lib/types/domain";
+import type { Currency, Product } from "../lib/types/domain";
 import type { IndexItem } from "../marketing-sections/link-index";
 import type { Facet, RowAction } from "../table/data-table";
 
@@ -38,6 +38,8 @@ export interface ProductsSource {
 	hidden: ReadonlyArray<string>;
 	actions: (openMargins: (rows: ProductRow[]) => void) => ReadonlyArray<RowAction<ProductRow>>;
 	canCreate: TeamGate;
+	/** The currency a product's figures are in; absent, the format's own. */
+	currencyOf?: ((product: ProductRow) => Currency | undefined) | undefined;
 	NewProduct?: ComponentType<{ open: boolean; onOpenChange: (open: boolean) => void }> | undefined;
 	Margin?: ComponentType<{ open: boolean; onOpenChange: (open: boolean) => void; picked: ProductRow[] }> | undefined;
 	LowStock?: ComponentType<{ products: Product[] }> | undefined;

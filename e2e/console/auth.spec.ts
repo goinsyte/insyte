@@ -225,6 +225,50 @@ test("@auth back from Google with a refusal, the sign-in screen says why", async
   await expect(page.getByRole("alert")).toHaveCount(0)
 })
 
+test("@analysis a new admin with a store reads its first analysis and keeps what it prepares", async ({ page, request }) => {
+  // Onboarding to the store step, the recorded store imported in its place (previews have no Shopify), then the sync
+  // and the store's first analysis: the reads tick off as the server reads, then the early read, then ready.
+  test.setTimeout(180_000)
+  const email = `e2e-${Date.now().toString(36)}-analysis@example.com`
+  await page.goto("/onboarding")
+  await page.getByLabel("Zakelijk e-mailadres").fill(email)
+  await page.getByLabel("Volledige naam").fill("Ada Analyse")
+  await page.getByLabel(/^Wachtwoord/).fill("een-lang-wachtwoord")
+  await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Check je inbox." })).toBeVisible()
+  await page.goto(await mailLink(request, email, "auth.verify"))
+  await page.getByText("Mijn winkel inrichten").click()
+  await page.getByLabel("Naam werkruimte").fill(`Analyse ${Date.now().toString(36)}`)
+  await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
+  await page.getByRole("button", { name: "Gratis proefperiode starten" }).click()
+  await expect(page.getByRole("heading", { name: "Koppel Shopify." })).toBeVisible()
+
+  // The store, connected and imported, as Shopify's way back would leave it.
+  expect((await page.request.post("/api/__dev/stores/seed")).ok()).toBe(true)
+  await page.goto("/onboarding?connected=shopify")
+  await expect(page.getByRole("heading", { name: "Alles wordt opgehaald." })).toBeVisible()
+  await page.getByRole("button", { name: "Laat Insyte kijken" }).click()
+
+  // The reading ends in the early read: no Shopify to read the policies from, so no prediction is made up.
+  await expect(page.getByRole("heading", { name: "Nog te vroeg om te oordelen." })).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByText("5 bestellingen in")).toBeVisible()
+  await expect(page.getByText("Wat je inrichting al zegt")).toHaveCount(0)
+  await expect(page.getByText("Levertijd per land")).toBeVisible()
+  await page.getByRole("radio", { name: "Ja, zelf doen" }).click()
+  await page.getByRole("button", { name: "Klaarzetten" }).click()
+
+  await expect(page.getByRole("heading", { name: "Je bent binnen." })).toBeVisible()
+  await expect(page.getByText("3 producten · 5 bestellingen · 3 klanten")).toBeVisible()
+  await expect(page.getByText("Antwoorden op statusvragen (klaar om aan te zetten zodra de klantagent beschikbaar is)"))
+    .toBeVisible()
+  // A reload keeps it: the choice is the server's.
+  await page.reload()
+  await expect(
+    page.getByText("Levertijd-update op dag 5 (klaar om aan te zetten zodra Automatiseringen beschikbaar zijn)")
+  )
+    .toBeVisible()
+})
+
 test("@onboarding @team a new admin runs onboarding to Start, every return resumes, and Team invites a colleague", async ({ browser, page, request }) => {
   // The whole of onboarding, then a mail that waits out the undo window and the queue.
   // Then the colleague's journey, roles, API keys and Agents en MCP: on a preview that is more than four minutes.
@@ -472,4 +516,54 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await page.goto("/products")
   await expect(page.getByRole("heading", { name: "Nog geen producten" })).toBeVisible()
   await expect(page.getByRole("button", { name: "Uit Shopify importeren" })).toBeVisible()
+
+  // @order (step 8.4d): with the recorded store imported (previews have no Shopify), a row opens its order over the
+  // list, read-only: the lines and the totals, no Acties. Its URL is a page, rendered whole on the server.
+  expect((await page.request.post("/api/__dev/stores/seed")).ok()).toBe(true)
+  await page.goto("/orders")
+  await page.getByRole("row", { name: /#1002/ }).click()
+  const record = page.getByRole("dialog")
+  await expect(record.getByText("#1002")).toBeVisible()
+  await expect(record.getByText("Wollen trui")).toBeVisible()
+  await expect(record.getByRole("button", { name: "Acties" })).toHaveCount(0)
+  await expect(page).toHaveURL(/\/orders\/[^/]+$/)
+  await page.reload()
+  await expect(page.getByRole("dialog")).toHaveCount(0)
+  await expect(page.getByRole("heading", { name: "#1002" })).toBeVisible()
+  await expect(page.getByText("Wollen trui")).toBeVisible()
+  await page.getByRole("link", { name: "Bestellingen" }).first().click()
+  await expect(page.getByRole("row", { name: /#1005/ })).toBeVisible()
+
+  // @customer @product (step 8.4e): a customer opens over Klanten with their orders, each of which opens; a product
+  // opens over Producten with its variants and the way into its store's Shopify admin, and its URL is a page.
+  await page.goto("/customers")
+  await page.getByRole("row", { name: /Anna de Vries/ }).click()
+  const profile = page.getByRole("dialog")
+  await expect(profile.getByRole("link", { name: "#1002" })).toBeVisible()
+  await expect(profile.getByRole("button", { name: "Nieuw ticket" })).toHaveCount(0)
+  await profile.getByRole("link", { name: "#1002" }).click()
+  await expect(page.getByRole("heading", { name: "#1002" })).toBeVisible()
+  await page.goto("/products")
+  await page.getByRole("row", { name: /Linnen overhemd/ }).click()
+  const item = page.getByRole("dialog")
+  await expect(item.getByText("LIN-L")).toBeVisible()
+  await expect(item.getByRole("link", { name: "Openen in Shopify" })).toHaveAttribute(
+    "href",
+    /^https:\/\/admin\.shopify\.com\/store\/seed-[a-z0-9]+\/products\/\d+$/
+  )
+  await page.reload()
+  await expect(page.getByRole("heading", { name: "Linnen overhemd" })).toBeVisible()
+  await expect(page.getByText("LIN-M")).toBeVisible()
+
+  // @search (step 8.4e): the palette finds records through `Search.records`: an order by its number, then a customer
+  // by name, each opening its record.
+  await page.keyboard.press("ControlOrMeta+k")
+  const palette = page.getByRole("dialog")
+  await palette.getByPlaceholder(/^Zoek bestellingen/).fill("1003")
+  await palette.getByRole("option", { name: /#1003/ }).click()
+  await expect(page.getByRole("heading", { name: "#1003" })).toBeVisible()
+  await page.keyboard.press("ControlOrMeta+k")
+  await page.getByRole("dialog").getByPlaceholder(/^Zoek bestellingen/).fill("bram")
+  await page.getByRole("dialog").getByRole("option", { name: /Bram Jansen/ }).click()
+  await expect(page.getByRole("heading", { name: /Bram Jansen/ })).toBeVisible()
 })
