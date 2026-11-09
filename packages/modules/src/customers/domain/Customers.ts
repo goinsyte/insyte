@@ -41,7 +41,9 @@ export class CustomerDetail extends Schema.Class<CustomerDetail>("customers/Cust
     into: Schema.NullOr(Schema.Struct({ id: Schema.String, name: Schema.String })),
     absorbed: Schema.Int,
     alsoEmails: Schema.Array(Schema.String)
-  })
+  }),
+  /** The Klaviyo list they were last sent to, and when (M7.5). */
+  klaviyo: Schema.NullOr(Schema.Struct({ list: Schema.String, at: Schema.Finite }))
 }) {}
 
 export class CustomerPage extends Schema.Class<CustomerPage>("customers/CustomerPage")({

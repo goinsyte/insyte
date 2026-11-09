@@ -5,7 +5,7 @@ import { copyLines, counted, exportCsv } from "@insyte/ui/app/lib/bulk-io"
 import type { DuplicateGroup } from "@insyte/ui/app/lib/duplicates"
 import { formatDate } from "@insyte/ui/app/lib/format"
 import type { Currency, Customer } from "@insyte/ui/app/lib/types/domain"
-import { Copy, Download, GitMerge, Tag } from "@insyte/ui/icons"
+import { Copy, Download, GitMerge, Send, Tag } from "@insyte/ui/icons"
 import { Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useMemo } from "react"
@@ -17,8 +17,8 @@ import { useCustomerCommands } from "./customer-writes.ts"
  * The customers list's source in the console: `Customers.list`'s rows as the design's profiles (M6.4), the duplicates
  * the server finds, and the commands on a selection (M7.4): labels and merging, each with one Undo. The status is the
  * server's facts only: new up to two orders, loyal after; no "at risk" until there is a signal for it. "Laatste
- * bestelling" is the newest order Insyte holds. Klaviyo waits for its connection (M7.5). A row opens the customer
- * over the list; "Klant toevoegen" and the review's dialogs are the route's.
+ * bestelling" is the newest order Insyte holds. Synchroniseren naar Klaviyo (M7.5) opens the route's Klaviyo dialog.
+ * A row opens the customer over the list; "Klant toevoegen" and the dialogs are the route's.
  */
 
 export const customerOf = (c: CustomerRow): Customer => ({
@@ -51,6 +51,15 @@ const ACTIONS: CustomersSource["actions"] = (open) => [
     icon: GitMerge,
     group: "Ordenen",
     run: (rows) => open.merge([...rows])
+  },
+  {
+    id: "klaviyo",
+    needs: { perm: "customers", arg: 2 },
+    label: "Synchroniseren naar Klaviyo",
+    icon: Send,
+    group: "Contact",
+    shortcut: "k",
+    run: (rows) => open.klaviyo([...rows])
   },
   {
     id: "copy",

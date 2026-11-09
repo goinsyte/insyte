@@ -21,6 +21,7 @@
     { "path": "./packages/integrations/resend" },
     { "path": "./packages/integrations/shopify" },
     { "path": "./packages/integrations/posthog" },
+    { "path": "./packages/integrations/klaviyo" },
     { "path": "./packages/tokens" },
     { "path": "./packages/ui" }
   ]

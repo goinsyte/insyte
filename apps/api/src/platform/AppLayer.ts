@@ -10,7 +10,7 @@ import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Config, Effect, Layer, Option, Scheduler } from "effect"
 import { FetchHttpClient, type HttpClient, HttpServer } from "effect/http"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
-import { ConnectRoutes } from "../transports/http/ConnectRoutes.ts"
+import { ConnectRoutes, KlaviyoConnectRoutes } from "../transports/http/ConnectRoutes.ts"
 import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
 import { RealtimeRoutes } from "../transports/http/RealtimeRoutes.ts"
@@ -36,6 +36,7 @@ import { HyperdriveConnect } from "./Hyperdrive.ts"
 import { IngestQueueLive } from "./IngestQueue.ts"
 import { InvitationLinksLive } from "./InvitationLinks.ts"
 import { KeyHasherLive } from "./KeyHasher.ts"
+import { KlaviyoChoice, MarketingSyncsLive } from "./Klaviyo.ts"
 import { MailerCapture } from "./Mail.ts"
 import { ObservabilityLive } from "./Observability.ts"
 import { ProductAnalyticsCapture } from "./ProductAnalyticsCapture.ts"
@@ -58,6 +59,7 @@ const Transports = Layer.mergeAll(
   RpcRoutes,
   RealtimeRoutes,
   ConnectRoutes,
+  KlaviyoConnectRoutes,
   WebhookRoutes,
   PublicApiRoutes,
   McpRoutes,
@@ -118,6 +120,8 @@ export const AppLayer = Transports.pipe(
       ShopifyAdminChoice,
       // …and Shopify's GraphQL for what a request reads again (a product's "Synchroniseren", M7.3).
       ShopifyGraphqlChoice,
+      // …and Klaviyo's OAuth app and API (M7.5).
+      KlaviyoChoice,
       ConnectionGateLive,
       IngestQueueLive,
       // …and the first analysis's Workflow (M6.5).
@@ -155,7 +159,9 @@ export const BackgroundLayer = Layer.mergeAll(
   // `store.connected` starts the store's backfill (M6.3).
   BackfillsLive,
   // An order changed in Insyte goes to Shopify (M7.1).
-  ShopifyWritesLive
+  ShopifyWritesLive,
+  // A marketing sync goes to Klaviyo once its window has passed (M7.5).
+  MarketingSyncsLive
 ).pipe(
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),
@@ -169,11 +175,12 @@ export const BackgroundLayer = Layer.mergeAll(
  * What the backfill Workflow's steps run on (M6.3): the background services, Shopify's bulk operations, and the gate
  * every call passes (`ConnectionGate.ts`), which holds the account's token and bucket.
  */
-export const SyncLayer = Layer.mergeAll(ShopifyGraphqlChoice, ConnectionGateLive, RelayLive).pipe(
-  Layer.provideMerge(HyperdriveConnect),
-  Layer.provideMerge(ObservabilityLive),
-  Layer.provideMerge(AppInfo.layer),
-  Layer.provide(FetchHttpClient.layer),
-  Layer.provide(ConfigLive),
-  Layer.provideMerge(SyncScheduler)
-)
+export const SyncLayer = Layer.mergeAll(ShopifyGraphqlChoice, ConnectionGateLive, RelayLive, KlaviyoChoice, SealerLive)
+  .pipe(
+    Layer.provideMerge(HyperdriveConnect),
+    Layer.provideMerge(ObservabilityLive),
+    Layer.provideMerge(AppInfo.layer),
+    Layer.provide(FetchHttpClient.layer),
+    Layer.provide(ConfigLive),
+    Layer.provideMerge(SyncScheduler)
+  )

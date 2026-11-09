@@ -3,6 +3,7 @@ import { NotFound } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import { lastSyncOf } from "../../marketing/use-cases/klaviyo.ts"
 import type { ListInput } from "../../shared/domain/Filter.ts"
 import { likePattern, SearchHit } from "../../shared/domain/Search.ts"
 import { compileFilter, decodeCursor, encodeCursor, type Whitelist } from "../../shared/tables/FilterSql.ts"
@@ -127,12 +128,14 @@ export const get = Effect.fn("Customers.get")(function*(id: string) {
       >`
         select id, number, status, total_minor, currency, placed_at from orders where customer_id = ${id}
         order by placed_at desc limit 50`
+      const klaviyo = yield* lastSyncOf(sql, id)
       const absorbed = yield* sql<{ email: string | null }>`
         select email from customers where merged_into = ${id} order by merged_at`
       return new CustomerDetail({
         customer: toRow(row),
         address: row.address,
         marketingConsent: row.marketingConsent,
+        klaviyo,
         merged: {
           into: row.intoId === null ? null : { id: row.intoId, name: row.intoName ?? "" },
           absorbed: absorbed.length,

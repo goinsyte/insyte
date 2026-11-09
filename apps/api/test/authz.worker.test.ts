@@ -2,6 +2,7 @@ import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
+import { MarketingRpcs } from "@insyte/api/rpc/MarketingRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
@@ -104,7 +105,13 @@ const PAYLOADS: Record<string, unknown> = {
   "FirstAnalysis.start": undefined,
   "FirstAnalysis.prepare": { ids: ["agent"], answers: { fulfilment: "one", reply: "ask" } },
   // A token nobody holds: `NotFound` for every role; the compensation's own permission is the command's.
-  "Shared.undo": { token: "und_none" }
+  "Shared.undo": { token: "und_none" },
+  // No Klaviyo in this workspace: `Conflict` for every role that may; connecting needs the app (the twin has it).
+  "Marketing.status": undefined,
+  "Marketing.beginConnect": { returnPath: "/customers" },
+  "Marketing.disconnect": undefined,
+  "Customers.marketingLists": undefined,
+  "Customers.syncToMarketing": { ids: ["cus_none"], listId: "LIST_VIP", listName: "VIP", withTags: false, dryRun: true }
 }
 
 const manifest = [
@@ -115,7 +122,8 @@ const manifest = [
   ...StoresRpcs.requests.keys(),
   ...CommerceRpcs.requests.keys(),
   ...FirstAnalysisRpcs.requests.keys(),
-  ...SharedRpcs.requests.keys()
+  ...SharedRpcs.requests.keys(),
+  ...MarketingRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

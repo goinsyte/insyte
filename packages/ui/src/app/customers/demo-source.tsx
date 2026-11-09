@@ -146,6 +146,41 @@ function formatLastOrder(createdAt: string, id: string): string {
   }).format(d)
 }
 
+const DEMO_LISTS = [
+  { id: "Nieuwsbrief", name: "Nieuwsbrief" },
+  { id: "VIP", name: "VIP" },
+  { id: "Terugwinnen", name: "Terugwinnen" }
+]
+
+/** "Synchroniseren naar Klaviyo" on the demo workspace: simulated, remembered on each profile, with one Undo. */
+function DemoKlaviyo(props: { open: boolean; onOpenChange: (open: boolean) => void; picked: Row[] }) {
+  const navigate = useNavigate()
+  const connected = useWorkspace((s) => s.integrations.some((i) => i.key === "klaviyo" && i.status === "connected"))
+  const sync = useWorkspace((s) => s.syncToKlaviyo)
+  const restore = useWorkspace((s) => s.restoreCustomers)
+  return (
+    <KlaviyoDialog
+      {...props}
+      connected={connected}
+      lists={DEMO_LISTS}
+      onConnect={() => {
+        props.onOpenChange(false)
+        void navigate({ to: "/settings/integrations" })
+      }}
+      onSync={(list) => {
+        const before = useWorkspace.getState()
+        const snapshot = { e: before.customerEdits, n: before.notDuplicates }
+        const ids = props.picked.filter((c) => !c.email.includes("@stripe.com") && !c.email.includes("@paypal.com"))
+          .map((c) => c.id)
+        sync(ids, list.name)
+        undoable(`${ids.length} ${ids.length === 1 ? "klant" : "klanten"} gesynchroniseerd naar ${list.name}`, () =>
+          restore(snapshot.e, snapshot.n))
+        return Promise.resolve(true)
+      }}
+    />
+  )
+}
+
 /** The duplicate review on the demo workspace: merged at once with one Undo, "not the same person" remembered. */
 function DemoMerge(
   props: { open: boolean; onOpenChange: (open: boolean) => void; groups: DuplicateGroup[]; customers: Customer[] }
@@ -197,7 +232,7 @@ export function DemoCustomersSource({ children }: { children: ReactNode }) {
     },
     canCreate: ALLOWED,
     NewCustomer: DemoNewCustomer,
-    Klaviyo: KlaviyoDialog,
+    Klaviyo: DemoKlaviyo,
     Merge: DemoMerge,
     starts,
     Closing: DemoClosing,

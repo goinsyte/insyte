@@ -1,6 +1,7 @@
 import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
+import { MarketingSyncs } from "@insyte/modules/marketing/domain/Marketing"
 import { InvitationLinks } from "@insyte/modules/members/domain/Ports"
 import { fanOut } from "@insyte/modules/notifications/use-cases/fanout"
 import { Mailer } from "@insyte/modules/shared/domain/Mailer"
@@ -42,7 +43,7 @@ export const RelayLive = Layer.succeed(Relay, {
       )
 })
 
-type SinkServices = ProductAnalytics | Mailer | InvitationLinks | Backfills | ShopifyWrites
+type SinkServices = ProductAnalytics | Mailer | InvitationLinks | Backfills | ShopifyWrites | MarketingSyncs
 
 /** What a sink does with an event, in the event's workspace; `undefined` when the event is not its business. */
 interface Sink {
@@ -101,6 +102,13 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
         distinctId: event.userId,
         groups: { workspace: event.workspaceId },
         properties: { platform: "shopify" }
+      }
+    case "marketing.sync_requested":
+      return {
+        outboxId: id,
+        event: "marketing_synced",
+        distinctId: event.userId,
+        groups: { workspace: event.workspaceId }
       }
     case "records.changed":
     case "product.updated":
@@ -222,6 +230,17 @@ const SINKS: ReadonlyArray<Sink> = [
         ? Effect.flatMap(
           Effect.service(ShopifyWrites),
           (writes) => writes.start({ key: `sw-${id}`, workspaceId: event.workspaceId, write: event })
+        )
+        : undefined
+  },
+  {
+    // Customers sent to a marketing list (M7.5): one Workflow per event, named by it.
+    name: "marketing",
+    run: (id, event) =>
+      event.type === "marketing.sync_requested"
+        ? Effect.flatMap(
+          Effect.service(MarketingSyncs),
+          (syncs) => syncs.start({ key: `ms-${id}`, workspaceId: event.workspaceId, syncId: event.syncId })
         )
         : undefined
   },

@@ -46,7 +46,15 @@ const variant = (id: number, productId: number, title: string, sku: string, pric
   __parentId: gid("Product", productId)
 })
 
-const customer = (id: number, first: string, last: string, email: string, orders: number, spent: string) => ({
+const customer = (
+  id: number,
+  first: string,
+  last: string,
+  email: string,
+  orders: number,
+  spent: string,
+  marketing = "NOT_SUBSCRIBED"
+) => ({
   id: gid("Customer", id),
   firstName: first,
   lastName: last,
@@ -55,7 +63,7 @@ const customer = (id: number, first: string, last: string, email: string, orders
   numberOfOrders: String(orders),
   createdAt: "2026-02-01T09:00:00Z",
   updatedAt: "2026-10-01T09:00:00Z",
-  defaultEmailAddress: { emailAddress: email, marketingState: "NOT_SUBSCRIBED" },
+  defaultEmailAddress: { emailAddress: email, marketingState: marketing },
   defaultPhoneNumber: null,
   amountSpent: { amount: spent, currencyCode: "EUR" },
   defaultAddress: {
@@ -140,7 +148,8 @@ export const RECORDED_BULK = {
     variant(31, 3, "Default Title", "TAS-1", "24.50", 1)
   ]),
   customers: jsonl([
-    customer(1, "Anna", "de Vries", "klant1@example.com", 2, "138.95"),
+    // Anna said yes to marketing at the checkout; the others did not (M7.5's consent).
+    customer(1, "Anna", "de Vries", "klant1@example.com", 2, "138.95", "SUBSCRIBED"),
     customer(2, "Bram", "Jansen", "klant2@example.com", 2, "74.45"),
     customer(3, "Chen", "Li", "klant3@example.com", 0, "0.00")
   ]),
