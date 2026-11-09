@@ -1,6 +1,7 @@
 import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
+import { ForwardSends } from "@insyte/modules/forwarding/domain/Forwarding"
 import { MarketingSyncs } from "@insyte/modules/marketing/domain/Marketing"
 import { InvitationLinks } from "@insyte/modules/members/domain/Ports"
 import { fanOut } from "@insyte/modules/notifications/use-cases/fanout"
@@ -43,7 +44,14 @@ export const RelayLive = Layer.succeed(Relay, {
       )
 })
 
-type SinkServices = ProductAnalytics | Mailer | InvitationLinks | Backfills | ShopifyWrites | MarketingSyncs
+type SinkServices =
+  | ProductAnalytics
+  | Mailer
+  | InvitationLinks
+  | Backfills
+  | ShopifyWrites
+  | MarketingSyncs
+  | ForwardSends
 
 /** What a sink does with an event, in the event's workspace; `undefined` when the event is not its business. */
 interface Sink {
@@ -109,6 +117,15 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
         event: "marketing_synced",
         distinctId: event.userId,
         groups: { workspace: event.workspaceId }
+      }
+    case "forwarding.send_requested":
+      // A supplier's standing instruction is not a person handling an order.
+      return event.userId === "system" ? undefined : {
+        outboxId: id,
+        event: "order_handled",
+        distinctId: event.userId,
+        groups: { workspace: event.workspaceId },
+        properties: { action: "forward", count: event.legIds.length }
       }
     case "records.changed":
     case "product.updated":
@@ -241,6 +258,17 @@ const SINKS: ReadonlyArray<Sink> = [
         ? Effect.flatMap(
           Effect.service(MarketingSyncs),
           (syncs) => syncs.start({ key: `ms-${id}`, workspaceId: event.workspaceId, syncId: event.syncId })
+        )
+        : undefined
+  },
+  {
+    // Legs forwarded to their suppliers (M8.2): one Workflow per event, named by it.
+    name: "forwarding",
+    run: (id, event) =>
+      event.type === "forwarding.send_requested"
+        ? Effect.flatMap(
+          Effect.service(ForwardSends),
+          (sends) => sends.start({ key: `fw-${id}`, workspaceId: event.workspaceId, legIds: event.legIds })
         )
         : undefined
   },

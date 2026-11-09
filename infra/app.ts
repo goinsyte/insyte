@@ -194,6 +194,11 @@ export default Alchemy.Stack(
           className: "MarketingSyncWorkflow",
           workflowName: `insyte-marketing-sync-${stage}`
         }),
+        // A forward's delivery to its suppliers (M8.2), hosted by this Worker (`ForwardSendWorkflow`); one per stage.
+        FORWARD_SEND: Cloudflare.Workflow("ForwardSend", {
+          className: "ForwardSendWorkflow",
+          workflowName: `insyte-forward-send-${stage}`
+        }),
         ENVIRONMENT: environment,
         // Where `Main.ts` serves `/v1` and nothing else.
         PUBLIC_API_HOST: `insyte-api-${stage}.${WORKERS_SUBDOMAIN}`,

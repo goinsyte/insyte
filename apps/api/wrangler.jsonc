@@ -53,6 +53,8 @@
     { "binding": "SHOPIFY_WRITE", "name": "insyte-shopify-write", "class_name": "ShopifyWriteWorkflow" },
     // A marketing sync's send to Klaviyo (M7.5), after the undo window.
     { "binding": "MARKETING_SYNC", "name": "insyte-marketing-sync", "class_name": "MarketingSyncWorkflow" },
+    // A forward's delivery to its suppliers (M8.2), after the undo window.
+    { "binding": "FORWARD_SEND", "name": "insyte-forward-send", "class_name": "ForwardSendWorkflow" },
   ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] },

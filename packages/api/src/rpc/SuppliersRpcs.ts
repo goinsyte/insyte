@@ -42,7 +42,19 @@ export class SuppliersRpcs extends RpcGroup.make(
     success: SupplierChange,
     error: Schema.Union([Forbidden, NotFound])
   }),
-  Rpc.make("Suppliers.remove", { payload: ById, success: SupplierChange, error: Schema.Union([Forbidden, NotFound]) })
+  Rpc.make("Suppliers.remove", { payload: ById, success: SupplierChange, error: Schema.Union([Forbidden, NotFound]) }),
+  // A supplier's own API (M8.2): the secret is answered once, at connecting, and never again.
+  Rpc.make("Suppliers.connectApi", {
+    payload: Schema.Struct({ id: Schema.String, url: Schema.String.check(Schema.isMaxLength(2000)) }),
+    success: Schema.Struct({ secret: Schema.Redacted(Schema.String) }),
+    error: Schema.Union([Forbidden, NotFound, Invalid])
+  }),
+  Rpc.make("Suppliers.disconnectApi", { payload: ById, error: Schema.Union([Forbidden, NotFound]) }),
+  Rpc.make("Suppliers.testConnection", {
+    payload: ById,
+    success: Schema.Struct({ ok: Schema.Boolean, ms: Schema.NullOr(Schema.Int), reason: Schema.NullOr(Schema.String) }),
+    error: Schema.Union([Forbidden, NotFound])
+  })
 )
   .middleware(Member)
   .middleware(Authenticated)

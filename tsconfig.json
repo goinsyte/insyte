@@ -22,6 +22,7 @@
     { "path": "./packages/integrations/shopify" },
     { "path": "./packages/integrations/posthog" },
     { "path": "./packages/integrations/klaviyo" },
+    { "path": "./packages/integrations/supplier-api" },
     { "path": "./packages/tokens" },
     { "path": "./packages/ui" }
   ]

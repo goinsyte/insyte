@@ -2,6 +2,7 @@ import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
+import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
 import { MarketingRpcs } from "@insyte/api/rpc/MarketingRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
@@ -126,7 +127,16 @@ const PAYLOADS: Record<string, unknown> = {
   "Suppliers.update": { id: "sup_none", name: "Iets" },
   "Suppliers.setPaused": { ids: ["sup_none"], paused: true },
   "Suppliers.assignProducts": { supplierId: "sup_none", productIds: ["prd_none"] },
-  "Suppliers.remove": { id: "sup_none" }
+  "Suppliers.remove": { id: "sup_none" },
+  "Suppliers.connectApi": { id: "sup_none", url: "https://echo.supplier.example" },
+  "Suppliers.disconnectApi": { id: "sup_none" },
+  "Suppliers.testConnection": { id: "sup_none" },
+  "Forwarding.list": { view: "to_forward" },
+  "Forwarding.forOrder": { orderId: "ord_none" },
+  "Forwarding.forward": { ids: ["fwd_none"] },
+  "Forwarding.markConfirmed": { ids: ["fwd_none"] },
+  "Forwarding.reroute": { id: "fwd_none", toSupplierId: "sup_none" },
+  "Forwarding.cancel": { ids: ["fwd_none"] }
 }
 
 const manifest = [
@@ -139,7 +149,8 @@ const manifest = [
   ...FirstAnalysisRpcs.requests.keys(),
   ...SharedRpcs.requests.keys(),
   ...MarketingRpcs.requests.keys(),
-  ...SuppliersRpcs.requests.keys()
+  ...SuppliersRpcs.requests.keys(),
+  ...ForwardingRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

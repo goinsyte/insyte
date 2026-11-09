@@ -220,6 +220,9 @@ export const cancel = Effect.fn("Orders.cancel")(function*(input: typeof CancelI
       }
       for (const o of locked) {
         yield* sql`update orders set status = 'cancelled', cancelled_at = now() where id = ${o.id}`
+        // Legs not yet with a supplier are not sent (M8.2); one a supplier has stays, for the supplier to hear of it.
+        yield* sql`update forwarding_items set state = 'cancelled', since = now()
+                   where order_id = ${o.id} and state in ('to_forward', 'sending', 'error')`
         yield* audit(sql, "order.cancelled", o.id, {
           status: [o.status, "cancelled"],
           restock: input.restock,

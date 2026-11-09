@@ -6,7 +6,13 @@ import { Context, type Effect, Schema } from "effect"
  * names the kind of mail and its facts; the adapter owns the template and the address it sends from.
  */
 
-export const MailKind = Schema.Literals(["auth.verify", "auth.reset", "auth.signup_existing", "team.invite"])
+export const MailKind = Schema.Literals([
+  "auth.verify",
+  "auth.reset",
+  "auth.signup_existing",
+  "team.invite",
+  "supplier.order"
+])
 export type MailKind = typeof MailKind.Type
 
 /** What an invitation mail says beside its link: whose workspace, who asked, as what, and their note. */
@@ -19,12 +25,38 @@ export interface InvitationFacts {
   readonly expiresAt: Date
 }
 
+/**
+ * An order forwarded to a supplier by mail (M8.2): who it is for, whose shop it comes from, and the order as the supplier
+ * may see it (their lines, the address to ship to, the note; never the customer's email or phone).
+ */
+export interface SupplierOrderFacts {
+  readonly supplier: string
+  readonly shop: string
+  readonly order: {
+    readonly leg_id: string
+    readonly order: { readonly number: string; readonly placed_at: string; readonly note: string | null }
+    readonly ship_to: Readonly<
+      Record<"name" | "line1" | "line2" | "city" | "postcode" | "region" | "country", string | null>
+    >
+    readonly lines: ReadonlyArray<{
+      readonly sku: string | null
+      readonly title: string
+      readonly variant_title: string | null
+      readonly quantity: number
+    }>
+  }
+}
+
 export interface Mail {
   readonly kind: MailKind
   readonly to: string
   readonly url?: string | undefined
   /** `team.invite` only. */
   readonly invitation?: InvitationFacts | undefined
+  /** `supplier.order` only. */
+  readonly supplierOrder?: SupplierOrderFacts | undefined
+  /** What makes two mails of one kind to one address different (a leg's id), for the sender's idempotency. */
+  readonly reference?: string | undefined
 }
 
 export class MailNotSent extends Schema.TaggedError<MailNotSent>()("MailNotSent", {

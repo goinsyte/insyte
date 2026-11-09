@@ -16,6 +16,7 @@ export { ConnectionGateObject } from "./platform/ConnectionGate.ts"
 export { ShopifyBackfillWorkflow } from "./workflows/ShopifyBackfill.ts"
 // A store's first analysis (M6.5).
 export { FirstAnalysisWorkflow } from "./workflows/FirstAnalysis.ts"
+export { ForwardSendWorkflow } from "./workflows/ForwardSend.ts"
 export { MarketingSyncWorkflow } from "./workflows/MarketingSync.ts"
 export { ShopifyWriteWorkflow } from "./workflows/ShopifyWrite.ts"
 
