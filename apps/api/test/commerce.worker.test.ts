@@ -82,6 +82,7 @@ describe("the commerce lists", () => {
     expect(products.rows[1]).toMatchObject({ variantCount: 2, priceMinMinor: 4995, priceMaxMinor: 4995 })
     const linen = ok(await rpc("Products.get", { id: products.rows[1]!.id }, store.cookie))
     expect(linen.variants.map((v) => v.sku)).toEqual(["LIN-M", "LIN-L"])
+    expect(linen).toMatchObject({ images: [], descriptionHtml: "<p>Linnen overhemd</p>" })
     expect(ok(await rpc("Products.list", { q: "TAS-1" }, store.cookie)).rows.map((p) => p.title)).toEqual([
       "Canvas tas"
     ])

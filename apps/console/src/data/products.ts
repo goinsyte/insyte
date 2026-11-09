@@ -1,5 +1,5 @@
-import { Forbidden, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
-import { ProductPage } from "@insyte/modules/products/domain/Products"
+import { Forbidden, NotFound, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
+import { ProductDetail, ProductPage } from "@insyte/modules/products/domain/Products"
 import { CursorInvalid, FilterFieldUnknown } from "@insyte/modules/shared/domain/Filter"
 import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
@@ -30,4 +30,22 @@ export const productsAtom = Atom.serializable(
     }),
     skipInitialRun: true
   }
+)
+
+/**
+ * One product: primed by the record's loader on a server render, read in the browser when a row opens it (the list's
+ * row draws the header meanwhile). A change to any product refreshes it.
+ */
+export const productAtom = Atom.family((id: string) =>
+  Atom.serializable(
+    ConsoleClient.query("Products.get", { id }, { reactivityKeys: PRODUCTS }),
+    {
+      key: `product:${id}`,
+      schema: AsyncResult.Schema({
+        success: ProductDetail,
+        error: Schema.Union([Forbidden, NotFound, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
+      }),
+      skipInitialRun: true
+    }
+  )
 )

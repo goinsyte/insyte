@@ -140,6 +140,7 @@ export const get = Effect.fn("Products.get")(function*(id: string) {
         from variants v where v.product_id = ${id} order by v.position`
       return new ProductDetail({
         product: toRow(row),
+        images: row.images,
         descriptionHtml: row.descriptionHtml,
         variants: variants.map((v) => ({
           ...v,

@@ -1,7 +1,7 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { useWorkspace } from "@insyte/ui/app/stores/workspace-store";
 import { customers } from "@insyte/ui/data-source";
-import { CustomerDetail } from "@insyte/ui/app/customers/customer-screen";
+import { DemoCustomerDetail } from "@insyte/ui/app/customers/demo-detail";
 
 export const Route = createFileRoute("/_admin/customers/$customerId")({
 	component: CustomerDetail,
@@ -13,3 +13,8 @@ export const Route = createFileRoute("/_admin/customers/$customerId")({
 		return { customer };
 	},
 });
+
+function CustomerDetail() {
+	const { customer } = Route.useLoaderData();
+	return <DemoCustomerDetail customer={customer} />;
+}

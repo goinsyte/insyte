@@ -489,4 +489,25 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await expect(page.getByText("Wollen trui")).toBeVisible()
   await page.getByRole("link", { name: "Bestellingen" }).first().click()
   await expect(page.getByRole("row", { name: /#1005/ })).toBeVisible()
+
+  // @customer @product (step 8.4e): a customer opens over Klanten with their orders, each of which opens; a product
+  // opens over Producten with its variants and the way into its store's Shopify admin, and its URL is a page.
+  await page.goto("/customers")
+  await page.getByRole("row", { name: /Anna de Vries/ }).click()
+  const profile = page.getByRole("dialog")
+  await expect(profile.getByRole("link", { name: "#1002" })).toBeVisible()
+  await expect(profile.getByRole("button", { name: "Nieuw ticket" })).toHaveCount(0)
+  await profile.getByRole("link", { name: "#1002" }).click()
+  await expect(page.getByRole("heading", { name: "#1002" })).toBeVisible()
+  await page.goto("/products")
+  await page.getByRole("row", { name: /Linnen overhemd/ }).click()
+  const item = page.getByRole("dialog")
+  await expect(item.getByText("LIN-L")).toBeVisible()
+  await expect(item.getByRole("link", { name: "Openen in Shopify" })).toHaveAttribute(
+    "href",
+    /^https:\/\/admin\.shopify\.com\/store\/seed-[a-z0-9]+\/products\/\d+$/
+  )
+  await page.reload()
+  await expect(page.getByRole("heading", { name: "Linnen overhemd" })).toBeVisible()
+  await expect(page.getByText("LIN-M")).toBeVisible()
 })
