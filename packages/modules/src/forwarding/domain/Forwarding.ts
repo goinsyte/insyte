@@ -41,6 +41,8 @@ export class LegRow extends Schema.Class<LegRow>("forwarding/LegRow")({
   /** The supplier it was taken from by a reroute ("was {X}"). */
   fromSupplier: Schema.NullOr(Party),
   lines: Schema.Array(Schema.Struct({
+    id: Schema.String,
+    productId: Schema.NullOr(Schema.String),
     title: Schema.String,
     variantTitle: Schema.NullOr(Schema.String),
     quantity: Schema.Int,
@@ -75,7 +77,8 @@ export class LegList extends Schema.Class<LegList>("forwarding/LegList")({
 
 const Ids = Schema.Array(Schema.String).check(Schema.isMinLength(1), Schema.isMaxLength(500))
 
-export const ListInput = Schema.Struct({ view: ForwardView })
+/** One view of the queue; without one, every leg still open (the screen counts its header from them all). */
+export const ListInput = Schema.Struct({ view: Schema.optional(ForwardView) })
 
 /** "Doorsturen": the legs, how each supplier gets them where the operator says otherwise, and a note for the suppliers. */
 export const ForwardInput = Schema.Struct({

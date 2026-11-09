@@ -21,7 +21,7 @@ import { usePersonaSelection } from "../hooks/use-persona";
 import { useSupplierOrders } from "../hooks/use-supplier-orders";
 import { useCustomers, useProducts } from "../hooks/use-operator-data";
 import { useLoading } from "../loading/pace";
-import { useQueueRows } from "../orders/forwarding";
+import { useQueueRows } from "../orders/forwarding-demo";
 import { useAgentEntries } from "../stores/agent-log-store";
 import { useInbox } from "../stores/inbox-store";
 import { useHeardNotes } from "../notifications/heard";

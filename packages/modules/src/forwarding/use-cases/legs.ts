@@ -120,7 +120,16 @@ interface Row {
   readonly supplierName: string | null
   readonly fromSupplierId: string | null
   readonly fromSupplierName: string | null
-  readonly lines: ReadonlyArray<{ title: string; variantTitle: string | null; quantity: number; image: string | null }>
+  readonly lines: ReadonlyArray<
+    {
+      id: string
+      productId: string | null
+      title: string
+      variantTitle: string | null
+      quantity: number
+      image: string | null
+    }
+  >
   readonly state: LegRow["state"]
   readonly via: LegRow["via"]
   readonly since: Date
@@ -134,7 +143,8 @@ interface Row {
 
 const SELECT = `f.id, f.order_id, o.number as order_number, o.customer_name, f.store_id, o.total_minor, o.currency,
   f.supplier_id, s.name as supplier_name, f.from_supplier_id, fs.name as from_supplier_name,
-  coalesce((select json_agg(json_build_object('title', l.title, 'variantTitle', l.variant_title, 'quantity', l.quantity,
+  coalesce((select json_agg(json_build_object('id', l.id, 'productId', l.product_id, 'title', l.title,
+                                              'variantTitle', l.variant_title, 'quantity', l.quantity,
                                               'image', p.images[1]) order by l.id)
             from order_lines l left join products p on p.id = l.product_id
             where l.id = any(f.line_ids)), '[]') as lines,
@@ -198,12 +208,12 @@ const countsOf = (sql: SqlClient.SqlClient) =>
   })
 
 /** `Forwarding.list`: one view of the queue, oldest first, with the counts for the header. */
-export const list = Effect.fn("Forwarding.list")(function*(view: ForwardView) {
+export const list = Effect.fn("Forwarding.list")(function*(view: ForwardView | undefined) {
   yield* Policy.require("orders", 1)
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      const rows = yield* rowsWhere(sql, sql`f.state in ${sql.literal(STATES[view])}`)
+      const rows = yield* rowsWhere(sql, sql`f.state in ${sql.literal(view === undefined ? OPEN : STATES[view])}`)
       return new LegList({ rows, counts: yield* countsOf(sql) })
     })
   )

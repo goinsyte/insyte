@@ -12,7 +12,7 @@ import { ListClosing, useListStarts } from "../marketing-sections/closings"
 import { useGate, useStoreScope } from "../stores/access-store"
 import { useWorkspace } from "../stores/workspace-store"
 import type { RowAction } from "../table/data-table"
-import { ForwardingList } from "./forwarding"
+import { DemoForwarding } from "./forwarding-demo"
 import { NewOrderDialog } from "./new-order-dialog"
 import { isClosed } from "./orders-screen"
 import { type OrdersSource, OrdersSourceProvider } from "./source"
@@ -232,7 +232,7 @@ export function DemoOrdersSource({ children }: { children: ReactNode }) {
       ),
     canCreate,
     NewOrder: DemoNewOrder,
-    Forwarding: ForwardingList,
+    Forwarding: DemoForwarding,
     starts,
     Closing: DemoClosing,
     open: (o) => navigate({ to: "/orders/$orderId", params: { orderId: o.id }, state: OPEN_AS_MODAL })

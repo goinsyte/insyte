@@ -10,13 +10,16 @@
 
 export type LegState = "to_forward" | "sending" | "awaiting" | "confirmed" | "error" | "cancelled";
 
-export type ErrorReason = "stock" | "address" | "no_supplier" | "rejected";
+export type ErrorReason = "stock" | "address" | "no_supplier" | "rejected" | "send_failed" | "supplier_paused";
 
+/** The founder added `send_failed` and `supplier_paused` (2026-11-09); the suggested next step for both is another supplier or a retry. */
 export const REASON_LABEL: Record<ErrorReason, string> = {
 	stock: "Leverancier meldt uitverkocht",
 	address: "Adres onvolledig",
 	no_supplier: "Geen leverancier gekoppeld",
 	rejected: "Leverancier weigert de bestelling",
+	send_failed: "Versturen naar de leverancier mislukt",
+	supplier_paused: "Leverancier gepauzeerd",
 };
 
 export type ForwardVia = "portal" | "email" | "api";

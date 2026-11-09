@@ -20,6 +20,7 @@ import {
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useNow } from "../hooks/use-now";
 import { formatDateTime } from "../lib/format";
 import { type AgentLogEntry, canUndo, leftLabel, type LogSource, type LogSourceKind, RECORD_LABEL, ranUnder, STATUS_LABEL } from "../lib/agent-log";
 import { ENTRY } from "../lib/autonomy";
@@ -40,14 +41,7 @@ import { ConfirmDialog } from "../common/confirm-dialog";
  */
 
 /** A clock that ticks, for the windows counting down. */
-export function useNow(every = 1000): number {
-	const [now, setNow] = useState(() => Date.now());
-	useEffect(() => {
-		const t = window.setInterval(() => setNow(Date.now()), every);
-		return () => window.clearInterval(t);
-	}, [every]);
-	return now;
-}
+export { useNow };
 
 /** The person at the desk, by name, for "Ongedaan gemaakt door …". */
 export function useMyName(): string {

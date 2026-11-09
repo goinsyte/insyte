@@ -355,6 +355,29 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   await page.getByRole("dialog").getByPlaceholder(/^Zoek bestellingen/).fill("bram")
   await page.getByRole("dialog").getByRole("option", { name: /Bram Jansen/ }).click()
   await expect(page.getByRole("heading", { name: /Bram Jansen/ })).toBeVisible()
+
+  // @supplier @orders (steps 10.1, 10.2): the linen shirt's Shopify vendor is a supplier. It gets an address for its
+  // orders, then #1001 (paid, its line Atelier Noord's) is forwarded from Doorsturen with a note, waits out its window,
+  // and waits for the supplier; its order's tracker shows it went to the supplier.
+  await page.goto("/suppliers")
+  await hydrated(page)
+  await page.getByRole("row", { name: /Atelier Noord/ }).click()
+  await page.getByRole("button", { name: "Bewerken" }).click()
+  await page.getByLabel("E-mailadres voor bestellingen").fill("orders@atelier-noord.example")
+  await page.getByRole("button", { name: "Opslaan" }).click()
+  await expect(page.getByText("Atelier Noord opgeslagen")).toBeVisible()
+
+  await page.goto("/orders?view=to_forward")
+  await hydrated(page)
+  await expect(page.getByRole("row", { name: /#1001.*Atelier Noord/ })).toBeVisible()
+  await page.getByRole("button", { name: "Alles doorsturen" }).click()
+  await page.getByPlaceholder(/^Bijvoorbeeld: cadeauverpakking/).fill("Graag zonder factuur in het pakket")
+  await page.getByRole("button", { name: "1 bestelling naar 1 leverancier doorsturen" }).click()
+  await expect(page.getByText("Alles is doorgestuurd")).toBeVisible()
+  await page.goto("/orders?view=awaiting")
+  await hydrated(page)
+  await page.getByRole("row", { name: /#1001/ }).click()
+  await expect(page.getByRole("region", { name: "Verwerking" })).toContainText("Naar leverancier")
 })
 
 test("@onboarding @team a new admin runs onboarding to Start, every return resumes, and Team invites a colleague", async ({ browser, page, request }) => {

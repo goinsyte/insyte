@@ -24,7 +24,7 @@ type R = Db | CurrentPrincipal
  * @effect-expect-leaking Db CurrentPrincipal Relay
  */
 export class ForwardingService extends Context.Service<ForwardingService, {
-  readonly list: (view: ForwardView) => Effect.Effect<LegList, Forbidden, R>
+  readonly list: (view: ForwardView | undefined) => Effect.Effect<LegList, Forbidden, R>
   readonly forOrder: (orderId: string) => Effect.Effect<ReadonlyArray<LegRow>, Forbidden, R>
   readonly forward: (
     input: typeof ForwardInput.Type
