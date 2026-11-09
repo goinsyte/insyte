@@ -277,7 +277,7 @@ export function OrderDetailPage() {
                         {li.title}
                       </p>
                       <p className="truncate font-normal text-sm text-ink-3 leading-[1.4]">
-                        {skuOf(li) ? <>SKU {skuOf(li)} · Aantal</> : "Aantal "}
+                        {skuOf(li) ? <>SKU {skuOf(li)} · Aantal{" "}</> : "Aantal "}
                         {li.quantity}
                         {li.variant_title ? ` · ${li.variant_title}` : ""}
                       </p>
