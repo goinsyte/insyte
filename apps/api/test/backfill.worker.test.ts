@@ -94,7 +94,7 @@ describe("a store's first import", () => {
     expect(ok(await rpc("Stores.syncStatus", { id: owner.storeId }, owner.cookie)).counts).toEqual(EXPECTED)
   })
 
-  it("takes onboarding from the store step through sync to ready, each fact checked on the server", async () => {
+  it("takes onboarding from the store step through sync and the analysis to ready, each fact checked on the server", async () => {
     await using workflows = await introspectWorkflow(env.SHOPIFY_BACKFILL)
     await workflows.modifyAll(async (m) => {
       await m.disableSleeps()
@@ -126,7 +126,9 @@ describe("a store's first import", () => {
     await relay(workspace)
     const [instance] = await workflows.get()
     await instance!.waitForStatus("complete")
-    expect(ok(await onboarding.advance({ step: "sync" }, founder.cookie))).toMatchObject({ step: "ready" })
+    expect(ok(await onboarding.advance({ step: "sync" }, founder.cookie))).toMatchObject({ step: "analysis" })
+    // The first analysis (M6.5) follows the import; the offline plan waits for M15.
+    expect(ok(await onboarding.advance({ step: "analysis" }, founder.cookie))).toMatchObject({ step: "ready" })
     expect(ok(await onboarding.start(founder.cookie)).done).toContain("store")
   })
 

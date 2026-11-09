@@ -42,7 +42,8 @@ export const TENANT_TABLES = [
   "fulfilments",
   "refunds",
   "inbound_events",
-  "gdpr_requests"
+  "gdpr_requests",
+  "first_analyses"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

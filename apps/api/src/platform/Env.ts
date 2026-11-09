@@ -1,3 +1,4 @@
+import type { AnalysisParams } from "../workflows/FirstAnalysis.ts"
 import type { BackfillParams } from "../workflows/ShopifyBackfill.ts"
 import type { ConnectionGateObject } from "./ConnectionGate.ts"
 import type { IngestMessage } from "./IngestQueue.ts"
@@ -22,6 +23,8 @@ declare global {
       readonly CONNECTION_GATE: DurableObjectNamespace<ConnectionGateObject>
       /** A store's first import (M6.3): one instance per connect (`ShopifyBackfillWorkflow`). */
       readonly SHOPIFY_BACKFILL: Workflow<BackfillParams>
+      /** A store's first analysis (M6.5): one instance per analysis (`FirstAnalysisWorkflow`). */
+      readonly FIRST_ANALYSIS: Workflow<AnalysisParams>
       /** Shopify's webhooks (M6.3): received deliveries' ids, applied by this Worker's `queue` handler. */
       readonly INGEST: Queue<IngestMessage>
       /** Lines per backfill page, 2000 by default; the worker tests read small pages. */

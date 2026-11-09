@@ -2,6 +2,7 @@ import { ConsoleRpcs, RPC_PATH } from "@insyte/api/ConsoleRpcs"
 import { Access } from "@insyte/modules/access/Access"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
+import { FirstAnalysisService } from "@insyte/modules/first-analysis/FirstAnalysis"
 import { Landing } from "@insyte/modules/members/Landing"
 import { Members } from "@insyte/modules/members/Members"
 import { NotificationsService } from "@insyte/modules/notifications/NotificationsService"
@@ -17,6 +18,7 @@ import { RpcSerialization } from "effect/rpc"
 import { AccessHandlers } from "./handlers/access.ts"
 import { CommerceHandlers } from "./handlers/commerce.ts"
 import { DeveloperHandlers } from "./handlers/developer.ts"
+import { FirstAnalysisHandlers } from "./handlers/first-analysis.ts"
 import { LandingHandlers } from "./handlers/landing.ts"
 import { MembersHandlers } from "./handlers/members.ts"
 import { NotificationsHandlers } from "./handlers/notifications.ts"
@@ -51,6 +53,7 @@ export const RpcContext = Layer.mergeAll(
   PrefsHandlers.pipe(Layer.provide(PrefsService.layer)),
   NotificationsHandlers.pipe(Layer.provide(NotificationsService.layer)),
   StoresHandlers.pipe(Layer.provide(StoresService.layer)),
+  FirstAnalysisHandlers.pipe(Layer.provide(FirstAnalysisService.layer)),
   CommerceHandlers.pipe(
     Layer.provide(Layer.mergeAll(OrdersService.layer, ProductsService.layer, CustomersService.layer))
   ),
