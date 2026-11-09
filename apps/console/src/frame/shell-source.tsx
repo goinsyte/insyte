@@ -67,6 +67,13 @@ function value<A>(result: AsyncResult.AsyncResult<A, unknown>): A | undefined {
   return Option.getOrUndefined(AsyncResult.value(result))
 }
 
+/** Why each area's "new" button is off in the console, in the words its page uses. */
+const NOT_YET: Record<string, string> = {
+  order: "Bestellingen maken kan hier nog niet",
+  customer: "Klanten toevoegen kan hier nog niet",
+  product: "Producten toevoegen kan hier nog niet"
+}
+
 export function ConsoleShellSource({ frame, children }: { frame: Frame; children: ReactNode }) {
   const navigate = useNavigate()
   const presence = useAtomValue(presenceAtom)
@@ -257,9 +264,15 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     workspaceName: frame.workspace.name,
     // ADR-0028: the design's demo counts dropped, the server's in their place.
     useRecordSearch: useConsoleRecordSearch,
+    unavailable: (kind) => NOT_YET[kind] ?? "Dit kan hier nog niet",
     panelFor: (pathname) => {
       const cfg = panelForPath(pathname)
-      return cfg === null ? null : withServerCounts(cfg, frame.counts)
+      if (cfg === null) return null
+      // Nothing is made from the console yet (M7 onwards): its button is off, and says so as the page's own does.
+      const panel = cfg.cta === undefined
+        ? cfg
+        : { ...cfg, cta: { ...cfg.cta, unavailable: NOT_YET[cfg.cta.create ?? ""] ?? "Dit kan hier nog niet" } }
+      return withServerCounts(panel, frame.counts)
     },
     automationsPanel: { recommended: 0, ai: 0, Extras: null },
     operator: { products: NO_ROWS, customers: NO_ROWS },

@@ -32,6 +32,7 @@ import type { ViewsState } from "../stores/views-store";
 import type { WorkspaceState } from "../stores/workspace-store";
 import type { useMarketplaceState as MarketplaceStateHook } from "../hooks/use-marketplace-state";
 import type { useNavPrefs as NavPrefsHook } from "../hooks/use-nav-prefs";
+import type { CreateKind } from "../stores/create-intent";
 
 /**
  * What the frame reads and does, from whoever hosts it (as `team/source.tsx` for Team): the design app answers from
@@ -113,6 +114,8 @@ export interface ShellSource {
 	 * app's).
 	 */
 	useRecordSearch: (query: string) => RecordHits | null;
+	/** Why the host cannot make a kind of record yet, or `null` where it can: the + menu and the palette grey it out. */
+	unavailable: (kind: CreateKind) => string | null;
 	/** The area panel for a path, with the counts the host stands behind (`panelForPath`, or the server's figures). */
 	panelFor: (pathname: string) => SubPanelConfig | null;
 	/** The name of the workspace the console is in. */

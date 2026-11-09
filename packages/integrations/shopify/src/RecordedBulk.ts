@@ -1,14 +1,18 @@
 /*
  * A development store's bulk results, as Shopify writes them (JSONL, children after their parent with `__parentId`):
  * three products with four variants, three customers, and five orders across the lifecycle (paid and open, shipped,
- * delivered, refunded, cancelled), one of them without a customer. The worker tests read them in pages small enough
- * that a line item lands in a later page than its order.
+ * delivered, refunded, cancelled), one of them without a customer. Two products have photographs (a featured one,
+ * then the rest as `MediaImage` children); the third has none. The worker tests read them in pages small enough that a
+ * line item lands in a later page than its order.
  */
 
 const gid = (type: string, id: number) => `gid://shopify/${type}/${id}`
 const money = (amount: string) => ({ shopMoney: { amount } })
 
-const product = (id: number, title: string, updatedAt: string) => ({
+/** A photograph on Unsplash, as the design reference's catalogue uses them; Shopify's would be on its CDN. */
+const photo = (id: string) => `https://images.unsplash.com/photo-${id}?w=900&q=80&auto=format&fit=crop`
+
+const product = (id: number, title: string, updatedAt: string, featured: string | null = null) => ({
   id: gid("Product", id),
   title,
   handle: title.toLowerCase().replaceAll(" ", "-"),
@@ -19,8 +23,17 @@ const product = (id: number, title: string, updatedAt: string) => ({
   tags: [],
   createdAt: "2026-01-10T09:00:00Z",
   updatedAt,
-  featuredMedia: null
+  featuredMedia: featured === null ? null : { preview: { image: { url: featured } } }
 })
+
+const media = (id: number, productId: number, url: string) => ({
+  id: gid("MediaImage", id),
+  image: { url },
+  __parentId: gid("Product", productId)
+})
+
+const LINEN = ["1713881587420-113c1c43e28a", "1713881676551-b16f22ce4719", "1713881604560-085594ed2c3d"].map(photo)
+const WOOL = ["1620799140408-edc6dcb6d633", "1607160199580-1b0c9b736b66"].map(photo)
 
 const variant = (id: number, productId: number, title: string, sku: string, price: string, position: number) => ({
   id: gid("ProductVariant", id),
@@ -116,11 +129,13 @@ const jsonl = (lines: ReadonlyArray<unknown>) => lines.map((l) => JSON.stringify
 
 export const RECORDED_BULK = {
   products: jsonl([
-    product(1, "Linnen overhemd", "2026-09-01T00:00:00Z"),
+    product(1, "Linnen overhemd", "2026-09-01T00:00:00Z", LINEN[0]!),
     variant(11, 1, "M", "LIN-M", "49.95", 1),
     variant(12, 1, "L", "LIN-L", "49.95", 2),
-    product(2, "Wollen trui", "2026-09-02T00:00:00Z"),
+    ...LINEN.map((url, i) => media(101 + i, 1, url)),
+    product(2, "Wollen trui", "2026-09-02T00:00:00Z", WOOL[0]!),
     variant(21, 2, "Default Title", "WOL-1", "89.00", 1),
+    ...WOOL.map((url, i) => media(201 + i, 2, url)),
     product(3, "Canvas tas", "2026-09-03T00:00:00Z"),
     variant(31, 3, "Default Title", "TAS-1", "24.50", 1)
   ]),

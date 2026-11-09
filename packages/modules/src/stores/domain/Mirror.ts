@@ -49,6 +49,10 @@ export const toMinor = (amount: string | number, currency: string): number => {
 const PRODUCT_FIELDS = `id title handle descriptionHtml status vendor productType tags createdAt updatedAt
   featuredMedia { preview { image { url } } }`
 const VARIANT_FIELDS = "id title sku price compareAtPrice position inventoryItem { id }"
+/** A product's photographs, in its own order; other media (video, 3D) are not mirrored. */
+const MEDIA_NODE = "node { ... on MediaImage { id image { url } } }"
+/** As many photographs as a product page shows; a bulk file holds them all. */
+const MEDIA_PAGE = 20
 const CUSTOMER_FIELDS = `id firstName lastName displayName tags numberOfOrders createdAt updatedAt
   defaultEmailAddress { emailAddress marketingState }
   defaultPhoneNumber { phoneNumber }
@@ -68,7 +72,9 @@ const LINE_FIELDS =
   "id title variantTitle quantity sku originalUnitPriceSet { shopMoney { amount } } variant { id } product { id }"
 
 export const PRODUCTS_QUERY = `{
-  products { edges { node { ${PRODUCT_FIELDS} variants { edges { node { ${VARIANT_FIELDS} } } } } } }
+  products { edges { node {
+    ${PRODUCT_FIELDS} variants { edges { node { ${VARIANT_FIELDS} } } } media { edges { ${MEDIA_NODE} } }
+  } } }
 }`
 
 export const CUSTOMERS_QUERY = `{
@@ -89,7 +95,10 @@ export type MirrorKind = "Product" | "Customer" | "Order"
 /** One object by its gid, as it is now, with its children (a webhook names it; this reads it). */
 export const NODE_QUERY = `query($id: ID!) {
   node(id: $id) {
-    ... on Product { ${PRODUCT_FIELDS} variants(first: 250) { edges { node { ${VARIANT_FIELDS} } } } }
+    ... on Product {
+      ${PRODUCT_FIELDS} variants(first: 250) { edges { node { ${VARIANT_FIELDS} } } }
+      media(first: ${MEDIA_PAGE}) { edges { ${MEDIA_NODE} } }
+    }
     ... on Customer { ${CUSTOMER_FIELDS} }
     ... on Order { ${ORDER_FIELDS} lineItems(first: 250) { edges { node { ${LINE_FIELDS} } } } }
   }
@@ -101,7 +110,7 @@ export const CHANGED_PAGE = 50
 export const changedQuery = (kind: MirrorKind): string => {
   const field = kind === "Product" ? "products" : kind === "Customer" ? "customers" : "orders"
   const children = kind === "Product"
-    ? `variants(first: 100) { edges { node { ${VARIANT_FIELDS} } } }`
+    ? `variants(first: 100) { edges { node { ${VARIANT_FIELDS} } } } media(first: ${MEDIA_PAGE}) { edges { ${MEDIA_NODE} } }`
     : kind === "Order"
     ? `lineItems(first: 100) { edges { node { ${LINE_FIELDS} } } }`
     : ""
@@ -263,6 +272,8 @@ export interface MirrorBatch {
   readonly lines: Array<LineRow>
   readonly fulfilments: Array<FulfilmentRow>
   readonly refunds: Array<RefundRow>
+  /** A product's photographs beyond its featured one, in order: folded into its `images`. */
+  readonly images: Array<{ readonly product_shopify_id: string; readonly url: string }>
   /** Lines of a type Insyte does not mirror, or that did not decode: counted, never written. */
   skipped: number
 }
@@ -275,6 +286,7 @@ export const emptyBatch = (): MirrorBatch => ({
   lines: [],
   fulfilments: [],
   refunds: [],
+  images: [],
   skipped: 0
 })
 
@@ -307,6 +319,12 @@ const ProductLine = Schema.Struct({
   featuredMedia: Schema.optional(Schema.NullOr(Schema.Struct({
     preview: Schema.NullOr(Schema.Struct({ image: Schema.NullOr(Schema.Struct({ url: Schema.String })) }))
   })))
+})
+
+const MediaImageLine = Schema.Struct({
+  id: Schema.String,
+  image: Schema.NullOr(Schema.Struct({ url: Schema.String })),
+  __parentId: Schema.String
 })
 
 const VariantLine = Schema.Struct({
@@ -397,6 +415,7 @@ const decode = <S extends Schema.Top>(schema: S) =>
   Schema.decodeUnknownOption(schema as never) as (u: unknown) => Option.Option<S["Type"]>
 const product = decode(ProductLine)
 const variant = decode(VariantLine)
+const mediaImage = decode(MediaImageLine)
 const customer = decode(CustomerLine)
 const order = decode(OrderLine)
 const lineItem = decode(LineItemLine)
@@ -490,6 +509,12 @@ export const addLine = (batch: MirrorBatch, line: unknown, storeCurrency: string
         external_updated_at: p.updatedAt,
         raw: line
       })
+      return
+    }
+    case "MediaImage": {
+      const m = Option.getOrUndefined(mediaImage(line))
+      if (m === undefined || m.image === null) break
+      batch.images.push({ product_shopify_id: gidId(m.__parentId), url: m.image.url })
       return
     }
     case "ProductVariant": {

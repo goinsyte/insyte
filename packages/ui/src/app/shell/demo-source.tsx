@@ -55,6 +55,8 @@ import { type ShellSource, ShellSourceProvider } from "./source";
 /** The frame in the design app: every part answered from the demo stores, as before the seam. */
 /* The design app's palette filters the workspace's own records as you type. */
 const noSearch = () => null;
+/* Everything can be made in the design app. */
+const everything = () => null;
 
 export function DemoShellSource({ children }: { children: ReactNode }) {
 	const store = useActiveStore();
@@ -111,6 +113,7 @@ export function DemoShellSource({ children }: { children: ReactNode }) {
 		operator: { products: operatorProducts, customers: operatorCustomers },
 		data: { currentUserByPersona, navByPersona, members, presenceById, lastActionById, customers, products, automations, conversations },
 		useRecordSearch: noSearch,
+		unavailable: everything,
 	};
 	return <ShellSourceProvider value={source}>{children}</ShellSourceProvider>;
 }

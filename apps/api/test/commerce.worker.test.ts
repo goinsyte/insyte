@@ -66,7 +66,8 @@ describe("the commerce lists", () => {
     const [delivered] = ok(await rpc("Orders.list", { q: "1002" }, store.cookie)).rows
     const detail = ok(await rpc("Orders.get", { id: delivered!.id }, store.cookie))
     expect(detail.order.status).toBe("delivered")
-    expect(detail.lines).toMatchObject([{ title: "Wollen trui", quantity: 1, unitPriceMinor: 8900, imageUrl: null }])
+    expect(detail.lines).toMatchObject([{ title: "Wollen trui", quantity: 1, unitPriceMinor: 8900 }])
+    expect(detail.lines[0]!.imageUrl).toMatch(/^https:\/\/images\.unsplash\.com\/photo-1620799140408/)
     expect(detail.customer).toEqual({ ordersCount: 2, lifetimeValueMinor: 13895, currency: "EUR" })
     expect(detail.fulfilments).toMatchObject([{ carrier: "PostNL", trackingStatus: "delivered" }])
     const [refunded] = ok(await rpc("Orders.list", { q: "1004" }, store.cookie)).rows
@@ -82,7 +83,13 @@ describe("the commerce lists", () => {
     expect(products.rows[1]).toMatchObject({ variantCount: 2, priceMinMinor: 4995, priceMaxMinor: 4995 })
     const linen = ok(await rpc("Products.get", { id: products.rows[1]!.id }, store.cookie))
     expect(linen.variants.map((v) => v.sku)).toEqual(["LIN-M", "LIN-L"])
-    expect(linen).toMatchObject({ images: [], descriptionHtml: "<p>Linnen overhemd</p>" })
+    // The featured photograph first, then the rest in Shopify's order, each once.
+    expect(linen.images.map((url) => url.match(/photo-([\d-]+[a-f0-9]+)/)?.[1])).toEqual([
+      "1713881587420-113c1c43e28a",
+      "1713881676551-b16f22ce4719",
+      "1713881604560-085594ed2c3d"
+    ])
+    expect(linen.descriptionHtml).toBe("<p>Linnen overhemd</p>")
     expect(ok(await rpc("Products.list", { q: "TAS-1" }, store.cookie)).rows.map((p) => p.title)).toEqual([
       "Canvas tas"
     ])
