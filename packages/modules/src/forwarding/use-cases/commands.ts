@@ -19,6 +19,7 @@ import {
   type RerouteInput
 } from "../domain/Forwarding.ts"
 import { rowsOf } from "./legs.ts"
+import { ensureWork } from "./work.ts"
 
 /*
  * The forwarding commands (M8.2; widgets/03 Doorsturen), at `orders` Bewerken, inside the role's stores. A forward
@@ -160,6 +161,13 @@ export const markConfirmed = Effect.fn("Forwarding.markConfirmed")(function*(inp
                    confirmed_by = ${principal.id}
                  where id in ${sql.in(ids)}`
       for (const l of legs) yield* audit(sql, "order.forward_confirmed", l)
+      // The supplier confirmed outside Insyte: its work is accepted (M8.3).
+      yield* ensureWork(sql, ids)
+      yield* sql`update supplier_work w set accepted_at = coalesce(w.accepted_at, now()),
+                   accepted_by = coalesce(w.accepted_by, ${principal.id}),
+                   status = case when w.status = 'to_accept' then 'to_ship' else w.status end, updated_at = now()
+                 from forwarding_items f
+                 where f.id in ${sql.in(ids)} and w.order_id = f.order_id and w.supplier_id = f.supplier_id`
       const orders = yield* sql<{ id: string; status: string }>`
         select o.id, o.status from orders o
         where o.id in ${sql.in([...new Set(legs.map((l) => l.orderId))])} and o.status = 'paid'

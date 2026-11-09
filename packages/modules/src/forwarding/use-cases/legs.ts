@@ -48,6 +48,12 @@ export const ensureLegs = Effect.fn("Forwarding.ensureLegs")(function*(
     where f.order_id = o.id and o.store_id = ${storeId} and o.shopify_id in ${sql.in(ids)}
       and (o.status in ('cancelled', 'refunded') or o.payment_status in ('refunded', 'voided'))
       and f.state in ('to_forward', 'error')`
+  yield* sql`
+    update supplier_work w set status = 'closed', updated_at = now()
+    from orders o
+    where w.order_id = o.id and o.store_id = ${storeId} and o.shopify_id in ${sql.in(ids)}
+      and (o.status in ('cancelled', 'refunded') or o.payment_status in ('refunded', 'voided'))
+      and w.status in ('to_accept', 'to_ship', 'problem')`
 
   const candidates = yield* sql<Candidate>`
     select o.id as order_id, coalesce(ps.supplier_id, '') as supplier_id, array_agg(l.id order by l.id) as line_ids,

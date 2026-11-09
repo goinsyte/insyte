@@ -136,7 +136,8 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
     case "order.updated":
     case "order.cancelled":
     case "refund.requested":
-      return {
+      // A supplier's own parcel (M8.3) is not a person handling an order.
+      return event.userId.startsWith("supplier:") ? undefined : {
         outboxId: id,
         event: "order_handled",
         distinctId: event.userId,

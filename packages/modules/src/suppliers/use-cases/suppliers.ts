@@ -86,7 +86,10 @@ export const rowsWhere = Effect.fn("Suppliers.rowsWhere")(function*(
       select count(*) filter (where t.status not in ${sql.literal(CLOSED)} and t.status <> 'delivered') as open,
              count(*) filter (where t.at_risk and t.status not in ${sql.literal(CLOSED)}) as delayed,
              count(*) filter (where t.status in ('shipped', 'delivered') and not t.at_risk) as shipped
-      from (select distinct o.id, o.status, 'at_risk' = any(o.tags) as at_risk
+      from (select distinct o.id, o.status,
+                   'at_risk' = any(o.tags) or exists (
+                     select 1 from supplier_work w where w.order_id = o.id and w.supplier_id = s.id
+                       and w.status in ('to_accept', 'to_ship', 'problem') and w.handoff_by < now()) as at_risk
             from orders o
             join order_lines l on l.order_id = o.id
             join product_supply ps on ps.product_id = l.product_id and ps.is_primary

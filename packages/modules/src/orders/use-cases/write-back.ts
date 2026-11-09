@@ -29,6 +29,14 @@ import {
  * stops counting against the order; one Shopify took makes the order read refunded.
  */
 
+interface FulfillmentOrder {
+  readonly id: string
+  readonly status: string
+  readonly lineItems?: {
+    readonly nodes: ReadonlyArray<{ id: string; remainingQuantity: number; lineItem: { id: string } }>
+  }
+}
+
 interface Target {
   readonly storeId: string
   readonly connectionId: string
@@ -87,14 +95,27 @@ const send = Effect.fn("Orders.writeBack.send")(function*(
     }
     case "fulfil": {
       const { data } = yield* mutate(target, FULFILLMENT_ORDERS, { id: gid }, "order")
-      const nodes = ((data as { order?: { fulfillmentOrders?: { nodes?: Array<{ id: string; status: string }> } } })
+      const nodes = ((data as { order?: { fulfillmentOrders?: { nodes?: ReadonlyArray<FulfillmentOrder> } } })
         ?.order?.fulfillmentOrders?.nodes) ?? []
       const open = nodes.filter((n) => FULFILLABLE.has(n.status))
+      // A supplier's parcel carries only its own lines (M8.3); without lines, everything still open.
+      const only = write.lines === undefined ? undefined : new Set(write.lines)
+      const byOrder = open.flatMap((n) => {
+        if (only === undefined) return [{ fulfillmentOrderId: n.id }]
+        const items = (n.lineItems?.nodes ?? []).filter((li) =>
+          li.remainingQuantity > 0 && only.has(li.lineItem.id.split("/").pop() ?? "")
+        )
+        return items.length === 0 ? [] : [{
+          fulfillmentOrderId: n.id,
+          fulfillmentOrderLineItems: items.map((li) => ({ id: li.id, quantity: li.remainingQuantity }))
+        }]
+      })
       // Fulfilled in Shopify already (by hand, or by the supplier's app): nothing left to do.
-      if (open.length === 0) return []
+      if (byOrder.length === 0) return []
       const fulfillment = {
-        lineItemsByFulfillmentOrder: open.map((n) => ({ fulfillmentOrderId: n.id })),
-        notifyCustomer: false
+        lineItemsByFulfillmentOrder: byOrder,
+        notifyCustomer: false,
+        ...(write.tracking === undefined ? {} : { trackingInfo: write.tracking })
       }
       return (yield* mutate(target, FULFILLMENT_CREATE, { fulfillment }, "fulfillmentCreate")).errors
     }
