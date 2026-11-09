@@ -18,6 +18,14 @@ export interface Outgoing {
   readonly html: string
   readonly text: string
   readonly idempotencyKey?: string | undefined
+  /** Files with the mail, as Resend takes them: base64 content and a name. */
+  readonly attachments?: ReadonlyArray<{ readonly filename: string; readonly content: Uint8Array }> | undefined
+}
+
+const base64 = (bytes: Uint8Array) => {
+  let binary = ""
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(binary)
 }
 
 /** Why a mail did not go: Resend's own words, or that Resend could not be reached. Never the key. */
@@ -48,7 +56,10 @@ export class Resend extends Context.Service<Resend, {
             to: [mail.to],
             subject: mail.subject,
             html: mail.html,
-            text: mail.text
+            text: mail.text,
+            ...(mail.attachments === undefined || mail.attachments.length === 0 ? {} : {
+              attachments: mail.attachments.map((a) => ({ filename: a.filename, content: base64(a.content) }))
+            })
           })
         )
         const response = yield* client.execute(request).pipe(

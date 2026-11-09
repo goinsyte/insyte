@@ -42,6 +42,12 @@ declare global {
       readonly INGEST: Queue<IngestMessage>
       /** Lines per backfill page, 2000 by default; the worker tests read small pages. */
       readonly SYNC_PAGE_LINES?: string
+      /** Files (M8.5): packing slips now, uploads later, one bucket per stage. */
+      readonly FILES: R2Bucket
+      /** Browser Rendering (M8.5): packing slips as PDF. */
+      readonly BROWSER: BrowserRun
+      /** `html` in the worker tests, which have no browser: the slip is stored as its HTML. */
+      readonly DOCUMENTS_ADAPTER?: string
       /** The outbox relay's queue (M1.4): committed events' ids, consumed by this Worker's `queue` handler. */
       readonly EVENTS: Queue<EventsMessage>
       readonly ENVIRONMENT: "local" | "preview" | "staging" | "production"

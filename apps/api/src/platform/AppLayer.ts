@@ -12,6 +12,7 @@ import { FetchHttpClient, type HttpClient, HttpServer } from "effect/http"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
 import { ConnectRoutes, KlaviyoConnectRoutes } from "../transports/http/ConnectRoutes.ts"
 import { DevRoutes } from "../transports/http/DevRoutes.ts"
+import { FileRoutes } from "../transports/http/FileRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
 import { RealtimeRoutes } from "../transports/http/RealtimeRoutes.ts"
 import { RequestContext } from "../transports/http/RequestContext.ts"
@@ -33,6 +34,7 @@ import { AuthHooksLive } from "./AuthHooks.ts"
 import { BackfillsLive } from "./Backfills.ts"
 import { AppInfo, BetaSettings, ConfigLive } from "./Bindings.ts"
 import { ConnectionGateLive } from "./ConnectionGate.ts"
+import { DocumentsChoice, FileStoreR2 } from "./Documents.ts"
 import { ForwardSendsLive, SupplierApiChoice } from "./Forwarding.ts"
 import { HumanCheck } from "./HumanCheck.ts"
 import { HyperdriveConnect } from "./Hyperdrive.ts"
@@ -67,6 +69,7 @@ const Transports = Layer.mergeAll(
   WebhookRoutes,
   SupplierHookRoutes,
   TrackingRoutes,
+  FileRoutes,
   PublicApiRoutes,
   McpRoutes,
   RequestContext,
@@ -132,6 +135,8 @@ export const AppLayer = Transports.pipe(
       SupplierApiChoice,
       // …and AfterShip, for its webhooks (M8.4).
       TrackingChoice,
+      // …and the files bucket, for downloads (M8.5).
+      FileStoreR2,
       ConnectionGateLive,
       IngestQueueLive,
       // …and the first analysis's Workflow (M6.5).
@@ -197,7 +202,10 @@ export const SyncLayer = Layer.mergeAll(
   SupplierApiChoice,
   MailerLive,
   // The tracking sweep (M8.4): AfterShip.
-  TrackingChoice
+  TrackingChoice,
+  // A forward's packing slip (M8.5): rendered and kept.
+  DocumentsChoice,
+  FileStoreR2
 )
   .pipe(
     Layer.provideMerge(HyperdriveConnect),

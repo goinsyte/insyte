@@ -60,7 +60,9 @@ export class LegRow extends Schema.Class<LegRow>("forwarding/LegRow")({
   /** The supplier's own words, or why sending failed. */
   errorNote: Schema.NullOr(Schema.String),
   operatorNote: Schema.NullOr(Schema.String),
-  forwardedBy: Schema.NullOr(Schema.String)
+  forwardedBy: Schema.NullOr(Schema.String),
+  /** Its packing slip (M8.5), made when it went by mail: download it at `/api/files/:id`. */
+  slipFileId: Schema.NullOr(Schema.String)
 }) {}
 
 export const LegCounts = Schema.Struct({

@@ -66,6 +66,23 @@ describe("Resend", () => {
     expect(seen[0]?.body).toMatchObject({ to: ["eva@example.com"], subject: "S", text: "T" })
   })
 
+  it("sends a file with the mail as Resend takes it: its name and base64 content", async () => {
+    const seen: Array<Seen> = []
+    await Effect.runPromiseExit(
+      Effect.flatMap(Effect.service(Resend), (r) =>
+        r.send({
+          ...outgoing,
+          attachments: [{ filename: "pakbon-1001.pdf", content: new TextEncoder().encode("%PDF-1.7") }]
+        })).pipe(
+          Effect.provide(Resend.layer.pipe(
+            Layer.provide(fakeResend(() => Promise.resolve(Response.json({ id: "re_2" })), seen)),
+            Layer.provide(config)
+          ))
+        )
+    )
+    expect(seen[0]?.body["attachments"]).toEqual([{ filename: "pakbon-1001.pdf", content: btoa("%PDF-1.7") }])
+  })
+
   it("fails with Resend's reason when it refuses, and when it cannot be reached; never with the key", async () => {
     const refused = await send(
       fakeResend(() =>
