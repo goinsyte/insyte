@@ -107,6 +107,7 @@
     "beta:allow": "bun scripts/beta-allow.ts",
     "mail:smoke": "bun scripts/mail-smoke.ts",
     "db:migrate": "bun scripts/migrate.ts",
+    "deploy:staging": "bun scripts/deploy-staging.ts",
     "db:seed": "bun scripts/seed.ts",
     "migrations:check": "bun scripts/migrations-check.ts",
     "api:smoke": "bun scripts/smoke-api.ts",

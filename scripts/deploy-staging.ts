@@ -2,7 +2,7 @@
  * Staging deployed from a laptop, the same steps as backend.yml's staging job, for when GitHub Actions cannot run:
  * build the console, check the providers, migrate the database, deploy the stack, smoke it from outside.
  *
- *   bun --env-file ~/vantion/insyte/.env.staging scripts/deploy-staging.ts
+ *   bun --env-file ~/vantion/insyte/.env.staging run deploy:staging
  *
  * The secrets come from that file (outside the repo; `.env.staging.example` names them): GitHub never gives a secret
  * back. The staging environment's variables, which are not secret, are read from GitHub when the file leaves them
