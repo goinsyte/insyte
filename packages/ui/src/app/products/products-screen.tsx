@@ -97,7 +97,7 @@ export function ProductsPage() {
 					<span className="tabular-nums">
 						{ctx.row.original.cost === undefined
 							? "—"
-							: formatCurrency(ctx.row.original.cost)}
+							: formatCurrency(ctx.row.original.cost, source.currencyOf?.(ctx.row.original))}
 					</span>
 				),
 			},
@@ -108,7 +108,7 @@ export function ProductsPage() {
 				size: 84,
 				cell: (ctx) => (
 					<span className="font-medium text-ink tabular-nums">
-						{formatCurrency(ctx.row.original.price)}
+						{formatCurrency(ctx.row.original.price, source.currencyOf?.(ctx.row.original))}
 					</span>
 				),
 			},
@@ -171,7 +171,7 @@ export function ProductsPage() {
 				),
 			},
 		],
-		[attention],
+		[attention, source.currencyOf],
 	);
 
 	return (

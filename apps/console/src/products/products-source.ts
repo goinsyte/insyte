@@ -83,6 +83,7 @@ export function useConsoleProductsSource(page: ProductPage): ProductsSource {
     hidden: HIDDEN,
     actions: ACTIONS,
     canCreate: { ok: false, reason: "Producten toevoegen kan hier nog niet" },
+    currencyOf: (p) => p.currency,
     categories: false
   }
 }

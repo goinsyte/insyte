@@ -1,6 +1,3 @@
-import { RecordAgentRows } from "../ask/agent-parts";
-import { ProcessingTracker } from "./forwarding";
-import { OrderReturns, StartReturnDialog } from "../returns/order-returns";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -9,7 +6,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "../../components/dropdown-menu";
-import { getRouteApi } from "@tanstack/react-router";
 import {
 	Calendar,
 	ChevronDown,
@@ -35,46 +31,48 @@ import { ConfirmDialog } from "../common/confirm-dialog";
 import { DetailShell } from "../common/detail-shell";
 import { OrderTags } from "./order-tags";
 import { ProductThumb } from "../product/product-thumb";
-import { products as catalogue } from "../../data-source";
 
 import { OrderStatusBadge } from "./order-status-badge";
-import { formatCurrency, initials } from "../lib/format";
+import { formatCurrency, initials, ZONE } from "../lib/format";
 import { countryFlag, countryName } from "../lib/format-flag";
-import type { Address, Order } from "../lib/types/domain";
-import { undoable } from "../lib/undo";
-import { useGate } from "../stores/access-store";
-import { useWorkspace } from "../stores/workspace-store";
+import type { Address } from "../lib/types/domain";
 import { OrderNoteDialog, ShippingDialog } from "./order-dialogs";
 import type { Currency } from "../lib/types/domain";
-import { useNavigate } from "@tanstack/react-router";
 import { cn } from "../lib/utils";
+import { type TimelineStep, useOrderDetailSource } from "./detail-source";
 
-const Route = getRouteApi("/_admin/orders/$orderId");
+/*
+ * One order, as `detail-source.tsx` gives it: the design app's from its demo workspace, the console's from
+ * `Orders.get`. What the host cannot do yet is left out rather than shown dead: without `writes` there is no Acties
+ * menu, no Bewerken and no advice; without a supplier no supplier line.
+ */
 
-/** A line item's photograph, from the product it was sold as. */
-const imageOf = (productId: string) => catalogue.find((p) => p.id === productId)?.images[0];
-
-/** A line item's SKU, from the variant it was sold as. */
-const skuOf = (variantId: string) => catalogue.flatMap((p) => p.variants).find((v) => v.id === variantId)?.sku;
-
-const SUPPLIERS = [
-	"Skyway Freight",
-	"Oceanic Logistics",
-	"City Couriers",
-	"Delta Transport",
-	"Express Carriers",
-];
+const STEP_ICON: Record<TimelineStep["kind"], typeof Calendar> = {
+	placed: Calendar,
+	paid: CreditCard,
+	supplier: Factory,
+	shipped: Truck,
+	delivered: MapPin,
+	closed: XCircle,
+};
 
 export function OrderDetailPage() {
-	const { id, customer } = Route.useLoaderData();
-	const order = useWorkspace((s) => s.orders.find((o) => o.id === id)) as Order;
-	const refundOrder = useWorkspace((s) => s.refundOrder);
-	const cancelOrder = useWorkspace((s) => s.cancelOrder);
-	const restoreOrder = useWorkspace((s) => s.restoreOrder);
-	const updateShipping = useWorkspace((s) => s.updateShipping);
-	const addOrderNote = useWorkspace((s) => s.addOrderNote);
-	const createTicket = useWorkspace((s) => s.createTicket);
-	const navigate = useNavigate();
+	const {
+		order,
+		customer,
+		imageOf,
+		skuOf,
+		totals,
+		timeline,
+		payment,
+		supplier,
+		arriving,
+		tags,
+		writes,
+		Tracker,
+		AgentRows,
+		Returns,
+	} = useOrderDetailSource();
 	const ask = useAskInsyte();
 	const [cancelOpen, setCancelOpen] = useState(false);
 	const [refundOpen, setRefundOpen] = useState(false);
@@ -82,64 +80,35 @@ export function OrderDetailPage() {
 	const [shippingOpen, setShippingOpen] = useState(false);
 	const [adviceDismissed, setAdviceDismissed] = useState(false);
 	const closed = order.status === "cancelled" || order.status === "refunded";
-	const refundGate = useGate("refunds.write", order.total);
-	const editGate = useGate("orders", 2);
-	const returnsGate = useGate("returns", 2);
 	const [returnOpen, setReturnOpen] = useState(false);
 
-	function fulfil() {
-		const before = order;
-		useWorkspace.setState((s) => ({
-			orders: s.orders.map((o) =>
-				o.id === order.id
-					? { ...o, status: "shipped", fulfillment_status: "fulfilled", updated_at: new Date().toISOString() }
-					: o,
-			),
-		}));
-		undoable(`${order.number} als afgehandeld gemarkeerd`, () => restoreOrder(before));
-	}
-
 	function draftSupplierMessage(supplier: string) {
-		const ticket = createTicket({
-			title: `Overdrachtsdatum bevestigen met ${supplier} voor ${order.number}`,
-			description: `${supplier} verwerkt ${order.number} trager dan normaal. Vraag om de overdrachtsdatum en het track & trace-nummer en laat het ${order.customer_name} weten zodra je het hebt.`,
-			priority: "high",
-			related_entity: { type: "order", id: order.id, label: order.number },
-		});
+		writes?.draftSupplierMessage(supplier);
 		setAdviceDismissed(true);
-		toast.success(`Opgesteld als ${ticket.number}`, {
-			description: "Controleer het voordat het naar de leverancier gaat.",
-			action: { label: "Openen", onClick: () => navigate({ to: "/tickets", search: { ticket: ticket.id } }) },
-		});
 	}
 
 	const status = order.tags.includes("at_risk")
 		? ("delayed" as const)
 		: order.status;
-	const supplier =
-		SUPPLIERS[Number.parseInt(order.id.slice(-2), 10) % SUPPLIERS.length];
-	const country = order.shipping_address?.country ?? "US";
+	const country = order.shipping_address?.country;
+	const address = order.shipping_address;
+	const region = address ? [address.region, address.postal_code].filter(Boolean).join(" ") : "";
 
-	const itemsSubtotal = order.line_items.reduce(
-		(sum, li) => sum + li.unit_price * li.quantity,
-		0,
-	);
-	const shipping = Math.round((order.total - itemsSubtotal) * 0.3 * 100) / 100;
-	const tax = Math.max(0, order.total - itemsSubtotal - shipping);
-
-	const timeline = buildTimeline(order);
+	const itemsSubtotal = totals.subtotal;
+	const { shipping, tax } = totals;
 
 	return (
 		<DetailShell
 			crumb={{ label: "Bestellingen", to: "/orders" }}
+			arriving={arriving}
 			title={order.number}
 			badge={<OrderStatusBadge status={status} />}
 			meta={
 				<>
 					{formatLong(order.created_at)} ·{" "}
 					{formatCurrency(order.total, order.currency)} ·{" "}
-					{order.line_items.length}{" "}
-					{order.line_items.length === 1 ? "artikel" : "artikelen"}
+					{order.line_count ?? order.line_items.length}{" "}
+					{(order.line_count ?? order.line_items.length) === 1 ? "artikel" : "artikelen"}
 				</>
 			}
 			actions={
@@ -171,6 +140,7 @@ export function OrderDetailPage() {
 						<Printer className="size-3.5" strokeWidth={1.75} />
 						Afdrukken
 					</button>
+					{writes ? (
 					<DropdownMenu>
 						<DropdownMenuTrigger asChild>
 							<button
@@ -184,29 +154,31 @@ export function OrderDetailPage() {
 						<DropdownMenuContent align="end" className="w-52">
 							<DropdownMenuLabel>Bestelacties</DropdownMenuLabel>
 							<DropdownMenuSeparator />
-							<DropdownMenuItem disabled={closed || order.fulfillment_status === "fulfilled" || !editGate.ok} onClick={fulfil}>
+							<DropdownMenuItem disabled={closed || order.fulfillment_status === "fulfilled" || !writes.gates.edit.ok} onClick={writes.fulfil}>
 								<Truck strokeWidth={1.75} />
 								Als afgehandeld markeren
 							</DropdownMenuItem>
-							<DropdownMenuItem disabled={order.payment_status === "refunded" || !refundGate.ok} onClick={() => setRefundOpen(true)} className={refundGate.ok ? undefined : "h-auto py-1.5"}>
-								{refundGate.ok ? <RefreshCcw strokeWidth={1.75} /> : <Lock strokeWidth={1.75} />}
+							<DropdownMenuItem disabled={order.payment_status === "refunded" || !writes.gates.refund.ok} onClick={() => setRefundOpen(true)} className={writes.gates.refund.ok ? undefined : "h-auto py-1.5"}>
+								{writes.gates.refund.ok ? <RefreshCcw strokeWidth={1.75} /> : <Lock strokeWidth={1.75} />}
 								<span className="flex min-w-0 flex-col">
 									Terugbetalen
-									{refundGate.ok ? null : <span className="text-ink-3 text-xs leading-snug">{refundGate.reason}</span>}
+									{writes.gates.refund.ok ? null : <span className="text-ink-3 text-xs leading-snug">{writes.gates.refund.reason}</span>}
 								</span>
 							</DropdownMenuItem>
-							<DropdownMenuItem disabled={!editGate.ok} onClick={() => setNoteOpen(true)}>
+							<DropdownMenuItem disabled={!writes.gates.edit.ok} onClick={() => setNoteOpen(true)}>
 								<MessageSquare strokeWidth={1.75} />
 								Interne notitie toevoegen
 							</DropdownMenuItem>
-							<DropdownMenuItem disabled={!returnsGate.ok} onClick={() => setReturnOpen(true)}>
+							{Returns ? (
+							<DropdownMenuItem disabled={!writes.gates.returns.ok} onClick={() => setReturnOpen(true)}>
 								<RotateCcw strokeWidth={1.75} />
 								Retour starten
 							</DropdownMenuItem>
+							) : null}
 							<DropdownMenuSeparator />
 							<DropdownMenuItem
 								variant="destructive"
-								disabled={closed || !editGate.ok}
+								disabled={closed || !writes.gates.edit.ok}
 								onClick={() => setCancelOpen(true)}
 							>
 								<XCircle strokeWidth={1.75} />
@@ -214,12 +186,13 @@ export function OrderDetailPage() {
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
+					) : null}
 				</>
 			}
 		>
 			<div className="flex flex-col gap-4">
 			{/* AI Recommendation — mesh-dark, the brand's voice when AI speaks. */}
-			{!adviceDismissed && !closed && (status === "delayed" || order.tags.includes("at_risk")) ? (
+			{writes && supplier && !adviceDismissed && !closed && (status === "delayed" || order.tags.includes("at_risk")) ? (
 				<section className="flex w-full items-start justify-between gap-4 rounded-xl bg-abyss p-5 text-mesh-ink">
 					<div className="flex flex-col gap-2">
 						<div className="flex items-center gap-2.5">
@@ -258,7 +231,7 @@ export function OrderDetailPage() {
 						</button>
 						<button
 							type="button"
-							onClick={() => draftSupplierMessage(supplier ?? "de leverancier")}
+							onClick={() => draftSupplierMessage(supplier)}
 							className="flex h-9 items-center justify-center rounded-md bg-paper px-3.5 font-medium text-base text-ink leading-none tracking-[-0.05px] shadow-on-mesh transition-colors hover:bg-arc-tint"
 						>
 							Bericht opstellen
@@ -270,7 +243,7 @@ export function OrderDetailPage() {
 			{/* Body: 2-col layout */}
 			<div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_360px]">
 				<div className="flex flex-col gap-5">
-					<ProcessingTracker order={order} />
+					{Tracker ? <Tracker order={order} /> : null}
 					{/* Line items */}
 					<section className="overflow-hidden rounded-xl panel">
 						<header className="flex items-center justify-between px-5 pt-4 pb-1">
@@ -288,13 +261,13 @@ export function OrderDetailPage() {
 									key={li.id}
 									className="flex items-center gap-3 px-5 py-2.5"
 								>
-									<ProductThumb src={imageOf(li.product_id)} title={li.title} size={48} className="rounded-lg" />
+									<ProductThumb src={imageOf(li)} title={li.title} size={48} className="rounded-lg" />
 									<div className="min-w-0 flex-1">
 										<p className="truncate font-medium text-base text-ink leading-[1.4]">
 											{li.title}
 										</p>
 										<p className="truncate font-normal text-sm text-ink-3 leading-[1.4]">
-											SKU {li.variant_id ? (skuOf(li.variant_id) ?? li.variant_id) : li.product_id} · Aantal {li.quantity}
+											{skuOf(li) ? <>SKU {skuOf(li)} · Aantal </> : "Aantal "}{li.quantity}
 											{li.variant_title ? ` · ${li.variant_title}` : ""}
 										</p>
 									</div>
@@ -320,6 +293,9 @@ export function OrderDetailPage() {
 								currency={order.currency}
 							/>
 							<TotalsRow label="Btw" value={tax} currency={order.currency} />
+							{totals.discount > 0 ? (
+								<TotalsRow label="Korting" value={-totals.discount} currency={order.currency} />
+							) : null}
 							<div className="mt-2 border-hairline border-t pt-2">
 								<TotalsRow
 									label="Totaal"
@@ -339,7 +315,9 @@ export function OrderDetailPage() {
 							</h2>
 						</header>
 						<ol className="flex flex-col px-5 py-4">
-							{timeline.map((t, i) => (
+							{timeline.map((t, i) => {
+								const Icon = STEP_ICON[t.kind];
+								return (
 								<li key={t.label} className="flex gap-3 pb-4 last:pb-0">
 									<div className="flex shrink-0 flex-col items-center">
 										<span
@@ -348,7 +326,7 @@ export function OrderDetailPage() {
 												t.done ? "bg-abyss text-mesh-ink" : "bg-mist text-ink-3",
 											)}
 										>
-											<t.icon className="size-3.5" strokeWidth={2} />
+											<Icon className="size-3.5" strokeWidth={2} />
 										</span>
 										{i < timeline.length - 1 ? (
 											<span
@@ -368,16 +346,19 @@ export function OrderDetailPage() {
 										</p>
 									</div>
 								</li>
-							))}
+								);
+							})}
 						</ol>
-						<div className="px-5 pb-4">
-							<RecordAgentRows kind="order" id={order.id} />
-						</div>
+						{AgentRows ? (
+							<div className="px-5 pb-4">
+								<AgentRows order={order} />
+							</div>
+						) : null}
 					</section>
 				</div>
 
 				{/* Sidebar */}
-				<StartReturnDialog order={order} open={returnOpen} onClose={() => setReturnOpen(false)} />
+				{Returns ? <Returns.Dialog order={order} open={returnOpen} onClose={() => setReturnOpen(false)} /> : null}
 				<aside className="flex flex-col gap-5">
 					{/* Customer */}
 					<section className="flex flex-col gap-3 rounded-xl panel p-5">
@@ -394,7 +375,7 @@ export function OrderDetailPage() {
 								</p>
 								<p className="truncate font-normal text-sm text-ink-3 leading-[1.4]">
 									{customer
-										? `${customer.orders_count} ${customer.orders_count === 1 ? "bestelling" : "bestellingen"} · ${formatCurrency(customer.lifetime_value)} CLV`
+										? `${customer.orders_count} ${customer.orders_count === 1 ? "bestelling" : "bestellingen"} · ${formatCurrency(customer.lifetime_value, customer.currency)} CLV`
 										: "Gastbestelling"}
 								</p>
 							</div>
@@ -413,34 +394,40 @@ export function OrderDetailPage() {
 							<h3 className="font-normal text-base text-ink-2 leading-[1.55]">
 								Verzending
 							</h3>
-							<button
-								type="button"
-								onClick={() => setShippingOpen(true)}
-								className="font-medium text-sm text-arc-ink leading-[1.2] hover:underline"
-							>
-								Bewerken
-							</button>
+							{writes ? (
+								<button
+									type="button"
+									onClick={() => setShippingOpen(true)}
+									className="font-medium text-sm text-arc-ink leading-[1.2] hover:underline"
+								>
+									Bewerken
+								</button>
+							) : null}
 						</div>
 						<div className="flex items-start gap-2">
-							<span className="mt-0.5 text-base leading-none">
-								{countryFlag(country)}
-							</span>
+							{country ? (
+								<span className="mt-0.5 text-base leading-none">
+									{countryFlag(country)}
+								</span>
+							) : null}
 							<div className="flex flex-col">
 								<p className="font-medium text-base text-ink leading-[1.4]">
 									{order.customer_name}
 								</p>
-								<p className="font-normal text-sm text-ink-3 leading-[1.6]">
-									{order.shipping_address?.line1 ?? "120 Main St"}
-									<br />
-									{order.shipping_address?.city ?? "Brooklyn"},{" "}
-									{order.shipping_address?.region ?? "NY"}{" "}
-									{order.shipping_address?.postal_code ?? "11201"}
-									<br />
-									{countryName(country)}
-								</p>
+								{address ? (
+									<p className="font-normal text-sm text-ink-3 leading-[1.6]">
+										{address.line1}
+										<br />
+										{address.city}{address.city ? "," : null}{address.city && region ? " " : null}
+										{address.region}{address.region && address.postal_code ? " " : null}
+										{address.postal_code}
+										<br />
+										{country ? countryName(country) : null}
+									</p>
+								) : null}
 							</div>
 						</div>
-						<SidebarLine icon={Truck} text={supplier} />
+						{supplier ? <SidebarLine icon={Truck} text={supplier} /> : null}
 					</section>
 
 					{/* Payment */}
@@ -450,34 +437,40 @@ export function OrderDetailPage() {
 						</h3>
 						<SidebarLine
 							icon={CreditCard}
-							text={`${PAYMENT_STATUS_LABEL[order.payment_status] ?? order.payment_status} · ${paymentMethodLabel()}`}
+							text={`${PAYMENT_STATUS_LABEL[order.payment_status] ?? order.payment_status} · ${payment.method}`}
 						/>
-						<SidebarLine
-							icon={Calendar}
-							text={`Geïnd op ${formatLong(order.created_at)}`}
-						/>
+						{payment.collectedAt ? (
+							<SidebarLine
+								icon={Calendar}
+								text={`Geïnd op ${formatLong(payment.collectedAt)}`}
+							/>
+						) : null}
 					</section>
 
 					{order.notes ? (
 						<section className="flex flex-col gap-2 rounded-xl bg-signal-amber-bg/60 p-5">
 							<div className="flex items-center justify-between">
 								<h3 className="font-medium text-sm text-ink-2">Interne notitie</h3>
-								<button
-									type="button"
-									onClick={() => setNoteOpen(true)}
-									className="font-medium text-sm text-arc-ink hover:underline"
-								>
-									Bewerken
-								</button>
+								{writes ? (
+									<button
+										type="button"
+										onClick={() => setNoteOpen(true)}
+										className="font-medium text-sm text-arc-ink hover:underline"
+									>
+										Bewerken
+									</button>
+								) : null}
 							</div>
 							<p className="whitespace-pre-line text-base text-ink">{order.notes}</p>
 						</section>
 					) : null}
 
-					<OrderTags order={order} />
-					<OrderReturns order={order} onStart={() => setReturnOpen(true)} />
+					<OrderTags order={order} known={tags.known} write={tags.write} />
+					{Returns ? <Returns.Panel order={order} onStart={() => setReturnOpen(true)} /> : null}
 				</aside>
 			</div>
+			{writes ? (
+			<>
 			<ConfirmDialog
 				open={cancelOpen}
 				onOpenChange={setCancelOpen}
@@ -487,9 +480,8 @@ export function OrderDetailPage() {
 				cancelLabel="Bestelling houden"
 				tone="destructive"
 				onConfirm={() => {
-					const before = cancelOrder(order.id);
+					writes.cancel();
 					setCancelOpen(false);
-					if (before) undoable(`${order.number} geannuleerd`, () => restoreOrder(before), "De afhandeling is gestopt en de klant is op de hoogte.");
 				}}
 			/>
 			<ConfirmDialog
@@ -499,33 +491,25 @@ export function OrderDetailPage() {
 				description="Het geld gaat terug via de oorspronkelijke betaalmethode, meestal binnen vijf werkdagen. Een verstuurde terugbetaling kun je niet terughalen."
 				confirmLabel="Volledig terugbetalen"
 				onConfirm={() => {
-					refundOrder(order.id);
+					writes.refund();
 					setRefundOpen(false);
-					toast.success(`${order.number} terugbetaald`, {
-						description: `${formatCurrency(order.total, order.currency)} aan ${order.customer_name}`,
-					});
 				}}
 			/>
 			<OrderNoteDialog
 				open={noteOpen}
 				onOpenChange={setNoteOpen}
 				initial={order.notes ?? ""}
-				onSave={(note) => {
-					addOrderNote(order.id, note);
-					toast.success("Notitie opgeslagen");
-				}}
+				onSave={writes.saveNote}
 			/>
 			<ShippingDialog
 				open={shippingOpen}
 				onOpenChange={setShippingOpen}
 				name={order.customer_name}
 				initial={order.shipping_address}
-				onSave={(address: Address) => {
-					const before = order;
-					updateShipping(order.id, address);
-					undoable("Verzendadres bijgewerkt", () => restoreOrder(before));
-				}}
+				onSave={(address: Address) => writes.saveShipping(address)}
 			/>
+			</>
+			) : null}
 			</div>
 		</DetailShell>
 	);
@@ -581,55 +565,6 @@ function SidebarLine({
 	);
 }
 
-function buildTimeline(order: {
-	created_at: string;
-	status: string;
-	tags: string[];
-	carrier?: string;
-	tracking_number?: string;
-}) {
-	const placed = {
-		done: true,
-		label: "Bestelling geplaatst",
-		detail: formatLong(order.created_at),
-		icon: Calendar,
-	};
-	const paid = {
-		done: true,
-		label: "Betaling geïnd",
-		detail: "Stripe",
-		icon: CreditCard,
-	};
-	const atSupplier = {
-		done: ["at_supplier", "shipped", "delivered"].includes(order.status),
-		label: "Bij leverancier",
-		detail: "Bestelling geaccepteerd door leverancier",
-		icon: Factory,
-	};
-	const shipped = {
-		done: ["shipped", "delivered"].includes(order.status),
-		label: "Verzonden",
-		detail: order.tracking_number ? `${order.carrier ?? "Vervoerder"} · ${order.tracking_number}` : "Opgehaald door vervoerder",
-		icon: Truck,
-	};
-	const delivered = {
-		done: order.status === "delivered",
-		label: "Bezorgd",
-		detail: order.status === "delivered" ? "Bevestigd" : "In afwachting",
-		icon: MapPin,
-	};
-	if (order.status === "cancelled" || order.status === "refunded") {
-		const terminal = {
-			done: true,
-			label: order.status === "cancelled" ? "Geannuleerd" : "Terugbetaald",
-			detail: "Door beheerder",
-			icon: XCircle,
-		};
-		return [placed, paid, terminal];
-	}
-	return [placed, paid, atSupplier, shipped, delivered];
-}
-
 const PAYMENT_STATUS_LABEL: Record<string, string> = {
 	pending: "In afwachting",
 	paid: "Betaald",
@@ -637,16 +572,10 @@ const PAYMENT_STATUS_LABEL: Record<string, string> = {
 	voided: "Vervallen",
 };
 
-function paymentMethodLabel(m?: string): string {
-	if (!m) return "Stripe";
-	if (m === "stripe") return "Stripe · Visa eindigend op 4242";
-	if (m === "paypal") return "PayPal";
-	if (m === "klarna") return "Klarna";
-	return m;
-}
-
-function formatLong(iso: string): string {
+/** A moment as the record writes it, in Dutch time on the server and in the browser alike. */
+export function formatLong(iso: string): string {
 	return new Intl.DateTimeFormat("nl-NL", {
+		timeZone: ZONE,
 		month: "short",
 		day: "numeric",
 		year: "numeric",

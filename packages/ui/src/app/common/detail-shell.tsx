@@ -33,9 +33,16 @@ declare module "@tanstack/react-router" {
 	}
 }
 
-/** True when this route was opened by clicking a row rather than by following a URL. */
+/* The history entry this module was loaded on: the document's, or the list's that first imported it, never a record
+   opened over a list (the list loads first). A reload keeps an entry's state, `modal` included, but there is no list
+   behind it any more: a record on that entry is a page, as the server that rendered it drew it. */
+const loadedOn = typeof window === "undefined" ? undefined : (window.history.state as { __TSR_key?: string } | null)?.__TSR_key;
+
+/** True when this route was opened by clicking a row rather than by following a URL or reloading. */
 export function useOpenedAsModal(): boolean {
-	return useRouterState({ select: (s) => s.location.state.modal === true });
+	return useRouterState({
+		select: (s) => s.location.state.modal === true && (loadedOn === undefined || s.location.state.__TSR_key !== loadedOn),
+	});
 }
 
 /** What a list passes to `navigate` so the record opens over it. */
@@ -47,6 +54,7 @@ export function DetailShell({
 	badge,
 	meta,
 	actions,
+	arriving,
 	children,
 }: {
 	/** The list this record belongs to. Rendered as the trail, and as the modal's way out. */
@@ -56,6 +64,11 @@ export function DetailShell({
 	/** One line of facts, never a sentence of explanation. */
 	meta?: ReactNode;
 	actions?: ReactNode;
+	/**
+	 * Whether the host is still reading the record's body. Absent, the body arrives at the reference's simulated pace;
+	 * given, the same skeleton covers the same reserved box until the host has it (false at once on a server render).
+	 */
+	arriving?: boolean;
 	children: ReactNode;
 }) {
 	const router = useRouter();
@@ -64,10 +77,12 @@ export function DetailShell({
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	/* The header is the row the operator clicked, already in the list's cache, so it is drawn at once;
 	   the record's body (its lines, its history, its facts) is the part that has to be fetched. */
-	const body = (
+	const body = arriving === undefined ? (
 		<Stream id={`record:${pathname}`} after={420} fallback={<RecordBody />} reserve>
 			{children}
 		</Stream>
+	) : (
+		<Arriving pending={arriving}>{children}</Arriving>
 	);
 
 
@@ -147,6 +162,21 @@ export function DetailShell({
 				) : null}
 			</header>
 			<div className={cn("min-w-0 px-5 pb-6")}>{body}</div>
+		</div>
+	);
+}
+
+/* `Stream`'s reserved box, for a body the host is really reading: laid out hidden under the record's skeleton, and
+   settling in when it has come, exactly as the reference draws it at its pace. */
+function Arriving({ pending, children }: { pending: boolean; children: ReactNode }) {
+	const waited = useRef(pending);
+	if (pending) waited.current = true;
+	return (
+		<div className="relative">
+			<div className={cn("h-full", !pending && waited.current && "stream-in")} style={pending ? { visibility: "hidden" } : undefined} inert={pending || undefined}>
+				{children}
+			</div>
+			{pending ? <div className="absolute inset-0 overflow-hidden"><RecordBody /></div> : null}
 		</div>
 	);
 }

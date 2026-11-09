@@ -1,6 +1,6 @@
 import { type ComponentType, createContext, useContext } from "react";
 import type { DuplicateGroup } from "../lib/duplicates";
-import type { Customer } from "../lib/types/domain";
+import type { Currency, Customer } from "../lib/types/domain";
 import type { IndexItem } from "../marketing-sections/link-index";
 import type { RowAction } from "../table/data-table";
 import type { CustomerStatus } from "./customer-status-badge";
@@ -34,6 +34,8 @@ export interface CustomersSource {
 	actions: (open: CustomerOpeners) => ReadonlyArray<RowAction<CustomerRow>>;
 	applyTags?: ((rows: ReadonlyArray<CustomerRow>, tags: ReadonlyArray<string>, mode: "add" | "remove") => void) | undefined;
 	canCreate: TeamGate;
+	/** The currency a customer's figures are in; absent, the format's own. */
+	currencyOf?: ((customer: Customer) => Currency | undefined) | undefined;
 	NewCustomer?: ComponentType<{ open: boolean; onOpenChange: (open: boolean) => void }> | undefined;
 	Klaviyo?: ComponentType<{ open: boolean; onOpenChange: (open: boolean) => void; picked: CustomerRow[] }> | undefined;
 	Merge?:

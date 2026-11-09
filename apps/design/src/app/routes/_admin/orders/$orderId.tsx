@@ -1,7 +1,7 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { customers } from "@insyte/ui/data-source";
 import { orders } from "@insyte/ui/data-source";
-import { OrderDetailPage } from "@insyte/ui/app/orders/order-screen";
+import { DemoOrderDetail } from "@insyte/ui/app/orders/demo-detail";
 
 export const Route = createFileRoute("/_admin/orders/$orderId")({
 	loader: ({ params }) => {
@@ -11,5 +11,10 @@ export const Route = createFileRoute("/_admin/orders/$orderId")({
 		const customer = customers.find((c) => c.email === seed.customer_email);
 		return { id: seed.id, customer };
 	},
-	component: OrderDetailPage,
+	component: OrderDetail,
 });
+
+function OrderDetail() {
+	const { id, customer } = Route.useLoaderData();
+	return <DemoOrderDetail id={id} customer={customer} />;
+}

@@ -472,4 +472,21 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await page.goto("/products")
   await expect(page.getByRole("heading", { name: "Nog geen producten" })).toBeVisible()
   await expect(page.getByRole("button", { name: "Uit Shopify importeren" })).toBeVisible()
+
+  // @order (step 8.4d): with the recorded store imported (previews have no Shopify), a row opens its order over the
+  // list, read-only: the lines and the totals, no Acties. Its URL is a page, rendered whole on the server.
+  expect((await page.request.post("/api/__dev/stores/seed")).ok()).toBe(true)
+  await page.goto("/orders")
+  await page.getByRole("row", { name: /#1002/ }).click()
+  const record = page.getByRole("dialog")
+  await expect(record.getByText("#1002")).toBeVisible()
+  await expect(record.getByText("Wollen trui")).toBeVisible()
+  await expect(record.getByRole("button", { name: "Acties" })).toHaveCount(0)
+  await expect(page).toHaveURL(/\/orders\/[^/]+$/)
+  await page.reload()
+  await expect(page.getByRole("dialog")).toHaveCount(0)
+  await expect(page.getByRole("heading", { name: "#1002" })).toBeVisible()
+  await expect(page.getByText("Wollen trui")).toBeVisible()
+  await page.getByRole("link", { name: "Bestellingen" }).first().click()
+  await expect(page.getByRole("row", { name: /#1005/ })).toBeVisible()
 })
