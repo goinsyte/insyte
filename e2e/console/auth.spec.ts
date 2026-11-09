@@ -510,4 +510,16 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await page.reload()
   await expect(page.getByRole("heading", { name: "Linnen overhemd" })).toBeVisible()
   await expect(page.getByText("LIN-M")).toBeVisible()
+
+  // @search (step 8.4e): the palette finds records through `Search.records`: an order by its number, then a customer
+  // by name, each opening its record.
+  await page.keyboard.press("ControlOrMeta+k")
+  const palette = page.getByRole("dialog")
+  await palette.getByPlaceholder(/^Zoek bestellingen/).fill("1003")
+  await palette.getByRole("option", { name: /#1003/ }).click()
+  await expect(page.getByRole("heading", { name: "#1003" })).toBeVisible()
+  await page.keyboard.press("ControlOrMeta+k")
+  await page.getByRole("dialog").getByPlaceholder(/^Zoek bestellingen/).fill("bram")
+  await page.getByRole("dialog").getByRole("option", { name: /Bram Jansen/ }).click()
+  await expect(page.getByRole("heading", { name: /Bram Jansen/ })).toBeVisible()
 })

@@ -20,6 +20,7 @@ import { FRAME, frameWrites, inboxAtom, notePrefsAtom, NOTES, presenceAtom, VIEW
 import { ConsoleInvite } from "./invite.tsx"
 import { toNote } from "./notes.ts"
 import { usePrefSection } from "./prefs.ts"
+import { useConsoleRecordSearch } from "./record-search.ts"
 
 /*
  * The frame in the console (step 7.4c, M5): the design's parts over the server. What the member set is their
@@ -255,6 +256,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     },
     workspaceName: frame.workspace.name,
     // ADR-0028: the design's demo counts dropped, the server's in their place.
+    useRecordSearch: useConsoleRecordSearch,
     panelFor: (pathname) => {
       const cfg = panelForPath(pathname)
       return cfg === null ? null : withServerCounts(cfg, frame.counts)

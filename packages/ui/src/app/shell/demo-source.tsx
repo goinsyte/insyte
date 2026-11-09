@@ -53,6 +53,9 @@ import { panelForPath } from "../lib/app-shell-config";
 import { type ShellSource, ShellSourceProvider } from "./source";
 
 /** The frame in the design app: every part answered from the demo stores, as before the seam. */
+/* The design app's palette filters the workspace's own records as you type. */
+const noSearch = () => null;
+
 export function DemoShellSource({ children }: { children: ReactNode }) {
 	const store = useActiveStore();
 	const persona = usePersonaSelection();
@@ -107,6 +110,7 @@ export function DemoShellSource({ children }: { children: ReactNode }) {
 		automationsPanel: { recommended, ai: Object.values(workflows).filter(usesAi).length, Extras: AutomationsPanelExtras },
 		operator: { products: operatorProducts, customers: operatorCustomers },
 		data: { currentUserByPersona, navByPersona, members, presenceById, lastActionById, customers, products, automations, conversations },
+		useRecordSearch: noSearch,
 	};
 	return <ShellSourceProvider value={source}>{children}</ShellSourceProvider>;
 }
