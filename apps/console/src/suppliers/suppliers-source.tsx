@@ -6,6 +6,7 @@ import { Mail, Pause } from "@insyte/ui/icons"
 import { Option } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { useMemo } from "react"
+import { endpointsAtom } from "../data/developer.ts"
 import { supplierAtom } from "../data/suppliers.ts"
 import { useGate } from "../frame/refusals.ts"
 import { supplierOf } from "./supplier-of.ts"
@@ -68,6 +69,9 @@ export function useConsoleSuppliersSource(list: SupplierList): SuppliersSource {
   const edit = useGate("suppliers", 2)
   const rows = useMemo(() => list.rows.map(rowOf), [list])
   const byId = useMemo(() => new Map(list.rows.map((r) => [r.id, r])), [list])
+  // Where a supplier's API reports back: the API's own public host (the API keys page names it too).
+  const endpoints = Option.getOrUndefined(AsyncResult.value(useAtomValue(endpointsAtom)))
+  const hookBase = endpoints?.api?.replace(/\/v1$/, "") ?? ""
   return {
     rows,
     standing,
@@ -107,6 +111,13 @@ export function useConsoleSuppliersSource(list: SupplierList): SuppliersSource {
     },
     setPref: (row, patch, said) => void commands.setPref(row, patch, said),
     forwardGate: edit,
+    api: {
+      stateOf: (id) => byId.get(id)?.api ?? null,
+      hookOf: (id) => `${hookBase}/hooks/supplier/${id}`,
+      connect: (row, url) => commands.connectApi(row, url),
+      test: (row) => commands.testConnection(row),
+      disconnect: (row) => void commands.disconnectApi(row)
+    },
     chatOf: () => undefined,
     canCreate: edit,
     save: (input, row) => void commands.save(input, row),

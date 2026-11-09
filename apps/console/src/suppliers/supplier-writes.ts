@@ -3,7 +3,8 @@ import type { SupplierChange } from "@insyte/modules/suppliers/domain/Commands"
 import { counted } from "@insyte/ui/app/lib/bulk-io"
 import { undoable } from "@insyte/ui/app/lib/undo"
 import type { ForwardPref, SupplierInput, SupplierRow } from "@insyte/ui/app/suppliers/source"
-import { Exit } from "effect"
+import { Exit, Redacted } from "effect"
+import { toast } from "sonner"
 import { PRODUCTS } from "../data/products.ts"
 import { SUPPLIERS, supplierWrites } from "../data/suppliers.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
@@ -19,7 +20,8 @@ const COPY: RefusalCopy = {
     taken: "Er is al een leverancier met die naam.",
     contactEmail: "Dat e-mailadres klopt niet.",
     forwardEmail: "Dat e-mailadres klopt niet.",
-    contactPhone: "Dat telefoonnummer klopt niet."
+    contactPhone: "Dat telefoonnummer klopt niet.",
+    https: "Het adres moet met https:// beginnen."
   }
 }
 
@@ -35,6 +37,9 @@ export function useSupplierCommands() {
     update: useAtomSet(supplierWrites.update, { mode: "promiseExit" }),
     setPaused: useAtomSet(supplierWrites.setPaused, { mode: "promiseExit" }),
     assignProducts: useAtomSet(supplierWrites.assignProducts, { mode: "promiseExit" }),
+    connectApi: useAtomSet(supplierWrites.connectApi, { mode: "promiseExit" }),
+    disconnectApi: useAtomSet(supplierWrites.disconnectApi, { mode: "promiseExit" }),
+    testConnection: useAtomSet(supplierWrites.testConnection, { mode: "promiseExit" }),
     undo: useAtomSet(supplierWrites.undo, { mode: "promiseExit" })
   }
   const undo = (token: string) =>
@@ -102,6 +107,28 @@ export function useSupplierCommands() {
         }),
         message
       ),
+    /** Their API: connected, the secret answered this once; `undefined` when refused (and said why). */
+    connectApi: async (row: SupplierRow, url: string) => {
+      const exit = await write.connectApi({ payload: { id: row.id, url }, ...keys })
+      if (Exit.isFailure(exit)) return void refused(failureOf(exit))
+      toast.success(`API van ${row.name} gekoppeld`, { description: "Geef hen de sleutel; je ziet hem maar één keer." })
+      return Redacted.value(exit.value.secret)
+    },
+    testConnection: async (row: SupplierRow) => {
+      const exit = await write.testConnection({ payload: { id: row.id }, ...keys })
+      if (Exit.isFailure(exit)) {
+        refused(failureOf(exit))
+        return { ok: false, ms: null, reason: "De test kon niet worden gedaan" }
+      }
+      return exit.value
+    },
+    disconnectApi: async (row: SupplierRow) => {
+      const exit = await write.disconnectApi({ payload: { id: row.id }, ...keys })
+      if (Exit.isFailure(exit)) return refused(failureOf(exit))
+      toast(`API van ${row.name} ontkoppeld`, {
+        description: "Bestellingen gaan weer per e-mail tot je opnieuw koppelt."
+      })
+    },
     /** The product's supplier from its page. */
     assign: async (supplierId: string, productId: string, message: string) =>
       said(await write.assignProducts({ payload: { supplierId, productIds: [productId] }, ...keys }), message)

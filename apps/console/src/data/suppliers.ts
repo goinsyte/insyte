@@ -37,5 +37,8 @@ export const supplierWrites = {
   update: ConsoleClient.mutation("Suppliers.update"),
   setPaused: ConsoleClient.mutation("Suppliers.setPaused"),
   assignProducts: ConsoleClient.mutation("Suppliers.assignProducts"),
+  connectApi: ConsoleClient.mutation("Suppliers.connectApi"),
+  disconnectApi: ConsoleClient.mutation("Suppliers.disconnectApi"),
+  testConnection: ConsoleClient.mutation("Suppliers.testConnection"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const

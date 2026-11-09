@@ -22,7 +22,8 @@ import type { Stock } from "../lib/catalog";
 import type { Supplier } from "../lib/types/domain";
 import { cn } from "../lib/utils";
 import { SupplierFormDialog } from "./supplier-form-dialog";
-import { type SupplierRow as Row, type TeamGate, useSuppliersSource } from "./source";
+import { TextField } from "../common/form-dialog";
+import { type ApiState, type PingOutcome, type SupplierRow as Row, type TeamGate, useSuppliersSource } from "./source";
 
 /*
  * Suppliers, scored. Each row is computed from the orders that carry the supplier's products: how
@@ -372,6 +373,107 @@ function ForwardPrefsSection({ row }: { row: Row }) {
 					Betaalde bestellingen meteen doorsturen
 				</label>
 			</div>
+			{pref.via === "api" ? <ApiSection row={row} /> : null}
 		</section>
+	);
+}
+
+const pingLabel = (state: NonNullable<ApiState>) =>
+	state.lastPing === null ? "Nog niet getest" : state.lastPing.ok ? `Bereikbaar · ${state.lastPing.ms ?? 0} ms` : "Niet bereikbaar bij de laatste test";
+
+/**
+ * Their own API (M8.2): the address Insyte posts orders to, signed with a secret it makes for them, shown once; where
+ * they report back; and a test that sends a signed ping.
+ */
+function ApiSection({ row }: { row: Row }) {
+	const source = useSuppliersSource();
+	const api = source.api;
+	const gate = source.forwardGate;
+	const state = api?.stateOf(row.id) ?? null;
+	const [url, setUrl] = useState("");
+	const [relinking, setRelinking] = useState(false);
+	const [secret, setSecret] = useState<string | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [tested, setTested] = useState<PingOutcome | null>(null);
+	if (!api) return null;
+	const btn = "flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2.5 font-medium text-sm transition-colors disabled:cursor-not-allowed disabled:text-ink-4";
+	const link = async () => {
+		setBusy(true);
+		const made = await api.connect(row, url.trim());
+		setBusy(false);
+		if (made === undefined) return;
+		setSecret(made);
+		setRelinking(false);
+		setTested(null);
+		setUrl("");
+	};
+	return (
+		<div className="flex flex-col gap-2.5 rounded-lg bg-mist px-3 py-2.5">
+			{state && !relinking ? (
+				<div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+					<span className="flex min-w-0 flex-1 flex-col">
+						<span className="truncate text-ink text-sm">{state.url}</span>
+						<span className={cn("text-xs", tested ? (tested.ok ? "text-ink-3" : "text-signal-red") : state.lastPing && !state.lastPing.ok ? "text-signal-red" : "text-ink-3")}>
+							{tested ? (tested.ok ? `Bereikbaar · ${tested.ms ?? 0} ms` : tested.reason ?? "Niet bereikbaar") : pingLabel(state)}
+						</span>
+					</span>
+					<button
+						type="button"
+						disabled={!gate.ok || busy}
+						title={gate.ok ? undefined : gate.reason}
+						onClick={async () => {
+							setBusy(true);
+							setTested(await api.test(row));
+							setBusy(false);
+						}}
+						className={cn(btn, "field text-ink enabled:hover:field-hover")}
+					>
+						{busy ? "Bezig…" : "Verbinding testen"}
+					</button>
+					<button type="button" disabled={!gate.ok} onClick={() => setRelinking(true)} className={cn(btn, "text-ink-2 enabled:hover:bg-ink/6 enabled:hover:text-ink")}>
+						Opnieuw koppelen
+					</button>
+					<button type="button" disabled={!gate.ok} onClick={() => api.disconnect(row)} className={cn(btn, "text-signal-red enabled:hover:bg-signal-red-bg")}>
+						Ontkoppelen
+					</button>
+				</div>
+			) : (
+				<form
+					className="flex flex-wrap items-center gap-2"
+					onSubmit={(e) => {
+						e.preventDefault();
+						void link();
+					}}
+				>
+					<span className="min-w-0 flex-1">
+						<TextField value={url} onChange={setUrl} placeholder={`https://${row.name.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}.nl/insyte/orders`} />
+					</span>
+					<button
+						type="submit"
+						disabled={!gate.ok || busy || !url.trim().startsWith("https://")}
+						title={gate.ok ? undefined : gate.reason}
+						className="flex h-9 cursor-pointer items-center rounded-md bg-abyss px-3.5 font-medium text-base text-mesh-ink shadow-primary hover:bg-abyss-2 disabled:cursor-not-allowed disabled:opacity-45"
+					>
+						{state ? "Opnieuw koppelen" : "Koppelen"}
+					</button>
+				</form>
+			)}
+			{secret ? (
+				<div className="flex flex-col gap-1.5">
+					<p className="text-ink-2 text-sm">
+						Geef {row.name} deze sleutel. Insyte ondertekent er elke bestelling mee, en zij ondertekenen er wat ze terugmelden mee. Je ziet hem maar één keer.
+					</p>
+					<div className="flex items-center gap-2">
+						<code className="min-w-0 flex-1 truncate rounded-md bg-paper px-2.5 py-1.5 font-mono text-ink text-sm">{secret}</code>
+						<button type="button" onClick={() => void navigator.clipboard.writeText(secret)} className={cn(btn, "field text-ink hover:field-hover")}>
+							Kopiëren
+						</button>
+					</div>
+				</div>
+			) : null}
+			<p className="text-ink-3 text-xs">
+				Bestellingen gaan als JSON naar dit adres. {row.name} meldt acceptatie, problemen, track & trace en voorraad terug op {api.hookOf(row.id)}.
+			</p>
+		</div>
 	);
 }

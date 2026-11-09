@@ -41,6 +41,15 @@ export class SupplierRow extends Schema.Class<SupplierRow>("suppliers/SupplierRo
   /** The Shopify vendor it was made from; `null` for one made by hand. */
   vendor: Schema.NullOr(Schema.String),
   apiConnected: Schema.Boolean,
+  /** Its own API (M8.2): the address Insyte posts to and the last connection test; `null` while none is connected. */
+  api: Schema.NullOr(Schema.Struct({
+    url: Schema.String,
+    lastPing: Schema.NullOr(Schema.Struct({
+      ok: Schema.Boolean,
+      ms: Schema.NullOr(Schema.Int),
+      at: Schema.Finite
+    }))
+  })),
   stats: SupplierStats,
   createdAt: Schema.Finite
 }) {}

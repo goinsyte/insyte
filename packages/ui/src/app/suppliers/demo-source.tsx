@@ -16,6 +16,7 @@ import { useTeam } from "../stores/team-store"
 import { useWorkspace } from "../stores/workspace-store"
 import { invitePortal, PortalInviteDialog, PortalSection } from "./portal-invite"
 import {
+  type ApiState,
   type SupplierQuality,
   type SupplierRow as Row,
   type SuppliersSource,
@@ -33,8 +34,19 @@ const SUPPLIER_CHAT: Record<string, string> = { sup_allure: "conv_supplier_allur
 type Local = {
   added: ReadonlyArray<Supplier>
   edits: Record<string, Partial<Supplier> & { description?: string; leadDays?: number }>
+  /** Their API as connected here; the seed's connected suppliers start at a demo address. */
+  apis: Record<string, ApiState>
 }
-const useLocal = create<Local>(() => ({ added: [], edits: {} }))
+const useLocal = create<Local>(() => ({
+  added: [],
+  edits: {},
+  apis: Object.fromEntries(
+    seeded.filter((s) => s.api_connected).map((s) => [s.id, {
+      url: `https://api.${s.name.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}.example/insyte/orders`,
+      lastPing: { ok: true, ms: 42, at: Date.now() - 3_600_000 }
+    }])
+  )
+}))
 
 function pauseOrResume(rows: ReadonlyArray<Row>) {
   const ws = useWorkspace.getState()
@@ -122,7 +134,7 @@ export function DemoSuppliersSource({ children }: { children: ReactNode }) {
   const orders = useWorkspace((s) => s.orders)
   const paused = useWorkspace((s) => s.pausedSuppliers)
   const portal = useTeam((s) => s.portal)
-  const { added, edits } = useLocal()
+  const { added, edits, apis } = useLocal()
   const gate = useGate("suppliers", 2)
   const all = useMemo(
     () => [...seeded, ...added].map((s) => ({ ...s, ...edits[s.id] })),
@@ -181,6 +193,31 @@ export function DemoSuppliersSource({ children }: { children: ReactNode }) {
       undoable(said, () => useForwarding.getState().setPref(row.id, before))
     },
     forwardGate: gate,
+    api: {
+      stateOf: (id) => apis[id] ?? null,
+      hookOf: (id) => `https://api.goinsyte.com/hooks/supplier/${id}`,
+      connect: async (row, url) => {
+        const before = useLocal.getState().apis[row.id] ?? null
+        useLocal.setState((s) => ({ apis: { ...s.apis, [row.id]: { url, lastPing: null } } }))
+        undoable(`API van ${row.name} gekoppeld`, () =>
+          useLocal.setState((s) => ({ apis: { ...s.apis, [row.id]: before } })))
+        return `whsec_demo${Math.random().toString(36).slice(2, 14)}${Math.random().toString(36).slice(2, 14)}`
+      },
+      test: async (row) => {
+        const at = Date.now()
+        useLocal.setState((s) => {
+          const current = s.apis[row.id]
+          return current ? { apis: { ...s.apis, [row.id]: { ...current, lastPing: { ok: true, ms: 42, at } } } } : s
+        })
+        return { ok: true, ms: 42, reason: null }
+      },
+      disconnect: (row) => {
+        const before = useLocal.getState().apis[row.id] ?? null
+        useLocal.setState((s) => ({ apis: { ...s.apis, [row.id]: null } }))
+        undoable(`API van ${row.name} ontkoppeld`, () =>
+          useLocal.setState((s) => ({ apis: { ...s.apis, [row.id]: before } })))
+      }
+    },
     restock: (row, low) => {
       const ws = useWorkspace.getState()
       const made = low.map((p) =>
