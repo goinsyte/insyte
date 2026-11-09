@@ -225,6 +225,50 @@ test("@auth back from Google with a refusal, the sign-in screen says why", async
   await expect(page.getByRole("alert")).toHaveCount(0)
 })
 
+test("@analysis a new admin with a store reads its first analysis and keeps what it prepares", async ({ page, request }) => {
+  // Onboarding to the store step, the recorded store imported in its place (previews have no Shopify), then the sync
+  // and the store's first analysis: the reads tick off as the server reads, then the early read, then ready.
+  test.setTimeout(180_000)
+  const email = `e2e-${Date.now().toString(36)}-analysis@example.com`
+  await page.goto("/onboarding")
+  await page.getByLabel("Zakelijk e-mailadres").fill(email)
+  await page.getByLabel("Volledige naam").fill("Ada Analyse")
+  await page.getByLabel(/^Wachtwoord/).fill("een-lang-wachtwoord")
+  await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Check je inbox." })).toBeVisible()
+  await page.goto(await mailLink(request, email, "auth.verify"))
+  await page.getByText("Mijn winkel inrichten").click()
+  await page.getByLabel("Naam werkruimte").fill(`Analyse ${Date.now().toString(36)}`)
+  await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
+  await page.getByRole("button", { name: "Gratis proefperiode starten" }).click()
+  await expect(page.getByRole("heading", { name: "Koppel Shopify." })).toBeVisible()
+
+  // The store, connected and imported, as Shopify's way back would leave it.
+  expect((await page.request.post("/api/__dev/stores/seed")).ok()).toBe(true)
+  await page.goto("/onboarding?connected=shopify")
+  await expect(page.getByRole("heading", { name: "Alles wordt opgehaald." })).toBeVisible()
+  await page.getByRole("button", { name: "Laat Insyte kijken" }).click()
+
+  // The reading ends in the early read: no Shopify to read the policies from, so no prediction is made up.
+  await expect(page.getByRole("heading", { name: "Nog te vroeg om te oordelen." })).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByText("5 bestellingen in")).toBeVisible()
+  await expect(page.getByText("Wat je inrichting al zegt")).toHaveCount(0)
+  await expect(page.getByText("Levertijd per land")).toBeVisible()
+  await page.getByRole("radio", { name: "Ja, zelf doen" }).click()
+  await page.getByRole("button", { name: "Klaarzetten" }).click()
+
+  await expect(page.getByRole("heading", { name: "Je bent binnen." })).toBeVisible()
+  await expect(page.getByText("3 producten · 5 bestellingen · 3 klanten")).toBeVisible()
+  await expect(page.getByText("Antwoorden op statusvragen (klaar om aan te zetten zodra de klantagent beschikbaar is)"))
+    .toBeVisible()
+  // A reload keeps it: the choice is the server's.
+  await page.reload()
+  await expect(
+    page.getByText("Levertijd-update op dag 5 (klaar om aan te zetten zodra Automatiseringen beschikbaar zijn)")
+  )
+    .toBeVisible()
+})
+
 test("@onboarding @team a new admin runs onboarding to Start, every return resumes, and Team invites a colleague", async ({ browser, page, request }) => {
   // The whole of onboarding, then a mail that waits out the undo window and the queue.
   // Then the colleague's journey, roles, API keys and Agents en MCP: on a preview that is more than four minutes.
