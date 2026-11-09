@@ -42,9 +42,10 @@ interface RoleRow {
 
 /**
  * The special actions a key may take through the API (api.md §6): a role-bound key takes them from its role, refunds
- * with the role's limit; a key with its own scopes takes none until it can be given an explicit limit.
+ * with the role's limit; a key with its own scopes takes none until it can be given an explicit limit. Approving a
+ * return (M9.1) is one, so `POST /returns/{id}/approve` works for a key whose role may.
  */
-const API_SPECIALS: ReadonlyArray<SpecialId> = ["refunds.write", "disputes.write"]
+const API_SPECIALS: ReadonlyArray<SpecialId> = ["refunds.write", "disputes.write", "returns.approve"]
 
 /** Equal hex strings, compared in time that does not depend on where they differ. */
 const same = (a: string, b: string) => {

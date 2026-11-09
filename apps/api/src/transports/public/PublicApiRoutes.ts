@@ -118,10 +118,65 @@ const ForwardingLive = HttpApiBuilder.group(
     )
 )
 
+const ReturnsLive = HttpApiBuilder.group(
+  PublicApi,
+  "returns",
+  (handlers) =>
+    Effect.map(
+      Effect.service(Resources),
+      (act) =>
+        handlers
+          .handle("returns", ({ query }) => act.returns(query.status))
+          .handle("return", ({ params }) => act.returnOne(params.id))
+          .handle(
+            "start",
+            ({ payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.startReturn(payload, key))
+          )
+          .handle(
+            "approve",
+            ({ params, payload, headers }) =>
+              Effect.flatMap(
+                keyOf(headers["idempotency-key"]),
+                (key) => act.moveReturn(params.id, { kind: "approve", ...payload }, key)
+              )
+          )
+          .handle(
+            "reject",
+            ({ params, payload, headers }) =>
+              Effect.flatMap(
+                keyOf(headers["idempotency-key"]),
+                (key) => act.moveReturn(params.id, { kind: "reject", ...payload }, key)
+              )
+          )
+          .handle(
+            "receive",
+            ({ params, headers }) =>
+              Effect.flatMap(
+                keyOf(headers["idempotency-key"]),
+                (key) => act.moveReturn(params.id, { kind: "receive" }, key)
+              )
+          )
+          .handle(
+            "inspect",
+            ({ params, payload, headers }) =>
+              Effect.flatMap(
+                keyOf(headers["idempotency-key"]),
+                (key) => act.moveReturn(params.id, { kind: "inspect", ...payload }, key)
+              )
+          )
+          .handle(
+            "resolve",
+            ({ params, payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.resolveReturn(params.id, payload, key))
+          )
+    )
+)
+
 export const PublicApiRoutes = Layer.mergeAll(
   HttpApiBuilder.layer(PublicApi, { openapiPath: "/v1/openapi.json" }),
   HttpApiScalar.layerCdn(PublicApi, { path: "/v1/docs" })
 ).pipe(
-  Layer.provide(Layer.mergeAll(KeyLive, TeamLive, CommerceLive, OrdersLive, ForwardingLive)),
+  Layer.provide(Layer.mergeAll(KeyLive, TeamLive, CommerceLive, OrdersLive, ForwardingLive, ReturnsLive)),
   Layer.provide(ApiKeyAuthLive)
 )

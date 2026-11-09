@@ -80,20 +80,28 @@ describe("the MCP server", () => {
     expect(listed.status).toBe(200)
     const tools = listed.message.result.tools as Array<{ name: string; annotations?: { readOnlyHint?: boolean } }>
     expect(tools.map((t) => t.name).toSorted()).toEqual([
+      "approve_return",
       "cancel_order",
       "forward_orders",
       "get_order",
       "get_order_tracking",
+      "get_return",
+      "inspect_return",
       "list_customers",
       "list_forwarding",
       "list_members",
       "list_orders",
       "list_products",
+      "list_returns",
       "list_roles",
       "list_suppliers",
+      "receive_return",
       "refund_order",
+      "reject_return",
       "reroute_leg",
+      "resolve_return",
       "set_order_note",
+      "start_return",
       "tag_order",
       "update_shipping_address",
       "whoami"
@@ -111,7 +119,9 @@ describe("the MCP server", () => {
         "get_order",
         "get_order_tracking",
         "list_suppliers",
-        "list_forwarding"
+        "list_forwarding",
+        "list_returns",
+        "get_return"
       ]
     ) {
       expect(hints[read]?.["readOnlyHint"]).toBe(true)
@@ -119,6 +129,7 @@ describe("the MCP server", () => {
     expect(hints["cancel_order"]?.["destructiveHint"]).toBe(true)
     expect(hints["refund_order"]?.["destructiveHint"]).toBe(true)
     expect(hints["forward_orders"]?.["destructiveHint"]).toBe(true)
+    expect(hints["resolve_return"]?.["destructiveHint"]).toBe(true)
   })
 
   it("answers whoami, list_members and list_roles as the key", async () => {

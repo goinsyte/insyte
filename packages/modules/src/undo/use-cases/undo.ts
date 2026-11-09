@@ -6,6 +6,7 @@ import { restore as restoreForwarding } from "../../forwarding/use-cases/command
 import { restore as restoreMarketing } from "../../marketing/use-cases/klaviyo.ts"
 import { restore as restoreOrders } from "../../orders/use-cases/commands.ts"
 import { restore as restoreProducts } from "../../products/use-cases/commands.ts"
+import { restore as restoreReturns } from "../../returns/use-cases/commands.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import { restore as restoreSuppliers } from "../../suppliers/use-cases/commands.ts"
 
@@ -21,7 +22,8 @@ const COMPENSATIONS = {
   "customers.restore": restoreCustomers,
   "marketing.restore": restoreMarketing,
   "suppliers.restore": restoreSuppliers,
-  "forwarding.restore": restoreForwarding
+  "forwarding.restore": restoreForwarding,
+  "returns.restore": restoreReturns
 } satisfies Record<string, (sql: SqlClient.SqlClient, compensation: unknown) => Effect.Effect<void, unknown, unknown>>
 
 export const undo = Effect.fn("Shared.undo")(function*(token: string) {

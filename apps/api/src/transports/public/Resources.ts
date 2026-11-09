@@ -20,6 +20,8 @@ import { Members } from "@insyte/modules/members/Members"
 import type { OrderDetail, OrderRow } from "@insyte/modules/orders/domain/Orders"
 import { OrdersService } from "@insyte/modules/orders/Orders"
 import { ProductsService } from "@insyte/modules/products/Products"
+import type { ReturnRow } from "@insyte/modules/returns/domain/Returns"
+import { ReturnsService } from "@insyte/modules/returns/Returns"
 import { RolesService } from "@insyte/modules/roles/RolesService"
 import type { FilterNode, ListInput } from "@insyte/modules/shared/domain/Filter"
 import * as Idempotency from "@insyte/modules/shared/use-cases/Idempotency"
@@ -91,7 +93,8 @@ export const keyOf = (header: string | undefined) =>
 const fail = <Code extends string, Extra extends Record<string, unknown>>(code: Code, message: string, extra: Extra) =>
   Effect.flatMap(CurrentApiKey, (key) => Effect.fail({ error: { code, message, request_id: key.requestId, ...extra } }))
 
-const notFound = () => fail("NotFoundV1" as const, "No such order in this key's stores.", {})
+const notFound = (e?: { readonly entity?: string }) =>
+  fail("NotFoundV1" as const, `No such ${e?.entity === "return" ? "return" : "order"} in this key's stores.`, {})
 const conflict = (reason: string) => fail("ConflictV1" as const, `Not possible now: ${reason}.`, { reason })
 const validation = (fields: Readonly<Record<string, string>>) =>
   fail("ValidationFailedV1" as const, "The request has fields that cannot be used.", { fields: { ...fields } })
@@ -137,7 +140,7 @@ const orderDetailV1 = (d: OrderDetail) => ({
 /** What an order command can refuse, as the use cases say it. */
 type WriteRefusal =
   | Forbidden
-  | { readonly _tag: "NotFound" }
+  | { readonly _tag: "NotFound"; readonly entity?: string }
   | { readonly _tag: "Conflict"; readonly reason: string }
   | { readonly _tag: "Invalid"; readonly fields: Readonly<Record<string, string>> }
   | { readonly _tag: "IdempotencyKeyReused" }
@@ -151,7 +154,7 @@ const writeV1 = (e: WriteRefusal): Effect.Effect<never, WriteV1, CurrentApiKey> 
     case "Forbidden":
       return scopeMissing(e)
     case "NotFound":
-      return notFound()
+      return notFound(e)
     case "Conflict":
       return conflict(e.reason)
     case "Invalid":
@@ -214,6 +217,59 @@ const legV1 = (l: LegRow) => ({
   error: l.errorKind === null ? null : { kind: l.errorKind, note: l.errorNote }
 })
 
+const returnV1 = (r: ReturnRow) => ({
+  id: r.id,
+  number: r.number,
+  kind: r.kind,
+  order: { id: r.orderId, number: r.orderNumber },
+  store_id: r.storeId,
+  customer: { id: r.customerId, name: r.customerName, email: r.customerEmail },
+  status: r.status,
+  reason: { id: r.reasonId, label: r.reasonLabel },
+  note: r.note,
+  requested_resolution: r.requested,
+  units: r.units,
+  amount: { amount_minor: r.amountMinor, currency: r.currency },
+  review_by: iso(r.deadline)!,
+  late: r.status === "review" && r.deadline < Date.now(),
+  resolution: r.resolution === null
+    ? null
+    : { kind: r.resolution.kind, amount_minor: r.resolution.amountMinor, resolved_at: iso(r.resolution.at)! },
+  rejected_reason: r.rejectReason,
+  created_at: iso(r.createdAt)!
+})
+
+/** The returns refusals in the V1 envelope: a move the status does not allow is a conflict, a line refused invalid. */
+const returnsV1 = (
+  e:
+    | WriteRefusal
+    | { readonly _tag: "IllegalReturnMove"; readonly from: string }
+    | { readonly _tag: "ResolutionNotAllowed" }
+    | { readonly _tag: "LineNotReturnable"; readonly why: string }
+) => {
+  switch (e._tag) {
+    case "IllegalReturnMove":
+      return conflict(`status_${e.from}`)
+    case "ResolutionNotAllowed":
+      return conflict("resolution_not_allowed")
+    case "LineNotReturnable":
+      return validation({ lines: e.why })
+    default:
+      return writeV1(e)
+  }
+}
+
+/** The same for settling one, which may refund. */
+const resolveV1 = (
+  e:
+    | WriteRefusal
+    | { readonly _tag: "IllegalReturnMove"; readonly from: string }
+    | { readonly _tag: "ResolutionNotAllowed" }
+    | { readonly _tag: "RefundOverLimit"; readonly limitMinor: number }
+    | { readonly _tag: "RefundOverBalance" }
+    | { readonly _tag: "AlreadyRefunded" }
+) => e._tag === "IllegalReturnMove" || e._tag === "ResolutionNotAllowed" ? returnsV1(e) : refundV1(e)
+
 const make = Effect.gen(function*() {
   const members = yield* Members
   const roles = yield* RolesService
@@ -223,6 +279,7 @@ const make = Effect.gen(function*() {
   const forwarding = yield* ForwardingService
   const suppliers = yield* SuppliersService
   const tracking = yield* TrackingService
+  const returns = yield* ReturnsService
   return {
     me: Effect.gen(function*() {
       const key = yield* CurrentApiKey
@@ -357,6 +414,120 @@ const make = Effect.gen(function*() {
         })),
         Effect.catchTags({ Forbidden: scopeMissing, NotFound: notFound })
       ),
+    returns: (status?: ReturnRow["status"]) =>
+      returns.list({}).pipe(
+        Effect.map((list) => ({
+          data: list.rows.filter((r) => status === undefined || r.status === status).map(returnV1),
+          counts: {
+            total: list.counts.total,
+            review: list.counts.review,
+            late: list.counts.late,
+            awaiting: list.counts.awaiting,
+            ready: list.counts.ready
+          }
+        })),
+        Effect.catchTag("Forbidden", scopeMissing)
+      ),
+    returnOne: (id: string) =>
+      returns.get(id).pipe(
+        Effect.map((d) => ({
+          ...returnV1(d.record),
+          lines: d.lines.map((l) => ({
+            id: l.id,
+            order_line_id: l.orderLineId,
+            title: l.title,
+            variant_title: l.variantTitle,
+            quantity: l.qty,
+            condition: l.condition
+          })),
+          window: { inside: d.window.inside, days: d.window.days, closes_on: iso(d.window.closesOn)! },
+          allowed_resolutions: d.allowed.map((a) => ({ kind: a.kind, amount_minor: a.amountMinor }))
+        })),
+        Effect.catchTags({ Forbidden: scopeMissing, NotFound: notFound })
+      ),
+    startReturn: (
+      body: {
+        readonly order_id: string
+        readonly lines: ReadonlyArray<{ readonly line_id: string; readonly quantity: number }>
+        readonly reason_id: string
+        readonly requested_resolution: ReturnRow["requested"]
+        readonly note?: string | undefined
+        readonly exchange_to?: string | undefined
+      },
+      key?: string
+    ) =>
+      Idempotency.once(
+        key,
+        ["return.start", body],
+        Effect.map(
+          returns.start({
+            orderId: body.order_id,
+            lines: body.lines.map((l) => ({ lineId: l.line_id, qty: l.quantity })),
+            reasonId: body.reason_id,
+            requested: body.requested_resolution,
+            ...(body.note === undefined ? {} : { note: body.note }),
+            ...(body.exchange_to === undefined ? {} : { exchangeTo: body.exchange_to })
+          }),
+          (change) => returnV1(change.returns[0]!)
+        )
+      ).pipe(Effect.catch(returnsV1)),
+    moveReturn: (
+      id: string,
+      move:
+        | { readonly kind: "approve"; readonly keep_item?: boolean | undefined }
+        | { readonly kind: "reject"; readonly reason: string }
+        | { readonly kind: "receive" }
+        | {
+          readonly kind: "inspect"
+          readonly lines?:
+            | ReadonlyArray<
+              { readonly line_id: string; readonly condition: "ok" | "damaged" | "missing"; readonly restock: boolean }
+            >
+            | undefined
+        },
+      key?: string
+    ) =>
+      Idempotency.once(
+        key,
+        ["return", id, move],
+        Effect.flatMap(
+          move.kind === "approve"
+            ? returns.approve({ ids: [id], ...(move.keep_item === undefined ? {} : { keepItem: move.keep_item }) })
+            : move.kind === "reject"
+            ? returns.reject({ ids: [id], reason: move.reason })
+            : move.kind === "receive"
+            ? returns.markReceived(id)
+            : returns.inspect({
+              id,
+              ...(move.lines === undefined ? {} : {
+                lines: move.lines.map((l) => ({ lineId: l.line_id, condition: l.condition, restock: l.restock }))
+              })
+            }),
+          () => Effect.map(returns.get(id), (d) => returnV1(d.record))
+        )
+      ).pipe(Effect.catch(returnsV1)),
+    resolveReturn: (
+      id: string,
+      body: { readonly resolution: ReturnRow["requested"]; readonly exchange_to?: string | undefined },
+      key?: string
+    ) =>
+      Effect.gen(function*() {
+        const principal = yield* CurrentPrincipal
+        const refundId = yield* refundIdOf(key, principal.id)
+        return yield* Idempotency.once(
+          key,
+          ["return.resolve", id, body],
+          Effect.map(
+            returns.resolve({
+              id,
+              resolution: body.resolution,
+              ...(body.resolution === "refund" ? { refundId } : {}),
+              ...(body.exchange_to === undefined ? {} : { exchangeTo: body.exchange_to })
+            }),
+            (change) => returnV1(change.returns[0]!)
+          )
+        )
+      }).pipe(Effect.catch(resolveV1)),
     legs: (view?: "to_forward" | "awaiting" | "forward_error") =>
       forwarding.list(view).pipe(
         Effect.map((list) => ({
@@ -511,7 +682,8 @@ export class Resources extends Context.Service<Resources, Effect.Success<typeof 
         CustomersService.layer,
         ForwardingService.layer,
         SuppliersService.layer,
-        TrackingService.layer
+        TrackingService.layer,
+        ReturnsService.layer
       )
     )
   )

@@ -9,6 +9,7 @@ import { MembersRpcs } from "./rpc/MembersRpcs.ts"
 import { NotificationsRpcs } from "./rpc/NotificationsRpcs.ts"
 import { OnboardingRpcs } from "./rpc/OnboardingRpcs.ts"
 import { PrefsRpcs } from "./rpc/PrefsRpcs.ts"
+import { ReturnsRpcs } from "./rpc/ReturnsRpcs.ts"
 import { RolesRpcs } from "./rpc/RolesRpcs.ts"
 import { SessionRpcs } from "./rpc/SessionRpcs.ts"
 import { SharedRpcs } from "./rpc/SharedRpcs.ts"
@@ -41,3 +42,4 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(SuppliersRpcs)
   .merge(ForwardingRpcs)
   .merge(TrackingRpcs)
+  .merge(ReturnsRpcs)
