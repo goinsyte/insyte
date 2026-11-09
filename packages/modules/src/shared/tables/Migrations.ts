@@ -19,6 +19,7 @@ import notifications from "./migrations/0019_notifications.ts"
 import connections from "./migrations/0020_connections.ts"
 import commerce from "./migrations/0021_commerce.ts"
 import inbound from "./migrations/0022_inbound.ts"
+import firstAnalysis from "./migrations/0023_first_analysis.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -47,5 +48,6 @@ export const Migrations = {
   "0019_notifications": notifications,
   "0020_connections": connections,
   "0021_commerce": commerce,
-  "0022_inbound": inbound
+  "0022_inbound": inbound,
+  "0023_first_analysis": firstAnalysis
 }

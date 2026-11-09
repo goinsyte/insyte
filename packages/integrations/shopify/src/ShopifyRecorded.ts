@@ -66,8 +66,19 @@ const nest = (shop: string, id: string): Record<string, unknown> | null => {
   return shop.startsWith("upd-") ? { ...node, ...RECORDED_UPDATES[id] } : node
 }
 
+/** The shop's setup as the first analysis reads it (M6.5): three countries, a long delivery, no rule for damage. */
+const RECORDED_SHOP = {
+  shipsToCountries: ["NL", "BE", "DE"],
+  shopPolicies: [
+    { type: "SHIPPING_POLICY", body: "<p>Je bestelling is binnen 7 tot 12 werkdagen bij je.</p>" },
+    { type: "REFUND_POLICY", body: "<p>Retourneren kan binnen 30 dagen na ontvangst.</p>" }
+  ]
+}
+
 const recordedQuery = (shop: string, query: string, variables: Record<string, unknown>): unknown => {
   if (query.includes("node(id:")) return { node: nest(shop, String(variables["id"])) }
+  if (query.includes("shipsToCountries")) return { shop: { shipsToCountries: RECORDED_SHOP.shipsToCountries } }
+  if (query.includes("shopPolicies")) return { shop: { shopPolicies: RECORDED_SHOP.shopPolicies } }
   const field = ["products", "customers", "orders"].find((f) => query.includes(`${f}(first:`))!
   const type = field === "products" ? "Product" : field === "customers" ? "Customer" : "Order"
   const ids = parsed.filter((l) => String(l["id"]).split("/")[3] === type && l["__parentId"] === undefined)

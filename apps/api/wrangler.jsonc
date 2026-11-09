@@ -47,6 +47,8 @@
   // A store's first import (M6.3): durable steps, resumed where they stopped.
   "workflows": [
     { "binding": "SHOPIFY_BACKFILL", "name": "insyte-shopify-backfill", "class_name": "ShopifyBackfillWorkflow" },
+    // A store's first analysis (M6.5): its early read, step by step.
+    { "binding": "FIRST_ANALYSIS", "name": "insyte-first-analysis", "class_name": "FirstAnalysisWorkflow" },
   ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] },

@@ -3,15 +3,8 @@ import { ME } from "../automations/workflow-store"
 import { persistStep } from "../lib/onboarding-api"
 import { useFirstAnalysis } from "../stores/first-analysis-store"
 import { planStep, ReadyCard, readyStep, storeStep } from "./admin-tail-steps"
-import {
-  analysisCopy,
-  analysisMode,
-  AnalysisStep,
-  defaultPrepared,
-  OfflineStep,
-  preparedTitles,
-  proposedLevels
-} from "./first-analysis-steps"
+import { type AnalysisSource, analysisStep, preparedTitles } from "./analysis-step"
+import { OfflineStep, proposedLevels } from "./first-analysis-steps"
 import type { StepDef } from "./onboarding-shell"
 import { organizationStep } from "./organization-step"
 import { syncStep } from "./sync-progress"
@@ -41,27 +34,18 @@ export function adminSteps(
         next()
       }
     }),
-    {
-      id: "analysis",
-      ...analysisCopy(shopConnected, data.analysisRead === true),
-      busyLabel: "Wordt klaargezet",
-      canContinue: true,
-      // While Insyte reads there is nothing to decide yet, so there is nothing to press.
-      hidePrimary: data.analysisRead !== true && analysisMode(shopConnected) !== "none",
-      primaryLabel: ((data.prepared as string[] | undefined) ?? defaultPrepared(shopConnected)).length > 0
-        ? "Klaarzetten"
-        : "Doorgaan zonder",
-      onPrimary: () => {
-        const ids = (data.prepared as ReturnType<typeof defaultPrepared> | undefined) ?? defaultPrepared(shopConnected)
-        const answers = (data.answers as Record<string, string> | undefined) ?? {}
+    analysisStep({
+      source: demoAnalysis(shopConnected),
+      data,
+      patch,
+      onPrimary: (ids, answers) => {
         const fa = useFirstAnalysis.getState()
         for (const [k, v] of Object.entries(answers)) fa.answer(k, v)
-        fa.prepare(ids, preparedTitles(), ME)
+        fa.prepare(ids, preparedTitles(demoAnalysis(shopConnected)), ME)
         persistStep("analysis", { prepared: ids, answers })
         next()
-      },
-      content: <AnalysisStep connected={shopConnected} data={data} patch={patch} />
-    },
+      }
+    }),
     {
       id: "offline",
       title: "Terwijl je offline bent.",
@@ -84,6 +68,18 @@ export function adminSteps(
   ]
 }
 
+/* ─── The first analysis — the seed, read at the reference's pace (`analysis-step.tsx`) ── */
+
+const demoAnalysis = (connected: boolean): AnalysisSource => ({
+  connected,
+  store: firstAnalysisSeed.store,
+  readsMail: true,
+  reads: firstAnalysisSeed.reads.map((label) => ({ label })),
+  ...(firstAnalysisSeed.finding === undefined ? {} : { finding: firstAnalysisSeed.finding }),
+  ...(firstAnalysisSeed.early === undefined ? {} : { early: firstAnalysisSeed.early }),
+  prepared: firstAnalysisSeed.prepared
+})
+
 /* ─── Sync progress — the seed's counts, counted up (`sync-progress.tsx`) ── */
 
 const SYNC_ROWS = [
@@ -96,7 +92,7 @@ const SYNC_ROWS = [
 
 function ReadyState({ connected }: { connected: boolean }) {
   const made = useFirstAnalysis((s) => s.made)
-  const titles = preparedTitles()
+  const titles = preparedTitles(demoAnalysis(connected))
   const list = [
     made.automationId ? `${titles.automation} (concept)` : null,
     made.agent ? `${titles.agent} (eerst vragen)` : null,

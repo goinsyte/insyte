@@ -3,6 +3,7 @@ import type { AdvanceInput } from "@insyte/modules/onboarding/domain/Onboarding"
 import { authClient } from "@insyte/ui/app/lib/auth-client"
 import { fieldCopy } from "@insyte/ui/app/lib/errors"
 import { planStep, readyStep, storeStep } from "@insyte/ui/app/onboarding/admin-tail-steps"
+import { analysisStep } from "@insyte/ui/app/onboarding/analysis-step"
 import { search } from "@insyte/ui/app/onboarding/onboarding-search"
 import { OnboardingShell, type StepDef } from "@insyte/ui/app/onboarding/onboarding-shell"
 import { type NewWorkspace, organizationStep } from "@insyte/ui/app/onboarding/organization-step"
@@ -14,8 +15,10 @@ import { Cause, Effect, Exit, Option } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { useEffect, useRef } from "react"
 import { toast } from "sonner"
+import { firstAnalysisAtom } from "../../data/first-analysis.ts"
 import { advanceOnboardingAtom, ONBOARDING, onboardingMeAtom } from "../../data/onboarding.ts"
 import { storesAtom, syncStatusAtom } from "../../data/stores.ts"
+import { AnalysisLive, ConsoleReadyCard, useConsoleAnalysis } from "../../onboarding/analysis.tsx"
 import { LiveUpdates } from "../../realtime/live-updates.tsx"
 import { notConnected, useBeginConnect } from "../../stores/stores-source.tsx"
 
@@ -28,8 +31,9 @@ import { notConnected, useBeginConnect } from "../../stores/stores-source.tsx"
  * Built so far: the shared head and the admin track up to ready (organisation founds the workspace, plan starts the
  * trial, the store connects through Shopify or waits on Start), which lands on Start. Shopify's way back is
  * `?connected=shopify` (the store step is then recorded as connected) or `?error=`; the sync step shows the first
- * import as it lands, live. Analysis and offline follow (M6.5, M15); the partner tracks say they are not available yet
- * (11 §7.3). A finished person is sent to Start.
+ * import as it lands, live, and the analysis step the store's first analysis as the server reads it (M6.5). The
+ * offline plan follows with autonomy (M15); the partner tracks say they are not available yet (11 §7.3). A finished
+ * person is sent to Start.
  */
 export const Route = createFileRoute("/onboarding/")({
   validateSearch: search,
@@ -44,17 +48,22 @@ export const Route = createFileRoute("/onboarding/")({
       context.registry.mount(storesAtom)
       await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, storesAtom)))
     }
+    // The analysis and ready steps show the store's first analysis: in the document too.
+    if (Option.isSome(me) && (me.value.step === "analysis" || me.value.step === "ready")) {
+      context.registry.mount(firstAnalysisAtom)
+      await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, firstAnalysisAtom)))
+    }
   },
   component: ConsoleOnboarding
 })
 
-/** Analysis and offline follow the import (M6.5, M15); until they are built, an imported store goes on to ready. */
-const AFTER_THE_IMPORT = (["analysis", "offline"] as const).map((id): StepDef => ({
-  id,
+/** The offline plan follows with autonomy (M15); until then the server goes from the analysis straight to ready. */
+const OFFLINE: StepDef = {
+  id: "offline",
   title: "Deze stap volgt zodra je winkel is gekoppeld.",
   hidePrimary: true,
   content: null
-}))
+}
 
 const SYNC_LABELS = [
   { id: "products", label: "Producten" },
@@ -152,6 +161,9 @@ function ConsoleOnboarding() {
     return exit.value
   }
   const beginConnect = useBeginConnect("/onboarding")
+  const analysis = useConsoleAnalysis(
+    server?.step === "analysis" ? "analysis" : server?.step === "ready" ? "ready" : "other"
+  )
 
   // Back from Shopify: a connected store is the store step's answer; a refusal is said once.
   useEffect(() => {
@@ -206,14 +218,35 @@ function ConsoleOnboarding() {
         }),
         content: <ConsoleSync />
       },
-      ...AFTER_THE_IMPORT,
+      (() => {
+        const step = analysisStep({
+          source: analysis.source,
+          data,
+          patch,
+          onPrimary: async (ids, answers) => {
+            await analysis.prepare(ids, answers)
+            await finish({ step: "analysis" })
+          }
+        })
+        return {
+          ...step,
+          content: (
+            <>
+              <AnalysisLive reading={analysis.view?.state === "reading" || analysis.view?.state === "none"} />
+              {step.content}
+            </>
+          )
+        }
+      })(),
+      OFFLINE,
       readyStep({
         data,
         finish: () => undefined,
         onReady: async () => {
           await finish({ step: "ready" })
           await navigate({ to: "/dashboard" })
-        }
+        },
+        content: <ConsoleReadyCard view={analysis.view} />
       })
     ]
     : [NOT_YET]

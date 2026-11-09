@@ -1,6 +1,7 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
+import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
 import { StoresRpcs } from "@insyte/api/rpc/StoresRpcs"
@@ -77,7 +78,10 @@ const PAYLOADS: Record<string, unknown> = {
   "Products.list": {},
   "Products.get": { id: "prd_none" },
   "Customers.list": {},
-  "Customers.get": { id: "cus_none" }
+  "Customers.get": { id: "cus_none" },
+  "FirstAnalysis.get": undefined,
+  "FirstAnalysis.start": undefined,
+  "FirstAnalysis.prepare": { ids: ["agent"], answers: { fulfilment: "one", reply: "ask" } }
 }
 
 const manifest = [
@@ -86,7 +90,8 @@ const manifest = [
   ...RolesRpcs.requests.keys(),
   ...DeveloperRpcs.requests.keys(),
   ...StoresRpcs.requests.keys(),
-  ...CommerceRpcs.requests.keys()
+  ...CommerceRpcs.requests.keys(),
+  ...FirstAnalysisRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

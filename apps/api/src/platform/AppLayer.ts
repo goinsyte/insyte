@@ -26,6 +26,7 @@ import { MemberLive } from "../transports/rpc/MemberLive.ts"
 import { RpcContext, RpcRoutes } from "../transports/rpc/RpcRoutes.ts"
 import { ViewerLive } from "../transports/rpc/ViewerLive.ts"
 import { WithDbLive } from "../transports/rpc/WithDbLive.ts"
+import { AnalysesLive } from "./Analyses.ts"
 import { AuthHooksLive } from "./AuthHooks.ts"
 import { BackfillsLive } from "./Backfills.ts"
 import { AppInfo, BetaSettings, ConfigLive } from "./Bindings.ts"
@@ -115,7 +116,9 @@ export const AppLayer = Transports.pipe(
       SealerLive,
       ShopifyAdminChoice,
       ConnectionGateLive,
-      IngestQueueLive
+      IngestQueueLive,
+      // …and the first analysis's Workflow (M6.5).
+      AnalysesLive
     )
   ),
   // better-auth, built per request by the auth routes and the session check, over the app's hooks.

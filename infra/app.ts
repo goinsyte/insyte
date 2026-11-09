@@ -173,6 +173,11 @@ export default Alchemy.Stack(
           className: "ShopifyBackfillWorkflow",
           workflowName: `insyte-shopify-backfill-${stage}`
         }),
+        // A store's first analysis (M6.5), hosted by this Worker (`FirstAnalysisWorkflow`); one per stage.
+        FIRST_ANALYSIS: Cloudflare.Workflow("FirstAnalysis", {
+          className: "FirstAnalysisWorkflow",
+          workflowName: `insyte-first-analysis-${stage}`
+        }),
         ENVIRONMENT: environment,
         // Where `Main.ts` serves `/v1` and nothing else.
         PUBLIC_API_HOST: `insyte-api-${stage}.${WORKERS_SUBDOMAIN}`,
