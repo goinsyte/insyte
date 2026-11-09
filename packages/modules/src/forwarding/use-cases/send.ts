@@ -4,6 +4,7 @@ import type { SqlClient } from "effect/sql"
 import { Mailer } from "../../shared/domain/Mailer.ts"
 import { Sealer } from "../../shared/domain/Sealer.ts"
 import { SupplierApi, SupplierApiError, type SupplierOrder } from "../domain/Forwarding.ts"
+import { ensureWork } from "./work.ts"
 
 /*
  * A forward's delivery (M8.2), once its undo window has passed: each leg still `sending` goes to its supplier, by its
@@ -65,10 +66,14 @@ const lockLeg = (sql: SqlClient.SqlClient, id: string) =>
     where f.id = ${id} and f.state = 'sending'
     for update of f`
 
+/** Sent: the supplier has it, and its work begins (M8.3). */
 const sentOk = (sql: SqlClient.SqlClient, leg: Leg) =>
-  sql`update forwarding_items set state = 'awaiting', since = now(), attempts = attempts + 1,
-        confirm_by = now() + make_interval(hours => ${leg.confirmHours})
-      where id = ${leg.id}`
+  Effect.andThen(
+    sql`update forwarding_items set state = 'awaiting', since = now(), attempts = attempts + 1,
+          confirm_by = now() + make_interval(hours => ${leg.confirmHours})
+        where id = ${leg.id}`,
+    ensureWork(sql, [leg.id])
+  )
 
 const failed = (sql: SqlClient.SqlClient, id: string, note: string) =>
   sql`update forwarding_items set state = 'error', since = now(), attempts = attempts + 1, error_kind = 'send_failed',

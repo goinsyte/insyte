@@ -18,9 +18,13 @@ export const ORDER_UPDATE = `mutation($input: OrderInput!) {
   orderUpdate(input: $input) { order { id } userErrors { field message } }
 }`
 
-/** The order's fulfillment orders, to fulfil those still open. */
+/** The order's fulfillment orders and their lines, to fulfil those still open (all, or one supplier's lines). */
 export const FULFILLMENT_ORDERS = `query($id: ID!) {
-  order(id: $id) { fulfillmentOrders(first: 20) { nodes { id status } } }
+  order(id: $id) {
+    fulfillmentOrders(first: 20) {
+      nodes { id status lineItems(first: 50) { nodes { id remainingQuantity lineItem { id } } } }
+    }
+  }
 }`
 
 export const FULFILLMENT_CREATE = `mutation($fulfillment: FulfillmentInput!) {

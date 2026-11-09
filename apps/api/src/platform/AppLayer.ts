@@ -15,6 +15,7 @@ import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
 import { RealtimeRoutes } from "../transports/http/RealtimeRoutes.ts"
 import { RequestContext } from "../transports/http/RequestContext.ts"
+import { SupplierHookRoutes } from "../transports/http/SupplierHookRoutes.ts"
 import { SystemRoutes } from "../transports/http/SystemRoutes.ts"
 import { WebhookRoutes } from "../transports/http/WebhookRoutes.ts"
 import { KeyDoor } from "../transports/public/KeyDoor.ts"
@@ -62,6 +63,7 @@ const Transports = Layer.mergeAll(
   ConnectRoutes,
   KlaviyoConnectRoutes,
   WebhookRoutes,
+  SupplierHookRoutes,
   PublicApiRoutes,
   McpRoutes,
   RequestContext,

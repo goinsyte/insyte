@@ -68,7 +68,14 @@ export const OutboxEvent = Schema.Union([
     orderIds: Schema.Array(Schema.String),
     change: Schema.Literals(["tags", "shipping", "fulfil"]),
     add: Schema.Array(Schema.String),
-    remove: Schema.Array(Schema.String)
+    remove: Schema.Array(Schema.String),
+    // A supplier's parcel (M8.3): only its lines (Shopify ids), with the tracking it reported.
+    lines: Schema.optional(Schema.Array(Schema.String)),
+    tracking: Schema.optional(Schema.Struct({
+      company: Schema.NullOr(Schema.String),
+      number: Schema.String,
+      url: Schema.NullOr(Schema.String)
+    }))
   }),
   // Orders cancelled in Insyte (M7.1): to Shopify at once, since nothing can take it back.
   Schema.Struct({

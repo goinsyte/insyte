@@ -129,9 +129,25 @@ const recordedQuery = (shop: string, query: string, variables: Record<string, un
       }
     }
   }
+  // One open fulfillment order with the order's lines, each still to ship in full.
   if (query.includes("fulfillmentOrders(")) {
+    const lines = parsed.filter((l) => l["__parentId"] === variables["id"] && String(l["id"]).includes("/LineItem/"))
     return {
-      order: { fulfillmentOrders: { nodes: [{ id: "gid://shopify/FulfillmentOrder/1", status: "OPEN" }] } }
+      order: {
+        fulfillmentOrders: {
+          nodes: [{
+            id: "gid://shopify/FulfillmentOrder/1",
+            status: "OPEN",
+            lineItems: {
+              nodes: lines.map((l) => ({
+                id: `gid://shopify/FulfillmentOrderLineItem/${String(l["id"]).split("/").pop()}`,
+                remainingQuantity: Number(l["quantity"] ?? 1),
+                lineItem: { id: l["id"] }
+              }))
+            }
+          }]
+        }
+      }
     }
   }
   if (query.includes("node(id:")) return { node: nest(shop, String(variables["id"])) }
