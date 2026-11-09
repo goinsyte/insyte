@@ -10,6 +10,7 @@ import { createFileRoute, notFound } from "@tanstack/react-router"
 import { Effect, Exit, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { orderAtom, ordersAtom } from "../data/orders.ts"
+import { ConsoleTracker } from "../orders/forwarding-source.tsx"
 import { arrivingOrderDetail, useConsoleOrderDetail } from "../orders/order-detail-source.ts"
 
 /**
@@ -76,7 +77,7 @@ function OrderRoute() {
 
 function Loaded({ detail }: { detail: OrderDetail }) {
   return (
-    <OrderDetailSourceProvider value={useConsoleOrderDetail(detail)}>
+    <OrderDetailSourceProvider value={{ ...useConsoleOrderDetail(detail), Tracker: ConsoleTracker }}>
       <OrderDetailPage />
     </OrderDetailSourceProvider>
   )

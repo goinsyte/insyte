@@ -4,6 +4,7 @@ import type { OrderPage } from "@insyte/modules/orders/domain/Orders"
 import type { StoreView } from "@insyte/modules/stores/domain/Stores"
 import { DeniedPanel } from "@insyte/ui/app/access/denied"
 import { OPEN_AS_MODAL, useOpenedAsModal } from "@insyte/ui/app/common/detail-shell"
+import { isForwardView } from "@insyte/ui/app/lib/forwarding"
 import type { Level, Permission } from "@insyte/ui/app/lib/permissions"
 import { PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
 import { OrdersList } from "@insyte/ui/app/orders/orders-screen"
@@ -11,8 +12,10 @@ import { OrdersSourceProvider } from "@insyte/ui/app/orders/source"
 import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
+import { forwardingAtom } from "../data/forwarding.ts"
 import { ordersAtom } from "../data/orders.ts"
 import { storesAtom } from "../data/stores.ts"
+import { ConsoleForwarding } from "../orders/forwarding-source.tsx"
 import { useConsoleOrdersSource } from "../orders/orders-source.ts"
 
 /**
@@ -33,6 +36,11 @@ export const Route = createFileRoute("/_frame/orders")({
   head: () => ({ meta: [{ title: "Bestellingen · Insyte" }] }),
   loader: async ({ context, location }) => {
     if (!atList(location.pathname)) return
+    // Doorsturen (M8.2): its legs, read with the list when the view is one of the queue's.
+    if (isForwardView((location.search as { view?: unknown }).view)) {
+      context.registry.mount(forwardingAtom)
+      await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, forwardingAtom)))
+    }
     // Mounted so the values survive until the registry is dehydrated into the document.
     context.registry.mount(ordersAtom)
     context.registry.mount(storesAtom)
@@ -106,7 +114,7 @@ function Loaded({ page, stores }: { page: OrderPage; stores: ReadonlyArray<Store
     (order) => navigate({ to: "/orders/$orderId", params: { orderId: order.id }, state: OPEN_AS_MODAL })
   )
   return (
-    <OrdersSourceProvider value={source}>
+    <OrdersSourceProvider value={{ ...source, Forwarding: ConsoleForwarding }}>
       <OrdersList />
     </OrdersSourceProvider>
   )

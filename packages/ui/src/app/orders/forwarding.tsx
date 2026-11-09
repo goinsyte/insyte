@@ -1,11 +1,8 @@
 import { useNavigate } from "@tanstack/react-router"
 import type { ColumnDef } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
-import { toast } from "sonner"
-import { suppliers } from "../../data-source"
+import { type ReactElement, useMemo, useState } from "react"
 import { AlertTriangle, Check, Mail, Send, Truck, XCircle } from "../../icons"
-import { Gate } from "../access/gate"
-import { AgentSuggestion, RecentAgentRow, useMyName, useNow } from "../ask/agent-parts"
+import { Blocked } from "../access/blocked"
 import { ConfirmDialog } from "../common/confirm-dialog"
 import { OPEN_AS_MODAL } from "../common/detail-shell"
 import { EmptyState } from "../common/empty-state"
@@ -13,8 +10,7 @@ import { FormDialog, TextAreaField, TextField } from "../common/form-dialog"
 import { PageGuide } from "../common/page-guide"
 import { PageHeader } from "../common/page-header"
 import { StatusBadge } from "../common/status-badge"
-import { useProducts } from "../hooks/use-operator-data"
-import { counted } from "../lib/bulk"
+import { counted } from "../lib/bulk-io"
 import { formatCurrency } from "../lib/format"
 import {
   forwardSentence,
@@ -27,14 +23,11 @@ import {
   VIEW_LABEL,
   waitedLabel
 } from "../lib/forwarding"
-import type { Order } from "../lib/types/domain"
-import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
 import { ProductThumb } from "../product/product-thumb"
-import { useGate } from "../stores/access-store"
-import { type LegRow, useForwarding, useForwardLegs } from "../stores/forwarding-store"
-import { useWorkspace } from "../stores/workspace-store"
-import { DataTable, type Facet, facetFilter, type RowAction } from "../table/data-table"
+import type { LegRow } from "../stores/forwarding-store"
+import { DataTable, facetFilter, type RowAction } from "../table/data-table"
+import { type TeamGate, useForwardingSource } from "./forwarding-source"
 
 /*
  * The forwarding queue (PLAN 24, design §2): Orders' three views of what has not gone out yet —
@@ -74,40 +67,12 @@ import { FORWARD_VIEWS, isForwardView } from "../lib/forwarding"
 
 export { FORWARD_VIEWS, isForwardView }
 
-export const supplierLabel = (id: string) => suppliers.find((s) => s.id === id)?.name ?? NAMES[id] ?? id
-const NAMES: Record<string, string> = {
-  sup_allure: "Allure Fulfillment",
-  sup_dpc: "DPC Apparel",
-  sup_kestrel: "Kestrel Goods",
-  sup_blackcedar: "Black Cedar Studio"
-}
-
 export type { QueueRow } from "../lib/queue-row"
 import type { QueueRow } from "../lib/queue-row"
 
-/** Every leg with its order and its lines, for one view. */
-export function useQueueRows(now: number, view?: ForwardView): QueueRow[] {
-  const legs = useForwardLegs(now)
-  const orders = useWorkspace((s) => s.orders)
-  return useMemo(() => {
-    const byId = new Map(orders.map((o) => [o.id, o]))
-    return legs.flatMap((l) => {
-      if (view && !inView(l.effective, view)) return []
-      const order = byId.get(l.orderId)
-      if (!order || order.status === "cancelled" || order.status === "refunded") return []
-      // After a reroute the lines still belong to the first supplier's products; they travel with the leg.
-      const lines = order.line_items.filter((li) => li.supplier_id === (l.from ?? l.supplierId))
-      return [{ ...l, order, lines }]
-    })
-  }, [legs, orders, view])
-}
-
-/** A one-second clock only while a send is waiting out its window; otherwise once a minute. */
-function useSendingTick() {
-  const sending = useForwarding((s) =>
-    Object.values(s.overrides).some((l) => l.state === "sending" && (l.sendingUntil ?? 0) > Date.now())
-  )
-  return sending ? 1000 : 60_000
+/** A control the role may not use: disabled, with what is missing, from the host's answer. */
+function GateBy({ gate, children }: { gate: TeamGate; children: ReactElement }) {
+  return gate.ok ? children : <Blocked reason={gate.reason}>{children}</Blocked>
 }
 
 /** The leg's state as a word on its tint: never the colour alone. */
@@ -126,28 +91,16 @@ export function LegBadge({ row, now }: { row: LegRow; now: number }) {
   return <StatusBadge tone="neutral">Te versturen</StatusBadge>
 }
 
-const FACETS: ReadonlyArray<Facet> = [
-  { id: "supplier", label: "Leverancier", options: Object.entries(NAMES).map(([value, label]) => ({ value, label })) },
-  {
-    id: "store",
-    label: "Winkel",
-    options: [{ value: "store_us", label: "Northwind US" }, { value: "store_eu", label: "Northwind EU" }]
-  }
-]
-
 export function ForwardingList({ view }: { view: ForwardView }) {
   const navigate = useNavigate()
-  const now = useNow(useSendingTick())
-  const rows = useQueueRows(now, view)
-  const all = useQueueRows(now)
-  const { data: products } = useProducts()
-  const me = useMyName()
-  const edit = useGate("orders", 2)
+  const source = useForwardingSource()
+  const { now, all, supplierLabel, Plate, Recent } = source
+  const rows = useMemo(() => all.filter((r) => inView(r.effective, view)), [all, view])
+  const edit = source.gates.edit
   const [forwarding, setForwarding] = useState<QueueRow[] | null>(null)
   const [rerouting, setRerouting] = useState<QueueRow | null>(null)
   const [mailing, setMailing] = useState<QueueRow | null>(null)
   const [cancelling, setCancelling] = useState<QueueRow | null>(null)
-  const image = (productId: string) => products.find((p) => p.id === productId)?.images[0]
 
   const counts = useMemo(() => {
     const c = { to_forward: 0, awaiting: 0, forward_error: 0, late: 0 }
@@ -179,17 +132,10 @@ export function ForwardingList({ view }: { view: ForwardView }) {
         bar: true,
         needs: { perm: "orders", arg: 2 },
         applies: (r) => r.effective === "awaiting" || r.effective === "sending",
-        run: (picked) => {
-          const undos = picked.map((r) => useForwarding.getState().confirmLeg(r.key, me))
-          undoable(
-            `${counted(picked.length, "bestelling", "bestellingen")} als bevestigd gemarkeerd`,
-            () => undos.forEach((u) => u()),
-            "Voor als de leverancier buiten Insyte om bevestigde."
-          )
-        }
+        run: (picked) => source.confirm(picked)
       }
     ],
-    [me]
+    [source]
   )
 
   const columns = useMemo<Array<ColumnDef<QueueRow, unknown>>>(
@@ -233,7 +179,7 @@ export function ForwardingList({ view }: { view: ForwardView }) {
               {c.row.original.lines.slice(0, 3).map((l) => (
                 <ProductThumb
                   key={l.id}
-                  src={image(l.product_id)}
+                  src={source.imageOf(l)}
                   title={l.title}
                   size={24}
                   className="ring-2 ring-paper"
@@ -300,7 +246,7 @@ export function ForwardingList({ view }: { view: ForwardView }) {
           const btn = "flex h-7 items-center gap-1 rounded-md px-2 font-medium text-xs transition-colors"
           return (
             <span className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-              <Gate perm="orders" arg={2}>
+              <GateBy gate={edit}>
                 <button
                   type="button"
                   onClick={() => setRerouting(r)}
@@ -309,18 +255,22 @@ export function ForwardingList({ view }: { view: ForwardView }) {
                   <Truck className="size-3.5" strokeWidth={1.75} />
                   Andere leverancier
                 </button>
-              </Gate>
-              <Gate perm="support" arg={2}>
-                <button
-                  type="button"
-                  onClick={() => setMailing(r)}
-                  className={cn(btn, "text-ink-2 hover:bg-ink/6 hover:text-ink")}
-                >
-                  <Mail className="size-3.5" strokeWidth={1.75} />
-                  Klant mailen
-                </button>
-              </Gate>
-              <Gate perm="orders" arg={2}>
+              </GateBy>
+              {source.mail ?
+                (
+                  <GateBy gate={source.mail.gate}>
+                    <button
+                      type="button"
+                      onClick={() => setMailing(r)}
+                      className={cn(btn, "text-ink-2 hover:bg-ink/6 hover:text-ink")}
+                    >
+                      <Mail className="size-3.5" strokeWidth={1.75} />
+                      Klant mailen
+                    </button>
+                  </GateBy>
+                ) :
+                null}
+              <GateBy gate={edit}>
                 <button
                   type="button"
                   onClick={() => setCancelling(r)}
@@ -329,18 +279,17 @@ export function ForwardingList({ view }: { view: ForwardView }) {
                   <XCircle className="size-3.5" strokeWidth={1.75} />
                   Annuleren
                 </button>
-              </Gate>
+              </GateBy>
             </span>
           )
         }
       }
     ],
     // biome-ignore lint/correctness/useExhaustiveDependencies: `now` ticks the waiting times
-    [now, products]
+    [now, source]
   )
 
   const toForward = all.filter((r) => r.effective === "to_forward")
-  const proposalKey = `forward:${toForward.map((r) => r.key).sort().join(",")}`
   const meta = `${counts.to_forward} te versturen · ${counts.awaiting} wachten op bevestiging${
     counts.late ? ` (${counts.late} te laat)` : ""
   } · ${counts.forward_error} fout`
@@ -353,7 +302,7 @@ export function ForwardingList({ view }: { view: ForwardView }) {
         meta={meta}
         actions={view !== "awaiting" && rows.some((r) => r.effective === "to_forward" || r.effective === "error") ?
           (
-            <Gate perm="orders" arg={2}>
+            <GateBy gate={edit}>
               <button
                 type="button"
                 onClick={() =>
@@ -363,70 +312,20 @@ export function ForwardingList({ view }: { view: ForwardView }) {
                 <Send className="size-3.5" strokeWidth={1.75} />
                 Alles doorsturen
               </button>
-            </Gate>
+            </GateBy>
           ) :
           null}
       />
       <div className="flex min-w-0 flex-col gap-4 px-5 pb-6">
-        {view === "to_forward" && toForward.length > 0 && edit.ok ?
-          (
-            <AgentSuggestion
-              key={proposalKey}
-              id={proposalKey}
-              action="ForwardOrder"
-              wide
-              level={2}
-              proposal={{
-                title: forwardSentence(toForward),
-                body: `Betaald, op voorraad volgens de leveranciers en met een volledig adres. ${
-                  toForward.map((r) => r.order.number).slice(0, 4).join(", ")
-                }${toForward.length > 4 ? " en meer" : ""} gaan via ${
-                  [...new Set(toForward.map((r) => supplierLabel(r.supplierId)))].join(", ")
-                }.`,
-                confidence: 92,
-                why:
-                  "Elke bestelling staat al langer dan 30 minuten betaald klaar. Doorsturen kan nog worden ingetrokken tot de leverancier bevestigt.",
-                fileLabel: "Doorsturen",
-                action: { kind: "open", to: "/orders" }
-              }}
-              evidence={<ForwardEvidence rows={toForward} />}
-              draft={{
-                sentence: forwardSentence(toForward).replace(/ doorsturen$/, " doorgestuurd"),
-                record: {
-                  kind: "order",
-                  label: `${toForward[0]?.order.number ?? ""}${
-                    toForward.length > 1 ? ` +${toForward.length - 1}` : ""
-                  }`,
-                  to: "/orders",
-                  search: { view: "awaiting" }
-                },
-                trigger: "Betaalde bestellingen",
-                sources: toForward.slice(0, 4).map((r) => ({
-                  kind: "order" as const,
-                  title: r.order.number,
-                  detail: `${supplierLabel(r.supplierId)} · ${r.lines.length} ${
-                    r.lines.length === 1 ? "regel" : "regels"
-                  }`,
-                  to: `/orders/${r.order.id}`
-                })),
-                reason: "Betaald, adres compleet en de leverancier meldt voorraad.",
-                compensation: "Terughalen"
-              }}
-              perform={() => {
-                // The plate is one decision, so it is one log row over every leg; its undo takes them all back.
-                const keys = toForward.map((r) => r.key)
-                useForwarding.getState().forwardLegs(keys, "Insyte", undefined, 0)
-                return { effect: { kind: "order.forward", keys }, after: `${toForward.length} wachten op bevestiging` }
-              }}
-            />
-          ) :
-          view === "to_forward" ?
-          <RecentAgentRow action="ForwardOrder" /> :
+        {view === "to_forward" && toForward.length > 0 && edit.ok && Plate ?
+          <Plate toForward={toForward} /> :
+          view === "to_forward" && Recent ?
+          <Recent /> :
           null}
         <DataTable
           columns={columns}
           data={rows}
-          facets={FACETS}
+          facets={source.facets}
           actions={actions}
           noun={["leg", `forward-${view}`]}
           label={["bestelling", "bestellingen"]}
@@ -473,32 +372,12 @@ export function ForwardingList({ view }: { view: ForwardView }) {
         confirmLabel="Bestelling annuleren"
         onConfirm={() => {
           if (!cancelling) return
-          useForwarding.getState().cancelLeg(cancelling.key, me)
-          useWorkspace.getState().cancelOrder(cancelling.order.id)
-          toast(`${cancelling.order.number} geannuleerd`, { description: "De klant krijgt bericht van Shopify." })
+          source.cancelOrder(cancelling)
           setCancelling(null)
         }}
       />
       <PageGuide id="orders.forwarding" title="Doorsturen" steps={GUIDE} />
     </div>
-  )
-}
-
-/** The lines the plate rests on, in its chalk: order, supplier, how many. */
-function ForwardEvidence({ rows }: { rows: ReadonlyArray<QueueRow> }) {
-  const groups = [...new Set(rows.map((r) => r.supplierId))].map((s) => ({
-    s,
-    rows: rows.filter((r) => r.supplierId === s)
-  }))
-  return (
-    <dl className="grid w-full grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-      {groups.map((g) => (
-        <div key={g.s} className="flex min-w-0 flex-col gap-0.5">
-          <dt className="truncate text-mesh-ink-2 text-xs">{supplierLabel(g.s)}</dt>
-          <dd className="truncate text-mesh-ink tabular-nums">{g.rows.map((r) => r.order.number).join(", ")}</dd>
-        </div>
-      ))}
-    </dl>
   )
 }
 
@@ -509,8 +388,8 @@ function ForwardEvidence({ rows }: { rows: ReadonlyArray<QueueRow> }) {
  * and the button that says what will happen ("12 bestellingen naar 3 leveranciers doorsturen").
  */
 export function ForwardDialog({ rows, onClose }: { rows: QueueRow[] | null; onClose: () => void }) {
-  const prefs = useForwarding((s) => s.prefs)
-  const me = useMyName()
+  const source = useForwardingSource()
+  const { supplierLabel } = source
   const [via, setVia] = useState<Record<string, ForwardVia>>({})
   const [note, setNote] = useState("")
   const legs = (rows ?? []).filter((r) => r.effective === "to_forward" || r.effective === "error")
@@ -535,31 +414,14 @@ export function ForwardDialog({ rows, onClose }: { rows: QueueRow[] | null; onCl
       disabled={legs.length === 0}
       width={620}
       onSubmit={() => {
-        const undo = useForwarding.getState().forwardLegs(
-          legs.map((r) => r.key),
-          me,
-          via
-        )
-        undoable(
-          "Wordt doorgestuurd…",
-          undo,
-          `${sentence.replace(/ doorsturen$/, "")}. Ongedaan maken kan tot het vertrekt.`
-        )
-        if (note.trim()) {
-          for (const r of legs) {
-            useWorkspace.getState().addOrderNote(
-              r.orderId,
-              `Notitie voor ${supplierLabel(r.supplierId)}: ${note.trim()}`
-            )
-          }
-        }
+        source.forward(legs, via, note.trim())
         onClose()
         setNote("")
       }}
     >
       <ul className="flex max-h-[340px] flex-col gap-3 overflow-y-auto">
         {groups.map((g) => {
-          const v = via[g.s] ?? prefs[g.s]?.via ?? "portal"
+          const v = via[g.s] ?? source.viaOf(g.s)
           return (
             <li key={g.s} className="flex flex-col gap-2 rounded-lg bg-mist px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-2">
@@ -593,7 +455,8 @@ export function ForwardDialog({ rows, onClose }: { rows: QueueRow[] | null; onCl
                   <li key={r.key} className="flex min-w-0 items-baseline gap-2 text-sm">
                     <span className="shrink-0 font-medium text-ink tabular-nums">{r.order.number}</span>
                     <span className="min-w-0 truncate text-ink-2">
-                      {r.lines.map((l) => `${l.quantity}× ${l.title} · ${l.variant_title}`).join(", ")}
+                      {r.lines.map((l) => `${l.quantity}× ${l.title}${l.variant_title ? ` · ${l.variant_title}` : ""}`)
+                        .join(", ")}
                     </span>
                     {r.effective === "error" ? <span className="shrink-0 text-signal-red text-xs">opnieuw</span> : null}
                   </li>
@@ -617,9 +480,10 @@ export function ForwardDialog({ rows, onClose }: { rows: QueueRow[] | null; onCl
 }
 
 function RerouteDialog({ row, onClose }: { row: QueueRow | null; onClose: () => void }) {
-  const me = useMyName()
+  const source = useForwardingSource()
+  const { supplierLabel } = source
   const [pick, setPick] = useState<string | null>(null)
-  const others = Object.keys(NAMES).filter((s) => s !== row?.supplierId)
+  const others = row === null ? [] : source.rerouteOptions(row).map((o) => o.id)
   return (
     <FormDialog
       open={row !== null}
@@ -639,8 +503,7 @@ function RerouteDialog({ row, onClose }: { row: QueueRow | null; onClose: () => 
       disabled={!pick}
       onSubmit={() => {
         if (!row || !pick) return
-        const undo = useForwarding.getState().rerouteLeg(row.key, pick, me)
-        undoable(`${row.order.number} gaat naar ${supplierLabel(pick)}`, undo, "Staat bij Te versturen.")
+        source.reroute(row, pick)
         onClose()
         setPick(null)
       }}
@@ -670,6 +533,7 @@ function RerouteDialog({ row, onClose }: { row: QueueRow | null; onClose: () => 
 
 /** The customer, told what went wrong, in the brand's words; a send waits out the window. */
 function MailCustomerDialog({ row, onClose }: { row: QueueRow | null; onClose: () => void }) {
+  const source = useForwardingSource()
   const first = row?.order.customer_name.split(" ")[0] ?? ""
   const what = row?.lines[0] ? `${row.lines[0].title} (${row.lines[0].variant_title})` : "een artikel"
   const draft = row
@@ -697,16 +561,7 @@ function MailCustomerDialog({ row, onClose }: { row: QueueRow | null; onClose: (
       disabled={!text.trim()}
       onSubmit={() => {
         if (!row) return
-        const order = row.order
-        let sent = true
-        toast("Wordt verstuurd…", {
-          description: `Aan ${order.customer_name}: ${subj}`,
-          duration: 6000,
-          action: { label: "Ongedaan maken", onClick: () => (sent = false) },
-          onAutoClose: () => {
-            if (sent) useWorkspace.getState().addOrderNote(order.id, `Klant gemaild: ${subj}`)
-          }
-        })
+        source.mail?.send(row, subj, text)
         onClose()
         setBody(null)
         setSubject(null)
@@ -726,9 +581,9 @@ function MailCustomerDialog({ row, onClose }: { row: QueueRow | null; onClose: (
 
 /* ── the tracker on an order ───────────────────────────────────────────────────────────────── */
 
-const STEPS = ["Betaald", "Naar leverancier", "Bevestigd", "Verzonden", "Bezorgd"] as const
+export const STEPS = ["Betaald", "Naar leverancier", "Bevestigd", "Verzonden", "Bezorgd"] as const
 
-const at = (
+export const at = (
   iso: string | undefined
 ) => (iso
   ? new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(
@@ -741,44 +596,23 @@ const at = (
  * Bezorgd, one track per supplier when the order has lines from two, each step with its time and
  * who did it. A failed step says why in red. Vertical under `sm`.
  */
-export function ProcessingTracker({ order }: { order: Order }) {
-  const now = useNow(useSendingTick())
-  const legs = useForwardLegs(now).filter((l) => l.orderId === order.id)
-  const work = useWorkspace((s) => s.supplierWork)
-  const supplierIds = [...new Set(order.line_items.map((l) => l.supplier_id ?? "").filter(Boolean))]
-  if (supplierIds.length === 0 || order.status === "cancelled") return null
-  const tracks = supplierIds.map((s) => {
-    const leg = legs.find((l) => (l.from ?? l.supplierId) === s)
-    const w = work[`${order.id}|${s}`]
-    const shipped = w?.parcels[0]?.at ??
-      (order.status === "shipped" || order.status === "delivered" ? order.updated_at : undefined)
-    const delivered = order.status === "delivered" ? order.updated_at : undefined
-    const state = leg?.effective ??
-      (shipped ? "confirmed" : order.status === "at_supplier" ? "confirmed" : "to_forward")
-    const reached = delivered
-      ? 5
-      : shipped
-      ? 4
-      : state === "confirmed"
-      ? 3
-      : state === "awaiting" || state === "sending" || state === "error"
-      ? 2
-      : 1
-    const detail: Array<string | undefined> = [
-      at(order.created_at),
-      reached >= 2
-        ? [leg?.since && state !== "confirmed" ? at(leg.since) : undefined, leg?.by].filter(Boolean).join(" · ") ||
-          undefined
-        : undefined,
-      reached >= 3
-        ? [at(w?.accepted_at ?? (state === "confirmed" ? leg?.since : undefined)), supplierLabel(leg?.supplierId ?? s)]
-          .filter(Boolean).join(" · ")
-        : undefined,
-      reached >= 4 ? [at(shipped), w?.parcels[0]?.carrier ?? order.carrier].filter(Boolean).join(" · ") : undefined,
-      reached >= 5 ? at(delivered) : undefined
-    ]
-    return { s: leg?.supplierId ?? s, from: leg?.from, leg, state, reached, detail }
-  })
+/** One supplier's track: the steps it reached, each with its time and who, and its leg where there is one. */
+export interface TrackerTrack {
+  s: string
+  from?: string | undefined
+  leg?: LegRow | undefined
+  state: LegRow["effective"]
+  reached: number
+  detail: ReadonlyArray<string | undefined>
+}
+
+export function ProcessingTrackerView(
+  { tracks, now, supplierLabel }: {
+    tracks: ReadonlyArray<TrackerTrack>
+    now: number
+    supplierLabel: (id: string) => string
+  }
+) {
   return (
     <section aria-label="Verwerking" className="flex flex-col gap-3 rounded-xl px-5 py-4 panel">
       <header className="flex items-center justify-between">
