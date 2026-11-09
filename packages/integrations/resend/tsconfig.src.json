@@ -1,8 +1,8 @@
 {
-  // Resend, for the API Worker: the HTTP call and the auth mails' templates. `fetch` only, which Workers and Node both
-  // provide.
+  // Resend, for the API Worker: the HTTP call, and every mail's React Email template (`src/emails`), rendered on the
+  // server. `fetch` only, which Workers and Node both provide.
   "extends": "../../../tsconfig.base.json",
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
   "compilerOptions": {
     "noEmit": true,
     "rootDir": ".",

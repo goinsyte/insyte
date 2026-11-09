@@ -7,9 +7,20 @@
     "./*": "./src/*.ts",
     "./package.json": "./package.json"
   },
+  "scripts": {
+    "emails": "email dev --dir src/emails --port 4320"
+  },
   "dependencies": {
     "@insyte/modules": "workspace:*",
     "@insyte/tokens": "workspace:*",
-    "effect": "catalog:"
+    "@react-email/render": "catalog:",
+    "effect": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-email": "catalog:"
+  },
+  "devDependencies": {
+    "@react-email/ui": "catalog:",
+    "@types/react": "catalog:"
   }
 }
