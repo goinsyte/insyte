@@ -9,6 +9,7 @@ import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
 import { StoresRpcs } from "@insyte/api/rpc/StoresRpcs"
 import { SuppliersRpcs } from "@insyte/api/rpc/SuppliersRpcs"
+import { TrackingRpcs } from "@insyte/api/rpc/TrackingRpcs"
 import { Exit } from "effect"
 import { beforeAll, describe, expect, it } from "vitest"
 import expected from "./authz.expected.json" with { type: "json" }
@@ -136,7 +137,8 @@ const PAYLOADS: Record<string, unknown> = {
   "Forwarding.forward": { ids: ["fwd_none"] },
   "Forwarding.markConfirmed": { ids: ["fwd_none"] },
   "Forwarding.reroute": { id: "fwd_none", toSupplierId: "sup_none" },
-  "Forwarding.cancel": { ids: ["fwd_none"] }
+  "Forwarding.cancel": { ids: ["fwd_none"] },
+  "Orders.tracking": { orderId: "ord_none" }
 }
 
 const manifest = [
@@ -150,7 +152,8 @@ const manifest = [
   ...SharedRpcs.requests.keys(),
   ...MarketingRpcs.requests.keys(),
   ...SuppliersRpcs.requests.keys(),
-  ...ForwardingRpcs.requests.keys()
+  ...ForwardingRpcs.requests.keys(),
+  ...TrackingRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

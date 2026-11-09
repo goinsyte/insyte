@@ -13,6 +13,7 @@ export default defineConfig({
           SHOPIFY_ADAPTER: "recorded",
           KLAVIYO_ADAPTER: "recorded",
           SUPPLIER_API_ADAPTER: "recorded",
+          TRACKING_ADAPTER: "recorded",
           SYNC_PAGE_LINES: "4"
         }
       }

@@ -301,8 +301,36 @@ const WriteErrors = [
   InvalidRequestV1
 ]
 
+/** An order's parcels (M8.4): Shopify's and AfterShip's word together. */
+export const TrackingV1 = Schema.Struct({
+  order_id: Schema.String,
+  delayed_at: Schema.NullOr(Schema.String),
+  delivered_at: Schema.NullOr(Schema.String),
+  parcels: Schema.Array(Schema.Struct({
+    carrier: Schema.NullOr(Schema.String),
+    tracking_number: Schema.NullOr(Schema.String),
+    tracking_url: Schema.NullOr(Schema.String),
+    shipped_at: Schema.NullOr(Schema.String),
+    status: Schema.NullOr(Schema.String).annotate({
+      description: "pending, in_transit, out_for_delivery, delivered, exception, expired or returned."
+    }),
+    checkpoint: Schema.NullOr(Schema.String),
+    exception: Schema.NullOr(Schema.String),
+    estimated_delivery: Schema.NullOr(Schema.String),
+    delivered_at: Schema.NullOr(Schema.String)
+  }))
+}).annotate({ identifier: "Tracking" })
+
 export class OrdersGroup extends HttpApiGroup.make("orders")
   .add(
+    HttpApiEndpoint.get("tracking", "/orders/:id/tracking", {
+      params: ById,
+      success: TrackingV1,
+      error: [ScopeMissingV1, NotFoundV1]
+    }).annotate(
+      OpenApi.Description,
+      "Where an order's parcels are: carrier, tracking number, status, the latest checkpoint, an exception, and when it was delivered; whether the order is delayed. Needs `orders.read`."
+    ),
     HttpApiEndpoint.get("order", "/orders/:id", {
       params: ById,
       success: OrderDetailV1,

@@ -11,7 +11,7 @@ import { type ForwardingSource, ForwardingSourceProvider } from "@insyte/ui/app/
 import { Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useMemo } from "react"
-import { forwardingAtom, orderLegsAtom } from "../data/forwarding.ts"
+import { forwardingAtom, orderLegsAtom, orderTrackingAtom } from "../data/forwarding.ts"
 import { suppliersAtom } from "../data/suppliers.ts"
 import { useGate } from "../frame/refusals.ts"
 import { useForwardingCommands } from "./forwarding-writes.ts"
@@ -143,11 +143,23 @@ export function ConsoleForwarding({ view }: { view: ForwardView }) {
 /** Verwerking on an order (the order page's `Tracker` slot): its legs from `Forwarding.forOrder`. */
 export function ConsoleTracker({ order }: { order: Order }) {
   const legs = valueOf(useAtomValue(orderLegsAtom(order.id))) ?? []
+  const tracking = valueOf(useAtomValue(orderTrackingAtom(order.id)))
   const now = useNow(60_000)
   const suppliers = useSuppliers(legs)
   if (legs.length === 0 || order.status === "cancelled") return null
-  const shipped = order.status === "shipped" || order.status === "delivered" ? order.updated_at : undefined
-  const delivered = order.status === "delivered" ? order.updated_at : undefined
+  // The parcels' own times (M8.4): the first one sent, and when the last one arrived.
+  const first = tracking?.parcels.find((p) => p.shippedAt !== null)
+  const shipped = first?.shippedAt != null
+    ? iso(first.shippedAt)
+    : order.status === "shipped" || order.status === "delivered"
+    ? order.updated_at
+    : undefined
+  const delivered = tracking?.deliveredAt != null
+    ? iso(tracking.deliveredAt)
+    : order.status === "delivered"
+    ? order.updated_at
+    : undefined
+  const carrier = first?.carrier ?? order.carrier
   const tracks: Array<TrackerTrack> = legs.map((l) => {
     const leg = queueRowOf(l, now)
     const state = leg.effective
@@ -175,7 +187,7 @@ export function ConsoleTracker({ order }: { order: Order }) {
           ? [at(state === "confirmed" ? leg.since : undefined), suppliers.names.get(leg.supplierId)].filter(Boolean)
             .join(" · ")
           : undefined,
-        reached >= 4 ? [at(shipped), order.carrier].filter(Boolean).join(" · ") : undefined,
+        reached >= 4 ? [at(shipped), carrier].filter(Boolean).join(" · ") : undefined,
         reached >= 5 ? at(delivered) : undefined
       ]
     }

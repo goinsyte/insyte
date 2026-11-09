@@ -77,6 +77,23 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             data: { area: request.area, level: request.level, state: event.state }
           }
       }
+      case "order.delayed": {
+        // Whoever handles orders hears of a stuck parcel (M8.4); the order is the subject.
+        const [order] = yield* sql<{ number: string }>`select number from orders where id = ${event.orderIds[0] ?? ""}`
+        if (order === undefined) return undefined
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'orders')::int, 0) >= 2)`
+        return {
+          kind: "order.late",
+          recipients: recipients.map((r) => r.id),
+          subjectType: "order",
+          subjectId: event.orderIds[0] ?? "",
+          actor: null,
+          data: { number: order.number, reason: event.reason, note: event.note }
+        }
+      }
       default:
         return undefined
     }

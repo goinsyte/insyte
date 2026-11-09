@@ -118,6 +118,8 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
         distinctId: event.userId,
         groups: { workspace: event.workspaceId }
       }
+    case "order.delayed":
+      return undefined
     case "forwarding.send_requested":
       // A supplier's standing instruction is not a person handling an order.
       return event.userId === "system" ? undefined : {
@@ -213,7 +215,7 @@ const notifications = Effect.fn("Relay.notifications")(
   Effect.orDie
 )
 
-const NOTIFIED = new Set<OutboxEvent["type"]>(["member.joined", "access.requested", "access.decided"])
+const NOTIFIED = new Set<OutboxEvent["type"]>(["member.joined", "access.requested", "access.decided", "order.delayed"])
 
 const SINKS: ReadonlyArray<Sink> = [
   {

@@ -15,6 +15,7 @@ import { ProductsService } from "@insyte/modules/products/Products"
 import { RolesService } from "@insyte/modules/roles/RolesService"
 import { StoresService } from "@insyte/modules/stores/Stores"
 import { SuppliersService } from "@insyte/modules/suppliers/Suppliers"
+import { TrackingService } from "@insyte/modules/tracking/Tracking"
 import { UndoService } from "@insyte/modules/undo/Undo"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Layer } from "effect"
@@ -37,6 +38,7 @@ import { ShellHandlers } from "./handlers/shell.ts"
 import { StoresHandlers } from "./handlers/stores.ts"
 import { SuppliersHandlers } from "./handlers/suppliers.ts"
 import { SystemHandlers } from "./handlers/system.ts"
+import { TrackingHandlers } from "./handlers/tracking.ts"
 import { RpcHttp } from "./RpcHttp.ts"
 
 /** The console's RPC transport. */
@@ -69,6 +71,7 @@ export const RpcContext = Layer.mergeAll(
   MarketingHandlers.pipe(Layer.provide(MarketingService.layer)),
   SuppliersHandlers.pipe(Layer.provide(SuppliersService.layer)),
   ForwardingHandlers.pipe(Layer.provide(ForwardingService.layer)),
+  TrackingHandlers.pipe(Layer.provide(TrackingService.layer)),
   ShellHandlers.pipe(
     Layer.provide(
       Layer.mergeAll(

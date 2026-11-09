@@ -2,6 +2,7 @@ import { Db } from "@insyte/database/Db"
 import { mintId } from "@insyte/domain/Ids"
 import { Effect } from "effect"
 import { ensureLegs } from "../../forwarding/use-cases/legs.ts"
+import { ensureDeliveries } from "../../tracking/use-cases/tracking.ts"
 import type { MirrorBatch } from "../domain/Mirror.ts"
 
 /*
@@ -159,6 +160,7 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
           customer_shopify_id = excluded.customer_shopify_id, customer_name = excluded.customer_name,
           customer_email = excluded.customer_email,
           status = case when orders.status = 'at_supplier' and excluded.status = 'paid' then 'at_supplier'
+                        when orders.status = 'delivered' and excluded.status = 'shipped' then 'delivered'
                         else excluded.status end,
           payment_status = excluded.payment_status, fulfillment_status = excluded.fulfillment_status,
           total_minor = excluded.total_minor, subtotal_minor = excluded.subtotal_minor,
@@ -223,6 +225,9 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
         ...batch.lines.map((l) => l.order_shopify_id),
         ...batch.fulfilments.map((f) => f.order_shopify_id)
       ], options.live ?? true)
+
+      // Tracking (M8.4): a delivery for each new parcel with a tracking number.
+      yield* ensureDeliveries(sql, storeId, batch.fulfilments.map((f) => f.shopify_id))
 
       const children = latest(batch.variants).length + latest(batch.lines).length + latest(batch.fulfilments).length +
         latest(batch.refunds).length

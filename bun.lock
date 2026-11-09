@@ -35,6 +35,7 @@
         "@insyte/api": "workspace:*",
         "@insyte/database": "workspace:*",
         "@insyte/domain": "workspace:*",
+        "@insyte/integrations-aftership": "workspace:*",
         "@insyte/integrations-better-auth": "workspace:*",
         "@insyte/integrations-klaviyo": "workspace:*",
         "@insyte/integrations-posthog": "workspace:*",
@@ -167,6 +168,14 @@
       },
       "devDependencies": {
         "vitest": "catalog:",
+      },
+    },
+    "packages/integrations/aftership": {
+      "name": "@insyte/integrations-aftership",
+      "version": "0.0.0",
+      "dependencies": {
+        "@insyte/modules": "workspace:*",
+        "effect": "catalog:",
       },
     },
     "packages/integrations/better-auth": {
@@ -668,6 +677,8 @@
     "@insyte/domain": ["@insyte/domain@workspace:packages/domain"],
 
     "@insyte/infra": ["@insyte/infra@workspace:infra"],
+
+    "@insyte/integrations-aftership": ["@insyte/integrations-aftership@workspace:packages/integrations/aftership"],
 
     "@insyte/integrations-better-auth": ["@insyte/integrations-better-auth@workspace:packages/integrations/better-auth"],
 

@@ -24,6 +24,7 @@ import { RolesService } from "@insyte/modules/roles/RolesService"
 import type { FilterNode, ListInput } from "@insyte/modules/shared/domain/Filter"
 import * as Idempotency from "@insyte/modules/shared/use-cases/Idempotency"
 import { SuppliersService } from "@insyte/modules/suppliers/Suppliers"
+import { TrackingService } from "@insyte/modules/tracking/Tracking"
 import { Context, Effect, Layer } from "effect"
 
 /*
@@ -221,6 +222,7 @@ const make = Effect.gen(function*() {
   const customers = yield* CustomersService
   const forwarding = yield* ForwardingService
   const suppliers = yield* SuppliersService
+  const tracking = yield* TrackingService
   return {
     me: Effect.gen(function*() {
       const key = yield* CurrentApiKey
@@ -335,6 +337,26 @@ const make = Effect.gen(function*() {
       })),
       Effect.catchTag("Forbidden", scopeMissing)
     ),
+    tracking: (id: string) =>
+      tracking.forOrder(id).pipe(
+        Effect.map((t) => ({
+          order_id: t.orderId,
+          delayed_at: iso(t.delayedAt),
+          delivered_at: iso(t.deliveredAt),
+          parcels: t.parcels.map((p) => ({
+            carrier: p.carrier,
+            tracking_number: p.trackingNumber,
+            tracking_url: p.trackingUrl,
+            shipped_at: iso(p.shippedAt),
+            status: p.status,
+            checkpoint: p.checkpoint,
+            exception: p.exception,
+            estimated_delivery: iso(p.estimatedDelivery),
+            delivered_at: iso(p.deliveredAt)
+          }))
+        })),
+        Effect.catchTags({ Forbidden: scopeMissing, NotFound: notFound })
+      ),
     legs: (view?: "to_forward" | "awaiting" | "forward_error") =>
       forwarding.list(view).pipe(
         Effect.map((list) => ({
@@ -488,7 +510,8 @@ export class Resources extends Context.Service<Resources, Effect.Success<typeof 
         ProductsService.layer,
         CustomersService.layer,
         ForwardingService.layer,
-        SuppliersService.layer
+        SuppliersService.layer,
+        TrackingService.layer
       )
     )
   )

@@ -61,6 +61,7 @@ const Tools = McpServer.toolkit(InsyteTools).pipe(
         kicking(read.cancelOrder(order_id, body, idempotency_key)),
       refund_order: ({ order_id, idempotency_key, ...body }) =>
         kicking(read.refundOrder(order_id, body, idempotency_key)),
+      get_order_tracking: ({ order_id }) => read.tracking(order_id),
       list_suppliers: () => read.suppliers,
       list_forwarding: ({ view }) => read.legs(view),
       forward_orders: ({ idempotency_key, ...body }) => kicking(read.forwardLegs(body, idempotency_key)),

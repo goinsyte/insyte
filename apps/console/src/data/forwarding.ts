@@ -1,5 +1,6 @@
-import { Forbidden, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
+import { Forbidden, NotFound, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
 import { LegList, LegRow } from "@insyte/modules/forwarding/domain/Forwarding"
+import { OrderTracking } from "@insyte/modules/tracking/domain/Tracking"
 import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
@@ -26,6 +27,18 @@ export const orderLegsAtom = Atom.family((orderId: string) =>
     {
       key: `order-legs:${orderId}`,
       schema: AsyncResult.Schema({ success: Schema.Array(LegRow), error: errors }),
+      skipInitialRun: true
+    }
+  )
+)
+
+/** An order's parcels and where they are (M8.4), for the tracker's Verzonden and Bezorgd. */
+export const orderTrackingAtom = Atom.family((orderId: string) =>
+  Atom.serializable(
+    ConsoleClient.query("Orders.tracking", { orderId }, { reactivityKeys: [...FORWARDING, ...ORDERS] }),
+    {
+      key: `order-tracking:${orderId}`,
+      schema: AsyncResult.Schema({ success: OrderTracking, error: Schema.Union([NotFound, errors]) }),
       skipInitialRun: true
     }
   )
