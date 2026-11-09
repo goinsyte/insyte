@@ -278,7 +278,9 @@ const StoreSeed = HttpRouter.add(
     ).pipe(Effect.provideService(CurrentWorkspace, workspace))
     const batch = emptyBatch()
     for (const text of Object.values(RECORDED_BULK)) for (const line of parseJsonl(text)) addLine(batch, line, "EUR")
-    const written = yield* applyBatch(storeId, batch).pipe(Effect.provideService(CurrentWorkspace, workspace))
+    const written = yield* applyBatch(storeId, batch, { live: false }).pipe(
+      Effect.provideService(CurrentWorkspace, workspace)
+    )
     return HttpServerResponse.jsonUnsafe({ storeId, written })
   }).pipe(withRequestDb)
 )

@@ -50,7 +50,8 @@ export const TENANT_TABLES = [
   "suppliers",
   "supplier_contacts",
   "supplier_integrations",
-  "product_supply"
+  "product_supply",
+  "forwarding_items"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

@@ -148,7 +148,7 @@ export const applyPage = Effect.fn("Stores.backfill.page")(
     )
     const batch = emptyBatch()
     for (const line of page.lines) addLine(batch, line, ctx.currency)
-    const written = yield* applyBatch(ctx.storeId, batch)
+    const written = yield* applyBatch(ctx.storeId, batch, { live: false })
     yield* checkpoint(ctx, resource, page.done ? { phase: "done" } : { phase: "reading", offset: page.next })
     const counts = yield* countsOf(ctx.storeId)
     return { next: page.next, done: page.done, orphans: written.orphans, counts }

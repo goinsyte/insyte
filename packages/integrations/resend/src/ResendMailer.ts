@@ -11,12 +11,12 @@ import { Resend } from "./Resend.ts"
  * `MailNotSent` with the reason; the caller logs it and goes on.
  */
 
-/** The same mail, sent twice within a day, is one mail: the kind, the address and the link, hashed. */
+/** The same mail, sent twice within a day, is one mail: the kind, the address, the link and the reference, hashed. */
 const idempotencyKey = (mail: Mail) =>
   Effect.promise(async () => {
     const digest = await crypto.subtle.digest(
       "SHA-256",
-      new TextEncoder().encode(`${mail.kind}|${mail.to.toLowerCase()}|${mail.url ?? ""}`)
+      new TextEncoder().encode(`${mail.kind}|${mail.to.toLowerCase()}|${mail.url ?? ""}|${mail.reference ?? ""}`)
     )
     return `${mail.kind}/${[...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")}`
   })
@@ -43,6 +43,11 @@ export const ResendMailer = Layer.effect(
             return Effect.flatMap(link(mail), (url) => renderer.render("auth.reset", { url }))
           case "auth.signup_existing":
             return renderer.render("auth.signup_existing", { loginUrl: urls.console("/login") })
+          case "supplier.order": {
+            const facts = mail.supplierOrder
+            if (facts === undefined) return Effect.fail(missing(mail, "its order"))
+            return renderer.render("supplier.order", facts)
+          }
           case "team.invite": {
             const facts = mail.invitation
             if (facts === undefined) return Effect.fail(missing(mail, "its facts"))

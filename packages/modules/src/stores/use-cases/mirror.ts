@@ -1,6 +1,7 @@
 import { Db } from "@insyte/database/Db"
 import { mintId } from "@insyte/domain/Ids"
 import { Effect } from "effect"
+import { ensureLegs } from "../../forwarding/use-cases/legs.ts"
 import type { MirrorBatch } from "../domain/Mirror.ts"
 
 /*
@@ -32,7 +33,15 @@ export interface Applied {
 
 const count = (rows: ReadonlyArray<unknown>) => rows.length
 
-export const applyBatch = Effect.fn("Sync.applyBatch")(function*(storeId: string, batch: MirrorBatch) {
+/**
+ * `live` is false for a store's first import: its forwarding legs are made, but nothing is forwarded on its own (a
+ * supplier's "forward on payment" is for orders paid from now on, M8.2).
+ */
+export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
+  storeId: string,
+  batch: MirrorBatch,
+  options: { readonly live?: boolean } = {}
+) {
   const db = yield* Db
   return yield* db.scopedFor((sql) =>
     Effect.gen(function*() {
@@ -148,7 +157,9 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(storeId: string
         on conflict (store_id, shopify_id) do update set
           number = excluded.number, customer_id = excluded.customer_id,
           customer_shopify_id = excluded.customer_shopify_id, customer_name = excluded.customer_name,
-          customer_email = excluded.customer_email, status = excluded.status,
+          customer_email = excluded.customer_email,
+          status = case when orders.status = 'at_supplier' and excluded.status = 'paid' then 'at_supplier'
+                        else excluded.status end,
           payment_status = excluded.payment_status, fulfillment_status = excluded.fulfillment_status,
           total_minor = excluded.total_minor, subtotal_minor = excluded.subtotal_minor,
           shipping_minor = excluded.shipping_minor, tax_minor = excluded.tax_minor,
@@ -205,6 +216,13 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(storeId: string
         on conflict (store_id, shopify_id) do update set
           amount_minor = excluded.amount_minor, currency = excluded.currency, note = excluded.note
         returning 1`
+
+      // Forwarding (M8.2): the legs of every order this page touched, by its order or by its lines and parcels.
+      yield* ensureLegs(sql, storeId, [
+        ...batch.orders.map((o) => o.shopify_id),
+        ...batch.lines.map((l) => l.order_shopify_id),
+        ...batch.fulfilments.map((f) => f.order_shopify_id)
+      ], options.live ?? true)
 
       const children = latest(batch.variants).length + latest(batch.lines).length + latest(batch.fulfilments).length +
         latest(batch.refunds).length

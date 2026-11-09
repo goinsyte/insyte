@@ -40,6 +40,7 @@
         "@insyte/integrations-posthog": "workspace:*",
         "@insyte/integrations-resend": "workspace:*",
         "@insyte/integrations-shopify": "workspace:*",
+        "@insyte/integrations-supplier-api": "workspace:*",
         "@insyte/integrations-turnstile": "workspace:*",
         "@insyte/modules": "workspace:*",
         "effect": "catalog:",
@@ -216,6 +217,14 @@
     },
     "packages/integrations/shopify": {
       "name": "@insyte/integrations-shopify",
+      "version": "0.0.0",
+      "dependencies": {
+        "@insyte/modules": "workspace:*",
+        "effect": "catalog:",
+      },
+    },
+    "packages/integrations/supplier-api": {
+      "name": "@insyte/integrations-supplier-api",
       "version": "0.0.0",
       "dependencies": {
         "@insyte/modules": "workspace:*",
@@ -669,6 +678,8 @@
     "@insyte/integrations-resend": ["@insyte/integrations-resend@workspace:packages/integrations/resend"],
 
     "@insyte/integrations-shopify": ["@insyte/integrations-shopify@workspace:packages/integrations/shopify"],
+
+    "@insyte/integrations-supplier-api": ["@insyte/integrations-supplier-api@workspace:packages/integrations/supplier-api"],
 
     "@insyte/integrations-turnstile": ["@insyte/integrations-turnstile@workspace:packages/integrations/turnstile"],
 

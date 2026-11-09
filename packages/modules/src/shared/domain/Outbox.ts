@@ -119,6 +119,14 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     syncId: Schema.String
   }),
+  // Legs forwarded to their suppliers (M8.2): sent once the undo window has passed, or at once for a supplier set to
+  // forward on payment (`userId` is then `system`).
+  Schema.Struct({
+    type: Schema.Literal("forwarding.send_requested"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    legIds: Schema.Array(Schema.String)
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

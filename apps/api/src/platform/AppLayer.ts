@@ -31,6 +31,7 @@ import { AuthHooksLive } from "./AuthHooks.ts"
 import { BackfillsLive } from "./Backfills.ts"
 import { AppInfo, BetaSettings, ConfigLive } from "./Bindings.ts"
 import { ConnectionGateLive } from "./ConnectionGate.ts"
+import { ForwardSendsLive, SupplierApiChoice } from "./Forwarding.ts"
 import { HumanCheck } from "./HumanCheck.ts"
 import { HyperdriveConnect } from "./Hyperdrive.ts"
 import { IngestQueueLive } from "./IngestQueue.ts"
@@ -122,6 +123,8 @@ export const AppLayer = Transports.pipe(
       ShopifyGraphqlChoice,
       // …and Klaviyo's OAuth app and API (M7.5).
       KlaviyoChoice,
+      // …and a supplier's own API, for "Verbinding testen" (M8.2).
+      SupplierApiChoice,
       ConnectionGateLive,
       IngestQueueLive,
       // …and the first analysis's Workflow (M6.5).
@@ -161,7 +164,9 @@ export const BackgroundLayer = Layer.mergeAll(
   // An order changed in Insyte goes to Shopify (M7.1).
   ShopifyWritesLive,
   // A marketing sync goes to Klaviyo once its window has passed (M7.5).
-  MarketingSyncsLive
+  MarketingSyncsLive,
+  // A forward goes to its suppliers once its window has passed (M8.2).
+  ForwardSendsLive
 ).pipe(
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),
@@ -175,7 +180,16 @@ export const BackgroundLayer = Layer.mergeAll(
  * What the backfill Workflow's steps run on (M6.3): the background services, Shopify's bulk operations, and the gate
  * every call passes (`ConnectionGate.ts`), which holds the account's token and bucket.
  */
-export const SyncLayer = Layer.mergeAll(ShopifyGraphqlChoice, ConnectionGateLive, RelayLive, KlaviyoChoice, SealerLive)
+export const SyncLayer = Layer.mergeAll(
+  ShopifyGraphqlChoice,
+  ConnectionGateLive,
+  RelayLive,
+  KlaviyoChoice,
+  SealerLive,
+  // A forward's delivery (M8.2): a supplier's API, or the mail.
+  SupplierApiChoice,
+  MailerLive
+)
   .pipe(
     Layer.provideMerge(HyperdriveConnect),
     Layer.provideMerge(ObservabilityLive),

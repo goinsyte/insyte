@@ -19,6 +19,7 @@ import Notification, * as notification from "./platform/notification.tsx"
 import StatementReady, * as statementReady from "./platform/statement-ready.tsx"
 import StoreSynced, * as storeSynced from "./platform/store-synced.tsx"
 import SupplierDigest, * as supplierDigest from "./platform/supplier-digest.tsx"
+import SupplierOrder, * as supplierOrder from "./platform/supplier-order.tsx"
 import AffiliateInvite, * as affiliateInvite from "./team/affiliate-invite.tsx"
 import CourseReminder, * as courseReminder from "./team/course-reminder.tsx"
 import Invitation, * as invitation from "./team/invitation.tsx"
@@ -69,6 +70,7 @@ export const EMAILS = {
   "platform.gdpr_request": email("platform", false, GdprRequest, gdprRequest),
   "platform.export_ready": email("platform", false, ExportReady, exportReady),
   "platform.supplier_digest": email("platform", false, SupplierDigest, supplierDigest),
+  "supplier.order": email("platform", true, SupplierOrder, supplierOrder),
   "platform.statement_ready": email("platform", false, StatementReady, statementReady),
   "platform.affiliate_payout": email("platform", false, AffiliatePayout, affiliatePayout),
 

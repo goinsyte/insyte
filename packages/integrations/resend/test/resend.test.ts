@@ -202,6 +202,9 @@ const linksOf = (props: unknown): Array<string> =>
     return []
   })
 
+/** Mails answered by replying, with nothing to click: the order to a supplier, until the portal opens (M16). */
+const LINKLESS: ReadonlyArray<string> = ["supplier.order"]
+
 describe.each(KINDS)("the %s mail", (kind) => {
   it.each(ORIGINS)("renders HTML and text, carries its links, and names no host but %s", async (origin) => {
     const props = EMAILS[kind].preview(urlsFor(origin))
@@ -215,13 +218,15 @@ describe.each(KINDS)("the %s mail", (kind) => {
     expect(mail.text).not.toMatch(/<[a-z]/)
 
     const links = linksOf(props)
-    expect(links.length).toBeGreaterThan(0)
+    if (!LINKLESS.includes(kind)) expect(links.length).toBeGreaterThan(0)
     for (const link of links) {
       expect(mail.text).toContain(link)
       expect(mail.html).toContain(link.replaceAll("&", "&amp;"))
     }
 
-    expect(new Set([...hostsIn(mail.html), ...hostsIn(mail.text)])).toEqual(new Set([host]))
+    expect(new Set([...hostsIn(mail.html), ...hostsIn(mail.text)])).toEqual(
+      new Set(LINKLESS.includes(kind) ? [] : [host])
+    )
   })
 
   it("uses only the tokens' colours: no black, no pink or green, and no white text", async () => {
@@ -275,7 +280,7 @@ describe("the templates' content", () => {
 
   it("marks the wired kinds and only those, and keeps marketing unsent", () => {
     const wired = KINDS.filter((kind) => EMAILS[kind].wired)
-    expect(wired).toEqual(["auth.verify", "auth.reset", "auth.signup_existing", "team.invite"])
+    expect(wired).toEqual(["auth.verify", "auth.reset", "auth.signup_existing", "team.invite", "supplier.order"])
     expect(KINDS.filter((kind) => EMAILS[kind].group === "marketing").every((kind) => !EMAILS[kind].wired)).toBe(true)
   })
 })
