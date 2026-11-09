@@ -17,6 +17,7 @@ import { RealtimeRoutes } from "../transports/http/RealtimeRoutes.ts"
 import { RequestContext } from "../transports/http/RequestContext.ts"
 import { SupplierHookRoutes } from "../transports/http/SupplierHookRoutes.ts"
 import { SystemRoutes } from "../transports/http/SystemRoutes.ts"
+import { TrackingRoutes } from "../transports/http/TrackingRoutes.ts"
 import { WebhookRoutes } from "../transports/http/WebhookRoutes.ts"
 import { KeyDoor } from "../transports/public/KeyDoor.ts"
 import { McpRoutes } from "../transports/public/McpRoutes.ts"
@@ -47,6 +48,7 @@ import { RelayLive } from "./Relay.ts"
 import { SealerLive } from "./Seal.ts"
 import { ShopifyAdminChoice, ShopifyGraphqlChoice } from "./Shopify.ts"
 import { ShopifyWritesLive } from "./ShopifyWrites.ts"
+import { TrackingChoice } from "./Tracking.ts"
 
 /*
  * The composition root (16 §5): every implementation is chosen here, and the layer is built once per isolate. Nothing
@@ -64,6 +66,7 @@ const Transports = Layer.mergeAll(
   KlaviyoConnectRoutes,
   WebhookRoutes,
   SupplierHookRoutes,
+  TrackingRoutes,
   PublicApiRoutes,
   McpRoutes,
   RequestContext,
@@ -127,6 +130,8 @@ export const AppLayer = Transports.pipe(
       KlaviyoChoice,
       // …and a supplier's own API, for "Verbinding testen" (M8.2).
       SupplierApiChoice,
+      // …and AfterShip, for its webhooks (M8.4).
+      TrackingChoice,
       ConnectionGateLive,
       IngestQueueLive,
       // …and the first analysis's Workflow (M6.5).
@@ -190,7 +195,9 @@ export const SyncLayer = Layer.mergeAll(
   SealerLive,
   // A forward's delivery (M8.2): a supplier's API, or the mail.
   SupplierApiChoice,
-  MailerLive
+  MailerLive,
+  // The tracking sweep (M8.4): AfterShip.
+  TrackingChoice
 )
   .pipe(
     Layer.provideMerge(HyperdriveConnect),

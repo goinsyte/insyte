@@ -66,6 +66,7 @@ const OrdersLive = HttpApiBuilder.group(
       (act) =>
         handlers
           .handle("order", ({ params }) => act.order(params.id))
+          .handle("tracking", ({ params }) => act.tracking(params.id))
           .handle(
             "tags",
             ({ params, payload, headers }) =>

@@ -23,6 +23,7 @@ import {
   Role,
   ScopeMissingV1,
   Supplier,
+  TrackingV1,
   ValidationFailedV1
 } from "../http/PublicApi.ts"
 
@@ -181,6 +182,15 @@ export const RefundOrder = Tool.make("refund_order", {
   dependencies: asKey()
 }).annotate(Tool.Destructive, true)
 
+export const GetOrderTracking = Tool.make("get_order_tracking", {
+  description:
+    "Where an order's parcels are: carrier, tracking number, status (pending, in_transit, out_for_delivery, delivered, exception), the latest checkpoint and any exception; whether the order is delayed. Needs orders.read.",
+  parameters: Schema.Struct({ order_id: OrderId }),
+  success: TrackingV1,
+  failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
 export const ListSuppliers = Tool.make("list_suppliers", {
   description:
     "The workspace's suppliers: whether each is paused, how it takes its orders (portal, email or api), and its open and delayed orders. Use it to pick a supplier for reroute_leg. Needs suppliers.read.",
@@ -233,6 +243,7 @@ export const InsyteTools = Toolkit.make(
   UpdateShippingAddress,
   CancelOrder,
   RefundOrder,
+  GetOrderTracking,
   ListSuppliers,
   ListForwarding,
   ForwardOrders,

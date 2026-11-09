@@ -123,6 +123,14 @@ export default Alchemy.Stack(
       ? { KLAVIYO_CLIENT_ID: klaviyoClientId, KLAVIYO_CLIENT_SECRET: klaviyoClientSecret.value }
       : {}
 
+    // AfterShip (M8.4): Insyte's own account, its key and webhook secret in the GitHub environment; without them, parcels
+    // keep Shopify's own status.
+    const aftershipKey = yield* Config.Redacted("AFTERSHIP_API_KEY").pipe(Config.option)
+    const aftershipSecret = yield* Config.Redacted("AFTERSHIP_WEBHOOK_SECRET").pipe(Config.option)
+    const aftership = Option.isSome(aftershipKey) && Option.isSome(aftershipSecret)
+      ? { AFTERSHIP_API_KEY: aftershipKey.value, AFTERSHIP_WEBHOOK_SECRET: aftershipSecret.value }
+      : {}
+
     /*
      * Mail (02 §5.1): previews always capture (the browser tests read the links back); staging and production send
      * through Resend once their environment says `MAIL_ADAPTER=resend` and has the key (the domain must be verified in
@@ -226,6 +234,7 @@ export default Alchemy.Stack(
         ...seal,
         ...shopify,
         ...klaviyo,
+        ...aftership,
         ...mail,
         // An unset GitHub variable arrives empty, not missing: empty means the default.
         MAIL_FROM: (yield* Config.String("MAIL_FROM").pipe(Config.withDefault(""))) ||

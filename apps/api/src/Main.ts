@@ -3,7 +3,7 @@ import { ManagedRuntime } from "effect"
 import { HttpRouter } from "effect/http"
 import { AppLayer, BackgroundLayer } from "./platform/AppLayer.ts"
 import type { Env } from "./platform/Env.ts"
-import { ingest, type IngestMessage, reconcile, syncRuntime } from "./platform/Ingest.ts"
+import { ingest, type IngestMessage, reconcile, syncRuntime, trackingSweep } from "./platform/Ingest.ts"
 import { Telemetry } from "./platform/Observability.ts"
 import { deliver, type EventsMessage, sweep } from "./platform/Relay.ts"
 import { withRequestDb } from "./platform/RequestDb.ts"
@@ -54,20 +54,22 @@ export default {
     ctx.waitUntil(background.runPromise(withRequestDb(sweep())).finally(() => Telemetry.flush()))
     if (new Date(controller.scheduledTime).getUTCMinutes() % 15 === 0) {
       ctx.waitUntil(syncRuntime.runPromise(reconcile).finally(() => Telemetry.flush()))
+      ctx.waitUntil(syncRuntime.runPromise(trackingSweep).finally(() => Telemetry.flush()))
     }
   }
 } satisfies ExportedHandler<Env, EventsMessage | IngestMessage>
 
 /**
  * On the Worker's own public hostname only the public API, the MCP server and the webhooks answer (M19.2, M19.3,
- * M6.3, M8.3): `/v1`, `/mcp`, `/hooks/shopify` and `/hooks/supplier/:id`. Everything else (auth, the RPC, the dev routes) is reached through the console's service binding, on the
+ * M6.3, M8.3, M8.4): `/v1`, `/mcp`, `/hooks/shopify`, `/hooks/aftership` and `/hooks/supplier/:id`. Everything else (auth, the RPC, the dev routes) is reached through the console's service binding, on the
  * console's origin.
  */
 const servedHere = (request: Request): boolean => {
   const url = new URL(request.url)
   if (env.PUBLIC_API_HOST === undefined || url.host !== env.PUBLIC_API_HOST) return true
   return url.pathname === "/mcp" || url.pathname === "/v1" || url.pathname.startsWith("/v1/") ||
-    url.pathname === "/hooks/shopify" || url.pathname.startsWith("/hooks/supplier/")
+    url.pathname === "/hooks/shopify" || url.pathname === "/hooks/aftership" ||
+    url.pathname.startsWith("/hooks/supplier/")
 }
 
 /**

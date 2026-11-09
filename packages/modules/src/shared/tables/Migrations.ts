@@ -27,6 +27,7 @@ import marketing from "./migrations/0027_marketing.ts"
 import suppliers from "./migrations/0028_suppliers.ts"
 import forwarding from "./migrations/0029_forwarding.ts"
 import supplierWork from "./migrations/0030_supplier_work.ts"
+import tracking from "./migrations/0031_tracking.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -63,5 +64,6 @@ export const Migrations = {
   "0027_marketing": marketing,
   "0028_suppliers": suppliers,
   "0029_forwarding": forwarding,
-  "0030_supplier_work": supplierWork
+  "0030_supplier_work": supplierWork,
+  "0031_tracking": tracking
 }

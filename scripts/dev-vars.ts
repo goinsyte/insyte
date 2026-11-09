@@ -9,7 +9,15 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 
 /** What `wrangler dev` reads for the integrations a developer may try locally. */
-const NAMES = ["SHOPIFY_CLIENT_ID", "SHOPIFY_CLIENT_SECRET", "KLAVIYO_CLIENT_ID", "KLAVIYO_CLIENT_SECRET", "SEAL_KEYS"]
+const NAMES = [
+  "SHOPIFY_CLIENT_ID",
+  "SHOPIFY_CLIENT_SECRET",
+  "KLAVIYO_CLIENT_ID",
+  "KLAVIYO_CLIENT_SECRET",
+  "SEAL_KEYS",
+  "AFTERSHIP_API_KEY",
+  "AFTERSHIP_WEBHOOK_SECRET"
+]
 
 const source = process.env["INSYTE_ENV_FILE"] ?? join(homedir(), "vantion/insyte/.env.local")
 const target = new URL("../apps/api/.dev.vars", import.meta.url).pathname

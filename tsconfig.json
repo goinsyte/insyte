@@ -23,6 +23,7 @@
     { "path": "./packages/integrations/posthog" },
     { "path": "./packages/integrations/klaviyo" },
     { "path": "./packages/integrations/supplier-api" },
+    { "path": "./packages/integrations/aftership" },
     { "path": "./packages/tokens" },
     { "path": "./packages/ui" }
   ]

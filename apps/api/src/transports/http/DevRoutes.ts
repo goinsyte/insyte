@@ -5,6 +5,7 @@ import { CurrentUser } from "@insyte/domain/Session"
 import { RECORDED_BULK } from "@insyte/integrations-shopify/RecordedBulk"
 import { addLine, emptyBatch, parseJsonl } from "@insyte/modules/stores/domain/Mirror"
 import { applyBatch } from "@insyte/modules/stores/use-cases/mirror"
+import { sweepWorkspace } from "@insyte/modules/tracking/use-cases/tracking"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect, Layer, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
@@ -285,8 +286,29 @@ const StoreSeed = HttpRouter.add(
   }).pipe(withRequestDb)
 )
 
+/**
+ * `POST /api/__dev/tracking/sweep?workspace=…`: one workspace's turn of the 15-minute tracking sweep (M8.4), for the
+ * worker tests (the cron also reconciles every store). Refused in production.
+ */
+const TrackingSweep = HttpRouter.add(
+  "POST",
+  "/api/__dev/tracking/sweep",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    yield* sweepWorkspace().pipe(
+      Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }),
+      Effect.orDie
+    )
+    return HttpServerResponse.jsonUnsafe({ swept: true })
+  }).pipe(withRequestDb)
+)
+
 export const DevRoutes = Layer.mergeAll(
   StoreSeed,
+  TrackingSweep,
   StoreConnection,
   StoreMirror,
   CapturedMail,

@@ -126,6 +126,15 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     syncId: Schema.String
   }),
+  // An order whose parcel is stuck (M8.4): a carrier exception, or no movement for days. The team hears it.
+  Schema.Struct({
+    type: Schema.Literal("order.delayed"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    orderIds: Schema.Array(Schema.String),
+    reason: Schema.Literals(["exception", "no_movement"]),
+    note: Schema.NullOr(Schema.String)
+  }),
   // Legs forwarded to their suppliers (M8.2): sent once the undo window has passed, or at once for a supplier set to
   // forward on payment (`userId` is then `system`).
   Schema.Struct({
