@@ -3,6 +3,7 @@ import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { InvitationLinks } from "@insyte/modules/members/domain/Ports"
 import { fanOut } from "@insyte/modules/notifications/use-cases/fanout"
+import { ShopifyWrites } from "@insyte/modules/orders/domain/Ports"
 import { Mailer } from "@insyte/modules/shared/domain/Mailer"
 import { type OutboxEvent, Relay } from "@insyte/modules/shared/domain/Outbox"
 import { ProductAnalytics, type ProductEvent } from "@insyte/modules/shared/domain/ProductAnalytics"
@@ -41,7 +42,7 @@ export const RelayLive = Layer.succeed(Relay, {
       )
 })
 
-type SinkServices = ProductAnalytics | Mailer | InvitationLinks | Backfills
+type SinkServices = ProductAnalytics | Mailer | InvitationLinks | Backfills | ShopifyWrites
 
 /** What a sink does with an event, in the event's workspace; `undefined` when the event is not its business. */
 interface Sink {
@@ -103,6 +104,19 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
       }
     case "records.changed":
       return undefined
+    // Handling an order in Insyte is an activation moment (M7): counted by what was done and to how many.
+    case "order.updated":
+    case "order.cancelled":
+      return {
+        outboxId: id,
+        event: "order_handled",
+        distinctId: event.userId,
+        groups: { workspace: event.workspaceId },
+        properties: {
+          action: event.type === "order.cancelled" ? "cancel" : event.change,
+          count: event.orderIds.length
+        }
+      }
   }
 }
 
@@ -188,6 +202,17 @@ const SINKS: ReadonlyArray<Sink> = [
         ? Effect.flatMap(
           Effect.service(Backfills),
           (backfills) => backfills.start({ key: `bf-${id}`, workspaceId: event.workspaceId, storeId: event.storeId })
+        )
+        : undefined
+  },
+  {
+    // An order changed in Insyte (M7.1): to Shopify, one Workflow per event, named by it.
+    name: "shopify",
+    run: (id, event) =>
+      event.type === "order.updated" || event.type === "order.cancelled"
+        ? Effect.flatMap(
+          Effect.service(ShopifyWrites),
+          (writes) => writes.start({ key: `sw-${id}`, workspaceId: event.workspaceId, write: event })
         )
         : undefined
   },

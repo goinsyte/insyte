@@ -12,6 +12,7 @@ import { PrefsService } from "@insyte/modules/prefs/PrefsService"
 import { ProductsService } from "@insyte/modules/products/Products"
 import { RolesService } from "@insyte/modules/roles/RolesService"
 import { StoresService } from "@insyte/modules/stores/Stores"
+import { UndoService } from "@insyte/modules/undo/Undo"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Layer } from "effect"
 import { RpcSerialization } from "effect/rpc"
@@ -26,6 +27,7 @@ import { OnboardingHandlers } from "./handlers/onboarding.ts"
 import { PrefsHandlers } from "./handlers/prefs.ts"
 import { RolesHandlers } from "./handlers/roles.ts"
 import { SessionHandlers } from "./handlers/session.ts"
+import { SharedHandlers } from "./handlers/shared.ts"
 import { ShellHandlers } from "./handlers/shell.ts"
 import { StoresHandlers } from "./handlers/stores.ts"
 import { SystemHandlers } from "./handlers/system.ts"
@@ -57,6 +59,7 @@ export const RpcContext = Layer.mergeAll(
   CommerceHandlers.pipe(
     Layer.provide(Layer.mergeAll(OrdersService.layer, ProductsService.layer, CustomersService.layer))
   ),
+  SharedHandlers.pipe(Layer.provide(UndoService.layer)),
   ShellHandlers.pipe(
     Layer.provide(
       Layer.mergeAll(

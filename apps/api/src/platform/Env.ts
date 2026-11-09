@@ -1,5 +1,6 @@
 import type { AnalysisParams } from "../workflows/FirstAnalysis.ts"
 import type { BackfillParams } from "../workflows/ShopifyBackfill.ts"
+import type { ShopifyWriteParams } from "../workflows/ShopifyWrite.ts"
 import type { ConnectionGateObject } from "./ConnectionGate.ts"
 import type { IngestMessage } from "./IngestQueue.ts"
 import type { RateLimiter } from "./RateLimiter.ts"
@@ -25,6 +26,8 @@ declare global {
       readonly SHOPIFY_BACKFILL: Workflow<BackfillParams>
       /** A store's first analysis (M6.5): one instance per analysis (`FirstAnalysisWorkflow`). */
       readonly FIRST_ANALYSIS: Workflow<AnalysisParams>
+      /** An order change to Shopify (M7.1): one instance per outbox event (`ShopifyWriteWorkflow`). */
+      readonly SHOPIFY_WRITE: Workflow<ShopifyWriteParams>
       /** Shopify's webhooks (M6.3): received deliveries' ids, applied by this Worker's `queue` handler. */
       readonly INGEST: Queue<IngestMessage>
       /** Lines per backfill page, 2000 by default; the worker tests read small pages. */

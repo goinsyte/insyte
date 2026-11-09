@@ -43,6 +43,7 @@ import { RateLimits } from "./RateLimits.ts"
 import { RelayLive } from "./Relay.ts"
 import { SealerLive } from "./Seal.ts"
 import { ShopifyAdminChoice, ShopifyGraphqlChoice } from "./Shopify.ts"
+import { ShopifyWritesLive } from "./ShopifyWrites.ts"
 
 /*
  * The composition root (16 §5): every implementation is chosen here, and the layer is built once per isolate. Nothing
@@ -150,7 +151,9 @@ export const BackgroundLayer = Layer.mergeAll(
   InvitationLinksLive,
   RelayLive,
   // `store.connected` starts the store's backfill (M6.3).
-  BackfillsLive
+  BackfillsLive,
+  // An order changed in Insyte goes to Shopify (M7.1).
+  ShopifyWritesLive
 ).pipe(
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),

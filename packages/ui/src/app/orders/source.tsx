@@ -7,8 +7,8 @@ import type { RowAction } from "../table/data-table";
 /**
  * What the orders list reads and does, from whoever hosts it (as `shops/source.tsx` for Winkels): the design app from
  * its demo stores, the console from `Orders.list` (M6.4). The list's markup is the design's; what an order may become
- * is the host's. Where a part is absent the screen leaves it out: the console reads orders before it can change them
- * (M7), so it offers copying and exporting only, and greys "Nieuwe bestelling" out by `canCreate`.
+ * is the host's. Where a part is absent the screen leaves it out: the console labels and marks fulfilled (M7.1), copies
+ * and exports, and greys "Nieuwe bestelling" out by `canCreate` until draft orders arrive.
  */
 
 export type TeamGate = { ok: boolean; reason: string };

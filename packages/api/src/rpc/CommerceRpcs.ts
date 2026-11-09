@@ -1,5 +1,14 @@
-import { Forbidden, NotFound } from "@insyte/domain/Errors"
+import { Conflict, Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
 import { CustomerDetail, CustomerPage } from "@insyte/modules/customers/domain/Customers"
+import {
+  CancelInput,
+  IdsInput,
+  NoteInput,
+  OrderChange,
+  ShippingInput,
+  TagCount,
+  TagInput
+} from "@insyte/modules/orders/domain/Commands"
 import { OrderDetail, OrderPage } from "@insyte/modules/orders/domain/Orders"
 import { ProductDetail, ProductPage } from "@insyte/modules/products/domain/Products"
 import { CursorInvalid, FilterFieldUnknown, ListInput } from "@insyte/modules/shared/domain/Filter"
@@ -10,9 +19,10 @@ import { Member } from "./Member.ts"
 import { WithDb } from "./WithDb.ts"
 
 /**
- * Bestellingen, Producten and Klanten, read-only (M6.4): each list takes the list contract (filter, search, cursor,
- * page size, store) and answers a page with its counts; each detail one record. At the area's Bekijken, inside the
- * role's stores.
+ * Bestellingen, Producten and Klanten (M6.4): each list takes the list contract (filter, search, cursor, page size,
+ * store) and answers a page with its counts; each detail one record. At the area's Bekijken, inside the role's stores.
+ * The order commands (M7.1) at Bestellingen · Bewerken answer the orders they changed and, where it can be taken
+ * back, the undo token (`Shared.undo`); a cancellation has none.
  */
 const ListError = Schema.Union([Forbidden, FilterFieldUnknown, CursorInvalid])
 const ById = Schema.Struct({ id: Schema.String })
@@ -21,6 +31,28 @@ const GetError = Schema.Union([Forbidden, NotFound])
 export class CommerceRpcs extends RpcGroup.make(
   Rpc.make("Orders.list", { payload: ListInput, success: OrderPage, error: ListError }),
   Rpc.make("Orders.get", { payload: ById, success: OrderDetail, error: GetError }),
+  Rpc.make("Orders.tags", { success: Schema.Array(TagCount), error: Forbidden }),
+  Rpc.make("Orders.tag", {
+    payload: TagInput,
+    success: OrderChange,
+    error: Schema.Union([Forbidden, NotFound, Invalid])
+  }),
+  Rpc.make("Orders.markFulfilled", {
+    payload: IdsInput,
+    success: OrderChange,
+    error: Schema.Union([Forbidden, NotFound, Conflict])
+  }),
+  Rpc.make("Orders.updateShipping", {
+    payload: ShippingInput,
+    success: OrderChange,
+    error: Schema.Union([Forbidden, NotFound, Invalid, Conflict])
+  }),
+  Rpc.make("Orders.cancel", {
+    payload: CancelInput,
+    success: OrderChange,
+    error: Schema.Union([Forbidden, NotFound, Conflict])
+  }),
+  Rpc.make("Orders.setNote", { payload: NoteInput, error: GetError }),
   Rpc.make("Products.list", { payload: ListInput, success: ProductPage, error: ListError }),
   Rpc.make("Products.get", { payload: ById, success: ProductDetail, error: GetError }),
   Rpc.make("Customers.list", { payload: ListInput, success: CustomerPage, error: ListError }),

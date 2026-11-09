@@ -3,13 +3,16 @@ import type { StoreView } from "@insyte/modules/stores/domain/Stores"
 import { copyLines, counted, exportCsv } from "@insyte/ui/app/lib/bulk-io"
 import type { Currency, Order } from "@insyte/ui/app/lib/types/domain"
 import type { OrdersSource } from "@insyte/ui/app/orders/source"
-import { Copy, Download } from "@insyte/ui/icons"
+import { Copy, Download, Tag, Truck } from "@insyte/ui/icons"
 import { useMemo } from "react"
+import { useOrderCommands } from "./order-writes.ts"
 
 /*
  * The orders list's source in the console (M6.4): `Orders.list`'s rows as the design's orders, the stores by name for
- * the Winkel facet. The console reads orders before it changes them (M7), so the selection bar copies and exports
- * only, and "Nieuwe bestelling" is greyed out with why. A row opens its order over the list. No suppliers until M8.
+ * the Winkel facet. The selection bar labels and marks fulfilled through the order commands (M7.1), each with one
+ * Undo for the selection, and copies and exports. Bulk cancelling waits for the selection bar's confirm (cancelling
+ * cannot be undone); "Nieuwe bestelling" is greyed out with why until draft orders. A row opens its order over the
+ * list. No suppliers until M8.
  */
 
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -37,7 +40,33 @@ export const orderOf = (o: OrderRow): Order => ({
   updated_at: iso(o.updatedAt)
 })
 
-const ACTIONS: OrdersSource["actions"] = () => [
+const isClosed = (o: Order) => o.status === "cancelled" || o.status === "refunded"
+
+const actionsOf = (commands: ReturnType<typeof useOrderCommands>): OrdersSource["actions"] => (openTags) => [
+  {
+    id: "tag",
+    needs: { perm: "orders", arg: 2 },
+    label: "Label toevoegen",
+    icon: Tag,
+    group: "Ordenen",
+    shortcut: "g",
+    run: (rows) => openTags([...rows])
+  },
+  {
+    id: "fulfil",
+    needs: { perm: "orders", arg: 2 },
+    label: "Als afgehandeld markeren",
+    icon: Truck,
+    group: "Afhandeling",
+    shortcut: "f",
+    bar: true,
+    applies: (o) => !isClosed(o) && o.fulfillment_status !== "fulfilled",
+    run: (rows) =>
+      void commands.markFulfilled(
+        rows,
+        `${counted(rows.length, "bestelling", "bestellingen")} als afgehandeld gemarkeerd`
+      )
+  },
   {
     id: "copy",
     label: "Bestelnummers kopiëren",
@@ -72,6 +101,7 @@ export function useConsoleOrdersSource(
   const orders = useMemo(() => page.rows.map(orderOf), [page.rows])
   const names = useMemo(() => new Map(stores.map((s) => [s.id, s.name])), [stores])
   const options = useMemo(() => stores.map((s) => ({ value: s.name, label: s.name })), [stores])
+  const commands = useOrderCommands()
   return {
     orders,
     loading: false,
@@ -79,7 +109,8 @@ export function useConsoleOrdersSource(
     storeName: (id) => names.get(id) ?? "",
     suppliers: NONE,
     supplierName: () => "",
-    actions: ACTIONS,
+    actions: actionsOf(commands),
+    applyTags: (rows, tags, mode) => void commands.applyTags(rows, tags, mode),
     canCreate: { ok: false, reason: "Bestellingen maken kan hier nog niet" },
     open
   }

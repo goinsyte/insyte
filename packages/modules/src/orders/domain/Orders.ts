@@ -3,7 +3,7 @@ import { Schema } from "effect"
 /*
  * Bestellingen, read-only (M6.4; domain.md §4.3, widgets/03): the mirror's orders as the list and the detail show
  * them. Amounts in minor units with their currency; derived row fields (`lineCount`, `hasTracking`) computed in SQL.
- * Commands arrive with M7.
+ * The commands are `Commands.ts` (M7.1).
  */
 
 export const OrderStatus = Schema.Literals([
@@ -101,7 +101,14 @@ export class OrderDetail extends Schema.Class<OrderDetail>("orders/OrderDetail")
   paymentGateway: Schema.NullOr(Schema.String),
   cardLast4: Schema.NullOr(Schema.String),
   shippingAddress: Address,
+  /** The shopper's own note from the checkout, as Shopify keeps it: read-only. */
   note: Schema.NullOr(Schema.String),
+  /** The team's internal note (`Orders.setNote`, M7.1): never sent to Shopify or shown to a supplier. */
+  internalNote: Schema.NullOr(Schema.Struct({
+    body: Schema.String,
+    updatedAt: Schema.Finite,
+    updatedBy: Schema.NullOr(Schema.String)
+  })),
   channel: Schema.NullOr(Schema.String),
   paidAt: Schema.NullOr(Schema.Finite),
   shippedAt: Schema.NullOr(Schema.Finite),

@@ -30,7 +30,7 @@ export const ORDER_FIELDS: Whitelist = {
   tags: { column: "o.tags", type: "tags" }
 }
 
-interface Row {
+export interface Row {
   readonly id: string
   readonly number: string
   readonly storeId: string
@@ -51,7 +51,7 @@ interface Row {
   readonly externalUpdatedAt: Date
 }
 
-const toRow = (r: Row) =>
+export const toRow = (r: Row) =>
   new OrderRow({
     id: r.id,
     number: r.number,
@@ -77,7 +77,8 @@ const toRow = (r: Row) =>
 const ms = (d: Date | null) => (d === null ? null : d.getTime())
 
 /** The columns every order read selects, `o` the order. */
-const SELECT = `o.id, o.number, o.store_id, o.shopify_id, o.customer_id, o.customer_name, o.customer_email, o.status,
+export const SELECT =
+  `o.id, o.number, o.store_id, o.shopify_id, o.customer_id, o.customer_name, o.customer_email, o.status,
   o.payment_status, o.fulfillment_status, o.total_minor, o.currency, o.tags, o.placed_at, o.external_updated_at,
   (select count(*) from order_lines l where l.order_id = o.id)::int as line_count,
   (select f.carrier from fulfilments f where f.order_id = o.id and f.tracking_number is not null
@@ -189,6 +190,10 @@ export const get = Effect.fn("Orders.get")(function*(id: string) {
         note: string | null
         createdAt: Date
       }>`select id, amount_minor, currency, note, created_at from refunds where order_id = ${id} order by created_at`
+      const [internal] = yield* sql<{ body: string; updatedAt: Date; updatedBy: string | null }>`
+        select n.body, n.updated_at, u.name as updated_by from order_notes n
+        left join members m on m.id = n.updated_by left join auth."user" u on u.id = m.user_id
+        where n.order_id = ${id}`
       return new OrderDetail({
         order: toRow(row),
         customer: customer === undefined
@@ -202,6 +207,9 @@ export const get = Effect.fn("Orders.get")(function*(id: string) {
         cardLast4: row.cardLast4,
         shippingAddress: row.shippingAddress,
         note: row.note,
+        internalNote: internal === undefined
+          ? null
+          : { body: internal.body, updatedAt: internal.updatedAt.getTime(), updatedBy: internal.updatedBy },
         channel: row.channel,
         paidAt: ms(row.paidAt),
         shippedAt: ms(row.shippedAt),

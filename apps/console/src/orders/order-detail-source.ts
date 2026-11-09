@@ -1,13 +1,16 @@
 import type { OrderDetail, OrderRow } from "@insyte/modules/orders/domain/Orders"
 import type { Address, Order } from "@insyte/ui/app/lib/types/domain"
 import type { OrderDetailSource, TimelineStep } from "@insyte/ui/app/orders/detail-source"
+import type { TeamGate } from "@insyte/ui/app/orders/source"
+import { useKnownOrderTags, useOrderCommands, useOrderGate } from "./order-writes.ts"
 import { orderOf } from "./orders-source.ts"
 
 /*
- * One order's source in the console (M6.4): `Orders.get` as the design's record. The console reads before it changes
- * (M7), so there are no `writes`: no Acties, no Bewerken, labels shown and not edited. What the console does not know
- * yet is left out rather than made up: the supplier and the "Bij leverancier" step (M8), the forwarding tracker, the
- * agents' rows and the returns. The timeline says when each step happened, from Shopify's own timestamps.
+ * One order's source in the console: `Orders.get` as the design's record (M6.4), and its commands (M7.1): Acties,
+ * Bewerken and the labels, each behind Bestellingen · Bewerken. Terugbetalen waits for 9.2 and says so. What the
+ * console does not know yet is left out rather than made up: the supplier and the "Bij leverancier" step (M8), the
+ * forwarding tracker, the agents' rows and the returns. The timeline says when each step happened, from Shopify's own
+ * timestamps. The internal note is the team's (`order_notes`); the shopper's note from the checkout is shown apart.
  */
 
 /* `formatLong`'s format, kept here because the screen module is the relaxed program's (`tsconfig.strict.json`). */
@@ -83,7 +86,7 @@ function timelineOf(d: OrderDetail, method: string): Array<TimelineStep> {
 
 const NO_TAGS: ReadonlyArray<string> = []
 
-export function consoleOrderDetail(d: OrderDetail): OrderDetailSource {
+function consoleOrderDetail(d: OrderDetail): OrderDetailSource {
   const images = new Map(d.lines.map((l) => [l.id, l.imageUrl]))
   const skus = new Map(d.lines.map((l) => [l.id, l.sku]))
   const address = addressOf(d.shippingAddress)
@@ -99,7 +102,7 @@ export function consoleOrderDetail(d: OrderDetail): OrderDetailSource {
       unit_price: l.unitPriceMinor / 100
     })),
     ...(address === undefined ? {} : { shipping_address: address }),
-    ...(d.note === null ? {} : { notes: d.note })
+    ...(d.internalNote === null ? {} : { notes: d.internalNote.body })
   }
   const method = methodOf(d)
   const phone = d.shippingAddress?.phone ?? null
@@ -122,7 +125,36 @@ export function consoleOrderDetail(d: OrderDetail): OrderDetailSource {
     timeline: timelineOf(d, method),
     payment: { method, collectedAt: d.paidAt === null ? undefined : new Date(d.paidAt).toISOString() },
     arriving: false,
+    checkoutNote: d.note ?? undefined,
     tags: { known: NO_TAGS }
+  }
+}
+
+const REFUND_LATER: TeamGate = { ok: false, reason: "Terugbetalen kan hier nog niet" }
+
+/** The record with what may be done to it: the commands behind the role's Bestellingen · Bewerken. */
+export function useConsoleOrderDetail(d: OrderDetail): OrderDetailSource {
+  const source = consoleOrderDetail(d)
+  const commands = useOrderCommands()
+  const edit = useOrderGate("orders", 2)
+  const known = useKnownOrderTags()
+  const { order } = source
+  return {
+    ...source,
+    tags: {
+      known,
+      write: edit.ok ? (tags, message) => void commands.setTags(order, tags, message) : undefined
+    },
+    writes: {
+      gates: { edit, refund: REFUND_LATER, returns: REFUND_LATER },
+      fulfil: () => void commands.markFulfilled([order], `${order.number} als afgehandeld gemarkeerd`),
+      refund: () => undefined,
+      cancel: () => void commands.cancel(order),
+      saveNote: (note) => void commands.saveNote(order, note),
+      saveShipping: (address) => void commands.saveShipping(order, address),
+      // The supplier's advice shows only where there is a supplier (M8).
+      draftSupplierMessage: () => undefined
+    }
   }
 }
 

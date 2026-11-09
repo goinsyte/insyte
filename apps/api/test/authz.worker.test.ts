@@ -4,6 +4,7 @@ import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
+import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
 import { StoresRpcs } from "@insyte/api/rpc/StoresRpcs"
 import { Exit } from "effect"
 import { beforeAll, describe, expect, it } from "vitest"
@@ -75,13 +76,24 @@ const PAYLOADS: Record<string, unknown> = {
   "Stores.disconnect": { id: "sto_none" },
   "Orders.list": {},
   "Orders.get": { id: "ord_none" },
+  "Orders.tags": undefined,
+  "Orders.tag": { ids: ["ord_none"], add: ["x"], remove: [] },
+  "Orders.markFulfilled": { ids: ["ord_none"] },
+  "Orders.updateShipping": {
+    id: "ord_none",
+    address: { line1: "Straat 1", line2: null, city: "Stad", postcode: "1000 AA", region: "", country: "NL" }
+  },
+  "Orders.cancel": { ids: ["ord_none"], restock: true, notify: false },
+  "Orders.setNote": { id: "ord_none", body: "x" },
   "Products.list": {},
   "Products.get": { id: "prd_none" },
   "Customers.list": {},
   "Customers.get": { id: "cus_none" },
   "FirstAnalysis.get": undefined,
   "FirstAnalysis.start": undefined,
-  "FirstAnalysis.prepare": { ids: ["agent"], answers: { fulfilment: "one", reply: "ask" } }
+  "FirstAnalysis.prepare": { ids: ["agent"], answers: { fulfilment: "one", reply: "ask" } },
+  // A token nobody holds: `NotFound` for every role; the compensation's own permission is the command's.
+  "Shared.undo": { token: "und_none" }
 }
 
 const manifest = [
@@ -91,7 +103,8 @@ const manifest = [
   ...DeveloperRpcs.requests.keys(),
   ...StoresRpcs.requests.keys(),
   ...CommerceRpcs.requests.keys(),
-  ...FirstAnalysisRpcs.requests.keys()
+  ...FirstAnalysisRpcs.requests.keys(),
+  ...SharedRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

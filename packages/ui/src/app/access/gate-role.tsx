@@ -3,8 +3,8 @@ import { createContext, useContext } from "react";
 
 /**
  * The role shared parts grey their controls out by (the selection bar's actions), from whoever hosts them: the design
- * app's access store (`DemoGateRole`), or nobody, where the server is the one that refuses (the console until the
- * shell carries the role, M3.6).
+ * app's access store (`DemoGateRole`), or the console's frame from the role the server sent. The server refuses
+ * whatever the role may not do either way.
  */
 const GateRoleContext = createContext<RoleDef | null>(null);
 

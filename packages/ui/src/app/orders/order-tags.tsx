@@ -12,7 +12,7 @@ import { cn } from "../lib/utils";
  * here; they change through the action that set them.
  *
  * The labels other orders use, and the write, are the host's (`detail-source.tsx`); without a write the labels are
- * shown and not edited (the console until M7).
+ * shown and not edited (a role without Bestellingen · Bewerken).
  */
 export function OrderTags({
 	order,

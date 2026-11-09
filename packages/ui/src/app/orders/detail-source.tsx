@@ -5,8 +5,8 @@ import type { TeamGate } from "./source";
 /**
  * What one order's detail reads and does, from whoever hosts it (as `source.tsx` is for the list): the design app from
  * its demo workspace, the console from `Orders.get` (M6.4). The record's markup is the design's; its facts, and what
- * the order may become, are the host's. Where a part is absent the screen leaves it out: the console reads an order
- * before it can change one (M7), so it has no `writes`, no supplier until M8 and no returns or agent rows yet.
+ * the order may become, are the host's (the console's commands since M7.1). Where a part is absent the screen leaves it
+ * out: the console has no supplier until M8 and no returns or agent rows yet.
  */
 
 /** One step of the order's history, newest last; the screen gives each kind its icon. */
@@ -49,6 +49,8 @@ export interface OrderDetailSource {
 	 * absent where the body arrives at the reference's simulated pace (the design app).
 	 */
 	arriving?: boolean | undefined;
+	/** The shopper's own note from the checkout, where the host has one: shown apart from the team's internal note. */
+	checkoutNote?: string | undefined;
 	/** The labels other orders use, offered while typing; `write` absent where labels cannot be changed yet. */
 	tags: {
 		known: ReadonlyArray<string>;
