@@ -8,7 +8,7 @@ import { ConsoleClient } from "./client.ts"
 
 /*
  * Producten (M6.4): the catalogue, primed by the route's loader and carried in the document; up to 200 by title, as
- * the design's table works in the browser. A change names `PRODUCTS`.
+ * the design's table works in the browser. A change (a webhook, or a command, M7.3) names `PRODUCTS`.
  */
 
 export const PRODUCTS = ["products"] as const
@@ -49,3 +49,12 @@ export const productAtom = Atom.family((id: string) =>
     }
   )
 )
+
+/** The product commands (M7.3), each refreshing what names `PRODUCTS`; their undo is `orderWrites.undo`'s `Shared.undo`. */
+export const productWrites = {
+  edit: ConsoleClient.mutation("Products.edit"),
+  setStatus: ConsoleClient.mutation("Products.setStatus"),
+  reprice: ConsoleClient.mutation("Products.reprice"),
+  sync: ConsoleClient.mutation("Products.sync"),
+  undo: ConsoleClient.mutation("Shared.undo")
+} as const

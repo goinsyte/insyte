@@ -6,8 +6,9 @@ import type { Currency, Product, Supplier, Variant } from "../lib/types/domain";
 /**
  * What one product's page reads and does, from whoever hosts it (as `source.tsx` is for the list): the design app from
  * its demo workspace, the console from `Products.get` (M6.4). The page's markup is the design's. Without `edit` every
- * field reads as its value and nothing is saved (the console until M7); without `stock` the stock lines are left
- * out (until inventory per location is mirrored); without `quality` there are no tabs.
+ * field reads as its value and nothing is saved (a role without Producten · Bewerken); without `stock` the stock lines
+ * are left out (until inventory per location is mirrored); without `quality` there are no tabs. Without suppliers
+ * (the console until M8) there is no Leverancier line.
  */
 
 /** What the page edits, held as a draft until the bar at its foot saves it. */

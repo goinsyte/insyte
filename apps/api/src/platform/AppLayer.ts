@@ -116,6 +116,8 @@ export const AppLayer = Transports.pipe(
       KeyHasherLive,
       SealerLive,
       ShopifyAdminChoice,
+      // …and Shopify's GraphQL for what a request reads again (a product's "Synchroniseren", M7.3).
+      ShopifyGraphqlChoice,
       ConnectionGateLive,
       IngestQueueLive,
       // …and the first analysis's Workflow (M6.5).

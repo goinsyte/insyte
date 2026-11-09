@@ -1,6 +1,9 @@
 import { Schema } from "effect"
 
-/* Producten, read-only (M6.4; domain.md §4.1): the mirror's products with their variants' price range and stock. */
+/*
+ * Producten (M6.4; domain.md §4.1): the mirror's products with their variants' price range and stock, and Insyte's own
+ * cost price (M7.3). The commands are `Commands.ts`.
+ */
 
 export class ProductRow extends Schema.Class<ProductRow>("products/ProductRow")({
   id: Schema.String,
@@ -18,6 +21,8 @@ export class ProductRow extends Schema.Class<ProductRow>("products/ProductRow")(
   sku: Schema.NullOr(Schema.String),
   priceMinMinor: Schema.NullOr(Schema.Int),
   priceMaxMinor: Schema.NullOr(Schema.Int),
+  /** What the product costs the store (M7.3): Insyte's own figure, never Shopify's; `null` until someone enters it. */
+  costMinor: Schema.NullOr(Schema.Int),
   currency: Schema.String,
   /** Units available over every location, as Shopify reports them; `null` until inventory is mirrored. */
   available: Schema.NullOr(Schema.Int),

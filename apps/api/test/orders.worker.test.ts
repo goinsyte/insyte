@@ -12,7 +12,7 @@ import { rpc } from "./support.ts"
  * whose Shopify refuses a write gets its order read again, so Insyte shows what Shopify holds.
  */
 
-type Outcome = { orderId: string; outcome: string; reason: string | null }
+type Outcome = { id: string; outcome: string; reason: string | null }
 
 const orderNumbered = async (cookie: string, number: string) => {
   const page = ok(await rpc("Orders.list", { limit: 50 }, cookie))
@@ -134,7 +134,7 @@ describe("the order commands", () => {
     await relay(store.workspace)
     const [shipping] = await writes.get()
     await shipping!.waitForStatus("complete")
-    expect(await shipping!.getOutput()).toEqual([{ orderId: open.id, outcome: "sent", reason: null }])
+    expect(await shipping!.getOutput()).toEqual([{ id: open.id, outcome: "sent", reason: null }])
 
     // Irreversible: no undo token, and Shopify hears it at once, without waiting out a window.
     const cancelled = ok(await rpc("Orders.cancel", { ids: [open.id], restock: true, notify: true }, store.cookie))
@@ -144,7 +144,7 @@ describe("the order commands", () => {
     const all = await writes.get()
     expect(all).toHaveLength(2)
     await all[1]!.waitForStatus("complete")
-    expect(await all[1]!.getOutput()).toEqual([{ orderId: open.id, outcome: "sent", reason: null }])
+    expect(await all[1]!.getOutput()).toEqual([{ id: open.id, outcome: "sent", reason: null }])
     expect(failure(await rpc("Orders.cancel", { ids: [open.id], restock: true, notify: true }, store.cookie)))
       .toMatchObject({ _tag: "Conflict", reason: "closed" })
     expect(failure(await rpc("Orders.markFulfilled", { ids: [open.id] }, store.cookie))).toMatchObject({
@@ -163,7 +163,7 @@ describe("the order commands", () => {
     const [instance] = await writes.get()
     await instance!.waitForStatus("complete")
     expect(await instance!.getOutput()).toEqual([
-      { orderId: open.id, outcome: "refused", reason: "Deze bestelling kan niet worden gewijzigd" }
+      { id: open.id, outcome: "refused", reason: "Deze bestelling kan niet worden gewijzigd" }
     ])
     expect(ok(await rpc("Orders.get", { id: open.id }, store.cookie)).order.tags).toEqual([])
   })

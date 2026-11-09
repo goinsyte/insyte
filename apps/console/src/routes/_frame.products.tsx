@@ -5,12 +5,15 @@ import { DeniedPanel } from "@insyte/ui/app/access/denied"
 import { OPEN_AS_MODAL, useOpenedAsModal } from "@insyte/ui/app/common/detail-shell"
 import type { Level, Permission } from "@insyte/ui/app/lib/permissions"
 import { PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
+import { MarginDialog } from "@insyte/ui/app/products/margin-dialog"
 import { ProductsPage } from "@insyte/ui/app/products/products-screen"
-import { ProductsSourceProvider } from "@insyte/ui/app/products/source"
+import { type ProductRow, ProductsSourceProvider } from "@insyte/ui/app/products/source"
 import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
+import { useMemo, useRef } from "react"
 import { productsAtom } from "../data/products.ts"
+import { useProductCommands } from "../products/product-writes.ts"
 import { useConsoleProductsSource } from "../products/products-source.ts"
 
 /**
@@ -88,12 +91,26 @@ function ProductsRoute() {
 
 function Loaded({ page }: { page: ProductPage }) {
   const navigate = useNavigate()
+  const commands = useProductCommands()
   const source = useConsoleProductsSource(
     page,
     (row) => navigate({ to: "/products/$productId", params: { productId: row.id }, state: OPEN_AS_MODAL })
   )
+  // "Marges herberekenen" in the design's dialog, applied by `Products.reprice` (M7.3). One component for the page's
+  // life, so a refetch behind an open dialog does not remount it; it calls the latest command.
+  const reprice = useRef(commands.reprice)
+  reprice.current = commands.reprice
+  const Margin = useMemo(
+    () => (props: { open: boolean; onOpenChange: (open: boolean) => void; picked: Array<ProductRow> }) => (
+      <MarginDialog
+        {...props}
+        onApply={(priced, target) => void reprice.current(priced, target)}
+      />
+    ),
+    []
+  )
   return (
-    <ProductsSourceProvider value={source}>
+    <ProductsSourceProvider value={{ ...source, Margin }}>
       <ProductsPage />
     </ProductsSourceProvider>
   )

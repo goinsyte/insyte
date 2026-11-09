@@ -87,6 +87,15 @@ export const OutboxEvent = Schema.Union([
     orderIds: Schema.Array(Schema.String),
     refundId: Schema.String
   }),
+  // Products changed in Insyte (M7.3): Shopify hears it once the undo window has passed; the values are read when it is
+  // sent. The cost price is Insyte's own and never named here.
+  Schema.Struct({
+    type: Schema.Literal("product.updated"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    productIds: Schema.Array(Schema.String),
+    fields: Schema.Array(Schema.Literals(["title", "description", "status", "price"]))
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

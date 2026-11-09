@@ -1,18 +1,19 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import { mintId } from "@insyte/domain/Ids"
-import { canRole, isSpecial } from "@insyte/domain/Permissions"
+import { canRole } from "@insyte/domain/Permissions"
 import type { OrderChange } from "@insyte/modules/orders/domain/Commands"
 import { useGateRole } from "@insyte/ui/app/access/gate-role"
 import { counted } from "@insyte/ui/app/lib/bulk-io"
-import { type Level, type Permission, permissionName } from "@insyte/ui/app/lib/permissions"
+import { permissionName } from "@insyte/ui/app/lib/permissions"
 import type { Address, Order } from "@insyte/ui/app/lib/types/domain"
 import { undoable } from "@insyte/ui/app/lib/undo"
 import type { TeamGate } from "@insyte/ui/app/orders/source"
-import { Cause, Exit, Option } from "effect"
+import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useMemo } from "react"
 import { toast } from "sonner"
 import { ORDERS, orderTagsAtom, orderWrites } from "../data/orders.ts"
+import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
 
 /*
  * The order commands in the console (M7.1): each one the server's, refreshing what names `ORDERS`. What can be taken
@@ -21,75 +22,49 @@ import { ORDERS, orderTagsAtom, orderWrites } from "../data/orders.ts"
  * once, in Dutch; a missing permission says which.
  */
 
-/** The typed failure of a write's exit, or the defect squashed: what the server said. */
-const failureOf = <A, E>(exit: Exit.Failure<A, E>): unknown => {
-  const failure = exit.cause.reasons.find((r) => r._tag === "Fail")
-  return failure === undefined ? Cause.squash(exit.cause) : failure.error
-}
-
-const CONFLICT: Record<string, [string, string]> = {
-  closed: ["Deze bestelling is al gesloten", "Een geannuleerde of terugbetaalde bestelling verandert niet meer."],
-  fulfilled: ["Deze bestelling is al onderweg", "Een bestelling met verzonden pakketten kun je niet meer zo wijzigen."],
-  already_sent: ["Te laat om ongedaan te maken", "De wijziging is al naar Shopify gegaan."],
-  expired: ["Te laat om ongedaan te maken", "De wijziging is al naar Shopify gegaan."],
-  used: ["Al ongedaan gemaakt", "Deze wijziging is al teruggedraaid."],
-  gone: ["Die bestelling bestaat niet meer", "Iemand anders was je voor."]
-}
-
 const euros = (minor: number) =>
   new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(minor / 100)
 
-const INVALID: Record<string, string> = {
-  system: "Dit label zet Insyte zelf; je kunt het hier niet toevoegen of weghalen.",
-  "address.country": "Gebruik een landcode van twee letters, zoals NL.",
-  "address.line1": "Vul de straat en het huisnummer in.",
-  "address.city": "Vul de plaats in."
-}
-
-/** The server's refusal, said once. */
-const orderRefused = (error: unknown) => {
-  const tagged = error as { _tag?: string; [field: string]: unknown }
-  switch (tagged._tag) {
-    case "Forbidden": {
-      const permission = tagged["permission"] as Permission
-      return void toast.error("Dat kan je rol niet", {
-        description: `Je rol ${tagged["roleLabel"]} mist ${
-          permissionName(permission, isSpecial(permission) ? undefined : tagged["level"] as Level)
-        }.`
-      })
+const COPY: RefusalCopy = {
+  gone: "Die bestelling bestaat niet meer",
+  conflicts: {
+    closed: ["Deze bestelling is al gesloten", "Een geannuleerde of terugbetaalde bestelling verandert niet meer."],
+    fulfilled: [
+      "Deze bestelling is al onderweg",
+      "Een bestelling met verzonden pakketten kun je niet meer zo wijzigen."
+    ]
+  },
+  invalid: {
+    system: "Dit label zet Insyte zelf; je kunt het hier niet toevoegen of weghalen.",
+    "address.country": "Gebruik een landcode van twee letters, zoals NL.",
+    "address.line1": "Vul de straat en het huisnummer in.",
+    "address.city": "Vul de plaats in."
+  },
+  other: (tagged) => {
+    switch (tagged._tag) {
+      case "RefundOverLimit":
+        toast.error("Boven je limiet", {
+          description: `Je rol mag tot ${euros(Number(tagged["limitMinor"]))} per bestelling terugbetalen.`
+        })
+        return true
+      case "RefundOverBalance":
+        toast.error("Meer dan er openstaat", {
+          description: `Er staat nog ${euros(Number(tagged["balanceMinor"]))} open op deze bestelling.`
+        })
+        return true
+      case "AlreadyRefunded":
+        toast.error("Al terugbetaald", { description: "Er staat niets meer open op deze bestelling." })
+        return true
+      default:
+        return false
     }
-    case "Conflict": {
-      const [title, description] = CONFLICT[String(tagged["reason"])] ?? ["Dat lukte niet", "Probeer het zo nog eens."]
-      return void toast.error(title, { description })
-    }
-    case "Invalid": {
-      const fields = tagged["fields"] as Record<string, string>
-      const said = Object.entries(fields).map(([field, reason]) => INVALID[field] ?? INVALID[reason]).find(Boolean)
-      return void toast.error("Dat kan zo niet", { description: said ?? "Kijk de invoer nog eens na." })
-    }
-    case "NotFound":
-      return void toast.error("Die bestelling bestaat niet meer", { description: "Iemand anders was je voor." })
-    case "RefundOverLimit":
-      return void toast.error("Boven je limiet", {
-        description: `Je rol mag tot ${euros(Number(tagged["limitMinor"]))} per bestelling terugbetalen.`
-      })
-    case "RefundOverBalance":
-      return void toast.error("Meer dan er openstaat", {
-        description: `Er staat nog ${euros(Number(tagged["balanceMinor"]))} open op deze bestelling.`
-      })
-    case "AlreadyRefunded":
-      return void toast.error("Al terugbetaald", { description: "Er staat niets meer open op deze bestelling." })
-    default:
-      return void toast.error("Dat lukte niet", { description: "Probeer het zo nog eens." })
   }
 }
 
-/** Whether the viewer's role may, and if not which permission it misses, as the design's gates say it. */
-export function useOrderGate(perm: Permission, arg?: Level): TeamGate {
-  const role = useGateRole()
-  if (role === null || canRole(role, perm, arg)) return { ok: true, reason: "" }
-  return { ok: false, reason: `Je rol ${role.label} mist ${permissionName(perm, arg)}` }
-}
+const orderRefused = (error: unknown) => sayRefusal(error, COPY)
+
+/** Whether the viewer's role may, as the design's gates say it. */
+export const useOrderGate = useGate
 
 const NO_TAGS: ReadonlyArray<string> = []
 

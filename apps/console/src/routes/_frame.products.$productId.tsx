@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react"
 import { Forbidden, NotFound } from "@insyte/domain/Errors"
+import type { ProductDetail as Detail } from "@insyte/modules/products/domain/Products"
 import { DeniedPanel } from "@insyte/ui/app/access/denied"
 import type { Level, Permission } from "@insyte/ui/app/lib/permissions"
 import { PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
@@ -10,7 +11,7 @@ import { Effect, Exit, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { productAtom, productsAtom } from "../data/products.ts"
 import { storesAtom } from "../data/stores.ts"
-import { arrivingProductDetail, consoleProductDetail } from "../products/product-detail-source.ts"
+import { arrivingProductDetail, useConsoleProductDetail } from "../products/product-detail-source.ts"
 
 /**
  * One product (step 8.4e, M6.4): the reference's page over `Products.get`, read-only, as the order is. Reached by its
@@ -53,13 +54,7 @@ function ProductRoute() {
   const stores = Option.getOrUndefined(AsyncResult.value(useAtomValue(storesAtom))) ?? []
   const detail = Option.getOrUndefined(AsyncResult.value(result))
   const shopOf = (storeId: string) => stores.find((s) => s.id === storeId)?.shopDomain
-  if (detail !== undefined) {
-    return (
-      <ProductDetailSourceProvider value={consoleProductDetail(detail, shopOf(detail.product.storeId))}>
-        <ProductDetail />
-      </ProductDetailSourceProvider>
-    )
-  }
+  if (detail !== undefined) return <Loaded detail={detail} shopDomain={shopOf(detail.product.storeId)} />
   const failed = AsyncResult.isFailure(result) ? result.cause.reasons.find((r) => r._tag === "Fail") : undefined
   if (failed !== undefined && failed._tag === "Fail" && isNotFound(failed.error)) throw notFound()
   if (failed !== undefined && failed._tag === "Fail" && isForbidden(failed.error)) {
@@ -82,6 +77,14 @@ function ProductRoute() {
   if (row === undefined) return <Pending />
   return (
     <ProductDetailSourceProvider value={arrivingProductDetail(row, shopOf(row.storeId))}>
+      <ProductDetail />
+    </ProductDetailSourceProvider>
+  )
+}
+
+function Loaded({ detail, shopDomain }: { detail: Detail; shopDomain: string | undefined }) {
+  return (
+    <ProductDetailSourceProvider value={useConsoleProductDetail(detail, shopDomain)}>
       <ProductDetail />
     </ProductDetailSourceProvider>
   )

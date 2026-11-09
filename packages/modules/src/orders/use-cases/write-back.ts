@@ -1,11 +1,12 @@
 import { Db } from "@insyte/database/Db"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect } from "effect"
+import type { WriteOutcome } from "../../shared/domain/ShopifyWrites.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import { fromMinor, gidId, gidOf, toMinor } from "../../stores/domain/Mirror.ts"
-import { ConnectionGate, ShopifyGraphql, type ShopifyRefused } from "../../stores/domain/Ports.ts"
-import { throughGate } from "../../stores/use-cases/backfill.ts"
+import { ConnectionGate } from "../../stores/domain/Ports.ts"
 import { mirrorOne } from "../../stores/use-cases/webhooks.ts"
+import { isAnswer, mutate } from "../../stores/use-cases/write.ts"
 import {
   FULFILLABLE,
   FULFILLMENT_CREATE,
@@ -16,8 +17,7 @@ import {
   REFUND_CREATE,
   SUGGESTED_REFUND,
   TAGS_ADD,
-  TAGS_REMOVE,
-  type WriteOutcome
+  TAGS_REMOVE
 } from "../domain/WriteBack.ts"
 
 /*
@@ -39,11 +39,6 @@ interface Target {
   readonly shippingAddress: Record<string, string | null> | null
 }
 
-type Errors = ReadonlyArray<{ readonly message: string }>
-
-const errorsAt = (data: unknown, root: string, field = "userErrors"): Errors =>
-  ((data as Record<string, Record<string, unknown> | null> | null)?.[root]?.[field] as Errors | undefined) ?? []
-
 /** Shopify's MailingAddressInput from the mirror's address: a region sent only where it is a code. */
 const mailingAddress = (a: Record<string, string | null>) => {
   const [first, ...rest] = (a["name"] ?? "").trim().split(/\s+/)
@@ -59,14 +54,6 @@ const mailingAddress = (a: Record<string, string | null>) => {
     ...(a["phone"] ? { phone: a["phone"] } : {})
   }
 }
-
-/** One mutation through the gate: its user errors, or none. */
-const mutate = (target: Target, query: string, variables: Record<string, unknown>, root: string, field?: string) =>
-  Effect.flatMap(Effect.service(ShopifyGraphql), (graphql) =>
-    Effect.map(
-      throughGate(target, 10, (token) => graphql.query(target.shop, token, query, variables)),
-      ({ data }) => ({ data, errors: errorsAt(data, root, field) })
-    ))
 
 const send = Effect.fn("Orders.writeBack.send")(function*(
   write: Exclude<OrderWrite, { type: "refund.requested" }>,
@@ -214,9 +201,6 @@ export const refundFailed = Effect.fn("Orders.refundFailed")(function*(
   )
 })
 
-/** A refusal that is Shopify's answer about the order, not a reason to try again. */
-const isAnswer = (error: ShopifyRefused) => error.status >= 400 && error.status < 500 && error.status !== 401
-
 /** Sends one order's change to Shopify; answers what became of it. */
 export const writeBack = Effect.fn("Orders.writeBack")(function*(write: OrderWrite, orderId: string) {
   const db = yield* Db
@@ -227,7 +211,7 @@ export const writeBack = Effect.fn("Orders.writeBack")(function*(write: OrderWri
       from orders o join stores s on s.id = o.store_id where o.id = ${orderId}`
   )
   const outcome = (o: WriteOutcome["outcome"], reason: string | null = null): WriteOutcome => ({
-    orderId,
+    id: orderId,
     outcome: o,
     reason
   })

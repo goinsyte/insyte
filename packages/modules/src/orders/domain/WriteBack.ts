@@ -58,10 +58,3 @@ export type OrderWrite =
   | Extract<OutboxEvent, { type: "order.updated" }>
   | Extract<OutboxEvent, { type: "order.cancelled" }>
   | Extract<OutboxEvent, { type: "refund.requested" }>
-
-/** What became of one order's change: sent, refused by Shopify (the reason is Shopify's), or not sent at all. */
-export interface WriteOutcome {
-  readonly orderId: string
-  readonly outcome: "sent" | "refused" | "skipped"
-  readonly reason: string | null
-}

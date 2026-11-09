@@ -1,4 +1,4 @@
-import { ShopifyWrites } from "@insyte/modules/orders/domain/Ports"
+import { ShopifyWrites } from "@insyte/modules/shared/domain/ShopifyWrites"
 import { env } from "cloudflare:workers"
 import { Effect, Layer } from "effect"
 
