@@ -362,9 +362,11 @@ function ShopifyConnect({
  * import's counts. The reference's admin track reads these from its stores (`admin-steps.tsx`); the console has neither
  * a store nor anything prepared yet.
  */
-export function ReadyCard({ connected, prepared, counts }: {
+export function ReadyCard({ connected, prepared, preparedHeading = "Klaargezet door Insyte", counts }: {
   connected: boolean
   prepared: ReadonlyArray<string>
+  /** What the list is: made by Insyte (the reference), or waiting to be made (the console until those parts exist). */
+  preparedHeading?: string
   counts?: { readonly products: number; readonly orders: number; readonly customers: number } | undefined
 }) {
   return (
@@ -390,7 +392,7 @@ export function ReadyCard({ connected, prepared, counts }: {
       {prepared.length > 0 ?
         (
           <div className="flex flex-col gap-1">
-            <span className="font-medium text-sm text-ink">Klaargezet door Insyte</span>
+            <span className="font-medium text-sm text-ink">{preparedHeading}</span>
             <ul className="flex flex-col gap-0.5 text-sm text-ink-2">
               {prepared.map((x) => <li key={x}>{x}</li>)}
             </ul>

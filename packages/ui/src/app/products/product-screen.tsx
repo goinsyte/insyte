@@ -7,6 +7,7 @@ import { marginOf } from "../lib/catalog";
 import { formatCurrency } from "../lib/format";
 import { AttachmentTile } from "../chats/attachments";
 import type { Product } from "../lib/types/domain";
+import { sizedImage } from "../lib/image";
 import { cn } from "../lib/utils";
 import { type ProductDraft, useProductDetailSource } from "./detail-source";
 
@@ -333,7 +334,7 @@ function Gallery({ images, title }: { images: ReadonlyArray<string>; title: stri
 		<div className="panel flex flex-col gap-2 overflow-hidden rounded-lg p-2">
 			<div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-md bg-mist sm:aspect-[16/9]">
 				{current ? (
-					<img src={current} alt={title} className="h-full w-full object-cover" />
+					<img src={sizedImage(current, 720)} alt={title} decoding="async" className="h-full w-full object-cover" />
 				) : (
 					<ImageOff className="size-6 text-ink-3" strokeWidth={1.75} />
 				)}

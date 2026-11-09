@@ -68,6 +68,17 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(storeId: string
           position = excluded.position
         returning 1`
 
+      // A product's photographs after its featured one, in their order, each once: a re-read lists them again.
+      if (batch.images.length > 0) {
+        yield* sql`
+          update products p
+          set images = array(select u from unnest(p.images || r.urls) with ordinality as t(u, n) group by u order by min(n))
+          from (select e.v->>'product_shopify_id' as shopify_id, array_agg(e.v->>'url' order by e.n) as urls
+                from jsonb_array_elements(${JSON.stringify(batch.images)}::jsonb) with ordinality as e(v, n)
+                group by 1) r
+          where p.store_id = ${storeId} and p.shopify_id = r.shopify_id`
+      }
+
       const customers = batch.customers.length === 0 ? [] : yield* sql`
         insert into customers (id, workspace_id, store_id, shopify_id, email, name, phone, address, country, tags,
                                orders_count, lifetime_value_minor, currency, marketing_consent, external_updated_at, raw)

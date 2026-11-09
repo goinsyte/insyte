@@ -10,10 +10,10 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { CornerDownLeft, ShoppingBag, Sparkles, Ticket, User } from "../../icons";
 import type { Persona } from "../lib/types/persona";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CREATE_ITEMS, useStartCreate } from "./new-menu";
 import { RotateCcw } from "../../icons";
-import { useRecordSearch, useReturns, useShellData, useWorkspace } from "./state";
+import { useCreateUnavailable, useRecordSearch, useReturns, useShellData, useWorkspace } from "./state";
 
 type CommandPaletteProps = {
 	open: boolean;
@@ -31,6 +31,7 @@ export function CommandPalette({
 }: CommandPaletteProps) {
 	const navigate = useNavigate();
 	const start = useStartCreate();
+	const unavailable = useCreateUnavailable();
 	const { navByPersona, customers } = useShellData();
 	const nav = navByPersona[persona];
 	const orders = useWorkspace((s) => s.orders);
@@ -40,6 +41,10 @@ export function CommandPalette({
 	const returnRecords = useReturns((s) => s.records);
 	const admin = persona === "admin";
 	const [query, setQuery] = useState("");
+	// Each opening starts empty: the last search is not typed into again.
+	useEffect(() => {
+		if (!open) setQuery("");
+	}, [open]);
 	// The host's search where it has one (the console's server), else the workspace's own records, filtered as typed.
 	const found = useRecordSearch(query);
 	const orderHits = found?.orders ?? orders.map((o) => ({ id: o.id, number: o.number, customer: o.customer_name }));
@@ -81,6 +86,7 @@ export function CommandPalette({
 								<CommandItem
 									key={c.kind}
 									value={c.newLabel}
+									disabled={unavailable(c.kind) !== null}
 									onSelect={() => {
 										onOpenChange(false);
 										start(c.kind);

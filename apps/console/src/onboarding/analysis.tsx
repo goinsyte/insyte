@@ -105,7 +105,8 @@ export function ConsoleReadyCard({ view }: { view: FirstAnalysisView | undefined
   return (
     <ReadyCard
       connected={view !== undefined && view.state !== "none"}
-      prepared={chosen.map((id) => `${view!.prepared[id].title} (klaar om aan te zetten ${WAITS_ON[id]})`)}
+      preparedHeading="Klaar om aan te zetten"
+      prepared={chosen.map((id) => `${view!.prepared[id].title}, ${WAITS_ON[id]}`)}
       {...(view === undefined ? {} : { counts: view.store })}
     />
   )

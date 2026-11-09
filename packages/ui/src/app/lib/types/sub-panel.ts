@@ -25,6 +25,8 @@ export type SubPanelCta = {
 	/** What the button makes: the page at `to` opens its own create dialog for it. */
 	create?: CreateKind;
 	onClick?: () => void;
+	/** Why the host cannot make it yet (the console before its commands); the button is off and says so. */
+	unavailable?: string;
 };
 
 export type SubPanelConfig = {

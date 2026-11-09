@@ -185,7 +185,7 @@ export function ProductsPage() {
 							<button
 								type="button"
 								onClick={() => setNewOpen(true)}
-								className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-xs text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2"
+								className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-xs text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2 disabled:pointer-events-none disabled:opacity-45"
 							>
 								<Plus className="size-3.5" strokeWidth={2} />
 								Nieuw product

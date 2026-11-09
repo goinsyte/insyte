@@ -92,7 +92,8 @@ export function SubPanel() {
 	if (!base) return null;
 	// Making something new in an area needs Bewerken there; without it the button says what is missing.
 	const ctaNeed = base.cta?.to ? areaForPath(base.cta.to) : null;
-	const ctaBlocked = ctaNeed && !can(ctaNeed.area, 2) ? `Je rol ${role.label} mist ${permissionName(ctaNeed.area, 2)}` : null;
+	const ctaBlocked =
+		base.cta?.unavailable ?? (ctaNeed && !can(ctaNeed.area, 2) ? `Je rol ${role.label} mist ${permissionName(ctaNeed.area, 2)}` : null);
 	const cfg =
 		base.title === "Meldingen"
 			? withNotifications(base, pathname, notes, notePrefs)

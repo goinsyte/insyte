@@ -1,3 +1,4 @@
+import { sizedImage } from "../lib/image";
 import { cn } from "../lib/utils";
 
 /*
@@ -19,7 +20,7 @@ export function ProductThumb({
 	const cls = cn("shrink-0 bg-mist", size >= 56 ? "rounded-md" : "rounded-sm", className);
 	const style = { width: size, height: size };
 	return src ? (
-		<img src={src} alt={title} loading="lazy" decoding="async" width={size} height={size} className={cn(cls, "object-cover")} style={style} />
+		<img src={sizedImage(src, size)} alt={title} loading="lazy" decoding="async" width={size} height={size} className={cn(cls, "object-cover")} style={style} />
 	) : (
 		<span role="img" aria-label={title} className={cls} style={style} />
 	);

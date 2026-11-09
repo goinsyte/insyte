@@ -49,19 +49,19 @@ const polls = new Map<string, number>()
 const parsed = Object.values(RECORDED_BULK).flatMap((text) =>
   text.split("\n").filter((l) => l !== "").map((l) => JSON.parse(l) as Record<string, unknown>)
 )
-const CHILDREN: Record<string, string> = { Product: "variants", Order: "lineItems" }
+/** The connection each child type sits in on its parent, as a GraphQL read nests it. */
+const CONNECTION: Record<string, string> = { ProductVariant: "variants", MediaImage: "media", LineItem: "lineItems" }
 
 /** An object as a GraphQL read answers it: nested connections, the shop's later changes applied. */
 const nest = (shop: string, id: string): Record<string, unknown> | null => {
   const line = parsed.find((l) => l["id"] === id)
   if (line === undefined) return null
   const { __parentId: _, ...node } = line
-  const type = id.split("/")[3] ?? ""
-  const connection = CHILDREN[type]
-  if (connection !== undefined) {
-    node[connection] = {
-      edges: parsed.filter((l) => l["__parentId"] === id).map(({ __parentId: _p, ...child }) => ({ node: child }))
-    }
+  for (const { __parentId: _p, ...child } of parsed.filter((l) => l["__parentId"] === id)) {
+    const connection = CONNECTION[String(child["id"]).split("/")[3] ?? ""]
+    if (connection === undefined) continue
+    const edges = ((node[connection] ??= { edges: [] }) as { edges: Array<{ node: unknown }> }).edges
+    edges.push({ node: child })
   }
   return shop.startsWith("upd-") ? { ...node, ...RECORDED_UPDATES[id] } : node
 }

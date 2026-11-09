@@ -20,6 +20,7 @@ import {
 } from "../../icons";
 import { useNavigate } from "@tanstack/react-router";
 import { CREATE_ROUTE, type CreateKind, useCreateIntent } from "../stores/create-intent";
+import { useCreateUnavailable } from "./state";
 
 /** Everything the console can make, in the order an operator reaches for it. */
 export const CREATE_ITEMS: ReadonlyArray<{ kind: CreateKind; label: string; newLabel: string; icon: IconComponent }> = [
@@ -46,6 +47,7 @@ export function useStartCreate() {
 /** The top bar's +: a short menu of what can be made, each opening the dialog on its own page. */
 export function NewMenu() {
 	const start = useStartCreate();
+	const unavailable = useCreateUnavailable();
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -61,7 +63,7 @@ export function NewMenu() {
 			<DropdownMenuContent align="end" className="w-52">
 				<DropdownMenuLabel>Nieuw</DropdownMenuLabel>
 				{CREATE_ITEMS.map((c) => (
-					<DropdownMenuItem key={c.kind} onClick={() => start(c.kind)}>
+					<DropdownMenuItem key={c.kind} onClick={() => start(c.kind)} disabled={unavailable(c.kind) !== null} title={unavailable(c.kind) ?? undefined}>
 						<c.icon className="size-3.5 text-ink-3" strokeWidth={1.75} />
 						{c.label}
 					</DropdownMenuItem>
