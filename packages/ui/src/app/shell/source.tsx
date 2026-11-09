@@ -107,6 +107,12 @@ export interface ShellSource {
 			onConnected: (store: { id: string; name: string }) => void;
 		}> | null;
 	};
+	/**
+	 * The palette's records for what is typed, as the host searches them (the console's `Search.records`). A hook,
+	 * called on every render of the palette. `null` where the palette searches the workspace's own lists (the design
+	 * app's).
+	 */
+	useRecordSearch: (query: string) => RecordHits | null;
 	/** The area panel for a path, with the counts the host stands behind (`panelForPath`, or the server's figures). */
 	panelFor: (pathname: string) => SubPanelConfig | null;
 	/** The name of the workspace the console is in. */
@@ -129,6 +135,12 @@ export interface ShellSource {
 		| "conversations"
 	>;
 }
+
+/** What the palette lists under Bestellingen and Klanten. */
+export type RecordHits = {
+	orders: ReadonlyArray<{ id: string; number: string; customer: string }>;
+	customers: ReadonlyArray<{ id: string; name: string; email: string }>;
+};
 
 const ShellSourceContext = createContext<ShellSource | null>(null);
 

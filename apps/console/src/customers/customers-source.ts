@@ -10,10 +10,10 @@ import { useMemo } from "react"
  * The customers list's source in the console (M6.4): `Customers.list`'s rows as the design's profiles. The status is
  * the server's facts only: new up to two orders, loyal after; no "at risk" until there is a signal for it, and no
  * duplicates until merging arrives (M7). "Laatste bestelling" is the newest order Insyte holds. Copying and exporting
- * only, until the commands (M7).
+ * only, until the commands (M7). A row opens the customer over the list.
  */
 
-const customerOf = (c: CustomerRow): Customer => ({
+export const customerOf = (c: CustomerRow): Customer => ({
   id: c.id,
   shopify_id: c.shopifyId,
   email: c.email ?? "",
@@ -50,7 +50,8 @@ const ACTIONS: CustomersSource["actions"] = () => [
   }
 ]
 
-export function useConsoleCustomersSource(page: CustomerPage): CustomersSource {
+/** `open` is the route's: it navigates to the customer over the list. */
+export function useConsoleCustomersSource(page: CustomerPage, open: (customer: Customer) => void): CustomersSource {
   const customers = useMemo(() => page.rows.map(customerOf), [page.rows])
   const lastOrders = useMemo(() => new Map(page.rows.map((c) => [c.id, c.lastOrderAt])), [page.rows])
   const currencies = useMemo(() => new Map(page.rows.map((c) => [c.id, c.currency as Currency])), [page.rows])
@@ -65,6 +66,7 @@ export function useConsoleCustomersSource(page: CustomerPage): CustomersSource {
     },
     actions: ACTIONS,
     canCreate: { ok: false, reason: "Klanten toevoegen kan hier nog niet" },
-    currencyOf: (c) => currencies.get(c.id)
+    currencyOf: (c) => currencies.get(c.id),
+    open
   }
 }

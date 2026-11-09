@@ -1,24 +1,14 @@
-import { Link, getRouteApi, useNavigate } from "@tanstack/react-router";
-import { QualityTab } from "../quality/quality-tab";
-import { useProductQuality } from "../stores/quality-store";
 import { Check, ExternalLink, ImageOff, Loader, Megaphone, RefreshCcw } from "../../icons";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
 import { DetailShell } from "../common/detail-shell";
-import { ProductReturns } from "../returns/product-returns";
 import { ProductThumb } from "../product/product-thumb";
 import { UnsavedBar } from "../settings/form";
-import { useProduct } from "../hooks/use-operator-data";
-import { categoryOf, marginOf, sellThrough, stockOf, unitsOf } from "../lib/catalog";
+import { marginOf } from "../lib/catalog";
 import { formatCurrency } from "../lib/format";
-import { suppliers } from "../../data-source";
 import { AttachmentTile } from "../chats/attachments";
 import type { Product } from "../lib/types/domain";
-import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { useWorkspace } from "../stores/workspace-store";
-
-const Route = getRouteApi("/_admin/products/$productId");
+import { type ProductDraft, useProductDetailSource } from "./detail-source";
 
 export type ProductSearch = { tab?: "quality" | undefined; check?: string | undefined };
 
@@ -28,36 +18,12 @@ export type ProductSearch = { tab?: "quality" | undefined; check?: string | unde
  * draft until the bar at the foot saves them, with Undo, the same bar Settings uses. Shopify stays
  * the system of record — the next sync takes the new values there — and "Open in Shopify" is still
  * one click away for what the console does not edit (media, variants, SEO).
+ *
+ * What it reads and may do is `detail-source.tsx`'s: without `edit` each field is its value and nothing is saved,
+ * and what the host does not hold (cost and margin, the supplier, stock, quality) is left out.
  */
-export function ProductDetail() {
-	const { productId } = Route.useParams();
-	const { data: product, loading } = useProduct(productId);
 
-	if (loading) {
-		return (
-			<div className="flex items-center justify-center p-10">
-				<Loader className="size-5 animate-spin text-ink-3" strokeWidth={2} />
-			</div>
-		);
-	}
-
-	if (!product) {
-		return (
-			<div className="flex flex-col items-start gap-3 p-6">
-				<p className="text-base text-ink-3">Dit product is niet gevonden. Misschien is het nog niet gesynchroniseerd.</p>
-				<Link to="/products" className="text-base text-arc-ink hover:underline">
-					Terug naar producten
-				</Link>
-			</div>
-		);
-	}
-
-	return <ProductEditor product={product} />;
-}
-
-type Draft = Pick<Product, "title" | "description" | "price" | "status" | "supplier_id"> & { cost: number | undefined };
-
-const draftOf = (p: Product): Draft => ({
+const draftOf = (p: Product): ProductDraft => ({
 	title: p.title,
 	description: p.description,
 	price: p.price,
@@ -66,16 +32,13 @@ const draftOf = (p: Product): Draft => ({
 	supplier_id: p.supplier_id,
 });
 
-function ProductEditor({ product }: { product: Product }) {
-	const search = Route.useSearch();
-	const navigate = useNavigate();
-	const tab = search.tab ?? "overview";
-	const quality = useProductQuality(product.id);
-	const orders = useWorkspace((s) => s.orders);
-	const adsPaused = useWorkspace((s) => s.productEdits[product.id]?.adsPaused === true);
-	const editProducts = useWorkspace((s) => s.editProducts);
-	const restore = useWorkspace((s) => s.restoreProducts);
-	const [draft, setDraft] = useState<Draft>(() => draftOf(product));
+export function ProductDetail() {
+	const { product, currency, categoryOf, stock: stocked, variantStock, shopifyUrl, edit, quality, Returns, arriving } =
+		useProductDetailSource();
+	const readOnly = edit === undefined;
+	const tab = quality?.tab ?? "overview";
+	const adsPaused = edit?.adsPaused === true;
+	const [draft, setDraft] = useState<ProductDraft>(() => draftOf(product));
 	const [sync, setSync] = useState<"idle" | "syncing" | "done">("idle");
 
 	// A different product, or the saved values changing under the page, resets the draft.
@@ -83,34 +46,34 @@ function ProductEditor({ product }: { product: Product }) {
 	useEffect(() => setDraft(draftOf(product)), [product.id, product.title, product.description, product.price, product.cost, product.status, product.supplier_id]);
 
 	const saved = draftOf(product);
-	const dirty = (Object.keys(saved) as Array<keyof Draft>).some((k) => saved[k] !== draft[k]);
-	const set = <K extends keyof Draft>(k: K) => (v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
+	const dirty = (Object.keys(saved) as Array<keyof ProductDraft>).some((k) => saved[k] !== draft[k]);
+	const set = <K extends keyof ProductDraft>(k: K) => (v: ProductDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
 	const margin = marginOf(draft.price, draft.cost);
-	const units = unitsOf(product);
-	const pace = sellThrough(product, orders);
-	const stock = stockOf(product);
-	const supplierMedia = useWorkspace((s) => s.productMedia[product.id]) ?? [];
-	const productEditsAll = useWorkspace((s) => s.productEdits);
-	const supplier = suppliers.find((s) => s.id === draft.supplier_id);
+	const units = stocked?.units;
+	const pace = { daysLeft: stocked?.daysLeft ?? null };
+	const stock = stocked?.level;
+	const supplierMedia = edit?.media ?? [];
+	const supplier = edit?.suppliers.find((s) => s.id === draft.supplier_id);
 
 	async function syncNow() {
 		setSync("syncing");
-		await new Promise((r) => setTimeout(r, 1100));
+		await edit?.sync();
 		setSync("done");
-		toast.success("Product gesynchroniseerd vanuit Shopify", { description: "Prijs, voorraad en varianten zijn bijgewerkt." });
 	}
 
 	return (
 		<DetailShell
 			crumb={{ label: "Producten", to: "/products" }}
-			title={<Inline value={draft.title} onChange={set("title")} label="Titel" className="font-medium text-xl text-ink" />}
+			arriving={arriving}
+			title={<Inline value={draft.title} onChange={set("title")} label="Titel" readOnly={readOnly} className="font-medium text-xl text-ink" />}
 			meta={
 				<>
-					{`${categoryOf(draft.title)} · vanaf ${formatCurrency(draft.price)} · ${product.variants.length} ${product.variants.length === 1 ? "variant" : "varianten"}`}
+					{`${categoryOf(draft.title)} · vanaf ${formatCurrency(draft.price, currency)} · ${product.variants.length} ${product.variants.length === 1 ? "variant" : "varianten"}`}
 				</>
 			}
 			actions={
 				<>
+					{edit ? (
 					<button
 						type="button"
 						onClick={syncNow}
@@ -126,8 +89,9 @@ function ProductEditor({ product }: { product: Product }) {
 						)}
 						{sync === "syncing" ? "Synchroniseren" : sync === "done" ? "Zojuist gesynchroniseerd" : "Synchroniseren vanuit Shopify"}
 					</button>
+					) : null}
 					<a
-						href={`https://admin.shopify.com/products/${product.shopify_id}`}
+						href={shopifyUrl}
 						target="_blank"
 						rel="noopener noreferrer"
 						className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-xs text-ink transition-colors hover:bg-ink/6"
@@ -139,11 +103,12 @@ function ProductEditor({ product }: { product: Product }) {
 			}
 		>
 			{/* The page's two sections, as the home's view row: a glyph-less label and an arc underline that travels. */}
+			{quality ? (
 			<div role="tablist" aria-label="Onderdelen van het product" className="mb-3 flex gap-5 shadow-[inset_0_-1px_0_color-mix(in_oklch,var(--ink)_8%,transparent)]">
 				{(
 					[
 						["overview", "Overzicht", null],
-						["quality", "Kwaliteit", quality.checks.filter((c) => c.status === "submitted").length || null],
+						["quality", "Kwaliteit", quality.submitted || null],
 					] as const
 				).map(([id, label, n]) => (
 					<button
@@ -151,29 +116,26 @@ function ProductEditor({ product }: { product: Product }) {
 						type="button"
 						role="tab"
 						aria-selected={tab === id}
-						onClick={() => void navigate({ to: ".", search: (prev: ProductSearch) => ({ ...prev, tab: id === "quality" ? "quality" : undefined, check: undefined }), replace: true, state: (st: unknown) => st } as never)}
+						onClick={() => quality.setTab(id)}
 						className={cn("relative flex h-9 items-center gap-1.5 font-medium text-sm transition-colors", tab === id ? "text-ink" : "text-ink-3 hover:text-ink")}
 					>
 						{label}
-						{id === "quality" && quality.phase === "watch" ? <span className="rounded-sm bg-signal-amber-bg px-1.5 py-px text-signal-amber text-xs">Onder toezicht</span> : null}
+						{id === "quality" && quality.watching ? <span className="rounded-sm bg-signal-amber-bg px-1.5 py-px text-signal-amber text-xs">Onder toezicht</span> : null}
 						{n ? <span className="rounded-full bg-arc-tint px-1.5 text-arc-ink text-xs tabular-nums">{n}</span> : null}
 						{tab === id ? <span className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-arc" /> : null}
 					</button>
 				))}
 			</div>
+			) : null}
 
-			{tab === "quality" ? <QualityTab product={product} openCheck={search.check} /> : <>
+			{quality && tab === "quality" ? <quality.Tab product={product} /> : <>
 			{adsPaused ? (
 				<div className="mb-3 flex items-center gap-2.5 rounded-lg bg-signal-amber-bg px-3.5 py-2.5 text-base text-signal-amber">
 					<Megaphone className="size-4 shrink-0" strokeWidth={1.75} />
 					<span className="min-w-0 flex-1">Advertenties voor dit product staan op pauze tot het weer op voorraad is.</span>
 					<button
 						type="button"
-						onClick={() => {
-							const before = useWorkspace.getState().productEdits;
-							editProducts({ [product.id]: { adsPaused: false } });
-							undoable(`Advertenties voor ${product.title} hervat`, () => restore(before));
-						}}
+						onClick={edit?.resumeAds}
 						className="h-7 cursor-pointer rounded-md px-2.5 font-medium text-sm transition-colors hover:bg-signal-amber/10"
 					>
 						Advertenties hervatten
@@ -191,6 +153,7 @@ function ProductEditor({ product }: { product: Product }) {
 							value={draft.description}
 							onChange={set("description")}
 							label="Beschrijving"
+							readOnly={readOnly}
 							multiline
 							placeholder="Nog geen beschrijving. Klik om er een te schrijven."
 							className="whitespace-pre-line text-base text-ink-2 leading-[1.6]"
@@ -200,6 +163,7 @@ function ProductEditor({ product }: { product: Product }) {
 					<section className="panel flex flex-col gap-2 rounded-lg p-4">
 						<span className="flex items-baseline justify-between font-medium text-xs text-ink-2">
 							Varianten · {product.variants.length}
+							{units === undefined ? null : (
 							<span className="font-normal text-ink-3">
 								{units} op voorraad
 								{pace.daysLeft === null
@@ -208,6 +172,7 @@ function ProductEditor({ product }: { product: Product }) {
 										? ", meer dan een jaar in het huidige tempo"
 										: `, ongeveer ${Math.round(pace.daysLeft)} dagen in het huidige tempo`}
 							</span>
+							)}
 						</span>
 						<table className="w-full">
 							<thead>
@@ -223,13 +188,9 @@ function ProductEditor({ product }: { product: Product }) {
 									<tr key={v.id} className="border-ink/7 border-t text-sm">
 										<td className="h-9 text-ink">{v.title}</td>
 										<td className="h-9 text-ink-3 tabular-nums">{v.sku || "—"}</td>
-										<td className="h-9 text-right text-ink-2 tabular-nums">{formatCurrency(v.price)}</td>
+										<td className="h-9 text-right text-ink-2 tabular-nums">{formatCurrency(v.price, currency)}</td>
 										<td className="h-9 text-right tabular-nums">
-											{v.inventory_level <= 0 ? (
-												<span className="font-medium text-signal-red">Op</span>
-											) : (
-												<span className={v.inventory_level < 20 ? "font-medium text-signal-amber" : "text-ink-2"}>{v.inventory_level}</span>
-											)}
+											<VariantStock units={variantStock(v)} />
 										</td>
 									</tr>
 								))}
@@ -239,13 +200,15 @@ function ProductEditor({ product }: { product: Product }) {
 				</div>
 
 				<div className="flex flex-col gap-3">
-					<ProductReturns productId={product.id} />
+					{Returns ? <Returns productId={product.id} /> : null}
 					<section className="panel flex flex-col gap-3 rounded-lg p-4">
 						<span className="font-medium text-xs text-ink-2">Prijzen</span>
 						<dl className="flex flex-col gap-2.5 text-base">
 							<Row label="Prijs">
-								<Inline value={String(draft.price)} onChange={(v) => set("price")(Number(v) || 0)} label="Prijs" numeric format={(v) => formatCurrency(Number(v))} />
+								<Inline value={String(draft.price)} onChange={(v) => set("price")(Number(v) || 0)} label="Prijs" numeric readOnly={readOnly} format={(v) => formatCurrency(Number(v), currency)} />
 							</Row>
+							{edit ? (
+							<>
 							<Row label="Inkoopprijs">
 								<Inline
 									value={draft.cost === undefined ? "" : String(draft.cost)}
@@ -266,6 +229,8 @@ function ProductEditor({ product }: { product: Product }) {
 									</span>
 								</span>
 							</Row>
+							</>
+							) : null}
 						</dl>
 					</section>
 
@@ -282,25 +247,30 @@ function ProductEditor({ product }: { product: Product }) {
 										{ value: "archived", label: "Gearchiveerd" },
 									]}
 									onChange={(v) => set("status")(v as Product["status"])}
+									readOnly={readOnly}
 								/>
 							</Row>
+							{edit ? (
 							<Row label="Leverancier">
 								<Pick
 									value={draft.supplier_id ?? ""}
 									label="Leverancier"
-									options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+									options={edit.suppliers.map((s) => ({ value: s.id, label: s.name }))}
 									onChange={(v) => set("supplier_id")(v)}
 								/>
 							</Row>
+							) : null}
+							{stock ? (
 							<Row label="Voorraad">
 								<span className={cn("text-ink-2", stock === "out" && "font-medium text-signal-red", stock === "low" && "font-medium text-signal-amber")}>
 									{stock === "out" ? "Uitverkocht" : stock === "low" ? "Lage voorraad" : "Op voorraad"}
 								</span>
 							</Row>
-							{supplier && productEditsAll[product.id]?.leadDays !== undefined ? (
+							) : null}
+							{supplier && edit?.leadDays !== undefined ? (
 								<Row label="Levertijd">
 									<span className="text-ink-2 tabular-nums">
-										{productEditsAll[product.id]!.leadDays} {productEditsAll[product.id]!.leadDays === 1 ? "dag" : "dagen"} · volgens {supplier.name}
+										{edit.leadDays} {edit.leadDays === 1 ? "dag" : "dagen"} · volgens {supplier.name}
 									</span>
 								</Row>
 							) : null}
@@ -337,15 +307,13 @@ function ProductEditor({ product }: { product: Product }) {
 
 			</>}
 
-			<UnsavedBar
-				visible={dirty}
-				onDiscard={() => setDraft(saved)}
-				onSave={() => {
-					const before = useWorkspace.getState().productEdits;
-					editProducts({ [product.id]: draft });
-					undoable(`${draft.title} opgeslagen`, () => restore(before), "Shopify neemt de nieuwe waarden over bij de volgende synchronisatie.");
-				}}
-			/>
+			{edit ? (
+				<UnsavedBar
+					visible={dirty}
+					onDiscard={() => setDraft(saved)}
+					onSave={() => edit.save(draft)}
+				/>
+			) : null}
 		</DetailShell>
 	);
 }
@@ -393,6 +361,16 @@ function Gallery({ images, title }: { images: ReadonlyArray<string>; title: stri
 	);
 }
 
+/* A variant's units: "Op" when gone, amber when low, a dash where the host does not know them. */
+function VariantStock({ units }: { units: number | undefined }) {
+	if (units === undefined) return <span className="text-ink-3">—</span>;
+	return units <= 0 ? (
+		<span className="font-medium text-signal-red">Op</span>
+	) : (
+		<span className={units < 20 ? "font-medium text-signal-amber" : "text-ink-2"}>{units}</span>
+	);
+}
+
 function Row({ label, children }: { label: string; children: ReactNode }) {
 	return (
 		<div className="flex min-h-7 items-center justify-between gap-3">
@@ -414,6 +392,7 @@ function Inline({
 	numeric = false,
 	placeholder,
 	format,
+	readOnly = false,
 	className,
 }: {
 	value: string;
@@ -423,6 +402,8 @@ function Inline({
 	numeric?: boolean;
 	placeholder?: string;
 	format?: (v: string) => string;
+	/** Read as its value only, with no rule under it and nothing to click (a host that cannot save yet). */
+	readOnly?: boolean;
 	className?: string;
 }) {
 	const [editing, setEditing] = useState(false);
@@ -448,6 +429,13 @@ function Inline({
 		}
 	};
 
+	if (readOnly) {
+		return (
+			<span className={cn(numeric && "tabular-nums", value === "" && "text-ink-3", className)}>
+				{value === "" ? placeholder : format ? format(value) : value}
+			</span>
+		);
+	}
 	if (editing) {
 		const cls = cn("field w-full rounded-md px-2 py-1 text-ink outline-none focus:bg-paper", numeric && "w-28 text-right tabular-nums", className);
 		return multiline ? (
@@ -488,12 +476,15 @@ function Pick({
 	label,
 	options,
 	onChange,
+	readOnly = false,
 }: {
 	value: string;
 	label: string;
 	options: ReadonlyArray<{ value: string; label: string }>;
 	onChange: (v: string) => void;
+	readOnly?: boolean;
 }) {
+	if (readOnly) return <span className="text-ink-2">{options.find((o) => o.value === value)?.label ?? value}</span>;
 	return (
 		<select
 			aria-label={label}

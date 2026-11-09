@@ -1,5 +1,5 @@
-import { Forbidden, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
-import { CustomerPage } from "@insyte/modules/customers/domain/Customers"
+import { Forbidden, NotFound, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
+import { CustomerDetail, CustomerPage } from "@insyte/modules/customers/domain/Customers"
 import { CursorInvalid, FilterFieldUnknown } from "@insyte/modules/shared/domain/Filter"
 import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
@@ -30,4 +30,22 @@ export const customersAtom = Atom.serializable(
     }),
     skipInitialRun: true
   }
+)
+
+/**
+ * One customer: primed by the record's loader on a server render, read in the browser when a row opens it (the list's
+ * row draws the header meanwhile). A change to any customer refreshes it.
+ */
+export const customerAtom = Atom.family((id: string) =>
+  Atom.serializable(
+    ConsoleClient.query("Customers.get", { id }, { reactivityKeys: CUSTOMERS }),
+    {
+      key: `customer:${id}`,
+      schema: AsyncResult.Schema({
+        success: CustomerDetail,
+        error: Schema.Union([Forbidden, NotFound, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
+      }),
+      skipInitialRun: true
+    }
+  )
 )

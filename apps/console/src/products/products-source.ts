@@ -14,7 +14,7 @@ import { useMemo } from "react"
 
 const HIDDEN = ["cogs", "margin", "stock", "supplier", "delivery", "feedback"] as const
 
-const productOf = (p: ServerRow): Product => ({
+export const productOf = (p: ServerRow): Product => ({
   id: p.id,
   store_id: p.storeId,
   shopify_id: p.shopifyId,
@@ -56,7 +56,8 @@ const ACTIONS: ProductsSource["actions"] = () => [
 
 const QUIET = { returnHigh: false, complaints: 0, checkRunning: false }
 
-export function useConsoleProductsSource(page: ProductPage): ProductsSource {
+/** `open` is the route's: it navigates to the product over the list. */
+export function useConsoleProductsSource(page: ProductPage, open: (product: Product) => void): ProductsSource {
   const products = useMemo(() => page.rows.map(productOf), [page.rows])
   const server = useMemo(() => new Map(page.rows.map((p) => [p.id, p])), [page.rows])
   return {
@@ -84,6 +85,7 @@ export function useConsoleProductsSource(page: ProductPage): ProductsSource {
     actions: ACTIONS,
     canCreate: { ok: false, reason: "Producten toevoegen kan hier nog niet" },
     currencyOf: (p) => p.currency,
-    categories: false
+    categories: false,
+    open
   }
 }

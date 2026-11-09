@@ -13,7 +13,7 @@ import type { Persona } from "../lib/types/persona";
 import { useState } from "react";
 import { CREATE_ITEMS, useStartCreate } from "./new-menu";
 import { RotateCcw } from "../../icons";
-import { useReturns, useShellData, useWorkspace } from "./state";
+import { useRecordSearch, useReturns, useShellData, useWorkspace } from "./state";
 
 type CommandPaletteProps = {
 	open: boolean;
@@ -40,6 +40,10 @@ export function CommandPalette({
 	const returnRecords = useReturns((s) => s.records);
 	const admin = persona === "admin";
 	const [query, setQuery] = useState("");
+	// The host's search where it has one (the console's server), else the workspace's own records, filtered as typed.
+	const found = useRecordSearch(query);
+	const orderHits = found?.orders ?? orders.map((o) => ({ id: o.id, number: o.number, customer: o.customer_name }));
+	const customerHits = found?.customers ?? [...made, ...customers];
 
 	function go(to: string, params?: Record<string, string>, search?: Record<string, string>) {
 		onOpenChange(false);
@@ -92,11 +96,11 @@ export function CommandPalette({
 				{admin && query.trim().length > 0 ? (
 					<>
 						<CommandGroup heading="Bestellingen">
-							{orders.map((o) => (
-								<CommandItem key={o.id} value={`${o.number} ${o.customer_name}`} onSelect={() => go("/orders/$orderId", { orderId: o.id })}>
+							{orderHits.map((o) => (
+								<CommandItem key={o.id} value={`${o.number} ${o.customer}`} onSelect={() => go("/orders/$orderId", { orderId: o.id })}>
 									<ShoppingBag className="size-4" />
 									<span className="tabular-nums">{o.number}</span>
-									<span className="truncate text-ink-3">{o.customer_name}</span>
+									<span className="truncate text-ink-3">{o.customer}</span>
 								</CommandItem>
 							))}
 						</CommandGroup>
@@ -110,7 +114,7 @@ export function CommandPalette({
 							))}
 						</CommandGroup>
 						<CommandGroup heading="Klanten">
-							{[...made, ...customers].map((c) => (
+							{customerHits.map((c) => (
 								<CommandItem key={c.id} value={`${c.name} ${c.email}`} onSelect={() => go("/customers/$customerId", { customerId: c.id })}>
 									<User className="size-4" />
 									<span>{c.name}</span>
