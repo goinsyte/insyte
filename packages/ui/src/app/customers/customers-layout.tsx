@@ -1,7 +1,7 @@
-import { Outlet, useRouterState } from "@tanstack/react-router";
-import { useOpenedAsModal } from "../common/detail-shell";
-import { CustomersPage } from "./customers-screen";
-import { DemoCustomersSource } from "./demo-source";
+import { Outlet, useRouterState } from "@tanstack/react-router"
+import { useOpenedAsModal } from "../common/detail-shell"
+import { CustomersPage } from "./customers-screen"
+import { DemoCustomersSource } from "./demo-source"
 
 /**
  * The list lives here rather than in `index.tsx`, so that opening a record does not unmount it.
@@ -12,18 +12,20 @@ import { DemoCustomersSource } from "./demo-source";
  * returns null.
  */
 export function CustomersLayout() {
-	const asModal = useOpenedAsModal();
-	const atIndex = useRouterState({
-		select: (s) => s.location.pathname.replace(/\/$/, "") === "/customers",
-	});
-	return (
-		<>
-			{atIndex || asModal ? (
-				<DemoCustomersSource>
-					<CustomersPage />
-				</DemoCustomersSource>
-			) : null}
-			<Outlet />
-		</>
-	);
+  const asModal = useOpenedAsModal()
+  const atIndex = useRouterState({
+    select: (s) => s.location.pathname.replace(/\/$/, "") === "/customers"
+  })
+  return (
+    <>
+      {atIndex || asModal ?
+        (
+          <DemoCustomersSource>
+            <CustomersPage />
+          </DemoCustomersSource>
+        ) :
+        null}
+      <Outlet />
+    </>
+  )
 }

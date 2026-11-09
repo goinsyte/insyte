@@ -56,7 +56,14 @@ const portedPaths = [
   "data-source/types.ts"
 ]
 
-const ported = (name: string): boolean => portedPaths.some((prefix) => name.startsWith(prefix))
+/**
+ * Screens that graduated from the port (M7.6): their commands run on the server now, they were edited for it, and the
+ * rules hold them like any authored code. A screen joins this list when its slice's commands land.
+ */
+const graduated = ["app/orders/", "app/products/", "app/customers/"]
+
+const ported = (name: string): boolean =>
+  portedPaths.some((prefix) => name.startsWith(prefix)) && !graduated.some((prefix) => name.startsWith(prefix))
 
 const files = sources(src).filter(([name]) => !ported(name))
 
