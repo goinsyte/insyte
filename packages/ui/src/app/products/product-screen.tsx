@@ -318,7 +318,11 @@ export function ProductDetail() {
                         <Pick
                           value={draft.supplier_id ?? ""}
                           label="Leverancier"
-                          options={edit.suppliers.map((s) => ({ value: s.id, label: s.name }))}
+                          options={[
+                            // A product nobody supplies yet says so, rather than showing the first supplier.
+                            ...(draft.supplier_id ? [] : [{ value: "", label: "Kies een leverancier" }]),
+                            ...edit.suppliers.map((s) => ({ value: s.id, label: s.name }))
+                          ]}
                           onChange={(v) => set("supplier_id")(v)}
                         />
                       </Row>

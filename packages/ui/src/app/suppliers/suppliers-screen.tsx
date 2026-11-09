@@ -1,7 +1,4 @@
 import { Switch } from "../../components/switch";
-import { useForwarding } from "../stores/forwarding-store";
-import { useGate } from "../stores/access-store";
-import { SOLD90, THRESHOLD, useAllComplaints, useQuality } from "../stores/quality-store";
 import { pct } from "../lib/returns";
 import { VIA_LABEL } from "../lib/forwarding";
 import {
@@ -12,26 +9,20 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "../../components/dialog";
-import { Mail, MessagesSquare, Pause, Play, Send, Truck } from "../../icons";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Edit3, Mail, MessagesSquare, Pause, Play, Plus, Truck } from "../../icons";
+import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { useMemo, useState } from "react";
+import { type ReactElement, useMemo, useState } from "react";
+import { Blocked } from "../access/blocked";
 import { PageHeader } from "../common/page-header";
 import { StatusPill } from "../settings/setting-card";
-import { invitePortal, PORTAL_LABEL, PortalInviteDialog, PortalSection } from "./portal-invite";
-import { DataTable, type RowAction } from "../table/data-table";
-import { useProducts } from "../hooks/use-operator-data";
-import { counted } from "../lib/bulk";
-import { type Stock, type SupplierStats, stockOf, supplierStats, unitsOf } from "../lib/catalog";
-import { suppliers } from "../../data-source";
-import type { PortalStatus } from "../lib/team";
-import type { Product, Supplier } from "../lib/types/domain";
-import { undoable } from "../lib/undo";
+import { PORTAL_LABEL } from "./portal-label";
+import { DataTable } from "../table/data-table";
+import type { Stock } from "../lib/catalog";
+import type { Supplier } from "../lib/types/domain";
 import { cn } from "../lib/utils";
-import { DemoAreaEmpty as AreaEmpty } from "../marketing-sections/closings";
-import { ListClosing } from "../marketing-sections/closings";
-import { useTeam } from "../stores/team-store";
-import { useWorkspace } from "../stores/workspace-store";
+import { SupplierFormDialog } from "./supplier-form-dialog";
+import { type SupplierRow as Row, type TeamGate, useSuppliersSource } from "./source";
 
 /*
  * Suppliers, scored. Each row is computed from the orders that carry the supplier's products: how
@@ -42,90 +33,20 @@ import { useWorkspace } from "../stores/workspace-store";
  * running low, and pause new orders while something is sorted out.
  */
 
-type Row = SupplierStats & { id: string; name: string; paused: boolean; portal: PortalStatus };
-
 const FEED: Record<string, string> = { live: "Live", in_stock_out_of_stock: "Alleen op voorraad of niet", none: "Geen" };
 
-const SUPPLIER_CHAT: Record<string, string> = { sup_allure: "conv_supplier_allure", sup_dpc: "conv_supplier_dpc" };
-
-function pauseOrResume(rows: ReadonlyArray<Row>) {
-	const ws = useWorkspace.getState();
-	const before = ws.pausedSuppliers;
-	for (const r of rows) ws.toggleSupplierPause(r.id);
-	undoable(
-		rows.length === 1 ? `${rows[0]?.name} ${rows[0]?.paused ? "hervat" : "gepauzeerd voor nieuwe bestellingen"}` : `${counted(rows.length, "leverancier", "leveranciers")} omgezet`,
-		() => useWorkspace.setState({ pausedSuppliers: before }),
-	);
+/** A control the role may not use: disabled, with what is missing, from the host's answer. */
+function GateBy({ gate, children }: { gate: TeamGate; children: ReactElement }) {
+	return gate.ok ? children : <Blocked reason={gate.reason}>{children}</Blocked>;
 }
 
-const ACTIONS: ReadonlyArray<RowAction<Row>> = [
-	{
-		id: "portal",
-		label: "Uitnodigen voor het portaal",
-		icon: Send,
-		group: "Portaal",
-		shortcut: "u",
-		bar: true,
-		applies: (r) => r.portal !== "active",
-		run: (rows) => invitePortal(rows.map((r) => r.supplier)),
-	},
-	{
-		id: "pause",
-		label: "Nieuwe bestellingen pauzeren of hervatten",
-		icon: Pause,
-		group: "Bestellingen",
-		shortcut: "p",
-		bar: true,
-		run: (rows) => pauseOrResume(rows),
-	},
-	{
-		id: "email",
-		label: "E-mailen",
-		icon: Mail,
-		group: "Contact",
-		shortcut: "m",
-		bar: true,
-		run: (rows) => {
-			window.location.href = `mailto:?bcc=${encodeURIComponent(rows.map((r) => r.supplier.contact_email).join(","))}`;
-		},
-	},
-];
-
 export function SuppliersPage() {
-	const { data: products } = useProducts();
-	const orders = useWorkspace((s) => s.orders);
-	const paused = useWorkspace((s) => s.pausedSuppliers);
-	const portal = useTeam((s) => s.portal);
+	const source = useSuppliersSource();
+	const { rows, Empty, Closing } = source;
 	const [openId, setOpenId] = useState<string | null>(null);
 	const [inviting, setInviting] = useState<Supplier | null>(null);
-
-	const rows = useMemo<Row[]>(
-		() =>
-			supplierStats(suppliers, products, orders).map((st) => ({
-				...st,
-				id: st.supplier.id,
-				name: st.supplier.name,
-				paused: paused.includes(st.supplier.id),
-				portal: portal[st.supplier.id]?.status ?? "none",
-			})),
-		[products, orders, paused, portal],
-	);
-	const late = rows.reduce((n, r) => n + r.delayed, 0);
-	// Complaint rate and checks passed per supplier (PLAN 26), over its products' last 90 days.
-	const checks = useQuality((st) => st.checks);
-	const complaints = useAllComplaints();
-	const quality = useMemo(() => {
-		const out = new Map<string, { rate: number; complaints: number; sold: number; passed: number; judged: number }>();
-		for (const sup of suppliers) {
-			const mine = products.filter((p) => p.supplier_id === sup.id).map((p) => p.id);
-			const sold = mine.reduce((n, id) => n + (SOLD90[id] ?? 0), 0);
-			const n = complaints.filter((c) => mine.includes(c.productId)).length;
-			const judged = checks.filter((c) => c.supplierId === sup.id && (c.status === "approved" || c.status === "rejected"));
-			out.set(sup.id, { rate: sold > 0 ? n / sold : 0, complaints: n, sold, passed: judged.filter((c) => c.status === "approved").length, judged: judged.length });
-		}
-		return out;
-	}, [checks, complaints, products]);
-	const live = rows.filter((r) => r.supplier.stock_indicator === "live").length;
+	const [editing, setEditing] = useState<Row | "new" | null>(null);
+	const quality = source.qualityOf;
 
 	const columns = useMemo<Array<ColumnDef<Row, unknown>>>(
 		() => [
@@ -179,21 +100,21 @@ export function SuppliersPage() {
 			},
 			{
 				id: "complaints",
-				accessorFn: (r) => quality.get(r.id)?.rate ?? 0,
+				accessorFn: (r) => quality(r.id)?.rate ?? 0,
 				header: "Klachten",
 				size: 96,
 				cell: (c) => {
-					const q = quality.get(c.row.original.id);
-					return q && q.sold > 0 ? <span className={q.rate > THRESHOLD ? "font-medium text-signal-amber tabular-nums" : "tabular-nums"} title={`${q.complaints} klachten op ${q.sold} verkocht in 90 dagen`}>{pct(q.rate)}</span> : <span className="text-ink-3">—</span>;
+					const q = quality(c.row.original.id);
+					return q && q.sold > 0 ? <span className={q.over ? "font-medium text-signal-amber tabular-nums" : "tabular-nums"} title={`${q.complaints} klachten op ${q.sold} verkocht in 90 dagen`}>{pct(q.rate)}</span> : <span className="text-ink-3">—</span>;
 				},
 			},
 			{
 				id: "checks",
-				accessorFn: (r) => quality.get(r.id)?.passed ?? 0,
+				accessorFn: (r) => quality(r.id)?.passed ?? 0,
 				header: "Controles",
 				size: 96,
 				cell: (c) => {
-					const q = quality.get(c.row.original.id);
+					const q = quality(c.row.original.id);
 					return q && q.judged > 0 ? <span className="tabular-nums" title="Goedgekeurd van beoordeeld">{q.passed} van {q.judged}</span> : <span className="text-ink-3">—</span>;
 				},
 			},
@@ -211,39 +132,64 @@ export function SuppliersPage() {
 	);
 
 	const open = rows.find((r) => r.id === openId) ?? null;
+	const save = source.save;
 
 	return (
 		<div className="flex min-w-0 flex-col">
 			<PageHeader
 				title="Leveranciers"
-				meta={`${rows.length} ${rows.length === 1 ? "leverancier" : "leveranciers"} · ${late === 0 ? "geen vertraging" : `${late} ${late === 1 ? "vertraagde bestelling" : "vertraagde bestellingen"}`} · ${live} met live voorraad · ${rows.filter((r) => r.portal === "active").length} in het portaal`}
+				meta={source.standing(rows)}
+				actions={
+					save ? (
+						<GateBy gate={source.canCreate}>
+							<button
+								type="button"
+								onClick={() => setEditing("new")}
+								className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-xs text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2 disabled:pointer-events-none disabled:opacity-45"
+							>
+								<Plus className="size-3.5" strokeWidth={2} />
+								Nieuwe leverancier
+							</button>
+						</GateBy>
+					) : undefined
+				}
 			/>
 			<div className="min-w-0 px-5 pb-6">
 				{rows.length === 0 ? (
-					<AreaEmpty area="suppliers" />
+					<Empty onCreate={save && source.canCreate.ok ? () => setEditing("new") : undefined} />
 				) : (
 					<DataTable
 						columns={columns}
 						data={rows}
-						actions={ACTIONS}
+						actions={source.actions}
 						noun={["supplier", "suppliers"]}
 						getRowId={(r) => r.id}
 						searchPlaceholder="Leveranciers zoeken"
 						initialSorting={[{ id: "delayed", desc: true }]}
+						initialVisibility={Object.fromEntries(source.hidden.map((id) => [id, false]))}
 						onRowClick={(r) => setOpenId(r.id)}
 					/>
 				)}
 			</div>
-			<ListClosing
-				area="suppliers"
-				empty={rows.length === 0}
-				onInvite={() => {
-					const next = rows.find((r) => r.portal !== "active");
-					if (next) setInviting(next.supplier);
-				}}
-			/>
-			<SupplierDialog row={open} products={products} onClose={() => setOpenId(null)} onInvite={(s) => setInviting(s)} />
-			<PortalInviteDialog supplier={inviting} onClose={() => setInviting(null)} />
+			{Closing ? (
+				<Closing
+					empty={rows.length === 0}
+					onInvite={() => {
+						const next = rows.find((r) => r.portal !== "active");
+						if (next) setInviting(next.supplier);
+					}}
+				/>
+			) : null}
+			<SupplierDialog row={open} onClose={() => setOpenId(null)} onInvite={(s) => setInviting(s)} onEdit={save ? (r) => setEditing(r) : undefined} />
+			{source.portal ? <source.portal.InviteDialog supplier={inviting} onClose={() => setInviting(null)} /> : null}
+			{save ? (
+				<SupplierFormDialog
+					open={editing !== null}
+					onOpenChange={(v) => !v && setEditing(null)}
+					initial={editing !== null && editing !== "new" ? source.inputOf?.(editing) : undefined}
+					onSave={(input) => save(input, editing !== null && editing !== "new" ? editing : undefined)}
+				/>
+			) : null}
 		</div>
 	);
 }
@@ -254,18 +200,10 @@ const STOCK_TONE: Record<Stock, string> = {
 	out: "font-medium text-signal-red",
 };
 
-function SupplierDialog({ row, products, onClose, onInvite }: { row: Row | null; products: ReadonlyArray<Product>; onClose: () => void; onInvite: (s: Supplier) => void }) {
-	const orders = useWorkspace((s) => s.orders);
-	const navigate = useNavigate();
-	const theirs = useMemo(() => products.filter((p) => p.supplier_id === row?.id), [products, row?.id]);
-	const late = useMemo(
-		() =>
-			orders.filter(
-				(o) => row !== null && o.tags.includes("at_risk") && o.status !== "cancelled" && o.status !== "refunded" && o.line_items.some((li) => li.supplier_id === row.id),
-			),
-		[orders, row],
-	);
-	const low = theirs.filter((p) => stockOf(p) !== "available");
+function SupplierDialog({ row, onClose, onInvite, onEdit }: { row: Row | null; onClose: () => void; onInvite: (s: Supplier) => void; onEdit?: ((row: Row) => void) | undefined }) {
+	const source = useSuppliersSource();
+	const { products: theirs, late } = source.useDetail(row);
+	const low = theirs.filter((p) => p.stock !== undefined && p.stock !== "available");
 
 	return (
 		<Dialog open={row !== null} onOpenChange={(v) => !v && onClose()}>
@@ -285,6 +223,16 @@ function SupplierDialog({ row, products, onClose, onInvite }: { row: Row | null;
 										{row.supplier.contact_phone ? ` · ${row.supplier.contact_phone}` : ""}
 									</DialogDescription>
 								</div>
+								{onEdit ? (
+									<button
+										type="button"
+										onClick={() => onEdit(row)}
+										className="mr-7 ml-auto flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2.5 font-medium text-ink-2 text-sm transition-colors hover:bg-ink/6 hover:text-ink"
+									>
+										<Edit3 className="size-3.5" strokeWidth={1.75} />
+										Bewerken
+									</button>
+								) : null}
 							</div>
 						</DialogHeader>
 
@@ -306,7 +254,7 @@ function SupplierDialog({ row, products, onClose, onInvite }: { row: Row | null;
 							<h3 className="font-medium text-ink-3 text-xs">Hun producten · {theirs.length}</h3>
 							<ul className="flex max-h-44 flex-col overflow-y-auto">
 								{theirs.map((p, i) => {
-									const st = stockOf(p);
+									const st = p.stock;
 									return (
 										<li key={p.id}>
 											<Link
@@ -316,8 +264,8 @@ function SupplierDialog({ row, products, onClose, onInvite }: { row: Row | null;
 												className={cn("flex h-9 items-center gap-3 rounded-md px-2.5 text-base transition-colors hover:bg-ink/6", i % 2 === 0 && "bg-mist")}
 											>
 												<span className="min-w-0 flex-1 truncate text-ink">{p.title}</span>
-												<span className="text-sm text-ink-3 tabular-nums">{unitsOf(p)} stuks</span>
-												<span className={cn("w-20 text-right text-sm", STOCK_TONE[st])}>{st === "out" ? "Uitverkocht" : st === "low" ? "Laag" : "Op voorraad"}</span>
+												{p.units === undefined ? null : <span className="text-sm text-ink-3 tabular-nums">{p.units} stuks</span>}
+												{st === undefined ? null : <span className={cn("w-20 text-right text-sm", STOCK_TONE[st])}>{st === "out" ? "Uitverkocht" : st === "low" ? "Laag" : "Op voorraad"}</span>}
 											</Link>
 										</li>
 									);
@@ -344,54 +292,40 @@ function SupplierDialog({ row, products, onClose, onInvite }: { row: Row | null;
 							</section>
 						) : null}
 
-						<ForwardPrefsSection supplierId={row.id} name={row.name} />
+						<ForwardPrefsSection row={row} />
 
-						<PortalSection supplier={row.supplier} onInvite={() => onInvite(row.supplier)} onClose={onClose} />
+						{source.portal ? <source.portal.Section supplier={row.supplier} onInvite={() => onInvite(row.supplier)} onClose={onClose} /> : null}
 
 						<DialogFooter className="sm:justify-between">
 							<button
 								type="button"
-								onClick={() => pauseOrResume([row])}
+								onClick={() => source.pauseOrResume([row])}
 								className="flex h-9 cursor-pointer items-center gap-1.5 rounded-md px-3 font-medium text-base text-ink-2 transition-colors hover:bg-ink/6 hover:text-ink"
 							>
 								{row.paused ? <Play className="size-3.5" strokeWidth={1.75} /> : <Pause className="size-3.5" strokeWidth={1.75} />}
 								{row.paused ? "Nieuwe bestellingen hervatten" : "Nieuwe bestellingen pauzeren"}
 							</button>
 							<div className="flex gap-2">
-								<button
+								{source.restock ? <button
 									type="button"
 									disabled={low.length === 0}
-									onClick={() => {
-										const ws = useWorkspace.getState();
-										const made = low.map((p) =>
-											ws.createTicket({
-												title: `${p.title} bijbestellen bij ${row.name}`,
-												description: `Van ${p.title} zijn nog ${unitsOf(p)} stuks over. Vraag ${row.name} wanneer er nieuwe voorraad komt.`,
-												priority: unitsOf(p) === 0 ? "high" : "medium",
-												status: "awaiting_reply",
-												tags: ["Leverancier"],
-											}),
-										);
-										undoable(`${counted(made.length, "bijbestelling", "bijbestellingen")} gestuurd naar ${row.name}`, () =>
-											useWorkspace.setState((s) => ({ tickets: s.tickets.filter((t) => !made.some((m) => m.id === t.id)) })),
-										);
-									}}
+									onClick={() => source.restock?.(row, low)}
 									className="flex h-9 cursor-pointer items-center gap-1.5 rounded-md px-3 font-medium text-base text-ink-2 transition-colors hover:bg-ink/6 hover:text-ink disabled:cursor-not-allowed disabled:text-ink-4"
 								>
 									<Truck className="size-3.5" strokeWidth={1.75} />
 									{low.length === 0 ? "Niets bij te bestellen" : `${low.length} bijbestellen`}
-								</button>
+								</button> : null}
 								<button
 									type="button"
 									onClick={() => {
 										onClose();
-										const chat = SUPPLIER_CHAT[row.id];
-										if (chat) void navigate({ to: "/chats", search: { id: chat } as never });
+										const chat = source.chatOf(row);
+										if (chat && source.openChat) source.openChat(chat);
 										else window.location.href = `mailto:${row.supplier.contact_email}`;
 									}}
 									className="flex h-9 cursor-pointer items-center gap-1.5 rounded-md bg-abyss px-3.5 font-medium text-base text-mesh-ink shadow-primary hover:bg-abyss-2"
 								>
-									{SUPPLIER_CHAT[row.id] ? <MessagesSquare className="size-3.5" strokeWidth={1.75} /> : <Mail className="size-3.5" strokeWidth={1.75} />}
+									{source.chatOf(row) ? <MessagesSquare className="size-3.5" strokeWidth={1.75} /> : <Mail className="size-3.5" strokeWidth={1.75} />}
 									Bericht aan {row.name.split(" ")[0]}
 								</button>
 							</div>
@@ -407,14 +341,12 @@ function SupplierDialog({ row, products, onClose, onInvite }: { row: Row | null;
  * Doorsturen (PLAN 24): how this supplier takes its orders — its portal, an e-mail or its API — and
  * whether a paid order goes to it at once. Each change applies with Undo.
  */
-function ForwardPrefsSection({ supplierId, name }: { supplierId: string; name: string }) {
-	const pref = useForwarding((s) => s.prefs[supplierId]) ?? { via: "portal" as const, auto: false };
-	const gate = useGate("suppliers", 2);
-	const set = (patch: Partial<typeof pref>, said: string) => {
-		const before = pref;
-		useForwarding.getState().setPref(supplierId, patch);
-		undoable(said, () => useForwarding.getState().setPref(supplierId, before));
-	};
+function ForwardPrefsSection({ row }: { row: Row }) {
+	const source = useSuppliersSource();
+	const pref = source.prefOf(row.id);
+	const gate = source.forwardGate;
+	const name = row.name;
+	const set = (patch: Partial<typeof pref>, said: string) => source.setPref(row, patch, said);
 	return (
 		<section className="flex flex-col gap-2">
 			<h3 className="font-medium text-ink-3 text-xs">Doorsturen</h3>

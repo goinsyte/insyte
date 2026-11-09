@@ -6,6 +6,7 @@ import { restore as restoreMarketing } from "../../marketing/use-cases/klaviyo.t
 import { restore as restoreOrders } from "../../orders/use-cases/commands.ts"
 import { restore as restoreProducts } from "../../products/use-cases/commands.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
+import { restore as restoreSuppliers } from "../../suppliers/use-cases/commands.ts"
 
 /*
  * `Shared.undo(token)` (ADR-0023): the token spent, its held-back effects cancelled, and its compensation run on the
@@ -17,7 +18,8 @@ const COMPENSATIONS = {
   "orders.restore": restoreOrders,
   "products.restore": restoreProducts,
   "customers.restore": restoreCustomers,
-  "marketing.restore": restoreMarketing
+  "marketing.restore": restoreMarketing,
+  "suppliers.restore": restoreSuppliers
 } satisfies Record<string, (sql: SqlClient.SqlClient, compensation: unknown) => Effect.Effect<void, unknown, unknown>>
 
 export const undo = Effect.fn("Shared.undo")(function*(token: string) {

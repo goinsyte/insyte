@@ -27,6 +27,7 @@ export const productOf = (p: ServerRow): Product => ({
   price: (p.priceMinMinor ?? 0) / 100,
   ...(p.costMinor === null ? {} : { cost: p.costMinor / 100 }),
   currency: p.currency as Currency,
+  ...(p.supplierId === null ? {} : { supplier_id: p.supplierId }),
   variants: [],
   status: p.status,
   tags: [...p.tags],
@@ -107,6 +108,8 @@ export function useConsoleProductsSource(page: ProductPage, open: (product: Prod
   const server = useMemo(() => new Map(page.rows.map((p) => [p.id, p])), [page.rows])
   const commands = useProductCommands()
   const costed = page.rows.some((p) => p.costMinor !== null)
+  const supplied = page.rows.some((p) => p.supplierId !== null)
+  const hidden = HIDDEN.filter((id) => !(supplied && id === "supplier"))
   return {
     products,
     loading: false,
@@ -117,7 +120,7 @@ export function useConsoleProductsSource(page: ProductPage, open: (product: Prod
         stock: "available",
         category: row?.productType ?? "Overig",
         margin: marginOf(p.price, p.cost),
-        supplierName: "—",
+        supplierName: row?.supplierName ?? "—",
         avgDelivery: "—",
         feedback: "—",
         sku: row?.sku ?? "—"
@@ -128,7 +131,7 @@ export function useConsoleProductsSource(page: ProductPage, open: (product: Prod
     ) => (rows.length === 0 ? undefined : `${rows.length} ${rows.length === 1 ? "product" : "producten"}`),
     attentionOf: () => QUIET,
     facets: [],
-    hidden: costed ? HIDDEN : [...HIDDEN, "margin"],
+    hidden: costed ? hidden : [...hidden, "margin"],
     actions: actionsOf(commands),
     canCreate: { ok: false, reason: "Producten toevoegen kan hier nog niet" },
     currencyOf: (p) => p.currency,

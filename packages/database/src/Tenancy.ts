@@ -46,7 +46,11 @@ export const TENANT_TABLES = [
   "first_analyses",
   "order_notes",
   "customer_not_duplicates",
-  "marketing_syncs"
+  "marketing_syncs",
+  "suppliers",
+  "supplier_contacts",
+  "supplier_integrations",
+  "product_supply"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

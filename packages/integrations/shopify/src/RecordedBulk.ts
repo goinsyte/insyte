@@ -12,13 +12,20 @@ const money = (amount: string) => ({ shopMoney: { amount } })
 /** A photograph on Unsplash, as the design reference's catalogue uses them; Shopify's would be on its CDN. */
 const photo = (id: string) => `https://images.unsplash.com/photo-${id}?w=900&q=80&auto=format&fit=crop`
 
-const product = (id: number, title: string, updatedAt: string, featured: string | null = null) => ({
+/** A product; its vendor is the shop's own name, Shopify's default, unless a supplier makes it. */
+const product = (
+  id: number,
+  title: string,
+  updatedAt: string,
+  featured: string | null = null,
+  vendor = "Insyte MVP Test"
+) => ({
   id: gid("Product", id),
   title,
   handle: title.toLowerCase().replaceAll(" ", "-"),
   descriptionHtml: `<p>${title}</p>`,
   status: "ACTIVE",
-  vendor: "Insyte MVP Test",
+  vendor,
   productType: "Kleding",
   tags: [],
   createdAt: "2026-01-10T09:00:00Z",
@@ -137,11 +144,11 @@ const jsonl = (lines: ReadonlyArray<unknown>) => lines.map((l) => JSON.stringify
 
 export const RECORDED_BULK = {
   products: jsonl([
-    product(1, "Linnen overhemd", "2026-09-01T00:00:00Z", LINEN[0]!),
+    product(1, "Linnen overhemd", "2026-09-01T00:00:00Z", LINEN[0]!, "Atelier Noord"),
     variant(11, 1, "M", "LIN-M", "49.95", 1),
     variant(12, 1, "L", "LIN-L", "49.95", 2),
     ...LINEN.map((url, i) => media(101 + i, 1, url)),
-    product(2, "Wollen trui", "2026-09-02T00:00:00Z", WOOL[0]!),
+    product(2, "Wollen trui", "2026-09-02T00:00:00Z", WOOL[0]!, "Wolhuis"),
     variant(21, 2, "Default Title", "WOL-1", "89.00", 1),
     ...WOOL.map((url, i) => media(201 + i, 2, url)),
     product(3, "Canvas tas", "2026-09-03T00:00:00Z"),

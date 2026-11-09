@@ -63,22 +63,28 @@ export function AreaEmpty({
 	area,
 	action,
 	starts,
+	body,
+	source: from,
 }: {
 	area: Area;
 	action?: { label: string; onClick: () => void } | undefined;
 	starts?: IndexItem[] | undefined;
+	/** The host's own line on where the records come from, where the area's does not hold for it. */
+	body?: string | undefined;
+	/** The host's own secondary, or `null` for none (a host without the area's source screen). */
+	source?: { label: string; onClick: () => void } | null | undefined;
 }) {
 	const navigate = useNavigate();
 	const c = COPY[area];
-	const source = { label: c.source.label, onClick: () => void navigate({ to: c.source.to }) };
+	const source = from === undefined ? { label: c.source.label, onClick: () => void navigate({ to: c.source.to }) } : from;
 	return (
 		<EmptyPage
 			kind={c.kind}
 			count={`0 ${c.noun}`}
 			title={c.title}
-			body={c.body}
-			action={action ?? source}
-			secondary={action ? source : undefined}
+			body={body ?? c.body}
+			action={action ?? source ?? undefined}
+			secondary={action ? (source ?? undefined) : undefined}
 			starts={starts}
 		/>
 	);
