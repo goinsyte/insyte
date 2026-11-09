@@ -1,4 +1,4 @@
-import type { OrderStatus } from "../lib/types/domain";
+import type { OrderStatus } from "../lib/types/domain"
 
 /* ─────────────────────────────────────────────────────────────────────
    Order status badge — uses the brand book's signal-{green,amber,red}
@@ -14,48 +14,48 @@ import type { OrderStatus } from "../lib/types/domain";
    ───────────────────────────────────────────────────────────────────── */
 
 const MAP: Record<
-	OrderStatus | "delayed" | "refund" | "at_supplier",
-	{ label: string; bg: string; fg: string }
+  OrderStatus | "delayed" | "refund" | "at_supplier",
+  { label: string; bg: string; fg: string }
 > = {
-	placed: { label: "Geplaatst", bg: "var(--mist)", fg: "var(--ink-3)" },
-	paid: {
-		label: "Betaald",
-		bg: "var(--signal-green-bg)",
-		fg: "var(--signal-green)",
-	},
-	at_supplier: {
-		label: "Bij leverancier",
-		bg: "var(--signal-amber-bg)",
-		fg: "var(--signal-amber)",
-	},
-	shipped: { label: "Verzonden", bg: "var(--arc-tint)", fg: "var(--arc-ink)" },
-	delivered: {
-		label: "Bezorgd",
-		bg: "var(--signal-green-bg)",
-		fg: "var(--signal-green)",
-	},
-	delayed: {
-		label: "Vertraagd",
-		bg: "var(--signal-red-bg)",
-		fg: "var(--signal-red)",
-	},
-	refunded: { label: "Terugbetaald", bg: "var(--mist)", fg: "var(--ink-3)" },
-	refund: { label: "Terugbetaling", bg: "var(--mist)", fg: "var(--ink-3)" },
-	cancelled: { label: "Geannuleerd", bg: "var(--mist)", fg: "var(--ink-3)" },
-};
+  placed: { label: "Geplaatst", bg: "var(--mist)", fg: "var(--ink-3)" },
+  paid: {
+    label: "Betaald",
+    bg: "var(--signal-green-bg)",
+    fg: "var(--signal-green)"
+  },
+  at_supplier: {
+    label: "Bij leverancier",
+    bg: "var(--signal-amber-bg)",
+    fg: "var(--signal-amber)"
+  },
+  shipped: { label: "Verzonden", bg: "var(--arc-tint)", fg: "var(--arc-ink)" },
+  delivered: {
+    label: "Bezorgd",
+    bg: "var(--signal-green-bg)",
+    fg: "var(--signal-green)"
+  },
+  delayed: {
+    label: "Vertraagd",
+    bg: "var(--signal-red-bg)",
+    fg: "var(--signal-red)"
+  },
+  refunded: { label: "Terugbetaald", bg: "var(--mist)", fg: "var(--ink-3)" },
+  refund: { label: "Terugbetaling", bg: "var(--mist)", fg: "var(--ink-3)" },
+  cancelled: { label: "Geannuleerd", bg: "var(--mist)", fg: "var(--ink-3)" }
+}
 
 export function OrderStatusBadge({
-	status,
+  status
 }: {
-	status: OrderStatus | "delayed" | "refund";
+  status: OrderStatus | "delayed" | "refund"
 }) {
-	const meta = MAP[status] ?? MAP.placed;
-	return (
-		<span
-			className="inline-flex h-[18px] items-center justify-center rounded-full px-2 font-medium text-sm leading-none"
-			style={{ backgroundColor: meta.bg, color: meta.fg }}
-		>
-			{meta.label}
-		</span>
-	);
+  const meta = MAP[status] ?? MAP.placed
+  return (
+    <span
+      className="inline-flex h-[18px] items-center justify-center rounded-full px-2 font-medium text-sm leading-none"
+      style={{ backgroundColor: meta.bg, color: meta.fg }}
+    >
+      {meta.label}
+    </span>
+  )
 }
