@@ -63,6 +63,7 @@
         "!src/app/orders/**",
         "!src/app/products/**",
         "!src/app/customers/**",
+        "!src/app/suppliers/**",
       ],
     },
     "apps/console": {
