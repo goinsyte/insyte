@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react"
 import { Forbidden, NotFound } from "@insyte/domain/Errors"
+import type { OrderDetail } from "@insyte/modules/orders/domain/Orders"
 import { DeniedPanel } from "@insyte/ui/app/access/denied"
 import type { Level, Permission } from "@insyte/ui/app/lib/permissions"
 import { PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
@@ -9,7 +10,7 @@ import { createFileRoute, notFound } from "@tanstack/react-router"
 import { Effect, Exit, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { orderAtom, ordersAtom } from "../data/orders.ts"
-import { arrivingOrderDetail, consoleOrderDetail } from "../orders/order-detail-source.ts"
+import { arrivingOrderDetail, useConsoleOrderDetail } from "../orders/order-detail-source.ts"
 
 /**
  * One order (step 8.4d, M6.4): the reference's record over `Orders.get`. Reached by its URL, the server reads it
@@ -45,13 +46,7 @@ function OrderRoute() {
   const result = useAtomValue(orderAtom(orderId))
   const list = Option.getOrUndefined(AsyncResult.value(useAtomValue(ordersAtom)))
   const detail = Option.getOrUndefined(AsyncResult.value(result))
-  if (detail !== undefined) {
-    return (
-      <OrderDetailSourceProvider value={consoleOrderDetail(detail)}>
-        <OrderDetailPage />
-      </OrderDetailSourceProvider>
-    )
-  }
+  if (detail !== undefined) return <Loaded detail={detail} />
   const failed = AsyncResult.isFailure(result) ? result.cause.reasons.find((r) => r._tag === "Fail") : undefined
   if (failed !== undefined && failed._tag === "Fail" && isNotFound(failed.error)) throw notFound()
   if (failed !== undefined && failed._tag === "Fail" && isForbidden(failed.error)) {
@@ -74,6 +69,14 @@ function OrderRoute() {
   if (row === undefined) return <Pending />
   return (
     <OrderDetailSourceProvider value={arrivingOrderDetail(row)}>
+      <OrderDetailPage />
+    </OrderDetailSourceProvider>
+  )
+}
+
+function Loaded({ detail }: { detail: OrderDetail }) {
+  return (
+    <OrderDetailSourceProvider value={useConsoleOrderDetail(detail)}>
       <OrderDetailPage />
     </OrderDetailSourceProvider>
   )

@@ -22,8 +22,7 @@ export class InvitationLinks extends Context.Service<InvitationLinks, {
   readonly shareable: (workspaceId: string, round: number) => Effect.Effect<Minted>
 }>()("members/InvitationLinks") {}
 
-/** How long a write that reaches outside Insyte waits, so "Ongedaan maken" (six seconds) can still cancel it. */
-export const UNDO_SECONDS = 8
+export { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
 
 /** An invitation is valid this long, and a resend starts it again. */
 export const INVITATION_DAYS = 7

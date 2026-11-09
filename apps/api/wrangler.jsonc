@@ -49,6 +49,8 @@
     { "binding": "SHOPIFY_BACKFILL", "name": "insyte-shopify-backfill", "class_name": "ShopifyBackfillWorkflow" },
     // A store's first analysis (M6.5): its early read, step by step.
     { "binding": "FIRST_ANALYSIS", "name": "insyte-first-analysis", "class_name": "FirstAnalysisWorkflow" },
+    // An order change to Shopify (M7.1): a step per order, after the undo window.
+    { "binding": "SHOPIFY_WRITE", "name": "insyte-shopify-write", "class_name": "ShopifyWriteWorkflow" },
   ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] },

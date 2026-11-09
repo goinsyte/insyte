@@ -59,6 +59,26 @@ export const OutboxEvent = Schema.Union([
     workspaceId: Schema.String,
     storeId: Schema.String
   }),
+  // Orders changed in Insyte (M7.1): Shopify hears it once the undo window has passed. Tags travel as the change
+  // (labels, not personal data), so a tag Shopify gained meanwhile stays; an address is read when it is sent.
+  Schema.Struct({
+    type: Schema.Literal("order.updated"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    orderIds: Schema.Array(Schema.String),
+    change: Schema.Literals(["tags", "shipping", "fulfil"]),
+    add: Schema.Array(Schema.String),
+    remove: Schema.Array(Schema.String)
+  }),
+  // Orders cancelled in Insyte (M7.1): to Shopify at once, since nothing can take it back.
+  Schema.Struct({
+    type: Schema.Literal("order.cancelled"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    orderIds: Schema.Array(Schema.String),
+    restock: Schema.Boolean,
+    notify: Schema.Boolean
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

@@ -11,6 +11,12 @@ export const CommerceHandlers = CommerceRpcs.toLayer(Effect.gen(function*() {
   return CommerceRpcs.of({
     "Orders.list": (input) => orders.list(input),
     "Orders.get": ({ id }) => orders.get(id),
+    "Orders.tags": () => orders.tags,
+    "Orders.tag": (input) => orders.tag(input),
+    "Orders.markFulfilled": ({ ids }) => orders.markFulfilled(ids),
+    "Orders.updateShipping": (input) => orders.updateShipping(input),
+    "Orders.cancel": (input) => orders.cancel(input),
+    "Orders.setNote": ({ id, body }) => orders.setNote(id, body),
     "Products.list": (input) => products.list(input),
     "Products.get": ({ id }) => products.get(id),
     "Customers.list": (input) => customers.list(input),

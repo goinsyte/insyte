@@ -1,4 +1,5 @@
 import { Forbidden, NotFound, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
+import { TagCount } from "@insyte/modules/orders/domain/Commands"
 import { OrderDetail, OrderPage } from "@insyte/modules/orders/domain/Orders"
 import { CursorInvalid, FilterFieldUnknown } from "@insyte/modules/shared/domain/Filter"
 import { Schema } from "effect"
@@ -9,7 +10,7 @@ import { ConsoleClient } from "./client.ts"
 /*
  * Bestellingen (M6.4): the newest orders, primed by the route's loader and carried in the document. The design's table
  * filters, searches and pages in the browser, so it gets the rows it shows at once: up to `LIMIT`, the newest first.
- * A change to an order (a webhook, M6.3) names `ORDERS`.
+ * A change to an order (a webhook, M6.3, or a command, M7.1) names `ORDERS`; the commands' undo is `Shared.undo`.
  */
 
 export const ORDERS = ["orders"] as const
@@ -53,3 +54,26 @@ export const orderAtom = Atom.family((id: string) =>
     }
   )
 )
+
+/** The operator's tags in the role's stores, the most used first: offered while typing a tag. */
+export const orderTagsAtom = Atom.serializable(
+  ConsoleClient.query("Orders.tags", undefined, { reactivityKeys: ORDERS }),
+  {
+    key: "order-tags",
+    schema: AsyncResult.Schema({
+      success: Schema.Array(TagCount),
+      error: Schema.Union([Forbidden, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
+    }),
+    skipInitialRun: true
+  }
+)
+
+/** The order commands (M7.1), each refreshing what names `ORDERS`, and the undo every reversible one offers. */
+export const orderWrites = {
+  tag: ConsoleClient.mutation("Orders.tag"),
+  markFulfilled: ConsoleClient.mutation("Orders.markFulfilled"),
+  updateShipping: ConsoleClient.mutation("Orders.updateShipping"),
+  cancel: ConsoleClient.mutation("Orders.cancel"),
+  setNote: ConsoleClient.mutation("Orders.setNote"),
+  undo: ConsoleClient.mutation("Shared.undo")
+} as const

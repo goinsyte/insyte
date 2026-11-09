@@ -16,6 +16,7 @@ export { ConnectionGateObject } from "./platform/ConnectionGate.ts"
 export { ShopifyBackfillWorkflow } from "./workflows/ShopifyBackfill.ts"
 // A store's first analysis (M6.5).
 export { FirstAnalysisWorkflow } from "./workflows/FirstAnalysis.ts"
+export { ShopifyWriteWorkflow } from "./workflows/ShopifyWrite.ts"
 
 /** Module scope: the layer is built once per isolate, and building it does no request-time I/O. */
 const web = HttpRouter.toWebHandler(AppLayer)

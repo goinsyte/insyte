@@ -1,6 +1,7 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { Frame } from "@insyte/api/rpc/ShellRpcs"
 import type { AreaId, Level, RoleDef, SpecialId } from "@insyte/domain/Permissions"
+import { GateRoleProvider } from "@insyte/ui/app/access/gate-role"
 import { panelForPath } from "@insyte/ui/app/lib/app-shell-config"
 import { navByPersona } from "@insyte/ui/app/lib/nav-config"
 import { navActions, navPrefsOf } from "@insyte/ui/app/lib/nav-model"
@@ -91,6 +92,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     togglePinView: useAtomSet(frameWrites.togglePinView, { mode: "promiseExit" })
   }
 
+  const gateRole = useMemo(() => roleOf(frame), [frame])
   const [nav, setNav] = usePrefSection(frame, "rail", NAV_DEFAULTS)
   const [panel, setPanel] = usePrefSection(frame, "panel", PANEL_DEFAULTS)
   const [pins, setPins] = usePrefSection(frame, "pins", PINS_DEFAULTS)
@@ -298,5 +300,11 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
       conversations: []
     }
   }
-  return <ShellSourceProvider value={source}>{children}</ShellSourceProvider>
+  // The role the shared parts grey their controls out by (the selection bar, the record's actions); the server still
+  // refuses what the role may not do.
+  return (
+    <ShellSourceProvider value={source}>
+      <GateRoleProvider value={gateRole}>{children}</GateRoleProvider>
+    </ShellSourceProvider>
+  )
 }

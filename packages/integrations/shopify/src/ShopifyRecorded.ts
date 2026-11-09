@@ -18,6 +18,8 @@ import { readLines } from "./ShopifyGraphql.ts"
  * store that uninstalled the app answers. Bulk operations finish on the second poll with `RecordedBulk`'s files
  * (an `empty-*` shop finds nothing). Single reads and the reconcile pages answer from the same files; an `upd-*` shop
  * holds `RECORDED_UPDATES` on top, as a store that changed since its import. Every webhook signed `valid` verifies.
+ * The order writes (M7.1) are taken as Shopify takes them; a `refuse-*` shop refuses each with a user error, and an
+ * order has one open fulfillment order until it is fulfilled.
  */
 
 export const RECORDED_FACTS: ShopFacts = {
@@ -75,7 +77,35 @@ const RECORDED_SHOP = {
   ]
 }
 
+/** The order writes (M7.1): Shopify's answer to each mutation, a refusal from a `refuse-*` shop. */
+const MUTATIONS: Record<string, { readonly field?: string; readonly ok: Record<string, unknown> }> = {
+  tagsAdd: { ok: { node: { id: "recorded" } } },
+  tagsRemove: { ok: { node: { id: "recorded" } } },
+  orderUpdate: { ok: { order: { id: "recorded" } } },
+  fulfillmentCreate: { ok: { fulfillment: { id: "gid://shopify/Fulfillment/1", status: "SUCCESS" } } },
+  orderCancel: { field: "orderCancelUserErrors", ok: { job: { id: "gid://shopify/Job/1" } } }
+}
+
+const recordedMutation = (shop: string, query: string): unknown | undefined => {
+  const name = Object.keys(MUTATIONS).find((m) => query.includes(`${m}(`))
+  if (name === undefined) return undefined
+  const { field = "userErrors", ok } = MUTATIONS[name]!
+  const refused = shop.startsWith("refuse-")
+  return {
+    [name]: refused
+      ? { [field]: [{ field: ["id"], message: "Deze bestelling kan niet worden gewijzigd" }] }
+      : { ...ok, [field]: [] }
+  }
+}
+
 const recordedQuery = (shop: string, query: string, variables: Record<string, unknown>): unknown => {
+  const mutation = recordedMutation(shop, query)
+  if (mutation !== undefined) return mutation
+  if (query.includes("fulfillmentOrders(")) {
+    return {
+      order: { fulfillmentOrders: { nodes: [{ id: "gid://shopify/FulfillmentOrder/1", status: "OPEN" }] } }
+    }
+  }
   if (query.includes("node(id:")) return { node: nest(shop, String(variables["id"])) }
   if (query.includes("shipsToCountries")) return { shop: { shipsToCountries: RECORDED_SHOP.shipsToCountries } }
   if (query.includes("shopPolicies")) return { shop: { shopPolicies: RECORDED_SHOP.shopPolicies } }

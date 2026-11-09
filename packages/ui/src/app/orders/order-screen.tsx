@@ -67,6 +67,7 @@ export function OrderDetailPage() {
 		payment,
 		supplier,
 		arriving,
+		checkoutNote,
 		tags,
 		writes,
 		Tracker,
@@ -465,6 +466,13 @@ export function OrderDetailPage() {
 						</section>
 					) : null}
 
+					{checkoutNote ? (
+						<section className="flex flex-col gap-2 rounded-xl panel p-5">
+							<h3 className="font-normal text-base text-ink-2 leading-[1.55]">Opmerking van de klant</h3>
+							<p className="whitespace-pre-line text-base text-ink">{checkoutNote}</p>
+						</section>
+					) : null}
+
 					<OrderTags order={order} known={tags.known} write={tags.write} />
 					{Returns ? <Returns.Panel order={order} onStart={() => setReturnOpen(true)} /> : null}
 				</aside>
@@ -475,7 +483,7 @@ export function OrderDetailPage() {
 				open={cancelOpen}
 				onOpenChange={setCancelOpen}
 				title={`Bestelling ${order.number} annuleren?`}
-				description="Dit stopt de afhandeling, geeft gereserveerde voorraad vrij en laat het de klant weten. Zodra de leverancier het bevestigt, kun je dit in Insyte niet meer terugdraaien."
+				description="Dit stopt de afhandeling, geeft gereserveerde voorraad vrij en laat het de klant weten. Een annulering kun je niet terugdraaien."
 				confirmLabel="Bestelling annuleren"
 				cancelLabel="Bestelling houden"
 				tone="destructive"

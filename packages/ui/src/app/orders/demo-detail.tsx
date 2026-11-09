@@ -128,9 +128,9 @@ export function DemoOrderDetail({ id, customer }: { id: string; customer: Custom
 					description: `${formatCurrency(stored.total, stored.currency)} aan ${stored.customer_name}`,
 				});
 			},
+			// Irreversible (ADR-0023): the dialog asked first, so there is no undo.
 			cancel: () => {
-				const before = cancelOrder(stored.id);
-				if (before) undoable(`${stored.number} geannuleerd`, () => restoreOrder(before), "De afhandeling is gestopt en de klant is op de hoogte.");
+				if (cancelOrder(stored.id)) toast.success(`${stored.number} geannuleerd`, { description: "De afhandeling is gestopt en de klant is op de hoogte." });
 			},
 			saveNote: (note) => {
 				addOrderNote(stored.id, note);

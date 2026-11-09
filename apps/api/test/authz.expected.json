@@ -300,6 +300,48 @@
     "finance": "allow",
     "view": "allow"
   },
+  "Orders.tags": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Orders.tag": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Orders.markFulfilled": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Orders.updateShipping": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Orders.cancel": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Orders.setNote": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "deny"
+  },
   "Products.list": {
     "owner": "allow",
     "admin": "allow",
@@ -348,5 +390,12 @@
     "service": "deny",
     "finance": "deny",
     "view": "deny"
+  },
+  "Shared.undo": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
   }
 }

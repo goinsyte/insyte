@@ -178,6 +178,11 @@ export default Alchemy.Stack(
           className: "FirstAnalysisWorkflow",
           workflowName: `insyte-first-analysis-${stage}`
         }),
+        // An order change to Shopify (M7.1), hosted by this Worker (`ShopifyWriteWorkflow`); one per stage.
+        SHOPIFY_WRITE: Cloudflare.Workflow("ShopifyWrite", {
+          className: "ShopifyWriteWorkflow",
+          workflowName: `insyte-shopify-write-${stage}`
+        }),
         ENVIRONMENT: environment,
         // Where `Main.ts` serves `/v1` and nothing else.
         PUBLIC_API_HOST: `insyte-api-${stage}.${WORKERS_SUBDOMAIN}`,
