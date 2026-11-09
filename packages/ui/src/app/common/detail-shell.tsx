@@ -33,9 +33,16 @@ declare module "@tanstack/react-router" {
 	}
 }
 
-/** True when this route was opened by clicking a row rather than by following a URL. */
+/* The history entry this module was loaded on: the document's, or the list's that first imported it, never a record
+   opened over a list (the list loads first). A reload keeps an entry's state, `modal` included, but there is no list
+   behind it any more: a record on that entry is a page, as the server that rendered it drew it. */
+const loadedOn = typeof window === "undefined" ? undefined : (window.history.state as { __TSR_key?: string } | null)?.__TSR_key;
+
+/** True when this route was opened by clicking a row rather than by following a URL or reloading. */
 export function useOpenedAsModal(): boolean {
-	return useRouterState({ select: (s) => s.location.state.modal === true });
+	return useRouterState({
+		select: (s) => s.location.state.modal === true && (loadedOn === undefined || s.location.state.__TSR_key !== loadedOn),
+	});
 }
 
 /** What a list passes to `navigate` so the record opens over it. */

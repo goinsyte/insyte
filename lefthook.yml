@@ -3,10 +3,10 @@ pre-commit:
   commands:
     format:
       glob: "*.{ts,tsx,json,jsonc,md}"
-      run: bunx dprint check {staged_files}
+      run: bunx dprint check --allow-no-files {staged_files}
     lint:
       glob: "*.{ts,tsx}"
-      run: bunx oxlint --disable-nested-config {staged_files}
+      run: bunx oxlint --disable-nested-config --no-error-on-unmatched-pattern {staged_files}
     secrets:
       run: bunx secretlint --secretlintignore .secretlintignore {staged_files}
     scope:
