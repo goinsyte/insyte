@@ -60,7 +60,7 @@ const portedPaths = [
  * Screens that graduated from the port (M7.6): their commands run on the server now, they were edited for it, and the
  * rules hold them like any authored code. A screen joins this list when its slice's commands land.
  */
-const graduated = ["app/orders/", "app/products/", "app/customers/"]
+const graduated = ["app/orders/", "app/products/", "app/customers/", "app/suppliers/"]
 
 const ported = (name: string): boolean =>
   portedPaths.some((prefix) => name.startsWith(prefix)) && !graduated.some((prefix) => name.startsWith(prefix))
@@ -158,7 +158,9 @@ describe("the components read the token system rather than restating it", () => 
       "brand/colour.tsx",
       "brand/motion.tsx",
       "brand/shape.tsx",
-      "brand/type.tsx"
+      "brand/type.tsx",
+      // A supplier's API secret, shown once to be copied character for character (M8.2).
+      "app/suppliers/suppliers-screen.tsx"
     ])
 
     for (const [name, source] of classes) {

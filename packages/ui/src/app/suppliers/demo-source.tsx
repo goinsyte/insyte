@@ -199,8 +199,10 @@ export function DemoSuppliersSource({ children }: { children: ReactNode }) {
       connect: async (row, url) => {
         const before = useLocal.getState().apis[row.id] ?? null
         useLocal.setState((s) => ({ apis: { ...s.apis, [row.id]: { url, lastPing: null } } }))
-        undoable(`API van ${row.name} gekoppeld`, () =>
-          useLocal.setState((s) => ({ apis: { ...s.apis, [row.id]: before } })))
+        undoable(
+          `API van ${row.name} gekoppeld`,
+          () => useLocal.setState((s) => ({ apis: { ...s.apis, [row.id]: before } }))
+        )
         return `whsec_demo${Math.random().toString(36).slice(2, 14)}${Math.random().toString(36).slice(2, 14)}`
       },
       test: async (row) => {
@@ -214,8 +216,10 @@ export function DemoSuppliersSource({ children }: { children: ReactNode }) {
       disconnect: (row) => {
         const before = useLocal.getState().apis[row.id] ?? null
         useLocal.setState((s) => ({ apis: { ...s.apis, [row.id]: null } }))
-        undoable(`API van ${row.name} ontkoppeld`, () =>
-          useLocal.setState((s) => ({ apis: { ...s.apis, [row.id]: before } })))
+        undoable(
+          `API van ${row.name} ontkoppeld`,
+          () => useLocal.setState((s) => ({ apis: { ...s.apis, [row.id]: before } }))
+        )
       }
     },
     restock: (row, low) => {
@@ -223,7 +227,9 @@ export function DemoSuppliersSource({ children }: { children: ReactNode }) {
       const made = low.map((p) =>
         ws.createTicket({
           title: `${p.title} bijbestellen bij ${row.name}`,
-          description: `Van ${p.title} zijn nog ${p.units ?? 0} stuks over. Vraag ${row.name} wanneer er nieuwe voorraad komt.`,
+          description: `Van ${p.title} zijn nog ${
+            p.units ?? 0
+          } stuks over. Vraag ${row.name} wanneer er nieuwe voorraad komt.`,
           priority: p.units === 0 ? "high" : "medium",
           status: "awaiting_reply",
           tags: ["Leverancier"]
@@ -271,8 +277,10 @@ export function DemoSuppliersSource({ children }: { children: ReactNode }) {
         created_at: new Date().toISOString()
       }
       useLocal.setState((s) => ({ added: [...s.added, made] }))
-      undoable(`${input.name} toegevoegd`, () =>
-        useLocal.setState((s) => ({ added: s.added.filter((a) => a.id !== made.id) })))
+      undoable(
+        `${input.name} toegevoegd`,
+        () => useLocal.setState((s) => ({ added: s.added.filter((a) => a.id !== made.id) }))
+      )
     },
     inputOf: (row) => ({
       name: row.name,
@@ -286,4 +294,3 @@ export function DemoSuppliersSource({ children }: { children: ReactNode }) {
   }
   return <SuppliersSourceProvider value={source}>{children}</SuppliersSourceProvider>
 }
-
