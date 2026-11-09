@@ -61,6 +61,10 @@
     { "tag": "v2", "new_sqlite_classes": ["RoomDurableObject"] },
     { "tag": "v3", "new_sqlite_classes": ["ConnectionGateObject"] },
   ],
+  // Files (M8.5): packing slips now, uploads later. Browser Rendering makes the slips' PDFs (not in the worker tests,
+  // which store the HTML: `DOCUMENTS_ADAPTER=html`).
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "insyte-files" }],
+  "browser": { "binding": "BROWSER" },
   // The outbox relay (M1.4): committed events' ids onto EVENTS, consumed by this Worker; the minute cron sweeps.
   "queues": {
     "producers": [

@@ -150,6 +150,8 @@ export default Alchemy.Stack(
      * for events a kick missed runs on staging and production only: an account has few cron triggers, and a preview
      * each would spend them.
      */
+    // Files (M8.5): packing slips now, uploads later; in the EU, one bucket per stage.
+    const files = yield* Cloudflare.R2.Bucket("Files", { name: `insyte-files-${stage}`, jurisdiction: "eu" })
     const events = yield* Cloudflare.Queues.Queue("Events", { name: `insyte-events-${stage}`, jurisdiction: "eu" })
     const deadEvents = yield* Cloudflare.Queues.Queue("EventsDlq", {
       name: `insyte-events-dlq-${stage}`,
@@ -174,6 +176,9 @@ export default Alchemy.Stack(
       observability: OBSERVABILITY,
       env: {
         HYPERDRIVE: hyperdrive,
+        FILES: files,
+        // Browser Rendering (M8.5): packing slips as PDF.
+        BROWSER: Cloudflare.Browser("BROWSER"),
         EVENTS: events,
         INGEST: ingest,
         // The edge guards' counters (M2.3), hosted by this Worker (`RateLimiter` in Main.ts); SQLite-backed.

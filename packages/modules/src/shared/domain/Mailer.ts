@@ -57,6 +57,8 @@ export interface Mail {
   readonly supplierOrder?: SupplierOrderFacts | undefined
   /** What makes two mails of one kind to one address different (a leg's id), for the sender's idempotency. */
   readonly reference?: string | undefined
+  /** Files sent with it (a packing slip, M8.5). */
+  readonly attachments?: ReadonlyArray<{ readonly filename: string; readonly content: Uint8Array }> | undefined
 }
 
 export class MailNotSent extends Schema.TaggedError<MailNotSent>()("MailNotSent", {

@@ -1,9 +1,12 @@
 import { Db } from "@insyte/database/Db"
+import { mintId } from "@insyte/domain/Ids"
 import { Effect, Redacted } from "effect"
 import type { SqlClient } from "effect/sql"
+import { Documents, FileStore } from "../../shared/domain/Documents.ts"
 import { Mailer } from "../../shared/domain/Mailer.ts"
 import { Sealer } from "../../shared/domain/Sealer.ts"
 import { SupplierApi, SupplierApiError, type SupplierOrder } from "../domain/Forwarding.ts"
+import { packingSlipHtml } from "../domain/PackingSlip.ts"
 import { ensureWork } from "./work.ts"
 
 /*
@@ -82,7 +85,28 @@ const failed = (sql: SqlClient.SqlClient, id: string, note: string) =>
 
 type Outcome = "sent" | "failed" | "skipped"
 
-const deliver = (leg: Leg) =>
+/**
+ * The leg's packing slip (M8.5): rendered, kept in the files bucket and named on the leg, for the mail and the order.
+ * A slip that cannot be made is not a reason to hold the order back: the mail goes without it.
+ */
+const slipOf = (sql: SqlClient.SqlClient, leg: Leg, order: SupplierOrder) =>
+  Effect.gen(function*() {
+    const file = yield* Effect.flatMap(Effect.service(Documents), (d) => d.render(packingSlipHtml(leg.shop, order)))
+    const [ws] = yield* sql<{ id: string }>`select app_workspace_id() as id`
+    const key = `${ws!.id}/slips/${leg.id}.${file.extension}`
+    yield* Effect.flatMap(Effect.service(FileStore), (s) => s.put(key, file.bytes, file.mime))
+    const name = `pakbon-${leg.number.replace(/^#/, "")}.${file.extension}`
+    yield* sql`insert into files (id, workspace_id, r2_key, name, mime, size_bytes, kind, owner_type, owner_id,
+                                  uploaded_by, scan_state)
+               values (${mintId("fil")}, ${ws!.id}, ${key}, ${name}, ${file.mime}, ${file.bytes.length}, 'document',
+                       'forwarding_item', ${leg.id}, 'system', 'clean')
+               on conflict (r2_key) do nothing`
+    return { filename: name, content: file.bytes }
+  }).pipe(
+    Effect.catch((e) => Effect.as(Effect.logWarning("packing slip not made", { leg: leg.id, error: e }), undefined))
+  )
+
+const deliver = (sql: SqlClient.SqlClient, leg: Leg) =>
   Effect.gen(function*() {
     const order = supplierOrderOf(leg)
     if (leg.via === "api") {
@@ -99,12 +123,14 @@ const deliver = (leg: Leg) =>
     if (leg.to === null) {
       return yield* new SupplierApiError({ reason: "Geen e-mailadres voor bestellingen", retryable: false })
     }
+    const slip = yield* slipOf(sql, leg, order)
     yield* Effect.flatMap(Effect.service(Mailer), (mailer) =>
       mailer.send({
         kind: "supplier.order",
         to: leg.to!,
         reference: leg.id,
-        supplierOrder: { supplier: leg.supplierName, shop: leg.shop, order }
+        supplierOrder: { supplier: leg.supplierName, shop: leg.shop, order },
+        attachments: slip === undefined ? undefined : [slip]
       })).pipe(
         Effect.mapError((e) => new SupplierApiError({ reason: e.reason, retryable: true }))
       )
@@ -120,7 +146,7 @@ export const send = Effect.fn("Forwarding.send")(function*(legIds: ReadonlyArray
       Effect.gen(function*() {
         const [leg] = yield* lockLeg(sql, id)
         if (leg === undefined) return "skipped" as const
-        return yield* deliver(leg).pipe(
+        return yield* deliver(sql, leg).pipe(
           Effect.andThen(sentOk(sql, leg)),
           Effect.as("sent" as const),
           Effect.catchTag("SupplierApiError", (e) => {

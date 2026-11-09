@@ -66,7 +66,13 @@ export const ResendMailer = Layer.effect(
     return Mailer.of({
       send: Effect.fn("ResendMailer.send")(function*(mail: Mail) {
         const rendered = yield* render(mail)
-        yield* resend.send({ from, to: mail.to, ...rendered, idempotencyKey: yield* idempotencyKey(mail) }).pipe(
+        yield* resend.send({
+          from,
+          to: mail.to,
+          ...rendered,
+          idempotencyKey: yield* idempotencyKey(mail),
+          attachments: mail.attachments
+        }).pipe(
           Effect.mapError((error) => new MailNotSent({ kind: mail.kind, reason: error.reason }))
         )
       })

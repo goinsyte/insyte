@@ -145,6 +145,7 @@ interface Row {
   readonly errorNote: string | null
   readonly operatorNote: string | null
   readonly forwardedBy: string | null
+  readonly slipFileId: string | null
 }
 
 const SELECT = `f.id, f.order_id, o.number as order_number, o.customer_name, f.store_id, o.total_minor, o.currency,
@@ -155,7 +156,9 @@ const SELECT = `f.id, f.order_id, o.number as order_number, o.customer_name, f.s
             from order_lines l left join products p on p.id = l.product_id
             where l.id = any(f.line_ids)), '[]') as lines,
   f.state, f.via, f.since, (select x.not_before from outbox x where x.id = f.outbox_id) as sending_until,
-  f.confirm_by, f.error_kind, f.error_note, f.operator_note, f.forwarded_by`
+  f.confirm_by, f.error_kind, f.error_note, f.operator_note, f.forwarded_by,
+  (select fl.id from files fl where fl.owner_type = 'forwarding_item' and fl.owner_id = f.id and fl.deleted_at is null
+   order by fl.created_at desc limit 1) as slip_file_id`
 
 const FROM = `forwarding_items f join orders o on o.id = f.order_id
   left join suppliers s on s.id = f.supplier_id left join suppliers fs on fs.id = f.from_supplier_id`
@@ -181,7 +184,8 @@ const toRow = (r: Row) =>
     errorKind: r.errorKind,
     errorNote: r.errorNote,
     operatorNote: r.operatorNote,
-    forwardedBy: r.forwardedBy
+    forwardedBy: r.forwardedBy,
+    slipFileId: r.slipFileId
   })
 
 export const rowsWhere = (sql: SqlClient.SqlClient, where: Statement.Fragment) =>

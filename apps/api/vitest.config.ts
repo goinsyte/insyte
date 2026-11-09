@@ -14,6 +14,7 @@ export default defineConfig({
           KLAVIYO_ADAPTER: "recorded",
           SUPPLIER_API_ADAPTER: "recorded",
           TRACKING_ADAPTER: "recorded",
+          DOCUMENTS_ADAPTER: "html",
           SYNC_PAGE_LINES: "4"
         }
       }

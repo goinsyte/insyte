@@ -64,6 +64,18 @@ describe("forwarding", () => {
     expect(waiting).toMatchObject({ state: "awaiting", late: false })
     expect(waiting.confirmBy).toBeGreaterThan(Date.now() + 23 * 3_600_000)
 
+    // Its packing slip went with the mail and is kept on the leg: the order, the line, never the customer's email.
+    expect(waiting.slipFileId).toMatch(/^fil_/)
+    const slip = await call(`http://api.test/api/files/${waiting.slipFileId}`, { headers: { cookie: store.cookie } })
+    expect(slip.status).toBe(200)
+    expect(slip.headers.get("content-disposition")).toContain("pakbon-1001.html")
+    const page = await slip.text()
+    expect(page).toContain("Pakbon · #1001")
+    expect(page).toContain("1×</td><td>Linnen overhemd")
+    expect(page).not.toContain("klant1@example.com")
+    expect((await call(`http://api.test/api/files/${waiting.slipFileId}`)).status).toBe(401)
+    expect((await call("http://api.test/api/files/fil_none", { headers: { cookie: store.cookie } })).status).toBe(404)
+
     // Confirmed: every leg of #1001 is with its supplier, so the order is.
     const confirmed = ok(await rpc("Forwarding.markConfirmed", { ids: [leg.id] }, store.cookie))
     expect(confirmed.legs[0]!.state).toBe("confirmed")
