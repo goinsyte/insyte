@@ -83,8 +83,8 @@ export function OrderDetailPage() {
   const closed = order.status === "cancelled" || order.status === "refunded"
   const [returnOpen, setReturnOpen] = useState(false)
 
-  function draftSupplierMessage(supplier: string) {
-    writes?.draftSupplierMessage(supplier)
+  function draftSupplierMessage(to: string) {
+    writes?.draftSupplierMessage(to)
     setAdviceDismissed(true)
   }
 
@@ -548,7 +548,7 @@ export function OrderDetailPage() {
                 onOpenChange={setShippingOpen}
                 name={order.customer_name}
                 initial={order.shipping_address}
-                onSave={(address: Address) => writes.saveShipping(address)}
+                onSave={(next: Address) => writes.saveShipping(next)}
               />
             </>
           ) :

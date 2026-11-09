@@ -60,6 +60,9 @@
         "!src/app/onboarding/shared-steps.tsx",
         "!src/app/onboarding/admin-steps.tsx",
         "!src/app/lib/form-errors.ts",
+        "!src/app/orders/**",
+        "!src/app/products/**",
+        "!src/app/customers/**",
       ],
     },
     "apps/console": {
