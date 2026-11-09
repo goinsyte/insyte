@@ -152,13 +152,16 @@ export const sweepWorkspace = Effect.fn("Tracking.sweepWorkspace")(function*() {
       )
     }
   }
-  // A parcel on its way that has not moved for three days: late, whatever AfterShip says.
+  // A registered parcel on its way that has not moved for three days: late, whatever AfterShip says. Without AfterShip
+  // there is no movement to measure, so nothing is called late for want of news.
+  if (!tracking.configured) return
   yield* db.scopedFor((sql) =>
     Effect.gen(function*() {
       const still = yield* sql<{ orderId: string }>`
         select distinct d.order_id from deliveries d join orders o on o.id = d.order_id
-        where d.status in ('pending', 'in_transit', 'out_for_delivery') and o.delayed_at is null
-          and coalesce(d.last_event_at, d.registered_at, d.created_at) < now() - make_interval(hours => ${DELAY_HOURS})`
+        where d.aftership_id is not null and d.status in ('pending', 'in_transit', 'out_for_delivery')
+          and o.delayed_at is null
+          and coalesce(d.last_event_at, d.registered_at) < now() - make_interval(hours => ${DELAY_HOURS})`
       for (const s of still) yield* delay(sql, s.orderId, "no_movement", null)
     })
   )
