@@ -3,11 +3,12 @@ import { Forbidden } from "@insyte/domain/Errors"
 import type { OrderPage } from "@insyte/modules/orders/domain/Orders"
 import type { StoreView } from "@insyte/modules/stores/domain/Stores"
 import { DeniedPanel } from "@insyte/ui/app/access/denied"
+import { OPEN_AS_MODAL, useOpenedAsModal } from "@insyte/ui/app/common/detail-shell"
 import type { Level, Permission } from "@insyte/ui/app/lib/permissions"
 import { PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
 import { OrdersList } from "@insyte/ui/app/orders/orders-screen"
 import { OrdersSourceProvider } from "@insyte/ui/app/orders/source"
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { ordersAtom } from "../data/orders.ts"
@@ -19,6 +20,10 @@ import { useConsoleOrdersSource } from "../orders/orders-source.ts"
  * orders and the stores (for the Winkel column) on the server, so the first paint has them; until they are in (a
  * client navigation), the reference's own table skeleton stands in. A role that may not see orders is told which
  * permission it misses.
+ *
+ * The list is this layout rather than `/orders/`, as in the reference's `orders-layout.tsx`, so a row opened over it
+ * (step 8.4d) leaves its filters, sort and scroll as they were. An order reached by its URL is a page with no list
+ * behind it, so the list is neither drawn nor read then.
  */
 export const Route = createFileRoute("/_frame/orders")({
   validateSearch: (s: Record<string, unknown>): { status?: string; view?: string } => ({
@@ -26,7 +31,8 @@ export const Route = createFileRoute("/_frame/orders")({
     ...(typeof s["view"] === "string" ? { view: s["view"] } : {})
   }),
   head: () => ({ meta: [{ title: "Bestellingen · Insyte" }] }),
-  loader: async ({ context }) => {
+  loader: async ({ context, location }) => {
+    if (!atList(location.pathname)) return
     // Mounted so the values survive until the registry is dehydrated into the document.
     context.registry.mount(ordersAtom)
     context.registry.mount(storesAtom)
@@ -38,8 +44,21 @@ export const Route = createFileRoute("/_frame/orders")({
     )
   },
   pendingComponent: Pending,
-  component: OrdersRoute
+  component: OrdersLayout
 })
+
+const atList = (pathname: string) => pathname.replace(/\/$/, "") === "/orders"
+
+function OrdersLayout() {
+  const asModal = useOpenedAsModal()
+  const atIndex = useRouterState({ select: (s) => atList(s.location.pathname) })
+  return (
+    <>
+      {atIndex || asModal ? <OrdersRoute /> : null}
+      <Outlet />
+    </>
+  )
+}
 
 function Pending() {
   return <PageSkeleton kind="table" title="Bestellingen" />
@@ -80,7 +99,12 @@ function OrdersRoute() {
 }
 
 function Loaded({ page, stores }: { page: OrderPage; stores: ReadonlyArray<StoreView> }) {
-  const source = useConsoleOrdersSource(page, stores)
+  const navigate = useNavigate()
+  const source = useConsoleOrdersSource(
+    page,
+    stores,
+    (order) => navigate({ to: "/orders/$orderId", params: { orderId: order.id }, state: OPEN_AS_MODAL })
+  )
   return (
     <OrdersSourceProvider value={source}>
       <OrdersList />

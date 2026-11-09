@@ -2,7 +2,7 @@ import { useRouterState } from "@tanstack/react-router";
 import { type CSSProperties, type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../lib/utils";
 import type { Persona } from "../lib/types/persona";
-import { destinationOf } from "./boot-screen";
+import { destinationOf } from "./destination";
 import { paceFactor, useArrival, useLoading } from "./pace";
 import { COST, skeletonFor } from "./kinds";
 import { PageSkeleton } from "./page-skeletons";

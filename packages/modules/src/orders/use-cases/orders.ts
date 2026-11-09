@@ -161,8 +161,16 @@ export const get = Effect.fn("Orders.get")(function*(id: string) {
         variantTitle: string | null
         quantity: number
         unitPriceMinor: string
-      }>`select id, product_id, variant_id, sku, title, variant_title, quantity, unit_price_minor
-         from order_lines where order_id = ${id} order by shopify_id`
+        imageUrl: string | null
+      }>`select l.id, l.product_id, l.variant_id, l.sku, l.title, l.variant_title, l.quantity, l.unit_price_minor,
+                (select p.images[1] from products p where p.id = l.product_id) as image_url
+         from order_lines l where l.order_id = ${id} order by l.shopify_id`
+      const [customer] = row.customerId === null ? [] : yield* sql<{
+        ordersCount: number
+        lifetimeValueMinor: string
+        currency: string | null
+      }>`select orders_count, lifetime_value_minor, currency from customers
+         where id = ${row.customerId} and deleted_at is null`
       const fulfilments = yield* sql<{
         id: string
         status: string
@@ -183,6 +191,9 @@ export const get = Effect.fn("Orders.get")(function*(id: string) {
       }>`select id, amount_minor, currency, note, created_at from refunds where order_id = ${id} order by created_at`
       return new OrderDetail({
         order: toRow(row),
+        customer: customer === undefined
+          ? null
+          : { ...customer, lifetimeValueMinor: Number(customer.lifetimeValueMinor) },
         subtotalMinor: Number(row.subtotalMinor),
         shippingMinor: Number(row.shippingMinor),
         taxMinor: Number(row.taxMinor),

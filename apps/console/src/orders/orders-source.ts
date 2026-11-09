@@ -9,14 +9,13 @@ import { useMemo } from "react"
 /*
  * The orders list's source in the console (M6.4): `Orders.list`'s rows as the design's orders, the stores by name for
  * the Winkel facet. The console reads orders before it changes them (M7), so the selection bar copies and exports
- * only, "Nieuwe bestelling" is greyed out with why, and an order does not open yet (its detail follows). No suppliers
- * until M8.
+ * only, and "Nieuwe bestelling" is greyed out with why. A row opens its order over the list. No suppliers until M8.
  */
 
 const iso = (ms: number) => new Date(ms).toISOString()
 
 /** A row as the design's order: amounts in units, `partially_refunded` shown as paid (the design has no such state). */
-const orderOf = (o: OrderRow): Order => ({
+export const orderOf = (o: OrderRow): Order => ({
   id: o.id,
   number: o.number,
   store_id: o.storeId,
@@ -64,7 +63,12 @@ const ACTIONS: OrdersSource["actions"] = () => [
 
 const NONE: ReadonlyArray<{ value: string; label: string }> = []
 
-export function useConsoleOrdersSource(page: OrderPage, stores: ReadonlyArray<StoreView>): OrdersSource {
+/** `open` is the route's: it navigates to the order over the list. */
+export function useConsoleOrdersSource(
+  page: OrderPage,
+  stores: ReadonlyArray<StoreView>,
+  open: (order: Order) => void
+): OrdersSource {
   const orders = useMemo(() => page.rows.map(orderOf), [page.rows])
   const names = useMemo(() => new Map(stores.map((s) => [s.id, s.name])), [stores])
   const options = useMemo(() => stores.map((s) => ({ value: s.name, label: s.name })), [stores])
@@ -76,6 +80,7 @@ export function useConsoleOrdersSource(page: OrderPage, stores: ReadonlyArray<St
     suppliers: NONE,
     supplierName: () => "",
     actions: ACTIONS,
-    canCreate: { ok: false, reason: "Bestellingen maken kan hier nog niet" }
+    canCreate: { ok: false, reason: "Bestellingen maken kan hier nog niet" },
+    open
   }
 }
