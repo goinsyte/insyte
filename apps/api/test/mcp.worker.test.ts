@@ -81,13 +81,17 @@ describe("the MCP server", () => {
     const tools = listed.message.result.tools as Array<{ name: string; annotations?: { readOnlyHint?: boolean } }>
     expect(tools.map((t) => t.name).toSorted()).toEqual([
       "cancel_order",
+      "forward_orders",
       "get_order",
       "list_customers",
+      "list_forwarding",
       "list_members",
       "list_orders",
       "list_products",
       "list_roles",
+      "list_suppliers",
       "refund_order",
+      "reroute_leg",
       "set_order_note",
       "tag_order",
       "update_shipping_address",
@@ -110,6 +114,7 @@ describe("the MCP server", () => {
     }
     expect(hints["cancel_order"]?.["destructiveHint"]).toBe(true)
     expect(hints["refund_order"]?.["destructiveHint"]).toBe(true)
+    expect(hints["forward_orders"]?.["destructiveHint"]).toBe(true)
   })
 
   it("answers whoami, list_members and list_roles as the key", async () => {

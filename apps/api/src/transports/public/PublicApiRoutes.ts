@@ -94,10 +94,33 @@ const OrdersLive = HttpApiBuilder.group(
     )
 )
 
+const ForwardingLive = HttpApiBuilder.group(
+  PublicApi,
+  "forwarding",
+  (handlers) =>
+    Effect.map(
+      Effect.service(Resources),
+      (act) =>
+        handlers
+          .handle("suppliers", () => act.suppliers)
+          .handle("legs", ({ query }) => act.legs(query.view))
+          .handle(
+            "forward",
+            ({ payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.forwardLegs(payload, key))
+          )
+          .handle(
+            "reroute",
+            ({ params, payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.rerouteLeg(params.id, payload, key))
+          )
+    )
+)
+
 export const PublicApiRoutes = Layer.mergeAll(
   HttpApiBuilder.layer(PublicApi, { openapiPath: "/v1/openapi.json" }),
   HttpApiScalar.layerCdn(PublicApi, { path: "/v1/docs" })
 ).pipe(
-  Layer.provide(Layer.mergeAll(KeyLive, TeamLive, CommerceLive, OrdersLive)),
+  Layer.provide(Layer.mergeAll(KeyLive, TeamLive, CommerceLive, OrdersLive, ForwardingLive)),
   Layer.provide(ApiKeyAuthLive)
 )

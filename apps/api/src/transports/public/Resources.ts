@@ -9,11 +9,13 @@ import {
   type ScopeMissingV1,
   type ValidationFailedV1
 } from "@insyte/api/http/PublicApi"
-import type { Forbidden } from "@insyte/domain/Errors"
+import { Conflict, type Forbidden } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
 import { isSpecial, type Permission, scopesOf } from "@insyte/domain/Permissions"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { CustomersService } from "@insyte/modules/customers/Customers"
+import type { LegRow } from "@insyte/modules/forwarding/domain/Forwarding"
+import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
 import { Members } from "@insyte/modules/members/Members"
 import type { OrderDetail, OrderRow } from "@insyte/modules/orders/domain/Orders"
 import { OrdersService } from "@insyte/modules/orders/Orders"
@@ -21,6 +23,7 @@ import { ProductsService } from "@insyte/modules/products/Products"
 import { RolesService } from "@insyte/modules/roles/RolesService"
 import type { FilterNode, ListInput } from "@insyte/modules/shared/domain/Filter"
 import * as Idempotency from "@insyte/modules/shared/use-cases/Idempotency"
+import { SuppliersService } from "@insyte/modules/suppliers/Suppliers"
 import { Context, Effect, Layer } from "effect"
 
 /*
@@ -195,12 +198,29 @@ const refundIdOf = (key: string | undefined, principalId: string) =>
       (bytes) => `rfd_${[...new Uint8Array(bytes).slice(0, 26)].map((b) => CROCKFORD[b % 32]).join("")}`
     )
 
+const legV1 = (l: LegRow) => ({
+  id: l.id,
+  order: { id: l.orderId, number: l.orderNumber },
+  store_id: l.storeId,
+  supplier: l.supplier,
+  from_supplier: l.fromSupplier,
+  lines: l.lines.map((x) => ({ title: x.title, variant_title: x.variantTitle, quantity: x.quantity })),
+  state: l.state,
+  via: l.via,
+  since: iso(l.since)!,
+  confirm_by: iso(l.confirmBy),
+  late: l.late,
+  error: l.errorKind === null ? null : { kind: l.errorKind, note: l.errorNote }
+})
+
 const make = Effect.gen(function*() {
   const members = yield* Members
   const roles = yield* RolesService
   const orders = yield* OrdersService
   const products = yield* ProductsService
   const customers = yield* CustomersService
+  const forwarding = yield* ForwardingService
+  const suppliers = yield* SuppliersService
   return {
     me: Effect.gen(function*() {
       const key = yield* CurrentApiKey
@@ -301,6 +321,62 @@ const make = Effect.gen(function*() {
         })
       ),
     // The order commands (M7, api.md §6), each once per `Idempotency-Key`.
+    suppliers: suppliers.list({}).pipe(
+      Effect.map((list) => ({
+        data: list.rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          paused: r.pausedAt !== null,
+          forward_channel: r.forwardChannel,
+          auto_forward: r.autoForward,
+          contact_email: r.contactEmail,
+          stats: { products: r.stats.products, open: r.stats.open, delayed: r.stats.delayed }
+        }))
+      })),
+      Effect.catchTag("Forbidden", scopeMissing)
+    ),
+    legs: (view?: "to_forward" | "awaiting" | "forward_error") =>
+      forwarding.list(view).pipe(
+        Effect.map((list) => ({
+          data: list.rows.map(legV1),
+          counts: {
+            to_forward: list.counts.toForward,
+            awaiting: list.counts.awaiting,
+            late: list.counts.late,
+            error: list.counts.error
+          }
+        })),
+        Effect.catchTag("Forbidden", scopeMissing)
+      ),
+    forwardLegs: (
+      body: {
+        readonly leg_ids: ReadonlyArray<string>
+        readonly note?: string | undefined
+        readonly via?: Readonly<Record<string, "portal" | "email" | "api">> | undefined
+      },
+      key?: string
+    ) =>
+      Idempotency.once(
+        key,
+        ["forward", body],
+        Effect.map(
+          forwarding.forward({
+            ids: [...body.leg_ids],
+            ...(body.note === undefined ? {} : { note: body.note }),
+            ...(body.via === undefined ? {} : { via: { ...body.via } })
+          }),
+          (change) => ({ data: change.legs.map(legV1) })
+        )
+      ).pipe(Effect.catch(writeV1)),
+    rerouteLeg: (id: string, body: { readonly supplier_id: string }, key?: string) =>
+      Idempotency.once(
+        key,
+        ["reroute", id, body],
+        Effect.flatMap(forwarding.reroute({ id, toSupplierId: body.supplier_id }), (change) =>
+          change.legs[0] === undefined
+            ? Effect.fail(new Conflict({ entity: "forwarding_item", reason: "same_supplier" }))
+            : Effect.succeed(legV1(change.legs[0])))
+      ).pipe(Effect.catch(writeV1)),
     order: (id: string) =>
       orders.get(id).pipe(Effect.map(orderDetailV1), Effect.catchTags({ Forbidden: scopeMissing, NotFound: notFound })),
     tagOrder: (
@@ -410,7 +486,9 @@ export class Resources extends Context.Service<Resources, Effect.Success<typeof 
         RolesService.layer,
         OrdersService.layer,
         ProductsService.layer,
-        CustomersService.layer
+        CustomersService.layer,
+        ForwardingService.layer,
+        SuppliersService.layer
       )
     )
   )

@@ -60,7 +60,12 @@ const Tools = McpServer.toolkit(InsyteTools).pipe(
       cancel_order: ({ order_id, idempotency_key, ...body }) =>
         kicking(read.cancelOrder(order_id, body, idempotency_key)),
       refund_order: ({ order_id, idempotency_key, ...body }) =>
-        kicking(read.refundOrder(order_id, body, idempotency_key))
+        kicking(read.refundOrder(order_id, body, idempotency_key)),
+      list_suppliers: () => read.suppliers,
+      list_forwarding: ({ view }) => read.legs(view),
+      forward_orders: ({ idempotency_key, ...body }) => kicking(read.forwardLegs(body, idempotency_key)),
+      reroute_leg: ({ leg_id, idempotency_key, supplier_id }) =>
+        read.rerouteLeg(leg_id, { supplier_id }, idempotency_key)
     }
   })))
 )
@@ -69,7 +74,7 @@ export const McpRoutes = McpServer.layerHttpRequestScoped({
   name: "Insyte",
   version: "1.0.0",
   instructions:
-    "Insyte for dropshipping operators. Read the workspace's team and roles, and its orders, products and customers; tag orders, note them, change their address, cancel and refund them, with the key's scopes. Cancelling and refunding cannot be undone: confirm them with the person first.",
+    "Insyte for dropshipping operators. Read the workspace's team and roles, and its orders, products, customers and suppliers; tag orders, note them, change their address, cancel and refund them; forward paid orders to their suppliers and move them to another supplier, with the key's scopes. Cancelling, refunding and forwarding cannot be undone: confirm them with the person first.",
   path: "/mcp",
   protocols: [McpProtocol.v2026_07_28],
   registrations: Tools
