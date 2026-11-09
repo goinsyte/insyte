@@ -5,6 +5,7 @@ import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
 import { MarketingRpcs } from "@insyte/api/rpc/MarketingRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
+import { ReturnsRpcs } from "@insyte/api/rpc/ReturnsRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
 import { StoresRpcs } from "@insyte/api/rpc/StoresRpcs"
@@ -138,6 +139,41 @@ const PAYLOADS: Record<string, unknown> = {
   "Forwarding.markConfirmed": { ids: ["fwd_none"] },
   "Forwarding.reroute": { id: "fwd_none", toSupplierId: "sup_none" },
   "Forwarding.cancel": { ids: ["fwd_none"] },
+  "Returns.list": {},
+  "Returns.get": { id: "ret_none" },
+  "Returns.returnable": { orderId: "ord_none" },
+  "Returns.start": {
+    orderId: "ord_none",
+    lines: [{ lineId: "oli_none", qty: 1 }],
+    reasonId: "too_small",
+    requested: "refund"
+  },
+  "Returns.approve": { ids: ["ret_none"] },
+  "Returns.reject": { ids: ["ret_none"], reason: "Buiten de termijn" },
+  "Returns.reopen": { id: "ret_none" },
+  "Returns.assign": { ids: ["ret_none"], memberId: null },
+  "Returns.markReceived": { id: "ret_none" },
+  "Returns.inspect": { id: "ret_none" },
+  "Returns.resolve": { id: "ret_none", resolution: "refund", refundId: "rfd_00000000000000000000000000" },
+  "Returns.settings": undefined,
+  // Two reasons under one id: refused after the permission check, so the policy stays as it is.
+  "Returns.setSettings": {
+    returnDays: 30,
+    claimDays: 60,
+    specialWindows: [],
+    reasons: [
+      { id: "too_small", label: "Te klein", claim: false, photoRequired: false, quality: false, windowDays: null },
+      { id: "too_small", label: "Te klein", claim: false, photoRequired: false, quality: false, windowDays: null }
+    ],
+    rules: [],
+    offered: ["refund"],
+    giftCardBonusPct: 10,
+    exchangeFeeMinor: 0,
+    addresses: [],
+    claimSteps: [],
+    rejectReasons: [],
+    portal: { on: false, handle: "x", intro: "", done: "" }
+  },
   "Orders.tracking": { orderId: "ord_none" }
 }
 
@@ -153,7 +189,8 @@ const manifest = [
   ...MarketingRpcs.requests.keys(),
   ...SuppliersRpcs.requests.keys(),
   ...ForwardingRpcs.requests.keys(),
-  ...TrackingRpcs.requests.keys()
+  ...TrackingRpcs.requests.keys(),
+  ...ReturnsRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

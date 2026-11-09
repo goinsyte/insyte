@@ -20,6 +20,10 @@ import {
   ProductPageV1,
   Refund,
   RefundOverLimitV1,
+  Return,
+  ReturnDetailV1,
+  ReturnPageV1,
+  ReturnStatusFilter,
   Role,
   ScopeMissingV1,
   Supplier,
@@ -29,7 +33,7 @@ import {
 
 /*
  * The MCP server's tools (M19.3): what an agent with an API key may read, in the public API's shapes, and the order
- * commands (M7) and forwarding (M8) as `/v1` has them. The same key, the same scopes, the same request log; inviting, removing and
+ * commands (M7), forwarding (M8) and returns (M9) as `/v1` has them. The same key, the same scopes, the same request log; inviting, removing and
  * changing roles stay with people.
  */
 
@@ -230,6 +234,109 @@ export const RerouteLeg = Tool.make("reroute_leg", {
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
+const ReturnId = Schema.String.annotate({ description: "The return's id (ret_…), as list_returns gives it." })
+const ResolutionKind = Schema.Literals(["refund", "exchange", "gift_card", "replacement", "discount"])
+const ReturnMoveFailure = WriteFailure
+
+export const ListReturns = Tool.make("list_returns", {
+  description:
+    "Returns and claims, newest first, with the queue's counts: status review (to approve or reject; late past review_by), awaiting_parcel, in_transit, received, ready (to settle), resolved or rejected. Needs returns.read.",
+  parameters: Schema.Struct({ status: Schema.optional(ReturnStatusFilter) }),
+  success: ReturnPageV1,
+  failure: ScopeMissingV1,
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const GetReturn = Tool.make("get_return", {
+  description:
+    "One return with its lines, whether it is inside its window, and the resolutions it allows with what each moves. Needs returns.read.",
+  parameters: Schema.Struct({ return_id: ReturnId }),
+  success: ReturnDetailV1,
+  failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const StartReturn = Tool.make("start_return", {
+  description:
+    "Starts a return or claim for a shopper on an order's lines (line ids from get_order); it waits for review. A claim reason (damaged, wrong_item, quality) makes it a claim. Needs returns.write.",
+  parameters: Schema.Struct({
+    order_id: OrderId,
+    lines: Schema.Array(Schema.Struct({ line_id: Schema.String, quantity: Schema.Int })),
+    reason_id: Schema.String.annotate({
+      description: "too_small, too_big, not_as_expected, damaged, wrong_item, quality, or the workspace's own."
+    }),
+    requested_resolution: ResolutionKind,
+    note: Schema.optional(Schema.String).annotate({ description: "What the shopper said." }),
+    idempotency_key: IdempotencyKey
+  }),
+  success: Return,
+  failure: ReturnMoveFailure,
+  dependencies: asKey()
+}).annotate(Tool.Idempotent, true)
+
+export const ApproveReturn = Tool.make("approve_return", {
+  description:
+    "Approves a return in review: it then waits for its parcel; a claim with keep_item goes straight to be settled. Needs returns.write and returns.approve.",
+  parameters: Schema.Struct({
+    return_id: ReturnId,
+    keep_item: Schema.optional(Schema.Boolean),
+    idempotency_key: IdempotencyKey
+  }),
+  success: Return,
+  failure: ReturnMoveFailure,
+  dependencies: asKey()
+}).annotate(Tool.Idempotent, true)
+
+export const RejectReturn = Tool.make("reject_return", {
+  description:
+    "Rejects a return in review or waiting for its parcel, with a reason the shopper reads. Needs returns.write and returns.approve.",
+  parameters: Schema.Struct({ return_id: ReturnId, reason: Schema.String, idempotency_key: IdempotencyKey }),
+  success: Return,
+  failure: ReturnMoveFailure,
+  dependencies: asKey()
+}).annotate(Tool.Idempotent, true)
+
+export const ReceiveReturn = Tool.make("receive_return", {
+  description: "Marks a return's parcel received. Needs returns.write.",
+  parameters: Schema.Struct({ return_id: ReturnId, idempotency_key: IdempotencyKey }),
+  success: Return,
+  failure: ReturnMoveFailure,
+  dependencies: asKey()
+}).annotate(Tool.Idempotent, true)
+
+export const InspectReturn = Tool.make("inspect_return", {
+  description:
+    "Records a received return's inspection (each line ok, damaged or missing, and whether it goes back on the shelf; without lines, all in order); it is then ready to settle. Needs returns.write.",
+  parameters: Schema.Struct({
+    return_id: ReturnId,
+    lines: Schema.optional(Schema.Array(Schema.Struct({
+      line_id: Schema.String,
+      condition: Schema.Literals(["ok", "damaged", "missing"]),
+      restock: Schema.Boolean
+    }))),
+    idempotency_key: IdempotencyKey
+  }),
+  success: Return,
+  failure: ReturnMoveFailure,
+  dependencies: asKey()
+}).annotate(Tool.Idempotent, true)
+
+export const ResolveReturn = Tool.make("resolve_return", {
+  description:
+    "Settles a return that is ready, with one of its allowed resolutions (get_return). A refund is IRREVERSIBLE: money goes back through the order's payments; confirm it with the person first and pass an idempotency_key. Needs returns.write, and refunds.write within the key's limit for a refund.",
+  parameters: Schema.Struct({ return_id: ReturnId, resolution: ResolutionKind, idempotency_key: IdempotencyKey }),
+  success: Return,
+  failure: Schema.Union([
+    ScopeMissingV1,
+    NotFoundV1,
+    ConflictV1,
+    ValidationFailedV1,
+    IdempotencyKeyReusedV1,
+    RefundOverLimitV1
+  ]),
+  dependencies: asKey()
+}).annotate(Tool.Destructive, true)
+
 export const InsyteTools = Toolkit.make(
   Whoami,
   ListMembers,
@@ -247,5 +354,13 @@ export const InsyteTools = Toolkit.make(
   ListSuppliers,
   ListForwarding,
   ForwardOrders,
-  RerouteLeg
+  RerouteLeg,
+  ListReturns,
+  GetReturn,
+  StartReturn,
+  ApproveReturn,
+  RejectReturn,
+  ReceiveReturn,
+  InspectReturn,
+  ResolveReturn
 )

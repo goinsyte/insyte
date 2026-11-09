@@ -66,7 +66,20 @@ const Tools = McpServer.toolkit(InsyteTools).pipe(
       list_forwarding: ({ view }) => read.legs(view),
       forward_orders: ({ idempotency_key, ...body }) => kicking(read.forwardLegs(body, idempotency_key)),
       reroute_leg: ({ leg_id, idempotency_key, supplier_id }) =>
-        read.rerouteLeg(leg_id, { supplier_id }, idempotency_key)
+        read.rerouteLeg(leg_id, { supplier_id }, idempotency_key),
+      list_returns: ({ status }) => read.returns(status),
+      get_return: ({ return_id }) => read.returnOne(return_id),
+      start_return: ({ idempotency_key, ...body }) => read.startReturn(body, idempotency_key),
+      approve_return: ({ return_id, idempotency_key, keep_item }) =>
+        read.moveReturn(return_id, { kind: "approve", keep_item }, idempotency_key),
+      reject_return: ({ return_id, idempotency_key, reason }) =>
+        read.moveReturn(return_id, { kind: "reject", reason }, idempotency_key),
+      receive_return: ({ return_id, idempotency_key }) =>
+        read.moveReturn(return_id, { kind: "receive" }, idempotency_key),
+      inspect_return: ({ return_id, idempotency_key, lines }) =>
+        read.moveReturn(return_id, { kind: "inspect", lines }, idempotency_key),
+      resolve_return: ({ return_id, idempotency_key, resolution }) =>
+        kicking(read.resolveReturn(return_id, { resolution }, idempotency_key))
     }
   })))
 )
@@ -75,7 +88,7 @@ export const McpRoutes = McpServer.layerHttpRequestScoped({
   name: "Insyte",
   version: "1.0.0",
   instructions:
-    "Insyte for dropshipping operators. Read the workspace's team and roles, and its orders, products, customers and suppliers; tag orders, note them, change their address, cancel and refund them; forward paid orders to their suppliers and move them to another supplier, with the key's scopes. Cancelling, refunding and forwarding cannot be undone: confirm them with the person first.",
+    "Insyte for dropshipping operators. Read the workspace's team and roles, and its orders, products, customers and suppliers; tag orders, note them, change their address, cancel and refund them; forward paid orders to their suppliers and move them to another supplier; start, approve, reject, receive, inspect and settle returns, with the key's scopes. Cancelling, refunding, forwarding and settling a return with a refund cannot be undone: confirm them with the person first.",
   path: "/mcp",
   protocols: [McpProtocol.v2026_07_28],
   registrations: Tools

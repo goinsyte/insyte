@@ -53,7 +53,15 @@ export const TENANT_TABLES = [
   "product_supply",
   "forwarding_items",
   "supplier_work",
-  "deliveries"
+  "deliveries",
+  "return_settings",
+  "return_reasons",
+  "return_rules",
+  "return_addresses",
+  "claim_flows",
+  "returns",
+  "return_lines",
+  "return_events"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

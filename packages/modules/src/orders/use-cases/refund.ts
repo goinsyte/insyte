@@ -3,6 +3,7 @@ import { Conflict, NotFound } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
+import type { SqlClient } from "effect/sql"
 import { Relay } from "../../shared/domain/Outbox.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
@@ -27,18 +28,18 @@ import { type Row, SELECT, toRow } from "./orders.ts"
 /** Refunds that count against the balance: all but those Shopify refused. */
 const COUNTED = "status <> 'failed'"
 
-export const refund = Effect.fn("Orders.refund")(function*(input: typeof RefundInput.Type) {
-  yield* Policy.require("orders", 2)
-  yield* Policy.requireAction("refunds.write")
-  const principal = yield* CurrentPrincipal
-  const limit = principal.role.refundLimit
-  if (principal.role.id !== "owner" && limit !== null && input.amountMinor > Math.round(limit * 100)) {
-    return yield* new RefundOverLimit({ limitMinor: Math.round(limit * 100) })
-  }
-  const relay = yield* Relay
-  const db = yield* Db
-  const { result, outboxId: requested } = yield* db.scoped((sql) =>
-    Effect.gen(function*() {
+/**
+ * The refund on the caller's transaction, inside the role's limit and stores; the caller has checked the policy and
+ * kicks the relay with the answered outbox row. `Returns.resolve` refunds a return this way, on its own transaction.
+ */
+export const refundOn = Effect.fn("Orders.refundOn")(
+  function*(sql: SqlClient.SqlClient, input: typeof RefundInput.Type) {
+    const principal = yield* CurrentPrincipal
+    const limit = principal.role.refundLimit
+    if (principal.role.id !== "owner" && limit !== null && input.amountMinor > Math.round(limit * 100)) {
+      return yield* new RefundOverLimit({ limitMinor: Math.round(limit * 100) })
+    }
+    return yield* Effect.gen(function*() {
       const scope = yield* inScope(sql, "o.store_id")
       const [order] = yield* sql<{
         storeId: string
@@ -97,7 +98,15 @@ export const refund = Effect.fn("Orders.refund")(function*(input: typeof RefundI
       })
       return { result: new RefundResult({ refundId: input.refundId, order: yield* readRow }), outboxId }
     })
-  )
+  }
+)
+
+export const refund = Effect.fn("Orders.refund")(function*(input: typeof RefundInput.Type) {
+  yield* Policy.require("orders", 2)
+  yield* Policy.requireAction("refunds.write")
+  const relay = yield* Relay
+  const db = yield* Db
+  const { result, outboxId: requested } = yield* db.scoped((sql) => refundOn(sql, input))
   if (requested !== null) yield* relay.kick([requested])
   return result
 })
