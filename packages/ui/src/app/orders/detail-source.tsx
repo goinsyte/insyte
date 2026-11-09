@@ -1,5 +1,5 @@
 import { type ComponentType, createContext, useContext } from "react";
-import type { Address, Order, OrderLineItem } from "../lib/types/domain";
+import type { Address, Currency, Order, OrderLineItem } from "../lib/types/domain";
 import type { TeamGate } from "./source";
 
 /**
@@ -33,7 +33,7 @@ export interface OrderDetailSource {
 	/** The order with its lines. */
 	order: Order;
 	/** The customer as the sidebar sums them up; absent for a guest order. */
-	customer?: { orders_count: number; lifetime_value: number; phone?: string } | undefined;
+	customer?: { orders_count: number; lifetime_value: number; currency?: Currency | undefined; phone?: string } | undefined;
 	/** A line's photograph and SKU, where the host knows them. */
 	imageOf: (line: OrderLineItem) => string | undefined;
 	skuOf: (line: OrderLineItem) => string | undefined;

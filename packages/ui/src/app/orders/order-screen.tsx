@@ -375,7 +375,7 @@ export function OrderDetailPage() {
 								</p>
 								<p className="truncate font-normal text-sm text-ink-3 leading-[1.4]">
 									{customer
-										? `${customer.orders_count} ${customer.orders_count === 1 ? "bestelling" : "bestellingen"} · ${formatCurrency(customer.lifetime_value)} CLV`
+										? `${customer.orders_count} ${customer.orders_count === 1 ? "bestelling" : "bestellingen"} · ${formatCurrency(customer.lifetime_value, customer.currency)} CLV`
 										: "Gastbestelling"}
 								</p>
 							</div>

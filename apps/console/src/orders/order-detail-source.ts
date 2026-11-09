@@ -108,6 +108,7 @@ export function consoleOrderDetail(d: OrderDetail): OrderDetailSource {
     customer: d.customer === null ? undefined : {
       orders_count: d.customer.ordersCount,
       lifetime_value: d.customer.lifetimeValueMinor / 100,
+      currency: (d.customer.currency ?? d.order.currency) as Order["currency"],
       ...(phone === null ? {} : { phone })
     },
     imageOf: (line) => images.get(line.id) ?? undefined,

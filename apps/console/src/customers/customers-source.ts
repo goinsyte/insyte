@@ -2,7 +2,7 @@ import type { CustomerPage, CustomerRow } from "@insyte/modules/customers/domain
 import type { CustomersSource } from "@insyte/ui/app/customers/source"
 import { copyLines, counted, exportCsv } from "@insyte/ui/app/lib/bulk-io"
 import { formatDate } from "@insyte/ui/app/lib/format"
-import type { Customer } from "@insyte/ui/app/lib/types/domain"
+import type { Currency, Customer } from "@insyte/ui/app/lib/types/domain"
 import { Copy, Download } from "@insyte/ui/icons"
 import { useMemo } from "react"
 
@@ -53,6 +53,7 @@ const ACTIONS: CustomersSource["actions"] = () => [
 export function useConsoleCustomersSource(page: CustomerPage): CustomersSource {
   const customers = useMemo(() => page.rows.map(customerOf), [page.rows])
   const lastOrders = useMemo(() => new Map(page.rows.map((c) => [c.id, c.lastOrderAt])), [page.rows])
+  const currencies = useMemo(() => new Map(page.rows.map((c) => [c.id, c.currency as Currency])), [page.rows])
   return {
     customers,
     loading: false,
@@ -63,6 +64,7 @@ export function useConsoleCustomersSource(page: CustomerPage): CustomersSource {
       return at === null || at === undefined ? "Nog geen" : formatDate(new Date(at), { day: "2-digit" })
     },
     actions: ACTIONS,
-    canCreate: { ok: false, reason: "Klanten toevoegen kan hier nog niet" }
+    canCreate: { ok: false, reason: "Klanten toevoegen kan hier nog niet" },
+    currencyOf: (c) => currencies.get(c.id)
   }
 }
