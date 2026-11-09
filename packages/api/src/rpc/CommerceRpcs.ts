@@ -10,6 +10,13 @@ import {
   TagInput
 } from "@insyte/modules/orders/domain/Commands"
 import { OrderDetail, OrderPage } from "@insyte/modules/orders/domain/Orders"
+import {
+  AlreadyRefunded,
+  RefundInput,
+  RefundOverBalance,
+  RefundOverLimit,
+  RefundResult
+} from "@insyte/modules/orders/domain/Refunds"
 import { ProductDetail, ProductPage } from "@insyte/modules/products/domain/Products"
 import { CursorInvalid, FilterFieldUnknown, ListInput } from "@insyte/modules/shared/domain/Filter"
 import { Schema } from "effect"
@@ -53,6 +60,12 @@ export class CommerceRpcs extends RpcGroup.make(
     error: Schema.Union([Forbidden, NotFound, Conflict])
   }),
   Rpc.make("Orders.setNote", { payload: NoteInput, error: GetError }),
+  // Irreversible (api.md §1.1): Terugbetalen within the role's limit, confirmed in the console, no undo.
+  Rpc.make("Orders.refund", {
+    payload: RefundInput,
+    success: RefundResult,
+    error: Schema.Union([Forbidden, NotFound, Conflict, RefundOverLimit, RefundOverBalance, AlreadyRefunded])
+  }),
   Rpc.make("Products.list", { payload: ListInput, success: ProductPage, error: ListError }),
   Rpc.make("Products.get", { payload: ById, success: ProductDetail, error: GetError }),
   Rpc.make("Customers.list", { payload: ListInput, success: CustomerPage, error: ListError }),

@@ -495,7 +495,7 @@ export function OrderDetailPage() {
 			<ConfirmDialog
 				open={refundOpen}
 				onOpenChange={setRefundOpen}
-				title={`${formatCurrency(order.total, order.currency)} terugbetalen aan ${order.customer_name}?`}
+				title={`${formatCurrency(writes.refundable ?? order.total, order.currency)} terugbetalen aan ${order.customer_name}?`}
 				description="Het geld gaat terug via de oorspronkelijke betaalmethode, meestal binnen vijf werkdagen. Een verstuurde terugbetaling kun je niet terughalen."
 				confirmLabel="Volledig terugbetalen"
 				onConfirm={() => {

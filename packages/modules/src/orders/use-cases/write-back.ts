@@ -2,7 +2,7 @@ import { Db } from "@insyte/database/Db"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import * as Audit from "../../shared/use-cases/Audit.ts"
-import { gidOf } from "../../stores/domain/Mirror.ts"
+import { fromMinor, gidId, gidOf, toMinor } from "../../stores/domain/Mirror.ts"
 import { ConnectionGate, ShopifyGraphql, type ShopifyRefused } from "../../stores/domain/Ports.ts"
 import { throughGate } from "../../stores/use-cases/backfill.ts"
 import { mirrorOne } from "../../stores/use-cases/webhooks.ts"
@@ -13,6 +13,8 @@ import {
   ORDER_CANCEL,
   ORDER_UPDATE,
   type OrderWrite,
+  REFUND_CREATE,
+  SUGGESTED_REFUND,
   TAGS_ADD,
   TAGS_REMOVE,
   type WriteOutcome
@@ -23,7 +25,8 @@ import {
  * window has passed (or, for a cancellation, there was none). Tags go as the change, so a tag Shopify gained since
  * stays; the address is read as it is now. Shopify refusing is final for that order: the mirror reads the order again
  * from Shopify, so Insyte shows what the store holds, and the refusal is in the audit log. A throttled or unreachable
- * Shopify fails the step, which retries.
+ * Shopify fails the step, which retries. A refund (M7.2) that does not reach Shopify is marked failed, so its amount
+ * stops counting against the order; one Shopify took makes the order read refunded.
  */
 
 interface Target {
@@ -65,7 +68,10 @@ const mutate = (target: Target, query: string, variables: Record<string, unknown
       ({ data }) => ({ data, errors: errorsAt(data, root, field) })
     ))
 
-const send = Effect.fn("Orders.writeBack.send")(function*(write: OrderWrite, target: Target) {
+const send = Effect.fn("Orders.writeBack.send")(function*(
+  write: Exclude<OrderWrite, { type: "refund.requested" }>,
+  target: Target
+) {
   const gid = gidOf("Order", target.shopifyId)
   if (write.type === "order.cancelled") {
     const { errors } = yield* mutate(
@@ -108,6 +114,106 @@ const send = Effect.fn("Orders.writeBack.send")(function*(write: OrderWrite, tar
   }
 })
 
+interface PendingRefund {
+  readonly amountMinor: string
+  readonly currency: string
+  readonly note: string | null
+  readonly status: string
+}
+
+/**
+ * The refund to Shopify (M7.2): Shopify's own split of the order's payments, up to the amount, under Insyte's refund id
+ * as the idempotency key. Taken, the refund carries Shopify's id and the order reads refunded as far as it is.
+ */
+const sendRefund = Effect.fn("Orders.writeBack.refund")(function*(
+  write: Extract<OrderWrite, { type: "refund.requested" }>,
+  target: Target,
+  orderId: string
+) {
+  const db = yield* Db
+  const [refund] = yield* db.scopedFor((sql) =>
+    sql<PendingRefund>`select amount_minor, currency, note, status from refunds where id = ${write.refundId}`
+  )
+  // Already taken (a step retried after Shopify answered), or never there: nothing to send.
+  if (refund === undefined || refund.status !== "pending") return []
+  const gid = gidOf("Order", target.shopifyId)
+  const { data } = yield* mutate(target, SUGGESTED_REFUND, { id: gid }, "order")
+  const suggested = ((data as {
+    order?: {
+      suggestedRefund?: {
+        suggestedTransactions?: Array<
+          { parentTransaction: { id: string } | null; gateway: string; amountSet: { shopMoney: { amount: string } } }
+        >
+      }
+    }
+  })?.order?.suggestedRefund?.suggestedTransactions) ?? []
+  let left = Number(refund.amountMinor)
+  const transactions = suggested.flatMap((t) => {
+    const take = Math.min(left, toMinor(t.amountSet.shopMoney.amount, refund.currency))
+    if (take <= 0 || t.parentTransaction === null) return []
+    left -= take
+    return [{
+      orderId: gid,
+      parentId: t.parentTransaction.id,
+      kind: "REFUND",
+      gateway: t.gateway,
+      amount: fromMinor(take, refund.currency)
+    }]
+  })
+  if (left > 0) return [{ message: "Shopify ziet niet genoeg om terug te betalen op deze bestelling" }]
+  const input = { orderId: gid, notify: true, transactions, ...(refund.note === null ? {} : { note: refund.note }) }
+  const answered = yield* mutate(target, REFUND_CREATE, { input, key: write.refundId }, "refundCreate")
+  if (answered.errors.length > 0) return answered.errors
+  const shopifyId = (answered.data as { refundCreate?: { refund?: { id: string } | null } })?.refundCreate?.refund?.id
+  yield* db.scopedFor((sql) =>
+    Effect.gen(function*() {
+      if (shopifyId !== undefined) {
+        // Shopify's webhook may have mirrored the refund first: the row Insyte wrote is the one that stays.
+        yield* sql`delete from refunds where store_id = ${target.storeId} and shopify_id = ${gidId(shopifyId)}
+                   and id <> ${write.refundId}`
+      }
+      yield* sql`update refunds set status = 'succeeded', shopify_id = ${
+        shopifyId === undefined ? `insyte-${write.refundId}` : gidId(shopifyId)
+      } where id = ${write.refundId}`
+      yield* sql`update orders o set
+                   payment_status = case when r.refunded >= o.total_minor then 'refunded' else 'partially_refunded' end,
+                   status = case when r.refunded >= o.total_minor and o.status <> 'cancelled' then 'refunded'
+                                 else o.status end,
+                   refunded_at = case when r.refunded >= o.total_minor then now() else o.refunded_at end
+                 from (select coalesce(sum(amount_minor), 0) as refunded from refunds
+                       where order_id = ${orderId} and status = 'succeeded') r
+                 where o.id = ${orderId}`
+    })
+  )
+  return []
+})
+
+/**
+ * A refund that will not reach Shopify (refused, disconnected, or Shopify unreachable through every retry) is failed,
+ * so its amount no longer counts against the order, and the audit log says why.
+ */
+export const refundFailed = Effect.fn("Orders.refundFailed")(function*(
+  refundId: string,
+  orderId: string,
+  reason: string
+) {
+  const db = yield* Db
+  const workspace = yield* CurrentWorkspace
+  yield* db.scopedFor((sql) =>
+    Effect.gen(function*() {
+      const failed = yield* sql`update refunds set status = 'failed' where id = ${refundId} and status = 'pending'
+                                returning id`
+      if (failed.length === 0) return
+      yield* Audit.write(sql, workspace.id, { kind: "system", id: "shopify" }, {
+        action: "order.refund_failed",
+        subjectType: "order",
+        subjectId: orderId,
+        diff: { refundId, reason: reason.slice(0, 300) }
+      })
+    })
+  )
+})
+
 /** A refusal that is Shopify's answer about the order, not a reason to try again. */
 const isAnswer = (error: ShopifyRefused) => error.status >= 400 && error.status < 500 && error.status !== 401
 
@@ -126,11 +232,18 @@ export const writeBack = Effect.fn("Orders.writeBack")(function*(write: OrderWri
     reason
   })
   // Gone since, or its store disconnected: a reconnect imports the store again, as Shopify holds it.
+  const workspace = yield* CurrentWorkspace
+  const failRefund = (reason: string) =>
+    write.type === "refund.requested" ? refundFailed(write.refundId, orderId, reason) : Effect.void
   if (target === undefined) return outcome("skipped", "gone")
-  if (target.status !== "connected" && target.status !== "connecting") return outcome("skipped", "disconnected")
+  if (target.status !== "connected" && target.status !== "connecting") {
+    yield* failRefund("disconnected")
+    return outcome("skipped", "disconnected")
+  }
   const store = { id: target.storeId, connectionId: target.connectionId, shop: target.shop, currency: target.currency }
 
-  const answer = yield* send(write, { ...target }).pipe(
+  const sent = write.type === "refund.requested" ? sendRefund(write, target, orderId) : send(write, target)
+  const answer = yield* sent.pipe(
     Effect.map((errors) => errors.length === 0 ? null : errors.map((e) => e.message).join("; ")),
     Effect.catchTags({
       TokenRefused: () => Effect.succeed("disconnected" as const),
@@ -146,11 +259,17 @@ export const writeBack = Effect.fn("Orders.writeBack")(function*(write: OrderWri
     })
   )
   if (answer === null) return outcome("sent")
-  if (answer === "disconnected") return outcome("skipped", "disconnected")
+  if (answer === "disconnected") {
+    yield* failRefund("disconnected")
+    return outcome("skipped", "disconnected")
+  }
+  if (write.type === "refund.requested") {
+    yield* failRefund(answer)
+    return outcome("refused", answer)
+  }
 
   // Shopify said no: Insyte shows the order as the store holds it, and the refusal is recorded.
   yield* mirrorOne(store, "Order", gidOf("Order", target.shopifyId))
-  const workspace = yield* CurrentWorkspace
   yield* db.scopedFor((sql) =>
     Audit.write(sql, workspace.id, { kind: "system", id: "shopify" }, {
       action: "order.shopify_refused",

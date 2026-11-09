@@ -1,7 +1,7 @@
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import type { OrderWrite, WriteOutcome } from "@insyte/modules/orders/domain/WriteBack"
-import { writeBack } from "@insyte/modules/orders/use-cases/write-back"
+import { refundFailed, writeBack } from "@insyte/modules/orders/use-cases/write-back"
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers"
 import { Cause, Effect, Exit } from "effect"
 import { syncRuntime as runtime } from "../platform/Ingest.ts"
@@ -12,8 +12,8 @@ import { roomOf } from "../platform/Room.ts"
 /*
  * An order change to Shopify (M7.1), once the undo window has passed: a durable step per order, so a bulk change of
  * fifty orders that Shopify throttles halfway resumes where it stopped and sends none twice. A step that keeps
- * failing (Shopify unreachable) gives up after its retries; the others still go. Where Shopify refused, the order was
- * read again, and the workspace's tabs hear it.
+ * failing (Shopify unreachable) gives up after its retries; the others still go, and a refund that never got there is
+ * failed. Where Shopify refused, the order was read again, and the workspace's tabs hear it; a refund always.
  */
 
 export interface ShopifyWriteParams {
@@ -34,12 +34,25 @@ export class ShopifyWriteWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Sho
       try {
         outcomes.push(await step.do(`order ${orderId}`, RETRY, () => run(workspaceId, writeBack(write, orderId))))
       } catch {
+        if (write.type === "refund.requested") {
+          await step.do(
+            `refund failed ${orderId}`,
+            RETRY,
+            () => run(workspaceId, refundFailed(write.refundId, orderId, "unreachable"))
+          )
+        }
         outcomes.push({ orderId, outcome: "skipped", reason: "unreachable" })
       }
     }
-    const refused = outcomes.filter((o) => o.outcome === "refused").map((o) => o.orderId)
-    if (refused.length > 0) {
-      await roomOf(workspaceId).broadcast({ v: 1, type: "records.changed", kind: "order", ids: refused })
+    // A refund changes the order whatever became of it; another change only where Shopify refused it.
+    const changed = outcomes.filter((o) => write.type === "refund.requested" || o.outcome === "refused")
+    if (changed.length > 0) {
+      await roomOf(workspaceId).broadcast({
+        v: 1,
+        type: "records.changed",
+        kind: "order",
+        ids: changed.map((o) => o.orderId)
+      })
     }
     return outcomes
   }

@@ -342,6 +342,13 @@
     "finance": "allow",
     "view": "deny"
   },
+  "Orders.refund": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "deny"
+  },
   "Products.list": {
     "owner": "allow",
     "admin": "allow",

@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { Forbidden } from "./Errors.ts"
-import { type AreaId, canRole, type Level } from "./Permissions.ts"
+import { type AreaId, canRole, type Level, type SpecialId } from "./Permissions.ts"
 import { CurrentPrincipal } from "./Principal.ts"
 
 /*
@@ -13,4 +13,11 @@ export const require = Effect.fn("Policy.require")(function*(area: AreaId, level
   const { role } = yield* CurrentPrincipal
   if (canRole({ ...role, stores: role.stores === "all" ? "all" : [...role.stores] }, area, level)) return
   return yield* new Forbidden({ permission: area, level, roleLabel: role.label })
+})
+
+/** The principal's role holds a special action (`refunds.write`), or `Forbidden` naming it (level 0: no level). */
+export const requireAction = Effect.fn("Policy.requireAction")(function*(action: SpecialId) {
+  const { role } = yield* CurrentPrincipal
+  if (canRole({ ...role, stores: role.stores === "all" ? "all" : [...role.stores] }, action)) return
+  return yield* new Forbidden({ permission: action, level: 0, roleLabel: role.label })
 })

@@ -19,7 +19,8 @@ import { readLines } from "./ShopifyGraphql.ts"
  * (an `empty-*` shop finds nothing). Single reads and the reconcile pages answer from the same files; an `upd-*` shop
  * holds `RECORDED_UPDATES` on top, as a store that changed since its import. Every webhook signed `valid` verifies.
  * The order writes (M7.1) are taken as Shopify takes them; a `refuse-*` shop refuses each with a user error, and an
- * order has one open fulfillment order until it is fulfilled.
+ * order has one open fulfillment order until it is fulfilled. A refund (M7.2) splits over one sale; the same
+ * idempotency key answers the same refund.
  */
 
 export const RECORDED_FACTS: ShopFacts = {
@@ -83,24 +84,48 @@ const MUTATIONS: Record<string, { readonly field?: string; readonly ok: Record<s
   tagsRemove: { ok: { node: { id: "recorded" } } },
   orderUpdate: { ok: { order: { id: "recorded" } } },
   fulfillmentCreate: { ok: { fulfillment: { id: "gid://shopify/Fulfillment/1", status: "SUCCESS" } } },
-  orderCancel: { field: "orderCancelUserErrors", ok: { job: { id: "gid://shopify/Job/1" } } }
+  orderCancel: { field: "orderCancelUserErrors", ok: { job: { id: "gid://shopify/Job/1" } } },
+  refundCreate: { ok: { refund: { id: "gid://shopify/Refund/9001" } } }
 }
 
-const recordedMutation = (shop: string, query: string): unknown | undefined => {
+/** Refunds by idempotency key: the same key answers the same refund, as Shopify does. */
+const refundIds = new Map<string, number>()
+const refundsTaken = (key: string) => {
+  if (!refundIds.has(key)) refundIds.set(key, 9000 + refundIds.size + 1)
+  return refundIds.get(key)!
+}
+
+const recordedMutation = (shop: string, query: string, key: string): unknown | undefined => {
   const name = Object.keys(MUTATIONS).find((m) => query.includes(`${m}(`))
   if (name === undefined) return undefined
   const { field = "userErrors", ok } = MUTATIONS[name]!
   const refused = shop.startsWith("refuse-")
+  // A refund is Shopify's own, under the idempotency key it was asked with.
+  const answer = name === "refundCreate" ? { refund: { id: `gid://shopify/Refund/${refundsTaken(key)}` } } : ok
   return {
     [name]: refused
       ? { [field]: [{ field: ["id"], message: "Deze bestelling kan niet worden gewijzigd" }] }
-      : { ...ok, [field]: [] }
+      : { ...answer, [field]: [] }
   }
 }
 
 const recordedQuery = (shop: string, query: string, variables: Record<string, unknown>): unknown => {
-  const mutation = recordedMutation(shop, query)
+  const mutation = recordedMutation(shop, query, String(variables["key"] ?? ""))
   if (mutation !== undefined) return mutation
+  // The order's single sale, as a full refund splits it: a `short-*` shop sees only €10 of it.
+  if (query.includes("suggestedRefund(")) {
+    return {
+      order: {
+        suggestedRefund: {
+          suggestedTransactions: [{
+            parentTransaction: { id: "gid://shopify/OrderTransaction/1" },
+            gateway: "shopify_payments",
+            amountSet: { shopMoney: { amount: shop.startsWith("short-") ? "10.00" : "100000.00" } }
+          }]
+        }
+      }
+    }
+  }
   if (query.includes("fulfillmentOrders(")) {
     return {
       order: { fulfillmentOrders: { nodes: [{ id: "gid://shopify/FulfillmentOrder/1", status: "OPEN" }] } }

@@ -107,13 +107,18 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
     // Handling an order in Insyte is an activation moment (M7): counted by what was done and to how many.
     case "order.updated":
     case "order.cancelled":
+    case "refund.requested":
       return {
         outboxId: id,
         event: "order_handled",
         distinctId: event.userId,
         groups: { workspace: event.workspaceId },
         properties: {
-          action: event.type === "order.cancelled" ? "cancel" : event.change,
+          action: event.type === "order.cancelled"
+            ? "cancel"
+            : event.type === "refund.requested"
+            ? "refund"
+            : event.change,
           count: event.orderIds.length
         }
       }
@@ -209,7 +214,7 @@ const SINKS: ReadonlyArray<Sink> = [
     // An order changed in Insyte (M7.1): to Shopify, one Workflow per event, named by it.
     name: "shopify",
     run: (id, event) =>
-      event.type === "order.updated" || event.type === "order.cancelled"
+      event.type === "order.updated" || event.type === "order.cancelled" || event.type === "refund.requested"
         ? Effect.flatMap(
           Effect.service(ShopifyWrites),
           (writes) => writes.start({ key: `sw-${id}`, workspaceId: event.workspaceId, write: event })

@@ -44,6 +44,14 @@ export const toMinor = (amount: string | number, currency: string): number => {
   return sign * Number(`${whole}${padded}`)
 }
 
+/** `1234` in EUR → `"12.34"`: the decimal string Shopify takes, never through a float divide. */
+export const fromMinor = (minor: number, currency: string): string => {
+  const digits = ZERO_DECIMAL.has(currency.toUpperCase()) ? 0 : 2
+  const text = String(Math.abs(minor)).padStart(digits + 1, "0")
+  const whole = digits === 0 ? text : `${text.slice(0, -digits)}.${text.slice(-digits)}`
+  return minor < 0 ? `-${whole}` : whole
+}
+
 /* ─── The queries (API 2026-10): one selection per object, for bulk and single reads ─── */
 
 const PRODUCT_FIELDS = `id title handle descriptionHtml status vendor productType tags createdAt updatedAt
