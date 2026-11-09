@@ -22,6 +22,7 @@ import inbound from "./migrations/0022_inbound.ts"
 import firstAnalysis from "./migrations/0023_first_analysis.ts"
 import orderNotes from "./migrations/0024_order_notes.ts"
 import productCosts from "./migrations/0025_product_costs.ts"
+import customerMerges from "./migrations/0026_customer_merges.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -53,5 +54,6 @@ export const Migrations = {
   "0022_inbound": inbound,
   "0023_first_analysis": firstAnalysis,
   "0024_order_notes": orderNotes,
-  "0025_product_costs": productCosts
+  "0025_product_costs": productCosts,
+  "0026_customer_merges": customerMerges
 }

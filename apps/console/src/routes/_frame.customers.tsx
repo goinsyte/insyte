@@ -4,12 +4,18 @@ import type { CustomerPage } from "@insyte/modules/customers/domain/Customers"
 import { DeniedPanel } from "@insyte/ui/app/access/denied"
 import { OPEN_AS_MODAL, useOpenedAsModal } from "@insyte/ui/app/common/detail-shell"
 import { CustomersPage } from "@insyte/ui/app/customers/customers-screen"
+import { MergeReview } from "@insyte/ui/app/customers/merge-review"
+import { NewCustomerDialog } from "@insyte/ui/app/customers/new-customer-dialog"
 import { CustomersSourceProvider } from "@insyte/ui/app/customers/source"
+import type { DuplicateGroup } from "@insyte/ui/app/lib/duplicates"
 import type { Level, Permission } from "@insyte/ui/app/lib/permissions"
+import type { Currency, Customer } from "@insyte/ui/app/lib/types/domain"
 import { PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
 import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
+import { useMemo, useRef } from "react"
+import { useCustomerCommands } from "../customers/customer-writes.ts"
 import { useConsoleCustomersSource } from "../customers/customers-source.ts"
 import { customersAtom } from "../data/customers.ts"
 
@@ -90,8 +96,41 @@ function Loaded({ page }: { page: CustomerPage }) {
     page,
     (row) => navigate({ to: "/customers/$customerId", params: { customerId: row.id }, state: OPEN_AS_MODAL })
   )
+  // "Klant toevoegen" and the duplicate review in the design's dialogs, done by the customer commands (M7.4). One
+  // component each for the page's life, so a refetch behind an open dialog does not remount it.
+  const commands = useCustomerCommands()
+  const currency = page.rows[0]?.currency as Currency | undefined
+  const latest = useRef(commands)
+  latest.current = commands
+  const dialogs = useMemo(() => ({
+    NewCustomer: ({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) => (
+      <NewCustomerDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        onCreate={(input) =>
+          void latest.current.create(input).then((id) => {
+            if (id !== undefined) {
+              void navigate({ to: "/customers/$customerId", params: { customerId: id }, state: OPEN_AS_MODAL })
+            }
+          })}
+      />
+    ),
+    Merge: (props: {
+      open: boolean
+      onOpenChange: (open: boolean) => void
+      groups: Array<DuplicateGroup>
+      customers: Array<Customer>
+    }) => (
+      <MergeReview
+        {...props}
+        onMerge={(keeper, others) => void latest.current.merge(keeper, others)}
+        onNotDuplicate={(key) => void latest.current.markNotDuplicate(key)}
+        currency={currency}
+      />
+    )
+  }), [navigate, currency])
   return (
-    <CustomersSourceProvider value={source}>
+    <CustomersSourceProvider value={{ ...source, ...(source.canCreate.ok ? dialogs : { Merge: dialogs.Merge }) }}>
       <CustomersPage />
     </CustomersSourceProvider>
   )

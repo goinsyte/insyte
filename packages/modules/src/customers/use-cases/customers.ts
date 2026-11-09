@@ -11,8 +11,8 @@ import { CustomerDetail, CustomerPage, CustomerRow } from "../domain/Customers.t
 
 /*
  * `Customers.list` and `Customers.get` (M6.4): at `customers` Bekijken, inside the role's stores; a customer Shopify
- * deleted or a privacy request cleared is not listed. By name, keyset on `(lower(name), id)`; the search matches the
- * name, the email and the phone.
+ * deleted or a privacy request cleared is not listed, nor one merged into another (M7.4), whose orders and value the
+ * survivor counts. By name, keyset on `(lower(name), id)`; the search matches the name, the email and the phone.
  */
 
 export const CUSTOMER_FIELDS: Whitelist = {
@@ -25,7 +25,7 @@ export const CUSTOMER_FIELDS: Whitelist = {
   tags: { column: "c.tags", type: "tags" }
 }
 
-interface Row {
+export interface Row {
   readonly id: string
   readonly storeId: string
   readonly shopifyId: string
@@ -41,7 +41,7 @@ interface Row {
   readonly externalUpdatedAt: Date
 }
 
-const toRow = (r: Row) =>
+export const toRow = (r: Row) =>
   new CustomerRow({
     id: r.id,
     storeId: r.storeId,
@@ -58,8 +58,12 @@ const toRow = (r: Row) =>
     updatedAt: r.externalUpdatedAt.getTime()
   })
 
-const SELECT = `c.id, c.store_id, c.shopify_id, c.name, c.email, c.phone, c.country, c.tags, c.orders_count,
-  c.lifetime_value_minor, c.currency, c.external_updated_at,
+export const SELECT = `c.id, c.store_id, c.shopify_id, c.name, c.email, c.phone, c.country, c.tags,
+  c.orders_count + coalesce((select sum(m.orders_count) from customers m where m.merged_into = c.id), 0)::int
+    as orders_count,
+  c.lifetime_value_minor + coalesce((select sum(m.lifetime_value_minor) from customers m where m.merged_into = c.id), 0)
+    as lifetime_value_minor,
+  c.currency, c.external_updated_at,
   (select max(o.placed_at) from orders o where o.customer_id = c.id) as last_order_at`
 
 const searchOf = (sql: SqlClient.SqlClient, q: string | undefined) => {
@@ -84,11 +88,11 @@ export const list = Effect.fn("Customers.list")(function*(input: ListInput) {
         : sql`(lower(c.name), c.id) > (${String(after[0])}, ${String(after[1])})`
       const rows = yield* sql<Row>`
         select ${sql.literal(SELECT)} from customers c
-        where c.deleted_at is null and ${scope} and ${filter} and ${search} and ${page}
+        where c.deleted_at is null and c.merged_into is null and ${scope} and ${filter} and ${search} and ${page}
         order by lower(c.name), c.id limit ${limit + 1}`
       const [total] = yield* sql<{ n: number }>`
         select count(*)::int as n from customers c
-        where c.deleted_at is null and ${scope} and ${filter} and ${search}`
+        where c.deleted_at is null and c.merged_into is null and ${scope} and ${filter} and ${search}`
       const shown = rows.slice(0, limit)
       const last = shown.at(-1)
       return new CustomerPage({
@@ -106,8 +110,16 @@ export const get = Effect.fn("Customers.get")(function*(id: string) {
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const scope = yield* inScope(sql, "c.store_id")
-      const [row] = yield* sql<Row & { address: CustomerDetail["address"]; marketingConsent: boolean }>`
-        select ${sql.literal(SELECT)}, c.address, c.marketing_consent from customers c
+      const [row] = yield* sql<
+        Row & {
+          address: CustomerDetail["address"]
+          marketingConsent: boolean
+          intoId: string | null
+          intoName: string | null
+        }
+      >`
+        select ${sql.literal(SELECT)}, c.address, c.marketing_consent, s.id as into_id, s.name as into_name
+        from customers c left join customers s on s.id = c.merged_into
         where c.id = ${id} and c.deleted_at is null and ${scope}`
       if (row === undefined) return yield* new NotFound({ entity: "customer", id })
       const orders = yield* sql<
@@ -115,10 +127,19 @@ export const get = Effect.fn("Customers.get")(function*(id: string) {
       >`
         select id, number, status, total_minor, currency, placed_at from orders where customer_id = ${id}
         order by placed_at desc limit 50`
+      const absorbed = yield* sql<{ email: string | null }>`
+        select email from customers where merged_into = ${id} order by merged_at`
       return new CustomerDetail({
         customer: toRow(row),
         address: row.address,
         marketingConsent: row.marketingConsent,
+        merged: {
+          into: row.intoId === null ? null : { id: row.intoId, name: row.intoName ?? "" },
+          absorbed: absorbed.length,
+          alsoEmails: [
+            ...new Set(absorbed.flatMap((a) => (a.email === null || a.email === row.email ? [] : [a.email])))
+          ]
+        },
         orders: orders.map((o) => ({ ...o, totalMinor: Number(o.totalMinor), placedAt: o.placedAt.getTime() }))
       })
     })
@@ -139,7 +160,8 @@ export const search = Effect.fn("Customers.search")(function*(q: string, limit: 
       const scope = yield* inScope(sql, "c.store_id")
       const rows = yield* sql<{ id: string; title: string; subtitle: string | null }>`
         select c.id, c.name as title, c.email as subtitle from customers c
-        where c.deleted_at is null and ${scope} and (c.name ilike ${pattern} or c.email ilike ${pattern})
+        where c.deleted_at is null and c.merged_into is null and ${scope}
+          and (c.name ilike ${pattern} or c.email ilike ${pattern})
         order by lower(c.name) limit ${limit}`
       return rows.map((r) =>
         new SearchHit({ kind: "customer", id: r.id, title: r.title, subtitle: r.subtitle, href: `/customers/${r.id}` })

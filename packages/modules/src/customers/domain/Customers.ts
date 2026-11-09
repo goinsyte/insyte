@@ -1,6 +1,9 @@
 import { Schema } from "effect"
 
-/* Klanten, read-only (M6.4; domain.md §4.2): the mirror's customers, their order count and value as Shopify keeps them. */
+/*
+ * Klanten (M6.4; domain.md §4.2): the mirror's customers, their order count and value as Shopify keeps them, with the
+ * profiles merged into them counted in (M7.4). The commands are `Commands.ts`.
+ */
 
 export class CustomerRow extends Schema.Class<CustomerRow>("customers/CustomerRow")({
   id: Schema.String,
@@ -32,7 +35,13 @@ export class CustomerDetail extends Schema.Class<CustomerDetail>("customers/Cust
   customer: CustomerRow,
   address: Schema.NullOr(Schema.Record(Schema.String, Schema.NullOr(Schema.String))),
   marketingConsent: Schema.Boolean,
-  orders: Schema.Array(CustomerOrder)
+  orders: Schema.Array(CustomerOrder),
+  /** Merged into another profile, or others merged into this one (M7.4). */
+  merged: Schema.Struct({
+    into: Schema.NullOr(Schema.Struct({ id: Schema.String, name: Schema.String })),
+    absorbed: Schema.Int,
+    alsoEmails: Schema.Array(Schema.String)
+  })
 }) {}
 
 export class CustomerPage extends Schema.Class<CustomerPage>("customers/CustomerPage")({

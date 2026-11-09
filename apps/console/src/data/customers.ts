@@ -1,5 +1,6 @@
 import { Forbidden, NotFound, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
 import { CustomerDetail, CustomerPage } from "@insyte/modules/customers/domain/Customers"
+import { DuplicateGroup } from "@insyte/modules/customers/domain/Duplicates"
 import { CursorInvalid, FilterFieldUnknown } from "@insyte/modules/shared/domain/Filter"
 import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
@@ -49,3 +50,25 @@ export const customerAtom = Atom.family((id: string) =>
     }
   )
 )
+
+/** The profiles that look like the same person (M7.4), for the list's review; a change to a customer refreshes it. */
+export const duplicatesAtom = Atom.serializable(
+  ConsoleClient.query("Customers.duplicates", undefined, { reactivityKeys: CUSTOMERS }),
+  {
+    key: "customer-duplicates",
+    schema: AsyncResult.Schema({
+      success: Schema.Array(DuplicateGroup),
+      error: Schema.Union([Forbidden, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
+    }),
+    skipInitialRun: true
+  }
+)
+
+/** The customer commands (M7.4), each refreshing what names `CUSTOMERS`, and the undo they offer. */
+export const customerWrites = {
+  tag: ConsoleClient.mutation("Customers.tag"),
+  create: ConsoleClient.mutation("Customers.create"),
+  merge: ConsoleClient.mutation("Customers.merge"),
+  markNotDuplicate: ConsoleClient.mutation("Customers.markNotDuplicate"),
+  undo: ConsoleClient.mutation("Shared.undo")
+} as const

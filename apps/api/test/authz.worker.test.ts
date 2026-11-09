@@ -94,6 +94,12 @@ const PAYLOADS: Record<string, unknown> = {
   "Products.sync": { id: "prd_none" },
   "Customers.list": {},
   "Customers.get": { id: "cus_none" },
+  "Customers.tag": { ids: ["cus_none"], add: ["x"], remove: [] },
+  // A workspace without a store: `Conflict` for every role that may, never a customer made.
+  "Customers.create": { name: "Iemand", email: "iemand@example.com", phone: "", country: "", tags: [] },
+  "Customers.merge": { survivorId: "cus_none", ids: ["cus_other"] },
+  "Customers.duplicates": undefined,
+  "Customers.markNotDuplicate": { key: "cus_none,cus_other" },
   "FirstAnalysis.get": undefined,
   "FirstAnalysis.start": undefined,
   "FirstAnalysis.prepare": { ids: ["agent"], answers: { fulfilment: "one", reply: "ask" } },

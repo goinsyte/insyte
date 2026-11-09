@@ -13,10 +13,8 @@ import type { DuplicateGroup } from "../lib/duplicates";
 import { formatCurrency, initials } from "../lib/format";
 import { countryFlag, countryName } from "../lib/format-flag";
 import { personStyle } from "../lib/person-color";
-import type { Customer } from "../lib/types/domain";
-import { undoable } from "../lib/undo";
+import type { Currency, Customer } from "../lib/types/domain";
 import { cn } from "../lib/utils";
-import { useWorkspace } from "../stores/workspace-store";
 
 /**
  * The duplicate review: one group at a time, "are these the same person?", and the operator says.
@@ -25,6 +23,9 @@ import { useWorkspace } from "../stores/workspace-store";
  * stay — and a band under them says what the merged profile will be before it is merged: every order
  * and every euro counted once, every address kept. "Not the same person" is an answer too, and the
  * group is not asked about again. Merging has Undo; nothing about it is a guess the product made.
+ *
+ * Merging and "not the same person" are the host's (`onMerge`, `onNotDuplicate`): the demo workspace's, or the
+ * console's `Customers.merge` and `Customers.markNotDuplicate`.
  */
 
 const MATCH_LABEL: Record<DuplicateGroup["match"], { label: string; tone: string }> = {
@@ -38,14 +39,19 @@ export function MergeReview({
 	onOpenChange,
 	groups,
 	customers,
+	onMerge,
+	onNotDuplicate,
+	currency,
 }: {
 	open: boolean;
 	onOpenChange: (v: boolean) => void;
 	groups: ReadonlyArray<DuplicateGroup>;
 	customers: ReadonlyArray<Customer>;
+	onMerge: (keeper: Customer, others: Customer[]) => void;
+	onNotDuplicate: (key: string) => void;
+	/** The currency the figures are in, where the host knows it. */
+	currency?: Currency | undefined;
 }) {
-	const merge = useWorkspace((s) => s.mergeCustomers);
-	const notDuplicate = useWorkspace((s) => s.notDuplicate);
 	const still = useReducedMotion();
 	// The queue is fixed when the review opens, so merging one group does not reshuffle the rest.
 	const [queue, setQueue] = useState<ReadonlyArray<DuplicateGroup>>([]);
@@ -75,12 +81,8 @@ export function MergeReview({
 
 	function doMerge() {
 		if (!group || !keeper) return;
-		const before = useWorkspace.getState();
-		const snapshot = { edits: before.customerEdits, not: before.notDuplicates };
-		const others = members.filter((c) => c.id !== keeper.id);
-		merge(keeper, others);
+		onMerge(keeper, members.filter((c) => c.id !== keeper.id));
 		setMerged((n) => n + 1);
-		undoable(`${others.length + 1} profielen samengevoegd tot ${keeper.name}`, () => useWorkspace.getState().restoreCustomers(snapshot.edits, snapshot.not));
 		next();
 	}
 
@@ -149,7 +151,7 @@ export function MergeReview({
 													<dt className="text-ink-3">Bestellingen</dt>
 													<dd className="text-ink-2 tabular-nums">{c.orders_count}</dd>
 													<dt className="text-ink-3">Klantwaarde</dt>
-													<dd className="text-ink-2 tabular-nums">{formatCurrency(c.lifetime_value)}</dd>
+													<dd className="text-ink-2 tabular-nums">{formatCurrency(c.lifetime_value, currency)}</dd>
 													<dt className="text-ink-3">Sinds</dt>
 													<dd className="text-ink-2 tabular-nums">
 														{new Intl.DateTimeFormat("nl-NL", { month: "short", year: "numeric" }).format(new Date(c.created_at))}
@@ -166,7 +168,7 @@ export function MergeReview({
 								<p className="rounded-lg bg-mist px-3 py-2.5 text-sm text-ink-2">
 									Samengevoegd is dit één profiel: <span className="font-medium text-ink">{keeper.name}</span>,{" "}
 									<span className="tabular-nums">{total.orders}</span> {total.orders === 1 ? "bestelling" : "bestellingen"} en{" "}
-									<span className="tabular-nums">{formatCurrency(total.value)}</span> klantwaarde, met{" "}
+									<span className="tabular-nums">{formatCurrency(total.value, currency)}</span> klantwaarde, met{" "}
 									{total.emails === 1 ? "één e-mailadres" : `${total.emails} e-mailadressen bewaard`}.
 								</p>
 							</motion.div>
@@ -176,7 +178,7 @@ export function MergeReview({
 							<button
 								type="button"
 								onClick={() => {
-									notDuplicate(group.key);
+									onNotDuplicate(group.key);
 									setDismissed((n) => n + 1);
 									next();
 								}}

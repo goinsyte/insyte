@@ -104,7 +104,8 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(storeId: string
                             subtotal_minor, shipping_minor, tax_minor, discounts_minor, currency, payment_gateway,
                             card_last4, shipping_address, tags, note, channel, referral_code, placed_at, paid_at,
                             shipped_at, cancelled_at, refunded_at, external_updated_at, raw)
-        select r.id, app_workspace_id(), ${storeId}, r.shopify_id, r.number, c.id, r.customer_shopify_id,
+        select r.id, app_workspace_id(), ${storeId}, r.shopify_id, r.number, coalesce(c.merged_into, c.id),
+               r.customer_shopify_id,
                r.customer_name, r.customer_email, r.status, r.payment_status, r.fulfillment_status, r.total_minor,
                r.subtotal_minor, r.shipping_minor, r.tax_minor, r.discounts_minor, r.currency, r.payment_gateway,
                r.card_last4, r.shipping_address, r.tags, r.note, r.channel, r.referral_code, r.placed_at, r.paid_at,
