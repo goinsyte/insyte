@@ -11,27 +11,27 @@ import { useEffect, useMemo, useState } from "react";
 import { formatCurrency } from "../lib/format";
 import { marginOf } from "../lib/catalog";
 import type { Product } from "../lib/types/domain";
-import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { useWorkspace } from "../stores/workspace-store";
 
 /**
  * Recalculate margins: price the picked products so each keeps a target margin over what it costs.
  * Every row shows its price and margin now and after, so the change is read before it is made, and
  * products with no cost on record are named and left alone rather than priced on a guess. Prices
  * round to the whole unit, the way the store already prices.
+ *
+ * Applying is the host's (`onApply`): the demo workspace's, or the console's `Products.reprice`.
  */
 export function MarginDialog({
 	open,
 	onOpenChange,
 	picked,
+	onApply,
 }: {
 	open: boolean;
 	onOpenChange: (v: boolean) => void;
 	picked: ReadonlyArray<Product>;
+	onApply: (priced: ReadonlyArray<{ product: Product; price: number }>, target: number) => void;
 }) {
-	const editProducts = useWorkspace((s) => s.editProducts);
-	const restore = useWorkspace((s) => s.restoreProducts);
 	const [target, setTarget] = useState("60");
 
 	useEffect(() => {
@@ -81,11 +81,11 @@ export function MarginDialog({
 							) : (
 								<>
 									<span className="w-28 text-right text-ink-2 tabular-nums">
-										{formatCurrency(r.p.price)} <span className="text-ink-3">{Math.round(r.before * 100)}%</span>
+										{formatCurrency(r.p.price, r.p.currency)} <span className="text-ink-3">{Math.round(r.before * 100)}%</span>
 									</span>
 									<ArrowRight className="size-3.5 shrink-0 text-ink-4" strokeWidth={2} />
 									<span className={cn("w-28 text-right tabular-nums", r.next === r.p.price ? "text-ink-3" : "font-medium text-ink")}>
-										{formatCurrency(r.next)} <span className="font-normal text-ink-3">{Math.round((r.after ?? 0) * 100)}%</span>
+										{formatCurrency(r.next, r.p.currency)} <span className="font-normal text-ink-3">{Math.round((r.after ?? 0) * 100)}%</span>
 									</span>
 								</>
 							)}
@@ -109,9 +109,7 @@ export function MarginDialog({
 						type="button"
 						disabled={priced.length === 0}
 						onClick={() => {
-							const before = useWorkspace.getState().productEdits;
-							editProducts(Object.fromEntries(priced.map((r) => [r.p.id, { price: r.next ?? r.p.price }])));
-							undoable(`${priced.length} ${priced.length === 1 ? "prijs" : "prijzen"} ingesteld op ${Math.round(t * 100)}% marge`, () => restore(before));
+							onApply(priced.map((r) => ({ product: r.p, price: r.next ?? r.p.price })), t);
 							onOpenChange(false);
 						}}
 						className="h-9 cursor-pointer rounded-md bg-abyss px-3.5 font-medium text-base text-mesh-ink shadow-primary hover:bg-abyss-2 disabled:cursor-not-allowed disabled:bg-ink/8 disabled:text-ink-3 disabled:shadow-none"

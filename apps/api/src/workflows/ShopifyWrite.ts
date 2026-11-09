@@ -1,7 +1,8 @@
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
-import type { OrderWrite, WriteOutcome } from "@insyte/modules/orders/domain/WriteBack"
 import { refundFailed, writeBack } from "@insyte/modules/orders/use-cases/write-back"
+import { productWriteBack } from "@insyte/modules/products/use-cases/write-back"
+import type { ShopifyWrite, WriteOutcome } from "@insyte/modules/shared/domain/ShopifyWrites"
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers"
 import { Cause, Effect, Exit } from "effect"
 import { syncRuntime as runtime } from "../platform/Ingest.ts"
@@ -10,15 +11,15 @@ import { withRequestDb } from "../platform/RequestDb.ts"
 import { roomOf } from "../platform/Room.ts"
 
 /*
- * An order change to Shopify (M7.1), once the undo window has passed: a durable step per order, so a bulk change of
- * fifty orders that Shopify throttles halfway resumes where it stopped and sends none twice. A step that keeps
+ * A change made in Insyte to Shopify (M7), once the undo window has passed: a durable step per order or product, so a
+ * bulk change of fifty that Shopify throttles halfway resumes where it stopped and sends none twice. A step that keeps
  * failing (Shopify unreachable) gives up after its retries; the others still go, and a refund that never got there is
- * failed. Where Shopify refused, the order was read again, and the workspace's tabs hear it; a refund always.
+ * failed. Where Shopify refused, the record was read again, and the workspace's tabs hear it; a refund always.
  */
 
 export interface ShopifyWriteParams {
   readonly workspaceId: string
-  readonly write: OrderWrite
+  readonly write: ShopifyWrite
 }
 
 const RETRY: WorkflowStepConfig = {
@@ -29,19 +30,22 @@ const RETRY: WorkflowStepConfig = {
 export class ShopifyWriteWorkflow extends WorkflowEntrypoint<Cloudflare.Env, ShopifyWriteParams> {
   override async run(event: Readonly<WorkflowEvent<ShopifyWriteParams>>, step: WorkflowStep) {
     const { workspaceId, write } = event.payload
+    const product = write.type === "product.updated"
+    const ids = write.type === "product.updated" ? write.productIds : write.orderIds
     const outcomes: Array<WriteOutcome> = []
-    for (const orderId of write.orderIds) {
+    for (const id of ids) {
       try {
-        outcomes.push(await step.do(`order ${orderId}`, RETRY, () => run(workspaceId, writeBack(write, orderId))))
+        const effect = write.type === "product.updated" ? productWriteBack(write, id) : writeBack(write, id)
+        outcomes.push(await step.do(`${product ? "product" : "order"} ${id}`, RETRY, () => run(workspaceId, effect)))
       } catch {
         if (write.type === "refund.requested") {
           await step.do(
-            `refund failed ${orderId}`,
+            `refund failed ${id}`,
             RETRY,
-            () => run(workspaceId, refundFailed(write.refundId, orderId, "unreachable"))
+            () => run(workspaceId, refundFailed(write.refundId, id, "unreachable"))
           )
         }
-        outcomes.push({ orderId, outcome: "skipped", reason: "unreachable" })
+        outcomes.push({ id, outcome: "skipped", reason: "unreachable" })
       }
     }
     // A refund changes the order whatever became of it; another change only where Shopify refused it.
@@ -50,8 +54,8 @@ export class ShopifyWriteWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Sho
       await roomOf(workspaceId).broadcast({
         v: 1,
         type: "records.changed",
-        kind: "order",
-        ids: changed.map((o) => o.orderId)
+        kind: product ? "product" : "order",
+        ids: changed.map((o) => o.id)
       })
     }
     return outcomes

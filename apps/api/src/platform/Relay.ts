@@ -3,10 +3,10 @@ import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { InvitationLinks } from "@insyte/modules/members/domain/Ports"
 import { fanOut } from "@insyte/modules/notifications/use-cases/fanout"
-import { ShopifyWrites } from "@insyte/modules/orders/domain/Ports"
 import { Mailer } from "@insyte/modules/shared/domain/Mailer"
 import { type OutboxEvent, Relay } from "@insyte/modules/shared/domain/Outbox"
 import { ProductAnalytics, type ProductEvent } from "@insyte/modules/shared/domain/ProductAnalytics"
+import { ShopifyWrites } from "@insyte/modules/shared/domain/ShopifyWrites"
 import { Backfills } from "@insyte/modules/stores/domain/Ports"
 import { env, waitUntil } from "cloudflare:workers"
 import { Effect, Layer, Schema } from "effect"
@@ -103,6 +103,7 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
         properties: { platform: "shopify" }
       }
     case "records.changed":
+    case "product.updated":
       return undefined
     // Handling an order in Insyte is an activation moment (M7): counted by what was done and to how many.
     case "order.updated":
@@ -211,10 +212,11 @@ const SINKS: ReadonlyArray<Sink> = [
         : undefined
   },
   {
-    // An order changed in Insyte (M7.1): to Shopify, one Workflow per event, named by it.
+    // An order or a product changed in Insyte (M7): to Shopify, one Workflow per event, named by it.
     name: "shopify",
     run: (id, event) =>
-      event.type === "order.updated" || event.type === "order.cancelled" || event.type === "refund.requested"
+      event.type === "order.updated" || event.type === "order.cancelled" || event.type === "refund.requested" ||
+        event.type === "product.updated"
         ? Effect.flatMap(
           Effect.service(ShopifyWrites),
           (writes) => writes.start({ key: `sw-${id}`, workspaceId: event.workspaceId, write: event })

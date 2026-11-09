@@ -23,7 +23,7 @@ export const PRODUCT_FIELDS: Whitelist = {
   tags: { column: "p.tags", type: "tags" }
 }
 
-interface Row {
+export interface Row {
   readonly id: string
   readonly storeId: string
   readonly shopifyId: string
@@ -38,12 +38,13 @@ interface Row {
   readonly sku: string | null
   readonly priceMin: string | null
   readonly priceMax: string | null
+  readonly costMinor: string | null
   readonly currency: string | null
   readonly available: number | null
   readonly externalUpdatedAt: Date
 }
 
-const toRow = (r: Row) =>
+export const toRow = (r: Row) =>
   new ProductRow({
     id: r.id,
     storeId: r.storeId,
@@ -59,13 +60,15 @@ const toRow = (r: Row) =>
     sku: r.sku,
     priceMinMinor: r.priceMin === null ? null : Number(r.priceMin),
     priceMaxMinor: r.priceMax === null ? null : Number(r.priceMax),
+    costMinor: r.costMinor === null ? null : Number(r.costMinor),
     currency: r.currency ?? "EUR",
     available: r.available,
     updatedAt: r.externalUpdatedAt.getTime()
   })
 
-const SELECT = `p.id, p.store_id, p.shopify_id, p.title, p.handle, p.status, p.vendor, p.product_type, p.tags, p.images,
-  p.external_updated_at, s.currency,
+export const SELECT =
+  `p.id, p.store_id, p.shopify_id, p.title, p.handle, p.status, p.vendor, p.product_type, p.tags, p.images,
+  p.external_updated_at, p.cost_minor, s.currency,
   (select count(*) from variants v where v.product_id = p.id)::int as variant_count,
   (select v.sku from variants v where v.product_id = p.id and v.sku is not null order by v.position limit 1) as sku,
   (select min(v.price_minor) from variants v where v.product_id = p.id) as price_min,

@@ -17,6 +17,13 @@ import {
   RefundOverLimit,
   RefundResult
 } from "@insyte/modules/orders/domain/Refunds"
+import {
+  EditInput,
+  ProductChange,
+  RepriceInput,
+  RepriceResult,
+  StatusInput
+} from "@insyte/modules/products/domain/Commands"
 import { ProductDetail, ProductPage } from "@insyte/modules/products/domain/Products"
 import { CursorInvalid, FilterFieldUnknown, ListInput } from "@insyte/modules/shared/domain/Filter"
 import { Schema } from "effect"
@@ -68,6 +75,14 @@ export class CommerceRpcs extends RpcGroup.make(
   }),
   Rpc.make("Products.list", { payload: ListInput, success: ProductPage, error: ListError }),
   Rpc.make("Products.get", { payload: ById, success: ProductDetail, error: GetError }),
+  Rpc.make("Products.edit", {
+    payload: EditInput,
+    success: ProductChange,
+    error: Schema.Union([Forbidden, NotFound, Conflict])
+  }),
+  Rpc.make("Products.setStatus", { payload: StatusInput, success: ProductChange, error: GetError }),
+  Rpc.make("Products.reprice", { payload: RepriceInput, success: RepriceResult, error: GetError }),
+  Rpc.make("Products.sync", { payload: ById, error: Schema.Union([Forbidden, NotFound, Conflict]) }),
   Rpc.make("Customers.list", { payload: ListInput, success: CustomerPage, error: ListError }),
   Rpc.make("Customers.get", { payload: ById, success: CustomerDetail, error: GetError })
 )

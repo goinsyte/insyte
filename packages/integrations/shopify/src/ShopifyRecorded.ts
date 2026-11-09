@@ -85,7 +85,9 @@ const MUTATIONS: Record<string, { readonly field?: string; readonly ok: Record<s
   orderUpdate: { ok: { order: { id: "recorded" } } },
   fulfillmentCreate: { ok: { fulfillment: { id: "gid://shopify/Fulfillment/1", status: "SUCCESS" } } },
   orderCancel: { field: "orderCancelUserErrors", ok: { job: { id: "gid://shopify/Job/1" } } },
-  refundCreate: { ok: { refund: { id: "gid://shopify/Refund/9001" } } }
+  refundCreate: { ok: { refund: { id: "gid://shopify/Refund/9001" } } },
+  productUpdate: { ok: { product: { id: "recorded" } } },
+  productVariantsBulkUpdate: { ok: { productVariants: [] } }
 }
 
 /** Refunds by idempotency key: the same key answers the same refund, as Shopify does. */

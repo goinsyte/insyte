@@ -1,13 +1,15 @@
 import type { ProductDetail, ProductRow } from "@insyte/modules/products/domain/Products"
 import type { Currency, Product } from "@insyte/ui/app/lib/types/domain"
 import type { ProductDetailSource } from "@insyte/ui/app/products/detail-source"
+import { useGate } from "../frame/refusals.ts"
+import { useProductCommands } from "./product-writes.ts"
 import { productOf } from "./products-source.ts"
 
 /*
- * One product's source in the console (M6.4): `Products.get` as the design's page, read-only until the commands (M7).
- * What the server does not hold is left out, as on the list: cost and margin (M7), the supplier (M8), stock (until
- * inventory per location is mirrored; a variant shows a dash), the quality checks. The category is Shopify's product
- * type, the description Shopify's HTML as text.
+ * One product's source in the console: `Products.get` as the design's page (M6.4), edited and saved with its commands
+ * behind Producten · Bewerken (M7.3), cost price and margin included. What the server does not hold is left out, as
+ * on the list: the supplier and its files (M8), stock (until inventory per location is mirrored; a variant shows a
+ * dash), the quality checks. The category is Shopify's product type, the description Shopify's HTML as text.
  */
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: "\"", "#39": "'", nbsp: " " }
@@ -36,7 +38,7 @@ const pageOf = (row: ProductRow, shopDomain: string | undefined, product: Produc
   shopifyUrl: adminUrl(shopDomain, row.shopifyId)
 })
 
-export function consoleProductDetail(d: ProductDetail, shopDomain: string | undefined): ProductDetailSource {
+function consoleProductDetail(d: ProductDetail, shopDomain: string | undefined): ProductDetailSource {
   const product: Product = {
     ...productOf(d.product),
     images: [...d.images],
@@ -62,4 +64,27 @@ export function consoleProductDetail(d: ProductDetail, shopDomain: string | unde
 /** The page while `Products.get` is still out: the list's row draws the header, the record's skeleton the body. */
 export function arrivingProductDetail(row: ProductRow, shopDomain: string | undefined): ProductDetailSource {
   return { ...pageOf(row, shopDomain, productOf(row)), arriving: true }
+}
+
+const NONE: ReadonlyArray<never> = []
+
+/** The page with what may be done to it: the draft saved, the product read again from Shopify. */
+export function useConsoleProductDetail(d: ProductDetail, shopDomain: string | undefined): ProductDetailSource {
+  const source = consoleProductDetail(d, shopDomain)
+  const commands = useProductCommands()
+  const gate = useGate("products", 2)
+  const { product } = source
+  return gate.ok
+    ? {
+      ...source,
+      edit: {
+        save: (draft) => void commands.save(product, draft),
+        sync: () => commands.sync(product),
+        suppliers: NONE,
+        media: NONE,
+        adsPaused: false,
+        resumeAds: () => undefined
+      }
+    }
+    : source
 }

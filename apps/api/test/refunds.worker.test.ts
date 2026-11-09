@@ -13,7 +13,7 @@ import { rpc } from "./support.ts"
  * console shows, and money Shopify cannot find to return fails the refund, so it no longer counts.
  */
 
-type Outcome = { orderId: string; outcome: string; reason: string | null }
+type Outcome = { id: string; outcome: string; reason: string | null }
 
 const orderNumbered = async (cookie: string, number: string) => {
   const page = ok(await rpc("Orders.list", { limit: 50 }, cookie))

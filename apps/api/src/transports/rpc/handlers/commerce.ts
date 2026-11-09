@@ -20,6 +20,10 @@ export const CommerceHandlers = CommerceRpcs.toLayer(Effect.gen(function*() {
     "Orders.refund": (input) => orders.refund(input),
     "Products.list": (input) => products.list(input),
     "Products.get": ({ id }) => products.get(id),
+    "Products.edit": (input) => products.edit(input),
+    "Products.setStatus": (input) => products.setStatus(input),
+    "Products.reprice": (input) => products.reprice(input),
+    "Products.sync": ({ id }) => products.sync(id),
     "Customers.list": (input) => customers.list(input),
     "Customers.get": ({ id }) => customers.get(id)
   })

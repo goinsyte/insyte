@@ -161,6 +161,22 @@ function DemoNewProduct({ open, onOpenChange }: { open: boolean; onOpenChange: (
 }
 
 /* Stock, SKU, margin and category come from the product itself — its variants, its cost. */
+/** "Marges herberekenen" on the demo workspace: the prices taken at once, with one Undo. */
+function DemoMargin(props: { open: boolean; onOpenChange: (open: boolean) => void; picked: Row[] }) {
+	const editProducts = useWorkspace((s) => s.editProducts);
+	const restore = useWorkspace((s) => s.restoreProducts);
+	return (
+		<MarginDialog
+			{...props}
+			onApply={(priced, target) => {
+				const before = useWorkspace.getState().productEdits;
+				editProducts(Object.fromEntries(priced.map((r) => [r.product.id, { price: r.price }])));
+				undoable(`${priced.length} ${priced.length === 1 ? "prijs" : "prijzen"} ingesteld op ${Math.round(target * 100)}% marge`, () => restore(before));
+			}}
+		/>
+	);
+}
+
 const rowOf = (p: Product, i: number): Row => {
 	const supplier = suppliers.find((s) => s.id === p.supplier_id);
 	return {
@@ -225,7 +241,7 @@ export function DemoProductsSource({ children }: { children: ReactNode }) {
 		actions: demoProductActions,
 		canCreate: ALLOWED,
 		NewProduct: DemoNewProduct,
-		Margin: MarginDialog,
+		Margin: DemoMargin,
 		LowStock: LowStockPlate,
 		categories: true,
 		starts,

@@ -217,7 +217,7 @@ export function ProductDetail() {
 									label="Inkoopprijs"
 									numeric
 									placeholder="Inkoopprijs toevoegen"
-									format={(v) => formatCurrency(Number(v))}
+									format={(v) => formatCurrency(Number(v), currency)}
 								/>
 							</Row>
 							<Row label="Marge">
@@ -251,7 +251,7 @@ export function ProductDetail() {
 									readOnly={readOnly}
 								/>
 							</Row>
-							{edit ? (
+							{edit && edit.suppliers.length > 0 ? (
 							<Row label="Leverancier">
 								<Pick
 									value={draft.supplier_id ?? ""}
