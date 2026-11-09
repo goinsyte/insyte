@@ -14,7 +14,9 @@ import {
 /*
  * The public API (M19.2, api.md §6): REST under `/v1`, a bearer API key, JSON in snake_case English. What a key may do
  * is its access as the catalogue allows it through the API; it reads: the key itself, the team and the roles, and the
- * orders, products and customers (M6.4). Its OpenAPI document is generated from this file, and the reference at `/v1/docs` is drawn from that.
+ * orders, products and customers (M6.4); and it acts on orders (M7: tags, the internal note, the shipping address,
+ * cancelling, refunds within the key's limit), each write taking an `Idempotency-Key`. Its OpenAPI document is
+ * generated from this file, and the reference at `/v1/docs` is drawn from that.
  */
 
 /* ── errors ─────────────────────────────────────────────────────────────────────────────────────── */
@@ -44,7 +46,25 @@ export const RateLimitedV1 = envelope("RateLimitedV1", 429, { retry_after: Schem
 /** A query parameter that cannot be read: an unknown cursor, a page size out of range. */
 export const InvalidRequestV1 = envelope("InvalidRequestV1", 400, { field: Schema.String })
 
+/** No such record in the key's stores. */
+export const NotFoundV1 = envelope("NotFoundV1", 404, {})
+/** The record is not in a state that allows this (an order already cancelled, a refund already made); `reason` says. */
+export const ConflictV1 = envelope("ConflictV1", 409, { reason: Schema.String })
+/** The body is not what the endpoint takes; `fields` names each field and why. */
+export const ValidationFailedV1 = envelope("ValidationFailedV1", 400, {
+  fields: Schema.Record(Schema.String, Schema.String)
+})
+/** More than the key may refund on one order; `limit_minor` is its limit. */
+export const RefundOverLimitV1 = envelope("RefundOverLimitV1", 422, { limit_minor: Schema.Int })
+/** The `Idempotency-Key` was first used for a different request. */
+export const IdempotencyKeyReusedV1 = envelope("IdempotencyKeyReusedV1", 422, {})
+
 export type ScopeMissingV1 = typeof ScopeMissingV1.Type
+export type NotFoundV1 = typeof NotFoundV1.Type
+export type ConflictV1 = typeof ConflictV1.Type
+export type ValidationFailedV1 = typeof ValidationFailedV1.Type
+export type RefundOverLimitV1 = typeof RefundOverLimitV1.Type
+export type IdempotencyKeyReusedV1 = typeof IdempotencyKeyReusedV1.Type
 export type InvalidRequestV1 = typeof InvalidRequestV1.Type
 
 /* ── what a key is ──────────────────────────────────────────────────────────────────────────────── */
@@ -168,6 +188,42 @@ export const ListQuery = Schema.Struct({
 })
 export type ListQuery = typeof ListQuery.Type
 
+const Address = Schema.Struct({
+  name: Schema.NullOr(Schema.String),
+  line1: Schema.NullOr(Schema.String),
+  line2: Schema.NullOr(Schema.String),
+  city: Schema.NullOr(Schema.String),
+  postcode: Schema.NullOr(Schema.String),
+  region: Schema.NullOr(Schema.String),
+  country: Schema.NullOr(Schema.String),
+  phone: Schema.NullOr(Schema.String)
+})
+
+export const Refund = Schema.Struct({
+  id: Schema.String,
+  order_id: Schema.String,
+  amount: Money,
+  /** `pending` until Shopify took it; `failed` when it never got there. */
+  status: Schema.Literals(["pending", "succeeded", "failed"]),
+  note: Schema.NullOr(Schema.String),
+  created_at: Schema.String
+}).annotate({ identifier: "Refund" })
+
+/** One order with its lines, its address, the team's internal note and its refunds. */
+export const OrderDetailV1 = Schema.Struct({
+  ...Order.fields,
+  lines: Schema.Array(Schema.Struct({
+    title: Schema.String,
+    variant_title: Schema.NullOr(Schema.String),
+    sku: Schema.NullOr(Schema.String),
+    quantity: Schema.Int,
+    unit_price_minor: Schema.Int
+  })),
+  shipping_address: Schema.NullOr(Address),
+  internal_note: Schema.NullOr(Schema.String),
+  refunds: Schema.Array(Refund)
+}).annotate({ identifier: "OrderDetail" })
+
 export const OrderPageV1 = Page(Order)
 export const ProductPageV1 = Page(Product)
 export const CustomerPageV1 = Page(Customer)
@@ -225,8 +281,87 @@ export class CommerceGroup extends HttpApiGroup.make("commerce")
   .annotate(OpenApi.Title, "Commerce")
 {}
 
+/** What every write reads from its headers: the caller's key for doing it once. */
+const Writes = { "idempotency-key": Schema.optional(Schema.String) }
+const ById = { id: Schema.String }
+const WriteErrors = [ScopeMissingV1, NotFoundV1, ConflictV1, ValidationFailedV1, IdempotencyKeyReusedV1]
+
+export class OrdersGroup extends HttpApiGroup.make("orders")
+  .add(
+    HttpApiEndpoint.get("order", "/orders/:id", {
+      params: ById,
+      success: OrderDetailV1,
+      error: [ScopeMissingV1, NotFoundV1]
+    }).annotate(
+      OpenApi.Description,
+      "One order with its lines, address, internal note and refunds. Needs `orders.read`."
+    ),
+    HttpApiEndpoint.post("tags", "/orders/:id/tags", {
+      params: ById,
+      headers: Writes,
+      payload: Schema.Struct({
+        add: Schema.optional(Schema.Array(Schema.String)),
+        remove: Schema.optional(Schema.Array(Schema.String))
+      }),
+      success: Order,
+      error: WriteErrors
+    }).annotate(
+      OpenApi.Description,
+      "Adds and removes the order's tags; Shopify hears it a few seconds later. Insyte's own markers (`at_risk`, `tracking_sent`, `draft`) are refused. Needs `orders.write`."
+    ),
+    HttpApiEndpoint.post("note", "/orders/:id/note", {
+      params: ById,
+      headers: Writes,
+      payload: Schema.Struct({ body: Schema.String }),
+      success: OrderDetailV1,
+      error: WriteErrors
+    }).annotate(
+      OpenApi.Description,
+      "The team's internal note on the order; empty clears it. Never sent to Shopify or a supplier. Needs `orders.write`."
+    ),
+    HttpApiEndpoint.patch("shippingAddress", "/orders/:id/shipping_address", {
+      params: ById,
+      headers: Writes,
+      payload: Schema.Struct({
+        line1: Schema.String,
+        line2: Schema.optional(Schema.NullOr(Schema.String)),
+        city: Schema.String,
+        postcode: Schema.String,
+        region: Schema.optional(Schema.String),
+        country: Schema.String
+      }),
+      success: Order,
+      error: WriteErrors
+    }).annotate(
+      OpenApi.Description,
+      "The order's shipping address (the name and phone stay); Shopify hears it a few seconds later. `country` is ISO 3166 alpha-2. Needs `orders.write`."
+    ),
+    HttpApiEndpoint.post("cancel", "/orders/:id/cancel", {
+      params: ById,
+      headers: Writes,
+      payload: Schema.Struct({ restock: Schema.Boolean, notify_customer: Schema.Boolean }),
+      success: Order,
+      error: WriteErrors
+    }).annotate(
+      OpenApi.Description,
+      "Cancels the order in Insyte and Shopify, without a refund. Irreversible: send an `Idempotency-Key`. Refused for an order already closed or with parcels on their way. Needs `orders.write`."
+    ),
+    HttpApiEndpoint.post("refund", "/orders/:id/refunds", {
+      params: ById,
+      headers: Writes,
+      payload: Schema.Struct({ amount_minor: Schema.Int, note: Schema.optional(Schema.String) }),
+      success: Refund,
+      error: [...WriteErrors, RefundOverLimitV1]
+    }).annotate(
+      OpenApi.Description,
+      "Refunds part or all of what is left on the order, through its original payments. Irreversible: send an `Idempotency-Key`, which also makes Shopify refund once. Needs `orders.write` and `refunds.write`, within the key's limit; `pending` until Shopify took it."
+    )
+  )
+  .annotate(OpenApi.Title, "Orders")
+{}
+
 export class PublicApi extends HttpApi.make("insyte")
-  .add(KeyGroup, TeamGroup, CommerceGroup)
+  .add(KeyGroup, TeamGroup, CommerceGroup, OrdersGroup)
   .middleware(ApiKeyAuth)
   .prefix("/v1")
   .annotate(OpenApi.Title, "Insyte API")

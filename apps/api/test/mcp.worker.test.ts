@@ -80,14 +80,36 @@ describe("the MCP server", () => {
     expect(listed.status).toBe(200)
     const tools = listed.message.result.tools as Array<{ name: string; annotations?: { readOnlyHint?: boolean } }>
     expect(tools.map((t) => t.name).toSorted()).toEqual([
+      "cancel_order",
+      "get_order",
       "list_customers",
       "list_members",
       "list_orders",
       "list_products",
       "list_roles",
+      "refund_order",
+      "set_order_note",
+      "tag_order",
+      "update_shipping_address",
       "whoami"
     ])
-    expect(tools.every((t) => t.annotations?.readOnlyHint === true)).toBe(true)
+    // The reads say they only read; cancelling and refunding say they cannot be taken back (M7).
+    const hints = Object.fromEntries(tools.map((t) => [t.name, t.annotations as Record<string, boolean> | undefined]))
+    for (
+      const read of [
+        "whoami",
+        "list_members",
+        "list_roles",
+        "list_orders",
+        "list_products",
+        "list_customers",
+        "get_order"
+      ]
+    ) {
+      expect(hints[read]?.["readOnlyHint"]).toBe(true)
+    }
+    expect(hints["cancel_order"]?.["destructiveHint"]).toBe(true)
+    expect(hints["refund_order"]?.["destructiveHint"]).toBe(true)
   })
 
   it("answers whoami, list_members and list_roles as the key", async () => {

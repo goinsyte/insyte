@@ -5,7 +5,8 @@ import { KeyDoor, refusal } from "./KeyDoor.ts"
 import { Resources } from "./Resources.ts"
 
 /*
- * The public API's server half (M19.2): every endpoint behind the key door, answered from the shared reads. OpenAPI
+ * The public API's server half (M19.2): every endpoint behind the key door, answered from the shared reads and, for
+ * orders, the shared commands (M7). OpenAPI
  * at `/v1/openapi.json`, its reference at `/v1/docs`.
  */
 
@@ -56,10 +57,42 @@ const CommerceLive = HttpApiBuilder.group(
     )
 )
 
+const OrdersLive = HttpApiBuilder.group(
+  PublicApi,
+  "orders",
+  (handlers) =>
+    Effect.map(
+      Effect.service(Resources),
+      (act) =>
+        handlers
+          .handle("order", ({ params }) => act.order(params.id))
+          .handle(
+            "tags",
+            ({ params, payload, headers }) => act.tagOrder(params.id, payload, headers["idempotency-key"])
+          )
+          .handle(
+            "note",
+            ({ params, payload, headers }) => act.noteOrder(params.id, payload, headers["idempotency-key"])
+          )
+          .handle(
+            "shippingAddress",
+            ({ params, payload, headers }) => act.shipOrderTo(params.id, payload, headers["idempotency-key"])
+          )
+          .handle(
+            "cancel",
+            ({ params, payload, headers }) => act.cancelOrder(params.id, payload, headers["idempotency-key"])
+          )
+          .handle(
+            "refund",
+            ({ params, payload, headers }) => act.refundOrder(params.id, payload, headers["idempotency-key"])
+          )
+    )
+)
+
 export const PublicApiRoutes = Layer.mergeAll(
   HttpApiBuilder.layer(PublicApi, { openapiPath: "/v1/openapi.json" }),
   HttpApiScalar.layerCdn(PublicApi, { path: "/v1/docs" })
 ).pipe(
-  Layer.provide(Layer.mergeAll(KeyLive, TeamLive, CommerceLive)),
+  Layer.provide(Layer.mergeAll(KeyLive, TeamLive, CommerceLive, OrdersLive)),
   Layer.provide(ApiKeyAuthLive)
 )

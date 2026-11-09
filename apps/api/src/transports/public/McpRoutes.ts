@@ -2,6 +2,7 @@ import type { CurrentApiKey } from "@insyte/api/http/PublicApi"
 import { InsyteTools } from "@insyte/api/mcp/McpTools"
 import type { Db } from "@insyte/database/Db"
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
+import { Relay } from "@insyte/modules/shared/domain/Outbox"
 import { Effect, Layer } from "effect"
 import { McpProtocol, McpServer } from "effect/ai"
 import { HttpRouter, HttpServerRequest } from "effect/http"
@@ -37,22 +38,38 @@ const McpAuth = HttpRouter.middleware<{ provides: CurrentPrincipal | CurrentApiK
   )
 )
 
+// The order commands also tell the outbox: the relay is the Worker's, taken once when the toolkit is built.
 const Tools = McpServer.toolkit(InsyteTools).pipe(
-  Layer.provide(InsyteTools.toLayer(Effect.map(Effect.service(Resources), (read) => ({
-    whoami: () => read.me,
-    list_members: () => read.members,
-    list_roles: () => read.roles,
-    list_orders: (query) => read.orders(query),
-    list_products: (query) => read.products(query),
-    list_customers: (query) => read.customers(query)
-  }))))
+  Layer.provide(InsyteTools.toLayer(Effect.gen(function*() {
+    const read = yield* Resources
+    const relay = yield* Relay
+    const kicking = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.provideService(effect, Relay, relay)
+    return {
+      whoami: () => read.me,
+      list_members: () => read.members,
+      list_roles: () => read.roles,
+      list_orders: (query) => read.orders(query),
+      list_products: (query) => read.products(query),
+      list_customers: (query) => read.customers(query),
+      get_order: ({ order_id }) => read.order(order_id),
+      tag_order: ({ order_id, idempotency_key, ...body }) => kicking(read.tagOrder(order_id, body, idempotency_key)),
+      set_order_note: ({ order_id, idempotency_key, body }) =>
+        kicking(read.noteOrder(order_id, { body }, idempotency_key)),
+      update_shipping_address: ({ order_id, idempotency_key, ...address }) =>
+        kicking(read.shipOrderTo(order_id, address, idempotency_key)),
+      cancel_order: ({ order_id, idempotency_key, ...body }) =>
+        kicking(read.cancelOrder(order_id, body, idempotency_key)),
+      refund_order: ({ order_id, idempotency_key, ...body }) =>
+        kicking(read.refundOrder(order_id, body, idempotency_key))
+    }
+  })))
 )
 
 export const McpRoutes = McpServer.layerHttpRequestScoped({
   name: "Insyte",
   version: "1.0.0",
   instructions:
-    "Insyte for dropshipping operators. Read the workspace's team and roles, and its orders, products and customers, with the key's scopes.",
+    "Insyte for dropshipping operators. Read the workspace's team and roles, and its orders, products and customers; tag orders, note them, change their address, cancel and refund them, with the key's scopes. Cancelling and refunding cannot be undone: confirm them with the person first.",
   path: "/mcp",
   protocols: [McpProtocol.v2026_07_28],
   registrations: Tools

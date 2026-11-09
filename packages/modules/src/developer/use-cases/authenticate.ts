@@ -36,7 +36,15 @@ interface RoleRow {
   readonly label: string
   readonly version: number
   readonly levels: Record<AreaId, Level>
+  readonly specials: Partial<Record<SpecialId, boolean>>
+  readonly refundLimitMinor: string | number | null
 }
+
+/**
+ * The special actions a key may take through the API (api.md §6): a role-bound key takes them from its role, refunds
+ * with the role's limit; a key with its own scopes takes none until it can be given an explicit limit.
+ */
+const API_SPECIALS: ReadonlyArray<SpecialId> = ["refunds.write", "disputes.write"]
 
 /** Equal hex strings, compared in time that does not depend on where they differ. */
 const same = (a: string, b: string) => {
@@ -116,7 +124,7 @@ export const authenticate = Effect.fn("ApiKeys.authenticate")(function*(token: s
 
       const role = key.access.kind === "role"
         ? yield* Effect.map(
-          sql<RoleRow>`select id, label, version, levels from roles
+          sql<RoleRow>`select id, label, version, levels, specials, refund_limit_minor from roles
                        where id = ${key.access.roleId} and deleted_at is null`,
           ([r]) => r
         )
@@ -136,8 +144,12 @@ export const authenticate = Effect.fn("ApiKeys.authenticate")(function*(token: s
           label: role?.label ?? key.label,
           version: role?.version ?? 1,
           levels,
-          specials: SPECIALS_OFF,
-          refundLimit: null,
+          specials: role === undefined
+            ? SPECIALS_OFF
+            : { ...SPECIALS_OFF, ...Object.fromEntries(API_SPECIALS.map((s) => [s, role.specials[s] === true])) },
+          refundLimit: role?.refundLimitMinor === null || role === undefined
+            ? null
+            : Number(role.refundLimitMinor) / 100,
           stores: key.stores === "all" ? "all" : [...key.stores]
         },
         storeScope: key.stores === "all" ? null : [...key.stores]
