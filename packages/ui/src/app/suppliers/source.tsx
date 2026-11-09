@@ -34,6 +34,11 @@ export type SupplierProductLine = { id: string; title: string; units?: number | 
 /** How orders reach them, and whether a paid one goes at once (forwarding). */
 export type ForwardPref = { via: "portal" | "email" | "api"; auto: boolean }
 
+/** A supplier's own API: where Insyte posts its orders, and the last connection test. */
+export type ApiState = { url: string; lastPing: { ok: boolean; ms: number | null; at: number } | null } | null
+
+export type PingOutcome = { ok: boolean; ms: number | null; reason: string | null }
+
 /** "Nieuwe leverancier" and "Bewerken". */
 export type SupplierInput = {
   name: string
@@ -62,6 +67,18 @@ export interface SuppliersSource {
   setPref: (row: SupplierRow, patch: Partial<ForwardPref>, said: string) => void
   /** Whether the role may change how orders reach them. */
   forwardGate: TeamGate
+  /** Their own API, when orders go to them by API; absent, the section is left out. */
+  api?:
+    | {
+      stateOf: (id: string) => ApiState
+      /** Where their API reports back (accepted, problems, parcels, stock). */
+      hookOf: (id: string) => string
+      /** Connects the address; answers the secret, shown this once, or `undefined` when refused. */
+      connect: (row: SupplierRow, url: string) => Promise<string | undefined>
+      test: (row: SupplierRow) => Promise<PingOutcome>
+      disconnect: (row: SupplierRow) => void
+    }
+    | undefined
   /** "{n} bijbestellen"; absent, there is no restock button. */
   restock?: ((row: SupplierRow, low: ReadonlyArray<SupplierProductLine>) => void) | undefined
   /** The shared chat with them, where there is one; else "Bericht aan" is a mail. */

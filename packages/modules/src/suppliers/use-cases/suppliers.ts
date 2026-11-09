@@ -30,6 +30,10 @@ interface Row {
   readonly stockMode: SupplierRow["stockMode"]
   readonly vendor: string | null
   readonly apiConnected: boolean
+  readonly apiUrl: string | null
+  readonly lastPingOk: boolean | null
+  readonly lastPingMs: number | null
+  readonly lastPingAt: Date | null
   readonly products: number
   readonly open: number
   readonly delayed: number
@@ -54,6 +58,12 @@ const toRow = (r: Row) =>
     stockMode: r.stockMode,
     vendor: r.vendor,
     apiConnected: r.apiConnected,
+    api: !r.apiConnected || r.apiUrl === null ? null : {
+      url: r.apiUrl,
+      lastPing: r.lastPingAt === null
+        ? null
+        : { ok: r.lastPingOk === true, ms: r.lastPingMs, at: r.lastPingAt.getTime() }
+    },
     stats: {
       products: r.products,
       open: r.open,
@@ -75,7 +85,8 @@ export const rowsWhere = Effect.fn("Suppliers.rowsWhere")(function*(
     select s.id, s.name, s.contact_email, s.contact_phone, s.description, s.status, s.paused_at, s.auto_forward,
            s.forward_channel, s.forward_email, s.confirm_within_hours, s.default_lead_days, s.stock_mode, s.vendor,
            s.created_at,
-           coalesce(i.kind = 'custom' and i.enabled, false) as api_connected,
+           coalesce(i.kind = 'custom' and i.enabled, false) as api_connected, i.webhook_url as api_url,
+           i.last_ping_ok, i.last_ping_ms, i.last_ping_at,
            (select count(*) from product_supply ps join products p on p.id = ps.product_id
             where ps.supplier_id = s.id and ps.is_primary and ${products})::int as products,
            coalesce(f.open, 0)::int as open, coalesce(f.delayed, 0)::int as delayed,
