@@ -51,6 +51,7 @@ test("@auth register, verify, sign out and in, reset the password", async ({ pag
 
   // Registering is the onboarding's first step.
   await page.goto("/register")
+  await hydrated(page)
   await expect(page).toHaveURL(/\/onboarding/)
   await expect(page.getByRole("heading", { name: "Maak je account aan." })).toBeVisible()
   await page.getByLabel("Zakelijk e-mailadres").fill(email)
@@ -66,6 +67,7 @@ test("@auth register, verify, sign out and in, reset the password", async ({ pag
 
   // The link signs in and lands on the role step.
   await page.goto(await mailLink(request, email, "auth.verify"))
+  await hydrated(page)
   await expect(page).toHaveURL(/\/onboarding\?step=2/)
   await expect(page.getByRole("heading", { name: "Aan welke kant van de bestelling sta jij?" })).toBeVisible()
 
@@ -88,6 +90,7 @@ test("@auth register, verify, sign out and in, reset the password", async ({ pag
   await expect(page.getByRole("heading", { name: "Check je inbox" })).toBeVisible()
   await expect(page.getByText("bij ons bekend is, ontvang je een resetlink")).toBeVisible()
   await page.goto(await mailLink(request, email, "auth.reset"))
+  await hydrated(page)
   await expect(page).toHaveURL(/\/reset-password\?token=/)
   await page.getByLabel("Nieuw wachtwoord").fill("nog-een-lang-wachtwoord")
   await page.getByLabel("Herhaal je wachtwoord").fill("nog-een-lang-wachtwoord")
@@ -118,6 +121,7 @@ test("@auth register, verify, sign out and in, reset the password", async ({ pag
 test("@auth signing in before verifying says why", async ({ page }) => {
   const email = `e2e-${Date.now().toString(36)}-unverified@example.com`
   await page.goto("/onboarding")
+  await hydrated(page)
   await page.getByLabel("Zakelijk e-mailadres").fill(email)
   await page.getByLabel("Volledige naam").fill("Eva Tester")
   // The field's name carries its hint, "Minimaal 8 tekens."
@@ -125,6 +129,7 @@ test("@auth signing in before verifying says why", async ({ page }) => {
   await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
   await expect(page.getByRole("heading", { name: "Check je inbox." })).toBeVisible()
   await page.goto("/login")
+  await hydrated(page)
   await signIn(page, email, "een-lang-wachtwoord")
   await expect(page.getByText(/^Bevestig eerst je e-mailadres/)).toBeVisible()
 })
@@ -138,6 +143,7 @@ test("@auth a signed-out deep link goes to sign-in with the way back", async ({ 
 test("@auth five wrong passwords lock the address, and the form says for how long", async ({ page }) => {
   const email = `e2e-${Date.now().toString(36)}-locked@example.com`
   await page.goto("/login")
+  await hydrated(page)
   for (let attempt = 1; attempt <= 5; attempt++) {
     await signIn(page, email, `fout-${attempt}`)
     await expect(page.getByText("E-mailadres of wachtwoord klopt niet.")).toBeVisible()
@@ -150,6 +156,7 @@ test("@auth a password from a known breach is refused at registration", async ({
   // The check asks HIBP, which only deployed stages do (local runs stay offline).
   test.skip(process.env.CONSOLE_URL === undefined, "the breached-password check runs on deployed stages only")
   await page.goto("/onboarding")
+  await hydrated(page)
   await page.getByLabel("Zakelijk e-mailadres").fill(`e2e-${Date.now().toString(36)}-breached@example.com`)
   await page.getByLabel("Volledige naam").fill("Eva Tester")
   await page.getByLabel(/^Wachtwoord/).fill("password123")
@@ -159,6 +166,7 @@ test("@auth a password from a known breach is refused at registration", async ({
 
 test("@auth an address that is not invited is told Insyte is invite-only", async ({ page }) => {
   await page.goto("/onboarding")
+  await hydrated(page)
   await page.getByLabel("Zakelijk e-mailadres").fill(`e2e-${Date.now().toString(36)}@example.org`)
   await page.getByLabel("Volledige naam").fill("Eva Tester")
   await page.getByLabel(/^Wachtwoord/).fill("een-lang-wachtwoord")
@@ -185,6 +193,7 @@ test("@auth an account with two-factor on is asked for the code after the passwo
   const email = `e2e-${Date.now().toString(36)}-2fa@example.com`
   const password = "een-lang-wachtwoord"
   await page.goto("/onboarding")
+  await hydrated(page)
   await page.getByLabel("Zakelijk e-mailadres").fill(email)
   await page.getByLabel("Volledige naam").fill("Eva Tester")
   await page.getByLabel(/^Wachtwoord/).fill(password)
@@ -192,6 +201,7 @@ test("@auth an account with two-factor on is asked for the code after the passwo
   await expect(page.getByRole("heading", { name: "Check je inbox." })).toBeVisible()
   await page.goto(await mailLink(request, email, "auth.verify"))
   await expect(page.getByRole("heading", { name: "Aan welke kant van de bestelling sta jij?" })).toBeVisible()
+  await hydrated(page)
 
   // Enrolment's screen is the security settings page (M3); here the signed-in browser enrols through the API.
   const origin = new URL(page.url()).origin
@@ -234,12 +244,14 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   test.setTimeout(180_000)
   const email = `e2e-${Date.now().toString(36)}-analysis@example.com`
   await page.goto("/onboarding")
+  await hydrated(page)
   await page.getByLabel("Zakelijk e-mailadres").fill(email)
   await page.getByLabel("Volledige naam").fill("Ada Analyse")
   await page.getByLabel(/^Wachtwoord/).fill("een-lang-wachtwoord")
   await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
   await expect(page.getByRole("heading", { name: "Check je inbox." })).toBeVisible()
   await page.goto(await mailLink(request, email, "auth.verify"))
+  await hydrated(page)
   await page.getByText("Mijn winkel inrichten").click()
   await page.getByLabel("Naam werkruimte").fill(`Analyse ${Date.now().toString(36)}`)
   await page.getByRole("button", { name: "Doorgaan", exact: true }).click()
@@ -249,6 +261,7 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   // The store, connected and imported, as Shopify's way back would leave it.
   expect((await page.request.post("/api/__dev/stores/seed")).ok()).toBe(true)
   await page.goto("/onboarding?connected=shopify")
+  await hydrated(page)
   await expect(page.getByRole("heading", { name: "Alles wordt opgehaald." })).toBeVisible()
   await page.getByRole("button", { name: "Laat Insyte kijken" }).click()
 
@@ -267,6 +280,7 @@ test("@analysis @order @customer @product @search a new admin with a store reads
     .toBeVisible()
   // A reload keeps it: the choice is the server's.
   await page.reload()
+  await hydrated(page)
   await expect(
     page.getByText("Levertijd-update op dag 5, zodra Automatiseringen beschikbaar zijn")
   )
@@ -274,11 +288,12 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   await page.getByRole("button", { name: "Dashboard openen" }).click()
   await expect(page).toHaveURL(/\/dashboard$/)
 
-  // @order (step 8.4d): with the recorded store imported (previews have no Shopify), a row opens its order over the
-  // list, read-only: the lines and the totals, no Acties. Its URL is a page, rendered whole on the server.
+  // @order (steps 8.4d, 9.1): with the recorded store imported (previews have no Shopify), a row opens its order over
+  // the list: the lines, the totals and its commands. A label added there is undone inside the window, before Shopify
+  // hears of it. Its URL is a page, rendered whole on the server.
   await page.goto("/orders")
   await hydrated(page)
-  // Nothing is made from the console yet: the page's and the panel's "new" are off.
+  // Draft orders are not made from the console yet: the page's and the panel's "new" are off.
   for (const button of await page.getByRole("button", { name: "Nieuwe bestelling" }).all()) {
     await expect(button).toBeDisabled()
   }
@@ -286,7 +301,12 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   const record = page.getByRole("dialog")
   await expect(record.getByText("#1002")).toBeVisible()
   await expect(record.getByText("Wollen trui")).toBeVisible()
-  await expect(record.getByRole("button", { name: "Acties" })).toHaveCount(0)
+  await expect(record.getByRole("button", { name: "Acties" })).toBeVisible()
+  await record.getByLabel("Label toevoegen").fill("Terugbellen")
+  await record.getByLabel("Label toevoegen").press("Enter")
+  await expect(record.getByRole("button", { name: "terugbellen verwijderen" })).toBeVisible()
+  await page.getByRole("button", { name: "Ongedaan maken" }).click()
+  await expect(record.getByRole("button", { name: "terugbellen verwijderen" })).toHaveCount(0)
   await expect(page).toHaveURL(/\/orders\/[^/]+$/)
   await page.reload()
   await hydrated(page)
@@ -344,6 +364,7 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   const email = `e2e-${Date.now().toString(36)}-onboarding@example.com`
   const password = "een-lang-wachtwoord"
   await page.goto("/onboarding")
+  await hydrated(page)
   await page.getByLabel("Zakelijk e-mailadres").fill(email)
   await page.getByLabel("Volledige naam").fill("Eva Tester")
   await page.getByLabel(/^Wachtwoord/).fill(password)
@@ -351,6 +372,7 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await expect(page.getByRole("heading", { name: "Check je inbox." })).toBeVisible()
   await page.goto(await mailLink(request, email, "auth.verify"))
   await expect(page.getByRole("heading", { name: "Aan welke kant van de bestelling sta jij?" })).toBeVisible()
+  await hydrated(page)
 
   await page.getByText("Mijn winkel inrichten").click()
   await expect(page.getByRole("heading", { name: "Geef je werkruimte een naam." })).toBeVisible()
@@ -367,6 +389,7 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   const other = await browser.newContext({ baseURL, ...(extraHTTPHeaders === undefined ? {} : { extraHTTPHeaders }) })
   const elsewhere = await other.newPage()
   await elsewhere.goto("/login")
+  await hydrated(elsewhere)
   await signIn(elsewhere, email, password)
   await expect(elsewhere.getByRole("heading", { name: "Geef je werkruimte een naam." })).toBeVisible()
   await other.close()
@@ -380,6 +403,7 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await expect(page.getByRole("heading", { name: "Kies een abonnement om te proberen." })).toBeVisible()
   await page.reload()
   await expect(page.getByRole("heading", { name: "Kies een abonnement om te proberen." })).toBeVisible()
+  await hydrated(page)
 
   // The trial starts without a card; the store is left for Start, which skips the steps a store needs.
   await page.getByRole("button", { name: "Gratis proefperiode starten" }).click()
@@ -398,6 +422,7 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
 
   // Done is done: onboarding sends them to Start.
   await page.goto("/onboarding")
+  await hydrated(page)
   await expect(page).toHaveURL(/\/dashboard$/)
 
   // @team (step 4.3): Start opens Team, where the founder is alone on the trial's seats.
@@ -445,6 +470,7 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   const theirs = await browser.newContext({ baseURL, ...(extraHTTPHeaders === undefined ? {} : { extraHTTPHeaders }) })
   const invitee = await theirs.newPage()
   await invitee.goto(landing)
+  await hydrated(invitee)
   await expect(invitee.getByRole("heading", { name: `Word lid van ${workspace}` })).toBeVisible()
   await expect(invitee.getByText("Als Klantenservice")).toBeVisible()
   await invitee.getByLabel("Volledige naam").fill("Amber Lewis")
@@ -509,6 +535,7 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   // sees the link at once. The request list stays theirs to see: it takes Beheren.
   await page.goto("/settings/roles")
   await expect(page.getByText("Amber Lewis vraagt om")).toBeVisible()
+  await hydrated(page)
   await page.getByRole("button", { name: "Toekennen aan Klantenservice" }).click()
   await expect(page.getByText("Klantenservice kan nu collega's uitnodigen")).toBeVisible()
   await invitee.goto("/settings/team")
@@ -534,6 +561,7 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
 
   // @keys (step 6.1): the founder makes an API key and sees the secret once, then rotates it and revokes it.
   await page.goto("/settings/api-keys")
+  await hydrated(page)
   const making = page.getByRole("dialog")
   // A click before the page has hydrated opens nothing: try until the dialog is there.
   await expect(async () => {
@@ -547,6 +575,7 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await making.getByText("Ik heb hem opgeslagen").click()
   await making.getByRole("button", { name: "Klaar" }).click()
   await page.reload()
+  await hydrated(page)
   await page.getByRole("button", { name: /Voorraadfeed/ }).click()
   const detail = page.getByRole("dialog")
   await detail.getByRole("button", { name: "Roteren" }).click()
@@ -568,6 +597,7 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   // refused before Shopify opens (a stage without the Shopify app says it cannot connect yet); a refusal from the
   // callback is said once and leaves the address.
   await page.goto("/settings/stores")
+  await hydrated(page)
   await expect(page.getByText("Shopify-winkels · 0")).toBeVisible()
   const connecting = page.getByRole("dialog")
   await expect(async () => {
