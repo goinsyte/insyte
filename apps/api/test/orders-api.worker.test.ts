@@ -16,7 +16,14 @@ type Json = any
 
 const HOST = "http://api.public.test"
 
-const send = async (method: string, path: string, token: string, body?: unknown, key?: string) => {
+// A write gets a fresh Idempotency-Key unless the test names one ("" sends none worth the name).
+const send = async (
+  method: string,
+  path: string,
+  token: string,
+  body?: unknown,
+  key: string | undefined = method === "GET" ? undefined : crypto.randomUUID()
+) => {
   const response = await call(`${HOST}/v1${path}`, {
     method,
     headers: {
@@ -84,6 +91,11 @@ describe("the order commands through the public API and MCP", () => {
     const viewer = await make("Alleen kijken", { kind: "role", roleId: "view" })
     const order = (await send("GET", "/orders?q=1001", service)).body.data[0]
 
+    // Every write names its Idempotency-Key.
+    expect(await send("POST", `/orders/${order.id}/tags`, service, { add: ["API"] }, "")).toMatchObject({
+      status: 400,
+      body: { error: { code: "InvalidRequestV1", field: "idempotency-key" } }
+    })
     const detail = await send("GET", `/orders/${order.id}`, service)
     expect(detail).toMatchObject({ status: 200, body: { number: "#1001", lines: [{ title: "Linnen overhemd" }] } })
     expect((await send("GET", "/orders/ord_none", service)).body.error.code).toBe("NotFoundV1")

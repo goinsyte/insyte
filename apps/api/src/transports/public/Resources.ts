@@ -69,6 +69,20 @@ const invalid = (field: string) =>
       }
     }))
 
+/** A write's `Idempotency-Key`: the public API needs one on every write (MCP's tools go without). */
+export const keyOf = (header: string | undefined) =>
+  header !== undefined && header.trim() !== "" && header.length <= 255
+    ? Effect.succeed(header)
+    : Effect.flatMap(CurrentApiKey, (key) =>
+      Effect.fail<InvalidRequestV1>({
+        error: {
+          code: "InvalidRequestV1",
+          message: "Every write needs an Idempotency-Key header of up to 255 characters, the same when you retry.",
+          request_id: key.requestId,
+          field: "idempotency-key"
+        }
+      }))
+
 /** An error in its V1 envelope, with the request's id. */
 const fail = <Code extends string, Extra extends Record<string, unknown>>(code: Code, message: string, extra: Extra) =>
   Effect.flatMap(CurrentApiKey, (key) => Effect.fail({ error: { code, message, request_id: key.requestId, ...extra } }))
