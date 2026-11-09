@@ -3,6 +3,7 @@ import { Access } from "@insyte/modules/access/Access"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
 import { FirstAnalysisService } from "@insyte/modules/first-analysis/FirstAnalysis"
+import { MarketingService } from "@insyte/modules/marketing/Marketing"
 import { Landing } from "@insyte/modules/members/Landing"
 import { Members } from "@insyte/modules/members/Members"
 import { NotificationsService } from "@insyte/modules/notifications/NotificationsService"
@@ -21,6 +22,7 @@ import { CommerceHandlers } from "./handlers/commerce.ts"
 import { DeveloperHandlers } from "./handlers/developer.ts"
 import { FirstAnalysisHandlers } from "./handlers/first-analysis.ts"
 import { LandingHandlers } from "./handlers/landing.ts"
+import { MarketingHandlers } from "./handlers/marketing.ts"
 import { MembersHandlers } from "./handlers/members.ts"
 import { NotificationsHandlers } from "./handlers/notifications.ts"
 import { OnboardingHandlers } from "./handlers/onboarding.ts"
@@ -60,6 +62,7 @@ export const RpcContext = Layer.mergeAll(
     Layer.provide(Layer.mergeAll(OrdersService.layer, ProductsService.layer, CustomersService.layer))
   ),
   SharedHandlers.pipe(Layer.provide(UndoService.layer)),
+  MarketingHandlers.pipe(Layer.provide(MarketingService.layer)),
   ShellHandlers.pipe(
     Layer.provide(
       Layer.mergeAll(

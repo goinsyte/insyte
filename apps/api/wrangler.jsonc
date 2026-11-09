@@ -51,6 +51,8 @@
     { "binding": "FIRST_ANALYSIS", "name": "insyte-first-analysis", "class_name": "FirstAnalysisWorkflow" },
     // An order change to Shopify (M7.1): a step per order, after the undo window.
     { "binding": "SHOPIFY_WRITE", "name": "insyte-shopify-write", "class_name": "ShopifyWriteWorkflow" },
+    // A marketing sync's send to Klaviyo (M7.5), after the undo window.
+    { "binding": "MARKETING_SYNC", "name": "insyte-marketing-sync", "class_name": "MarketingSyncWorkflow" },
   ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] },

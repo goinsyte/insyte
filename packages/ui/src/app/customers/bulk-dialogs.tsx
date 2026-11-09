@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router"
 import { motion, useReducedMotion } from "motion/react"
 import { useEffect, useState } from "react"
 import {
@@ -10,10 +9,8 @@ import {
   DialogTitle
 } from "../../components/dialog"
 import type { Customer } from "../lib/types/domain"
-import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
 import { BrandLogo } from "../marketplace/brand-logos"
-import { useWorkspace } from "../stores/workspace-store"
 
 const counted = (n: number) => `${n} ${n === 1 ? "klant" : "klanten"}`
 
@@ -24,57 +21,88 @@ const GHOST =
 
 /* ─── Sync to Klaviyo ───────────────────────────────────────────────────── */
 
-const LISTS = ["Nieuwsbrief", "VIP", "Terugwinnen"]
+/** A list the profiles can go to; `id` is the host's, `null` for one still to be made. */
+export type KlaviyoListOption = { readonly id: string; readonly name: string }
+
+/** Who of the picked profiles may go, where the host knows it better than the addresses alone. */
+export type KlaviyoPreview = { readonly sendable: number; readonly consent: number; readonly email: number }
+
+const processor = (email: string) => email.includes("@stripe.com") || email.includes("@paypal.com")
 
 /**
- * Sends the picked profiles to a Klaviyo list. The sync is simulated: it walks the profiles with a
- * count, then says where they went, and each profile remembers the list and when. If Klaviyo is not
- * connected, the dialog says so and goes to Integrations instead of pretending.
+ * Sends the picked profiles to a Klaviyo list: it walks the profiles with a count, then says where they went. If
+ * Klaviyo is not connected, the dialog says so and offers to connect it instead of pretending.
+ *
+ * Everything it does is the host's: whether Klaviyo is connected, its lists, who may go (`preview`; without one, every
+ * profile with an address of its own), connecting (`onConnect`: the demo's Integrations, Klaviyo's approval page) and the sync
+ * itself (`onSync`, answering whether it took). The demo workspace's, or the console's Klaviyo (M7.5).
  */
 export function KlaviyoDialog({
   open,
   onOpenChange,
-  picked
+  picked,
+  connected,
+  lists,
+  preview,
+  onConnect,
+  onSync
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   picked: ReadonlyArray<Customer>
+  connected: boolean
+  lists: ReadonlyArray<KlaviyoListOption>
+  preview?: KlaviyoPreview | undefined
+  onConnect: () => void
+  onSync: (list: { readonly id: string | null; readonly name: string }, withTags: boolean) => Promise<boolean>
 }) {
-  const connected = useWorkspace((s) => s.integrations.some((i) => i.key === "klaviyo" && i.status === "connected"))
-  const sync = useWorkspace((s) => s.syncToKlaviyo)
-  const restore = useWorkspace((s) => s.restoreCustomers)
   const still = useReducedMotion()
-  const [list, setList] = useState("Nieuwsbrief")
+  const [list, setList] = useState(lists[0]?.id ?? "new")
   const [custom, setCustom] = useState("")
   const [withTags, setWithTags] = useState(true)
   const [phase, setPhase] = useState<"pick" | "syncing" | "done">("pick")
   const [sent, setSent] = useState(0)
-  const target = list === "new" ? custom.trim() : list
-  const noEmail = picked.filter((c) => c.email.includes("@stripe.com") || c.email.includes("@paypal.com")).length
-  const sendable = picked.length - noEmail
+  const [answer, setAnswer] = useState<"waiting" | "took" | "refused">("waiting")
+  const chosen = lists.find((l) => l.id === list)
+  const target = list === "new" ? custom.trim() : chosen?.name ?? ""
+  const noEmail = preview?.email ?? picked.filter((c) => processor(c.email)).length
+  const noConsent = preview?.consent ?? 0
+  const sendable = preview?.sendable ?? picked.length - noEmail
 
   useEffect(() => {
     if (!open) return
     setPhase("pick")
     setSent(0)
+    setAnswer("waiting")
   }, [open])
+
+  // The first list once the host's lists arrive.
+  useEffect(() => {
+    if (list !== "new" && !lists.some((l) => l.id === list)) setList(lists[0]?.id ?? "new")
+  }, [lists, list])
+
+  function start() {
+    setPhase("syncing")
+    void onSync({ id: list === "new" ? null : list, name: target }, withTags).then((took) =>
+      setAnswer(took ? "took" : "refused")
+    )
+  }
 
   useEffect(() => {
     if (phase !== "syncing") return
+    if (answer === "refused") {
+      setPhase("pick")
+      setSent(0)
+      setAnswer("waiting")
+      return
+    }
     if (sent >= sendable) {
-      const before = useWorkspace.getState()
-      const snapshot = { e: before.customerEdits, n: before.notDuplicates }
-      sync(
-        picked.filter((c) => !c.email.includes("@stripe.com") && !c.email.includes("@paypal.com")).map((c) => c.id),
-        target
-      )
-      setPhase("done")
-      undoable(`${counted(sendable)} gesynchroniseerd naar ${target}`, () => restore(snapshot.e, snapshot.n))
+      if (answer === "took") setPhase("done")
       return
     }
     const t = window.setTimeout(() => setSent((n) => Math.min(sendable, n + Math.max(1, Math.ceil(sendable / 12)))), 70)
     return () => window.clearTimeout(t)
-  }, [phase, sent, sendable, picked, target, sync, restore])
+  }, [phase, sent, sendable, answer])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -100,7 +128,7 @@ export function KlaviyoDialog({
           (
             <div className="flex flex-col gap-3">
               <div role="radiogroup" aria-label="Klaviyo-lijst" className="flex flex-col gap-1">
-                {[...LISTS, "new"].map((l) => {
+                {[...lists.map((o) => o.id), "new"].map((l) => {
                   const on = list === l
                   return (
                     <button
@@ -139,7 +167,7 @@ export function KlaviyoDialog({
                             ) :
                             <span className="text-ink-2">Een nieuwe lijst</span>
                         ) :
-                        <span className="text-ink">{l}</span>}
+                        <span className="text-ink">{lists.find((o) => o.id === l)?.name ?? l}</span>}
                     </button>
                   )
                 })}
@@ -153,6 +181,14 @@ export function KlaviyoDialog({
                 />
                 Labels meesturen als profieleigenschappen
               </label>
+              {noConsent > 0 ?
+                (
+                  <p className="text-sm text-ink-3">
+                    {counted(noConsent)} {noConsent === 1 ? "gaf" : "gaven"} geen toestemming voor marketing en{" "}
+                    {noConsent === 1 ? "blijft" : "blijven"} buiten de synchronisatie.
+                  </p>
+                ) :
+                null}
               {noEmail > 0 ?
                 (
                   <p className="text-sm text-ink-3">
@@ -196,13 +232,9 @@ export function KlaviyoDialog({
         <DialogFooter>
           {!connected ?
             (
-              <Link
-                to="/settings/integrations"
-                onClick={() => onOpenChange(false)}
-                className={cn(PRIMARY, "flex items-center")}
-              >
+              <button type="button" onClick={onConnect} className={PRIMARY}>
                 Klaviyo koppelen
-              </Link>
+              </button>
             ) :
             phase === "done" ?
             (
@@ -223,7 +255,7 @@ export function KlaviyoDialog({
                 <button
                   type="button"
                   disabled={phase === "syncing" || target === "" || sendable === 0}
-                  onClick={() => setPhase("syncing")}
+                  onClick={start}
                   className={PRIMARY}
                 >
                   {phase === "syncing" ? "Synchroniseren" : `${counted(sendable)} synchroniseren`}

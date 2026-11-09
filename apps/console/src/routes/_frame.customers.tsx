@@ -3,10 +3,11 @@ import { Forbidden } from "@insyte/domain/Errors"
 import type { CustomerPage } from "@insyte/modules/customers/domain/Customers"
 import { DeniedPanel } from "@insyte/ui/app/access/denied"
 import { OPEN_AS_MODAL, useOpenedAsModal } from "@insyte/ui/app/common/detail-shell"
+import { KlaviyoDialog } from "@insyte/ui/app/customers/bulk-dialogs"
 import { CustomersPage } from "@insyte/ui/app/customers/customers-screen"
 import { MergeReview } from "@insyte/ui/app/customers/merge-review"
 import { NewCustomerDialog } from "@insyte/ui/app/customers/new-customer-dialog"
-import { CustomersSourceProvider } from "@insyte/ui/app/customers/source"
+import { type CustomerRow, CustomersSourceProvider } from "@insyte/ui/app/customers/source"
 import type { DuplicateGroup } from "@insyte/ui/app/lib/duplicates"
 import type { Level, Permission } from "@insyte/ui/app/lib/permissions"
 import type { Currency, Customer } from "@insyte/ui/app/lib/types/domain"
@@ -14,9 +15,11 @@ import { PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
 import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
-import { useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { toast } from "sonner"
 import { useCustomerCommands } from "../customers/customer-writes.ts"
 import { useConsoleCustomersSource } from "../customers/customers-source.ts"
+import { type Preview, useKlaviyo } from "../customers/klaviyo.ts"
 import { customersAtom } from "../data/customers.ts"
 
 /**
@@ -90,7 +93,51 @@ function CustomersRoute() {
   return <Pending />
 }
 
+/**
+ * "Synchroniseren naar Klaviyo" in the design's dialog (M7.5): who may go from a dry run when it opens, the account's
+ * lists, and the sync with its undo; connecting goes to Klaviyo and comes back here.
+ */
+function ConsoleKlaviyo(props: { open: boolean; onOpenChange: (open: boolean) => void; picked: Array<CustomerRow> }) {
+  const klaviyo = useKlaviyo()
+  const [preview, setPreview] = useState<Preview | undefined>(undefined)
+  const ids = props.picked.map((c) => c.id).join(",")
+  // biome-ignore lint/correctness/useExhaustiveDependencies: asked once per opening and selection
+  useEffect(() => {
+    setPreview(undefined)
+    if (props.open && klaviyo.connected) void klaviyo.preview(ids.split(",")).then(setPreview)
+  }, [props.open, klaviyo.connected, ids])
+  return (
+    <KlaviyoDialog
+      {...props}
+      connected={klaviyo.connected}
+      lists={klaviyo.lists}
+      preview={preview}
+      onConnect={() => void klaviyo.connect()}
+      onSync={(list, withTags) => klaviyo.sync(ids.split(","), list, withTags)}
+    />
+  )
+}
+
+/** Back from Klaviyo's approval page: said once, and the address cleaned. */
+function useKlaviyoReturn() {
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    const connected = url.searchParams.get("connected") === "klaviyo"
+    const error = url.searchParams.get("error")?.startsWith("klaviyo_") === true
+    if (!connected && !error) return
+    if (connected) {
+      toast.success("Klaviyo gekoppeld", { description: "Kies klanten en synchroniseer ze naar een lijst." })
+    } else {toast.error("Klaviyo is niet gekoppeld", {
+        description: "De goedkeuring kwam niet terug. Probeer het nog eens."
+      })}
+    url.searchParams.delete("connected")
+    url.searchParams.delete("error")
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}`)
+  }, [])
+}
+
 function Loaded({ page }: { page: CustomerPage }) {
+  useKlaviyoReturn()
   const navigate = useNavigate()
   const source = useConsoleCustomersSource(
     page,
@@ -130,7 +177,9 @@ function Loaded({ page }: { page: CustomerPage }) {
     )
   }), [navigate, currency])
   return (
-    <CustomersSourceProvider value={{ ...source, ...(source.canCreate.ok ? dialogs : { Merge: dialogs.Merge }) }}>
+    <CustomersSourceProvider
+      value={{ ...source, ...(source.canCreate.ok ? dialogs : { Merge: dialogs.Merge }), Klaviyo: ConsoleKlaviyo }}
+    >
       <CustomersPage />
     </CustomersSourceProvider>
   )

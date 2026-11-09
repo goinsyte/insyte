@@ -112,6 +112,13 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     customerIds: Schema.Array(Schema.String)
   }),
+  // Customers sent to a marketing list (M7.5), once the undo window has passed; the sync row holds who and where.
+  Schema.Struct({
+    type: Schema.Literal("marketing.sync_requested"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    syncId: Schema.String
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

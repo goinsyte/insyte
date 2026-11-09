@@ -116,6 +116,12 @@ export default Alchemy.Stack(
     const shopify = Option.isSome(sealKeys) && shopifyClientId !== "" && Option.isSome(shopifyClientSecret)
       ? { SHOPIFY_CLIENT_ID: shopifyClientId, SHOPIFY_CLIENT_SECRET: shopifyClientSecret.value }
       : {}
+    // Klaviyo's OAuth app (M7.5), the same way: its client in the GitHub environment, and the sealer for the tokens.
+    const klaviyoClientId = yield* Config.String("KLAVIYO_CLIENT_ID").pipe(Config.withDefault(""))
+    const klaviyoClientSecret = yield* Config.Redacted("KLAVIYO_CLIENT_SECRET").pipe(Config.option)
+    const klaviyo = Option.isSome(sealKeys) && klaviyoClientId !== "" && Option.isSome(klaviyoClientSecret)
+      ? { KLAVIYO_CLIENT_ID: klaviyoClientId, KLAVIYO_CLIENT_SECRET: klaviyoClientSecret.value }
+      : {}
 
     /*
      * Mail (02 §5.1): previews always capture (the browser tests read the links back); staging and production send
@@ -183,6 +189,11 @@ export default Alchemy.Stack(
           className: "ShopifyWriteWorkflow",
           workflowName: `insyte-shopify-write-${stage}`
         }),
+        // A marketing sync's send to Klaviyo (M7.5), hosted by this Worker (`MarketingSyncWorkflow`); one per stage.
+        MARKETING_SYNC: Cloudflare.Workflow("MarketingSync", {
+          className: "MarketingSyncWorkflow",
+          workflowName: `insyte-marketing-sync-${stage}`
+        }),
         ENVIRONMENT: environment,
         // Where `Main.ts` serves `/v1` and nothing else.
         PUBLIC_API_HOST: `insyte-api-${stage}.${WORKERS_SUBDOMAIN}`,
@@ -209,6 +220,7 @@ export default Alchemy.Stack(
         ...google,
         ...seal,
         ...shopify,
+        ...klaviyo,
         ...mail,
         // An unset GitHub variable arrives empty, not missing: empty means the default.
         MAIL_FROM: (yield* Config.String("MAIL_FROM").pipe(Config.withDefault(""))) ||

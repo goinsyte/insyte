@@ -1,4 +1,5 @@
 import type { AnalysisParams } from "../workflows/FirstAnalysis.ts"
+import type { MarketingSyncParams } from "../workflows/MarketingSync.ts"
 import type { BackfillParams } from "../workflows/ShopifyBackfill.ts"
 import type { ShopifyWriteParams } from "../workflows/ShopifyWrite.ts"
 import type { ConnectionGateObject } from "./ConnectionGate.ts"
@@ -28,6 +29,12 @@ declare global {
       readonly FIRST_ANALYSIS: Workflow<AnalysisParams>
       /** An order change to Shopify (M7.1): one instance per outbox event (`ShopifyWriteWorkflow`). */
       readonly SHOPIFY_WRITE: Workflow<ShopifyWriteParams>
+      /** A marketing sync's send to Klaviyo (M7.5): one instance per outbox event (`MarketingSyncWorkflow`). */
+      readonly MARKETING_SYNC: Workflow<MarketingSyncParams>
+      /** The Klaviyo OAuth app (M7.5); without both, Klaviyo cannot be connected. `recorded` in the worker tests. */
+      readonly KLAVIYO_CLIENT_ID?: string
+      readonly KLAVIYO_CLIENT_SECRET?: string
+      readonly KLAVIYO_ADAPTER?: string
       /** Shopify's webhooks (M6.3): received deliveries' ids, applied by this Worker's `queue` handler. */
       readonly INGEST: Queue<IngestMessage>
       /** Lines per backfill page, 2000 by default; the worker tests read small pages. */
