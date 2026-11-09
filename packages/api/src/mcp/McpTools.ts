@@ -6,8 +6,11 @@ import {
   ConflictV1,
   CurrentApiKey,
   CustomerPageV1,
+  ForwardView,
   IdempotencyKeyReusedV1,
   InvalidRequestV1,
+  Leg,
+  LegPageV1,
   Me,
   Member,
   NotFoundV1,
@@ -19,12 +22,13 @@ import {
   RefundOverLimitV1,
   Role,
   ScopeMissingV1,
+  Supplier,
   ValidationFailedV1
 } from "../http/PublicApi.ts"
 
 /*
  * The MCP server's tools (M19.3): what an agent with an API key may read, in the public API's shapes, and the order
- * commands (M7) as `/v1` has them. The same key, the same scopes, the same request log; inviting, removing and
+ * commands (M7) and forwarding (M8) as `/v1` has them. The same key, the same scopes, the same request log; inviting, removing and
  * changing roles stay with people.
  */
 
@@ -177,6 +181,45 @@ export const RefundOrder = Tool.make("refund_order", {
   dependencies: asKey()
 }).annotate(Tool.Destructive, true)
 
+export const ListSuppliers = Tool.make("list_suppliers", {
+  description:
+    "The workspace's suppliers: whether each is paused, how it takes its orders (portal, email or api), and its open and delayed orders. Use it to pick a supplier for reroute_leg. Needs suppliers.read.",
+  success: Schema.Struct({ data: Schema.Array(Supplier) }),
+  failure: ScopeMissingV1,
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const ListForwarding = Tool.make("list_forwarding", {
+  description:
+    "The forwarding queue: each leg is one paid order's lines for one supplier. view to_forward (waiting to be sent), awaiting (sent, waiting for the supplier) or forward_error (failed, with the reason); without a view, every open leg. Needs orders.read.",
+  parameters: Schema.Struct({ view: Schema.optional(ForwardView) }),
+  success: LegPageV1,
+  failure: ScopeMissingV1,
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const ForwardOrders = Tool.make("forward_orders", {
+  description:
+    "Sends legs to their suppliers: after a few seconds the supplier receives its own lines and the shipping address (never the customer's email or phone) by its API or mail, and that cannot be called back. Confirm the orders and suppliers with the person first, and pass an idempotency_key. Legs without a supplier or with a paused one are refused. Needs orders.write.",
+  parameters: Schema.Struct({
+    leg_ids: Schema.Array(Schema.String),
+    note: Schema.optional(Schema.String).annotate({ description: "A note for the suppliers." }),
+    idempotency_key: IdempotencyKey
+  }),
+  success: Schema.Struct({ data: Schema.Array(Leg) }),
+  failure: WriteFailure,
+  dependencies: asKey()
+}).annotate(Tool.Destructive, true)
+
+export const RerouteLeg = Tool.make("reroute_leg", {
+  description:
+    "Moves a leg not yet sent (to forward, or failed) to another supplier that is not paused; it then waits to be forwarded there. Find suppliers with list_suppliers. Needs orders.write.",
+  parameters: Schema.Struct({ leg_id: Schema.String, supplier_id: Schema.String, idempotency_key: IdempotencyKey }),
+  success: Leg,
+  failure: WriteFailure,
+  dependencies: asKey()
+}).annotate(Tool.Idempotent, true)
+
 export const InsyteTools = Toolkit.make(
   Whoami,
   ListMembers,
@@ -189,5 +232,9 @@ export const InsyteTools = Toolkit.make(
   SetOrderNote,
   UpdateShippingAddress,
   CancelOrder,
-  RefundOrder
+  RefundOrder,
+  ListSuppliers,
+  ListForwarding,
+  ForwardOrders,
+  RerouteLeg
 )

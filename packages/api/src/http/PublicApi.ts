@@ -375,8 +375,98 @@ export class OrdersGroup extends HttpApiGroup.make("orders")
   .annotate(OpenApi.Title, "Orders")
 {}
 
+const Party = Schema.Struct({ id: Schema.String, name: Schema.String })
+
+/** A forwarding leg (M8.2): one order's lines for one supplier, and where it stands. */
+export const Leg = Schema.Struct({
+  id: Schema.String,
+  order: Schema.Struct({ id: Schema.String, number: Schema.String }),
+  store_id: Schema.String,
+  supplier: Schema.NullOr(Party),
+  from_supplier: Schema.NullOr(Party),
+  lines: Schema.Array(Schema.Struct({
+    title: Schema.String,
+    variant_title: Schema.NullOr(Schema.String),
+    quantity: Schema.Int
+  })),
+  state: Schema.String.annotate({ description: "to_forward, sending, awaiting, confirmed, error or cancelled." }),
+  via: Schema.NullOr(Schema.String).annotate({ description: "portal, email or api." }),
+  since: Schema.String,
+  confirm_by: Schema.NullOr(Schema.String),
+  late: Schema.Boolean,
+  error: Schema.NullOr(Schema.Struct({
+    kind: Schema.String.annotate({
+      description: "stock, address, no_supplier, rejected, send_failed or supplier_paused."
+    }),
+    note: Schema.NullOr(Schema.String)
+  }))
+}).annotate({ identifier: "Leg" })
+
+export const LegPageV1 = Schema.Struct({
+  data: Schema.Array(Leg),
+  counts: Schema.Struct({ to_forward: Schema.Int, awaiting: Schema.Int, late: Schema.Int, error: Schema.Int })
+})
+
+export const Supplier = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  paused: Schema.Boolean,
+  forward_channel: Schema.String,
+  auto_forward: Schema.Boolean,
+  contact_email: Schema.NullOr(Schema.String),
+  stats: Schema.Struct({ products: Schema.Int, open: Schema.Int, delayed: Schema.Int })
+}).annotate({ identifier: "Supplier" })
+
+export const ForwardView = Schema.Literals(["to_forward", "awaiting", "forward_error"])
+
+export class ForwardingGroup extends HttpApiGroup.make("forwarding")
+  .add(
+    HttpApiEndpoint.get("suppliers", "/suppliers", {
+      success: Schema.Struct({ data: Schema.Array(Supplier) }),
+      error: [ScopeMissingV1]
+    }).annotate(
+      OpenApi.Description,
+      "The workspace's suppliers and how each takes its orders. Needs `suppliers.read`."
+    ),
+    HttpApiEndpoint.get("legs", "/forwarding", {
+      query: Schema.Struct({ view: Schema.optional(ForwardView) }),
+      success: LegPageV1,
+      error: [ScopeMissingV1]
+    }).annotate(
+      OpenApi.Description,
+      "The forwarding queue: every open leg, or one view of it (`to_forward`, `awaiting`, `forward_error`), oldest first, with the counts. Needs `orders.read`."
+    ),
+    HttpApiEndpoint.post("forward", "/forwarding/forward", {
+      headers: Writes,
+      payload: Schema.Struct({
+        leg_ids: Schema.Array(Schema.String),
+        note: Schema.optional(Schema.String).annotate({ description: "For the suppliers; never the internal note." }),
+        via: Schema.optional(Schema.Record(Schema.String, Schema.Literals(["portal", "email", "api"]))).annotate({
+          description: "How a supplier gets them, by supplier id, where it should differ from its own setting."
+        })
+      }),
+      success: Schema.Struct({ data: Schema.Array(Leg) }),
+      error: WriteErrors
+    }).annotate(
+      OpenApi.Description,
+      "Forwards legs to their suppliers. They wait a few seconds, then go by the supplier's API or mail; a supplier gets only its own lines and the address, never the customer's email or phone. Legs without a supplier or with a paused one are refused (`409`). Needs `orders.write`."
+    ),
+    HttpApiEndpoint.post("reroute", "/forwarding/:id/reroute", {
+      params: ById,
+      headers: Writes,
+      payload: Schema.Struct({ supplier_id: Schema.String }),
+      success: Leg,
+      error: WriteErrors
+    }).annotate(
+      OpenApi.Description,
+      "Moves a leg not yet sent to another supplier that is not paused; it is to be forwarded again, there. Needs `orders.write`."
+    )
+  )
+  .annotate(OpenApi.Title, "Forwarding")
+{}
+
 export class PublicApi extends HttpApi.make("insyte")
-  .add(KeyGroup, TeamGroup, CommerceGroup, OrdersGroup)
+  .add(KeyGroup, TeamGroup, CommerceGroup, OrdersGroup, ForwardingGroup)
   .middleware(ApiKeyAuth)
   .prefix("/v1")
   .annotate(OpenApi.Title, "Insyte API")
