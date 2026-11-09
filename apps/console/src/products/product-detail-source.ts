@@ -1,14 +1,22 @@
+import { useAtomValue } from "@effect/atom-react"
 import type { ProductDetail, ProductRow } from "@insyte/modules/products/domain/Products"
 import type { Currency, Product } from "@insyte/ui/app/lib/types/domain"
 import type { ProductDetailSource } from "@insyte/ui/app/products/detail-source"
+import { Option } from "effect"
+import { AsyncResult } from "effect/reactivity"
+import { useMemo } from "react"
+import { suppliersAtom } from "../data/suppliers.ts"
 import { useGate } from "../frame/refusals.ts"
+import { supplierOf } from "../suppliers/supplier-of.ts"
+import { useSupplierCommands } from "../suppliers/supplier-writes.ts"
 import { useProductCommands } from "./product-writes.ts"
 import { productOf } from "./products-source.ts"
 
 /*
  * One product's source in the console: `Products.get` as the design's page (M6.4), edited and saved with its commands
- * behind Producten · Bewerken (M7.3), cost price and margin included. What the server does not hold is left out, as
- * on the list: the supplier and its files (M8), stock (until inventory per location is mirrored; a variant shows a
+ * behind Producten · Bewerken (M7.3), cost price and margin included, and its supplier (M8.1: the select, where the role
+ * may edit suppliers, saves through `Suppliers.assignProducts`). What the server does not hold is left out, as on the
+ * list: the supplier's files (M16), stock (until inventory per location is mirrored; a variant shows a
  * dash), the quality checks. The category is Shopify's product type, the description Shopify's HTML as text.
  */
 
@@ -72,15 +80,25 @@ const NONE: ReadonlyArray<never> = []
 export function useConsoleProductDetail(d: ProductDetail, shopDomain: string | undefined): ProductDetailSource {
   const source = consoleProductDetail(d, shopDomain)
   const commands = useProductCommands()
+  const supplierCommands = useSupplierCommands()
   const gate = useGate("products", 2)
+  const assign = useGate("suppliers", 2)
+  const list = Option.getOrUndefined(AsyncResult.value(useAtomValue(suppliersAtom)))
+  const suppliers = useMemo(() => (assign.ok ? list?.rows.map(supplierOf) ?? NONE : NONE), [assign.ok, list])
   const { product } = source
   return gate.ok
     ? {
       ...source,
       edit: {
-        save: (draft) => void commands.save(product, draft),
+        save: (draft) => {
+          void commands.save(product, draft)
+          const to = suppliers.find((s) => s.id === draft.supplier_id)
+          if (to !== undefined && draft.supplier_id !== product.supplier_id) {
+            void supplierCommands.assign(to.id, product.id, `${to.name} levert nu ${draft.title}`)
+          }
+        },
         sync: () => commands.sync(product),
-        suppliers: NONE,
+        suppliers,
         media: NONE,
         adsPaused: false,
         resumeAds: () => undefined

@@ -41,6 +41,8 @@ export interface Row {
   readonly costMinor: string | null
   readonly currency: string | null
   readonly available: number | null
+  readonly supplierId: string | null
+  readonly supplierName: string | null
   readonly externalUpdatedAt: Date
 }
 
@@ -63,6 +65,8 @@ export const toRow = (r: Row) =>
     costMinor: r.costMinor === null ? null : Number(r.costMinor),
     currency: r.currency ?? "EUR",
     available: r.available,
+    supplierId: r.supplierId,
+    supplierName: r.supplierName,
     updatedAt: r.externalUpdatedAt.getTime()
   })
 
@@ -74,7 +78,10 @@ export const SELECT =
   (select min(v.price_minor) from variants v where v.product_id = p.id) as price_min,
   (select max(v.price_minor) from variants v where v.product_id = p.id) as price_max,
   (select sum(i.available) from inventory_levels i join variants v on v.id = i.variant_id
-     where v.product_id = p.id and i.source = 'shopify')::int as available`
+     where v.product_id = p.id and i.source = 'shopify')::int as available,
+  (select ps.supplier_id from product_supply ps where ps.product_id = p.id and ps.is_primary) as supplier_id,
+  (select x.name from product_supply ps join suppliers x on x.id = ps.supplier_id
+     where ps.product_id = p.id and ps.is_primary) as supplier_name`
 
 const searchOf = (sql: SqlClient.SqlClient, q: string | undefined) => {
   const text = q?.trim() ?? ""

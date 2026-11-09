@@ -13,6 +13,7 @@ import { PrefsService } from "@insyte/modules/prefs/PrefsService"
 import { ProductsService } from "@insyte/modules/products/Products"
 import { RolesService } from "@insyte/modules/roles/RolesService"
 import { StoresService } from "@insyte/modules/stores/Stores"
+import { SuppliersService } from "@insyte/modules/suppliers/Suppliers"
 import { UndoService } from "@insyte/modules/undo/Undo"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Layer } from "effect"
@@ -32,6 +33,7 @@ import { SessionHandlers } from "./handlers/session.ts"
 import { SharedHandlers } from "./handlers/shared.ts"
 import { ShellHandlers } from "./handlers/shell.ts"
 import { StoresHandlers } from "./handlers/stores.ts"
+import { SuppliersHandlers } from "./handlers/suppliers.ts"
 import { SystemHandlers } from "./handlers/system.ts"
 import { RpcHttp } from "./RpcHttp.ts"
 
@@ -63,6 +65,7 @@ export const RpcContext = Layer.mergeAll(
   ),
   SharedHandlers.pipe(Layer.provide(UndoService.layer)),
   MarketingHandlers.pipe(Layer.provide(MarketingService.layer)),
+  SuppliersHandlers.pipe(Layer.provide(SuppliersService.layer)),
   ShellHandlers.pipe(
     Layer.provide(
       Layer.mergeAll(

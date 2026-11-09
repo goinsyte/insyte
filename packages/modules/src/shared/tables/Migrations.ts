@@ -24,6 +24,7 @@ import orderNotes from "./migrations/0024_order_notes.ts"
 import productCosts from "./migrations/0025_product_costs.ts"
 import customerMerges from "./migrations/0026_customer_merges.ts"
 import marketing from "./migrations/0027_marketing.ts"
+import suppliers from "./migrations/0028_suppliers.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -57,5 +58,6 @@ export const Migrations = {
   "0024_order_notes": orderNotes,
   "0025_product_costs": productCosts,
   "0026_customer_merges": customerMerges,
-  "0027_marketing": marketing
+  "0027_marketing": marketing,
+  "0028_suppliers": suppliers
 }

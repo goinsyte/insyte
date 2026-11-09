@@ -53,6 +53,33 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(storeId: string
         where excluded.external_updated_at >= products.external_updated_at
         returning 1`
 
+      // Each Shopify vendor is a supplier (M8.1), made once: a removed one stays removed. A vendor equal to the shop's
+      // own name is Shopify's default, not a supplier. A product without a supplier gets its vendor's.
+      const vendors = [...new Set(batch.products.map((p) => p.vendor?.trim() ?? "").filter((v) => v !== ""))]
+      if (vendors.length > 0) {
+        yield* sql`
+          insert into suppliers (id, workspace_id, name, vendor, created_by)
+          select r.id, app_workspace_id(), r.name, lower(r.name), 'system'
+          from jsonb_to_recordset(${JSON.stringify(vendors.map((name) => ({ id: mintId("sup"), name })))}::jsonb)
+            as r(id text, name text)
+          join stores s on s.id = ${storeId}
+          where lower(r.name) <> lower(s.name)
+            and not exists (select 1 from suppliers x where lower(x.name) = lower(r.name) and x.deleted_at is null)
+          on conflict do nothing`
+        yield* sql`
+          insert into product_supply (workspace_id, product_id, supplier_id, is_primary, lead_days)
+          select app_workspace_id(), p.id, sup.id, true, sup.default_lead_days
+          from products p
+          join lateral (
+            select x.id, x.default_lead_days from suppliers x
+            where x.deleted_at is null and (x.vendor = lower(btrim(p.vendor)) or lower(x.name) = lower(btrim(p.vendor)))
+            order by (x.vendor = lower(btrim(p.vendor))) desc nulls last, x.created_at limit 1
+          ) sup on true
+          where p.store_id = ${storeId} and p.shopify_id in ${sql.in(batch.products.map((p) => p.shopify_id))}
+            and not exists (select 1 from product_supply ps where ps.product_id = p.id)
+          on conflict do nothing`
+      }
+
       const variants = batch.variants.length === 0 ? [] : yield* sql`
         insert into variants (id, workspace_id, store_id, product_id, shopify_id, inventory_item_id, sku, title,
                               price_minor, compare_at_minor, position)

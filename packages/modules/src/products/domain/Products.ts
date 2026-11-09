@@ -26,6 +26,9 @@ export class ProductRow extends Schema.Class<ProductRow>("products/ProductRow")(
   currency: Schema.String,
   /** Units available over every location, as Shopify reports them; `null` until inventory is mirrored. */
   available: Schema.NullOr(Schema.Int),
+  /** Who supplies it (M8.1): its primary `product_supply`, made from the Shopify vendor or assigned by hand. */
+  supplierId: Schema.NullOr(Schema.String),
+  supplierName: Schema.NullOr(Schema.String),
   updatedAt: Schema.Finite
 }) {}
 

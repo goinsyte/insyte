@@ -7,6 +7,7 @@ import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
 import { StoresRpcs } from "@insyte/api/rpc/StoresRpcs"
+import { SuppliersRpcs } from "@insyte/api/rpc/SuppliersRpcs"
 import { Exit } from "effect"
 import { beforeAll, describe, expect, it } from "vitest"
 import expected from "./authz.expected.json" with { type: "json" }
@@ -111,7 +112,21 @@ const PAYLOADS: Record<string, unknown> = {
   "Marketing.beginConnect": { returnPath: "/customers" },
   "Marketing.disconnect": undefined,
   "Customers.marketingLists": undefined,
-  "Customers.syncToMarketing": { ids: ["cus_none"], listId: "LIST_VIP", listName: "VIP", withTags: false, dryRun: true }
+  "Customers.syncToMarketing": {
+    ids: ["cus_none"],
+    listId: "LIST_VIP",
+    listName: "VIP",
+    withTags: false,
+    dryRun: true
+  },
+  "Suppliers.list": {},
+  "Suppliers.get": { id: "sup_none" },
+  // An invalid name: refused after the permission check, so nothing is made.
+  "Suppliers.create": { name: " ", contactEmail: "", contactPhone: "", description: "" },
+  "Suppliers.update": { id: "sup_none", name: "Iets" },
+  "Suppliers.setPaused": { ids: ["sup_none"], paused: true },
+  "Suppliers.assignProducts": { supplierId: "sup_none", productIds: ["prd_none"] },
+  "Suppliers.remove": { id: "sup_none" }
 }
 
 const manifest = [
@@ -123,7 +138,8 @@ const manifest = [
   ...CommerceRpcs.requests.keys(),
   ...FirstAnalysisRpcs.requests.keys(),
   ...SharedRpcs.requests.keys(),
-  ...MarketingRpcs.requests.keys()
+  ...MarketingRpcs.requests.keys(),
+  ...SuppliersRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

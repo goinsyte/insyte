@@ -10,16 +10,14 @@ import { GHOST_BTN, PRIMARY_BTN, WELL_BTN } from "../team/bits";
 import { ME } from "../team/invite-dialog";
 import { formatRelative } from "../lib/format";
 import type { Supplier } from "../lib/types/domain";
-import { EMAIL, inviteUrl, PORTAL_SCOPES, type PortalAccess, type PortalStatus, token } from "../lib/team";
+import { EMAIL, inviteUrl, PORTAL_SCOPES, type PortalAccess, token } from "../lib/team";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
 import { useTeam } from "../stores/team-store";
 
-export const PORTAL_LABEL: Record<PortalStatus, { label: string; tone: "success" | "warning" | "neutral" }> = {
-	active: { label: "Actief", tone: "success" },
-	invited: { label: "Uitgenodigd", tone: "warning" },
-	none: { label: "Niet uitgenodigd", tone: "neutral" },
-};
+import { PORTAL_LABEL } from "./portal-label";
+
+export { PORTAL_LABEL };
 
 const DEFAULT_SCOPES = PORTAL_SCOPES.map((s) => s.id);
 
