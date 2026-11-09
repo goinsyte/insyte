@@ -8,22 +8,19 @@
   outputs = {nixpkgs, ...}: let
     inherit (nixpkgs) lib;
 
-    # Bun publishes these four builds; the shell exists where Bun does.
-    systems = ["aarch64-darwin" "x86_64-darwin" "aarch64-linux" "x86_64-linux"];
+    # Where both Bun and nixpkgs-unstable build: nixpkgs 26.11 dropped Intel Macs (x86_64-darwin), so those use
+    # `.bun-version` with Bun's own installer instead of this shell.
+    systems = ["aarch64-darwin" "aarch64-linux" "x86_64-linux"];
     forAllSystems = f: lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
     # One Bun for the shell, CI (`setup-bun` reads the same file) and `packageManager`: `.bun-version`. Bumping it
-    # means adding its four hashes here, from the release's SHASUMS256.txt; evaluation stops until then.
+    # means adding its hashes here, from the release's SHASUMS256.txt; evaluation stops until then.
     bunVersion = lib.trim (builtins.readFile ./.bun-version);
     bunBuilds = {
       "1.4.2" = {
         aarch64-darwin = {
           asset = "bun-darwin-aarch64";
           hash = "sha256-kJh6OhbX21VtiGrD1VHnttPt8KHPQ6yu1iLoZ2vh0S8=";
-        };
-        x86_64-darwin = {
-          asset = "bun-darwin-x64";
-          hash = "sha256-gFINfhdSYwjJGF0mFnmsbSd5jTgDoOn3/5Ehq4r/sBI=";
         };
         aarch64-linux = {
           asset = "bun-linux-aarch64";

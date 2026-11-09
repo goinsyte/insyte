@@ -28,4 +28,5 @@ the pull request. `bun scripts/scope.ts` enforces this on commit and push; never
 for wrangler and alchemy, `psql` 18, `gh` and `jq`. With direnv and nix-direnv it loads on `cd` (`.envrc`); without,
 `nix develop`. Everything else (wrangler, workerd, alchemy, dprint, oxlint, lefthook) comes from `bun install`, and
 Postgres runs in Docker: `bun run db:up`, then `bun run db:migrate --local`. Bumping Bun means `.bun-version`,
-`packageManager` and the release's four hashes in `flake.nix`, together.
+`packageManager` and the release's hashes in `flake.nix`, together. Apple-silicon Macs and Linux only: nixpkgs-unstable
+no longer builds for Intel Macs.
