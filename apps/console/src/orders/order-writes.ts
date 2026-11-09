@@ -1,5 +1,6 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
-import { canRole } from "@insyte/domain/Permissions"
+import { mintId } from "@insyte/domain/Ids"
+import { canRole, isSpecial } from "@insyte/domain/Permissions"
 import type { OrderChange } from "@insyte/modules/orders/domain/Commands"
 import { useGateRole } from "@insyte/ui/app/access/gate-role"
 import { counted } from "@insyte/ui/app/lib/bulk-io"
@@ -35,6 +36,9 @@ const CONFLICT: Record<string, [string, string]> = {
   gone: ["Die bestelling bestaat niet meer", "Iemand anders was je voor."]
 }
 
+const euros = (minor: number) =>
+  new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(minor / 100)
+
 const INVALID: Record<string, string> = {
   system: "Dit label zet Insyte zelf; je kunt het hier niet toevoegen of weghalen.",
   "address.country": "Gebruik een landcode van twee letters, zoals NL.",
@@ -46,12 +50,14 @@ const INVALID: Record<string, string> = {
 const orderRefused = (error: unknown) => {
   const tagged = error as { _tag?: string; [field: string]: unknown }
   switch (tagged._tag) {
-    case "Forbidden":
+    case "Forbidden": {
+      const permission = tagged["permission"] as Permission
       return void toast.error("Dat kan je rol niet", {
         description: `Je rol ${tagged["roleLabel"]} mist ${
-          permissionName(tagged["permission"] as Permission, tagged["level"] as Level)
+          permissionName(permission, isSpecial(permission) ? undefined : tagged["level"] as Level)
         }.`
       })
+    }
     case "Conflict": {
       const [title, description] = CONFLICT[String(tagged["reason"])] ?? ["Dat lukte niet", "Probeer het zo nog eens."]
       return void toast.error(title, { description })
@@ -63,6 +69,16 @@ const orderRefused = (error: unknown) => {
     }
     case "NotFound":
       return void toast.error("Die bestelling bestaat niet meer", { description: "Iemand anders was je voor." })
+    case "RefundOverLimit":
+      return void toast.error("Boven je limiet", {
+        description: `Je rol mag tot ${euros(Number(tagged["limitMinor"]))} per bestelling terugbetalen.`
+      })
+    case "RefundOverBalance":
+      return void toast.error("Meer dan er openstaat", {
+        description: `Er staat nog ${euros(Number(tagged["balanceMinor"]))} open op deze bestelling.`
+      })
+    case "AlreadyRefunded":
+      return void toast.error("Al terugbetaald", { description: "Er staat niets meer open op deze bestelling." })
     default:
       return void toast.error("Dat lukte niet", { description: "Probeer het zo nog eens." })
   }
@@ -84,6 +100,24 @@ export function useKnownOrderTags(): ReadonlyArray<string> {
   return useMemo(() => counts?.map((c) => c.tag) ?? NO_TAGS, [counts])
 }
 
+/**
+ * Whether the role may refund this much, as the design's gate says it: over the limit is not the same as not at all.
+ * Nothing left to refund is said too, since the screen offers Terugbetalen on every paid order.
+ */
+export function useRefundGate(refundableMinor: number): TeamGate {
+  const role = useGateRole()
+  if (refundableMinor <= 0) return { ok: false, reason: "Er staat niets meer open op deze bestelling" }
+  const euro = refundableMinor / 100
+  if (role === null || canRole(role, "refunds.write", euro)) return { ok: true, reason: "" }
+  if (canRole(role, "refunds.write") && role.refundLimit !== null) {
+    return {
+      ok: false,
+      reason: `Je rol ${role.label} mag tot ${euros(role.refundLimit * 100)} per bestelling terugbetalen`
+    }
+  }
+  return { ok: false, reason: `Je rol ${role.label} mist ${permissionName("refunds.write")}` }
+}
+
 /** Every order command, as the screens call them. */
 export function useOrderCommands() {
   const keys = { reactivityKeys: ORDERS }
@@ -93,6 +127,7 @@ export function useOrderCommands() {
     updateShipping: useAtomSet(orderWrites.updateShipping, { mode: "promiseExit" }),
     cancel: useAtomSet(orderWrites.cancel, { mode: "promiseExit" }),
     setNote: useAtomSet(orderWrites.setNote, { mode: "promiseExit" }),
+    refund: useAtomSet(orderWrites.refund, { mode: "promiseExit" }),
     undo: useAtomSet(orderWrites.undo, { mode: "promiseExit" })
   }
 
@@ -155,6 +190,14 @@ export function useOrderCommands() {
         await write.cancel({ payload: { ids: [order.id], restock: true, notify: true }, ...keys }),
         `${order.number} geannuleerd`
       ),
+    /** Irreversible: the dialog asked first, so it says what was asked and offers no undo. */
+    refund: async (order: Order, amountMinor: number) => {
+      const exit = await write.refund({ payload: { id: order.id, refundId: mintId("rfd"), amountMinor }, ...keys })
+      if (Exit.isFailure(exit)) return orderRefused(failureOf(exit))
+      toast.success(`${order.number} wordt terugbetaald`, {
+        description: `${euros(amountMinor)} aan ${order.customer_name}, via de oorspronkelijke betaalmethode.`
+      })
+    },
     saveNote: async (order: Order, body: string) => {
       const exit = await write.setNote({ payload: { id: order.id, body }, ...keys })
       if (Exit.isFailure(exit)) return orderRefused(failureOf(exit))

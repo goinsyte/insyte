@@ -20,6 +20,8 @@ export type TimelineStep = {
 /** What the order may become, each behind the gate the role holds for it. */
 export interface OrderWrites {
 	gates: { edit: TeamGate; refund: TeamGate; returns: TeamGate };
+	/** What is still refundable, where the host knows it (after an earlier partial refund); the order's total else. */
+	refundable?: number | undefined;
 	fulfil: () => void;
 	refund: () => void;
 	cancel: () => void;

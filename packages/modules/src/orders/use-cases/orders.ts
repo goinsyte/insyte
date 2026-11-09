@@ -188,8 +188,10 @@ export const get = Effect.fn("Orders.get")(function*(id: string) {
         amountMinor: string
         currency: string
         note: string | null
+        status: "pending" | "succeeded" | "failed"
         createdAt: Date
-      }>`select id, amount_minor, currency, note, created_at from refunds where order_id = ${id} order by created_at`
+      }>`select id, amount_minor, currency, note, status, created_at from refunds where order_id = ${id}
+         order by created_at`
       const [internal] = yield* sql<{ body: string; updatedAt: Date; updatedBy: string | null }>`
         select n.body, n.updated_at, u.name as updated_by from order_notes n
         left join members m on m.id = n.updated_by left join auth."user" u on u.id = m.user_id

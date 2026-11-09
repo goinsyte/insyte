@@ -36,6 +36,20 @@ export const ORDER_CANCEL = `mutation($orderId: ID!, $restock: Boolean!, $notify
   }
 }`
 
+/** Where the money goes back: Shopify's own split over the order's payments, for its whole balance. */
+export const SUGGESTED_REFUND = `query($id: ID!) {
+  order(id: $id) {
+    suggestedRefund(suggestFullRefund: true, refundShipping: true) {
+      suggestedTransactions { parentTransaction { id } gateway amountSet { shopMoney { amount } } }
+    }
+  }
+}`
+
+/** Idempotent on Insyte's refund id: asked again after a lost answer, Shopify answers the same refund. */
+export const REFUND_CREATE = `mutation($input: RefundInput!, $key: String!) {
+  refundCreate(input: $input) @idempotent(key: $key) { refund { id } userErrors { field message } }
+}`
+
 /** Fulfillment orders Shopify lets a merchant fulfil. */
 export const FULFILLABLE: ReadonlySet<string> = new Set(["OPEN", "IN_PROGRESS"])
 
@@ -43,6 +57,7 @@ export const FULFILLABLE: ReadonlySet<string> = new Set(["OPEN", "IN_PROGRESS"])
 export type OrderWrite =
   | Extract<OutboxEvent, { type: "order.updated" }>
   | Extract<OutboxEvent, { type: "order.cancelled" }>
+  | Extract<OutboxEvent, { type: "refund.requested" }>
 
 /** What became of one order's change: sent, refused by Shopify (the reason is Shopify's), or not sent at all. */
 export interface WriteOutcome {

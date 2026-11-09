@@ -85,6 +85,7 @@ const PAYLOADS: Record<string, unknown> = {
   },
   "Orders.cancel": { ids: ["ord_none"], restock: true, notify: false },
   "Orders.setNote": { id: "ord_none", body: "x" },
+  "Orders.refund": { id: "ord_none", refundId: "rfd_00000000000000000000000000", amountMinor: 100 },
   "Products.list": {},
   "Products.get": { id: "prd_none" },
   "Customers.list": {},

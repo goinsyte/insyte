@@ -75,5 +75,6 @@ export const orderWrites = {
   updateShipping: ConsoleClient.mutation("Orders.updateShipping"),
   cancel: ConsoleClient.mutation("Orders.cancel"),
   setNote: ConsoleClient.mutation("Orders.setNote"),
+  refund: ConsoleClient.mutation("Orders.refund"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const

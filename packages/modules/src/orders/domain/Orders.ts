@@ -80,6 +80,8 @@ export const Refund = Schema.Struct({
   amountMinor: Schema.Int,
   currency: Schema.String,
   note: Schema.NullOr(Schema.String),
+  /** `pending` while an Insyte refund waits for Shopify (M7.2); `failed` when it never got there. */
+  status: Schema.Literals(["pending", "succeeded", "failed"]),
   createdAt: Schema.Finite
 })
 

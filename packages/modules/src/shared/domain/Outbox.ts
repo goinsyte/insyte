@@ -79,6 +79,14 @@ export const OutboxEvent = Schema.Union([
     restock: Schema.Boolean,
     notify: Schema.Boolean
   }),
+  // A refund asked in Insyte (M7.2): to Shopify at once, since money that leaves cannot be taken back.
+  Schema.Struct({
+    type: Schema.Literal("refund.requested"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    orderIds: Schema.Array(Schema.String),
+    refundId: Schema.String
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({
