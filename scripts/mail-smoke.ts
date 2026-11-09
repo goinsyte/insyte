@@ -20,7 +20,9 @@ if (key === undefined || key === "") {
   process.exit(1)
 }
 
-const link = "https://insyte-console-staging.ishak-73d.workers.dev/onboarding?step=2"
+// The links point at staging's console; `CONSOLE_ORIGIN` overrides it, as it does in the Worker.
+const origin = process.env["CONSOLE_ORIGIN"] ?? "https://insyte-console-staging.ishak-73d.workers.dev"
+const link = `${origin}/onboarding?step=2`
 
 const program = Effect.gen(function*() {
   const mailer = yield* Mailer
@@ -33,7 +35,11 @@ const program = Effect.gen(function*() {
 await Effect.runPromise(program.pipe(
   Effect.provide(ResendMailer.pipe(
     Layer.provide(FetchHttpClient.layer),
-    Layer.provide(ConfigProvider.layer(ConfigProvider.fromEnvRecord({ RESEND_API_KEY: key, MAIL_FROM: from })))
+    Layer.provide(
+      ConfigProvider.layer(
+        ConfigProvider.fromEnvRecord({ RESEND_API_KEY: key, MAIL_FROM: from, CONSOLE_ORIGIN: origin })
+      )
+    )
   ))
 )).catch((error) => {
   console.error(`mail:smoke: ${String(error)}`)
