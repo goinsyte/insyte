@@ -5,8 +5,9 @@ import { Copy, Download, Mail, Send, Tag, Ticket, GitMerge } from "../../icons";
 import { OPEN_AS_MODAL } from "../common/detail-shell";
 import { useCustomers } from "../hooks/use-operator-data";
 import { copyLines, counted, exportCsv } from "../lib/bulk";
-import { findDuplicates } from "../lib/duplicates";
+import { type DuplicateGroup, findDuplicates } from "../lib/duplicates";
 import { formatCurrency } from "../lib/format";
+import type { Customer } from "../lib/types/domain";
 import { undoable } from "../lib/undo";
 import { ListClosing, useListStarts } from "../marketing-sections/closings";
 import { useWorkspace } from "../stores/workspace-store";
@@ -138,6 +139,24 @@ function formatLastOrder(createdAt: string, id: string): string {
 	}).format(d);
 }
 
+/** The duplicate review on the demo workspace: merged at once with one Undo, "not the same person" remembered. */
+function DemoMerge(props: { open: boolean; onOpenChange: (open: boolean) => void; groups: DuplicateGroup[]; customers: Customer[] }) {
+	const merge = useWorkspace((s) => s.mergeCustomers);
+	const notDuplicate = useWorkspace((s) => s.notDuplicate);
+	return (
+		<MergeReview
+			{...props}
+			onMerge={(keeper, others) => {
+				const before = useWorkspace.getState();
+				const snapshot = { edits: before.customerEdits, not: before.notDuplicates };
+				merge(keeper, others);
+				undoable(`${others.length + 1} profielen samengevoegd tot ${keeper.name}`, () => useWorkspace.getState().restoreCustomers(snapshot.edits, snapshot.not));
+			}}
+			onNotDuplicate={notDuplicate}
+		/>
+	);
+}
+
 const DemoClosing = ({ empty }: { empty: boolean }) => <ListClosing area="customers" empty={empty} />;
 const ALLOWED = { ok: true, reason: "" };
 
@@ -167,7 +186,7 @@ export function DemoCustomersSource({ children }: { children: ReactNode }) {
 		canCreate: ALLOWED,
 		NewCustomer: DemoNewCustomer,
 		Klaviyo: KlaviyoDialog,
-		Merge: MergeReview,
+		Merge: DemoMerge,
 		starts,
 		Closing: DemoClosing,
 		open: (c) => navigate({ to: "/customers/$customerId", params: { customerId: c.id }, state: OPEN_AS_MODAL }),

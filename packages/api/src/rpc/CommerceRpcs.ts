@@ -1,5 +1,13 @@
 import { Conflict, Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
+import {
+  CreateInput,
+  CustomerChange,
+  MergeInput,
+  NotDuplicateInput,
+  TagInput as CustomerTagInput
+} from "@insyte/modules/customers/domain/Commands"
 import { CustomerDetail, CustomerPage } from "@insyte/modules/customers/domain/Customers"
+import { DuplicateGroup } from "@insyte/modules/customers/domain/Duplicates"
 import {
   CancelInput,
   IdsInput,
@@ -84,7 +92,24 @@ export class CommerceRpcs extends RpcGroup.make(
   Rpc.make("Products.reprice", { payload: RepriceInput, success: RepriceResult, error: GetError }),
   Rpc.make("Products.sync", { payload: ById, error: Schema.Union([Forbidden, NotFound, Conflict]) }),
   Rpc.make("Customers.list", { payload: ListInput, success: CustomerPage, error: ListError }),
-  Rpc.make("Customers.get", { payload: ById, success: CustomerDetail, error: GetError })
+  Rpc.make("Customers.get", { payload: ById, success: CustomerDetail, error: GetError }),
+  Rpc.make("Customers.tag", {
+    payload: CustomerTagInput,
+    success: CustomerChange,
+    error: Schema.Union([Forbidden, NotFound, Invalid])
+  }),
+  Rpc.make("Customers.create", {
+    payload: CreateInput,
+    success: CustomerChange,
+    error: Schema.Union([Forbidden, Invalid, Conflict])
+  }),
+  Rpc.make("Customers.merge", {
+    payload: MergeInput,
+    success: CustomerChange,
+    error: Schema.Union([Forbidden, NotFound, Invalid, Conflict])
+  }),
+  Rpc.make("Customers.duplicates", { success: Schema.Array(DuplicateGroup), error: Forbidden }),
+  Rpc.make("Customers.markNotDuplicate", { payload: NotDuplicateInput, error: Forbidden })
 )
   // Innermost first: `Member` needs the person (`Authenticated`) and the connection (`WithDb`) around it.
   .middleware(Member)

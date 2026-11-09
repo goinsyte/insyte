@@ -96,6 +96,22 @@ export const OutboxEvent = Schema.Union([
     productIds: Schema.Array(Schema.String),
     fields: Schema.Array(Schema.Literals(["title", "description", "status", "price"]))
   }),
+  // Customers tagged in Insyte (M7.4): to Shopify once the undo window has passed, as the change.
+  Schema.Struct({
+    type: Schema.Literal("customer.updated"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    customerIds: Schema.Array(Schema.String),
+    add: Schema.Array(Schema.String),
+    remove: Schema.Array(Schema.String)
+  }),
+  // A customer made in Insyte (M7.4): created in Shopify once the undo window has passed.
+  Schema.Struct({
+    type: Schema.Literal("customer.created"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    customerIds: Schema.Array(Schema.String)
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

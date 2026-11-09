@@ -405,6 +405,41 @@
     "finance": "allow",
     "view": "allow"
   },
+  "Customers.tag": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Customers.create": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Customers.merge": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Customers.duplicates": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Customers.markNotDuplicate": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
   "FirstAnalysis.get": {
     "owner": "allow",
     "admin": "allow",

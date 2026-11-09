@@ -5,8 +5,8 @@ import { customerOf } from "./customers-source.ts"
 
 /*
  * One customer's source in the console (M6.4): `Customers.get` as the design's profile, with the newest 50 orders
- * Insyte holds for them. Read-only until the commands (M7): no "Nieuw ticket" (tickets are M9), no merges, no
- * Klaviyo line, no returns.
+ * Insyte holds for them and the profiles merged into it, or the one it went into (M7.4). No "Nieuw ticket" (tickets
+ * are M9), no Klaviyo line (M7.5), no returns.
  */
 
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -36,6 +36,15 @@ export function consoleCustomerDetail(d: CustomerDetail): CustomerDetailSource {
     orders,
     currency: c.currency as Currency,
     lastOrderAt: c.lastOrderAt === null ? undefined : iso(c.lastOrderAt),
+    ...(d.merged.into === null && d.merged.absorbed === 0
+      ? {}
+      : {
+        merged: {
+          into: d.merged.into ?? undefined,
+          absorbed: d.merged.absorbed,
+          alsoEmails: d.merged.alsoEmails
+        }
+      }),
     arriving: false
   }
 }
