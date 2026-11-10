@@ -25,11 +25,20 @@ export interface ShopFacts {
   readonly planName: string | null
 }
 
-/** Shopify said no, or could not be reached; `reason` is Shopify's own word, never a token. */
+/**
+ * Shopify said no, or could not be reached; `reason` is Shopify's own word, never a token. A call the store's token
+ * may not make (Shopify's `ACCESS_DENIED`) is status 403 with the access `scope` it needs: the store approves the app's
+ * new scopes, and then it can.
+ */
 export class ShopifyRefused extends Schema.TaggedError<ShopifyRefused>()("ShopifyRefused", {
   status: Schema.Int,
-  reason: Schema.String
+  reason: Schema.String,
+  scope: Schema.optional(Schema.String)
 }) {}
+
+/** The access scope a refusal says the store's token lacks, where Shopify said so (`ACCESS_DENIED`). */
+export const missingScope = (error: ShopifyRefused): string | undefined =>
+  error.status === 403 ? error.scope : undefined
 
 export class ShopifyAdmin extends Context.Service<ShopifyAdmin, {
   /** Whether this stage has an app to install (`SHOPIFY_CLIENT_ID` and its secret); without, stores can only wait. */

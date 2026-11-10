@@ -11,7 +11,12 @@ export const MailKind = Schema.Literals([
   "auth.reset",
   "auth.signup_existing",
   "team.invite",
-  "supplier.order"
+  "supplier.order",
+  "return.received",
+  "return.approved",
+  "return.rejected",
+  "return.label",
+  "return.resolved"
 ])
 export type MailKind = typeof MailKind.Type
 
@@ -47,6 +52,46 @@ export interface SupplierOrderFacts {
   }
 }
 
+/**
+ * A shopper's return as their mail tells it (M9.3), in the store's name: the request came in (from the portal, or the
+ * team started it for them), it was approved (whether anything goes back, and where to) or rejected (why), its label
+ * (the PDF goes with it), and what they get. The kind of mail says which of the optional facts it needs.
+ */
+export interface ReturnMailFacts {
+  /** The store's name, which the mail is sent in. */
+  readonly shop: string
+  /** The shopper's name as the order has it. */
+  readonly customer: string
+  /** `R-1042`. */
+  readonly number: string
+  readonly kind: "return" | "claim"
+  readonly orderNumber: string
+  readonly items: ReadonlyArray<{ readonly title: string; readonly variant: string | null; readonly qty: number }>
+  /** The returns portal's handle, where it is on: the mail links to it. */
+  readonly portal: string | null
+  /** `return.received`: who put it in, and what the shopper asked for. */
+  readonly via?: "portal" | "team" | undefined
+  readonly requested?: "refund" | "exchange" | "gift_card" | "replacement" | "discount" | undefined
+  readonly exchangeTo?: string | null | undefined
+  /** `return.approved`: nothing goes back (a claim settled without it), else where to and whether a label follows. */
+  readonly keepItem?: boolean | undefined
+  readonly address?: string | null | undefined
+  /** `return.rejected`: why, as the team wrote it. */
+  readonly reason?: string | undefined
+  /** `return.label`: the carrier and its tracking number; the PDF goes with the mail. */
+  readonly label?: { readonly carrier: string; readonly tracking: string } | undefined
+  /** `return.resolved`: what they get, the code to use or the new order's number where there is one. */
+  readonly resolution?:
+    | {
+      readonly kind: "refund" | "exchange" | "gift_card" | "replacement" | "discount"
+      readonly amountMinor: number
+      readonly currency: string
+      readonly code: string | null
+      readonly order: string | null
+    }
+    | undefined
+}
+
 export interface Mail {
   readonly kind: MailKind
   readonly to: string
@@ -55,6 +100,10 @@ export interface Mail {
   readonly invitation?: InvitationFacts | undefined
   /** `supplier.order` only. */
   readonly supplierOrder?: SupplierOrderFacts | undefined
+  /** `return.*` only. */
+  readonly returnMail?: ReturnMailFacts | undefined
+  /** The name the mail is sent in (a store's, to its shopper); absent, Insyte's own. */
+  readonly sender?: string | undefined
   /** What makes two mails of one kind to one address different (a leg's id), for the sender's idempotency. */
   readonly reference?: string | undefined
   /** Files sent with it (a packing slip, M8.5). */

@@ -21,9 +21,9 @@ import { docOf } from "./return-of.ts"
 /*
  * The returns commands in the console (M9.1): each the server's, refreshing what names `RETURNS`, with "Ongedaan maken"
  * spending the command's undo token. A refund goes through `Orders.refund` on the server and cannot be taken back; it
- * names `ORDERS` too. Settling with anything else is recorded here: the gift card, discount code or new order in
- * Shopify, and the shopper's mail, come later (M9.3), so nothing says they were sent. A label is asked for with Undo
- * and made at the carrier once the window has passed (M9.2).
+ * names `ORDERS` too. Settling with anything else is made in Shopify once the window has passed (the gift card, the
+ * discount code, the exchange or replacement order, M9.3) and mailed to the shopper; one Shopify did not make can be
+ * asked again. A label is asked for with Undo, made at the carrier once the window has passed (M9.2) and mailed.
  */
 
 const euros = (minor: number) =>
@@ -95,6 +95,22 @@ const refused = (error: unknown) => sayRefusal(error, COPY)
 const money = (r: ReturnRecord, amount: number) =>
   formatCurrency(amount, r.currency, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+/** What a resolution does once the window has passed: made in Shopify, then mailed to the shopper. */
+const settled = (r: ReturnRecord, kind: Resolution, amount: number) => {
+  switch (kind) {
+    case "gift_card":
+      return `Cadeaubon van ${money(r, amount)} wordt gemaakt in Shopify en gemaild aan ${r.customerName}.`
+    case "discount":
+      return `Kortingscode van ${money(r, amount)} wordt gemaakt in Shopify en gemaild aan ${r.customerName}.`
+    case "exchange":
+      return `De ruilbestelling wordt gemaakt in Shopify; ${r.customerName} krijgt een mail.`
+    case "replacement":
+      return `De nieuwe bestelling wordt gemaakt in Shopify; ${r.customerName} krijgt een mail.`
+    case "refund":
+      return undefined
+  }
+}
+
 /** Every returns command, as the screens call them; `start` and `save` too. */
 export function useReturnCommands() {
   const keys = { reactivityKeys: [...RETURNS] }
@@ -109,6 +125,7 @@ export function useReturnCommands() {
     addTracking: useAtomSet(returnWrites.addTracking, { mode: "promiseExit" }),
     inspect: useAtomSet(returnWrites.inspect, { mode: "promiseExit" }),
     resolve: useAtomSet(returnWrites.resolve, { mode: "promiseExit" }),
+    retryResolution: useAtomSet(returnWrites.retryResolution, { mode: "promiseExit" }),
     setSettings: useAtomSet(returnWrites.setSettings, { mode: "promiseExit" }),
     undo: useAtomSet(returnWrites.undo, { mode: "promiseExit" })
   }
@@ -135,11 +152,13 @@ export function useReturnCommands() {
     receive: async (id, s) => said(await write.markReceived({ payload: { id }, ...keys }), s),
     inspect: async (id, s) => said(await write.inspect({ payload: { id }, ...keys }), s),
     assign: async (ids, memberId, s) => said(await write.assign({ payload: { ids: [...ids], memberId }, ...keys }), s),
-    settle: async (r: ReturnRecord, kind: Resolution) =>
+    settle: async (r: ReturnRecord, kind: Resolution, amount: number) =>
       said(
         await write.resolve({ payload: { id: r.id, resolution: kind }, ...keys }),
-        { label: `${r.number} afgehandeld: ${RESOLUTION_LABEL[kind].toLowerCase()}` }
+        { label: `${r.number} afgehandeld: ${RESOLUTION_LABEL[kind].toLowerCase()}`, detail: settled(r, kind, amount) }
       ),
+    retryResolution: async (r: ReturnRecord, s: Said) =>
+      said(await write.retryResolution({ payload: { id: r.id }, ...keys }), s),
     refund: async (r: ReturnRecord, amount: number) => {
       const exit = await write.resolve({
         payload: { id: r.id, resolution: "refund", refundId: mintId("rfd") },
@@ -148,7 +167,7 @@ export function useReturnCommands() {
       if (Exit.isFailure(exit)) return refused(failureOf(exit))
       toast.success(`${money(r, amount)} wordt terugbetaald`, {
         description:
-          `${r.number} is afgehandeld. Het geld gaat terug op de oorspronkelijke betaalmethode van ${r.orderNumber}.`
+          `${r.number} is afgehandeld. Het geld gaat terug op de oorspronkelijke betaalmethode van ${r.orderNumber}; ${r.customerName} krijgt een bevestiging per mail.`
       })
     }
   }

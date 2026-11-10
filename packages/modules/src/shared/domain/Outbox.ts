@@ -183,6 +183,52 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     returnIds: Schema.Array(Schema.String)
   }),
+  // A return the team started for a shopper (M9.3): the shopper hears of it once the undo window has passed.
+  Schema.Struct({
+    type: Schema.Literal("return.started"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    returnIds: Schema.Array(Schema.String)
+  }),
+  // Returns approved or rejected in Insyte (M9.3), once the undo window has passed: the shopper hears it, and Shopify
+  // too for the returns that came from Shopify (`toShopify`, a subset of `returnIds`).
+  Schema.Struct({
+    type: Schema.Literal("return.approved"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    returnIds: Schema.Array(Schema.String),
+    toShopify: Schema.Array(Schema.String)
+  }),
+  Schema.Struct({
+    type: Schema.Literal("return.rejected"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    returnIds: Schema.Array(Schema.String),
+    toShopify: Schema.Array(Schema.String)
+  }),
+  // A return label made (M9.3): the shopper gets it by mail. `userId` is `system`.
+  Schema.Struct({
+    type: Schema.Literal("return.label_issued"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    returnIds: Schema.Array(Schema.String)
+  }),
+  // A return settled with a gift card, a discount code or a new order (M9.3): made in Shopify once the undo window has
+  // passed, or asked again after it failed.
+  Schema.Struct({
+    type: Schema.Literal("return.resolution_requested"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    returnIds: Schema.Array(Schema.String)
+  }),
+  // A return settled, with what the shopper gets in hand (M9.3): they hear what it is. `userId` is `system` where
+  // Shopify made it.
+  Schema.Struct({
+    type: Schema.Literal("return.resolved"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    returnIds: Schema.Array(Schema.String)
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

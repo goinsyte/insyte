@@ -28,7 +28,10 @@ const Answer = Schema.Struct({
   data: Schema.optional(Schema.NullOr(Schema.Unknown)),
   errors: Schema.optional(Schema.Array(Schema.Struct({
     message: Schema.String,
-    extensions: Schema.optional(Schema.Struct({ code: Schema.optional(Schema.String) }))
+    extensions: Schema.optional(Schema.Struct({
+      code: Schema.optional(Schema.String),
+      requiredAccess: Schema.optional(Schema.String)
+    }))
   }))),
   extensions: Schema.optional(Schema.Struct({
     cost: Schema.optional(
@@ -57,6 +60,9 @@ const START = `mutation($query: String!) {
   bulkOperationRunQuery(query: $query) { bulkOperation { id } userErrors { message } }
 }`
 const POLL = `query($id: ID!) { bulkOperation(id: $id) { status errorCode objectCount url } }`
+
+/** "Required access: `write_gift_cards` access scope." → `write_gift_cards`. */
+export const scopeIn = (text: string): string | undefined => /\b((?:read|write)_[a-z_]+)\b/.exec(text)?.[1]
 
 const NEWLINE = 0x0a
 
@@ -164,6 +170,16 @@ export const ShopifyGraphqlLive = Layer.effect(
         const needed = (cost?.requestedQueryCost ?? 10) - (throttle?.currentlyAvailable ?? 0)
         const rate = throttle?.restoreRate ?? 50
         return yield* new ShopifyThrottled({ retryAfterMs: Math.max(1000, Math.ceil((needed / rate) * 1000)) })
+      }
+      // The store's token may not do this: the app's scopes grew since the store approved them.
+      const denied = answer.errors?.find((e) => e.extensions?.code === "ACCESS_DENIED")
+      if (denied !== undefined) {
+        const scope = scopeIn(`${denied.extensions?.requiredAccess ?? ""} ${denied.message}`)
+        return yield* new ShopifyRefused({
+          status: 403,
+          reason: denied.message,
+          ...(scope === undefined ? {} : { scope })
+        })
       }
       if (answer.errors !== undefined && answer.errors.length > 0) {
         return yield* new ShopifyRefused({ status: 200, reason: answer.errors.map((e) => e.message).join("; ") })

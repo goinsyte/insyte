@@ -22,8 +22,10 @@ export const SCOPES = [
   "read_fulfillments",
   "write_merchant_managed_fulfillment_orders",
   "read_returns",
+  "write_returns",
   "write_draft_orders",
-  "write_discounts"
+  "write_discounts",
+  "write_gift_cards"
 ] as const
 
 const Exchanged = Schema.Struct({

@@ -204,7 +204,9 @@ export const BackgroundLayer = Layer.mergeAll(
   // A forward goes to its suppliers once its window has passed (M8.2).
   ForwardSendsLive,
   // Return labels are made at the carrier once their window has passed (M9.2).
-  ReturnLabelsLive
+  ReturnLabelsLive,
+  // A return label's PDF goes with the shopper's mail (M9.3).
+  FileStoreR2
 ).pipe(
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),

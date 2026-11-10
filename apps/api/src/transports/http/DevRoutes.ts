@@ -17,8 +17,9 @@ import { userFrom } from "../../platform/Sessions.ts"
 
 /**
  * `GET /api/__dev/mail?to=<address>`: the mails the capture adapter "sent" to one address, newest first. For the
- * worker tests, the e2e journey and a person trying a preview. Refused in production, and behind Access everywhere
- * else.
+ * worker tests, the e2e journey and a person trying a preview. `&reference=<id>` keeps one record's (a return's shopper
+ * mails, M9.3), since every test's recorded store mails the same shoppers. Refused in production, and behind Access
+ * everywhere else.
  */
 const CapturedMail = HttpRouter.add(
   "GET",
@@ -29,11 +30,15 @@ const CapturedMail = HttpRouter.add(
       return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
     }
     const request = yield* HttpServerRequest.HttpServerRequest
-    const to = new URL(request.url, "http://local").searchParams.get("to")?.toLowerCase() ?? ""
+    const query = new URL(request.url, "http://local").searchParams
+    const to = query.get("to")?.toLowerCase() ?? ""
+    const reference = query.get("reference")
     const db = yield* Db
     const mails = yield* db.routing((sql) =>
-      sql<{ kind: string; url: string | null; sentAt: Date }>`
-        select kind, url, sent_at from captured_mail where to_address = ${to} order by sent_at desc, id desc limit 20`
+      sql<{ kind: string; url: string | null; sender: string | null; sentAt: Date }>`
+        select kind, url, sender, sent_at from captured_mail
+        where to_address = ${to} and (${reference}::text is null or reference = ${reference})
+        order by sent_at desc, id desc limit 20`
     )
     return HttpServerResponse.jsonUnsafe({ mails })
   }).pipe(withRequestDb)

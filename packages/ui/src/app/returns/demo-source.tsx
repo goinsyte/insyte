@@ -45,6 +45,22 @@ const STORES = [{ value: "store_us", label: "Northwind US" }, { value: "store_eu
 
 const said = (s: Said, undo: () => void) => undoable(s.label, undo, s.detail)
 
+/** What the demo's resolution made in Shopify (M9.3): at once, with a code that reads like one. */
+function madeInShopify(id: string, kind: Resolution, order?: string) {
+  useReturns.setState((st) => ({
+    records: st.records.map((r) => {
+      if (r.id !== id || !r.resolution) return r
+      const code = `${r.number.replace(/\W/g, "")}-${r.number.slice(-2)}KQ7M`
+      const shopify = kind === "gift_card"
+        ? { state: "done" as const, code: `•••• ${code.slice(-4)}` }
+        : kind === "discount"
+        ? { state: "done" as const, code }
+        : { state: "done" as const, order }
+      return { ...r, resolution: { ...r.resolution, shopify } }
+    })
+  }))
+}
+
 function useDemoGates(): ReturnGates {
   return { work: useGate("returns", 2), approve: useGate("returns.approve"), manage: useGate("returns", 3) }
 }
@@ -104,12 +120,14 @@ function useDemoCommands(): ReturnCommands {
           )
         }))
         const undo = store().resolve(r.id, chosen, amount, me, order.number)
+        madeInShopify(r.id, chosen, order.number)
         undoable(`${r.number} afgehandeld: ${RESOLUTION_LABEL[chosen].toLowerCase()}`, () => {
           undo()
           ws.removeOrder(order.id)
         }, `Nieuwe bestelling ${order.number} staat klaar om door te sturen.`)
       } else {
         const undo = store().resolve(r.id, chosen, amount, me)
+        madeInShopify(r.id, chosen)
         undoable(
           `${r.number} afgehandeld: ${RESOLUTION_LABEL[chosen].toLowerCase()}`,
           undo,

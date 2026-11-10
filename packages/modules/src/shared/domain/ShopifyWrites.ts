@@ -1,7 +1,10 @@
 import { Context, type Effect } from "effect"
 import type { OutboxEvent } from "./Outbox.ts"
 
-/** A change made in Insyte on its way to Shopify (M7): the outbox event as the relay delivered it. */
+/**
+ * A change made in Insyte on its way to Shopify (M7): the outbox event as the relay delivered it. A return's (M9.3): a
+ * Shopify return approved or declined, a resolution made as a gift card, a discount code or a new order.
+ */
 export type ShopifyWrite = Extract<
   OutboxEvent,
   {
@@ -12,6 +15,9 @@ export type ShopifyWrite = Extract<
       | "product.updated"
       | "customer.updated"
       | "customer.created"
+      | "return.approved"
+      | "return.rejected"
+      | "return.resolution_requested"
   }
 >
 
@@ -21,6 +27,10 @@ export const idsOf = (write: ShopifyWrite): ReadonlyArray<string> =>
     ? write.productIds
     : write.type === "customer.updated" || write.type === "customer.created"
     ? write.customerIds
+    : write.type === "return.approved" || write.type === "return.rejected"
+    ? write.toShopify
+    : write.type === "return.resolution_requested"
+    ? write.returnIds
     : write.orderIds
 
 /** What became of one record's change: sent, refused by Shopify (the reason is Shopify's), or not sent at all. */

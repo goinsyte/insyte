@@ -3,6 +3,8 @@ import { mintId } from "@insyte/domain/Ids"
 import { Effect } from "effect"
 import type { SqlClient, SqlError } from "effect/sql"
 import { FileStore } from "../../shared/domain/Documents.ts"
+import { Relay } from "../../shared/domain/Outbox.ts"
+import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { LabelNotIssued, Labels } from "../domain/Ports.ts"
 import { returnAddress, SHOPPER, shopperAddress } from "./commands.ts"
 import type { StoredLabel } from "./returns.ts"
@@ -33,8 +35,8 @@ const failed = (sql: SqlClient.SqlClient, id: string, carrier: string, reason: s
     history(sql, id, "note", `Retourlabel kon niet worden gemaakt: ${reason}`)
   )
 
-/** One return's label, on its own transaction. */
-const issueOne = (sql: SqlClient.SqlClient, id: string) =>
+/** One return's label, on its own transaction; the shopper's mail with it is `told`. */
+const issueOne = (sql: SqlClient.SqlClient, id: string, told: Array<string>) =>
   Effect.gen(function*() {
     const [r] = yield* sql<{
       number: string
@@ -100,6 +102,15 @@ const issueOne = (sql: SqlClient.SqlClient, id: string) =>
       })
     }::jsonb, label_parcel_ref = ${label.parcelRef} where id = ${id}`
     yield* history(sql, id, "label_issued", `Retourlabel van ${label.carrier} gemaakt`)
+    // The shopper gets it by mail (M9.3).
+    told.push(
+      yield* Outbox.write(sql, ws!.id, {
+        type: "return.label_issued",
+        workspaceId: ws!.id,
+        userId: "system",
+        returnIds: [id]
+      })
+    )
     return "issued" as const
   }).pipe(
     // A refusal is the carrier's answer: the label failed. Unreachable is left to the Workflow's retry.
@@ -121,16 +132,21 @@ const failedFor = (sql: SqlClient.SqlClient, id: string, reason: string) =>
 export const issueLabels = Effect.fn("Returns.issueLabels")(function*(ids: ReadonlyArray<string>) {
   const db = yield* Db
   const outcomes: Array<{ id: string; outcome: Outcome }> = []
+  const told: Array<string> = []
   let retry: LabelNotIssued | undefined
   for (const id of ids) {
+    const mine: Array<string> = []
     const outcome = yield* db.scopedFor((sql) =>
-      issueOne(sql, id).pipe(Effect.catchTag("LabelNotIssued", (e) => {
+      issueOne(sql, id, mine).pipe(Effect.catchTag("LabelNotIssued", (e) => {
         retry = e
         return Effect.succeed("skipped" as const)
       }))
     )
+    // Only what committed: a transaction that rolled back wrote no mail.
+    told.push(...mine)
     outcomes.push({ id, outcome })
   }
+  if (told.length > 0) yield* (yield* Relay).kick(told)
   if (retry !== undefined) return yield* retry
   return outcomes
 })

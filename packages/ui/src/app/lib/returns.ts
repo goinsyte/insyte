@@ -282,10 +282,32 @@ export type ReturnRecord = {
   quality: boolean
   tags: string[]
   resolution?:
-    | { kind: Resolution; amount: number; at: string; by: string; replacementOrder?: string | undefined }
+    | {
+      kind: Resolution
+      amount: number
+      at: string
+      by: string
+      replacementOrder?: string | undefined
+      /** What it made in Shopify (M9.3): on its way, made (with the code or the new order), or failed with why. */
+      shopify?: ResolutionInShopify | undefined
+    }
     | undefined
   rejectReason?: string | undefined
   events: ReturnEvent[]
+}
+
+/**
+ * A resolution's side in Shopify: asked for (it waits out the undo window), made, or failed with Shopify's reason; a
+ * scope the store has not granted yet is named, since approving the app's new rights in Shopify is the way out.
+ */
+export type ResolutionInShopify = {
+  state: "requested" | "done" | "failed"
+  reason?: string | undefined
+  scope?: string | undefined
+  /** A discount code in full, a gift card's last four. */
+  code?: string | undefined
+  /** The exchange or replacement order's number in Shopify. */
+  order?: string | undefined
 }
 
 export type ReturnAddress = {

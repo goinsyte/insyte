@@ -17,7 +17,7 @@ import { failureOf } from "../frame/refusals.ts"
 /*
  * The returns portal in the console (M9.3), over `Portal.*`: the store's page from the loader, an order found with
  * Turnstile's token, photos sent one by one to `PUT /api/portal/photos` with the order's token, and the request. The
- * shopper's confirmation mail comes with the shopper mails (M9.3, step 11.3), so the done page does not say one went.
+ * request's confirmation goes by mail to the address the order was found with (step 11.3), so the done page says so.
  */
 
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -123,7 +123,7 @@ export function useConsolePortalSource(handle: string, store: PortalStore | null
         }
       })
       if (Exit.isSuccess(exit)) {
-        return { ok: true, made: { ...exit.value, mailed: false } }
+        return { ok: true, made: { ...exit.value, mailed: true } }
       }
       const tagged = tagOf(exit)
       const problem: SubmitProblem = tagged?._tag === "PortalTokenExpired" || tagged?._tag === "PortalNotFound"

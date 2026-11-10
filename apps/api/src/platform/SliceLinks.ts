@@ -10,9 +10,12 @@ import { restore as restoreQuality } from "@insyte/modules/quality/Quality"
 import { restore as restoreQueue } from "@insyte/modules/queue/Queue"
 import { Refunder } from "@insyte/modules/returns/domain/Ports"
 import { restore as restoreReturns } from "@insyte/modules/returns/use-cases/commands"
+import { shopifyReturn } from "@insyte/modules/returns/use-cases/mirror"
 import { parcelUpdated } from "@insyte/modules/returns/use-cases/parcels"
+import { linkReplacements } from "@insyte/modules/returns/use-cases/shopify"
 import { MirrorFollowers } from "@insyte/modules/stores/domain/Ports"
 import { StoreMirror } from "@insyte/modules/stores/Mirror"
+import { ShopifyReturns } from "@insyte/modules/stores/ShopifyReturns"
 import { restore as restoreSuppliers } from "@insyte/modules/suppliers/use-cases/commands"
 import { restore as restoreTickets } from "@insyte/modules/tickets/use-cases/commands"
 import { ReturnParcels } from "@insyte/modules/tracking/Parcels"
@@ -24,7 +27,9 @@ import { Effect, Layer } from "effect"
  * Where one slice's need meets another slice's use case (architecture.md: a slice never reaches into another's
  * use-cases/). Each port is the asking slice's; its implementation is here, where the app is composed:
  *
- *   stores' mirror  → forwarding's legs and tracking's deliveries, on the page's transaction (M8.2, M8.4)
+ *   stores' mirror  → forwarding's legs and tracking's deliveries, on the page's transaction (M8.2, M8.4), and a
+ *                     return's exchange or replacement order linked to it (M9.3)
+ *   stores' webhook → a return opened, approved, declined or closed in Shopify, for the returns slice (M9.3)
  *   undo            → each reversible command's compensation, by the name its token carries (ADR-0023)
  *   returns' refund → the orders slice's refund, on the return's transaction (M9.1)
  *   a customer      → their newest Klaviyo sync (M7.5)
@@ -32,8 +37,13 @@ import { Effect, Layer } from "effect"
  */
 
 const MirrorFollowersLive = Layer.succeed(MirrorFollowers, {
-  ordersWritten: ensureLegs,
+  ordersWritten: (sql, storeId, orderShopifyIds, live) =>
+    Effect.andThen(ensureLegs(sql, storeId, orderShopifyIds, live), linkReplacements(sql, storeId, orderShopifyIds)),
   fulfilmentsWritten: ensureDeliveries
+})
+
+const ShopifyReturnsLive = Layer.succeed(ShopifyReturns, {
+  applied: (storeId, topic, body) => shopifyReturn(storeId, topic, body).pipe(Effect.orDie)
 })
 
 const UndoCompensationsLive = Layer.succeed(UndoCompensations, {
@@ -66,6 +76,13 @@ const ReturnParcelsLive = Layer.succeed(ReturnParcels, {
 /** Every link between slices, and the mirror other slices write through. */
 export const SliceLinks = StoreMirror.layer.pipe(
   Layer.provideMerge(
-    Layer.mergeAll(MirrorFollowersLive, UndoCompensationsLive, RefunderLive, KlaviyoSyncsLive, ReturnParcelsLive)
+    Layer.mergeAll(
+      MirrorFollowersLive,
+      UndoCompensationsLive,
+      RefunderLive,
+      KlaviyoSyncsLive,
+      ReturnParcelsLive,
+      ShopifyReturnsLive
+    )
   )
 )
