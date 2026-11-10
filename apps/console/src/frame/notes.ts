@@ -16,9 +16,10 @@ interface Sentence {
   readonly record?: string
   readonly tone?: "amber"
   readonly source?: Note["source"]
-  /** Who it is from when that is not a teammate: the shopper of a return. */
+  /** Who it is from when that is not a teammate: the shopper of a return, a supplier's person. */
   readonly person?: string
-  /** The route's search, where the row opens over a list (`?ticket=`). */
+  readonly org?: string
+  /** The route's search, where the row opens over a list (`?ticket=`) or a tab (`?tab=quality&check=`). */
   readonly search?: Record<string, string>
   /** Why it reached the member directly, and whether the detail is their teammate's own words. */
   readonly reason?: Note["reason"]
@@ -95,13 +96,32 @@ const sentence = (note: ServerNote): Sentence => {
         reason: "mention",
         quote: true
       }
+    case "supplier.message": {
+      // A supplier's answer to a quality check, through its link (M9.4), as the design writes it.
+      const photos = Number(data["photos"] ?? 0)
+      const parts = [
+        `${photos} ${photos === 1 ? "foto" : "foto's"}`,
+        ...(typeof data["batch"] === "string" && data["batch"] !== "" ? [`batch ${data["batch"]}`] : []),
+        ...(data["video"] === true ? ["video"] : [])
+      ]
+      return {
+        title: "stuurde een kwaliteitscontrole in voor",
+        record: String(data["product"] ?? ""),
+        detail: parts.join(" · "),
+        source: "supplier",
+        to: `/products/${String(data["productId"] ?? "")}`,
+        search: { tab: "quality", check: note.subjectId ?? "" },
+        person: String(data["by"] ?? "") || "De leverancier",
+        org: String(data["supplier"] ?? "")
+      }
+    }
     default:
       return { title: "heeft iets voor je", to: "/notifications" }
   }
 }
 
 export const toNote = (note: ServerNote): Note => {
-  const { title, to, detail, record, tone, source, person, search, reason, quote } = sentence(note)
+  const { title, to, detail, record, tone, source, person, org, search, reason, quote } = sentence(note)
   return {
     id: note.id,
     persona: "admin",
@@ -113,7 +133,7 @@ export const toNote = (note: ServerNote): Note => {
       ? { actor: { kind: "member", id: note.actor.id, name: note.actor.name ?? "Iemand" } }
       : person === undefined
       ? {}
-      : { actor: { kind: "person", name: person } }),
+      : { actor: { kind: "person", name: person, ...(org === undefined || org === "" ? {} : { org }) } }),
     title,
     ...(detail === undefined ? {} : { detail }),
     ...(reason === undefined ? {} : { reason }),

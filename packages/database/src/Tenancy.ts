@@ -67,7 +67,11 @@ export const TENANT_TABLES = [
   "ticket_watchers",
   "ticket_labels",
   "ticket_comments",
-  "ticket_templates"
+  "ticket_templates",
+  "quality_checks",
+  "quality_check_media",
+  "product_phases",
+  "quality_settings"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

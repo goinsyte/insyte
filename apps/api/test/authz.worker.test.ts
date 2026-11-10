@@ -5,6 +5,7 @@ import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
 import { MarketingRpcs } from "@insyte/api/rpc/MarketingRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
+import { QualityRpcs } from "@insyte/api/rpc/QualityRpcs"
 import { ReturnsRpcs } from "@insyte/api/rpc/ReturnsRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
@@ -197,7 +198,19 @@ const PAYLOADS: Record<string, unknown> = {
   "Tickets.reorder": { ids: ["tkt_none"] },
   "Tickets.watch": { id: "tkt_none" },
   "Tickets.unwatch": { id: "tkt_none" },
-  "Tickets.comment": { id: "tkt_none", body: "x" }
+  "Tickets.comment": { id: "tkt_none", body: "x" },
+  "Quality.list": { productId: "prd_none" },
+  "Quality.request": {
+    productId: "prd_none",
+    kind: "batch",
+    variants: [],
+    deliverables: ["photos"],
+    dueAt: Date.now() + 86_400_000
+  },
+  "Quality.approve": { id: "qc_none" },
+  "Quality.reject": { id: "qc_none", note: "Naad", watch: false },
+  "Quality.setPhase": { productId: "prd_none", phase: "watch" },
+  "Quality.link": { id: "qc_none" }
 }
 
 const manifest = [
@@ -214,7 +227,8 @@ const manifest = [
   ...ForwardingRpcs.requests.keys(),
   ...TrackingRpcs.requests.keys(),
   ...ReturnsRpcs.requests.keys(),
-  ...TicketsRpcs.requests.keys()
+  ...TicketsRpcs.requests.keys(),
+  ...QualityRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

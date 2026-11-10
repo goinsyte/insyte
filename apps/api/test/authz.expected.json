@@ -727,6 +727,48 @@
     "finance": "deny",
     "view": "deny"
   },
+  "Quality.list": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Quality.request": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Quality.approve": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Quality.reject": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Quality.setPhase": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Quality.link": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
   "Tickets.list": {
     "owner": "allow",
     "admin": "allow",

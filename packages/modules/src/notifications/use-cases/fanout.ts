@@ -14,7 +14,8 @@ import type { OutboxEvent } from "../../shared/domain/Outbox.ts"
  * - `order.delayed`: whoever handles orders hears of a stuck parcel;
  * - `return.requested`: whoever handles returns hears of a shopper's request from the portal;
  * - `ticket.assigned`: who was put on a ticket hears of it, once the undo window has passed and if still on it;
- * - `ticket.mentioned`: who a ticket comment names with `@` hears of it.
+ * - `ticket.mentioned`: who a ticket comment names with `@` hears of it;
+ * - `quality_check.submitted`: who asked for the check, and whoever handles products, hear the supplier answered.
  *
  * A member whose in-app switch for the kind is off, or who is deactivated or removed, hears nothing. Answers the
  * recipients with their unread count, for the realtime frame.
@@ -157,6 +158,46 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             number: Number(ticket.number),
             title: ticket.title,
             ...(said === undefined ? {} : { comment: said.body.slice(0, 280) })
+          }
+        }
+      }
+      case "quality_check.submitted": {
+        // A supplier's answer to a quality check (M9.4): who asked, and whoever may handle products, hear of it.
+        const [check] = yield* sql<{
+          productId: string
+          productTitle: string
+          requestedBy: string
+          submittedBy: string | null
+          supplier: string
+          batch: string | null
+          video: boolean
+          photos: number
+        }>`
+          select q.product_id, p.title as product_title, q.requested_by, q.submitted_by, s.name as supplier, q.batch,
+                 q.video,
+                 (select count(*)::int from quality_check_media m join files f on f.id = m.file_id
+                  where m.check_id = q.id and f.mime like 'image/%') as photos
+          from quality_checks q join products p on p.id = q.product_id join suppliers s on s.id = q.supplier_id
+          where q.id = ${event.checkIds[0] ?? ""}`
+        if (check === undefined) return undefined
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.deactivated_at is null and m.removed_at is null
+            and (m.id = ${check.requestedBy} or r.id = 'owner' or coalesce((r.levels ->> 'products')::int, 0) >= 2)`
+        return {
+          kind: "supplier.message",
+          recipients: recipients.map((r) => r.id),
+          subjectType: "quality_check",
+          subjectId: event.checkIds[0] ?? "",
+          actor: null,
+          data: {
+            productId: check.productId,
+            product: check.productTitle,
+            by: check.submittedBy ?? check.supplier,
+            supplier: check.supplier,
+            photos: check.photos,
+            batch: check.batch,
+            video: check.video
           }
         }
       }

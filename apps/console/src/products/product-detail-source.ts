@@ -76,9 +76,13 @@ export function arrivingProductDetail(row: ProductRow, shopDomain: string | unde
 
 const NONE: ReadonlyArray<never> = []
 
-/** The page with what may be done to it: the draft saved, the product read again from Shopify. */
-export function useConsoleProductDetail(d: ProductDetail, shopDomain: string | undefined): ProductDetailSource {
-  const source = consoleProductDetail(d, shopDomain)
+/** The page with what may be done to it: the draft saved, the product read again from Shopify, its quality. */
+export function useConsoleProductDetail(
+  d: ProductDetail,
+  shopDomain: string | undefined,
+  quality?: ProductDetailSource["quality"]
+): ProductDetailSource {
+  const source = { ...consoleProductDetail(d, shopDomain), quality }
   const commands = useProductCommands()
   const supplierCommands = useSupplierCommands()
   const gate = useGate("products", 2)
