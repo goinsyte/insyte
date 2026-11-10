@@ -80,6 +80,7 @@ describe("the MCP server", () => {
     expect(listed.status).toBe(200)
     const tools = listed.message.result.tools as Array<{ name: string; annotations?: { readOnlyHint?: boolean } }>
     expect(tools.map((t) => t.name).toSorted()).toEqual([
+      "add_return_tracking",
       "approve_return",
       "cancel_order",
       "forward_orders",

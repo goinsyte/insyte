@@ -9,6 +9,7 @@ import type { Relay } from "../shared/domain/Outbox.ts"
 import type { UndoTicket } from "../shared/domain/Undo.ts"
 import { Labels, Refunder } from "./domain/Ports.ts"
 import type {
+  AddTrackingInput,
   ApproveInput,
   AssignInput,
   IllegalReturnMove,
@@ -55,6 +56,10 @@ export class ReturnsService extends Context.Service<ReturnsService, {
   ) => Effect.Effect<ReturnChange, Forbidden | NotFound | IllegalReturnMove, R>
   readonly reopen: (id: string) => Effect.Effect<ReturnChange, Forbidden | NotFound | IllegalReturnMove, R>
   readonly assign: (input: typeof AssignInput.Type) => Effect.Effect<ReturnChange, Forbidden | NotFound, R>
+  /** "Tracking invullen" ("zelf versturen", M9.2): the shopper's own carrier and tracking number. */
+  readonly addTracking: (
+    input: typeof AddTrackingInput.Type
+  ) => Effect.Effect<ReturnChange, Forbidden | NotFound | IllegalReturnMove, R>
   /** "Label versturen" (M9.2): asked for now, made at the carrier once the undo window has passed. */
   readonly sendLabel: (
     input: typeof SendLabelInput.Type
@@ -107,6 +112,7 @@ export class ReturnsService extends Context.Service<ReturnsService, {
         reject: (input) => Commands.reject(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         reopen: (id) => Commands.reopen(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         assign: (input) => Commands.assign(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        addTracking: (input) => Commands.addTracking(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         sendLabel: (input) =>
           Commands.sendLabel(input).pipe(
             Effect.provideService(Labels, labels),

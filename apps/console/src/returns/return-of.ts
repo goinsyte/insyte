@@ -63,7 +63,7 @@ export const recordOf = (
   deliveredAt: iso(r.deliveredAt ?? r.createdAt),
   label: r.label === null
     ? undefined
-    : { carrier: r.label.carrier, tracking: r.label.tracking, sentAt: iso(r.label.sentAt) },
+    : { carrier: r.label.carrier, tracking: r.label.tracking, sentAt: iso(r.label.sentAt), self: r.label.self },
   labelPending: r.labelRequest?.state === "requested",
   labelFailed: r.labelRequest?.state === "failed" ? r.labelRequest.reason ?? "de vervoerder weigerde" : undefined,
   assignee: r.assigneeId ?? undefined,

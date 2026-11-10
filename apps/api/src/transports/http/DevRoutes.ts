@@ -3,6 +3,7 @@ import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
 import { RECORDED_BULK } from "@insyte/integrations-shopify/RecordedBulk"
+import { registerParcels } from "@insyte/modules/returns/use-cases/parcels"
 import { addLine, emptyBatch, parseJsonl } from "@insyte/modules/stores/domain/Mirror"
 import { applyBatch } from "@insyte/modules/stores/use-cases/mirror"
 import { sweepWorkspace } from "@insyte/modules/tracking/use-cases/tracking"
@@ -287,8 +288,8 @@ const StoreSeed = HttpRouter.add(
 )
 
 /**
- * `POST /api/__dev/tracking/sweep?workspace=…`: one workspace's turn of the 15-minute tracking sweep (M8.4), for the
- * worker tests (the cron also reconciles every store). Refused in production.
+ * `POST /api/__dev/tracking/sweep?workspace=…`: one workspace's turn of the 15-minute tracking sweep (M8.4), with its
+ * return parcels (M9.2), for the worker tests (the cron also reconciles every store). Refused in production.
  */
 const TrackingSweep = HttpRouter.add(
   "POST",
@@ -299,6 +300,8 @@ const TrackingSweep = HttpRouter.add(
     }
     const workspace = yield* workspaceParam
     yield* sweepWorkspace().pipe(
+      // …and the workspace's return parcels (M9.2), as the cron does.
+      Effect.andThen(registerParcels()),
       Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }),
       Effect.orDie
     )

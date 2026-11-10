@@ -60,7 +60,9 @@ export class ReturnRow extends Schema.Class<ReturnRow>("returns/ReturnRow")({
     tracking: Schema.String,
     sentAt: Schema.Finite,
     trackingUrl: Schema.NullOr(Schema.String),
-    fileId: Schema.NullOr(Schema.String)
+    fileId: Schema.NullOr(Schema.String),
+    /** Sent by the shopper with their own carrier ("zelf versturen"): the tracking is theirs, there is no PDF. */
+    self: Schema.Boolean
   })),
   /** A label asked for and not there yet, or one the carrier would not make (and why). */
   labelRequest: Schema.NullOr(Schema.Struct({
@@ -264,6 +266,13 @@ export const StartInput = Schema.Struct({
 })
 
 export const ApproveInput = Schema.Struct({ ids: Ids, keepItem: Schema.optional(Schema.Boolean) })
+/** "Tracking invullen" ("zelf versturen", M9.2): the carrier and tracking number the shopper sent their parcel with. */
+export const AddTrackingInput = Schema.Struct({
+  id: Schema.String,
+  carrier: Carrier,
+  tracking: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9 -]{4,40}$/))
+})
+
 /** "Label versturen": a return label for each, from the carrier the return address names (M9.2). */
 export const SendLabelInput = Schema.Struct({ ids: Ids })
 export const RejectInput = Schema.Struct({ ids: Ids, reason: NonEmpty(500) })
@@ -325,7 +334,12 @@ export const ReturnsRestore = Schema.Union([
   // A label request taken back inside its window: the label as it was (none, or a failed one), its outbox row cancelled.
   Schema.Struct({
     kind: Schema.Literal("labels"),
-    returns: Schema.Array(Schema.Struct({ id: Schema.String, label: Schema.NullOr(Schema.String) }))
+    returns: Schema.Array(Schema.Struct({
+      id: Schema.String,
+      label: Schema.NullOr(Schema.String),
+      /** The history rows it added, taken away again. */
+      events: Schema.Array(Schema.String)
+    }))
   })
 ])
 export type ReturnsRestore = typeof ReturnsRestore.Type

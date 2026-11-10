@@ -61,6 +61,22 @@ function useDemoCommands(): ReturnCommands {
     inspect: (id, s) => said(s, store().advance(id, "ready", event("Gecontroleerd: in orde"))),
     assign: (ids, memberId, s) => said(s, store().assign(ids, memberId ?? undefined, me)),
     sendLabel: (ids, s) => said(s, store().sendLabel(ids, me)),
+    addTracking: (id, parcel, s) => {
+      const before = store().records.find((r) => r.id === id)
+      if (!before) return
+      useReturns.setState((st) => ({
+        records: st.records.map((r) =>
+          r.id === id
+            ? {
+              ...r,
+              label: { ...parcel, sentAt: new Date().toISOString(), self: true },
+              events: [...r.events, event(`Trackingnummer ingevuld: ${parcel.carrier} ${parcel.tracking}`)]
+            }
+            : r
+        )
+      }))
+      said(s, () => useReturns.setState((st) => ({ records: st.records.map((r) => (r.id === id ? before : r)) })))
+    },
     scan: (r, s) =>
       said(
         s,

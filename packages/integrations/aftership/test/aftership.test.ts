@@ -65,7 +65,13 @@ describe("AfterShipLive", () => {
     const seen: Array<Seen> = []
     const exit = await run(
       aftership(() => json({ meta: { code: 201 }, data: { id: "trk_1", slug: "postnl" } }, 201), seen),
-      (t) => t.register({ deliveryId: "dlv_1", trackingNumber: "3S123", carrier: "PostNL", title: "#1001" })
+      (t) =>
+        t.register({
+          ref: { kind: "delivery", id: "dlv_1" },
+          trackingNumber: "3S123",
+          carrier: "PostNL",
+          title: "#1001"
+        })
     )
     expect(Exit.isSuccess(exit) && exit.value).toEqual({ aftershipId: "trk_1", slug: "postnl" })
     expect(seen[0]!.url).toBe("https://api.aftership.com/tracking/2025-07/trackings")
@@ -113,7 +119,12 @@ describe("AfterShipLive", () => {
           .pipe(Effect.provide(layer))
       )
     ).toBe(false)
-    expect(readWebhook({ event: "tracking_update", msg: TRACKING })?.deliveryId).toBe("dlv_1")
+    expect(readWebhook({ event: "tracking_update", msg: TRACKING })?.ref).toEqual({ kind: "delivery", id: "dlv_1" })
+    // A return's parcel (M9.2) carries its own field.
+    expect(readWebhook({ msg: { ...TRACKING, custom_fields: { insyte_return: "ret_1" } } })?.ref).toEqual({
+      kind: "return",
+      id: "ret_1"
+    })
     expect(readWebhook({ event: "tracking_update", msg: { tag: "Delivered" } })).toBeUndefined()
   })
 })

@@ -5,12 +5,12 @@ import { useNow } from "../hooks/use-now";
 import { ConfirmDialog } from "../common/confirm-dialog";
 import { DetailShell } from "../common/detail-shell";
 import { EmptyState } from "../common/empty-state";
-import { FormDialog } from "../common/form-dialog";
+import { FormDialog, TextField } from "../common/form-dialog";
 import { ProductThumb } from "../product/product-thumb";
 import { formatCurrency } from "../lib/format";
 import { countryName } from "../lib/format-flag";
 import { euro } from "../lib/permissions";
-import { amountOf, pastDeadline, type Resolution, RESOLUTION_LABEL, resolutionAmount, type ReturnRecord } from "../lib/returns";
+import { amountOf, type Carrier, pastDeadline, type Resolution, RESOLUTION_LABEL, resolutionAmount, type ReturnRecord } from "../lib/returns";
 import { cn } from "../lib/utils";
 import { CarrierMark, GateBy, KindWord, RejectDialog, ResolutionPicker, ReturnStatusBadge, ReturnTimeline } from "./parts";
 import { type ReturnView, useReturnDetailSource } from "./source";
@@ -51,6 +51,7 @@ function Detail({ view }: { view: ReturnView }) {
 	const late = pastDeadline(r.status, r.deadline, now);
 	const [rejecting, setRejecting] = useState(false);
 	const [resolving, setResolving] = useState(false);
+	const [tracking, setTracking] = useState(false);
 	const said = (label: string, detail?: string) => ({ label, detail });
 
 	const actions = (
@@ -85,6 +86,14 @@ function Detail({ view }: { view: ReturnView }) {
 							Ontvangen markeren
 						</button>
 					</GateBy>
+					{commands.addTracking && (!r.label || r.label.self) && !r.labelPending ? (
+						<GateBy gate={gates.work}>
+							<button type="button" onClick={() => setTracking(true)} className={QUIET}>
+								<Truck className="size-3.5" strokeWidth={1.75} />
+								Tracking invullen
+							</button>
+						</GateBy>
+					) : null}
 					{r.label || r.labelPending || !commands.sendLabel ? null : (
 						<GateBy gate={gates.work}>
 							<button type="button" onClick={() => commands.sendLabel?.([r.id], said("Wordt verstuurd…", `Retourlabel naar ${r.customerName}. Ongedaan maken kan tot het vertrekt.`))} className={PRIMARY}>
@@ -220,7 +229,7 @@ function Detail({ view }: { view: ReturnView }) {
 									<CarrierMark carrier={r.label.carrier} size={28} />
 									<span className="flex min-w-0 flex-col">
 										<span className="font-medium text-ink text-sm tabular-nums">{r.label.tracking}</span>
-										<span className="text-ink-3 text-xs">{r.label.carrier} · verstuurd {ago(r.label.sentAt, now)}</span>
+										<span className="text-ink-3 text-xs">{r.label.carrier} · {r.label.self ? "door de klant verstuurd" : `verstuurd ${ago(r.label.sentAt, now)}`}</span>
 									</span>
 									{view.labelHref ? (
 										<a href={view.labelHref} target="_blank" rel="noreferrer" className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-arc-ink text-xs hover:bg-arc-tint">
@@ -317,8 +326,52 @@ function Detail({ view }: { view: ReturnView }) {
 				onClose={() => setRejecting(false)}
 				onReject={(why) => commands.reject([r.id], why, said(`${r.number} afgewezen`, "De klant krijgt de reden per mail zodra dit venster sluit."))}
 			/>
+			<TrackingDialog
+				key={String(tracking)}
+				open={tracking}
+				initial={r.label?.self ? r.label : undefined}
+				onClose={() => setTracking(false)}
+				onSave={(parcel) => commands.addTracking?.(r.id, parcel, said(`Trackingnummer bij ${r.number} ingevuld`, "Insyte volgt het pakket nu bij de vervoerder."))}
+			/>
 			<ResolveDialog r={r} open={resolving} offered={offered} onClose={() => setResolving(false)} roleLimit={role.refundLimit} roleLabel={role.label} />
 		</DetailShell>
+	);
+}
+
+const CARRIERS: ReadonlyArray<Carrier> = ["PostNL", "DHL", "DPD", "UPS"];
+
+/** "Tracking invullen": the shopper sent the parcel themselves and passed on its carrier and tracking number. */
+function TrackingDialog({ open, initial, onClose, onSave }: { open: boolean; initial: { carrier: Carrier; tracking: string } | undefined; onClose: () => void; onSave: (parcel: { carrier: Carrier; tracking: string }) => void }) {
+	const [carrier, setCarrier] = useState<Carrier>(initial?.carrier ?? "PostNL");
+	const [number, setNumber] = useState(initial?.tracking ?? "");
+	const clean = number.replace(/\s+/g, "").toUpperCase();
+	const ok = /^[A-Z0-9-]{4,40}$/.test(clean);
+	return (
+		<FormDialog
+			open={open}
+			onOpenChange={(o) => !o && onClose()}
+			title="Tracking invullen"
+			description="De klant stuurde het pakket zelf terug. Vul de vervoerder en het trackingnummer in; Insyte volgt het dan."
+			primaryLabel="Opslaan"
+			disabled={!ok}
+			onSubmit={() => {
+				onSave({ carrier, tracking: clean });
+				onClose();
+			}}
+		>
+			<div className="flex flex-wrap gap-1.5">
+				{CARRIERS.map((c) => (
+					<button key={c} type="button" aria-pressed={carrier === c} onClick={() => setCarrier(c)} className={cn("flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-sm", carrier === c ? "bg-abyss text-mesh-ink" : "bg-mist text-ink-2 hover:text-ink")}>
+						<CarrierMark carrier={c} size={16} />
+						{c}
+					</button>
+				))}
+			</div>
+			<label className="flex flex-col gap-1.5">
+				<span className="font-medium text-ink-3 text-sm">Trackingnummer</span>
+				<TextField value={number} onChange={setNumber} placeholder="Bijvoorbeeld: 3SABCD1234567" />
+			</label>
+		</FormDialog>
 	);
 }
 

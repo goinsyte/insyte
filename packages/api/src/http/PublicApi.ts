@@ -633,6 +633,19 @@ export class ReturnsGroup extends HttpApiGroup.make("returns")
       OpenApi.Description,
       "Asks for a return label from the carrier the return address names; it is made a few seconds later (`label.state`). Refused (`409`) where no carrier is set up (`labels_unavailable`) or a label cannot be made (`no_return_address`, `no_shopper_address`). Needs `returns.write`."
     ),
+    HttpApiEndpoint.post("tracking", "/returns/:id/tracking", {
+      params: ById,
+      headers: Writes,
+      payload: Schema.Struct({
+        carrier: Schema.Literals(["PostNL", "DHL", "DPD", "UPS"]),
+        tracking: Schema.String.annotate({ description: "The tracking number the shopper sent the parcel with." })
+      }),
+      success: Return,
+      error: WriteErrors
+    }).annotate(
+      OpenApi.Description,
+      "The shopper sent the parcel themselves (\"zelf versturen\"): its carrier and tracking number, followed like a label's. Needs `returns.write`."
+    ),
     HttpApiEndpoint.post("receive", "/returns/:id/receive", {
       params: ById,
       headers: Writes,

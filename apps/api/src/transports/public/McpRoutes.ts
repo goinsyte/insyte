@@ -75,6 +75,8 @@ const Tools = McpServer.toolkit(InsyteTools).pipe(
       reject_return: ({ return_id, idempotency_key, reason }) =>
         read.moveReturn(return_id, { kind: "reject", reason }, idempotency_key),
       send_return_label: ({ return_id, idempotency_key }) => kicking(read.labelReturn(return_id, idempotency_key)),
+      add_return_tracking: ({ return_id, idempotency_key, carrier, tracking }) =>
+        read.trackReturn(return_id, { carrier, tracking }, idempotency_key),
       receive_return: ({ return_id, idempotency_key }) =>
         read.moveReturn(return_id, { kind: "receive" }, idempotency_key),
       inspect_return: ({ return_id, idempotency_key, lines }) =>

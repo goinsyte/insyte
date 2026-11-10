@@ -97,6 +97,8 @@ export interface StoredLabel {
   readonly sentAt?: number
   readonly fileId?: string | null
   readonly reason?: string
+  /** "Zelf versturen": the shopper's own tracking. */
+  readonly self?: boolean
 }
 export const toRow = (r: Row) => {
   // Read as text: the SQL client camelCases the keys of a jsonb value.
@@ -134,7 +136,8 @@ export const toRow = (r: Row) => {
       tracking: label.tracking,
       sentAt: label.sentAt,
       trackingUrl: label.trackingUrl ?? null,
-      fileId: label.fileId ?? null
+      fileId: label.fileId ?? null,
+      self: label.self === true
     },
     labelRequest: label?.state === "requested" || label?.state === "failed"
       ? { state: label.state, reason: label.reason ?? null }
