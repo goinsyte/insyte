@@ -3,6 +3,7 @@ import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
 import { RECORDED_BULK } from "@insyte/integrations-shopify/RecordedBulk"
+import { refreshWorkspace } from "@insyte/modules/queue/Queue"
 import { registerParcels } from "@insyte/modules/returns/use-cases/parcels"
 import { addLine, emptyBatch, parseJsonl } from "@insyte/modules/stores/domain/Mirror"
 import { applyBatch } from "@insyte/modules/stores/use-cases/mirror"
@@ -313,9 +314,27 @@ const TrackingSweep = HttpRouter.add(
   }).pipe(withRequestDb)
 )
 
+/**
+ * `POST /api/__dev/queue/refresh?workspace=<id>`: the workspace's queue on Start brought in line now, as the 15-minute
+ * sweep does (M10.1), for the worker tests (a stock-out has no event of its own). Refused in production.
+ */
+const QueueRefresh = HttpRouter.add(
+  "POST",
+  "/api/__dev/queue/refresh",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const changed = yield* refreshWorkspace(workspace as WorkspaceId).pipe(Effect.orDie)
+    return HttpServerResponse.jsonUnsafe({ changed })
+  }).pipe(withRequestDb)
+)
+
 export const DevRoutes = Layer.mergeAll(
   StoreSeed,
   TrackingSweep,
+  QueueRefresh,
   StoreConnection,
   StoreMirror,
   CapturedMail,

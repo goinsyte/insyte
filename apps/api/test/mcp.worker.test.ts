@@ -93,6 +93,7 @@ describe("the MCP server", () => {
       "list_members",
       "list_orders",
       "list_products",
+      "list_queue",
       "list_returns",
       "list_roles",
       "list_suppliers",
@@ -123,7 +124,8 @@ describe("the MCP server", () => {
         "list_suppliers",
         "list_forwarding",
         "list_returns",
-        "get_return"
+        "get_return",
+        "list_queue"
       ]
     ) {
       expect(hints[read]?.["readOnlyHint"]).toBe(true)

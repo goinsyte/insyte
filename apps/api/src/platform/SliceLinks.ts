@@ -7,6 +7,7 @@ import { restore as restoreOrders } from "@insyte/modules/orders/use-cases/comma
 import { refundOn } from "@insyte/modules/orders/use-cases/refund"
 import { restore as restoreProducts } from "@insyte/modules/products/use-cases/commands"
 import { restore as restoreQuality } from "@insyte/modules/quality/Quality"
+import { restore as restoreQueue } from "@insyte/modules/queue/Queue"
 import { Refunder } from "@insyte/modules/returns/domain/Ports"
 import { restore as restoreReturns } from "@insyte/modules/returns/use-cases/commands"
 import { parcelUpdated } from "@insyte/modules/returns/use-cases/parcels"
@@ -42,7 +43,8 @@ const UndoCompensationsLive = Layer.succeed(UndoCompensations, {
   "suppliers.restore": restoreSuppliers,
   "forwarding.restore": restoreForwarding,
   "returns.restore": restoreReturns,
-  "quality.restore": restoreQuality
+  "quality.restore": restoreQuality,
+  "queue.restore": restoreQueue
 })
 
 const RefunderLive = Layer.succeed(Refunder, {

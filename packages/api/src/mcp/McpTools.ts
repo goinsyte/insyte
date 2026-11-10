@@ -18,6 +18,8 @@ import {
   OrderDetailV1,
   OrderPageV1,
   ProductPageV1,
+  QueuePageV1,
+  QueueTabV1,
   Refund,
   RefundOverLimitV1,
   Return,
@@ -238,6 +240,14 @@ const ReturnId = Schema.String.annotate({ description: "The return's id (ret_…
 const ResolutionKind = Schema.Literals(["refund", "exchange", "gift_card", "replacement", "discount"])
 const ReturnMoveFailure = WriteFailure
 
+export const ListQueue = Tool.make("list_queue", {
+  description:
+    "What needs the team on Start, ranked by how soon: delayed orders, returns waiting for review, quality checks sent in, sold-out variants, stores without their link. tab needs_you (default: red or amber), drawn, or all (with what was seen in the last day).",
+  parameters: Schema.Struct({ tab: Schema.optional(QueueTabV1) }),
+  success: QueuePageV1,
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
 export const ListReturns = Tool.make("list_returns", {
   description:
     "Returns and claims, newest first, with the queue's counts: status review (to approve or reject; late past review_by), awaiting_parcel, in_transit, received, ready (to settle), resolved or rejected. Needs returns.read.",
@@ -378,6 +388,7 @@ export const InsyteTools = Toolkit.make(
   ListForwarding,
   ForwardOrders,
   RerouteLeg,
+  ListQueue,
   ListReturns,
   GetReturn,
   StartReturn,

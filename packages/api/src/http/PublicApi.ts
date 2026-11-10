@@ -685,8 +685,42 @@ export class ReturnsGroup extends HttpApiGroup.make("returns")
   .annotate(OpenApi.Title, "Returns")
 {}
 
+export const QueueItemV1 = Schema.Struct({
+  id: Schema.String,
+  kind: Schema.Literals(["order_delayed", "return_review", "quality_review", "stock_out", "store_disconnected"]),
+  subject_type: Schema.String,
+  subject_id: Schema.String,
+  store: Schema.NullOr(Schema.String),
+  signal: Schema.Literals(["red", "amber", "green", "idle"]),
+  title: Schema.String,
+  value_minor: Schema.NullOr(Schema.Int),
+  currency: Schema.NullOr(Schema.String),
+  due_at: Schema.NullOr(Schema.String),
+  state: Schema.Literals(["open", "seen", "resolved"])
+}).annotate({ identifier: "QueueItem" })
+
+export const QueuePageV1 = Schema.Struct({
+  data: Schema.Array(QueueItemV1),
+  counts: Schema.Struct({ needs_you: Schema.Int, drawn: Schema.Int, all: Schema.Int })
+}).annotate({ identifier: "QueuePage" })
+
+export const QueueTabV1 = Schema.Literals(["needs_you", "drawn", "all"])
+
+export class QueueGroup extends HttpApiGroup.make("queue")
+  .add(
+    HttpApiEndpoint.get("queue", "/queue", {
+      query: Schema.Struct({ tab: Schema.optional(QueueTabV1) }),
+      success: QueuePageV1
+    }).annotate(
+      OpenApi.Description,
+      "What needs the team on Start, ranked by how soon: a delayed order, a return waiting for review, a quality check sent in, a sold-out variant, a store without its link. `needs_you` (the default) is what is red or amber; `all` adds the rest and what was seen in the last day. The rows narrow to what the key's scopes may read."
+    )
+  )
+  .annotate(OpenApi.Title, "Queue")
+{}
+
 export class PublicApi extends HttpApi.make("insyte")
-  .add(KeyGroup, TeamGroup, CommerceGroup, OrdersGroup, ForwardingGroup, ReturnsGroup)
+  .add(KeyGroup, TeamGroup, CommerceGroup, OrdersGroup, ForwardingGroup, ReturnsGroup, QueueGroup)
   .middleware(ApiKeyAuth)
   .prefix("/v1")
   .annotate(OpenApi.Title, "Insyte API")
