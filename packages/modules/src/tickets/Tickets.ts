@@ -1,0 +1,93 @@
+import type { Db } from "@insyte/database/Db"
+import type { Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
+import type { CurrentPrincipal } from "@insyte/domain/Principal"
+import { Context, Effect, Layer } from "effect"
+import { SqlError } from "effect/sql"
+import { Relay } from "../shared/domain/Outbox.ts"
+import type {
+  AssignInput,
+  CommentInput,
+  CreateInput,
+  ListInput,
+  MemberNotActive,
+  ReorderInput,
+  SetStatusInput,
+  SnoozeInput,
+  TicketChange,
+  TicketComment,
+  TicketCounts,
+  TicketDetail,
+  TicketList,
+  TicketOptions,
+  UpdateInput
+} from "./domain/Tickets.ts"
+import * as Commands from "./use-cases/commands.ts"
+import * as Comment from "./use-cases/comment.ts"
+import * as Tickets from "./use-cases/tickets.ts"
+
+type R = Db | CurrentPrincipal
+type Ids = { readonly ids: ReadonlyArray<string> }
+
+/**
+ * The tickets slice (M11 step 3): the board and its lists, one ticket with its activity, and every change the screens,
+ * `/v1` and MCP make, each with an undo token. Mail, chats and notification delivery outside the console are later
+ * steps of M11; a ticket here is made by hand.
+ *
+ * @effect-expect-leaking Db CurrentPrincipal
+ */
+export class TicketsService extends Context.Service<TicketsService, {
+  readonly list: (input: typeof ListInput.Type) => Effect.Effect<TicketList, Forbidden, R>
+  /** The area panel's counts, for the frame. */
+  readonly counts: Effect.Effect<TicketCounts, Forbidden, R>
+  readonly get: (id: string) => Effect.Effect<TicketDetail, Forbidden | NotFound, R>
+  readonly options: Effect.Effect<TicketOptions, Forbidden, R>
+  readonly create: (
+    input: typeof CreateInput.Type
+  ) => Effect.Effect<TicketChange, Forbidden | NotFound | Invalid | MemberNotActive, R>
+  readonly duplicate: (id: string) => Effect.Effect<TicketChange, Forbidden | NotFound | Invalid | MemberNotActive, R>
+  readonly update: (input: typeof UpdateInput.Type) => Effect.Effect<TicketChange, Forbidden | NotFound | Invalid, R>
+  readonly setStatus: (input: typeof SetStatusInput.Type) => Effect.Effect<TicketChange, Forbidden | NotFound, R>
+  readonly assign: (
+    input: typeof AssignInput.Type
+  ) => Effect.Effect<TicketChange, Forbidden | NotFound | MemberNotActive, R>
+  readonly unassign: (input: typeof AssignInput.Type) => Effect.Effect<TicketChange, Forbidden | NotFound, R>
+  readonly archive: (input: Ids) => Effect.Effect<TicketChange, Forbidden | NotFound, R>
+  readonly spam: (input: Ids) => Effect.Effect<TicketChange, Forbidden | NotFound, R>
+  readonly trash: (input: Ids) => Effect.Effect<TicketChange, Forbidden | NotFound, R>
+  readonly snooze: (input: typeof SnoozeInput.Type) => Effect.Effect<TicketChange, Forbidden | NotFound | Invalid, R>
+  readonly putBack: (input: Ids) => Effect.Effect<TicketChange, Forbidden | NotFound, R>
+  readonly reorder: (input: typeof ReorderInput.Type) => Effect.Effect<TicketChange, Forbidden | NotFound, R>
+  readonly watch: (id: string, on: boolean) => Effect.Effect<{ readonly watching: boolean }, Forbidden | NotFound, R>
+  readonly comment: (
+    input: typeof CommentInput.Type
+  ) => Effect.Effect<TicketComment, Forbidden | NotFound | MemberNotActive, R>
+}>()("modules/TicketsService") {
+  // A database that does not answer is a defect, as everywhere. The relay is taken once, for the assignees' notes.
+  static readonly layer = Layer.effect(
+    TicketsService,
+    Effect.map(Effect.service(Relay), (relay) => {
+      const run = <A, E, Req>(effect: Effect.Effect<A, E | SqlError.SqlError, Req>) =>
+        effect.pipe(Effect.provideService(Relay, relay), Effect.catchIf(SqlError.isSqlError, Effect.die))
+      return {
+        list: (input) => run(Tickets.list(input)),
+        counts: run(Tickets.counts()),
+        get: (id) => run(Tickets.get(id)),
+        options: run(Tickets.options()),
+        create: (input) => run(Commands.create(input)),
+        duplicate: (id) => run(Commands.duplicate(id)),
+        update: (input) => run(Commands.update(input)),
+        setStatus: (input) => run(Commands.setStatus(input)),
+        assign: (input) => run(Commands.assign(input)),
+        unassign: (input) => run(Commands.unassign(input)),
+        archive: ({ ids }) => run(Commands.setAside({ ids, as: "archived" })),
+        spam: ({ ids }) => run(Commands.setAside({ ids, as: "spam" })),
+        trash: ({ ids }) => run(Commands.setAside({ ids, as: "trash" })),
+        snooze: (input) => run(Commands.snooze(input)),
+        putBack: (input) => run(Commands.putBack(input)),
+        reorder: (input) => run(Commands.reorder(input)),
+        watch: (id, on) => run(Commands.watch(id, on)),
+        comment: (input) => run(Comment.comment(input))
+      }
+    })
+  )
+}

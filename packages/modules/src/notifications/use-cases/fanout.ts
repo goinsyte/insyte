@@ -13,6 +13,8 @@ import type { OutboxEvent } from "../../shared/domain/Outbox.ts"
  * - `access.decided`: the asker hears the answer;
  * - `order.delayed`: whoever handles orders hears of a stuck parcel;
  * - `return.requested`: whoever handles returns hears of a shopper's request from the portal;
+ * - `ticket.assigned`: who was put on a ticket hears of it, once the undo window has passed and if still on it;
+ * - `ticket.mentioned`: who a ticket comment names with `@` hears of it;
  * - `quality_check.submitted`: who asked for the check, and whoever handles products, hear the supplier answered.
  *
  * A member whose in-app switch for the kind is off, or who is deactivated or removed, hears nothing. Answers the
@@ -124,6 +126,38 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             orderNumber: ret.orderNumber,
             customer: ret.customer,
             items: items.map((i) => ({ title: i.title, variant: i.variantTitle ?? "", qty: i.qty }))
+          }
+        }
+      }
+      case "ticket.assigned":
+      case "ticket.mentioned": {
+        // A ticket (M11 step 3): the subject, by its number and title; who may not open tickets hears nothing.
+        const [ticket] = yield* sql<{ number: string; title: string }>`
+          select number, title from tickets where id = ${event.ticketId}`
+        if (ticket === undefined) return undefined
+        const [actor] = yield* sql<{ id: string }>`select id from members where id = ${event.by}`
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.id in ${sql.in([...event.memberIds, ""])} and m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'support')::int, 0) >= 1)
+            and ${
+          event.type === "ticket.assigned"
+            ? sql`exists (select 1 from ticket_assignees a where a.ticket_id = ${event.ticketId} and a.member_id = m.id)`
+            : sql`true`
+        }`
+        const [said] = event.type === "ticket.mentioned"
+          ? yield* sql<{ body: string }>`select body from ticket_comments where id = ${event.commentId}`
+          : []
+        return {
+          kind: event.type === "ticket.assigned" ? "ticket.assigned" : "chat.mention",
+          recipients: recipients.map((r) => r.id).filter((r) => r !== event.by),
+          subjectType: "ticket",
+          subjectId: event.ticketId,
+          actor: actor?.id ?? null,
+          data: {
+            number: Number(ticket.number),
+            title: ticket.title,
+            ...(said === undefined ? {} : { comment: said.body.slice(0, 280) })
           }
         }
       }
