@@ -37,11 +37,15 @@ export const FileRoutes = HttpRouter.add(
       const [row] = yield* db.scoped((sql) =>
         sql<{ r2Key: string; name: string; mime: string; ownerType: string }>`
           select r2_key, name, mime, owner_type from files where id = ${id ?? ""} and deleted_at is null
-            and owner_type in ('forwarding_item', 'return')`
+            and owner_type in ('forwarding_item', 'return', 'quality_check')`
       )
       if (row === undefined) return undefined
-      // What it belongs to decides who may have it: an order's slip at Bestellingen, a return's label at Retouren.
-      yield* Policy.require(row.ownerType === "return" ? "returns" : "orders", 1)
+      // What it belongs to decides who may have it: an order's slip at Bestellingen, a return's label at Retouren, a
+      // supplier's quality photo at Producten (M9.4).
+      yield* Policy.require(
+        row.ownerType === "return" ? "returns" : row.ownerType === "quality_check" ? "products" : "orders",
+        1
+      )
       return row
     }).pipe(
       Effect.provideService(CurrentPrincipal, active.principal),

@@ -10,6 +10,7 @@ import { FIRST_ANALYSIS } from "./first-analysis.ts"
 import { FRAME, NOTES, presenceAtom } from "./frame.ts"
 import { ORDERS } from "./orders.ts"
 import { PRODUCTS } from "./products.ts"
+import { QUALITY } from "./quality.ts"
 import { RETURNS } from "./returns.ts"
 import { ACCESS_LIST, ROLES } from "./roles.ts"
 import { STORE_SYNC, STORES } from "./stores.ts"
@@ -32,9 +33,11 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   store: [...STORES, ...STORE_SYNC, ...ORDERS, ...CUSTOMERS, ...PRODUCTS],
   order: [...ORDERS, ...CUSTOMERS],
   customer: CUSTOMERS,
-  product: PRODUCTS,
+  product: [...PRODUCTS, ...QUALITY],
   first_analysis: FIRST_ANALYSIS,
-  return: RETURNS
+  // A quality return is a complaint on its product's Kwaliteit tab (M9.4).
+  return: [...RETURNS, ...QUALITY],
+  quality_check: QUALITY
 }
 const EVERYTHING = [...new Set(Object.values(REFETCH).flat())]
 

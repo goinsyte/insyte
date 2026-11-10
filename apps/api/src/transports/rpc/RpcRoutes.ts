@@ -12,6 +12,7 @@ import { Onboarding } from "@insyte/modules/onboarding/Onboarding"
 import { OrdersService } from "@insyte/modules/orders/Orders"
 import { PrefsService } from "@insyte/modules/prefs/PrefsService"
 import { ProductsService } from "@insyte/modules/products/Products"
+import { QualityLinkService, QualityService } from "@insyte/modules/quality/Quality"
 import { PortalService } from "@insyte/modules/returns/Portal"
 import { ReturnsService } from "@insyte/modules/returns/Returns"
 import { RolesService } from "@insyte/modules/roles/RolesService"
@@ -34,6 +35,7 @@ import { NotificationsHandlers } from "./handlers/notifications.ts"
 import { OnboardingHandlers } from "./handlers/onboarding.ts"
 import { PortalHandlers } from "./handlers/portal.ts"
 import { PrefsHandlers } from "./handlers/prefs.ts"
+import { QualityHandlers } from "./handlers/quality.ts"
 import { ReturnsHandlers } from "./handlers/returns.ts"
 import { RolesHandlers } from "./handlers/roles.ts"
 import { SessionHandlers } from "./handlers/session.ts"
@@ -78,6 +80,7 @@ export const RpcContext = Layer.mergeAll(
   TrackingHandlers.pipe(Layer.provide(TrackingService.layer)),
   ReturnsHandlers.pipe(Layer.provide(ReturnsService.layer)),
   PortalHandlers.pipe(Layer.provide(PortalService.layer)),
+  QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
   ShellHandlers.pipe(
     Layer.provide(
       Layer.mergeAll(

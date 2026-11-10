@@ -12,6 +12,7 @@ import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { productAtom, productsAtom } from "../data/products.ts"
 import { storesAtom } from "../data/stores.ts"
 import { arrivingProductDetail, useConsoleProductDetail } from "../products/product-detail-source.ts"
+import { useConsoleQuality } from "../quality/quality-source.tsx"
 
 /**
  * One product (step 8.4e, M6.4): the reference's page over `Products.get`, read-only, as the order is. Reached by its
@@ -19,6 +20,12 @@ import { arrivingProductDetail, useConsoleProductDetail } from "../products/prod
  * the router's not-found. Opened from a row, it opens at once over the list, the record's skeleton holding the body.
  */
 export const Route = createFileRoute("/_frame/products/$productId")({
+  validateSearch: (search: Record<string, unknown>): { tab?: "quality" | undefined; check?: string | undefined } => ({
+    tab: search["tab"] === "quality" ? "quality" : undefined,
+    check: typeof search["check"] === "string" && /^qc_[a-z0-9]{1,40}$/.test(search["check"])
+      ? search["check"]
+      : undefined
+  }),
   head: () => ({ meta: [{ title: "Product · Insyte" }] }),
   loader: async ({ context, params }) => {
     if (typeof window !== "undefined") return
@@ -83,8 +90,11 @@ function ProductRoute() {
 }
 
 function Loaded({ detail, shopDomain }: { detail: Detail; shopDomain: string | undefined }) {
+  const { tab } = Route.useSearch()
   return (
-    <ProductDetailSourceProvider value={useConsoleProductDetail(detail, shopDomain)}>
+    <ProductDetailSourceProvider
+      value={useConsoleProductDetail(detail, shopDomain, useConsoleQuality(detail.product.id, tab ?? "overview"))}
+    >
       <ProductDetail />
     </ProductDetailSourceProvider>
   )

@@ -3,6 +3,7 @@ import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
 import { PwnedPasswords } from "@insyte/integrations-better-auth/PwnedPasswords"
 import { PostHogAnalytics } from "@insyte/integrations-posthog/PostHog"
 import { ResendMailer } from "@insyte/integrations-resend/ResendMailer"
+import { QualityLinkService } from "@insyte/modules/quality/Quality"
 import { PortalService } from "@insyte/modules/returns/Portal"
 import type { Mailer } from "@insyte/modules/shared/domain/Mailer"
 import type { ProductAnalytics } from "@insyte/modules/shared/domain/ProductAnalytics"
@@ -16,6 +17,7 @@ import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { FileRoutes } from "../transports/http/FileRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
 import { PortalRoutes } from "../transports/http/PortalRoutes.ts"
+import { QualityMediaRoutes } from "../transports/http/QualityMediaRoutes.ts"
 import { RealtimeRoutes } from "../transports/http/RealtimeRoutes.ts"
 import { RequestContext } from "../transports/http/RequestContext.ts"
 import { SupplierHookRoutes } from "../transports/http/SupplierHookRoutes.ts"
@@ -76,6 +78,7 @@ const Transports = Layer.mergeAll(
   TrackingRoutes,
   FileRoutes,
   PortalRoutes,
+  QualityMediaRoutes,
   PublicApiRoutes,
   McpRoutes,
   RequestContext,
@@ -117,9 +120,16 @@ const PwnedPasswordsLive = Layer.unwrap(
 
 export const AppLayer = Transports.pipe(
   // The RPC handlers; the public API's and the MCP server's way in, and what a key reads (M19.2, M19.3).
-  // …and the returns portal's, for its photo route (M9.3).
+  // …and the returns portal's and the quality link's, for their upload routes (M9.3, M9.4).
   Layer.provideMerge(
-    Layer.mergeAll(RpcContext, KeyDoor.layer, Resources.layer, StoresService.layer, PortalService.layer)
+    Layer.mergeAll(
+      RpcContext,
+      KeyDoor.layer,
+      Resources.layer,
+      StoresService.layer,
+      PortalService.layer,
+      QualityLinkService.layer
+    )
   ),
   Layer.provideMerge(WithDbLive),
   Layer.provideMerge(AuthenticatedLive),
