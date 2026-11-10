@@ -1,14 +1,12 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { ProposalView } from "@insyte/modules/proposals/domain/Proposals"
 import type { QueueRow } from "@insyte/modules/queue/domain/Queue"
-import type { QueueEntry, QueueSource } from "@insyte/ui/app/dashboard/queue-panel"
-import { formatCurrency } from "@insyte/ui/app/lib/format"
-import type { Currency } from "@insyte/ui/app/lib/types/domain"
+import { type QueueEntry, type QueueSource, SETTLE_MS } from "@insyte/ui/app/dashboard/queue-panel"
 import { undoable } from "@insyte/ui/app/lib/undo"
 import type { Plate } from "@insyte/ui/data-source"
 import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
-import { useMemo } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { QUEUE, queueAtom, queueWrites } from "../data/queue.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
@@ -18,10 +16,15 @@ import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
  * (the value in the row's own currency, the time left from now), and the plate Insyte drew for a row where there is
  * one. Filing runs `Proposals.file` (the command the plate carries, as the person) with "Ongedaan maken"; "Negeren"
  * and "Markeren als gezien" are `Queue.markSeen`, which sets the plate aside with the row; "Opnieuw tekenen" is
- * `Proposals.redraw`.
+ * `Proposals.redraw`. A decided row is held on the board, stamped, for the design's settle window: the server's answer
+ * drops a filed row at once, and the queue panel can only keep a row it is still given.
  */
 
 const HOUR = 3_600_000
+
+/** The amount as the plate writes it, with the currency's own cents: "€ 49,95". */
+const money = (minor: number, currency: string) =>
+  new Intl.NumberFormat("nl-NL", { style: "currency", currency }).format(minor / 100)
 
 /** Time left, as the queue writes it: "4u 10m", "35m", "3d", "verlopen", or "—" without a deadline. */
 const left = (dueAt: number | null, now: number) => {
@@ -53,7 +56,7 @@ const entryOf = (r: QueueRow, now: number): QueueEntry => ({
   signal: r.signal,
   title: r.title,
   store: r.storeName ?? "Alle winkels",
-  value: r.valueMinor === null ? "—" : formatCurrency(r.valueMinor / 100, (r.currency ?? "EUR") as Currency),
+  value: r.valueMinor === null ? "—" : money(r.valueMinor, r.currency ?? "EUR"),
   due: left(r.dueAt, now),
   state: r.state === "seen" ? "discarded" : "open",
   plate: r.proposal === null ? undefined : plateOf(r.proposal),
@@ -85,8 +88,26 @@ export function useConsoleQueue(now: number) {
   const redraw = useAtomSet(queueWrites.redraw, { mode: "promiseExit" })
   const undo = useAtomSet(queueWrites.undo, { mode: "promiseExit" })
   const byId = useMemo(() => new Map(list?.rows.map((r) => [r.id, r]) ?? []), [list])
-  const rows = useMemo(() => list?.rows.map((r) => entryOf(r, now)) ?? [], [list, now])
+  // The row just decided, as it stood with its stamp, and where it stood, until the settle window has passed.
+  const [held, setHeld] = useState<{ entry: QueueEntry; at: number } | null>(null)
+  const timer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+  const live = useMemo(() => list?.rows.map((r) => entryOf(r, now)) ?? [], [list, now])
+  const rows = useMemo(() => {
+    if (held === null) return live
+    const rest = live.filter((r) => r.id !== held.entry.id)
+    return [...rest.slice(0, held.at), held.entry, ...rest.slice(held.at)]
+  }, [live, held])
   const source: QueueSource = useMemo(() => {
+    const hold = (row: QueueEntry, phase: "filed" | "discarded") => {
+      window.clearTimeout(timer.current)
+      setHeld({ entry: { ...row, state: phase }, at: Math.max(0, rows.findIndex((r) => r.id === row.id)) })
+      timer.current = window.setTimeout(() => setHeld(null), SETTLE_MS)
+    }
+    const release = () => {
+      window.clearTimeout(timer.current)
+      setHeld(null)
+    }
     const offerUndo = (message: string, token: string, description: string, copy: RefusalCopy) =>
       undoable(
         message,
@@ -100,15 +121,22 @@ export function useConsoleQueue(now: number) {
       rows,
       decide: async (row, phase) => {
         const proposal = byId.get(row.id)?.proposal ?? null
+        hold(row, phase)
         if (phase === "filed" && proposal !== null) {
           const exit = await file({ payload: { id: proposal.id }, reactivityKeys: [...QUEUE] })
-          if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), PLATE)
+          if (Exit.isFailure(exit)) {
+            release()
+            return sayRefusal(failureOf(exit), PLATE)
+          }
           const ticket = exit.value.undo
           if (ticket !== null) offerUndo("Uitgevoerd zoals getekend", ticket.token, proposal.plate.after.value, PLATE)
           return
         }
         const exit = await markSeen({ payload: { id: row.id }, reactivityKeys: [...QUEUE] })
-        if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), GONE)
+        if (Exit.isFailure(exit)) {
+          release()
+          return sayRefusal(failureOf(exit), GONE)
+        }
         const ticket = exit.value.undo
         if (ticket === null) return
         offerUndo(
