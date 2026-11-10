@@ -54,7 +54,7 @@ const checkOf = (c: QualityView["checks"][number]): QualityCheck => ({
     : { at: iso(c.verdict.at), by: c.verdict.by, reason: c.verdict.reason ?? undefined }
 })
 
-export const pictureOf = (v: QualityView): QualityPicture => {
+const pictureOf = (v: QualityView): QualityPicture => {
   const complaints: Array<Complaint> = v.complaints.map((c) => ({
     id: c.id,
     productId: v.productId,
@@ -103,7 +103,7 @@ function usePicture(productId: string): QualityPicture | undefined {
   return useMemo(() => (view === undefined ? undefined : pictureOf(view)), [view])
 }
 
-export function useConsoleQualitySource(): QualitySource {
+function useConsoleQualitySource(): QualitySource {
   const write = {
     request: useAtomSet(qualityWrites.request, { mode: "promiseExit" }),
     approve: useAtomSet(qualityWrites.approve, { mode: "promiseExit" }),
@@ -172,7 +172,7 @@ export function useConsoleQualitySource(): QualitySource {
 }
 
 /** The tab, with its source, as the product page mounts it. */
-export function ConsoleQualityTab({ product, openCheck }: { product: Product; openCheck?: string | undefined }) {
+function ConsoleQualityTab({ product, openCheck }: { product: Product; openCheck?: string | undefined }) {
   return (
     <QualitySourceProvider value={useConsoleQualitySource()}>
       <QualityTab product={product} openCheck={openCheck} />
@@ -181,7 +181,7 @@ export function ConsoleQualityTab({ product, openCheck }: { product: Product; op
 }
 
 /** The tab as the product page's source names it: one component, its open check read from the URL (`?check=`). */
-export function ConsoleQualityRouteTab({ product }: { product: Product }) {
+function ConsoleQualityRouteTab({ product }: { product: Product }) {
   const { check } = useSearch({ strict: false }) as { check?: string }
   return <ConsoleQualityTab product={product} openCheck={check} />
 }
