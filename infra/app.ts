@@ -4,6 +4,9 @@ import * as Alchemy from "alchemy"
 import { Config, Effect, Layer, Option, Redacted } from "effect"
 import { SENTRY_LOGS, SENTRY_TRACES } from "./shared.ts"
 
+/** An unset GitHub secret arrives as an empty string: that is no secret. */
+const set = (r: Redacted.Redacted<string>) => Redacted.value(r) !== ""
+
 /*
  * The per-stage stack (14 §3): `pr-<n>` for a pull request's preview, later `staging` and `production`. Everything a
  * stage owns lives here, so `alchemy destroy --stage pr-<n>` removes exactly that preview and nothing shared. Our
@@ -118,15 +121,15 @@ export default Alchemy.Stack(
       : {}
     // Klaviyo's OAuth app (M7.5), the same way: its client in the GitHub environment, and the sealer for the tokens.
     const klaviyoClientId = yield* Config.String("KLAVIYO_CLIENT_ID").pipe(Config.withDefault(""))
-    const klaviyoClientSecret = yield* Config.Redacted("KLAVIYO_CLIENT_SECRET").pipe(Config.option)
+    const klaviyoClientSecret = Option.filter(yield* Config.Redacted("KLAVIYO_CLIENT_SECRET").pipe(Config.option), set)
     const klaviyo = Option.isSome(sealKeys) && klaviyoClientId !== "" && Option.isSome(klaviyoClientSecret)
       ? { KLAVIYO_CLIENT_ID: klaviyoClientId, KLAVIYO_CLIENT_SECRET: klaviyoClientSecret.value }
       : {}
 
     // AfterShip (M8.4): Insyte's own account, its key and webhook secret in the GitHub environment; without them, parcels
     // keep Shopify's own status.
-    const aftershipKey = yield* Config.Redacted("AFTERSHIP_API_KEY").pipe(Config.option)
-    const aftershipSecret = yield* Config.Redacted("AFTERSHIP_WEBHOOK_SECRET").pipe(Config.option)
+    const aftershipKey = Option.filter(yield* Config.Redacted("AFTERSHIP_API_KEY").pipe(Config.option), set)
+    const aftershipSecret = Option.filter(yield* Config.Redacted("AFTERSHIP_WEBHOOK_SECRET").pipe(Config.option), set)
     const aftership = Option.isSome(aftershipKey) && Option.isSome(aftershipSecret)
       ? { AFTERSHIP_API_KEY: aftershipKey.value, AFTERSHIP_WEBHOOK_SECRET: aftershipSecret.value }
       : {}
