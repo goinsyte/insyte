@@ -143,6 +143,13 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     legIds: Schema.Array(Schema.String)
   }),
+  // A shopper's request from the returns portal (M9.3): the returns team hears of it. `userId` is `system`.
+  Schema.Struct({
+    type: Schema.Literal("return.requested"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    returnIds: Schema.Array(Schema.String)
+  }),
   // Return labels asked for (M9.2): made at the carrier once the undo window has passed.
   Schema.Struct({
     type: Schema.Literal("return.label_requested"),

@@ -259,7 +259,7 @@ export function ReturnSettingsPage() {
 						</span>
 					</FieldRow>
 					<FieldRow label="Adres">
-						<span className="flex h-9 items-center text-ink-2 text-sm">goinsyte.com/retour/{draft.portal.handle}</span>
+						<span className="flex h-9 items-center text-ink-2 text-sm">{source.portalAddress?.(draft.portal.handle) ?? `goinsyte.com/retour/${draft.portal.handle}`}</span>
 					</FieldRow>
 					<FieldRow label="Welkomsttekst">
 						<TextAreaField value={draft.portal.intro} onChange={(intro) => set("portal", { ...draft.portal, intro })} rows={2} />

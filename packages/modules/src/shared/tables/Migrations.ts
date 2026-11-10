@@ -31,6 +31,7 @@ import tracking from "./migrations/0031_tracking.ts"
 import returns from "./migrations/0032_returns.ts"
 import returnLabels from "./migrations/0033_return_labels.ts"
 import returnParcels from "./migrations/0034_return_parcels.ts"
+import returnPortal from "./migrations/0035_return_portal.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -71,5 +72,6 @@ export const Migrations = {
   "0031_tracking": tracking,
   "0032_returns": returns,
   "0033_return_labels": returnLabels,
-  "0034_return_parcels": returnParcels
+  "0034_return_parcels": returnParcels,
+  "0035_return_portal": returnPortal
 }

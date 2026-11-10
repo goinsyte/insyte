@@ -131,6 +131,8 @@ export interface ReturnSettingsSource {
   /** What a product rule can name. */
   products: ReadonlyArray<{ id: string; title: string }>
   portalHref?: ((handle: string) => string) | undefined
+  /** The portal's address as the team writes it in their shipping mails; absent, the design's. */
+  portalAddress?: ((handle: string) => string) | undefined
 }
 
 const ListContext = createContext<ReturnsListSource | null>(null)

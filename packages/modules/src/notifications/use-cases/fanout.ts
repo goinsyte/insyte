@@ -10,7 +10,9 @@ import type { OutboxEvent } from "../../shared/domain/Outbox.ts"
  *
  * - `member.joined`: whoever sent the invitation (by link: everyone who may manage the team) hears that they joined;
  * - `access.requested`: everyone who may manage the team, but the asker;
- * - `access.decided`: the asker hears the answer.
+ * - `access.decided`: the asker hears the answer;
+ * - `order.delayed`: whoever handles orders hears of a stuck parcel;
+ * - `return.requested`: whoever handles returns hears of a shopper's request from the portal.
  *
  * A member whose in-app switch for the kind is off, or who is deactivated or removed, hears nothing. Answers the
  * recipients with their unread count, for the realtime frame.
@@ -92,6 +94,36 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
           subjectId: event.orderIds[0] ?? "",
           actor: null,
           data: { number: order.number, reason: event.reason, note: event.note }
+        }
+      }
+      case "return.requested": {
+        // A shopper's request from the portal (M9.3): whoever may handle returns hears of it; the return is the subject.
+        const [ret] = yield* sql<{ number: string; type: "return" | "claim"; orderNumber: string; customer: string }>`
+          select r.number, r.type, o.number as order_number, r.customer_name as customer
+          from returns r join orders o on o.id = r.order_id where r.id = ${event.returnIds[0] ?? ""}`
+        if (ret === undefined) return undefined
+        const items = yield* sql<{ title: string; variantTitle: string | null; qty: number }>`
+          select coalesce(p.title, ol.title) as title, ol.variant_title, rl.quantity as qty
+          from return_lines rl join order_lines ol on ol.id = rl.order_line_id
+          left join products p on p.id = ol.product_id
+          where rl.return_id = ${event.returnIds[0] ?? ""} order by ol.id`
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'returns')::int, 0) >= 2)`
+        return {
+          kind: "return.new",
+          recipients: recipients.map((r) => r.id),
+          subjectType: "return",
+          subjectId: event.returnIds[0] ?? "",
+          actor: null,
+          data: {
+            number: ret.number,
+            kind: ret.type,
+            orderNumber: ret.orderNumber,
+            customer: ret.customer,
+            items: items.map((i) => ({ title: i.title, variant: i.variantTitle ?? "", qty: i.qty }))
+          }
         }
       }
       default:

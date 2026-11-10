@@ -105,7 +105,7 @@ export function ruleFor(rules: ReadonlyArray<ProductRule>, item: { productId: st
 }
 
 /** The resolutions a shopper may pick for an item, after its rule and what the store offers. */
-export function resolutionsFor(offered: ReadonlyArray<Resolution>, rule: ProductRule | undefined, kind: ReturnKind): Resolution[] {
+export function resolutionsFor(offered: ReadonlyArray<Resolution>, rule: Pick<ProductRule, "kind"> | undefined, kind: ReturnKind): Resolution[] {
 	if (rule?.kind === "not_returnable" && kind === "return") return [];
 	const base = offered.filter((r) => (kind === "return" ? r !== "replacement" : true));
 	if (rule?.kind === "refund_only") return base.filter((r) => r === "refund");
