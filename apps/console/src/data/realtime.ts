@@ -41,8 +41,9 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   return: [...RETURNS, ...QUALITY],
   quality_check: QUALITY,
   ticket: TICKETS,
-  // Start's queue (M10.1): its refresh says when it changed.
-  queue_item: QUEUE
+  // Start's queue (M10.1): its refresh says when it changed. A plate is drawn on its row (M10.2).
+  queue_item: QUEUE,
+  proposal: QUEUE
 }
 const EVERYTHING = [...new Set(Object.values(REFETCH).flat())]
 
