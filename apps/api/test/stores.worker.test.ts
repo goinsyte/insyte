@@ -108,8 +108,9 @@ describe("connecting a Shopify store", () => {
     const state = await begin(owner.cookie, SHOP, "/settings/stores")
     const landed = await back(owner.cookie, { code: "again", shop: SHOP, state, hmac: "valid" })
     expect(landed.searchParams.get("store")).toBe(storeId)
+    // The same store, connected again; its import may already be running (`connecting`), depending on the relay.
     expect(ok(await rpc("Stores.list", undefined, owner.cookie))).toEqual([
-      expect.objectContaining({ id: storeId, status: "connected" })
+      expect.objectContaining({ id: storeId, status: expect.stringMatching(/^connect(ed|ing)$/) })
     ])
   })
 })
