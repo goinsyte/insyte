@@ -45,7 +45,10 @@ const DONE = "We bekijken je aanvraag binnen twee werkdagen. " +
 
 /** The workspace's settings, made with the defaults when there are none yet. */
 export const ensure = Effect.fn("Returns.ensureSettings")(function*(sql: SqlClient.SqlClient) {
-  const { workspaceId } = yield* CurrentPrincipal
+  // The workspace the transaction is scoped to: a person's command, or a Workflow's step as `system`.
+  const [{ workspaceId }] = (yield* sql<{ workspaceId: string }>`select app_workspace_id() as workspace_id`) as [
+    { workspaceId: string }
+  ]
   const [had] = yield* sql`select 1 from return_settings where workspace_id = ${workspaceId}`
   if (had !== undefined) return
   const [ws] = yield* sql<{ slug: string }>`select slug from workspaces where id = ${workspaceId}`
@@ -90,7 +93,16 @@ export interface Loaded {
   readonly reasons: ReadonlyArray<ReasonRow>
   readonly rules: ReadonlyArray<Rule & { readonly label: string }>
   readonly addresses: ReadonlyArray<
-    { readonly country: string; readonly label: string; readonly address: string; readonly carrier: string }
+    {
+      readonly country: string
+      readonly label: string
+      readonly address: string
+      readonly carrier: string
+      readonly name: string | null
+      readonly line1: string | null
+      readonly postcode: string | null
+      readonly city: string | null
+    }
   >
   readonly claimSteps: ReadonlyArray<string>
 }
@@ -117,8 +129,16 @@ export const load = Effect.fn("Returns.loadSettings")(function*(sql: SqlClient.S
     select id, label, type, photo_required, counts_for_quality, window_days from return_reasons order by position, id`
   const rules = yield* sql<Rule & { label: string }>`
     select id, match, match_ref, policy, note, label from return_rules order by position, id`
-  const addresses = yield* sql<{ country: string; label: string; address: string; carrier: string }>`
-    select country, label, address, carrier from return_addresses order by country`
+  const addresses = yield* sql<{
+    country: string
+    label: string
+    address: string
+    carrier: string
+    name: string | null
+    line1: string | null
+    postcode: string | null
+    city: string | null
+  }>`select country, label, address, carrier, name, line1, postcode, city from return_addresses order by country`
   const [flow] = yield* sql<{ steps: ReadonlyArray<string> }>`select steps from claim_flows`
   return {
     returnDays: s!.returnDays,
@@ -169,7 +189,11 @@ export const toDoc = (s: Loaded): ReturnSettingsDoc =>
       country: a.country,
       label: a.label,
       address: a.address,
-      carrier: a.carrier as "PostNL"
+      carrier: a.carrier as "PostNL",
+      ...(a.name === null ? {} : { name: a.name }),
+      ...(a.line1 === null ? {} : { line1: a.line1 }),
+      ...(a.postcode === null ? {} : { postcode: a.postcode }),
+      ...(a.city === null ? {} : { city: a.city })
     })),
     claimSteps: [...s.claimSteps],
     rejectReasons: [...s.rejectReasons],
@@ -217,8 +241,10 @@ const write = Effect.fn("Returns.writeSettings")(function*(sql: SqlClient.SqlCli
   }
   yield* sql`delete from return_addresses`
   for (const a of doc.addresses) {
-    yield* sql`insert into return_addresses (id, workspace_id, country, label, address, carrier)
-               values (${mintId("rad")}, ${workspaceId}, ${a.country}, ${a.label}, ${a.address}, ${a.carrier})`
+    yield* sql`insert into return_addresses (id, workspace_id, country, label, address, carrier, name, line1, postcode,
+                                          city)
+               values (${mintId("rad")}, ${workspaceId}, ${a.country}, ${a.label}, ${a.address}, ${a.carrier},
+                       ${a.name ?? null}, ${a.line1 ?? null}, ${a.postcode ?? null}, ${a.city ?? null})`
   }
   yield* sql`update claim_flows set steps = ${[...doc.claimSteps]}::text[]`
 })

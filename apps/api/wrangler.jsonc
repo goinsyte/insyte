@@ -55,6 +55,8 @@
     { "binding": "MARKETING_SYNC", "name": "insyte-marketing-sync", "class_name": "MarketingSyncWorkflow" },
     // A forward's delivery to its suppliers (M8.2), after the undo window.
     { "binding": "FORWARD_SEND", "name": "insyte-forward-send", "class_name": "ForwardSendWorkflow" },
+    // A return's label from the carrier (M9.2), after the undo window.
+    { "binding": "RETURN_LABEL", "name": "insyte-return-label", "class_name": "ReturnLabelWorkflow" },
   ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] },

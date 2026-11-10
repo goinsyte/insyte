@@ -4,6 +4,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { Effect } from "effect"
 import type { SqlClient, Statement } from "effect/sql"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
+import { Labels } from "../domain/Ports.ts"
 import { type ListInput, Returnable, ReturnDetail, ReturnList, ReturnRow } from "../domain/Returns.ts"
 import {
   type Resolution,
@@ -84,9 +85,22 @@ export interface Row {
   readonly rejectedReason: string | null
 }
 
+/**
+ * `returns.label` as written (M9.2): asked for (`requested`), made (`issued`, with its tracking and file), or refused by
+ * the carrier (`failed`, with why). A label from before M9.2 has no state and counts as made.
+ */
+export interface StoredLabel {
+  readonly state?: "requested" | "issued" | "failed"
+  readonly carrier: "PostNL"
+  readonly tracking?: string
+  readonly trackingUrl?: string | null
+  readonly sentAt?: number
+  readonly fileId?: string | null
+  readonly reason?: string
+}
 export const toRow = (r: Row) => {
   // Read as text: the SQL client camelCases the keys of a jsonb value.
-  const label = r.label === null ? null : JSON.parse(r.label) as { carrier: "PostNL"; tracking: string; sentAt: number }
+  const label = r.label === null ? null : JSON.parse(r.label) as StoredLabel
   return new ReturnRow({
     id: r.id,
     number: r.number,
@@ -115,7 +129,16 @@ export const toRow = (r: Row) => {
     assigneeId: r.assigneeId,
     quality: r.quality,
     tags: r.tags,
-    label: label === null || label.tracking === undefined ? null : label,
+    label: label === null || label.tracking === undefined || label.sentAt === undefined ? null : {
+      carrier: label.carrier,
+      tracking: label.tracking,
+      sentAt: label.sentAt,
+      trackingUrl: label.trackingUrl ?? null,
+      fileId: label.fileId ?? null
+    },
+    labelRequest: label?.state === "requested" || label?.state === "failed"
+      ? { state: label.state, reason: label.reason ?? null }
+      : null,
     resolution: r.resolution === null || r.resolvedAt === null ? null : {
       kind: r.resolution,
       amountMinor: Number(r.resolutionMinor ?? 0),
@@ -170,7 +193,11 @@ export const list = Effect.fn("Returns.list")(function*(input: typeof ListInput.
         input.orderId === undefined ? sql`true` : sql`r.order_id = ${input.orderId}`,
         input.customerId === undefined ? sql`true` : sql`r.customer_id = ${input.customerId}`
       ])
-      return new ReturnList({ rows: yield* rowsWhere(sql, where, input.limit ?? 500), counts: yield* counts(sql) })
+      return new ReturnList({
+        rows: yield* rowsWhere(sql, where, input.limit ?? 500),
+        counts: yield* counts(sql),
+        labels: (yield* Labels).configured
+      })
     })
   )
 })
@@ -253,7 +280,9 @@ export const get = Effect.fn("Returns.get")(function*(id: string) {
       const address = s.addresses.find((a) => a.country === country) ?? s.addresses[0]
       const [assignee] = record.assigneeId === null ? [] : yield* sql<{ id: string; name: string }>`
         select m.id, u.name from members m join auth."user" u on u.id = m.user_id where m.id = ${record.assigneeId}`
+      const labels = (yield* Labels).configured
       return new ReturnDetail({
+        labels,
         record,
         lines: lines.map((l) => ({
           id: l.id,

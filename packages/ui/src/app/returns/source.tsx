@@ -97,6 +97,8 @@ export type ReturnView = {
   address: { address: string; carrier: Carrier } | undefined
   assignee: { id: string; name: string } | undefined
   imageOf: (item: ReturnItem) => string | undefined
+  /** Where the label's PDF can be opened; absent where there is none to download. */
+  labelHref?: string | undefined
   /**
    * True while the host is still reading it (opened from the list, the header is the row it already has); absent where
    * the body arrives at the reference's simulated pace (the design app).

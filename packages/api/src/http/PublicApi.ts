@@ -525,6 +525,15 @@ export const Return = Schema.Struct({
     resolved_at: Schema.String
   })),
   rejected_reason: Schema.NullOr(Schema.String),
+  label: Schema.NullOr(Schema.Struct({
+    state: Schema.String.annotate({
+      description: "requested (made at the carrier in a few seconds), issued, or failed (with the carrier's reason)."
+    }),
+    carrier: Schema.NullOr(Schema.String),
+    tracking: Schema.NullOr(Schema.String),
+    tracking_url: Schema.NullOr(Schema.String),
+    reason: Schema.NullOr(Schema.String)
+  })).annotate({ description: "The return label, once asked for." }),
   created_at: Schema.String
 }).annotate({ identifier: "Return" })
 
@@ -615,6 +624,15 @@ export class ReturnsGroup extends HttpApiGroup.make("returns")
       success: Return,
       error: WriteErrors
     }).annotate(OpenApi.Description, "Rejects a return, with the reason. Needs `returns.write` and `returns.approve`."),
+    HttpApiEndpoint.post("label", "/returns/:id/label", {
+      params: ById,
+      headers: Writes,
+      success: Return,
+      error: WriteErrors
+    }).annotate(
+      OpenApi.Description,
+      "Asks for a return label from the carrier the return address names; it is made a few seconds later (`label.state`). Refused (`409`) where no carrier is set up (`labels_unavailable`) or a label cannot be made (`no_return_address`, `no_shopper_address`). Needs `returns.write`."
+    ),
     HttpApiEndpoint.post("receive", "/returns/:id/receive", {
       params: ById,
       headers: Writes,

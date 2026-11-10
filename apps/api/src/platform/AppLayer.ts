@@ -42,6 +42,7 @@ import { IngestQueueLive } from "./IngestQueue.ts"
 import { InvitationLinksLive } from "./InvitationLinks.ts"
 import { KeyHasherLive } from "./KeyHasher.ts"
 import { KlaviyoChoice, MarketingSyncsLive } from "./Klaviyo.ts"
+import { LabelsChoice, ReturnLabelsLive } from "./Labels.ts"
 import { MailerCapture } from "./Mail.ts"
 import { ObservabilityLive } from "./Observability.ts"
 import { ProductAnalyticsCapture } from "./ProductAnalyticsCapture.ts"
@@ -136,6 +137,8 @@ export const AppLayer = Transports.pipe(
       SupplierApiChoice,
       // …and AfterShip, for its webhooks (M8.4).
       TrackingChoice,
+      // …and Sendcloud, for whether return labels can be asked for (M9.2).
+      LabelsChoice,
       // …and the files bucket, for downloads (M8.5).
       FileStoreR2,
       ConnectionGateLive,
@@ -181,7 +184,9 @@ export const BackgroundLayer = Layer.mergeAll(
   // A marketing sync goes to Klaviyo once its window has passed (M7.5).
   MarketingSyncsLive,
   // A forward goes to its suppliers once its window has passed (M8.2).
-  ForwardSendsLive
+  ForwardSendsLive,
+  // Return labels are made at the carrier once their window has passed (M9.2).
+  ReturnLabelsLive
 ).pipe(
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),
@@ -206,6 +211,8 @@ export const SyncLayer = Layer.mergeAll(
   MailerLive,
   // The tracking sweep (M8.4): AfterShip.
   TrackingChoice,
+  // A return's label (M9.2): Sendcloud.
+  LabelsChoice,
   // A forward's packing slip (M8.5): rendered and kept.
   DocumentsChoice,
   FileStoreR2,

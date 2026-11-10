@@ -236,6 +236,17 @@ const returnV1 = (r: ReturnRow) => ({
     ? null
     : { kind: r.resolution.kind, amount_minor: r.resolution.amountMinor, resolved_at: iso(r.resolution.at)! },
   rejected_reason: r.rejectReason,
+  label: r.label !== null
+    ? {
+      state: "issued",
+      carrier: r.label.carrier,
+      tracking: r.label.tracking,
+      tracking_url: r.label.trackingUrl,
+      reason: null
+    }
+    : r.labelRequest === null
+    ? null
+    : { state: r.labelRequest.state, carrier: null, tracking: null, tracking_url: null, reason: r.labelRequest.reason },
   created_at: iso(r.createdAt)!
 })
 
@@ -258,6 +269,20 @@ const returnsV1 = (
       return writeV1(e)
   }
 }
+
+/** The same for a label: no carrier set up, or no address to make one with, is a conflict. */
+const labelV1 = (
+  e:
+    | WriteRefusal
+    | { readonly _tag: "IllegalReturnMove"; readonly from: string }
+    | { readonly _tag: "LabelsUnavailable" }
+    | { readonly _tag: "LabelNotPossible"; readonly why: string }
+) =>
+  e._tag === "LabelsUnavailable"
+    ? conflict("labels_unavailable")
+    : e._tag === "LabelNotPossible"
+    ? conflict(e.why)
+    : returnsV1(e)
 
 /** The same for settling one, which may refund. */
 const resolveV1 = (
@@ -506,6 +531,12 @@ const make = Effect.gen(function*() {
           () => Effect.map(returns.get(id), (d) => returnV1(d.record))
         )
       ).pipe(Effect.catch(returnsV1)),
+    labelReturn: (id: string, key?: string) =>
+      Idempotency.once(
+        key,
+        ["return.label", id],
+        Effect.flatMap(returns.sendLabel({ ids: [id] }), () => Effect.map(returns.get(id), (d) => returnV1(d.record)))
+      ).pipe(Effect.catch(labelV1)),
     resolveReturn: (
       id: string,
       body: { readonly resolution: ReturnRow["requested"]; readonly exchange_to?: string | undefined },

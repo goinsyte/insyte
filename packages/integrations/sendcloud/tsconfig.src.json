@@ -1,0 +1,13 @@
+{
+  // Sendcloud for the API Worker (M9.2), over Effect's HttpClient. `fetch` underneath, which Workers and Node
+  // both provide.
+  "extends": "../../../tsconfig.base.json",
+  "include": ["src/**/*.ts"],
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo",
+    "lib": ["ES2023", "DOM"],
+    "types": []
+  }
+}

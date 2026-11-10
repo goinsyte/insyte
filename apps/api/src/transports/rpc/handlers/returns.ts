@@ -13,6 +13,7 @@ export const ReturnsHandlers = ReturnsRpcs.toLayer(Effect.gen(function*() {
     "Returns.reject": (input) => returns.reject(input),
     "Returns.reopen": ({ id }) => returns.reopen(id),
     "Returns.assign": (input) => returns.assign(input),
+    "Returns.sendLabel": (input) => returns.sendLabel(input),
     "Returns.markReceived": ({ id }) => returns.markReceived(id),
     "Returns.inspect": (input) => returns.inspect(input),
     "Returns.resolve": (input) => returns.resolve(input),

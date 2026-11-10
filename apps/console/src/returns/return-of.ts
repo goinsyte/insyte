@@ -64,6 +64,8 @@ export const recordOf = (
   label: r.label === null
     ? undefined
     : { carrier: r.label.carrier, tracking: r.label.tracking, sentAt: iso(r.label.sentAt) },
+  labelPending: r.labelRequest?.state === "requested",
+  labelFailed: r.labelRequest?.state === "failed" ? r.labelRequest.reason ?? "de vervoerder weigerde" : undefined,
   assignee: r.assigneeId ?? undefined,
   quality: r.quality,
   tags: [...r.tags],
@@ -94,7 +96,8 @@ export const viewOf = (d: ReturnDetail): ReturnView => ({
   earlier: d.earlierReturns,
   address: d.address === null ? undefined : { address: d.address.address, carrier: d.address.carrier },
   assignee: d.assignee ?? undefined,
-  imageOf: (item) => d.lines.find((l) => l.id === item.lineId)?.image ?? undefined
+  imageOf: (item) => d.lines.find((l) => l.id === item.lineId)?.image ?? undefined,
+  labelHref: d.record.label?.fileId ? `/api/files/${d.record.label.fileId}` : undefined
 })
 
 export const settingsOf = (d: ReturnSettingsDoc): ReturnSettings => ({

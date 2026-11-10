@@ -296,6 +296,15 @@ export const RejectReturn = Tool.make("reject_return", {
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
+export const SendReturnLabel = Tool.make("send_return_label", {
+  description:
+    "Asks for a return label for a return waiting for its parcel, from the carrier its return address names; the label is made a few seconds later and costs the store the carrier's price, so confirm with the person first. Refused where no carrier is set up or the return has no address to make one with. Needs returns.write.",
+  parameters: Schema.Struct({ return_id: ReturnId, idempotency_key: IdempotencyKey }),
+  success: Return,
+  failure: ReturnMoveFailure,
+  dependencies: asKey()
+}).annotate(Tool.Idempotent, true).annotate(Tool.Destructive, true)
+
 export const ReceiveReturn = Tool.make("receive_return", {
   description: "Marks a return's parcel received. Needs returns.write.",
   parameters: Schema.Struct({ return_id: ReturnId, idempotency_key: IdempotencyKey }),
@@ -360,6 +369,7 @@ export const InsyteTools = Toolkit.make(
   StartReturn,
   ApproveReturn,
   RejectReturn,
+  SendReturnLabel,
   ReceiveReturn,
   InspectReturn,
   ResolveReturn

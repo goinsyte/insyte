@@ -24,6 +24,7 @@
     { "path": "./packages/integrations/klaviyo" },
     { "path": "./packages/integrations/supplier-api" },
     { "path": "./packages/integrations/aftership" },
+    { "path": "./packages/integrations/sendcloud" },
     { "path": "./packages/tokens" },
     { "path": "./packages/ui" }
   ]

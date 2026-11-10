@@ -10,6 +10,7 @@ import { FIRST_ANALYSIS } from "./first-analysis.ts"
 import { FRAME, NOTES, presenceAtom } from "./frame.ts"
 import { ORDERS } from "./orders.ts"
 import { PRODUCTS } from "./products.ts"
+import { RETURNS } from "./returns.ts"
 import { ACCESS_LIST, ROLES } from "./roles.ts"
 import { STORE_SYNC, STORES } from "./stores.ts"
 import { TEAM } from "./team.ts"
@@ -32,7 +33,8 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   order: [...ORDERS, ...CUSTOMERS],
   customer: CUSTOMERS,
   product: PRODUCTS,
-  first_analysis: FIRST_ANALYSIS
+  first_analysis: FIRST_ANALYSIS,
+  return: RETURNS
 }
 const EVERYTHING = [...new Set(Object.values(REFETCH).flat())]
 

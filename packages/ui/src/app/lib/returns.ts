@@ -228,6 +228,9 @@ export type ReturnRecord = {
 	/** When the order was delivered: the window counts from here. */
 	deliveredAt: string;
 	label?: { carrier: Carrier; tracking: string; sentAt: string } | undefined;
+	/** A label asked for and on its way from the carrier, or the carrier's reason for not making one. */
+	labelPending?: boolean | undefined;
+	labelFailed?: string | undefined;
 	assignee?: string | undefined;
 	/** Counts toward the product's complaint rate (§3). */
 	quality: boolean;
@@ -235,6 +238,17 @@ export type ReturnRecord = {
 	resolution?: { kind: Resolution; amount: number; at: string; by: string; replacementOrder?: string | undefined } | undefined;
 	rejectReason?: string | undefined;
 	events: ReturnEvent[];
+};
+
+export type ReturnAddress = {
+	country: string;
+	label: string;
+	address: string;
+	carrier: Carrier;
+	name?: string | undefined;
+	line1?: string | undefined;
+	postcode?: string | undefined;
+	city?: string | undefined;
 };
 
 export type ReturnSettings = {
@@ -246,7 +260,11 @@ export type ReturnSettings = {
 	offered: Resolution[];
 	giftCardBonus: number;
 	exchangeFee: number;
-	addresses: Array<{ country: string; label: string; address: string; carrier: Carrier }>;
+	/**
+	 * Where parcels from a country go. `address` is the line the screens show; the parts are what a carrier's label needs
+	 * (absent on an address saved before labels, which then cannot get one).
+	 */
+	addresses: Array<ReturnAddress>;
 	claimSteps: string[];
 	portal: { on: boolean; handle: string; intro: string; done: string };
 };

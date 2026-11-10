@@ -143,6 +143,13 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     legIds: Schema.Array(Schema.String)
   }),
+  // Return labels asked for (M9.2): made at the carrier once the undo window has passed.
+  Schema.Struct({
+    type: Schema.Literal("return.label_requested"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    returnIds: Schema.Array(Schema.String)
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

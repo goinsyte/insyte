@@ -1,11 +1,12 @@
 import { Switch } from "../../components/switch";
-import { Clock, ExternalLink, LayoutList as Layers, ListFilter, MapPin, MessageSquare, Plus, RotateCcw, Shield, Trash2 } from "../../icons";
+import { Clock, ExternalLink, LayoutList as Layers, ListFilter, MapPin, MessageSquare, Edit3 as Pencil, Plus, RotateCcw, Shield, Trash2 } from "../../icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FormDialog, TextAreaField, TextField } from "../common/form-dialog";
 import { PageGuide } from "../common/page-guide";
 import { FieldRow, INPUT_CLASS, UnsavedBar } from "../settings/form";
 import { BandedList, BandedRow, SettingCard, StatusPill } from "../settings/setting-card";
-import { type ProductRule, type Resolution, RESOLUTION_LABEL, RULE_LABEL, type ReturnSettings, type RuleKind } from "../lib/returns";
+import { type Carrier, type ProductRule, type Resolution, RESOLUTION_LABEL, RULE_LABEL, type ReturnAddress, type ReturnSettings, type RuleKind } from "../lib/returns";
+import { countryName } from "../lib/format-flag";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
 import { CarrierMark } from "./parts";
@@ -40,6 +41,7 @@ export function ReturnSettingsPage() {
 	const dirty = JSON.stringify(draft) !== savedKey;
 	const gate = source.gate;
 	const [addingRule, setAddingRule] = useState(false);
+	const [editingAddress, setEditingAddress] = useState<number | "new" | null>(null);
 	const set = <K extends keyof ReturnSettings>(k: K, v: ReturnSettings[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
 	return (
@@ -171,11 +173,53 @@ export function ReturnSettingsPage() {
 				</div>
 			</SettingCard>
 
-			<SettingCard id="adressen" title="Adressen en vervoerders" icon={MapPin}>
+			<SettingCard
+				id="adressen"
+				title="Adressen en vervoerders"
+				icon={MapPin}
+				action={
+					gate.ok ? (
+						<button type="button" onClick={() => setEditingAddress("new")} className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-2.5 font-medium text-mesh-ink text-xs shadow-primary hover:bg-abyss-2">
+							<Plus className="size-3.5" strokeWidth={2} />
+							Adres toevoegen
+						</button>
+					) : null
+				}
+			>
 				<BandedList>
-					{draft.addresses.map((a) => (
-						<BandedRow key={a.country} leading={<CarrierMark carrier={a.carrier} size={32} />} title={a.label} detail={a.address} trailing={<span className="text-ink-3 text-sm">{a.carrier}</span>} />
+					{draft.addresses.map((a, i) => (
+						<BandedRow
+							key={a.country}
+							leading={<CarrierMark carrier={a.carrier} size={32} />}
+							title={a.label}
+							detail={a.address}
+							trailing={
+								<>
+									<span className="text-ink-3 text-sm">{a.carrier}</span>
+									{gate.ok ? (
+										<>
+											<button type="button" aria-label={`${a.label} bewerken`} onClick={() => setEditingAddress(i)} className="rounded-sm p-1 text-ink-3 hover:bg-ink/6 hover:text-ink">
+												<Pencil className="size-3.5" strokeWidth={1.75} />
+											</button>
+											<button
+												type="button"
+												aria-label={`${a.label} verwijderen`}
+												onClick={() => {
+													const before = draft.addresses;
+													set("addresses", draft.addresses.filter((_, j) => j !== i));
+													undoable("Adres verwijderd", () => set("addresses", before), "Nog niet opgeslagen.");
+												}}
+												className="rounded-sm p-1 text-ink-3 hover:bg-ink/6 hover:text-ink"
+											>
+												<Trash2 className="size-3.5" strokeWidth={1.75} />
+											</button>
+										</>
+									) : null}
+								</>
+							}
+						/>
 					))}
+					{draft.addresses.length === 0 ? <li className="px-3.5 py-3 text-ink-3 text-sm">Nog geen retouradres. Voeg er een toe, dan kan een retour een label krijgen.</li> : null}
 				</BandedList>
 			</SettingCard>
 
@@ -226,6 +270,16 @@ export function ReturnSettingsPage() {
 				</div>
 			</SettingCard>
 
+			<AddressDialog
+				key={String(editingAddress)}
+				editing={editingAddress === null ? null : editingAddress === "new" ? undefined : draft.addresses[editingAddress]}
+				taken={draft.addresses.filter((_, i) => i !== editingAddress).map((a) => a.country)}
+				onClose={() => setEditingAddress(null)}
+				onSave={(address) => {
+					set("addresses", editingAddress === "new" || editingAddress === null ? [...draft.addresses, address] : draft.addresses.map((a, i) => (i === editingAddress ? address : a)));
+					setEditingAddress(null);
+				}}
+			/>
 			<RuleDialog
 				products={source.products}
 				open={addingRule}
@@ -242,6 +296,90 @@ export function ReturnSettingsPage() {
 			/>
 			<PageGuide id="settings.returns" title="Retouren" steps={GUIDE} />
 		</>
+	);
+}
+
+const COUNTRIES = ["NL", "BE", "DE", "AT", "FR", "LU", "ES", "IT", "GB", "US"];
+const CARRIERS: ReadonlyArray<Carrier> = ["PostNL", "DHL", "DPD", "UPS"];
+
+/** "Adres toevoegen" and its edit: where parcels from a country go, with what the carrier's label needs. Keyed by what it edits. */
+function AddressDialog({ editing, taken, onClose, onSave }: { editing: ReturnAddress | null | undefined; taken: ReadonlyArray<string>; onClose: () => void; onSave: (a: ReturnAddress) => void }) {
+	const open = editing !== null;
+	const [country, setCountry] = useState(editing?.country ?? COUNTRIES.find((c) => !taken.includes(c)) ?? "NL");
+	const [label, setLabel] = useState(editing?.label ?? "");
+	const [name, setName] = useState(editing?.name ?? "");
+	const [line1, setLine1] = useState(editing?.line1 ?? "");
+	const [postcode, setPostcode] = useState(editing?.postcode ?? "");
+	const [city, setCity] = useState(editing?.city ?? "");
+	const [carrier, setCarrier] = useState<Carrier>(editing?.carrier ?? "PostNL");
+	const clash = taken.includes(country);
+	const ok = !clash && [label, name, line1, postcode, city].every((v) => v.trim() !== "");
+	return (
+		<FormDialog
+			open={open}
+			onOpenChange={(o) => !o && onClose()}
+			title={editing ? "Adres bewerken" : "Adres toevoegen"}
+			description="Pakketten uit dit land gaan naar dit adres, met het label van de vervoerder."
+			primaryLabel={editing ? "Opslaan" : "Adres toevoegen"}
+			disabled={!ok}
+			onSubmit={() =>
+				onSave({
+					country,
+					label: label.trim(),
+					name: name.trim(),
+					line1: line1.trim(),
+					postcode: postcode.trim().toUpperCase(),
+					city: city.trim(),
+					address: `${name.trim()}, ${line1.trim()}, ${postcode.trim().toUpperCase()} ${city.trim()}`,
+					carrier,
+				})
+			}
+		>
+			<label className="flex flex-col gap-1.5">
+				<span className="font-medium text-ink-3 text-sm">Voor pakketten uit</span>
+				<select aria-label="Land" value={country} onChange={(e) => setCountry(e.target.value)} className={cn(INPUT_CLASS, "h-11")}>
+					{COUNTRIES.map((c) => (
+						<option key={c} value={c}>
+							{countryName(c)}
+						</option>
+					))}
+				</select>
+				{clash ? <span className="text-signal-amber text-sm">Voor {countryName(country)} is er al een adres.</span> : null}
+			</label>
+			<label className="flex flex-col gap-1.5">
+				<span className="font-medium text-ink-3 text-sm">Naam in de lijst</span>
+				<TextField value={label} onChange={setLabel} placeholder="Bijvoorbeeld: Nederland en België" />
+			</label>
+			<label className="flex flex-col gap-1.5">
+				<span className="font-medium text-ink-3 text-sm">Naam op het label</span>
+				<TextField value={name} onChange={setName} placeholder="Bijvoorbeeld: Northwind Retouren" />
+			</label>
+			<label className="flex flex-col gap-1.5">
+				<span className="font-medium text-ink-3 text-sm">Straat en huisnummer</span>
+				<TextField value={line1} onChange={setLine1} />
+			</label>
+			<div className="grid grid-cols-[140px_minmax(0,1fr)] gap-2">
+				<label className="flex flex-col gap-1.5">
+					<span className="font-medium text-ink-3 text-sm">Postcode</span>
+					<TextField value={postcode} onChange={setPostcode} />
+				</label>
+				<label className="flex flex-col gap-1.5">
+					<span className="font-medium text-ink-3 text-sm">Plaats</span>
+					<TextField value={city} onChange={setCity} />
+				</label>
+			</div>
+			<div className="flex flex-col gap-1.5">
+				<span className="font-medium text-ink-3 text-sm">Vervoerder</span>
+				<div className="flex flex-wrap gap-1.5">
+					{CARRIERS.map((c) => (
+						<button key={c} type="button" aria-pressed={carrier === c} onClick={() => setCarrier(c)} className={cn("flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-sm", carrier === c ? "bg-abyss text-mesh-ink" : "bg-mist text-ink-2 hover:text-ink")}>
+							<CarrierMark carrier={c} size={16} />
+							{c}
+						</button>
+					))}
+				</div>
+			</div>
+		</FormDialog>
 	);
 }
 

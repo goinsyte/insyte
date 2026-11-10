@@ -6,6 +6,8 @@ import {
   IdInput,
   IllegalReturnMove,
   InspectInput,
+  LabelNotPossible,
+  LabelsUnavailable,
   LineNotReturnable,
   ListInput,
   RejectInput,
@@ -16,6 +18,7 @@ import {
   ReturnDetail,
   ReturnList,
   ReturnSettingsDoc,
+  SendLabelInput,
   StartInput
 } from "@insyte/modules/returns/domain/Returns"
 import { UndoTicket } from "@insyte/modules/shared/domain/Undo"
@@ -51,6 +54,11 @@ export class ReturnsRpcs extends RpcGroup.make(
     payload: AssignInput,
     success: ReturnChange,
     error: Schema.Union([Forbidden, NotFound])
+  }),
+  Rpc.make("Returns.sendLabel", {
+    payload: SendLabelInput,
+    success: ReturnChange,
+    error: Schema.Union([Forbidden, NotFound, IllegalReturnMove, LabelsUnavailable, LabelNotPossible])
   }),
   Rpc.make("Returns.markReceived", { payload: IdInput, success: ReturnChange, error: Moved }),
   Rpc.make("Returns.inspect", {

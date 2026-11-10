@@ -40,6 +40,7 @@
         "@insyte/integrations-klaviyo": "workspace:*",
         "@insyte/integrations-posthog": "workspace:*",
         "@insyte/integrations-resend": "workspace:*",
+        "@insyte/integrations-sendcloud": "workspace:*",
         "@insyte/integrations-shopify": "workspace:*",
         "@insyte/integrations-supplier-api": "workspace:*",
         "@insyte/integrations-turnstile": "workspace:*",
@@ -222,6 +223,14 @@
       "devDependencies": {
         "@react-email/ui": "catalog:",
         "@types/react": "catalog:",
+      },
+    },
+    "packages/integrations/sendcloud": {
+      "name": "@insyte/integrations-sendcloud",
+      "version": "0.0.0",
+      "dependencies": {
+        "@insyte/modules": "workspace:*",
+        "effect": "catalog:",
       },
     },
     "packages/integrations/shopify": {
@@ -687,6 +696,8 @@
     "@insyte/integrations-posthog": ["@insyte/integrations-posthog@workspace:packages/integrations/posthog"],
 
     "@insyte/integrations-resend": ["@insyte/integrations-resend@workspace:packages/integrations/resend"],
+
+    "@insyte/integrations-sendcloud": ["@insyte/integrations-sendcloud@workspace:packages/integrations/sendcloud"],
 
     "@insyte/integrations-shopify": ["@insyte/integrations-shopify@workspace:packages/integrations/shopify"],
 
