@@ -11,6 +11,7 @@ import { FRAME, NOTES, presenceAtom } from "./frame.ts"
 import { ORDERS } from "./orders.ts"
 import { PRODUCTS } from "./products.ts"
 import { QUALITY } from "./quality.ts"
+import { QUEUE } from "./queue.ts"
 import { RETURNS } from "./returns.ts"
 import { ACCESS_LIST, ROLES } from "./roles.ts"
 import { STORE_SYNC, STORES } from "./stores.ts"
@@ -37,7 +38,9 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   first_analysis: FIRST_ANALYSIS,
   // A quality return is a complaint on its product's Kwaliteit tab (M9.4).
   return: [...RETURNS, ...QUALITY],
-  quality_check: QUALITY
+  quality_check: QUALITY,
+  // Start's queue (M10.1): its refresh says when it changed.
+  queue_item: QUEUE
 }
 const EVERYTHING = [...new Set(Object.values(REFETCH).flat())]
 
