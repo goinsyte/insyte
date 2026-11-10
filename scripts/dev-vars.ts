@@ -16,7 +16,9 @@ const NAMES = [
   "KLAVIYO_CLIENT_SECRET",
   "SEAL_KEYS",
   "AFTERSHIP_API_KEY",
-  "AFTERSHIP_WEBHOOK_SECRET"
+  "AFTERSHIP_WEBHOOK_SECRET",
+  "SENDCLOUD_PUBLIC_KEY",
+  "SENDCLOUD_SECRET_KEY"
 ]
 
 const source = process.env["INSYTE_ENV_FILE"] ?? join(homedir(), "vantion/insyte/.env.local")

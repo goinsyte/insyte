@@ -22,7 +22,8 @@ import { docOf } from "./return-of.ts"
  * The returns commands in the console (M9.1): each the server's, refreshing what names `RETURNS`, with "Ongedaan maken"
  * spending the command's undo token. A refund goes through `Orders.refund` on the server and cannot be taken back; it
  * names `ORDERS` too. Settling with anything else is recorded here: the gift card, discount code or new order in
- * Shopify, and the shopper's mail, come later (M9.3), so nothing says they were sent.
+ * Shopify, and the shopper's mail, come later (M9.3), so nothing says they were sent. A label is asked for with Undo
+ * and made at the carrier once the window has passed (M9.2).
  */
 
 const euros = (minor: number) =>
@@ -53,6 +54,18 @@ const COPY: RefusalCopy = {
       case "ResolutionNotAllowed":
         toast.error("Die oplossing kan hier niet", {
           description: "De regel op dit artikel of je retourinstellingen staan hem niet toe."
+        })
+        return true
+      case "LabelsUnavailable":
+        toast.error("Er is geen vervoerder gekoppeld", {
+          description: "Retourlabels kunnen pas als er een vervoerder is ingesteld."
+        })
+        return true
+      case "LabelNotPossible":
+        toast.error(tagged["why"] === "no_return_address" ? "Geen retouradres" : "Geen adres van de klant", {
+          description: tagged["why"] === "no_return_address"
+            ? "Voeg een retouradres met straat, postcode en plaats toe bij Instellingen → Retouren."
+            : "De bestelling en het klantprofiel hebben geen volledig adres om het label vanaf te sturen."
         })
         return true
       case "LineNotReturnable":
@@ -92,6 +105,7 @@ export function useReturnCommands() {
     reopen: useAtomSet(returnWrites.reopen, { mode: "promiseExit" }),
     assign: useAtomSet(returnWrites.assign, { mode: "promiseExit" }),
     markReceived: useAtomSet(returnWrites.markReceived, { mode: "promiseExit" }),
+    sendLabel: useAtomSet(returnWrites.sendLabel, { mode: "promiseExit" }),
     inspect: useAtomSet(returnWrites.inspect, { mode: "promiseExit" }),
     resolve: useAtomSet(returnWrites.resolve, { mode: "promiseExit" }),
     setSettings: useAtomSet(returnWrites.setSettings, { mode: "promiseExit" }),
@@ -115,6 +129,7 @@ export function useReturnCommands() {
       said(await write.approve({ payload: { ids: [...ids], ...(keepItem ? { keepItem } : {}) }, ...keys }), s),
     reject: async (ids, reason, s) => said(await write.reject({ payload: { ids: [...ids], reason }, ...keys }), s),
     reopen: async (id, s) => said(await write.reopen({ payload: { id }, ...keys }), s),
+    sendLabel: async (ids, s) => said(await write.sendLabel({ payload: { ids: [...ids] }, ...keys }), s),
     receive: async (id, s) => said(await write.markReceived({ payload: { id }, ...keys }), s),
     inspect: async (id, s) => said(await write.inspect({ payload: { id }, ...keys }), s),
     assign: async (ids, memberId, s) => said(await write.assign({ payload: { ids: [...ids], memberId }, ...keys }), s),

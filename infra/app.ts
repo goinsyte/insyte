@@ -134,6 +134,14 @@ export default Alchemy.Stack(
       ? { AFTERSHIP_API_KEY: aftershipKey.value, AFTERSHIP_WEBHOOK_SECRET: aftershipSecret.value }
       : {}
 
+    // Sendcloud (M9.2): Insyte's own account for return labels, its keys in the GitHub environment; without them, no
+    // labels and returns go back by "zelf versturen".
+    const sendcloudPublic = Option.filter(yield* Config.Redacted("SENDCLOUD_PUBLIC_KEY").pipe(Config.option), set)
+    const sendcloudSecret = Option.filter(yield* Config.Redacted("SENDCLOUD_SECRET_KEY").pipe(Config.option), set)
+    const sendcloud = Option.isSome(sendcloudPublic) && Option.isSome(sendcloudSecret)
+      ? { SENDCLOUD_PUBLIC_KEY: sendcloudPublic.value, SENDCLOUD_SECRET_KEY: sendcloudSecret.value }
+      : {}
+
     /*
      * Mail (02 §5.1): previews always capture (the browser tests read the links back); staging and production send
      * through Resend once their environment says `MAIL_ADAPTER=resend` and has the key (the domain must be verified in
@@ -215,6 +223,11 @@ export default Alchemy.Stack(
           className: "ForwardSendWorkflow",
           workflowName: `insyte-forward-send-${stage}`
         }),
+        // A return's label from the carrier (M9.2), hosted by this Worker (`ReturnLabelWorkflow`); one per stage.
+        RETURN_LABEL: Cloudflare.Workflow("ReturnLabel", {
+          className: "ReturnLabelWorkflow",
+          workflowName: `insyte-return-label-${stage}`
+        }),
         ENVIRONMENT: environment,
         // Where `Main.ts` serves `/v1` and nothing else.
         PUBLIC_API_HOST: `insyte-api-${stage}.${WORKERS_SUBDOMAIN}`,
@@ -243,6 +256,7 @@ export default Alchemy.Stack(
         ...shopify,
         ...klaviyo,
         ...aftership,
+        ...sendcloud,
         ...mail,
         // An unset GitHub variable arrives empty, not missing: empty means the default.
         MAIL_FROM: (yield* Config.String("MAIL_FROM").pipe(Config.withDefault(""))) ||

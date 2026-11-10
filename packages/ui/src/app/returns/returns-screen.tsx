@@ -109,7 +109,7 @@ export function ReturnsList() {
 							shortcut: "l",
 							bar: true,
 							needs: { perm: "returns", arg: 2 },
-							applies: (r: ReturnRecord) => r.status === "awaiting_parcel" && !r.label,
+							applies: (r: ReturnRecord) => r.status === "awaiting_parcel" && !r.label && !r.labelPending,
 							run: (rows: ReadonlyArray<ReturnRecord>) => commands.sendLabel?.(rows.map((r) => r.id), { label: "Wordt verstuurd…", detail: `${counted(rows.length, "retourlabel", "retourlabels")} naar de klant. Ongedaan maken kan tot het vertrekt.` }),
 						} satisfies RowAction<ReturnRecord>,
 					]

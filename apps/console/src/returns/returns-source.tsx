@@ -12,6 +12,7 @@ import {
   StartReturnForm
 } from "@insyte/ui/app/returns/order-returns"
 import type {
+  ReturnCommands,
   ReturnDetailSource,
   ReturnGates,
   ReturnSettingsSource,
@@ -35,14 +36,18 @@ import { useReturnCommands } from "./return-writes.ts"
 
 /*
  * The returns screens' sources in the console (M9.1): `Returns.list`, `Returns.get` and `Returns.settings` as the
- * design's, with the server's commands. What the server does not do yet is left out, not made up: return labels and
- * the carrier's scans (M9.4), the public portal (M9.5) and the agents' proposal (M15). A return's window, its product
- * rule and what it may be settled with are the server's.
+ * design's, with the server's commands. "Label versturen" only where a carrier is set up (M9.2). What the server does
+ * not do yet is left out, not made up: the carrier's scans (M9.4), the public portal (M9.5) and the agents' proposal
+ * (M15). A return's window, its product rule and what it may be settled with are the server's.
  */
 
 function value<A>(result: AsyncResult.AsyncResult<A, unknown>): A | undefined {
   return Option.getOrUndefined(AsyncResult.value(result))
 }
+
+/** The commands, without "Label versturen" where no carrier is set up for labels. */
+const withLabels = (commands: ReturnCommands, labels: boolean): ReturnCommands =>
+  labels ? commands : { ...commands, sendLabel: undefined }
 
 function useReturnGates(): ReturnGates {
   return { work: useGate("returns", 2), approve: useGate("returns.approve"), manage: useGate("returns", 3) }
@@ -171,7 +176,7 @@ export function useConsoleReturnsListSource(
     members: team.members,
     meId: team.meId,
     stores: storeOptions,
-    commands,
+    commands: withLabels(commands, list.labels),
     gates,
     Pick: ConsolePick,
     Start: ConsoleStartReturn
@@ -183,14 +188,18 @@ const NO_SETTINGS = { giftCardBonus: 0, exchangeFee: 0 }
 /** Whether the role may refund this much, in major units as the screen has it. */
 const useRefund = (amount: number) => useRefundGate(Math.round(amount * 100))
 
-function useDetailSource(view: ReturnView, settings: ReturnSettingsDoc | undefined): ReturnDetailSource {
+function useDetailSource(
+  view: ReturnView,
+  settings: ReturnSettingsDoc | undefined,
+  labels: boolean
+): ReturnDetailSource {
   const commands = useReturnCommands()
   const gates = useReturnGates()
   const team = useTeam()
   const role = useGateRole()
   return {
     useView: () => view,
-    commands,
+    commands: withLabels(commands, labels),
     gates,
     meId: team.meId,
     role: { label: role?.label ?? "", refundLimit: role?.refundLimit ?? null },
@@ -207,7 +216,7 @@ export function useConsoleReturnDetailSource(
   settings: ReturnSettingsDoc | undefined
 ): ReturnDetailSource {
   const view = useMemo(() => ({ ...viewOf(detail), arriving: false }), [detail])
-  return useDetailSource(view, settings)
+  return useDetailSource(view, settings, detail.labels)
 }
 
 /** The return while `Returns.get` is still out: the list's row draws the header, the record's skeleton the body. */
@@ -225,7 +234,8 @@ export function useArrivingReturnSource(row: ReturnRow, settings: ReturnSettings
     imageOf: () => undefined,
     arriving: true
   }), [row])
-  return useDetailSource(view, settings)
+  // Whether labels can be made is the record's to say; until it is in, the button waits.
+  return useDetailSource(view, settings, false)
 }
 
 /** The returns policy over `Returns.settings`; saving takes Retouren · Beheren. */

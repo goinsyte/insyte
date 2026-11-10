@@ -100,6 +100,7 @@ describe("the MCP server", () => {
       "reject_return",
       "reroute_leg",
       "resolve_return",
+      "send_return_label",
       "set_order_note",
       "start_return",
       "tag_order",
@@ -130,6 +131,7 @@ describe("the MCP server", () => {
     expect(hints["refund_order"]?.["destructiveHint"]).toBe(true)
     expect(hints["forward_orders"]?.["destructiveHint"]).toBe(true)
     expect(hints["resolve_return"]?.["destructiveHint"]).toBe(true)
+    expect(hints["send_return_label"]?.["destructiveHint"]).toBe(true)
   })
 
   it("answers whoami, list_members and list_roles as the key", async () => {

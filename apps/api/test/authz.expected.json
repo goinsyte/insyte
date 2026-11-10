@@ -685,6 +685,13 @@
     "finance": "deny",
     "view": "deny"
   },
+  "Returns.sendLabel": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
   "Returns.markReceived": {
     "owner": "allow",
     "admin": "allow",

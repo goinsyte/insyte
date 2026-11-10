@@ -152,6 +152,7 @@ const PAYLOADS: Record<string, unknown> = {
   "Returns.reject": { ids: ["ret_none"], reason: "Buiten de termijn" },
   "Returns.reopen": { id: "ret_none" },
   "Returns.assign": { ids: ["ret_none"], memberId: null },
+  "Returns.sendLabel": { ids: ["ret_none"] },
   "Returns.markReceived": { id: "ret_none" },
   "Returns.inspect": { id: "ret_none" },
   "Returns.resolve": { id: "ret_none", resolution: "refund", refundId: "rfd_00000000000000000000000000" },

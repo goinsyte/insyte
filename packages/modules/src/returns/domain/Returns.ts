@@ -54,7 +54,19 @@ export class ReturnRow extends Schema.Class<ReturnRow>("returns/ReturnRow")({
   /** Counts toward the product's complaint rate: the reason's, when the return was made. */
   quality: Schema.Boolean,
   tags: Schema.Array(Schema.String),
-  label: Schema.NullOr(Schema.Struct({ carrier: Carrier, tracking: Schema.String, sentAt: Schema.Finite })),
+  /** The return label once the carrier made it (M9.2): its tracking, and the PDF to print in `files`. */
+  label: Schema.NullOr(Schema.Struct({
+    carrier: Carrier,
+    tracking: Schema.String,
+    sentAt: Schema.Finite,
+    trackingUrl: Schema.NullOr(Schema.String),
+    fileId: Schema.NullOr(Schema.String)
+  })),
+  /** A label asked for and not there yet, or one the carrier would not make (and why). */
+  labelRequest: Schema.NullOr(Schema.Struct({
+    state: Schema.Literals(["requested", "failed"]),
+    reason: Schema.NullOr(Schema.String)
+  })),
   resolution: Schema.NullOr(Schema.Struct({
     kind: Resolution,
     amountMinor: Schema.Int,
@@ -90,7 +102,9 @@ export const ListInput = Schema.Struct({
 
 export class ReturnList extends Schema.Class<ReturnList>("returns/ReturnList")({
   rows: Schema.Array(ReturnRow),
-  counts: ReturnCounts
+  counts: ReturnCounts,
+  /** Whether a carrier is set up for return labels (M9.2): "Label versturen" is offered only then. */
+  labels: Schema.Boolean
 }) {}
 
 export const ReturnLine = Schema.Struct({
@@ -136,7 +150,9 @@ export class ReturnDetail extends Schema.Class<ReturnDetail>("returns/ReturnDeta
   allowed: Schema.Array(Schema.Struct({ kind: Resolution, amountMinor: Schema.Int })),
   earlierReturns: Schema.Int,
   address: Schema.NullOr(Schema.Struct({ label: Schema.String, address: Schema.String, carrier: Carrier })),
-  assignee: Schema.NullOr(Schema.Struct({ id: Schema.String, name: Schema.String }))
+  assignee: Schema.NullOr(Schema.Struct({ id: Schema.String, name: Schema.String })),
+  /** Whether a carrier is set up for return labels (M9.2). */
+  labels: Schema.Boolean
 }) {}
 
 /** "Retour starten": an order's lines, what is still free to send back, and the rule on each. */
@@ -200,8 +216,14 @@ export const RuleDoc = Schema.Struct({
 export const AddressDoc = Schema.Struct({
   country: Schema.String.check(Schema.isPattern(/^[A-Z]{2}$/)),
   label: NonEmpty(80),
+  /** The line the screens show. */
   address: NonEmpty(300),
-  carrier: Carrier
+  carrier: Carrier,
+  /** The parts a carrier's label needs (M9.2); an address without them cannot get a label. */
+  name: Schema.optional(NonEmpty(120)),
+  line1: Schema.optional(NonEmpty(200)),
+  postcode: Schema.optional(NonEmpty(20)),
+  city: Schema.optional(NonEmpty(120))
 })
 
 export class ReturnSettingsDoc extends Schema.Class<ReturnSettingsDoc>("returns/ReturnSettingsDoc")({
@@ -242,6 +264,8 @@ export const StartInput = Schema.Struct({
 })
 
 export const ApproveInput = Schema.Struct({ ids: Ids, keepItem: Schema.optional(Schema.Boolean) })
+/** "Label versturen": a return label for each, from the carrier the return address names (M9.2). */
+export const SendLabelInput = Schema.Struct({ ids: Ids })
 export const RejectInput = Schema.Struct({ ids: Ids, reason: NonEmpty(500) })
 export const AssignInput = Schema.Struct({ ids: Ids, memberId: Schema.NullOr(Schema.String) })
 export const IdInput = Schema.Struct({ id: Schema.String })
@@ -297,7 +321,12 @@ export type Before = typeof Before.Type
 export const ReturnsRestore = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("fields"), returns: Schema.Array(Before) }),
   Schema.Struct({ kind: Schema.Literal("created"), id: Schema.String }),
-  Schema.Struct({ kind: Schema.Literal("settings"), document: Schema.Unknown })
+  Schema.Struct({ kind: Schema.Literal("settings"), document: Schema.Unknown }),
+  // A label request taken back inside its window: the label as it was (none, or a failed one), its outbox row cancelled.
+  Schema.Struct({
+    kind: Schema.Literal("labels"),
+    returns: Schema.Array(Schema.Struct({ id: Schema.String, label: Schema.NullOr(Schema.String) }))
+  })
 ])
 export type ReturnsRestore = typeof ReturnsRestore.Type
 
@@ -317,4 +346,13 @@ export class IllegalReturnMove extends Schema.TaggedError<IllegalReturnMove>()("
 export class LineNotReturnable extends Schema.TaggedError<LineNotReturnable>()("LineNotReturnable", {
   lineId: Schema.String,
   why: Schema.Literals(["unknown", "taken", "rule"])
+}) {}
+
+/** No carrier account is set up for return labels: "zelf versturen" is the way (M9.2). */
+export class LabelsUnavailable extends Schema.TaggedError<LabelsUnavailable>()("LabelsUnavailable", {}) {}
+
+/** A label cannot be made for this return: no return address for its country, or no address of the shopper's. */
+export class LabelNotPossible extends Schema.TaggedError<LabelNotPossible>()("LabelNotPossible", {
+  id: Schema.String,
+  why: Schema.Literals(["no_return_address", "no_shopper_address"])
 }) {}

@@ -1,6 +1,6 @@
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useState } from "react";
-import { AlertTriangle, Check, ExternalLink, Package as PackageCheck, RotateCcw, Send, Truck, User, XCircle } from "../../icons";
+import { AlertTriangle, Check, Download, ExternalLink, Package as PackageCheck, RotateCcw, Send, Truck, User, XCircle } from "../../icons";
 import { useNow } from "../hooks/use-now";
 import { ConfirmDialog } from "../common/confirm-dialog";
 import { DetailShell } from "../common/detail-shell";
@@ -85,7 +85,7 @@ function Detail({ view }: { view: ReturnView }) {
 							Ontvangen markeren
 						</button>
 					</GateBy>
-					{r.label || !commands.sendLabel ? null : (
+					{r.label || r.labelPending || !commands.sendLabel ? null : (
 						<GateBy gate={gates.work}>
 							<button type="button" onClick={() => commands.sendLabel?.([r.id], said("Wordt verstuurd…", `Retourlabel naar ${r.customerName}. Ongedaan maken kan tot het vertrekt.`))} className={PRIMARY}>
 								<Send className="size-3.5" strokeWidth={1.75} />
@@ -205,9 +205,16 @@ function Detail({ view }: { view: ReturnView }) {
 						) : null}
 					</section>
 
-					{r.label || r.resolution ? (
+					{r.label || r.resolution || r.labelPending || r.labelFailed ? (
 						<section className="flex flex-col gap-3 rounded-xl px-5 py-4 panel">
 							<h2 className="font-medium text-ink text-md">{r.resolution ? "Afhandeling" : "Retourlabel"}</h2>
+							{!r.label && r.labelPending ? <p className="text-ink-3 text-sm">Wordt gemaakt bij de vervoerder…</p> : null}
+							{!r.label && !r.labelPending && r.labelFailed ? (
+								<p className="flex items-start gap-2 rounded-lg bg-signal-amber-bg px-3 py-2 text-ink text-sm">
+									<AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-signal-amber" strokeWidth={2} />
+									<span>Het label kon niet worden gemaakt: {r.labelFailed}. Kijk het retouradres na en verstuur het opnieuw.</span>
+								</p>
+							) : null}
 							{r.label ? (
 								<div className="flex flex-wrap items-center gap-3">
 									<CarrierMark carrier={r.label.carrier} size={28} />
@@ -215,6 +222,12 @@ function Detail({ view }: { view: ReturnView }) {
 										<span className="font-medium text-ink text-sm tabular-nums">{r.label.tracking}</span>
 										<span className="text-ink-3 text-xs">{r.label.carrier} · verstuurd {ago(r.label.sentAt, now)}</span>
 									</span>
+									{view.labelHref ? (
+										<a href={view.labelHref} target="_blank" rel="noreferrer" className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-arc-ink text-xs hover:bg-arc-tint">
+											<Download className="size-3.5" strokeWidth={1.75} />
+											Label downloaden
+										</a>
+									) : null}
 									{r.status === "awaiting_parcel" && commands.scan ? (
 										<GateBy gate={gates.work}>
 											<button

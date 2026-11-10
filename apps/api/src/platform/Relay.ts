@@ -5,6 +5,7 @@ import { ForwardSends } from "@insyte/modules/forwarding/domain/Forwarding"
 import { MarketingSyncs } from "@insyte/modules/marketing/domain/Marketing"
 import { InvitationLinks } from "@insyte/modules/members/domain/Ports"
 import { fanOut } from "@insyte/modules/notifications/use-cases/fanout"
+import { ReturnLabels } from "@insyte/modules/returns/domain/Ports"
 import { Mailer } from "@insyte/modules/shared/domain/Mailer"
 import { type OutboxEvent, Relay } from "@insyte/modules/shared/domain/Outbox"
 import { ProductAnalytics, type ProductEvent } from "@insyte/modules/shared/domain/ProductAnalytics"
@@ -52,6 +53,7 @@ type SinkServices =
   | ShopifyWrites
   | MarketingSyncs
   | ForwardSends
+  | ReturnLabels
 
 /** What a sink does with an event, in the event's workspace; `undefined` when the event is not its business. */
 interface Sink {
@@ -272,6 +274,17 @@ const SINKS: ReadonlyArray<Sink> = [
         ? Effect.flatMap(
           Effect.service(ForwardSends),
           (sends) => sends.start({ key: `fw-${id}`, workspaceId: event.workspaceId, legIds: event.legIds })
+        )
+        : undefined
+  },
+  {
+    // Return labels asked for (M9.2): one Workflow per event, named by it.
+    name: "returns",
+    run: (id, event) =>
+      event.type === "return.label_requested"
+        ? Effect.flatMap(
+          Effect.service(ReturnLabels),
+          (labels) => labels.start({ key: `rl-${id}`, workspaceId: event.workspaceId, returnIds: event.returnIds })
         )
         : undefined
   },

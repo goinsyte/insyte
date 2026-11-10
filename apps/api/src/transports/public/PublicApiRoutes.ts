@@ -150,6 +150,11 @@ const ReturnsLive = HttpApiBuilder.group(
               )
           )
           .handle(
+            "label",
+            ({ params, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.labelReturn(params.id, key))
+          )
+          .handle(
             "receive",
             ({ params, headers }) =>
               Effect.flatMap(

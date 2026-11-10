@@ -7,22 +7,27 @@ import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import { RefundId } from "../../orders/domain/Refunds.ts"
 import { Relay } from "../../shared/domain/Outbox.ts"
+import { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
-import { Refunder } from "../domain/Ports.ts"
+import { Labels, Refunder } from "../domain/Ports.ts"
 import {
   type ApproveInput,
   type AssignInput,
   type Before,
   IllegalReturnMove,
   type InspectInput,
+  LabelNotPossible,
+  LabelsUnavailable,
   LineNotReturnable,
   type RejectInput,
   ResolutionNotAllowed,
   type ResolveInput,
   ReturnChange,
   ReturnsRestore,
+  type SendLabelInput,
   type StartInput
 } from "../domain/Returns.ts"
 import {
@@ -35,7 +40,7 @@ import {
   windowCheck,
   windowDaysFor
 } from "../domain/Rules.ts"
-import { DELIVERED_AT, freeLines, judge, linesOf, rowsOf } from "./returns.ts"
+import { DELIVERED_AT, freeLines, judge, linesOf, rowsOf, type StoredLabel } from "./returns.ts"
 import { load, RESTORE, restoreSettings } from "./settings.ts"
 
 /*
@@ -368,6 +373,135 @@ export const markReceived = Effect.fn("Returns.markReceived")(function*(id: stri
   )
 })
 
+/**
+ * Where the shopper sends the parcel from, for a label: the order's shipping address, else the customer's own; the name
+ * on it, else the customer's, else the return's. `r`, `o` and `c` are the return, its order and its customer.
+ */
+export const SHOPPER =
+  `coalesce(nullif(coalesce(o.shipping_address, c.address) ->> 'name', ''), c.name, r.customer_name) as name,
+  coalesce(o.shipping_address, c.address) ->> 'line1' as line1,
+  coalesce(o.shipping_address, c.address) ->> 'postcode' as postcode,
+  coalesce(o.shipping_address, c.address) ->> 'city' as city,
+  coalesce(o.shipping_address, c.address) ->> 'country' as ship_country`
+
+/** The parts of an order's shipping address a carrier's label needs, where it has them all. */
+export const shopperAddress = (a: {
+  name: string | null
+  line1: string | null
+  postcode: string | null
+  city: string | null
+  country: string | null
+}) =>
+  a.name === null || a.line1 === null || a.postcode === null || a.city === null || a.country === null
+    ? undefined
+    : { name: a.name, line1: a.line1, postcode: a.postcode, city: a.city, country: a.country }
+
+/** The return address for parcels from `country`: its own, else the first, where it has what a label needs. */
+export const returnAddress = (
+  addresses: ReadonlyArray<{
+    readonly country: string
+    readonly carrier: string
+    readonly name?: string | undefined
+    readonly line1?: string | undefined
+    readonly postcode?: string | undefined
+    readonly city?: string | undefined
+  }>,
+  country: string | null
+) => {
+  const a = addresses.find((x) => x.country === country) ?? addresses[0]
+  return a === undefined || a.name === undefined || a.line1 === undefined || a.postcode === undefined ||
+      a.city === undefined
+    ? undefined
+    : { carrier: a.carrier, name: a.name, line1: a.line1, postcode: a.postcode, city: a.city, country: a.country }
+}
+
+/**
+ * "Label versturen" (M9.2): a return label for each return waiting for its parcel, from the carrier its return address
+ * names. Asked for here; made at the carrier once the undo window has passed (`return.label_requested`), so Undo costs
+ * nothing. A return with a label made, or one already asked for, is left as it is; one the carrier refused is asked
+ * again. Refused when no carrier is set up, or when a return has no return address or no address of the shopper's.
+ */
+export const sendLabel = Effect.fn("Returns.sendLabel")(function*(input: typeof SendLabelInput.Type) {
+  yield* Policy.require("returns", 2)
+  const labels = yield* Labels
+  if (!labels.configured) return yield* new LabelsUnavailable()
+  const principal = yield* CurrentPrincipal
+  const relay = yield* Relay
+  const db = yield* Db
+  const { change, outboxId } = yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const locked = yield* lock(sql, input.ids)
+      const facts = yield* sql<{
+        id: string
+        label: string | null
+        country: string | null
+        name: string | null
+        line1: string | null
+        postcode: string | null
+        city: string | null
+        shipCountry: string | null
+      }>`
+        select r.id, r.label::text as label, r.country, ${sql.literal(SHOPPER)}
+        from returns r join orders o on o.id = r.order_id left join customers c on c.id = r.customer_id
+        where r.id in ${sql.in(locked.map((l) => l.id))}`
+      const byId = new Map(facts.map((f) => [f.id, f]))
+      const waiting = locked.filter((l) => l.status === "awaiting_parcel")
+      if (waiting.length === 0 && locked.length === 1) {
+        return yield* new IllegalReturnMove({ id: locked[0]!.id, from: locked[0]!.status, move: "sendLabel" })
+      }
+      const going = waiting.filter((l) => {
+        const label = byId.get(l.id)?.label
+        const state = label === null || label === undefined
+          ? null
+          : (JSON.parse(label) as StoredLabel).state ?? "issued"
+        return state === null || state === "failed"
+      })
+      if (going.length === 0) return { change: none(), outboxId: null }
+      const settings = yield* load(sql)
+      for (const l of going) {
+        const f = byId.get(l.id)!
+        const to = returnAddress(
+          settings.addresses.map((a) => ({
+            country: a.country,
+            carrier: a.carrier,
+            ...(a.name === null ? {} : { name: a.name }),
+            ...(a.line1 === null ? {} : { line1: a.line1 }),
+            ...(a.postcode === null ? {} : { postcode: a.postcode }),
+            ...(a.city === null ? {} : { city: a.city })
+          })),
+          f.country
+        )
+        if (to === undefined) return yield* new LabelNotPossible({ id: l.id, why: "no_return_address" })
+        const from = shopperAddress({ ...f, country: f.shipCountry ?? f.country })
+        if (from === undefined) return yield* new LabelNotPossible({ id: l.id, why: "no_shopper_address" })
+        yield* sql`update returns set label = ${
+          JSON.stringify({
+            state: "requested",
+            carrier: to.carrier,
+            requestedAt: Date.now()
+          })
+        }::jsonb where id = ${l.id}`
+        yield* audit(sql, "return.label_requested", l.id, { carrier: to.carrier })
+      }
+      const ids = going.map((l) => l.id)
+      const sent = yield* Outbox.write(sql, principal.workspaceId, {
+        type: "return.label_requested",
+        workspaceId: principal.workspaceId,
+        userId: principal.userId ?? principal.id,
+        returnIds: ids
+      }, { afterSeconds: UNDO_SECONDS })
+      const undo = yield* Undo.issue(sql, {
+        command: RESTORE,
+        compensation: { kind: "labels", returns: going.map((l) => ({ id: l.id, label: byId.get(l.id)!.label })) },
+        outboxIds: [sent]
+      })
+      return { change: new ReturnChange({ returns: yield* rowsOf(sql, ids), undo }), outboxId: sent }
+    })
+  )
+  if (outboxId !== null) yield* relay.kick([outboxId], { afterSeconds: UNDO_SECONDS })
+  return change
+})
+
 /** "Gecontroleerd, in orde": each line's condition and whether it goes back on the shelf; then it is to settle. */
 export const inspect = Effect.fn("Returns.inspect")(function*(input: typeof InspectInput.Type) {
   yield* Policy.require("returns", 2)
@@ -495,6 +629,13 @@ export const restore = Effect.fn("Returns.restore")(function*(sql: SqlClient.Sql
   yield* Policy.require("returns", 2)
   if (undo.kind === "created") {
     yield* sql`delete from returns where id = ${undo.id} and status = 'review'`
+    return
+  }
+  if (undo.kind === "labels") {
+    // Only a request still waiting: its outbox row is cancelled with the token, so nothing was made at the carrier.
+    for (const r of undo.returns) {
+      yield* sql`update returns set label = ${r.label}::jsonb where id = ${r.id} and label ->> 'state' = 'requested'`
+    }
     return
   }
   for (const r of undo.returns) {

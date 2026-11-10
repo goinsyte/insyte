@@ -7,12 +7,14 @@ import { SqlError } from "effect/sql"
 import type { AlreadyRefunded, RefundOverBalance, RefundOverLimit } from "../orders/domain/Refunds.ts"
 import type { Relay } from "../shared/domain/Outbox.ts"
 import type { UndoTicket } from "../shared/domain/Undo.ts"
-import { Refunder } from "./domain/Ports.ts"
+import { Labels, Refunder } from "./domain/Ports.ts"
 import type {
   ApproveInput,
   AssignInput,
   IllegalReturnMove,
   InspectInput,
+  LabelNotPossible,
+  LabelsUnavailable,
   LineNotReturnable,
   ListInput,
   RejectInput,
@@ -23,6 +25,7 @@ import type {
   ReturnDetail,
   ReturnList,
   ReturnSettingsDoc,
+  SendLabelInput,
   StartInput
 } from "./domain/Returns.ts"
 import * as Commands from "./use-cases/commands.ts"
@@ -52,6 +55,14 @@ export class ReturnsService extends Context.Service<ReturnsService, {
   ) => Effect.Effect<ReturnChange, Forbidden | NotFound | IllegalReturnMove, R>
   readonly reopen: (id: string) => Effect.Effect<ReturnChange, Forbidden | NotFound | IllegalReturnMove, R>
   readonly assign: (input: typeof AssignInput.Type) => Effect.Effect<ReturnChange, Forbidden | NotFound, R>
+  /** "Label versturen" (M9.2): asked for now, made at the carrier once the undo window has passed. */
+  readonly sendLabel: (
+    input: typeof SendLabelInput.Type
+  ) => Effect.Effect<
+    ReturnChange,
+    Forbidden | NotFound | IllegalReturnMove | LabelsUnavailable | LabelNotPossible,
+    W
+  >
   readonly markReceived: (id: string) => Effect.Effect<ReturnChange, Forbidden | NotFound | IllegalReturnMove, R>
   readonly inspect: (
     input: typeof InspectInput.Type
@@ -81,15 +92,26 @@ export class ReturnsService extends Context.Service<ReturnsService, {
     ReturnsService,
     Effect.gen(function*() {
       const refunder = yield* Refunder
+      const labels = yield* Labels
       return {
-        list: (input) => Returns.list(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-        get: (id) => Returns.get(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        list: (input) =>
+          Returns.list(input).pipe(
+            Effect.provideService(Labels, labels),
+            Effect.catchIf(SqlError.isSqlError, Effect.die)
+          ),
+        get: (id) =>
+          Returns.get(id).pipe(Effect.provideService(Labels, labels), Effect.catchIf(SqlError.isSqlError, Effect.die)),
         returnable: (orderId) => Returns.returnable(orderId).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         start: (input) => Commands.start(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         approve: (input) => Commands.approve(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         reject: (input) => Commands.reject(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         reopen: (id) => Commands.reopen(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         assign: (input) => Commands.assign(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        sendLabel: (input) =>
+          Commands.sendLabel(input).pipe(
+            Effect.provideService(Labels, labels),
+            Effect.catchIf(SqlError.isSqlError, Effect.die)
+          ),
         markReceived: (id) => Commands.markReceived(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         inspect: (input) => Commands.inspect(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         resolve: (input) =>
