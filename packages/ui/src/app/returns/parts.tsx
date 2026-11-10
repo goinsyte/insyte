@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { type ReactElement, useState } from "react";
+import { Blocked } from "../access/blocked";
+import type { TeamGate } from "./source";
 import { Box, Check, CreditCard as Gift, MapPin, RotateCcw, Sparkle, Tag, Truck, User } from "../../icons";
 import { StatusBadge } from "../common/status-badge";
 import { FormDialog, TextAreaField } from "../common/form-dialog";
@@ -26,6 +28,11 @@ import { InsyteMark } from "../ask/parts";
  * the timeline rows (shopper, team, carrier, Insyte, hub) and the reject dialog. Everything else is
  * the house's: DataTable, DetailShell, FormDialog, ConfirmDialog, EmptyPage.
  */
+
+/** A control the role may not use: disabled, with what is missing, from the host's gate. */
+export function GateBy({ gate, children }: { gate: TeamGate; children: ReactElement }) {
+	return gate.ok ? children : <Blocked reason={gate.reason}>{children}</Blocked>;
+}
 
 export function ReturnStatusBadge({ status, late }: { status: ReturnStatus; late?: boolean }) {
 	if (late && status === "review") return <StatusBadge tone="danger">Te beoordelen · te laat</StatusBadge>;

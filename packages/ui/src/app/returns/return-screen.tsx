@@ -1,36 +1,19 @@
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useState } from "react";
-import { toast } from "sonner";
 import { AlertTriangle, Check, ExternalLink, Package as PackageCheck, RotateCcw, Send, Truck, User, XCircle } from "../../icons";
-import { Gate } from "../access/gate";
-import { AgentSuggestion, RecordAgentRows, useMyName, useNow } from "../ask/agent-parts";
+import { useNow } from "../hooks/use-now";
 import { ConfirmDialog } from "../common/confirm-dialog";
 import { DetailShell } from "../common/detail-shell";
 import { EmptyState } from "../common/empty-state";
 import { FormDialog } from "../common/form-dialog";
 import { ProductThumb } from "../product/product-thumb";
-import { useProducts } from "../hooks/use-operator-data";
 import { formatCurrency } from "../lib/format";
 import { countryName } from "../lib/format-flag";
 import { euro } from "../lib/permissions";
-import {
-	amountOf,
-	pastDeadline,
-	type Resolution,
-	RESOLUTION_LABEL,
-	resolutionAmount,
-	resolutionsFor,
-	type ReturnRecord,
-	ruleFor,
-	windowCheck,
-	windowDaysFor,
-} from "../lib/returns";
-import { undoable } from "../lib/undo";
+import { amountOf, pastDeadline, type Resolution, RESOLUTION_LABEL, resolutionAmount, type ReturnRecord } from "../lib/returns";
 import { cn } from "../lib/utils";
-import { useCurrentRole, useGate } from "../stores/access-store";
-import { useReturns } from "../stores/returns-store";
-import { useWorkspace } from "../stores/workspace-store";
-import { CarrierMark, KindWord, reasonLabel, RejectDialog, ResolutionPicker, ReturnStatusBadge, ReturnTimeline } from "./parts";
+import { CarrierMark, GateBy, KindWord, RejectDialog, ResolutionPicker, ReturnStatusBadge, ReturnTimeline } from "./parts";
+import { type ReturnView, useReturnDetailSource } from "./source";
 
 const ago = (iso: string, now: number) => {
 	const h = Math.floor((now - Date.parse(iso)) / 3_600_000);
@@ -45,120 +28,109 @@ const day = (d: Date | string) => new Intl.DateTimeFormat("nl-NL", { day: "numer
  */
 export function ReturnDetailPage() {
 	const { returnId } = useParams({ strict: false }) as { returnId?: string };
-	const r = useReturns((s) => s.records.find((x) => x.id === returnId));
-	if (!r) {
+	const view = useReturnDetailSource().useView(returnId);
+	if (!view) {
 		return (
 			<DetailShell crumb={{ label: "Retouren", to: "/returns" }} title="Retour niet gevonden">
 				<EmptyState kind="returns" title="Deze retour bestaat niet (meer)." body="Misschien is hij in een andere ontwerpstaat gemaakt. Ga terug naar de lijst." />
 			</DetailShell>
 		);
 	}
-	return <Detail r={r} />;
+	return <Detail view={view} />;
 }
 
-function Detail({ r }: { r: ReturnRecord }) {
+function Detail({ view }: { view: ReturnView }) {
 	const navigate = useNavigate();
-	const settings = useReturns((s) => s.settings);
-	const all = useReturns((s) => s.records);
-	const members = useWorkspace((s) => s.members);
-	const { data: products } = useProducts();
+	const source = useReturnDetailSource();
+	const { commands, gates } = source;
+	const { record: r, window: win, rule, offered, earlier, assignee, address } = view;
 	const now = useNow(60_000);
-	const me = useMyName();
-	const role = useCurrentRole();
-	const approve = useGate("returns.approve");
+	const role = source.role;
+	const approve = gates.approve;
 	const amount = amountOf(r);
-	const reason = settings.reasons.find((x) => x.id === r.reason);
-	const win = windowCheck(r.deliveredAt, windowDaysFor(r.kind, reason, settings), now);
-	const product = products.find((p) => p.id === r.items[0]?.productId);
-	const rule = r.items[0] ? ruleFor(settings.rules, { productId: r.items[0].productId, variantId: r.items[0].variantId, tags: [...(product?.tags ?? []), ...r.tags] }) : undefined;
-	const offered = resolutionsFor(settings.offered, rule, r.kind);
-	const earlier = all.filter((x) => x.customerEmail === r.customerEmail && x.id !== r.id).length;
 	const late = pastDeadline(r.status, r.deadline, now);
-	const assignee = members.find((m) => m.id === r.assignee);
-	const address = settings.addresses.find((a) => a.country === r.country) ?? settings.addresses.find((a) => a.country === (r.storeId === "store_us" ? "US" : "NL")) ?? settings.addresses[0];
 	const [rejecting, setRejecting] = useState(false);
 	const [resolving, setResolving] = useState(false);
-
-	const act = (label: string, undo: () => void, detail?: string) => undoable(label, undo, detail);
-	const store = useReturns.getState;
+	const said = (label: string, detail?: string) => ({ label, detail });
 
 	const actions = (
 		<>
 			{r.status === "review" ? (
 				<>
-					<Gate perm="returns.approve">
+					<GateBy gate={gates.approve}>
 						<button type="button" onClick={() => setRejecting(true)} className={QUIET}>
 							<XCircle className="size-3.5" strokeWidth={1.75} />
 							Afwijzen
 						</button>
-					</Gate>
+					</GateBy>
 					{r.kind === "claim" && r.requested === "replacement" ? (
-						<Gate perm="returns.approve">
-							<button type="button" onClick={() => act(`${r.number} goedgekeurd`, store().approve([r.id], me, true), "Nieuw artikel zonder terugsturen: klaar om af te handelen.")} className={WELL}>
+						<GateBy gate={gates.approve}>
+							<button type="button" onClick={() => commands.approve([r.id], said(`${r.number} goedgekeurd`, "Nieuw artikel zonder terugsturen: klaar om af te handelen."), true)} className={WELL}>
 								Goedkeuren zonder terugsturen
 							</button>
-						</Gate>
+						</GateBy>
 					) : null}
-					<Gate perm="returns.approve">
-						<button type="button" onClick={() => act(`${r.number} goedgekeurd`, store().approve([r.id], me), "Wacht nu op het pakket. Stuur het label om de klant te laten beginnen.")} className={PRIMARY}>
+					<GateBy gate={gates.approve}>
+						<button type="button" onClick={() => commands.approve([r.id], said(`${r.number} goedgekeurd`, commands.sendLabel ? "Wacht nu op het pakket. Stuur het label om de klant te laten beginnen." : "Wacht nu op het pakket."))} className={PRIMARY}>
 							<Check className="size-3.5" strokeWidth={2} />
 							Goedkeuren
 						</button>
-					</Gate>
+					</GateBy>
 				</>
 			) : r.status === "awaiting_parcel" ? (
 				<>
-					<Gate perm="returns" arg={2}>
-						<button type="button" onClick={() => act(`${r.number} ontvangen`, store().advance(r.id, "received", { at: new Date().toISOString(), who: "team", name: me, text: "Ontvangen gemarkeerd" }))} className={r.label ? PRIMARY : WELL}>
+					<GateBy gate={gates.work}>
+						<button type="button" onClick={() => commands.receive(r.id, said(`${r.number} ontvangen`))} className={r.label || !commands.sendLabel ? PRIMARY : WELL}>
 							<PackageCheck className="size-3.5" strokeWidth={1.75} />
 							Ontvangen markeren
 						</button>
-					</Gate>
-					{r.label ? null : (
-						<Gate perm="returns" arg={2}>
-							<button type="button" onClick={() => act("Wordt verstuurd…", store().sendLabel([r.id], me), `Retourlabel naar ${r.customerName}. Ongedaan maken kan tot het vertrekt.`)} className={PRIMARY}>
+					</GateBy>
+					{r.label || !commands.sendLabel ? null : (
+						<GateBy gate={gates.work}>
+							<button type="button" onClick={() => commands.sendLabel?.([r.id], said("Wordt verstuurd…", `Retourlabel naar ${r.customerName}. Ongedaan maken kan tot het vertrekt.`))} className={PRIMARY}>
 								<Send className="size-3.5" strokeWidth={1.75} />
 								Label versturen
 							</button>
-						</Gate>
+						</GateBy>
 					)}
 				</>
 			) : r.status === "in_transit" ? (
-				<Gate perm="returns" arg={2}>
-					<button type="button" onClick={() => act(`${r.number} ontvangen`, store().advance(r.id, "received", { at: new Date().toISOString(), who: "team", name: me, text: "Ontvangen gemarkeerd" }))} className={PRIMARY}>
+				<GateBy gate={gates.work}>
+					<button type="button" onClick={() => commands.receive(r.id, said(`${r.number} ontvangen`))} className={PRIMARY}>
 						<PackageCheck className="size-3.5" strokeWidth={1.75} />
 						Ontvangen markeren
 					</button>
-				</Gate>
+				</GateBy>
 			) : r.status === "received" ? (
-				<Gate perm="returns" arg={2}>
-					<button type="button" onClick={() => act(`${r.number} gecontroleerd`, store().advance(r.id, "ready", { at: new Date().toISOString(), who: "team", name: me, text: "Gecontroleerd: in orde" }))} className={PRIMARY}>
+				<GateBy gate={gates.work}>
+					<button type="button" onClick={() => commands.inspect(r.id, said(`${r.number} gecontroleerd`))} className={PRIMARY}>
 						<Check className="size-3.5" strokeWidth={2} />
 						Gecontroleerd, in orde
 					</button>
-				</Gate>
+				</GateBy>
 			) : r.status === "ready" ? (
-				<Gate perm="returns" arg={2}>
+				<GateBy gate={gates.work}>
 					<button type="button" onClick={() => setResolving(true)} className={PRIMARY}>
 						Afhandelen
 					</button>
-				</Gate>
+				</GateBy>
 			) : r.status === "rejected" ? (
-				<Gate perm="returns.approve">
-					<button type="button" onClick={() => act(`${r.number} opnieuw te beoordelen`, store().advance(r.id, "review", { at: new Date().toISOString(), who: "team", name: me, text: "Opnieuw te beoordelen" }))} className={WELL}>
+				<GateBy gate={gates.approve}>
+					<button type="button" onClick={() => commands.reopen(r.id, said(`${r.number} opnieuw te beoordelen`))} className={WELL}>
 						<RotateCcw className="size-3.5" strokeWidth={1.75} />
 						Opnieuw beoordelen
 					</button>
-				</Gate>
+				</GateBy>
 			) : null}
 		</>
 	);
 
-	const propose = r.status === "review" && win.inside && offered.includes(r.requested) && approve.ok;
+	const propose = !!source.agents && r.status === "review" && win.inside && offered.includes(r.requested) && approve.ok;
 
 	return (
 		<DetailShell
 			crumb={{ label: "Retouren", to: "/returns" }}
+			arriving={view.arriving}
 			title={r.number}
 			badge={
 				<span className="flex items-center gap-1.5">
@@ -171,43 +143,7 @@ function Detail({ r }: { r: ReturnRecord }) {
 		>
 			<div className="grid grid-cols-1 gap-4 pb-16 lg:grid-cols-[minmax(0,1fr)_320px] sm:pb-0">
 				<div className="flex min-w-0 flex-col gap-4">
-					{propose ? (
-						<AgentSuggestion
-							id={`approve:${r.id}`}
-							action="ApproveReturn"
-							level={2}
-							proposal={{
-								title: `Goedkeuren en ${r.requested === "exchange" && r.exchangeTo ? `ruilen naar ${r.exchangeTo}` : RESOLUTION_LABEL[r.requested].toLowerCase()}`,
-								body: `${r.customerName} stuurt ${r.items.map((i) => `${i.qty}× ${i.title} (${i.variantTitle})`).join(", ")} terug: ${reasonLabel(settings.reasons, r.reason).toLowerCase()}. Alles past binnen je regels.`,
-								confidence: earlier === 0 ? 93 : 81,
-								why: `Binnen de termijn (dag ${win.daysSince} van ${win.days}), het artikel is retourneerbaar en ${earlier === 0 ? "dit is de eerste retour van deze klant" : `deze klant deed eerder ${earlier} ${earlier === 1 ? "retour" : "retouren"}`}.`,
-								fileLabel: "Goedkeuren",
-								action: { kind: "open", to: `/returns/${r.id}` },
-							}}
-							evidence={
-								<ul className="flex flex-col gap-1 text-mesh-ink text-sm">
-									<li className="flex items-center gap-2"><Check className="size-3.5 text-mesh-ink-2" strokeWidth={2} />Binnen de termijn: bezorgd {win.daysSince} {win.daysSince === 1 ? "dag" : "dagen"} geleden</li>
-									<li className="flex items-center gap-2"><Check className="size-3.5 text-mesh-ink-2" strokeWidth={2} />{rule ? `Regel: ${rule.note}` : "Geen uitzondering op dit artikel"}</li>
-									<li className="flex items-center gap-2"><Check className="size-3.5 text-mesh-ink-2" strokeWidth={2} />{earlier === 0 ? "Eerste retour van deze klant" : `${earlier} eerdere ${earlier === 1 ? "retour" : "retouren"}`}</li>
-								</ul>
-							}
-							draft={{
-								sentence: `${r.number} goedgekeurd: ${r.requested === "exchange" && r.exchangeTo ? `ruilen naar ${r.exchangeTo}` : RESOLUTION_LABEL[r.requested].toLowerCase()}`,
-								record: { kind: "return", label: r.number, to: `/returns/${r.id}`, id: r.id },
-								trigger: "Retourportaal",
-								sources: [
-									{ kind: "order", title: r.orderNumber, detail: `Bezorgd ${day(r.deliveredAt)}`, to: `/orders/${r.orderId}` },
-									{ kind: "policy", title: "Retourinstellingen", detail: `Termijn ${win.days} dagen`, to: "/settings/returns" },
-								],
-								reason: "Binnen de termijn, retourneerbaar en zonder eerdere retouren.",
-								compensation: "Terugzetten naar Te beoordelen",
-							}}
-							perform={() => {
-								store().approve([r.id], "Insyte");
-								return { effect: { kind: "return.status", returnId: r.id, from: "review", to: "awaiting_parcel" }, before: "Te beoordelen", after: "Wacht op pakket" };
-							}}
-						/>
-					) : null}
+					{propose && source.agents ? <source.agents.Proposal view={view} /> : null}
 					{r.status === "review" && !win.inside ? (
 						<p className="flex items-start gap-2 rounded-lg bg-signal-amber-bg px-3.5 py-2.5 text-ink text-sm">
 							<AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-signal-amber" strokeWidth={2} />
@@ -225,13 +161,17 @@ function Detail({ r }: { r: ReturnRecord }) {
 						<ul className="flex flex-col gap-2">
 							{r.items.map((i) => (
 								<li key={i.lineId} className="flex items-center gap-3">
-									<ProductThumb src={products.find((p) => p.id === i.productId)?.images[0]} title={i.title} size={40} />
+									<ProductThumb src={view.imageOf(i)} title={i.title} size={40} />
 									<span className="flex min-w-0 flex-1 flex-col">
-										<Link to="/products/$productId" params={{ productId: i.productId }} className="truncate font-medium text-base text-ink hover:text-arc-ink">
-											{i.title}
-										</Link>
+										{i.productId ? (
+											<Link to="/products/$productId" params={{ productId: i.productId }} className="truncate font-medium text-base text-ink hover:text-arc-ink">
+												{i.title}
+											</Link>
+										) : (
+											<span className="truncate font-medium text-base text-ink">{i.title}</span>
+										)}
 										<span className="text-ink-3 text-sm">
-											{i.variantTitle} · {i.qty}× {formatCurrency(i.unitPrice, r.currency)}
+											{i.variantTitle ? `${i.variantTitle} · ` : ""}{i.qty}× {formatCurrency(i.unitPrice, r.currency)}
 											{r.exchangeTo ? ` · ruilen naar ${r.exchangeTo}` : ""}
 										</span>
 									</span>
@@ -244,12 +184,12 @@ function Detail({ r }: { r: ReturnRecord }) {
 					<section className="flex flex-col gap-3 rounded-xl px-5 py-4 panel">
 						<h2 className="font-medium text-ink text-md">Wat de klant zegt</h2>
 						<p className="flex flex-wrap items-center gap-2 text-sm">
-							<span className="rounded-sm bg-mist px-1.5 py-px text-ink-2">{reasonLabel(settings.reasons, r.reason)}</span>
+							<span className="rounded-sm bg-mist px-1.5 py-px text-ink-2">{view.reasonLabel}</span>
 							<span className="text-ink-3">wil</span>
 							<span className="font-medium text-ink">{RESOLUTION_LABEL[r.requested]}{r.exchangeTo ? ` naar ${r.exchangeTo}` : ""}</span>
 							{r.quality ? <span className="rounded-sm bg-signal-amber-bg px-1.5 py-px text-signal-amber text-xs">Telt mee voor kwaliteit</span> : null}
 						</p>
-						<blockquote className="max-w-[68ch] text-base text-ink leading-relaxed">“{r.note}”</blockquote>
+						{r.note ? <blockquote className="max-w-[68ch] text-base text-ink leading-relaxed">“{r.note}”</blockquote> : null}
 						{r.photos.length ? (
 							<ul className="flex flex-wrap gap-2">
 								{r.photos.map((src, i) => (
@@ -260,7 +200,7 @@ function Detail({ r }: { r: ReturnRecord }) {
 									</li>
 								))}
 							</ul>
-						) : reason?.photoRequired ? (
+						) : view.photoRequired ? (
 							<p className="text-signal-amber text-sm">Foto verplicht voor deze reden, maar de klant stuurde er geen.</p>
 						) : null}
 					</section>
@@ -275,17 +215,17 @@ function Detail({ r }: { r: ReturnRecord }) {
 										<span className="font-medium text-ink text-sm tabular-nums">{r.label.tracking}</span>
 										<span className="text-ink-3 text-xs">{r.label.carrier} · verstuurd {ago(r.label.sentAt, now)}</span>
 									</span>
-									{r.status === "awaiting_parcel" ? (
-										<Gate perm="returns" arg={2}>
+									{r.status === "awaiting_parcel" && commands.scan ? (
+										<GateBy gate={gates.work}>
 											<button
 												type="button"
-												onClick={() => act(`${r.number} onderweg`, store().advance(r.id, "in_transit", { at: new Date().toISOString(), who: "carrier", name: r.label?.carrier ?? "", text: "Pakket aangenomen" }), "Gesimuleerde scan van de vervoerder.")}
+												onClick={() => commands.scan?.(r, said(`${r.number} onderweg`, "Gesimuleerde scan van de vervoerder."))}
 												className={cn(QUIET, "ml-auto")}
 											>
 												<Truck className="size-3.5" strokeWidth={1.75} />
 												Scan van vervoerder
 											</button>
-										</Gate>
+										</GateBy>
 									) : null}
 								</div>
 							) : null}
@@ -303,19 +243,26 @@ function Detail({ r }: { r: ReturnRecord }) {
 					<section className="flex flex-col gap-3 rounded-xl px-5 py-4 panel">
 						<h2 className="font-medium text-ink text-md">Geschiedenis</h2>
 						<ReturnTimeline events={r.events} />
-						<RecordAgentRows kind="return" id={r.id} />
+						{source.agents ? <source.agents.Rows id={r.id} /> : null}
 					</section>
 				</div>
 
 				<aside className="flex flex-col gap-4">
 					<section className="flex flex-col gap-3 rounded-xl px-5 py-4 panel">
 						<h2 className="font-medium text-ink text-md">Klant</h2>
-						<Link to="/customers/$customerId" params={{ customerId: r.customerId }} className="flex items-center gap-2 font-medium text-base text-ink hover:text-arc-ink">
-							<User className="size-4 text-ink-3" strokeWidth={1.75} />
-							{r.customerName}
-						</Link>
+						{r.customerId ? (
+							<Link to="/customers/$customerId" params={{ customerId: r.customerId }} className="flex items-center gap-2 font-medium text-base text-ink hover:text-arc-ink">
+								<User className="size-4 text-ink-3" strokeWidth={1.75} />
+								{r.customerName}
+							</Link>
+						) : (
+							<span className="flex items-center gap-2 font-medium text-base text-ink">
+								<User className="size-4 text-ink-3" strokeWidth={1.75} />
+								{r.customerName}
+							</span>
+						)}
 						<p className="text-ink-2 text-sm">{r.customerEmail}</p>
-						<p className="text-ink-3 text-sm">{earlier === 0 ? "Eerste retour" : `${earlier} eerdere ${earlier === 1 ? "retour" : "retouren"}`} · {countryName(r.country)}</p>
+						<p className="text-ink-3 text-sm">{earlier === 0 ? "Eerste retour" : `${earlier} eerdere ${earlier === 1 ? "retour" : "retouren"}`}{r.country ? ` · ${countryName(r.country)}` : ""}</p>
 					</section>
 					<dl className="flex flex-col gap-3 rounded-xl px-5 py-4 panel">
 						<Fact k="Bestelling">
@@ -332,11 +279,11 @@ function Detail({ r }: { r: ReturnRecord }) {
 						<Fact k="Toegewezen aan">
 							<span className="flex items-center gap-2">
 								<span className="text-ink">{assignee?.name ?? "Niemand"}</span>
-								<Gate perm="returns" arg={2}>
-									<button type="button" onClick={() => act(assignee ? "Toewijzing weggehaald" : `${r.number} aan jou toegewezen`, store().assign([r.id], assignee ? undefined : "mem_elena", me))} className="font-medium text-arc-ink text-xs hover:underline disabled:opacity-45">
+								<GateBy gate={gates.work}>
+									<button type="button" onClick={() => commands.assign([r.id], assignee ? null : source.meId, said(assignee ? "Toewijzing weggehaald" : `${r.number} aan jou toegewezen`))} className="font-medium text-arc-ink text-xs hover:underline disabled:opacity-45">
 										{assignee ? "Weghalen" : "Aan mij"}
 									</button>
-								</Gate>
+								</GateBy>
 							</span>
 						</Fact>
 						{address ? <Fact k="Retouradres"><span className="text-ink-2">{address.address} · {address.carrier}</span></Fact> : null}
@@ -355,7 +302,7 @@ function Detail({ r }: { r: ReturnRecord }) {
 				count={1}
 				open={rejecting}
 				onClose={() => setRejecting(false)}
-				onReject={(why) => act(`${r.number} afgewezen`, store().reject([r.id], why, me), "De klant krijgt de reden per mail zodra dit venster sluit.")}
+				onReject={(why) => commands.reject([r.id], why, said(`${r.number} afgewezen`, "De klant krijgt de reden per mail zodra dit venster sluit."))}
 			/>
 			<ResolveDialog r={r} open={resolving} offered={offered} onClose={() => setResolving(false)} roleLimit={role.refundLimit} roleLabel={role.label} />
 		</DetailShell>
@@ -375,37 +322,18 @@ function Fact({ k, children }: { k: string; children: React.ReactNode }) {
  * Afhandelen: the resolution picker, then — for anything but a refund — done, with Undo. A refund
  * leaves the building, so it asks first, naming the amount and the role's limit, and has no Undo.
  */
-function ResolveDialog({ r, open, offered, onClose, roleLimit, roleLabel }: { r: ReturnRecord; open: boolean; offered: Resolution[]; onClose: () => void; roleLimit: number | null; roleLabel: string }) {
-	const settings = useReturns((s) => s.settings);
-	const me = useMyName();
+function ResolveDialog({ r, open, offered, onClose, roleLimit, roleLabel }: { r: ReturnRecord; open: boolean; offered: ReadonlyArray<Resolution>; onClose: () => void; roleLimit: number | null; roleLabel: string }) {
+	const source = useReturnDetailSource();
+	const settings = source.money;
 	const [pick, setPick] = useState<Resolution | null>(null);
 	const [confirm, setConfirm] = useState(false);
 	const chosen = pick ?? (offered.includes(r.requested) ? r.requested : offered[0]) ?? "refund";
 	const amount = resolutionAmount(chosen, amountOf(r), settings);
-	const refundGate = useGate("refunds.write", amount);
+	const refundGate = source.useRefundGate(amount);
 	const money = formatCurrency(amount, r.currency, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 	const settle = () => {
-		const store = useReturns.getState();
-		if (chosen === "exchange" || chosen === "replacement") {
-			const ws = useWorkspace.getState();
-			const order = ws.createOrder({
-				customer_name: r.customerName,
-				customer_email: r.customerEmail,
-				store: ws.stores.find((s) => s.id === r.storeId)?.name ?? "",
-				notes: `${chosen === "exchange" ? "Ruil" : "Vervanging"} voor ${r.number}`,
-				items: r.items.map((i) => ({ sku: i.variantId ?? i.lineId, title: i.title, qty: i.qty, price: 0 })),
-			});
-			useWorkspace.setState((s) => ({ orders: s.orders.map((o) => (o.id === order.id ? { ...o, tags: ["retour"], status: "paid", payment_status: "paid" } : o)) }));
-			const undo = store.resolve(r.id, chosen, amount, me, order.number);
-			undoable(`${r.number} afgehandeld: ${RESOLUTION_LABEL[chosen].toLowerCase()}`, () => {
-				undo();
-				ws.removeOrder(order.id);
-			}, `Nieuwe bestelling ${order.number} staat klaar om door te sturen.`);
-		} else {
-			const undo = store.resolve(r.id, chosen, amount, me);
-			undoable(`${r.number} afgehandeld: ${RESOLUTION_LABEL[chosen].toLowerCase()}`, undo, chosen === "gift_card" ? `Cadeaubon van ${money} wordt gemaild.` : `Kortingscode ter waarde van ${money} wordt gemaild.`);
-		}
+		source.commands.settle(r, chosen, amount);
 		onClose();
 		setPick(null);
 	};
@@ -439,9 +367,7 @@ function ResolveDialog({ r, open, offered, onClose, roleLimit, roleLabel }: { r:
 				description={`Het geld gaat terug op de oorspronkelijke betaalmethode van ${r.orderNumber}. Dit kan niet worden teruggedraaid. ${roleLimit === null ? `Je rol ${roleLabel} heeft geen terugbetaallimiet.` : `Je rol ${roleLabel} mag tot ${euro(roleLimit)} per bestelling terugbetalen.`}`}
 				confirmLabel={`${money} terugbetalen`}
 				onConfirm={() => {
-					useReturns.getState().resolve(r.id, "refund", amount, me);
-					useWorkspace.getState().addOrderNote(r.orderId, `${money} terugbetaald voor ${r.number}`);
-					toast(`${money} terugbetaald`, { description: `${r.number} is afgehandeld. ${r.customerName} krijgt een bevestiging.` });
+					source.commands.refund(r, amount);
 					setConfirm(false);
 					onClose();
 					setPick(null);

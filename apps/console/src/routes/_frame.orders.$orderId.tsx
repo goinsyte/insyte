@@ -12,6 +12,10 @@ import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { orderAtom, ordersAtom } from "../data/orders.ts"
 import { ConsoleTracker } from "../orders/forwarding-source.tsx"
 import { arrivingOrderDetail, useConsoleOrderDetail } from "../orders/order-detail-source.ts"
+import { ConsoleOrderReturns, ConsoleStartReturn } from "../returns/returns-source.tsx"
+
+/** The order's returns in its sidebar, and "Retour starten" (M9.1). */
+const RETURNS = { Dialog: ConsoleStartReturn, Panel: ConsoleOrderReturns }
 
 /**
  * One order (step 8.4d, M6.4): the reference's record over `Orders.get`. Reached by its URL, the server reads it
@@ -77,7 +81,7 @@ function OrderRoute() {
 
 function Loaded({ detail }: { detail: OrderDetail }) {
   return (
-    <OrderDetailSourceProvider value={{ ...useConsoleOrderDetail(detail), Tracker: ConsoleTracker }}>
+    <OrderDetailSourceProvider value={{ ...useConsoleOrderDetail(detail), Tracker: ConsoleTracker, Returns: RETURNS }}>
       <OrderDetailPage />
     </OrderDetailSourceProvider>
   )

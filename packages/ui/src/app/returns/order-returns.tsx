@@ -1,27 +1,20 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { RotateCcw } from "../../icons";
-import { useMyName } from "../ask/agent-parts";
 import { OPEN_AS_MODAL } from "../common/detail-shell";
 import { FormDialog, TextAreaField } from "../common/form-dialog";
-import { useProducts } from "../hooks/use-operator-data";
-import { type ReasonId, type Resolution, RESOLUTION_LABEL, type ReturnKind } from "../lib/returns";
+import { type ReasonDef, type ReasonId, type Resolution, RESOLUTION_LABEL, type ReturnKind, type ReturnRecord } from "../lib/returns";
 import type { Order } from "../lib/types/domain";
-import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { deliveriesSeed } from "../../data-source";
-import { useReturns } from "../stores/returns-store";
-import { useWorkspace } from "../stores/workspace-store";
 import { ProductThumb } from "../product/product-thumb";
 import { ReturnStatusBadge } from "./parts";
+import type { StartDraft, StartLine, StartOrder } from "./source";
 
 /**
  * The returns and claims on one order, in its sidebar, each opening its record. The operator can
- * start one for a shopper who called or mailed (`StartReturnDialog`).
+ * start one for a shopper who called or mailed (`StartReturnForm`).
  */
-export function OrderReturns({ order, onStart }: { order: Order; onStart: () => void }) {
-	const all = useReturns((s) => s.records);
-	const records = useMemo(() => all.filter((r) => r.orderId === order.id), [all, order.id]);
+export function OrderReturnsPanel({ records, onStart }: { records: ReadonlyArray<ReturnRecord>; onStart: () => void }) {
 	const navigate = useNavigate();
 	return (
 		<section className="flex flex-col gap-3 rounded-xl px-5 py-4 panel">
@@ -51,24 +44,34 @@ export function OrderReturns({ order, onStart }: { order: Order; onStart: () => 
 	);
 }
 
-const SIZE: Record<string, string> = { s: "Klein", m: "Middel", l: "Groot" };
-
 /**
  * A return started by the operator: which lines, why, what the shopper wants. It lands in Te
  * beoordelen like one from the portal, with the operator as its first entry.
  */
-export function StartReturnDialog({ order, open, onClose }: { order: Order; open: boolean; onClose: () => void }) {
-	const settings = useReturns((s) => s.settings);
-	const { data: products } = useProducts();
-	const me = useMyName();
-	const navigate = useNavigate();
+export function StartReturnForm({
+	order,
+	open,
+	onClose,
+	reasons,
+	offered: storeOffers,
+	lines: orderLines,
+	onStart,
+}: {
+	order: StartOrder;
+	open: boolean;
+	onClose: () => void;
+	reasons: ReadonlyArray<ReasonDef>;
+	offered: ReadonlyArray<Resolution>;
+	lines: ReadonlyArray<StartLine>;
+	onStart: (draft: StartDraft) => void;
+}) {
 	const [lines, setLines] = useState<string[]>([]);
-	const [reason, setReason] = useState<ReasonId>("too_small");
+	const [reason, setReason] = useState<ReasonId>(reasons[0]?.id ?? "too_small");
 	const [want, setWant] = useState<Resolution>("refund");
 	const [note, setNote] = useState("");
-	const def = settings.reasons.find((r) => r.id === reason);
+	const def = reasons.find((r) => r.id === reason);
 	const kind: ReturnKind = def?.claim ? "claim" : "return";
-	const offered = settings.offered.filter((r) => (kind === "return" ? r !== "replacement" : true));
+	const offered = storeOffers.filter((r) => (kind === "return" ? r !== "replacement" : true));
 
 	const reset = () => {
 		setLines([]);
@@ -89,39 +92,14 @@ export function StartReturnDialog({ order, open, onClose }: { order: Order; open
 			disabled={lines.length === 0}
 			width={600}
 			onSubmit={() => {
-				const items = order.line_items
-					.filter((l) => lines.includes(l.id))
-					.map((l) => ({ lineId: l.id, productId: l.product_id, variantId: l.variant_id, title: products.find((p) => p.id === l.product_id)?.title ?? l.title, variantTitle: SIZE[l.variant_id.slice(-1)] ?? l.variant_title, qty: 1, unitPrice: l.unit_price }));
-				const rec = useReturns.getState().create(
-					{
-						kind,
-						orderId: order.id,
-						orderNumber: order.number,
-						customerId: order.customer_id,
-						customerName: order.customer_name,
-						customerEmail: order.customer_email,
-						storeId: order.store_id,
-						country: order.shipping_address?.country ?? "NL",
-						currency: order.currency,
-						items,
-						reason,
-						note: note.trim() || "Gemeld bij het team.",
-						photos: [],
-						requested: want,
-						deliveredAt: deliveriesSeed[order.id] ?? order.updated_at,
-					},
-					{ at: new Date().toISOString(), who: "team", name: me, text: `${kind === "claim" ? "Claim" : "Retour"} gestart namens de klant` },
-				);
-				undoable(`${rec.number} aangemaakt`, () => useReturns.setState((s) => ({ records: s.records.filter((r) => r.id !== rec.id) })));
+				onStart({ orderId: order.id, lines, reason, want, note });
 				onClose();
 				reset();
-				void navigate({ to: "/returns/$returnId", params: { returnId: rec.id }, state: OPEN_AS_MODAL });
 			}}
 		>
 			<ul className="flex flex-col gap-1.5">
-				{order.line_items.map((l) => {
+				{orderLines.map((l) => {
 					const on = lines.includes(l.id);
-					const p = products.find((x) => x.id === l.product_id);
 					return (
 						<li key={l.id}>
 							<button
@@ -130,8 +108,8 @@ export function StartReturnDialog({ order, open, onClose }: { order: Order; open
 								onClick={() => setLines((x) => (on ? x.filter((y) => y !== l.id) : [...x, l.id]))}
 								className={cn("flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors", on ? "bg-arc-tint" : "bg-mist hover:bg-ink/6")}
 							>
-								<ProductThumb src={p?.images[0]} title={l.title} size={32} />
-								<span className="min-w-0 flex-1 truncate text-ink text-sm">{p?.title ?? l.title} · {SIZE[l.variant_id.slice(-1)] ?? l.variant_title}</span>
+								<ProductThumb src={l.image} title={l.title} size={32} />
+								<span className="min-w-0 flex-1 truncate text-ink text-sm">{l.label}</span>
 								<span className={cn("text-xs", on ? "font-medium text-arc-ink" : "text-ink-3")}>{on ? "Gaat terug" : "Kiezen"}</span>
 							</button>
 						</li>
@@ -141,7 +119,7 @@ export function StartReturnDialog({ order, open, onClose }: { order: Order; open
 			<div className="flex flex-col gap-1.5">
 				<span className="font-medium text-ink-3 text-sm">Reden</span>
 				<div className="flex flex-wrap gap-1.5">
-					{settings.reasons.map((r) => (
+					{reasons.map((r) => (
 						<button key={r.id} type="button" aria-pressed={reason === r.id} onClick={() => setReason(r.id)} className={cn("h-7 rounded-md px-2.5 font-medium text-sm", reason === r.id ? "bg-abyss text-mesh-ink" : "bg-mist text-ink-2 hover:text-ink")}>
 							{r.label}
 						</button>
@@ -168,9 +146,7 @@ export function StartReturnDialog({ order, open, onClose }: { order: Order; open
 
 
 /** A customer's returns and claims, newest first, in their sidebar. Nothing when there are none. */
-export function CustomerReturns({ email }: { email: string }) {
-	const all = useReturns((s) => s.records);
-	const records = useMemo(() => all.filter((r) => r.customerEmail === email), [all, email]);
+export function CustomerReturnsPanel({ records }: { records: ReadonlyArray<ReturnRecord> }) {
 	const navigate = useNavigate();
 	if (records.length === 0) return null;
 	return (
@@ -192,8 +168,7 @@ export function CustomerReturns({ email }: { email: string }) {
 }
 
 /** "Retour starten" from anywhere but an order: find the order first, by number or name. */
-export function OrderPickDialog({ open, onClose, onPick }: { open: boolean; onClose: () => void; onPick: (o: Order) => void }) {
-	const orders = useWorkspace((s) => s.orders);
+export function OrderPickForm({ open, onClose, onPick, orders }: { open: boolean; onClose: () => void; onPick: (o: StartOrder) => void; orders: ReadonlyArray<PickOrder> }) {
 	const [q, setQ] = useState("");
 	const sent = orders.filter((o) => o.status === "delivered" || o.status === "shipped");
 	const hits = sent.filter((o) => `${o.number} ${o.customer_name} ${o.customer_email}`.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 8);
@@ -206,7 +181,7 @@ export function OrderPickDialog({ open, onClose, onPick }: { open: boolean; onCl
 						<button type="button" onClick={() => onPick(o)} className="flex w-full items-center gap-3 rounded-lg bg-mist px-3 py-2 text-left hover:bg-ink/6">
 							<span className="font-medium text-ink text-sm tabular-nums">{o.number}</span>
 							<span className="min-w-0 flex-1 truncate text-ink-2 text-sm">{o.customer_name}</span>
-							<span className="text-ink-3 text-xs">{o.line_items.length} {o.line_items.length === 1 ? "artikel" : "artikelen"}</span>
+							<span className="text-ink-3 text-xs">{lineCount(o)} {lineCount(o) === 1 ? "artikel" : "artikelen"}</span>
 						</button>
 					</li>
 				))}
@@ -215,3 +190,7 @@ export function OrderPickDialog({ open, onClose, onPick }: { open: boolean; onCl
 		</FormDialog>
 	);
 }
+
+type PickOrder = Pick<Order, "id" | "number" | "customer_name" | "customer_email" | "status" | "line_items" | "line_count">;
+
+const lineCount = (o: PickOrder) => o.line_count ?? o.line_items.length;

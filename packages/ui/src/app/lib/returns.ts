@@ -53,7 +53,8 @@ export const RESOLUTION_DETAIL: Record<Resolution, string> = {
 	discount: "een kortingscode voor een volgende bestelling",
 };
 
-export type ReasonId = "too_small" | "too_big" | "not_as_expected" | "damaged" | "wrong_item" | "quality";
+/** The default reasons' ids; a workspace may add its own. */
+export type ReasonId = "too_small" | "too_big" | "not_as_expected" | "damaged" | "wrong_item" | "quality" | (string & {});
 
 export type ReasonDef = {
 	id: ReasonId;
@@ -210,6 +211,9 @@ export type ReturnRecord = {
 	/** The order's currency: what was paid is what comes back. */
 	currency: Currency;
 	items: ReturnItem[];
+	/** What it is worth and how many units, where the host has them without the lines (a list row). */
+	amount?: number | undefined;
+	units?: number | undefined;
 	reason: ReasonId;
 	/** The shopper's own words. */
 	note: string;
@@ -247,4 +251,6 @@ export type ReturnSettings = {
 	portal: { on: boolean; handle: string; intro: string; done: string };
 };
 
-export const amountOf = (r: Pick<ReturnRecord, "items">) => r.items.reduce((n, i) => n + i.qty * i.unitPrice, 0);
+export const amountOf = (r: Pick<ReturnRecord, "items" | "amount">) => r.amount ?? r.items.reduce((n, i) => n + i.qty * i.unitPrice, 0);
+
+export const unitsOf = (r: Pick<ReturnRecord, "items" | "units">) => r.units ?? r.items.reduce((n, i) => n + i.qty, 0);

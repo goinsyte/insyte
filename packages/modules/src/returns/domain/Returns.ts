@@ -59,6 +59,7 @@ export class ReturnRow extends Schema.Class<ReturnRow>("returns/ReturnRow")({
     kind: Resolution,
     amountMinor: Schema.Int,
     at: Schema.Finite,
+    /** Who settled it: the teammate's name, or the API key's. */
     by: Schema.String,
     replacementOrder: Schema.NullOr(Schema.Struct({ id: Schema.String, number: Schema.String }))
   })),

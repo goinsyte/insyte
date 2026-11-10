@@ -134,6 +134,9 @@ describe("returns", () => {
       "Gecontroleerd: in orde",
       "Afgehandeld: terugbetaald"
     ])
+    // Who settled it is said by name, as the history says it.
+    expect(done.record.resolution?.by).toBe(done.events.at(-1)?.name)
+    expect(done.record.resolution?.by).not.toMatch(/^mem_/)
     const { counts } = ok(await rpc("Returns.list", {}, store.cookie))
     expect(counts).toMatchObject({ total: 1, resolved: 1, review: 0, returns: 1, claims: 0 })
   })

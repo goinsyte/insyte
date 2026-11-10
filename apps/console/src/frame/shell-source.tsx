@@ -266,12 +266,15 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     workspaceName: frame.workspace.name,
     // ADR-0028: the design's demo counts dropped, the server's in their place.
     useRecordSearch: useConsoleRecordSearch,
-    unavailable: (kind) => NOT_YET[kind] ?? "Dit kan hier nog niet",
+    // A return is started from its page (M9.1); the rest is not made from the console yet.
+    unavailable: (kind) => kind === "return" ? null : NOT_YET[kind] ?? "Dit kan hier nog niet",
     panelFor: (pathname) => {
       const cfg = panelForPath(pathname)
       if (cfg === null) return null
-      // Nothing is made from the console yet (M7 onwards): its button is off, and says so as the page's own does.
+      // Only a return is made from the console yet (M9.1): any other button is off, and says so as its page does.
       const panel = cfg.cta === undefined
+        ? cfg
+        : cfg.cta.create === "return"
         ? cfg
         : { ...cfg, cta: { ...cfg.cta, unavailable: NOT_YET[cfg.cta.create ?? ""] ?? "Dit kan hier nog niet" } }
       return withServerCounts(panel, frame.counts)

@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react"
 import { Forbidden, NotFound } from "@insyte/domain/Errors"
+import type { CustomerDetail as Detail } from "@insyte/modules/customers/domain/Customers"
 import { DeniedPanel } from "@insyte/ui/app/access/denied"
 import { CustomerDetail } from "@insyte/ui/app/customers/customer-screen"
 import { CustomerDetailSourceProvider } from "@insyte/ui/app/customers/detail-source"
@@ -10,6 +11,7 @@ import { Effect, Exit, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { arrivingCustomerDetail, consoleCustomerDetail } from "../customers/customer-detail-source.ts"
 import { customerAtom, customersAtom } from "../data/customers.ts"
+import { useConsoleCustomerReturns } from "../returns/returns-source.tsx"
 
 /**
  * One customer (step 8.4e, M6.4): the reference's profile over `Customers.get`, as the order is. Reached by its URL,
@@ -44,13 +46,7 @@ function CustomerRoute() {
   const result = useAtomValue(customerAtom(customerId))
   const list = Option.getOrUndefined(AsyncResult.value(useAtomValue(customersAtom)))
   const detail = Option.getOrUndefined(AsyncResult.value(result))
-  if (detail !== undefined) {
-    return (
-      <CustomerDetailSourceProvider value={consoleCustomerDetail(detail)}>
-        <CustomerDetail />
-      </CustomerDetailSourceProvider>
-    )
-  }
+  if (detail !== undefined) return <Loaded detail={detail} />
   const failed = AsyncResult.isFailure(result) ? result.cause.reasons.find((r) => r._tag === "Fail") : undefined
   if (failed !== undefined && failed._tag === "Fail" && isNotFound(failed.error)) throw notFound()
   if (failed !== undefined && failed._tag === "Fail" && isForbidden(failed.error)) {
@@ -73,6 +69,15 @@ function CustomerRoute() {
   if (row === undefined) return <Pending />
   return (
     <CustomerDetailSourceProvider value={arrivingCustomerDetail(row)}>
+      <CustomerDetail />
+    </CustomerDetailSourceProvider>
+  )
+}
+
+function Loaded({ detail }: { detail: Detail }) {
+  const Returns = useConsoleCustomerReturns(detail.customer.id)
+  return (
+    <CustomerDetailSourceProvider value={{ ...consoleCustomerDetail(detail), Returns }}>
       <CustomerDetail />
     </CustomerDetailSourceProvider>
   )
