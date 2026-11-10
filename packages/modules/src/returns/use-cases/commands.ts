@@ -6,7 +6,7 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import { RefundId } from "../../orders/domain/Refunds.ts"
-import { Relay } from "../../shared/domain/Outbox.ts"
+import { type OutboxEvent, Relay } from "../../shared/domain/Outbox.ts"
 import { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
@@ -41,6 +41,7 @@ import {
   windowCheck,
   windowDaysFor
 } from "../domain/Rules.ts"
+import { discountCode, giftCardCode, type StoredResolution } from "../domain/Shopify.ts"
 import { DELIVERED_AT, freeLines, judge, linesOf, rowsOf, type StoredLabel } from "./returns.ts"
 import { load, RESTORE, restoreSettings } from "./settings.ts"
 
@@ -69,6 +70,8 @@ interface Locked {
   readonly resolvedBy: string | null
   readonly exchangeTo: string | null
   readonly requestedResolution: NonNullable<Before["resolution"]>
+  readonly source: "portal" | "operator" | "agent" | "shopify"
+  readonly shopifyReturnId: string | null
 }
 
 const lock = Effect.fn("Returns.lock")(function*(sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) {
@@ -76,7 +79,7 @@ const lock = Effect.fn("Returns.lock")(function*(sql: SqlClient.SqlClient, ids: 
   const rows = yield* sql<Locked>`
     select r.id, r.number, r.type, r.order_id, r.status, r.assignee_id, r.keep_item, r.rejected_reason, r.received_at,
            r.inspected_at, r.resolution, r.resolution_minor, r.resolved_at, r.resolved_by, r.exchange_to,
-           r.requested_resolution
+           r.requested_resolution, r.source, r.shopify_return_id
     from returns r where r.id in ${sql.in([...new Set(ids)])} and ${scope} order by r.id for update`
   const found = new Set(rows.map((r) => r.id))
   const missing = ids.find((id) => !found.has(id))
@@ -155,11 +158,33 @@ const audit = (sql: SqlClient.SqlClient, action: string, id: string, diff?: Reco
       })
   )
 
-const answer = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>, restore: ReturnsRestore | null) =>
+/** The returns as they are now, with the undo that puts them back and cancels the outbox rows the command wrote. */
+const answer = (
+  sql: SqlClient.SqlClient,
+  ids: ReadonlyArray<string>,
+  restore: ReturnsRestore | null,
+  outboxIds: ReadonlyArray<string> = []
+) =>
   Effect.gen(function*() {
-    const undo = restore === null ? null : yield* Undo.issue(sql, { command: RESTORE, compensation: restore })
+    const undo = restore === null
+      ? null
+      : yield* Undo.issue(sql, { command: RESTORE, compensation: restore, outboxIds })
     return new ReturnChange({ returns: yield* rowsOf(sql, ids), undo })
   })
+
+/**
+ * What a command tells the shopper (and Shopify), held back for the undo window and cancelled with the token
+ * (M9.3). Kicked onto the queue with the same delay once the transaction has committed.
+ */
+const held = (
+  sql: SqlClient.SqlClient,
+  told: Extract<OutboxEvent, { type: "return.started" | "return.approved" | "return.rejected" }>
+) => Outbox.write(sql, told.workspaceId, told, { afterSeconds: UNDO_SECONDS })
+
+const kickHeld = (outboxIds: ReadonlyArray<string>) =>
+  outboxIds.length === 0
+    ? Effect.void
+    : Effect.flatMap(Effect.service(Relay), (relay) => relay.kick(outboxIds, { afterSeconds: UNDO_SECONDS }))
 
 const none = () => new ReturnChange({ returns: [], undo: null })
 
@@ -176,6 +201,10 @@ const movable = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>, to: Retur
 
 const SOURCE = { member: "operator", agent: "agent" } as const
 
+/** The returns that came from Shopify: approving or rejecting them is said there too. */
+const fromShopify = (locked: ReadonlyArray<Locked>) =>
+  locked.filter((l) => l.source === "shopify" && l.shopifyReturnId !== null).map((l) => l.id)
+
 /**
  * "Retour starten" (StartReturnDialog): the operator starts one for a shopper who called or mailed. It lands in Te
  * beoordelen like a portal request. A line goes back only as far as it is free and its product rule allows a return;
@@ -185,7 +214,7 @@ export const start = Effect.fn("Returns.start")(function*(input: typeof StartInp
   yield* Policy.require("returns", 2)
   const principal = yield* CurrentPrincipal
   const db = yield* Db
-  return yield* db.scoped((sql) =>
+  const { change, outboxIds } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const scope = yield* inScope(sql, "o.store_id")
       const [order] = yield* sql<{
@@ -257,17 +286,27 @@ export const start = Effect.fn("Returns.start")(function*(input: typeof StartInp
         reason: reason.id,
         outsideWindow: !window.inside
       })
-      return yield* answer(sql, [id], { kind: "created", id })
+      // The shopper hears the team started it for them, once Undo can no longer take it away.
+      const sent = yield* held(sql, {
+        type: "return.started",
+        workspaceId: principal.workspaceId,
+        userId: principal.userId ?? principal.id,
+        returnIds: [id]
+      })
+      return { change: yield* answer(sql, [id], { kind: "created", id }, [sent]), outboxIds: [sent] }
     })
   )
+  yield* kickHeld(outboxIds)
+  return change
 })
 
 /** "Goedkeuren": from review to wait for the parcel; a claim that keeps its item ("zonder terugsturen") to settle. */
 export const approve = Effect.fn("Returns.approve")(function*(input: typeof ApproveInput.Type) {
   yield* Policy.require("returns", 2)
   yield* Policy.requireAction("returns.approve")
+  const principal = yield* CurrentPrincipal
   const db = yield* Db
-  return yield* db.scoped((sql) =>
+  const { change, outboxIds } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const locked = (yield* lock(sql, input.ids)).filter((l) => l.status === "review")
       if (locked.length === 0) {
@@ -275,7 +314,7 @@ export const approve = Effect.fn("Returns.approve")(function*(input: typeof Appr
           const [one] = yield* lock(sql, input.ids)
           return yield* new IllegalReturnMove({ id: one!.id, from: one!.status, move: "approve" })
         }
-        return none()
+        return { change: none(), outboxIds: [] }
       }
       const restore: Array<Before> = []
       for (const l of locked) {
@@ -291,20 +330,33 @@ export const approve = Effect.fn("Returns.approve")(function*(input: typeof Appr
         yield* audit(sql, "return.approved", l.id, { to, keepItem: keep })
         restore.push(before(l, [ev]))
       }
-      return yield* answer(sql, locked.map((l) => l.id), { kind: "fields", returns: restore })
+      const sent = yield* held(sql, {
+        type: "return.approved",
+        workspaceId: principal.workspaceId,
+        userId: principal.userId ?? principal.id,
+        returnIds: locked.map((l) => l.id),
+        toShopify: fromShopify(locked)
+      })
+      return {
+        change: yield* answer(sql, locked.map((l) => l.id), { kind: "fields", returns: restore }, [sent]),
+        outboxIds: [sent]
+      }
     })
   )
+  yield* kickHeld(outboxIds)
+  return change
 })
 
 /** "Afwijzen", with the reason the shopper reads; in review or still waiting for the parcel. */
 export const reject = Effect.fn("Returns.reject")(function*(input: typeof RejectInput.Type) {
   yield* Policy.require("returns", 2)
   yield* Policy.requireAction("returns.approve")
+  const principal = yield* CurrentPrincipal
   const db = yield* Db
-  return yield* db.scoped((sql) =>
+  const { change, outboxIds } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const going = yield* movable(sql, input.ids, "rejected", "reject")
-      if (going.length === 0) return none()
+      if (going.length === 0) return { change: none(), outboxIds: [] }
       const reason = input.reason.trim()
       const restore: Array<Before> = []
       for (const l of going) {
@@ -313,9 +365,22 @@ export const reject = Effect.fn("Returns.reject")(function*(input: typeof Reject
         yield* audit(sql, "return.rejected", l.id, { reason })
         restore.push(before(l, [ev]))
       }
-      return yield* answer(sql, going.map((l) => l.id), { kind: "fields", returns: restore })
+      // The shopper reads the reason, and a return from Shopify is declined there, once the window has passed.
+      const sent = yield* held(sql, {
+        type: "return.rejected",
+        workspaceId: principal.workspaceId,
+        userId: principal.userId ?? principal.id,
+        returnIds: going.map((l) => l.id),
+        toShopify: fromShopify(going)
+      })
+      return {
+        change: yield* answer(sql, going.map((l) => l.id), { kind: "fields", returns: restore }, [sent]),
+        outboxIds: [sent]
+      }
     })
   )
+  yield* kickHeld(outboxIds)
+  return change
 })
 
 /** "Opnieuw beoordelen": a rejected one back in review, with a fresh deadline. */
@@ -596,11 +661,20 @@ const RESOLVED_TEXT = {
 
 const decodeRefundId = Schema.decodeUnknownEffect(RefundId)
 
+/** What Shopify makes for each resolution but a refund (M9.3), and the code it is made under. */
+const SHOPIFY_CODE = {
+  gift_card: (_number: string) => giftCardCode(),
+  discount: (number: string) => discountCode(number),
+  exchange: () => undefined,
+  replacement: () => undefined
+} as const
+
 /**
  * "Afhandelen": settles a return that is ready with a resolution it allows, at what the rules say it moves. A refund
  * runs `Orders.refund` here, on this transaction, within the person's refund limit (`refunds.write`); it cannot be
- * taken back, so it answers no undo. The other resolutions are recorded with an undo; what they make in Shopify (a
- * gift card, a code, the new order) follows in M9.3.
+ * taken back, so it answers no undo, and the shopper hears of it. The other resolutions are recorded with an undo, and
+ * what they make in Shopify (a gift card, a discount code, the exchange or replacement order, M9.3) waits out its window
+ * (`return.resolution_requested`); Undo cancels it there, so nothing is made. The shopper hears once it is made.
  */
 export const resolve = Effect.fn("Returns.resolve")(function*(input: typeof ResolveInput.Type) {
   yield* Policy.require("returns", 2)
@@ -609,13 +683,15 @@ export const resolve = Effect.fn("Returns.resolve")(function*(input: typeof Reso
   const principal = yield* CurrentPrincipal
   const relay = yield* Relay
   const db = yield* Db
-  const { change, outboxId } = yield* db.scoped((sql) =>
+  const { change, now, heldIds } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const [l] = yield* lock(sql, [input.id])
       // The same refund asked again (a retried request): the return it settled, unchanged.
       if (l!.status === "resolved" && input.refundId !== undefined) {
         const [same] = yield* sql`select 1 from returns where id = ${l!.id} and refund_id = ${input.refundId}`
-        if (same !== undefined) return { change: yield* answer(sql, [l!.id], null), outboxId: null }
+        if (same !== undefined) {
+          return { change: yield* answer(sql, [l!.id], null), now: [], heldIds: [] }
+        }
       }
       if (!canMove(l!.status, "resolved")) {
         return yield* new IllegalReturnMove({ id: l!.id, from: l!.status, move: "resolve" })
@@ -647,9 +723,15 @@ export const resolve = Effect.fn("Returns.resolve")(function*(input: typeof Reso
         outbox = refunded.outboxId
       }
       const exchangeTo = input.exchangeTo?.trim() || l!.exchangeTo
+      const shopify: StoredResolution | null = input.resolution === "refund" ? null : {
+        state: "requested",
+        amountMinor: chosen.amountMinor,
+        ...((code) => code === undefined ? {} : { code })(SHOPIFY_CODE[input.resolution](l!.number))
+      }
       yield* sql`update returns set status = 'resolved', resolution = ${input.resolution},
                    resolution_minor = ${chosen.amountMinor}, resolved_at = now(), resolved_by = ${principal.id},
-                   refund_id = ${refundId}, exchange_to = ${exchangeTo}
+                   refund_id = ${refundId}, exchange_to = ${exchangeTo},
+                   resolution_shopify = ${shopify === null ? null : JSON.stringify(shopify)}::jsonb
                  where id = ${l!.id}`
       const ev = yield* event(sql, l!.id, "resolved", `Afgehandeld: ${RESOLVED_TEXT[input.resolution]}`, {
         resolution: input.resolution,
@@ -660,11 +742,76 @@ export const resolve = Effect.fn("Returns.resolve")(function*(input: typeof Reso
         amountMinor: chosen.amountMinor,
         refundId
       })
-      const restore = input.resolution === "refund" ? null : { kind: "fields" as const, returns: [before(l!, [ev])] }
-      return { change: yield* answer(sql, [l!.id], restore), outboxId: outbox }
+      const userId = principal.userId ?? principal.id
+      if (input.resolution === "refund") {
+        // Money that leaves cannot be taken back: the shopper hears of it at once.
+        const told = yield* Outbox.write(sql, principal.workspaceId, {
+          type: "return.resolved",
+          workspaceId: principal.workspaceId,
+          userId,
+          returnIds: [l!.id]
+        })
+        return {
+          change: yield* answer(sql, [l!.id], null),
+          now: outbox === null ? [told] : [outbox, told],
+          heldIds: []
+        }
+      }
+      const sent = yield* Outbox.write(sql, principal.workspaceId, {
+        type: "return.resolution_requested",
+        workspaceId: principal.workspaceId,
+        userId,
+        returnIds: [l!.id]
+      }, { afterSeconds: UNDO_SECONDS })
+      return {
+        change: yield* answer(sql, [l!.id], { kind: "fields", returns: [before(l!, [ev])] }, [sent]),
+        now: [],
+        heldIds: [sent]
+      }
     })
   )
-  if (outboxId !== null) yield* relay.kick([outboxId])
+  if (now.length > 0) yield* relay.kick(now)
+  yield* kickHeld(heldIds)
+  return change
+})
+
+/**
+ * "Opnieuw proberen" (M9.3): a resolution Shopify did not make (refused, unreachable, or a scope the store had not
+ * granted yet) asked again, at once, under the same code, so a card or code made after all is found rather than made
+ * twice. Nothing to undo: it only asks again for what was already decided.
+ */
+export const retryResolution = Effect.fn("Returns.retryResolution")(function*(id: string) {
+  yield* Policy.require("returns", 2)
+  yield* Policy.requireAction("returns.approve")
+  const principal = yield* CurrentPrincipal
+  const relay = yield* Relay
+  const db = yield* Db
+  const { change, outboxId } = yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const [l] = yield* lock(sql, [id])
+      const [row] = yield* sql<{ shopify: string | null }>`
+        select resolution_shopify::text as shopify from returns where id = ${l!.id}`
+      const stored = row?.shopify === null || row?.shopify === undefined
+        ? null
+        : JSON.parse(row.shopify) as StoredResolution
+      if (l!.status !== "resolved" || stored?.state !== "failed") {
+        return yield* new IllegalReturnMove({ id: l!.id, from: l!.status, move: "retryResolution" })
+      }
+      const { reason: _reason, scope: _scope, ...kept } = stored
+      yield* sql`update returns set resolution_shopify = ${JSON.stringify({ ...kept, state: "requested" })}::jsonb
+                 where id = ${l!.id}`
+      yield* event(sql, l!.id, "note", "Opnieuw gevraagd in Shopify")
+      yield* audit(sql, "return.resolution_retried", l!.id, { resolution: l!.resolution })
+      const sent = yield* Outbox.write(sql, principal.workspaceId, {
+        type: "return.resolution_requested",
+        workspaceId: principal.workspaceId,
+        userId: principal.userId ?? principal.id,
+        returnIds: [l!.id]
+      })
+      return { change: yield* answer(sql, [l!.id], null), outboxId: sent }
+    })
+  )
+  yield* relay.kick([outboxId])
   return change
 })
 
@@ -697,7 +844,8 @@ export const restore = Effect.fn("Returns.restore")(function*(sql: SqlClient.Sql
                  inspected_at = ${r.inspectedAt === null ? null : new Date(r.inspectedAt)},
                  resolution = ${r.resolution}, resolution_minor = ${r.resolutionMinor},
                  resolved_at = ${r.resolvedAt === null ? null : new Date(r.resolvedAt)}, resolved_by = ${r.resolvedBy},
-                 exchange_to = ${r.exchangeTo}
+                 exchange_to = ${r.exchangeTo},
+                 resolution_shopify = case when ${r.resolution}::text is null then null else resolution_shopify end
                where id = ${r.id}`
     if (r.events.length > 0) yield* sql`delete from return_events where id in ${sql.in([...r.events])}`
     for (const line of r.lines) {

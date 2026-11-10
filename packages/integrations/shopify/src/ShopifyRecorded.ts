@@ -20,7 +20,10 @@ import { readLines } from "./ShopifyGraphql.ts"
  * holds `RECORDED_UPDATES` on top, as a store that changed since its import. Every webhook signed `valid` verifies.
  * The order writes (M7.1) are taken as Shopify takes them; a `refuse-*` shop refuses each with a user error, and an
  * order has one open fulfillment order until it is fulfilled. A refund (M7.2) splits over one sale; the same
- * idempotency key answers the same refund.
+ * idempotency key answers the same refund. A return's writes (M9.3): a gift card or a discount code under a code made
+ * before is taken; a draft order completes into one new order, the same one when completed again; a Shopify return is
+ * approved or declined. A `noscope-*` shop approved the app before `write_gift_cards` and `write_returns` joined its
+ * scopes, so Shopify denies those calls (`ACCESS_DENIED`).
  */
 
 export const RECORDED_FACTS: ShopFacts = {
@@ -88,7 +91,70 @@ const MUTATIONS: Record<string, { readonly field?: string; readonly ok: Record<s
   refundCreate: { ok: { refund: { id: "gid://shopify/Refund/9001" } } },
   productUpdate: { ok: { product: { id: "recorded" } } },
   productVariantsBulkUpdate: { ok: { productVariants: [] } },
-  customerCreate: { ok: { customer: { id: "gid://shopify/Customer/7001" } } }
+  customerCreate: { ok: { customer: { id: "gid://shopify/Customer/7001" } } },
+  giftCardCreate: { ok: {} },
+  discountCodeBasicCreate: { ok: {} },
+  draftOrderCreate: { ok: {} },
+  draftOrderComplete: { ok: {} },
+  returnApproveRequest: { ok: {} },
+  returnDeclineRequest: { ok: {} }
+}
+
+/** The calls a `noscope-*` shop's token may not make, and the scope each needs. */
+const NEWER_SCOPES: Record<string, string> = {
+  giftCardCreate: "write_gift_cards",
+  returnApproveRequest: "write_returns",
+  returnDeclineRequest: "write_returns"
+}
+
+/** Codes made (gift cards, discounts), draft orders made and what each completed into. */
+const codes = new Set<string>()
+const drafts = new Map<string, { id: string; name: string } | null>()
+let made = 0
+
+/** A code made before, as Shopify answers it. */
+const taken = (field: string) => ({
+  userErrors: [{ field: [field, "code"], code: "TAKEN", message: "Code has already been taken" }]
+})
+
+/** A return's write (M9.3) as Shopify answers it; `undefined` for the other mutations. */
+const returnWrite = (name: string, variables: Record<string, unknown>): Record<string, unknown> | undefined => {
+  const input = (variables["input"] ?? variables["basicCodeDiscount"] ?? {}) as Record<string, unknown>
+  switch (name) {
+    case "giftCardCreate": {
+      const code = String(input["code"] ?? "")
+      if (codes.has(code)) return taken("input")
+      codes.add(code)
+      return {
+        giftCard: { id: `gid://shopify/GiftCard/${++made}`, maskedCode: `•••• •••• •••• ${code.slice(-4)}` },
+        giftCardCode: code
+      }
+    }
+    case "discountCodeBasicCreate": {
+      const code = String(input["code"] ?? "")
+      if (codes.has(code)) return taken("basicCodeDiscount")
+      codes.add(code)
+      return { codeDiscountNode: { id: `gid://shopify/DiscountCodeNode/${++made}` } }
+    }
+    case "draftOrderCreate": {
+      const id = `gid://shopify/DraftOrder/${++made}`
+      drafts.set(id, null)
+      return { draftOrder: { id } }
+    }
+    case "draftOrderComplete": {
+      const id = String(variables["id"] ?? "")
+      if (!drafts.has(id)) return { userErrors: [{ field: ["id"], message: "Conceptbestelling bestaat niet" }] }
+      const order = drafts.get(id) ?? { id: `gid://shopify/Order/${9000 + ++made}`, name: `#${1900 + made}` }
+      drafts.set(id, order)
+      return { draftOrder: { id, order } }
+    }
+    case "returnApproveRequest":
+      return { return: { id: input["id"], status: "OPEN" } }
+    case "returnDeclineRequest":
+      return { return: { id: input["id"], status: "DECLINED" } }
+    default:
+      return undefined
+  }
 }
 
 /** Refunds by idempotency key: the same key answers the same refund, as Shopify does. */
@@ -98,22 +164,34 @@ const refundsTaken = (key: string) => {
   return refundIds.get(key)!
 }
 
-const recordedMutation = (shop: string, query: string, key: string): unknown | undefined => {
+const recordedMutation = (shop: string, query: string, variables: Record<string, unknown>): unknown | undefined => {
   const name = Object.keys(MUTATIONS).find((m) => query.includes(`${m}(`))
   if (name === undefined) return undefined
   const { field = "userErrors", ok } = MUTATIONS[name]!
   const refused = shop.startsWith("refuse-")
+  if (refused) return { [name]: { [field]: [{ field: ["id"], message: "Deze bestelling kan niet worden gewijzigd" }] } }
   // A refund is Shopify's own, under the idempotency key it was asked with.
-  const answer = name === "refundCreate" ? { refund: { id: `gid://shopify/Refund/${refundsTaken(key)}` } } : ok
-  return {
-    [name]: refused
-      ? { [field]: [{ field: ["id"], message: "Deze bestelling kan niet worden gewijzigd" }] }
-      : { ...answer, [field]: [] }
-  }
+  const answer = name === "refundCreate"
+    ? { refund: { id: `gid://shopify/Refund/${refundsTaken(String(variables["key"] ?? ""))}` } }
+    : returnWrite(name, variables) ?? ok
+  return { [name]: { [field]: [], ...answer } }
+}
+
+/** A call the shop's token may not make, as Shopify answers it: denied, with the scope it needs. */
+const deniedFor = (shop: string, query: string): ShopifyRefused | undefined => {
+  if (!shop.startsWith("noscope-")) return undefined
+  const name = Object.keys(NEWER_SCOPES).find((m) => query.includes(`${m}(`))
+  if (name === undefined) return undefined
+  const scope = NEWER_SCOPES[name]!
+  return new ShopifyRefused({
+    status: 403,
+    reason: `Access denied for ${name} field. Required access: \`${scope}\` access scope.`,
+    scope
+  })
 }
 
 const recordedQuery = (shop: string, query: string, variables: Record<string, unknown>): unknown => {
-  const mutation = recordedMutation(shop, query, String(variables["key"] ?? ""))
+  const mutation = recordedMutation(shop, query, variables)
   if (mutation !== undefined) return mutation
   // The order's single sale, as a full refund splits it: a `short-*` shop sees only €10 of it.
   if (query.includes("suggestedRefund(")) {
@@ -165,11 +243,13 @@ const recordedQuery = (shop: string, query: string, variables: Record<string, un
 }
 
 export const ShopifyGraphqlRecorded = Layer.succeed(ShopifyGraphql)(ShopifyGraphql.of({
-  query: (shop, _token, query, variables) =>
-    Effect.succeed({
+  query: (shop, _token, query, variables) => {
+    const denied = deniedFor(shop, query)
+    return denied !== undefined ? Effect.fail(denied) : Effect.succeed({
       data: recordedQuery(shop, query, variables),
       throttle: { maximumAvailable: 2000, currentlyAvailable: 1990, restoreRate: 100 }
-    }),
+    })
+  },
   start: (shop, _token, query) =>
     Effect.succeed({
       id: `gid://shopify/BulkOperation/${shop.startsWith("empty-") ? "empty" : resourceOf(query)}-${Date.now()}`,

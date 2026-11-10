@@ -1,9 +1,11 @@
-import { ShopifyAdmin } from "@insyte/modules/stores/domain/Ports"
-import { ConfigProvider, Effect, Layer, Redacted } from "effect"
+import { ShopifyAdmin, ShopifyGraphql } from "@insyte/modules/stores/domain/Ports"
+import { Cause, ConfigProvider, Effect, Exit, Layer, Redacted } from "effect"
 import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http"
 import { createHmac } from "node:crypto"
 import { describe, expect, it } from "vitest"
 import { SCOPES, ShopifyAdminLive } from "../src/ShopifyAdmin.ts"
+import { scopeIn, ShopifyGraphqlLive } from "../src/ShopifyGraphql.ts"
+import { ShopifyGraphqlRecorded } from "../src/ShopifyRecorded.ts"
 
 /*
  * The Shopify adapter (M6.2) against a fake Shopify: the approval page's address, the callback's signature, a shop that
@@ -125,5 +127,82 @@ describe("the Shopify adapter", () => {
     })
     expect(seen[1]!.url).toBe("https://north.myshopify.com/admin/api/2026-10/graphql.json")
     expect(seen[1]!.headers["x-shopify-access-token"]).toBe("shpat_a")
+  })
+})
+
+/** One Admin GraphQL call against a fake Shopify that answers `answer`. */
+const graphql = (answer: unknown) =>
+  Effect.runPromiseExit(
+    Effect.flatMap(
+      Effect.service(ShopifyGraphql),
+      (g) => g.query("shop-1.myshopify.com", Redacted.make("token"), "mutation { giftCardCreate(input: {}) { x } }", {})
+    ).pipe(
+      Effect.provide(
+        ShopifyGraphqlLive.pipe(
+          Layer.provide(fakeShopify(() => Response.json(answer))),
+          Layer.provide(config({}))
+        )
+      )
+    )
+  )
+
+/** One call against the recorded twin. */
+const ask = (shop: string, query: string, variables: Record<string, unknown>) =>
+  Effect.runPromiseExit(
+    Effect.flatMap(Effect.service(ShopifyGraphql), (g) => g.query(shop, Redacted.make("t"), query, variables)).pipe(
+      Effect.provide(ShopifyGraphqlRecorded)
+    )
+  )
+
+describe("the Admin GraphQL adapter", () => {
+  it("answers a call the store's token may not make as a 403 naming the scope it needs (M9.3)", async () => {
+    const exit = await graphql({
+      errors: [{
+        message: "Access denied for giftCardCreate field. Required access: `write_gift_cards` access scope.",
+        extensions: { code: "ACCESS_DENIED", requiredAccess: "`write_gift_cards` access scope." }
+      }]
+    })
+    expect(Exit.isFailure(exit)).toBe(true)
+    const error = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : undefined
+    expect(error?._tag === "Some" ? error.value : undefined).toMatchObject({
+      _tag: "ShopifyRefused",
+      status: 403,
+      scope: "write_gift_cards"
+    })
+  })
+
+  it("reads the scope out of Shopify's sentence", () => {
+    expect(scopeIn("Required access: `write_returns` access scope.")).toBe("write_returns")
+    expect(scopeIn("Access denied for giftCardCreate field.")).toBeUndefined()
+  })
+})
+
+describe("the recorded twin's return writes (M9.3)", () => {
+  it("makes a gift card once under its code, and denies it to a shop that lacks the scope", async () => {
+    const query = "mutation($input: GiftCardCreateInput!) { giftCardCreate(input: $input) { giftCard { id } } }"
+    const first = await ask("shop-1.myshopify.com", query, { input: { code: "TWINCODE12345678" } })
+    expect(Exit.isSuccess(first) && first.value.data).toMatchObject({
+      giftCardCreate: { giftCardCode: "TWINCODE12345678", userErrors: [] }
+    })
+    const again = await ask("shop-1.myshopify.com", query, { input: { code: "TWINCODE12345678" } })
+    expect(Exit.isSuccess(again) && again.value.data).toMatchObject({
+      giftCardCreate: { userErrors: [{ code: "TAKEN" }] }
+    })
+    const denied = await ask("noscope-1.myshopify.com", query, { input: { code: "OTHER1234567890" } })
+    expect(Exit.isFailure(denied) && JSON.stringify(denied.cause)).toContain("write_gift_cards")
+  })
+
+  it("completes a draft order into one order, the same one when completed again", async () => {
+    const created = await ask("shop-1.myshopify.com", "mutation { draftOrderCreate(input: $input) { x } }", {})
+    const id = Exit.isSuccess(created)
+      ? (created.value.data as { draftOrderCreate: { draftOrder: { id: string } } }).draftOrderCreate.draftOrder.id
+      : ""
+    const complete = "mutation { draftOrderComplete(id: $id) { x } }"
+    const once = await ask("shop-1.myshopify.com", complete, { id })
+    const twice = await ask("shop-1.myshopify.com", complete, { id })
+    expect(Exit.isSuccess(once) && once.value.data).toEqual(Exit.isSuccess(twice) && twice.value.data)
+    expect(Exit.isSuccess(once) && once.value.data).toMatchObject({
+      draftOrderComplete: { draftOrder: { order: { name: expect.stringMatching(/^#19\d\d$/) } } }
+    })
   })
 })

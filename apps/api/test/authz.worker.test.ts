@@ -159,6 +159,7 @@ const PAYLOADS: Record<string, unknown> = {
   "Returns.markReceived": { id: "ret_none" },
   "Returns.inspect": { id: "ret_none" },
   "Returns.resolve": { id: "ret_none", resolution: "refund", refundId: "rfd_00000000000000000000000000" },
+  "Returns.retryResolution": { id: "ret_none" },
   "Returns.settings": undefined,
   // Two reasons under one id: refused after the permission check, so the policy stays as it is.
   "Returns.setSettings": {

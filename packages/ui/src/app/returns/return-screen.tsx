@@ -97,7 +97,7 @@ function Detail({ view }: { view: ReturnView }) {
 					) : null}
 					{r.label || r.labelPending || !commands.sendLabel ? null : (
 						<GateBy gate={gates.work}>
-							<button type="button" onClick={() => commands.sendLabel?.([r.id], said("Wordt verstuurd…", `Retourlabel naar ${r.customerName}. Ongedaan maken kan tot het vertrekt.`))} className={PRIMARY}>
+							<button type="button" onClick={() => commands.sendLabel?.([r.id], said("Wordt verstuurd…", `Het retourlabel gaat per mail naar ${r.customerName}. Ongedaan maken kan tot het vertrekt.`))} className={PRIMARY}>
 								<Send className="size-3.5" strokeWidth={1.75} />
 								Label versturen
 							</button>
@@ -260,6 +260,7 @@ function Detail({ view }: { view: ReturnView }) {
 									<span className="text-ink-3"> · door {r.resolution.by}</span>
 								</p>
 							) : null}
+							{r.resolution?.shopify ? <InShopify r={r} /> : null}
 						</section>
 					) : null}
 
@@ -336,6 +337,68 @@ function Detail({ view }: { view: ReturnView }) {
 			/>
 			<ResolveDialog r={r} open={resolving} offered={offered} onClose={() => setResolving(false)} roleLimit={role.refundLimit} roleLabel={role.label} />
 		</DetailShell>
+	);
+}
+
+const MAKING: Record<Resolution, string> = {
+	refund: "",
+	gift_card: "De cadeaubon wordt gemaakt in Shopify…",
+	discount: "De kortingscode wordt gemaakt in Shopify…",
+	exchange: "De ruilbestelling wordt gemaakt in Shopify…",
+	replacement: "De nieuwe bestelling wordt gemaakt in Shopify…",
+};
+const MADE: Record<Resolution, string> = {
+	refund: "",
+	gift_card: "Cadeaubon gemaakt in Shopify",
+	discount: "Kortingscode gemaakt in Shopify",
+	exchange: "Ruilbestelling gemaakt in Shopify",
+	replacement: "Nieuwe bestelling gemaakt in Shopify",
+};
+const NOT_MADE: Record<Resolution, string> = {
+	refund: "",
+	gift_card: "De cadeaubon kon niet worden gemaakt in Shopify",
+	discount: "De kortingscode kon niet worden gemaakt in Shopify",
+	exchange: "De ruilbestelling kon niet worden gemaakt in Shopify",
+	replacement: "De nieuwe bestelling kon niet worden gemaakt in Shopify",
+};
+
+/**
+ * What the resolution made in Shopify: on its way while Undo can still take it back, made (with the code the shopper
+ * got by mail, or the new order), or failed with why, and "Opnieuw proberen". A scope the store has not granted says
+ * what to do in Shopify first.
+ */
+function InShopify({ r }: { r: ReturnRecord }) {
+	const { commands, gates } = useReturnDetailSource();
+	const resolution = r.resolution;
+	const s = resolution?.shopify;
+	if (!resolution || !s) return null;
+	if (s.state === "requested") return <p className="text-ink-3 text-sm">{MAKING[resolution.kind]}</p>;
+	if (s.state === "done") {
+		return (
+			<p className="flex flex-wrap items-center gap-1.5 text-ink-2 text-sm">
+				{MADE[resolution.kind]}
+				{s.code ? <span className="rounded-sm bg-mist px-1.5 py-px font-medium text-ink tabular-nums">{s.code}</span> : null}
+				{s.order && !resolution.replacementOrder ? <span>· bestelling {s.order}</span> : null}
+				<span className="text-ink-3">· gemaild aan {r.customerName}</span>
+			</p>
+		);
+	}
+	const reason = (s.reason ?? "Shopify gaf geen reden").replace(/\.$/, "");
+	return (
+		<div className="flex flex-wrap items-center gap-2 rounded-lg bg-signal-amber-bg px-3 py-2 text-ink text-sm">
+			<AlertTriangle className="size-3.5 shrink-0 text-signal-amber" strokeWidth={2} />
+			<span className="min-w-0 flex-1">
+				{NOT_MADE[resolution.kind]}: {reason}.{s.scope ? " Keur in Shopify de nieuwe rechten van de Insyte-app goed en probeer het dan opnieuw." : ""}
+			</span>
+			{commands.retryResolution ? (
+				<GateBy gate={gates.approve}>
+					<button type="button" onClick={() => commands.retryResolution?.(r, said(`${r.number} opnieuw gevraagd in Shopify`))} className={WELL}>
+						<RotateCcw className="size-3.5" strokeWidth={1.75} />
+						Opnieuw proberen
+					</button>
+				</GateBy>
+			) : null}
+		</div>
 	);
 }
 

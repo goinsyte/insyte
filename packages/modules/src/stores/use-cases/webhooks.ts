@@ -7,6 +7,7 @@ import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { throughGate } from "../domain/Gate.ts"
 import { addLine, emptyBatch, flatten, gidOf, type MirrorKind, NODE_QUERY } from "../domain/Mirror.ts"
 import { ConnectionGate, IngestQueue, ShopifyAdmin, ShopifyGraphql } from "../domain/Ports.ts"
+import { ShopifyReturns } from "../ShopifyReturns.ts"
 import { applyBatch } from "./mirror.ts"
 
 /*
@@ -187,6 +188,12 @@ const applyTopic = Effect.fn("Stores.webhooks.topic")(
       case "shop/redact":
         yield* purgeShop(store)
         return yield* gdpr(store, "shop_redact", body, true)
+      // A return opened, approved, declined or closed in Shopify (M9.3): the returns slice mirrors it.
+      case "returns/request":
+      case "returns/approve":
+      case "returns/decline":
+      case "returns/close":
+        return yield* (yield* ShopifyReturns).applied(store.id, topic, body)
       default:
         // `bulk_operations/finish` (the backfill polls), `draft_orders/update` (drafts arrive with M7): nothing to do.
         return

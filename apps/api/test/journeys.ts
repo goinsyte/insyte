@@ -27,6 +27,12 @@ export const mailsTo = async (to: string) =>
     mails: Array<{ kind: string; url: string }>
   }).mails
 
+/** One record's mails to one address (a return's to its shopper, M9.3), newest first, with the name they were sent in. */
+export const mailsAbout = async (to: string, reference: string) =>
+  (await (await call(
+    `http://api.test/api/__dev/mail?to=${encodeURIComponent(to)}&reference=${encodeURIComponent(reference)}`
+  )).json() as { mails: Array<{ kind: string; sender: string | null }> }).mails
+
 /** A verified, signed-in person; with `workspace`, its founder too. */
 export const person = async (tag: string, workspace?: string) => {
   const email = tag.includes("@") ? tag : `team-${run}-${tag}@example.com`

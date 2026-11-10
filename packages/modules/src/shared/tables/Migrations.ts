@@ -35,6 +35,7 @@ import returnPortal from "./migrations/0035_return_portal.ts"
 import quality from "./migrations/0036_quality.ts"
 import stockouts from "./migrations/0037_stockouts.ts"
 import tickets from "./migrations/0040_tickets.ts"
+import returnResolutions from "./migrations/0042_return_resolutions.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -79,5 +80,6 @@ export const Migrations = {
   "0035_return_portal": returnPortal,
   "0036_quality": quality,
   "0037_stockouts": stockouts,
-  "0040_tickets": tickets
+  "0040_tickets": tickets,
+  "0042_return_resolutions": returnResolutions
 }

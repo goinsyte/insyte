@@ -83,6 +83,8 @@ export class ReturnsRpcs extends RpcGroup.make(
       AlreadyRefunded
     ])
   }),
+  // "Opnieuw proberen" (M9.3): a resolution Shopify did not make, asked again.
+  Rpc.make("Returns.retryResolution", { payload: IdInput, success: ReturnChange, error: Moved }),
   Rpc.make("Returns.settings", { success: ReturnSettingsDoc, error: Forbidden }),
   Rpc.make("Returns.setSettings", {
     payload: ReturnSettingsDoc,

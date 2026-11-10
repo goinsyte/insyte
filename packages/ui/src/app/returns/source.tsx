@@ -51,6 +51,8 @@ export interface ReturnCommands {
   scan?: ((r: ReturnRecord, said: Said) => void) | undefined
   /** Afhandelen with anything but a refund: the host says what it made. */
   settle: (r: ReturnRecord, kind: Resolution, amount: number) => void
+  /** "Opnieuw proberen": a resolution Shopify did not make, asked again; absent where nothing is made in Shopify. */
+  retryResolution?: ((r: ReturnRecord, said: Said) => void) | undefined
   /** The refund, once confirmed: it cannot be taken back. */
   refund: (r: ReturnRecord, amount: number) => void
 }
