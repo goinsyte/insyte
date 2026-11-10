@@ -107,7 +107,7 @@ function Picture({ product, q, openCheck }: { product: Product; q: QualityPictur
 		for (const m of media) out.push({ kind: "media", at: m.at, name: m.name, by: m.by });
 		return out
 			.filter((i) => !size || (i.kind === "check" ? i.c.variants.length === 0 || i.c.variants.includes(size) : i.kind === "complaint" ? i.variant === size : true))
-			.sort((a, b) => b.at.localeCompare(a.at));
+			.toSorted((a, b) => b.at.localeCompare(a.at));
 	}, [q.checks, q.complaints, media, size]);
 
 	if (q.checks.length === 0 && q.complaints.length === 0) {

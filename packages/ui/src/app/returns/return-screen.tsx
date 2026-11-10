@@ -39,6 +39,8 @@ export function ReturnDetailPage() {
 	return <Detail view={view} />;
 }
 
+const said = (label: string, detail?: string) => ({ label, detail });
+
 function Detail({ view }: { view: ReturnView }) {
 	const navigate = useNavigate();
 	const source = useReturnDetailSource();
@@ -52,7 +54,6 @@ function Detail({ view }: { view: ReturnView }) {
 	const [rejecting, setRejecting] = useState(false);
 	const [resolving, setResolving] = useState(false);
 	const [tracking, setTracking] = useState(false);
-	const said = (label: string, detail?: string) => ({ label, detail });
 
 	const actions = (
 		<>

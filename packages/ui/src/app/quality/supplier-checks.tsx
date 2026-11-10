@@ -17,7 +17,7 @@ import { CheckCard } from "./check-card";
 
 export function SupplierChecks({ productId }: { productId: string }) {
 	const all = useQuality((s) => s.checks);
-	const checks = useMemo(() => all.filter((c) => c.productId === productId && c.supplierId === ME_SUPPLIER.id).sort((a, b) => b.requestedAt.localeCompare(a.requestedAt)), [all, productId]);
+	const checks = useMemo(() => all.filter((c) => c.productId === productId && c.supplierId === ME_SUPPLIER.id).toSorted((a, b) => b.requestedAt.localeCompare(a.requestedAt)), [all, productId]);
 	if (checks.length === 0) return null;
 	return (
 		<section aria-labelledby="checks-title" className="flex flex-col gap-3">
@@ -42,7 +42,7 @@ export function SupplierChecks({ productId }: { productId: string }) {
 /** The supplier start's "Eerst dit": open checks, before the orders, oldest date first. */
 export function SupplierCheckWork() {
 	const all = useQuality((s) => s.checks);
-	const open = useMemo(() => all.filter((c) => c.supplierId === ME_SUPPLIER.id && (c.status === "requested" || c.status === "rejected")).sort((a, b) => a.due.localeCompare(b.due)), [all]);
+	const open = useMemo(() => all.filter((c) => c.supplierId === ME_SUPPLIER.id && (c.status === "requested" || c.status === "rejected")).toSorted((a, b) => a.due.localeCompare(b.due)), [all]);
 	if (open.length === 0) return null;
 	return (
 		<ul className="flex flex-col">

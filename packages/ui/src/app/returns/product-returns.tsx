@@ -23,7 +23,7 @@ export function useProductReturns(productId: string) {
 			rate: returnRate(returned, sold),
 			quality,
 			records: mine,
-			reasons: [...by.entries()].sort((a, b) => b[1] - a[1]).map(([id, n]) => ({ id, label: reasonLabel(reasons, id), n })),
+			reasons: [...by.entries()].toSorted((a, b) => b[1] - a[1]).map(([id, n]) => ({ id, label: reasonLabel(reasons, id), n })),
 		};
 	}, [records, reasons, orders, productId]);
 }
