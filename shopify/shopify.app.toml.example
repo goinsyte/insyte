@@ -3,7 +3,7 @@
 # Staging for now; production gets its own app config when it goes live.
 
 # Copy this file to `shopify.app.toml` (git-ignored) and paste the app's Client ID (Dev Dashboard → your app →
-# Settings) below. Never put the client secret in it: that lives in `.env.local` and the GitHub environments.
+# Settings) below. Never put the client secret in it: that lives in `.env.local` and on the API Workers (infra/stages.ts).
 client_id = ""
 name = "Insyte"
 application_url = "https://insyte-console-staging.ishak-73d.workers.dev"

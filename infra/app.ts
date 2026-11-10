@@ -1,11 +1,9 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
 import * as Neon from "@alchemy.run/neon"
 import * as Alchemy from "alchemy"
-import { Config, Effect, Layer, Option, Redacted } from "effect"
+import { Config, Effect, Layer, Redacted } from "effect"
 import { SENTRY_LOGS, SENTRY_TRACES } from "./shared.ts"
-
-/** An unset GitHub secret arrives as an empty string: that is no secret. */
-const set = (r: Redacted.Redacted<string>) => Redacted.value(r) !== ""
+import { type Environment, OBSERVABILITY as SENTRY, STAGES } from "./stages.ts"
 
 /*
  * The per-stage stack (14 §3): `pr-<n>` for a pull request's preview, later `staging` and `production`. Everything a
@@ -40,33 +38,35 @@ const TEAM_POLICY_ID = "e885a0e2-97f8-4a1b-ba8e-cd9c500e51dc"
 
 /**
  * Where a stage's data lives. A preview gets its own Neon branch of `preview-base` (`previews.ts`: staging's schema and
- * the three scenario workspaces, nobody's data), which expires after a week even if teardown never runs. Staging and production connect to their project's `main` by host (a GitHub
- * variable), and the stack creates nothing in Neon for them: adopting `main` would let `alchemy destroy` delete it.
+ * the three scenario workspaces, nobody's data), which expires after a week even if teardown never runs. Staging and production connect to their project's `main` by host (`stages.ts`), and the stack creates nothing in Neon for them: adopting `main` would let `alchemy destroy` delete it.
  */
-const Database = Effect.gen(function*() {
-  const { stage } = yield* Alchemy.Stack
-  const branch = stage.startsWith("pr-")
-    ? yield* Neon.Branch("Db", {
-      project: { projectId: yield* Config.String("NEON_PROJECT_ID") },
-      name: stage,
-      parentBranch: { name: "preview-base" },
-      expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString()
+const Database = (environment: Environment) =>
+  Effect.gen(function*() {
+    const { stage } = yield* Alchemy.Stack
+    const branch = environment === "preview"
+      ? yield* Neon.Branch("Db", {
+        project: { projectId: STAGES.preview.neonProjectId },
+        name: stage,
+        parentBranch: { name: "preview-base" },
+        expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString()
+      })
+      : undefined
+    const host = branch?.origin.host ?? STAGES[environment].databaseHost
+    if (host === undefined) return yield* Effect.die(new Error(`stages.ts gives ${environment} no database host`))
+    const hyperdrive = yield* Cloudflare.Hyperdrive.Connection("Hd", {
+      origin: {
+        scheme: "postgres",
+        host,
+        port: 5432,
+        database: "insyte",
+        user: "insyte_app",
+        password: yield* Config.Redacted("INSYTE_APP_DB_PASSWORD")
+      },
+      // A read after a write must see the write.
+      caching: { disabled: true }
     })
-    : undefined
-  const hyperdrive = yield* Cloudflare.Hyperdrive.Connection("Hd", {
-    origin: {
-      scheme: "postgres",
-      host: branch === undefined ? yield* Config.String("DATABASE_HOST") : branch.origin.host,
-      port: 5432,
-      database: "insyte",
-      user: "insyte_app",
-      password: yield* Config.Redacted("INSYTE_APP_DB_PASSWORD")
-    },
-    // A read after a write must see the write.
-    caching: { disabled: true }
+    return { branch, hyperdrive }
   })
-  return { branch, hyperdrive }
-})
 
 export default Alchemy.Stack(
   "insyte",
@@ -74,19 +74,17 @@ export default Alchemy.Stack(
   { providers: Neon.providers().pipe(Layer.provideMerge(Cloudflare.providers())), state: Cloudflare.state() },
   Effect.gen(function*() {
     const { stage } = yield* Alchemy.Stack
-    const environment = stage.startsWith("pr-") ? "preview" : stage
-    const { branch, hyperdrive } = yield* Database
+    const environment = (stage.startsWith("pr-") ? "preview" : stage) as Environment
+    const config = STAGES[environment]
+    const { branch, hyperdrive } = yield* Database(environment)
 
     /*
      * Turnstile (M2.2). Previews use Cloudflare's published test keys: they always pass, so the console's browser tests
      * get a token without solving anything, and the account's widget count is not spent on one widget per PR. Staging
-     * and production get a widget each, for the console's own hostname, once the CI token may manage Turnstile
-     * (`TURNSTILE_WIDGET=on` in the environment); until then they keep the test keys too.
+     * and production get a widget each, for the console's own hostname (`turnstileWidget` in `stages.ts`).
      */
     const consoleHost = `insyte-console-${stage}.${WORKERS_SUBDOMAIN}`
-    const ownWidget = environment !== "preview" &&
-      (yield* Config.String("TURNSTILE_WIDGET").pipe(Config.withDefault("off"))) === "on"
-    const widget = ownWidget
+    const widget = config.turnstileWidget
       ? yield* Cloudflare.Turnstile.Widget("Turnstile", {
         name: `insyte-${stage}`,
         domains: [consoleHost],
@@ -95,65 +93,11 @@ export default Alchemy.Stack(
       : undefined
 
     /*
-     * Google sign-in (M2.5), on staging and production once their GitHub environment has the stage's OAuth client: the
-     * id is a variable (public), the secret a secret. Previews never: Google cannot list a redirect URI per PR.
+     * The API's secrets (`WORKER_SECRETS` in `stages.ts`) are not the deploy's: staging and production have them set on
+     * the Worker by hand, and a deploy leaves a secret it did not upload alone. Each integration stays off until its
+     * secrets are there. A preview's auth secret is generated once and kept in its stack's state.
      */
-    const googleClientId = yield* Config.String("GOOGLE_CLIENT_ID").pipe(Config.withDefault(""))
-    const googleClientSecret = yield* Config.Redacted("GOOGLE_CLIENT_SECRET").pipe(Config.option)
-    const google = environment !== "preview" && googleClientId !== "" && Option.isSome(googleClientSecret)
-      ? { GOOGLE_CLIENT_ID: googleClientId, GOOGLE_CLIENT_SECRET: googleClientSecret.value }
-      : {}
-
-    /*
-     * Shopify (M6.2), on staging and production once their GitHub environment has the app's client (id and secret as
-     * secrets) and the sealer's keyring, `SEAL_KEYS`: a store's token is never stored unsealed, so without
-     * the keys the stage says it cannot connect a store yet. Previews never: the app lists one redirect URL per stage
-     * (`shopify/shopify.app.toml`), not one per PR.
-     */
-    const sealKeys = environment === "preview"
-      ? Option.none()
-      : yield* Config.Redacted("SEAL_KEYS").pipe(Config.option)
-    const shopifyClientId = yield* Config.String("SHOPIFY_CLIENT_ID").pipe(Config.withDefault(""))
-    const shopifyClientSecret = yield* Config.Redacted("SHOPIFY_CLIENT_SECRET").pipe(Config.option)
-    const seal = Option.isSome(sealKeys) ? { SEAL_KEYS: sealKeys.value } : {}
-    const shopify = Option.isSome(sealKeys) && shopifyClientId !== "" && Option.isSome(shopifyClientSecret)
-      ? { SHOPIFY_CLIENT_ID: shopifyClientId, SHOPIFY_CLIENT_SECRET: shopifyClientSecret.value }
-      : {}
-    // Klaviyo's OAuth app (M7.5), the same way: its client in the GitHub environment, and the sealer for the tokens.
-    const klaviyoClientId = yield* Config.String("KLAVIYO_CLIENT_ID").pipe(Config.withDefault(""))
-    const klaviyoClientSecret = Option.filter(yield* Config.Redacted("KLAVIYO_CLIENT_SECRET").pipe(Config.option), set)
-    const klaviyo = Option.isSome(sealKeys) && klaviyoClientId !== "" && Option.isSome(klaviyoClientSecret)
-      ? { KLAVIYO_CLIENT_ID: klaviyoClientId, KLAVIYO_CLIENT_SECRET: klaviyoClientSecret.value }
-      : {}
-
-    // AfterShip (M8.4): Insyte's own account, its key and webhook secret in the GitHub environment; without them, parcels
-    // keep Shopify's own status.
-    const aftershipKey = Option.filter(yield* Config.Redacted("AFTERSHIP_API_KEY").pipe(Config.option), set)
-    const aftershipSecret = Option.filter(yield* Config.Redacted("AFTERSHIP_WEBHOOK_SECRET").pipe(Config.option), set)
-    const aftership = Option.isSome(aftershipKey) && Option.isSome(aftershipSecret)
-      ? { AFTERSHIP_API_KEY: aftershipKey.value, AFTERSHIP_WEBHOOK_SECRET: aftershipSecret.value }
-      : {}
-
-    // Sendcloud (M9.2): Insyte's own account for return labels, its keys in the GitHub environment; without them, no
-    // labels and returns go back by "zelf versturen".
-    const sendcloudPublic = Option.filter(yield* Config.Redacted("SENDCLOUD_PUBLIC_KEY").pipe(Config.option), set)
-    const sendcloudSecret = Option.filter(yield* Config.Redacted("SENDCLOUD_SECRET_KEY").pipe(Config.option), set)
-    const sendcloud = Option.isSome(sendcloudPublic) && Option.isSome(sendcloudSecret)
-      ? { SENDCLOUD_PUBLIC_KEY: sendcloudPublic.value, SENDCLOUD_SECRET_KEY: sendcloudSecret.value }
-      : {}
-
-    /*
-     * Mail (02 §5.1): previews always capture (the browser tests read the links back); staging and production send
-     * through Resend once their environment says `MAIL_ADAPTER=resend` and has the key (the domain must be verified in
-     * Resend first), and capture until then.
-     */
-    const mailAdapter = environment === "preview"
-      ? "capture"
-      : yield* Config.String("MAIL_ADAPTER").pipe(Config.withDefault("capture"))
-    const resendKey = yield* Config.Redacted("RESEND_API_KEY").pipe(Config.option)
-    const mail = mailAdapter === "resend" && Option.isSome(resendKey)
-      ? { MAIL_ADAPTER: "resend", RESEND_API_KEY: resendKey.value }
-      : { MAIL_ADAPTER: "capture" }
+    const previewAuth = environment === "preview" ? yield* Alchemy.Random("AuthSecret") : undefined
 
     /*
      * The outbox relay (M1.4): committed events' ids go onto EVENTS, which this stage's API Worker consumes; what fails
@@ -239,34 +183,27 @@ export default Alchemy.Stack(
         PUBLIC_API_HOST: `insyte-api-${stage}.${WORKERS_SUBDOMAIN}`,
         // better-auth: cookies, links in mail and the CSRF check name the console's origin (18 §2).
         CONSOLE_ORIGIN: `https://${consoleHost}`,
-        BETTER_AUTH_SECRET: Config.Redacted("BETTER_AUTH_SECRET"),
+        ...(previewAuth === undefined ? {} : { BETTER_AUTH_SECRET: previewAuth.text }),
         VERSION: yield* Config.String("GITHUB_SHA").pipe(Config.withDefault("dev")),
         LOG_LEVEL: environment === "preview" ? "Debug" : "Info",
         OTEL_SERVICE_NAME: "insyte-api",
         // Spans to Sentry over OTLP (17 §7). The header carries the project's public key; bound as a secret anyway.
-        OTEL_TRACES_EXPORTER: yield* Config.String("OTEL_TRACES_EXPORTER").pipe(Config.withDefault("none")),
-        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: yield* Config.String("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT").pipe(
-          Config.withDefault("")
-        ),
-        OTEL_EXPORTER_OTLP_HEADERS: Config.Redacted("OTEL_EXPORTER_OTLP_HEADERS"),
-        OTEL_BSP_SCHEDULE_DELAY: yield* Config.String("OTEL_BSP_SCHEDULE_DELAY").pipe(Config.withDefault("3600000")),
-        SENTRY_DSN: yield* Config.String("SENTRY_DSN").pipe(Config.withDefault("")),
+        OTEL_TRACES_EXPORTER: "otlp",
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: SENTRY.tracesEndpoint,
+        OTEL_EXPORTER_OTLP_HEADERS: Redacted.make(SENTRY.headers),
+        OTEL_BSP_SCHEDULE_DELAY: SENTRY.scheduleDelay,
+        SENTRY_DSN: SENTRY.dsn,
         TURNSTILE_SITE_KEY: widget?.sitekey ?? "1x00000000000000000000AA",
         TURNSTILE_SECRET_KEY: widget?.secret ?? Redacted.make("1x0000000000000000000000000000000AA"),
         // Invite-only (M2.2): beside `beta_allowlist`, the reserved test domain is admitted off production, for the tests.
         BETA_ALLOWED_DOMAINS: environment === "production" ? "" : "example.com",
         // Previews sit behind Access, and their browser tests all come from one CI runner: no limits per IP there.
         IP_LIMITS: environment === "preview" ? "off" : "on",
-        ...google,
-        ...seal,
-        ...shopify,
-        ...klaviyo,
-        ...aftership,
-        ...sendcloud,
-        ...mail,
-        // An unset GitHub variable arrives empty, not missing: empty means the default.
-        MAIL_FROM: (yield* Config.String("MAIL_FROM").pipe(Config.withDefault(""))) ||
-          "Insyte <noreply@mail.goinsyte.com>"
+        // Google sign-in (M2.5) on a stage with its OAuth client; previews never, Google lists no redirect URI per PR.
+        ...(config.googleClientId === undefined ? {} : { GOOGLE_CLIENT_ID: config.googleClientId }),
+        // Mail (02 §5.1): previews always capture, the browser tests read the links back.
+        MAIL_ADAPTER: config.mailAdapter,
+        MAIL_FROM: "Insyte <noreply@mail.goinsyte.com>"
       }
     })
 

@@ -1,7 +1,8 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
 import * as Neon from "@alchemy.run/neon"
 import * as Alchemy from "alchemy"
-import { Config, Effect, Layer } from "effect"
+import { Effect, Layer } from "effect"
+import { STAGES } from "./stages.ts"
 
 /*
  * What every preview's database starts from (M1.5, 14 §2): `preview-base`, forked once from nonprod `main` and then
@@ -12,8 +13,8 @@ import { Config, Effect, Layer } from "effect"
  * A plain fork, not Neon's schema-only branch: that one recreates every object as `neondb_owner`, so `insyte_owner` owns
  * nothing it migrates and the relay's security-definer functions run as a role the outbox policy does not name.
  *
- * Its own stack, deployed as stage `nonprod` by the preview job: `shared.ts` also runs where NEON_PROJECT_ID is the
- * production project, and a preview's `alchemy destroy` must never reach the branch every preview forks. Not protected:
+ * Its own stack, deployed as stage `nonprod` by the preview job, so a preview's `alchemy destroy` never reaches the
+ * branch every preview forks. Not protected:
  * Neon resets role passwords on branches forked from a protected one, which would lock the previews out.
  */
 export default Alchemy.Stack(
@@ -21,7 +22,7 @@ export default Alchemy.Stack(
   { providers: Neon.providers().pipe(Layer.provideMerge(Cloudflare.providers())), state: Cloudflare.state() },
   Effect.gen(function*() {
     const base = yield* Neon.Branch("PreviewBase", {
-      project: { projectId: yield* Config.String("NEON_PROJECT_ID") },
+      project: { projectId: STAGES.preview.neonProjectId },
       name: "preview-base",
       parentBranch: { name: "main" }
     })

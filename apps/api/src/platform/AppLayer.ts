@@ -91,12 +91,18 @@ const Transports = Layer.mergeAll(
  */
 const SyncScheduler = Layer.succeed(Scheduler.Scheduler, new Scheduler.MixedScheduler("sync"))
 
-/** Where mail goes (02 §5.1): a table the dev route reads (local, tests, previews), or Resend where the stage says so. */
+/**
+ * Where mail goes (02 §5.1): a table the dev route reads (local, tests, previews), or Resend where the stage says so and
+ * the Worker has its key; captured until the key is set.
+ */
 const MailerLive = Layer.unwrap(
   Effect.map(
-    Config.String("MAIL_ADAPTER").pipe(Config.withDefault("capture")),
-    (adapter): Layer.Layer<Mailer, Config.ConfigError, Connect | HttpClient.HttpClient> =>
-      adapter === "resend" ? ResendMailer : MailerCapture
+    Config.all([
+      Config.String("MAIL_ADAPTER").pipe(Config.withDefault("capture")),
+      Config.Redacted("RESEND_API_KEY").pipe(Config.option)
+    ]),
+    ([adapter, key]): Layer.Layer<Mailer, Config.ConfigError, Connect | HttpClient.HttpClient> =>
+      adapter === "resend" && Option.isSome(key) ? ResendMailer : MailerCapture
   )
 )
 

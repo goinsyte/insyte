@@ -1,6 +1,6 @@
 import { Db } from "@insyte/database/Db"
 import { MIGRATIONS_TABLE } from "@insyte/database/Migrator"
-import { Config, Effect, Layer } from "effect"
+import { Config, Effect, Layer, Option } from "effect"
 import { HttpRouter, HttpServerResponse } from "effect/http"
 import { AppInfo } from "../../platform/Bindings.ts"
 import { withRequestDb } from "../../platform/RequestDb.ts"
@@ -56,7 +56,9 @@ const PublicConfig = HttpRouter.add(
   Effect.gen(function*() {
     const turnstileSiteKey = yield* Config.String("TURNSTILE_SITE_KEY").pipe(Config.withDefault(""))
     const sentryDsn = yield* Config.String("SENTRY_DSN").pipe(Config.withDefault(""))
-    const google = (yield* Config.String("GOOGLE_CLIENT_ID").pipe(Config.withDefault(""))) !== ""
+    // Offered only with both halves of the OAuth client, as better-auth configures it (`BetterAuth`).
+    const google = (yield* Config.String("GOOGLE_CLIENT_ID").pipe(Config.withDefault(""))) !== "" &&
+      Option.isSome(yield* Config.Redacted("GOOGLE_CLIENT_SECRET").pipe(Config.option))
     return HttpServerResponse.jsonUnsafe({
       turnstileSiteKey,
       sentryDsn,

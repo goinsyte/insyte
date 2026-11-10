@@ -9,7 +9,7 @@
  *   bun scripts/preview-base.ts           staging's run, after migrating `main`: the same first run if needed, then
  *                                         staging's migrations and the seed again
  *
- * Needs NEON_API_KEY and NEON_PROJECT_ID (nonprod), and `insyte_owner`'s password as INSYTE_OWNER_DB_PASSWORD or inside
+ * Needs NEON_API_KEY (the project is nonprod, `infra/stages.ts`), and `insyte_owner`'s password as INSYTE_OWNER_DB_PASSWORD or inside
  * DATABASE_URL_OWNER: a fork keeps its parent's roles and passwords.
  */
 import { PgClient } from "@effect/sql-pg"

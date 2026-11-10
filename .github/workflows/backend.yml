@@ -7,6 +7,9 @@
 #
 # Migrations run before the deploy: they are expand-only, so the running code keeps working on the new schema.
 # `main` only takes a release from staging or a hotfix (docs/branches.md). The design reference keeps ci.yml.
+#
+# GitHub holds the deploy's own credentials only. What a stage is configured with is committed (infra/stages.ts); the
+# API Worker's secrets are set on the Worker (scripts/worker-secrets.ts), and a deploy leaves them alone.
 name: backend
 
 on:
@@ -19,6 +22,9 @@ permissions:
 
 env:
   WORKERS_SUBDOMAIN: ishak-73d.workers.dev
+  # Not secrets: the account every stage deploys to, and Sentry's public DSN for the console's build (infra/stages.ts).
+  CLOUDFLARE_ACCOUNT_ID: 73dfc33e7ece69bbe79129899d8d585d
+  VITE_SENTRY_DSN: https://65513f695782e21ed6d46a02e779d973@o4511614812160000.ingest.de.sentry.io/4512391663714384
 
 jobs:
   shared:
@@ -33,9 +39,6 @@ jobs:
       cancel-in-progress: false
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT }}
-      OTEL_EXPORTER_OTLP_HEADERS: ${{ vars.OTEL_EXPORTER_OTLP_HEADERS }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -58,9 +61,7 @@ jobs:
       cancel-in-progress: false
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -89,20 +90,11 @@ jobs:
       cancel-in-progress: false
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
       INSYTE_APP_DB_PASSWORD: ${{ secrets.INSYTE_APP_DB_PASSWORD }}
-      BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
       GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
       STAGE: pr-${{ github.event.pull_request.number }}
-      OTEL_TRACES_EXPORTER: ${{ vars.OTEL_TRACES_EXPORTER }}
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT }}
-      OTEL_EXPORTER_OTLP_HEADERS: ${{ vars.OTEL_EXPORTER_OTLP_HEADERS }}
-      OTEL_BSP_SCHEDULE_DELAY: ${{ vars.OTEL_BSP_SCHEDULE_DELAY }}
-      SENTRY_DSN: ${{ vars.SENTRY_DSN }}
       # The console's build reads these (Vite): Sentry in the browser, tagged with the environment and the commit.
-      VITE_SENTRY_DSN: ${{ vars.SENTRY_DSN }}
       VITE_ENVIRONMENT: preview
       VITE_VERSION: ${{ github.event.pull_request.head.sha }}
     steps:
@@ -165,40 +157,10 @@ jobs:
       cancel-in-progress: false
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
-      DATABASE_HOST: ${{ vars.DATABASE_HOST }}
       INSYTE_APP_DB_PASSWORD: ${{ secrets.INSYTE_APP_DB_PASSWORD }}
-      BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
       GITHUB_SHA: ${{ github.sha }}
-      OTEL_TRACES_EXPORTER: ${{ vars.OTEL_TRACES_EXPORTER }}
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT }}
-      OTEL_EXPORTER_OTLP_HEADERS: ${{ vars.OTEL_EXPORTER_OTLP_HEADERS }}
-      OTEL_BSP_SCHEDULE_DELAY: ${{ vars.OTEL_BSP_SCHEDULE_DELAY }}
-      SENTRY_DSN: ${{ vars.SENTRY_DSN }}
-      # `on` once the CI token may manage Turnstile: the stage gets its own widget (infra/app.ts).
-      TURNSTILE_WIDGET: ${{ vars.TURNSTILE_WIDGET }}
-      # Google sign-in: the stage's OAuth client, once it has one (infra/app.ts).
-      GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
-      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-      # Mail: `MAIL_ADAPTER=resend` once mail.goinsyte.com is verified in Resend; capture until then.
-      MAIL_ADAPTER: ${{ vars.MAIL_ADAPTER }}
-      MAIL_FROM: ${{ vars.MAIL_FROM }}
-      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-      # Shopify: the app's client (both as secrets) and the keyring its tokens are sealed under; connecting waits for all three.
-      SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
-      SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
-      SEAL_KEYS: ${{ secrets.SEAL_KEYS }}
-      # Klaviyo's app client, AfterShip's key and webhook secret, Sendcloud's keys; each integration stays off until all of its are set.
-      KLAVIYO_CLIENT_ID: ${{ secrets.KLAVIYO_CLIENT_ID }}
-      KLAVIYO_CLIENT_SECRET: ${{ secrets.KLAVIYO_CLIENT_SECRET }}
-      AFTERSHIP_API_KEY: ${{ secrets.AFTERSHIP_API_KEY }}
-      AFTERSHIP_WEBHOOK_SECRET: ${{ secrets.AFTERSHIP_WEBHOOK_SECRET }}
-      SENDCLOUD_PUBLIC_KEY: ${{ secrets.SENDCLOUD_PUBLIC_KEY }}
-      SENDCLOUD_SECRET_KEY: ${{ secrets.SENDCLOUD_SECRET_KEY }}
       # The console's build reads these (Vite): Sentry in the browser, tagged with the environment and the commit.
-      VITE_SENTRY_DSN: ${{ vars.SENTRY_DSN }}
       VITE_ENVIRONMENT: staging
       VITE_VERSION: ${{ github.sha }}
     steps:
@@ -218,6 +180,23 @@ jobs:
           DATABASE_URL_OWNER: ${{ secrets.DATABASE_URL_OWNER }}
       - run: bunx alchemy deploy app.ts --stage staging --yes --no-input
         working-directory: infra
+      # Once, while GitHub still has them: the secrets this deploy stopped uploading, onto the Worker (worker-secrets.ts).
+      # Removed with the secrets themselves once they are on both Workers.
+      - name: hand the Worker its secrets
+        run: bun scripts/worker-secrets.ts staging
+        env:
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          SEAL_KEYS: ${{ secrets.SEAL_KEYS }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+          KLAVIYO_CLIENT_ID: ${{ secrets.KLAVIYO_CLIENT_ID }}
+          KLAVIYO_CLIENT_SECRET: ${{ secrets.KLAVIYO_CLIENT_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          AFTERSHIP_API_KEY: ${{ secrets.AFTERSHIP_API_KEY }}
+          AFTERSHIP_WEBHOOK_SECRET: ${{ secrets.AFTERSHIP_WEBHOOK_SECRET }}
+          SENDCLOUD_PUBLIC_KEY: ${{ secrets.SENDCLOUD_PUBLIC_KEY }}
+          SENDCLOUD_SECRET_KEY: ${{ secrets.SENDCLOUD_SECRET_KEY }}
       - name: smoke staging
         # Past Access with the CI service token.
         env:
@@ -244,40 +223,10 @@ jobs:
       cancel-in-progress: false
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
-      DATABASE_HOST: ${{ vars.DATABASE_HOST }}
       INSYTE_APP_DB_PASSWORD: ${{ secrets.INSYTE_APP_DB_PASSWORD }}
-      BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
       GITHUB_SHA: ${{ github.sha }}
-      OTEL_TRACES_EXPORTER: ${{ vars.OTEL_TRACES_EXPORTER }}
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT }}
-      OTEL_EXPORTER_OTLP_HEADERS: ${{ vars.OTEL_EXPORTER_OTLP_HEADERS }}
-      OTEL_BSP_SCHEDULE_DELAY: ${{ vars.OTEL_BSP_SCHEDULE_DELAY }}
-      SENTRY_DSN: ${{ vars.SENTRY_DSN }}
-      # `on` once the CI token may manage Turnstile: the stage gets its own widget (infra/app.ts).
-      TURNSTILE_WIDGET: ${{ vars.TURNSTILE_WIDGET }}
-      # Google sign-in: the stage's OAuth client, once it has one (infra/app.ts).
-      GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
-      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-      # Mail: `MAIL_ADAPTER=resend` once mail.goinsyte.com is verified in Resend; capture until then.
-      MAIL_ADAPTER: ${{ vars.MAIL_ADAPTER }}
-      MAIL_FROM: ${{ vars.MAIL_FROM }}
-      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-      # Shopify: the app's client (both as secrets) and the keyring its tokens are sealed under; connecting waits for all three.
-      SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
-      SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
-      SEAL_KEYS: ${{ secrets.SEAL_KEYS }}
-      # Klaviyo's app client, AfterShip's key and webhook secret, Sendcloud's keys; each integration stays off until all of its are set.
-      KLAVIYO_CLIENT_ID: ${{ secrets.KLAVIYO_CLIENT_ID }}
-      KLAVIYO_CLIENT_SECRET: ${{ secrets.KLAVIYO_CLIENT_SECRET }}
-      AFTERSHIP_API_KEY: ${{ secrets.AFTERSHIP_API_KEY }}
-      AFTERSHIP_WEBHOOK_SECRET: ${{ secrets.AFTERSHIP_WEBHOOK_SECRET }}
-      SENDCLOUD_PUBLIC_KEY: ${{ secrets.SENDCLOUD_PUBLIC_KEY }}
-      SENDCLOUD_SECRET_KEY: ${{ secrets.SENDCLOUD_SECRET_KEY }}
       # The console's build reads these (Vite): Sentry in the browser, tagged with the environment and the commit.
-      VITE_SENTRY_DSN: ${{ vars.SENTRY_DSN }}
       VITE_ENVIRONMENT: production
       VITE_VERSION: ${{ github.sha }}
     steps:
@@ -297,6 +246,23 @@ jobs:
           DATABASE_URL_OWNER: ${{ secrets.DATABASE_URL_OWNER }}
       - run: bunx alchemy deploy app.ts --stage production --yes --no-input
         working-directory: infra
+      # Once, while GitHub still has them: the secrets this deploy stopped uploading, onto the Worker (worker-secrets.ts).
+      # Removed with the secrets themselves once they are on both Workers.
+      - name: hand the Worker its secrets
+        run: bun scripts/worker-secrets.ts production
+        env:
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          SEAL_KEYS: ${{ secrets.SEAL_KEYS }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+          KLAVIYO_CLIENT_ID: ${{ secrets.KLAVIYO_CLIENT_ID }}
+          KLAVIYO_CLIENT_SECRET: ${{ secrets.KLAVIYO_CLIENT_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          AFTERSHIP_API_KEY: ${{ secrets.AFTERSHIP_API_KEY }}
+          AFTERSHIP_WEBHOOK_SECRET: ${{ secrets.AFTERSHIP_WEBHOOK_SECRET }}
+          SENDCLOUD_PUBLIC_KEY: ${{ secrets.SENDCLOUD_PUBLIC_KEY }}
+          SENDCLOUD_SECRET_KEY: ${{ secrets.SENDCLOUD_SECRET_KEY }}
       - name: smoke production
         # Past Access with the CI service token.
         env:

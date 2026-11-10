@@ -23,10 +23,11 @@ worker-configuration.d.ts
 apps/*/src/routeTree.gen.ts
 apps/*/src/*/routeTree.gen.ts
 
-# Wrangler's local-secrets convention. Not currently used, ignored so it cannot become a
-# committed credential the first time somebody follows the Cloudflare docs.
+# Wrangler's local secrets (`bun run dev:vars` writes apps/api/.dev.vars); only the example, names without values, is
+# committed.
 .dev.vars
 .dev.vars.*
+!.dev.vars.example
 
 # Per-project incremental state, one dir per package now that src and test are separate projects.
 .tsbuildinfo/

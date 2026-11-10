@@ -1,7 +1,7 @@
 /*
  * Prints the read-write host of a Neon branch, for the steps that follow a preview's deploy (migrations, smoke).
  *
- *   bun scripts/neon-branch-host.ts <branch name>      with NEON_API_KEY and NEON_PROJECT_ID set
+ *   bun scripts/neon-branch-host.ts <branch name>      with NEON_API_KEY set
  *
  * Reads Neon's API directly: no secret is printed, only the host.
  */

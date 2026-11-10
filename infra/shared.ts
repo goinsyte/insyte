@@ -1,6 +1,7 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
 import * as Alchemy from "alchemy"
-import { Config, Effect } from "effect"
+import { Effect } from "effect"
+import { OBSERVABILITY } from "./stages.ts"
 
 /*
  * What the Cloudflare account holds once, for every stage (14 §2): deployed as stage `shared` before each stage's
@@ -16,9 +17,9 @@ export default Alchemy.Stack(
   "insyte-shared",
   { providers: Cloudflare.providers(), state: Cloudflare.state() },
   Effect.gen(function*() {
-    const tracesUrl = yield* Config.String("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+    const tracesUrl = OBSERVABILITY.tracesEndpoint
     // The same header the API's exporter sends, stored in Effect's URI-encoded `name=value` form.
-    const [name, value] = (yield* Config.String("OTEL_EXPORTER_OTLP_HEADERS")).split("=").map(decodeURIComponent)
+    const [name, value] = OBSERVABILITY.headers.split("=").map(decodeURIComponent)
     const headers = { [name!]: value! }
 
     const traces = yield* Cloudflare.ObservabilityDestination("SentryTraces", {

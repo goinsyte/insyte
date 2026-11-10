@@ -1,0 +1,12 @@
+# The local Worker's secrets, for `wrangler dev`. `bun run dev:vars` writes
+# apps/api/.dev.vars from ~/vantion/insyte/.env.local; never commit the filled file. Each integration stays off until
+# all of its names are set. Staging and production have the same names set on their Worker (infra/stages.ts).
+SHOPIFY_CLIENT_ID=
+SHOPIFY_CLIENT_SECRET=
+KLAVIYO_CLIENT_ID=
+KLAVIYO_CLIENT_SECRET=
+SEAL_KEYS=
+AFTERSHIP_API_KEY=
+AFTERSHIP_WEBHOOK_SECRET=
+SENDCLOUD_PUBLIC_KEY=
+SENDCLOUD_SECRET_KEY=
