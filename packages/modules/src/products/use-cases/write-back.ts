@@ -3,10 +3,10 @@ import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { ShopifyWrite, WriteOutcome } from "../../shared/domain/ShopifyWrites.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import { isAnswer, mutate } from "../../stores/domain/Gate.ts"
 import { fromMinor, gidOf } from "../../stores/domain/Mirror.ts"
 import { ConnectionGate } from "../../stores/domain/Ports.ts"
-import { mirrorOne } from "../../stores/use-cases/webhooks.ts"
-import { isAnswer, mutate } from "../../stores/use-cases/write.ts"
+import { StoreMirror } from "../../stores/Mirror.ts"
 import { PRODUCT_UPDATE, STATUS, VARIANTS_UPDATE } from "../domain/WriteBack.ts"
 
 /*
@@ -93,7 +93,7 @@ export const productWriteBack = Effect.fn("Products.writeBack")(function*(
   if (answer === "disconnected") return outcome("skipped", "disconnected")
 
   const store = { id: target.storeId, connectionId: target.connectionId, shop: target.shop, currency: target.currency }
-  yield* mirrorOne(store, "Product", gid)
+  yield* (yield* StoreMirror).mirrorOne(store, "Product", gid)
   const workspace = yield* CurrentWorkspace
   yield* db.scopedFor((sql) =>
     Audit.write(sql, workspace.id, { kind: "system", id: "shopify" }, {

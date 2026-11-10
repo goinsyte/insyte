@@ -24,18 +24,24 @@ const sliceAndRing = (file: string): readonly [string | undefined, string | unde
   return [slice, ring]
 }
 
-/** The slice a specifier reaches, by package path or by relative path from `file`. */
-const sliceReached = (specifier: string, file: string): string | undefined => {
-  const pkg = specifier.match(/^@insyte\/modules\/([^/]+)/)
-  if (pkg) return pkg[1]
+/** The path inside `packages/modules/src/` a specifier reaches, by package path or by relative path from `file`. */
+const pathReached = (specifier: string, file: string): ReadonlyArray<string> | undefined => {
+  const pkg = specifier.match(/^@insyte\/modules\/(.+)$/)
+  if (pkg) return pkg[1]!.split("/")
   if (!specifier.startsWith(".") || !file.startsWith(MODULES)) return undefined
   const parts = file.slice(MODULES.length).split("/").slice(0, -1)
   for (const segment of specifier.split("/")) {
     if (segment === "..") parts.pop()
     else if (segment !== ".") parts.push(segment)
   }
-  return parts[0]
+  return parts
 }
+
+/**
+ * Another slice's public surface (architecture.md, build/16 §8): its `domain/` ring (the contracts) or its service, a
+ * file at the slice's root (`orders/Orders.ts`). Never its `use-cases/`, `tables/` or `server/`.
+ */
+const isPublicSurface = (path: ReadonlyArray<string>) => path[1] === "domain" || path.length === 2
 
 const isRelative = (specifier: string) => specifier.startsWith(".")
 
@@ -63,10 +69,11 @@ const RULES: ReadonlyArray<Rule> = [
   {
     applies: (file) => file.startsWith(MODULES) && sliceAndRing(file)[0] !== "shared",
     forbids: (s, file) => {
-      const reached = sliceReached(s, file)
-      return reached !== undefined && reached !== "shared" && reached !== sliceAndRing(file)[0]
+      const path = pathReached(s, file)
+      const reached = path?.[0]
+      return path !== undefined && reached !== "shared" && reached !== sliceAndRing(file)[0] && !isPublicSurface(path)
     },
-    because: "a slice never imports another slice, only shared/ and the capability packages"
+    because: "a slice reaches another only through its domain/ ring or its service, never its use-cases/"
   },
   {
     applies: (file) => file.startsWith("packages/ui/"),

@@ -4,9 +4,9 @@ import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect, Option, Schema } from "effect"
 import { Relay } from "../../shared/domain/Outbox.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
+import { throughGate } from "../domain/Gate.ts"
 import { addLine, emptyBatch, flatten, gidOf, type MirrorKind, NODE_QUERY } from "../domain/Mirror.ts"
 import { ConnectionGate, IngestQueue, ShopifyAdmin, ShopifyGraphql } from "../domain/Ports.ts"
-import { throughGate } from "./backfill.ts"
 import { applyBatch } from "./mirror.ts"
 
 /*

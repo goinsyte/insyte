@@ -9,6 +9,7 @@ import type { SearchHit } from "../shared/domain/Search.ts"
 import type { CreateInput, CustomerChange, MergeInput, TagInput } from "./domain/Commands.ts"
 import type { CustomerDetail, CustomerPage } from "./domain/Customers.ts"
 import type { DuplicateGroup } from "./domain/Duplicates.ts"
+import { KlaviyoSyncs } from "./domain/Ports.ts"
 import * as Commands from "./use-cases/commands.ts"
 import * as Customers from "./use-cases/customers.ts"
 
@@ -33,14 +34,24 @@ export class CustomersService extends Context.Service<CustomersService, {
   readonly duplicates: Effect.Effect<ReadonlyArray<DuplicateGroup>, Forbidden, R>
   readonly markNotDuplicate: (key: string) => Effect.Effect<void, Forbidden, R>
 }>()("modules/CustomersService") {
-  static readonly layer = Layer.succeed(CustomersService, {
-    list: (input) => Customers.list(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-    get: (id) => Customers.get(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-    search: (q, limit) => Customers.search(q, limit).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-    tag: (input) => Commands.tag(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-    create: (input) => Commands.create(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-    merge: (input) => Commands.merge(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-    duplicates: Commands.duplicates().pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-    markNotDuplicate: (key) => Commands.markNotDuplicate(key).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))
-  })
+  static readonly layer = Layer.effect(
+    CustomersService,
+    Effect.gen(function*() {
+      const syncs = yield* KlaviyoSyncs
+      return {
+        list: (input) => Customers.list(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        get: (id) =>
+          Customers.get(id).pipe(
+            Effect.provideService(KlaviyoSyncs, syncs),
+            Effect.catchIf(SqlError.isSqlError, Effect.die)
+          ),
+        search: (q, limit) => Customers.search(q, limit).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        tag: (input) => Commands.tag(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        create: (input) => Commands.create(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        merge: (input) => Commands.merge(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        duplicates: Commands.duplicates().pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        markNotDuplicate: (key) => Commands.markNotDuplicate(key).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))
+      }
+    })
+  )
 }

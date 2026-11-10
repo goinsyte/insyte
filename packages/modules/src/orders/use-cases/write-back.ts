@@ -3,10 +3,10 @@ import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { WriteOutcome } from "../../shared/domain/ShopifyWrites.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import { isAnswer, mutate } from "../../stores/domain/Gate.ts"
 import { fromMinor, gidId, gidOf, toMinor } from "../../stores/domain/Mirror.ts"
 import { ConnectionGate } from "../../stores/domain/Ports.ts"
-import { mirrorOne } from "../../stores/use-cases/webhooks.ts"
-import { isAnswer, mutate } from "../../stores/use-cases/write.ts"
+import { StoreMirror } from "../../stores/Mirror.ts"
 import {
   FULFILLABLE,
   FULFILLMENT_CREATE,
@@ -274,7 +274,7 @@ export const writeBack = Effect.fn("Orders.writeBack")(function*(write: OrderWri
   }
 
   // Shopify said no: Insyte shows the order as the store holds it, and the refusal is recorded.
-  yield* mirrorOne(store, "Order", gidOf("Order", target.shopifyId))
+  yield* (yield* StoreMirror).mirrorOne(store, "Order", gidOf("Order", target.shopifyId))
   yield* db.scopedFor((sql) =>
     Audit.write(sql, workspace.id, { kind: "system", id: "shopify" }, {
       action: "order.shopify_refused",

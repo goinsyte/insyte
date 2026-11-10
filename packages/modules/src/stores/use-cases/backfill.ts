@@ -2,8 +2,9 @@ import { Db } from "@insyte/database/Db"
 import { mintId } from "@insyte/domain/Ids"
 import { Config, Effect, Schema } from "effect"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
+import { throughGate } from "../domain/Gate.ts"
 import { addLine, CUSTOMERS_QUERY, emptyBatch, ordersQuery, PRODUCTS_QUERY } from "../domain/Mirror.ts"
-import { type BulkStatus, ConnectionGate, ShopifyGraphql } from "../domain/Ports.ts"
+import { type BulkStatus, ShopifyGraphql } from "../domain/Ports.ts"
 import { applyBatch } from "./mirror.ts"
 
 /*
@@ -82,22 +83,6 @@ const checkpoint = Effect.fn("Stores.backfill.checkpoint")(
     )
   }
 )
-
-/** One call through the gate: a token, the bucket's go-ahead, and what Shopify said the bucket holds now. */
-export const throughGate = <A extends { readonly throttle: unknown }, E, R>(
-  ctx: Pick<BackfillContext, "connectionId">,
-  cost: number,
-  call: (token: Parameters<ShopifyGraphql["Service"]["start"]>[1]) => Effect.Effect<A, E, R>
-) =>
-  Effect.gen(function*() {
-    const gate = yield* ConnectionGate
-    const token = yield* gate.accessToken(ctx.connectionId)
-    yield* gate.reserve(ctx.connectionId, cost)
-    const result = yield* call(token)
-    const throttle = result.throttle as Parameters<ConnectionGate["Service"]["observe"]>[1] | null
-    if (throttle !== null) yield* gate.observe(ctx.connectionId, throttle)
-    return result
-  })
 
 /** Asks Shopify to run the resource's bulk query; answers its operation id. */
 export const startBulk = Effect.fn("Stores.backfill.start")(function*(ctx: BackfillContext, resource: Resource) {

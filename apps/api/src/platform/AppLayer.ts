@@ -50,6 +50,7 @@ import { RelayLive } from "./Relay.ts"
 import { SealerLive } from "./Seal.ts"
 import { ShopifyAdminChoice, ShopifyGraphqlChoice } from "./Shopify.ts"
 import { ShopifyWritesLive } from "./ShopifyWrites.ts"
+import { SliceLinks } from "./SliceLinks.ts"
 import { TrackingChoice } from "./Tracking.ts"
 
 /*
@@ -140,7 +141,9 @@ export const AppLayer = Transports.pipe(
       ConnectionGateLive,
       IngestQueueLive,
       // …and the first analysis's Workflow (M6.5).
-      AnalysesLive
+      AnalysesLive,
+      // …and where one slice's need meets another's use case.
+      SliceLinks
     )
   ),
   // better-auth, built per request by the auth routes and the session check, over the app's hooks.
@@ -205,7 +208,9 @@ export const SyncLayer = Layer.mergeAll(
   TrackingChoice,
   // A forward's packing slip (M8.5): rendered and kept.
   DocumentsChoice,
-  FileStoreR2
+  FileStoreR2,
+  // Where one slice's need meets another's use case: the mirror's followers, a write-back's read again.
+  SliceLinks
 )
   .pipe(
     Layer.provideMerge(HyperdriveConnect),

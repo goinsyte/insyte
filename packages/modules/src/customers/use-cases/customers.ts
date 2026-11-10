@@ -3,12 +3,12 @@ import { NotFound } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
-import { lastSyncOf } from "../../marketing/use-cases/klaviyo.ts"
 import type { ListInput } from "../../shared/domain/Filter.ts"
 import { likePattern, SearchHit } from "../../shared/domain/Search.ts"
 import { compileFilter, decodeCursor, encodeCursor, type Whitelist } from "../../shared/tables/FilterSql.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import { CustomerDetail, CustomerPage, CustomerRow } from "../domain/Customers.ts"
+import { KlaviyoSyncs } from "../domain/Ports.ts"
 
 /*
  * `Customers.list` and `Customers.get` (M6.4): at `customers` Bekijken, inside the role's stores; a customer Shopify
@@ -128,7 +128,7 @@ export const get = Effect.fn("Customers.get")(function*(id: string) {
       >`
         select id, number, status, total_minor, currency, placed_at from orders where customer_id = ${id}
         order by placed_at desc limit 50`
-      const klaviyo = yield* lastSyncOf(sql, id)
+      const klaviyo = yield* (yield* KlaviyoSyncs).lastSyncOf(sql, id)
       const absorbed = yield* sql<{ email: string | null }>`
         select email from customers where merged_into = ${id} order by merged_at`
       return new CustomerDetail({

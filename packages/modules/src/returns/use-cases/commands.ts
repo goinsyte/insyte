@@ -6,11 +6,11 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import { RefundId } from "../../orders/domain/Refunds.ts"
-import { refundOn } from "../../orders/use-cases/refund.ts"
 import { Relay } from "../../shared/domain/Outbox.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
+import { Refunder } from "../domain/Ports.ts"
 import {
   type ApproveInput,
   type AssignInput,
@@ -455,8 +455,9 @@ export const resolve = Effect.fn("Returns.resolve")(function*(input: typeof Reso
         refundId = yield* decodeRefundId(input.refundId).pipe(
           Effect.mapError(() => new Invalid({ fields: { refundId: "invalid" } }))
         )
-        const refunded = yield* refundOn(sql, {
-          id: l!.orderId,
+        const refunder = yield* Refunder
+        const refunded = yield* refunder.refund(sql, {
+          orderId: l!.orderId,
           refundId,
           amountMinor: chosen.amountMinor,
           note: `Retour ${l!.number}`

@@ -4,8 +4,8 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
+import { throughGate } from "../../stores/domain/Gate.ts"
 import { ShopifyGraphql } from "../../stores/domain/Ports.ts"
-import { throughGate } from "../../stores/use-cases/backfill.ts"
 import {
   AnalysisNotReady,
   type DeliveryPromise,
