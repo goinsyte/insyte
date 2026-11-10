@@ -162,7 +162,13 @@ export default Alchemy.Stack(
      * each would spend them.
      */
     // Files (M8.5): packing slips now, uploads later; in the EU, one bucket per stage.
-    const files = yield* Cloudflare.R2.Bucket("Files", { name: `insyte-files-${stage}`, jurisdiction: "eu" })
+    // A preview's files are test data: its teardown empties the bucket (R2 refuses to delete a full one). Staging and
+    // production keep that refusal.
+    const files = yield* Cloudflare.R2.Bucket("Files", {
+      name: `insyte-files-${stage}`,
+      jurisdiction: "eu",
+      forceDestroy: stage.startsWith("pr-")
+    })
     const events = yield* Cloudflare.Queues.Queue("Events", { name: `insyte-events-${stage}`, jurisdiction: "eu" })
     const deadEvents = yield* Cloudflare.Queues.Queue("EventsDlq", {
       name: `insyte-events-dlq-${stage}`,
