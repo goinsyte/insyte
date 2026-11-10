@@ -20,6 +20,7 @@ import {
 	STATUS_LABEL,
 	STATUS_TONE,
 } from "../lib/returns";
+import type { Currency } from "../lib/types/domain";
 import { cn } from "../lib/utils";
 import { InsyteMark } from "../ask/parts";
 
@@ -62,7 +63,7 @@ export function ResolutionPicker({
 	exchangeTo,
 	currency,
 }: {
-	currency: import("../lib/types/domain").Currency;
+	currency: Currency;
 	value: Resolution;
 	onChange: (r: Resolution) => void;
 	options: ReadonlyArray<Resolution>;

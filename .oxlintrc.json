@@ -74,6 +74,11 @@
     "!packages/ui/src/app/customers/**",
     // Graduated (08 §3): the suppliers screen, wired to its commands in M8.
     "!packages/ui/src/app/suppliers/**",
+    // Graduated (08 §3): returns, the returns portal and quality, wired in M9.
+    "!packages/ui/src/app/returns/**",
+    "!packages/ui/src/app/quality/**",
+    "!packages/ui/src/app/lib/returns.ts",
+    "!packages/ui/src/app/lib/quality.ts",
     // Graduated (08 §3): wired to the API, so held to this repo's rules.
     "!packages/ui/src/app/auth/login-screen.tsx",
     "!packages/ui/src/app/onboarding/shared-steps.tsx",

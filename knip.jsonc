@@ -64,6 +64,10 @@
         "!src/app/products/**",
         "!src/app/customers/**",
         "!src/app/suppliers/**",
+        "!src/app/returns/**",
+        "!src/app/quality/**",
+        "!src/app/lib/returns.ts",
+        "!src/app/lib/quality.ts",
       ],
     },
     "apps/console": {

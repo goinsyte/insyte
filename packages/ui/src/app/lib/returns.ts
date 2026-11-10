@@ -167,8 +167,8 @@ export const pastDeadline = (status: ReturnStatus, deadline: string, now: number
 /* ── transitions ───────────────────────────────────────────────────────────────────────────── */
 
 export class IllegalReturnMove extends Error {
-  constructor(from: ReturnStatus, move: string) {
-    super(`Cannot ${move} a return that is ${from}`)
+  constructor(from: ReturnStatus, action: string) {
+    super(`Cannot ${action} a return that is ${from}`)
   }
 }
 

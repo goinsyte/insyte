@@ -23,6 +23,8 @@ const HINTS = designControls ? (
   </p>
 ) : null
 
+const deliveredOf = (o: Order) => deliveriesSeed[o.id] ?? (o.status === "delivered" ? o.updated_at : undefined)
+
 export function DemoPortalSource({ children }: { children: ReactNode }) {
   const { storeHandle } = useParams({ strict: false }) as { storeHandle?: string }
   const store = stores.find((s) => s.id === (HANDLES[storeHandle ?? ""] ?? null))
@@ -30,8 +32,6 @@ export function DemoPortalSource({ children }: { children: ReactNode }) {
   const records = useReturns((s) => s.records)
   const orders = useWorkspace((s) => s.orders)
   const found = useRef<Order | null>(null)
-
-  const deliveredOf = (o: Order) => deliveriesSeed[o.id] ?? (o.status === "delivered" ? o.updated_at : undefined)
 
   /** Per line and kind: may it go back, and if not, why. */
   const refusal = (o: Order, lineId: string, kind: ReturnKind): LineRefusal | null => {

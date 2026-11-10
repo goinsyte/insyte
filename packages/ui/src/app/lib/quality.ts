@@ -157,5 +157,6 @@ export function mergeComplaints(
         customer: r.customerName
       }))
     )
+  // eslint-disable-next-line unicorn/no-array-sort -- a fresh array; the package's test program has no ES2023 `toSorted`
   return [...onFile, ...fresh].sort((a, b) => b.at.localeCompare(a.at))
 }
