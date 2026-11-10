@@ -12,7 +12,11 @@ import { UNDO_SECONDS, type UndoTicket } from "../domain/Undo.ts"
 
 const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("")
 
-const hashOf = (token: string) =>
+/**
+ * A token's SHA-256, in hex: what `undo_tokens` keeps, and what a compensation that spends another token holds in
+ * place of the token itself (`proposals.restore`), so no row stores a token that could be redeemed.
+ */
+export const hashOf = (token: string) =>
   Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(token))).pipe(Effect.map(hex))
 
 const mint = () => {
@@ -43,6 +47,14 @@ export const issue = Effect.fn("Undo.issue")(function*(
  * someone else's or unknown is `NotFound`; one spent, lapsed or whose effect already left is a `Conflict`.
  */
 export const redeem = Effect.fn("Undo.redeem")(function*(sql: SqlClient.SqlClient, token: string) {
+  return yield* redeemByHash(sql, yield* hashOf(token))
+})
+
+/**
+ * `redeem` by the token's hash (`hashOf`), for a compensation that spends the command's own token on the undo's
+ * transaction. The same checks: the caller's own token, unspent, inside its window, its outbox rows not yet sent.
+ */
+export const redeemByHash = Effect.fn("Undo.redeemByHash")(function*(sql: SqlClient.SqlClient, hash: string) {
   const principal = yield* CurrentPrincipal
   const [row] = yield* sql<{
     command: string
@@ -53,7 +65,7 @@ export const redeem = Effect.fn("Undo.redeem")(function*(sql: SqlClient.SqlClien
   }>`
     select command, compensation, outbox_ids, used_at is not null as used, expires_at < now() as lapsed
     from undo_tokens
-    where token_hash = decode(${yield* hashOf(token)}, 'hex') and principal_id = ${principal.id}
+    where token_hash = decode(${hash}, 'hex') and principal_id = ${principal.id}
     for update`
   if (row === undefined) return yield* new NotFound({ entity: "undo", id: "token" })
   if (row.used) return yield* new Conflict({ entity: "undo", reason: "used" })
@@ -66,6 +78,6 @@ export const redeem = Effect.fn("Undo.redeem")(function*(sql: SqlClient.SqlClien
     yield* sql`update outbox set cancelled_at = now()
                where id in ${sql.in([...row.outboxIds])} and cancelled_at is null`
   }
-  yield* sql`update undo_tokens set used_at = now() where token_hash = decode(${yield* hashOf(token)}, 'hex')`
+  yield* sql`update undo_tokens set used_at = now() where token_hash = decode(${hash}, 'hex')`
   return { command: row.command, compensation: row.compensation }
 })

@@ -178,10 +178,12 @@ export const file = Effect.fn("Proposals.file")(function*(id: string) {
         action: action._tag
       })
       yield* links.refreshQueue(sql)
-      // The command's own token rides inside this one: undoing the filing spends it on the same transaction.
+      // The command's own token rides inside this one, by its hash: undoing the filing spends it on the same
+      // transaction, with the same checks, and no row keeps a token that could be redeemed.
+      const innerHash = ran.undo === null ? null : yield* Undo.hashOf(ran.undo.token)
       const undo = yield* Undo.issue(sql, {
         command: RESTORE,
-        compensation: { kind: "filed", id, inner: ran.undo?.token ?? null } satisfies typeof ProposalRestore.Type
+        compensation: { kind: "filed", id, innerHash } satisfies typeof ProposalRestore.Type
       })
       return new ProposalChange({ proposal: viewOf(yield* one(sql, id, false)), undo })
     })
@@ -294,8 +296,8 @@ export const restore = Effect.fn("Proposals.restore")(function*(
     })
     return
   }
-  if (r.inner !== null) {
-    const inner = yield* Undo.redeem(sql, r.inner)
+  if (r.innerHash !== null) {
+    const inner = yield* Undo.redeemByHash(sql, r.innerHash)
     yield* deps.runInner(inner.command, inner.compensation)
   }
   const back = yield* sql`

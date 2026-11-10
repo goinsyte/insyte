@@ -46,6 +46,12 @@ const startReturn = async (cookie: string, workspace: string) => {
   return { started, line }
 }
 
+/** The workspace's undo compensations, as the dev route reads them (without the hashes). */
+const undoOf = async (workspace: string) =>
+  ((await (await call(`http://api.test/api/__dev/undo?workspace=${workspace}`)).json()) as {
+    tokens: Array<{ command: string; compensation: unknown; used: boolean }>
+  }).tokens
+
 const rowFor = async (cookie: string, subjectId: string) =>
   ok(await rpc("Queue.list", { tab: "all" }, cookie)).rows.find((r) => r.subjectId === subjectId)
 
@@ -101,10 +107,27 @@ describe("plates and proposals", () => {
       state: "executed"
     })
 
-    // Undo: the return back in review, the proposal reverted, and the row back with a fresh plate.
+    // The filing's Undo keeps the approval's own token only by its hash: no row holds a token that could be redeemed.
+    const restore = (await undoOf(store.workspace)).findLast((t) => t.command === "proposals.restore")!
+    expect(restore.compensation).toEqual({
+      kind: "filed",
+      id: row.proposal!.id,
+      innerHash: expect.stringMatching(/^[0-9a-f]{64}$/)
+    })
+    expect(JSON.stringify(await undoOf(store.workspace))).not.toContain("und_")
+
+    // Undo: the return back in review, the proposal reverted, and the row back with a fresh plate. Both tokens are spent.
     await undo(store.cookie, filed.undo?.token)
     expect(ok(await rpc("Returns.get", { id: started.id }, store.cookie)).record.status).toBe("review")
     expect(ok(await rpc("Proposals.get", { id: row.proposal!.id }, store.cookie)).state).toBe("reverted")
+    // The filing's two tokens, the approval's and the filing's own, issued last on its transaction.
+    expect((await undoOf(store.workspace)).slice(-2)).toMatchObject([
+      { command: "returns.restore", used: true },
+      { command: "proposals.restore", used: true }
+    ])
+    expect(failure(await rpc("Shared.undo", { token: filed.undo!.token }, store.cookie))).toMatchObject({
+      _tag: "Conflict"
+    })
     const back = (await rowFor(store.cookie, started.id))!
     expect(back.proposal).toMatchObject({ state: "open", action: { returnId: started.id } })
     expect(back.proposal!.id).not.toBe(row.proposal!.id)

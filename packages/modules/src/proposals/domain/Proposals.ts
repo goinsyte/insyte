@@ -103,7 +103,10 @@ export const ProposalRestore = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("filed"),
     id: Schema.String,
-    /** The command's own undo token, spent on the undo's transaction to put the record back. */
-    inner: Schema.NullOr(Schema.String)
+    /**
+     * The command's own undo token, by its SHA-256 (`Undo.hashOf`), spent on the undo's transaction to put the record
+     * back. Never the token itself: no row holds a token that could be redeemed.
+     */
+    innerHash: Schema.NullOr(Schema.String)
   })
 ])
