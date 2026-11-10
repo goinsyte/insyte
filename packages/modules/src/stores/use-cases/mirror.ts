@@ -1,9 +1,8 @@
 import { Db } from "@insyte/database/Db"
 import { mintId } from "@insyte/domain/Ids"
 import { Effect } from "effect"
-import { ensureLegs } from "../../forwarding/use-cases/legs.ts"
-import { ensureDeliveries } from "../../tracking/use-cases/tracking.ts"
 import type { MirrorBatch } from "../domain/Mirror.ts"
+import { MirrorFollowers } from "../domain/Ports.ts"
 
 /*
  * Writing one page of the mirror (M6.3), inside the store's workspace as `system` (`Db.scopedFor`). One statement per
@@ -220,14 +219,15 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
         returning 1`
 
       // Forwarding (M8.2): the legs of every order this page touched, by its order or by its lines and parcels.
-      yield* ensureLegs(sql, storeId, [
+      const followers = yield* MirrorFollowers
+      yield* followers.ordersWritten(sql, storeId, [
         ...batch.orders.map((o) => o.shopify_id),
         ...batch.lines.map((l) => l.order_shopify_id),
         ...batch.fulfilments.map((f) => f.order_shopify_id)
       ], options.live ?? true)
 
       // Tracking (M8.4): a delivery for each new parcel with a tracking number.
-      yield* ensureDeliveries(sql, storeId, batch.fulfilments.map((f) => f.shopify_id))
+      yield* followers.fulfilmentsWritten(sql, storeId, batch.fulfilments.map((f) => f.shopify_id))
 
       const children = latest(batch.variants).length + latest(batch.lines).length + latest(batch.fulfilments).length +
         latest(batch.refunds).length

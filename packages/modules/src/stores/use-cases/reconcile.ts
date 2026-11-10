@@ -1,8 +1,8 @@
 import { Db } from "@insyte/database/Db"
 import { Effect } from "effect"
+import { throughGate } from "../domain/Gate.ts"
 import { addLine, changedQuery, emptyBatch, flatten, type MirrorKind } from "../domain/Mirror.ts"
 import { ShopifyGraphql } from "../domain/Ports.ts"
-import { throughGate } from "./backfill.ts"
 import { applyBatch } from "./mirror.ts"
 
 /*

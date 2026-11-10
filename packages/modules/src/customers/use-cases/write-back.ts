@@ -3,10 +3,10 @@ import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { ShopifyWrite, WriteOutcome } from "../../shared/domain/ShopifyWrites.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import { isAnswer, mutate } from "../../stores/domain/Gate.ts"
 import { gidId, gidOf } from "../../stores/domain/Mirror.ts"
 import { ConnectionGate } from "../../stores/domain/Ports.ts"
-import { mirrorOne } from "../../stores/use-cases/webhooks.ts"
-import { isAnswer, mutate } from "../../stores/use-cases/write.ts"
+import { StoreMirror } from "../../stores/Mirror.ts"
 import { CUSTOMER_CREATE, CUSTOMER_TAGS_ADD, CUSTOMER_TAGS_REMOVE } from "../domain/WriteBack.ts"
 
 /*
@@ -121,7 +121,7 @@ export const customerWriteBack = Effect.fn("Customers.writeBack")(function*(writ
     return outcome("refused", answer)
   }
   const store = { id: target.storeId, connectionId: target.connectionId, shop: target.shop, currency: target.currency }
-  yield* mirrorOne(store, "Customer", gidOf("Customer", target.shopifyId))
+  yield* (yield* StoreMirror).mirrorOne(store, "Customer", gidOf("Customer", target.shopifyId))
   yield* db.scopedFor((sql) =>
     Audit.write(sql, workspace.id, { kind: "system", id: "shopify" }, {
       action: "customer.shopify_refused",

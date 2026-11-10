@@ -7,6 +7,7 @@ import type { CursorInvalid, FilterFieldUnknown, ListInput } from "../shared/dom
 import type { Relay } from "../shared/domain/Outbox.ts"
 import type { SearchHit } from "../shared/domain/Search.ts"
 import type { ConnectionGate, ShopifyGraphql } from "../stores/domain/Ports.ts"
+import { StoreMirror } from "../stores/Mirror.ts"
 import type { EditInput, ProductChange, RepriceInput, RepriceResult, StatusInput } from "./domain/Commands.ts"
 import type { ProductDetail, ProductPage } from "./domain/Products.ts"
 import * as Commands from "./use-cases/commands.ts"
@@ -32,13 +33,23 @@ export class ProductsService extends Context.Service<ProductsService, {
     id: string
   ) => Effect.Effect<void, Forbidden | NotFound | Conflict, R | ShopifyGraphql | ConnectionGate>
 }>()("modules/ProductsService") {
-  static readonly layer = Layer.succeed(ProductsService, {
-    list: (input) => Products.list(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-    get: (id) => Products.get(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-    search: (q, limit) => Products.search(q, limit).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-    edit: (input) => Commands.edit(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-    setStatus: (input) => Commands.setStatus(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-    reprice: (input) => Commands.reprice(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-    sync: (id) => Commands.sync(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))
-  })
+  static readonly layer = Layer.effect(
+    ProductsService,
+    Effect.gen(function*() {
+      const mirror = yield* StoreMirror
+      return {
+        list: (input) => Products.list(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        get: (id) => Products.get(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        search: (q, limit) => Products.search(q, limit).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        edit: (input) => Commands.edit(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        setStatus: (input) => Commands.setStatus(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        reprice: (input) => Commands.reprice(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        sync: (id) =>
+          Commands.sync(id).pipe(
+            Effect.provideService(StoreMirror, mirror),
+            Effect.catchIf(SqlError.isSqlError, Effect.die)
+          )
+      }
+    })
+  )
 }

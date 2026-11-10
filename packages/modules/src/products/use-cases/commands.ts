@@ -11,7 +11,7 @@ import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import { gidOf } from "../../stores/domain/Mirror.ts"
-import { mirrorOne } from "../../stores/use-cases/webhooks.ts"
+import { StoreMirror } from "../../stores/Mirror.ts"
 import {
   type EditInput,
   htmlOf,
@@ -250,7 +250,7 @@ export const sync = Effect.fn("Products.sync")(function*(id: string) {
   )
   if (target === undefined) return yield* new NotFound({ entity: "product", id })
   const principal = yield* CurrentPrincipal
-  yield* mirrorOne(target, "Product", gidOf("Product", target.shopifyId)).pipe(
+  yield* (yield* StoreMirror).mirrorOne(target, "Product", gidOf("Product", target.shopifyId)).pipe(
     Effect.provideService(CurrentWorkspace, { id: principal.workspaceId }),
     Effect.catchTags({
       TokenRefused: () => Effect.fail(new Conflict({ entity: "store", reason: "disconnected" })),

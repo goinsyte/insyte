@@ -1,5 +1,6 @@
 import type { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Context, type Effect, type Redacted, Schema } from "effect"
+import type { SqlClient, SqlError } from "effect/sql"
 
 /*
  * Shopify, as the stores slice needs it (M6.2, integrations.md §2): the install's authorize address and its signed
@@ -137,3 +138,22 @@ export class Backfills extends Context.Service<Backfills, {
 export class IngestQueue extends Context.Service<IngestQueue, {
   readonly enqueue: (input: { readonly inboundEventId: string; readonly workspaceId: string }) => Effect.Effect<void>
 }>()("stores/IngestQueue") {}
+
+/**
+ * What other slices make of a page the mirror wrote, on its transaction (M8.2, M8.4): the forwarding legs of every order
+ * it touched, and a delivery for each new parcel with a tracking number. The mirror names when; the slices that own
+ * legs and deliveries say what, composed where the app is put together.
+ */
+export class MirrorFollowers extends Context.Service<MirrorFollowers, {
+  readonly ordersWritten: (
+    sql: SqlClient.SqlClient,
+    storeId: string,
+    orderShopifyIds: ReadonlyArray<string>,
+    live: boolean
+  ) => Effect.Effect<void, SqlError.SqlError>
+  readonly fulfilmentsWritten: (
+    sql: SqlClient.SqlClient,
+    storeId: string,
+    fulfilmentShopifyIds: ReadonlyArray<string>
+  ) => Effect.Effect<void, SqlError.SqlError>
+}>()("stores/MirrorFollowers") {}

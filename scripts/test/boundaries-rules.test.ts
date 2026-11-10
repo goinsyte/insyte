@@ -27,9 +27,13 @@ describe("boundaries", () => {
     passes("packages/modules/src/orders/tables/Orders.ts", "effect/sql")
   })
 
-  it("keeps slices apart, by package path and by relative path", () => {
-    fails("packages/modules/src/orders/use-cases/refund.ts", "@insyte/modules/customers/Customers")
-    fails("packages/modules/src/orders/use-cases/refund.ts", "../../customers/domain/Customer.ts")
+  it("lets a slice reach another only through its domain/ ring or its service", () => {
+    fails("packages/modules/src/orders/use-cases/refund.ts", "@insyte/modules/customers/use-cases/customers")
+    fails("packages/modules/src/orders/use-cases/refund.ts", "../../customers/use-cases/commands.ts")
+    fails("packages/modules/src/orders/use-cases/refund.ts", "../../customers/tables/Customers.ts")
+    fails("packages/modules/src/orders/Orders.ts", "../customers/use-cases/commands.ts")
+    passes("packages/modules/src/orders/use-cases/refund.ts", "@insyte/modules/customers/Customers")
+    passes("packages/modules/src/orders/use-cases/refund.ts", "../../customers/domain/Customer.ts")
     passes("packages/modules/src/orders/use-cases/refund.ts", "../../shared/tables/statements.ts")
     passes("packages/modules/src/orders/use-cases/refund.ts", "../domain/Order.ts")
   })

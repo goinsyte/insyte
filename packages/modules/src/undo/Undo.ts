@@ -3,6 +3,7 @@ import type { Conflict, Forbidden, NotFound } from "@insyte/domain/Errors"
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
+import { UndoCompensations } from "./domain/Ports.ts"
 import * as Undo from "./use-cases/undo.ts"
 
 /**
@@ -13,7 +14,17 @@ import * as Undo from "./use-cases/undo.ts"
 export class UndoService extends Context.Service<UndoService, {
   readonly undo: (token: string) => Effect.Effect<void, Forbidden | NotFound | Conflict, Db | CurrentPrincipal>
 }>()("modules/UndoService") {
-  static readonly layer = Layer.succeed(UndoService, {
-    undo: (token) => Undo.undo(token).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))
-  })
+  static readonly layer = Layer.effect(
+    UndoService,
+    Effect.gen(function*() {
+      const compensations = yield* UndoCompensations
+      return {
+        undo: (token) =>
+          Undo.undo(token).pipe(
+            Effect.provideService(UndoCompensations, compensations),
+            Effect.catchIf(SqlError.isSqlError, Effect.die)
+          )
+      }
+    })
+  )
 }
