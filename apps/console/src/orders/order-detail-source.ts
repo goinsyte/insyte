@@ -1,7 +1,6 @@
 import type { OrderDetail, OrderRow } from "@insyte/modules/orders/domain/Orders"
 import type { Address, Order } from "@insyte/ui/app/lib/types/domain"
 import type { OrderDetailSource, TimelineStep } from "@insyte/ui/app/orders/detail-source"
-import type { TeamGate } from "@insyte/ui/app/orders/source"
 import { useKnownOrderTags, useOrderCommands, useOrderGate, useRefundGate } from "./order-writes.ts"
 import { orderOf } from "./orders-source.ts"
 
@@ -10,7 +9,7 @@ import { orderOf } from "./orders-source.ts"
  * Bewerken and the labels, each behind Bestellingen · Bewerken; Terugbetalen (M7.2) behind the role's refund right and
  * limit, for what is left on the order. What the
  * console does not know yet is left out rather than made up: the supplier and the "Bij leverancier" step (M8), the
- * forwarding tracker, the agents' rows and the returns. The timeline says when each step happened, from Shopify's own
+ * forwarding tracker and the agents' rows. Retour starten (M9.1) is behind Retouren · Bewerken. The timeline says when each step happened, from Shopify's own
  * timestamps. The internal note is the team's (`order_notes`); the shopper's note from the checkout is shown apart.
  */
 
@@ -131,8 +130,6 @@ function consoleOrderDetail(d: OrderDetail): OrderDetailSource {
   }
 }
 
-const RETURNS_LATER: TeamGate = { ok: false, reason: "Retouren komen later" }
-
 /** The record with what may be done to it: the commands behind the role's Bestellingen · Bewerken. */
 export function useConsoleOrderDetail(d: OrderDetail): OrderDetailSource {
   const source = consoleOrderDetail(d)
@@ -143,6 +140,7 @@ export function useConsoleOrderDetail(d: OrderDetail): OrderDetailSource {
   const refundable = d.order.totalMinor -
     d.refunds.filter((r) => r.status !== "failed").reduce((s, r) => s + r.amountMinor, 0)
   const refund = useRefundGate(refundable)
+  const returns = useOrderGate("returns", 2)
   const { order } = source
   return {
     ...source,
@@ -151,7 +149,7 @@ export function useConsoleOrderDetail(d: OrderDetail): OrderDetailSource {
       write: edit.ok ? (tags, message) => void commands.setTags(order, tags, message) : undefined
     },
     writes: {
-      gates: { edit, refund, returns: RETURNS_LATER },
+      gates: { edit, refund, returns },
       refundable: refundable / 100,
       fulfil: () => void commands.markFulfilled([order], `${order.number} als afgehandeld gemarkeerd`),
       refund: () => void commands.refund(order, refundable),

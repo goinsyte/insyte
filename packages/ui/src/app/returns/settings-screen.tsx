@@ -5,14 +5,11 @@ import { FormDialog, TextAreaField, TextField } from "../common/form-dialog";
 import { PageGuide } from "../common/page-guide";
 import { FieldRow, INPUT_CLASS, UnsavedBar } from "../settings/form";
 import { BandedList, BandedRow, SettingCard, StatusPill } from "../settings/setting-card";
-import { useProducts } from "../hooks/use-operator-data";
 import { type ProductRule, type Resolution, RESOLUTION_LABEL, RULE_LABEL, type ReturnSettings, type RuleKind } from "../lib/returns";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { useGate } from "../stores/access-store";
-import { useReturns } from "../stores/returns-store";
 import { CarrierMark } from "./parts";
-import { portalHref } from "./returns-screen";
+import { useReturnSettingsSource } from "./source";
 
 const GUIDE = [
 	{ title: "Termijnen", body: "De retourtermijn telt in dagen na bezorging. De claimtermijn geldt voor beschadigd, verkeerd of kwaliteit. Speciale termijnen gelden voor bestellingen in een periode.", art: "hours" },
@@ -29,7 +26,8 @@ const GUIDE = [
  * changing it takes Retouren · Beheren; with less the page reads under the Alleen lezen line.
  */
 export function ReturnSettingsPage() {
-	const saved = useReturns((s) => s.settings);
+	const source = useReturnSettingsSource();
+	const saved = source.saved;
 	const savedKey = JSON.stringify(saved);
 	const [draft, setDraft] = useState<ReturnSettings>(saved);
 	const last = useRef(savedKey);
@@ -40,7 +38,7 @@ export function ReturnSettingsPage() {
 		}
 	}, [savedKey]);
 	const dirty = JSON.stringify(draft) !== savedKey;
-	const gate = useGate("returns", 3);
+	const gate = source.gate;
 	const [addingRule, setAddingRule] = useState(false);
 	const set = <K extends keyof ReturnSettings>(k: K, v: ReturnSettings[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
@@ -202,10 +200,12 @@ export function ReturnSettingsPage() {
 				title="Retourportaal"
 				icon={RotateCcw}
 				action={
-					<a href={portalHref(draft.portal.handle)} target="_blank" rel="noreferrer" className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-arc-ink text-xs hover:bg-arc-tint">
-						<ExternalLink className="size-3.5" strokeWidth={1.75} />
-						Portaal bekijken
-					</a>
+					source.portalHref ? (
+						<a href={source.portalHref(draft.portal.handle)} target="_blank" rel="noreferrer" className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-arc-ink text-xs hover:bg-arc-tint">
+							<ExternalLink className="size-3.5" strokeWidth={1.75} />
+							Portaal bekijken
+						</a>
+					) : undefined
 				}
 			>
 				<div className="flex flex-col">
@@ -227,6 +227,7 @@ export function ReturnSettingsPage() {
 			</SettingCard>
 
 			<RuleDialog
+				products={source.products}
 				open={addingRule}
 				onClose={() => setAddingRule(false)}
 				onAdd={(rule) => {
@@ -237,18 +238,14 @@ export function ReturnSettingsPage() {
 			<UnsavedBar
 				visible={dirty && gate.ok}
 				onDiscard={() => setDraft(saved)}
-				onSave={() => {
-					const undo = useReturns.getState().saveSettings(draft);
-					undoable("Retourinstellingen opgeslagen", undo, "Het portaal gebruikt ze meteen.");
-				}}
+				onSave={() => source.save(draft, { label: "Retourinstellingen opgeslagen", detail: "Het portaal gebruikt ze meteen." })}
 			/>
 			<PageGuide id="settings.returns" title="Retouren" steps={GUIDE} />
 		</>
 	);
 }
 
-function RuleDialog({ open, onClose, onAdd }: { open: boolean; onClose: () => void; onAdd: (r: ProductRule) => void }) {
-	const { data: products } = useProducts();
+function RuleDialog({ products, open, onClose, onAdd }: { products: ReadonlyArray<{ id: string; title: string }>; open: boolean; onClose: () => void; onAdd: (r: ProductRule) => void }) {
 	const [kind, setKind] = useState<RuleKind>("not_returnable");
 	const [by, setBy] = useState<"product" | "tag">("product");
 	const [productId, setProductId] = useState<string>("");

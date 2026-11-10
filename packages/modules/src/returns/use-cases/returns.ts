@@ -35,7 +35,10 @@ export const SELECT = `r.id, r.number, r.type, r.order_id, o.number as order_num
   (select coalesce(sum(rl.quantity * ol.unit_price_minor), 0) from return_lines rl
      join order_lines ol on ol.id = rl.order_line_id where rl.return_id = r.id)::bigint as amount_minor,
   r.created_at, r.review_deadline, r.delivered_at, r.assignee_id, r.quality, r.tags, r.label::text as label,
-  r.resolution, r.resolution_minor, r.resolved_at, r.resolved_by, r.replacement_order_id,
+  r.resolution, r.resolution_minor, r.resolved_at, r.resolved_by,
+  coalesce((select u.name from members m join auth."user" u on u.id = m.user_id where m.id = r.resolved_by),
+           (select k.label from api_keys k where k.id = r.resolved_by), r.resolved_by) as resolver_name,
+  r.replacement_order_id,
   ro.number as replacement_number, r.rejected_reason`
 
 export const FROM = `returns r join orders o on o.id = r.order_id
@@ -75,6 +78,7 @@ export interface Row {
   readonly resolutionMinor: string | null
   readonly resolvedAt: Date | null
   readonly resolvedBy: string | null
+  readonly resolverName: string | null
   readonly replacementOrderId: string | null
   readonly replacementNumber: string | null
   readonly rejectedReason: string | null
@@ -116,7 +120,7 @@ export const toRow = (r: Row) => {
       kind: r.resolution,
       amountMinor: Number(r.resolutionMinor ?? 0),
       at: r.resolvedAt.getTime(),
-      by: r.resolvedBy ?? "",
+      by: r.resolverName ?? r.resolvedBy ?? "",
       replacementOrder: r.replacementOrderId === null || r.replacementNumber === null
         ? null
         : { id: r.replacementOrderId, number: r.replacementNumber }

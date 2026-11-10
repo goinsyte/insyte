@@ -1,7 +1,10 @@
-import { Eye, Lock } from "../../icons";
+import { Eye } from "../../icons";
 import { useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { NoAccess } from "./no-access";
+import { ReadOnlyNotice } from "./read-only-notice";
+
+export { ReadOnlyNotice };
 import { areaForPath, canRole, editLevelForPath, permissionName } from "../lib/permissions";
 import type { Persona } from "../lib/types/persona";
 import { useAccess, useCurrentRole } from "../stores/access-store";
@@ -49,13 +52,3 @@ export function useReadOnly(path: string): string | null {
 	return `Je rol ${role.label} mist ${permissionName(edit.area, edit.level)}`;
 }
 
-export function ReadOnlyNotice({ reason }: { reason: string }) {
-	return (
-		<p className="flex items-start gap-2 rounded-lg bg-mist px-3 py-2.5 text-ink-2 text-sm leading-normal">
-			<Lock className="mt-0.5 size-3.5 shrink-0 text-ink-3" strokeWidth={1.75} />
-			<span>
-				<span className="font-medium text-ink">Alleen lezen.</span> {reason}, dus je kunt hier kijken maar niets wijzigen.
-			</span>
-		</p>
-	);
-}
