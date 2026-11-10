@@ -180,12 +180,14 @@ export function useConsoleReturnsListSource(
 
 const NO_SETTINGS = { giftCardBonus: 0, exchangeFee: 0 }
 
+/** Whether the role may refund this much, in major units as the screen has it. */
+const useRefund = (amount: number) => useRefundGate(Math.round(amount * 100))
+
 function useDetailSource(view: ReturnView, settings: ReturnSettingsDoc | undefined): ReturnDetailSource {
   const commands = useReturnCommands()
   const gates = useReturnGates()
   const team = useTeam()
   const role = useGateRole()
-  const useRefund = (amount: number) => useRefundGate(Math.round(amount * 100))
   return {
     useView: () => view,
     commands,
