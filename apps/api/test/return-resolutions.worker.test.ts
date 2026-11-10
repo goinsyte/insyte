@@ -212,21 +212,23 @@ describe("return resolutions in Shopify", () => {
   })
 })
 
+/** A `returns/request` payload as Shopify sends it: one line on an order of the recorded store. */
+const request = (id: number, order: number, line: number, reason: string) => ({
+  id,
+  admin_graphql_api_id: `gid://shopify/Return/${id}`,
+  status: "requested",
+  order: { id: order, admin_graphql_api_id: `gid://shopify/Order/${order}` },
+  return_line_items: [{
+    fulfillment_line_item: { line_item: { id: line } },
+    quantity: 1,
+    return_reason: reason,
+    customer_note: "Valt klein uit"
+  }]
+})
+
 describe("Shopify's returns", () => {
   it("mirrors returns/request, approve, decline and close, and says Insyte's decision back to Shopify", async () => {
     const store = await importedStore("res-hooks")
-    const request = (id: number, order: number, line: number, reason: string) => ({
-      id,
-      admin_graphql_api_id: `gid://shopify/Return/${id}`,
-      status: "requested",
-      order: { id: order, admin_graphql_api_id: `gid://shopify/Order/${order}` },
-      return_line_items: [{
-        fulfillment_line_item: { line_item: { id: line } },
-        quantity: 1,
-        return_reason: reason,
-        customer_note: "Valt klein uit"
-      }]
-    })
     expect((await hook(store.shop, "returns/request", request(7001, 2, 102, "SIZE_TOO_SMALL"))).status).toBe(200)
     // Delivered again under another id: still the one return.
     await hook(store.shop, "returns/request", request(7001, 2, 102, "SIZE_TOO_SMALL"))
