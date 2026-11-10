@@ -7,6 +7,7 @@ import { NotificationsService } from "@insyte/modules/notifications/Notification
 import { OrdersService } from "@insyte/modules/orders/Orders"
 import { PrefsService } from "@insyte/modules/prefs/PrefsService"
 import { ProductsService } from "@insyte/modules/products/Products"
+import { TicketsService } from "@insyte/modules/tickets/Tickets"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect } from "effect"
 
@@ -26,6 +27,18 @@ const ORDER_CUTS: Record<string, ReadonlyArray<string>> = {
   "/orders?status=cancelled": ["cancelled"]
 }
 
+/** Tickets (M11 step 3): each view of the panel by its link, and each source's open tickets. */
+const TICKET_CUTS = {
+  "/tickets": "all",
+  "/tickets?view=mine": "mine",
+  "/tickets?view=unassigned": "unassigned",
+  "/tickets?view=snoozed": "snoozed",
+  "/tickets?view=done": "done",
+  "/tickets?view=archived": "archived",
+  "/tickets?view=spam": "spam",
+  "/tickets?view=trash": "trash"
+} as const
+
 /** The area a path is in: its first segment. */
 const areaOf = (path: string) => path.split("/").find((segment) => segment !== "") ?? "dashboard"
 
@@ -37,6 +50,7 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
   const orders = yield* OrdersService
   const products = yield* ProductsService
   const customers = yield* CustomersService
+  const tickets = yield* TicketsService
   const SEARCHES = {
     order: (q: string, limit: number) => orders.search(q, limit),
     product: (q: string, limit: number) => products.search(q, limit),
@@ -44,6 +58,15 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
   } as const
 
   const countsFor = (area: string) => {
+    if (area === "tickets") {
+      return tickets.counts.pipe(
+        Effect.map((counts) => ({
+          ...Object.fromEntries(Object.entries(TICKET_CUTS).map(([key, view]) => [key, counts[view]])),
+          ...Object.fromEntries(Object.entries(counts.bySource).map(([source, n]) => [`/tickets?source=${source}`, n]))
+        })),
+        Effect.catchTag("Forbidden", () => Effect.succeed({} as Record<string, number>))
+      )
+    }
     if (area !== "orders") return Effect.succeed({} as Record<string, number>)
     return orders.statusCounts.pipe(
       Effect.map((byStatus) =>

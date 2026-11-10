@@ -20,15 +20,14 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Plus } from "../../icons";
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
 import {
-	dueLabelFor,
 	TicketCardContent,
 	ticketCardClass,
 } from "./ticket-card";
-import { ticketsStore, useTickets } from "./tickets-store";
+import { useTicketsSource } from "./source";
 import type { Ticket, TicketStatus } from "../lib/types/domain";
 import { cn } from "../lib/utils";
+import { GateBy } from "../returns/parts";
 
 const COLUMNS: Array<{ id: TicketStatus; label: string }> = [
 	{ id: "intake", label: "Nieuw" },
@@ -47,7 +46,8 @@ export function TicketBoard({
 	/** The page's filter: a card it rules out is not on the board. */
 	shows?: (t: Ticket) => boolean;
 }) {
-	const all = useTickets();
+	const source = useTicketsSource();
+	const all = source.tickets;
 	const items = useMemo(() => (shows ? all.filter(shows) : all), [all, shows]);
 	const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -104,14 +104,14 @@ export function TicketBoard({
 			const reordered = arrayMove(colItems, oldIndex, newIndex).map(
 				(t) => t.id,
 			);
-			ticketsStore.reorder(fromCol, reordered);
+			source.commands.reorder(fromCol, reordered);
 			return;
 		}
 
-		ticketsStore.move(aId, toCol);
-		toast.success(
-			`${movingTicket.number} → ${COLUMNS.find((c) => c.id === toCol)?.label}`,
-		);
+		source.commands.edit(movingTicket, { status: toCol }, {
+			label: `${movingTicket.number} → ${COLUMNS.find((c) => c.id === toCol)?.label}`,
+			plain: true,
+		});
 	}
 
 	const activeTicket = activeId
@@ -142,7 +142,7 @@ export function TicketBoard({
 					<div className={cn(ticketCardClass, "rotate-1 cursor-grabbing")}>
 						<TicketCardContent
 							ticket={activeTicket}
-							dueLabel={dueLabelFor(activeTicket, activeTicket.status)}
+							dueLabel={source.dueLabel(activeTicket)}
 						/>
 					</div>
 				) : null}
@@ -165,6 +165,7 @@ function KanbanColumn({
 	onCardClick: (t: Ticket) => void;
 }) {
 	const { setNodeRef, isOver } = useDroppable({ id });
+	const { gate } = useTicketsSource();
 
 	return (
 		<div className="flex min-w-0 flex-col gap-3">
@@ -177,14 +178,16 @@ function KanbanColumn({
 						{items.length}
 					</span>
 				</div>
-				<button
-					type="button"
-					aria-label={`Nieuw ticket in ${label}`}
-					onClick={onNew}
-					className="flex size-6 items-center justify-center rounded-md text-ink-3 hover:bg-mist hover:text-ink"
-				>
-					<Plus className="size-4" strokeWidth={1.75} />
-				</button>
+				<GateBy gate={gate}>
+					<button
+						type="button"
+						aria-label={`Nieuw ticket in ${label}`}
+						onClick={onNew}
+						className="flex size-6 items-center justify-center rounded-md text-ink-3 hover:bg-mist hover:text-ink"
+					>
+						<Plus className="size-4" strokeWidth={1.75} />
+					</button>
+				</GateBy>
 			</header>
 			<SortableContext
 				items={items.map((i) => i.id)}
@@ -231,6 +234,7 @@ function SortableTicketCard({
 		transition,
 		isDragging,
 	} = useSortable({ id: ticket.id });
+	const source = useTicketsSource();
 
 	const style: React.CSSProperties = {
 		transform: CSS.Transform.toString(transform),
@@ -247,10 +251,8 @@ function SortableTicketCard({
 			>
 				<TicketCardContent
 					ticket={ticket}
-					dueLabel={dueLabelFor(ticket, ticket.status)}
-					commentCount={
-						ticket.status === "done" && ticket.id.endsWith("0") ? 6 : undefined
-					}
+					dueLabel={source.dueLabel(ticket)}
+					commentCount={source.commentCount(ticket)}
 					dragHandleProps={{
 						...listeners,
 						"aria-label": `Ticket ${ticket.number} verslepen`,

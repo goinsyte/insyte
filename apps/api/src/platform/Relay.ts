@@ -248,6 +248,8 @@ const NOTIFIED = new Set<OutboxEvent["type"]>([
   "access.decided",
   "order.delayed",
   "return.requested",
+  "ticket.assigned",
+  "ticket.mentioned",
   "quality_check.submitted"
 ])
 

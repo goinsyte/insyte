@@ -6,7 +6,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "../../components/dropdown-menu";
-import { useNavigate, getRouteApi } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertOctagon, AlertTriangle, Archive, CheckCircle2, ChevronDown, Clock, Copy, CornerDownLeft, LayoutList, Plus, Square, Trash2 } from "../../icons";
 import { useCallback, useMemo, useState } from "react";
@@ -19,56 +18,27 @@ import {
 	facetFilter,
 	type RowAction,
 } from "../table/data-table";
-import { copyLines, counted, patchMany } from "../lib/bulk";
+import { copyLines, counted } from "../lib/bulk-io";
 import { personStyle } from "../lib/person-color";
-import {
-	NewTicketDialog,
-	type NewTicketInput,
-} from "./new-ticket-dialog";
+import { NewTicketDialog } from "./new-ticket-dialog";
 import { TicketBoard } from "./ticket-board";
 import { FilterButton, FilterChips } from "../filters/filter-bar";
 import { useListFilter } from "../filters/use-list-filter";
 import { type FilterField, matches } from "../lib/filter";
-import { isAssignedTo, ME } from "../lib/assignees";
 import { SourceMark } from "./source-mark";
 import { inView, SOURCE, sourceOf, type TicketView, VIEW_LABEL } from "../lib/ticket-source";
 import { TicketModal } from "./ticket-modal";
-import { ticketsStore, useTickets } from "./tickets-store";
 import type { Ticket, TicketStatus } from "../lib/types/domain";
-import { DemoAreaEmpty as AreaEmpty } from "../marketing-sections/closings";
-import { ListClosing } from "../marketing-sections/closings";
 import { cn } from "../lib/utils";
-
-const Route = Object.assign(getRouteApi("/_admin/tickets/"), { fullPath: "/tickets/" } as const);
+import { GateBy } from "../returns/parts";
+import { type NewTicketInput, type TicketCommands, useTicketsSource } from "./source";
 
 type ViewMode = "board" | "list";
 
-/** The three tickets an operator writes most, started rather than written from nothing. */
-const TEMPLATES: Record<"refund" | "supplier" | "feedback", Partial<NewTicketInput>> = {
-	refund: {
-		title: "Verzoek om terugbetaling · ",
-		description: "De klant vraagt om een terugbetaling. Controleer of de bestelling binnen de retourtermijn valt en of het artikel terug is, betaal dan terug en antwoord de klant.",
-		priority: "medium",
-		tags: ["Terugbetaling"],
-	},
-	supplier: {
-		title: "Vertraging bij leverancier · ",
-		description: "Een bestelling is over de overdrachtsdatum heen. Vraag de leverancier om een verzenddatum en track & trace, en laat het de klant weten zodra je die hebt.",
-		priority: "high",
-		tags: ["Leverancier"],
-	},
-	feedback: {
-		title: "Feedback van klant · ",
-		description: "Feedback die het doorgeven waard is. Noteer wat er gezegd is, waar, en wie in het team het moet zien.",
-		priority: "low",
-		tags: ["Feedback"],
-	},
-};
-
 export function TicketsPage() {
-	const navigate = useNavigate({ from: Route.fullPath });
-	const search = Route.useSearch();
-	const tickets = useTickets();
+	const source = useTicketsSource();
+	const { search, commands, Empty: AreaEmpty, Closing: ListClosing } = source;
+	const tickets = source.tickets;
 	const [mode, setView] = useState<ViewMode>("board");
 	// One filter for both views, the same one the list's toolbar edits.
 	const { filter, setFilter, saveView } = useListFilter("tickets");
@@ -77,10 +47,10 @@ export function TicketsPage() {
 	const ticketView: TicketView = search.view ?? "open";
 	const shows = useMemo(
 		() => (t: Ticket) =>
-			inView(t, ticketView, (x) => isAssignedTo(x.assignee_ids, ME)) &&
+			inView(t, ticketView, source.isMine) &&
 			(search.source === undefined || sourceOf(t) === search.source) &&
 			matches(t, filter, TICKET_FIELDS),
-		[filter, ticketView, search.source],
+		[filter, ticketView, search.source, source.isMine],
 	);
 	const visible = useMemo(() => tickets.filter(shows), [tickets, shows]);
 	// A board's columns are for tickets being worked; what is set aside reads as a list.
@@ -103,28 +73,8 @@ export function TicketsPage() {
 		setNewOpen(true);
 	};
 
-	const openTicket = (id: string) =>
-		navigate({ search: (s) => ({ ...s, ticket: id }) });
-	const closeTicket = () =>
-		navigate({ search: (s) => ({ ...s, ticket: undefined }) });
-
-	function handleCreate(input: NewTicketInput) {
-		const now = new Date().toISOString();
-		const t: Ticket = {
-			id: `ticket_new_${Date.now()}`,
-			number: `TKT-${String(900 + tickets.length + 1).padStart(4, "0")}`,
-			title: input.title,
-			description: input.description,
-			status: input.status,
-			priority: input.priority,
-			tags: input.tags,
-			assignee_ids: input.assignee_ids,
-			due_at: input.due_at,
-			created_at: now,
-			updated_at: now,
-		};
-		ticketsStore.add(t);
-	}
+	const openTicket = (id: string) => source.openTicket(id);
+	const closeTicket = () => source.openTicket(null);
 
 	return (
 		<div className="flex flex-col">
@@ -162,6 +112,7 @@ export function TicketsPage() {
 								Lijst
 							</button>
 						</div>
+						<GateBy gate={source.gate}>
 						<div className="flex h-8 items-center overflow-hidden rounded-md bg-abyss text-mesh-ink shadow-primary">
 							<button
 								type="button"
@@ -188,18 +139,19 @@ export function TicketsPage() {
 									<DropdownMenuLabel>Sjablonen</DropdownMenuLabel>
 									<DropdownMenuSeparator />
 									<DropdownMenuItem onClick={() => startFrom()}>Leeg ticket</DropdownMenuItem>
-									<DropdownMenuItem onClick={() => startFrom(TEMPLATES.refund)}>Verzoek om terugbetaling</DropdownMenuItem>
-									<DropdownMenuItem onClick={() => startFrom(TEMPLATES.supplier)}>Escalatie naar leverancier</DropdownMenuItem>
-									<DropdownMenuItem onClick={() => startFrom(TEMPLATES.feedback)}>Feedback van klant</DropdownMenuItem>
+									{source.templates.map((t) => (
+										<DropdownMenuItem key={t.id} onClick={() => startFrom(t.template)}>{t.label}</DropdownMenuItem>
+									))}
 								</DropdownMenuContent>
 							</DropdownMenu>
 						</div>
+						</GateBy>
 					</div>
 				}
 			/>
 			<div className="flex flex-col gap-6 px-5 py-6">
 				{tickets.length === 0 ? (
-					<AreaEmpty area="tickets" />
+					<AreaEmpty onCreate={() => startFrom()} />
 				) : view === "board" ? (
 					<div className="-mb-3 flex flex-col gap-2">
 						<div className="flex items-center gap-1.5">
@@ -218,13 +170,12 @@ export function TicketsPage() {
 						}}
 					/>
 				) : (
-					<TicketList onRowClick={openTicket} tickets={visible} empty={setAside ? SET_ASIDE_EMPTY[ticketView as keyof typeof SET_ASIDE_EMPTY] : undefined} />
+					<TicketList onRowClick={openTicket} tickets={visible} commands={commands} initialOf={source.initialOf} empty={setAside ? SET_ASIDE_EMPTY[ticketView as keyof typeof SET_ASIDE_EMPTY] : undefined} />
 				)}
 
 				<TicketModal
 					ticketId={search.ticket ?? null}
 					onClose={closeTicket}
-					onUpdate={(t) => ticketsStore.update(t.id, t)}
 				/>
 
 				<NewTicketDialog
@@ -232,10 +183,10 @@ export function TicketsPage() {
 					onOpenChange={setNewOpen}
 					defaultStatus={newDefaultStatus}
 					template={template}
-					onCreate={handleCreate}
+					onCreate={commands.create}
 				/>
 			</div>
-			<ListClosing area="tickets" empty={tickets.length === 0} />
+			{ListClosing ? <ListClosing empty={tickets.length === 0} /> : null}
 		</div>
 	);
 }
@@ -252,12 +203,17 @@ const SET_ASIDE_EMPTY = {
 function TicketList({
 	tickets,
 	onRowClick,
+	commands,
+	initialOf,
 	empty,
 }: {
 	tickets: Ticket[];
 	onRowClick: (id: string) => void;
+	commands: TicketCommands;
+	initialOf: (id: string, where: "list") => string;
 	empty?: { title: string; body: string };
 }) {
+	const actions = useMemo(() => ticketActions(commands), [commands]);
 	const columns = useMemo<Array<ColumnDef<Ticket, unknown>>>(
 		() => [
 			{
@@ -297,7 +253,7 @@ function TicketList({
 								className="flex size-5 items-center justify-center rounded-full font-medium text-2xs"
 								style={personStyle(id)}
 							>
-								{id.slice(0, 2).toUpperCase()}
+								{initialOf(id, "list")}
 							</span>
 						))}
 					</span>
@@ -346,7 +302,7 @@ function TicketList({
 				),
 			},
 		],
-		[],
+		[initialOf],
 	);
 
 	return (
@@ -354,7 +310,7 @@ function TicketList({
 			columns={columns}
 			data={tickets}
 			facets={TICKET_FACETS}
-			actions={TICKET_ACTIONS}
+			actions={actions}
 			noun={["ticket", "tickets"]}
 			getRowId={(t) => t.id}
 			searchPlaceholder="Tickets zoeken"
@@ -392,17 +348,16 @@ const STATUS_LABEL: Record<string, string> = {
 	done: "Klaar",
 };
 
-const moveTo = (status: TicketStatus) => (rows: Array<Ticket>) =>
-	patchMany(
-		"tickets",
-		rows.map((t) => t.id),
-		(t) => ({ ...t, status }),
-		`${counted(rows.length, "ticket", "tickets")} verplaatst naar ${STATUS_LABEL[status]?.toLowerCase()}`,
-	);
-
 /* The selection bar's actions on tickets: the board's columns as moves, priority, and archive —
    every one of them taken back with one Undo. */
-const TICKET_ACTIONS: ReadonlyArray<RowAction<Ticket>> = [
+const ticketActions = (commands: TicketCommands): ReadonlyArray<RowAction<Ticket>> => {
+const moveTo = (status: TicketStatus) => (rows: Array<Ticket>) =>
+	commands.bulk(
+		rows,
+		{ status },
+		{ label: `${counted(rows.length, "ticket", "tickets")} verplaatst naar ${STATUS_LABEL[status]?.toLowerCase()}` },
+	);
+return [
 	{
 		id: "done",
 		needs: { perm: "support", arg: 2 },
@@ -442,11 +397,10 @@ const TICKET_ACTIONS: ReadonlyArray<RowAction<Ticket>> = [
 		bar: true,
 		applies: (t) => t.priority !== "high",
 		run: (rows) =>
-			patchMany(
-				"tickets",
-				rows.map((t) => t.id),
-				(t) => ({ ...t, priority: "high" }),
-				`${counted(rows.length, "ticket", "tickets")} op prioriteit hoog gezet`,
+			commands.bulk(
+				rows,
+				{ priority: "high" },
+				{ label: `${counted(rows.length, "ticket", "tickets")} op prioriteit hoog gezet` },
 			),
 	},
 	{
@@ -456,11 +410,10 @@ const TICKET_ACTIONS: ReadonlyArray<RowAction<Ticket>> = [
 		group: "Prioriteit",
 		applies: (t) => t.priority !== "medium",
 		run: (rows) =>
-			patchMany(
-				"tickets",
-				rows.map((t) => t.id),
-				(t) => ({ ...t, priority: "medium" }),
-				`${counted(rows.length, "ticket", "tickets")} op prioriteit gemiddeld gezet`,
+			commands.bulk(
+				rows,
+				{ priority: "medium" },
+				{ label: `${counted(rows.length, "ticket", "tickets")} op prioriteit gemiddeld gezet` },
 			),
 	},
 	{
@@ -480,11 +433,10 @@ const TICKET_ACTIONS: ReadonlyArray<RowAction<Ticket>> = [
 		destructive: true,
 		applies: (t) => t.archived_at === undefined && t.deleted_at === undefined,
 		run: (rows) =>
-			patchMany(
-				"tickets",
-				rows.map((t) => t.id),
-				(t) => ({ ...t, archived_at: new Date().toISOString() }),
-				`${counted(rows.length, "ticket", "tickets")} gearchiveerd`,
+			commands.bulk(
+				rows,
+				{ aside: "archived" },
+				{ label: `${counted(rows.length, "ticket", "tickets")} gearchiveerd` },
 			),
 	},
 	{
@@ -496,11 +448,10 @@ const TICKET_ACTIONS: ReadonlyArray<RowAction<Ticket>> = [
 		destructive: true,
 		applies: (t) => t.spam_at === undefined && t.deleted_at === undefined,
 		run: (rows) =>
-			patchMany(
-				"tickets",
-				rows.map((t) => t.id),
-				(t) => ({ ...t, spam_at: new Date().toISOString() }),
-				`${counted(rows.length, "ticket", "tickets")} gemeld als spam`,
+			commands.bulk(
+				rows,
+				{ aside: "spam" },
+				{ label: `${counted(rows.length, "ticket", "tickets")} gemeld als spam` },
 			),
 	},
 	{
@@ -512,11 +463,10 @@ const TICKET_ACTIONS: ReadonlyArray<RowAction<Ticket>> = [
 		destructive: true,
 		applies: (t) => t.deleted_at === undefined,
 		run: (rows) =>
-			patchMany(
-				"tickets",
-				rows.map((t) => t.id),
-				(t) => ({ ...t, deleted_at: new Date().toISOString() }),
-				`${counted(rows.length, "ticket", "tickets")} naar de prullenbak`,
+			commands.bulk(
+				rows,
+				{ aside: "trash" },
+				{ label: `${counted(rows.length, "ticket", "tickets")} naar de prullenbak` },
 			),
 	},
 	{
@@ -528,11 +478,10 @@ const TICKET_ACTIONS: ReadonlyArray<RowAction<Ticket>> = [
 		shortcut: "z",
 		applies: (t) => t.archived_at === undefined && t.status !== "done",
 		run: (rows) =>
-			patchMany(
-				"tickets",
-				rows.map((t) => t.id),
-				(t) => ({ ...t, snoozed_until: new Date(Date.now() + 86_400_000).toISOString() }),
-				`${counted(rows.length, "ticket", "tickets")} uitgesteld tot morgen`,
+			commands.bulk(
+				rows,
+				{ aside: "snoozed" },
+				{ label: `${counted(rows.length, "ticket", "tickets")} uitgesteld tot morgen` },
 			),
 	},
 	{
@@ -543,14 +492,14 @@ const TICKET_ACTIONS: ReadonlyArray<RowAction<Ticket>> = [
 		group: "Later",
 		applies: (t) => t.snoozed_until !== undefined || t.archived_at !== undefined || t.deleted_at !== undefined || t.spam_at !== undefined,
 		run: (rows) =>
-			patchMany(
-				"tickets",
-				rows.map((t) => t.id),
-				(t) => ({ ...t, snoozed_until: undefined, archived_at: undefined, deleted_at: undefined, spam_at: undefined }),
-				`${counted(rows.length, "ticket", "tickets")} terug op het bord`,
+			commands.bulk(
+				rows,
+				{ putBack: true },
+				{ label: `${counted(rows.length, "ticket", "tickets")} terug op het bord` },
 			),
 	},
 ];
+};
 
 /* The board's filter fields; the list derives the same ones from its columns. */
 const TICKET_FIELDS: ReadonlyArray<FilterField<Ticket>> = [

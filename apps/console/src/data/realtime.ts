@@ -16,6 +16,7 @@ import { RETURNS } from "./returns.ts"
 import { ACCESS_LIST, ROLES } from "./roles.ts"
 import { STORE_SYNC, STORES } from "./stores.ts"
 import { TEAM } from "./team.ts"
+import { TICKETS } from "./tickets.ts"
 
 /*
  * The tab's one socket (M5.1, ADR-0013): `/api/realtime` on the console's own origin. A `records.changed` frame
@@ -39,6 +40,7 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   // A quality return is a complaint on its product's Kwaliteit tab (M9.4).
   return: [...RETURNS, ...QUALITY],
   quality_check: QUALITY,
+  ticket: TICKETS,
   // Start's queue (M10.1): its refresh says when it changed.
   queue_item: QUEUE
 }

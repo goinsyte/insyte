@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import type { TicketPriority, TicketStatus } from "../lib/types/domain";
 import { personStyle } from "../lib/person-color";
 import { cn } from "../lib/utils";
+import { type NewTicketInput, type Said, useTicketsSource } from "./source";
 
 const STATUS_LABEL: Record<TicketStatus, string> = {
 	intake: "Nieuw",
@@ -32,35 +33,6 @@ const PRIORITY_LABEL: Record<TicketPriority, string> = {
 	low: "Laag",
 };
 
-const TEAM: Record<string, { initial: string; name: string }> = {
-	e: { initial: "E", name: "Ethan Jones" },
-	s: { initial: "C", name: "Sophie Chang" },
-	l: { initial: "L", name: "Liam Thompson" },
-	m: { initial: "N", name: "Maya Rossi" },
-};
-
-const TAG_OPTIONS = [
-	"Productontwerp",
-	"Klantenservice",
-	"Leveringsketen",
-	"Feedback",
-	"Bestelbevestiging",
-	"Opgelost",
-	"Vertaling",
-	"Terugbetalingen",
-	"Geschillen",
-];
-
-export type NewTicketInput = {
-	title: string;
-	description: string;
-	status: TicketStatus;
-	priority: TicketPriority;
-	assignee_ids: string[];
-	tags: string[];
-	due_at?: string;
-};
-
 export function NewTicketDialog({
 	open,
 	onOpenChange,
@@ -73,8 +45,10 @@ export function NewTicketDialog({
 	defaultStatus?: TicketStatus;
 	/** A template fills the form in as the dialog opens; the operator edits from there. */
 	template?: Partial<NewTicketInput>;
-	onCreate: (input: NewTicketInput) => void;
+	/** The host says it was made: `said` is the design's toast. */
+	onCreate: (input: NewTicketInput, said: Said) => void;
 }) {
+	const { people, labels } = useTicketsSource();
 	const [form, setForm] = useState<NewTicketInput>({
 		title: "",
 		description: "",
@@ -117,8 +91,7 @@ export function NewTicketDialog({
 			toast.error("Een titel is verplicht");
 			return;
 		}
-		onCreate(form);
-		toast.success(`Ticket aangemaakt in ${STATUS_LABEL[form.status]}`);
+		onCreate(form, { label: `Ticket aangemaakt in ${STATUS_LABEL[form.status]}`, plain: true });
 		reset();
 		onOpenChange(false);
 	}
@@ -220,7 +193,7 @@ export function NewTicketDialog({
 					</div>
 					<Field label="Toegewezen aan">
 						<div className="flex flex-wrap gap-1.5">
-							{Object.entries(TEAM).map(([id, a]) => {
+							{people.map(({ id, ...a }) => {
 								const active = form.assignee_ids.includes(id);
 								return (
 									<button
@@ -248,7 +221,7 @@ export function NewTicketDialog({
 					</Field>
 					<Field label="Labels">
 						<div className="flex flex-wrap gap-1.5">
-							{TAG_OPTIONS.map((t) => {
+							{labels.map((t) => {
 								const active = form.tags.includes(t);
 								return (
 									<button

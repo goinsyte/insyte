@@ -356,7 +356,8 @@ function withTickets(
 		items: section.items.map((item) => {
 			const view = (item.search?.view ?? "open") as TicketView;
 			const n = count(view);
-			return { ...item, count: n === 0 ? undefined : n };
+			// A host without the records keeps the counts its server gave the item (ADR-0028).
+			return { ...item, count: n === 0 ? item.count : n };
 		}),
 	}));
 	const connected = new Set(integrations.filter((i) => i.status === "connected").map((i) => i.key));

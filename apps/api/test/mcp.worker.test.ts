@@ -82,11 +82,15 @@ describe("the MCP server", () => {
     expect(tools.map((t) => t.name).toSorted()).toEqual([
       "add_return_tracking",
       "approve_return",
+      "assign_ticket",
       "cancel_order",
+      "comment_on_ticket",
+      "create_ticket",
       "forward_orders",
       "get_order",
       "get_order_tracking",
       "get_return",
+      "get_ticket",
       "inspect_return",
       "list_customers",
       "list_forwarding",
@@ -97,6 +101,7 @@ describe("the MCP server", () => {
       "list_returns",
       "list_roles",
       "list_suppliers",
+      "list_tickets",
       "receive_return",
       "refund_order",
       "reject_return",
@@ -104,9 +109,11 @@ describe("the MCP server", () => {
       "resolve_return",
       "send_return_label",
       "set_order_note",
+      "set_ticket_status",
       "start_return",
       "tag_order",
       "update_shipping_address",
+      "update_ticket",
       "whoami"
     ])
     // The reads say they only read; cancelling and refunding say they cannot be taken back (M7).
@@ -125,6 +132,8 @@ describe("the MCP server", () => {
         "list_forwarding",
         "list_returns",
         "get_return",
+        "list_tickets",
+        "get_ticket",
         "list_queue"
       ]
     ) {

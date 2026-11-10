@@ -19,6 +19,7 @@ import { ReturnsService } from "@insyte/modules/returns/Returns"
 import { RolesService } from "@insyte/modules/roles/RolesService"
 import { StoresService } from "@insyte/modules/stores/Stores"
 import { SuppliersService } from "@insyte/modules/suppliers/Suppliers"
+import { TicketsService } from "@insyte/modules/tickets/Tickets"
 import { TrackingService } from "@insyte/modules/tracking/Tracking"
 import { UndoService } from "@insyte/modules/undo/Undo"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
@@ -46,6 +47,7 @@ import { ShellHandlers } from "./handlers/shell.ts"
 import { StoresHandlers } from "./handlers/stores.ts"
 import { SuppliersHandlers } from "./handlers/suppliers.ts"
 import { SystemHandlers } from "./handlers/system.ts"
+import { TicketsHandlers } from "./handlers/tickets.ts"
 import { TrackingHandlers } from "./handlers/tracking.ts"
 import { RpcHttp } from "./RpcHttp.ts"
 
@@ -82,6 +84,7 @@ export const RpcContext = Layer.mergeAll(
   TrackingHandlers.pipe(Layer.provide(TrackingService.layer)),
   ReturnsHandlers.pipe(Layer.provide(ReturnsService.layer)),
   PortalHandlers.pipe(Layer.provide(PortalService.layer)),
+  TicketsHandlers.pipe(Layer.provide(TicketsService.layer)),
   QueueHandlers.pipe(Layer.provide(QueueService.layer)),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
   ShellHandlers.pipe(
@@ -93,7 +96,8 @@ export const RpcContext = Layer.mergeAll(
         Workspaces.layer,
         OrdersService.layer,
         ProductsService.layer,
-        CustomersService.layer
+        CustomersService.layer,
+        TicketsService.layer
       )
     )
   )

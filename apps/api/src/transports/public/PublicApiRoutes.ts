@@ -190,10 +190,64 @@ const ReturnsLive = HttpApiBuilder.group(
     )
 )
 
+const TicketsLive = HttpApiBuilder.group(
+  PublicApi,
+  "tickets",
+  (handlers) =>
+    Effect.map(
+      Effect.service(Resources),
+      (act) =>
+        handlers
+          .handle("tickets", ({ query }) => act.tickets(query.view))
+          .handle("ticket", ({ params }) => act.ticket(params.id))
+          .handle(
+            "create",
+            ({ payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.createTicket(payload, key))
+          )
+          .handle(
+            "update",
+            ({ params, payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.updateTicket(params.id, payload, key))
+          )
+          .handle(
+            "status",
+            ({ params, payload, headers }) =>
+              Effect.flatMap(
+                keyOf(headers["idempotency-key"]),
+                (key) => act.moveTicket(params.id, payload.status, key)
+              )
+          )
+          .handle(
+            "assign",
+            ({ params, payload, headers }) =>
+              Effect.flatMap(
+                keyOf(headers["idempotency-key"]),
+                (key) => act.assignTicket(params.id, payload.member_id, true, key)
+              )
+          )
+          .handle(
+            "unassign",
+            ({ params, payload, headers }) =>
+              Effect.flatMap(
+                keyOf(headers["idempotency-key"]),
+                (key) => act.assignTicket(params.id, payload.member_id, false, key)
+              )
+          )
+          .handle(
+            "comment",
+            ({ params, payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.commentTicket(params.id, payload, key))
+          )
+    )
+)
+
 export const PublicApiRoutes = Layer.mergeAll(
   HttpApiBuilder.layer(PublicApi, { openapiPath: "/v1/openapi.json" }),
   HttpApiScalar.layerCdn(PublicApi, { path: "/v1/docs" })
 ).pipe(
-  Layer.provide(Layer.mergeAll(KeyLive, TeamLive, CommerceLive, OrdersLive, ForwardingLive, ReturnsLive, QueueLive)),
+  Layer.provide(
+    Layer.mergeAll(KeyLive, TeamLive, CommerceLive, OrdersLive, ForwardingLive, ReturnsLive, TicketsLive, QueueLive)
+  ),
   Layer.provide(ApiKeyAuthLive)
 )

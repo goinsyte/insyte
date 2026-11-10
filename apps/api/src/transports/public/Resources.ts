@@ -27,6 +27,8 @@ import { RolesService } from "@insyte/modules/roles/RolesService"
 import type { FilterNode, ListInput } from "@insyte/modules/shared/domain/Filter"
 import * as Idempotency from "@insyte/modules/shared/use-cases/Idempotency"
 import { SuppliersService } from "@insyte/modules/suppliers/Suppliers"
+import type { TicketComment, TicketRow } from "@insyte/modules/tickets/domain/Tickets"
+import { TicketsService } from "@insyte/modules/tickets/Tickets"
 import { TrackingService } from "@insyte/modules/tracking/Tracking"
 import { Context, Effect, Layer } from "effect"
 
@@ -94,8 +96,9 @@ export const keyOf = (header: string | undefined) =>
 const fail = <Code extends string, Extra extends Record<string, unknown>>(code: Code, message: string, extra: Extra) =>
   Effect.flatMap(CurrentApiKey, (key) => Effect.fail({ error: { code, message, request_id: key.requestId, ...extra } }))
 
+const ENTITY: Record<string, string> = { return: "return", ticket: "ticket", customer: "customer", member: "member" }
 const notFound = (e?: { readonly entity?: string }) =>
-  fail("NotFoundV1" as const, `No such ${e?.entity === "return" ? "return" : "order"} in this key's stores.`, {})
+  fail("NotFoundV1" as const, `No such ${ENTITY[e?.entity ?? ""] ?? "order"} in this key's stores.`, {})
 const conflict = (reason: string) => fail("ConflictV1" as const, `Not possible now: ${reason}.`, { reason })
 const validation = (fields: Readonly<Record<string, string>>) =>
   fail("ValidationFailedV1" as const, "The request has fields that cannot be used.", { fields: { ...fields } })
@@ -296,6 +299,50 @@ const resolveV1 = (
     | { readonly _tag: "AlreadyRefunded" }
 ) => e._tag === "IllegalReturnMove" || e._tag === "ResolutionNotAllowed" ? returnsV1(e) : refundV1(e)
 
+const ticketV1 = (t: TicketRow) => ({
+  id: t.id,
+  number: t.number,
+  title: t.title,
+  description: t.description,
+  status: t.status,
+  priority: t.priority,
+  source: t.source,
+  labels: [...t.labels],
+  assignees: t.assignees.map((a) => ({ id: a.id, name: a.name })),
+  related: t.related === null ? null : { type: t.related.type, id: t.related.id, label: t.related.label },
+  topic: t.topic,
+  due_at: iso(t.dueAt),
+  resolved_at: iso(t.resolvedAt),
+  snoozed_until: iso(t.snoozedUntil),
+  archived_at: iso(t.archivedAt),
+  spam_at: iso(t.spamAt),
+  deleted_at: iso(t.deletedAt),
+  comment_count: t.commentCount,
+  created_at: iso(t.createdAt)!,
+  updated_at: iso(t.updatedAt)!
+})
+
+const commentV1 = (c: TicketComment) => ({
+  id: c.id,
+  author: { kind: c.author.kind, id: c.author.id, name: c.author.name },
+  body: c.body,
+  mentions: c.mentions.map((m) => ({ id: m.id, name: m.name })),
+  created_at: iso(c.createdAt)!
+})
+
+/** The tickets refusals in the V1 envelope: someone not in the team is a field that cannot be used. */
+const ticketsV1 = (field: string) =>
+(
+  e: WriteRefusal | { readonly _tag: "MemberNotActive"; readonly memberId: string }
+) => e._tag === "MemberNotActive" ? validation({ [field]: "not_active" }) : writeV1(e)
+
+/** An ISO time from the body, or the field it came in refused. */
+const timeOf = (field: string, value: string | null | undefined) => {
+  if (value === undefined || value === null) return Effect.succeed(value)
+  const ms = Date.parse(value)
+  return Number.isNaN(ms) ? validation({ [field]: "invalid" }) : Effect.succeed(ms)
+}
+
 const make = Effect.gen(function*() {
   const members = yield* Members
   const roles = yield* RolesService
@@ -306,6 +353,8 @@ const make = Effect.gen(function*() {
   const suppliers = yield* SuppliersService
   const tracking = yield* TrackingService
   const returns = yield* ReturnsService
+  const tickets = yield* TicketsService
+  const ticketOne = (id: string) => Effect.map(tickets.get(id), (d) => ticketV1(d.ticket))
   const queue = yield* QueueService
   return {
     queue: (tab?: "needs_you" | "drawn" | "all") =>
@@ -593,6 +642,129 @@ const make = Effect.gen(function*() {
           )
         )
       }).pipe(Effect.catch(resolveV1)),
+    tickets: (view?: "all" | "open" | "unassigned" | "snoozed" | "done" | "archived" | "spam" | "trash") =>
+      tickets.list(view === undefined ? {} : { view }).pipe(
+        Effect.map((list) => ({
+          data: list.rows.map(ticketV1),
+          counts: {
+            all: list.counts.all,
+            open: list.counts.open,
+            unassigned: list.counts.unassigned,
+            snoozed: list.counts.snoozed,
+            done: list.counts.done,
+            archived: list.counts.archived,
+            spam: list.counts.spam,
+            trash: list.counts.trash
+          }
+        })),
+        Effect.catchTag("Forbidden", scopeMissing)
+      ),
+    ticket: (id: string) =>
+      tickets.get(id).pipe(
+        Effect.map((d) => ({ ...ticketV1(d.ticket), comments: d.comments.map(commentV1) })),
+        Effect.catchTags({ Forbidden: scopeMissing, NotFound: notFound })
+      ),
+    createTicket: (
+      body: {
+        readonly title: string
+        readonly description?: string | undefined
+        readonly status?: TicketRow["status"] | undefined
+        readonly priority?: TicketRow["priority"] | undefined
+        readonly assignee_ids?: ReadonlyArray<string> | undefined
+        readonly labels?: ReadonlyArray<string> | undefined
+        readonly due_at?: string | undefined
+        readonly order_id?: string | undefined
+        readonly customer_id?: string | undefined
+      },
+      key?: string
+    ) =>
+      Effect.gen(function*() {
+        if (body.order_id !== undefined && body.customer_id !== undefined) {
+          return yield* validation({ customer_id: "one_record" })
+        }
+        const dueAt = yield* timeOf("due_at", body.due_at)
+        return yield* Idempotency.once(
+          key,
+          ["ticket.create", body],
+          Effect.map(
+            tickets.create({
+              title: body.title,
+              ...(body.description === undefined ? {} : { description: body.description }),
+              ...(body.status === undefined ? {} : { status: body.status }),
+              ...(body.priority === undefined ? {} : { priority: body.priority }),
+              ...(body.assignee_ids === undefined ? {} : { assigneeIds: body.assignee_ids }),
+              ...(body.labels === undefined ? {} : { labels: body.labels }),
+              ...(dueAt === undefined ? {} : { dueAt }),
+              ...(body.order_id === undefined ? {} : { related: { type: "order" as const, id: body.order_id } }),
+              ...(body.customer_id === undefined
+                ? {}
+                : { related: { type: "customer" as const, id: body.customer_id } })
+            }),
+            (change) => ticketV1(change.tickets[0]!)
+          )
+        ).pipe(Effect.catch(ticketsV1("assignee_ids")))
+      }),
+    updateTicket: (
+      id: string,
+      body: {
+        readonly title?: string | undefined
+        readonly description?: string | undefined
+        readonly priority?: TicketRow["priority"] | undefined
+        readonly due_at?: string | null | undefined
+        readonly labels?: ReadonlyArray<string> | undefined
+      },
+      key?: string
+    ) =>
+      Effect.gen(function*() {
+        const dueAt = yield* timeOf("due_at", body.due_at)
+        return yield* Idempotency.once(
+          key,
+          ["ticket.update", id, body],
+          Effect.flatMap(
+            tickets.update({
+              ids: [id],
+              ...(body.title === undefined ? {} : { title: body.title }),
+              ...(body.description === undefined ? {} : { description: body.description }),
+              ...(body.priority === undefined ? {} : { priority: body.priority }),
+              ...(dueAt === undefined ? {} : { dueAt }),
+              ...(body.labels === undefined ? {} : { labels: body.labels })
+            }),
+            () => ticketOne(id)
+          )
+        ).pipe(Effect.catch(ticketsV1("labels")))
+      }),
+    moveTicket: (id: string, status: TicketRow["status"], key?: string) =>
+      Idempotency.once(
+        key,
+        ["ticket.status", id, status],
+        Effect.flatMap(tickets.setStatus({ ids: [id], status }), () => ticketOne(id))
+      ).pipe(Effect.catch(ticketsV1("status"))),
+    assignTicket: (id: string, memberId: string, on: boolean, key?: string) =>
+      Idempotency.once(
+        key,
+        ["ticket.assign", id, memberId, on],
+        Effect.flatMap(
+          on ? tickets.assign({ id, memberId }) : tickets.unassign({ id, memberId }),
+          () => ticketOne(id)
+        )
+      ).pipe(Effect.catch(ticketsV1("member_id"))),
+    commentTicket: (
+      id: string,
+      body: { readonly body: string; readonly mentions?: ReadonlyArray<string> | undefined },
+      key?: string
+    ) =>
+      Idempotency.once(
+        key,
+        ["ticket.comment", id, body],
+        Effect.map(
+          tickets.comment({
+            id,
+            body: body.body,
+            ...(body.mentions === undefined ? {} : { mentions: body.mentions })
+          }),
+          commentV1
+        )
+      ).pipe(Effect.catch(ticketsV1("mentions"))),
     legs: (view?: "to_forward" | "awaiting" | "forward_error") =>
       forwarding.list(view).pipe(
         Effect.map((list) => ({
@@ -749,6 +921,7 @@ export class Resources extends Context.Service<Resources, Effect.Success<typeof 
         SuppliersService.layer,
         TrackingService.layer,
         ReturnsService.layer,
+        TicketsService.layer,
         QueueService.layer
       )
     )
