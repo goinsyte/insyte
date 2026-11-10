@@ -150,6 +150,25 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     returnIds: Schema.Array(Schema.String)
   }),
+  // Someone was put on a ticket (M11 step 3): they hear of it once the undo window has passed. `by` is the principal.
+  Schema.Struct({
+    type: Schema.Literal("ticket.assigned"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    ticketId: Schema.String,
+    memberIds: Schema.Array(Schema.String),
+    by: Schema.String
+  }),
+  // A ticket comment named teammates with `@` (M11 step 3): each of them hears of it.
+  Schema.Struct({
+    type: Schema.Literal("ticket.mentioned"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    ticketId: Schema.String,
+    commentId: Schema.String,
+    memberIds: Schema.Array(Schema.String),
+    by: Schema.String
+  }),
   // Return labels asked for (M9.2): made at the carrier once the undo window has passed.
   Schema.Struct({
     type: Schema.Literal("return.label_requested"),

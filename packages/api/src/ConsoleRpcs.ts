@@ -18,6 +18,7 @@ import { ShellRpcs } from "./rpc/ShellRpcs.ts"
 import { StoresRpcs } from "./rpc/StoresRpcs.ts"
 import { SuppliersRpcs } from "./rpc/SuppliersRpcs.ts"
 import { SystemRpcs } from "./rpc/SystemRpcs.ts"
+import { TicketsRpcs } from "./rpc/TicketsRpcs.ts"
 import { TrackingRpcs } from "./rpc/TrackingRpcs.ts"
 
 /** Where the console calls every RPC. The client and the server name the same path. */
@@ -45,3 +46,4 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(TrackingRpcs)
   .merge(ReturnsRpcs)
   .merge(PortalRpcs)
+  .merge(TicketsRpcs)

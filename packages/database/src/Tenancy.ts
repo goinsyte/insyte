@@ -61,7 +61,13 @@ export const TENANT_TABLES = [
   "claim_flows",
   "returns",
   "return_lines",
-  "return_events"
+  "return_events",
+  "tickets",
+  "ticket_assignees",
+  "ticket_watchers",
+  "ticket_labels",
+  "ticket_comments",
+  "ticket_templates"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 
