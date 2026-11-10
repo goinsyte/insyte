@@ -1,6 +1,7 @@
 import { Conflict, Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
 import { AlreadyRefunded, RefundOverBalance, RefundOverLimit } from "@insyte/modules/orders/domain/Refunds"
 import {
+  AddTrackingInput,
   ApproveInput,
   AssignInput,
   IdInput,
@@ -55,6 +56,7 @@ export class ReturnsRpcs extends RpcGroup.make(
     success: ReturnChange,
     error: Schema.Union([Forbidden, NotFound])
   }),
+  Rpc.make("Returns.addTracking", { payload: AddTrackingInput, success: ReturnChange, error: Moved }),
   Rpc.make("Returns.sendLabel", {
     payload: SendLabelInput,
     success: ReturnChange,

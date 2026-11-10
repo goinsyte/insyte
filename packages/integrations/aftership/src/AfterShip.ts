@@ -1,4 +1,9 @@
-import { Tracking, TrackingError, type TrackingSnapshot } from "@insyte/modules/tracking/domain/Tracking"
+import {
+  type ParcelRef,
+  Tracking,
+  TrackingError,
+  type TrackingSnapshot
+} from "@insyte/modules/tracking/domain/Tracking"
 import { Config, Duration, Effect, Layer, Redacted } from "effect"
 import { HttpClient, HttpClientRequest } from "effect/http"
 
@@ -69,11 +74,16 @@ export const snapshotOf = (t: Raw): TrackingSnapshot => {
   }
 }
 
-/** A webhook's body: the delivery named in its custom fields, and the parcel now. */
-export const readWebhook = (body: unknown) => {
+/** A webhook's body: whose parcel it is, as its custom fields name it (a delivery, or a return's), and the parcel now. */
+export const readWebhook = (body: unknown): { ref: ParcelRef; snapshot: TrackingSnapshot } | undefined => {
   const msg = (body as { msg?: Raw } | undefined)?.msg
-  const id = str((msg?.["custom_fields"] as Raw | undefined)?.["insyte_delivery"])
-  return msg === undefined || id === null ? undefined : { deliveryId: id, snapshot: snapshotOf(msg) }
+  const fields = msg?.["custom_fields"] as Raw | undefined
+  const delivery = str(fields?.["insyte_delivery"])
+  const ret = str(fields?.["insyte_return"])
+  if (msg === undefined) return undefined
+  if (delivery !== null) return { ref: { kind: "delivery", id: delivery }, snapshot: snapshotOf(msg) }
+  if (ret !== null) return { ref: { kind: "return", id: ret }, snapshot: snapshotOf(msg) }
+  return undefined
 }
 
 const encoder = new TextEncoder()
@@ -139,7 +149,9 @@ export const AfterShipLive = Layer.effect(
                 ...(slug === undefined ? {} : { slug }),
                 title: input.title,
                 order_number: input.title,
-                custom_fields: { insyte_delivery: input.deliveryId }
+                custom_fields: input.ref.kind === "delivery"
+                  ? { insyte_delivery: input.ref.id }
+                  : { insyte_return: input.ref.id }
               }),
               "application/json"
             )

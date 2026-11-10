@@ -531,6 +531,19 @@ const make = Effect.gen(function*() {
           () => Effect.map(returns.get(id), (d) => returnV1(d.record))
         )
       ).pipe(Effect.catch(returnsV1)),
+    trackReturn: (
+      id: string,
+      body: { readonly carrier: "PostNL" | "DHL" | "DPD" | "UPS"; readonly tracking: string },
+      key?: string
+    ) =>
+      Idempotency.once(
+        key,
+        ["return.tracking", id, body],
+        Effect.flatMap(
+          returns.addTracking({ id, carrier: body.carrier, tracking: body.tracking }),
+          () => Effect.map(returns.get(id), (d) => returnV1(d.record))
+        )
+      ).pipe(Effect.catch(returnsV1)),
     labelReturn: (id: string, key?: string) =>
       Idempotency.once(
         key,

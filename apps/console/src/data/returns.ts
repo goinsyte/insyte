@@ -67,6 +67,7 @@ export const returnWrites = {
   assign: ConsoleClient.mutation("Returns.assign"),
   markReceived: ConsoleClient.mutation("Returns.markReceived"),
   sendLabel: ConsoleClient.mutation("Returns.sendLabel"),
+  addTracking: ConsoleClient.mutation("Returns.addTracking"),
   inspect: ConsoleClient.mutation("Returns.inspect"),
   resolve: ConsoleClient.mutation("Returns.resolve"),
   setSettings: ConsoleClient.mutation("Returns.setSettings"),

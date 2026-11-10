@@ -227,7 +227,8 @@ export type ReturnRecord = {
 	deadline: string;
 	/** When the order was delivered: the window counts from here. */
 	deliveredAt: string;
-	label?: { carrier: Carrier; tracking: string; sentAt: string } | undefined;
+	/** The label, or the shopper's own tracking when they sent it themselves (`self`, "zelf versturen"). */
+	label?: { carrier: Carrier; tracking: string; sentAt: string; self?: boolean | undefined } | undefined;
 	/** A label asked for and on its way from the carrier, or the carrier's reason for not making one. */
 	labelPending?: boolean | undefined;
 	labelFailed?: string | undefined;

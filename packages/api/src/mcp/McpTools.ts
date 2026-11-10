@@ -296,6 +296,20 @@ export const RejectReturn = Tool.make("reject_return", {
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
+export const AddReturnTracking = Tool.make("add_return_tracking", {
+  description:
+    "Records the carrier and tracking number a shopper sent their return parcel with themselves (\"zelf versturen\"), for a return waiting for its parcel without a label from Insyte; AfterShip then follows it. Needs returns.write.",
+  parameters: Schema.Struct({
+    return_id: ReturnId,
+    carrier: Schema.Literals(["PostNL", "DHL", "DPD", "UPS"]),
+    tracking: Schema.String,
+    idempotency_key: IdempotencyKey
+  }),
+  success: Return,
+  failure: ReturnMoveFailure,
+  dependencies: asKey()
+}).annotate(Tool.Idempotent, true)
+
 export const SendReturnLabel = Tool.make("send_return_label", {
   description:
     "Asks for a return label for a return waiting for its parcel, from the carrier its return address names; the label is made a few seconds later and costs the store the carrier's price, so confirm with the person first. Refused where no carrier is set up or the return has no address to make one with. Needs returns.write.",
@@ -370,6 +384,7 @@ export const InsyteTools = Toolkit.make(
   ApproveReturn,
   RejectReturn,
   SendReturnLabel,
+  AddReturnTracking,
   ReceiveReturn,
   InspectReturn,
   ResolveReturn

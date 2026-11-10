@@ -8,6 +8,7 @@ import type { SqlClient } from "effect/sql"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import { OrderTracking, Tracking, type TrackingSnapshot } from "../domain/Tracking.ts"
+import { ReturnParcels } from "../Parcels.ts"
 
 /*
  * Parcels, tracked (M8.4). The mirror makes a delivery for each parcel with a tracking number (`ensureDeliveries`). The
@@ -123,7 +124,7 @@ export const sweepWorkspace = Effect.fn("Tracking.sweepWorkspace")(function*() {
     )
     for (const d of unregistered) {
       const registered = yield* tracking.register({
-        deliveryId: d.id,
+        ref: { kind: "delivery", id: d.id },
         trackingNumber: d.trackingNumber,
         carrier: d.carrier,
         title: d.number
@@ -193,12 +194,17 @@ export const receive = Effect.fn("Tracking.receive")(function*(input: { body: Ui
   })()
   const read = tracking.readWebhook(parsed)
   if (read === undefined) return 200 as const
+  // A return's parcel coming back (M9.2) is the returns slice's.
+  if (read.ref.kind === "return") {
+    yield* Effect.flatMap(Effect.service(ReturnParcels), (r) => r.updated(read.ref.id, read.snapshot))
+    return 200 as const
+  }
   const db = yield* Db
   const [route] = yield* db.routing((sql) =>
-    sql<{ workspaceId: WorkspaceId }>`select workspace_id from route_delivery(${read.deliveryId})`
+    sql<{ workspaceId: WorkspaceId }>`select workspace_id from route_delivery(${read.ref.id})`
   )
   if (route === undefined) return 200 as const
-  yield* db.scopedFor((sql) => ingest(sql, read.deliveryId, read.snapshot)).pipe(
+  yield* db.scopedFor((sql) => ingest(sql, read.ref.id, read.snapshot)).pipe(
     Effect.provideService(CurrentWorkspace, { id: route.workspaceId })
   )
   return 200 as const

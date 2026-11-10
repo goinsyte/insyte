@@ -45,6 +45,8 @@ export interface ReturnCommands {
   assign: (ids: ReadonlyArray<string>, memberId: string | null, said: Said) => void
   /** "Label versturen"; absent, there are no labels yet. */
   sendLabel?: ((ids: ReadonlyArray<string>, said: Said) => void) | undefined
+  /** "Tracking invullen" ("zelf versturen"): the carrier and tracking number the shopper sent their parcel with. */
+  addTracking?: ((id: string, parcel: { carrier: Carrier; tracking: string }, said: Said) => void) | undefined
   /** A carrier's scan, simulated; only the design app has one. */
   scan?: ((r: ReturnRecord, said: Said) => void) | undefined
   /** Afhandelen with anything but a refund: the host says what it made. */

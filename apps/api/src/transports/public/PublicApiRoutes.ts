@@ -150,6 +150,11 @@ const ReturnsLive = HttpApiBuilder.group(
               )
           )
           .handle(
+            "tracking",
+            ({ params, payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.trackReturn(params.id, payload, key))
+          )
+          .handle(
             "label",
             ({ params, headers }) =>
               Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.labelReturn(params.id, key))

@@ -115,8 +115,8 @@ function StartOpen({ order, onClose }: { order: StartOrder; onClose: () => void 
     [returnable]
   )
   const reasons = useMemo(() => (settings === undefined ? [] : settingsOf(settings).reasons), [settings])
-  // The reasons are the dialog's first choice: it opens once they are in.
-  if (settings === undefined) return null
+  // The reasons and the lines are the dialog's: it opens once both are in.
+  if (settings === undefined || returnable === undefined) return null
   return (
     <StartReturnForm
       order={order}

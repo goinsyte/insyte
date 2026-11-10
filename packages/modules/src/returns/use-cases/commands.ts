@@ -14,6 +14,7 @@ import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import { Labels, Refunder } from "../domain/Ports.ts"
 import {
+  type AddTrackingInput,
   type ApproveInput,
   type AssignInput,
   type Before,
@@ -124,6 +125,7 @@ type EventKind =
   | "resolved"
   | "assigned"
   | "in_transit"
+  | "note"
 
 /** One history row by the principal; answers its id, so an undo can take it away. */
 const event = Effect.fn("Returns.event")(function*(
@@ -492,7 +494,10 @@ export const sendLabel = Effect.fn("Returns.sendLabel")(function*(input: typeof 
       }, { afterSeconds: UNDO_SECONDS })
       const undo = yield* Undo.issue(sql, {
         command: RESTORE,
-        compensation: { kind: "labels", returns: going.map((l) => ({ id: l.id, label: byId.get(l.id)!.label })) },
+        compensation: {
+          kind: "labels",
+          returns: going.map((l) => ({ id: l.id, label: byId.get(l.id)!.label, events: [] }))
+        },
         outboxIds: [sent]
       })
       return { change: new ReturnChange({ returns: yield* rowsOf(sql, ids), undo }), outboxId: sent }
@@ -500,6 +505,49 @@ export const sendLabel = Effect.fn("Returns.sendLabel")(function*(input: typeof 
   )
   if (outboxId !== null) yield* relay.kick([outboxId], { afterSeconds: UNDO_SECONDS })
   return change
+})
+
+/**
+ * "Tracking invullen" ("zelf versturen", M9.2): the shopper sent the parcel with their own carrier and passed on the
+ * tracking number. It stands where a label would, and AfterShip follows it as it follows a label's (the 15-minute
+ * sweep). Only for a return waiting for its parcel without a label made by Insyte; a number filled in earlier can be
+ * corrected. With Undo.
+ */
+export const addTracking = Effect.fn("Returns.addTracking")(function*(input: typeof AddTrackingInput.Type) {
+  yield* Policy.require("returns", 2)
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const [l] = yield* lock(sql, [input.id])
+      if (l!.status !== "awaiting_parcel") {
+        return yield* new IllegalReturnMove({ id: l!.id, from: l!.status, move: "addTracking" })
+      }
+      const [row] = yield* sql<{ label: string | null }>`select label::text as label from returns where id = ${l!.id}`
+      const stored = row?.label === null || row?.label === undefined ? null : JSON.parse(row.label) as StoredLabel
+      if (stored !== null && stored.self !== true && stored.state !== "failed") {
+        return yield* new IllegalReturnMove({ id: l!.id, from: l!.status, move: "addTracking" })
+      }
+      const tracking = input.tracking.replace(/\s+/g, "").toUpperCase()
+      yield* sql`update returns set label = ${
+        JSON.stringify({
+          state: "issued",
+          self: true,
+          carrier: input.carrier,
+          tracking,
+          trackingUrl: null,
+          sentAt: Date.now(),
+          fileId: null
+        })
+      }::jsonb, parcel_aftership_id = null, parcel_status = null, parcel_attempts = 0, parcel_error = null
+                 where id = ${l!.id}`
+      const ev = yield* event(sql, l!.id, "note", `Trackingnummer ingevuld: ${input.carrier} ${tracking}`)
+      yield* audit(sql, "return.tracking_added", l!.id, { carrier: input.carrier })
+      return yield* answer(sql, [l!.id], {
+        kind: "labels",
+        returns: [{ id: l!.id, label: row?.label ?? null, events: [ev] }]
+      })
+    })
+  )
 })
 
 /** "Gecontroleerd, in orde": each line's condition and whether it goes back on the shelf; then it is to settle. */
@@ -632,9 +680,13 @@ export const restore = Effect.fn("Returns.restore")(function*(sql: SqlClient.Sql
     return
   }
   if (undo.kind === "labels") {
-    // Only a request still waiting: its outbox row is cancelled with the token, so nothing was made at the carrier.
+    // The label as it was. A request's outbox row is cancelled with the token, so nothing reached the carrier; a
+    // request already sent cannot be redeemed at all. A parcel registered meanwhile is forgotten with it.
     for (const r of undo.returns) {
-      yield* sql`update returns set label = ${r.label}::jsonb where id = ${r.id} and label ->> 'state' = 'requested'`
+      yield* sql`update returns set label = ${r.label}::jsonb, parcel_aftership_id = null, parcel_status = null,
+                   parcel_attempts = 0, parcel_error = null
+                 where id = ${r.id}`
+      if (r.events.length > 0) yield* sql`delete from return_events where id in ${sql.in([...r.events])}`
     }
     return
   }

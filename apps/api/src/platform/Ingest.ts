@@ -1,6 +1,7 @@
 import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
+import { sweepParcels } from "@insyte/modules/returns/use-cases/parcels"
 import { reconcileStore } from "@insyte/modules/stores/use-cases/reconcile"
 import { apply } from "@insyte/modules/stores/use-cases/webhooks"
 import { sweep } from "@insyte/modules/tracking/use-cases/tracking"
@@ -59,7 +60,12 @@ export const ingest = async (batch: MessageBatch<IngestMessage>) => {
 
 /** Every connected, imported store, reconciled in turn. */
 /** The 15-minute tracking sweep (M8.4): register new parcels with AfterShip, poll quiet ones, flag those not moving. */
-export const trackingSweep = sweep().pipe(withRequestDb, Effect.withSpan("Tracking.sweepAll"))
+export const trackingSweep = sweep().pipe(
+  // …and the return parcels coming back (M9.2).
+  Effect.andThen(sweepParcels()),
+  withRequestDb,
+  Effect.withSpan("Tracking.sweepAll")
+)
 
 export const reconcile = Effect.gen(function*() {
   const db = yield* Db

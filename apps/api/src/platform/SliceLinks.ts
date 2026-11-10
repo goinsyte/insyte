@@ -8,9 +8,11 @@ import { refundOn } from "@insyte/modules/orders/use-cases/refund"
 import { restore as restoreProducts } from "@insyte/modules/products/use-cases/commands"
 import { Refunder } from "@insyte/modules/returns/domain/Ports"
 import { restore as restoreReturns } from "@insyte/modules/returns/use-cases/commands"
+import { parcelUpdated } from "@insyte/modules/returns/use-cases/parcels"
 import { MirrorFollowers } from "@insyte/modules/stores/domain/Ports"
 import { StoreMirror } from "@insyte/modules/stores/Mirror"
 import { restore as restoreSuppliers } from "@insyte/modules/suppliers/use-cases/commands"
+import { ReturnParcels } from "@insyte/modules/tracking/Parcels"
 import { ensureDeliveries } from "@insyte/modules/tracking/use-cases/tracking"
 import { UndoCompensations } from "@insyte/modules/undo/domain/Ports"
 import { Effect, Layer } from "effect"
@@ -23,6 +25,7 @@ import { Effect, Layer } from "effect"
  *   undo            → each reversible command's compensation, by the name its token carries (ADR-0023)
  *   returns' refund → the orders slice's refund, on the return's transaction (M9.1)
  *   a customer      → their newest Klaviyo sync (M7.5)
+ *   AfterShip       → a return's parcel, for the returns slice (M9.2)
  */
 
 const MirrorFollowersLive = Layer.succeed(MirrorFollowers, {
@@ -50,7 +53,13 @@ const RefunderLive = Layer.succeed(Refunder, {
 
 const KlaviyoSyncsLive = Layer.succeed(KlaviyoSyncs, { lastSyncOf })
 
+const ReturnParcelsLive = Layer.succeed(ReturnParcels, {
+  updated: (returnId, snapshot) => parcelUpdated(returnId, snapshot).pipe(Effect.orDie)
+})
+
 /** Every link between slices, and the mirror other slices write through. */
 export const SliceLinks = StoreMirror.layer.pipe(
-  Layer.provideMerge(Layer.mergeAll(MirrorFollowersLive, UndoCompensationsLive, RefunderLive, KlaviyoSyncsLive))
+  Layer.provideMerge(
+    Layer.mergeAll(MirrorFollowersLive, UndoCompensationsLive, RefunderLive, KlaviyoSyncsLive, ReturnParcelsLive)
+  )
 )

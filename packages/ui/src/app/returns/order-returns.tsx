@@ -97,6 +97,7 @@ export function StartReturnForm({
 				reset();
 			}}
 		>
+			{orderLines.length === 0 ? <p className="rounded-lg bg-mist px-3 py-2.5 text-ink-2 text-sm">Alles van deze bestelling zit al in een retour.</p> : null}
 			<ul className="flex flex-col gap-1.5">
 				{orderLines.map((l) => {
 					const on = lines.includes(l.id);

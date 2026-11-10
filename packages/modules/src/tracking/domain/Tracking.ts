@@ -35,11 +35,17 @@ export class TrackingError extends Schema.TaggedError<TrackingError>()("Tracking
   retryable: Schema.Boolean
 }) {}
 
+/** Whose parcel it is: an order's delivery, or a return's parcel coming back (M9.2). AfterShip carries it back to us. */
+export interface ParcelRef {
+  readonly kind: "delivery" | "return"
+  readonly id: string
+}
+
 export class Tracking extends Context.Service<Tracking, {
   /** False where no AfterShip key is set: parcels keep Shopify's own status, nothing is registered. */
   readonly configured: boolean
   readonly register: (input: {
-    readonly deliveryId: string
+    readonly ref: ParcelRef
     readonly trackingNumber: string
     /** The carrier as Shopify names it; AfterShip detects it when absent. */
     readonly carrier: string | null
@@ -49,10 +55,10 @@ export class Tracking extends Context.Service<Tracking, {
   readonly get: (aftershipId: string) => Effect.Effect<TrackingSnapshot, TrackingError>
   /** Whether a webhook's raw body carries AfterShip's signature (`aftership-hmac-sha256`). */
   readonly verifyWebhook: (body: Uint8Array, signature: string) => Effect.Effect<boolean>
-  /** Reads a webhook's body: which delivery it is about (our id, in its custom fields) and the parcel now. */
+  /** Reads a webhook's body: whose parcel it is (our ref, in its custom fields) and the parcel now. */
   readonly readWebhook: (
     body: unknown
-  ) => { readonly deliveryId: string; readonly snapshot: TrackingSnapshot } | undefined
+  ) => { readonly ref: ParcelRef; readonly snapshot: TrackingSnapshot } | undefined
 }>()("tracking/Tracking") {}
 
 export const Parcel = Schema.Struct({
