@@ -118,15 +118,17 @@ export default Alchemy.Stack(
       : {}
     // Klaviyo's OAuth app (M7.5), the same way: its client in the GitHub environment, and the sealer for the tokens.
     const klaviyoClientId = yield* Config.String("KLAVIYO_CLIENT_ID").pipe(Config.withDefault(""))
-    const klaviyoClientSecret = yield* Config.Redacted("KLAVIYO_CLIENT_SECRET").pipe(Config.option)
+    // An unset GitHub secret arrives as an empty string: that is no secret.
+    const set = (r: Redacted.Redacted<string>) => Redacted.value(r) !== ""
+    const klaviyoClientSecret = Option.filter(yield* Config.Redacted("KLAVIYO_CLIENT_SECRET").pipe(Config.option), set)
     const klaviyo = Option.isSome(sealKeys) && klaviyoClientId !== "" && Option.isSome(klaviyoClientSecret)
       ? { KLAVIYO_CLIENT_ID: klaviyoClientId, KLAVIYO_CLIENT_SECRET: klaviyoClientSecret.value }
       : {}
 
     // AfterShip (M8.4): Insyte's own account, its key and webhook secret in the GitHub environment; without them, parcels
     // keep Shopify's own status.
-    const aftershipKey = yield* Config.Redacted("AFTERSHIP_API_KEY").pipe(Config.option)
-    const aftershipSecret = yield* Config.Redacted("AFTERSHIP_WEBHOOK_SECRET").pipe(Config.option)
+    const aftershipKey = Option.filter(yield* Config.Redacted("AFTERSHIP_API_KEY").pipe(Config.option), set)
+    const aftershipSecret = Option.filter(yield* Config.Redacted("AFTERSHIP_WEBHOOK_SECRET").pipe(Config.option), set)
     const aftership = Option.isSome(aftershipKey) && Option.isSome(aftershipSecret)
       ? { AFTERSHIP_API_KEY: aftershipKey.value, AFTERSHIP_WEBHOOK_SECRET: aftershipSecret.value }
       : {}
