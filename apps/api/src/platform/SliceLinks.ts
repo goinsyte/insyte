@@ -16,6 +16,7 @@ import { MirrorFollowers } from "@insyte/modules/stores/domain/Ports"
 import { StoreMirror } from "@insyte/modules/stores/Mirror"
 import { ShopifyReturns } from "@insyte/modules/stores/ShopifyReturns"
 import { restore as restoreSuppliers } from "@insyte/modules/suppliers/use-cases/commands"
+import { restore as restoreTickets } from "@insyte/modules/tickets/use-cases/commands"
 import { ReturnParcels } from "@insyte/modules/tracking/Parcels"
 import { ensureDeliveries } from "@insyte/modules/tracking/use-cases/tracking"
 import { UndoCompensations } from "@insyte/modules/undo/domain/Ports"
@@ -52,6 +53,7 @@ const UndoCompensationsLive = Layer.succeed(UndoCompensations, {
   "suppliers.restore": restoreSuppliers,
   "forwarding.restore": restoreForwarding,
   "returns.restore": restoreReturns,
+  "tickets.restore": restoreTickets,
   "quality.restore": restoreQuality
 })
 

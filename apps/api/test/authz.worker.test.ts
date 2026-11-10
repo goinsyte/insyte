@@ -11,6 +11,7 @@ import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
 import { StoresRpcs } from "@insyte/api/rpc/StoresRpcs"
 import { SuppliersRpcs } from "@insyte/api/rpc/SuppliersRpcs"
+import { TicketsRpcs } from "@insyte/api/rpc/TicketsRpcs"
 import { TrackingRpcs } from "@insyte/api/rpc/TrackingRpcs"
 import { Exit } from "effect"
 import { beforeAll, describe, expect, it } from "vitest"
@@ -179,6 +180,26 @@ const PAYLOADS: Record<string, unknown> = {
     portal: { on: false, handle: "x", intro: "", done: "" }
   },
   "Orders.tracking": { orderId: "ord_none" },
+  "Tickets.list": {},
+  "Tickets.get": { id: "tkt_none" },
+  "Tickets.options": undefined,
+  // An empty title: refused after the permission check, so no ticket is made and no number spent.
+  "Tickets.create": { title: "   " },
+  "Tickets.duplicate": { id: "tkt_none" },
+  "Tickets.update": { ids: ["tkt_none"], priority: "high" },
+  "Tickets.setStatus": { ids: ["tkt_none"], status: "done" },
+  "Tickets.assign": { id: "tkt_none", memberId: "mem_none" },
+  "Tickets.unassign": { id: "tkt_none", memberId: "mem_none" },
+  "Tickets.archive": { ids: ["tkt_none"] },
+  "Tickets.spam": { ids: ["tkt_none"] },
+  // Klantenservice · Beheren: the service role has it.
+  "Tickets.trash": { ids: ["tkt_none"] },
+  "Tickets.snooze": { ids: ["tkt_none"], until: 4_102_444_800_000 },
+  "Tickets.putBack": { ids: ["tkt_none"] },
+  "Tickets.reorder": { ids: ["tkt_none"] },
+  "Tickets.watch": { id: "tkt_none" },
+  "Tickets.unwatch": { id: "tkt_none" },
+  "Tickets.comment": { id: "tkt_none", body: "x" },
   "Quality.list": { productId: "prd_none" },
   "Quality.request": {
     productId: "prd_none",
@@ -207,6 +228,7 @@ const manifest = [
   ...ForwardingRpcs.requests.keys(),
   ...TrackingRpcs.requests.keys(),
   ...ReturnsRpcs.requests.keys(),
+  ...TicketsRpcs.requests.keys(),
   ...QualityRpcs.requests.keys()
 ]
 

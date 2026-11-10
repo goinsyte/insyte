@@ -4,6 +4,7 @@ import { Clock, MessageSquare, Tag } from "../../icons";
 import type { Ticket, TicketPriority } from "../lib/types/domain";
 import { personStyle } from "../lib/person-color";
 import { cn } from "../lib/utils";
+import { useTicketsSource } from "./source";
 
 const PRIORITY: Record<
 	TicketPriority,
@@ -16,13 +17,6 @@ const PRIORITY: Record<
 		bg: "var(--signal-green-bg)",
 		fg: "var(--signal-green)",
 	},
-};
-
-const ASSIGNEE: Record<string, { initial: string }> = {
-	e: { initial: "E" },
-	s: { initial: "C" },
-	l: { initial: "L" },
-	m: { initial: "N" },
 };
 
 const TAG_TONES: Record<string, { bg: string; fg: string }> = {
@@ -45,11 +39,13 @@ export function TicketCardContent({
 }: {
 	ticket: Ticket;
 	commentCount?: number;
-	dueLabel: string;
+	/** Absent where the ticket has no deadline. */
+	dueLabel?: string;
 	dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
 	subtitle?: string;
 }) {
 	const prio = PRIORITY[ticket.priority];
+	const { initialOf, subtitle: subtitleOf } = useTicketsSource();
 
 	return (
 		<div className="flex flex-col">
@@ -75,7 +71,7 @@ export function TicketCardContent({
 				</p>
 				<div className="flex flex-col gap-2.5">
 					<p className="font-medium text-sm text-ink-3 leading-[1.2] tracking-[-0.024px]">
-						{subtitle ?? subtitleFromTicket(ticket)}
+						{subtitle ?? subtitleOf(ticket)}
 					</p>
 					<div className="flex flex-wrap gap-2">
 						{ticket.tags.slice(0, 3).map((t) => {
@@ -97,7 +93,7 @@ export function TicketCardContent({
 			<div className="flex items-center justify-between px-3.5 pt-3 pb-3.5">
 				<div className="flex -space-x-1">
 					{ticket.assignee_ids.slice(0, 3).map((id) => {
-						const a = ASSIGNEE[id] ?? { initial: "?" };
+						const a = { initial: initialOf(id, "card") };
 						return (
 							<span
 								key={id}
@@ -116,39 +112,16 @@ export function TicketCardContent({
 							<span>{commentCount}</span>
 						</div>
 					) : null}
-					<div className="flex items-center gap-1 font-normal text-sm text-ink-3">
-						<Clock className="size-3.5" strokeWidth={1.75} />
-						<span>{dueLabel}</span>
-					</div>
+					{dueLabel !== undefined ? (
+						<div className="flex items-center gap-1 font-normal text-sm text-ink-3">
+							<Clock className="size-3.5" strokeWidth={1.75} />
+							<span>{dueLabel}</span>
+						</div>
+					) : null}
 				</div>
 			</div>
 		</div>
 	);
-}
-
-function subtitleFromTicket(t: Ticket): string {
-	if (t.related_entity) {
-		return `${owner(t.assignee_ids[0])} · ${t.related_entity.label}`;
-	}
-	return owner(t.assignee_ids[0]);
-}
-
-function owner(id: string | undefined): string {
-	return (
-		{
-			e: "Ethan J. · Allure FR",
-			s: "Sophie Chang · Allure US",
-			l: "Liam T. · Allure IT",
-			m: "Maya Rossi · Allure DE",
-		}[id ?? ""] ?? "Niet toegewezen"
-	);
-}
-
-export function dueLabelFor(t: Ticket, status: string): string {
-	if (status === "done") return "Vandaag";
-	const seed = t.id.charCodeAt(t.id.length - 1);
-	const labels = ["Vandaag", "Morgen", "Volgende week", "Gisteren"];
-	return labels[seed % labels.length];
 }
 
 export const ticketCardClass = cn(
