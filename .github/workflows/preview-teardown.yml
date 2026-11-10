@@ -1,10 +1,17 @@
-# A closed pull request's preview goes away: Workers, Hyperdrive and the Neon branch (14 §4). The branch also expires
-# after seven days on its own, so a teardown that never ran costs nothing for long.
+# A closed pull request's preview goes away: Workers, Hyperdrive, the files bucket (emptied first) and the Neon branch
+# (14 §4). The branch also expires after seven days on its own, so a teardown that never ran costs nothing for long. A
+# teardown that failed is run again by hand, with the pull request's number.
 name: preview teardown
 
 on:
   pull_request:
     types: [closed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: The pull request whose preview to tear down
+        required: true
+        type: number
 
 permissions:
   contents: read
@@ -12,12 +19,12 @@ permissions:
 jobs:
   teardown:
     name: preview · teardown
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: preview
     concurrency:
-      group: alchemy-pr-${{ github.event.pull_request.number }}
+      group: alchemy-pr-${{ github.event.pull_request.number || inputs.pr }}
       cancel-in-progress: false
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -34,5 +41,5 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      - run: bunx alchemy destroy app.ts --stage "pr-${{ github.event.pull_request.number }}" --yes --no-input
+      - run: bunx alchemy destroy app.ts --stage "pr-${{ github.event.pull_request.number || inputs.pr }}" --yes --no-input
         working-directory: infra
