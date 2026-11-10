@@ -91,10 +91,11 @@ interface StoreRow {
 /** Applies one received delivery, once; a delivery already applied is left alone. */
 export const apply = Effect.fn("Stores.webhooks.apply")(function*(inboundEventId: string) {
   const db = yield* Db
+  // The body as text: the SQL client camelCases a jsonb value's keys, and Shopify's are `order_id`, `inventory_item_id`.
   const [event] = yield* db.scopedFor((sql) =>
-    sql<{ topic: string; body: Record<string, unknown>; storeId: string | null; processed: boolean }>`
+    sql<{ topic: string; body: string | null; storeId: string | null; processed: boolean }>`
       update inbound_events set attempts = attempts + 1 where id = ${inboundEventId}
-      returning topic, body_inline as body, store_id, processed_at is not null as processed`
+      returning topic, body_inline::text as body, store_id, processed_at is not null as processed`
   )
   if (event === undefined || event.processed || event.storeId === null) return
   const [store] = yield* db.scopedFor((sql) =>
@@ -102,7 +103,8 @@ export const apply = Effect.fn("Stores.webhooks.apply")(function*(inboundEventId
       StoreRow
     >`select id, connection_id, shop_domain as shop, currency, status from stores where id = ${event.storeId}`
   )
-  if (store !== undefined) yield* applyTopic(event.topic, event.body, store)
+  const body = event.body === null ? {} : JSON.parse(event.body) as Record<string, unknown>
+  if (store !== undefined) yield* applyTopic(event.topic, body, store)
   // A mirrored kind changed: the workspace's open lists of it read again (M5.1's realtime).
   const kind = READS[event.topic]?.kind
   const outboxIds = yield* db.scopedFor((sql) =>

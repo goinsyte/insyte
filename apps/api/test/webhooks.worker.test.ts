@@ -79,6 +79,13 @@ describe("Shopify's webhooks", () => {
     })
   })
 
+  it("reads an order again from a fulfilment's delivery, by the payload's `order_id`", async () => {
+    const fresh = await imported("f")
+    expect((await hook(fresh.shop, "fulfillments/update", { id: 9, order_id: 1 })).status).toBe(200)
+    const mirror = await settled(fresh)
+    expect(mirror.orders.find((o) => o.number === "#1001")).toMatchObject({ status: "shipped" })
+  })
+
   it("archives a deleted product, and answers the privacy topics", async () => {
     await hook(store.shop, "products/delete", { id: 3 })
     await hook(store.shop, "customers/redact", {
