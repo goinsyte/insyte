@@ -6,6 +6,7 @@ import { useProduct } from "../hooks/use-operator-data"
 import { categoryOf, sellThrough, stockOf, unitsOf } from "../lib/catalog"
 import type { Product } from "../lib/types/domain"
 import { undoable } from "../lib/undo"
+import { DemoQualitySource } from "../quality/demo-source"
 import { QualityTab } from "../quality/quality-tab"
 import { ProductReturns } from "../returns/product-returns"
 import { useProductQuality } from "../stores/quality-store"
@@ -110,7 +111,11 @@ function DemoProduct({ product }: { product: Product }) {
         ),
       submitted: quality.checks.filter((c) => c.status === "submitted").length,
       watching: quality.phase === "watch",
-      Tab: ({ product: p }) => <QualityTab product={p} openCheck={search.check} />
+      Tab: ({ product: p }) => (
+        <DemoQualitySource>
+          <QualityTab product={p} openCheck={search.check} />
+        </DemoQualitySource>
+      )
     },
     Returns: ProductReturns
   }

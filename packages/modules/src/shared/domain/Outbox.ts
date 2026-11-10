@@ -150,6 +150,13 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     returnIds: Schema.Array(Schema.String)
   }),
+  // A supplier answered a quality check through its link (M9.4): the team hears of it. `userId` is `system`.
+  Schema.Struct({
+    type: Schema.Literal("quality_check.submitted"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    checkIds: Schema.Array(Schema.String)
+  }),
   // Return labels asked for (M9.2): made at the carrier once the undo window has passed.
   Schema.Struct({
     type: Schema.Literal("return.label_requested"),

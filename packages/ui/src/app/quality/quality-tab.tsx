@@ -1,13 +1,12 @@
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../../components/sheet";
 import { Switch } from "../../components/switch";
 import { useNavigate } from "@tanstack/react-router";
-import { useMemo, useRef, useState } from "react";
-import { AlertTriangle, Box, Check, ClipboardCheck, Image as ImageIcon, MessageSquare, Plus, RotateCcw, Video, X, XCircle } from "../../icons";
-import { Gate } from "../access/gate";
-import { AgentSuggestion, RecentAgentRow, useMyName, useNow } from "../ask/agent-parts";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Box, Check, ClipboardCheck, Copy, Image as ImageIcon, MessageSquare, Plus, RotateCcw, Video, X, XCircle } from "../../icons";
 import { EmptyPage } from "../common/empty-page";
 import { FormDialog, TextAreaField } from "../common/form-dialog";
 import { StatusBadge } from "../common/status-badge";
+import { useNow } from "../hooks/use-now";
 import { formatDateTime } from "../lib/format";
 import {
 	CHECK_KIND_LABEL,
@@ -20,25 +19,20 @@ import {
 	type Phase,
 	PHASE_LABEL,
 	type QualityCheck,
-	shouldWatch,
 } from "../lib/quality";
 import { pct } from "../lib/returns";
 import type { Product } from "../lib/types/domain";
-import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { suppliers } from "../../data-source";
-import { useGate } from "../stores/access-store";
-import { THRESHOLD, useProductQuality, useQuality } from "../stores/quality-store";
-import { useWorkspace } from "../stores/workspace-store";
+import { GateBy } from "../returns/parts";
+import { type QualityPicture, useQualitySource } from "./source";
 
 /*
  * Kwaliteit, the product page's second section (PLAN 26, design §3): the checks the brand asked its
  * supplier for, what came back and the verdict; the complaints from returns and messages; the
  * complaint rate against the product's sales; and the phase it is in. One timeline, newest first,
- * filtered by size. A check opens in a drawer where it is judged.
+ * filtered by size. A check opens in a drawer where it is judged. What it reads and does is `source.tsx`'s.
  */
 
-const SIZES = ["Klein", "Middel", "Groot"];
 const day = (iso: string) => new Intl.DateTimeFormat("nl-NL", { weekday: "long", day: "numeric", month: "long" }).format(new Date(iso));
 
 export function CheckStatusBadge({ c, now }: { c: QualityCheck; now: number }) {
@@ -48,7 +42,8 @@ export function CheckStatusBadge({ c, now }: { c: QualityCheck; now: number }) {
 }
 
 export function PhaseSelect({ productId, phase }: { productId: string; phase: Phase }) {
-	const gate = useGate("products.phase");
+	const source = useQualitySource();
+	const gate = source.gates.phase;
 	return (
 		<span role="radiogroup" aria-label="Productfase" className="inline-flex h-8 items-center gap-0.5 rounded-md bg-ink/5 p-0.5">
 			{(Object.keys(PHASE_LABEL) as Phase[]).map((p) => (
@@ -61,8 +56,7 @@ export function PhaseSelect({ productId, phase }: { productId: string; phase: Ph
 					title={gate.ok ? undefined : gate.reason}
 					onClick={() => {
 						if (p === phase) return;
-						const undo = useQuality.getState().setPhase(productId, p);
-						undoable(`Fase: ${PHASE_LABEL[p].toLowerCase()}`, undo, p === "watch" ? "Klachten en controles van dit product komen nu op Start." : undefined);
+						source.commands.setPhase(productId, p, { label: `Fase: ${PHASE_LABEL[p].toLowerCase()}`, detail: p === "watch" ? "Klachten en controles van dit product komen nu op Start." : undefined });
 					}}
 					className={cn(
 						"h-7 rounded-[5px] px-2 font-medium text-xs transition-colors disabled:cursor-not-allowed",
@@ -82,16 +76,25 @@ type Item =
 	| { kind: "media"; at: string; name: string; by: string };
 
 export function QualityTab({ product, openCheck }: { product: Product; openCheck?: string | undefined }) {
-	const q = useProductQuality(product.id);
-	const media = useWorkspace((s) => s.productMedia[product.id]) ?? [];
+	const source = useQualitySource();
+	const q = source.usePicture(product.id);
+	return q ? <Picture product={product} q={q} openCheck={openCheck} /> : null;
+}
+
+function Picture({ product, q, openCheck }: { product: Product; q: QualityPicture; openCheck?: string | undefined }) {
+	const source = useQualitySource();
+	const media = q.media;
 	const navigate = useNavigate();
 	const now = useNow(60_000);
 	const [size, setSize] = useState<string | null>(null);
 	const [requesting, setRequesting] = useState<CheckKind | null>(null);
 	const [open, setOpen] = useState<string | null>(openCheck ?? null);
+	// A notification for a check on the page already open names it in the URL: the drawer follows.
+	useEffect(() => {
+		if (openCheck) setOpen(openCheck);
+	}, [openCheck]);
 	const c = counts(q.checks);
-	const supplier = suppliers.find((s) => s.id === product.supplier_id);
-	const watch = shouldWatch(q.rate, THRESHOLD, q.phase);
+	const supplier = q.supplier;
 
 	const items = useMemo<Item[]>(() => {
 		const out: Item[] = [];
@@ -119,7 +122,7 @@ export function QualityTab({ product, openCheck }: { product: Product; openCheck
 					secondary={{ label: "Monster bestellen", onClick: () => setRequesting("sample") }}
 					className="pt-6 sm:pt-8"
 				/>
-				<RequestDialog product={product} kind={requesting} onClose={() => setRequesting(null)} />
+				<RequestDialog product={product} supplier={supplier} sizes={q.sizes} kind={requesting} onClose={() => setRequesting(null)} />
 			</>
 		);
 	}
@@ -129,7 +132,7 @@ export function QualityTab({ product, openCheck }: { product: Product; openCheck
 			<section className="flex flex-col gap-4 rounded-xl px-5 py-4 panel">
 				<div className="flex flex-wrap items-center justify-between gap-3">
 					<dl className="flex flex-wrap gap-x-8 gap-y-3">
-						<Fig k="Klachtpercentage" v={pct(q.rate)} tone={q.rate > THRESHOLD ? "amber" : undefined} sub={`${q.complaints.length} van ${q.sold} verkocht in 90 dagen`} />
+						<Fig k="Klachtpercentage" v={pct(q.rate)} tone={q.rate > q.threshold ? "amber" : undefined} sub={`${q.complaints.length} van ${q.sold} verkocht in 90 dagen`} />
 						<Fig k="Goedgekeurd" v={String(c.approved)} />
 						<Fig k="Afgekeurd" v={String(c.rejected)} tone={c.rejected > 0 ? "red" : undefined} />
 						<Fig k="Loopt" v={String(c.open)} />
@@ -140,65 +143,30 @@ export function QualityTab({ product, openCheck }: { product: Product; openCheck
 					</div>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
-					<Gate perm="products" arg={2}>
+					<GateBy gate={source.gates.request}>
 						<button type="button" onClick={() => setRequesting("batch")} className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-mesh-ink text-xs shadow-primary hover:bg-abyss-2 disabled:pointer-events-none disabled:opacity-45">
 							<Plus className="size-3.5" strokeWidth={2} />
 							Controle aanvragen
 						</button>
-					</Gate>
-					<Gate perm="products" arg={2}>
+					</GateBy>
+					<GateBy gate={source.gates.request}>
 						<button type="button" onClick={() => setRequesting("sample")} className="field flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-ink text-xs hover:field-hover disabled:pointer-events-none disabled:opacity-45">
 							<Box className="size-3.5" strokeWidth={1.75} />
 							Monster bestellen
 						</button>
-					</Gate>
+					</GateBy>
 					<span className="flex-1" />
 					<span role="radiogroup" aria-label="Maat" className="flex gap-1">
-						{[null, ...SIZES].map((s) => (
+						{q.sizes.length > 1 ? [null, ...q.sizes].map((s) => (
 							<button key={s ?? "all"} type="button" role="radio" aria-checked={size === s} onClick={() => setSize(s)} className={cn("h-7 rounded-md px-2 text-xs", size === s ? "bg-arc-tint font-medium text-arc-ink" : "text-ink-2 hover:bg-ink/6")}>
 								{s ?? "Alle maten"}
 							</button>
-						))}
+						)) : null}
 					</span>
 				</div>
 			</section>
 
-			{watch && supplier ? (
-				<AgentSuggestion
-					id={`watch:${product.id}:${q.complaints.length}`}
-					action="RequestQualityCheck"
-					level={2}
-					proposal={{
-						title: `Batchcontrole vragen bij ${supplier.name} en ${product.title} onder toezicht zetten`,
-						body: `${q.complaints.length} klachten op ${q.sold} verkochte stuks in 90 dagen: ${pct(q.rate)}, boven je drempel van ${pct(THRESHOLD)}. De meeste gaan over dezelfde plek.`,
-						confidence: 86,
-						why: "Klachten uit retouren en berichten, gemeten tegen de verkopen van 90 dagen.",
-						fileLabel: "Controle aanvragen",
-						action: { kind: "open", to: `/products/${product.id}` },
-					}}
-					evidence={
-						<ul className="flex flex-col gap-1 text-mesh-ink text-sm">
-							{q.complaints.slice(0, 3).map((cm) => (
-								<li key={`${cm.at}-${cm.text}`} className="truncate">“{cm.text}”</li>
-							))}
-						</ul>
-					}
-					draft={{
-						sentence: `Batchcontrole gevraagd bij ${supplier.name} voor ${product.title}`,
-						record: { kind: "product", label: product.title, to: `/products/${product.id}`, search: { tab: "quality" }, id: product.id },
-						trigger: "Klachtpercentage boven de drempel",
-						sources: q.complaints.slice(0, 3).map((cm) => ({ kind: cm.returnId ? ("return" as const) : ("customer" as const), title: cm.customer ?? "Klant", detail: cm.text })),
-						reason: `${pct(q.rate)} klachten, drempel ${pct(THRESHOLD)}.`,
-					}}
-					perform={() => {
-						useQuality.getState().request({ productId: product.id, supplierId: supplier.id, kind: "batch", variants: [], deliver: ["photos", "batch", "video"], due: new Date(Date.now() + 4 * 86_400_000).toISOString(), requestedBy: "Insyte", note: `Batchcontrole na ${q.complaints.length} klachten: foto's van de naden en het batchnummer.` });
-						useQuality.getState().setPhase(product.id, "watch");
-						return { before: PHASE_LABEL[q.phase], after: "Onder toezicht, controle aangevraagd" };
-					}}
-				/>
-			) : (
-				<RecentAgentRow action="RequestQualityCheck" recordId={product.id} within={24 * 60 * 60_000} />
-			)}
+			{source.Agents ? <source.Agents product={product} picture={q} /> : null}
 
 			<section className="flex flex-col gap-1 rounded-xl px-5 py-4 panel">
 				<h2 className="pb-2 font-medium text-ink text-md">Tijdlijn</h2>
@@ -244,8 +212,8 @@ export function QualityTab({ product, openCheck }: { product: Product; openCheck
 					))}
 				</ol>
 			</section>
-			<RequestDialog product={product} kind={requesting} onClose={() => setRequesting(null)} />
-			<CheckDrawer check={q.checks.find((x) => x.id === open) ?? null} productTitle={product.title} onClose={() => setOpen(null)} />
+			<RequestDialog product={product} supplier={supplier} sizes={q.sizes} kind={requesting} onClose={() => setRequesting(null)} />
+			<CheckDrawer check={q.checks.find((x) => x.id === open) ?? null} productTitle={product.title} supplierName={supplier?.name} onClose={() => setOpen(null)} />
 		</div>
 	);
 }
@@ -261,9 +229,8 @@ function Fig({ k, v, sub, tone }: { k: string; v: string; sub?: string; tone?: "
 }
 
 /** Controle aanvragen / Monster bestellen: what, which sizes, what to deliver, by when, and a note for the supplier. */
-function RequestDialog({ product, kind, onClose }: { product: Product; kind: CheckKind | null; onClose: () => void }) {
-	const me = useMyName();
-	const supplier = suppliers.find((s) => s.id === product.supplier_id);
+function RequestDialog({ product, supplier, sizes: options, kind, onClose }: { product: Product; supplier: QualityPicture["supplier"]; sizes: ReadonlyArray<string>; kind: CheckKind | null; onClose: () => void }) {
+	const source = useQualitySource();
 	const [k, setK] = useState<CheckKind | null>(null);
 	const chosen = k ?? kind ?? "batch";
 	const [sizes, setSizes] = useState<string[]>([]);
@@ -281,22 +248,27 @@ function RequestDialog({ product, kind, onClose }: { product: Product; kind: Che
 				}
 			}}
 			title={chosen === "sample" ? "Monster bestellen" : "Controle aanvragen"}
-			description={supplier ? `${supplier.name} krijgt het verzoek in zijn portaal, met wat je wilt zien en wanneer.` : "Dit product heeft nog geen leverancier."}
-			primaryLabel={`Naar ${supplier?.name ?? "de leverancier"} sturen`}
+			description={supplier ? (source.reach === "portal" ? `${supplier.name} krijgt het verzoek in zijn portaal, met wat je wilt zien en wanneer.` : `Je krijgt een link voor ${supplier.name}, met wat je wilt zien en wanneer.`) : "Dit product heeft nog geen leverancier."}
+			primaryLabel={source.reach === "portal" ? `Naar ${supplier?.name ?? "de leverancier"} sturen` : "Controle aanvragen"}
 			disabled={!supplier || deliver.length === 0}
 			onSubmit={() => {
 				if (!supplier) return;
 				const due = new Date(Date.now() + days * 86_400_000);
 				due.setHours(17, 0, 0, 0);
-				const c = useQuality.getState().request({ productId: product.id, supplierId: supplier.id, kind: chosen, variants: sizes, deliver, due: due.toISOString(), requestedBy: me, note: note.trim() || `${CHECK_KIND_LABEL[chosen]} voor ${product.title}.` });
-				undoable(`${CHECK_KIND_LABEL[chosen]} gestuurd naar ${supplier.name}`, () => useQuality.getState().cancel(c.id), `Vóór ${day(c.due)}.`);
+				source.commands.request(
+					product.id,
+					{ kind: chosen, variants: sizes, deliver, due: due.toISOString(), note: note.trim() || `${CHECK_KIND_LABEL[chosen]} voor ${product.title}.` },
+					source.reach === "portal"
+						? { label: `${CHECK_KIND_LABEL[chosen]} gestuurd naar ${supplier.name}`, detail: `Vóór ${day(due.toISOString())}.` }
+						: { label: `${CHECK_KIND_LABEL[chosen]} aangevraagd bij ${supplier.name}`, detail: `Vóór ${day(due.toISOString())}. Kopieer de link voor ${supplier.name} bij de controle.` },
+				);
 				onClose();
 				setK(null);
 				setNote("");
 			}}
 		>
 			<Chips label="Soort" value={[chosen]} options={(Object.keys(CHECK_KIND_LABEL) as CheckKind[]).map((x) => ({ id: x, label: CHECK_KIND_LABEL[x] }))} onToggle={(x) => setK(x)} />
-			<Chips label="Maten (geen keuze is alle maten)" value={sizes} options={SIZES.map((s) => ({ id: s, label: s }))} onToggle={(x) => setSizes((v) => (v.includes(x) ? v.filter((y) => y !== x) : [...v, x]))} />
+			{options.length > 1 ? <Chips label="Maten (geen keuze is alle maten)" value={sizes} options={options.map((s) => ({ id: s, label: s }))} onToggle={(x) => setSizes((v) => (v.includes(x) ? v.filter((y) => y !== x) : [...v, x]))} /> : null}
 			<Chips label="Wat de leverancier aanlevert" value={deliver} options={(Object.keys(DELIVERABLE_LABEL) as Deliverable[]).map((x) => ({ id: x, label: DELIVERABLE_LABEL[x] }))} onToggle={(x) => setDeliver((v) => (v.includes(x) ? v.filter((y) => y !== x) : [...v, x]))} />
 			<Chips label="Vóór" value={[String(days)]} options={[2, 4, 7, 14].map((d) => ({ id: String(d), label: d === 7 ? "Over een week" : d === 14 ? "Over twee weken" : `Over ${d} dagen` }))} onToggle={(x) => setDays(Number(x))} />
 			<label className="flex flex-col gap-1.5">
@@ -327,15 +299,16 @@ function Chips<T extends string>({ label, value, options, onToggle }: { label: s
  * and the verdict. Goedkeuren has Undo; Afkeuren asks for a reason the supplier can act on, and can
  * open a ticket with the supplier and put the product under watch in the same move.
  */
-export function CheckDrawer({ check, productTitle, onClose }: { check: QualityCheck | null; productTitle: string; onClose: () => void }) {
+export function CheckDrawer({ check, productTitle, supplierName, onClose }: { check: QualityCheck | null; productTitle: string; supplierName?: string | undefined; onClose: () => void }) {
+	const source = useQualitySource();
 	const ref = useRef<HTMLDivElement>(null);
-	const me = useMyName();
 	const now = useNow(60_000);
 	const [rejecting, setRejecting] = useState(false);
 	const [reason, setReason] = useState("");
 	const [ticket, setTicket] = useState(true);
 	const [watch, setWatch] = useState(true);
-	const supplier = check ? suppliers.find((s) => s.id === check.supplierId) : undefined;
+	const supplier = supplierName === undefined ? undefined : { name: supplierName };
+	const portal = source.reach === "portal";
 	return (
 		<Sheet open={check !== null} onOpenChange={(o) => !o && onClose()}>
 			<SheetContent side="right" className="w-[520px] max-w-[100vw] gap-0 overflow-y-auto bg-paper p-0 sm:max-w-[520px]" showCloseButton={false} initialFocus={ref}>
@@ -391,7 +364,15 @@ export function CheckDrawer({ check, productTitle, onClose }: { check: QualityCh
 									{check.submission.note ? <p className="text-ink text-sm">“{check.submission.note}”</p> : null}
 								</section>
 							) : (
-								<p className="rounded-lg bg-mist px-3.5 py-3 text-ink-2 text-sm">{supplier?.name ?? "De leverancier"} heeft nog niets ingestuurd. Ze zien het verzoek in hun portaal.</p>
+								<div className="flex flex-col items-start gap-2 rounded-lg bg-mist px-3.5 py-3 text-ink-2 text-sm">
+									<p>{supplier?.name ?? "De leverancier"} heeft nog niets ingestuurd. {portal ? "Ze zien het verzoek in hun portaal." : "Ze antwoorden via hun link."}</p>
+									{source.copyLink ? (
+										<button type="button" onClick={() => source.copyLink?.(check.id)} className="flex h-8 items-center gap-1.5 rounded-md bg-paper px-2.5 font-medium text-ink text-xs hover:bg-ink/6">
+											<Copy className="size-3.5" strokeWidth={1.75} />
+											Link voor {supplier?.name ?? "de leverancier"} kopiëren
+										</button>
+									) : null}
+								</div>
 							)}
 							{check.verdict ? (
 								<section className={cn("flex flex-col gap-1 rounded-lg px-3.5 py-3", check.status === "approved" ? "bg-arc-tint" : "bg-signal-red-bg")}>
@@ -408,14 +389,18 @@ export function CheckDrawer({ check, productTitle, onClose }: { check: QualityCh
 											<span className="font-medium text-ink-3 text-sm">Waarom afgekeurd (de leverancier leest dit)</span>
 											<TextAreaField value={reason} onChange={setReason} rows={3} placeholder="Bijvoorbeeld: naad bij de schouder loopt niet door tot de zoom" />
 										</label>
-										<label className="flex items-center gap-2 text-ink-2 text-sm">
-											<Switch checked={ticket} onCheckedChange={setTicket} aria-label="Ticket openen" />
-											Ticket met {supplier?.name ?? "de leverancier"} openen
-										</label>
-										<label className="flex items-center gap-2 text-ink-2 text-sm">
-											<Switch checked={watch} onCheckedChange={setWatch} aria-label="Onder toezicht zetten" />
-											Product onder toezicht zetten
-										</label>
+										{source.tickets ? (
+											<label className="flex items-center gap-2 text-ink-2 text-sm">
+												<Switch checked={ticket} onCheckedChange={setTicket} aria-label="Ticket openen" />
+												Ticket met {supplier?.name ?? "de leverancier"} openen
+											</label>
+										) : null}
+										{source.gates.phase.ok ? (
+											<label className="flex items-center gap-2 text-ink-2 text-sm">
+												<Switch checked={watch} onCheckedChange={setWatch} aria-label="Onder toezicht zetten" />
+												Product onder toezicht zetten
+											</label>
+										) : null}
 										<div className="flex gap-2">
 											<button type="button" onClick={() => setRejecting(false)} className="h-8 rounded-md px-3 font-medium text-ink-2 text-sm hover:bg-ink/6">
 												Annuleren
@@ -424,16 +409,11 @@ export function CheckDrawer({ check, productTitle, onClose }: { check: QualityCh
 												type="button"
 												disabled={!reason.trim()}
 												onClick={() => {
-													const undos = [useQuality.getState().judge(check.id, false, me, reason.trim())];
-													if (watch) undos.push(useQuality.getState().setPhase(check.productId, "watch"));
-													let ticketId: string | undefined;
-													if (ticket) {
-														ticketId = useWorkspace.getState().createTicket({ title: `${productTitle}: controle afgekeurd bij ${supplier?.name ?? "leverancier"}`, description: reason.trim(), priority: "high", tags: ["Kwaliteit", "Leverancier"] }).id;
-													}
-													undoable("Controle afgekeurd", () => {
-														for (const u of undos) u();
-														if (ticketId) useWorkspace.setState((s) => ({ tickets: s.tickets.filter((t) => t.id !== ticketId) }));
-													}, `${supplier?.name ?? "De leverancier"} krijgt de reden in zijn portaal.`);
+													source.commands.reject(
+														check.id,
+														{ reason: reason.trim(), watch: watch && source.gates.phase.ok, ticket: ticket && source.tickets },
+														{ label: "Controle afgekeurd", detail: portal ? `${supplier?.name ?? "De leverancier"} krijgt de reden in zijn portaal.` : `${supplier?.name ?? "De leverancier"} ziet de reden via de link.` },
+													);
 													setRejecting(false);
 													setReason("");
 												}}
@@ -445,29 +425,29 @@ export function CheckDrawer({ check, productTitle, onClose }: { check: QualityCh
 									</section>
 								) : (
 									<div className="flex gap-2">
-										<Gate perm="quality.approve">
+										<GateBy gate={source.gates.judge}>
 											<button type="button" onClick={() => setRejecting(true)} className="field flex h-9 items-center gap-1.5 rounded-md px-3 font-medium text-ink text-sm hover:field-hover disabled:opacity-45">
 												<XCircle className="size-4" strokeWidth={1.75} />
 												Afkeuren
 											</button>
-										</Gate>
-										<Gate perm="quality.approve">
+										</GateBy>
+										<GateBy gate={source.gates.judge}>
 											<button
 												type="button"
-												onClick={() => undoable("Controle goedgekeurd", useQuality.getState().judge(check.id, true, me), `${supplier?.name ?? "De leverancier"} ziet het in zijn portaal.`)}
+												onClick={() => source.commands.approve(check.id, { label: "Controle goedgekeurd", detail: portal ? `${supplier?.name ?? "De leverancier"} ziet het in zijn portaal.` : undefined })}
 												className="flex h-9 items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-mesh-ink text-sm shadow-primary hover:bg-abyss-2 disabled:opacity-45"
 											>
 												<Check className="size-4" strokeWidth={2} />
 												Goedkeuren
 											</button>
-										</Gate>
+										</GateBy>
 									</div>
 								)
 							) : null}
 							{check.status === "rejected" ? (
 								<p className="flex items-center gap-1.5 text-ink-3 text-sm">
 									<RotateCcw className="size-3.5" strokeWidth={1.75} />
-									De leverancier kan de controle opnieuw insturen.
+									{portal ? "De leverancier kan de controle opnieuw insturen." : "De leverancier kan de controle via dezelfde link opnieuw insturen."}
 								</p>
 							) : null}
 						</div>

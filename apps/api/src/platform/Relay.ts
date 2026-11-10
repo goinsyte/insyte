@@ -222,7 +222,8 @@ const NOTIFIED = new Set<OutboxEvent["type"]>([
   "access.requested",
   "access.decided",
   "order.delayed",
-  "return.requested"
+  "return.requested",
+  "quality_check.submitted"
 ])
 
 const SINKS: ReadonlyArray<Sink> = [

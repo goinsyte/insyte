@@ -4,7 +4,8 @@ import { RateLimits } from "./RateLimits.ts"
 
 /*
  * The returns portal's limits (M9.3), in the `RateLimiter` Durable Object like the auth routes': finding an order per IP
- * and per order number, a request and photos per order. A shopper finds their order once or twice; a script trying
+ * and per order number, a request and photos per order. The supplier's quality link (M9.4) shares them: an answer and
+ * its media per check. A shopper finds their order once or twice; a script trying
  * numbers and addresses meets the limit, and Turnstile, long before it finds one. A refusal says how long to wait,
  * never whether an order exists.
  */
@@ -24,7 +25,9 @@ export const LIMITS = {
   startPerOrder: { bucket: "portal-start", limit: 10, windowSeconds: HOUR },
   startPerIp: { bucket: "portal-start", limit: 30, windowSeconds: HOUR },
   photoPerOrder: { bucket: "portal-photo", limit: 30, windowSeconds: HOUR },
-  photoPerIp: { bucket: "portal-photo", limit: 60, windowSeconds: HOUR }
+  photoPerIp: { bucket: "portal-photo", limit: 60, windowSeconds: HOUR },
+  submitPerCheck: { bucket: "quality-submit", limit: 10, windowSeconds: HOUR },
+  mediaPerCheck: { bucket: "quality-media", limit: 60, windowSeconds: HOUR }
 } as const satisfies Record<string, Limit>
 
 /** One attempt against each limit that has a key; the first one full refuses. */
@@ -44,3 +47,4 @@ export const ipKey = (ip: string | null) =>
   Effect.map(Effect.service(RateLimits), (limits) => (limits.ipLimits && ip !== null ? `ip:${ip}` : null))
 export const numberKey = (handle: string, number: string) => `portal:${handle}:${normaliseNumber(number)}`
 export const orderKey = (orderId: string) => `portal-order:${orderId}`
+export const checkKey = (checkId: string) => `quality-check:${checkId}`
