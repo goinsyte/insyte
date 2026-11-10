@@ -15,6 +15,24 @@ import { rpc } from "./support.ts"
 
 type Outcome = { id: string; outcome: string; reason: string | null }
 
+/** The write for this order among the workflows started since introspection began, once it has run. */
+const ownWrite = async (
+  writes: {
+    get: () => Promise<Array<{ waitForStatus: (s: "complete") => Promise<void>; getOutput: () => Promise<unknown> }>>
+  },
+  orderId: string
+) => {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    for (const instance of await writes.get()) {
+      await instance.waitForStatus("complete")
+      const found = (await instance.getOutput() as Array<Outcome>).find((o) => o.id === orderId)
+      if (found !== undefined) return found
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error(`no write ran for ${orderId}`)
+}
+
 const orderNumbered = async (cookie: string, number: string) => {
   const page = ok(await rpc("Orders.list", { limit: 50 }, cookie))
   return page.rows.find((o) => o.number === number)!
@@ -98,9 +116,9 @@ describe("refunds", () => {
     await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
     ok(await rpc("Orders.refund", { id: order.id, refundId: mintId("rfd"), amountMinor: 4995 }, store.cookie))
     await relay(store.workspace)
-    const [instance] = await writes.get()
-    await instance!.waitForStatus("complete")
-    expect((await instance!.getOutput() as Array<Outcome>)[0]).toMatchObject({ outcome: "refused" })
+    // The previous test's write may start in this window too (the Worker's own delayed kick): this order's is the one.
+    const outcome = await ownWrite(writes, order.id)
+    expect(outcome).toMatchObject({ outcome: "refused" })
     const detail = ok(await rpc("Orders.get", { id: order.id }, store.cookie))
     expect(detail.order.paymentStatus).toBe("paid")
     expect(detail.refunds.map((r) => r.status)).toEqual(["failed"])

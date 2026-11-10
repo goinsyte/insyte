@@ -217,7 +217,13 @@ const notifications = Effect.fn("Relay.notifications")(
   Effect.orDie
 )
 
-const NOTIFIED = new Set<OutboxEvent["type"]>(["member.joined", "access.requested", "access.decided", "order.delayed"])
+const NOTIFIED = new Set<OutboxEvent["type"]>([
+  "member.joined",
+  "access.requested",
+  "access.decided",
+  "order.delayed",
+  "return.requested"
+])
 
 const SINKS: ReadonlyArray<Sink> = [
   {

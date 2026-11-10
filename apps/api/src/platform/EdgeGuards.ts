@@ -61,10 +61,12 @@ const limited = (retryAfterSeconds: number) =>
  * loopback address (`vite preview`), where every run shares one IP: there it counts as none, and only the per-address
  * limits apply.
  */
-const clientIp = (request: Request): string | null => {
-  const ip = request.headers.get("cf-connecting-ip")
+export const ipOf = (headers: Headers): string | null => {
+  const ip = headers.get("cf-connecting-ip")
   return ip === null || ip === "::1" || ip.startsWith("127.") ? null : ip
 }
+
+const clientIp = (request: Request): string | null => ipOf(request.headers)
 
 /** An address as a key: normalised, then hashed, so no address is ever a Durable Object's name. */
 const emailKey = async (email: string) => {

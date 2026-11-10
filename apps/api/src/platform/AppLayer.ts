@@ -3,6 +3,7 @@ import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
 import { PwnedPasswords } from "@insyte/integrations-better-auth/PwnedPasswords"
 import { PostHogAnalytics } from "@insyte/integrations-posthog/PostHog"
 import { ResendMailer } from "@insyte/integrations-resend/ResendMailer"
+import { PortalService } from "@insyte/modules/returns/Portal"
 import type { Mailer } from "@insyte/modules/shared/domain/Mailer"
 import type { ProductAnalytics } from "@insyte/modules/shared/domain/ProductAnalytics"
 import { StoresService } from "@insyte/modules/stores/Stores"
@@ -14,6 +15,7 @@ import { ConnectRoutes, KlaviyoConnectRoutes } from "../transports/http/ConnectR
 import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { FileRoutes } from "../transports/http/FileRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
+import { PortalRoutes } from "../transports/http/PortalRoutes.ts"
 import { RealtimeRoutes } from "../transports/http/RealtimeRoutes.ts"
 import { RequestContext } from "../transports/http/RequestContext.ts"
 import { SupplierHookRoutes } from "../transports/http/SupplierHookRoutes.ts"
@@ -27,6 +29,7 @@ import { Resources } from "../transports/public/Resources.ts"
 import { AuthenticatedLive } from "../transports/rpc/AuthenticatedLive.ts"
 import { MemberLive } from "../transports/rpc/MemberLive.ts"
 import { RpcContext, RpcRoutes } from "../transports/rpc/RpcRoutes.ts"
+import { ShopperLive } from "../transports/rpc/ShopperLive.ts"
 import { ViewerLive } from "../transports/rpc/ViewerLive.ts"
 import { WithDbLive } from "../transports/rpc/WithDbLive.ts"
 import { AnalysesLive } from "./Analyses.ts"
@@ -72,6 +75,7 @@ const Transports = Layer.mergeAll(
   SupplierHookRoutes,
   TrackingRoutes,
   FileRoutes,
+  PortalRoutes,
   PublicApiRoutes,
   McpRoutes,
   RequestContext,
@@ -113,10 +117,14 @@ const PwnedPasswordsLive = Layer.unwrap(
 
 export const AppLayer = Transports.pipe(
   // The RPC handlers; the public API's and the MCP server's way in, and what a key reads (M19.2, M19.3).
-  Layer.provideMerge(Layer.mergeAll(RpcContext, KeyDoor.layer, Resources.layer, StoresService.layer)),
+  // …and the returns portal's, for its photo route (M9.3).
+  Layer.provideMerge(
+    Layer.mergeAll(RpcContext, KeyDoor.layer, Resources.layer, StoresService.layer, PortalService.layer)
+  ),
   Layer.provideMerge(WithDbLive),
   Layer.provideMerge(AuthenticatedLive),
-  Layer.provideMerge(ViewerLive),
+  // …the signed-in person if any, and where a returns portal call came from (M9.3).
+  Layer.provideMerge(Layer.mergeAll(ViewerLive, ShopperLive)),
   Layer.provideMerge(MemberLive.pipe(Layer.provide(Workspaces.layer))),
   // Committed events onto the queue, after commit (the outbox relay's kick).
   Layer.provideMerge(RelayLive),

@@ -356,10 +356,11 @@ export class IllegalReturnMove extends Schema.TaggedError<IllegalReturnMove>()("
   move: Schema.String
 }) {}
 
-/** A line that cannot go back: more than is free, not this order's, or its product rule says no. */
+/** A line that cannot go back: more than is free, not this order's, its product rule says no, or (on the portal) its
+ * window has closed or it has not been delivered yet. */
 export class LineNotReturnable extends Schema.TaggedError<LineNotReturnable>()("LineNotReturnable", {
   lineId: Schema.String,
-  why: Schema.Literals(["unknown", "taken", "rule"])
+  why: Schema.Literals(["unknown", "taken", "rule", "window", "not_delivered"])
 }) {}
 
 /** No carrier account is set up for return labels: "zelf versturen" is the way (M9.2). */

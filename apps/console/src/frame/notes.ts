@@ -16,6 +16,8 @@ interface Sentence {
   readonly record?: string
   readonly tone?: "amber"
   readonly source?: Note["source"]
+  /** Who it is from when that is not a teammate: the shopper of a return. */
+  readonly person?: string
 }
 
 const sentence = (note: ServerNote): Sentence => {
@@ -50,13 +52,28 @@ const sentence = (note: ServerNote): Sentence => {
         to: `/orders/${note.subjectId ?? ""}`
       }
     }
+    case "return.new": {
+      // A shopper's request from the returns portal (M9.3), as the design writes it.
+      const items = Array.isArray(data["items"]) ? data["items"] as Array<Record<string, unknown>> : []
+      const what = items.map((i) =>
+        `${String(i["qty"] ?? 1)}× ${String(i["title"] ?? "")}${i["variant"] ? ` (${String(i["variant"])})` : ""}`
+      )
+      return {
+        title: data["kind"] === "claim" ? "meldt een probleem met" : "wil iets terugsturen uit",
+        record: String(data["orderNumber"] ?? ""),
+        detail: [String(data["number"] ?? ""), what.join(", ")].filter((t) => t !== "").join(" · "),
+        source: "return",
+        to: `/returns/${note.subjectId ?? ""}`,
+        person: String(data["customer"] ?? "") || "Een klant"
+      }
+    }
     default:
       return { title: "heeft iets voor je", to: "/notifications" }
   }
 }
 
 export const toNote = (note: ServerNote): Note => {
-  const { title, to, detail, record, tone, source } = sentence(note)
+  const { title, to, detail, record, tone, source, person } = sentence(note)
   return {
     id: note.id,
     persona: "admin",
@@ -66,7 +83,9 @@ export const toNote = (note: ServerNote): Note => {
     event: note.kind as EventKey,
     ...(note.actor?.kind === "member"
       ? { actor: { kind: "member", id: note.actor.id, name: note.actor.name ?? "Iemand" } }
-      : {}),
+      : person === undefined
+      ? {}
+      : { actor: { kind: "person", name: person } }),
     title,
     ...(detail === undefined ? {} : { detail }),
     to,

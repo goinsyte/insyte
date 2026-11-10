@@ -1,26 +1,11 @@
-import { useParams } from "@tanstack/react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, Image as ImageIcon, Lock, RotateCcw, X } from "../../../icons";
-import { deliveriesSeed, designControls, products, stores } from "../../../data-source";
+import { createHumanCheck, HumanCheck } from "../../auth/human-check";
 import { formatCurrency } from "../../lib/format";
-import {
-	type ReasonDef,
-	type Resolution,
-	RESOLUTION_DETAIL,
-	RESOLUTION_LABEL,
-	resolutionsFor,
-	type ReturnKind,
-	type ReturnRecord,
-	ruleFor,
-	STATUS_LABEL,
-	windowCheck,
-	windowDaysFor,
-} from "../../lib/returns";
-import type { Order } from "../../lib/types/domain";
+import { RESOLUTION_DETAIL, RESOLUTION_LABEL, type Resolution, resolutionsFor, type ReturnKind, STATUS_LABEL } from "../../lib/returns";
 import { cn } from "../../lib/utils";
-import { useReturns } from "../../stores/returns-store";
-import { useWorkspace } from "../../stores/workspace-store";
+import { type LineRefusal, type PortalLine, type PortalMade, type PortalOrderView, type PortalPhoto, type PortalReason, usePortalSource } from "./source";
 
 /*
  * The public returns portal (`/retour/$storeHandle`, PLAN 25, design §1): where a shopper starts a
@@ -29,44 +14,61 @@ import { useWorkspace } from "../../stores/workspace-store";
  * gemaakt door Insyte" at the foot. Its own small shell — nothing from the console's chrome.
  *
  * The rules are the console's (`lib/returns.ts`): the window from delivery, the product rules, the
- * resolutions on offer. Every refusal says why and what the shopper can still do.
+ * resolutions on offer. Every refusal says why and what the shopper can still do. What may go back
+ * is the host's to say (`source.tsx`); the sentences are written here.
  */
 
-const HANDLES: Record<string, string> = { "northwind-eu": "store_eu", "northwind-us": "store_us" };
-const SIZES = ["Klein", "Middel", "Groot"];
-const SIZE: Record<string, string> = { s: "Klein", m: "Middel", l: "Groot" };
 const day = (d: Date | string) => new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "long" }).format(typeof d === "string" ? new Date(d) : d);
 
 type Step = "lookup" | "kind" | "items" | "reason" | "photos" | "resolution" | "summary" | "done";
 
-type Pick = { lineId: string; productId: string; variantId: string; title: string; variantTitle: string; unitPrice: number; image?: string | undefined };
+/** Why a line cannot go back, as the shopper reads it. */
+const why = (r: LineRefusal, kind: ReturnKind) =>
+	r.kind === "taken"
+		? `Al aangevraagd in ${r.number}: ${STATUS_LABEL[r.status].toLowerCase()}.`
+		: r.kind === "not_delivered"
+			? "Nog niet bezorgd. Zodra het pakket binnen is, kun je hier terecht."
+			: r.kind === "window"
+				? `De ${kind === "claim" ? "termijn om een probleem te melden" : "retourtermijn"} van ${r.days} dagen sloot op ${day(r.closesOn)}.`
+				: r.note;
+
+const LOOKUP_PROBLEM = {
+	not_found: "We vinden geen bestelling met dit nummer en e-mailadres. Kijk in je bevestigingsmail welk bestelnummer en e-mailadres erbij horen.",
+	rate_limited: "Te veel pogingen. Probeer het later opnieuw.",
+	human_check: "We konden niet controleren dat je geen robot bent. Probeer het opnieuw.",
+	failed: "Er ging iets mis. Probeer het opnieuw.",
+} as const;
+
+const PHOTO_PROBLEM = {
+	type: "Dat bestand is geen foto. Kies een JPG, PNG of HEIC.",
+	size: "Die foto is groter dan 10 MB. Kies een kleinere.",
+	failed: "Een foto kwam niet door. Probeer het opnieuw.",
+} as const;
 
 export function ReturnPortal() {
-	const { storeHandle } = useParams({ strict: false }) as { storeHandle?: string };
-	const storeId = HANDLES[storeHandle ?? ""] ?? null;
-	const store = stores.find((s) => s.id === storeId);
-	const settings = useReturns((s) => s.settings);
-	const records = useReturns((s) => s.records);
-	const orders = useWorkspace((s) => s.orders);
+	const source = usePortalSource();
+	const store = source.store;
 	const still = useReducedMotion();
+	const human = useMemo(createHumanCheck, []);
 
 	const [step, setStep] = useState<Step>("lookup");
 	const [number, setNumber] = useState("");
 	const [email, setEmail] = useState("");
 	const [error, setError] = useState<ReactNode>(null);
-	const [order, setOrder] = useState<Order | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [order, setOrder] = useState<PortalOrderView | null>(null);
 	const [kind, setKind] = useState<ReturnKind>("return");
-	const [picked, setPicked] = useState<Pick[]>([]);
-	const [reason, setReason] = useState<ReasonDef | null>(null);
+	const [picked, setPicked] = useState<PortalLine[]>([]);
+	const [reason, setReason] = useState<PortalReason | null>(null);
 	const [note, setNote] = useState("");
-	const [photos, setPhotos] = useState<Array<{ name: string; url: string }>>([]);
+	const [photos, setPhotos] = useState<PortalPhoto[]>([]);
 	const [resolution, setResolution] = useState<Resolution | null>(null);
 	const [exchangeTo, setExchangeTo] = useState<string | null>(null);
-	const [made, setMade] = useState<ReturnRecord | null>(null);
+	const [made, setMade] = useState<PortalMade | null>(null);
 	const top = useRef<HTMLDivElement>(null);
 
-	const go = (s: Step) => {
-		setError(null);
+	const go = (s: Step, problem: ReactNode = null) => {
+		setError(problem);
 		setStep(s);
 		top.current?.scrollIntoView({ block: "start" });
 	};
@@ -82,7 +84,7 @@ export function ReturnPortal() {
 		);
 	}
 
-	if (!settings.portal.on) {
+	if (!store.on) {
 		return (
 			<PortalShell storeName={store.name}>
 				<Card>
@@ -96,70 +98,67 @@ export function ReturnPortal() {
 		);
 	}
 
-	const delivered = order ? (deliveriesSeed[order.id] ?? (order.status === "delivered" ? order.updated_at : undefined)) : undefined;
-	const openReturn = order ? records.find((r) => r.orderId === order.id && r.status !== "resolved" && r.status !== "rejected") : undefined;
-	const reasons = settings.reasons.filter((r) => r.claim === (kind === "claim"));
+	const delivered = order?.deliveredAt ?? undefined;
+	const openReturn = order?.open ?? undefined;
+	const reasons = store.reasons.filter((r) => r.claim === (kind === "claim"));
 	const amount = picked.reduce((n, p) => n + p.unitPrice, 0);
 
-	/** Per line: may it go back, and if not, the sentence that says why. */
-	const lineState = (o: Order, lineId: string): { ok: boolean; why?: string } => {
-		const line = o.line_items.find((l) => l.id === lineId);
-		if (!line) return { ok: false };
-		const taken = records.find((r) => r.orderId === o.id && r.status !== "rejected" && r.items.some((i) => i.lineId === lineId));
-		if (taken) return { ok: false, why: `Al aangevraagd in ${taken.number}: ${STATUS_LABEL[taken.status].toLowerCase()}.` };
-		if (!delivered) return { ok: false, why: "Nog niet bezorgd. Zodra het pakket binnen is, kun je hier terecht." };
-		const days = windowDaysFor(kind, undefined, settings);
-		const w = windowCheck(delivered, days, Date.now());
-		if (!w.inside) return { ok: false, why: `De ${kind === "claim" ? "termijn om een probleem te melden" : "retourtermijn"} van ${days} dagen sloot op ${day(w.closesOn)}.` };
-		const p = products.find((x) => x.id === line.product_id);
-		const rule = ruleFor(settings.rules, { productId: line.product_id, variantId: line.variant_id, tags: [...(p?.tags ?? []), ...o.tags] });
-		if (rule && resolutionsFor(settings.offered, rule, kind).length === 0) return { ok: false, why: rule.note };
-		return { ok: true };
-	};
-
-	const lookup = () => {
-		const n = number.trim().toUpperCase().replace(/^#/, "");
-		const o = orders.find((x) => x.number.toUpperCase() === (n.startsWith("SO-") ? n : `SO-${n}`));
-		if (!o || o.customer_email.toLowerCase() !== email.trim().toLowerCase()) {
-			setError("We vinden geen bestelling met dit nummer en e-mailadres. Kijk in je bevestigingsmail: het nummer begint met SO-.");
+	const lookup = async () => {
+		setBusy(true);
+		const token = await human.token();
+		const found = await source.lookup(number, email, token);
+		human.spent();
+		setBusy(false);
+		if (!found.ok) {
+			setError(LOOKUP_PROBLEM[found.problem]);
 			return;
 		}
-		setOrder(o);
+		setOrder(found.order);
 		setPicked([]);
 		go("kind");
 	};
 
-	const rule0 = picked[0] ? ruleFor(settings.rules, { productId: picked[0].productId, variantId: picked[0].variantId, tags: [...(products.find((p) => p.id === picked[0]?.productId)?.tags ?? []), ...(order?.tags ?? [])] }) : undefined;
-	const options = resolutionsFor(settings.offered, rule0, kind).filter((r) => r !== "discount");
+	const rule0 = picked[0]?.rule ?? undefined;
+	// An exchange needs something to exchange to.
+	const options = resolutionsFor(store.offered, rule0, kind).filter((r) => r !== "discount" && (r !== "exchange" || (picked[0]?.exchange.length ?? 0) > 0));
 
-	const submit = () => {
-		if (!order || !reason || !resolution) return;
-		const rec = useReturns.getState().create(
-			{
-				kind,
-				orderId: order.id,
-				orderNumber: order.number,
-				customerId: order.customer_id,
-				customerName: order.customer_name,
-				customerEmail: order.customer_email,
-				storeId: order.store_id,
-				country: order.shipping_address?.country ?? "NL",
-				currency: order.currency,
-				items: picked.map((p) => ({ lineId: p.lineId, productId: p.productId, variantId: p.variantId, title: p.title, variantTitle: p.variantTitle, qty: 1, unitPrice: p.unitPrice })),
-				reason: reason.id,
-				note: note.trim() || reason.label,
-				photos: photos.map((p) => p.url),
-				requested: resolution,
-				exchangeTo: resolution === "exchange" ? (exchangeTo ?? undefined) : undefined,
-				deliveredAt: delivered ?? new Date().toISOString(),
-			},
-			{ at: new Date().toISOString(), who: "shopper", name: order.customer_name, text: kind === "claim" ? "Claim gemeld in het retourportaal" : "Retour aangevraagd in het retourportaal" },
-		);
-		setMade(rec);
-		go("done");
+	const addPhotos = async (files: File[]) => {
+		const room = 6 - photos.length;
+		if (room <= 0) return;
+		setBusy(true);
+		const added = await source.addPhotos(files.slice(0, room));
+		setBusy(false);
+		setPhotos((x) => [...x, ...added.photos].slice(0, 6));
+		setError(added.problem ? PHOTO_PROBLEM[added.problem] : null);
 	};
 
-	const claimStep = (i: number) => (kind === "claim" ? <p className="text-ink-3 text-sm">Stap {i} van {settings.claimSteps.length} · {settings.claimSteps[i - 1]}</p> : null);
+	const submit = async () => {
+		if (!order || !reason || !resolution) return;
+		setBusy(true);
+		const sent = await source.submit({
+			kind,
+			lineIds: picked.map((p) => p.id),
+			reasonId: reason.id,
+			note,
+			photoIds: photos.map((p) => p.id),
+			resolution,
+			exchangeTo: resolution === "exchange" ? (exchangeTo ?? undefined) : undefined,
+		});
+		setBusy(false);
+		if (sent.ok) {
+			setMade(sent.made);
+			go("done");
+			return;
+		}
+		const p = sent.problem;
+		if (p.kind === "expired") go("lookup", "Je bestelling staat niet meer open. Zoek hem opnieuw op, dan kun je verder.");
+		else if (p.kind === "line") go("items", "Een van de artikelen kan niet meer terug. Kijk hieronder waarom.");
+		else if (p.kind === "photo") go("photos", "Voeg minstens één foto toe.");
+		else if (p.kind === "resolution") go("resolution", "Deze oplossing kan niet voor dit artikel. Kies een andere.");
+		else setError(p.kind === "rate_limited" ? LOOKUP_PROBLEM.rate_limited : LOOKUP_PROBLEM.failed);
+	};
+
+	const claimStep = (i: number) => (kind === "claim" ? <p className="text-ink-3 text-sm">Stap {i} van {store.claimSteps.length} · {store.claimSteps[i - 1]}</p> : null);
 
 	return (
 		<PortalShell storeName={store.name}>
@@ -175,30 +174,27 @@ export function ReturnPortal() {
 					{step === "lookup" ? (
 						<Card>
 							<Title>Retourneren of een probleem melden</Title>
-							<p className="text-ink-2">{settings.portal.intro}</p>
+							<p className="text-ink-2">{store.intro}</p>
 							<form
 								className="flex flex-col gap-3"
 								onSubmit={(e) => {
 									e.preventDefault();
-									lookup();
+									void lookup();
 								}}
 							>
 								<Labeled label="Bestelnummer">
-									<input value={number} onChange={(e) => setNumber(e.target.value)} placeholder="SO-12231" autoComplete="off" className={INPUT} aria-invalid={error ? true : undefined} />
+									<input value={number} onChange={(e) => setNumber(e.target.value)} placeholder={source.numberPlaceholder ?? "#1042"} autoComplete="off" className={INPUT} aria-invalid={error ? true : undefined} />
 								</Labeled>
 								<Labeled label="E-mailadres van de bestelling">
 									<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="naam@voorbeeld.nl" autoComplete="email" className={INPUT} aria-invalid={error ? true : undefined} />
 								</Labeled>
+								<HumanCheck controller={human} />
 								{error ? <Problem>{error}</Problem> : null}
-								<Primary disabled={!number.trim() || !email.trim()} type="submit">
+								<Primary disabled={busy || !number.trim() || !email.trim()} type="submit">
 									Bestelling zoeken
 								</Primary>
 							</form>
-							{designControls ? (
-								<p className="border-ink/8 border-t pt-3 text-ink-3 text-xs leading-relaxed">
-									In de demo: SO-12249 met hannah@example.com (binnen de termijn), SO-12231 met bea@example.com (al aangevraagd), SO-12226 met olivier@example.com (buiten de termijn), SO-12208 met felix@example.com (een claim) of SO-12204 met luca.r@example.com (nog niet bezorgd).
-								</p>
-							) : null}
+							{source.hints ?? null}
 						</Card>
 					) : null}
 
@@ -207,20 +203,20 @@ export function ReturnPortal() {
 							<Back onClick={() => go("lookup")} />
 							<Title>Bestelling {order.number}</Title>
 							<p className="text-ink-2">
-								{order.customer_name.split(" ")[0]}, {delivered ? `bezorgd op ${day(delivered)}` : "nog onderweg"} · {order.line_items.length} {order.line_items.length === 1 ? "artikel" : "artikelen"}
+								{order.firstName}, {delivered ? `bezorgd op ${day(delivered)}` : "nog onderweg"} · {order.lines.length} {order.lines.length === 1 ? "artikel" : "artikelen"}
 							</p>
 							{openReturn ? (
 								<div className="flex flex-col gap-1 rounded-lg bg-arc-tint px-4 py-3">
 									<p className="font-medium text-arc-ink">Je hebt al een aanvraag: {openReturn.number}</p>
 									<p className="text-ink-2 text-sm">
-										Status: {STATUS_LABEL[openReturn.status].toLowerCase()}. {openReturn.status === "review" ? "We kijken er binnen twee werkdagen naar." : openReturn.label ? `Het label van ${openReturn.label.carrier} staat in je mail.` : "Je krijgt bericht zodra er iets verandert."}
+										Status: {STATUS_LABEL[openReturn.status].toLowerCase()}. {openReturn.status === "review" ? "We kijken er binnen twee werkdagen naar." : openReturn.labelCarrier ? `Het label van ${openReturn.labelCarrier} staat in je mail.` : "Je krijgt bericht zodra er iets verandert."}
 									</p>
 								</div>
 							) : null}
 							<div className="flex flex-col gap-2">
 								<Choice
 									title="Iets terugsturen"
-									body={`Te klein, te groot of anders dan verwacht. Binnen ${settings.returnDays} dagen na bezorging.`}
+									body={`Te klein, te groot of anders dan verwacht. Binnen ${store.returnDays} dagen na bezorging.`}
 									onClick={() => {
 										setKind("return");
 										setPicked([]);
@@ -246,32 +242,27 @@ export function ReturnPortal() {
 							<Title>{kind === "claim" ? "Met welk artikel is iets mis?" : "Wat wil je terugsturen?"}</Title>
 							{claimStep(1)}
 							<ul className="flex flex-col gap-2">
-								{order.line_items.map((l) => {
-									const st = lineState(order, l.id);
-									const p = products.find((x) => x.id === l.product_id);
-									const on = picked.some((x) => x.lineId === l.id);
+								{order.lines.map((l) => {
+									const no = kind === "claim" ? l.claim : l.return;
+									const on = picked.some((x) => x.id === l.id);
 									return (
 										<li key={l.id}>
 											<button
 												type="button"
-												disabled={!st.ok}
+												disabled={no !== null}
 												aria-pressed={on}
-												onClick={() =>
-													setPicked((x) =>
-														on ? x.filter((y) => y.lineId !== l.id) : [...x, { lineId: l.id, productId: l.product_id, variantId: l.variant_id, title: p?.title ?? l.title, variantTitle: SIZE[l.variant_id.slice(-1)] ?? l.variant_title, unitPrice: l.unit_price, image: p?.images[0] }],
-													)
-												}
-												className={cn("flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors", on ? "bg-arc-tint" : "bg-mist", st.ok ? "hover:bg-ink/6" : "cursor-not-allowed")}
+												onClick={() => setPicked((x) => (on ? x.filter((y) => y.id !== l.id) : [...x, l]))}
+												className={cn("flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors", on ? "bg-arc-tint" : "bg-mist", no === null ? "hover:bg-ink/6" : "cursor-not-allowed")}
 											>
-												{p?.images[0] ? <img src={p.images[0]} alt="" className={cn("size-14 shrink-0 rounded-lg object-cover", !st.ok && "opacity-50")} /> : <span className="size-14 shrink-0 rounded-lg bg-ink/6" />}
+												{l.image ? <img src={l.image} alt="" className={cn("size-14 shrink-0 rounded-lg object-cover", no !== null && "opacity-50")} /> : <span className="size-14 shrink-0 rounded-lg bg-ink/6" />}
 												<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-													<span className={cn("font-medium", st.ok ? "text-ink" : "text-ink-3")}>{p?.title ?? l.title}</span>
+													<span className={cn("font-medium", no === null ? "text-ink" : "text-ink-3")}>{l.title}</span>
 													<span className="text-ink-3 text-sm">
-														{SIZE[l.variant_id.slice(-1)] ?? l.variant_title} · {formatCurrency(l.unit_price, order.currency)}
+														{l.variantTitle ? `${l.variantTitle} · ` : ""}{formatCurrency(l.unitPrice, order.currency)}
 													</span>
-													{st.why ? <span className="text-ink-2 text-sm">{st.why}</span> : null}
+													{no !== null ? <span className="text-ink-2 text-sm">{why(no, kind)}</span> : null}
 												</span>
-												<span className={cn("mt-1 flex size-5 shrink-0 items-center justify-center rounded-md", on ? "bg-arc text-mesh-ink" : st.ok ? "bg-paper shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--ink)_18%,transparent)]" : "")}>
+												<span className={cn("mt-1 flex size-5 shrink-0 items-center justify-center rounded-md", on ? "bg-arc text-mesh-ink" : no === null ? "bg-paper shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--ink)_18%,transparent)]" : "")}>
 													{on ? <Check className="size-3.5" strokeWidth={2.5} /> : null}
 												</span>
 											</button>
@@ -279,6 +270,7 @@ export function ReturnPortal() {
 									);
 								})}
 							</ul>
+							{error ? <Problem>{error}</Problem> : null}
 							<Primary disabled={picked.length === 0} onClick={() => go("reason")}>
 								Verder
 							</Primary>
@@ -323,8 +315,8 @@ export function ReturnPortal() {
 									multiple
 									className="sr-only"
 									onChange={(e) => {
-										const files = [...(e.target.files ?? [])].slice(0, 6);
-										setPhotos((x) => [...x, ...files.map((f) => ({ name: f.name, url: URL.createObjectURL(f) }))].slice(0, 6));
+										void addPhotos([...(e.target.files ?? [])]);
+										e.target.value = "";
 									}}
 								/>
 							</label>
@@ -340,7 +332,8 @@ export function ReturnPortal() {
 									))}
 								</ul>
 							) : null}
-							<Primary disabled={photos.length === 0} onClick={() => go("resolution")}>
+							{error ? <Problem>{error}</Problem> : null}
+							<Primary disabled={busy || photos.length === 0} onClick={() => go("resolution")}>
 								Verder
 							</Primary>
 						</Card>
@@ -356,7 +349,7 @@ export function ReturnPortal() {
 								{options.map((r) => (
 									<button key={r} type="button" role="radio" aria-checked={resolution === r} onClick={() => setResolution(r)} className={cn("flex flex-col gap-0.5 rounded-lg px-4 py-3 text-left transition-colors", resolution === r ? "bg-arc-tint" : "bg-mist hover:bg-ink/6")}>
 										<span className={cn("font-medium", resolution === r ? "text-arc-ink" : "text-ink")}>
-											{r === "gift_card" && settings.giftCardBonus > 0 ? `${RESOLUTION_LABEL[r]} met ${settings.giftCardBonus}% extra` : RESOLUTION_LABEL[r]}
+											{r === "gift_card" && store.giftCardBonus > 0 ? `${RESOLUTION_LABEL[r]} met ${store.giftCardBonus}% extra` : RESOLUTION_LABEL[r]}
 										</span>
 										<span className="text-ink-2 text-sm">Je krijgt {RESOLUTION_DETAIL[r]}.</span>
 									</button>
@@ -366,7 +359,7 @@ export function ReturnPortal() {
 								<div className="flex flex-col gap-2">
 									<span className="font-medium text-ink text-sm">Welke maat wil je?</span>
 									<div className="flex gap-2">
-										{SIZES.filter((s) => s !== picked[0]?.variantTitle).map((s) => (
+										{(picked[0]?.exchange ?? []).map((s) => (
 											<button key={s} type="button" aria-pressed={exchangeTo === s} onClick={() => setExchangeTo(s)} className={cn("h-11 flex-1 rounded-md font-medium transition-colors", exchangeTo === s ? "bg-abyss text-mesh-ink" : "bg-mist text-ink hover:bg-ink/6")}>
 												{s}
 											</button>
@@ -374,6 +367,7 @@ export function ReturnPortal() {
 									</div>
 								</div>
 							) : null}
+							{error ? <Problem>{error}</Problem> : null}
 							<Primary disabled={!resolution || (resolution === "exchange" && !exchangeTo)} onClick={() => go("summary")}>
 								Verder
 							</Primary>
@@ -389,10 +383,11 @@ export function ReturnPortal() {
 								<Row k={kind === "claim" ? "Probleem met" : "Terug"}>
 									<ul className="flex flex-col gap-1.5">
 										{picked.map((p) => (
-											<li key={p.lineId} className="flex items-center gap-2">
+											<li key={p.id} className="flex items-center gap-2">
 												{p.image ? <img src={p.image} alt="" className="size-9 rounded-md object-cover" /> : null}
 												<span>
-													{p.title} · {p.variantTitle}
+													{p.title}
+													{p.variantTitle ? ` · ${p.variantTitle}` : ""}
 												</span>
 											</li>
 										))}
@@ -406,7 +401,10 @@ export function ReturnPortal() {
 									{resolution === "refund" ? ` · ${formatCurrency(amount, order.currency, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ""}
 								</Row>
 							</dl>
-							<Primary onClick={submit}>{kind === "claim" ? "Probleem melden" : "Retour aanvragen"}</Primary>
+							{error ? <Problem>{error}</Problem> : null}
+							<Primary disabled={busy} onClick={() => void submit()}>
+								{kind === "claim" ? "Probleem melden" : "Retour aanvragen"}
+							</Primary>
 						</Card>
 					) : null}
 
@@ -417,7 +415,7 @@ export function ReturnPortal() {
 							</span>
 							<Title>{made.kind === "claim" ? "Probleem gemeld" : "Retour aangevraagd"}</Title>
 							<p className="text-ink">
-								Je nummer is <span className="font-medium tabular-nums">{made.number}</span>. We hebben een bevestiging gestuurd naar {made.customerEmail}.
+								Je nummer is <span className="font-medium tabular-nums">{made.number}</span>. {made.mailed ? `We hebben een bevestiging gestuurd naar ${email.trim()}.` : "Bewaar het: daarmee vinden we je aanvraag terug."}
 							</p>
 							<ol className="flex flex-col gap-2.5">
 								{[
@@ -431,7 +429,7 @@ export function ReturnPortal() {
 									</li>
 								))}
 							</ol>
-							<p className="text-ink-3 text-sm">{settings.portal.done}</p>
+							<p className="text-ink-3 text-sm">{store.done}</p>
 							<button
 								type="button"
 								onClick={() => {

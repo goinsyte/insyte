@@ -23,7 +23,7 @@ import type {
 import { useNavigate } from "@tanstack/react-router"
 import { Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { frameAtom } from "../data/frame.ts"
 import { ordersAtom } from "../data/orders.ts"
 import { productsAtom } from "../data/products.ts"
@@ -178,9 +178,20 @@ export function useConsoleReturnsListSource(
     stores: storeOptions,
     commands: withLabels(commands, list.labels),
     gates,
+    portalHref,
     Pick: ConsolePick,
     Start: ConsoleStartReturn
   }
+}
+
+/** The public returns portal, on this origin (M9.3). */
+const portalHref = (handle: string) => `/retour/${handle}`
+
+/** This origin's host, once in the browser: the server renders the path alone, so the two agree. */
+function useHost() {
+  const [host, setHost] = useState("")
+  useEffect(() => setHost(window.location.host), [])
+  return host
 }
 
 const NO_SETTINGS = { giftCardBonus: 0, exchangeFee: 0 }
@@ -245,10 +256,13 @@ export function useConsoleReturnSettingsSource(saved: ReturnSettingsDoc): Return
   const products = value(useAtomValue(productsAtom))
   const draft: ReturnSettings = useMemo(() => settingsOf(saved), [saved])
   const options = useMemo(() => products?.rows.map((p) => ({ id: p.id, title: p.title })) ?? [], [products])
+  const host = useHost()
   return {
     saved: draft,
     save: (next, s) => void commands.save(next, saved, s),
     gate,
-    products: options
+    products: options,
+    portalHref,
+    portalAddress: (handle) => `${host}/retour/${handle}`
   }
 }
