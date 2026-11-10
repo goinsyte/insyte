@@ -13,11 +13,12 @@ import type { NavState } from "@insyte/ui/app/stores/nav-store"
 import type { PanelState } from "@insyte/ui/app/stores/panel-store"
 import type { PinsState, Shortcut } from "@insyte/ui/app/stores/pins-store"
 import type { SavedView } from "@insyte/ui/app/stores/views-store"
-import { useNavigate } from "@tanstack/react-router"
+import { useNavigate, useRouterState } from "@tanstack/react-router"
 import { Option } from "effect"
-import { AsyncResult } from "effect/reactivity"
+import { AsyncResult, Atom } from "effect/reactivity"
 import { type ReactNode, useMemo, useRef, useState } from "react"
 import { FRAME, frameWrites, inboxAtom, notePrefsAtom, NOTES, presenceAtom, VIEWS, viewsAtom } from "../data/frame.ts"
+import { ticketCountsAtom } from "../data/tickets.ts"
 import { ConsoleInvite } from "./invite.tsx"
 import { toNote } from "./notes.ts"
 import { usePrefSection } from "./prefs.ts"
@@ -75,12 +76,20 @@ const NOT_YET: Record<string, string> = {
   product: "Producten toevoegen kan hier nog niet"
 }
 
+const NO_COUNTS = Atom.make(AsyncResult.initial<Readonly<Record<string, number>>, never>())
+
+/** What the console makes from the panel's button and the top bar's + menu. */
+const MADE_HERE = new Set(["return", "ticket"])
+
 export function ConsoleShellSource({ frame, children }: { frame: Frame; children: ReactNode }) {
   const navigate = useNavigate()
   const presence = useAtomValue(presenceAtom)
   const inbox = value(useAtomValue(inboxAtom))
   const notePrefs = value(useAtomValue(notePrefsAtom))
   const views = value(useAtomValue(viewsAtom))
+  // The tickets panel counts each view from the server, on the tickets pages only.
+  const onTickets = useRouterState({ select: (s) => s.location.pathname.startsWith("/tickets") })
+  const ticketCounts = value(useAtomValue(onTickets ? ticketCountsAtom : NO_COUNTS))
   const write = {
     setRead: useAtomSet(frameWrites.setRead, { mode: "promiseExit" }),
     recordVisit: useAtomSet(frameWrites.recordVisit, { mode: "promiseExit" }),
@@ -266,18 +275,18 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     workspaceName: frame.workspace.name,
     // ADR-0028: the design's demo counts dropped, the server's in their place.
     useRecordSearch: useConsoleRecordSearch,
-    // A return is started from its page (M9.1); the rest is not made from the console yet.
-    unavailable: (kind) => kind === "return" ? null : NOT_YET[kind] ?? "Dit kan hier nog niet",
+    // A return is started from its page (M9.1), a ticket written on the board (M11); the rest is not made here yet.
+    unavailable: (kind) => MADE_HERE.has(kind) ? null : NOT_YET[kind] ?? "Dit kan hier nog niet",
     panelFor: (pathname) => {
       const cfg = panelForPath(pathname)
       if (cfg === null) return null
-      // Only a return is made from the console yet (M9.1): any other button is off, and says so as its page does.
+      // Only a return and a ticket are made from the console yet: any other button is off, and says so as its page does.
       const panel = cfg.cta === undefined
         ? cfg
-        : cfg.cta.create === "return"
+        : MADE_HERE.has(cfg.cta.create ?? "")
         ? cfg
         : { ...cfg, cta: { ...cfg.cta, unavailable: NOT_YET[cfg.cta.create ?? ""] ?? "Dit kan hier nog niet" } }
-      return withServerCounts(panel, frame.counts)
+      return withServerCounts(panel, ticketCounts === undefined ? frame.counts : { ...frame.counts, ...ticketCounts })
     },
     automationsPanel: { recommended: 0, ai: 0, Extras: null },
     operator: { products: NO_ROWS, customers: NO_ROWS },

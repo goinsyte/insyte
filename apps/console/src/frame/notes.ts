@@ -18,6 +18,11 @@ interface Sentence {
   readonly source?: Note["source"]
   /** Who it is from when that is not a teammate: the shopper of a return. */
   readonly person?: string
+  /** The route's search, where the row opens over a list (`?ticket=`). */
+  readonly search?: Record<string, string>
+  /** Why it reached the member directly, and whether the detail is their teammate's own words. */
+  readonly reason?: Note["reason"]
+  readonly quote?: boolean
 }
 
 const sentence = (note: ServerNote): Sentence => {
@@ -67,13 +72,36 @@ const sentence = (note: ServerNote): Sentence => {
         person: String(data["customer"] ?? "") || "Een klant"
       }
     }
+    case "ticket.assigned":
+      // Someone put the member on a ticket (M11 step 3), as the design writes it; the row opens it over the board.
+      return {
+        title: "heeft je toegewezen aan",
+        record: `#${String(data["number"] ?? "")}`,
+        detail: String(data["title"] ?? ""),
+        source: "ticket",
+        to: "/tickets",
+        search: { ticket: note.subjectId ?? "" },
+        reason: "assign"
+      }
+    case "chat.mention":
+      // A teammate named the member in a ticket's comment (M11 step 3).
+      return {
+        title: "heeft je vermeld bij",
+        record: `#${String(data["number"] ?? "")}`,
+        detail: String(data["comment"] ?? ""),
+        source: "mention",
+        to: "/tickets",
+        search: { ticket: note.subjectId ?? "" },
+        reason: "mention",
+        quote: true
+      }
     default:
       return { title: "heeft iets voor je", to: "/notifications" }
   }
 }
 
 export const toNote = (note: ServerNote): Note => {
-  const { title, to, detail, record, tone, source, person } = sentence(note)
+  const { title, to, detail, record, tone, source, person, search, reason, quote } = sentence(note)
   return {
     id: note.id,
     persona: "admin",
@@ -88,7 +116,10 @@ export const toNote = (note: ServerNote): Note => {
       : { actor: { kind: "person", name: person } }),
     title,
     ...(detail === undefined ? {} : { detail }),
+    ...(reason === undefined ? {} : { reason }),
+    ...(quote === undefined ? {} : { quote }),
     to,
+    ...(search === undefined ? {} : { search }),
     at: new Date(note.createdAt).toISOString(),
     read: note.read,
     state: note.state,

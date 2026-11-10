@@ -14,6 +14,7 @@ import { RETURNS } from "./returns.ts"
 import { ACCESS_LIST, ROLES } from "./roles.ts"
 import { STORE_SYNC, STORES } from "./stores.ts"
 import { TEAM } from "./team.ts"
+import { TICKETS } from "./tickets.ts"
 
 /*
  * The tab's one socket (M5.1, ADR-0013): `/api/realtime` on the console's own origin. A `records.changed` frame
@@ -34,7 +35,8 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   customer: CUSTOMERS,
   product: PRODUCTS,
   first_analysis: FIRST_ANALYSIS,
-  return: RETURNS
+  return: RETURNS,
+  ticket: TICKETS
 }
 const EVERYTHING = [...new Set(Object.values(REFETCH).flat())]
 
