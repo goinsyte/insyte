@@ -30,14 +30,11 @@ import {
 	UserPlus,
 	X,
 } from "../../icons";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { MentionField, MentionText, mentionsIn } from "./mention-field";
-import { useTickets } from "./tickets-store";
-import { RecordAgentRows } from "../ask/agent-parts";
+import { type ActivityLine, type Said, type TicketPatch, useTicketsSource } from "./source";
 import { useNavigate } from "@tanstack/react-router";
-import { undoable } from "../lib/undo";
-import { useWorkspace } from "../stores/workspace-store";
 import type { Ticket, TicketPriority, TicketStatus } from "../lib/types/domain";
 import { personStyle } from "../lib/person-color";
 import { cn } from "../lib/utils";
@@ -75,15 +72,6 @@ const STATUS: Record<TicketStatus, { label: string; bg: string; fg: string }> =
 		},
 	};
 
-const TEAM: Record<string, { initial: string; name: string }> = {
-	e: { initial: "E", name: "Ethan Jones" },
-	s: { initial: "C", name: "Sophie Chang" },
-	l: { initial: "L", name: "Liam Thompson" },
-	m: { initial: "N", name: "Maya Rossi" },
-};
-
-const PEOPLE = Object.entries(TEAM).map(([id, a]) => ({ id, ...a }));
-
 const TAG_TONES: Record<string, { bg: string; fg: string }> = {
 	Feedback: { bg: "var(--signal-amber-bg)", fg: "var(--signal-amber)" },
 	Opgelost: { bg: "var(--signal-amber-bg)", fg: "var(--signal-amber)" },
@@ -94,57 +82,41 @@ const TAG_TONES: Record<string, { bg: string; fg: string }> = {
 };
 const DEFAULT_TAG = { bg: "color-mix(in oklch, var(--ink) 8%, transparent)", fg: "var(--ink-2)" };
 
-type Comment = {
-	id: string;
-	authorId: string;
-	body: string;
-	at: string;
-};
-
 export function TicketModal({
 	ticketId,
 	onClose,
-	onUpdate,
 }: {
 	ticketId: string | null;
 	onClose: () => void;
-	onUpdate: (t: Ticket) => void;
 }) {
 	const open = ticketId !== null;
-	const all = useTickets();
-	const ticket = useMemo(
-		() => (ticketId ? all.find((t) => t.id === ticketId) : null),
-		[ticketId, all],
-	);
+	const source = useTicketsSource();
+	const { people, labels, me, commands } = source;
+	const Agents = source.agents?.Rows;
+	const view = source.useTicket(ticketId);
+	const ticket = view?.ticket;
+	const person = (id: string) => people.find((p) => p.id === id);
 
 	const [draft, setDraft] = useState<Ticket | null>(null);
-	const [comments, setComments] = useState<Comment[]>([]);
+	const [comments, setComments] = useState<ActivityLine[]>([]);
 	const [newComment, setNewComment] = useState("");
 	const [editingTitle, setEditingTitle] = useState(false);
 	const [editingDescription, setEditingDescription] = useState(false);
 	const [watching, setWatching] = useState(false);
 	const navigate = useNavigate();
-	const createTicket = useWorkspace((st) => st.createTicket);
 
 	useEffect(() => {
-		if (ticket) {
-			setDraft({ ...ticket });
-			setComments([
-				{
-					id: "c1",
-					authorId: "s",
-					body: "Klant gevraagd om meer context, wacht op antwoord over het verzendadres.",
-					at: "2 uur geleden",
-				},
-				{
-					id: "c2",
-					authorId: "e",
-					body: "@Liam van de leveringsketen erbij gehaald · hij bevestigt dat de SKU weer op voorraad is in het EU-magazijn.",
-					at: "gisteren",
-				},
-			]);
-		}
+		if (ticket) setDraft({ ...ticket });
 	}, [ticket]);
+	// The activity as the host has it; a line written here shows at once, until the host's comes back.
+	const seeded = view?.comments;
+	useEffect(() => {
+		if (seeded) setComments([...seeded]);
+	}, [seeded]);
+	const followed = view?.watching;
+	useEffect(() => {
+		if (followed !== undefined) setWatching(followed);
+	}, [followed]);
 
 	if (!draft) {
 		return (
@@ -162,7 +134,7 @@ export function TicketModal({
 	const prio = PRIORITY[draft.priority];
 	const stat = STATUS[draft.status];
 
-	function patch(p: Partial<Ticket>) {
+	function patch(p: TicketPatch, said?: Said) {
 		if (!draft) return;
 		const next: Ticket = {
 			...draft,
@@ -170,18 +142,31 @@ export function TicketModal({
 			updated_at: new Date().toISOString(),
 		};
 		setDraft(next);
-		onUpdate(next);
+		commands.edit(draft, p, said);
+	}
+
+	/** The title and the description are typed here and saved when done: on blur or Enter, on Opslaan. */
+	function type(p: Pick<TicketPatch, "title" | "description">) {
+		setDraft((d) => (d ? { ...d, ...p } : d));
+	}
+
+	function saveTitle() {
+		setEditingTitle(false);
+		if (!draft || !ticket) return;
+		if (!draft.title.trim()) return void setDraft({ ...draft, title: ticket.title });
+		if (draft.title !== ticket.title) commands.edit(ticket, { title: draft.title }, { label: "Titel gewijzigd", quiet: true });
 	}
 
 	function addComment() {
 		const body = newComment.trim();
-		if (!body) return;
+		if (!body || !draft) return;
 		setComments((cs) => [
-			{ id: `c${Date.now()}`, authorId: "m", body, at: "zojuist" },
+			{ id: `c${Date.now()}`, authorId: me.id, name: person(me.id)?.name ?? "", initial: me.initial, insyte: false, body, at: "zojuist" },
 			...cs,
 		]);
 		setNewComment("");
-		const told = mentionsIn(body, PEOPLE).filter((p) => p.id !== "m");
+		const told = mentionsIn(body, people).filter((p) => p.id !== me.id);
+		commands.comment(draft, body, told);
 		toast.success(
 			told.length === 0
 				? "Reactie geplaatst"
@@ -192,16 +177,20 @@ export function TicketModal({
 	function toggleAssignee(id: string) {
 		if (!draft) return;
 		const has = draft.assignee_ids.includes(id);
-		patch({
-			assignee_ids: has
-				? draft.assignee_ids.filter((a) => a !== id)
-				: [...draft.assignee_ids, id],
-		});
+		const name = person(id)?.name.split(" ")[0] ?? "";
+		patch(
+			{
+				assignee_ids: has
+					? draft.assignee_ids.filter((a) => a !== id)
+					: [...draft.assignee_ids, id],
+			},
+			{ label: has ? `${name} niet meer toegewezen` : `Toegewezen aan ${name}`, quiet: true },
+		);
 	}
 
 	/** A line in the activity, from the system rather than a person. */
-	function log(body: string, authorId = "insyte") {
-		setComments((cs) => [{ id: `c${Date.now()}`, authorId, body, at: "zojuist" }, ...cs]);
+	function log(body: string) {
+		setComments((cs) => [{ id: `c${Date.now()}`, authorId: "insyte", name: "Insyte", initial: "", insyte: true, body, at: "zojuist" }, ...cs]);
 	}
 
 	function openRelated() {
@@ -210,15 +199,15 @@ export function TicketModal({
 		onClose();
 		if (rel.type === "order") navigate({ to: "/orders/$orderId", params: { orderId: rel.id } });
 		else if (rel.type === "customer") navigate({ to: "/customers/$customerId", params: { customerId: rel.id } });
-		else navigate({ to: "/chargebacks/$chargebackId", params: { chargebackId: rel.id } });
+		else navigate({ to: "/chargebacks/$chargebackId", params: { chargebackId: rel.id } } as never);
 	}
 
 	function summarize() {
 		if (!draft) return;
-		const people = draft.assignee_ids.map((id) => TEAM[id]?.name).filter(Boolean);
+		const named = draft.assignee_ids.map((id) => person(id)?.name).filter(Boolean);
 		log(
 			`Samenvatting · ${draft.title}. ${STATUS[draft.status].label}, prioriteit ${PRIORITY[draft.priority].label.toLowerCase()}${
-				people.length ? `, bij ${people.join(" en ")}` : ", niet toegewezen"
+				named.length ? `, bij ${named.join(" en ")}` : ", niet toegewezen"
 			}. ${comments.length} ${comments.length === 1 ? "notitie" : "notities"} tot nu toe; de laatste: "${comments[0]?.body ?? draft.description}"`,
 		);
 	}
@@ -231,7 +220,7 @@ export function TicketModal({
 	}
 
 	function notifyCustomer() {
-		patch({ status: "awaiting_reply" });
+		patch({ status: "awaiting_reply" }, { label: "Klant gemaild", quiet: true });
 		log("Klant gemaild met de laatste stand van zaken. Wacht op antwoord.");
 		toast.success("Klant gemaild");
 	}
@@ -239,50 +228,40 @@ export function TicketModal({
 	function snooze() {
 		if (!draft) return;
 		// Snoozing takes the ticket off the board until tomorrow; it waits in Snoozed meanwhile.
-		const before = draft.snoozed_until;
 		const tomorrow = new Date(Date.now() + 86_400_000).toISOString();
-		patch({ snoozed_until: tomorrow });
+		patch({ snoozed_until: tomorrow }, { label: `${draft.number} uitgesteld tot morgen` });
 		log("Uitgesteld tot morgen.");
-		undoable(`${draft.number} uitgesteld tot morgen`, () => patch({ snoozed_until: before }));
 		onClose();
 	}
 
 	function duplicate() {
 		if (!draft) return;
-		const copy = createTicket({
-			title: `${draft.title} (kopie)`,
-			description: draft.description,
-			priority: draft.priority,
-			tags: draft.tags,
-			...(draft.related_entity ? { related_entity: draft.related_entity } : {}),
-		});
-		toast.success(`Gedupliceerd als ${copy.number}`);
+		commands.duplicate(draft);
 	}
 
 	function archive() {
 		if (!draft) return;
 		// Archived tickets are kept, out of every view but Archived, and can be brought back.
-		const kept = draft;
-		patch({ archived_at: new Date().toISOString() });
+		patch({ archived_at: new Date().toISOString() }, { label: `${draft.number} gearchiveerd` });
 		onClose();
-		undoable(`${kept.number} gearchiveerd`, () => patch({ archived_at: undefined }));
 	}
 
 	/** Trash and spam keep the ticket too, each in its own view, and Undo puts it straight back. */
 	function setAside(field: "deleted_at" | "spam_at", message: string) {
 		if (!draft) return;
-		const kept = draft;
-		patch({ [field]: new Date().toISOString() });
+		patch({ [field]: new Date().toISOString() }, { label: `${draft.number} ${message}` });
 		onClose();
-		undoable(`${kept.number} ${message}`, () => patch({ [field]: undefined }));
 	}
 
 	function toggleTag(tag: string) {
 		if (!draft) return;
 		const has = draft.tags.includes(tag);
-		patch({
-			tags: has ? draft.tags.filter((t) => t !== tag) : [...draft.tags, tag],
-		});
+		patch(
+			{
+				tags: has ? draft.tags.filter((t) => t !== tag) : [...draft.tags, tag],
+			},
+			{ label: has ? `Label ${tag} weggehaald` : `Label ${tag} toegevoegd`, quiet: true },
+		);
 	}
 
 	return (
@@ -320,10 +299,10 @@ export function TicketModal({
 							<input
 								autoFocus
 								value={draft.title}
-								onChange={(e) => patch({ title: e.target.value })}
-								onBlur={() => setEditingTitle(false)}
+								onChange={(e) => type({ title: e.target.value })}
+								onBlur={saveTitle}
 								onKeyDown={(e) => {
-									if (e.key === "Enter") setEditingTitle(false);
+									if (e.key === "Enter") saveTitle();
 								}}
 								className="field w-full rounded-md px-2 py-1 font-medium text-xl text-ink outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
 							/>
@@ -355,10 +334,7 @@ export function TicketModal({
 									{(Object.keys(STATUS) as TicketStatus[]).map((s) => (
 										<DropdownMenuItem
 											key={s}
-											onClick={() => {
-												patch({ status: s });
-												toast.success(`Verplaatst naar ${STATUS[s].label}`);
-											}}
+											onClick={() => patch({ status: s }, { label: `Verplaatst naar ${STATUS[s].label}`, plain: true })}
 										>
 											{STATUS[s].label}
 										</DropdownMenuItem>
@@ -383,7 +359,7 @@ export function TicketModal({
 									{(["high", "medium", "low"] as TicketPriority[]).map((p) => (
 										<DropdownMenuItem
 											key={p}
-											onClick={() => patch({ priority: p })}
+											onClick={() => patch({ priority: p }, { label: `Prioriteit ${PRIORITY[p].label.toLowerCase()}`, quiet: true })}
 										>
 											{PRIORITY[p].label}
 										</DropdownMenuItem>
@@ -418,6 +394,7 @@ export function TicketModal({
 								<DropdownMenuItem
 									onClick={() => {
 										setWatching((w) => !w);
+										commands.watch(draft, !watching);
 										toast(watching ? "Je krijgt hier geen meldingen meer over" : "Je krijgt een melding bij elke wijziging");
 									}}
 								>
@@ -479,7 +456,7 @@ export function TicketModal({
 									<textarea
 										autoFocus
 										value={draft.description}
-										onChange={(e) => patch({ description: e.target.value })}
+										onChange={(e) => type({ description: e.target.value })}
 										className="field min-h-24 w-full rounded-lg p-3 text-base text-ink leading-[1.6] outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
 									/>
 									<div className="flex items-center gap-2">
@@ -487,7 +464,9 @@ export function TicketModal({
 											type="button"
 											onClick={() => {
 												setEditingDescription(false);
-												toast.success("Beschrijving opgeslagen");
+												if (ticket && draft.description !== ticket.description) {
+													commands.edit(ticket, { description: draft.description }, { label: "Beschrijving opgeslagen", plain: true });
+												} else toast.success("Beschrijving opgeslagen");
 											}}
 											className="flex h-8 items-center justify-center rounded-md bg-abyss px-3 py-1.5 font-medium text-base text-mesh-ink transition hover:bg-abyss-2 active:scale-[0.98]"
 										>
@@ -495,7 +474,10 @@ export function TicketModal({
 										</button>
 										<button
 											type="button"
-											onClick={() => setEditingDescription(false)}
+											onClick={() => {
+												setEditingDescription(false);
+												if (ticket) type({ description: ticket.description });
+											}}
 											className="flex h-8 items-center justify-center rounded-md bg-paper px-3 py-1.5 font-medium text-base text-ink-3 hover:bg-mist hover:text-ink"
 										>
 											Annuleren
@@ -515,7 +497,7 @@ export function TicketModal({
 							)}
 						</section>
 
-						<RecordAgentRows kind="ticket" id={draft.id} />
+						{Agents ? <Agents id={draft.id} /> : null}
 
 						{/* Activity / Comments */}
 						<section className="flex flex-col gap-3">
@@ -523,28 +505,30 @@ export function TicketModal({
 								<h3 className="font-medium text-base text-ink leading-[1.2]">
 									Activiteit
 								</h3>
-								<button
-									type="button"
-									onClick={summarize}
-									className="flex items-center gap-1.5 font-medium text-sm text-ink-3 leading-[1.2] hover:text-ink"
-								>
-									<Sparkles className="size-3.5 text-arc-ink" strokeWidth={1.75} />
-									Samenvatten
-								</button>
+								{source.drafts ? (
+									<button
+										type="button"
+										onClick={summarize}
+										className="flex items-center gap-1.5 font-medium text-sm text-ink-3 leading-[1.2] hover:text-ink"
+									>
+										<Sparkles className="size-3.5 text-arc-ink" strokeWidth={1.75} />
+										Samenvatten
+									</button>
+								) : null}
 							</div>
 							<div className="flex gap-2">
 								<span
 									className="flex size-7 shrink-0 items-center justify-center rounded-full font-medium text-sm"
-									style={personStyle("m")}
+									style={personStyle(me.id)}
 								>
-									N
+									{me.initial}
 								</span>
 								<div className="flex flex-1 flex-col gap-2">
 									<MentionField
 										value={newComment}
 										onChange={setNewComment}
 										onSubmit={addComment}
-										people={PEOPLE}
+										people={people}
 										placeholder="Schrijf een reactie… typ @ om een collega te vermelden"
 									/>
 									{newComment.trim() ? (
@@ -570,8 +554,7 @@ export function TicketModal({
 							</div>
 							<ul className="flex flex-col gap-3">
 								{comments.map((c) => {
-									const a = TEAM[c.authorId];
-									const insyte = c.authorId === "insyte";
+									const insyte = c.insyte;
 									return (
 										<li key={c.id} className="flex animate-in gap-2 fade-in-0 slide-in-from-top-1 duration-200">
 											{insyte ? (
@@ -583,18 +566,18 @@ export function TicketModal({
 													className="flex size-7 shrink-0 items-center justify-center rounded-full font-medium text-sm"
 													style={personStyle(c.authorId)}
 												>
-													{a?.initial ?? "?"}
+													{c.initial || "?"}
 												</span>
 											)}
 											<div className="flex flex-1 flex-col gap-1">
 												<div className="flex items-center gap-2">
 													<span className="font-medium text-sm text-ink">
-														{insyte ? "Insyte" : (a?.name ?? "Onbekend")}
+														{insyte ? "Insyte" : (c.name || "Onbekend")}
 													</span>
 													<span className="text-sm text-ink-3">{c.at}</span>
 												</div>
 												<p className={cn("rounded-lg p-3 text-base text-ink leading-[1.6]", insyte ? "bg-arc-tint" : "bg-mist")}>
-													<MentionText body={c.body} people={PEOPLE} />
+													<MentionText body={c.body} people={people} />
 												</p>
 											</div>
 										</li>
@@ -609,7 +592,7 @@ export function TicketModal({
 						<SidebarBlock title="Toegewezen aan">
 							<div className="flex flex-wrap gap-1.5">
 								{draft.assignee_ids.map((id) => {
-									const a = TEAM[id];
+									const a = person(id);
 									if (!a) return null;
 									return (
 										<button
@@ -640,7 +623,7 @@ export function TicketModal({
 										</button>
 									</DropdownMenuTrigger>
 									<DropdownMenuContent align="end">
-										{Object.entries(TEAM).map(([id, a]) => (
+										{people.map(({ id, ...a }) => (
 											<DropdownMenuItem
 												key={id}
 												onClick={() => toggleAssignee(id)}
@@ -692,17 +675,7 @@ export function TicketModal({
 										</button>
 									</DropdownMenuTrigger>
 									<DropdownMenuContent align="end">
-										{[
-											"Productontwerp",
-											"Klantenservice",
-											"Leveringsketen",
-											"Feedback",
-											"Bestelbevestiging",
-											"Opgelost",
-											"Vertaling",
-											"Terugbetalingen",
-											"Geschillen",
-										].map((label) => (
+										{labels.map((label) => (
 											<DropdownMenuItem
 												key={label}
 												onClick={() => toggleTag(label)}
@@ -730,7 +703,7 @@ export function TicketModal({
 										due_at: e.target.value
 											? new Date(e.target.value).toISOString()
 											: undefined,
-									})
+									}, { label: e.target.value ? "Deadline gezet" : "Deadline weggehaald", quiet: true })
 								}
 								className="field h-8 w-full rounded-md px-2 font-medium text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
 							/>
@@ -738,16 +711,20 @@ export function TicketModal({
 
 						<SidebarBlock title="Acties">
 							<div className="flex flex-col gap-1">
-								<SidebarAction
-									icon={Sparkles}
-									label="Antwoord voorstellen (AI)"
-									onClick={suggestReply}
-								/>
-								<SidebarAction
-									icon={MessageSquare}
-									label="Klant informeren"
-									onClick={notifyCustomer}
-								/>
+								{source.drafts ? (
+									<SidebarAction
+										icon={Sparkles}
+										label="Antwoord voorstellen (AI)"
+										onClick={suggestReply}
+									/>
+								) : null}
+								{source.notifyCustomer ? (
+									<SidebarAction
+										icon={MessageSquare}
+										label="Klant informeren"
+										onClick={notifyCustomer}
+									/>
+								) : null}
 								<SidebarAction
 									icon={Calendar}
 									label="Uitstellen"
