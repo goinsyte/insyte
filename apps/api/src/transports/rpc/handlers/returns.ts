@@ -18,6 +18,7 @@ export const ReturnsHandlers = ReturnsRpcs.toLayer(Effect.gen(function*() {
     "Returns.markReceived": ({ id }) => returns.markReceived(id),
     "Returns.inspect": (input) => returns.inspect(input),
     "Returns.resolve": (input) => returns.resolve(input),
+    "Returns.retryResolution": ({ id }) => returns.retryResolution(id),
     "Returns.settings": () => returns.settings,
     "Returns.setSettings": (doc) => returns.setSettings(doc)
   })

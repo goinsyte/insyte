@@ -62,6 +62,7 @@ export const TENANT_TABLES = [
   "returns",
   "return_lines",
   "return_events",
+  "return_mails",
   "quality_checks",
   "quality_check_media",
   "product_phases",

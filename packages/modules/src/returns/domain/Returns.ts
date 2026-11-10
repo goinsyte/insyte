@@ -75,7 +75,20 @@ export class ReturnRow extends Schema.Class<ReturnRow>("returns/ReturnRow")({
     at: Schema.Finite,
     /** Who settled it: the teammate's name, or the API key's. */
     by: Schema.String,
-    replacementOrder: Schema.NullOr(Schema.Struct({ id: Schema.String, number: Schema.String }))
+    replacementOrder: Schema.NullOr(Schema.Struct({ id: Schema.String, number: Schema.String })),
+    /**
+     * What it made in Shopify (M9.3): asked for (waiting out its undo window, or asked again), made, or failed with
+     * Shopify's reason, and the access scope the store has not granted where that was why. The code the shopper uses
+     * (a discount code in full, a gift card's last four), and the new order's name for an exchange or a replacement.
+     * `null` for a refund (the order's refund says) and for a return settled before M9.3.
+     */
+    shopify: Schema.NullOr(Schema.Struct({
+      state: Schema.Literals(["requested", "done", "failed"]),
+      reason: Schema.NullOr(Schema.String),
+      scope: Schema.NullOr(Schema.String),
+      code: Schema.NullOr(Schema.String),
+      order: Schema.NullOr(Schema.String)
+    }))
   })),
   rejectReason: Schema.NullOr(Schema.String)
 }) {}

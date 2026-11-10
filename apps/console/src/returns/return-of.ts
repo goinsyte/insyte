@@ -74,7 +74,14 @@ export const recordOf = (
     amount: r.resolution.amountMinor / 100,
     at: iso(r.resolution.at),
     by: r.resolution.by,
-    replacementOrder: r.resolution.replacementOrder?.number
+    replacementOrder: r.resolution.replacementOrder?.number,
+    shopify: r.resolution.shopify === null ? undefined : {
+      state: r.resolution.shopify.state,
+      reason: r.resolution.shopify.reason ?? undefined,
+      scope: r.resolution.shopify.scope ?? undefined,
+      code: r.resolution.shopify.code ?? undefined,
+      order: r.resolution.shopify.order ?? undefined
+    }
   },
   rejectReason: r.rejectReason ?? undefined,
   events: detail?.events.map(eventOf) ?? []

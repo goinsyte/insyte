@@ -70,6 +70,7 @@ export const returnWrites = {
   addTracking: ConsoleClient.mutation("Returns.addTracking"),
   inspect: ConsoleClient.mutation("Returns.inspect"),
   resolve: ConsoleClient.mutation("Returns.resolve"),
+  retryResolution: ConsoleClient.mutation("Returns.retryResolution"),
   setSettings: ConsoleClient.mutation("Returns.setSettings"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { failure, ok, relay } from "./journeys.ts"
+import { failure, mailsAbout, ok, relay } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"
 
@@ -109,6 +109,11 @@ describe("returns portal", () => {
       subjectId: row.id,
       data: { number: started.number, kind: "return", orderNumber: "#1002", customer: "Klant 1" }
     })
+
+    // The shopper has the confirmation, in the store's name (M9.3).
+    expect((await mailsAbout("klant1@example.com", row.id)).map(({ kind, sender }) => ({ kind, sender }))).toEqual([
+      { kind: "return.received", sender: "Insyte MVP Test" }
+    ])
 
     // Looked up again: the request is there, and the line is no longer free.
     const again = ok(await rpc("Portal.lookup", { handle, number: "1002", email: "klant1@example.com" }))

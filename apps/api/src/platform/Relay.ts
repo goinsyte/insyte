@@ -6,6 +6,8 @@ import { MarketingSyncs } from "@insyte/modules/marketing/domain/Marketing"
 import { InvitationLinks } from "@insyte/modules/members/domain/Ports"
 import { fanOut } from "@insyte/modules/notifications/use-cases/fanout"
 import { ReturnLabels } from "@insyte/modules/returns/domain/Ports"
+import { shopperMail } from "@insyte/modules/returns/use-cases/mails"
+import type { FileStore } from "@insyte/modules/shared/domain/Documents"
 import { Mailer } from "@insyte/modules/shared/domain/Mailer"
 import { type OutboxEvent, Relay } from "@insyte/modules/shared/domain/Outbox"
 import { ProductAnalytics, type ProductEvent } from "@insyte/modules/shared/domain/ProductAnalytics"
@@ -54,6 +56,7 @@ type SinkServices =
   | MarketingSyncs
   | ForwardSends
   | ReturnLabels
+  | FileStore
 
 /** What a sink does with an event, in the event's workspace; `undefined` when the event is not its business. */
 interface Sink {
@@ -136,6 +139,17 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
     case "customer.updated":
     case "customer.created":
       return undefined
+    // A return's mails and its Shopify side are not a person's moment; starting and settling one are counted elsewhere.
+    case "return.started":
+    case "return.approved":
+    case "return.rejected":
+    case "return.label_issued":
+    case "return.resolution_requested":
+    case "return.resolved":
+    case "return.requested":
+    case "return.label_requested":
+    case "quality_check.submitted":
+      return undefined
     // Handling an order in Insyte is an activation moment (M7): counted by what was done and to how many.
     case "order.updated":
     case "order.cancelled":
@@ -197,6 +211,31 @@ const invitationMail = (event: Extract<OutboxEvent, { type: "member.invited" }>,
     })
   }).pipe(Effect.orDie)
 
+/** Which shopper mail each return event sends (M9.3). */
+const RETURN_MAIL = {
+  "return.requested": "received",
+  "return.started": "received",
+  "return.approved": "approved",
+  "return.rejected": "rejected",
+  "return.label_issued": "label",
+  "return.resolved": "resolved"
+} as const
+
+type ReturnMailEvent = Extract<OutboxEvent, { type: keyof typeof RETURN_MAIL }>
+
+const isReturnMail = (event: OutboxEvent): event is ReturnMailEvent => event.type in RETURN_MAIL
+
+/**
+ * The shopper's mails about their returns (M9.3), once a team's change has waited out its undo window: each return's,
+ * once per kind. A mail that does not go fails the delivery, so the queue tries again.
+ */
+const returnMails = (event: ReturnMailEvent, sql: SqlClient.SqlClient) =>
+  Effect.forEach(
+    event.returnIds,
+    (id) => shopperMail(sql, id, RETURN_MAIL[event.type], event.type === "return.started" ? "team" : "portal"),
+    { discard: true }
+  ).pipe(Effect.orDie)
+
 /** The realtime sink (M5.1): a changed record's kind and ids to its workspace's room; the tabs refetch. */
 const realtime = (event: Extract<OutboxEvent, { type: "records.changed" }>) =>
   Effect.promise(() =>
@@ -237,7 +276,12 @@ const SINKS: ReadonlyArray<Sink> = [
   },
   {
     name: "mail",
-    run: (_id, event, sql) => event.type === "member.invited" ? invitationMail(event, sql) : undefined
+    run: (_id, event, sql) =>
+      event.type === "member.invited"
+        ? invitationMail(event, sql)
+        : isReturnMail(event)
+        ? returnMails(event, sql)
+        : undefined
   },
   {
     // A connected store's first import (M6.3): one Workflow per connect, named by this event.
@@ -255,7 +299,10 @@ const SINKS: ReadonlyArray<Sink> = [
     name: "shopify",
     run: (id, event) =>
       event.type === "order.updated" || event.type === "order.cancelled" || event.type === "refund.requested" ||
-        event.type === "product.updated" || event.type === "customer.updated" || event.type === "customer.created"
+        event.type === "product.updated" || event.type === "customer.updated" || event.type === "customer.created" ||
+        event.type === "return.resolution_requested" ||
+        // A return approved or rejected in Insyte goes to Shopify only where it came from there (M9.3).
+        ((event.type === "return.approved" || event.type === "return.rejected") && event.toShopify.length > 0)
         ? Effect.flatMap(
           Effect.service(ShopifyWrites),
           (writes) => writes.start({ key: `sw-${id}`, workspaceId: event.workspaceId, write: event })

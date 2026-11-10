@@ -11,6 +11,17 @@ import { Resend } from "./Resend.ts"
  * `MailNotSent` with the reason; the caller logs it and goes on.
  */
 
+/**
+ * `MAIL_FROM` in another's name (a store's, to its shopper): the address stays Insyte's sending domain, the name is
+ * theirs, quoted as RFC 5322 asks when it holds a special character.
+ */
+export const fromIn = (from: string, name: string | undefined) => {
+  if (name === undefined || name.trim() === "") return from
+  const address = /<([^>]+)>/.exec(from)?.[1] ?? from.trim()
+  const clean = name.replace(/["\\\r\n]/g, "").trim()
+  return `${/[()<>[\]:;@,.]/.test(clean) ? `"${clean}"` : clean} <${address}>`
+}
+
 /** The same mail, sent twice within a day, is one mail: the kind, the address, the link and the reference, hashed. */
 const idempotencyKey = (mail: Mail) =>
   Effect.promise(async () => {
@@ -53,6 +64,16 @@ export const ResendMailer = Layer.effect(
             if (facts === undefined) return Effect.fail(missing(mail, "its facts"))
             return Effect.flatMap(link(mail), (url) => renderer.render("team.invite", { url, ...facts }))
           }
+          case "return.received":
+          case "return.approved":
+          case "return.rejected":
+          case "return.label":
+          case "return.resolved": {
+            const facts = mail.returnMail
+            if (facts === undefined) return Effect.fail(missing(mail, "its return"))
+            const portalUrl = facts.portal === null ? null : urls.console(`/retour/${encodeURIComponent(facts.portal)}`)
+            return renderer.render(mail.kind, { ...facts, portalUrl })
+          }
         }
       })()
       return rendered.pipe(
@@ -67,7 +88,7 @@ export const ResendMailer = Layer.effect(
       send: Effect.fn("ResendMailer.send")(function*(mail: Mail) {
         const rendered = yield* render(mail)
         yield* resend.send({
-          from,
+          from: fromIn(from, mail.sender),
           to: mail.to,
           ...rendered,
           idempotencyKey: yield* idempotencyKey(mail),

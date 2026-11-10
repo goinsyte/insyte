@@ -37,7 +37,8 @@ type R = Db | CurrentPrincipal
 type W = R | Relay
 
 /**
- * The returns slice (M9.1): returns and claims in one queue, their lifecycle, and the workspace's returns policy.
+ * The returns slice (M9.1): returns and claims in one queue, their lifecycle, and the workspace's returns policy. What
+ * reaches the shopper or Shopify (M9.3) waits in the outbox for the undo window.
  *
  * @effect-expect-leaking Db CurrentPrincipal Relay
  */
@@ -47,13 +48,13 @@ export class ReturnsService extends Context.Service<ReturnsService, {
   readonly returnable: (orderId: string) => Effect.Effect<Returnable, Forbidden | NotFound, R>
   readonly start: (
     input: typeof StartInput.Type
-  ) => Effect.Effect<ReturnChange, Forbidden | NotFound | Invalid | LineNotReturnable | ResolutionNotAllowed, R>
+  ) => Effect.Effect<ReturnChange, Forbidden | NotFound | Invalid | LineNotReturnable | ResolutionNotAllowed, W>
   readonly approve: (
     input: typeof ApproveInput.Type
-  ) => Effect.Effect<ReturnChange, Forbidden | NotFound | IllegalReturnMove, R>
+  ) => Effect.Effect<ReturnChange, Forbidden | NotFound | IllegalReturnMove, W>
   readonly reject: (
     input: typeof RejectInput.Type
-  ) => Effect.Effect<ReturnChange, Forbidden | NotFound | IllegalReturnMove, R>
+  ) => Effect.Effect<ReturnChange, Forbidden | NotFound | IllegalReturnMove, W>
   readonly reopen: (id: string) => Effect.Effect<ReturnChange, Forbidden | NotFound | IllegalReturnMove, R>
   readonly assign: (input: typeof AssignInput.Type) => Effect.Effect<ReturnChange, Forbidden | NotFound, R>
   /** "Tracking invullen" ("zelf versturen", M9.2): the shopper's own carrier and tracking number. */
@@ -87,6 +88,8 @@ export class ReturnsService extends Context.Service<ReturnsService, {
     | AlreadyRefunded,
     W
   >
+  /** "Opnieuw proberen" (M9.3): a resolution Shopify did not make, asked again. */
+  readonly retryResolution: (id: string) => Effect.Effect<ReturnChange, Forbidden | NotFound | IllegalReturnMove, W>
   readonly settings: Effect.Effect<ReturnSettingsDoc, Forbidden, R>
   readonly setSettings: (
     doc: ReturnSettingsDoc
@@ -125,6 +128,7 @@ export class ReturnsService extends Context.Service<ReturnsService, {
             Effect.provideService(Refunder, refunder),
             Effect.catchIf(SqlError.isSqlError, Effect.die)
           ),
+        retryResolution: (id) => Commands.retryResolution(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         settings: Settings.get().pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         setSettings: (doc) => Settings.set(doc).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))
       }

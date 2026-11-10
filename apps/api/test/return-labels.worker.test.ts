@@ -78,7 +78,8 @@ describe("return labels", () => {
       tracking: `3SRET${r.number.replace(/\D/g, "")}`,
       trackingUrl: expect.stringContaining("3SRET")
     })
-    expect(detail.events.at(-1)).toMatchObject({ who: "insyte", text: "Retourlabel van PostNL gemaakt" })
+    // The label's mail to the shopper (M9.3) may already be on the history after it.
+    expect(detail.events.find((e) => e.text === "Retourlabel van PostNL gemaakt")).toMatchObject({ who: "insyte" })
 
     const pdf = await call(`http://api.test/api/files/${detail.record.label!.fileId}`, {
       headers: { cookie: store.cookie }

@@ -14,6 +14,8 @@ import { Lockup } from "./mark.tsx"
 export interface Footer {
   /** Why this address gets this mail, in one sentence. */
   readonly reason: string
+  /** Who signs it under the reason; Insyte, unless a store sends it (`ShopLetter`). */
+  readonly signature?: string | undefined
   /** Links under it: "Meldingen instellen", "Afmelden". */
   readonly links?: ReadonlyArray<{ readonly label: string; readonly href: string }> | undefined
 }
@@ -27,7 +29,7 @@ const FooterBlock = (props: Footer) => (
       className="x-ink-3"
       style={{ margin: "8px 0 0", fontFamily: font.sans, ...type("xs"), color: light["ink-3"] }}
     >
-      Insyte
+      {props.signature ?? "Insyte"}
       {(props.links ?? []).map((link) => (
         <span key={link.href}>
           {" · "}
@@ -60,6 +62,35 @@ export const Letter = (props: { readonly preview: string; readonly footer: Foote
     <Head />
     <Card>{props.children}</Card>
     <FooterBlock {...props.footer} />
+  </Document>
+)
+
+/**
+ * A store's letter to its shopper (M9.3): the same page and letter, headed with the store's name in the display face
+ * instead of Insyte's lockup, because the mail is sent in the store's name; the footer signs it with the store and says
+ * Insyte carried it.
+ */
+export const ShopLetter = (
+  props: { readonly shop: string; readonly preview: string; readonly footer: Footer; readonly children: ReactNode }
+) => (
+  <Document preview={props.preview}>
+    <Section style={{ padding: "0 4px 20px" }}>
+      <Text
+        className="x-ink"
+        style={{
+          margin: "0",
+          fontFamily: font.display,
+          fontStretch: "88%",
+          ...type("lg"),
+          fontWeight: 600,
+          color: light.ink
+        }}
+      >
+        {props.shop}
+      </Text>
+    </Section>
+    <Card>{props.children}</Card>
+    <FooterBlock {...props.footer} signature={props.footer.signature ?? `${props.shop} · verstuurd met Insyte`} />
   </Document>
 )
 

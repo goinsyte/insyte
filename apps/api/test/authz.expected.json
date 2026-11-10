@@ -720,6 +720,13 @@
     "finance": "deny",
     "view": "deny"
   },
+  "Returns.retryResolution": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
   "Returns.setSettings": {
     "owner": "allow",
     "admin": "allow",

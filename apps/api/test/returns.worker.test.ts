@@ -127,15 +127,19 @@ describe("returns", () => {
     expect(await writes.get()).toHaveLength(1)
 
     const done = ok(await rpc("Returns.get", { id: started.id }, store.cookie))
-    expect(done.events.map((e) => e.text)).toEqual([
+    // The team's steps; Insyte's lines say what was mailed to the shopper (M9.3).
+    expect(done.events.filter((e) => e.who === "team").map((e) => e.text)).toEqual([
       "Retour gestart namens de klant",
       "Goedgekeurd",
       "Ontvangen gemarkeerd",
       "Gecontroleerd: in orde",
       "Afgehandeld: terugbetaald"
     ])
+    expect(done.events.filter((e) => e.who === "insyte").map((e) => e.text)).toContain(
+      "Afhandeling gemaild aan de klant"
+    )
     // Who settled it is said by name, as the history says it.
-    expect(done.record.resolution?.by).toBe(done.events.at(-1)?.name)
+    expect(done.record.resolution?.by).toBe(done.events.findLast((e) => e.who === "team")?.name)
     expect(done.record.resolution?.by).not.toMatch(/^mem_/)
     const { counts } = ok(await rpc("Returns.list", {}, store.cookie))
     expect(counts).toMatchObject({ total: 1, resolved: 1, review: 0, returns: 1, claims: 0 })

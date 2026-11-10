@@ -15,6 +15,7 @@ import {
   windowCheck,
   windowDaysFor
 } from "../domain/Rules.ts"
+import type { StoredResolution } from "../domain/Shopify.ts"
 import { load, type Loaded } from "./settings.ts"
 
 /*
@@ -40,7 +41,7 @@ export const SELECT = `r.id, r.number, r.type, r.order_id, o.number as order_num
   coalesce((select u.name from members m join auth."user" u on u.id = m.user_id where m.id = r.resolved_by),
            (select k.label from api_keys k where k.id = r.resolved_by), r.resolved_by) as resolver_name,
   r.replacement_order_id,
-  ro.number as replacement_number, r.rejected_reason`
+  ro.number as replacement_number, r.rejected_reason, r.resolution_shopify::text as resolution_shopify`
 
 export const FROM = `returns r join orders o on o.id = r.order_id
   left join return_reasons rr on rr.workspace_id = r.workspace_id and rr.id = r.reason_id
@@ -83,6 +84,19 @@ export interface Row {
   readonly replacementOrderId: string | null
   readonly replacementNumber: string | null
   readonly rejectedReason: string | null
+  readonly resolutionShopify: string | null
+}
+
+/** What the console may show of a resolution in Shopify: a gift card's code only by its last four. */
+const shopifyOf = (kind: Resolution, raw: string | null) => {
+  if (raw === null) return null
+  const s = JSON.parse(raw) as StoredResolution
+  const code = s.code === undefined || s.state !== "done"
+    ? null
+    : kind === "gift_card"
+    ? `•••• ${s.code.slice(-4)}`
+    : s.code
+  return { state: s.state, reason: s.reason ?? null, scope: s.scope ?? null, code, order: s.orderName ?? null }
 }
 
 /**
@@ -149,7 +163,8 @@ export const toRow = (r: Row) => {
       by: r.resolverName ?? r.resolvedBy ?? "",
       replacementOrder: r.replacementOrderId === null || r.replacementNumber === null
         ? null
-        : { id: r.replacementOrderId, number: r.replacementNumber }
+        : { id: r.replacementOrderId, number: r.replacementNumber },
+      shopify: shopifyOf(r.resolution, r.resolutionShopify)
     },
     rejectReason: r.rejectedReason
   })

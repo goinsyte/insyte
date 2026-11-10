@@ -146,6 +146,38 @@ describe("ResendMailer", () => {
     expect(seen[0]?.body["subject"]).toBe("Elena Hart nodigt je uit voor Northwind")
   })
 
+  it("sends a shopper's return mail in the store's name, with the portal's link and the label attached (M9.3)", async () => {
+    const seen: Array<Seen> = []
+    const http = fakeResend(() => Promise.resolve(Response.json({ id: "re_6" })), seen)
+    const returnMail = {
+      shop: "Northwind & Co.",
+      customer: "Anna de Vries",
+      number: "R-1042",
+      kind: "return" as const,
+      orderNumber: "#1002",
+      items: [{ title: "Linnen overhemd", variant: "M", qty: 1 }],
+      portal: "northwind",
+      label: { carrier: "PostNL", tracking: "3SRET1042" }
+    }
+    await sendWith(http, {
+      kind: "return.label",
+      to: "anna@example.com",
+      sender: returnMail.shop,
+      reference: "ret_1",
+      returnMail,
+      attachments: [{ filename: "retourlabel-R-1042.pdf", content: new TextEncoder().encode("%PDF-1.7") }]
+    })
+    expect(seen[0]?.body).toMatchObject({
+      from: "\"Northwind & Co.\" <noreply@mail.goinsyte.com>",
+      subject: "Je retourlabel voor R-1042",
+      attachments: [{ filename: "retourlabel-R-1042.pdf" }]
+    })
+    expect(seen[0]?.body["text"]).toContain("Naar het retourportaal: https://console.stage.example/retour/northwind")
+    expect(seen[0]?.body["text"]).toContain("3SRET1042")
+    const noFacts = await sendWith(http, { kind: "return.resolved", to: "anna@example.com" })
+    expect(Exit.isFailure(noFacts) && JSON.stringify(noFacts.cause)).toContain("return.resolved needs its return")
+  })
+
   it("turns a refusal, a missing link and missing facts into MailNotSent, and sends nothing for the last two", async () => {
     const refused = await sendWith(
       fakeResend(() => Promise.resolve(Response.json({ message: "nope" }, { status: 422 }))),
@@ -258,6 +290,43 @@ describe.each(KINDS)("the %s mail", (kind) => {
   })
 })
 
+describe("the shopper's return mails (M9.3)", () => {
+  const urls = urlsFor(ORIGINS[0])
+
+  it("say what came in, what was decided and why, and what the shopper gets, with the code", async () => {
+    const received = await renderEmail("return.received", {
+      ...EMAILS["return.received"].preview(urls),
+      via: "team",
+      requested: "exchange",
+      exchangeTo: "L"
+    })
+    expect(received.subject).toBe("We hebben je retour R-1042 ontvangen")
+    expect(received.text).toContain("Northwind heeft je retour R-1042 voor je aangemaakt.")
+    expect(received.text).toContain("een ander exemplaar in ruil (L)")
+
+    const rejected = await renderEmail("return.rejected", EMAILS["return.rejected"].preview(urls))
+    expect(rejected.subject).toBe("Je retour R-1042 is niet goedgekeurd")
+    expect(rejected.text).toContain("Buiten de retourtermijn")
+
+    const resolved = await renderEmail("return.resolved", EMAILS["return.resolved"].preview(urls))
+    expect(resolved.text).toMatch(/cadeaubon van €\s54,95/)
+    expect(resolved.text).toContain("K7QMW2XR9PTB4HNA")
+    const refunded = await renderEmail("return.resolved", {
+      ...EMAILS["return.resolved"].preview(urls),
+      kind: "claim",
+      resolution: { kind: "refund", amountMinor: 8900, currency: "EUR", code: null, order: null }
+    })
+    expect(refunded.subject).toBe("Je melding R-1042 is afgehandeld")
+    expect(refunded.text).toMatch(/We betalen €\s89,00 terug/)
+  })
+
+  it("are headed and signed with the store's name, not Insyte's mark", async () => {
+    const mail = await renderEmail("return.approved", EMAILS["return.approved"].preview(urls))
+    expect(mail.text).toContain("Northwind · verstuurd met Insyte")
+    expect(mail.text).toContain("Distributieweg 12")
+  })
+})
+
 describe("the templates' content", () => {
   it("keeps the wired mails' Dutch subjects", async () => {
     const urls = urlsFor(ORIGINS[0])
@@ -297,7 +366,18 @@ describe("the templates' content", () => {
 
   it("marks the wired kinds and only those, and keeps marketing unsent", () => {
     const wired = KINDS.filter((kind) => EMAILS[kind].wired)
-    expect(wired).toEqual(["auth.verify", "auth.reset", "auth.signup_existing", "team.invite", "supplier.order"])
+    expect(wired).toEqual([
+      "auth.verify",
+      "auth.reset",
+      "auth.signup_existing",
+      "team.invite",
+      "supplier.order",
+      "return.received",
+      "return.approved",
+      "return.rejected",
+      "return.label",
+      "return.resolved"
+    ])
     expect(KINDS.filter((kind) => EMAILS[kind].group === "marketing").every((kind) => !EMAILS[kind].wired)).toBe(true)
   })
 })
