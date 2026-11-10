@@ -5,6 +5,7 @@ import { ForwardSends } from "@insyte/modules/forwarding/domain/Forwarding"
 import { MarketingSyncs } from "@insyte/modules/marketing/domain/Marketing"
 import { InvitationLinks } from "@insyte/modules/members/domain/Ports"
 import { fanOut } from "@insyte/modules/notifications/use-cases/fanout"
+import { refreshIn, refreshWorkspace, sweepWorkspaces } from "@insyte/modules/queue/Queue"
 import { ReturnLabels } from "@insyte/modules/returns/domain/Ports"
 import { shopperMail } from "@insyte/modules/returns/use-cases/mails"
 import type { FileStore } from "@insyte/modules/shared/domain/Documents"
@@ -256,6 +257,30 @@ const notifications = Effect.fn("Relay.notifications")(
   Effect.orDie
 )
 
+/** The record kinds whose change may open, update or close a queue row on Start (M10.1). */
+const QUEUED = new Set(["order", "return", "quality_check", "store", "product"])
+
+/** The queue sink (M10.1): the workspace's queue brought in line, and its open tabs told when it changed. */
+const queue = Effect.fn("Relay.queue")(
+  function*(event: Extract<OutboxEvent, { type: "records.changed" }>, sql: SqlClient.SqlClient) {
+    if (!(yield* refreshIn(sql))) return
+    yield* Effect.promise(() =>
+      roomOf(event.workspaceId).broadcast({ v: 1, type: "records.changed", kind: "queue_item", ids: [] })
+    )
+  },
+  Effect.orDie
+)
+
+/** Every 15 minutes: each workspace's queue brought in line (what no event says: a stock-out, a review coming due). */
+export const queueSweep = Effect.fn("Relay.queueSweep")(function*() {
+  for (const workspaceId of yield* sweepWorkspaces) {
+    if (!(yield* refreshWorkspace(workspaceId))) continue
+    yield* Effect.promise(() =>
+      roomOf(workspaceId).broadcast({ v: 1, type: "records.changed", kind: "queue_item", ids: [] })
+    )
+  }
+}, Effect.orDie)
+
 const NOTIFIED = new Set<OutboxEvent["type"]>([
   "member.joined",
   "access.requested",
@@ -275,6 +300,10 @@ const SINKS: ReadonlyArray<Sink> = [
   {
     name: "realtime",
     run: (_id, event) => event.type === "records.changed" ? realtime(event) : undefined
+  },
+  {
+    name: "queue",
+    run: (_id, event, sql) => event.type === "records.changed" && QUEUED.has(event.kind) ? queue(event, sql) : undefined
   },
   {
     name: "mail",

@@ -118,6 +118,13 @@ const ForwardingLive = HttpApiBuilder.group(
     )
 )
 
+const QueueLive = HttpApiBuilder.group(
+  PublicApi,
+  "queue",
+  (handlers) =>
+    Effect.map(Effect.service(Resources), (act) => handlers.handle("queue", ({ query }) => act.queue(query.tab)))
+)
+
 const ReturnsLive = HttpApiBuilder.group(
   PublicApi,
   "returns",
@@ -239,6 +246,8 @@ export const PublicApiRoutes = Layer.mergeAll(
   HttpApiBuilder.layer(PublicApi, { openapiPath: "/v1/openapi.json" }),
   HttpApiScalar.layerCdn(PublicApi, { path: "/v1/docs" })
 ).pipe(
-  Layer.provide(Layer.mergeAll(KeyLive, TeamLive, CommerceLive, OrdersLive, ForwardingLive, ReturnsLive, TicketsLive)),
+  Layer.provide(
+    Layer.mergeAll(KeyLive, TeamLive, CommerceLive, OrdersLive, ForwardingLive, ReturnsLive, TicketsLive, QueueLive)
+  ),
   Layer.provide(ApiKeyAuthLive)
 )

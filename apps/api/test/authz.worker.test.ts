@@ -6,6 +6,7 @@ import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
 import { MarketingRpcs } from "@insyte/api/rpc/MarketingRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
 import { QualityRpcs } from "@insyte/api/rpc/QualityRpcs"
+import { QueueRpcs } from "@insyte/api/rpc/QueueRpcs"
 import { ReturnsRpcs } from "@insyte/api/rpc/ReturnsRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
@@ -211,7 +212,10 @@ const PAYLOADS: Record<string, unknown> = {
   "Quality.approve": { id: "qc_none" },
   "Quality.reject": { id: "qc_none", note: "Naad", watch: false },
   "Quality.setPhase": { productId: "prd_none", phase: "watch" },
-  "Quality.link": { id: "qc_none" }
+  "Quality.link": { id: "qc_none" },
+  "Queue.list": {},
+  "Queue.markSeen": { id: "qi_none" },
+  "Queue.reopen": { id: "qi_none" }
 }
 
 const manifest = [
@@ -229,7 +233,8 @@ const manifest = [
   ...TrackingRpcs.requests.keys(),
   ...ReturnsRpcs.requests.keys(),
   ...TicketsRpcs.requests.keys(),
-  ...QualityRpcs.requests.keys()
+  ...QualityRpcs.requests.keys(),
+  ...QueueRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

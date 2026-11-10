@@ -73,7 +73,8 @@ export const TENANT_TABLES = [
   "quality_check_media",
   "product_phases",
   "quality_settings",
-  "stockouts"
+  "stockouts",
+  "queue_items"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

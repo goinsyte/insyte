@@ -20,6 +20,7 @@ import { Members } from "@insyte/modules/members/Members"
 import type { OrderDetail, OrderRow } from "@insyte/modules/orders/domain/Orders"
 import { OrdersService } from "@insyte/modules/orders/Orders"
 import { ProductsService } from "@insyte/modules/products/Products"
+import { QueueService } from "@insyte/modules/queue/Queue"
 import type { ReturnRow } from "@insyte/modules/returns/domain/Returns"
 import { ReturnsService } from "@insyte/modules/returns/Returns"
 import { RolesService } from "@insyte/modules/roles/RolesService"
@@ -354,7 +355,27 @@ const make = Effect.gen(function*() {
   const returns = yield* ReturnsService
   const tickets = yield* TicketsService
   const ticketOne = (id: string) => Effect.map(tickets.get(id), (d) => ticketV1(d.ticket))
+  const queue = yield* QueueService
   return {
+    queue: (tab?: "needs_you" | "drawn" | "all") =>
+      queue.list(tab === undefined ? {} : { tab }).pipe(
+        Effect.map((list) => ({
+          data: list.rows.map((r) => ({
+            id: r.id,
+            kind: r.kind,
+            subject_type: r.subjectType,
+            subject_id: r.subjectId,
+            store: r.storeName,
+            signal: r.signal,
+            title: r.title,
+            value_minor: r.valueMinor,
+            currency: r.currency,
+            due_at: iso(r.dueAt),
+            state: r.state
+          })),
+          counts: { needs_you: list.counts.needsYou, drawn: list.counts.drawn, all: list.counts.all }
+        }))
+      ),
     me: Effect.gen(function*() {
       const key = yield* CurrentApiKey
       const { role } = yield* CurrentPrincipal
@@ -900,7 +921,8 @@ export class Resources extends Context.Service<Resources, Effect.Success<typeof 
         SuppliersService.layer,
         TrackingService.layer,
         ReturnsService.layer,
-        TicketsService.layer
+        TicketsService.layer,
+        QueueService.layer
       )
     )
   )
