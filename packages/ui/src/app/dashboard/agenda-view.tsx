@@ -35,7 +35,8 @@ export function AgendaView({
   span,
   onSpan: setSpan,
   day,
-  onDay: setDay
+  onDay: setDay,
+  opens = () => true
 }: {
   now: number
   moments: ReadonlyArray<Moment>
@@ -44,6 +45,8 @@ export function AgendaView({
   /** The day shown, or a day of the week shown (`YYYY-MM-DD`). */
   day: string
   onDay: (day: string) => void
+  /** Whether the host has the screen a first step links to; the empty agenda offers only those. */
+  opens?: ((to: string) => boolean) | undefined
 }) {
   const [off, setOff] = useState<ReadonlySet<MomentKind>>(new Set())
   const kinds = useMemo(() => [...new Set(moments.map((m) => m.kind))], [moments])
@@ -159,7 +162,7 @@ export function AgendaView({
               count="0 momenten"
               title="De agenda is nog leeg"
               body="Deadlines, overdrachten, automatiseringen en taken met een dag komen hier."
-              starts={[
+              starts={([
                 {
                   id: "automations",
                   label: "Een automatisering plannen",
@@ -172,7 +175,7 @@ export function AgendaView({
                   body: "Wanneer een leverancier aan de vervoerder overdraagt.",
                   to: "/suppliers"
                 }
-              ]}
+              ] as const).filter((s) => opens(s.to))}
             />
           </div>
         ) :

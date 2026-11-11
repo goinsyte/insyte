@@ -1,6 +1,6 @@
 import type { ActivityRow, AgendaRow, WorkRow } from "@insyte/modules/home/domain/Lists"
 import { formatCurrency } from "@insyte/ui/app/lib/format"
-import { dayKey } from "@insyte/ui/app/lib/home/dates"
+import { dayKey, dayStart } from "@insyte/ui/app/lib/home/dates"
 import type { Moment, Tone, WorkItem } from "@insyte/ui/app/lib/home/kinds"
 import type { EventKey, Note, NoteActor, NoteSource } from "@insyte/ui/app/lib/notifications"
 import type { Currency } from "@insyte/ui/app/lib/types/domain"
@@ -96,10 +96,11 @@ export function workItemOf(r: WorkRow, pref: MyWorkPref, now: number): WorkItem 
         return {
           id: r.id,
           // A ticket without a deadline is due by its priority, as the design dates it.
+          // Its deadline is a day, as the tickets screens read it, not a time on it.
           ...dated(
             due ??
               (r.priority === "high" ? dayKey(now) : r.priority === "medium" ? dayKey(now + 86_400_000) : undefined),
-            time
+            undefined
           ),
           kind: "ticket",
           title: r.title,
@@ -188,17 +189,21 @@ export function momentOf(r: AgendaRow): Moment {
         to: "/suppliers"
       }
     }
-    case "ticket":
+    case "ticket": {
+      // A ticket's deadline is a day, as the tickets screens read it: it sits above the clock, not at midnight.
+      const day = dayKey(r.at)
       return {
         id: r.id,
         kind: "ticket",
-        at: r.at,
-        minutes: 30,
+        at: dayStart(day),
+        minutes: 0,
+        allDay: true,
         title: r.number === null ? r.title : `#${r.number} ${r.title}`,
         detail: "Deadline",
-        tone: r.at < Date.now() ? "red" : tone === "ink" ? "amber" : tone,
+        tone: day < dayKey(Date.now()) ? "red" : "amber",
         to: `/tickets/${r.subjectId}`
       }
+    }
     case "invite":
       return {
         id: r.id,

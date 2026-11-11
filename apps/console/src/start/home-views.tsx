@@ -150,6 +150,9 @@ export function ConsoleWork(
   )
 }
 
+/** The screens an empty view's first steps may link to; automations and integrations have none in the console yet. */
+const CONSOLE_HAS: ReadonlySet<string> = new Set(["/suppliers", "/settings/stores", "/settings/team", "/tickets"])
+
 /** The Monday of the week a day is in, as the agenda's week view starts it. */
 const mondayOf = (day: string) => addDays(dayStart(day), -((new Date(dayStart(day)).getDay() + 6) % 7))
 
@@ -165,7 +168,17 @@ export function ConsoleAgenda({ now }: { now: number }) {
   const [day, setDay] = useState(() => dayKey(now))
   const moments = useAgenda(day, span)
   if (moments === undefined) return <WidgetBones rows={6} />
-  return <AgendaView now={now} moments={moments} span={span} onSpan={setSpan} day={day} onDay={setDay} />
+  return (
+    <AgendaView
+      now={now}
+      moments={moments}
+      span={span}
+      onSpan={setSpan}
+      day={day}
+      onDay={setDay}
+      opens={(to) => CONSOLE_HAS.has(to)}
+    />
+  )
 }
 
 /** Today's timed moments still ahead, for the tab's count. */
@@ -219,6 +232,7 @@ export function ConsoleActivity({ now }: { now: number }) {
         setLimit(PAGE)
       }}
       onMore={limit < MOST && feed.next !== null ? () => setLimit((l) => Math.min(MOST, l + PAGE)) : undefined}
+      opens={(to) => CONSOLE_HAS.has(to)}
     />
   )
 }
@@ -257,6 +271,8 @@ export function ConsoleMentions() {
 /** "Bladwijzers": the member's pins and favourites, the frame's own, and the palette's search to add one. */
 export function ConsoleBookmarks() {
   const { pins, useRecordSearch } = useShellSource()
+  const latest = useRef(pins)
+  latest.current = pins
   return (
     <BookmarksView
       pinned={pins.pinned}
@@ -264,15 +280,15 @@ export function ConsoleBookmarks() {
       actions={{
         unpin: (p) => {
           pins.unpin(p.to, p.label)
-          undoable(`${p.label} losgemaakt`, () => pins.repin(p))
+          undoable(`${p.label} losgemaakt`, () => latest.current.repin(p))
         },
         repin: (s) => {
           pins.repin(s)
-          undoable(`${s.label} als bladwijzer bewaard`, () => pins.unpin(s.to, s.label))
+          undoable(`${s.label} als bladwijzer bewaard`, () => latest.current.unpin(s.to, s.label))
         },
         unfavourite: (f) => {
           pins.unfavourite(f.to, f.label)
-          undoable(`${f.label} uit je favorieten`, () => pins.favourite(f))
+          undoable(`${f.label} uit je favorieten`, () => latest.current.favourite(f))
         },
         useHits: (q, taken) => {
           const hits = useRecordSearch(q)

@@ -36,7 +36,8 @@ export function ActivityView({
   onWho: setWho,
   source,
   onSource: setSource,
-  onMore
+  onMore,
+  opens = () => true
 }: {
   now: number
   rows: ReadonlyArray<Note>
@@ -48,6 +49,8 @@ export function ActivityView({
   source: NoteSource | "all"
   onSource: (source: NoteSource | "all") => void
   onMore?: (() => void) | undefined
+  /** Whether the host has the screen a first step links to; the empty feed offers only those. */
+  opens?: ((to: string) => boolean) | undefined
 }) {
   const still = useReducedMotion()
   const groups = useMemo(() => {
@@ -119,7 +122,7 @@ export function ActivityView({
                 : "Wat je team, Insyte en je koppelingen doen, verschijnt hier."}
               starts={filtered
                 ? undefined
-                : [
+                : ([
                   {
                     id: "stores",
                     label: "Een winkel koppelen",
@@ -132,7 +135,7 @@ export function ActivityView({
                     body: "Mailbox, betaalproviders en meer.",
                     to: "/settings/integrations"
                   }
-                ]}
+                ] as const).filter((s) => opens(s.to))}
             />
           </div>
         ) :
