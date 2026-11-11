@@ -10,6 +10,7 @@ import { NotificationsRpcs } from "./rpc/NotificationsRpcs.ts"
 import { OnboardingRpcs } from "./rpc/OnboardingRpcs.ts"
 import { PortalRpcs } from "./rpc/PortalRpcs.ts"
 import { PrefsRpcs } from "./rpc/PrefsRpcs.ts"
+import { ProposalsRpcs } from "./rpc/ProposalsRpcs.ts"
 import { QualityLinkRpcs, QualityRpcs } from "./rpc/QualityRpcs.ts"
 import { QueueRpcs } from "./rpc/QueueRpcs.ts"
 import { ReturnsRpcs } from "./rpc/ReturnsRpcs.ts"
@@ -52,3 +53,4 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(QualityRpcs)
   .merge(QualityLinkRpcs)
   .merge(QueueRpcs)
+  .merge(ProposalsRpcs)
