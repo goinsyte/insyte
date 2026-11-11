@@ -191,7 +191,7 @@ function ChargebacksWidget() {
   const decided = won.length + lost
   const currency = useHome((s) => s.currency)
   const atStake = open.reduce((s, c) => s + convert(c.amount, c.currency, currency), 0)
-  const nearest = [...open].sort((a, b) => Date.parse(a.deadline_at) - Date.parse(b.deadline_at))[0]
+  const nearest = [...open].toSorted((a, b) => Date.parse(a.deadline_at) - Date.parse(b.deadline_at))[0]
   const daysLeft = nearest ? Math.max(0, Math.ceil((Date.parse(nearest.deadline_at) - Date.now()) / DAY)) : null
 
   return (
@@ -240,7 +240,7 @@ function SuppliersWidget() {
     }
     return [...by]
       .map(([name, r]) => ({ name, ...r }))
-      .sort((a, b) => b.delayed - a.delayed || b.open - a.open)
+      .toSorted((a, b) => b.delayed - a.delayed || b.open - a.open)
       .slice(0, 5)
   }, [orders])
   return <SuppliersView rows={rows} />
@@ -276,7 +276,7 @@ function StockWidget() {
           }))
         )
         .filter((v) => v.left <= LOW)
-        .sort((a, b) => a.left - b.left)
+        .toSorted((a, b) => a.left - b.left)
         .slice(0, 5),
     []
   )
@@ -288,7 +288,7 @@ function StockWidget() {
 function AutomationsWidget() {
   const active = automations.filter((a) => a.status === "active")
   const runs = automations.reduce((s, a) => s + a.runs_30d, 0)
-  const top = [...automations].sort((a, b) => b.runs_30d - a.runs_30d).slice(0, 3)
+  const top = [...automations].toSorted((a, b) => b.runs_30d - a.runs_30d).slice(0, 3)
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-1.5">
@@ -331,7 +331,7 @@ function MyTicketsWidget() {
     () =>
       tickets
         .filter((t) => t.status !== "done" && isAssignedTo(t.assignee_ids, ME))
-        .sort((a, b) =>
+        .toSorted((a, b) =>
           PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || Date.parse(b.updated_at) - Date.parse(a.updated_at)
         ),
     [tickets]

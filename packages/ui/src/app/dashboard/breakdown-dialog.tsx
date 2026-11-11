@@ -31,7 +31,7 @@ export function RevenueBreakdown({
     for (const o of w.counted) m.set(o.store_id, (m.get(o.store_id) ?? 0) + convert(o.total, o.currency, currency))
     return [...m]
       .map(([id, value]) => ({ name: stores.find((s) => s.id === id)?.name ?? "Overig", value }))
-      .sort((a, b) => b.value - a.value)
+      .toSorted((a, b) => b.value - a.value)
   }, [w.counted, stores, currency])
 
   const byProduct = useMemo(() => {
@@ -44,7 +44,7 @@ export function RevenueBreakdown({
         m.set(li.title, r)
       }
     }
-    return [...m].map(([title, r]) => ({ title, ...r })).sort((a, b) => b.value - a.value)
+    return [...m].map(([title, r]) => ({ title, ...r })).toSorted((a, b) => b.value - a.value)
   }, [w.counted, currency])
 
   const mixed = new Set(w.counted.map((o) => o.currency)).size > 1 || w.counted.some((o) => o.currency !== currency)

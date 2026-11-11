@@ -188,7 +188,7 @@ function DayClock({ day, now, moments }: { day: string; now: number; moments: Re
 
   // Lanes, so two things at once sit side by side instead of on top of each other.
   const placed = useMemo(() => {
-    const sorted = [...timed].sort((a, b) => a.at - b.at)
+    const sorted = [...timed].toSorted((a, b) => a.at - b.at)
     const lanes: number[] = []
     const out = sorted.map((m) => {
       const end = m.at + Math.max(m.minutes, 40) * 60_000

@@ -527,7 +527,9 @@ export type TeamMate = { id: string; name: string; presence: keyof typeof PRESEN
 export function TeamView({ team: people, message }: { team: ReadonlyArray<TeamMate>; message: boolean }) {
   const team = useMemo(
     () =>
-      people.map((m) => ({ ...m, presence: PRESENCE[m.presence] })).sort((a, b) => a.presence.rank - b.presence.rank),
+      people.map((m) => ({ ...m, presence: PRESENCE[m.presence] })).toSorted((a, b) =>
+        a.presence.rank - b.presence.rank
+      ),
     [people]
   )
   const online = team.filter((m) => m.presence.rank === 0).length

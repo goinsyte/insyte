@@ -68,6 +68,8 @@
         "!src/app/quality/**",
         "!src/app/lib/returns.ts",
         "!src/app/lib/quality.ts",
+        "!src/app/dashboard/**",
+        "!src/app/stores/home-store.ts",
       ],
     },
     "apps/console": {

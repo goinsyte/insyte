@@ -216,7 +216,7 @@ export function MentionsCard() {
   const now = Date.now()
   const mine = notes
     .filter((n) => n.reason !== undefined && stateOf(n, now) === "inbox")
-    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+    .toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at))
   const unread = mine.filter((n) => !n.read)
 
   if (mine.length === 0) return <Quiet>Niets voor jou.</Quiet>
@@ -432,6 +432,26 @@ const duration = (min: number) => {
   return h === 0 ? `${m} min` : m === 0 ? `${h} u` : `${h} u ${m} min`
 }
 
+/** One line of Insyte's card: what it did, as a door to where it waits. */
+const line = (
+  icon: IconComponent,
+  to: string,
+  search: Record<string, string> | undefined,
+  figure: string,
+  text: string,
+  trail?: string
+) => (
+  <li>
+    <Link to={to} search={search as never} className={cn(ROW, "glyph-host")}>
+      <Glyph icon={icon} size={14} draw={false} className="shrink-0 text-arc-ink" />
+      <span className="min-w-0 flex-1 truncate text-base text-ink">
+        <span className="font-medium tabular-nums">{figure}</span> {text}
+      </span>
+      {trail ? <span className="shrink-0 text-xs text-ink-2 tabular-nums">{trail}</span> : null}
+    </Link>
+  </li>
+)
+
 /**
  * Today's work Insyte did before anyone asked, each line the door to the place it is waiting. It
  * proposes and the operator decides, so a draft is "opgesteld", never "verstuurd", until someone
@@ -462,24 +482,6 @@ export function InsyteCard() {
   if (SCENARIO === "empty") {
     return <Quiet>Nog niets klaargezet.</Quiet>
   }
-  const line = (
-    icon: IconComponent,
-    to: string,
-    search: Record<string, string> | undefined,
-    figure: string,
-    text: string,
-    trail?: string
-  ) => (
-    <li>
-      <Link to={to} search={search as never} className={cn(ROW, "glyph-host")}>
-        <Glyph icon={icon} size={14} draw={false} className="shrink-0 text-arc-ink" />
-        <span className="min-w-0 flex-1 truncate text-base text-ink">
-          <span className="font-medium tabular-nums">{figure}</span> {text}
-        </span>
-        {trail ? <span className="shrink-0 text-xs text-ink-2 tabular-nums">{trail}</span> : null}
-      </Link>
-    </li>
-  )
   return (
     <div className="flex flex-col gap-2">
       <ul className="flex flex-col">
@@ -586,7 +588,7 @@ export function BestsellersCard() {
         return p ? { id, title: p.title, image: p.images[0], stock, ...r } : null
       })
       .filter((r): r is NonNullable<typeof r> => r !== null)
-      .sort((a, b) => b.units - a.units)
+      .toSorted((a, b) => b.units - a.units)
       .slice(0, 5)
       .map((r) => ({ ...r, revenue: convert(r.revenue, "USD", currency) }))
   }, [range, edits, currency])
@@ -600,10 +602,11 @@ export function CountriesCard() {
   const rows = useMemo(() => {
     const by = new Map<Country, number>()
     for (const o of historyWindow(range)) by.set(o.country, (by.get(o.country) ?? 0) + 1)
-    return [...by].map(([country, n]) => ({ country: country as string | null, name: COUNTRY_NAME[country], n })).sort((
-      a,
-      b
-    ) => b.n - a.n)
+    return [...by].map(([country, n]) => ({ country: country as string | null, name: COUNTRY_NAME[country], n }))
+      .toSorted((
+        a,
+        b
+      ) => b.n - a.n)
   }, [range])
   return <CountriesView rows={rows} range={range} />
 }
@@ -615,7 +618,9 @@ export function ChatsCard() {
   const muted = useChatStore((s) => s.muted)
   const list = [...created, ...conversations]
     .filter((c) => !muted.includes(c.id))
-    .sort((a, b) => b.unread_count - a.unread_count || Date.parse(b.last_message_at) - Date.parse(a.last_message_at))
+    .toSorted((a, b) =>
+      b.unread_count - a.unread_count || Date.parse(b.last_message_at) - Date.parse(a.last_message_at)
+    )
     .slice(0, 5)
   const unread = list.reduce((n, c) => n + c.unread_count, 0)
   if (list.every((c) => !c.last_message_preview)) {

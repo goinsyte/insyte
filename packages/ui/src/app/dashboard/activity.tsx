@@ -81,7 +81,7 @@ export function ActivityFeed() {
 
   const feed = useMemo(() => {
     const own = notes.filter((n) => n.persona === "admin" && heard(n, prefs))
-    return [...own, ...SEED, ...live.map(fromLive), ...agent.slice(0, 300).map(fromAgent)].sort((a, b) =>
+    return [...own, ...SEED, ...live.map(fromLive), ...agent.slice(0, 300).map(fromAgent)].toSorted((a, b) =>
       Date.parse(b.at) - Date.parse(a.at)
     )
   }, [notes, prefs, live, agent])
@@ -92,7 +92,7 @@ export function ActivityFeed() {
       const name = actorName(n)
       if (name) by.set(name, (by.get(name) ?? 0) + 1)
     }
-    return [...by].sort((a, b) => b[1] - a[1])
+    return [...by].toSorted((a, b) => b[1] - a[1])
   }, [feed])
   const sources = useMemo(() => [...new Set(feed.map((n) => n.source))], [feed])
 

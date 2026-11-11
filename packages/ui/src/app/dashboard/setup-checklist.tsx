@@ -116,7 +116,7 @@ export function SetupPlate({
   const left = tasks.length - done
   const next = tasks.find((t) => !t.done)
   return (
-    <section aria-labelledby="setup-title" className="plate overflow-hidden rounded-2xl">
+    <section aria-labelledby="setup-title" className="plate overflow-hidden rounded-xl">
       <div
         aria-hidden
         className="hatch-on-plate pointer-events-none absolute inset-y-0 right-0 w-3/5 [mask-image:linear-gradient(90deg,transparent,black_60%)]"

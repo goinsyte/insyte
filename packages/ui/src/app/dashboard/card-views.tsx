@@ -104,16 +104,20 @@ export function LiveView({
             <motion.li
               key={o.id}
               layout={still ? false : "position"}
-              initial={still ? false : { opacity: 0, height: 0, backgroundColor: "var(--arc-tint)" }}
-              animate={{ opacity: 1, height: 40, backgroundColor: "rgba(0,0,0,0)" }}
+              initial={still ? false : { opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 40 }}
               exit={{ opacity: 0, height: 0 }}
-              transition={{
-                duration: 0.42,
-                ease: [0.16, 1, 0.3, 1],
-                backgroundColor: { duration: 2.4, ease: "easeOut" }
-              }}
-              className="overflow-hidden rounded-md"
+              transition={{ duration: 0.42, ease: [0.16, 1, 0.3, 1] }}
+              className="relative isolate overflow-hidden rounded-md"
             >
+              {/* A new order arrives tinted and the tint fades, behind the row, in the token's own colour. */}
+              <motion.span
+                aria-hidden
+                className="pointer-events-none absolute inset-0 -z-10 bg-arc-tint"
+                initial={still ? false : { opacity: 1 }}
+                animate={{ opacity: 0 }}
+                transition={{ duration: 2.4, ease: "easeOut" }}
+              />
               <LiveLink to={o.to} title={o.title}>
                 <ProductThumb src={o.image} title={o.title} size={28} />
                 <span className="flex min-w-0 flex-1 flex-col leading-tight">
