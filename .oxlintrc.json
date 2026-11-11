@@ -84,6 +84,9 @@
     "!packages/ui/src/app/dashboard/**",
     "packages/ui/src/app/dashboard/queue-panel.tsx",
     "!packages/ui/src/app/stores/home-store.ts",
+    // Graduated (08 §3): the day's kinds and the demo's day, split for Mijn werk, Agenda and Activiteit (12.3b).
+    "!packages/ui/src/app/lib/home/day.ts",
+    "!packages/ui/src/app/lib/home/kinds.ts",
     // Graduated (08 §3): wired to the API, so held to this repo's rules.
     "!packages/ui/src/app/auth/login-screen.tsx",
     "!packages/ui/src/app/onboarding/shared-steps.tsx",
