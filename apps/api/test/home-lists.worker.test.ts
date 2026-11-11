@@ -20,6 +20,8 @@ describe("Start's lists", () => {
     const me = ok(await sessionMe(store.cookie)).principals[0]!
     const today = dayIn("Europe/Amsterdam", Date.now())
     const dueAt = Date.now() + 2 * 3_600_000
+    // Two hours on can be tomorrow (after 22:00 in Amsterdam), so the ticket is looked for on its own day.
+    const dueDay = dayIn("Europe/Amsterdam", dueAt)
 
     ok(await rpc("Todos.add", { text: "Leverancier bellen", due: today }, store.cookie))
     const ticket = ok(
@@ -59,9 +61,15 @@ describe("Start's lists", () => {
     expect(invite).toMatchObject({ title: email, dueAt: expect.any(Number) })
     expect(kinds.every((k) => ["todo", "queue", "ticket", "supplier", "invite"].includes(k))).toBe(true)
 
-    // The ticket's deadline is today's; the invitation lapses the day after it is to be followed up.
+    // The ticket stands on its deadline's day, the todo on today; the invitation lapses the day after it is to be
+    // followed up.
     const day = ok(await rpc("Home.agenda", { from: today, span: "day" }, store.cookie))
-    expect(day.rows.find((r) => r.kind === "ticket")).toMatchObject({ subjectId: ticket.id, at: dueAt, signal: "red" })
+    const dueOn = dueDay === today ? day : ok(await rpc("Home.agenda", { from: dueDay, span: "day" }, store.cookie))
+    expect(dueOn.rows.find((r) => r.kind === "ticket")).toMatchObject({
+      subjectId: ticket.id,
+      at: dueAt,
+      signal: "red"
+    })
     expect(day.rows.find((r) => r.kind === "todo")).toMatchObject({ title: "Leverancier bellen", allDay: true })
     expect(day.rows.map((r) => r.at)).toEqual(day.rows.map((r) => r.at).toSorted((a, b) => a - b))
     const lapses = dayIn("Europe/Amsterdam", invite!.dueAt! + DAY)
@@ -112,7 +120,7 @@ describe("Start's lists", () => {
     const finance = await join(email)
     const theirs = ok(await rpc("Home.work", undefined, finance))
     expect(theirs.rows.some((r) => r.kind === "ticket" || r.kind === "invite")).toBe(false)
-    expect(ok(await rpc("Home.agenda", { from: today, span: "day" }, finance)).rows.some((r) => r.kind === "ticket"))
+    expect(ok(await rpc("Home.agenda", { from: dueDay, span: "day" }, finance)).rows.some((r) => r.kind === "ticket"))
       .toBe(false)
     const theirFeed = ok(await rpc("Home.activity", { limit: 200 }, finance))
     expect(theirFeed.rows.some((r) => r.subjectType === "ticket")).toBe(false)
