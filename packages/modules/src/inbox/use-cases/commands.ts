@@ -302,8 +302,6 @@ export const linkTicket = Effect.fn("Threads.linkTicket")(function*(input: typeo
         if (number === undefined) return yield* new NotFound({ entity: "ticket", id: input.ticketId })
         ticket = { id: input.ticketId, number }
       } else {
-        const [mailbox] = yield* sql<{ provider: "forward" | "gmail" | "outlook" }>`
-          select provider from mailboxes where id = ${l!.mailboxId}`
         const [last] = yield* sql<{ name: string; email: string }>`
           select from_name as name, from_address as email from email_messages
           where thread_id = ${l!.id} and direction = 'inbound' order by sent_at desc limit 1`
@@ -313,7 +311,6 @@ export const linkTicket = Effect.fn("Threads.linkTicket")(function*(input: typeo
           description: `Van ${from?.name || from?.email || "onbekend"}${from?.email ? ` (${from.email})` : ""}: ${
             l!.lastMessagePreview
           }`.slice(0, 20_000),
-          source: mailbox?.provider === "forward" || mailbox === undefined ? "email" : mailbox.provider,
           threadId: l!.id,
           customerId: l!.customerId
         })

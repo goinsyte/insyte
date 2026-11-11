@@ -17,6 +17,7 @@ export const MailKind = Schema.Literals([
   "return.rejected",
   "return.label",
   "return.resolved",
+  "order.delayed",
   "support.message"
 ])
 export type MailKind = typeof MailKind.Type
@@ -94,6 +95,18 @@ export interface ReturnMailFacts {
 }
 
 /**
+ * A shopper's order is late (M10.2), in the store's name: the words were written when the plate was drawn and filed
+ * (`orders/domain/DelayMail.ts`), so the template sets them as they are, with the order's number and lines beside.
+ */
+export interface OrderDelayFacts {
+  readonly shop: string
+  readonly number: string
+  readonly subject: string
+  readonly paragraphs: ReadonlyArray<string>
+  readonly items: ReadonlyArray<{ readonly title: string; readonly variant: string | null; readonly qty: number }>
+}
+
+/**
  * A message the team wrote in the inbox (M11 step 2): a reply, a forward or a new mail, sent in the mailbox's name
  * from Insyte's sending domain, answered to the mailbox's own address, and threaded by its headers.
  */
@@ -118,6 +131,8 @@ export interface Mail {
   readonly supplierOrder?: SupplierOrderFacts | undefined
   /** `return.*` only. */
   readonly returnMail?: ReturnMailFacts | undefined
+  /** `order.delayed` only. */
+  readonly orderDelay?: OrderDelayFacts | undefined
   /** `support.message` only. */
   readonly support?: SupportFacts | undefined
   /** The name the mail is sent in (a store's, to its shopper); absent, Insyte's own. */

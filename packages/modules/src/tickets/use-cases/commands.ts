@@ -178,7 +178,18 @@ const assigneesNow = (sql: SqlClient.SqlClient, ticketId: string) =>
   )
 
 /** Makes one ticket on the command's transaction; answers its id and the outbox rows telling its assignees. */
-const make = Effect.fn("Tickets.make")(function*(sql: SqlClient.SqlClient, input: typeof CreateInput.Type) {
+/** Where a ticket came from, when it was not written by hand: a chat message ("Ticket maken van bericht", `/ticket`),
+ * a plate Insyte drew and someone filed, or a mail thread in the inbox. */
+export interface Origin {
+  readonly source: "chat" | "insyte" | "email"
+  readonly sourceRef?: string
+}
+
+const make = Effect.fn("Tickets.make")(function*(
+  sql: SqlClient.SqlClient,
+  input: typeof CreateInput.Type,
+  origin?: Origin
+) {
   const principal = yield* CurrentPrincipal
   const title = input.title.trim()
   if (title === "") return yield* new Invalid({ fields: { title: "required" } })
@@ -207,10 +218,11 @@ const make = Effect.fn("Tickets.make")(function*(sql: SqlClient.SqlClient, input
   const description = input.description ?? ""
   const status = input.status ?? "intake"
   yield* sql`
-    insert into tickets (id, workspace_id, number, title, description, status, priority, position, source, store_id,
-                         order_id, customer_id, template, topic, due_at, resolved_at, created_by)
+    insert into tickets (id, workspace_id, number, title, description, status, priority, position, source, source_ref,
+                         store_id, order_id, customer_id, template, topic, due_at, resolved_at, created_by)
     values (${id}, ${principal.workspaceId}, ${Number(counter!.n)}, ${title}, ${description}, ${status},
-            ${input.priority ?? "medium"}, ${Number(front?.p ?? -1)}, 'manual', ${related.storeId}, ${related.orderId},
+            ${input.priority ?? "medium"}, ${Number(front?.p ?? -1)}, ${origin?.source ?? "manual"},
+            ${origin?.sourceRef ?? null}, ${related.storeId}, ${related.orderId},
             ${related.customerId}, ${input.template ?? null}, ${topicOf(title, description)},
             ${at(input.dueAt ?? null)}, ${status === "done" ? new Date() : null}, ${principal.id})`
   yield* writeLabels(sql, principal.workspaceId, id, labelsOf(input.labels ?? []))
@@ -230,37 +242,33 @@ const make = Effect.fn("Tickets.make")(function*(sql: SqlClient.SqlClient, input
 
 /**
  * A ticket made from a mail thread ("Aan ticket koppelen", the inbox slice's `ThreadTickets`), on the inbox's
- * transaction: `#n` at the top of the board, in the customer's store where the thread names one, with the thread as
- * its `source_ref`. No one is assigned, so no one is told.
+ * transaction: `make`, with the thread as its origin. It lands in the customer's store where the person may see that
+ * customer, and without a customer where not. No one is assigned, so no one is told.
  */
 export const fromThread = Effect.fn("Tickets.fromThread")(function*(
   sql: SqlClient.SqlClient,
   input: {
     readonly title: string
     readonly description: string
-    readonly source: "gmail" | "outlook" | "email"
     readonly threadId: string
     readonly customerId: string | null
   }
 ) {
-  const principal = yield* CurrentPrincipal
-  const [customer] = input.customerId === null
-    ? []
-    : yield* sql<{ id: string; storeId: string }>`select id, store_id from customers where id = ${input.customerId}`
-  const [counter] = yield* sql<{ n: string }>`
-    update workspace_counters set next = next + 1 where kind = 'ticket' returning next - 1 as n`
-  const [front] = yield* sql<{ p: number }>`select coalesce(min(position), 0) - 1 as p from tickets`
-  const id = mintId("tkt")
-  const number = Number(counter!.n)
-  const title = input.title.trim().slice(0, 200) || "Mail zonder onderwerp"
-  yield* sql`
-    insert into tickets (id, workspace_id, number, title, description, status, priority, position, source, source_ref,
-                         store_id, customer_id, topic, created_by)
-    values (${id}, ${principal.workspaceId}, ${number}, ${title}, ${input.description.slice(0, 20_000)}, 'intake',
-            'medium', ${Number(front?.p ?? -1)}, ${input.source}, ${input.threadId}, ${customer?.storeId ?? null},
-            ${customer?.id ?? null}, ${topicOf(title, input.description)}, ${principal.id})`
-  yield* audit(sql, "ticket.created", id, { number, status: "intake", priority: "medium", thread: input.threadId })
-  return { id, number }
+  const origin: Origin = { source: "email", sourceRef: input.threadId }
+  const fields = {
+    title: input.title.trim().slice(0, 200) || "Mail zonder onderwerp",
+    description: input.description.slice(0, 20_000)
+  }
+  const made = yield* (input.customerId === null
+    ? make(sql, fields, origin)
+    : make(sql, { ...fields, related: { type: "customer", id: input.customerId } }, origin).pipe(
+      Effect.catchTag("NotFound", () => make(sql, fields, origin))
+    )).pipe(
+      // None can happen here: the title is never empty, no one is assigned, and the fallback names no customer.
+      Effect.catchTags({ Invalid: Effect.die, MemberNotActive: Effect.die, NotFound: Effect.die })
+    )
+  const [row] = yield* sql<{ number: number }>`select number from tickets where id = ${made.id}`
+  return { id: made.id, number: Number(row!.number) }
 })
 
 /** The ticket `fromThread` made, taken away again (the inbox's Undo). */
@@ -272,13 +280,13 @@ export const removeFromThread = Effect.fn("Tickets.removeFromThread")(function*(
   yield* audit(sql, "ticket.removed", ticketId)
 })
 
-/** "Ticket aanmaken" (NewTicketDialog), by hand: `#n`, at the top of the board. */
-export const create = Effect.fn("Tickets.create")(function*(input: typeof CreateInput.Type) {
+/** "Ticket aanmaken" (NewTicketDialog), by hand: `#n`, at the top of the board; `insyte` for one a filed plate opens. */
+export const create = Effect.fn("Tickets.create")(function*(input: typeof CreateInput.Type, origin?: Origin) {
   yield* Policy.require("support", 2)
   const db = yield* Db
   const { change, outboxIds } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      const made = yield* make(sql, input)
+      const made = yield* make(sql, input, origin)
       return {
         change: yield* answer(sql, [made.id], { kind: "created", ids: [made.id] }, made.outboxIds),
         outboxIds: made.outboxIds

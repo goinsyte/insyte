@@ -16,7 +16,6 @@ export class ThreadTickets extends Context.Service<ThreadTickets, {
   readonly make: (sql: SqlClient.SqlClient, input: {
     readonly title: string
     readonly description: string
-    readonly source: "gmail" | "outlook" | "email"
     readonly threadId: string
     readonly customerId: string | null
   }) => Effect.Effect<{ readonly id: string; readonly number: number }, SqlError.SqlError, CurrentPrincipal>

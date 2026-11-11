@@ -1,8 +1,10 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
+import { HomeRpcs } from "@insyte/api/rpc/HomeRpcs"
 import { MarketingRpcs } from "@insyte/api/rpc/MarketingRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
 import { ProposalsRpcs } from "@insyte/api/rpc/ProposalsRpcs"
@@ -239,10 +241,34 @@ const PAYLOADS: Record<string, unknown> = {
   "Queue.list": {},
   "Queue.markSeen": { id: "qi_none" },
   "Queue.reopen": { id: "qi_none" },
+  "Home.brief": {},
+  "Home.widgets": { ids: ["orders"], range: 30 },
+  "Home.revenueBreakdown": { range: 30 },
   "Proposals.get": { id: "prp_none" },
   "Proposals.file": { id: "prp_none" },
   "Proposals.discard": { id: "prp_none" },
-  "Proposals.redraw": { id: "prp_none" }
+  "Proposals.redraw": { id: "prp_none" },
+  "Chats.list": undefined,
+  "Chats.messages": { conversationId: "cnv_none" },
+  "Chats.thread": { messageId: "msg_none" },
+  "Chats.pinnedMessages": { conversationId: "cnv_none" },
+  "Chats.members": { conversationId: "cnv_none" },
+  "Chats.send": { conversationId: "cnv_none", body: "x" },
+  "Chats.editMessage": { messageId: "msg_none", body: "x" },
+  "Chats.deleteMessage": { messageId: "msg_none" },
+  "Chats.react": { messageId: "msg_none", emoji: "👍", on: true },
+  "Chats.pinMessage": { messageId: "msg_none", pinned: true },
+  "Chats.pin": { conversationId: "cnv_none", pinned: true },
+  "Chats.mute": { conversationId: "cnv_none", muted: true },
+  "Chats.markRead": { conversationId: "cnv_none" },
+  "Chats.typing": { conversationId: "cnv_none" },
+  // A blank name: Invalid past the permission check, so nothing is made.
+  "Chats.createChannel": { name: "   " },
+  "Chats.openDm": { memberId: "mem_none" },
+  "Chats.openSupplierChannel": { supplierId: "sup_none" },
+  "Chats.runCommand": { conversationId: "cnv_none", command: "note", arg: "x" },
+  "Chats.confirmAction": { actionId: "cha_none" },
+  "Chats.declineAction": { actionId: "cha_none" }
 }
 
 const manifest = [
@@ -263,7 +289,9 @@ const manifest = [
   ...ThreadsRpcs.requests.keys(),
   ...QualityRpcs.requests.keys(),
   ...QueueRpcs.requests.keys(),
-  ...ProposalsRpcs.requests.keys()
+  ...HomeRpcs.requests.keys(),
+  ...ProposalsRpcs.requests.keys(),
+  ...ChatsRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

@@ -60,10 +60,23 @@ const portedPaths = [
  * Screens that graduated from the port (M7.6): their commands run on the server now, they were edited for it, and the
  * rules hold them like any authored code. A screen joins this list when its slice's commands land.
  */
-const graduated = ["app/orders/", "app/products/", "app/customers/", "app/suppliers/", "app/returns/", "app/quality/"]
+const graduated = [
+  "app/orders/",
+  "app/products/",
+  "app/customers/",
+  "app/suppliers/",
+  "app/returns/",
+  "app/quality/",
+  "app/dashboard/",
+  "app/stores/home-store.ts"
+]
+
+/** Inside a graduated directory but not yet edited for the backend: the queue panel waits for the proposals branches. */
+const notYet = new Set(["app/dashboard/queue-panel.tsx"])
 
 const ported = (name: string): boolean =>
-  portedPaths.some((prefix) => name.startsWith(prefix)) && !graduated.some((prefix) => name.startsWith(prefix))
+  portedPaths.some((prefix) => name.startsWith(prefix)) &&
+  (notYet.has(name) || !graduated.some((prefix) => name.startsWith(prefix)))
 
 const files = sources(src).filter(([name]) => !ported(name))
 

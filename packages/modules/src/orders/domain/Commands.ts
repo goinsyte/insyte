@@ -60,7 +60,10 @@ export class OrderChange extends Schema.Class<OrderChange>("orders/OrderChange")
 /** The operator's tags in the role's stores, the most used first: TagDialog's and the inline suggestions. */
 export const TagCount = Schema.Struct({ tag: Schema.String, count: Schema.Int })
 
-/** The orders as they were, field by field, for `Shared.undo`: only the fields the command changed are present. */
+/**
+ * The orders as they were, field by field, for `Shared.undo`: only the fields the command changed are present. `mails`:
+ * the shopper mails the command put in line (`order_mails`), called off before they leave.
+ */
 export const OrdersRestore = Schema.Struct({
   orders: Schema.Array(Schema.Struct({
     id: Schema.String,
@@ -69,6 +72,7 @@ export const OrdersRestore = Schema.Struct({
     status: Schema.optional(Schema.String),
     fulfillmentStatus: Schema.optional(Schema.String),
     shippedAt: Schema.optional(Schema.NullOr(Schema.String))
-  }))
+  })),
+  mails: Schema.optional(Schema.Array(Schema.String))
 })
 export type OrdersRestore = typeof OrdersRestore.Type

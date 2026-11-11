@@ -344,8 +344,13 @@ test("@analysis @order @customer @product @search a new admin with a store reads
 
   // @search (step 8.4e): the palette finds records through `Search.records`: an order by its number, then a customer
   // by name, each opening its record.
-  await page.keyboard.press("ControlOrMeta+k")
+  // Without a trace the run is fast enough for the keys to land before the palette listens: press until it is open.
   const palette = page.getByRole("dialog")
+  await expect(async () => {
+    if (await palette.getByPlaceholder(/^Zoek bestellingen/).isVisible()) return
+    await page.keyboard.press("ControlOrMeta+k")
+    await expect(palette.getByPlaceholder(/^Zoek bestellingen/)).toBeVisible({ timeout: 3_000 })
+  }).toPass({ timeout: 30_000 })
   await palette.getByPlaceholder(/^Zoek bestellingen/).fill("1003")
   await palette.getByRole("option", { name: /#1003/ }).click()
   await expect(page.getByRole("heading", { name: "#1003" })).toBeVisible()
