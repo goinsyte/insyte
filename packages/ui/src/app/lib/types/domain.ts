@@ -130,7 +130,7 @@ export type Ticket = {
 	updated_at: string;
 };
 
-export type TicketSource = "gmail" | "outlook" | "shopify" | "klarna" | "chat" | "insyte" | "manual" | "supplier";
+export type TicketSource = "gmail" | "outlook" | "email" | "shopify" | "klarna" | "chat" | "insyte" | "manual" | "supplier";
 
 export type Email = {
 	id: string;

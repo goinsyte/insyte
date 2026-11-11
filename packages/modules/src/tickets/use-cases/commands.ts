@@ -228,6 +228,50 @@ const make = Effect.fn("Tickets.make")(function*(sql: SqlClient.SqlClient, input
   return { id, outboxIds: yield* tellAssigned(sql, id, assignees) }
 })
 
+/**
+ * A ticket made from a mail thread ("Aan ticket koppelen", the inbox slice's `ThreadTickets`), on the inbox's
+ * transaction: `#n` at the top of the board, in the customer's store where the thread names one, with the thread as
+ * its `source_ref`. No one is assigned, so no one is told.
+ */
+export const fromThread = Effect.fn("Tickets.fromThread")(function*(
+  sql: SqlClient.SqlClient,
+  input: {
+    readonly title: string
+    readonly description: string
+    readonly source: "gmail" | "outlook" | "email"
+    readonly threadId: string
+    readonly customerId: string | null
+  }
+) {
+  const principal = yield* CurrentPrincipal
+  const [customer] = input.customerId === null
+    ? []
+    : yield* sql<{ id: string; storeId: string }>`select id, store_id from customers where id = ${input.customerId}`
+  const [counter] = yield* sql<{ n: string }>`
+    update workspace_counters set next = next + 1 where kind = 'ticket' returning next - 1 as n`
+  const [front] = yield* sql<{ p: number }>`select coalesce(min(position), 0) - 1 as p from tickets`
+  const id = mintId("tkt")
+  const number = Number(counter!.n)
+  const title = input.title.trim().slice(0, 200) || "Mail zonder onderwerp"
+  yield* sql`
+    insert into tickets (id, workspace_id, number, title, description, status, priority, position, source, source_ref,
+                         store_id, customer_id, topic, created_by)
+    values (${id}, ${principal.workspaceId}, ${number}, ${title}, ${input.description.slice(0, 20_000)}, 'intake',
+            'medium', ${Number(front?.p ?? -1)}, ${input.source}, ${input.threadId}, ${customer?.storeId ?? null},
+            ${customer?.id ?? null}, ${topicOf(title, input.description)}, ${principal.id})`
+  yield* audit(sql, "ticket.created", id, { number, status: "intake", priority: "medium", thread: input.threadId })
+  return { id, number }
+})
+
+/** The ticket `fromThread` made, taken away again (the inbox's Undo). */
+export const removeFromThread = Effect.fn("Tickets.removeFromThread")(function*(
+  sql: SqlClient.SqlClient,
+  ticketId: string
+) {
+  yield* sql`delete from tickets where id = ${ticketId}`
+  yield* audit(sql, "ticket.removed", ticketId)
+})
+
 /** "Ticket aanmaken" (NewTicketDialog), by hand: `#n`, at the top of the board. */
 export const create = Effect.fn("Tickets.create")(function*(input: typeof CreateInput.Type) {
   yield* Policy.require("support", 2)

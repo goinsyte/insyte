@@ -12,6 +12,7 @@ import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
 import { StoresRpcs } from "@insyte/api/rpc/StoresRpcs"
 import { SuppliersRpcs } from "@insyte/api/rpc/SuppliersRpcs"
+import { ThreadsRpcs } from "@insyte/api/rpc/ThreadsRpcs"
 import { TicketsRpcs } from "@insyte/api/rpc/TicketsRpcs"
 import { TrackingRpcs } from "@insyte/api/rpc/TrackingRpcs"
 import { Exit } from "effect"
@@ -201,6 +202,27 @@ const PAYLOADS: Record<string, unknown> = {
   "Tickets.watch": { id: "tkt_none" },
   "Tickets.unwatch": { id: "tkt_none" },
   "Tickets.comment": { id: "tkt_none", body: "x" },
+  "Threads.list": {},
+  "Threads.get": { id: "thr_none" },
+  "Threads.markRead": { ids: ["thr_none"], read: true },
+  "Threads.star": { id: "thr_none", starred: true },
+  "Threads.label": { id: "thr_none", label: "x", on: true },
+  "Threads.archive": { ids: ["thr_none"] },
+  "Threads.spam": { ids: ["thr_none"] },
+  "Threads.trash": { ids: ["thr_none"] },
+  "Threads.snooze": { ids: ["thr_none"], until: 4_102_444_800_000 },
+  "Threads.putBack": { ids: ["thr_none"] },
+  "Threads.assign": { id: "thr_none", memberId: "mem_none" },
+  "Threads.unassign": { id: "thr_none" },
+  "Threads.linkTicket": { threadId: "thr_none" },
+  "Threads.reply": { threadId: "thr_none", body: "   " },
+  "Threads.forward": { threadId: "thr_none", to: "iemand@voorbeeld.nl" },
+  "Threads.compose": { to: "iemand@voorbeeld.nl", subject: "x", body: "   " },
+  "Mailboxes.list": undefined,
+  "Mailboxes.connect": { provider: "gmail", address: "support@voorbeeld.nl", label: "Support" },
+  "Mailboxes.disconnect": { id: "mbx_none" },
+  "Mailboxes.setDefault": { id: "mbx_none" },
+  "Mailboxes.setSignature": { id: "mbx_none", signature: "" },
   "Quality.list": { productId: "prd_none" },
   "Quality.request": {
     productId: "prd_none",
@@ -233,6 +255,7 @@ const manifest = [
   ...TrackingRpcs.requests.keys(),
   ...ReturnsRpcs.requests.keys(),
   ...TicketsRpcs.requests.keys(),
+  ...ThreadsRpcs.requests.keys(),
   ...QualityRpcs.requests.keys(),
   ...QueueRpcs.requests.keys()
 ]

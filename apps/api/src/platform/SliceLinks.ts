@@ -2,6 +2,8 @@ import { KlaviyoSyncs } from "@insyte/modules/customers/domain/Ports"
 import { restore as restoreCustomers } from "@insyte/modules/customers/use-cases/commands"
 import { restore as restoreForwarding } from "@insyte/modules/forwarding/use-cases/commands"
 import { ensureLegs } from "@insyte/modules/forwarding/use-cases/legs"
+import { ThreadTickets } from "@insyte/modules/inbox/domain/Ports"
+import { restore as restoreInbox } from "@insyte/modules/inbox/use-cases/commands"
 import { lastSyncOf, restore as restoreMarketing } from "@insyte/modules/marketing/use-cases/klaviyo"
 import { restore as restoreOrders } from "@insyte/modules/orders/use-cases/commands"
 import { refundOn } from "@insyte/modules/orders/use-cases/refund"
@@ -17,7 +19,8 @@ import { MirrorFollowers } from "@insyte/modules/stores/domain/Ports"
 import { StoreMirror } from "@insyte/modules/stores/Mirror"
 import { ShopifyReturns } from "@insyte/modules/stores/ShopifyReturns"
 import { restore as restoreSuppliers } from "@insyte/modules/suppliers/use-cases/commands"
-import { restore as restoreTickets } from "@insyte/modules/tickets/use-cases/commands"
+import { fromThread, removeFromThread, restore as restoreTickets } from "@insyte/modules/tickets/use-cases/commands"
+import { numberOf } from "@insyte/modules/tickets/use-cases/tickets"
 import { ReturnParcels } from "@insyte/modules/tracking/Parcels"
 import { ensureDeliveries } from "@insyte/modules/tracking/use-cases/tracking"
 import { UndoCompensations } from "@insyte/modules/undo/domain/Ports"
@@ -34,6 +37,7 @@ import { Effect, Layer } from "effect"
  *   returns' refund → the orders slice's refund, on the return's transaction (M9.1)
  *   a customer      → their newest Klaviyo sync (M7.5)
  *   AfterShip       → a return's parcel, for the returns slice (M9.2)
+ *   the inbox       → a ticket made from a thread, and taken away again (M11 step 2)
  */
 
 const MirrorFollowersLive = Layer.succeed(MirrorFollowers, {
@@ -46,6 +50,10 @@ const ShopifyReturnsLive = Layer.succeed(ShopifyReturns, {
   applied: (storeId, topic, body) => shopifyReturn(storeId, topic, body).pipe(Effect.orDie)
 })
 
+const threadTickets = ThreadTickets.of({ make: fromThread, remove: removeFromThread, numberOf })
+
+const ThreadTicketsLive = Layer.succeed(ThreadTickets, threadTickets)
+
 const UndoCompensationsLive = Layer.succeed(UndoCompensations, {
   "orders.restore": restoreOrders,
   "products.restore": restoreProducts,
@@ -55,6 +63,8 @@ const UndoCompensationsLive = Layer.succeed(UndoCompensations, {
   "forwarding.restore": restoreForwarding,
   "returns.restore": restoreReturns,
   "tickets.restore": restoreTickets,
+  "inbox.restore": (sql, compensation) =>
+    restoreInbox(sql, compensation).pipe(Effect.provideService(ThreadTickets, threadTickets)),
   "quality.restore": restoreQuality,
   "queue.restore": restoreQueue
 })
@@ -82,7 +92,8 @@ export const SliceLinks = StoreMirror.layer.pipe(
       RefunderLive,
       KlaviyoSyncsLive,
       ReturnParcelsLive,
-      ShopifyReturnsLive
+      ShopifyReturnsLive,
+      ThreadTicketsLive
     )
   )
 )

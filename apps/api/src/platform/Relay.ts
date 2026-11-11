@@ -2,6 +2,7 @@ import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { ForwardSends } from "@insyte/modules/forwarding/domain/Forwarding"
+import { sendQueued } from "@insyte/modules/inbox/use-cases/send"
 import { MarketingSyncs } from "@insyte/modules/marketing/domain/Marketing"
 import { InvitationLinks } from "@insyte/modules/members/domain/Ports"
 import { fanOut } from "@insyte/modules/notifications/use-cases/fanout"
@@ -313,6 +314,12 @@ const SINKS: ReadonlyArray<Sink> = [
         : isReturnMail(event)
         ? returnMails(event, sql)
         : undefined
+  },
+  {
+    // A message the team wrote in the inbox (M11 step 2), once its undo window has passed: through its mailbox.
+    name: "support",
+    run: (_id, event, sql) =>
+      event.type === "thread.message_queued" ? sendQueued(sql, event.messageId).pipe(Effect.orDie) : undefined
   },
   {
     // A connected store's first import (M6.3): one Workflow per connect, named by this event.

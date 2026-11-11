@@ -14,9 +14,9 @@ export const MailerCapture = Layer.effect(
     Mailer.of({
       send: (mail) =>
         withConnection(Effect.flatMap(Effect.service(SqlClient.SqlClient), (sql) =>
-          sql`insert into captured_mail (kind, to_address, url, reference, sender)
+          sql`insert into captured_mail (kind, to_address, url, reference, sender, subject, body_text)
               values (${mail.kind}, ${mail.to.toLowerCase()}, ${mail.url ?? null}, ${mail.reference ?? null},
-                      ${mail.sender ?? null})`)).pipe(
+                      ${mail.sender ?? null}, ${mail.support?.subject ?? null}, ${mail.support?.text ?? null})`)).pipe(
             Effect.provideService(Connect, connect),
             Effect.asVoid,
             Effect.mapError((error) =>
