@@ -27,7 +27,7 @@ import type {
   RunCommandInput,
   SendInput
 } from "./domain/Chats.ts"
-import { ChatCommands } from "./domain/Ports.ts"
+import { ChatCommands } from "./Links.ts"
 import * as Actions from "./use-cases/actions.ts"
 import * as Reads from "./use-cases/chats.ts"
 import * as Commands from "./use-cases/commands.ts"

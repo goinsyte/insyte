@@ -1,9 +1,9 @@
 import type { Db } from "@insyte/database/Db"
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, type Effect, Schema } from "effect"
-import type { Relay } from "../../shared/domain/Outbox.ts"
-import type { UndoTicket } from "../../shared/domain/Undo.ts"
-import type { CommandId, RecordRef } from "./Chats.ts"
+import type { Relay } from "../shared/domain/Outbox.ts"
+import type { UndoTicket } from "../shared/domain/Undo.ts"
+import type { CommandId, RecordRef } from "./domain/Chats.ts"
 
 /**
  * A command's underlying use case, which another slice owns (widgets/04 §C "Chat action card"): a note on an order, a

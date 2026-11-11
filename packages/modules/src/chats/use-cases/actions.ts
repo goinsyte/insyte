@@ -14,7 +14,7 @@ import {
   type RecordRef,
   type RunCommandInput
 } from "../domain/Chats.ts"
-import { ChatCommands } from "../domain/Ports.ts"
+import { ChatCommands } from "../Links.ts"
 import { conversationOf, messageIn, messageRow } from "./chats.ts"
 import { announce, post, RESTORE } from "./commands.ts"
 

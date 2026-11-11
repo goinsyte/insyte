@@ -1,4 +1,4 @@
-import { ActionFailed, ChatCommands } from "@insyte/modules/chats/domain/Ports"
+import { ActionFailed, ChatCommands } from "@insyte/modules/chats/Links"
 import { restore as restoreChats } from "@insyte/modules/chats/use-cases/commands"
 import { KlaviyoSyncs } from "@insyte/modules/customers/domain/Ports"
 import { restore as restoreCustomers } from "@insyte/modules/customers/use-cases/commands"
