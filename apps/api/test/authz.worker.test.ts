@@ -1,4 +1,5 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
@@ -14,6 +15,7 @@ import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
 import { StoresRpcs } from "@insyte/api/rpc/StoresRpcs"
 import { SuppliersRpcs } from "@insyte/api/rpc/SuppliersRpcs"
+import { ThreadsRpcs } from "@insyte/api/rpc/ThreadsRpcs"
 import { TicketsRpcs } from "@insyte/api/rpc/TicketsRpcs"
 import { TrackingRpcs } from "@insyte/api/rpc/TrackingRpcs"
 import { Exit } from "effect"
@@ -203,6 +205,27 @@ const PAYLOADS: Record<string, unknown> = {
   "Tickets.watch": { id: "tkt_none" },
   "Tickets.unwatch": { id: "tkt_none" },
   "Tickets.comment": { id: "tkt_none", body: "x" },
+  "Threads.list": {},
+  "Threads.get": { id: "thr_none" },
+  "Threads.markRead": { ids: ["thr_none"], read: true },
+  "Threads.star": { id: "thr_none", starred: true },
+  "Threads.label": { id: "thr_none", label: "x", on: true },
+  "Threads.archive": { ids: ["thr_none"] },
+  "Threads.spam": { ids: ["thr_none"] },
+  "Threads.trash": { ids: ["thr_none"] },
+  "Threads.snooze": { ids: ["thr_none"], until: 4_102_444_800_000 },
+  "Threads.putBack": { ids: ["thr_none"] },
+  "Threads.assign": { id: "thr_none", memberId: "mem_none" },
+  "Threads.unassign": { id: "thr_none" },
+  "Threads.linkTicket": { threadId: "thr_none" },
+  "Threads.reply": { threadId: "thr_none", body: "   " },
+  "Threads.forward": { threadId: "thr_none", to: "iemand@voorbeeld.nl" },
+  "Threads.compose": { to: "iemand@voorbeeld.nl", subject: "x", body: "   " },
+  "Mailboxes.list": undefined,
+  "Mailboxes.connect": { provider: "gmail", address: "support@voorbeeld.nl", label: "Support" },
+  "Mailboxes.disconnect": { id: "mbx_none" },
+  "Mailboxes.setDefault": { id: "mbx_none" },
+  "Mailboxes.setSignature": { id: "mbx_none", signature: "" },
   "Quality.list": { productId: "prd_none" },
   "Quality.request": {
     productId: "prd_none",
@@ -227,7 +250,28 @@ const PAYLOADS: Record<string, unknown> = {
   "Proposals.get": { id: "prp_none" },
   "Proposals.file": { id: "prp_none" },
   "Proposals.discard": { id: "prp_none" },
-  "Proposals.redraw": { id: "prp_none" }
+  "Proposals.redraw": { id: "prp_none" },
+  "Chats.list": undefined,
+  "Chats.messages": { conversationId: "cnv_none" },
+  "Chats.thread": { messageId: "msg_none" },
+  "Chats.pinnedMessages": { conversationId: "cnv_none" },
+  "Chats.members": { conversationId: "cnv_none" },
+  "Chats.send": { conversationId: "cnv_none", body: "x" },
+  "Chats.editMessage": { messageId: "msg_none", body: "x" },
+  "Chats.deleteMessage": { messageId: "msg_none" },
+  "Chats.react": { messageId: "msg_none", emoji: "👍", on: true },
+  "Chats.pinMessage": { messageId: "msg_none", pinned: true },
+  "Chats.pin": { conversationId: "cnv_none", pinned: true },
+  "Chats.mute": { conversationId: "cnv_none", muted: true },
+  "Chats.markRead": { conversationId: "cnv_none" },
+  "Chats.typing": { conversationId: "cnv_none" },
+  // A blank name: Invalid past the permission check, so nothing is made.
+  "Chats.createChannel": { name: "   " },
+  "Chats.openDm": { memberId: "mem_none" },
+  "Chats.openSupplierChannel": { supplierId: "sup_none" },
+  "Chats.runCommand": { conversationId: "cnv_none", command: "note", arg: "x" },
+  "Chats.confirmAction": { actionId: "cha_none" },
+  "Chats.declineAction": { actionId: "cha_none" }
 }
 
 const manifest = [
@@ -245,10 +289,12 @@ const manifest = [
   ...TrackingRpcs.requests.keys(),
   ...ReturnsRpcs.requests.keys(),
   ...TicketsRpcs.requests.keys(),
+  ...ThreadsRpcs.requests.keys(),
   ...QualityRpcs.requests.keys(),
   ...QueueRpcs.requests.keys(),
   ...HomeRpcs.requests.keys(),
-  ...ProposalsRpcs.requests.keys()
+  ...ProposalsRpcs.requests.keys(),
+  ...ChatsRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

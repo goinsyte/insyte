@@ -5,5 +5,5 @@ export const ticketsSearch = z.object({
 	ticket: z.string().optional(),
 	// The area panel's views and sources.
 	view: z.enum(["open", "mine", "unassigned", "snoozed", "done", "archived", "trash", "spam"]).optional(),
-	source: z.enum(["gmail", "outlook", "shopify", "klarna", "chat", "insyte", "manual"]).optional(),
+	source: z.enum(["gmail", "outlook", "email", "shopify", "klarna", "chat", "insyte", "manual"]).optional(),
 });

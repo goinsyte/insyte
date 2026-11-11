@@ -13,6 +13,7 @@ export const TicketPriority = Schema.Literals(["low", "medium", "high"])
 export const TicketSource = Schema.Literals([
   "gmail",
   "outlook",
+  "email",
   "shopify",
   "klarna",
   "chat",

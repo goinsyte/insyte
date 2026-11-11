@@ -1,10 +1,12 @@
 import { ConsoleRpcs, RPC_PATH } from "@insyte/api/ConsoleRpcs"
 import { Access } from "@insyte/modules/access/Access"
+import { ChatsService } from "@insyte/modules/chats/Chats"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
 import { FirstAnalysisService } from "@insyte/modules/first-analysis/FirstAnalysis"
 import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
 import { HomeService } from "@insyte/modules/home/Home"
+import { InboxService } from "@insyte/modules/inbox/Inbox"
 import { MarketingService } from "@insyte/modules/marketing/Marketing"
 import { Landing } from "@insyte/modules/members/Landing"
 import { Members } from "@insyte/modules/members/Members"
@@ -28,6 +30,7 @@ import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Layer } from "effect"
 import { RpcSerialization } from "effect/rpc"
 import { AccessHandlers } from "./handlers/access.ts"
+import { ChatsHandlers } from "./handlers/chats.ts"
 import { CommerceHandlers } from "./handlers/commerce.ts"
 import { DeveloperHandlers } from "./handlers/developer.ts"
 import { FirstAnalysisHandlers } from "./handlers/first-analysis.ts"
@@ -51,6 +54,7 @@ import { ShellHandlers } from "./handlers/shell.ts"
 import { StoresHandlers } from "./handlers/stores.ts"
 import { SuppliersHandlers } from "./handlers/suppliers.ts"
 import { SystemHandlers } from "./handlers/system.ts"
+import { ThreadsHandlers } from "./handlers/threads.ts"
 import { TicketsHandlers } from "./handlers/tickets.ts"
 import { TrackingHandlers } from "./handlers/tracking.ts"
 import { RpcHttp } from "./RpcHttp.ts"
@@ -89,9 +93,11 @@ export const RpcContext = Layer.mergeAll(
   ReturnsHandlers.pipe(Layer.provide(ReturnsService.layer)),
   PortalHandlers.pipe(Layer.provide(PortalService.layer)),
   TicketsHandlers.pipe(Layer.provide(TicketsService.layer)),
+  ThreadsHandlers.pipe(Layer.provide(InboxService.layer)),
   QueueHandlers.pipe(Layer.provide(QueueService.layer)),
   HomeHandlers.pipe(Layer.provide(HomeService.layer)),
   ProposalsHandlers.pipe(Layer.provide(ProposalsService.layer)),
+  ChatsHandlers.pipe(Layer.provide(ChatsService.layer)),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
   ShellHandlers.pipe(
     Layer.provide(
@@ -103,7 +109,8 @@ export const RpcContext = Layer.mergeAll(
         OrdersService.layer,
         ProductsService.layer,
         CustomersService.layer,
-        TicketsService.layer
+        TicketsService.layer,
+        InboxService.layer
       )
     )
   )

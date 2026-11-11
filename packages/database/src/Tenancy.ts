@@ -77,7 +77,20 @@ export const TENANT_TABLES = [
   "queue_items",
   "proposals",
   "proposal_revisions",
-  "order_mails"
+  "order_mails",
+  "fact_dirty_days",
+  "fact_orders_day",
+  "fact_refunds_day",
+  "fact_deliveries_day",
+  "conversations",
+  "conversation_members",
+  "messages",
+  "message_reactions",
+  "chat_actions",
+  "mailboxes",
+  "email_threads",
+  "email_messages",
+  "attachments"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

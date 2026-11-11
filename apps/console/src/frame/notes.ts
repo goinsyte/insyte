@@ -85,7 +85,20 @@ const sentence = (note: ServerNote): Sentence => {
         reason: "assign"
       }
     case "chat.mention":
-      // A teammate named the member in a ticket's comment (M11 step 3).
+      // A teammate named the member in a chat (M11 step 4): `#kanaal`, or a DM, which the row opens.
+      if (note.subjectType === "conversation") {
+        return {
+          title: "heeft je vermeld in",
+          record: typeof data["conversation"] === "string" ? `#${data["conversation"]}` : "een privébericht",
+          detail: String(data["comment"] ?? ""),
+          source: "mention",
+          to: "/chats",
+          search: { id: note.subjectId ?? "" },
+          reason: "mention",
+          quote: true
+        }
+      }
+      // Or in a ticket's comment (M11 step 3).
       return {
         title: "heeft je vermeld bij",
         record: `#${String(data["number"] ?? "")}`,

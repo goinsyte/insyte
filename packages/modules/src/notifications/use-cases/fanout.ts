@@ -15,6 +15,7 @@ import type { OutboxEvent } from "../../shared/domain/Outbox.ts"
  * - `return.requested`: whoever handles returns hears of a shopper's request from the portal;
  * - `ticket.assigned`: who was put on a ticket hears of it, once the undo window has passed and if still on it;
  * - `ticket.mentioned`: who a ticket comment names with `@` hears of it;
+ * - `chat.mentioned`: who a chat message names with `@` hears of it, if they are in it and did not mute it;
  * - `quality_check.submitted`: who asked for the check, and whoever handles products, hear the supplier answered.
  *
  * A member whose in-app switch for the kind is off, or who is deactivated or removed, hears nothing. Answers the
@@ -158,6 +159,35 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             number: Number(ticket.number),
             title: ticket.title,
             ...(said === undefined ? {} : { comment: said.body.slice(0, 280) })
+          }
+        }
+      }
+      case "chat.mentioned": {
+        // A chat message named teammates (M11 step 4): who reads chats and is in the conversation (a DM's two, or a
+        // channel's readers) hears of it, unless they muted it; the conversation is the subject.
+        const [c] = yield* sql<{ kind: string; name: string }>`
+          select kind, name from conversations where id = ${event.conversationId} and archived_at is null`
+        const [said] = yield* sql<{ body: string }>`
+          select body from messages where id = ${event.messageId} and deleted_at is null`
+        if (c === undefined || said === undefined) return undefined
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.id in ${sql.in([...event.memberIds, ""])} and m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'support')::int, 0) >= 1)
+            and (${c.kind} <> 'dm' or exists (select 1 from conversation_members x
+                                             where x.conversation_id = ${event.conversationId} and x.principal_id = m.id))
+            and not exists (select 1 from conversation_members x where x.conversation_id = ${event.conversationId}
+                            and x.principal_id = m.id and x.muted)`
+        return {
+          kind: "chat.mention",
+          recipients: recipients.map((r) => r.id).filter((r) => r !== event.by),
+          subjectType: "conversation",
+          subjectId: event.conversationId,
+          actor: event.by,
+          data: {
+            conversation: c.kind === "dm" ? null : c.name,
+            messageId: event.messageId,
+            comment: said.body.slice(0, 280)
           }
         }
       }

@@ -178,10 +178,17 @@ const assigneesNow = (sql: SqlClient.SqlClient, ticketId: string) =>
   )
 
 /** Makes one ticket on the command's transaction; answers its id and the outbox rows telling its assignees. */
+/** Where a ticket came from, when it was not written by hand: a chat message ("Ticket maken van bericht", `/ticket`),
+ * a plate Insyte drew and someone filed, or a mail thread in the inbox. */
+export interface Origin {
+  readonly source: "chat" | "insyte" | "email"
+  readonly sourceRef?: string
+}
+
 const make = Effect.fn("Tickets.make")(function*(
   sql: SqlClient.SqlClient,
   input: typeof CreateInput.Type,
-  source: "manual" | "insyte" = "manual"
+  origin?: Origin
 ) {
   const principal = yield* CurrentPrincipal
   const title = input.title.trim()
@@ -211,10 +218,11 @@ const make = Effect.fn("Tickets.make")(function*(
   const description = input.description ?? ""
   const status = input.status ?? "intake"
   yield* sql`
-    insert into tickets (id, workspace_id, number, title, description, status, priority, position, source, store_id,
-                         order_id, customer_id, template, topic, due_at, resolved_at, created_by)
+    insert into tickets (id, workspace_id, number, title, description, status, priority, position, source, source_ref,
+                         store_id, order_id, customer_id, template, topic, due_at, resolved_at, created_by)
     values (${id}, ${principal.workspaceId}, ${Number(counter!.n)}, ${title}, ${description}, ${status},
-            ${input.priority ?? "medium"}, ${Number(front?.p ?? -1)}, ${source}, ${related.storeId}, ${related.orderId},
+            ${input.priority ?? "medium"}, ${Number(front?.p ?? -1)}, ${origin?.source ?? "manual"},
+            ${origin?.sourceRef ?? null}, ${related.storeId}, ${related.orderId},
             ${related.customerId}, ${input.template ?? null}, ${topicOf(title, description)},
             ${at(input.dueAt ?? null)}, ${status === "done" ? new Date() : null}, ${principal.id})`
   yield* writeLabels(sql, principal.workspaceId, id, labelsOf(input.labels ?? []))
@@ -232,16 +240,53 @@ const make = Effect.fn("Tickets.make")(function*(
   return { id, outboxIds: yield* tellAssigned(sql, id, assignees) }
 })
 
-/** "Ticket aanmaken" (NewTicketDialog), by hand: `#n`, at the top of the board; `insyte` for one a filed plate opens. */
-export const create = Effect.fn("Tickets.create")(function*(
-  input: typeof CreateInput.Type,
-  source: "manual" | "insyte" = "manual"
+/**
+ * A ticket made from a mail thread ("Aan ticket koppelen", the inbox slice's `ThreadTickets`), on the inbox's
+ * transaction: `make`, with the thread as its origin. It lands in the customer's store where the person may see that
+ * customer, and without a customer where not. No one is assigned, so no one is told.
+ */
+export const fromThread = Effect.fn("Tickets.fromThread")(function*(
+  sql: SqlClient.SqlClient,
+  input: {
+    readonly title: string
+    readonly description: string
+    readonly threadId: string
+    readonly customerId: string | null
+  }
 ) {
+  const origin: Origin = { source: "email", sourceRef: input.threadId }
+  const fields = {
+    title: input.title.trim().slice(0, 200) || "Mail zonder onderwerp",
+    description: input.description.slice(0, 20_000)
+  }
+  const made = yield* (input.customerId === null
+    ? make(sql, fields, origin)
+    : make(sql, { ...fields, related: { type: "customer", id: input.customerId } }, origin).pipe(
+      Effect.catchTag("NotFound", () => make(sql, fields, origin))
+    )).pipe(
+      // None can happen here: the title is never empty, no one is assigned, and the fallback names no customer.
+      Effect.catchTags({ Invalid: Effect.die, MemberNotActive: Effect.die, NotFound: Effect.die })
+    )
+  const [row] = yield* sql<{ number: number }>`select number from tickets where id = ${made.id}`
+  return { id: made.id, number: Number(row!.number) }
+})
+
+/** The ticket `fromThread` made, taken away again (the inbox's Undo). */
+export const removeFromThread = Effect.fn("Tickets.removeFromThread")(function*(
+  sql: SqlClient.SqlClient,
+  ticketId: string
+) {
+  yield* sql`delete from tickets where id = ${ticketId}`
+  yield* audit(sql, "ticket.removed", ticketId)
+})
+
+/** "Ticket aanmaken" (NewTicketDialog), by hand: `#n`, at the top of the board; `insyte` for one a filed plate opens. */
+export const create = Effect.fn("Tickets.create")(function*(input: typeof CreateInput.Type, origin?: Origin) {
   yield* Policy.require("support", 2)
   const db = yield* Db
   const { change, outboxIds } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      const made = yield* make(sql, input, source)
+      const made = yield* make(sql, input, origin)
       return {
         change: yield* answer(sql, [made.id], { kind: "created", ids: [made.id] }, made.outboxIds),
         outboxIds: made.outboxIds

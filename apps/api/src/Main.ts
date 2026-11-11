@@ -1,11 +1,13 @@
+import { receive } from "@insyte/modules/inbox/use-cases/inbound"
 import { env, tracing } from "cloudflare:workers"
 import { ManagedRuntime } from "effect"
 import { HttpRouter } from "effect/http"
 import { AppLayer, BackgroundLayer } from "./platform/AppLayer.ts"
 import type { Env } from "./platform/Env.ts"
+import { parseMail } from "./platform/InboundMail.ts"
 import { ingest, type IngestMessage, reconcile, syncRuntime, trackingSweep } from "./platform/Ingest.ts"
 import { Telemetry } from "./platform/Observability.ts"
-import { deliver, type EventsMessage, queueSweep, sweep } from "./platform/Relay.ts"
+import { deliver, type EventsMessage, factsSweep, queueSweep, sweep } from "./platform/Relay.ts"
 import { withRequestDb } from "./platform/RequestDb.ts"
 
 // The Durable Object classes this Worker hosts; infra and `wrangler.jsonc` bind them by these names.
@@ -50,11 +52,28 @@ export default {
     }
   },
 
+  /**
+   * A support mail at a forwarding address (M11 step 1), through Cloudflare Email Routing: into its mailbox's inbox.
+   * An address no mailbox has is refused, so the sender hears it bounced; a throw leaves it to Email Routing's retry.
+   */
+  async email(message, _env, ctx) {
+    try {
+      const mail = await parseMail(await new Response(message.raw).arrayBuffer())
+      const stored = await background.runPromise(withRequestDb(receive(message.to, mail)))
+      if (stored === undefined) message.setReject("Onbekend adres")
+    } finally {
+      ctx.waitUntil(Telemetry.flush())
+    }
+  },
+
   /** Every minute: the relay's sweep for events a kick missed; every fifteenth, the stores' reconcile (M6.3), the
-   * tracking sweep (M8.4) and Start's queue (M10.1). */
+   * tracking sweep (M8.4), Start's queue (M10.1) and the daily facts (M10.4, at 02:00 UTC their nightly pass). */
   scheduled(controller, _env, ctx) {
     ctx.waitUntil(background.runPromise(withRequestDb(sweep())).finally(() => Telemetry.flush()))
-    if (new Date(controller.scheduledTime).getUTCMinutes() % 15 === 0) {
+    const at = new Date(controller.scheduledTime)
+    if (at.getUTCMinutes() % 15 === 0) {
+      const nightly = at.getUTCHours() === 2 && at.getUTCMinutes() === 0
+      ctx.waitUntil(background.runPromise(withRequestDb(factsSweep(nightly))).finally(() => Telemetry.flush()))
       ctx.waitUntil(syncRuntime.runPromise(reconcile).finally(() => Telemetry.flush()))
       ctx.waitUntil(syncRuntime.runPromise(trackingSweep).finally(() => Telemetry.flush()))
       // Start's queue (M10.1): what no event says, a stock-out or a review coming due.
