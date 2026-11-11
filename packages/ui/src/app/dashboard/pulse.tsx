@@ -1,9 +1,9 @@
-import { useMemo } from "react";
-import { pulse } from "../lib/home/pulse";
-import { useHome } from "../stores/home-store";
-import { useWorkspace } from "../stores/workspace-store";
+import { useMemo } from "react"
+import { pulse } from "../lib/home/pulse"
+import { useHome } from "../stores/home-store"
+import { useWorkspace } from "../stores/workspace-store"
 
-import { PulseBand } from "./pulse-band";
+import { PulseBand } from "./pulse-band"
 /**
  * The pulse: six live figures on one white band above the board, each with the shape of its window
  * and the change on the window before, each the door to the screen that explains it.
@@ -14,10 +14,15 @@ import { PulseBand } from "./pulse-band";
  * once when the home opens and then only move when the workspace does.
  */
 export function Pulse() {
-	const range = useHome((s) => s.range);
-	const currency = useHome((s) => s.currency);
-	const tickets = useWorkspace((s) => s.tickets);
-	const chargebacks = useWorkspace((s) => s.chargebacks);
-	const figures = useMemo(() => pulse(range, currency, { tickets, chargebacks }), [range, currency, tickets, chargebacks]);
-	return <PulseBand figures={figures} />;
+  const range = useHome((s) => s.range)
+  const currency = useHome((s) => s.currency)
+  const tickets = useWorkspace((s) => s.tickets)
+  const chargebacks = useWorkspace((s) => s.chargebacks)
+  const figures = useMemo(() => pulse(range, currency, { tickets, chargebacks }), [
+    range,
+    currency,
+    tickets,
+    chargebacks
+  ])
+  return <PulseBand figures={figures} />
 }
