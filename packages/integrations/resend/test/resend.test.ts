@@ -255,7 +255,7 @@ const linksOf = (props: unknown): Array<string> =>
  * Mails with nothing to click: the order to a supplier (answered by replying, until the portal opens, M16), and the
  * shopper's delay mail (news, in the store's words; there is nothing for them to do).
  */
-const LINKLESS: ReadonlyArray<string> = ["supplier.order", "order.delayed"]
+const LINKLESS: ReadonlySet<string> = new Set(["supplier.order", "order.delayed"])
 
 describe.each(KINDS)("the %s mail", (kind) => {
   it.each(ORIGINS)("renders HTML and text, carries its links, and names no host but %s", async (origin) => {
@@ -270,14 +270,14 @@ describe.each(KINDS)("the %s mail", (kind) => {
     expect(mail.text).not.toMatch(/<[a-z]/)
 
     const links = linksOf(props)
-    if (!LINKLESS.includes(kind)) expect(links.length).toBeGreaterThan(0)
+    if (!LINKLESS.has(kind)) expect(links.length).toBeGreaterThan(0)
     for (const link of links) {
       expect(mail.text).toContain(link)
       expect(mail.html).toContain(link.replaceAll("&", "&amp;"))
     }
 
     expect(new Set([...hostsIn(mail.html), ...hostsIn(mail.text)])).toEqual(
-      new Set(LINKLESS.includes(kind) ? [] : [host])
+      new Set(LINKLESS.has(kind) ? [] : [host])
     )
   })
 

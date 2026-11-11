@@ -29,7 +29,7 @@ export const notifyDelay = Effect.fn("Orders.notifyDelay")(function*(input: { re
   const principal = yield* CurrentPrincipal
   const relay = yield* Relay
   const db = yield* Db
-  const { undo, outboxId } = yield* db.scoped((sql) =>
+  const queued = yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const scope = yield* inScope(sql, "o.store_id")
       const [order] = yield* sql<{ id: string; delayed: boolean; email: string | null; told: boolean }>`
@@ -53,22 +53,22 @@ export const notifyDelay = Effect.fn("Orders.notifyDelay")(function*(input: { re
         subjectId: order.id,
         diff: { mail: mailId }
       })
-      const outboxId = yield* Outbox.write(sql, principal.workspaceId, {
+      const event = yield* Outbox.write(sql, principal.workspaceId, {
         type: "order.delay_mail",
         workspaceId: principal.workspaceId,
         userId: principal.userId ?? principal.id,
         mailId
       }, { afterSeconds: UNDO_SECONDS })
-      const undo = yield* Undo.issue(sql, {
+      const ticket = yield* Undo.issue(sql, {
         command: RESTORE,
         compensation: { orders: [], mails: [mailId] } satisfies OrdersRestore,
-        outboxIds: [outboxId]
+        outboxIds: [event]
       })
-      return { undo, outboxId }
+      return { undo: ticket, outboxId: event }
     })
   )
-  yield* relay.kick([outboxId], { afterSeconds: UNDO_SECONDS })
-  return { undo }
+  yield* relay.kick([queued.outboxId], { afterSeconds: UNDO_SECONDS })
+  return { undo: queued.undo }
 })
 
 /** Called off on the undo's transaction: the mails still in line. Answers how many were. */
