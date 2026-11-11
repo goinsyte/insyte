@@ -271,7 +271,7 @@ export const GetProposal = Tool.make("get_proposal", {
 
 export const FileProposal = Tool.make("file_proposal", {
   description:
-    "Files an open plate: the command it carries runs as this key (approve_return needs returns.write and returns.approve; a quality check needs quality.approve). Read the plate first and file only what the person you act for would; refused with a conflict when it is no longer open (closed) or its record moved on (stale).",
+    "Files an open plate: the command it carries runs as this key (approve_return needs returns.write and returns.approve; a quality check needs quality.approve; notify_delayed_order mails the shopper the words in after and needs orders.write; create_supplier_ticket needs support.write). A plate in execution_failed is tried again. Read the plate first and file only what the person you act for would; refused with a conflict when it is no longer open (closed) or its record moved on (stale).",
   parameters: Schema.Struct({ proposal_id: ProposalId, idempotency_key: IdempotencyKey }),
   success: ProposalV1,
   failure: WriteFailure,

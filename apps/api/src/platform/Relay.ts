@@ -1,11 +1,19 @@
 import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
+import {
+  drainIn,
+  drainWorkspace,
+  markRecentWorkspace,
+  sweepWorkspaces as factsWorkspaces
+} from "@insyte/modules/facts/Facts"
 import { ForwardSends } from "@insyte/modules/forwarding/domain/Forwarding"
 import { MarketingSyncs } from "@insyte/modules/marketing/domain/Marketing"
 import { InvitationLinks } from "@insyte/modules/members/domain/Ports"
 import { fanOut } from "@insyte/modules/notifications/use-cases/fanout"
-import { refreshIn, refreshWorkspace, sweepWorkspaces } from "@insyte/modules/queue/Queue"
+import { sendDelayMail } from "@insyte/modules/orders/use-cases/delay-mail"
+import { settleSent } from "@insyte/modules/proposals/Proposals"
+import { refreshIn, refreshWorkspace, reopenRowIn, sweepWorkspaces } from "@insyte/modules/queue/Queue"
 import { ReturnLabels } from "@insyte/modules/returns/domain/Ports"
 import { shopperMail } from "@insyte/modules/returns/use-cases/mails"
 import type { FileStore } from "@insyte/modules/shared/domain/Documents"
@@ -150,6 +158,8 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
     case "return.requested":
     case "return.label_requested":
     case "quality_check.submitted":
+    // The delay mail is counted as the filing that put it in line.
+    case "order.delay_mail":
       return undefined
     // Filing a plate (M10.2): the mechanism the product rests on, counted by the command it carried.
     case "proposal.filed":
@@ -246,6 +256,29 @@ const returnMails = (event: ReturnMailEvent, sql: SqlClient.SqlClient) =>
     { discard: true }
   ).pipe(Effect.orDie)
 
+/**
+ * The shopper's delay mail (M10.2), once the filing's undo window has passed: sent with the words the plate showed, and
+ * the plate told whether it went. One that did not go is not tried again by itself: its row is back in front of the
+ * team, with the plate's "Opnieuw proberen".
+ */
+const delayMail = Effect.fn("Relay.delayMail")(
+  function*(event: Extract<OutboxEvent, { type: "order.delay_mail" }>, sql: SqlClient.SqlClient) {
+    const sent = yield* sendDelayMail(sql, event.mailId)
+    if (sent.outcome === "skipped") return
+    const failed = yield* settleSent(
+      sql,
+      { type: "order", id: sent.orderId, action: "NotifyDelayedOrder" },
+      sent.outcome === "failed" ? sent.error : null
+    )
+    for (const row of failed) yield* reopenRowIn(sql, row)
+    yield* refreshIn(sql)
+    yield* Effect.promise(() =>
+      roomOf(event.workspaceId).broadcast({ v: 1, type: "records.changed", kind: "queue_item", ids: [] })
+    )
+  },
+  Effect.orDie
+)
+
 /** The realtime sink (M5.1): a changed record's kind and ids to its workspace's room; the tabs refetch. */
 const realtime = (event: Extract<OutboxEvent, { type: "records.changed" }>) =>
   Effect.promise(() =>
@@ -305,6 +338,28 @@ export const queueSweep = Effect.fn("Relay.queueSweep")(function*() {
   }
 }, Effect.orDie)
 
+/** The record kinds whose change may touch a day's facts (M10.4): orders and what hangs off them, a store's import. */
+const FACTED = new Set(["order", "refund", "fulfilment", "delivery", "store"])
+
+/**
+ * The facts sink (M10.4): one batch of the days the change marked recomputed on this transaction; a long first import's
+ * remainder is the sweep's.
+ */
+const facts = (sql: SqlClient.SqlClient) =>
+  drainIn(sql).pipe(Effect.asVoid, Effect.orDie, Effect.withSpan("Relay.facts"))
+
+/** Batches of days one workspace gets per sweep: a first import of years drains over a few turns, not one. */
+const FACTS_BATCHES_PER_SWEEP = 12
+
+/**
+ * Every 15 minutes: the days no change drained yet, per workspace; at night (`nightly`) every store's last three days
+ * are marked first, which absorbs what no trigger saw (domain.md §10).
+ */
+export const factsSweep = Effect.fn("Relay.factsSweep")(function*(nightly: boolean) {
+  if (nightly) { for (const workspaceId of yield* factsWorkspaces(true)) yield* markRecentWorkspace(workspaceId) }
+  for (const workspaceId of yield* factsWorkspaces(false)) yield* drainWorkspace(workspaceId, FACTS_BATCHES_PER_SWEEP)
+}, Effect.orDie)
+
 const NOTIFIED = new Set<OutboxEvent["type"]>([
   "member.joined",
   "access.requested",
@@ -335,12 +390,18 @@ const SINKS: ReadonlyArray<Sink> = [
     run: (_id, event, sql) => event.type === "records.changed" && QUEUED.has(event.kind) ? queue(event, sql) : undefined
   },
   {
+    name: "facts",
+    run: (_id, event, sql) => event.type === "records.changed" && FACTED.has(event.kind) ? facts(sql) : undefined
+  },
+  {
     name: "mail",
     run: (_id, event, sql) =>
       event.type === "member.invited"
         ? invitationMail(event, sql)
         : isReturnMail(event)
         ? returnMails(event, sql)
+        : event.type === "order.delay_mail"
+        ? delayMail(event, sql)
         : undefined
   },
   {

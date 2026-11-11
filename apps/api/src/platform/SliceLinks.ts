@@ -1,3 +1,4 @@
+import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { ActionFailed, ChatCommands } from "@insyte/modules/chats/Links"
 import { restore as restoreChats } from "@insyte/modules/chats/use-cases/commands"
 import { KlaviyoSyncs } from "@insyte/modules/customers/domain/Ports"
@@ -6,13 +7,14 @@ import { restore as restoreForwarding } from "@insyte/modules/forwarding/use-cas
 import { ensureLegs } from "@insyte/modules/forwarding/use-cases/legs"
 import { lastSyncOf, restore as restoreMarketing } from "@insyte/modules/marketing/use-cases/klaviyo"
 import { cancel as cancelOrders, restore as restoreOrders, setNote } from "@insyte/modules/orders/use-cases/commands"
+import { notifyDelay } from "@insyte/modules/orders/use-cases/delay-mail"
 import { refundOn } from "@insyte/modules/orders/use-cases/refund"
 import { restore as restoreProducts } from "@insyte/modules/products/use-cases/commands"
 import { ProposalLinks } from "@insyte/modules/proposals/Links"
 import { restore as restoreProposal } from "@insyte/modules/proposals/Proposals"
 import { restore as restoreQuality } from "@insyte/modules/quality/Quality"
 import { approve as approveCheck } from "@insyte/modules/quality/use-cases/quality"
-import { refreshIn, restore as restoreQueue } from "@insyte/modules/queue/Queue"
+import { decideIn, refreshIn, reopenRowIn, restore as restoreQueue } from "@insyte/modules/queue/Queue"
 import { Refunder } from "@insyte/modules/returns/domain/Ports"
 import { approve as approveReturns, restore as restoreReturns } from "@insyte/modules/returns/use-cases/commands"
 import { shopifyReturn } from "@insyte/modules/returns/use-cases/mirror"
@@ -42,8 +44,9 @@ import { Effect, Layer } from "effect"
  *   stores' webhook → a return opened, approved, declined or closed in Shopify, for the returns slice (M9.3)
  *   undo            → each reversible command's compensation, by the name its token carries (ADR-0023); a filed
  *                     plate's undo runs its command's own compensation through the same table
- *   a filed plate   → the command it carries (a return or a quality check approved), as the person, and the queue
- *                     brought in line on the same transaction (M10.2)
+ *   a filed plate   → the command it carries (a return or a quality check approved, the shopper's delay mail put
+ *                     in line, a reorder ticket opened), as the person, and the queue brought in line on the same
+ *                     transaction (M10.2)
  *   returns' refund → the orders slice's refund, on the return's transaction (M9.1)
  *   a customer      → their newest Klaviyo sync (M7.5)
  *   AfterShip       → a return's parcel, for the returns slice (M9.2)
@@ -78,7 +81,8 @@ const compensations: Record<string, Compensation> = {
         const run = compensations[command]
         return run === undefined ? Effect.die(new Error(`no compensation for ${command}`)) : run(sql, inner)
       },
-      refreshQueue: refreshIn
+      refreshQueue: refreshIn,
+      reopenRow: reopenRowIn
     }),
   // A chat command's undo spends the command's own token (by its hash) and runs that command's compensation.
   "chats.restore": (sql, compensation) =>
@@ -97,17 +101,37 @@ const ProposalLinksLive = Layer.succeed(ProposalLinks, {
     switch (action._tag) {
       case "ApproveReturn":
         return approveReturns({ ids: [action.returnId] }).pipe(
-          Effect.map((change) => ({ undo: change.undo })),
+          Effect.map((change) => ({ undo: change.undo, pending: false, settles: true })),
           Effect.catchTag("IllegalReturnMove", () => Effect.succeed("stale" as const))
         )
       case "ApproveQualityCheck":
         return approveCheck(action.checkId).pipe(
-          Effect.map((change) => ({ undo: change.undo })),
+          Effect.map((change) => ({ undo: change.undo, pending: false, settles: true })),
           Effect.catchTag("IllegalCheckMove", () => Effect.succeed("stale" as const))
         )
+      case "NotifyDelayedOrder":
+        // The mail leaves after the undo window; the relay says whether it went (`Proposals.settleSent`).
+        return notifyDelay({ orderId: action.orderId, subject: action.subject, paragraphs: action.paragraphs }).pipe(
+          Effect.map(({ undo }) => ({ undo, pending: true, settles: false })),
+          Effect.catchTag("DelayMailRefused", () => Effect.succeed("stale" as const))
+        )
+      case "CreateSupplierTicket":
+        // On the filer, where a member files it; a key's ticket has no one on it yet.
+        return Effect.flatMap(Effect.service(CurrentPrincipal), (principal) =>
+          createTicket({
+            title: action.title,
+            description: action.description,
+            priority: "high",
+            labels: ["Leveringsketen"],
+            assigneeIds: principal.kind === "member" ? [principal.id] : []
+          }, { source: "insyte" })).pipe(
+            Effect.map((change) => ({ undo: change.undo, pending: false, settles: false })),
+            Effect.catchTags({ Invalid: Effect.die, MemberNotActive: Effect.die })
+          )
     }
   },
-  refreshQueue: refreshIn
+  refreshQueue: refreshIn,
+  decideRow: decideIn
 })
 
 /** What the card's footer says when its command did not run (widgets/04 §C), from the use case's own refusal. */

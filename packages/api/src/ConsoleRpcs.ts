@@ -4,6 +4,7 @@ import { CommerceRpcs } from "./rpc/CommerceRpcs.ts"
 import { DeveloperRpcs } from "./rpc/DeveloperRpcs.ts"
 import { FirstAnalysisRpcs } from "./rpc/FirstAnalysisRpcs.ts"
 import { ForwardingRpcs } from "./rpc/ForwardingRpcs.ts"
+import { HomeRpcs } from "./rpc/HomeRpcs.ts"
 import { InvitationRpcs, LandingRpcs } from "./rpc/LandingRpcs.ts"
 import { MarketingRpcs } from "./rpc/MarketingRpcs.ts"
 import { MembersRpcs } from "./rpc/MembersRpcs.ts"
@@ -54,5 +55,6 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(QualityRpcs)
   .merge(QualityLinkRpcs)
   .merge(QueueRpcs)
+  .merge(HomeRpcs)
   .merge(ProposalsRpcs)
   .merge(ChatsRpcs)

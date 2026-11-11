@@ -345,6 +345,20 @@ const timeOf = (field: string, value: string | null | undefined) => {
   return Number.isNaN(ms) ? validation({ [field]: "invalid" }) : Effect.succeed(ms)
 }
 
+/** What a plate's filing runs, as a kind and the record it acts on. */
+const actionV1 = (a: ProposalView["action"]) => {
+  switch (a._tag) {
+    case "ApproveReturn":
+      return { kind: "approve_return" as const, subject_id: a.returnId }
+    case "ApproveQualityCheck":
+      return { kind: "approve_quality_check" as const, subject_id: a.checkId }
+    case "NotifyDelayedOrder":
+      return { kind: "notify_delayed_order" as const, subject_id: a.orderId }
+    case "CreateSupplierTicket":
+      return { kind: "create_supplier_ticket" as const, subject_id: a.productId }
+  }
+}
+
 /** A plate in the public shape: the action as a kind and its record, the blocks as their values. */
 const proposalV1 = (p: ProposalView) => ({
   id: p.id,
@@ -352,9 +366,7 @@ const proposalV1 = (p: ProposalView) => ({
   state: p.state,
   subject_type: p.subjectType,
   subject_id: p.subjectId,
-  action: p.action._tag === "ApproveReturn"
-    ? { kind: "approve_return" as const, subject_id: p.action.returnId }
-    : { kind: "approve_quality_check" as const, subject_id: p.action.checkId },
+  action: actionV1(p.action),
   revision: p.plate.revision,
   heading: p.plate.heading,
   body: p.plate.body,
@@ -368,7 +380,8 @@ const proposalV1 = (p: ProposalView) => ({
   why: p.plate.why,
   evidence: p.plate.evidence,
   filed_at: iso(p.filedAt),
-  executed_at: iso(p.executedAt)
+  executed_at: iso(p.executedAt),
+  execution_error: p.executionError
 })
 
 const make = Effect.gen(function*() {

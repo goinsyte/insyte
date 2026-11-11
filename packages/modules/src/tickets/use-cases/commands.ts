@@ -178,10 +178,11 @@ const assigneesNow = (sql: SqlClient.SqlClient, ticketId: string) =>
   )
 
 /** Makes one ticket on the command's transaction; answers its id and the outbox rows telling its assignees. */
-/** Where a ticket came from, when it was not written by hand: a chat message ("Ticket maken van bericht", `/ticket`). */
+/** Where a ticket came from, when it was not written by hand: a chat message ("Ticket maken van bericht", `/ticket`),
+ * or a plate Insyte drew and someone filed. */
 export interface Origin {
-  readonly source: "chat"
-  readonly sourceRef: string
+  readonly source: "chat" | "insyte"
+  readonly sourceRef?: string
 }
 
 const make = Effect.fn("Tickets.make")(function*(
@@ -239,7 +240,7 @@ const make = Effect.fn("Tickets.make")(function*(
   return { id, outboxIds: yield* tellAssigned(sql, id, assignees) }
 })
 
-/** "Ticket aanmaken" (NewTicketDialog), by hand: `#n`, at the top of the board. */
+/** "Ticket aanmaken" (NewTicketDialog), by hand: `#n`, at the top of the board; `insyte` for one a filed plate opens. */
 export const create = Effect.fn("Tickets.create")(function*(input: typeof CreateInput.Type, origin?: Origin) {
   yield* Policy.require("support", 2)
   const db = yield* Db

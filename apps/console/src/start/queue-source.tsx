@@ -14,7 +14,8 @@ import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 /*
  * Start's queue in the console (M10.1, M10.2), over `Queue.list`: the design's rows, with their figures written here
  * (the value in the row's own currency, the time left from now), and the plate Insyte drew for a row where there is
- * one. Filing runs `Proposals.file` (the command the plate carries, as the person) with "Ongedaan maken"; "Negeren"
+ * one. Filing runs `Proposals.file` (the command the plate carries, as the person) with "Ongedaan maken"; a plate whose
+ * mail did not go says so and files again as "Opnieuw proberen"; "Negeren"
  * and "Markeren als gezien" are `Queue.markSeen`, which sets the plate aside with the row; "Opnieuw tekenen" is
  * `Proposals.redraw`. A decided row is held on the board, stamped, for the design's settle window: the server's answer
  * drops a filed row at once, and the queue panel can only keep a row it is still given.
@@ -46,7 +47,7 @@ const plateOf = (p: ProposalView): Plate => ({
   after: p.plate.after,
   change: p.plate.change,
   witness: p.plate.witness,
-  state: "getekend, niet uitgevoerd",
+  state: p.state === "execution_failed" ? "niet gelukt" : "getekend, niet uitgevoerd",
   confidence: `zekerheid ${p.plate.confidenceWord.toLowerCase()}`,
   fileLabel: p.plate.fileLabel
 })
@@ -129,7 +130,9 @@ export function useConsoleQueue(now: number) {
             return sayRefusal(failureOf(exit), PLATE)
           }
           const ticket = exit.value.undo
-          if (ticket !== null) offerUndo("Uitgevoerd zoals getekend", ticket.token, proposal.plate.after.value, PLATE)
+          // A mail waits out the undo window before it leaves: the toast says it is on its way, not sent.
+          const message = exit.value.proposal.state === "filed" ? "Gaat zo de deur uit" : "Uitgevoerd zoals getekend"
+          if (ticket !== null) offerUndo(message, ticket.token, proposal.plate.after.value, PLATE)
           return
         }
         const exit = await markSeen({ payload: { id: row.id }, reactivityKeys: [...QUEUE] })
