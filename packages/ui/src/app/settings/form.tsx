@@ -163,48 +163,66 @@ type Held = { proceed: () => void; reset: () => void };
  * the work: the navigation is held, the bar shakes once and asks, and saving or letting go carries
  * on to where you were going; Esc stays. Closing the tab gets the browser's own warning.
  *
- * `onSave` may return a promise; the bar then says it is saving, and a held navigation only goes on
- * once the save has landed. A save that rejects leaves you where you are, with the screen's own
- * message about why.
+ * `onSave` may return a promise, or the screen may say `saving` itself; either way the bar says it
+ * is saving, and a held navigation only goes on once the save has landed. A save that fails leaves
+ * you where you are, with the screen's own message about why.
  */
 export function UnsavedBar({
 	visible,
 	onDiscard,
 	onSave,
+	saving: savingOutside = false,
 	guard = true,
 }: {
 	visible: boolean;
 	onDiscard: () => void;
 	onSave: () => void | Promise<unknown>;
+	/** A save the screen runs itself is out: the buttons wait for it, as they do for a returned promise. */
+	saving?: boolean;
 	/** Hold a navigation away while there are changes. Off for a bar inside a dialog or a sheet. */
 	guard?: boolean;
 }) {
 	const still = useReducedMotion();
 	const router = useRouter({ warn: false });
 	const mod = useModifierLabel();
-	const [saving, setSaving] = useState(false);
+	const [pending, setPending] = useState(false);
+	const saving = pending || savingOutside;
 	const [held, setHeld] = useState<Held | null>(null);
 	const body = useRef<HTMLDivElement>(null);
 	const saveButton = useRef<HTMLButtonElement>(null);
+
+	const proceedAfter = useRef<(() => void) | null>(null);
 
 	// Nothing left to hold once the changes are gone, whichever way they went.
 	useEffect(() => {
 		if (!visible) setHeld(null);
 	}, [visible]);
 
+	// A held navigation waiting on a save goes on when the changes are gone; a save that did not land keeps asking.
+	useEffect(() => {
+		const go = proceedAfter.current;
+		if (go === null || saving) return;
+		proceedAfter.current = null;
+		if (!visible) go();
+	}, [visible, saving]);
+
 	const save = useCallback(
 		async (then?: () => void) => {
 			if (saving) return;
 			const out = onSave();
-			if (out === undefined || typeof (out as Promise<unknown>).then !== "function") return then?.();
-			setSaving(true);
+			if (out === undefined || typeof (out as Promise<unknown>).then !== "function") {
+				// A save the screen runs itself: go on once the changes are gone, not before it lands.
+				proceedAfter.current = then ?? null;
+				return;
+			}
+			setPending(true);
 			try {
 				await out;
 				then?.();
 			} catch {
 				// The screen says what went wrong; the work and the page both stay.
 			} finally {
-				setSaving(false);
+				setPending(false);
 			}
 		},
 		[onSave, saving],
@@ -212,6 +230,7 @@ export function UnsavedBar({
 
 	const discard = useCallback(
 		(then?: () => void) => {
+			proceedAfter.current = null;
 			onDiscard();
 			then?.();
 		},
@@ -219,6 +238,7 @@ export function UnsavedBar({
 	);
 
 	const stay = useCallback(() => {
+		proceedAfter.current = null;
 		held?.reset();
 		setHeld(null);
 	}, [held]);
