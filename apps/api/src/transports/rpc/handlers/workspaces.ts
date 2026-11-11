@@ -10,6 +10,7 @@ export const WorkspacesHandlers = WorkspacesRpcs.toLayer(Effect.gen(function*() 
     "Workspaces.setAlerts": (input) => settings.setAlerts(input),
     "Workspaces.setRetention": (input) => settings.setRetention(input),
     "Workspaces.getRegional": () => settings.regional,
-    "Workspaces.saveRegional": (input) => settings.saveRegional(input)
+    "Workspaces.saveRegional": (input) => settings.saveRegional(input),
+    "Workspaces.getSecurity": () => settings.security
   })
 }))

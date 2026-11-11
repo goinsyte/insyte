@@ -1,4 +1,5 @@
 import { Forbidden, Invalid } from "@insyte/domain/Errors"
+import { SecurityPolicy } from "@insyte/modules/workspaces/domain/Security"
 import {
   Regional,
   SaveAccount,
@@ -17,8 +18,8 @@ const Refused = Schema.Union([Forbidden, Invalid])
 
 /**
  * Instellingen → Account and Regio (M3.1): the workspace's facts, alert thresholds and retention, and its language and
- * notation. Reading takes Instellingen · Bekijken; changing Bewerken, the retention Beheren. Not reachable by an API key
- * (`settings` is `api: false`).
+ * notation; and Beveiliging's sign-in policy, read only for now. Reading takes Instellingen · Bekijken; changing
+ * Bewerken, the retention Beheren. Not reachable by an API key (`settings` is `api: false`).
  */
 export class WorkspacesRpcs extends RpcGroup.make(
   Rpc.make("Workspaces.getAccount", { success: WorkspaceAccount, error: Forbidden }),
@@ -26,7 +27,8 @@ export class WorkspacesRpcs extends RpcGroup.make(
   Rpc.make("Workspaces.setAlerts", { payload: SetAlerts, success: WorkspaceAccount, error: Refused }),
   Rpc.make("Workspaces.setRetention", { payload: SetRetention, success: WorkspaceAccount, error: Refused }),
   Rpc.make("Workspaces.getRegional", { success: Regional, error: Forbidden }),
-  Rpc.make("Workspaces.saveRegional", { payload: SaveRegional, success: Regional, error: Refused })
+  Rpc.make("Workspaces.saveRegional", { payload: SaveRegional, success: Regional, error: Refused }),
+  Rpc.make("Workspaces.getSecurity", { success: SecurityPolicy, error: Forbidden })
 )
   // Innermost first: `Member` needs the person (`Authenticated`) and the connection (`WithDb`) around it.
   .middleware(Member)
