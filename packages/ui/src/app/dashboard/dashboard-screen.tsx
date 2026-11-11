@@ -13,11 +13,12 @@ import {
 	AddCardMenu,
 	CustomizeButton,
 	EditTools,
-	RefreshControl,
 	ViewTabs,
 	WindowMenu,
 } from "./toolbar";
+import { RefreshControl } from "./refresh-control";
 import { useDay } from "./use-day";
+import { WIDGETS } from "./widgets";
 import { groupOf } from "../lib/home/day";
 import { dayKey } from "../lib/home/dates";
 import { hasHistory } from "../lib/home/pulse";
@@ -166,7 +167,7 @@ export function DashboardPage() {
 										<Pulse />
 									</Stream>
 								) : null}
-								<HomeBoard editing={editing} onEditing={setEditing} slots={{ queue: panel.body }} />
+								<HomeBoard editing={editing} onEditing={setEditing} slots={{ queue: panel.body }} render={(id) => WIDGETS[id].render()} />
 								<Areas />
 								<DashboardClosing />
 							</div>

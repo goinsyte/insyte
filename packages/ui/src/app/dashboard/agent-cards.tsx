@@ -1,12 +1,12 @@
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { pastDeadline, STATUS_LABEL } from "../lib/returns";
+import { pastDeadline } from "../lib/returns";
 import { SCENARIO } from "../../data-source";
 import { AGENT_TODAY, useCustomerAgent } from "../stores/customer-agent-store";
 import { useInbox } from "../stores/inbox-store";
 import { useReturns } from "../stores/returns-store";
-import { ReturnStatusBadge } from "../returns/parts";
 
+import { ReturnsView } from "./card-views";
 /*
  * Two cards for Kaart toevoegen (PLAN 28, PLAN 25): the customer agent's day, and the returns waiting
  * on the team. Each reads the same store as its own page.
@@ -35,7 +35,7 @@ export function CustomerAgentCard() {
 					</div>
 				))}
 			</dl>
-			<Link to="/inbox" search={{ view: "handed_over" } as never} className="mx-2 flex h-8 items-center justify-between rounded-md bg-paper/70 px-2.5 text-sm hover:bg-paper">
+			<Link to={"/inbox" as string} search={{ view: "handed_over" } as never} className="mx-2 flex h-8 items-center justify-between rounded-md bg-paper/70 px-2.5 text-sm hover:bg-paper">
 				<span className="text-ink">Wacht op een collega</span>
 				<span className="font-medium text-ink tabular-nums">{handed}</span>
 			</Link>
@@ -46,19 +46,13 @@ export function CustomerAgentCard() {
 export function ReturnsCard() {
 	const records = useReturns((s) => s.records);
 	const now = Date.now();
-	const open = useMemo(() => records.filter((r) => r.status === "review" || r.status === "ready").slice(0, 5), [records]);
-	if (open.length === 0) return <Quiet>Niets te beoordelen of af te handelen.</Quiet>;
-	return (
-		<ul className="flex flex-col">
-			{open.map((r) => (
-				<li key={r.id}>
-					<Link to="/returns/$returnId" params={{ returnId: r.id }} className="flex h-9 min-w-0 items-center gap-2.5 rounded-md px-2 transition-colors hover:bg-ink/[0.045]" title={STATUS_LABEL[r.status]}>
-						<span className="font-medium text-ink text-sm tabular-nums">{r.number}</span>
-						<span className="min-w-0 flex-1 truncate text-ink-2 text-sm">{r.customerName}</span>
-						<ReturnStatusBadge status={r.status} late={pastDeadline(r.status, r.deadline, now)} />
-					</Link>
-				</li>
-			))}
-		</ul>
+	const open = useMemo(
+		() =>
+			records
+				.flatMap((r) => (r.status === "review" || r.status === "ready" ? [{ ...r, status: r.status }] : []))
+				.slice(0, 5)
+				.map((r) => ({ id: r.id, number: r.number, customerName: r.customerName, status: r.status, late: pastDeadline(r.status, r.deadline, now) })),
+		[records, now],
 	);
+	return <ReturnsView rows={open} />;
 }

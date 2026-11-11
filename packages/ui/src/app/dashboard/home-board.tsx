@@ -32,7 +32,7 @@ import {
 } from "../../icons";
 import { Link } from "@tanstack/react-router";
 import { motion, useReducedMotion } from "motion/react";
-import { type ReactNode, useCallback, useLayoutEffect, useRef, useState } from "react";
+import { createContext, type ReactNode, use, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { type Layout, Responsive, useContainerWidth } from "react-grid-layout";
 import { Glyph, type GlyphTile } from "../common/glyph";
@@ -40,6 +40,7 @@ import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
 import {
 	type BoardEngine,
+	type BoardLayout,
 	type GridBox,
 	type PlacedWidget,
 	useHome,
@@ -48,7 +49,7 @@ import {
 	type WidgetTone,
 } from "../stores/home-store";
 import { MeshGround } from "./mesh-ground";
-import { WIDGETS } from "./widgets";
+import { WIDGET_DEFS as WIDGETS } from "./widget-defs";
 import { WidgetBones } from "../loading/page-skeletons";
 import { Stream } from "../loading/stream";
 
@@ -74,21 +75,54 @@ import { Stream } from "../loading/stream";
  * row (`toolbar.tsx`), so the board is only the board. Leaving edit mode is the save; the
  * arrangement persists in this browser.
  */
-export function HomeBoard({ editing, onEditing, slots }: { editing: boolean; onEditing: (v: boolean) => void; slots: Partial<Record<WidgetId, ReactNode>> }) {
+export function HomeBoard({
+	editing,
+	onEditing,
+	slots,
+	opens,
+	defaults,
+	live = false,
+	render,
+}: {
+	editing: boolean;
+	onEditing: (v: boolean) => void;
+	slots: Partial<Record<WidgetId, ReactNode>>;
+	/** Whether a card's "Openen" has its screen; every card's does unless said. */
+	opens?: (id: WidgetId) => boolean;
+	/** The arrangement "Standaardwidgets terugzetten" puts back, when the board has its own. */
+	defaults?: BoardLayout;
+	/** The slots carry real reads with their own loading: no paced arrival over them (ADR-0028 is the reference's). */
+	live?: boolean;
+	/** A card's body when `slots` has none: the demo's own cards (`widgets.tsx`). */
+	render?: (id: WidgetId) => ReactNode;
+}) {
 	const widgets = useHome((s) => s.widgets);
 	const engine = useHome((s) => s.engine);
+	const frame = { opens, live, render };
 
-	return widgets.length === 0 ? (
-		<EmptyBoard onRestore={() => onEditing(false)} />
-	) : engine === "grid" ? (
-		<GridBoard editing={editing} slots={slots} />
-	) : (
-		<MasonryBoard editing={editing} slots={slots} />
+	return (
+		<FrameContext value={frame}>
+			{widgets.length === 0 ? (
+				<EmptyBoard onRestore={() => onEditing(false)} defaults={defaults} />
+			) : engine === "grid" ? (
+				<GridBoard editing={editing} slots={slots} />
+			) : (
+				<MasonryBoard editing={editing} slots={slots} />
+			)}
+		</FrameContext>
 	);
 }
 
-function EmptyBoard({ onRestore }: { onRestore: () => void }) {
+/** What the board tells every card's frame, without threading it through both engines. */
+const FrameContext = createContext<{
+	opens?: ((id: WidgetId) => boolean) | undefined;
+	live: boolean;
+	render?: ((id: WidgetId) => ReactNode) | undefined;
+}>({ live: false });
+
+function EmptyBoard({ onRestore, defaults }: { onRestore: () => void; defaults?: BoardLayout | undefined }) {
 	const reset = useHome((s) => s.reset);
+	const restore = useHome((s) => s.restore);
 	return (
 		<div className="flex flex-col items-center justify-center gap-3 rounded-xl bg-paper px-6 py-14 text-center">
 			<Glyph icon={LayoutTemplate} tile="mist" size={18} draw={false} />
@@ -96,7 +130,8 @@ function EmptyBoard({ onRestore }: { onRestore: () => void }) {
 			<button
 				type="button"
 				onClick={() => {
-					reset();
+					if (defaults) restore(defaults);
+					else reset();
 					onRestore();
 				}}
 				className="flex h-9 cursor-pointer items-center rounded-lg bg-abyss px-3.5 font-medium text-base text-mesh-ink shadow-primary hover:bg-abyss-2"
@@ -459,6 +494,8 @@ function WidgetFrame({
 }) {
 	const def = WIDGETS[placed.id];
 	const mesh = placed.tone === "mesh";
+	const { opens, live, render } = use(FrameContext);
+	const to = def.to && (opens === undefined || opens(placed.id)) ? def.to : undefined;
 
 	return (
 		<article
@@ -501,9 +538,9 @@ function WidgetFrame({
 				</h2>
 				{editing ? (
 					<WidgetMenu placed={placed} engine={engine} />
-				) : def.to ? (
+				) : to ? (
 					<Link
-						to={def.to}
+						to={to}
 						className={cn(
 							"flex h-7 items-center gap-1 rounded-md px-2 font-medium text-sm transition-colors",
 							mesh ? "text-mesh-ink-2 hover:bg-white/10 hover:text-mesh-ink" : "text-ink-2 hover:bg-ink/6 hover:text-ink",
@@ -525,9 +562,13 @@ function WidgetFrame({
 			>
 				{/* The card's frame — its glyph, its name, its link — is the board's layout, known before
 				    anything is fetched; only what is inside it streams in, each card on its own clock. */}
-				<Stream id={`widget:${placed.id}`} after={WIDGET_COST[placed.id] ?? 640} fallback={<WidgetBones plate={mesh} rows={placed.id === "queue" ? 6 : 3} />} className={cn(fill && "h-full")} reserve>
-					{content ?? def.render()}
-				</Stream>
+				{live ? (
+					<div className={cn(fill && "h-full")}>{content}</div>
+				) : (
+					<Stream id={`widget:${placed.id}`} after={WIDGET_COST[placed.id] ?? 640} fallback={<WidgetBones plate={mesh} rows={placed.id === "queue" ? 6 : 3} />} className={cn(fill && "h-full")} reserve>
+						{content ?? render?.(placed.id)}
+					</Stream>
+				)}
 			</div>
 		</article>
 	);

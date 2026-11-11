@@ -1,40 +1,16 @@
 import { Popover, PopoverContent, PopoverTrigger } from "../../components/popover";
-import {
-	ArrowRight,
-	Box,
-	Check,
-	CornerDownLeft,
-	Hash,
-	type IconComponent,
-	Inbox,
-	Mail,
-	Pause,
-	Pin,
-	Play,
-	Plus,
-	Search,
-	ShoppingBag,
-	Sparkle,
-	Star,
-	Store,
-	Truck,
-	Users,
-	Workflow,
-	X,
-} from "../../icons";
+import { ArrowRight, Check, Hash, type IconComponent, Inbox, Mail, Pin, Plus, Search, Sparkle, Star, Workflow } from "../../icons";
 import { Link } from "@tanstack/react-router";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { useMemo, useState } from "react";
 import { Glyph } from "../common/glyph";
 import { NoteLead, NoteSentence } from "../notifications/note-parts";
 import { useHeardNotes } from "../notifications/heard";
-import { ProductThumb } from "../product/product-thumb";
 import { counts } from "../lib/analytics/engine";
 import { COUNTRY_NAME, type Country, HISTORY, HISTORY_END } from "../lib/analytics/history";
-import { formatCurrency, initials } from "../lib/format";
-import { countryFlag, countryName } from "../lib/format-flag";
+import { initials } from "../lib/format";
 import { KIND, type Moment } from "../lib/home/day";
-import { ago, clock, dayKey } from "../lib/home/dates";
+import { clock, dayKey } from "../lib/home/dates";
 import { automations } from "../../data-source";
 import { conversations } from "../../data-source";
 import { customers } from "../../data-source";
@@ -51,26 +27,20 @@ import { useHome } from "../stores/home-store";
 import { useInbox } from "../stores/inbox-store";
 import { useLive } from "../stores/live-store";
 import { useNotifications } from "../stores/notifications-store";
-import { type Shortcut, type ShortcutKind, usePins } from "../stores/pins-store";
+import { type Shortcut, usePins } from "../stores/pins-store";
 import { useWorkspace } from "../stores/workspace-store";
 import { useDay } from "./use-day";
 import { UndoControl, useNow } from "../ask/agent-parts";
 import { canUndo } from "../lib/agent-log";
 import { useAgentEntries } from "../stores/agent-log-store";
 
+import { ROW, Quiet, LiveView, SHORT, ShortcutRow, RecentView, BestsellersView, CountriesView } from "./card-views";
 /*
  * The home's compact cards, in ClickUp's density: 32–36px rows, one line each, the record's own glyph
  * and where it lives ("in Bestellingen"), a time at the end. Each one reads a store the rest of the
  * console writes to, so they move while the operator works elsewhere — a ticket closed on Tickets
  * leaves "Vermeldingen", a record opened anywhere lands at the head of "Recent".
  */
-
-/** A row's hover wash, the same on every ground the operator can give a card. */
-const ROW = "flex h-9 min-w-0 items-center gap-2.5 rounded-md px-2 transition-colors hover:bg-ink/[0.045]";
-
-function Quiet({ children }: { children: React.ReactNode }) {
-	return <p className="px-2 py-1 text-sm text-ink-3">{children}</p>;
-}
 
 function More({ to, search, children }: { to: string; search?: Record<string, string>; children: React.ReactNode }) {
 	return (
@@ -186,69 +156,31 @@ export function LiveCard() {
 	const setPaused = useLive((s) => s.setPaused);
 	const auto = useHome((s) => s.autoRefresh);
 	const currency = useHome((s) => s.currency);
-	const still = useReducedMotion();
 	const today = orders.filter((o) => dayKey(o.at) === dayKey());
 	const sum = today.reduce((n, o) => n + convert(o.total, "USD", currency), 0);
-	const running = auto && !paused;
-
 	if (SCENARIO === "empty") {
 		return <Quiet>Nog geen bestellingen.</Quiet>;
 	}
 	return (
-		<div className="flex flex-col gap-1.5">
-			<div className="flex items-center gap-2 px-2 text-sm text-ink-2">
-				<span className="relative flex size-2" aria-hidden>
-					{running && !still ? <span className="absolute inset-0 animate-ping rounded-full bg-signal-green/60" /> : null}
-					<span className={cn("relative size-2 rounded-full", running ? "bg-signal-green" : "bg-ink-4")} />
-				</span>
-				<span className="min-w-0 flex-1 truncate tabular-nums">
-					{running ? "Live" : auto ? "Gepauzeerd" : "Automatisch bijwerken staat uit"} · {today.length} vandaag · {formatCurrency(sum, currency)}
-				</span>
-				<button
-					type="button"
-					onClick={() => setPaused(!paused)}
-					disabled={!auto}
-					aria-label={paused ? "Live bestellingen hervatten" : "Live bestellingen pauzeren"}
-					title={paused ? "Hervatten" : "Pauzeren"}
-					className="flex size-7 cursor-pointer items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-ink/6 hover:text-ink disabled:cursor-not-allowed disabled:opacity-45"
-				>
-					{paused ? <Play className="size-3.5" strokeWidth={1.75} /> : <Pause className="size-3.5" strokeWidth={1.75} />}
-				</button>
-			</div>
-			<ul className="flex flex-col" aria-live="polite" aria-relevant="additions">
-				<AnimatePresence initial={false}>
-					{orders.slice(0, 6).map((o) => (
-						<motion.li
-							key={o.id}
-							layout={still ? false : "position"}
-							initial={still ? false : { opacity: 0, height: 0, backgroundColor: "var(--arc-tint)" }}
-							animate={{ opacity: 1, height: 40, backgroundColor: "rgba(0,0,0,0)" }}
-							exit={{ opacity: 0, height: 0 }}
-							transition={{ duration: 0.42, ease: [0.16, 1, 0.3, 1], backgroundColor: { duration: 2.4, ease: "easeOut" } }}
-							className="overflow-hidden rounded-md"
-						>
-							<Link to="/products/$productId" params={{ productId: o.productId }} title={`${o.title} openen`} className={cn(ROW, "h-10")}>
-								<ProductThumb src={o.image} title={o.title} size={28} />
-								<span className="flex min-w-0 flex-1 flex-col leading-tight">
-									<span className="truncate text-base text-ink">
-										<span className="font-medium tabular-nums">{o.number}</span> · {o.customer}
-									</span>
-									<span className="truncate text-xs text-ink-3">
-										{o.qty} × {o.title}
-									</span>
-								</span>
-								<span className="flex shrink-0 flex-col items-end leading-tight">
-									<span className="text-sm text-ink tabular-nums">{formatCurrency(convert(o.total, "USD", currency), currency)}</span>
-									<span className="text-xs text-ink-3">
-										<span aria-label={countryName(o.country)}>{countryFlag(o.country)}</span> {ago(o.at)}
-									</span>
-								</span>
-							</Link>
-						</motion.li>
-					))}
-				</AnimatePresence>
-			</ul>
-		</div>
+		<LiveView
+			rows={orders.slice(0, 6).map((o) => ({
+				id: o.id,
+				number: o.number,
+				customer: o.customer,
+				qty: o.qty,
+				title: o.title,
+				image: o.image,
+				total: convert(o.total, "USD", currency),
+				country: o.country,
+				at: o.at,
+				to: `/products/${o.productId}`,
+			}))}
+			today={{ count: today.length, sum }}
+			auto={auto}
+			paused={paused}
+			onPause={setPaused}
+			currency={currency}
+		/>
 	);
 }
 
@@ -311,51 +243,9 @@ export function MentionsCard() {
 
 /* ─── Recent and bookmarks ─────────────────────────────────────────────── */
 
-const SHORT: Record<ShortcutKind, { icon: IconComponent; area: string }> = {
-	order: { icon: ShoppingBag, area: "Bestellingen" },
-	customer: { icon: Users, area: "Klanten" },
-	chargeback: { icon: CornerDownLeft, area: "Chargebacks" },
-	product: { icon: Box, area: "Producten" },
-	automation: { icon: Workflow, area: "Automatiseringen" },
-	supplier: { icon: Truck, area: "Leveranciers" },
-	store: { icon: Store, area: "Winkels" },
-};
-
-function ShortcutRow({ s, trail, onRemove }: { s: Shortcut; trail?: React.ReactNode; onRemove?: () => void }) {
-	const k = SHORT[s.kind];
-	return (
-		<li className="group/s relative">
-			<Link to={s.to} className={cn(ROW, "glyph-host pr-8")}>
-				<Glyph icon={k.icon} size={14} draw={false} className="shrink-0 text-ink-3" />
-				<span className="min-w-0 flex-1 truncate text-base text-ink">
-					{s.label} <span className="text-ink-3">in {k.area}</span>
-				</span>
-				{trail}
-			</Link>
-			{onRemove ? (
-				<button
-					type="button"
-					onClick={onRemove}
-					aria-label={`${s.label} uit je bladwijzers halen`}
-					className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-ink-3 opacity-0 transition-opacity hover:bg-ink/8 hover:text-ink focus-visible:opacity-100 group-hover/s:opacity-100"
-				>
-					<X className="size-3.5" strokeWidth={2} />
-				</button>
-			) : null}
-		</li>
-	);
-}
-
 export function RecentCard() {
 	const recent = usePins((s) => s.recent);
-	if (recent.length === 0) return <Quiet>Nog niets geopend.</Quiet>;
-	return (
-		<ul className="flex flex-col">
-			{recent.map((r) => (
-				<ShortcutRow key={r.to} s={r} trail={r.at ? <span className="shrink-0 text-xs text-ink-3 tabular-nums">{ago(r.at)}</span> : null} />
-			))}
-		</ul>
-	);
+	return <RecentView recent={recent} />;
 }
 
 /** What can be bookmarked: every record the workspace holds that has a page of its own. */
@@ -618,80 +508,22 @@ export function BestsellersCard() {
 			})
 			.filter((r): r is NonNullable<typeof r> => r !== null)
 			.sort((a, b) => b.units - a.units)
-			.slice(0, 5);
-	}, [range, edits]);
-
-	if (rows.length === 0) return <Quiet>Nog geen verkopen.</Quiet>;
-	return (
-		<ul className="flex flex-col">
-			{rows.map((r, i) => (
-				<li key={r.id}>
-					<Link to="/products/$productId" params={{ productId: r.id }} className={cn(ROW, "h-11")}>
-						<span className="w-3 shrink-0 text-right text-xs text-ink-3 tabular-nums">{i + 1}</span>
-						<ProductThumb src={r.image} title={r.title} size={32} />
-						<span className="flex min-w-0 flex-1 flex-col leading-tight">
-							<span className="truncate text-base text-ink">{r.title}</span>
-							<span className="truncate text-xs text-ink-3 tabular-nums">
-								{r.units.toLocaleString("nl-NL")} verkocht · {formatCurrency(convert(r.revenue, "USD", currency), currency)}
-							</span>
-						</span>
-						<span
-							className={cn(
-								"shrink-0 rounded-sm px-1.5 py-0.5 font-medium text-xs tabular-nums",
-								r.stock === 0 ? "bg-signal-red-bg text-signal-red" : r.stock <= 40 ? "bg-signal-amber-bg text-signal-amber" : "text-ink-3",
-							)}
-						>
-							{r.stock === 0 ? "Uitverkocht" : r.stock <= 40 ? `nog ${r.stock}` : `${r.stock} op voorraad`}
-						</span>
-					</Link>
-				</li>
-			))}
-		</ul>
-	);
+			.slice(0, 5)
+			.map((r) => ({ ...r, revenue: convert(r.revenue, "USD", currency) }));
+	}, [range, edits, currency]);
+	return <BestsellersView rows={rows} currency={currency} />;
 }
 
 /* ─── Bestellingen per land ────────────────────────────────────────────── */
 
 export function CountriesCard() {
 	const range = useHome((s) => s.range);
-	const still = useReducedMotion();
 	const rows = useMemo(() => {
 		const by = new Map<Country, number>();
 		for (const o of historyWindow(range)) by.set(o.country, (by.get(o.country) ?? 0) + 1);
-		return [...by].map(([country, n]) => ({ country, n })).sort((a, b) => b.n - a.n);
+		return [...by].map(([country, n]) => ({ country: country as string | null, name: COUNTRY_NAME[country], n })).sort((a, b) => b.n - a.n);
 	}, [range]);
-	const total = rows.reduce((n, r) => n + r.n, 0);
-	const max = Math.max(1, ...rows.map((r) => r.n));
-
-	if (total === 0) return <Quiet>Nog geen bestellingen.</Quiet>;
-	return (
-		<div className="flex flex-col gap-1">
-			<p className="px-2 text-sm text-ink-2 tabular-nums">
-				{total.toLocaleString("nl-NL")} bestellingen in {rows.length} landen, laatste {range} dagen
-			</p>
-			<ul className="flex flex-col">
-				{rows.map((r, i) => (
-					<li key={r.country}>
-						<Link to="/analytics" className={cn(ROW, "relative h-8 overflow-hidden")}>
-							<motion.span
-								aria-hidden
-								className="absolute inset-y-1 left-0 rounded-md bg-arc/10"
-								initial={still ? false : { width: 0 }}
-								animate={{ width: `${(r.n / max) * 100}%` }}
-								transition={{ type: "spring", stiffness: 160, damping: 26, delay: still ? 0 : i * 0.04 }}
-							/>
-							<span className="relative w-5 shrink-0 text-center" aria-hidden>
-								{countryFlag(r.country)}
-							</span>
-							<span className="relative min-w-0 flex-1 truncate text-base text-ink">{COUNTRY_NAME[r.country]}</span>
-							<span className="relative text-sm text-ink tabular-nums">{r.n.toLocaleString("nl-NL")}</span>
-							<span className="relative w-10 text-right text-xs text-ink-3 tabular-nums">{Math.round((r.n / total) * 100)}%</span>
-						</Link>
-					</li>
-				))}
-			</ul>
-		</div>
-	);
+	return <CountriesView rows={rows} range={range} />;
 }
 
 /* ─── Ongelezen chats ──────────────────────────────────────────────────── */
@@ -715,7 +547,7 @@ export function ChatsCard() {
 					const group = c.type !== "dm";
 					return (
 						<li key={c.id}>
-							<Link to="/chats" search={{ id: c.id } as never} className={cn(ROW, "h-11")}>
+							<Link to={"/chats" as string} search={{ id: c.id } as never} className={cn(ROW, "h-11")}>
 								{group ? (
 									<span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-band text-ink-2">
 										<Hash className="size-3.5" strokeWidth={1.75} />
