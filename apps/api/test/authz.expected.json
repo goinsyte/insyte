@@ -1259,6 +1259,27 @@
     "finance": "deny",
     "view": "deny"
   },
+  "Home.work": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Home.agenda": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Home.activity": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
   "Notifications.list": {
     "owner": "allow",
     "admin": "allow",

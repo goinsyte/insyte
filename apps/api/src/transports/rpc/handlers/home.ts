@@ -7,6 +7,9 @@ export const HomeHandlers = HomeRpcs.toLayer(Effect.gen(function*() {
   return HomeRpcs.of({
     "Home.brief": () => home.brief,
     "Home.widgets": (input) => home.widgets(input),
-    "Home.revenueBreakdown": ({ range }) => home.revenueBreakdown(range)
+    "Home.revenueBreakdown": ({ range }) => home.revenueBreakdown(range),
+    "Home.work": () => home.work,
+    "Home.agenda": (input) => home.agenda(input),
+    "Home.activity": (input) => home.activity(input)
   })
 }))

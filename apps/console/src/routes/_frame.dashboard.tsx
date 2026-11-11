@@ -19,10 +19,11 @@ import { useNow } from "@insyte/ui/app/hooks/use-now"
 import { authClient } from "@insyte/ui/app/lib/auth-client"
 import type { Currency } from "@insyte/ui/app/lib/types/domain"
 import { KpiStrip } from "@insyte/ui/app/loading/page-skeletons"
-import { createFileRoute } from "@tanstack/react-router"
+import type { HomeView } from "@insyte/ui/app/stores/home-store"
+import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
-import { type ReactNode, useState } from "react"
+import { type ReactNode, useEffect, useState } from "react"
 import { frameAtom } from "../data/frame.ts"
 import { briefAtom, widgetsAtom, widgetsKey } from "../data/home.ts"
 import { completeTaskAtom, START, startAtom } from "../data/onboarding.ts"
@@ -35,6 +36,14 @@ import {
   useHomeSlots,
   useHomeWidgets
 } from "../start/home-source.tsx"
+import {
+  ConsoleActivity,
+  ConsoleAgenda,
+  ConsoleWork,
+  dueToday,
+  useAgendaAhead,
+  useConsoleWork
+} from "../start/home-views.tsx"
 import { useConsoleQueue } from "../start/queue-source.tsx"
 
 /**
@@ -46,10 +55,17 @@ import { useConsoleQueue } from "../start/queue-source.tsx"
  * Start: the greeting with what waits on the person (`Home.brief`), the pulse band and the board (M10.3,
  * `Home.widgets`) with the queue (M10.1, `Queue.list`, live) as its first card and its plate panel. On the first day
  * (no orders, nothing open) it is the setup plate and checklist (M4.1) from `Onboarding.start` under the queue instead,
- * linking only into the screens the console has. Mijn werk, Agenda and Activiteit come with the rest of M10.
+ * linking only into the screens the console has. Mijn werk, Agenda and Activiteit (M10.3b) are the other tabs, read
+ * when they open; `?view=` keeps the tab and `?row=` (from the agenda or Mijn werk) opens that queue row's plate.
  */
 export const Route = createFileRoute("/_frame/dashboard")({
   head: () => ({ meta: [{ title: "Start · Insyte" }] }),
+  validateSearch: (s: Record<string, unknown>): StartSearch => ({
+    ...(typeof s["view"] === "string" && (VIEWS as ReadonlyArray<string>).includes(s["view"])
+      ? { view: s["view"] as HomeView }
+      : {}),
+    ...(typeof s["row"] === "string" ? { row: s["row"] } : {})
+  }),
   loader: async ({ context }) => {
     // Mounted so the value survives until the registry is dehydrated into the document.
     context.registry.mount(startAtom)
@@ -75,6 +91,13 @@ export const Route = createFileRoute("/_frame/dashboard")({
   component: Start
 })
 
+interface StartSearch {
+  readonly view?: HomeView
+  readonly row?: string
+}
+
+const VIEWS: ReadonlyArray<HomeView> = ["overzicht", "werk", "agenda", "activiteit"]
+
 /** Only the operator can say they did these; the rest tick themselves when the workspace has them. */
 const isManual = Schema.is(ManualSetupTask)
 
@@ -86,12 +109,22 @@ const OPENS = new Set(["orders", "tickets", "mytickets", "stock", "returns", "be
 
 function Start() {
   const navigate = Route.useNavigate()
+  const search = Route.useSearch()
+  const view = search.view ?? "overzicht"
   const result = useAtomValue(startAtom)
   const frame = Option.getOrUndefined(AsyncResult.value(useAtomValue(frameAtom)))
   const brief = Option.getOrUndefined(AsyncResult.value(useAtomValue(briefAtom)))
   const now = useNow(60_000)
   const queue = useConsoleQueue(now)
-  const panel = useQueuePanel(queue.source, true)
+  const panel = useQueuePanel(queue.source, view === "overzicht")
+
+  // Arriving with `?row=` (from the agenda or Mijn werk) opens that row's plate over the board.
+  useEffect(() => {
+    if (search.row === undefined) return
+    panel.select(search.row)
+    void navigate({ search: (s) => ({ ...s, row: undefined }), replace: true })
+  }, [search.row, panel.select, navigate])
+
   if (!AsyncResult.isSuccess(result) || frame === undefined) return null
   const checklist = result.value
   const signOut = (
@@ -129,7 +162,15 @@ function Start() {
   }
   return (
     <>
-      <Board frame={frame} checklist={checklist} hero={hero} signOut={signOut} queue={panel.body} />
+      <Board
+        frame={frame}
+        checklist={checklist}
+        hero={hero}
+        signOut={signOut}
+        queue={panel.body}
+        view={view}
+        now={now}
+      />
       {panel.plate}
     </>
   )
@@ -165,17 +206,30 @@ function FirstDay(
   )
 }
 
-/** Every other day: the pulse, and the board the person arranges, kept in their preferences. */
+/**
+ * Every other day: the pulse and the board the person arranges, kept in their preferences, and the three other views
+ * beside it.
+ */
 function Board(
-  { frame, checklist, hero, signOut, queue }: {
+  { frame, checklist, hero, signOut, queue, view, now }: {
     frame: Frame
     checklist: StartChecklist
     hero: ReactNode
     signOut: ReactNode
     queue: ReactNode
+    view: HomeView
+    now: number
   }
 ) {
+  const navigate = useNavigate({ from: "/dashboard" })
   const [editing, setEditing] = useState(false)
+  const work = useConsoleWork(frame, now)
+  const due = dueToday(work.items, now)
+  const ahead = useAgendaAhead(now)
+  const pickView = (v: HomeView) => {
+    setEditing(false)
+    void navigate({ search: (s) => ({ ...s, view: v === "overzicht" ? undefined : v }) })
+  }
   const board = useConsoleBoard(frame)
   const { data, refresh } = useHomeWidgets(board.range, board.ids)
   const refreshBrief = useAtomRefresh(briefAtom)
@@ -197,9 +251,14 @@ function Board(
           {signOut}
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <ViewTabs view="overzicht" onView={() => {}} counts={{}} views={["overzicht"]} />
+          <ViewTabs
+            view={view}
+            onView={pickView}
+            counts={{ ...(due === undefined ? {} : { werk: due }), ...(ahead === undefined ? {} : { agenda: ahead }) }}
+            views={VIEWS}
+          />
           <div className="ml-auto flex flex-wrap items-center gap-1">
-            {editing ?
+            {view !== "overzicht" ? null : editing ?
               (
                 <>
                   <EditTools defaults={board.defaults} />
@@ -212,26 +271,54 @@ function Board(
                   <WindowMenu currency={currency} range={board.range} onRange={board.setRange} />
                 </>
               )}
-            <CustomizeButton editing={editing} onEditing={setEditing} />
-            {editing ? null : <AddCardMenu offered={OFFERED} />}
+            {view === "overzicht" ?
+              (
+                <>
+                  <CustomizeButton editing={editing} onEditing={setEditing} />
+                  {editing ? null : <AddCardMenu offered={OFFERED} />}
+                </>
+              ) :
+              null}
           </div>
         </div>
       </header>
       <div
         role="tabpanel"
-        id="home-panel-overzicht"
-        aria-labelledby="home-tab-overzicht"
+        id={`home-panel-${view}`}
+        aria-labelledby={`home-tab-${view}`}
         className="mt-4 flex flex-col gap-4"
       >
-        {figures === undefined ? <KpiStrip n={4} /> : figures.length > 0 ? <PulseBand figures={figures} /> : null}
-        <HomeBoard
-          editing={editing}
-          onEditing={setEditing}
-          slots={slots}
-          opens={(id) => OPENS.has(id)}
-          defaults={board.defaults}
-          live
-        />
+        {view === "overzicht" ?
+          (
+            <>
+              {figures === undefined ?
+                <KpiStrip n={4} /> :
+                figures.length > 0 ?
+                <PulseBand figures={figures} /> :
+                null}
+              <HomeBoard
+                editing={editing}
+                onEditing={setEditing}
+                slots={slots}
+                opens={(id) => OPENS.has(id)}
+                defaults={board.defaults}
+                live
+              />
+            </>
+          ) :
+          view === "werk" ?
+          (
+            <div className="mx-auto w-full max-w-[1080px]">
+              <ConsoleWork now={now} items={work.items} pref={work.pref} save={work.save} />
+            </div>
+          ) :
+          view === "agenda" ?
+          <ConsoleAgenda now={now} /> :
+          (
+            <div className="mx-auto w-full max-w-[1080px]">
+              <ConsoleActivity now={now} />
+            </div>
+          )}
       </div>
     </section>
   )
