@@ -5,6 +5,8 @@
 
 const ALLOWED = new Set([
   "MIT",
+  // MIT without its attribution clause (postal-mime, M11).
+  "MIT-0",
   "ISC",
   "BSD-2-Clause",
   "BSD-3-Clause",

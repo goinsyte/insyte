@@ -281,3 +281,10 @@ export const options = Effect.fn("Tickets.options")(function*() {
     })
   )
 })
+
+/** A ticket's `#n`, where it exists and the caller's stores reach it (the inbox's "Aan ticket koppelen"). */
+export const numberOf = Effect.fn("Tickets.numberOf")(function*(sql: SqlClient.SqlClient, ticketId: string) {
+  const scope = yield* ticketScope(sql)
+  const [row] = yield* sql<{ number: string }>`select t.number from tickets t where t.id = ${ticketId} and ${scope}`
+  return row === undefined ? undefined : Number(row.number)
+})

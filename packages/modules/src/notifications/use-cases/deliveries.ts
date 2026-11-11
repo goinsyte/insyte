@@ -23,6 +23,7 @@ interface Due {
   readonly id: string
   readonly recipientId: string
   readonly kind: string
+  readonly subjectType: string | null
   readonly subjectId: string | null
   readonly data: Record<string, unknown>
   readonly attempts: number
@@ -36,7 +37,7 @@ interface Due {
 export const sendDue = Effect.fn("Notifications.sendDue")(function*(sql: SqlClient.SqlClient, at?: Date) {
   const now = at ?? new Date()
   const due = yield* sql<Due>`
-    select d.id, d.recipient_id, d.kind, d.subject_id, d.data, d.attempts, u.email,
+    select d.id, d.recipient_id, d.kind, d.subject_type, d.subject_id, d.data, d.attempts, u.email,
            (m.deactivated_at is null and m.removed_at is null) as active, au.name as actor, w.name as workspace
     from notification_deliveries d
     join workspaces w on w.id = d.workspace_id
@@ -54,7 +55,13 @@ export const sendDue = Effect.fn("Notifications.sendDue")(function*(sql: SqlClie
       yield* sql`update notification_deliveries set state = 'skipped' where id = ${d.id}`
       continue
     }
-    const words = wordsOf({ kind: d.kind, subjectId: d.subjectId, actor: d.actor, data: d.data })
+    const words = wordsOf({
+      kind: d.kind,
+      subjectType: d.subjectType,
+      subjectId: d.subjectId,
+      actor: d.actor,
+      data: d.data
+    })
     const went = yield* mailer.send({
       kind: "member.notification",
       to: d.email,
@@ -110,6 +117,7 @@ interface DigestDue {
 
 interface Unread {
   readonly kind: string
+  readonly subjectType: string | null
   readonly subjectId: string | null
   readonly data: Record<string, unknown>
   readonly actor: string | null
@@ -147,7 +155,7 @@ export const digestDue = Effect.fn("Notifications.digestDue")(function*(
   let sent = 0
   for (const member of members) {
     const notes = yield* sql<Unread>`
-      select n.kind, n.subject_id, n.data, au.name as actor
+      select n.kind, n.subject_type, n.subject_id, n.data, au.name as actor
       from notifications n
       left join members am on n.actor_kind = 'member' and am.id = n.actor_id
       left join auth."user" au on au.id = am.user_id
@@ -164,7 +172,7 @@ export const digestDue = Effect.fn("Notifications.digestDue")(function*(
     if (claimed === undefined || notes.length === 0) continue
     const lines = notes.map((n) => ({
       primary: notificationKind(n.kind)?.primary ?? false,
-      words: wordsOf({ kind: n.kind, subjectId: n.subjectId, actor: n.actor, data: n.data })
+      words: wordsOf({ kind: n.kind, subjectType: n.subjectType, subjectId: n.subjectId, actor: n.actor, data: n.data })
     }))
     const line = (l: (typeof lines)[number]) => ({ title: l.words.title, detail: l.words.detail, path: l.words.path })
     const went = yield* mailer.send({

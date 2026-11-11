@@ -75,8 +75,6 @@ export default statements(
   `create policy digests_own on digests as restrictive for all
      using (app_principal_kind() = 'system' or recipient_id = app_principal_id())
      with check (app_principal_kind() = 'system')`,
-  // What the capture adapter kept of a member's mail: its subject, so a test can read what it said.
-  "alter table captured_mail add column subject text",
   /*
    * The sweeps' workspaces, ids only: those with a delivery due (the minute sweep), and those with an active member
    * (the digest's quarter-hour turn, which decides per member whether their hour has come).

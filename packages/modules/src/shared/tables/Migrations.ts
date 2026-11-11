@@ -40,6 +40,8 @@ import queue from "./migrations/0043_queue.ts"
 import proposals from "./migrations/0044_proposals.ts"
 import orderMails from "./migrations/0045_order_mails.ts"
 import facts from "./migrations/0047_facts.ts"
+import chat from "./migrations/0049_chat.ts"
+import mail from "./migrations/0050_mail.ts"
 import notify from "./migrations/0052_notify.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
@@ -91,5 +93,7 @@ export const Migrations = {
   "0044_proposals": proposals,
   "0045_order_mails": orderMails,
   "0047_facts": facts,
+  "0049_chat": chat,
+  "0050_mail": mail,
   "0052_notify": notify
 }

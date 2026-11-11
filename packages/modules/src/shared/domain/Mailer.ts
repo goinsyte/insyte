@@ -18,6 +18,7 @@ export const MailKind = Schema.Literals([
   "return.label",
   "return.resolved",
   "order.delayed",
+  "support.message",
   "member.notification",
   "member.digest"
 ])
@@ -137,6 +138,21 @@ export interface DigestFacts {
   readonly other: ReadonlyArray<DigestLine>
 }
 
+/**
+ * A message the team wrote in the inbox (M11 step 2): a reply, a forward or a new mail, sent in the mailbox's name
+ * from Insyte's sending domain, answered to the mailbox's own address, and threaded by its headers.
+ */
+export interface SupportFacts {
+  readonly subject: string
+  readonly text: string
+  /** The mailbox's own address, which forwards to Insyte: where the customer's answer goes. */
+  readonly replyTo: string
+  /** `<id@domain>`, as the thread knows it. */
+  readonly messageId: string
+  readonly inReplyTo: string | null
+  readonly references: ReadonlyArray<string>
+}
+
 export interface Mail {
   readonly kind: MailKind
   readonly to: string
@@ -153,6 +169,8 @@ export interface Mail {
   readonly memberNote?: MemberNoteFacts | undefined
   /** `member.digest` only. */
   readonly digest?: DigestFacts | undefined
+  /** `support.message` only. */
+  readonly support?: SupportFacts | undefined
   /** The name the mail is sent in (a store's, to its shopper); absent, Insyte's own. */
   readonly sender?: string | undefined
   /** What makes two mails of one kind to one address different (a leg's id), for the sender's idempotency. */

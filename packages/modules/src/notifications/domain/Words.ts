@@ -6,6 +6,7 @@
 
 export interface NoteFacts {
   readonly kind: string
+  readonly subjectType: string | null
   readonly subjectId: string | null
   /** The member who did it, by name as it is now; `null` for a service, a shopper or Insyte. */
   readonly actor: string | null
@@ -90,6 +91,17 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
         path: `/tickets${query({ ticket: id })}`
       }
     case "chat.mention":
+      // In a chat (M11 step 4): `#kanaal` or a DM, which the button opens.
+      if (note.subjectType === "conversation") {
+        return {
+          title: typeof data["conversation"] === "string"
+            ? `${who} heeft je vermeld in #${data["conversation"]}`
+            : `${who} heeft je vermeld in een privébericht`,
+          quote: text(data["comment"]) || undefined,
+          actionLabel: "Bericht bekijken",
+          path: `/chats${query({ id })}`
+        }
+      }
       return {
         title: `${who} heeft je vermeld bij ticket #${text(data["number"])}`,
         detail: text(data["title"]) || undefined,

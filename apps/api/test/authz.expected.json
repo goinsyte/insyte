@@ -972,6 +972,293 @@
     "finance": "allow",
     "view": "allow"
   },
+  "Chats.list": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.messages": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.thread": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.pinnedMessages": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.members": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.send": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.editMessage": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.deleteMessage": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.react": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.pinMessage": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.pin": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.mute": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.markRead": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.typing": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.createChannel": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Chats.openDm": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.openSupplierChannel": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.runCommand": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.confirmAction": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Chats.declineAction": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Threads.list": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Threads.get": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Threads.markRead": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Threads.star": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Threads.label": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Threads.archive": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Threads.spam": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Threads.trash": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Threads.snooze": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Threads.putBack": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Threads.assign": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Threads.unassign": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Threads.linkTicket": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Threads.reply": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Threads.forward": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Threads.compose": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Mailboxes.list": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Mailboxes.connect": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Mailboxes.disconnect": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Mailboxes.setDefault": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Mailboxes.setSignature": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
   "Notifications.list": {
     "owner": "allow",
     "admin": "allow",

@@ -22,7 +22,8 @@
     "@insyte/integrations-shopify": "workspace:*",
     "@insyte/integrations-turnstile": "workspace:*",
     "@insyte/modules": "workspace:*",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "postal-mime": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "catalog:",
