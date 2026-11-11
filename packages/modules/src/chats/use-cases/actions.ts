@@ -133,15 +133,15 @@ export const runCommand = Effect.fn("Chats.runCommand")(function*(input: typeof 
         replyTo,
         alsoInChannel: false
       })
-      const actionId = mintId("cha")
+      const id = mintId("cha")
       yield* sql`
         insert into chat_actions (id, workspace_id, conversation_id, message_id, command, target_kind, target_id, arg,
                                   state, created_by)
-        values (${actionId}, ${p.workspaceId}, ${c.id}, ${messageId}, ${input.command}, ${input.target?.kind ?? null},
+        values (${id}, ${p.workspaceId}, ${c.id}, ${messageId}, ${input.command}, ${input.target?.kind ?? null},
                 ${input.target?.id ?? null}, ${input.arg?.trim() || null}, ${confirm ? "confirm" : "running"},
                 ${p.id})`
       return {
-        actionId,
+        actionId: id,
         change: confirm ? new MessageChange({ message: yield* messageRow(sql, messageId), undo: null }) : null
       }
     })

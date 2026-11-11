@@ -340,7 +340,7 @@ export const messages = Effect.fn("Chats.messages")(function*(input: typeof Mess
         where m.conversation_id = ${input.conversationId} and ${sql.literal(IN_STREAM)}
           ${cursor === undefined ? sql`` : sql`and (m.created_at, m.id) < (${cursor.createdAt}, ${cursor.id})`}
         order by m.created_at desc, m.id desc limit ${limit + 1}`
-      const page = rows.slice(0, limit).map(toMessage).reverse()
+      const page = rows.slice(0, limit).map(toMessage).toReversed()
       return new MessagesPage({
         conversation: yield* conversationRow(sql, input.conversationId),
         messages: page,

@@ -350,7 +350,7 @@ export const openDm = Effect.fn("Chats.openDm")(function*(memberId: string) {
       const [other] = yield* sql<{ id: string }>`
         select m.id from (${sql.literal(READERS)}) m where m.id = ${memberId}`
       if (other === undefined) return yield* new NotFound({ entity: "member", id: memberId })
-      const key = [p.id, memberId].sort().join(":")
+      const key = [p.id, memberId].toSorted().join(":")
       yield* sql`
         insert into conversations (id, workspace_id, kind, name, dm_key, created_by)
         values (${mintId("cnv")}, ${p.workspaceId}, 'dm', 'dm', ${key}, ${p.id})
