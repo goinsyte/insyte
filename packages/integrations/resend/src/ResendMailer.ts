@@ -1,4 +1,4 @@
-import { type Mail, Mailer, MailNotSent } from "@insyte/modules/shared/domain/Mailer"
+import { type DigestLine, type Mail, Mailer, MailNotSent } from "@insyte/modules/shared/domain/Mailer"
 import { Config, Effect, Layer } from "effect"
 import { MailRenderer, type Rendered } from "./MailRenderer.ts"
 import { MailUrls } from "./MailUrls.ts"
@@ -78,6 +78,29 @@ export const ResendMailer = Layer.effect(
             const facts = mail.orderDelay
             if (facts === undefined) return Effect.fail(missing(mail, "its order"))
             return renderer.render("order.delayed", facts)
+          }
+          case "member.notification": {
+            const facts = mail.memberNote
+            if (facts === undefined) return Effect.fail(missing(mail, "its note"))
+            const { path, ...words } = facts
+            return renderer.render("platform.notification", {
+              ...words,
+              url: urls.console(path),
+              settingsUrl: urls.console("/settings/notifications")
+            })
+          }
+          case "member.digest": {
+            const facts = mail.digest
+            if (facts === undefined) return Effect.fail(missing(mail, "its notes"))
+            const line = (l: DigestLine) => ({ title: l.title, detail: l.detail, href: urls.console(l.path) })
+            return renderer.render("platform.daily_digest", {
+              workspace: facts.workspace,
+              date: facts.date,
+              primary: facts.primary.map(line),
+              other: facts.other.map(line),
+              url: urls.console("/notifications"),
+              settingsUrl: urls.console("/settings/notifications")
+            })
           }
         }
       })()

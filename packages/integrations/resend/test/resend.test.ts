@@ -341,6 +341,30 @@ describe("the shopper's delay mail (M10.2)", () => {
   })
 })
 
+describe("a member's notification mails (M11 step 13.5)", () => {
+  it("sets the note's sentence as the subject and links to the record and the settings page", async () => {
+    const urls = urlsFor(ORIGINS[0])
+    const mail = await renderEmail("platform.notification", {
+      kind: "ticket.assigned",
+      workspace: "Northwind",
+      title: "Elena Hart heeft je toegewezen aan ticket #12",
+      detail: "Waar blijft mijn pakket?",
+      record: "Ticket #12",
+      actionLabel: "Ticket openen",
+      url: urls.console("/tickets?ticket=tkt_1"),
+      settingsUrl: urls.console("/settings/notifications")
+    })
+    expect(mail.subject).toBe("Elena Hart heeft je toegewezen aan ticket #12")
+    expect(mail.text).toContain(urls.console("/tickets?ticket=tkt_1"))
+    expect(mail.text).toContain(urls.console("/settings/notifications"))
+  })
+
+  it("counts the digest's notes in its subject", async () => {
+    const props = EMAILS["platform.daily_digest"].preview(urlsFor(ORIGINS[0]))
+    expect((await renderEmail("platform.daily_digest", props)).subject).toBe("Northwind: 5 meldingen voor vandaag")
+  })
+})
+
 describe("the templates' content", () => {
   it("keeps the wired mails' Dutch subjects", async () => {
     const urls = urlsFor(ORIGINS[0])
@@ -385,6 +409,8 @@ describe("the templates' content", () => {
       "auth.reset",
       "auth.signup_existing",
       "team.invite",
+      "platform.notification",
+      "platform.daily_digest",
       "supplier.order",
       "return.received",
       "return.approved",

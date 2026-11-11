@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { UndoTicket } from "../../shared/domain/Undo.ts"
 
 /*
  * In-app notifications (M5.2): what the bell, the notifications page and the settings page read. A row is a fact about
@@ -51,9 +52,75 @@ export type SetRead = typeof SetRead.Type
 export const Snooze = Schema.Struct({ ids: Schema.Array(Schema.String), until: Schema.Finite })
 export type Snooze = typeof Snooze.Type
 
-/** The member's in-app switch per kind; a kind not listed follows the catalogue's default. */
+/** A time of day as the page writes it, `HH:MM`. */
+const Clock = Schema.String.check(Schema.isPattern(/^([01][0-9]|2[0-3]):[0-5][0-9]$/))
+
+/** The hours the digest can go out at (widgets/04 §D). */
+export const DIGEST_TIMES = ["06:00", "07:00", "07:30", "08:00", "08:30", "09:00", "10:00"] as const
+
+/** One kind's channels, and "Alleen als het mij betreft". */
+export const EventPref = Schema.Struct({
+  app: Schema.Boolean,
+  email: Schema.Boolean,
+  push: Schema.Boolean,
+  slack: Schema.Boolean,
+  onlyMine: Schema.Boolean
+})
+export type EventPref = typeof EventPref.Type
+
+/** Push and Slack wait while these are on, in the workspace's timezone; the app and e-mail do not. */
+export const QuietHours = Schema.Struct({ on: Schema.Boolean, from: Clock, to: Clock, weekend: Schema.Boolean })
+export type QuietHours = typeof QuietHours.Type
+export const DigestPref = Schema.Struct({ on: Schema.Boolean, at: Schema.Literals(DIGEST_TIMES) })
+export const FollowPref = Schema.Struct({
+  assigned: Schema.Boolean,
+  mentioned: Schema.Boolean,
+  created: Schema.Boolean
+})
+
+/** What the Meldingen page saves, whole (`Notifications.setPrefs`). */
+export const NotifyPrefsInput = Schema.Struct({
+  events: Schema.Record(Schema.String, EventPref),
+  quiet: QuietHours,
+  digest: DigestPref,
+  follow: FollowPref,
+  /** Where Slack posts; `null` while Slack is not connected. */
+  slackChannel: Schema.NullOr(Schema.String)
+})
+export type NotifyPrefsInput = typeof NotifyPrefsInput.Type
+
+/** Whether a channel outside the app can deliver: e-mail always; push and Slack once their adapters are set up. */
+export const ChannelState = Schema.Literals(["connected", "unavailable"])
+
+/**
+ * The member's notification settings: every kind's channels (a kind never set follows the catalogue's default), quiet
+ * hours, the digest, the follow rules; beside them what the page shows with them: the address mail goes to, the
+ * timezone quiet hours are in, the workspace's thresholds and whether push and Slack can deliver. `app` is the in-app
+ * switch alone, as the bell reads it.
+ */
 export class NotePrefs extends Schema.Class<NotePrefs>("notifications/NotePrefs")({
-  app: Schema.Record(Schema.String, Schema.Boolean)
+  app: Schema.Record(Schema.String, Schema.Boolean),
+  events: Schema.Record(Schema.String, EventPref),
+  quiet: QuietHours,
+  digest: DigestPref,
+  follow: FollowPref,
+  slackChannel: Schema.NullOr(Schema.String),
+  email: Schema.String,
+  timezone: Schema.String,
+  alerts: Schema.Struct({ delayHours: Schema.Int, disputeAmountMinor: Schema.Int, currency: Schema.String }),
+  channels: Schema.Struct({ push: ChannelState, slack: ChannelState })
 }) {}
+
+/** A saved page, with its Undo: the settings as they were. */
+export class NotePrefsChange extends Schema.Class<NotePrefsChange>("notifications/NotePrefsChange")({
+  prefs: NotePrefs,
+  undo: UndoTicket
+}) {}
+
+/** Quiet hours on, from the same time as they end: no hours at all. */
+export class QuietHoursEmpty extends Schema.TaggedError<QuietHoursEmpty>()("QuietHoursEmpty", {}) {}
+
+/** A Slack channel chosen while the workspace has no Slack connected. */
+export class SlackNotConnected extends Schema.TaggedError<SlackNotConnected>()("SlackNotConnected", {}) {}
 export const SetNotePref = Schema.Struct({ kind: Schema.String, app: Schema.Boolean })
 export type SetNotePref = typeof SetNotePref.Type

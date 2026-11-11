@@ -40,6 +40,7 @@ import queue from "./migrations/0043_queue.ts"
 import proposals from "./migrations/0044_proposals.ts"
 import orderMails from "./migrations/0045_order_mails.ts"
 import facts from "./migrations/0047_facts.ts"
+import notify from "./migrations/0052_notify.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -89,5 +90,6 @@ export const Migrations = {
   "0043_queue": queue,
   "0044_proposals": proposals,
   "0045_order_mails": orderMails,
-  "0047_facts": facts
+  "0047_facts": facts,
+  "0052_notify": notify
 }

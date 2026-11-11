@@ -1,8 +1,11 @@
 import { mintId } from "@insyte/domain/Ids"
-import { notificationKind } from "@insyte/domain/Notifications"
+import { CHANNELS, notificationKind } from "@insyte/domain/Notifications"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import type { OutboxEvent } from "../../shared/domain/Outbox.ts"
+import { quietUntil } from "../domain/Quiet.ts"
+import { plan as planDelivery } from "./deliveries.ts"
+import { CHANNEL_STATE } from "./prefs.ts"
 
 /*
  * The relay's notifications sink (M5.2): a domain event → one row per member who should hear of it, in the event's
@@ -17,8 +20,11 @@ import type { OutboxEvent } from "../../shared/domain/Outbox.ts"
  * - `ticket.mentioned`: who a ticket comment names with `@` hears of it;
  * - `quality_check.submitted`: who asked for the check, and whoever handles products, hear the supplier answered.
  *
- * A member whose in-app switch for the kind is off, or who is deactivated or removed, hears nothing. Answers the
- * recipients with their unread count, for the realtime frame.
+ * A member deactivated or removed hears nothing. Who has "Alleen als het mij betreft" on for the kind hears only of
+ * what concerns them directly (they were put on it, named in it, asked for it or sent the invitation). The in-app switch
+ * decides the row in the inbox; each other channel that is on and can deliver gets a delivery of its own
+ * (`deliveries.ts`), push and Slack held until the member's quiet hours end (M11 step 13.5). Answers who got a row,
+ * with their unread count, for the realtime frame.
  */
 
 interface Planned {
@@ -28,6 +34,8 @@ interface Planned {
   readonly subjectId: string
   readonly actor: string | null
   readonly data: Record<string, unknown>
+  /** Whom it concerns directly, for "Alleen als het mij betreft"; the rest hear of it by their role. */
+  readonly direct?: ReadonlyArray<string>
 }
 
 /** Active members whose role manages the team (`team` at Beheren). */
@@ -56,7 +64,8 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
           subjectType: "member",
           subjectId: event.memberId,
           actor: event.memberId,
-          data: { via: event.via }
+          data: { via: event.via },
+          direct: inviter === undefined ? [] : [inviter.invitedBy]
         }
       }
       case "access.requested":
@@ -79,7 +88,8 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             subjectType: "access_request",
             subjectId: event.requestId,
             actor: request.decidedBy,
-            data: { area: request.area, level: request.level, state: event.state }
+            data: { area: request.area, level: request.level, state: event.state },
+            direct: [event.memberId]
           }
       }
       case "order.delayed": {
@@ -148,9 +158,11 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
         const [said] = event.type === "ticket.mentioned"
           ? yield* sql<{ body: string }>`select body from ticket_comments where id = ${event.commentId}`
           : []
+        const named = recipients.map((r) => r.id).filter((r) => r !== event.by)
         return {
           kind: event.type === "ticket.assigned" ? "ticket.assigned" : "chat.mention",
-          recipients: recipients.map((r) => r.id).filter((r) => r !== event.by),
+          recipients: named,
+          direct: named,
           subjectType: "ticket",
           subjectId: event.ticketId,
           actor: actor?.id ?? null,
@@ -198,13 +210,25 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             photos: check.photos,
             batch: check.batch,
             video: check.video
-          }
+          },
+          direct: [check.requestedBy]
         }
       }
       default:
         return undefined
     }
   })
+
+interface Heard {
+  readonly id: string
+  readonly channels: ReadonlyArray<string> | null
+  readonly onlyMine: boolean | null
+  readonly quietOn: boolean | null
+  readonly quietFrom: string | null
+  readonly quietTo: string | null
+  readonly quietWeekend: boolean | null
+  readonly timezone: string
+}
 
 export const fanOut = Effect.fn("Notifications.fanOut")(function*(
   sql: SqlClient.SqlClient,
@@ -213,24 +237,56 @@ export const fanOut = Effect.fn("Notifications.fanOut")(function*(
 ) {
   const planned = yield* plan(sql, event)
   if (planned === undefined || planned.recipients.length === 0) return []
-  const defaultOn = notificationKind(planned.kind)?.defaults.app ?? true
-  const heard = yield* sql<{ id: string }>`
-    select m.id from members m
+  const defaults = notificationKind(planned.kind)?.defaults
+  const members = yield* sql<Heard>`
+    select m.id, p.channels, p.only_mine, s.quiet_on, s.quiet_from, s.quiet_to, s.quiet_weekend, w.timezone
+    from members m
+    join workspaces w on w.id = m.workspace_id
     left join notification_prefs p on p.recipient_id = m.id and p.kind = ${planned.kind}
-    where m.id in ${sql.in([...planned.recipients])} and m.deactivated_at is null and m.removed_at is null
-      and coalesce('app' = any(p.channels), ${defaultOn})`
+    left join notification_settings s on s.recipient_id = m.id
+    where m.id in ${sql.in([...planned.recipients])} and m.deactivated_at is null and m.removed_at is null`
+  const now = new Date()
   const out: Array<{ readonly recipientId: string; readonly unread: number }> = []
-  for (const { id } of heard) {
-    yield* sql`insert into notifications (id, workspace_id, recipient_kind, recipient_id, kind, subject_type, subject_id,
-                                          actor_kind, actor_id, data)
-               values (${mintId("note")}, ${workspaceId}, 'member', ${id}, ${planned.kind}, ${planned.subjectType},
-                       ${planned.subjectId}, ${planned.actor === null ? null : "member"}, ${planned.actor},
-                       ${JSON.stringify(planned.data)}::jsonb)`
+  for (const member of members) {
+    if (member.onlyMine === true && !(planned.direct ?? []).includes(member.id)) continue
+    const on = new Set(member.channels ?? CHANNELS.filter((c) => defaults?.[c] ?? c === "app"))
+    let noteId: string | null = null
+    if (on.has("app")) {
+      noteId = mintId("note")
+      yield* sql`insert into notifications (id, workspace_id, recipient_kind, recipient_id, kind, subject_type,
+                                            subject_id, actor_kind, actor_id, data)
+                 values (${noteId}, ${workspaceId}, 'member', ${member.id}, ${planned.kind}, ${planned.subjectType},
+                         ${planned.subjectId}, ${planned.actor === null ? null : "member"}, ${planned.actor},
+                         ${JSON.stringify(planned.data)}::jsonb)`
+    }
+    // E-mail goes now; push and Slack, once they can deliver, wait out the member's quiet hours.
+    const quiet = {
+      on: member.quietOn ?? true,
+      from: member.quietFrom ?? "22:00",
+      to: member.quietTo ?? "07:00",
+      weekend: member.quietWeekend ?? false
+    }
+    for (const channel of ["email", "push", "slack"] as const) {
+      if (!on.has(channel) || (channel !== "email" && CHANNEL_STATE[channel] !== "connected")) continue
+      yield* planDelivery(sql, {
+        workspaceId,
+        recipientId: member.id,
+        notificationId: noteId,
+        channel,
+        kind: planned.kind,
+        subjectType: planned.subjectType,
+        subjectId: planned.subjectId,
+        actor: planned.actor,
+        data: planned.data,
+        notBefore: channel === "email" ? null : quietUntil(now, quiet, member.timezone)
+      })
+    }
+    if (noteId === null) continue
     const [count] = yield* sql<{ unread: number }>`
       select count(*)::int as unread from notifications
-      where recipient_kind = 'member' and recipient_id = ${id} and read_at is null and archived_at is null
+      where recipient_kind = 'member' and recipient_id = ${member.id} and read_at is null and archived_at is null
         and (snoozed_until is null or snoozed_until <= now())`
-    out.push({ recipientId: id, unread: count?.unread ?? 0 })
+    out.push({ recipientId: member.id, unread: count?.unread ?? 0 })
   }
   return out
 })

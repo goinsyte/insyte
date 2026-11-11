@@ -14,6 +14,7 @@ import { Effect, Layer, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { AppInfo } from "../../platform/Bindings.ts"
 import { refusedReferences } from "../../platform/Mail.ts"
+import { digestWorkspace, notifyWorkspace } from "../../platform/Relay.ts"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 import { userFrom } from "../../platform/Sessions.ts"
 
@@ -37,8 +38,8 @@ const CapturedMail = HttpRouter.add(
     const reference = query.get("reference")
     const db = yield* Db
     const mails = yield* db.routing((sql) =>
-      sql<{ kind: string; url: string | null; sender: string | null; sentAt: Date }>`
-        select kind, url, sender, sent_at from captured_mail
+      sql<{ kind: string; url: string | null; sender: string | null; subject: string | null; sentAt: Date }>`
+        select kind, url, sender, subject, sent_at from captured_mail
         where to_address = ${to} and (${reference}::text is null or reference = ${reference})
         order by sent_at desc, id desc limit 20`
     )
@@ -406,6 +407,51 @@ const QueueRefresh = HttpRouter.add(
   }).pipe(withRequestDb)
 )
 
+/**
+ * `POST /api/__dev/notify/sweep?workspace=<id>&at=<iso>`: one workspace's turn of the notification sweeps (M11 step
+ * 13.5) as if it were `at` (now when absent): the notes due then sent, and the digests whose hour has come; `&since=`
+ * widens the digest's window to the notes since then, for a day that is not today. Refused in production.
+ */
+const NotifySweep = HttpRouter.add(
+  "POST",
+  "/api/__dev/notify/sweep",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = (yield* workspaceParam) as WorkspaceId
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const query = new URL(request.url, "http://local").searchParams
+    const at = query.get("at") === null ? undefined : new Date(query.get("at")!)
+    const since = query.get("since") === null ? undefined : new Date(query.get("since")!)
+    const sent = yield* notifyWorkspace(workspace, at)
+    const digests = yield* digestWorkspace(workspace, at, since)
+    return HttpServerResponse.jsonUnsafe({ sent, digests })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+/**
+ * `GET /api/__dev/notify/deliveries?workspace=<id>`: the workspace's deliveries outside the app, newest first, ids,
+ * channels and states only. Refused in production.
+ */
+const NotifyDeliveries = HttpRouter.add(
+  "GET",
+  "/api/__dev/notify/deliveries",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = (yield* workspaceParam) as WorkspaceId
+    const db = yield* Db
+    const deliveries = yield* db.scopedFor((sql) =>
+      sql<{ recipientId: string; channel: string; kind: string; state: string; attempts: number }>`
+        select recipient_id, channel, kind, state, attempts from notification_deliveries
+        order by created_at desc limit 50`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace }))
+    return HttpServerResponse.jsonUnsafe({ deliveries })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
 const storeParam = Effect.map(
   HttpServerRequest.HttpServerRequest,
   (request) => new URL(request.url, "http://local").searchParams.get("store") ?? ""
@@ -546,6 +592,8 @@ export const DevRoutes = Layer.mergeAll(
   StoreSeed,
   TrackingSweep,
   QueueRefresh,
+  NotifySweep,
+  NotifyDeliveries,
   StoreConnection,
   StoreMirror,
   CapturedMail,

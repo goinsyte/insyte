@@ -13,6 +13,7 @@ export const NotificationsHandlers = NotificationsRpcs.toLayer(Effect.gen(functi
     "Notifications.restore": ({ ids }) => notes.restore(ids),
     "Notifications.snooze": (input) => notes.snooze(input),
     "Notifications.prefs": () => notes.prefs,
-    "Notifications.setPref": (input) => notes.setPref(input)
+    "Notifications.setPref": (input) => notes.setPref(input),
+    "Notifications.setPrefs": (input) => notes.setPrefs(input)
   })
 }))
