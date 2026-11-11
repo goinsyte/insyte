@@ -157,10 +157,13 @@ export function UnsavedBar({
 	visible,
 	onDiscard,
 	onSave,
+	saving = false,
 }: {
 	visible: boolean;
 	onDiscard: () => void;
 	onSave: () => void;
+	/** A save is out: the buttons wait for it. */
+	saving?: boolean;
 }) {
 	const still = useReducedMotion();
 	return (
@@ -173,21 +176,24 @@ export function UnsavedBar({
 					transition={{ type: "spring", stiffness: 520, damping: 38 }}
 					className="sticky bottom-4 z-10 flex items-center gap-3 self-start rounded-lg bg-abyss py-2 pr-2 pl-4 text-mesh-ink shadow-[0_12px_32px_-12px_color-mix(in_oklch,var(--abyss)_60%,transparent)]"
 					role="status"
+					aria-busy={saving || undefined}
 				>
 					<span className="text-base">Je hebt niet-opgeslagen wijzigingen</span>
 					<button
 						type="button"
 						onClick={onDiscard}
-						className="flex h-8 items-center rounded-md px-3 font-medium text-sm text-mesh-ink-2 transition-colors hover:bg-mesh-ink/10 hover:text-mesh-ink"
+						disabled={saving}
+						className="flex h-8 items-center rounded-md px-3 font-medium text-sm text-mesh-ink-2 transition-colors hover:bg-mesh-ink/10 hover:text-mesh-ink disabled:opacity-50"
 					>
 						Negeren
 					</button>
 					<button
 						type="button"
 						onClick={onSave}
-						className="flex h-8 items-center rounded-md bg-mesh-ink px-3 font-medium text-abyss text-sm transition-colors hover:bg-paper"
+						disabled={saving}
+						className="flex h-8 items-center rounded-md bg-mesh-ink px-3 font-medium text-abyss text-sm transition-colors hover:bg-paper disabled:opacity-70"
 					>
-						Wijzigingen opslaan
+						{saving ? "Opslaan…" : "Wijzigingen opslaan"}
 					</button>
 				</motion.div>
 			) : null}

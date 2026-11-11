@@ -86,6 +86,8 @@
     "!packages/ui/src/app/stores/home-store.ts",
     // Graduated (08 §3): Instellingen → Meldingen, wired to Notifications.* in M11 (step 13.5).
     "!packages/ui/src/app/settings/notifications-screen.tsx",
+    "!packages/ui/src/app/settings/notifications-source.tsx",
+    "!packages/ui/src/app/settings/notifications-demo-source.tsx",
     // Graduated (08 §3): wired to the API, so held to this repo's rules.
     "!packages/ui/src/app/auth/login-screen.tsx",
     "!packages/ui/src/app/onboarding/shared-steps.tsx",

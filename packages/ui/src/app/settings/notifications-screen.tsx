@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { Checkbox } from "../../components/checkbox"
 import { Switch } from "../../components/switch"
@@ -15,13 +15,10 @@ import {
   type NotifyPrefs
 } from "../lib/notifications"
 import { cn } from "../lib/utils"
-import { useNotifications } from "../stores/notifications-store"
-import { useSettings } from "../stores/settings-store"
-import { useWorkspace } from "../stores/workspace-store"
 import { FieldRow, INPUT_CLASS, SelectInput, UnsavedBar } from "./form"
+import { useNotificationSettingsSource } from "./notifications-source"
 import { SettingCard } from "./setting-card"
 
-const SLACK_CHANNELS = ["#northwind-ops", "#operations", "#customer-service", "Privébericht aan mij"]
 const DIGEST_TIMES = ["06:00", "07:00", "07:30", "08:00", "08:30", "09:00", "10:00"]
 
 const GUIDE = [
@@ -54,6 +51,9 @@ const GUIDE = [
   }
 ] as const
 
+/** What a column that cannot deliver says, in its header and in each row. */
+const NOT_CONNECTED = "Niet gekoppeld"
+
 /**
  * What the operator hears, where, and when.
  *
@@ -61,18 +61,24 @@ const GUIDE = [
  * the four places a notification can go. "In de app" is the switch the inbox and the dropdown read, so
  * turning one off takes those rows out of both. Under it, the hours push and Slack keep quiet, the
  * morning digest, and the rules for which records you follow without asking.
+ *
+ * What it reads and saves is `notifications-source.tsx`'s. A channel that cannot deliver yet says
+ * "Niet gekoppeld" instead of offering switches that would do nothing. While a save is out the bar
+ * waits; one that did not go keeps the draft, and the host says why.
  */
 export function NotificationSettings() {
-  const saved = useNotifications((s) => s.prefs)
-  const setPrefs = useNotifications((s) => s.setPrefs)
-  const notes = useNotifications((s) => s.notes)
-  const alerts = useSettings((s) => s.alerts)
-  const email = useWorkspace((s) => s.members.find((m) => m.id === "mem_elena")?.email ?? "elena@northwindclothing.co")
+  const source = useNotificationSettingsSource()
+  const { saved, notes, email } = source
   const [draft, setDraft] = useState<NotifyPrefs>(saved)
-  const dirty = JSON.stringify(draft) !== JSON.stringify(saved)
+  const [saving, setSaving] = useState(false)
+  const savedKey = JSON.stringify(saved)
+  const dirty = JSON.stringify(draft) !== savedKey
 
-  const admin = useMemo(() => notes.filter((n) => n.persona === "admin" && n.state !== "cleared"), [notes])
-  const shown = admin.filter((n) => heard(n, draft)).length
+  // A fresh read of the saved settings (a save, its undo, another tab) is what the page shows.
+  useEffect(() => setDraft(saved), [savedKey])
+
+  const admin = useMemo(() => notes?.filter((n) => n.persona === "admin" && n.state !== "cleared"), [notes])
+  const shown = admin?.filter((n) => heard(n, draft)).length
 
   const setEvent = (key: string, patch: Partial<NotifyPrefs["events"][string]>) =>
     setDraft((d) => {
@@ -82,10 +88,12 @@ export function NotificationSettings() {
 
   const threshold = (e: EventDef) =>
     e.threshold === "delayHours"
-      ? `Na ${alerts.delayHours} uur`
+      ? source.thresholds.delayHours
       : e.threshold === "disputeAmount"
-      ? `Vanaf $${alerts.disputeAmount}`
+      ? source.thresholds.disputeAmount
       : null
+
+  const connected = (c: Channel) => c === "app" || c === "email" || source.connected[c]
 
   return (
     <>
@@ -95,26 +103,32 @@ export function NotificationSettings() {
             <span className={cn(INPUT_CLASS, "flex items-center text-ink-2")}>{email}</span>
           </FieldRow>
           <FieldRow label="Mobiel push">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault()
-                toast.success("Testmelding verstuurd", {
-                  description: "Hij komt binnen op elk apparaat waar je push hebt toegestaan."
-                })
-              }}
-              className="field flex h-9 w-fit items-center gap-2 rounded-md px-3 font-medium text-base text-ink hover:field-hover"
-            >
-              <Bell className="size-4 text-ink-3" strokeWidth={1.75} />
-              Testmelding sturen
-            </button>
+            {source.testPush ?
+              (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    source.testPush?.()
+                  }}
+                  className="field flex h-9 w-fit items-center gap-2 rounded-md px-3 font-medium text-base text-ink hover:field-hover"
+                >
+                  <Bell className="size-4 text-ink-3" strokeWidth={1.75} />
+                  Testmelding sturen
+                </button>
+              ) :
+              <span className="flex h-9 items-center text-base text-ink-3">{NOT_CONNECTED}</span>}
           </FieldRow>
           <FieldRow label="Slack">
-            <SelectInput
-              value={draft.slackChannel}
-              onChange={(v) => setDraft((d) => ({ ...d, slackChannel: v }))}
-              options={SLACK_CHANNELS}
-            />
+            {source.connected.slack ?
+              (
+                <SelectInput
+                  value={draft.slackChannel}
+                  onChange={(v) => setDraft((d) => ({ ...d, slackChannel: v }))}
+                  options={source.slackChannels}
+                />
+              ) :
+              <span className="flex h-9 items-center text-base text-ink-3">{NOT_CONNECTED}</span>}
           </FieldRow>
         </div>
       </SettingCard>
@@ -122,14 +136,15 @@ export function NotificationSettings() {
       <SettingCard
         title="Wat je hoort"
         icon={Bell}
-        subtitle={`${shown} van ${admin.length} in de app`}
+        {...(admin === undefined || shown === undefined ? {} : { subtitle: `${shown} van ${admin.length} in de app` })}
       >
         <div className="overflow-hidden rounded-xl bg-paper shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
           <div className="hidden grid-cols-[minmax(0,1fr)_repeat(4,76px)] items-end gap-2 px-4 pt-3 pb-2 sm:grid">
             <span className="text-ink-3 text-xs">Gebeurtenis</span>
             {CHANNELS.map((c) => (
-              <span key={c.id} className="text-center font-medium text-ink-2 text-xs">
+              <span key={c.id} className="flex flex-col items-center text-center font-medium text-ink-2 text-xs">
                 {c.label}
+                {connected(c.id) ? null : <span className="font-normal text-ink-3">{NOT_CONNECTED}</span>}
               </span>
             ))}
           </div>
@@ -161,7 +176,8 @@ export function NotificationSettings() {
                                 <>
                                   {" "}
                                   <Link
-                                    to="/settings/profile"
+                                    // Account's thresholds; a host without that page yet types it as `never`.
+                                    to={"/settings/profile" as never}
                                     hash="alerts"
                                     className="text-arc-ink underline decoration-arc-ink/35 underline-offset-2 hover:decoration-arc-ink"
                                   >
@@ -192,6 +208,7 @@ export function NotificationSettings() {
                               short={c.short}
                               label={`${e.label}: ${c.label}`}
                               on={p[c.id]}
+                              connected={connected(c.id)}
                               onChange={(v) => setEvent(e.key, { [c.id]: v })}
                             />
                           ))}
@@ -217,7 +234,7 @@ export function NotificationSettings() {
               />
             </span>
           </FieldRow>
-          <FieldRow label="Van en tot" hint="Europe/Amsterdam">
+          <FieldRow label="Van en tot" hint={source.timezone}>
             <span className="flex items-center gap-2">
               <input
                 type="time"
@@ -294,24 +311,21 @@ export function NotificationSettings() {
 
       <UnsavedBar
         visible={dirty}
+        saving={saving}
         onDiscard={() => setDraft(saved)}
         onSave={() => {
+          if (saving) return
           if (draft.quiet.on && draft.quiet.from === draft.quiet.to) {
             toast.error("Stille uren hebben een begin en een eind nodig die niet gelijk zijn")
             return
           }
-          const before = saved
-          setPrefs(draft)
-          toast.success("Meldingen opgeslagen", {
-            description: `Je ziet nu ${shown} van ${admin.length} meldingen in de app.`,
-            action: {
-              label: "Ongedaan maken",
-              onClick: () => {
-                setPrefs(before)
-                setDraft(before)
-              }
-            }
-          })
+          setSaving(true)
+          void source.save(draft, {
+            label: "Meldingen opgeslagen",
+            detail: admin === undefined || shown === undefined
+              ? undefined
+              : `Je ziet nu ${shown} van ${admin.length} meldingen in de app.`
+          }).finally(() => setSaving(false))
         }}
       />
       <PageGuide id="settings.notifications" title="Meldingen" steps={GUIDE} />
@@ -320,18 +334,26 @@ export function NotificationSettings() {
 }
 
 function ChannelSwitch(
-  { channel, short, label, on, onChange }: {
+  { channel, short, label, on, connected, onChange }: {
     channel: Channel
     short: string
     label: string
     on: boolean
+    connected: boolean
     onChange: (v: boolean) => void
   }
 ) {
   return (
     <span className="flex flex-col items-center gap-1 sm:justify-center" data-channel={channel}>
       <span className="text-ink-3 text-xs sm:hidden">{short}</span>
-      <Switch checked={on} onCheckedChange={onChange} aria-label={label} />
+      {connected ?
+        <Switch checked={on} onCheckedChange={onChange} aria-label={label} /> :
+        (
+          <span className="flex h-5 items-center text-ink-3 text-sm">
+            <span aria-hidden>—</span>
+            <span className="sr-only">{`${label}: ${NOT_CONNECTED}`}</span>
+          </span>
+        )}
     </span>
   )
 }

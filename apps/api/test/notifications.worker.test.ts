@@ -147,21 +147,21 @@ const nextWednesday = () => {
 
 type MemberMail = { kind: string; url: string; subject: string | null }
 
+const prefs = async (cookie: string) => ok(await rpc("Notifications.prefs", undefined, cookie))
+const inputOf = (p: Awaited<ReturnType<typeof prefs>>) => ({
+  events: p.events,
+  quiet: p.quiet,
+  digest: p.digest,
+  follow: p.follow,
+  slackChannel: p.slackChannel
+})
+const mails = async (to: string) => (await mailsTo(to)) as Array<MemberMail>
+
 describe("notifications beyond the app", () => {
   let owner = { email: "", cookie: "" }
   let colleague = ""
   let colleagueEmail = ""
   let workspace = ""
-
-  const prefs = async (cookie: string) => ok(await rpc("Notifications.prefs", undefined, cookie))
-  const inputOf = (p: Awaited<ReturnType<typeof prefs>>) => ({
-    events: p.events,
-    quiet: p.quiet,
-    digest: p.digest,
-    follow: p.follow,
-    slackChannel: p.slackChannel
-  })
-  const mails = async (to: string) => (await mailsTo(to)) as Array<MemberMail>
 
   it("reads the design's defaults, with the address mail goes to and push and Slack not yet connected", async () => {
     owner = await person("notify-owner", "Klok B.V.")

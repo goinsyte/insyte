@@ -71,6 +71,8 @@
         "!src/app/dashboard/**",
         "!src/app/stores/home-store.ts",
         "!src/app/settings/notifications-screen.tsx",
+        "!src/app/settings/notifications-source.tsx",
+        "!src/app/settings/notifications-demo-source.tsx",
       ],
     },
     "apps/console": {
