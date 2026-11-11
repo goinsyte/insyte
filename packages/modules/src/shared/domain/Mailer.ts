@@ -17,7 +17,8 @@ export const MailKind = Schema.Literals([
   "return.rejected",
   "return.label",
   "return.resolved",
-  "order.delayed"
+  "order.delayed",
+  "support.message"
 ])
 export type MailKind = typeof MailKind.Type
 
@@ -105,6 +106,21 @@ export interface OrderDelayFacts {
   readonly items: ReadonlyArray<{ readonly title: string; readonly variant: string | null; readonly qty: number }>
 }
 
+/**
+ * A message the team wrote in the inbox (M11 step 2): a reply, a forward or a new mail, sent in the mailbox's name
+ * from Insyte's sending domain, answered to the mailbox's own address, and threaded by its headers.
+ */
+export interface SupportFacts {
+  readonly subject: string
+  readonly text: string
+  /** The mailbox's own address, which forwards to Insyte: where the customer's answer goes. */
+  readonly replyTo: string
+  /** `<id@domain>`, as the thread knows it. */
+  readonly messageId: string
+  readonly inReplyTo: string | null
+  readonly references: ReadonlyArray<string>
+}
+
 export interface Mail {
   readonly kind: MailKind
   readonly to: string
@@ -117,6 +133,8 @@ export interface Mail {
   readonly returnMail?: ReturnMailFacts | undefined
   /** `order.delayed` only. */
   readonly orderDelay?: OrderDelayFacts | undefined
+  /** `support.message` only. */
+  readonly support?: SupportFacts | undefined
   /** The name the mail is sent in (a store's, to its shopper); absent, Insyte's own. */
   readonly sender?: string | undefined
   /** What makes two mails of one kind to one address different (a leg's id), for the sender's idempotency. */

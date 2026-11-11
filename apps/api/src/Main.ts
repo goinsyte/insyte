@@ -1,8 +1,10 @@
+import { receive } from "@insyte/modules/inbox/use-cases/inbound"
 import { env, tracing } from "cloudflare:workers"
 import { ManagedRuntime } from "effect"
 import { HttpRouter } from "effect/http"
 import { AppLayer, BackgroundLayer } from "./platform/AppLayer.ts"
 import type { Env } from "./platform/Env.ts"
+import { parseMail } from "./platform/InboundMail.ts"
 import { ingest, type IngestMessage, reconcile, syncRuntime, trackingSweep } from "./platform/Ingest.ts"
 import { Telemetry } from "./platform/Observability.ts"
 import { deliver, type EventsMessage, factsSweep, queueSweep, sweep } from "./platform/Relay.ts"
@@ -45,6 +47,20 @@ export default {
     try {
       await background.runPromise(withRequestDb(deliver(events.messages.flatMap((m) => m.body.outboxIds))))
       batch.ackAll()
+    } finally {
+      ctx.waitUntil(Telemetry.flush())
+    }
+  },
+
+  /**
+   * A support mail at a forwarding address (M11 step 1), through Cloudflare Email Routing: into its mailbox's inbox.
+   * An address no mailbox has is refused, so the sender hears it bounced; a throw leaves it to Email Routing's retry.
+   */
+  async email(message, _env, ctx) {
+    try {
+      const mail = await parseMail(await new Response(message.raw).arrayBuffer())
+      const stored = await background.runPromise(withRequestDb(receive(message.to, mail)))
+      if (stored === undefined) message.setReject("Onbekend adres")
     } finally {
       ctx.waitUntil(Telemetry.flush())
     }

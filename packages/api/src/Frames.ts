@@ -62,5 +62,33 @@ export const JobProgress = Schema.Struct({
 })
 export type JobProgress = typeof JobProgress.Type
 
-export const Frame = Schema.Union([Hello, PresenceFrame, RecordsChanged, NotesChanged, JobProgress])
+/**
+ * A chat message posted, or changed (edited, taken back, pinned, reacted to, its card decided) (M11.4): the tabs refetch
+ * that conversation and the panel's counts. Ids only, as every frame: a channel's go to the room, a DM's to its two.
+ */
+export const ChatMessage = Schema.Struct({
+  v: Schema.Literal(1),
+  type: Schema.Literals(["chat.message", "chat.message.updated"]),
+  conversationId: Schema.String,
+  messageId: Schema.String,
+  authorId: Schema.String
+})
+
+/** Someone is typing in a conversation ("{wie} is bezig"): not stored, raised by `Chats.typing`. */
+export const ChatTyping = Schema.Struct({
+  v: Schema.Literal(1),
+  type: Schema.Literal("chat.typing"),
+  conversationId: Schema.String,
+  principalId: Schema.String
+})
+
+export const Frame = Schema.Union([
+  Hello,
+  PresenceFrame,
+  RecordsChanged,
+  NotesChanged,
+  JobProgress,
+  ChatMessage,
+  ChatTyping
+])
 export type Frame = typeof Frame.Type

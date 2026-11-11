@@ -32,6 +32,13 @@ const idempotencyKey = (mail: Mail) =>
     return `${mail.kind}/${[...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")}`
   })
 
+const escape = (text: string) =>
+  text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;")
+
+/** Plain text as HTML: escaped, its paragraphs and line breaks kept. */
+export const plainHtml = (text: string) =>
+  text.split(/\n{2,}/).map((p) => `<p>${escape(p).replaceAll("\n", "<br>")}</p>`).join("\n")
+
 const missing = (mail: Mail, what: string) => new MailNotSent({ kind: mail.kind, reason: `${mail.kind} needs ${what}` })
 
 const link = (mail: Mail) => mail.url === undefined ? Effect.fail(missing(mail, "a link")) : Effect.succeed(mail.url)
@@ -79,6 +86,12 @@ export const ResendMailer = Layer.effect(
             if (facts === undefined) return Effect.fail(missing(mail, "its order"))
             return renderer.render("order.delayed", facts)
           }
+          case "support.message": {
+            // The team's own words, as they wrote them: no template around them.
+            const facts = mail.support
+            if (facts === undefined) return Effect.fail(missing(mail, "its message"))
+            return Effect.succeed({ subject: facts.subject, text: facts.text, html: plainHtml(facts.text) })
+          }
         }
       })()
       return rendered.pipe(
@@ -97,7 +110,15 @@ export const ResendMailer = Layer.effect(
           to: mail.to,
           ...rendered,
           idempotencyKey: yield* idempotencyKey(mail),
-          attachments: mail.attachments
+          attachments: mail.attachments,
+          ...(mail.support === undefined ? {} : {
+            replyTo: mail.support.replyTo,
+            headers: {
+              "Message-ID": mail.support.messageId,
+              ...(mail.support.inReplyTo === null ? {} : { "In-Reply-To": mail.support.inReplyTo }),
+              ...(mail.support.references.length === 0 ? {} : { References: mail.support.references.join(" ") })
+            }
+          })
         }).pipe(
           Effect.mapError((error) => new MailNotSent({ kind: mail.kind, reason: error.reason }))
         )

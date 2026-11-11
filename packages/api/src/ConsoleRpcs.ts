@@ -1,4 +1,5 @@
 import { AccessRpcs } from "./rpc/AccessRpcs.ts"
+import { ChatsRpcs } from "./rpc/ChatsRpcs.ts"
 import { CommerceRpcs } from "./rpc/CommerceRpcs.ts"
 import { DeveloperRpcs } from "./rpc/DeveloperRpcs.ts"
 import { FirstAnalysisRpcs } from "./rpc/FirstAnalysisRpcs.ts"
@@ -22,6 +23,7 @@ import { ShellRpcs } from "./rpc/ShellRpcs.ts"
 import { StoresRpcs } from "./rpc/StoresRpcs.ts"
 import { SuppliersRpcs } from "./rpc/SuppliersRpcs.ts"
 import { SystemRpcs } from "./rpc/SystemRpcs.ts"
+import { ThreadsRpcs } from "./rpc/ThreadsRpcs.ts"
 import { TicketsRpcs } from "./rpc/TicketsRpcs.ts"
 import { TrackingRpcs } from "./rpc/TrackingRpcs.ts"
 import { WorkspacesRpcs } from "./rpc/WorkspacesRpcs.ts"
@@ -52,9 +54,11 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(ReturnsRpcs)
   .merge(PortalRpcs)
   .merge(TicketsRpcs)
+  .merge(ThreadsRpcs)
   .merge(QualityRpcs)
   .merge(QualityLinkRpcs)
   .merge(QueueRpcs)
   .merge(HomeRpcs)
   .merge(ProposalsRpcs)
   .merge(WorkspacesRpcs)
+  .merge(ChatsRpcs)

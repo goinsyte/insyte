@@ -4,6 +4,7 @@ import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
 import { RECORDED_BULK } from "@insyte/integrations-shopify/RecordedBulk"
 import { drainWorkspace, markRecentWorkspace, rebuildWorkspace } from "@insyte/modules/facts/Facts"
+import { receive } from "@insyte/modules/inbox/use-cases/inbound"
 import { refreshWorkspace } from "@insyte/modules/queue/Queue"
 import { registerParcels } from "@insyte/modules/returns/use-cases/parcels"
 import { addLine, emptyBatch, type MirrorBatch, parseJsonl } from "@insyte/modules/stores/domain/Mirror"
@@ -13,6 +14,7 @@ import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect, Layer, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { AppInfo } from "../../platform/Bindings.ts"
+import { parseMail } from "../../platform/InboundMail.ts"
 import { refusedReferences } from "../../platform/Mail.ts"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 import { userFrom } from "../../platform/Sessions.ts"
@@ -37,8 +39,16 @@ const CapturedMail = HttpRouter.add(
     const reference = query.get("reference")
     const db = yield* Db
     const mails = yield* db.routing((sql) =>
-      sql<{ kind: string; url: string | null; sender: string | null; sentAt: Date }>`
-        select kind, url, sender, sent_at from captured_mail
+      sql<{
+        kind: string
+        url: string | null
+        sender: string | null
+        reference: string | null
+        subject: string | null
+        bodyText: string | null
+        sentAt: Date
+      }>`
+        select kind, url, sender, reference, subject, body_text, sent_at from captured_mail
         where to_address = ${to} and (${reference}::text is null or reference = ${reference})
         order by sent_at desc, id desc limit 20`
     )
@@ -538,7 +548,35 @@ const FactsRebuild = HttpRouter.add(
   }).pipe(Effect.orDie, withRequestDb)
 )
 
+/**
+ * `POST /api/__dev/mail/inbound` `{ to, raw }`: a raw RFC 822 mail delivered to a forwarding address, as Cloudflare Email
+ * Routing hands it to the Worker's `email()` handler (M11 step 1), down the same path. For the worker tests, the
+ * journey and a person trying a preview, where no MX points at the Worker. Refused in production.
+ */
+const InboundMail = HttpRouter.add(
+  "POST",
+  "/api/__dev/mail/inbound",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const body = (yield* request.json.pipe(Effect.orDie)) as { readonly to?: unknown; readonly raw?: unknown }
+    const { to, raw } = body
+    if (typeof to !== "string" || typeof raw !== "string") {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "invalid" } }, { status: 400 })
+    }
+    const mail = yield* Effect.promise(() => parseMail(raw))
+    const stored = yield* receive(to, mail).pipe(Effect.orDie)
+    if (stored === undefined) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "unknown_address" } }, { status: 404 })
+    }
+    return HttpServerResponse.jsonUnsafe(stored)
+  }).pipe(withRequestDb)
+)
+
 export const DevRoutes = Layer.mergeAll(
+  InboundMail,
   FactsOrders,
   FactsOf,
   FactsDrain,

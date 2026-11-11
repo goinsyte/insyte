@@ -11,6 +11,7 @@ import type { Ticket, TicketSource } from "./types/domain";
 export const SOURCE: Record<TicketSource, { label: string; brand?: string }> = {
 	gmail: { label: "Gmail", brand: "gmail" },
 	outlook: { label: "Outlook", brand: "outlook" },
+	email: { label: "E-mail (doorgestuurd)" },
 	shopify: { label: "Shopify", brand: "shopify" },
 	klarna: { label: "Klarna", brand: "klarna" },
 	chat: { label: "Chat" },

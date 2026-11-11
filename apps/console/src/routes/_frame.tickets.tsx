@@ -22,7 +22,16 @@ import { useConsoleTicketsSource } from "../tickets/tickets-source.tsx"
  */
 
 const VIEWS: ReadonlyArray<TicketView> = ["open", "mine", "unassigned", "snoozed", "done", "archived", "trash", "spam"]
-const SOURCES: ReadonlyArray<TicketSource> = ["gmail", "outlook", "shopify", "klarna", "chat", "insyte", "manual"]
+const SOURCES: ReadonlyArray<TicketSource> = [
+  "gmail",
+  "outlook",
+  "email",
+  "shopify",
+  "klarna",
+  "chat",
+  "insyte",
+  "manual"
+]
 
 const pick = <A extends string>(raw: unknown, allowed: ReadonlyArray<A>): A | undefined =>
   allowed.find((a) => a === raw)
