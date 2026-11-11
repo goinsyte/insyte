@@ -136,7 +136,9 @@ export function NotificationSettings() {
       <SettingCard
         title="Wat je hoort"
         icon={Bell}
-        {...(admin === undefined || shown === undefined ? {} : { subtitle: `${shown} van ${admin.length} in de app` })}
+        {...(admin === undefined || shown === undefined || admin.length === 0
+          ? {}
+          : { subtitle: `${shown} van ${admin.length} in de app` })}
       >
         <div className="overflow-hidden rounded-xl bg-paper shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
           <div className="hidden grid-cols-[minmax(0,1fr)_repeat(4,76px)] items-end gap-2 px-4 pt-3 pb-2 sm:grid">
@@ -322,7 +324,7 @@ export function NotificationSettings() {
           setSaving(true)
           void source.save(draft, {
             label: "Meldingen opgeslagen",
-            detail: admin === undefined || shown === undefined
+            detail: admin === undefined || shown === undefined || admin.length === 0
               ? undefined
               : `Je ziet nu ${shown} van ${admin.length} meldingen in de app.`
           }).finally(() => setSaving(false))
