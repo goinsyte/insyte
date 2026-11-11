@@ -46,7 +46,7 @@ const pageOf = (row: ProductRow, shopDomain: string | undefined, product: Produc
   shopifyUrl: adminUrl(shopDomain, row.shopifyId)
 })
 
-function consoleProductDetail(d: ProductDetail, shopDomain: string | undefined): ProductDetailSource {
+export function consoleProductDetail(d: ProductDetail, shopDomain: string | undefined): ProductDetailSource {
   const product: Product = {
     ...productOf(d.product),
     images: [...d.images],

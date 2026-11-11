@@ -233,7 +233,12 @@ export function ChatsPage() {
               </div>
             ) :
             null}
-          <MessagesArea messages={shown} unreadFrom={unreadFrom.get(active.id)} highlight={highlight} />
+          <MessagesArea
+            messages={shown}
+            ready={view.ready}
+            unreadFrom={unreadFrom.get(active.id)}
+            highlight={highlight}
+          />
           <Composer
             handle={mainComposer}
             conversationId={mainKey}
@@ -502,8 +507,10 @@ function ChatHeader({
 }
 
 function MessagesArea(
-  { messages, unreadFrom, highlight }: {
+  { messages, ready, unreadFrom, highlight }: {
     messages: ReadonlyArray<Message>
+    /** False while the host still fetches the conversation: nothing is said about it yet. */
+    ready: boolean
     unreadFrom: string | undefined
     highlight: string | null
   }
@@ -520,6 +527,8 @@ function MessagesArea(
   // A conversation opens at its latest message, and follows when one arrives.
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when the newest message changes
   useEffect(() => toEnd(false), [lastId])
+
+  if (!ready) return <div className="min-h-0 flex-1" aria-busy />
 
   if (messages.length === 0) {
     return (

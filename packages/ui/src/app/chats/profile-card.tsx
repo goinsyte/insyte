@@ -130,12 +130,12 @@ function ProfileCard(
           <CardButton
             icon={Clock}
             label="Wat Insyte deed"
-            onClick={() => (navigate({ to: "/ask/activity" }), onDone())}
+            onClick={() => (navigate({ to: "/ask/activity" as never }), onDone())}
           />
           <CardButton
             icon={ShieldCheck}
             label="Zelfstandigheid instellen"
-            onClick={() => (navigate({ to: "/settings/ai/autonomy" }), onDone())}
+            onClick={() => (navigate({ to: "/settings/ai/autonomy" as never }), onDone())}
           />
         </div>
       </div>

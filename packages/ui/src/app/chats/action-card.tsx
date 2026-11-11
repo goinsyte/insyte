@@ -4,7 +4,7 @@ import { useState } from "react"
 import { toast } from "sonner"
 import type { ChatAction, ChatRecordRef } from "../../data-source"
 import { AlertTriangle, Check, Loader, Sparkle, Undo2, Zap } from "../../icons"
-import { useNow } from "../ask/agent-parts"
+import { useNow } from "../hooks/use-now"
 import { leftLabel } from "../lib/agent-log"
 import { cn } from "../lib/utils"
 import { blocked, COMMAND, doneLine, pendingLine } from "./commands"
@@ -117,7 +117,7 @@ function StateWord({ a }: { a: ChatAction }) {
   if (a.state === "proposed") {
     return (
       <Link
-        to="/settings/ai/autonomy"
+        to={"/settings/ai/autonomy" as never}
         search={{ actie: COMMAND[a.command].agent } as never}
         className="shrink-0 rounded-md bg-paper px-1.5 py-0.5 font-medium text-arc-ink text-xs hover:bg-paper/70"
       >

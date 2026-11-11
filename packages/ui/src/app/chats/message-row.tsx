@@ -409,7 +409,7 @@ function AiCard({ card }: { card: Extract<ChatCard, { type: "ai" }> }) {
         (
           <button
             type="button"
-            onClick={() => void navigate({ to: "/chargebacks" })}
+            onClick={() => void navigate({ to: "/chargebacks" as never })}
             className="mt-1 flex h-7 w-fit items-center rounded-md bg-mesh-ink/15 px-2.5 font-medium text-mesh-ink text-sm leading-none transition-colors hover:bg-mesh-ink/25"
           >
             {card.cta}

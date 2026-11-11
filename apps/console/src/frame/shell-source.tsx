@@ -1,13 +1,14 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { Frame } from "@insyte/api/rpc/ShellRpcs"
 import type { AreaId, Level, RoleDef, SpecialId } from "@insyte/domain/Permissions"
+import type { ChatList } from "@insyte/modules/chats/domain/Chats"
 import { GateRoleProvider } from "@insyte/ui/app/access/gate-role"
 import { panelForPath } from "@insyte/ui/app/lib/app-shell-config"
 import { navByPersona } from "@insyte/ui/app/lib/nav-config"
 import { navActions, navPrefsOf } from "@insyte/ui/app/lib/nav-model"
 import { DEFAULT_PREFS, type Note, type NotifyPrefs } from "@insyte/ui/app/lib/notifications"
 import { withServerCounts } from "@insyte/ui/app/lib/panel-counts"
-import type { Member } from "@insyte/ui/app/lib/types/domain"
+import type { Conversation, Member } from "@insyte/ui/app/lib/types/domain"
 import { type ShellSource, ShellSourceProvider } from "@insyte/ui/app/shell/source"
 import type { NavState } from "@insyte/ui/app/stores/nav-store"
 import type { PanelState } from "@insyte/ui/app/stores/panel-store"
@@ -17,6 +18,8 @@ import { useNavigate, useRouterState } from "@tanstack/react-router"
 import { Option } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { type ReactNode, useMemo, useRef, useState } from "react"
+import { conversationOf } from "../chats/chat-of.tsx"
+import { chatsAtom } from "../data/chats.ts"
 import { FRAME, frameWrites, inboxAtom, notePrefsAtom, NOTES, presenceAtom, VIEWS, viewsAtom } from "../data/frame.ts"
 import { ticketCountsAtom } from "../data/tickets.ts"
 import { notifyPrefsOf } from "../notifications/settings-source.ts"
@@ -78,9 +81,10 @@ const NOT_YET: Record<string, string> = {
 }
 
 const NO_COUNTS = Atom.make(AsyncResult.initial<Readonly<Record<string, number>>, never>())
+const NO_CHATS = Atom.make(AsyncResult.initial<ChatList, never>())
 
 /** What the console makes from the panel's button and the top bar's + menu. */
-const MADE_HERE = new Set(["return", "ticket"])
+const MADE_HERE = new Set(["return", "ticket", "channel"])
 
 export function ConsoleShellSource({ frame, children }: { frame: Frame; children: ReactNode }) {
   const navigate = useNavigate()
@@ -91,6 +95,11 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   // The tickets panel counts each view from the server, on the tickets pages only.
   const onTickets = useRouterState({ select: (s) => s.location.pathname.startsWith("/tickets") })
   const ticketCounts = value(useAtomValue(onTickets ? ticketCountsAtom : NO_COUNTS))
+  // The chats panel lists the conversations and their unread counts, on the chats page only (M11 step 4).
+  const onChats = useRouterState({ select: (s) => s.location.pathname.startsWith("/chats") })
+  const chats = value(useAtomValue(onChats ? chatsAtom : NO_CHATS))
+  const conversations = useMemo<Array<Conversation>>(() => chats?.conversations.map(conversationOf) ?? [], [chats])
+  const chatPins = useMemo(() => chats?.conversations.filter((c) => c.pinned).map((c) => c.id) ?? [], [chats])
   const write = {
     setRead: useAtomSet(frameWrites.setRead, { mode: "promiseExit" }),
     recordVisit: useAtomSet(frameWrites.recordVisit, { mode: "promiseExit" }),
@@ -237,7 +246,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     returns: { records: [] },
     sheets: { sheets: [], folders: [] },
     courses: { courses: [], questions: [] },
-    chat: { pinned: [], created: [] },
+    chat: { pinned: chatPins, created: [] },
     settings: { roles: [roleOf(frame)] },
     loading: { pace: "live", setPace: () => {} },
     persona: { selection: "admin", persona: "admin", landing: "/dashboard" },
@@ -274,12 +283,14 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     workspaceName: frame.workspace.name,
     // ADR-0028: the design's demo counts dropped, the server's in their place.
     useRecordSearch: useConsoleRecordSearch,
-    // A return is started from its page (M9.1), a ticket written on the board (M11); the rest is not made here yet.
+    // A return is started from its page (M9.1), a ticket written on the board (M11), a channel in Chats (M11 step 4);
+    // the rest is not made here yet.
     unavailable: (kind) => MADE_HERE.has(kind) ? null : NOT_YET[kind] ?? "Dit kan hier nog niet",
     panelFor: (pathname) => {
       const cfg = panelForPath(pathname)
       if (cfg === null) return null
-      // Only a return and a ticket are made from the console yet: any other button is off, and says so as its page does.
+      // Only a return, a ticket and a channel are made from the console yet: any other button is off, and says so as its
+      // page does.
       const panel = cfg.cta === undefined
         ? cfg
         : MADE_HERE.has(cfg.cta.create ?? "")
@@ -308,7 +319,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
       customers: [],
       products: [],
       automations: [],
-      conversations: []
+      conversations
     }
   }
   // The role the shared parts grey their controls out by (the selection bar, the record's actions); the server still
