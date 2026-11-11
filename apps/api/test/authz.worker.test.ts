@@ -219,7 +219,10 @@ const PAYLOADS: Record<string, unknown> = {
   "Queue.reopen": { id: "qi_none" },
   "Home.brief": {},
   "Home.widgets": { ids: ["orders"], range: 30 },
-  "Home.revenueBreakdown": { range: 30 }
+  "Home.revenueBreakdown": { range: 30 },
+  "Home.work": {},
+  "Home.agenda": { from: "2026-11-11", span: "week" },
+  "Home.activity": {}
 }
 
 const manifest = [
