@@ -178,7 +178,17 @@ const assigneesNow = (sql: SqlClient.SqlClient, ticketId: string) =>
   )
 
 /** Makes one ticket on the command's transaction; answers its id and the outbox rows telling its assignees. */
-const make = Effect.fn("Tickets.make")(function*(sql: SqlClient.SqlClient, input: typeof CreateInput.Type) {
+/** Where a ticket came from, when it was not written by hand: a chat message ("Ticket maken van bericht", `/ticket`). */
+export interface Origin {
+  readonly source: "chat"
+  readonly sourceRef: string
+}
+
+const make = Effect.fn("Tickets.make")(function*(
+  sql: SqlClient.SqlClient,
+  input: typeof CreateInput.Type,
+  origin?: Origin
+) {
   const principal = yield* CurrentPrincipal
   const title = input.title.trim()
   if (title === "") return yield* new Invalid({ fields: { title: "required" } })
@@ -207,10 +217,11 @@ const make = Effect.fn("Tickets.make")(function*(sql: SqlClient.SqlClient, input
   const description = input.description ?? ""
   const status = input.status ?? "intake"
   yield* sql`
-    insert into tickets (id, workspace_id, number, title, description, status, priority, position, source, store_id,
-                         order_id, customer_id, template, topic, due_at, resolved_at, created_by)
+    insert into tickets (id, workspace_id, number, title, description, status, priority, position, source, source_ref,
+                         store_id, order_id, customer_id, template, topic, due_at, resolved_at, created_by)
     values (${id}, ${principal.workspaceId}, ${Number(counter!.n)}, ${title}, ${description}, ${status},
-            ${input.priority ?? "medium"}, ${Number(front?.p ?? -1)}, 'manual', ${related.storeId}, ${related.orderId},
+            ${input.priority ?? "medium"}, ${Number(front?.p ?? -1)}, ${origin?.source ?? "manual"},
+            ${origin?.sourceRef ?? null}, ${related.storeId}, ${related.orderId},
             ${related.customerId}, ${input.template ?? null}, ${topicOf(title, description)},
             ${at(input.dueAt ?? null)}, ${status === "done" ? new Date() : null}, ${principal.id})`
   yield* writeLabels(sql, principal.workspaceId, id, labelsOf(input.labels ?? []))
@@ -229,12 +240,12 @@ const make = Effect.fn("Tickets.make")(function*(sql: SqlClient.SqlClient, input
 })
 
 /** "Ticket aanmaken" (NewTicketDialog), by hand: `#n`, at the top of the board. */
-export const create = Effect.fn("Tickets.create")(function*(input: typeof CreateInput.Type) {
+export const create = Effect.fn("Tickets.create")(function*(input: typeof CreateInput.Type, origin?: Origin) {
   yield* Policy.require("support", 2)
   const db = yield* Db
   const { change, outboxIds } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      const made = yield* make(sql, input)
+      const made = yield* make(sql, input, origin)
       return {
         change: yield* answer(sql, [made.id], { kind: "created", ids: [made.id] }, made.outboxIds),
         outboxIds: made.outboxIds
