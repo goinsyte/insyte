@@ -1,6 +1,8 @@
 import { createContext, useContext } from "react"
-import type { ChatCommandId, ChatRecordRef, RichMessage } from "../../data-source"
+import type { ChatCommandId, ChatRecordRef } from "../../data-source"
 import type { Conversation } from "../lib/types/domain"
+import type { ChatRecord } from "./records"
+import type { Message } from "./source"
 
 /** What a message, a card or the side column can ask of the conversation they sit in. */
 export type ChatApi = {
@@ -15,10 +17,9 @@ export type ChatApi = {
   mention: (handle: string) => void
   /** Adds a record to the composer, ready to send. */
   attach: (ref: ChatRecordRef) => void
-  toggleReaction: (message: RichMessage, emoji: string) => void
+  toggleReaction: (message: Message, emoji: string) => void
   /** Runs a command on a record as the person at the keyboard, posting its card in the conversation. */
-  act: (command: ChatCommandId, ref: ChatRecordRef | undefined, arg?: string) => void
-  repliesFor: (messageId: string) => RichMessage[]
+  act: (command: ChatCommandId, record: ChatRecord | null, arg?: string) => void
 }
 
 export const ChatContext = createContext<ChatApi | null>(null)

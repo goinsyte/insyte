@@ -1,24 +1,16 @@
 import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
-import type { ChatCommandId, ChatRecordRef, RichMessage } from "../../data-source"
+import type { ChatCommandId, ChatRecordRef } from "../../data-source"
 import { ArrowLeft, ArrowUpRight, ExternalLink, FileText, Hash, Sparkles, X } from "../../icons"
 import { formatCurrency, formatRelative } from "../lib/format"
 import { cn } from "../lib/utils"
-import { useWorkspace } from "../stores/workspace-store"
 import { useChat } from "./chat-context"
 import { blocked, COMMAND } from "./commands"
 import { continues, MessageRow } from "./message-row"
 import { Avatar } from "./profile-card"
 import { KindTile, StatusDot } from "./record-views"
-import {
-  CHARGEBACK_STATUS,
-  type ChatRecord,
-  KIND_LABEL,
-  ORDER_STATUS,
-  TICKET_STATUS,
-  usePools,
-  useRecord
-} from "./records"
+import { CHARGEBACK_STATUS, type ChatRecord, KIND_LABEL, ORDER_STATUS, TICKET_STATUS } from "./records"
+import { type Message, SOON, useChatsSource } from "./source"
 
 /*
  * The column beside the conversation. It holds one of two things: a thread, so a side conversation
@@ -73,10 +65,10 @@ export function PanelFrame(
 }
 
 export function ThreadPanel(
-  { parent, onClose, composer }: { parent: RichMessage; onClose: () => void; composer: React.ReactNode }
+  { parent, onClose, composer }: { parent: Message; onClose: () => void; composer: React.ReactNode }
 ) {
   const chat = useChat()
-  const replies = chat.repliesFor(parent.id)
+  const replies = useChatsSource().useReplies(parent)
   return (
     <PanelFrame title="Thread" sub={`#${chat.conversation.name}`} onClose={onClose}>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-2">
@@ -108,7 +100,8 @@ export function RecordPanel(
     onClose: () => void
   }
 ) {
-  const r = useRecord(refTo)
+  const source = useChatsSource()
+  const r = source.useRecord(refTo)
   const navigate = useNavigate()
   const chat = useChat()
   if (!r) {
@@ -168,11 +161,13 @@ export function RecordPanel(
           </button>
           <button
             type="button"
+            disabled={!source.insyte}
+            title={source.insyte ? undefined : SOON}
             onClick={() => {
               chat.attach(r.ref)
               chat.mention("Insyte")
             }}
-            className="flex h-8 items-center gap-1.5 rounded-md px-3 font-medium text-arc-ink text-sm transition-colors hover:bg-arc-tint"
+            className="flex h-8 items-center gap-1.5 rounded-md px-3 font-medium text-arc-ink text-sm transition-colors hover:bg-arc-tint disabled:pointer-events-none disabled:opacity-40"
           >
             <Sparkles className="size-3.5" strokeWidth={1.75} />
             Vraag Insyte
@@ -186,6 +181,7 @@ export function RecordPanel(
 /** The verbs this record has, each one a command the channel will see. */
 function Actions({ r }: { r: ChatRecord }) {
   const chat = useChat()
+  const { me, rules } = useChatsSource()
   const [note, setNote] = useState<string | null>(null)
   const verbs: Array<{ id: ChatCommandId; arg?: string; label?: string }> = r.kind === "order"
     ? [{ id: "refund" }, { id: "cancel" }, { id: "ticket" }]
@@ -196,7 +192,7 @@ function Actions({ r }: { r: ChatRecord }) {
       { id: "status", arg: "bezig", label: "Bezig" },
       { id: "status", arg: "wacht", label: "Wacht" },
       { id: "status", arg: "klaar", label: "Klaar" },
-      { id: "assign", arg: "Elena", label: "Aan mij" }
+      { id: "assign", arg: me.name.split(" ")[0] ?? me.name, label: "Aan mij" }
     ]
     : [{ id: "ticket" }]
   const canNote = r.kind === "order" || r.kind === "chargeback"
@@ -204,7 +200,7 @@ function Actions({ r }: { r: ChatRecord }) {
     <section className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-1.5">
         {verbs.map((v, i) => {
-          const why = blocked(v.id, r, v.arg ?? (v.id === "ticket" ? `${r.code} · ${r.title}` : undefined))
+          const why = blocked(v.id, r, v.arg ?? (v.id === "ticket" ? `${r.code} · ${r.title}` : undefined), rules)
           const c = COMMAND[v.id]
           return (
             <button
@@ -212,7 +208,7 @@ function Actions({ r }: { r: ChatRecord }) {
               type="button"
               disabled={Boolean(why)}
               title={why ?? c.hint}
-              onClick={() => chat.act(v.id, r.ref, v.arg)}
+              onClick={() => chat.act(v.id, r, v.arg)}
               className={cn(
                 "flex h-8 items-center rounded-md px-3 font-medium text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40",
                 /* One primary per record: its first verb. The rest wait their turn in ink. */
@@ -244,7 +240,7 @@ function Actions({ r }: { r: ChatRecord }) {
             onSubmit={(e) => {
               e.preventDefault()
               if (!note.trim()) return
-              chat.act("note", r.ref, note.trim())
+              chat.act("note", r, note.trim())
               setNote(null)
             }}
             className="flex gap-2"
@@ -304,11 +300,11 @@ function LinkRow({ refTo, children }: { refTo: ChatRecordRef; children: React.Re
 }
 
 function Body({ r }: { r: ChatRecord }) {
-  const pools = usePools()
-  const members = useWorkspace((s) => s.members)
+  const source = useChatsSource()
+  const related = source.useRelated(r)
   if (r.kind === "order") {
     const o = r.order
-    const cb = pools.chargebacks.filter((c) => c.order_id === o.id)
+    const cb = related.chargebacks
     return (
       <>
         <Section title="Artikelen">
@@ -375,13 +371,13 @@ function Body({ r }: { r: ChatRecord }) {
   }
   if (r.kind === "customer") {
     const c = r.customer
-    const orders = pools.orders.filter((o) => o.customer_id === c.id).slice(0, 6)
+    const orders = related.orders
     return (
       <>
         <dl className="flex flex-col">
           <Row label="E-mail">{c.email}</Row>
           <Row label="Bestellingen">{c.orders_count}</Row>
-          <Row label="Totaal besteed">{formatCurrency(c.lifetime_value, "USD")}</Row>
+          <Row label="Totaal besteed">{formatCurrency(c.lifetime_value, related.currency)}</Row>
           <Row label="Klant sinds">{formatRelative(c.created_at)}</Row>
         </dl>
         {c.tags.length ?
@@ -457,7 +453,7 @@ function Body({ r }: { r: ChatRecord }) {
             <Section title="Bestelling">
               <LinkRow refTo={{ kind: "order", id: c.order_id }}>
                 <span className="font-medium text-arc-ink text-sm">
-                  {pools.orders.find((o) => o.id === c.order_id)?.number ?? c.order_id}
+                  {related.orderNumber(c.order_id) ?? c.order_id}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-ink-2 text-sm">{c.customer_name}</span>
               </LinkRow>
@@ -501,7 +497,7 @@ function Body({ r }: { r: ChatRecord }) {
     )
   }
   const t = r.ticket
-  const assignees = members.filter((m) => t.assignee_ids.includes(m.id))
+  const assignees = source.rules.team.filter((m) => t.assignee_ids.includes(m.id))
   return (
     <>
       <dl className="flex flex-col">

@@ -7,10 +7,10 @@ import { AlertTriangle, Check, Loader, Sparkle, Undo2, Zap } from "../../icons"
 import { useNow } from "../ask/agent-parts"
 import { leftLabel } from "../lib/agent-log"
 import { cn } from "../lib/utils"
-import { useChatStore } from "../stores/chat-store"
-import { blocked, canUndoHere, COMMAND, doneLine, ME, pendingLine, runAction, undoAction } from "./commands"
+import { blocked, COMMAND, doneLine, pendingLine } from "./commands"
 import { RecordLines } from "./record-views"
-import { useRecord } from "./records"
+import type { ChatRecord } from "./records"
+import { useChatsSource } from "./source"
 
 /*
  * An action said in the conversation, drawn where the team reads. One card follows it from the
@@ -21,14 +21,15 @@ import { useRecord } from "./records"
 
 const EASE = [0.16, 1, 0.3, 1] as const
 
-export function useAction(seed: ChatAction): ChatAction {
-  const patch = useChatStore((s) => s.actions[seed.id])
-  return patch ? { ...seed, ...patch } : seed
-}
-
-export function ActionCard({ seed, onOpen }: { seed: ChatAction; onOpen: (r: ChatRecordRef) => void }) {
-  const a = useAction(seed)
-  const r = useRecord(a.target)
+export function ActionCard(
+  { action: a, by, onOpen }: {
+    action: ChatAction
+    /** Who ran a person's command: "Jij", or their name. */
+    by: string
+    onOpen: (r: ChatRecordRef) => void
+  }
+) {
+  const r = useChatsSource().useRecord(a.target)
   const reduce = useReducedMotion() ?? false
   const command = COMMAND[a.command]
   const settled = a.state === "done" || a.state === "undone" || a.state === "declined" || a.state === "failed"
@@ -89,7 +90,7 @@ export function ActionCard({ seed, onOpen }: { seed: ChatAction; onOpen: (r: Cha
           exit={reduce ? { opacity: 0 } : { opacity: 0, y: -4 }}
           transition={{ duration: 0.2, ease: EASE }}
         >
-          <Footer a={a} r={r} commandLabel={command.label} />
+          <Footer a={a} r={r} by={by} commandLabel={command.label} />
         </motion.div>
       </AnimatePresence>
     </motion.div>
@@ -135,14 +136,16 @@ function StateWord({ a }: { a: ChatAction }) {
   )
 }
 
-function Footer({ a, r, commandLabel }: { a: ChatAction; r: ReturnType<typeof useRecord>; commandLabel: string }) {
-  const setAction = useChatStore((s) => s.setAction)
+function Footer(
+  { a, r, by, commandLabel }: { a: ChatAction; r: ChatRecord | null; by: string; commandLabel: string }
+) {
+  const source = useChatsSource()
   const [busy, setBusy] = useState(false)
-  const why = a.state === "confirm" || a.state === "proposed" ? blocked(a.command, r, a.arg) : undefined
+  const why = a.state === "confirm" || a.state === "proposed" ? blocked(a.command, r, a.arg, source.rules) : undefined
 
   async function go() {
     setBusy(true)
-    const fail = await runAction(a, r, a.by === "insyte" ? ME.name.split(" ")[0] : undefined)
+    const fail = await source.writes.confirm(a, r)
     setBusy(false)
     if (fail) toast.error(fail)
   }
@@ -160,7 +163,7 @@ function Footer({ a, r, commandLabel }: { a: ChatAction; r: ReturnType<typeof us
         </button>
         <button
           type="button"
-          onClick={() => setAction(a.id, { state: "declined", decidedBy: ME.name.split(" ")[0] })}
+          onClick={() => source.writes.decline(a)}
           className="flex h-8 items-center rounded-md px-2.5 font-medium text-ink-2 text-sm transition-colors hover:bg-ink/6 hover:text-ink"
         >
           {a.state === "proposed" ? "Afwijzen" : "Annuleren"}
@@ -171,7 +174,7 @@ function Footer({ a, r, commandLabel }: { a: ChatAction; r: ReturnType<typeof us
       </div>
     )
   }
-  if (a.state === "done") return <DoneFooter a={a} />
+  if (a.state === "done") return <DoneFooter a={a} by={by} />
   if (a.state === "failed") {
     return <p className="px-3.5 pt-1 pb-3 text-ink-2 text-sm">{a.error ?? "Er ging iets mis. Probeer het opnieuw."}</p>
   }
@@ -186,13 +189,14 @@ function Footer({ a, r, commandLabel }: { a: ChatAction; r: ReturnType<typeof us
   return <div className="h-2" />
 }
 
-function DoneFooter({ a }: { a: ChatAction }) {
+function DoneFooter({ a, by }: { a: ChatAction; by: string }) {
+  const { writes } = useChatsSource()
   const now = useNow(1000)
   const left = (a.undoUntil ?? 0) - now
-  const open = left > 0 && canUndoHere(a.id)
+  const open = left > 0 && writes.canUndo(a)
   const who = a.by === "insyte"
     ? (a.level === "auto" ? "Insyte, op Zelf doen" : `Insyte, goedgekeurd door ${a.decidedBy ?? "jou"}`)
-    : "Jij"
+    : by
   return (
     <div className="flex items-center gap-2 px-3.5 pt-1 pb-3">
       <span className="min-w-0 flex-1 truncate text-ink-3 text-sm">{who}</span>
@@ -201,7 +205,9 @@ function DoneFooter({ a }: { a: ChatAction }) {
           <button
             type="button"
             onClick={() => {
-              if (undoAction(a)) toast("Ongedaan gemaakt")
+              void writes.undo(a).then((ok) => {
+                if (ok) toast("Ongedaan gemaakt")
+              })
             }}
             className="flex h-7 items-center gap-1.5 rounded-md bg-arc-tint px-2.5 font-medium text-arc-ink text-sm transition-colors hover:bg-arc/15"
           >

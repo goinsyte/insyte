@@ -17,14 +17,14 @@ import {
   Zap
 } from "../../icons"
 import { cn } from "../lib/utils"
-import { useChatStore } from "../stores/chat-store"
 import { type Attachment, PendingAttachments } from "./attachments"
 import { blocked, COMMANDS, mentionsInsyte, parseSlash } from "./commands"
 import { EmojiPicker } from "./emoji-picker"
 import { Avatar } from "./profile-card"
 import { RecordChip } from "./record-views"
-import { usePools } from "./records"
+import type { ChatRecord } from "./records"
 import { type Person, SmartField } from "./smart-field"
+import { SOON, useChatsSource } from "./source"
 
 /*
  * Where a message is written, and where the app is reached from. Under the text sit the records it
@@ -60,7 +60,8 @@ export function Composer({
   conversationId: string
   value: string
   onChange: (v: string) => void
-  onSubmit: () => void
+  /** With the record a typed `/command` acts on, as the read-back line shows it. */
+  onSubmit: (record: ChatRecord | null) => void
   placeholder: string
   people: ReadonlyArray<Person>
   attachments: ReadonlyArray<Attachment>
@@ -77,13 +78,15 @@ export function Composer({
   const file = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
   const reduce = useReducedMotion() ?? false
-  const pools = usePools()
-  const typing = useChatStore((s) => s.typing[conversationId])
-  const slash = value.trim().startsWith("/") ? parseSlash(value, records, pools) : null
+  const source = useChatsSource()
+  const typing = source.useTyping(conversationId)
+  const slash = value.trim().startsWith("/") ? parseSlash(value, records, source.refsInText) : null
+  const record = source.useRecord(slash?.target)
   const slashTyped = value.trim().startsWith("/") && /^\/\S+\s/.test(value)
-  const why = slash ? blocked(slash.command.id, slash.record, slash.arg) : undefined
-  const asking = mentionsInsyte(value)
+  const why = slash ? blocked(slash.command.id, record, slash.arg, source.rules) : undefined
+  const asking = source.insyte && mentionsInsyte(value)
   const canSend = slash ? !why : value.trim() !== "" || attachments.length > 0 || records.length > 0
+  const submit = () => onSubmit(slash ? record : null)
 
   function insert(before: string, after = "") {
     const el = area.current
@@ -147,10 +150,10 @@ export function Composer({
     <form
       onSubmit={(e) => {
         e.preventDefault()
-        if (canSend) onSubmit()
+        if (canSend) submit()
       }}
       onDragOver={(e) => {
-        if (!e.dataTransfer.types.includes("Files")) return
+        if (!source.attachments || !e.dataTransfer.types.includes("Files")) return
         e.preventDefault()
         setDragging(true)
       }}
@@ -158,7 +161,7 @@ export function Composer({
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false)
       }}
       onDrop={(e) => {
-        if (e.dataTransfer.files.length === 0) return
+        if (!source.attachments || e.dataTransfer.files.length === 0) return
         e.preventDefault()
         setDragging(false)
         onAttach(e.dataTransfer.files)
@@ -175,8 +178,8 @@ export function Composer({
                 exit={{ opacity: 0 }}
                 className="flex items-center gap-2 text-ink-2 text-sm"
               >
-                <Avatar senderId="u_insyte" name="Insyte" size={16} />
-                <span className="font-medium text-arc-ink">{typing}</span> is bezig
+                <Avatar senderId={typing.id} name={typing.name} size={16} />
+                <span className="font-medium text-arc-ink">{typing.name}</span> is bezig
                 <span className="flex gap-0.5" aria-hidden>
                   {[0, 1, 2].map((d) => (
                     <motion.span
@@ -236,8 +239,8 @@ export function Composer({
                       <>
                         <span className="font-medium text-arc-ink text-sm">{slash.command.label}</span>
                         <span className="min-w-0 flex-1 truncate text-ink-2 text-sm">
-                          {why ?? (slash.record
-                            ? `${slash.record.code} · ${slash.record.title}${
+                          {why ?? (record
+                            ? `${record.code} · ${record.title}${
                               slash.command.money ? " · je bevestigt op de kaart" : ""
                             }`
                             : "")}
@@ -276,7 +279,7 @@ export function Composer({
           rows={compact ? 1 : 2}
           value={value}
           onChange={onChange}
-          onSubmit={() => canSend && onSubmit()}
+          onSubmit={() => canSend && submit()}
           onKeyDown={onKeys}
           people={people}
           onPickRecord={(r) =>
@@ -309,6 +312,7 @@ export function Composer({
             )}
             <ComposerIcon
               label="Bestanden bijvoegen"
+              disabled={!source.attachments}
               onClick={() => file.current?.click()}
               icon={<Paperclip className="size-3.5" strokeWidth={1.75} />}
             />
@@ -346,6 +350,7 @@ export function Composer({
             </AppButton>
             <AppButton
               label="Vraag Insyte (@Insyte)"
+              disabled={!source.insyte}
               onClick={() => insert(value === "" || value.endsWith(" ") ? "@Insyte " : " @Insyte ")}
             >
               <Sparkles className="size-3.5" strokeWidth={1.75} />
@@ -399,14 +404,22 @@ export function Composer({
   )
 }
 
-function ComposerIcon({ label, icon, onClick }: { label: string; icon: React.ReactNode; onClick?: () => void }) {
+function ComposerIcon(
+  { label, icon, onClick, disabled = false }: {
+    label: string
+    icon: React.ReactNode
+    onClick?: () => void
+    disabled?: boolean
+  }
+) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
-      title={label}
-      className="flex size-7 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-ink/6 hover:text-ink"
+      title={disabled ? `${label} · ${SOON}` : label}
+      className="flex size-7 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-ink/6 hover:text-ink disabled:pointer-events-none disabled:opacity-40"
     >
       {icon}
     </button>
@@ -414,14 +427,22 @@ function ComposerIcon({ label, icon, onClick }: { label: string; icon: React.Rea
 }
 
 /** The three ways into the app, in the brand's ink so they read as the composer's own. */
-function AppButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+function AppButton(
+  { label, onClick, children, disabled = false }: {
+    label: string
+    onClick: () => void
+    children: React.ReactNode
+    disabled?: boolean
+  }
+) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
-      title={label}
-      className="flex h-7 items-center gap-1 rounded-md px-1.5 font-medium text-arc-ink text-sm transition-colors hover:bg-arc-tint"
+      title={disabled ? `${label} · ${SOON}` : label}
+      className="flex h-7 items-center gap-1 rounded-md px-1.5 font-medium text-arc-ink text-sm transition-colors hover:bg-arc-tint disabled:pointer-events-none disabled:opacity-40"
     >
       {children}
     </button>

@@ -9,21 +9,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "../../components/dropdown-menu"
-import type { ChatCard, ChatReaction, RichMessage } from "../../data-source"
+import type { ChatCard, ChatReaction } from "../../data-source"
 import { Edit3, Link2, MessageSquareText, MoreHorizontal, Pin, Smile, Sparkles, Ticket, Trash2 } from "../../icons"
-import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
-import { useChatStore } from "../stores/chat-store"
-import { useWorkspace } from "../stores/workspace-store"
 import { ActionCard } from "./action-card"
 import { AttachmentTile } from "./attachments"
 import { useChat } from "./chat-context"
-import { ME } from "./commands"
 import { EmojiPicker } from "./emoji-picker"
 import { MessageBody } from "./message-body"
-import { Avatar, profileFor, ProfilePopover } from "./profile-card"
+import { Avatar, ProfilePopover } from "./profile-card"
 import { RecordCard } from "./record-views"
-import { refsInText, sameRef, usePools } from "./records"
+import { sameRef } from "./records"
+import { type Message, SOON, useChatsSource } from "./source"
 
 /*
  * One message, the way a team reads them all day. The words are ink rather than the grey a caption
@@ -32,35 +29,24 @@ import { refsInText, sameRef, usePools } from "./records"
  * an action with its own state, and a thread that opens beside the conversation.
  */
 
-export function useMessage(m: RichMessage): RichMessage & { deleted?: boolean } {
-  const edit = useChatStore((s) => s.edits[m.id])
-  const reactions = useChatStore((s) => s.reactions[m.id])
-  return {
-    ...m,
-    ...(edit?.body !== undefined ? { body: edit.body, edited_at: edit.edited_at } : {}),
-    ...(edit?.deleted ? { deleted: true } : {}),
-    ...(reactions ? { reactions } : {})
-  }
-}
-
 export function MessageRow(
-  { message: seed, continuation, inThread = false, highlight = false }: {
-    message: RichMessage
+  { message: m, continuation, inThread = false, highlight = false }: {
+    message: Message
     continuation: boolean
     inThread?: boolean
     highlight?: boolean
   }
 ) {
-  const m = useMessage(seed)
   const chat = useChat()
+  const source = useChatsSource()
   const reduce = useReducedMotion() ?? false
   const [editing, setEditing] = useState(false)
-  const pinned = useChatStore((s) => s.pinnedMessages.includes(m.id))
-  const profile = profileFor(m.sender_id, m.sender_name)
-  const mine = m.sender_id === ME.id
+  const pinned = Boolean(m.pinned)
+  const profile = source.profileOf(m.sender_id, m.sender_name)
+  const mine = m.sender_id === source.me.id
   const agent = Boolean(profile.agent)
-  const mentionsMe = !mine && /@elena\b/i.test(m.body)
-  const replies = inThread ? [] : chat.repliesFor(m.id)
+  const mentionsMe = !mine && Boolean(m.mentionsMe)
+  const thread = inThread ? undefined : m.thread
   const threadOpen = chat.threadId === m.id && !inThread
 
   if (m.deleted) return null
@@ -127,7 +113,7 @@ export function MessageRow(
         {editing ? <EditBox message={m} onDone={() => setEditing(false)} /> : m.body ?
           (
             <div>
-              <MessageBody body={m.body} handles={chat.handles} onRecord={chat.openRecord} />
+              <MessageBody body={m.body} handles={chat.handles} refOf={source.refOf} onRecord={chat.openRecord} />
               {m.edited_at ? <span className="text-ink-3 text-xs">(bewerkt)</span> : null}
             </div>
           ) :
@@ -153,13 +139,15 @@ export function MessageRow(
             </div>
           ) :
           null}
-        {m.action ? <ActionCard seed={m.action} onOpen={chat.openRecord} /> : null}
+        {m.action
+          ? <ActionCard action={m.action} by={mine ? "Jij" : m.sender_name} onOpen={chat.openRecord} />
+          : null}
         {m.card?.type === "ai" ? <AiCard card={m.card} /> : null}
         {m.reactions && m.reactions.length > 0
           ? <Reactions reactions={m.reactions} onToggle={(e) => chat.toggleReaction(m, e)} />
           : null}
-        {replies.length > 0
-          ? <ThreadSummary replies={replies} open={threadOpen} onOpen={() => chat.openThread(m.id)} />
+        {thread && thread.count > 0
+          ? <ThreadSummary thread={thread} open={threadOpen} onOpen={() => chat.openThread(m.id)} />
           : null}
       </div>
       {editing
@@ -169,9 +157,9 @@ export function MessageRow(
   )
 }
 
-function ThreadSummary({ replies, open, onOpen }: { replies: RichMessage[]; open: boolean; onOpen: () => void }) {
-  const people = [...new Map(replies.map((r) => [r.sender_id, r])).values()].slice(-3)
-  const last = replies[replies.length - 1]
+function ThreadSummary(
+  { thread, open, onOpen }: { thread: NonNullable<Message["thread"]>; open: boolean; onOpen: () => void }
+) {
   return (
     <button
       type="button"
@@ -182,18 +170,16 @@ function ThreadSummary({ replies, open, onOpen }: { replies: RichMessage[]; open
       )}
     >
       <span className="flex -space-x-1">
-        {people.map((p) => (
-          <span key={p.sender_id} className="rounded-md ring-2 ring-paper">
-            <Avatar senderId={p.sender_id} name={p.sender_name} size={20} />
+        {thread.people.map((p) => (
+          <span key={p.id} className="rounded-md ring-2 ring-paper">
+            <Avatar senderId={p.id} name={p.name} size={20} />
           </span>
         ))}
       </span>
       <span className="font-medium text-arc-ink text-sm">
-        {replies.length} {replies.length === 1 ? "antwoord" : "antwoorden"}
+        {thread.count} {thread.count === 1 ? "antwoord" : "antwoorden"}
       </span>
-      {last
-        ? <span className="text-ink-3 text-sm group-hover/thread:hidden">Laatste om {formatTime(last.at)}</span>
-        : null}
+      <span className="text-ink-3 text-sm group-hover/thread:hidden">Laatste om {formatTime(thread.lastAt)}</span>
       <span className="hidden text-ink-3 text-sm group-hover/thread:inline">Thread openen</span>
     </button>
   )
@@ -203,7 +189,7 @@ const QUICK = ["👍", "✅", "👀", "🙏"] as const
 
 function Toolbar(
   { m, mine, inThread, pinned, onEdit }: {
-    m: RichMessage
+    m: Message
     mine: boolean
     inThread: boolean
     pinned: boolean
@@ -211,12 +197,7 @@ function Toolbar(
   }
 ) {
   const chat = useChat()
-  const togglePinned = useChatStore((s) => s.togglePinnedMessage)
-  const del = useChatStore((s) => s.deleteMessage)
-  const restore = useChatStore((s) => s.restoreMessage)
-  const createTicket = useWorkspace((s) => s.createTicket)
-  const pools = usePools()
-  const navigate = useNavigate()
+  const { writes, insyte } = useChatsSource()
   return (
     <div className="absolute -top-3.5 right-3 z-10 hidden items-center gap-0.5 rounded-lg bg-paper p-0.5 shadow-[0_6px_18px_-8px_rgb(0_0_0/0.3),0_1px_3px_rgb(0_0_0/0.08)] group-hover:flex has-[[data-popup-open]]:flex">
       {QUICK.map((e) => (
@@ -246,6 +227,7 @@ function Toolbar(
       )}
       <ToolButton
         label="Vraag Insyte hierover"
+        disabled={!insyte}
         onClick={() => {
           if (!inThread) chat.openThread(m.id)
           requestAnimationFrame(() => chat.mention("Insyte"))
@@ -258,38 +240,11 @@ function Toolbar(
           <MoreHorizontal className="size-4" strokeWidth={1.75} />
         </ToolButton>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuItem onClick={() => togglePinned(m.id)}>
+          <DropdownMenuItem onClick={() => writes.pinMessage(m)}>
             <Pin className="size-4" strokeWidth={1.75} />
             {pinned ? "Losmaken" : "Vastzetten in kanaal"}
           </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              const related = [...(m.records ?? []), ...refsInText(m.body, pools)].find((r) =>
-                r.kind === "order" || r.kind === "customer" || r.kind === "chargeback"
-              )
-              const t = createTicket({
-                title: m.body.replace(/[*_`~]/g, "").slice(0, 80) || "Uit de teamchat",
-                description: `${m.sender_name} in #${chat.conversation.name}: ${m.body}`,
-                priority: "medium",
-                source: "chat",
-                ...(related
-                  ? {
-                    related_entity: {
-                      type: related.kind as "order" | "customer" | "chargeback",
-                      id: related.id,
-                      label: related.id
-                    }
-                  }
-                  : {})
-              })
-              toast(`Ticket ${t.number} aangemaakt`, {
-                action: {
-                  label: "Openen",
-                  onClick: () => navigate({ to: "/tickets", search: { ticket: t.id } as never })
-                }
-              })
-            }}
-          >
+          <DropdownMenuItem onClick={() => writes.ticketFrom(m, chat.conversation)}>
             <Ticket className="size-4" strokeWidth={1.75} />
             Ticket maken van bericht
           </DropdownMenuItem>
@@ -312,12 +267,7 @@ function Toolbar(
                   <Edit3 className="size-4" strokeWidth={1.75} />
                   Bewerken
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    del(m.id)
-                    undoable("Bericht verwijderd", () => restore(m.id))
-                  }}
-                >
+                <DropdownMenuItem onClick={() => writes.remove(m)}>
                   <Trash2 className="size-4" strokeWidth={1.75} />
                   Verwijderen
                 </DropdownMenuItem>
@@ -331,20 +281,22 @@ function Toolbar(
 }
 
 function ToolButton(
-  { label, onClick, children, asTrigger = false }: {
+  { label, onClick, children, asTrigger = false, disabled = false }: {
     label: string
     onClick?: () => void
     children: React.ReactNode
     asTrigger?: boolean
+    disabled?: boolean
   }
 ) {
   const button = (
     <button
       type="button"
       aria-label={label}
-      title={label}
+      title={disabled ? `${label} · ${SOON}` : label}
       onClick={onClick}
-      className="flex size-7 items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-mist hover:text-ink data-[popup-open]:bg-mist"
+      disabled={disabled}
+      className="flex size-7 items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-mist hover:text-ink disabled:pointer-events-none disabled:opacity-40 data-[popup-open]:bg-mist"
     >
       {children}
     </button>
@@ -352,9 +304,9 @@ function ToolButton(
   return asTrigger ? <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger> : button
 }
 
-function EditBox({ message, onDone }: { message: RichMessage; onDone: () => void }) {
+function EditBox({ message, onDone }: { message: Message; onDone: () => void }) {
   const [text, setText] = useState(message.body)
-  const edit = useChatStore((s) => s.editMessage)
+  const { writes } = useChatsSource()
   const ref = useRef<HTMLTextAreaElement>(null)
   useEffect(() => {
     const el = ref.current
@@ -363,7 +315,7 @@ function EditBox({ message, onDone }: { message: RichMessage; onDone: () => void
     // biome-ignore lint/correctness/useExhaustiveDependencies: place the caret once, on open
   }, [])
   const save = () => {
-    if (text.trim() && text !== message.body) edit(message.id, text.trim())
+    if (text.trim() && text !== message.body) writes.edit(message, text.trim())
     onDone()
   }
   return (
@@ -491,8 +443,10 @@ export function formatTime(iso: string) {
   return new Intl.DateTimeFormat("nl-NL", { hour: "2-digit", minute: "2-digit" }).format(new Date(iso))
 }
 
-export function groupByDay(messages: RichMessage[]): Array<{ label: string; messages: RichMessage[] }> {
-  const groups = new Map<string, RichMessage[]>()
+export function groupByDay<M extends { at: string }>(
+  messages: ReadonlyArray<M>
+): Array<{ label: string; messages: M[] }> {
+  const groups = new Map<string, M[]>()
   for (const m of messages) {
     const key = new Date(m.at).toDateString()
     groups.set(key, [...(groups.get(key) ?? []), m])
@@ -510,7 +464,7 @@ export function groupByDay(messages: RichMessage[]): Array<{ label: string; mess
 }
 
 /** Two messages from one person within five minutes read as one. An action always gets its own head. */
-export function continues(prev: RichMessage | undefined, m: RichMessage) {
+export function continues(prev: Message | undefined, m: Message) {
   return prev?.sender_id === m.sender_id && !m.action && !prev.action &&
     new Date(m.at).getTime() - new Date(prev.at).getTime() < 5 * 60_000
 }

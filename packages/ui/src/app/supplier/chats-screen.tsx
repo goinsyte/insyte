@@ -2,6 +2,7 @@ import { getRouteApi } from "@tanstack/react-router";
 import { Paperclip, Send } from "../../icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Attachment, AttachmentTile, forget, fromFiles, PendingAttachments } from "../chats/attachments";
+import { seedRefOf } from "../chats/demo-records";
 import { MessageBody } from "../chats/message-body";
 import { PageHeader } from "../common/page-header";
 import { MentionField, mentionsIn } from "../tickets/mention-field";
@@ -98,7 +99,7 @@ export function SupplierChat() {
 								)}
 								{m.body ? (
 									<div className={cn("rounded-xl px-3.5 py-2", mine ? "bg-arc-tint" : "bg-mist")}>
-										<MessageBody body={m.body} handles={HANDLES} orderBase="/supplier/orders" />
+										<MessageBody body={m.body} handles={HANDLES} orderBase="/supplier/orders" refOf={seedRefOf} />
 									</div>
 								) : null}
 								{m.attachments?.length ? (

@@ -1,9 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import { Fragment, type ReactNode } from "react"
-import { chargebacks, type ChatRecordRef, orders } from "../../data-source"
-
-const ORDER_ID = new Map(orders.map((o) => [o.number, o.id]))
-const CASE_ID = new Map(chargebacks.map((c) => [c.case_number, c.id]))
+import type { ChatRecordRef } from "../../data-source"
 
 /**
  * A chat message's text, formatted the way the composer writes it: **bold**, _italic_, ~~struck~~,
@@ -17,36 +14,30 @@ const INLINE =
 const CHIP =
   "inline-flex h-5 translate-y-[-1px] items-center rounded-[5px] bg-arc-tint px-1.5 align-middle font-medium text-arc-ink text-sm leading-none hover:bg-arc/15"
 
-function inline(
-  text: string,
-  handles: ReadonlySet<string>,
-  key: string,
-  orderBase: string,
-  onRecord?: (ref: ChatRecordRef) => void
-): ReactNode[] {
+type Read = {
+  handles: ReadonlySet<string>
+  orderBase: string
+  refOf: (code: string) => ChatRecordRef | undefined
+  onRecord?: ((ref: ChatRecordRef) => void) | undefined
+}
+
+function inline(text: string, key: string, { handles, orderBase, refOf, onRecord }: Read): ReactNode[] {
   return text.split(INLINE).map((part, i) => {
     const k = `${key}-${i}`
-    const orderId = /^SO-\d{5}$/.test(part) ? ORDER_ID.get(part) : undefined
-    const caseId = /^DSP-\d{4}$/.test(part) ? CASE_ID.get(part) : undefined
+    const ref = /^SO-\d{5}$|^DSP-\d{4}$/.test(part) ? refOf(part) : undefined
     /* In the team chat a record opens beside the conversation instead of leaving it. */
-    if (onRecord && (orderId || caseId)) {
+    if (onRecord && ref) {
       return (
-        <button
-          key={k}
-          type="button"
-          onClick={() =>
-            onRecord(orderId ? { kind: "order", id: orderId } : { kind: "chargeback", id: caseId as string })}
-          className={CHIP}
-        >
+        <button key={k} type="button" onClick={() => onRecord(ref)} className={CHIP}>
           {part}
         </button>
       )
     }
-    if (orderId) {
+    if (ref?.kind === "order") {
       return (
         <Link
           key={k}
-          to={`${orderBase}/${orderId}` as never}
+          to={`${orderBase}/${ref.id}` as never}
           className={CHIP}
         >
           {part}
@@ -107,17 +98,24 @@ function inline(
   })
 }
 
+/** Where the text names no record the host knows, it stays text. */
+const NONE = (): undefined => undefined
+
 export function MessageBody({
   body,
   handles,
   orderBase = "/orders",
+  refOf = NONE,
   onRecord
 }: {
   body: string
   handles: ReadonlySet<string>
   orderBase?: string
+  /** The record a handle in the text names (SO-12204, DSP-2210), as the host knows it. */
+  refOf?: ((code: string) => ChatRecordRef | undefined) | undefined
   onRecord?: (ref: ChatRecordRef) => void
 }) {
+  const read: Read = { handles, orderBase, refOf, onRecord }
   const blocks: Array<{ kind: "p"; lines: string[] } | { kind: "ul"; items: string[] }> = []
   for (const line of body.split("\n")) {
     const item = /^\s*[-•]\s+(.*)$/.exec(line)
@@ -134,7 +132,7 @@ export function MessageBody({
         b.kind === "ul" ?
           (
             <ul key={i} className="flex list-disc flex-col gap-0.5 pl-5 marker:text-ink-3">
-              {b.items.map((it, j) => <li key={j}>{inline(it, handles, `${i}-${j}`, orderBase, onRecord)}</li>)}
+              {b.items.map((it, j) => <li key={j}>{inline(it, `${i}-${j}`, read)}</li>)}
             </ul>
           ) :
           (
@@ -142,7 +140,7 @@ export function MessageBody({
               {b.lines.map((l, j) => (
                 <Fragment key={j}>
                   {j > 0 ? "\n" : null}
-                  {inline(l, handles, `${i}-${j}`, orderBase, onRecord)}
+                  {inline(l, `${i}-${j}`, read)}
                 </Fragment>
               ))}
             </p>

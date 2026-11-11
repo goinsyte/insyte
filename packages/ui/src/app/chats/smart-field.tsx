@@ -6,7 +6,8 @@ import { personStyle } from "../lib/person-color"
 import { cn } from "../lib/utils"
 import { type Command, COMMANDS } from "./commands"
 import { KindTile } from "./record-views"
-import { type ChatRecord, KIND_LABEL, searchRecords, usePools } from "./records"
+import { KIND_LABEL } from "./records"
+import { type RecordHit, useChatsSource } from "./source"
 
 /*
  * The composer's field, which knows three things about the product. "@" names a colleague, or
@@ -23,7 +24,7 @@ type Trigger = { kind: "@" | "/" | "#"; query: string; start: number }
 type Option =
   | { type: "person"; key: string; person: Person; agent?: boolean }
   | { type: "command"; key: string; command: Command }
-  | { type: "record"; key: string; record: ChatRecord }
+  | { type: "record"; key: string; record: RecordHit }
 
 const EASE = [0.16, 1, 0.3, 1] as const
 
@@ -57,7 +58,8 @@ export function SmartField({
   useImperativeHandle(inputRef, () => ref.current as HTMLTextAreaElement, [])
   const [trigger, setTrigger] = useState<Trigger | null>(null)
   const [at, setAt] = useState(0)
-  const pools = usePools()
+  const source = useChatsSource()
+  const hits = source.useRecordSearch(trigger?.kind === "#" ? trigger.query : null, recordKinds)
   const reduce = useReducedMotion() ?? false
 
   const options = useMemo<Option[]>(() => {
@@ -65,7 +67,7 @@ export function SmartField({
     const q = trigger.query.toLowerCase()
     if (trigger.kind === "@") {
       const list: Option[] = []
-      if ("insyte".startsWith(q)) {
+      if (source.insyte && "insyte".startsWith(q)) {
         list.push({
           type: "person",
           key: "insyte",
@@ -83,12 +85,12 @@ export function SmartField({
         command: c
       }))
     }
-    return searchRecords(trigger.query, pools, recordKinds).map((r) => ({
+    return hits.map((r) => ({
       type: "record",
       key: `${r.kind}:${r.ref.id}`,
       record: r
     }))
-  }, [trigger, people, pools, recordKinds])
+  }, [trigger, people, hits, source.insyte])
   const open = options.length > 0
 
   function read(next: string, caret: number) {

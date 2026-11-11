@@ -3,12 +3,12 @@ import type { ReactElement } from "react"
 import { useState } from "react"
 import { toast } from "sonner"
 import { Popover, PopoverContent, PopoverTrigger } from "../../components/popover"
-import { type ChatProfile, chatProfiles, conversations } from "../../data-source"
+import type { ChatProfile } from "../../data-source"
 import { AtSign, Clock, Copy, MessageSquare, ShieldCheck, Sparkle, Sparkles, Ticket } from "../../icons"
 import { personStyle } from "../lib/person-color"
 import { cn } from "../lib/utils"
-import { useChatStore } from "../stores/chat-store"
-import { useWorkspace } from "../stores/workspace-store"
+import { INSYTE } from "./commands"
+import { SOON, useChatsSource } from "./source"
 
 /*
  * Who someone is, where you met them: in the conversation. Their name or face opens a card with what
@@ -23,30 +23,6 @@ const PRESENCE: Record<ChatProfile["presence"], { label: string; dot: string }> 
   offline: { label: "Offline", dot: "bg-ink-4" }
 }
 
-export function profileFor(senderId: string, fallbackName: string): ChatProfile {
-  const known = chatProfiles[senderId]
-  if (known) return known
-  const member = useWorkspace.getState().members.find((m) =>
-    m.id === senderId || `u_${m.name.split(" ")[0]?.toLowerCase()}` === senderId
-  )
-  return {
-    name: member?.name ?? fallbackName,
-    title: member?.role ?? "Teamlid",
-    ...(member?.email ? { email: member.email } : {}),
-    timezone: "Europe/Amsterdam",
-    presence: "offline",
-    ...(member ? { memberId: member.id } : {})
-  }
-}
-
-/** A person's direct-message thread: the seeded ones by their chat id, teammates by member id. */
-export function dmIdFor(senderId: string): string {
-  const seeded: Record<string, string> = { u_maya: "conv_dm_maya", u_marco: "conv_dm_marco" }
-  if (seeded[senderId]) return seeded[senderId]
-  const memberId = chatProfiles[senderId]?.memberId
-  return `conv_dm_${memberId ?? senderId}`
-}
-
 export function Avatar(
   { senderId, name, size = 34, presence }: {
     senderId: string
@@ -55,7 +31,7 @@ export function Avatar(
     presence?: ChatProfile["presence"]
   }
 ) {
-  const agent = chatProfiles[senderId]?.agent
+  const agent = senderId === INSYTE.id
   return (
     <span className="relative inline-flex shrink-0" style={{ width: size, height: size }}>
       {agent ?
@@ -117,16 +93,11 @@ function ProfileCard(
     onDone: () => void
   }
 ) {
-  const p = profileFor(senderId, name)
+  const source = useChatsSource()
+  const p = source.useProfile(senderId, name)
   const navigate = useNavigate()
-  const tickets = useWorkspace((s) => s.tickets)
-  const created = useChatStore((s) => s.created)
-  const open = p.memberId
-    ? tickets.filter((t) => t.assignee_ids.includes(p.memberId as string) && t.status !== "done").length
-    : 0
-  const channels = [...created, ...conversations].filter((c) =>
-    c.type === "group" && c.participants.some((x) => x.id === senderId)
-  ).map((c) => c.name)
+  const open = p.openTickets
+  const channels = p.channels
   const handle = p.name.split(" ")[0] ?? p.name
   const time = new Intl.DateTimeFormat("nl-NL", { hour: "2-digit", minute: "2-digit", timeZone: p.timezone }).format(
     new Date()
@@ -150,7 +121,12 @@ function ProfileCard(
           </div>
         </div>
         <div className="flex flex-col gap-1 p-2">
-          <CardButton icon={Sparkles} label="Vraag Insyte hier" onClick={() => (onMention?.("Insyte"), onDone())} />
+          <CardButton
+            icon={Sparkles}
+            label="Vraag Insyte hier"
+            disabled={!source.insyte}
+            onClick={() => (onMention?.("Insyte"), onDone())}
+          />
           <CardButton
             icon={Clock}
             label="Wat Insyte deed"
@@ -209,7 +185,7 @@ function ProfileCard(
             </div>
           ) :
           null}
-        {p.memberId ?
+        {p.memberId && open !== undefined ?
           (
             <div className="flex items-center gap-2.5">
               <Ticket className="size-3.5 shrink-0 text-ink-3" strokeWidth={1.75} />
@@ -235,7 +211,7 @@ function ProfileCard(
         <button
           type="button"
           onClick={() => {
-            navigate({ to: "/chats", search: { id: dmIdFor(senderId) } } as never)
+            navigate({ to: "/chats", search: { id: source.dmIdFor(senderId) } } as never)
             onDone()
           }}
           className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-abyss font-medium text-mesh-ink text-sm shadow-primary transition-colors hover:bg-abyss-2"
@@ -263,12 +239,21 @@ function ProfileCard(
   )
 }
 
-function CardButton({ icon: Icon, label, onClick }: { icon: typeof Clock; label: string; onClick: () => void }) {
+function CardButton(
+  { icon: Icon, label, onClick, disabled = false }: {
+    icon: typeof Clock
+    label: string
+    onClick: () => void
+    disabled?: boolean
+  }
+) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex h-9 items-center gap-2.5 rounded-md px-2.5 text-ink text-sm transition-colors hover:bg-arc-tint hover:text-arc-ink"
+      disabled={disabled}
+      title={disabled ? SOON : undefined}
+      className="flex h-9 items-center gap-2.5 rounded-md px-2.5 text-ink text-sm transition-colors hover:bg-arc-tint hover:text-arc-ink disabled:pointer-events-none disabled:opacity-40"
     >
       <Icon className="size-4 text-arc-ink" strokeWidth={1.75} />
       {label}

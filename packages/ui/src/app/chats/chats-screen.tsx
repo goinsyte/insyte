@@ -11,59 +11,45 @@ import {
   DropdownMenuTrigger
 } from "../../components/dropdown-menu"
 import { Popover, PopoverContent, PopoverTrigger } from "../../components/popover"
-import {
-  type ChatAction,
-  type ChatCommandId,
-  chatProfiles,
-  type ChatRecordRef,
-  conversationDescription,
-  conversations,
-  messagesByConversation,
-  type RichMessage,
-  threadsByMessage
-} from "../../data-source"
+import type { ChatRecordRef } from "../../data-source"
 import { ArrowDown, AtSign, Hash, Pin, Search, Settings as SettingsIcon } from "../../icons"
 import { EmptyPage } from "../common/empty-page"
 import { Field, FormDialog, TextField } from "../common/form-dialog"
 import type { Conversation } from "../lib/types/domain"
-import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
-import { useChatStore } from "../stores/chat-store"
 import { useOnCreate } from "../stores/create-intent"
-import { useWorkspace } from "../stores/workspace-store"
 import { mentionsIn } from "../tickets/mention-field"
 import { type Attachment, forget, fromFiles } from "./attachments"
 import { type ChatApi, ChatContext } from "./chat-context"
-import { blocked, COMMAND, INSYTE, insyteAnswer, ME, mentionsInsyte, parseSlash, runAction } from "./commands"
+import { blocked, COMMAND, parseSlash } from "./commands"
 import { Composer, type ComposerHandle } from "./composer"
 import { continues, DayDivider, formatTime, groupByDay, MessageRow, NewDivider } from "./message-row"
-import { Avatar, dmIdFor } from "./profile-card"
-import { resolve, sameRef, usePools } from "./records"
+import { Avatar } from "./profile-card"
+import { type ChatRecord, sameRef } from "./records"
 import { RecordPanel, ThreadPanel } from "./side-panel"
+import { type Message, useChatsSource } from "./source"
 
 /*
  * Chats, where the team talks and, since this page, works. A message can carry the app (a record
  * shared with #, a /command run in the open, Insyte asked by name) and the column on the right holds
  * whatever the conversation is about right now: a thread, or the record itself. The conversation
- * stays the place the team reads; the work it causes is written into it, with a way back.
+ * stays the place the team reads; the work it causes is written into it, with a way back. What it
+ * reads and does comes from the host (`source.tsx`).
  */
 
 type Panel = { type: "thread"; id: string } | { type: "record"; stack: ChatRecordRef[] } | null
-
-const newId = (p: string) => `${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
 
 /* The conversations whose "Nieuw" line has been seen this session: opened once, then read. */
 const READ = new Set<string>()
 
 export function ChatsPage() {
   const search = useRouterState({ select: (s) => s.location.search }) as { id?: string }
-  const navigate = useNavigate()
   const reduce = useReducedMotion() ?? false
-  const created = useChatStore((s) => s.created)
-  const addConversation = useChatStore((s) => s.addConversation)
-  const removeConversation = useChatStore((s) => s.removeConversation)
-  const members = useWorkspace((s) => s.members)
-  const all = useMemo(() => [...created, ...conversations], [created])
+  const source = useChatsSource()
+  const { conversations: all, people, writes } = source
+  /* The effects below call the host when the page moves on, not each time the host draws. */
+  const latest = useRef(writes)
+  latest.current = writes
   const [newChannel, setNewChannel] = useState(false)
   useOnCreate("channel", useCallback(() => setNewChannel(true), []))
 
@@ -71,48 +57,12 @@ export function ChatsPage() {
   useEffect(() => {
     const id = search.id
     if (!id?.startsWith("conv_dm_") || all.some((c) => c.id === id)) return
-    const key = id.slice("conv_dm_".length)
-    const member = members.find((m) => m.id === key)
-    const profile = chatProfiles[key]
-    const name = member?.name ?? profile?.name
-    if (!name) return
-    addConversation({
-      id,
-      type: "dm",
-      name,
-      participants: [
-        { id: ME.id, name: ME.name },
-        { id: member ? member.id : key, name }
-      ],
-      last_message_at: new Date().toISOString(),
-      last_message_preview: "",
-      unread_count: 0,
-      messages: []
-    })
-  }, [search.id, all, members, addConversation])
+    latest.current.openDirect(id)
+  }, [search.id, all])
 
-  const first = all[0] ?? conversations[0]
-  const active = ((search.id ? all.find((c) => c.id === search.id) : undefined) ?? first) as Conversation
-  const seeded = messagesByConversation[active.id] ?? []
-
-  const drafts = useChatStore((s) => s.drafts)
-  const extra = useChatStore((s) => s.extra)
-  const threadExtra = useChatStore((s) => s.threadExtra)
-  const reactionsState = useChatStore((s) => s.reactions)
-  const pinnedMessages = useChatStore((s) => s.pinnedMessages)
-  const setDraft = useChatStore((s) => s.setDraft)
-  const appendMessage = useChatStore((s) => s.appendMessage)
-  const appendReply = useChatStore((s) => s.appendReply)
-  const setReactions = useChatStore((s) => s.setReactions)
-  const setTyping = useChatStore((s) => s.setTyping)
-  const pools = usePools()
-  const poolsRef = useRef(pools)
-  poolsRef.current = pools
-
-  const messages = useMemo(() => [...seeded, ...(extra[active.id] ?? [])], [seeded, extra, active.id])
-  const repliesFor = useCallback((id: string) => [...(threadsByMessage[id] ?? []), ...(threadExtra[id] ?? [])], [
-    threadExtra
-  ])
+  const active = ((search.id ? all.find((c) => c.id === search.id) : undefined) ?? all[0]) as Conversation
+  const view = source.useConversation(active)
+  const messages = view.messages
 
   const [panel, setPanel] = useState<Panel>(null)
   useEffect(() => setPanel(null), [active.id])
@@ -122,108 +72,60 @@ export function ChatsPage() {
   /* Pending attachments and records, per composer: the channel's, and each thread's. */
   const [pendingFiles, setPendingFiles] = useState<Record<string, Attachment[]>>({})
   const [pendingRecords, setPendingRecords] = useState<Record<string, ChatRecordRef[]>>({})
-  const [threadDrafts, setThreadDrafts] = useState<Record<string, string>>({})
   const [alsoToChannel, setAlsoToChannel] = useState(false)
   const mainComposer = useRef<ComposerHandle>(null)
   const threadComposer = useRef<ComposerHandle>(null)
 
-  const people = useMemo(
-    () =>
-      members.filter((m) => m.status === "active").map((m) => ({ id: m.id, initial: m.name.charAt(0), name: m.name })),
-    [members]
-  )
   const handles = useMemo(
-    () => new Set([...members.map((m) => (m.name.split(" ")[0] ?? m.name).toLowerCase()), "insyte"]),
-    [members]
+    () => new Set([...source.rules.team.map((m) => (m.name.split(" ")[0] ?? m.name).toLowerCase()), "insyte"]),
+    [source.rules.team]
   )
-
-  function post(where: string | null, msg: RichMessage) {
-    if (where) appendReply(where, msg)
-    else appendMessage(active.id, msg)
-  }
 
   /** Sends what is in a composer: a command becomes its card, a question to Insyte gets an answer. */
-  function send(parent: RichMessage | null) {
+  function send(parent: Message | null, record: ChatRecord | null) {
     const key = parent ? `${active.id}:${parent.id}` : active.id
-    const text = (parent ? (threadDrafts[parent.id] ?? "") : (drafts[active.id] ?? "")).trim()
+    const text = source.draft(key).trim()
     const records = pendingRecords[key] ?? []
     const files = pendingFiles[key] ?? []
     const clear = () => {
-      if (parent) setThreadDrafts((d) => ({ ...d, [parent.id]: "" }))
-      else setDraft(active.id, "")
+      writes.setDraft(key, "")
       setPendingRecords((p) => ({ ...p, [key]: [] }))
       setPendingFiles((p) => ({ ...p, [key]: [] }))
     }
-    const where = parent?.id ?? null
-    const base = { conversation_id: active.id, sender_id: ME.id, sender_name: ME.name, at: new Date().toISOString() }
 
     if (text.startsWith("/")) {
-      const parsed = parseSlash(text, records, pools)
+      const parsed = parseSlash(text, records, source.refsInText)
       if (!parsed) return void toast.error("Die opdracht ken ik niet. Typ / voor de lijst.")
-      const why = blocked(parsed.command.id, parsed.record, parsed.arg)
+      const why = blocked(parsed.command.id, record, parsed.arg, source.rules)
       if (why) return void toast.error(why)
-      const action: ChatAction = {
-        id: newId("act"),
+      writes.run(active, {
         command: parsed.command.id,
-        ...(parsed.target ? { target: parsed.target } : {}),
+        target: parsed.target,
         ...(parsed.arg ? { arg: parsed.arg } : {}),
-        by: "person",
-        state: parsed.command.money ? "confirm" : "running"
-      }
-      post(where, { ...base, id: newId("m"), body: "", action })
+        record,
+        parent
+      })
       clear()
-      if (action.state === "running") void runAction(action, parsed.record)
       return
     }
 
     if (!text && records.length === 0 && files.length === 0) return
-    const msg: RichMessage = {
-      ...base,
-      id: newId("m"),
+    const told = mentionsIn(text, people).filter((p) => p.id !== source.me.memberId)
+    writes.send(active, {
       body: text,
-      ...(records.length ? { records } : {}),
-      ...(files.length ? { attachments: files } : {})
-    }
-    post(where, msg)
-    if (parent && alsoToChannel) appendMessage(active.id, { ...msg, id: `${msg.id}_ch` })
+      records,
+      attachments: files,
+      mentions: told,
+      parent,
+      alsoToChannel: Boolean(parent && alsoToChannel)
+    })
     clear()
 
-    const told = mentionsIn(text, people).filter((p) => p.id !== ME.memberId)
     if (told.length > 0) {
       toast(
         `${
           new Intl.ListFormat("nl-NL", { type: "conjunction" }).format(told.map((p) => p.name.split(" ")[0] ?? p.name))
         } ${told.length === 1 ? "krijgt" : "krijgen"} een melding`
-      )
-    }
-
-    if (mentionsInsyte(text)) {
-      const history = parent ? [parent, ...repliesFor(parent.id)] : messages
-      setTyping(key, "Insyte")
-      window.setTimeout(
-        () => {
-          const reply = insyteAnswer(
-            text,
-            records.length ? records : (parent?.records ?? []),
-            [...history, msg],
-            poolsRef.current
-          )
-          post(where, {
-            conversation_id: active.id,
-            id: newId("m"),
-            sender_id: INSYTE.id,
-            sender_name: INSYTE.name,
-            at: new Date().toISOString(),
-            body: reply.body,
-            ...(reply.records?.length ? { records: reply.records } : {}),
-            ...(reply.action ? { action: reply.action } : {})
-          })
-          setTyping(key, undefined)
-          if (reply.action?.state === "running") {
-            void runAction(reply.action, reply.action.target ? resolve(reply.action.target, poolsRef.current) : null)
-          }
-        },
-        reduce ? 300 : 1300
       )
     }
   }
@@ -253,43 +155,19 @@ export function ChatsPage() {
       })
       mainComposer.current?.focus()
     },
-    toggleReaction: (m, emoji) => {
-      const current = reactionsState[m.id] ?? m.reactions ?? []
-      const found = current.find((r) => r.emoji === emoji)
-      const next = !found
-        ? [...current, { emoji, count: 1, mine: true }]
-        : found.mine
-        ? current.map((r) => (r.emoji === emoji ? { ...r, count: r.count - 1, mine: false } : r)).filter((r) =>
-          r.count > 0
-        )
-        : current.map((r) => (r.emoji === emoji ? { ...r, count: r.count + 1, mine: true } : r))
-      setReactions(m.id, next)
-    },
-    act: (command: ChatCommandId, ref, arg) => {
-      const r = ref ? resolve(ref, pools) : null
+    toggleReaction: (m, emoji) => writes.react(m, emoji),
+    act: (command, r, arg) => {
       const c = COMMAND[command]
       const resolvedArg = arg ?? (command === "ticket" && r ? `${r.code} · ${r.title}` : undefined)
-      const action: ChatAction = {
-        id: newId("act"),
+      writes.run(active, {
         command,
-        ...(ref ? { target: ref } : {}),
+        ...(r ? { target: r.ref } : {}),
         ...(resolvedArg ? { arg: resolvedArg } : {}),
-        by: "person",
-        state: c.money ? "confirm" : "running"
-      }
-      appendMessage(active.id, {
-        conversation_id: active.id,
-        id: newId("m"),
-        sender_id: ME.id,
-        sender_name: ME.name,
-        at: new Date().toISOString(),
-        body: "",
-        action
+        record: r,
+        parent: null
       })
-      if (action.state === "running") void runAction(action, r)
-      else toast(`${c.label}: bevestig op de kaart in #${active.name}`)
-    },
-    repliesFor
+      if (c.money) toast(`${c.label}: bevestig op de kaart in #${active.name}`)
+    }
   }
 
   /* The query in the header's search, and the message it should land on. */
@@ -305,17 +183,24 @@ export function ChatsPage() {
     window.setTimeout(() => setHighlight(null), 1800)
   }
 
-  /* The "Nieuw" line sits above the seeded unread messages, the first time the conversation opens. */
+  /* The "Nieuw" line sits above the unread messages, the first time the conversation opens. */
   const [unreadFrom] = useState(() => new Map<string, string | undefined>())
-  if (!unreadFrom.has(active.id)) {
-    const n = READ.has(active.id) ? 0 : active.unread_count
-    unreadFrom.set(active.id, n > 0 ? seeded[Math.max(0, seeded.length - n)]?.id : undefined)
+  if (view.ready && !unreadFrom.has(active.id)) {
+    unreadFrom.set(active.id, READ.has(active.id) ? undefined : view.firstUnread)
     READ.add(active.id)
   }
+
+  /* Read once the newest message is on screen: when the conversation opens, and as one arrives. */
+  const newest = messages[messages.length - 1]?.id
+  useEffect(() => {
+    if (view.ready && newest !== undefined) latest.current.markRead(active)
+  }, [view.ready, active, newest])
 
   const mainKey = active.id
   const threadKey = threadParent ? `${active.id}:${threadParent.id}` : ""
   const placeholder = `Bericht aan ${active.type === "group" ? `#${active.name}` : active.name}`
+  const attach = (key: string) => (files: Iterable<File>) =>
+    setPendingFiles((p) => ({ ...p, [key]: [...(p[key] ?? []), ...fromFiles(files)] }))
 
   return (
     <ChatContext.Provider value={api}>
@@ -325,7 +210,7 @@ export function ChatsPage() {
             conversation={active}
             searching={query !== null}
             onSearch={() => setQuery((q) => (q === null ? "" : null))}
-            pinned={messages.filter((m) => pinnedMessages.includes(m.id))}
+            pinned={messages.filter((m) => m.pinned)}
             onJump={jump}
           />
           {query !== null ?
@@ -352,14 +237,13 @@ export function ChatsPage() {
           <Composer
             handle={mainComposer}
             conversationId={mainKey}
-            value={drafts[active.id] ?? ""}
-            onChange={(v) => setDraft(active.id, v)}
-            onSubmit={() => send(null)}
+            value={source.draft(mainKey)}
+            onChange={(v) => writes.setDraft(mainKey, v)}
+            onSubmit={(record) => send(null, record)}
             placeholder={placeholder}
             people={people}
             attachments={pendingFiles[mainKey] ?? []}
-            onAttach={(files) =>
-              setPendingFiles((p) => ({ ...p, [mainKey]: [...(p[mainKey] ?? []), ...fromFiles(files)] }))}
+            onAttach={attach(mainKey)}
             onRemoveAttachment={(id) => {
               forget(id)
               setPendingFiles((p) => ({ ...p, [mainKey]: (p[mainKey] ?? []).filter((a) => a.id !== id) }))
@@ -401,17 +285,13 @@ export function ChatsPage() {
                                 compact
                                 handle={threadComposer}
                                 conversationId={threadKey}
-                                value={threadDrafts[threadParent.id] ?? ""}
-                                onChange={(v) => setThreadDrafts((d) => ({ ...d, [threadParent.id]: v }))}
-                                onSubmit={() => send(threadParent)}
+                                value={source.draft(threadKey)}
+                                onChange={(v) => writes.setDraft(threadKey, v)}
+                                onSubmit={(record) => send(threadParent, record)}
                                 placeholder="Antwoorden…"
                                 people={people}
                                 attachments={pendingFiles[threadKey] ?? []}
-                                onAttach={(files) =>
-                                  setPendingFiles((p) => ({
-                                    ...p,
-                                    [threadKey]: [...(p[threadKey] ?? []), ...fromFiles(files)]
-                                  }))}
+                                onAttach={attach(threadKey)}
                                 onRemoveAttachment={(id) =>
                                   setPendingFiles((p) => ({
                                     ...p,
@@ -454,21 +334,7 @@ export function ChatsPage() {
         open={newChannel}
         onOpenChange={setNewChannel}
         taken={all.map((c) => c.name)}
-        onCreate={(name, topic) => {
-          const id = `conv_ch_${Date.now().toString(36)}`
-          addConversation({
-            id,
-            type: "group",
-            name,
-            participants: [{ id: ME.id, name: ME.name }],
-            last_message_at: new Date().toISOString(),
-            last_message_preview: topic,
-            unread_count: 0,
-            messages: []
-          })
-          navigate({ to: "/chats", search: { id } } as never)
-          undoable(`#${name} aangemaakt`, () => removeConversation(id))
-        }}
+        onCreate={(name, topic) => writes.createChannel(name, topic)}
       />
     </ChatContext.Provider>
   )
@@ -484,17 +350,17 @@ function ChatHeader({
   conversation: Conversation
   searching: boolean
   onSearch: () => void
-  pinned: RichMessage[]
+  pinned: ReadonlyArray<Message>
   onJump: (id: string) => void
 }) {
-  const pinnedConversation = useChatStore((s) => s.pinned.includes(conversation.id))
-  const muted = useChatStore((s) => s.muted.includes(conversation.id))
-  const togglePinned = useChatStore((s) => s.togglePinned)
-  const toggleMuted = useChatStore((s) => s.toggleMuted)
+  const source = useChatsSource()
+  const pinnedConversation = source.pinned.has(conversation.id)
+  const muted = source.muted.has(conversation.id)
   const navigate = useNavigate()
-  const description = conversationDescription[conversation.id]
+  const description = source.describe(conversation)
+  const participants = source.useParticipants(conversation)
   const isGroup = conversation.type === "group"
-  const faces = conversation.participants.slice(0, 3)
+  const faces = participants.slice(0, 3)
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between gap-3 px-5">
@@ -506,7 +372,7 @@ function ChatHeader({
         {description
           ? (
             <span className="hidden truncate text-ink-3 text-sm md:inline">
-              {description.replace(/^\d+ teamleden · /, "")}
+              {description}
             </span>
           )
           : null}
@@ -526,21 +392,21 @@ function ChatHeader({
                   </span>
                 ))}
               </span>
-              <span className="text-ink-2 text-sm tabular-nums">{conversation.participants.length}</span>
+              <span className="text-ink-2 text-sm tabular-nums">{participants.length}</span>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-60">
             <DropdownMenuLabel>In dit gesprek</DropdownMenuLabel>
-            {conversation.participants.map((p) => (
+            {participants.map((p) => (
               <DropdownMenuItem
                 key={p.id}
                 className="gap-2"
-                disabled={p.id === ME.id}
-                onClick={() => navigate({ to: "/chats", search: { id: dmIdFor(p.id) } } as never)}
+                disabled={p.id === source.me.id}
+                onClick={() => navigate({ to: "/chats", search: { id: source.dmIdFor(p.id) } } as never)}
               >
-                <Avatar senderId={p.id} name={p.name} size={20} presence={chatProfiles[p.id]?.presence} />
+                <Avatar senderId={p.id} name={p.name} size={20} presence={p.presence} />
                 <span className="flex-1">{p.name}</span>
-                <span className="text-ink-3 text-xs">{chatProfiles[p.id]?.title}</span>
+                <span className="text-ink-3 text-xs">{p.title}</span>
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
@@ -612,13 +478,13 @@ function ChatHeader({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuCheckboxItem checked={muted} onCheckedChange={() => toggleMuted(conversation.id)}>
+            <DropdownMenuCheckboxItem checked={muted} onCheckedChange={() => source.writes.mute(conversation, !muted)}>
               Meldingen dempen
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={pinnedConversation}
               onCheckedChange={() => {
-                togglePinned(conversation.id)
+                source.writes.pin(conversation, !pinnedConversation)
                 toast(
                   pinnedConversation
                     ? `${conversation.name} losgemaakt`
@@ -637,7 +503,7 @@ function ChatHeader({
 
 function MessagesArea(
   { messages, unreadFrom, highlight }: {
-    messages: RichMessage[]
+    messages: ReadonlyArray<Message>
     unreadFrom: string | undefined
     highlight: string | null
   }
