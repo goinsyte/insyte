@@ -18,6 +18,7 @@ import { ACCESS_LIST, ROLES } from "./roles.ts"
 import { STORE_SYNC, STORES } from "./stores.ts"
 import { TEAM } from "./team.ts"
 import { TICKETS } from "./tickets.ts"
+import { WORKSPACE } from "./workspace.ts"
 
 /*
  * The tab's one socket (M5.1, ADR-0013): `/api/realtime` on the console's own origin. A `records.changed` frame
@@ -44,7 +45,9 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   ticket: TICKETS,
   // Start's queue (M10.1): its refresh says when it changed. A plate is drawn on its row (M10.2).
   queue_item: QUEUE,
-  proposal: QUEUE
+  proposal: QUEUE,
+  // The workspace's own settings (M3.1); its name is in the frame's store selector.
+  workspace: [...WORKSPACE, ...FRAME]
 }
 // Start's figures (M10.3) sum over every one of these.
 for (const kind of ["order", "ticket", "return", "product", "store", "member", "queue_item"]) {
