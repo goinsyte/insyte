@@ -139,8 +139,8 @@ jobs:
         run: bun scripts/smoke-stage.ts "https://insyte-console-$STAGE.$WORKERS_SUBDOMAIN" --auth-journey
       # The console's journeys (step 1's `@auth`) in a browser, on the preview, against its own Neon branch.
       # The runner image already carries Chrome's system libraries; when apt cannot reach Ubuntu's mirrors (it has
-      # failed for hours at a time), the browser alone is enough.
-      - run: bunx playwright install --with-deps chromium || bunx playwright install chromium
+      # failed for hours at a time, retrying until the job timed out), the browser alone is enough.
+      - run: timeout 240 bunx playwright install --with-deps chromium || bunx playwright install chromium
       - name: the console's journeys on the preview
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
