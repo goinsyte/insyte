@@ -137,17 +137,19 @@ describe("the workspace's settings", () => {
   it("lets a read-only colleague read both pages and change neither", async () => {
     expect(ok(await rpc("Workspaces.getAccount", undefined, viewer)).name).toBe("Instellingen B.V.")
     expect(ok(await rpc("Workspaces.getRegional", undefined, viewer)).timezone).toBe("Europe/London")
-    for (
-      const refused of [
+    const refusals = [
+      failure(
         await rpc("Workspaces.saveAccount", {
           name: "Overgenomen",
           legalEntity: "",
           vatNumber: "",
           billingEmail: "",
           country: "NL"
-        }, viewer),
-        await rpc("Workspaces.setAlerts", { delayHours: 1, disputeAmountMinor: 0 }, viewer),
-        await rpc("Workspaces.setRetention", { days: 30 }, viewer),
+        }, viewer)
+      ),
+      failure(await rpc("Workspaces.setAlerts", { delayHours: 1, disputeAmountMinor: 0 }, viewer)),
+      failure(await rpc("Workspaces.setRetention", { days: 30 }, viewer)),
+      failure(
         await rpc("Workspaces.saveRegional", {
           language: "nl-NL",
           currencyDisplay: "EUR",
@@ -156,8 +158,9 @@ describe("the workspace's settings", () => {
           weekStart: "mon",
           timezone: "Europe/Amsterdam"
         }, viewer)
-      ]
-    ) expect(failure(refused)).toMatchObject({ _tag: "Forbidden", permission: "settings" })
+      )
+    ]
+    for (const refused of refusals) expect(refused).toMatchObject({ _tag: "Forbidden", permission: "settings" })
     expect(ok(await rpc("Workspaces.getAccount", undefined, owner.cookie)).name).toBe("Instellingen B.V.")
   })
 })
