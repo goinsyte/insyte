@@ -25,6 +25,7 @@ import { TicketsService } from "@insyte/modules/tickets/Tickets"
 import { TrackingService } from "@insyte/modules/tracking/Tracking"
 import { UndoService } from "@insyte/modules/undo/Undo"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
+import { WorkspaceSettings } from "@insyte/modules/workspaces/WorkspaceSettings"
 import { Layer } from "effect"
 import { RpcSerialization } from "effect/rpc"
 import { AccessHandlers } from "./handlers/access.ts"
@@ -53,6 +54,7 @@ import { SuppliersHandlers } from "./handlers/suppliers.ts"
 import { SystemHandlers } from "./handlers/system.ts"
 import { TicketsHandlers } from "./handlers/tickets.ts"
 import { TrackingHandlers } from "./handlers/tracking.ts"
+import { WorkspacesHandlers } from "./handlers/workspaces.ts"
 import { RpcHttp } from "./RpcHttp.ts"
 
 /** The console's RPC transport. */
@@ -93,6 +95,7 @@ export const RpcContext = Layer.mergeAll(
   HomeHandlers.pipe(Layer.provide(HomeService.layer)),
   ProposalsHandlers.pipe(Layer.provide(ProposalsService.layer)),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
+  WorkspacesHandlers.pipe(Layer.provide(WorkspaceSettings.layer)),
   ShellHandlers.pipe(
     Layer.provide(
       Layer.mergeAll(

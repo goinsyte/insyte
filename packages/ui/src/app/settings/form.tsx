@@ -156,11 +156,14 @@ export function SaveButton({
 export function UnsavedBar({
   visible,
   onDiscard,
-  onSave
+  onSave,
+  saving = false
 }: {
   visible: boolean
   onDiscard: () => void
   onSave: () => void
+  /** The save is on its way: both ways out wait for it, and the bar says so. */
+  saving?: boolean
 }) {
   const still = useReducedMotion()
   return (
@@ -179,16 +182,19 @@ export function UnsavedBar({
             <button
               type="button"
               onClick={onDiscard}
-              className="flex h-8 items-center rounded-md px-3 font-medium text-sm text-mesh-ink-2 transition-colors hover:bg-mesh-ink/10 hover:text-mesh-ink"
+              disabled={saving}
+              className="flex h-8 items-center rounded-md px-3 font-medium text-sm text-mesh-ink-2 transition-colors hover:bg-mesh-ink/10 hover:text-mesh-ink disabled:pointer-events-none disabled:opacity-50"
             >
               Negeren
             </button>
             <button
               type="button"
               onClick={onSave}
-              className="flex h-8 items-center rounded-md bg-mesh-ink px-3 font-medium text-abyss text-sm transition-colors hover:bg-paper"
+              disabled={saving}
+              aria-busy={saving}
+              className="flex h-8 items-center rounded-md bg-mesh-ink px-3 font-medium text-abyss text-sm transition-colors hover:bg-paper disabled:pointer-events-none disabled:opacity-70"
             >
-              Wijzigingen opslaan
+              {saving ? "Opslaan…" : "Wijzigingen opslaan"}
             </button>
           </motion.div>
         ) :
