@@ -5,6 +5,8 @@ import { KlaviyoSyncs } from "@insyte/modules/customers/domain/Ports"
 import { restore as restoreCustomers } from "@insyte/modules/customers/use-cases/commands"
 import { restore as restoreForwarding } from "@insyte/modules/forwarding/use-cases/commands"
 import { ensureLegs } from "@insyte/modules/forwarding/use-cases/legs"
+import { ThreadTickets } from "@insyte/modules/inbox/domain/Ports"
+import { restore as restoreInbox } from "@insyte/modules/inbox/use-cases/commands"
 import { lastSyncOf, restore as restoreMarketing } from "@insyte/modules/marketing/use-cases/klaviyo"
 import { cancel as cancelOrders, restore as restoreOrders, setNote } from "@insyte/modules/orders/use-cases/commands"
 import { notifyDelay } from "@insyte/modules/orders/use-cases/delay-mail"
@@ -27,9 +29,12 @@ import { restore as restoreSuppliers } from "@insyte/modules/suppliers/use-cases
 import {
   assign as assignTicket,
   create as createTicket,
+  fromThread,
+  removeFromThread,
   restore as restoreTickets,
   setStatus as setTicketStatus
 } from "@insyte/modules/tickets/use-cases/commands"
+import { numberOf } from "@insyte/modules/tickets/use-cases/tickets"
 import { ReturnParcels } from "@insyte/modules/tracking/Parcels"
 import { ensureDeliveries } from "@insyte/modules/tracking/use-cases/tracking"
 import { type Compensation, UndoCompensations } from "@insyte/modules/undo/domain/Ports"
@@ -50,6 +55,7 @@ import { Effect, Layer } from "effect"
  *   returns' refund → the orders slice's refund, on the return's transaction (M9.1)
  *   a customer      → their newest Klaviyo sync (M7.5)
  *   AfterShip       → a return's parcel, for the returns slice (M9.2)
+ *   the inbox       → a ticket made from a thread, and taken away again (M11 step 2)
  *   a chat command  → an order's note or cancellation, a ticket made, assigned or moved (M11.4), and its undo
  */
 
@@ -63,6 +69,10 @@ const ShopifyReturnsLive = Layer.succeed(ShopifyReturns, {
   applied: (storeId, topic, body) => shopifyReturn(storeId, topic, body).pipe(Effect.orDie)
 })
 
+const threadTickets = ThreadTickets.of({ make: fromThread, remove: removeFromThread, numberOf })
+
+const ThreadTicketsLive = Layer.succeed(ThreadTickets, threadTickets)
+
 const compensations: Record<string, Compensation> = {
   "orders.restore": restoreOrders,
   "products.restore": restoreProducts,
@@ -72,6 +82,8 @@ const compensations: Record<string, Compensation> = {
   "forwarding.restore": restoreForwarding,
   "returns.restore": restoreReturns,
   "tickets.restore": restoreTickets,
+  "inbox.restore": (sql, compensation) =>
+    restoreInbox(sql, compensation).pipe(Effect.provideService(ThreadTickets, threadTickets)),
   "quality.restore": restoreQuality,
   "queue.restore": restoreQueue,
   // A filed plate's Undo spends the command's own token and runs that command's compensation from this same table.
@@ -210,7 +222,8 @@ export const SliceLinks = StoreMirror.layer.pipe(
       RefunderLive,
       KlaviyoSyncsLive,
       ReturnParcelsLive,
-      ShopifyReturnsLive
+      ShopifyReturnsLive,
+      ThreadTicketsLive
     )
   )
 )

@@ -267,6 +267,13 @@ export const OutboxEvent = Schema.Union([
     proposalId: Schema.String,
     action: Schema.String
   }),
+  // A message the team wrote in the inbox (M11 step 2): sent through its mailbox once the undo window has passed.
+  Schema.Struct({
+    type: Schema.Literal("thread.message_queued"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    messageId: Schema.String
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

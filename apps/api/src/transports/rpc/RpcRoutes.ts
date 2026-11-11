@@ -6,6 +6,7 @@ import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
 import { FirstAnalysisService } from "@insyte/modules/first-analysis/FirstAnalysis"
 import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
 import { HomeService } from "@insyte/modules/home/Home"
+import { InboxService } from "@insyte/modules/inbox/Inbox"
 import { MarketingService } from "@insyte/modules/marketing/Marketing"
 import { Landing } from "@insyte/modules/members/Landing"
 import { Members } from "@insyte/modules/members/Members"
@@ -53,6 +54,7 @@ import { ShellHandlers } from "./handlers/shell.ts"
 import { StoresHandlers } from "./handlers/stores.ts"
 import { SuppliersHandlers } from "./handlers/suppliers.ts"
 import { SystemHandlers } from "./handlers/system.ts"
+import { ThreadsHandlers } from "./handlers/threads.ts"
 import { TicketsHandlers } from "./handlers/tickets.ts"
 import { TrackingHandlers } from "./handlers/tracking.ts"
 import { RpcHttp } from "./RpcHttp.ts"
@@ -91,6 +93,7 @@ export const RpcContext = Layer.mergeAll(
   ReturnsHandlers.pipe(Layer.provide(ReturnsService.layer)),
   PortalHandlers.pipe(Layer.provide(PortalService.layer)),
   TicketsHandlers.pipe(Layer.provide(TicketsService.layer)),
+  ThreadsHandlers.pipe(Layer.provide(InboxService.layer)),
   QueueHandlers.pipe(Layer.provide(QueueService.layer)),
   HomeHandlers.pipe(Layer.provide(HomeService.layer)),
   ProposalsHandlers.pipe(Layer.provide(ProposalsService.layer)),
@@ -106,7 +109,8 @@ export const RpcContext = Layer.mergeAll(
         OrdersService.layer,
         ProductsService.layer,
         CustomersService.layer,
-        TicketsService.layer
+        TicketsService.layer,
+        InboxService.layer
       )
     )
   )

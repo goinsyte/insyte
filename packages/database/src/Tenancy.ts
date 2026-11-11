@@ -86,7 +86,11 @@ export const TENANT_TABLES = [
   "conversation_members",
   "messages",
   "message_reactions",
-  "chat_actions"
+  "chat_actions",
+  "mailboxes",
+  "email_threads",
+  "email_messages",
+  "attachments"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

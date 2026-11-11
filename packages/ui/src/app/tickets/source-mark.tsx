@@ -1,4 +1,4 @@
-import { Edit3, MessagesSquare, Sparkle, Truck } from "../../icons";
+import { Edit3, Mail, MessagesSquare, Sparkle, Truck } from "../../icons";
 import { BrandLogo } from "../marketplace/brand-logos";
 import { SOURCE } from "../lib/ticket-source";
 import type { TicketSource } from "../lib/types/domain";
@@ -10,7 +10,7 @@ import { cn } from "../lib/utils";
  * its automations, a ticket written by hand. Titled with the source's name for the pointer and for
  * assistive tech.
  */
-const GLYPH = { chat: MessagesSquare, insyte: Sparkle, manual: Edit3, supplier: Truck } as const;
+const GLYPH = { email: Mail, chat: MessagesSquare, insyte: Sparkle, manual: Edit3, supplier: Truck } as const;
 
 export function SourceMark({ source, size = 16, className }: { source: TicketSource; size?: number; className?: string }) {
 	const meta = SOURCE[source];

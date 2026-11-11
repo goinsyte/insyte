@@ -2,6 +2,7 @@ import { Frame, ShellRpcs } from "@insyte/api/rpc/ShellRpcs"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
 import { CustomersService } from "@insyte/modules/customers/Customers"
+import { InboxService } from "@insyte/modules/inbox/Inbox"
 import { Members } from "@insyte/modules/members/Members"
 import { NotificationsService } from "@insyte/modules/notifications/NotificationsService"
 import { OrdersService } from "@insyte/modules/orders/Orders"
@@ -39,6 +40,17 @@ const TICKET_CUTS = {
   "/tickets?view=trash": "trash"
 } as const
 
+/** The inbox (M11 step 2): each folder of the panel by its link, and each mailbox's threads in the inbox. */
+const INBOX_CUTS = {
+  "/inbox": "all",
+  "/inbox?folder=unassigned": "unassigned",
+  "/inbox?folder=mine": "mine",
+  "/inbox?folder=linked": "linked",
+  "/inbox?folder=archive": "archive",
+  "/inbox?folder=trash": "trash",
+  "/inbox?folder=spam": "spam"
+} as const
+
 /** The area a path is in: its first segment. */
 const areaOf = (path: string) => path.split("/").find((segment) => segment !== "") ?? "dashboard"
 
@@ -51,6 +63,7 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
   const products = yield* ProductsService
   const customers = yield* CustomersService
   const tickets = yield* TicketsService
+  const inbox = yield* InboxService
   const SEARCHES = {
     order: (q: string, limit: number) => orders.search(q, limit),
     product: (q: string, limit: number) => products.search(q, limit),
@@ -63,6 +76,15 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
         Effect.map((counts) => ({
           ...Object.fromEntries(Object.entries(TICKET_CUTS).map(([key, view]) => [key, counts[view]])),
           ...Object.fromEntries(Object.entries(counts.bySource).map(([source, n]) => [`/tickets?source=${source}`, n]))
+        })),
+        Effect.catchTag("Forbidden", () => Effect.succeed({} as Record<string, number>))
+      )
+    }
+    if (area === "inbox") {
+      return inbox.counts.pipe(
+        Effect.map((counts) => ({
+          ...Object.fromEntries(Object.entries(INBOX_CUTS).map(([key, folder]) => [key, counts[folder]])),
+          ...Object.fromEntries(Object.entries(counts.byMailbox).map(([id, n]) => [`/inbox?mailbox=${id}`, n]))
         })),
         Effect.catchTag("Forbidden", () => Effect.succeed({} as Record<string, number>))
       )

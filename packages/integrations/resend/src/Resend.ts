@@ -20,6 +20,10 @@ export interface Outgoing {
   readonly idempotencyKey?: string | undefined
   /** Files with the mail, as Resend takes them: base64 content and a name. */
   readonly attachments?: ReadonlyArray<{ readonly filename: string; readonly content: Uint8Array }> | undefined
+  /** Where an answer goes, where it is not `from` (a support mail answered to the mailbox's own address). */
+  readonly replyTo?: string | undefined
+  /** Threading headers (`Message-ID`, `In-Reply-To`, `References`), for a support mail. */
+  readonly headers?: Readonly<Record<string, string>> | undefined
 }
 
 const base64 = (bytes: Uint8Array) => {
@@ -57,6 +61,8 @@ export class Resend extends Context.Service<Resend, {
             subject: mail.subject,
             html: mail.html,
             text: mail.text,
+            ...(mail.replyTo === undefined ? {} : { reply_to: mail.replyTo }),
+            ...(mail.headers === undefined ? {} : { headers: mail.headers }),
             ...(mail.attachments === undefined || mail.attachments.length === 0 ? {} : {
               attachments: mail.attachments.map((a) => ({ filename: a.filename, content: base64(a.content) }))
             })

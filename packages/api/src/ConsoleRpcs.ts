@@ -23,6 +23,7 @@ import { ShellRpcs } from "./rpc/ShellRpcs.ts"
 import { StoresRpcs } from "./rpc/StoresRpcs.ts"
 import { SuppliersRpcs } from "./rpc/SuppliersRpcs.ts"
 import { SystemRpcs } from "./rpc/SystemRpcs.ts"
+import { ThreadsRpcs } from "./rpc/ThreadsRpcs.ts"
 import { TicketsRpcs } from "./rpc/TicketsRpcs.ts"
 import { TrackingRpcs } from "./rpc/TrackingRpcs.ts"
 
@@ -52,6 +53,7 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(ReturnsRpcs)
   .merge(PortalRpcs)
   .merge(TicketsRpcs)
+  .merge(ThreadsRpcs)
   .merge(QualityRpcs)
   .merge(QualityLinkRpcs)
   .merge(QueueRpcs)
