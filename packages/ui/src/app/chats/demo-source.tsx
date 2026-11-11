@@ -169,6 +169,14 @@ function useRelated(r: ChatRecord): Related {
   }), [r, pools])
 }
 
+/** What every message posted from this keyboard starts as. */
+const base = (c: Conversation) => ({
+  conversation_id: c.id,
+  sender_id: ME.id,
+  sender_name: ME.name,
+  at: new Date().toISOString()
+})
+
 function useRecordSearch(q: string | null, kinds?: ReadonlyArray<ChatRecordKind>) {
   const pools = usePools()
   return useMemo(() => (q === null ? [] : searchRecords(q, pools, kinds)), [q, pools, kinds])
@@ -199,12 +207,6 @@ export function DemoChatsSource({ children }: { children: ReactNode }) {
     if (where) store().appendReply(where, msg)
     else store().appendMessage(c.id, msg)
   }
-  const base = (c: Conversation) => ({
-    conversation_id: c.id,
-    sender_id: ME.id,
-    sender_name: ME.name,
-    at: new Date().toISOString()
-  })
 
   const writes: ChatWrites = {
     send: (c, out) => {

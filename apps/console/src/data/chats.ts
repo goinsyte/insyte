@@ -19,7 +19,7 @@ export const CHAT_PAGES = ["chat-pages"] as const
 export const chatKey = (conversationId: string) => `chat:${conversationId}`
 
 /** As many as the stream draws at once; older pages are not offered yet. */
-export const PAGE = 100
+const PAGE = 100
 
 const errors = Schema.Union([Forbidden, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
 const missing = Schema.Union([

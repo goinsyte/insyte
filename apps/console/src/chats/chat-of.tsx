@@ -43,7 +43,7 @@ const argShown = (a: ActionView, names: ReadonlyMap<string, string>): string | u
   return a.arg
 }
 
-export const actionOf = (a: ActionView, names: ReadonlyMap<string, string>): ChatAction => {
+const actionOf = (a: ActionView, names: ReadonlyMap<string, string>): ChatAction => {
   const arg = argShown(a, names)
   return {
     id: a.id,

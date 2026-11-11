@@ -29,7 +29,7 @@ const UNDO = new Map<string, () => void>()
 export const canUndoHere = (actionId: string) => UNDO.has(actionId)
 
 /** Runs the action against the workspace. Resolves with a failure reason, or nothing when it ran. */
-export async function execute(a: ChatAction, r: ChatRecord | null): Promise<string | undefined> {
+async function execute(a: ChatAction, r: ChatRecord | null): Promise<string | undefined> {
   const ws = useWorkspace.getState()
   const why = blocked(a.command, r, a.arg, demoRules())
   if (why) return why

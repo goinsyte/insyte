@@ -52,17 +52,24 @@ export function MessageRow(
   if (m.deleted) return null
 
   return (
-    <motion.div
+    <div
       id={`msg-${m.id}`}
-      initial={false}
-      animate={highlight && !reduce ? { backgroundColor: ["var(--color-arc-tint)", "rgba(0,0,0,0)"] } : undefined}
-      transition={{ duration: 1.6, ease: "easeOut" }}
       className={cn(
-        "group relative flex items-start gap-3 rounded-lg px-3 py-1 transition-colors",
+        "group relative isolate flex items-start gap-3 rounded-lg px-3 py-1 transition-colors",
         continuation ? "pt-0.5" : "pt-2.5",
         threadOpen ? "bg-arc-tint/45" : mentionsMe ? "bg-arc-tint/35 hover:bg-arc-tint/55" : "hover:bg-mist/80"
       )}
     >
+      {/* A message reached by its link flashes the tint and lets it go: a layer behind the row fades out. */}
+      {highlight && !reduce && (
+        <motion.span
+          aria-hidden
+          initial={{ opacity: 1 }}
+          animate={{ opacity: 0 }}
+          transition={{ duration: 1.6, ease: "easeOut" }}
+          className="pointer-events-none absolute inset-0 -z-10 rounded-lg bg-arc-tint"
+        />
+      )}
       <div className="w-9 shrink-0 pt-0.5">
         {continuation ?
           (
@@ -153,7 +160,7 @@ export function MessageRow(
       {editing
         ? null
         : <Toolbar m={m} mine={mine} inThread={inThread} pinned={pinned} onEdit={() => setEditing(true)} />}
-    </motion.div>
+    </div>
   )
 }
 
