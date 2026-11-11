@@ -65,6 +65,13 @@ export const discardIn: (
 export const reopenIn: (sql: SqlClient.SqlClient, queueItemId: string) => Effect.Effect<void, SqlError.SqlError> =
   Proposals.reopenIn
 
+/** The relay's word on a filed plate whose command sent later: executed, or failed with why; the failed plates' rows. */
+export const settleSent: (
+  sql: SqlClient.SqlClient,
+  subject: { readonly type: string; readonly id: string; readonly action: ProposalView["action"]["_tag"] },
+  error: string | null
+) => Effect.Effect<ReadonlyArray<string>, SqlError.SqlError> = Proposals.settleSent
+
 /** `Shared.undo` for `proposals.restore`, given how to run the command's own compensation and refresh the queue. */
 export const restore: (
   sql: SqlClient.SqlClient,

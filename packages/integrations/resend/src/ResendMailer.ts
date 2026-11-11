@@ -74,6 +74,11 @@ export const ResendMailer = Layer.effect(
             const portalUrl = facts.portal === null ? null : urls.console(`/retour/${encodeURIComponent(facts.portal)}`)
             return renderer.render(mail.kind, { ...facts, portalUrl })
           }
+          case "order.delayed": {
+            const facts = mail.orderDelay
+            if (facts === undefined) return Effect.fail(missing(mail, "its order"))
+            return renderer.render("order.delayed", facts)
+          }
         }
       })()
       return rendered.pipe(

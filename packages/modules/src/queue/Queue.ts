@@ -55,3 +55,13 @@ export const restore: (
   sql: SqlClient.SqlClient,
   compensation: unknown
 ) => Effect.Effect<void, Conflict | SqlError.SqlError> = Queue.restore
+
+/** A filed plate's row decided by the filer, where its command leaves the condition standing. */
+export const decideIn: (
+  sql: SqlClient.SqlClient,
+  queueItemId: string
+) => Effect.Effect<void, SqlError.SqlError, CurrentPrincipal> = Queue.decideIn
+
+/** A row a filed plate decided, open again. */
+export const reopenRowIn: (sql: SqlClient.SqlClient, queueItemId: string) => Effect.Effect<void, SqlError.SqlError> =
+  Queue.reopenRowIn

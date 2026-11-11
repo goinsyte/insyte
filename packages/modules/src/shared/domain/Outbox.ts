@@ -229,6 +229,13 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     returnIds: Schema.Array(Schema.String)
   }),
+  // A delay mail put in line by a filed plate (M10.2): sent to the shopper once the undo window has passed.
+  Schema.Struct({
+    type: Schema.Literal("order.delay_mail"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    mailId: Schema.String
+  }),
   // A person filed a plate (M10.2): the command it carried ran as them. Product analytics counts it.
   Schema.Struct({
     type: Schema.Literal("proposal.filed"),

@@ -1,6 +1,7 @@
 import { mintId } from "@insyte/domain/Ids"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import { dayOf, type DelayFacts, delayText } from "../../orders/domain/DelayMail.ts"
 import type { Evidence, ProposalAction } from "../domain/Proposals.ts"
 
 /*
@@ -14,6 +15,11 @@ import type { Evidence, ProposalAction } from "../domain/Proposals.ts"
  *                                  confidence from how many returns the customer started in the last 90 days
  *   a quality check sent in      → ApproveQualityCheck, unless the supplier's checks were rejected more often than not;
  *                                  confidence from the supplier's earlier verdicts
+ *   an order delayed             → NotifyDelayedOrder, the shopper's delay mail with the new day where the carrier or
+ *                                  the supplier gave one, when there is an address and they were not told yet;
+ *                                  confidence from whether there is a new day, and whose
+ *   a variant sold out           → CreateSupplierTicket, a ticket to reorder from the product's supplier (Insyte does
+ *                                  not order itself yet); confidence from whether there is a supplier taking orders
  */
 
 /** One plate as the rule draws it, before it is a record. */
@@ -45,6 +51,8 @@ export interface Drawable {
   readonly queueItemId: string
   readonly kind: string
   readonly subjectId: string
+  /** The row's condition (`stock_out:{variantId}`): a stock-out's variant. */
+  readonly dedupeKey: string
 }
 
 const AS_IS = "Zoals het record nu is"
@@ -287,6 +295,199 @@ export const drawCheck = (c: CheckFacts, timeZone: string): Draft | null => {
   }
 }
 
+/* ── delayed orders ───────────────────────────────────────────────────────────────────────────────────────────── */
+
+interface DelayedFacts {
+  readonly id: string
+  readonly number: string
+  readonly status: string
+  readonly storeId: string
+  readonly storeName: string
+  readonly shop: string
+  readonly customerName: string
+  readonly customerEmail: string | null
+  readonly totalMinor: string
+  readonly currency: string
+  readonly delayedAt: Date | null
+  readonly carrierEta: Date | null
+  readonly supplierDate: Date | null
+  readonly told: boolean
+}
+
+const delayedFacts = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) =>
+  ids.length === 0 ? Effect.succeed([] as ReadonlyArray<DelayedFacts>) : sql<DelayedFacts>`
+    select o.id, o.number, o.status, o.store_id, s.name as store_name, coalesce(nullif(s.name, ''), w.name) as shop,
+           o.customer_name, nullif(o.customer_email, '') as customer_email, o.total_minor, o.currency, o.delayed_at,
+           (select max(d.estimated_delivery) from deliveries d
+              where d.order_id = o.id and d.estimated_delivery > now()) as carrier_eta,
+           (select max(sw.problem_new_date)::timestamptz from supplier_work sw
+              where sw.order_id = o.id and sw.problem_new_date >= current_date) as supplier_date,
+           exists (select 1 from order_mails m where m.order_id = o.id and m.kind = 'delay'
+                     and m.state in ('scheduled', 'sent')) as told
+    from orders o join stores s on s.id = o.store_id join workspaces w on w.id = o.workspace_id
+    where o.id in ${sql.in([...ids])}`
+
+const linesOf = (sql: SqlClient.SqlClient, orderIds: ReadonlyArray<string>) =>
+  orderIds.length === 0
+    ? Effect.succeed(new Map<string, ReadonlyArray<DelayFacts["items"][number]>>())
+    : Effect.map(
+      sql<{ orderId: string; title: string; variantTitle: string | null; qty: number }>`
+        select ol.order_id, coalesce(p.title, ol.title) as title, ol.variant_title, ol.quantity as qty
+        from order_lines ol left join products p on p.id = ol.product_id
+        where ol.order_id in ${sql.in([...orderIds])} order by ol.id`,
+      (rows) => {
+        const out = new Map<string, Array<DelayFacts["items"][number]>>()
+        for (const r of rows) {
+          const variant = r.variantTitle === null || r.variantTitle === "Default Title" ? null : r.variantTitle
+          out.set(r.orderId, [...(out.get(r.orderId) ?? []), { title: r.title, variant, qty: r.qty }])
+        }
+        return out as Map<string, ReadonlyArray<DelayFacts["items"][number]>>
+      }
+    )
+
+/**
+ * A delayed order whose shopper has not been told, with an address to tell them at → NotifyDelayedOrder, the mail
+ * written from the order. An order without an address draws nothing: there is no one to mail, and the row is the
+ * operator's. How sure: whether there is a new day to give, and whose.
+ */
+export const drawDelay = (
+  o: DelayedFacts,
+  items: ReadonlyArray<DelayFacts["items"][number]>,
+  timeZone: string
+): Draft | null => {
+  if (o.delayedAt === null || !["paid", "at_supplier", "shipped"].includes(o.status)) return null
+  if (o.customerEmail === null || o.told) return null
+  const expectedOn = o.carrierEta ?? o.supplierDate
+  const text = delayText({ shop: o.shop, customer: o.customerName, number: o.number, items, expectedOn, timeZone })
+  const { confidence, basis } = o.carrierEta !== null
+    ? { confidence: 0.9, basis: "nieuwe leverdatum van de vervoerder" }
+    : o.supplierDate !== null
+    ? { confidence: 0.8, basis: "nieuwe datum van de leverancier" }
+    : { confidence: 0.75, basis: "nog geen nieuwe leverdatum bekend" }
+  const amount = money(Number(o.totalMinor), o.currency)
+  const day = expectedOn === null ? null : dayOf(expectedOn, timeZone)
+  return {
+    number: o.number,
+    storeId: o.storeId,
+    area: "orders",
+    subjectType: "order",
+    subjectId: o.id,
+    action: { _tag: "NotifyDelayedOrder", orderId: o.id, subject: text.subject, paragraphs: text.paragraphs },
+    dedupeKey: `notify_delay:${o.id}`,
+    expiresAt: null,
+    heading: `Klant van ${o.number} op de hoogte brengen`,
+    body: `Bestelling ${o.number} is vertraagd en ${
+      o.customerName || "de klant"
+    } weet het nog niet. Getekend: een mail in naam van ${o.shop} ${
+      day === null ? "dat er nog geen nieuwe leverdatum is" : `met de nieuwe verwachte leverdatum, ${day}`
+    }. De mail gaat pas weg als het ongedaan maken voorbij is.`,
+    dimension: `vertraagd sinds ${when(o.delayedAt, timeZone)}`,
+    before: { label: AS_IS, value: `Vertraagd · klant nog niet ingelicht · ${amount}` },
+    after: { label: AS_DRAWN, value: `Mail aan ${o.customerEmail}: "${text.subject}". ${text.paragraphs[1] ?? ""}` },
+    change: CHANGE,
+    witness: o.storeName,
+    confidence,
+    confidenceBasis: basis,
+    fileLabel: "Versturen zoals getekend",
+    why: `De bestelling is vertraagd en de klant heeft er nog geen mail over gehad. ${
+      basis.charAt(0).toUpperCase() + basis.slice(1)
+    }.`,
+    evidence: [
+      { kind: "order", ref: o.id, summary: `${o.number}, ${o.customerName || "klant"}, ${amount}` },
+      { kind: "mail", ref: o.customerEmail, summary: [text.subject, ...text.paragraphs].join("\n\n") }
+    ]
+  }
+}
+
+/* ── sold-out variants ────────────────────────────────────────────────────────────────────────────────────────── */
+
+interface SoldOutFacts {
+  readonly variantId: string
+  readonly productId: string
+  readonly storeId: string
+  readonly storeName: string
+  readonly product: string
+  readonly variant: string
+  readonly fromAt: Date
+  readonly supplierId: string | null
+  readonly supplier: string | null
+  readonly paused: boolean
+  readonly leadDays: number | null
+  readonly sold: number
+}
+
+const soldOutFacts = (sql: SqlClient.SqlClient, variantIds: ReadonlyArray<string>) =>
+  variantIds.length === 0 ? Effect.succeed([] as ReadonlyArray<SoldOutFacts>) : sql<SoldOutFacts>`
+    select st.variant_id, st.product_id, st.store_id, s.name as store_name, p.title as product, v.title as variant,
+           st.from_at, su.id as supplier_id, su.name as supplier, su.paused_at is not null as paused, ps.lead_days,
+           (select coalesce(sum(ol.quantity), 0) from order_lines ol join orders o on o.id = ol.order_id
+              where ol.variant_id = st.variant_id and o.placed_at > now() - interval '30 days')::int as sold
+    from stockouts st join products p on p.id = st.product_id join variants v on v.id = st.variant_id
+    join stores s on s.id = st.store_id
+    left join product_supply ps on ps.product_id = st.product_id and ps.is_primary
+    left join suppliers su on su.id = ps.supplier_id and su.deleted_at is null
+    where st.variant_id in ${sql.in([...variantIds])} and st.to_at is null`
+
+/** The stock-out row's variant: its dedupe key is `stock_out:{variantId}`. */
+export const variantOf = (dedupeKey: string) => dedupeKey.slice(dedupeKey.indexOf(":") + 1)
+
+/**
+ * A variant sold out → CreateSupplierTicket, a ticket for the filer to reorder from the product's supplier: Insyte does
+ * not order from suppliers itself yet. Without a supplier, the ticket asks for one first and the plate says so. How
+ * sure: whether there is a supplier to order from, and whether it is taking orders.
+ */
+export const drawReorder = (s: SoldOutFacts, timeZone: string): Draft => {
+  const name = `${s.product}${s.variant === "Default Title" ? "" : ` · ${s.variant}`}`
+  const sold = s.sold === 0 ? "" : ` In de laatste 30 dagen gingen er ${s.sold} over de toonbank.`
+  const since = when(s.fromAt, timeZone)
+  const { confidence, basis } = s.supplier === null
+    ? { confidence: 0.6, basis: "geen leverancier aan het product gekoppeld" }
+    : s.paused
+    ? { confidence: 0.7, basis: `${s.supplier} staat op pauze` }
+    : { confidence: 0.9, basis: `${s.supplier} is de vaste leverancier van dit product` }
+  const title = s.supplier === null
+    ? `Leverancier kiezen en bijbestellen: ${name}`
+    : `Bijbestellen bij ${s.supplier}: ${name}`
+  const description = [
+    `${name} is uitverkocht sinds ${since}.${sold}`,
+    s.supplier === null
+      ? "Er is nog geen leverancier aan dit product gekoppeld. Kies er een en bestel bij."
+      : `Bestel bij ${s.supplier}${
+        s.leadDays === null ? "" : ` (levertijd ${s.leadDays} ${s.leadDays === 1 ? "dag" : "dagen"})`
+      }.`,
+    "Getekend door Insyte vanuit Start."
+  ].join("\n\n")
+  return {
+    number: name,
+    storeId: s.storeId,
+    area: "products",
+    subjectType: "product",
+    subjectId: s.productId,
+    action: { _tag: "CreateSupplierTicket", supplierId: s.supplierId, productId: s.productId, title, description },
+    dedupeKey: `reorder:${s.variantId}`,
+    expiresAt: null,
+    heading: s.supplier === null ? `${name} bijbestellen` : `${name} bijbestellen bij ${s.supplier}`,
+    body: `${name} is uitverkocht sinds ${since}.${sold} ${
+      s.supplier === null
+        ? "Er is geen leverancier aan dit product gekoppeld, dus het ticket vraagt eerst er een te kiezen."
+        : `Getekend: een ticket voor jou om bij ${s.supplier} bij te bestellen.`
+    } Insyte bestelt zelf nog niet bij leveranciers.`,
+    dimension: `uitverkocht sinds ${since}`,
+    before: { label: AS_IS, value: `Uitverkocht · ${s.supplier ?? "geen leverancier"}` },
+    after: { label: AS_DRAWN, value: `Ticket "${title}" · hoge prioriteit · Leveringsketen · aan jou toegewezen` },
+    change: CHANGE,
+    witness: s.storeName,
+    confidence,
+    confidenceBasis: basis,
+    fileLabel: "Ticket openen zoals getekend",
+    why: `De variant is uitverkocht en het product is actief. ${basis.charAt(0).toUpperCase() + basis.slice(1)}.`,
+    evidence: [
+      { kind: "product", ref: s.productId, summary: `${name}, ${s.sold} verkocht in 30 dagen` },
+      ...(s.supplierId === null ? [] : [{ kind: "supplier", ref: s.supplierId, summary: basis }])
+    ]
+  }
+}
+
 /* ── drawing ──────────────────────────────────────────────────────────────────────────────────────────────────── */
 
 export const timeZoneOf = (sql: SqlClient.SqlClient) =>
@@ -295,9 +496,9 @@ export const timeZoneOf = (sql: SqlClient.SqlClient) =>
     (rows) => rows[0]?.timezone ?? "Europe/Amsterdam"
   )
 
-/** What the rule draws now for one subject, from the records as they are. */
+/** What the rule draws now for one subject, from the records as they are; `dedupeKey` names a stock-out's variant. */
 export const draftFor = Effect.fn("Proposals.draftFor")(
-  function*(sql: SqlClient.SqlClient, subjectType: string, subjectId: string) {
+  function*(sql: SqlClient.SqlClient, subjectType: string, subjectId: string, dedupeKey: string) {
     const tz = yield* timeZoneOf(sql)
     if (subjectType === "return") {
       const [r] = yield* returnFacts(sql, [subjectId])
@@ -306,6 +507,14 @@ export const draftFor = Effect.fn("Proposals.draftFor")(
     if (subjectType === "quality_check") {
       const [c] = yield* checkFacts(sql, [subjectId])
       return c === undefined ? null : drawCheck(c, tz)
+    }
+    if (subjectType === "order") {
+      const [o] = yield* delayedFacts(sql, [subjectId])
+      return o === undefined ? null : drawDelay(o, (yield* linesOf(sql, [subjectId])).get(subjectId) ?? [], tz)
+    }
+    if (subjectType === "product") {
+      const [s] = yield* soldOutFacts(sql, [variantOf(dedupeKey)])
+      return s === undefined ? null : drawReorder(s, tz)
     }
     return null
   }
@@ -318,36 +527,60 @@ export const insertRevision = (sql: SqlClient.SqlClient, proposalId: string, rev
               ${JSON.stringify(d.before)}::jsonb, ${JSON.stringify(d.after)}::jsonb, ${d.change}, ${d.witness},
               ${d.confidence}, ${d.confidenceBasis}, ${d.fileLabel}, ${JSON.stringify(d.evidence)}::jsonb, ${d.why})`
 
-/** States in which a proposal still stands for its queue row: it is not drawn again for that row. */
-const STANDING = ["open", "filed", "executed", "execution_failed", "discarded"]
+/**
+ * States in which a proposal still stands for its queue row: it is not drawn again for that row. A plate that expired
+ * with its deadline is not drawn again either: the deadline is past.
+ */
+const STANDING = ["open", "filed", "executed", "execution_failed", "discarded", "expired"]
+
+/** The queue kinds a plate is drawn for, and the record each one's drawing reads. */
+const DRAWN_FOR: ReadonlySet<string> = new Set(["return_review", "quality_review", "order_delayed", "stock_out"])
 
 /**
  * The plates brought in line with the queue's live rows, on the queue's refresh transaction: a row the rule holds for
- * gets one, an open plate whose row resolved or whose rule no longer holds is superseded. A plate set aside, filed or
- * failed stays as it is for its row. Answers whether anything changed.
+ * gets one; an open plate whose row resolved or whose rule no longer holds is superseded, and one past its deadline
+ * expires. A plate set aside, filed or failed stays as it is for its row (a failed one is superseded once its row is
+ * gone). Answers whether anything changed.
  */
 export const drawIn = Effect.fn("Proposals.drawIn")(function*(sql: SqlClient.SqlClient, rows: ReadonlyArray<Drawable>) {
   let changed = false
   const live = rows.map((r) => r.queueItemId)
   const gone = yield* sql`
     update proposals set state = 'superseded'
-    where state = 'open' and origin = 'queue'
+    where state in ('open', 'execution_failed') and origin = 'queue'
       and (queue_item_id is null or not (queue_item_id = any(${live}::text[])))
     returning id`
   if (gone.length > 0) changed = true
-  const returns = rows.filter((r) => r.kind === "return_review")
-  const checks = rows.filter((r) => r.kind === "quality_review")
-  if (returns.length === 0 && checks.length === 0) return changed
+  const expired = yield* sql`
+    update proposals set state = 'expired' where state = 'open' and expires_at <= now() returning id`
+  if (expired.length > 0) changed = true
+  const drawable = rows.filter((r) => DRAWN_FOR.has(r.kind))
+  if (drawable.length === 0) return changed
   const tz = yield* timeZoneOf(sql)
+  const of = (kind: string) => drawable.filter((r) => r.kind === kind)
+  // Each row's drawing, by row: what the rule draws from its record now, or `null` where it holds for none.
   const drafts = new Map<string, Draft | null>()
-  for (const r of yield* returnFacts(sql, returns.map((x) => x.subjectId))) drafts.set(r.id, drawReturn(r, tz))
-  for (const c of yield* checkFacts(sql, checks.map((x) => x.subjectId))) drafts.set(c.id, drawCheck(c, tz))
+  const bySubject = (kind: string, key: (r: Drawable) => string) =>
+    new Map(of(kind).map((r) => [key(r), r.queueItemId]))
+  const returns = bySubject("return_review", (r) => r.subjectId)
+  for (const r of yield* returnFacts(sql, [...returns.keys()])) drafts.set(returns.get(r.id)!, drawReturn(r, tz))
+  const checks = bySubject("quality_review", (r) => r.subjectId)
+  for (const c of yield* checkFacts(sql, [...checks.keys()])) drafts.set(checks.get(c.id)!, drawCheck(c, tz))
+  const delayed = bySubject("order_delayed", (r) => r.subjectId)
+  const lines = yield* linesOf(sql, [...delayed.keys()])
+  for (const o of yield* delayedFacts(sql, [...delayed.keys()])) {
+    drafts.set(delayed.get(o.id)!, drawDelay(o, lines.get(o.id) ?? [], tz))
+  }
+  const soldOut = bySubject("stock_out", (r) => variantOf(r.dedupeKey))
+  for (const s of yield* soldOutFacts(sql, [...soldOut.keys()])) {
+    drafts.set(soldOut.get(s.variantId)!, drawReorder(s, tz))
+  }
   const standing = yield* sql<{ id: string; queueItemId: string; state: string }>`
     select id, queue_item_id, state from proposals
-    where queue_item_id = any(${[...returns, ...checks].map((r) => r.queueItemId)}::text[])
+    where queue_item_id = any(${drawable.map((r) => r.queueItemId)}::text[])
       and state = any(${STANDING}::text[])`
-  for (const row of [...returns, ...checks]) {
-    const draft = drafts.get(row.subjectId) ?? null
+  for (const row of drawable) {
+    const draft = drafts.get(row.queueItemId) ?? null
     const held = standing.filter((s) => s.queueItemId === row.queueItemId)
     const open = held.find((s) => s.state === "open")
     if (open !== undefined) {
