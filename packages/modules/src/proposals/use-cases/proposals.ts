@@ -45,6 +45,7 @@ interface Row {
   readonly currentRevision: number
   readonly filedAt: Date | null
   readonly executedAt: Date | null
+  readonly executionError: string | null
   readonly revision: number
   readonly heading: string
   readonly body: string
@@ -63,7 +64,8 @@ interface Row {
 
 // jsonb read as text: the SQL client camelCases a jsonb value's keys, and an action's `_tag` is a key.
 const SELECT = `p.id, p.number, p.state, p.area, p.store_id, p.subject_type, p.subject_id, p.queue_item_id,
-  p.action::text as action, p.dedupe_key, p.current_revision, p.filed_at, p.executed_at, v.revision, v.heading, v.body,
+  p.action::text as action, p.dedupe_key, p.current_revision, p.filed_at, p.executed_at, p.execution_error, v.revision,
+  v.heading, v.body,
   v.dimension, v.before::text as before, v.after::text as after, v.change, v.witness, v.confidence, v.confidence_basis,
   v.file_label, v.why, v.evidence::text as evidence, v.created_at as revised_at`
 
@@ -71,8 +73,12 @@ const FROM = `proposals p join proposal_revisions v on v.proposal_id = p.id and 
 
 const decodeAction = Schema.decodeUnknownSync(ProposalAction)
 
+/** What filing an open plate does again once it did not go. */
+const RETRY = "Opnieuw proberen"
+
 export const viewOf = (r: Row): ProposalView => {
   const confidence = Number(r.confidence)
+  const failed = r.state === "execution_failed"
   return {
     id: r.id,
     number: r.number,
@@ -85,7 +91,7 @@ export const viewOf = (r: Row): ProposalView => {
     plate: {
       revision: r.revision,
       heading: r.heading,
-      body: r.body,
+      body: failed ? `Dit ging niet: ${r.executionError ?? "onbekende fout"}. ${r.body}` : r.body,
       dimension: r.dimension,
       before: JSON.parse(r.before),
       after: JSON.parse(r.after),
@@ -94,15 +100,19 @@ export const viewOf = (r: Row): ProposalView => {
       confidence,
       confidenceWord: wordOf(confidence),
       confidenceBasis: r.confidenceBasis,
-      fileLabel: r.fileLabel,
+      fileLabel: failed ? RETRY : r.fileLabel,
       why: r.why,
       evidence: JSON.parse(r.evidence),
       createdAt: r.revisedAt.getTime()
     },
     filedAt: r.filedAt?.getTime() ?? null,
-    executedAt: r.executedAt?.getTime() ?? null
+    executedAt: r.executedAt?.getTime() ?? null,
+    executionError: r.executionError
   }
 }
+
+/** A plate that is the operator's to decide: open, or filed and failed (it offers "Opnieuw proberen"). */
+const DECIDABLE = ["open", "execution_failed"]
 
 /** What the role may open: the record's area at Bekijken, in its stores. */
 const visible = Effect.fn("Proposals.visible")(function*(sql: SqlClient.SqlClient) {
@@ -124,13 +134,13 @@ const one = Effect.fn("Proposals.one")(function*(sql: SqlClient.SqlClient, id: s
   return row
 })
 
-/** The open plates drawn for these queue rows, by row: what the queue shows on Start. */
+/** The plates drawn for these queue rows that are still to decide, by row: what the queue shows on Start. */
 export const openFor = Effect.fn("Proposals.openFor")(
   function*(sql: SqlClient.SqlClient, queueItemIds: ReadonlyArray<string>) {
     if (queueItemIds.length === 0) return new Map<string, ProposalView>()
     const rows = yield* sql<Row>`
       select ${sql.literal(SELECT)} from ${sql.literal(FROM)}
-      where p.state = 'open' and p.queue_item_id = any(${[...queueItemIds]}::text[])`
+      where p.state = any(${DECIDABLE}::text[]) and p.queue_item_id = any(${[...queueItemIds]}::text[])`
     return new Map(rows.map((r) => [r.queueItemId!, viewOf(r)]))
   }
 )
@@ -146,9 +156,10 @@ const actorOf = (p: { readonly kind: PrincipalKind; readonly id: string }) => ({
 })
 
 /**
- * "Uitvoeren zoals getekend": the plate's command, run as the person, then the proposal executed and the queue brought
- * in line. Refused as the command refuses it (`Forbidden` without the permission, `ProposalStale` once the record moved
- * on); nothing is kept of a refused filing.
+ * "Uitvoeren zoals getekend": the plate's command, run as the person, then the proposal executed (or `filed`, where what
+ * it sends leaves after the undo window) and the queue brought in line. Refused as the command refuses it (`Forbidden`
+ * without the permission, `ProposalStale` once the record moved on); nothing is kept of a refused filing. A plate whose
+ * command did not go (`execution_failed`) is filed the same way again: "Opnieuw proberen".
  */
 export const file = Effect.fn("Proposals.file")(function*(id: string) {
   const principal = yield* CurrentPrincipal
@@ -157,19 +168,23 @@ export const file = Effect.fn("Proposals.file")(function*(id: string) {
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const p = yield* one(sql, id, true)
-      if (p.state !== "open") return yield* new ProposalClosed({ id, state: p.state })
+      if (!DECIDABLE.includes(p.state)) return yield* new ProposalClosed({ id, state: p.state })
       const action = decodeAction(JSON.parse(p.action))
       const ran = yield* links.run(action)
       if (ran === "stale") return yield* new ProposalStale({ id })
-      yield* sql`update proposals set state = 'executed', filed_by = ${principal.id}, filed_at = now(),
-                                      on_behalf_of = ${principal.id}, executed_at = now()
+      // What still has to leave (a mail in line) is `filed` until the relay sends it; the rest ran on this call.
+      yield* sql`update proposals set state = ${ran.pending ? "filed" : "executed"}, filed_by = ${principal.id},
+                                      filed_at = now(), on_behalf_of = ${principal.id}, execution_error = null,
+                                      executed_at = ${ran.pending ? null : new Date()}
                  where id = ${id}`
       yield* Audit.write(sql, principal.workspaceId, actorOf(principal), {
-        action: "proposal.filed",
+        action: p.state === "execution_failed" ? "proposal.retried" : "proposal.filed",
         subjectType: "proposal",
         subjectId: id,
         diff: { revision: p.currentRevision, action: action._tag, subject: `${p.subjectType}:${p.subjectId}` }
       })
+      // A command that leaves the row's condition standing (the shopper told, a ticket opened) decides the row.
+      if (!ran.settles && p.queueItemId !== null) yield* links.decideRow(sql, p.queueItemId)
       yield* Outbox.write(sql, principal.workspaceId, {
         type: "proposal.filed",
         workspaceId: principal.workspaceId,
@@ -246,11 +261,13 @@ export const redraw = Effect.fn("Proposals.redraw")(function*(id: string) {
     Effect.gen(function*() {
       const p = yield* one(sql, id, true)
       if (p.state !== "open") return yield* new ProposalClosed({ id, state: p.state })
-      const draft = yield* draftFor(sql, p.subjectType, p.subjectId)
+      const draft = yield* draftFor(sql, p.subjectType, p.subjectId, p.dedupeKey)
       if (draft === null) return yield* new ProposalStale({ id })
       const revision = p.currentRevision + 1
       yield* insertRevision(sql, id, revision, draft)
-      yield* sql`update proposals set current_revision = ${revision} where id = ${id}`
+      // The command is drawn again with the words: a mail or a ticket carries what the new drawing shows.
+      yield* sql`update proposals set current_revision = ${revision}, action = ${JSON.stringify(draft.action)}::jsonb
+                 where id = ${id}`
       yield* Audit.write(sql, principal.workspaceId, actorOf(principal), {
         action: "proposal.redrawn",
         subjectType: "proposal",
@@ -278,6 +295,7 @@ export const restore = Effect.fn("Proposals.restore")(function*(
       compensation: unknown
     ) => Effect.Effect<void, Forbidden | NotFound | Conflict | SqlError.SqlError, CurrentPrincipal>
     readonly refreshQueue: (sql: SqlClient.SqlClient) => Effect.Effect<boolean, SqlError.SqlError>
+    readonly reopenRow: (sql: SqlClient.SqlClient, queueItemId: string) => Effect.Effect<void, SqlError.SqlError>
   }
 ) {
   const principal = yield* CurrentPrincipal
@@ -300,13 +318,35 @@ export const restore = Effect.fn("Proposals.restore")(function*(
     const inner = yield* Undo.redeemByHash(sql, r.innerHash)
     yield* deps.runInner(inner.command, inner.compensation)
   }
-  const back = yield* sql`
-    update proposals set state = 'reverted' where id = ${r.id} and state = 'executed' returning id`
-  if (back.length === 0) return yield* new Conflict({ entity: "proposal", reason: "gone" })
+  const [back] = yield* sql<{ queueItemId: string | null }>`
+    update proposals set state = 'reverted' where id = ${r.id} and state in ('executed', 'filed')
+    returning queue_item_id`
+  if (back === undefined) return yield* new Conflict({ entity: "proposal", reason: "gone" })
   yield* Audit.write(sql, principal.workspaceId, actorOf(principal), {
     action: "proposal.reverted",
     subjectType: "proposal",
     subjectId: r.id
   })
+  // A row the filing decided (its condition stood) is open again; one whose condition ended comes back on the refresh.
+  if (back.queueItemId !== null) yield* deps.reopenRow(sql, back.queueItemId)
   yield* deps.refreshQueue(sql)
+})
+
+/**
+ * The relay's word on a filed plate whose command sends later (the delay mail): `executed` once it went, else
+ * `execution_failed` with why, which the plate shows with "Opnieuw proberen". As `system`, inside the workspace. Answers
+ * the queue rows of the plates that failed, for the caller to open again.
+ */
+export const settleSent = Effect.fn("Proposals.settleSent")(function*(
+  sql: SqlClient.SqlClient,
+  subject: { readonly type: string; readonly id: string; readonly action: ProposalAction["_tag"] },
+  error: string | null
+) {
+  const rows = yield* sql<{ queueItemId: string | null }>`
+    update proposals set state = ${error === null ? "executed" : "execution_failed"}, execution_error = ${error},
+                         executed_at = ${error === null ? new Date() : null}
+    where state = 'filed' and subject_type = ${subject.type} and subject_id = ${subject.id}
+      and action->>'_tag' = ${subject.action}
+    returning queue_item_id`
+  return error === null ? [] : rows.flatMap((r) => (r.queueItemId === null ? [] : [r.queueItemId]))
 })

@@ -251,8 +251,11 @@ const linksOf = (props: unknown): Array<string> =>
     return []
   })
 
-/** Mails answered by replying, with nothing to click: the order to a supplier, until the portal opens (M16). */
-const LINKLESS: ReadonlyArray<string> = ["supplier.order"]
+/**
+ * Mails with nothing to click: the order to a supplier (answered by replying, until the portal opens, M16), and the
+ * shopper's delay mail (news, in the store's words; there is nothing for them to do).
+ */
+const LINKLESS: ReadonlyArray<string> = ["supplier.order", "order.delayed"]
 
 describe.each(KINDS)("the %s mail", (kind) => {
   it.each(ORIGINS)("renders HTML and text, carries its links, and names no host but %s", async (origin) => {
@@ -327,6 +330,17 @@ describe("the shopper's return mails (M9.3)", () => {
   })
 })
 
+describe("the shopper's delay mail (M10.2)", () => {
+  it("sets the words the plate showed as they are, with the order's number, in the store's name", async () => {
+    const props = EMAILS["order.delayed"].preview(urlsFor(ORIGINS[0]))
+    const mail = await renderEmail("order.delayed", props)
+    expect(mail.subject).toBe("Je bestelling #1003 is later dan verwacht")
+    for (const p of props.paragraphs) expect(mail.text).toContain(p)
+    expect(mail.text).toContain("#1003")
+    expect(mail.text).toContain("Je krijgt deze mail omdat je bij Northwind iets hebt besteld.")
+  })
+})
+
 describe("the templates' content", () => {
   it("keeps the wired mails' Dutch subjects", async () => {
     const urls = urlsFor(ORIGINS[0])
@@ -376,7 +390,8 @@ describe("the templates' content", () => {
       "return.approved",
       "return.rejected",
       "return.label",
-      "return.resolved"
+      "return.resolved",
+      "order.delayed"
     ])
     expect(KINDS.filter((kind) => EMAILS[kind].group === "marketing").every((kind) => !EMAILS[kind].wired)).toBe(true)
   })

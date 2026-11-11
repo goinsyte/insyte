@@ -32,7 +32,7 @@ export const RESTORE = "queue.restore"
 const HOUR_MS = 3_600_000
 const DECIDED_DAYS = 1
 /** The kinds a plate is drawn for (M10.2). */
-const PLATED: ReadonlySet<string> = new Set(["return_review", "quality_review"])
+const PLATED: ReadonlySet<string> = new Set(["return_review", "quality_review", "order_delayed", "stock_out"])
 
 interface Desired {
   readonly kind: QueueKind
@@ -213,16 +213,19 @@ export const refresh = Effect.fn("Queue.refresh")(function*(sql: SqlClient.SqlCl
   // return or a quality check carries one, and rows resolve only here: a workspace with neither, where nothing ended,
   // has no plate to draw or set aside, and the sweep skips the queries for it.
   if (ended.length === 0 && !want.some((w) => PLATED.has(w.kind))) return changed
-  const drawable = yield* sql<{ id: string; kind: string; subjectId: string }>`
-    select id, kind, subject_id from queue_items where resolved_at is null`
+  const drawable = yield* sql<{ id: string; kind: string; subjectId: string; dedupeKey: string }>`
+    select id, kind, subject_id, dedupe_key from queue_items where resolved_at is null`
   if (
-    yield* Proposals.drawIn(sql, drawable.map((d) => ({ queueItemId: d.id, kind: d.kind, subjectId: d.subjectId })))
+    yield* Proposals.drawIn(
+      sql,
+      drawable.map((d) => ({ queueItemId: d.id, kind: d.kind, subjectId: d.subjectId, dedupeKey: d.dedupeKey }))
+    )
   ) {
     changed = true
   }
   const linked = yield* sql`
     update queue_items q set proposal_id = o.id, updated_at = now()
-    from queue_items x left join proposals o on o.queue_item_id = x.id and o.state = 'open'
+    from queue_items x left join proposals o on o.queue_item_id = x.id and o.state in ('open', 'execution_failed')
     where x.id = q.id and q.resolved_at is null and q.proposal_id is distinct from o.id
     returning q.id`
   if (linked.length > 0) changed = true
@@ -364,3 +367,19 @@ export const restore = Effect.fn("Queue.restore")(function*(sql: SqlClient.SqlCl
   if (back.length === 0) return yield* new Conflict({ entity: "queue_item", reason: "gone" })
   if (r.state === "open") yield* Proposals.reopenIn(sql, r.id)
 })
+
+/**
+ * A filed plate whose command leaves the condition standing (the shopper mailed, a reorder ticket opened): the row
+ * decided by the filer, on the filing's transaction, so it leaves "Wacht op jou" and stays seen while the condition
+ * lasts.
+ */
+export const decideIn = Effect.fn("Queue.decideIn")(function*(sql: SqlClient.SqlClient, id: string) {
+  const principal = yield* CurrentPrincipal
+  yield* sql`update queue_items set state = 'seen', decided_by = ${principal.id}, decided_at = now(), updated_at = now()
+             where id = ${id} and resolved_at is null and state = 'open'`
+})
+
+/** The row a filed plate decided, open again: the filing undone, or what it sent did not go. */
+export const reopenRowIn = (sql: SqlClient.SqlClient, id: string) =>
+  sql`update queue_items set state = 'open', decided_by = null, decided_at = null, updated_at = now()
+      where id = ${id} and resolved_at is null`.pipe(Effect.asVoid)
