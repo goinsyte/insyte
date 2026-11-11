@@ -1,6 +1,7 @@
 import { useMemo } from "react"
 import { automations } from "../../data-source"
-import { type Moment, moments, type WorkItem, workItems } from "../lib/home/day"
+import { moments, workItems } from "../lib/home/day"
+import type { Moment, WorkItem } from "../lib/home/kinds"
 import { useNow } from "../notifications/note-parts"
 import { useHome } from "../stores/home-store"
 import { useNotifications } from "../stores/notifications-store"
