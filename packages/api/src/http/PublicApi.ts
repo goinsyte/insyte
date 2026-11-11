@@ -844,6 +844,32 @@ export class TicketsGroup extends HttpApiGroup.make("tickets")
   .annotate(OpenApi.Title, "Tickets")
 {}
 
+export const ProposalV1 = Schema.Struct({
+  id: Schema.String,
+  number: Schema.String,
+  state: Schema.Literals(["open", "filed", "executed", "execution_failed", "discarded", "superseded", "reverted"]),
+  subject_type: Schema.String,
+  subject_id: Schema.String,
+  action: Schema.Struct({
+    kind: Schema.Literals(["approve_return", "approve_quality_check"]),
+    subject_id: Schema.String
+  }).annotate({ description: "What filing runs, as the key's own call would: approving the return or the check." }),
+  revision: Schema.Int,
+  heading: Schema.String,
+  body: Schema.String,
+  dimension: Schema.String.annotate({ description: "How long is left, in words (Dutch)." }),
+  before: Schema.String,
+  after: Schema.String,
+  store: Schema.String,
+  confidence: Schema.Finite.annotate({ description: "0–1, computed by the rule from the records." }),
+  confidence_basis: Schema.String,
+  file_label: Schema.String,
+  why: Schema.String,
+  evidence: Schema.Array(Schema.Struct({ kind: Schema.String, ref: Schema.String, summary: Schema.String })),
+  filed_at: Schema.NullOr(Schema.String),
+  executed_at: Schema.NullOr(Schema.String)
+}).annotate({ identifier: "Proposal" })
+
 export const QueueItemV1 = Schema.Struct({
   id: Schema.String,
   kind: Schema.Literals(["order_delayed", "return_review", "quality_review", "stock_out", "store_disconnected"]),
@@ -855,7 +881,10 @@ export const QueueItemV1 = Schema.Struct({
   value_minor: Schema.NullOr(Schema.Int),
   currency: Schema.NullOr(Schema.String),
   due_at: Schema.NullOr(Schema.String),
-  state: Schema.Literals(["open", "seen", "resolved"])
+  state: Schema.Literals(["open", "seen", "resolved"]),
+  proposal: Schema.NullOr(ProposalV1).annotate({
+    description: "The plate Insyte drew for the row, while it is open; file it with `POST /proposals/{id}/file`."
+  })
 }).annotate({ identifier: "QueueItem" })
 
 export const QueuePageV1 = Schema.Struct({
@@ -878,8 +907,41 @@ export class QueueGroup extends HttpApiGroup.make("queue")
   .annotate(OpenApi.Title, "Queue")
 {}
 
+export class ProposalsGroup extends HttpApiGroup.make("proposals")
+  .add(
+    HttpApiEndpoint.get("proposal", "/proposals/:id", {
+      params: ById,
+      success: ProposalV1,
+      error: [ScopeMissingV1, NotFoundV1]
+    }).annotate(
+      OpenApi.Description,
+      "One plate Insyte drew for a queue row: what it found, the record as it stands and as drawn, how sure the rule is and why, and what filing runs. Readable with the scope of its record (`returns.read`, `products.read`)."
+    ),
+    HttpApiEndpoint.post("file", "/proposals/:id/file", {
+      params: ById,
+      headers: Writes,
+      success: ProposalV1,
+      error: WriteErrors
+    }).annotate(
+      OpenApi.Description,
+      "Files a plate: the command it carries runs as this key, with the scopes that command needs (approving a return takes `returns.write` and `returns.approve`). A plate no longer open, or whose record moved on, is refused (`409`, `closed` or `stale`)."
+    )
+  )
+  .annotate(OpenApi.Title, "Proposals")
+{}
+
 export class PublicApi extends HttpApi.make("insyte")
-  .add(KeyGroup, TeamGroup, CommerceGroup, OrdersGroup, ForwardingGroup, ReturnsGroup, TicketsGroup, QueueGroup)
+  .add(
+    KeyGroup,
+    TeamGroup,
+    CommerceGroup,
+    OrdersGroup,
+    ForwardingGroup,
+    ReturnsGroup,
+    TicketsGroup,
+    QueueGroup,
+    ProposalsGroup
+  )
   .middleware(ApiKeyAuth)
   .prefix("/v1")
   .annotate(OpenApi.Title, "Insyte API")

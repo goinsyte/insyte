@@ -8,10 +8,13 @@ import { lastSyncOf, restore as restoreMarketing } from "@insyte/modules/marketi
 import { restore as restoreOrders } from "@insyte/modules/orders/use-cases/commands"
 import { refundOn } from "@insyte/modules/orders/use-cases/refund"
 import { restore as restoreProducts } from "@insyte/modules/products/use-cases/commands"
+import { ProposalLinks } from "@insyte/modules/proposals/Links"
+import { restore as restoreProposal } from "@insyte/modules/proposals/Proposals"
 import { restore as restoreQuality } from "@insyte/modules/quality/Quality"
-import { restore as restoreQueue } from "@insyte/modules/queue/Queue"
+import { approve as approveCheck } from "@insyte/modules/quality/use-cases/quality"
+import { refreshIn, restore as restoreQueue } from "@insyte/modules/queue/Queue"
 import { Refunder } from "@insyte/modules/returns/domain/Ports"
-import { restore as restoreReturns } from "@insyte/modules/returns/use-cases/commands"
+import { approve as approveReturns, restore as restoreReturns } from "@insyte/modules/returns/use-cases/commands"
 import { shopifyReturn } from "@insyte/modules/returns/use-cases/mirror"
 import { parcelUpdated } from "@insyte/modules/returns/use-cases/parcels"
 import { linkReplacements } from "@insyte/modules/returns/use-cases/shopify"
@@ -23,7 +26,7 @@ import { fromThread, removeFromThread, restore as restoreTickets } from "@insyte
 import { numberOf } from "@insyte/modules/tickets/use-cases/tickets"
 import { ReturnParcels } from "@insyte/modules/tracking/Parcels"
 import { ensureDeliveries } from "@insyte/modules/tracking/use-cases/tracking"
-import { UndoCompensations } from "@insyte/modules/undo/domain/Ports"
+import { type Compensation, UndoCompensations } from "@insyte/modules/undo/domain/Ports"
 import { Effect, Layer } from "effect"
 
 /*
@@ -33,7 +36,10 @@ import { Effect, Layer } from "effect"
  *   stores' mirror  → forwarding's legs and tracking's deliveries, on the page's transaction (M8.2, M8.4), and a
  *                     return's exchange or replacement order linked to it (M9.3)
  *   stores' webhook → a return opened, approved, declined or closed in Shopify, for the returns slice (M9.3)
- *   undo            → each reversible command's compensation, by the name its token carries (ADR-0023)
+ *   undo            → each reversible command's compensation, by the name its token carries (ADR-0023); a filed
+ *                     plate's undo runs its command's own compensation through the same table
+ *   a filed plate   → the command it carries (a return or a quality check approved), as the person, and the queue
+ *                     brought in line on the same transaction (M10.2)
  *   returns' refund → the orders slice's refund, on the return's transaction (M9.1)
  *   a customer      → their newest Klaviyo sync (M7.5)
  *   AfterShip       → a return's parcel, for the returns slice (M9.2)
@@ -54,7 +60,7 @@ const threadTickets = ThreadTickets.of({ make: fromThread, remove: removeFromThr
 
 const ThreadTicketsLive = Layer.succeed(ThreadTickets, threadTickets)
 
-const UndoCompensationsLive = Layer.succeed(UndoCompensations, {
+const compensations: Record<string, Compensation> = {
   "orders.restore": restoreOrders,
   "products.restore": restoreProducts,
   "customers.restore": restoreCustomers,
@@ -66,7 +72,36 @@ const UndoCompensationsLive = Layer.succeed(UndoCompensations, {
   "inbox.restore": (sql, compensation) =>
     restoreInbox(sql, compensation).pipe(Effect.provideService(ThreadTickets, threadTickets)),
   "quality.restore": restoreQuality,
-  "queue.restore": restoreQueue
+  "queue.restore": restoreQueue,
+  // A filed plate's Undo spends the command's own token and runs that command's compensation from this same table.
+  "proposals.restore": (sql, compensation) =>
+    restoreProposal(sql, compensation, {
+      runInner: (command, inner) => {
+        const run = compensations[command]
+        return run === undefined ? Effect.die(new Error(`no compensation for ${command}`)) : run(sql, inner)
+      },
+      refreshQueue: refreshIn
+    })
+}
+
+const UndoCompensationsLive = Layer.succeed(UndoCompensations, compensations)
+
+const ProposalLinksLive = Layer.succeed(ProposalLinks, {
+  run: (action) => {
+    switch (action._tag) {
+      case "ApproveReturn":
+        return approveReturns({ ids: [action.returnId] }).pipe(
+          Effect.map((change) => ({ undo: change.undo })),
+          Effect.catchTag("IllegalReturnMove", () => Effect.succeed("stale" as const))
+        )
+      case "ApproveQualityCheck":
+        return approveCheck(action.checkId).pipe(
+          Effect.map((change) => ({ undo: change.undo })),
+          Effect.catchTag("IllegalCheckMove", () => Effect.succeed("stale" as const))
+        )
+    }
+  },
+  refreshQueue: refreshIn
 })
 
 const RefunderLive = Layer.succeed(Refunder, {
@@ -89,6 +124,7 @@ export const SliceLinks = StoreMirror.layer.pipe(
     Layer.mergeAll(
       MirrorFollowersLive,
       UndoCompensationsLive,
+      ProposalLinksLive,
       RefunderLive,
       KlaviyoSyncsLive,
       ReturnParcelsLive,

@@ -124,6 +124,27 @@ const OutboxOf = HttpRouter.add(
 )
 
 /**
+ * `GET /api/__dev/undo?workspace=<id>`: one workspace's undo compensations (command, compensation, spent), without the
+ * hashes, read in that workspace's scope. For the tests that check what a compensation keeps. Refused in production.
+ */
+const UndoOf = HttpRouter.add(
+  "GET",
+  "/api/__dev/undo",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const db = yield* Db
+    const tokens = yield* db.scopedFor((sql) =>
+      sql<{ command: string; compensation: unknown; used: boolean }>`
+        select command, compensation, used_at is not null as used from undo_tokens order by expires_at`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe({ tokens })
+  }).pipe(withRequestDb)
+)
+
+/**
  * `GET /api/__dev/product-events?workspace=<id>`: what the product-analytics sink captured for one workspace, where the
  * stage has no PostHog key (`captured_product_events`). Refused in production.
  */
@@ -383,6 +404,7 @@ export const DevRoutes = Layer.mergeAll(
   CapturedMail,
   AuthEventsOf,
   OutboxOf,
+  UndoOf,
   OutboxDue,
   InvitationLapse,
   ProductEventsOf

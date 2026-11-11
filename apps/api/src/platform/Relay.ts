@@ -152,6 +152,15 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
     case "return.label_requested":
     case "quality_check.submitted":
       return undefined
+    // Filing a plate (M10.2): the mechanism the product rests on, counted by the command it carried.
+    case "proposal.filed":
+      return {
+        outboxId: id,
+        event: "proposal_filed",
+        distinctId: event.userId,
+        groups: { workspace: event.workspaceId },
+        properties: { action: event.action }
+      }
     // Handling an order in Insyte is an activation moment (M7): counted by what was done and to how many.
     case "order.updated":
     case "order.cancelled":

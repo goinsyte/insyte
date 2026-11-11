@@ -75,6 +75,8 @@ export const TENANT_TABLES = [
   "quality_settings",
   "stockouts",
   "queue_items",
+  "proposals",
+  "proposal_revisions",
   "mailboxes",
   "email_threads",
   "email_messages",

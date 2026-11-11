@@ -20,6 +20,8 @@ import { Members } from "@insyte/modules/members/Members"
 import type { OrderDetail, OrderRow } from "@insyte/modules/orders/domain/Orders"
 import { OrdersService } from "@insyte/modules/orders/Orders"
 import { ProductsService } from "@insyte/modules/products/Products"
+import type { ProposalView } from "@insyte/modules/proposals/domain/Proposals"
+import { ProposalsService } from "@insyte/modules/proposals/Proposals"
 import { QueueService } from "@insyte/modules/queue/Queue"
 import type { ReturnRow } from "@insyte/modules/returns/domain/Returns"
 import { ReturnsService } from "@insyte/modules/returns/Returns"
@@ -343,6 +345,32 @@ const timeOf = (field: string, value: string | null | undefined) => {
   return Number.isNaN(ms) ? validation({ [field]: "invalid" }) : Effect.succeed(ms)
 }
 
+/** A plate in the public shape: the action as a kind and its record, the blocks as their values. */
+const proposalV1 = (p: ProposalView) => ({
+  id: p.id,
+  number: p.number,
+  state: p.state,
+  subject_type: p.subjectType,
+  subject_id: p.subjectId,
+  action: p.action._tag === "ApproveReturn"
+    ? { kind: "approve_return" as const, subject_id: p.action.returnId }
+    : { kind: "approve_quality_check" as const, subject_id: p.action.checkId },
+  revision: p.plate.revision,
+  heading: p.plate.heading,
+  body: p.plate.body,
+  dimension: p.plate.dimension,
+  before: p.plate.before.value,
+  after: p.plate.after.value,
+  store: p.plate.witness,
+  confidence: p.plate.confidence,
+  confidence_basis: p.plate.confidenceBasis,
+  file_label: p.plate.fileLabel,
+  why: p.plate.why,
+  evidence: p.plate.evidence,
+  filed_at: iso(p.filedAt),
+  executed_at: iso(p.executedAt)
+})
+
 const make = Effect.gen(function*() {
   const members = yield* Members
   const roles = yield* RolesService
@@ -356,6 +384,7 @@ const make = Effect.gen(function*() {
   const tickets = yield* TicketsService
   const ticketOne = (id: string) => Effect.map(tickets.get(id), (d) => ticketV1(d.ticket))
   const queue = yield* QueueService
+  const proposals = yield* ProposalsService
   return {
     queue: (tab?: "needs_you" | "drawn" | "all") =>
       queue.list(tab === undefined ? {} : { tab }).pipe(
@@ -371,10 +400,22 @@ const make = Effect.gen(function*() {
             value_minor: r.valueMinor,
             currency: r.currency,
             due_at: iso(r.dueAt),
-            state: r.state
+            state: r.state,
+            proposal: r.proposal === null ? null : proposalV1(r.proposal)
           })),
           counts: { needs_you: list.counts.needsYou, drawn: list.counts.drawn, all: list.counts.all }
         }))
+      ),
+    proposal: (id: string) => proposals.get(id).pipe(Effect.map(proposalV1), Effect.catchTag("NotFound", notFound)),
+    fileProposal: (id: string, key?: string) =>
+      Idempotency.once(key, ["proposal.file", id], Effect.map(proposals.file(id), (c) => proposalV1(c.proposal))).pipe(
+        Effect.catch((e) =>
+          e._tag === "ProposalClosed"
+            ? conflict("closed")
+            : e._tag === "ProposalStale"
+            ? conflict("stale")
+            : writeV1(e)
+        )
       ),
     me: Effect.gen(function*() {
       const key = yield* CurrentApiKey
@@ -922,7 +963,8 @@ export class Resources extends Context.Service<Resources, Effect.Success<typeof 
         TrackingService.layer,
         ReturnsService.layer,
         TicketsService.layer,
-        QueueService.layer
+        QueueService.layer,
+        ProposalsService.layer
       )
     )
   )
