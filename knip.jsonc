@@ -70,6 +70,7 @@
         "!src/app/lib/quality.ts",
         "!src/app/dashboard/**",
         "!src/app/stores/home-store.ts",
+        "!src/app/settings/notifications-screen.tsx",
       ],
     },
     "apps/console": {
