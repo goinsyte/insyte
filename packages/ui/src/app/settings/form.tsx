@@ -1,6 +1,7 @@
-import { ChevronDown } from "../../icons";
+import { ChevronDown, Loader } from "../../icons";
+import { useBlocker, useRouter } from "@tanstack/react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../lib/utils";
 
 /**
@@ -149,48 +150,236 @@ export function SaveButton({
 	);
 }
 
+/** A navigation the bar is holding until the changes are saved or let go. */
+type Held = { proceed: () => void; reset: () => void };
+
 /**
  * Unsaved changes, said once at the foot of the page the moment there are any, with both ways out.
  * It replaces a Save button that sat disabled at the bottom of every form, saying nothing.
+ *
+ * It floats the way the command palette does — paper lifted off the sheet, the shortcut beside the
+ * action it runs — because it is the same kind of thing: a command that is waiting for you. `⌘S`
+ * (Ctrl+S off a Mac) saves from anywhere on the page. Leaving the page while it is up does not lose
+ * the work: the navigation is held, the bar shakes once and asks, and saving or letting go carries
+ * on to where you were going; Esc stays. Closing the tab gets the browser's own warning.
+ *
+ * `onSave` may return a promise; the bar then says it is saving, and a held navigation only goes on
+ * once the save has landed. A save that rejects leaves you where you are, with the screen's own
+ * message about why.
  */
 export function UnsavedBar({
 	visible,
 	onDiscard,
 	onSave,
+	guard = true,
 }: {
 	visible: boolean;
 	onDiscard: () => void;
-	onSave: () => void;
+	onSave: () => void | Promise<unknown>;
+	/** Hold a navigation away while there are changes. Off for a bar inside a dialog or a sheet. */
+	guard?: boolean;
 }) {
 	const still = useReducedMotion();
+	const router = useRouter({ warn: false });
+	const mod = useModifierLabel();
+	const [saving, setSaving] = useState(false);
+	const [held, setHeld] = useState<Held | null>(null);
+	const body = useRef<HTMLDivElement>(null);
+	const saveButton = useRef<HTMLButtonElement>(null);
+
+	// Nothing left to hold once the changes are gone, whichever way they went.
+	useEffect(() => {
+		if (!visible) setHeld(null);
+	}, [visible]);
+
+	const save = useCallback(
+		async (then?: () => void) => {
+			if (saving) return;
+			const out = onSave();
+			if (out === undefined || typeof (out as Promise<unknown>).then !== "function") return then?.();
+			setSaving(true);
+			try {
+				await out;
+				then?.();
+			} catch {
+				// The screen says what went wrong; the work and the page both stay.
+			} finally {
+				setSaving(false);
+			}
+		},
+		[onSave, saving],
+	);
+
+	const discard = useCallback(
+		(then?: () => void) => {
+			onDiscard();
+			then?.();
+		},
+		[onDiscard],
+	);
+
+	const stay = useCallback(() => {
+		held?.reset();
+		setHeld(null);
+	}, [held]);
+
+	/* One shake, sideways, damped — the gesture for "not yet". Reduced motion keeps only the ring. */
+	const nudge = useCallback(
+		(next: Held) => {
+			setHeld(next);
+			if (!still)
+				body.current?.animate(
+					[
+						{ transform: "translateX(0)" },
+						{ transform: "translateX(-9px)" },
+						{ transform: "translateX(8px)" },
+						{ transform: "translateX(-5px)" },
+						{ transform: "translateX(3px)" },
+						{ transform: "translateX(0)" },
+					],
+					{ duration: 420, easing: "cubic-bezier(0.36, 0.07, 0.19, 0.97)" },
+				);
+			saveButton.current?.focus({ preventScroll: true });
+		},
+		[still],
+	);
+
+	useEffect(() => {
+		if (!visible) return;
+		const onKey = (e: KeyboardEvent) => {
+			if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "s") {
+				e.preventDefault();
+				void save(held?.proceed);
+			} else if (e.key === "Escape" && held) {
+				e.preventDefault();
+				stay();
+			}
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [visible, held, save, stay]);
+
+	const asking = held !== null;
 	return (
-		<AnimatePresence>
-			{visible ? (
-				<motion.div
-					initial={still ? { opacity: 0 } : { opacity: 0, y: 24 }}
-					animate={{ opacity: 1, y: 0 }}
-					exit={still ? { opacity: 0 } : { opacity: 0, y: 24 }}
-					transition={{ type: "spring", stiffness: 520, damping: 38 }}
-					className="sticky bottom-4 z-10 flex items-center gap-3 self-start rounded-lg bg-abyss py-2 pr-2 pl-4 text-mesh-ink shadow-[0_12px_32px_-12px_color-mix(in_oklch,var(--abyss)_60%,transparent)]"
-					role="status"
-				>
-					<span className="text-base">Je hebt niet-opgeslagen wijzigingen</span>
-					<button
-						type="button"
-						onClick={onDiscard}
-						className="flex h-8 items-center rounded-md px-3 font-medium text-sm text-mesh-ink-2 transition-colors hover:bg-mesh-ink/10 hover:text-mesh-ink"
+		<>
+			{guard && router ? <LeaveGuard when={visible && !saving} onHold={nudge} /> : null}
+			<AnimatePresence>
+				{visible ? (
+					<motion.div
+						initial={still ? { opacity: 0 } : { opacity: 0, y: 20, scale: 0.96, filter: "blur(6px)" }}
+						animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+						exit={still ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.98, filter: "blur(4px)", transition: { duration: 0.16, ease: [0.4, 0, 1, 1] } }}
+						transition={{ type: "spring", stiffness: 520, damping: 38 }}
+						className="pointer-events-none sticky bottom-4 z-20 flex justify-center self-stretch"
 					>
-						Negeren
-					</button>
-					<button
-						type="button"
-						onClick={onSave}
-						className="flex h-8 items-center rounded-md bg-mesh-ink px-3 font-medium text-abyss text-sm transition-colors hover:bg-paper"
-					>
-						Wijzigingen opslaan
-					</button>
-				</motion.div>
-			) : null}
-		</AnimatePresence>
+						<div
+							ref={body}
+							role="region"
+							aria-label="Niet-opgeslagen wijzigingen"
+							data-asking={asking || undefined}
+							className="panel-raised pointer-events-auto flex max-w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-xl py-2 pr-2 pl-4 transition-[box-shadow] duration-200 data-[asking]:shadow-[inset_0_0_0_1px_var(--arc),0_0_0_4px_var(--arc-tint),0_2px_6px_color-mix(in_oklch,black_8%,transparent),0_28px_70px_-24px_color-mix(in_oklch,black_30%,transparent)]"
+						>
+							<span className="flex min-w-0 items-center gap-2.5">
+								<span aria-hidden className="relative flex size-2 shrink-0">
+									{still ? null : <span className="absolute inset-0 animate-ping rounded-full bg-arc opacity-40 [animation-duration:2.4s]" />}
+									<span className="relative size-2 rounded-full bg-arc" />
+								</span>
+								<span role="status" aria-live="polite" className="text-base text-ink">
+									{asking ? "Eerst opslaan voordat je verdergaat?" : "Je hebt niet-opgeslagen wijzigingen"}
+								</span>
+							</span>
+							<span className="ml-auto flex items-center gap-1">
+								{asking ? (
+									<button
+										type="button"
+										onClick={stay}
+										aria-keyshortcuts="Escape"
+										className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-ink-2 text-sm transition-colors hover:bg-ink/6 hover:text-ink"
+									>
+										Blijven
+										<span aria-hidden>
+											<BarKbd>esc</BarKbd>
+										</span>
+									</button>
+								) : null}
+								<button
+									type="button"
+									disabled={saving}
+									onClick={() => discard(held?.proceed)}
+									className="flex h-8 items-center rounded-md px-3 font-medium text-ink-2 text-sm transition-colors hover:bg-ink/6 hover:text-ink disabled:opacity-45"
+								>
+									Negeren
+								</button>
+								<button
+									ref={saveButton}
+									type="button"
+									disabled={saving}
+									aria-busy={saving || undefined}
+									aria-keyshortcuts={mod === "⌘" ? "Meta+S" : "Control+S"}
+									onClick={() => void save(held?.proceed)}
+									className="flex h-8 items-center gap-2 rounded-md bg-abyss pr-1.5 pl-3 font-medium text-mesh-ink text-sm shadow-primary outline-offset-2 transition-colors hover:bg-abyss-2 focus-visible:outline-2 focus-visible:outline-arc disabled:pr-3 disabled:opacity-70"
+								>
+									{saving ? (
+										<>
+											<Loader className="size-3.5 animate-spin" />
+											Opslaan…
+										</>
+									) : (
+										<>
+											Wijzigingen opslaan
+											<span aria-hidden className="hidden items-center gap-0.5 sm:inline-flex">
+												<BarKbd tone="dark">{mod}</BarKbd>
+												<BarKbd tone="dark">S</BarKbd>
+											</span>
+										</>
+									)}
+								</button>
+							</span>
+						</div>
+					</motion.div>
+				) : null}
+			</AnimatePresence>
+		</>
+	);
+}
+
+/**
+ * Holds a navigation to another page while `when` is true and hands it to the bar. A change of
+ * search or hash on the same page is the page's own business (a tab, a filter) and goes through.
+ * Mounted only under a router, so a bar rendered outside one (a test, a story) still works.
+ */
+function LeaveGuard({ when, onHold }: { when: boolean; onHold: (held: Held) => void }) {
+	const blocker = useBlocker({
+		shouldBlockFn: ({ current, next }) => when && current.pathname !== next.pathname,
+		enableBeforeUnload: () => when,
+		withResolver: true,
+	});
+	const { status, proceed, reset } = blocker;
+	useEffect(() => {
+		if (status === "blocked") onHold({ proceed, reset });
+	}, [status, proceed, reset, onHold]);
+	return null;
+}
+
+/** ⌘ on a Mac, Ctrl elsewhere — read after mount, so the server's render and the first paint agree. */
+function useModifierLabel() {
+	const [mod, setMod] = useState("Ctrl");
+	useEffect(() => {
+		const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform;
+		if (/mac|iphone|ipad/i.test(platform)) setMod("⌘");
+	}, []);
+	return mod;
+}
+
+function BarKbd({ children, tone = "light" }: { children: ReactNode; tone?: "light" | "dark" }) {
+	return (
+		<kbd
+			className={cn(
+				"inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-sm px-1 font-medium text-2xs tabular-nums leading-none tracking-[0]",
+				tone === "dark" ? "bg-mesh-ink/14 text-mesh-ink" : "bg-ink/7 text-ink-2",
+			)}
+		>
+			{children}
+		</kbd>
 	);
 }
