@@ -181,7 +181,8 @@ export const work = Effect.fn("Home.work")(function*() {
             kind: "invite",
             subjectId: i.id,
             title: i.email,
-            // Followed up the day before it lapses; a lapsed one is resent.
+            // Followed up the day before it lapses; a lapsed one (red) is resent.
+            signal: expires > now ? null : "red",
             dueAt: expires > now ? Math.max(now, expires - 86_400_000) : expires
           })
         }

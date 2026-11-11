@@ -45,12 +45,14 @@ import { presenceAtom } from "../data/frame.ts"
 import { breakdownAtom, TODOS, todosAtom, todoWrites, widgetsAtom, widgetsKey } from "../data/home.ts"
 import { completeTaskAtom, START } from "../data/onboarding.ts"
 import { usePrefSection } from "../frame/prefs.ts"
+import { ConsoleBookmarks, ConsoleMentions, ConsoleToday } from "./home-views.tsx"
 
 /*
  * Start's board in the console (M10.3), over `Home.widgets`: the design's cards drawn from the read, money from minor
  * units of the workspace currency, and the arrangement kept in the member's `board` preference. Only the cards the
- * console can fill are offered; chargebacks (M13), automations (M12), Insyte and the customer agent (M15), chats,
- * Vandaag, Vermeldingen and Bladwijzers come with their milestones.
+ * console can fill are offered; chargebacks (M13), automations (M12), Insyte and the customer agent (M15) and chats
+ * come with their milestones. "Agenda vandaag", "Vermeldingen en toegewezen" and "Bladwijzers" (M10.3b) are
+ * `home-views.tsx`'s.
  */
 
 /** The cards the console can fill, in the order "Kaart toevoegen" offers them. */
@@ -68,6 +70,9 @@ export const OFFERED: ReadonlyArray<WidgetId> = [
   "suppliers",
   "team",
   "recent",
+  "today",
+  "mentions",
+  "bookmarks",
   "todo",
   "setup"
 ]
@@ -555,6 +560,9 @@ export function useHomeSlots(
     )),
     team: team.length === 0 ? <Quiet>Je bent hier nog alleen.</Quiet> : <TeamView team={team} message={false} />,
     recent: <RecentView recent={recent} />,
+    today: <ConsoleToday />,
+    mentions: <ConsoleMentions />,
+    bookmarks: <ConsoleBookmarks />,
     todo: <TodoCard />,
     setup: tasks === undefined ? <WidgetBones rows={4} /> : (
       <SetupView
