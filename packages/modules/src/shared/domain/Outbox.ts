@@ -229,6 +229,14 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     returnIds: Schema.Array(Schema.String)
   }),
+  // A person filed a plate (M10.2): the command it carried ran as them. Product analytics counts it.
+  Schema.Struct({
+    type: Schema.Literal("proposal.filed"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    proposalId: Schema.String,
+    action: Schema.String
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

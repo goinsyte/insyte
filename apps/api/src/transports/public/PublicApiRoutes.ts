@@ -125,6 +125,23 @@ const QueueLive = HttpApiBuilder.group(
     Effect.map(Effect.service(Resources), (act) => handlers.handle("queue", ({ query }) => act.queue(query.tab)))
 )
 
+const ProposalsLive = HttpApiBuilder.group(
+  PublicApi,
+  "proposals",
+  (handlers) =>
+    Effect.map(
+      Effect.service(Resources),
+      (act) =>
+        handlers
+          .handle("proposal", ({ params }) => act.proposal(params.id))
+          .handle(
+            "file",
+            ({ params, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.fileProposal(params.id, key))
+          )
+    )
+)
+
 const ReturnsLive = HttpApiBuilder.group(
   PublicApi,
   "returns",
@@ -247,7 +264,17 @@ export const PublicApiRoutes = Layer.mergeAll(
   HttpApiScalar.layerCdn(PublicApi, { path: "/v1/docs" })
 ).pipe(
   Layer.provide(
-    Layer.mergeAll(KeyLive, TeamLive, CommerceLive, OrdersLive, ForwardingLive, ReturnsLive, TicketsLive, QueueLive)
+    Layer.mergeAll(
+      KeyLive,
+      TeamLive,
+      CommerceLive,
+      OrdersLive,
+      ForwardingLive,
+      ReturnsLive,
+      TicketsLive,
+      QueueLive,
+      ProposalsLive
+    )
   ),
   Layer.provide(ApiKeyAuthLive)
 )
