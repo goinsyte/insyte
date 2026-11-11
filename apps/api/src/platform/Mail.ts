@@ -1,5 +1,5 @@
 import { Connect, withConnection } from "@insyte/database/Connect"
-import { Mailer, MailNotSent } from "@insyte/modules/shared/domain/Mailer"
+import { type Mail, Mailer, MailNotSent } from "@insyte/modules/shared/domain/Mailer"
 import { Effect, Layer } from "effect"
 import { SqlClient } from "effect/sql"
 
@@ -9,6 +9,11 @@ import { SqlClient } from "effect/sql"
  * tests. Only this isolate's, and never in production, where the capture adapter is not used.
  */
 export const refusedReferences = new Set<string>()
+
+/** What a member's mail says on top, so a test can read it: a note's sentence, a digest's count. */
+const subjectOf = (mail: Mail): string | null =>
+  mail.memberNote?.title ??
+    (mail.digest === undefined ? null : `${mail.digest.primary.length + mail.digest.other.length} meldingen`)
 
 /**
  * The capture adapter: a mail is a row in `captured_mail`, written on a connection of its own, and the dev route reads
@@ -24,8 +29,8 @@ export const MailerCapture = Layer.effect(
           ? Effect.fail(new MailNotSent({ kind: mail.kind, reason: "het adres weigert de mail" }))
           : withConnection(Effect.flatMap(Effect.service(SqlClient.SqlClient), (sql) =>
             sql`insert into captured_mail (kind, to_address, url, reference, sender, subject, body_text)
-              values (${mail.kind}, ${mail.to.toLowerCase()}, ${mail.url ?? null}, ${mail.reference ?? null},
-                      ${mail.sender ?? null}, ${mail.support?.subject ?? null},
+              values (${mail.kind}, ${mail.to.toLowerCase()}, ${mail.url ?? mail.memberNote?.path ?? null},
+                      ${mail.reference ?? null}, ${mail.sender ?? null}, ${mail.support?.subject ?? subjectOf(mail)},
                       ${mail.support?.text ?? null})`)).pipe(
               Effect.provideService(Connect, connect),
               Effect.asVoid,

@@ -7,6 +7,7 @@ import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
 import { HomeRpcs } from "@insyte/api/rpc/HomeRpcs"
 import { MarketingRpcs } from "@insyte/api/rpc/MarketingRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
+import { NotificationsRpcs } from "@insyte/api/rpc/NotificationsRpcs"
 import { ProposalsRpcs } from "@insyte/api/rpc/ProposalsRpcs"
 import { QualityRpcs } from "@insyte/api/rpc/QualityRpcs"
 import { QueueRpcs } from "@insyte/api/rpc/QueueRpcs"
@@ -287,7 +288,24 @@ const PAYLOADS: Record<string, unknown> = {
   "Chats.openSupplierChannel": { supplierId: "sup_none" },
   "Chats.runCommand": { conversationId: "cnv_none", command: "note", arg: "x" },
   "Chats.confirmAction": { actionId: "cha_none" },
-  "Chats.declineAction": { actionId: "cha_none" }
+  "Chats.declineAction": { actionId: "cha_none" },
+  // Each member's own notifications (M5.2, M11 step 13.5): every role, nobody else's rows; unknown kinds are refused.
+  "Notifications.list": { tab: "inbox", cursor: null },
+  "Notifications.counts": undefined,
+  "Notifications.setRead": { ids: ["note_none"], read: true },
+  "Notifications.markAllRead": undefined,
+  "Notifications.clear": { ids: ["note_none"] },
+  "Notifications.restore": { ids: ["note_none"] },
+  "Notifications.snooze": { ids: ["note_none"], until: Date.now() + 3_600_000 },
+  "Notifications.prefs": undefined,
+  "Notifications.setPref": { kind: "geen.soort", app: true },
+  "Notifications.setPrefs": {
+    events: { "geen.soort": { app: true, email: false, push: false, slack: false, onlyMine: false } },
+    quiet: { on: true, from: "22:00", to: "07:00", weekend: false },
+    digest: { on: true, at: "08:00" },
+    follow: { assigned: true, mentioned: true, created: true },
+    slackChannel: null
+  }
 }
 
 const manifest = [
@@ -311,7 +329,8 @@ const manifest = [
   ...HomeRpcs.requests.keys(),
   ...ProposalsRpcs.requests.keys(),
   ...WorkspacesRpcs.requests.keys(),
-  ...ChatsRpcs.requests.keys()
+  ...ChatsRpcs.requests.keys(),
+  ...NotificationsRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

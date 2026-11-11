@@ -19,6 +19,7 @@ import { AsyncResult, Atom } from "effect/reactivity"
 import { type ReactNode, useMemo, useRef, useState } from "react"
 import { FRAME, frameWrites, inboxAtom, notePrefsAtom, NOTES, presenceAtom, VIEWS, viewsAtom } from "../data/frame.ts"
 import { ticketCountsAtom } from "../data/tickets.ts"
+import { notifyPrefsOf } from "../notifications/settings-source.ts"
 import { ConsoleInvite } from "./invite.tsx"
 import { toNote } from "./notes.ts"
 import { usePrefSection } from "./prefs.ts"
@@ -115,12 +116,10 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   const [draft, setDraft] = useState<Record<string, never>>({})
 
   const notes: ReadonlyArray<Note> = useMemo(() => (inbox?.items ?? []).map(toNote), [inbox])
-  const prefs: NotifyPrefs = useMemo(() => ({
-    ...DEFAULT_PREFS,
-    events: Object.fromEntries(
-      Object.entries(DEFAULT_PREFS.events).map(([kind, p]) => [kind, { ...p, app: notePrefs?.app[kind] ?? p.app }])
-    )
-  }), [notePrefs])
+  // The member's settings as the bell and the inbox read them (M11 step 13.5); the design's defaults until they are in.
+  const prefs: NotifyPrefs = useMemo(() => notePrefs === undefined ? DEFAULT_PREFS : notifyPrefsOf(notePrefs), [
+    notePrefs
+  ])
   const members: Array<Member> = frame.teammates.map((t) => ({
     id: t.id,
     user_id: t.id,

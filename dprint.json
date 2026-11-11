@@ -159,7 +159,6 @@
     "packages/ui/src/app/settings/depth/",
     "packages/ui/src/app/settings/integrations-screen.tsx",
     "packages/ui/src/app/settings/member-table.tsx",
-    "packages/ui/src/app/settings/notifications-screen.tsx",
     "packages/ui/src/app/settings/roles-page.tsx",
     "packages/ui/src/app/settings/roles-screen.tsx",
     "packages/ui/src/app/settings/security-screen.tsx",
