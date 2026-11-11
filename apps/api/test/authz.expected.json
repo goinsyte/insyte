@@ -922,5 +922,26 @@
     "service": "allow",
     "finance": "allow",
     "view": "allow"
+  },
+  "Home.brief": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Home.widgets": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Home.revenueBreakdown": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
   }
 }
