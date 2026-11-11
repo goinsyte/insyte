@@ -138,7 +138,9 @@ jobs:
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: bun scripts/smoke-stage.ts "https://insyte-console-$STAGE.$WORKERS_SUBDOMAIN" --auth-journey
       # The console's journeys (step 1's `@auth`) in a browser, on the preview, against its own Neon branch.
-      - run: bunx playwright install --with-deps chromium
+      # The runner image already carries Chrome's system libraries; when apt cannot reach Ubuntu's mirrors (it has
+      # failed for hours at a time), the browser alone is enough.
+      - run: bunx playwright install --with-deps chromium || bunx playwright install chromium
       - name: the console's journeys on the preview
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
