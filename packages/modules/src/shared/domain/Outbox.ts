@@ -169,6 +169,29 @@ export const OutboxEvent = Schema.Union([
     memberIds: Schema.Array(Schema.String),
     by: Schema.String
   }),
+  // A chat message was posted, or changed (edited, taken back, pinned, reacted to, its card decided) (M11 step 4): the
+  // realtime sink tells the tabs to refetch that conversation. `to` is who may hear of it (a DM's two); `null` is the
+  // workspace's room (a channel). Ids only, never the message.
+  Schema.Struct({
+    type: Schema.Literal("chat.posted"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    conversationId: Schema.String,
+    messageId: Schema.String,
+    authorId: Schema.String,
+    updated: Schema.Boolean,
+    to: Schema.NullOr(Schema.Array(Schema.String))
+  }),
+  // A chat message named teammates with `@` (M11 step 4): each of them hears of it, unless they muted the conversation.
+  Schema.Struct({
+    type: Schema.Literal("chat.mentioned"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    conversationId: Schema.String,
+    messageId: Schema.String,
+    memberIds: Schema.Array(Schema.String),
+    by: Schema.String
+  }),
   // A supplier answered a quality check through its link (M9.4): the team hears of it. `userId` is `system`.
   Schema.Struct({
     type: Schema.Literal("quality_check.submitted"),
