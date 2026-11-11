@@ -101,8 +101,8 @@ export function SettingTag({ e }: { e: Pick<AgentLogEntry, "level" | "approvedBy
 	const locked = ENTRY[e.action]?.locked;
 	return (
 		<Link
-			to="/settings/ai/autonomy"
-			search={{ actie: e.action }}
+			to={"/settings/ai/autonomy" as string}
+			search={{ actie: e.action } as never}
 			className="inline-flex h-5 max-w-full items-center gap-1 truncate rounded-sm bg-mist px-1.5 text-ink-2 text-xs transition-colors hover:bg-ink/8 hover:text-ink"
 			title="Zelfstandigheid openen op deze actie"
 		>
@@ -452,7 +452,7 @@ export function AgentSuggestion({
 export function WhyAsks({ action }: { action: AgentLogEntry["action"] }) {
 	const entry = ENTRY[action];
 	return (
-		<Link to="/settings/ai/autonomy" search={{ actie: action }} className="flex w-fit items-center gap-1.5 rounded-sm px-1 text-ink-3 text-xs transition-colors hover:text-ink">
+		<Link to={"/settings/ai/autonomy" as string} search={{ actie: action } as never} className="flex w-fit items-center gap-1.5 rounded-sm px-1 text-ink-3 text-xs transition-colors hover:text-ink">
 			{entry?.locked ? <Lock className="size-3" strokeWidth={2} /> : <Shield className="size-3" strokeWidth={1.75} />}
 			{entry?.locked ? `Vraagt altijd: ${entry.locked.charAt(0).toLowerCase()}${entry.locked.slice(1)}` : `Waarom vraagt Insyte dit? ${entry?.label ?? ""} staat op Eerst vragen`}
 		</Link>

@@ -19,6 +19,7 @@ import {
   SYSTEM_TAGS,
   type TagInput
 } from "../domain/Commands.ts"
+import { cancelMails } from "./delay-mail.ts"
 import { type Row, SELECT, toRow } from "./orders.ts"
 
 /*
@@ -292,7 +293,12 @@ const decodeRestore = Schema.decodeUnknownEffect(OrdersRestore)
  */
 export const restore = Effect.fn("Orders.restore")(function*(sql: SqlClient.SqlClient, compensation: unknown) {
   yield* Policy.require("orders", 2)
-  const { orders } = yield* decodeRestore(compensation).pipe(Effect.orDie)
+  const { orders, mails } = yield* decodeRestore(compensation).pipe(Effect.orDie)
+  // A shopper mail put in line (the delay mail, M10.2) is called off; one already gone cannot be.
+  if (mails !== undefined && mails.length > 0 && (yield* cancelMails(sql, mails)) < mails.length) {
+    return yield* new Conflict({ entity: "order_mail", reason: "already_sent" })
+  }
+  if (orders.length === 0) return
   yield* lock(sql, orders.map((o) => o.id)).pipe(
     Effect.catchTag("NotFound", () => Effect.fail(new Conflict({ entity: "order", reason: "gone" })))
   )

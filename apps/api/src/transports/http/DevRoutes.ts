@@ -13,6 +13,7 @@ import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect, Layer, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { AppInfo } from "../../platform/Bindings.ts"
+import { refusedReferences } from "../../platform/Mail.ts"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 import { userFrom } from "../../platform/Sessions.ts"
 
@@ -43,6 +44,28 @@ const CapturedMail = HttpRouter.add(
     )
     return HttpServerResponse.jsonUnsafe({ mails })
   }).pipe(withRequestDb)
+)
+
+/**
+ * `POST /api/__dev/mail/refuse?reference=<id>`: the capture adapter refuses one record's mails from now on (an order's
+ * delay mail, M10.2), as a bouncing address would, so a mail that does not go can be tried; `&off=1` takes it back.
+ * Refused in production.
+ */
+const MailRefuse = HttpRouter.add(
+  "POST",
+  "/api/__dev/mail/refuse",
+  Effect.gen(function*() {
+    const { environment } = yield* AppInfo
+    if (environment === "production") {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const query = new URL(request.url, "http://local").searchParams
+    const reference = query.get("reference") ?? ""
+    if (reference !== "" && query.get("off") === "1") refusedReferences.delete(reference)
+    else if (reference !== "") refusedReferences.add(reference)
+    return HttpServerResponse.jsonUnsafe({ refused: [...refusedReferences] })
+  })
 )
 
 /**
@@ -115,6 +138,27 @@ const OutboxOf = HttpRouter.add(
 )
 
 /**
+ * `GET /api/__dev/undo?workspace=<id>`: one workspace's undo compensations (command, compensation, spent), without the
+ * hashes, read in that workspace's scope. For the tests that check what a compensation keeps. Refused in production.
+ */
+const UndoOf = HttpRouter.add(
+  "GET",
+  "/api/__dev/undo",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const db = yield* Db
+    const tokens = yield* db.scopedFor((sql) =>
+      sql<{ command: string; compensation: unknown; used: boolean }>`
+        select command, compensation, used_at is not null as used from undo_tokens order by expires_at`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe({ tokens })
+  }).pipe(withRequestDb)
+)
+
+/**
  * `GET /api/__dev/product-events?workspace=<id>`: what the product-analytics sink captured for one workspace, where the
  * stage has no PostHog key (`captured_product_events`). Refused in production.
  */
@@ -177,6 +221,31 @@ const InvitationLapse = HttpRouter.add(
       sql<{ id: string }>`
         update invitations set expires_at = now() - interval '1 day', sent_at = now() - interval '8 days'
         where id = ${id} returning id`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe({ lapsed: lapsed.length })
+  }).pipe(withRequestDb)
+)
+
+/**
+ * `POST /api/__dev/proposals/lapse?workspace=<id>&id=<proposal>`: the plate's deadline has passed (`expires_at`), so the
+ * queue's refresh lets it expire (M10.2). No rule at M10 draws a plate with a deadline; chargebacks' evidence does
+ * (M13). Refused in production.
+ */
+const ProposalLapse = HttpRouter.add(
+  "POST",
+  "/api/__dev/proposals/lapse",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const id = new URL(request.url, "http://local").searchParams.get("id") ?? ""
+    const db = yield* Db
+    const lapsed = yield* db.scopedFor((sql) =>
+      sql<{ id: string }>`
+        update proposals set expires_at = now() - interval '1 minute' where id = ${id} and state = 'open'
+        returning id`
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
     return HttpServerResponse.jsonUnsafe({ lapsed: lapsed.length })
   }).pipe(withRequestDb)
@@ -480,9 +549,12 @@ export const DevRoutes = Layer.mergeAll(
   StoreConnection,
   StoreMirror,
   CapturedMail,
+  MailRefuse,
   AuthEventsOf,
   OutboxOf,
+  UndoOf,
   OutboxDue,
   InvitationLapse,
+  ProposalLapse,
   ProductEventsOf
 )

@@ -37,6 +37,8 @@ import stockouts from "./migrations/0037_stockouts.ts"
 import tickets from "./migrations/0040_tickets.ts"
 import returnResolutions from "./migrations/0042_return_resolutions.ts"
 import queue from "./migrations/0043_queue.ts"
+import proposals from "./migrations/0044_proposals.ts"
+import orderMails from "./migrations/0045_order_mails.ts"
 import facts from "./migrations/0047_facts.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
@@ -85,5 +87,7 @@ export const Migrations = {
   "0040_tickets": tickets,
   "0042_return_resolutions": returnResolutions,
   "0043_queue": queue,
+  "0044_proposals": proposals,
+  "0045_order_mails": orderMails,
   "0047_facts": facts
 }

@@ -4,6 +4,7 @@ import { CustomersService } from "@insyte/modules/customers/Customers"
 import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
 import { FirstAnalysisService } from "@insyte/modules/first-analysis/FirstAnalysis"
 import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
+import { HomeService } from "@insyte/modules/home/Home"
 import { MarketingService } from "@insyte/modules/marketing/Marketing"
 import { Landing } from "@insyte/modules/members/Landing"
 import { Members } from "@insyte/modules/members/Members"
@@ -12,6 +13,7 @@ import { Onboarding } from "@insyte/modules/onboarding/Onboarding"
 import { OrdersService } from "@insyte/modules/orders/Orders"
 import { PrefsService } from "@insyte/modules/prefs/PrefsService"
 import { ProductsService } from "@insyte/modules/products/Products"
+import { ProposalsService } from "@insyte/modules/proposals/Proposals"
 import { QualityLinkService, QualityService } from "@insyte/modules/quality/Quality"
 import { QueueService } from "@insyte/modules/queue/Queue"
 import { PortalService } from "@insyte/modules/returns/Portal"
@@ -30,6 +32,7 @@ import { CommerceHandlers } from "./handlers/commerce.ts"
 import { DeveloperHandlers } from "./handlers/developer.ts"
 import { FirstAnalysisHandlers } from "./handlers/first-analysis.ts"
 import { ForwardingHandlers } from "./handlers/forwarding.ts"
+import { HomeHandlers } from "./handlers/home.ts"
 import { LandingHandlers } from "./handlers/landing.ts"
 import { MarketingHandlers } from "./handlers/marketing.ts"
 import { MembersHandlers } from "./handlers/members.ts"
@@ -37,6 +40,7 @@ import { NotificationsHandlers } from "./handlers/notifications.ts"
 import { OnboardingHandlers } from "./handlers/onboarding.ts"
 import { PortalHandlers } from "./handlers/portal.ts"
 import { PrefsHandlers } from "./handlers/prefs.ts"
+import { ProposalsHandlers } from "./handlers/proposals.ts"
 import { QualityHandlers } from "./handlers/quality.ts"
 import { QueueHandlers } from "./handlers/queue.ts"
 import { ReturnsHandlers } from "./handlers/returns.ts"
@@ -86,6 +90,8 @@ export const RpcContext = Layer.mergeAll(
   PortalHandlers.pipe(Layer.provide(PortalService.layer)),
   TicketsHandlers.pipe(Layer.provide(TicketsService.layer)),
   QueueHandlers.pipe(Layer.provide(QueueService.layer)),
+  HomeHandlers.pipe(Layer.provide(HomeService.layer)),
+  ProposalsHandlers.pipe(Layer.provide(ProposalsService.layer)),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
   ShellHandlers.pipe(
     Layer.provide(

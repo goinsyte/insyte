@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { ProposalView } from "../../proposals/domain/Proposals.ts"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
 
 /*
@@ -34,6 +35,8 @@ export const QueueRow = Schema.Struct({
   state: QueueState,
   /** The plate's proposal, where one is drawn (M10.2). */
   proposalId: Schema.NullOr(Schema.String),
+  /** The plate itself while it is open: what Insyte drew for the row, and what filing it does (M10.2). */
+  proposal: Schema.NullOr(ProposalView),
   decidedAt: Schema.NullOr(Schema.Finite)
 })
 export type QueueRow = typeof QueueRow.Type

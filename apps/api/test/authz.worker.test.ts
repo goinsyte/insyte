@@ -3,8 +3,10 @@ import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
+import { HomeRpcs } from "@insyte/api/rpc/HomeRpcs"
 import { MarketingRpcs } from "@insyte/api/rpc/MarketingRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
+import { ProposalsRpcs } from "@insyte/api/rpc/ProposalsRpcs"
 import { QualityRpcs } from "@insyte/api/rpc/QualityRpcs"
 import { QueueRpcs } from "@insyte/api/rpc/QueueRpcs"
 import { ReturnsRpcs } from "@insyte/api/rpc/ReturnsRpcs"
@@ -215,7 +217,14 @@ const PAYLOADS: Record<string, unknown> = {
   "Quality.link": { id: "qc_none" },
   "Queue.list": {},
   "Queue.markSeen": { id: "qi_none" },
-  "Queue.reopen": { id: "qi_none" }
+  "Queue.reopen": { id: "qi_none" },
+  "Home.brief": {},
+  "Home.widgets": { ids: ["orders"], range: 30 },
+  "Home.revenueBreakdown": { range: 30 },
+  "Proposals.get": { id: "prp_none" },
+  "Proposals.file": { id: "prp_none" },
+  "Proposals.discard": { id: "prp_none" },
+  "Proposals.redraw": { id: "prp_none" }
 }
 
 const manifest = [
@@ -234,7 +243,9 @@ const manifest = [
   ...ReturnsRpcs.requests.keys(),
   ...TicketsRpcs.requests.keys(),
   ...QualityRpcs.requests.keys(),
-  ...QueueRpcs.requests.keys()
+  ...QueueRpcs.requests.keys(),
+  ...HomeRpcs.requests.keys(),
+  ...ProposalsRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {
