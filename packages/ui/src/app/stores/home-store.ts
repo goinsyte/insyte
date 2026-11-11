@@ -106,7 +106,9 @@ const seedTodos = (): Todo[] => [
 	{ id: "t3", text: "De terugbetalingen van vorige week nakijken", done: true, doneAt: Date.now() - 50 * 60_000 },
 ];
 
-type Snapshot = { widgets: PlacedWidget[]; grid: GridBox[] };
+/** A board's arrangement: what is on it, in order, and where each sits on the grid. */
+export type BoardLayout = { widgets: PlacedWidget[]; grid: GridBox[] };
+type Snapshot = BoardLayout;
 
 export type HomeState = {
 	/** The tab last read, for an address without `?view=`. */
@@ -185,7 +187,8 @@ export const useHome = create<HomeState>()(
 			setCurrency: (currency) => set({ currency }),
 			widgets: DEFAULT_LAYOUT,
 			grid: DEFAULT_GRID,
-			todos: byScenario({ empty: [], settled: seedTodos() }),
+			// The console installs no data source (ADR-0034) and keeps its to-dos in `Todos.*`: nothing to seed there.
+			todos: typeof byScenario === "function" ? byScenario({ empty: [], settled: seedTodos() }) : [],
 			ticked: [],
 			setEngine: (engine) => set({ engine }),
 			move: (from, to) =>

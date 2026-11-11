@@ -27,9 +27,8 @@ import { ago } from "../lib/home/dates";
 import type { Currency } from "../lib/types/domain";
 import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { type BoardEngine, type BoardRange, type HomeView, useHome, type WidgetId } from "../stores/home-store";
-import { useLive } from "../stores/live-store";
-import { WIDGETS } from "./widgets";
+import { type BoardEngine, type BoardLayout, type BoardRange, type HomeView, useHome, type WidgetId } from "../stores/home-store";
+import { WIDGET_DEFS as WIDGETS } from "./widget-defs";
 
 /*
  * The row under the greeting, as ClickUp's home has it: the views on the left, and on the right the
@@ -45,10 +44,21 @@ const VIEWS: ReadonlyArray<{ id: HomeView; label: string; icon: typeof Calendar 
 	{ id: "activiteit", label: "Activiteit", icon: Newspaper },
 ];
 
-export function ViewTabs({ view, onView, counts }: { view: HomeView; onView: (v: HomeView) => void; counts: Partial<Record<HomeView, number>> }) {
+export function ViewTabs({
+	view,
+	onView,
+	counts,
+	views,
+}: {
+	view: HomeView;
+	onView: (v: HomeView) => void;
+	counts: Partial<Record<HomeView, number>>;
+	/** The views there are to read; all four unless said. */
+	views?: ReadonlyArray<HomeView>;
+}) {
 	return (
 		<div role="tablist" aria-label="Weergave van de start" className="-mb-px flex min-w-0 items-center gap-0.5 overflow-x-auto">
-			{VIEWS.map((v) => {
+			{VIEWS.filter((v) => views === undefined || views.includes(v.id)).map((v) => {
 				const on = v.id === view;
 				const n = counts[v.id];
 				return (
@@ -83,11 +93,12 @@ export function ViewTabs({ view, onView, counts }: { view: HomeView; onView: (v:
 	);
 }
 
+/** The board's clock: the demo's live store keeps it (`RefreshControl`), the console's reads keep it there. */
+export type RefreshSource = { refreshedAt: number; refreshing: boolean; refresh: () => void };
+
 /** "Bijgewerkt zojuist" with a refresh on click, and the switch that keeps it refreshing itself. */
-export function RefreshControl() {
-	const refreshedAt = useLive((s) => s.refreshedAt);
-	const refreshing = useLive((s) => s.refreshing);
-	const refresh = useLive((s) => s.refresh);
+export function RefreshView({ source }: { source: RefreshSource }) {
+	const { refreshedAt, refreshing, refresh } = source;
 	const auto = useHome((s) => s.autoRefresh);
 	const setAuto = useHome((s) => s.setAutoRefresh);
 	const still = useReducedMotion();
@@ -129,12 +140,28 @@ const RANGES: ReadonlyArray<{ days: BoardRange; label: string }> = [
 ];
 const CURRENCIES: ReadonlyArray<Currency> = ["EUR", "USD", "GBP"];
 
-/** The window every dated figure reads and the currency every amount is said in, as one menu. */
-export function WindowMenu() {
-	const range = useHome((s) => s.range);
-	const setRange = useHome((s) => s.setRange);
-	const currency = useHome((s) => s.currency);
+/**
+ * The window every dated figure reads and the currency every amount is said in, as one menu. `currency` fixes the
+ * currency (the console's is the workspace's) and leaves only the window to choose; `range` and `onRange` keep the
+ * window outside the board's own store.
+ */
+export function WindowMenu({
+	currency: fixed,
+	range: held,
+	onRange,
+}: {
+	currency?: Currency;
+	/** The window when the host keeps it (the console's, in the member's preferences). */
+	range?: BoardRange;
+	onRange?: (r: BoardRange) => void;
+} = {}) {
+	const stored = useHome((s) => s.range);
+	const setStored = useHome((s) => s.setRange);
+	const range = held ?? stored;
+	const setRange = onRange ?? setStored;
+	const chosen = useHome((s) => s.currency);
 	const setCurrency = useHome((s) => s.setCurrency);
+	const currency = fixed ?? chosen;
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -156,25 +183,29 @@ export function WindowMenu() {
 						</DropdownMenuRadioItem>
 					))}
 				</DropdownMenuRadioGroup>
-				<DropdownMenuSeparator />
-				<DropdownMenuLabel>Bedragen tonen in</DropdownMenuLabel>
-				<DropdownMenuRadioGroup value={currency} onValueChange={(v) => setCurrency(v as Currency)}>
-					{CURRENCIES.map((c) => (
-						<DropdownMenuRadioItem key={c} value={c}>
-							{c}
-						</DropdownMenuRadioItem>
-					))}
-				</DropdownMenuRadioGroup>
+				{fixed === undefined ? (
+					<>
+						<DropdownMenuSeparator />
+						<DropdownMenuLabel>Bedragen tonen in</DropdownMenuLabel>
+						<DropdownMenuRadioGroup value={currency} onValueChange={(v) => setCurrency(v as Currency)}>
+							{CURRENCIES.map((c) => (
+								<DropdownMenuRadioItem key={c} value={c}>
+									{c}
+								</DropdownMenuRadioItem>
+							))}
+						</DropdownMenuRadioGroup>
+					</>
+				) : null}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
 }
 
-/** Every card that is not on the board, one click from being on it. */
-export function AddCardMenu({ onAdded }: { onAdded?: (id: WidgetId) => void }) {
+/** Every card that is not on the board, one click from being on it; of `offered` only, when said. */
+export function AddCardMenu({ onAdded, offered }: { onAdded?: (id: WidgetId) => void; offered?: ReadonlyArray<WidgetId> }) {
 	const widgets = useHome((s) => s.widgets);
 	const add = useHome((s) => s.add);
-	const hidden = (Object.keys(WIDGETS) as WidgetId[]).filter((id) => !widgets.some((w) => w.id === id));
+	const hidden = (offered ?? (Object.keys(WIDGETS) as WidgetId[])).filter((id) => !widgets.some((w) => w.id === id));
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -218,8 +249,8 @@ const ENGINES: ReadonlyArray<{ id: BoardEngine; label: string; hint: string }> =
 	{ id: "grid", label: "Raster", hint: "Vrij plaatsen en van formaat veranderen" },
 ];
 
-/** While arranging: which engine lays the board out, and Reset with Undo. */
-export function EditTools() {
+/** While arranging: which engine lays the board out, and Reset with Undo; to `defaults` when the board has its own. */
+export function EditTools({ defaults }: { defaults?: BoardLayout } = {}) {
 	const engine = useHome((s) => s.engine);
 	const setEngine = useHome((s) => s.setEngine);
 	const reset = useHome((s) => s.reset);
@@ -260,7 +291,8 @@ export function EditTools() {
 				type="button"
 				onClick={() => {
 					const before = snapshot();
-					reset();
+					if (defaults) restore(defaults);
+					else reset();
 					undoable("Bord teruggezet naar de standaardindeling", () => restore(before));
 				}}
 				className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2.5 font-medium text-sm text-ink-2 transition-colors hover:bg-ink/6 hover:text-ink"
