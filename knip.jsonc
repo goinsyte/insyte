@@ -70,6 +70,9 @@
         "!src/app/lib/quality.ts",
         "!src/app/dashboard/**",
         "!src/app/stores/home-store.ts",
+        "!src/app/settings/form.tsx",
+        "!src/app/settings/profile-screen.tsx",
+        "!src/app/settings/regional-screen.tsx",
       ],
     },
     "apps/console": {
