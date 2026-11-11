@@ -91,7 +91,11 @@
     "!packages/ui/src/app/auth/login-screen.tsx",
     "!packages/ui/src/app/onboarding/shared-steps.tsx",
     "!packages/ui/src/app/onboarding/admin-steps.tsx",
-    "!packages/ui/src/app/lib/form-errors.ts"
+    "!packages/ui/src/app/lib/form-errors.ts",
+    // Graduated (08 §3): Account and Regio, wired to Workspaces.* in M3.1, with the settings form kit.
+    "!packages/ui/src/app/settings/form.tsx",
+    "!packages/ui/src/app/settings/profile-screen.tsx",
+    "!packages/ui/src/app/settings/regional-screen.tsx"
   ],
   "rules": {
     "no-console": "warn",

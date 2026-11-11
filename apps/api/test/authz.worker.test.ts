@@ -18,6 +18,7 @@ import { SuppliersRpcs } from "@insyte/api/rpc/SuppliersRpcs"
 import { ThreadsRpcs } from "@insyte/api/rpc/ThreadsRpcs"
 import { TicketsRpcs } from "@insyte/api/rpc/TicketsRpcs"
 import { TrackingRpcs } from "@insyte/api/rpc/TrackingRpcs"
+import { WorkspacesRpcs } from "@insyte/api/rpc/WorkspacesRpcs"
 import { Exit } from "effect"
 import { beforeAll, describe, expect, it } from "vitest"
 import expected from "./authz.expected.json" with { type: "json" }
@@ -251,6 +252,21 @@ const PAYLOADS: Record<string, unknown> = {
   "Proposals.file": { id: "prp_none" },
   "Proposals.discard": { id: "prp_none" },
   "Proposals.redraw": { id: "prp_none" },
+  "Workspaces.getAccount": undefined,
+  // Each write is refused after the permission check (an empty name, no hours, an unknown period or language), so the
+  // workspace keeps its settings.
+  "Workspaces.saveAccount": { name: " ", legalEntity: "", vatNumber: "", billingEmail: "", country: "NL" },
+  "Workspaces.setAlerts": { delayHours: 0, disputeAmountMinor: 0 },
+  "Workspaces.setRetention": { days: 7 },
+  "Workspaces.getRegional": undefined,
+  "Workspaces.saveRegional": {
+    language: "xx",
+    currencyDisplay: "EUR",
+    dateFormat: "YYYY-MM-DD",
+    timeFormat: "24h",
+    weekStart: "mon",
+    timezone: "Europe/Amsterdam"
+  },
   "Chats.list": undefined,
   "Chats.messages": { conversationId: "cnv_none" },
   "Chats.thread": { messageId: "msg_none" },
@@ -294,6 +310,7 @@ const manifest = [
   ...QueueRpcs.requests.keys(),
   ...HomeRpcs.requests.keys(),
   ...ProposalsRpcs.requests.keys(),
+  ...WorkspacesRpcs.requests.keys(),
   ...ChatsRpcs.requests.keys()
 ]
 
