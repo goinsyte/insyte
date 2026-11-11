@@ -7,7 +7,15 @@ import type { Env } from "./platform/Env.ts"
 import { parseMail } from "./platform/InboundMail.ts"
 import { ingest, type IngestMessage, reconcile, syncRuntime, trackingSweep } from "./platform/Ingest.ts"
 import { Telemetry } from "./platform/Observability.ts"
-import { deliver, type EventsMessage, factsSweep, queueSweep, sweep } from "./platform/Relay.ts"
+import {
+  deliver,
+  digestSweep,
+  type EventsMessage,
+  factsSweep,
+  notifySweep,
+  queueSweep,
+  sweep
+} from "./platform/Relay.ts"
 import { withRequestDb } from "./platform/RequestDb.ts"
 
 // The Durable Object classes this Worker hosts; infra and `wrangler.jsonc` bind them by these names.
@@ -66,10 +74,12 @@ export default {
     }
   },
 
-  /** Every minute: the relay's sweep for events a kick missed; every fifteenth, the stores' reconcile (M6.3), the
-   * tracking sweep (M8.4), Start's queue (M10.1) and the daily facts (M10.4, at 02:00 UTC their nightly pass). */
+  /** Every minute: the relay's sweep for events a kick missed and the notes quiet hours or a failed try held back
+   * (M11.5); every fifteenth, the stores' reconcile (M6.3), the tracking sweep (M8.4), Start's queue (M10.1), the
+   * daily facts (M10.4, at 02:00 UTC their nightly pass) and the members' daily digests (M11.5). */
   scheduled(controller, _env, ctx) {
     ctx.waitUntil(background.runPromise(withRequestDb(sweep())).finally(() => Telemetry.flush()))
+    ctx.waitUntil(background.runPromise(withRequestDb(notifySweep())).finally(() => Telemetry.flush()))
     const at = new Date(controller.scheduledTime)
     if (at.getUTCMinutes() % 15 === 0) {
       const nightly = at.getUTCHours() === 2 && at.getUTCMinutes() === 0
@@ -78,6 +88,7 @@ export default {
       ctx.waitUntil(syncRuntime.runPromise(trackingSweep).finally(() => Telemetry.flush()))
       // Start's queue (M10.1): what no event says, a stock-out or a review coming due.
       ctx.waitUntil(background.runPromise(withRequestDb(queueSweep())).finally(() => Telemetry.flush()))
+      ctx.waitUntil(background.runPromise(withRequestDb(digestSweep())).finally(() => Telemetry.flush()))
     }
   }
 } satisfies ExportedHandler<Env, EventsMessage | IngestMessage>

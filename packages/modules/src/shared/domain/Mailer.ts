@@ -18,7 +18,9 @@ export const MailKind = Schema.Literals([
   "return.label",
   "return.resolved",
   "order.delayed",
-  "support.message"
+  "support.message",
+  "member.notification",
+  "member.digest"
 ])
 export type MailKind = typeof MailKind.Type
 
@@ -107,6 +109,36 @@ export interface OrderDelayFacts {
 }
 
 /**
+ * One note delivered by e-mail to a member who has e-mail on for its kind (M11 step 13.5): the words are written by
+ * the notifications slice (`notifications/domain/Words.ts`), the link is a console path the adapter makes absolute.
+ */
+export interface MemberNoteFacts {
+  readonly workspace: string
+  readonly kind: string
+  readonly title: string
+  readonly detail?: string | undefined
+  readonly quote?: string | undefined
+  readonly record?: string | undefined
+  readonly actionLabel: string
+  readonly path: string
+}
+
+/** One line of the digest: the note's sentence, its detail and its console path. */
+export interface DigestLine {
+  readonly title: string
+  readonly detail?: string | undefined
+  readonly path: string
+}
+
+/** The member's daily overview (M11 step 13.5): what is unread, Primair first. */
+export interface DigestFacts {
+  readonly workspace: string
+  readonly date: Date
+  readonly primary: ReadonlyArray<DigestLine>
+  readonly other: ReadonlyArray<DigestLine>
+}
+
+/**
  * A message the team wrote in the inbox (M11 step 2): a reply, a forward or a new mail, sent in the mailbox's name
  * from Insyte's sending domain, answered to the mailbox's own address, and threaded by its headers.
  */
@@ -133,6 +165,10 @@ export interface Mail {
   readonly returnMail?: ReturnMailFacts | undefined
   /** `order.delayed` only. */
   readonly orderDelay?: OrderDelayFacts | undefined
+  /** `member.notification` only. */
+  readonly memberNote?: MemberNoteFacts | undefined
+  /** `member.digest` only. */
+  readonly digest?: DigestFacts | undefined
   /** `support.message` only. */
   readonly support?: SupportFacts | undefined
   /** The name the mail is sent in (a store's, to its shopper); absent, Insyte's own. */

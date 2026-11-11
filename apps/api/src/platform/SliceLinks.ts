@@ -8,6 +8,7 @@ import { ensureLegs } from "@insyte/modules/forwarding/use-cases/legs"
 import { ThreadTickets } from "@insyte/modules/inbox/domain/Ports"
 import { restore as restoreInbox } from "@insyte/modules/inbox/use-cases/commands"
 import { lastSyncOf, restore as restoreMarketing } from "@insyte/modules/marketing/use-cases/klaviyo"
+import { restore as restoreNotifications } from "@insyte/modules/notifications/use-cases/prefs"
 import { cancel as cancelOrders, restore as restoreOrders, setNote } from "@insyte/modules/orders/use-cases/commands"
 import { notifyDelay } from "@insyte/modules/orders/use-cases/delay-mail"
 import { refundOn } from "@insyte/modules/orders/use-cases/refund"
@@ -86,6 +87,7 @@ const compensations: Record<string, Compensation> = {
     restoreInbox(sql, compensation).pipe(Effect.provideService(ThreadTickets, threadTickets)),
   "quality.restore": restoreQuality,
   "queue.restore": restoreQueue,
+  "notifications.restore": restoreNotifications,
   // A filed plate's Undo spends the command's own token and runs that command's compensation from this same table.
   "proposals.restore": (sql, compensation) =>
     restoreProposal(sql, compensation, {

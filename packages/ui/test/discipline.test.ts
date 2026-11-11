@@ -69,6 +69,9 @@ const graduated = [
   "app/quality/",
   "app/dashboard/",
   "app/stores/home-store.ts",
+  "app/settings/notifications-screen.tsx",
+  "app/settings/notifications-source.tsx",
+  "app/settings/notifications-demo-source.tsx",
   "app/lib/home/day.ts",
   "app/lib/home/kinds.ts"
 ]

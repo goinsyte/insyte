@@ -11,6 +11,7 @@ import { ForwardSends } from "@insyte/modules/forwarding/domain/Forwarding"
 import { sendQueued } from "@insyte/modules/inbox/use-cases/send"
 import { MarketingSyncs } from "@insyte/modules/marketing/domain/Marketing"
 import { InvitationLinks } from "@insyte/modules/members/domain/Ports"
+import { digestDue, sendDue } from "@insyte/modules/notifications/use-cases/deliveries"
 import { fanOut } from "@insyte/modules/notifications/use-cases/fanout"
 import { sendDelayMail } from "@insyte/modules/orders/use-cases/delay-mail"
 import { settleSent } from "@insyte/modules/proposals/Proposals"
@@ -301,10 +302,14 @@ const chat = (event: Extract<OutboxEvent, { type: "chat.posted" }>) =>
     else await Promise.all(event.to.map((memberId) => room.sendTo(memberId, frame)))
   }).pipe(Effect.withSpan("Relay.chat"))
 
-/** The notifications sink (M5.2): rows for whoever should hear of the event, then each one's tabs their count. */
+/**
+ * The notifications sink (M5.2): rows for whoever should hear of the event, then each one's tabs their count; what
+ * goes out by e-mail goes now, on this transaction (M11 step 13.5).
+ */
 const notifications = Effect.fn("Relay.notifications")(
   function*(event: OutboxEvent, sql: SqlClient.SqlClient) {
     const heard = yield* fanOut(sql, event.workspaceId, event)
+    yield* sendDue(sql)
     const room = roomOf(event.workspaceId)
     yield* Effect.forEach(
       heard,
@@ -338,6 +343,45 @@ export const queueSweep = Effect.fn("Relay.queueSweep")(function*() {
     )
   }
 }, Effect.orDie)
+
+/** The workspaces whose notes wait to go out: quiet hours over, or a mail to try again. */
+const notifyWorkspaces = Effect.flatMap(Effect.service(Db), (db) =>
+  db.routing((sql) =>
+    Effect.map(
+      sql<{ workspaceId: WorkspaceId }>`select workspace_id from notify_due_workspaces()`,
+      (rows) => rows.map((r) => r.workspaceId)
+    )
+  ))
+
+/** Every minute: the notes that may go out now, in each workspace that has some (M11 step 13.5). */
+export const notifySweep = Effect.fn("Relay.notifySweep")(function*() {
+  for (const workspaceId of yield* notifyWorkspaces) yield* notifyWorkspace(workspaceId)
+}, Effect.orDie)
+
+/** One workspace's notes due at `at`, sent, as `system`. */
+export const notifyWorkspace = (workspaceId: WorkspaceId, at?: Date) =>
+  Effect.flatMap(Effect.service(Db), (db) => db.scopedFor((sql) => sendDue(sql, at))).pipe(
+    Effect.provideService(CurrentWorkspace, { id: workspaceId })
+  )
+
+const digestWorkspaces = Effect.flatMap(Effect.service(Db), (db) =>
+  db.routing((sql) =>
+    Effect.map(
+      sql<{ workspaceId: WorkspaceId }>`select workspace_id from digest_workspaces()`,
+      (rows) => rows.map((r) => r.workspaceId)
+    )
+  ))
+
+/** Every 15 minutes: the daily digests whose hour has come, per workspace (M11 step 13.5). */
+export const digestSweep = Effect.fn("Relay.digestSweep")(function*() {
+  for (const workspaceId of yield* digestWorkspaces) yield* digestWorkspace(workspaceId)
+}, Effect.orDie)
+
+/** One workspace's digests due at `at` (over the notes since `since`, a test's), sent, as `system`. */
+export const digestWorkspace = (workspaceId: WorkspaceId, at?: Date, since?: Date) =>
+  Effect.flatMap(Effect.service(Db), (db) => db.scopedFor((sql) => digestDue(sql, at, since))).pipe(
+    Effect.provideService(CurrentWorkspace, { id: workspaceId })
+  )
 
 /** The record kinds whose change may touch a day's facts (M10.4): orders and what hangs off them, a store's import. */
 const FACTED = new Set(["order", "refund", "fulfilment", "delivery", "store"])
