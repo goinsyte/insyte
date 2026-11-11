@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Field, FormDialog, TextAreaField, TextField } from "../common/form-dialog"
 import type { SupplierInput } from "./source"
 
@@ -24,10 +24,15 @@ export function SupplierFormDialog({
 }) {
   const [draft, setDraft] = useState<SupplierInput>(initial ?? EMPTY)
   const [days, setDays] = useState(String((initial ?? EMPTY).leadDays))
+  // Filled from the supplier when the dialog opens, and only then: `initial` is a new object on every render of the
+  // screen, so a refetch landing while the dialog is open must not wipe what is being typed.
+  const wasOpen = useRef(false)
   useEffect(() => {
-    if (!open) return
-    setDraft(initial ?? EMPTY)
-    setDays(String((initial ?? EMPTY).leadDays))
+    if (open && !wasOpen.current) {
+      setDraft(initial ?? EMPTY)
+      setDays(String((initial ?? EMPTY).leadDays))
+    }
+    wasOpen.current = open
   }, [open, initial])
 
   const set = (key: keyof SupplierInput) => (value: string) => setDraft((d) => ({ ...d, [key]: value }))

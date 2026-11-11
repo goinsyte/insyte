@@ -30,7 +30,9 @@ export default defineConfig({
   use: {
     baseURL: external ?? `http://localhost:${port}`,
     ...(access === undefined ? {} : { extraHTTPHeaders: access }),
-    trace: "retain-on-failure",
+    // A trace records every request's headers, the Access secret among them, and CI uploads the report from a public
+    // repository: against a preview there is no trace, only the screenshot and the error context.
+    trace: access === undefined ? "retain-on-failure" : "off",
     screenshot: "only-on-failure"
   },
   projects: [{ name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } }],
