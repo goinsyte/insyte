@@ -77,7 +77,7 @@ const QUEUE_FIELDS: ReadonlyArray<FilterField<QueueEntry>> = [
 ];
 
 /** How long a filed plate stays on the board, stamped and slackened, before the next one draws. */
-const SETTLE_MS = 900;
+export const SETTLE_MS = 900;
 
 /**
  * The queue as a card body and its plate as a panel, for the host to place: `body` on the board, `plate` after it.

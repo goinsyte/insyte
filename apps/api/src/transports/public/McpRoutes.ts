@@ -68,6 +68,8 @@ const Tools = McpServer.toolkit(InsyteTools).pipe(
       reroute_leg: ({ leg_id, idempotency_key, supplier_id }) =>
         read.rerouteLeg(leg_id, { supplier_id }, idempotency_key),
       list_queue: ({ tab }) => read.queue(tab),
+      get_proposal: ({ proposal_id }) => read.proposal(proposal_id),
+      file_proposal: ({ proposal_id, idempotency_key }) => kicking(read.fileProposal(proposal_id, idempotency_key)),
       list_returns: ({ status }) => read.returns(status),
       get_return: ({ return_id }) => read.returnOne(return_id),
       start_return: ({ idempotency_key, ...body }) => kicking(read.startReturn(body, idempotency_key)),

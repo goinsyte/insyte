@@ -26,5 +26,8 @@ export const queueAtom = Atom.serializable(
 
 export const queueWrites = {
   markSeen: ConsoleClient.mutation("Queue.markSeen"),
+  // The plate on a row (M10.2): filed as the person, or drawn again.
+  file: ConsoleClient.mutation("Proposals.file"),
+  redraw: ConsoleClient.mutation("Proposals.redraw"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const
