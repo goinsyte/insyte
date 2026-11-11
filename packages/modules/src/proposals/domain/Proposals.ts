@@ -8,10 +8,26 @@ import { UndoTicket } from "../../shared/domain/Undo.ts"
  * store, the confidence with what it rests on, and what filing does. Times are epoch milliseconds.
  */
 
-/** The commands a plate can carry at M10.2: both are a person's button elsewhere, both have their own Undo. */
+/**
+ * The commands a plate can carry at M10.2, each with its own Undo. Approving a return or a quality check is a person's
+ * button elsewhere. The delay mail and the supplier ticket carry the words the plate showed, so filing sends or opens
+ * exactly what was drawn: the mail waits out the undo window before it leaves (ADR-0023).
+ */
 export const ProposalAction = Schema.Union([
   Schema.TaggedStruct("ApproveReturn", { returnId: Schema.String }),
-  Schema.TaggedStruct("ApproveQualityCheck", { checkId: Schema.String })
+  Schema.TaggedStruct("ApproveQualityCheck", { checkId: Schema.String }),
+  Schema.TaggedStruct("NotifyDelayedOrder", {
+    orderId: Schema.String,
+    subject: Schema.String,
+    paragraphs: Schema.Array(Schema.String)
+  }),
+  Schema.TaggedStruct("CreateSupplierTicket", {
+    /** `null`: no supplier is linked to the product, and the ticket says so. */
+    supplierId: Schema.NullOr(Schema.String),
+    productId: Schema.String,
+    title: Schema.String,
+    description: Schema.String
+  })
 ])
 export type ProposalAction = typeof ProposalAction.Type
 
@@ -22,7 +38,8 @@ export const ProposalState = Schema.Literals([
   "execution_failed",
   "discarded",
   "superseded",
-  "reverted"
+  "reverted",
+  "expired"
 ])
 export type ProposalState = typeof ProposalState.Type
 
@@ -74,7 +91,9 @@ export const ProposalView = Schema.Struct({
   revisions: Schema.Int,
   plate: PlateRevision,
   filedAt: Schema.NullOr(Schema.Finite),
-  executedAt: Schema.NullOr(Schema.Finite)
+  executedAt: Schema.NullOr(Schema.Finite),
+  /** Why it did not go (`execution_failed`): the plate offers "Opnieuw proberen". */
+  executionError: Schema.NullOr(Schema.String)
 })
 export type ProposalView = typeof ProposalView.Type
 

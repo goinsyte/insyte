@@ -16,7 +16,8 @@ export const MailKind = Schema.Literals([
   "return.approved",
   "return.rejected",
   "return.label",
-  "return.resolved"
+  "return.resolved",
+  "order.delayed"
 ])
 export type MailKind = typeof MailKind.Type
 
@@ -92,6 +93,18 @@ export interface ReturnMailFacts {
     | undefined
 }
 
+/**
+ * A shopper's order is late (M10.2), in the store's name: the words were written when the plate was drawn and filed
+ * (`orders/domain/DelayMail.ts`), so the template sets them as they are, with the order's number and lines beside.
+ */
+export interface OrderDelayFacts {
+  readonly shop: string
+  readonly number: string
+  readonly subject: string
+  readonly paragraphs: ReadonlyArray<string>
+  readonly items: ReadonlyArray<{ readonly title: string; readonly variant: string | null; readonly qty: number }>
+}
+
 export interface Mail {
   readonly kind: MailKind
   readonly to: string
@@ -102,6 +115,8 @@ export interface Mail {
   readonly supplierOrder?: SupplierOrderFacts | undefined
   /** `return.*` only. */
   readonly returnMail?: ReturnMailFacts | undefined
+  /** `order.delayed` only. */
+  readonly orderDelay?: OrderDelayFacts | undefined
   /** The name the mail is sent in (a store's, to its shopper); absent, Insyte's own. */
   readonly sender?: string | undefined
   /** What makes two mails of one kind to one address different (a leg's id), for the sender's idempotency. */
