@@ -78,6 +78,7 @@
         "!src/app/settings/form.tsx",
         "!src/app/settings/profile-screen.tsx",
         "!src/app/settings/regional-screen.tsx",
+        "!src/app/settings/security-screen.tsx",
         "!src/app/lib/home/day.ts",
         "!src/app/lib/home/kinds.ts",
       ],
