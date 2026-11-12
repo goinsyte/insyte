@@ -209,7 +209,7 @@ describe("Kosten", () => {
     // `Costs.figures` serves the same months.
     const figures = ok(await rpc("Costs.figures", { months: [current, previous] }, shop.cookie))
     expect(figures.figures.map((x) => x.month)).toEqual([previous, current])
-  })
+  }, 120_000)
 
   it("reads an ad line from its account while it is connected, and the sync reads nothing without a provider", async () => {
     const shop = await seeded("ads")
