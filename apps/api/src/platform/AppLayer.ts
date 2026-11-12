@@ -3,6 +3,7 @@ import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
 import { PwnedPasswords } from "@insyte/integrations-better-auth/PwnedPasswords"
 import { PostHogAnalytics } from "@insyte/integrations-posthog/PostHog"
 import { ResendMailer } from "@insyte/integrations-resend/ResendMailer"
+import { CoursesService } from "@insyte/modules/courses/Courses"
 import { QualityLinkService } from "@insyte/modules/quality/Quality"
 import { PortalService } from "@insyte/modules/returns/Portal"
 import type { Mailer } from "@insyte/modules/shared/domain/Mailer"
@@ -13,6 +14,7 @@ import { Config, Effect, Layer, Option, Scheduler } from "effect"
 import { FetchHttpClient, type HttpClient, HttpServer } from "effect/http"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
 import { ConnectRoutes, KlaviyoConnectRoutes, SlackConnectRoutes } from "../transports/http/ConnectRoutes.ts"
+import { CourseMediaRoutes } from "../transports/http/CourseMediaRoutes.ts"
 import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { FileRoutes } from "../transports/http/FileRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
@@ -81,6 +83,7 @@ const Transports = Layer.mergeAll(
   FileRoutes,
   PortalRoutes,
   QualityMediaRoutes,
+  CourseMediaRoutes,
   PublicApiRoutes,
   McpRoutes,
   RequestContext,
@@ -122,7 +125,8 @@ const PwnedPasswordsLive = Layer.unwrap(
 
 export const AppLayer = Transports.pipe(
   // The RPC handlers; the public API's and the MCP server's way in, and what a key reads (M19.2, M19.3).
-  // …and the returns portal's and the quality link's, for their upload routes (M9.3, M9.4).
+  // …and the returns portal's and the quality link's, for their upload routes (M9.3, M9.4); courses' for theirs and
+  // the file route (M17).
   Layer.provideMerge(
     Layer.mergeAll(
       RpcContext,
@@ -130,7 +134,8 @@ export const AppLayer = Transports.pipe(
       Resources.layer,
       StoresService.layer,
       PortalService.layer,
-      QualityLinkService.layer
+      QualityLinkService.layer,
+      CoursesService.layer
     )
   ),
   Layer.provideMerge(WithDbLive),

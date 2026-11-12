@@ -9,7 +9,6 @@ import {
   DropdownMenuTrigger
 } from "../../components/dropdown-menu"
 import { Popover, PopoverContent, PopoverTrigger } from "../../components/popover"
-import { suppliers } from "../../data-source"
 import {
   Archive,
   ArrowDown,
@@ -26,24 +25,19 @@ import {
   Trash2,
   Upload
 } from "../../icons"
-import { Gate } from "../access/gate"
-import { useMyName, useNow } from "../ask/agent-parts"
 import { EmptyPage } from "../common/empty-page"
 import { EmptyState } from "../common/empty-state"
 import { Field, FormDialog, TextField } from "../common/form-dialog"
 import { PageGuide } from "../common/page-guide"
 import { PageHeader } from "../common/page-header"
-import { ME } from "../lib/assignees"
-import { audienceLine, blockers, type Course, dayLabel, minutesOf, reaches, shareDone, stateOf } from "../lib/courses"
+import { useNow } from "../hooks/use-now"
+import { audienceLine, blockers, type Course, dayLabel, minutesOf, shareDone, stateOf } from "../lib/courses"
 import { formatRelative } from "../lib/format"
-import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
-import { useGate } from "../stores/access-store"
-import { useCourses } from "../stores/courses-store"
 import { useOnCreate } from "../stores/create-intent"
-import { useWorkspace } from "../stores/workspace-store"
 import { PersonDisc, Segmented } from "../team/bits"
 import { CourseBadge, CourseStatusPill, Meter, PersonStatePill, plural } from "./parts"
+import { SourceGate, useCoursesSource } from "./source"
 
 export type CoursesSearch = { view?: string }
 
@@ -67,11 +61,10 @@ const GUIDE = [
  */
 export function CoursesPage() {
   const { view } = useSearch({ strict: false }) as CoursesSearch
-  const courses = useCourses((s) => s.courses)
+  const { courses, questions, manage } = useCoursesSource()
   const [creating, setCreating] = useState<{ chapterId?: string; moduleId?: string } | null>(null)
   const [chapterDialog, setChapterDialog] = useState(false)
   useOnCreate("course", useCallback(() => setCreating({}), []))
-  const manage = useGate("team", 2)
   const navigate = useNavigate()
 
   const body: ReactNode = view === "mine" ?
@@ -96,7 +89,7 @@ export function CoursesPage() {
   }[view ?? ""] ?? "Cursussen"
   const live = courses.filter((c) => c.status === "live").length
   const drafts = courses.filter((c) => c.status === "draft").length
-  const open = useCourses((s) => s.questions.filter((q) => !q.answer).length)
+  const open = questions.filter((q) => !q.answer).length
 
   if (courses.length === 0 && view !== "mine") {
     return (
@@ -142,7 +135,7 @@ export function CoursesPage() {
           }`}
         actions={view === "mine" ? null : (
           <>
-            <Gate perm="team" arg={2}>
+            <SourceGate gate={manage}>
               <button
                 type="button"
                 onClick={() => setChapterDialog(true)}
@@ -151,8 +144,8 @@ export function CoursesPage() {
                 <Plus className="size-3.5" strokeWidth={1.75} />
                 Hoofdstuk
               </button>
-            </Gate>
-            <Gate perm="team" arg={2}>
+            </SourceGate>
+            <SourceGate gate={manage}>
               <button
                 type="button"
                 onClick={() => setCreating({})}
@@ -161,7 +154,7 @@ export function CoursesPage() {
                 <Plus className="size-3.5" strokeWidth={2} />
                 Nieuwe cursus
               </button>
-            </Gate>
+            </SourceGate>
           </>
         )}
       />
@@ -169,7 +162,7 @@ export function CoursesPage() {
       <NewCourseDialog
         value={creating}
         onClose={() => setCreating(null)}
-        onCreated={(c) => void navigate({ to: "/courses/$courseId", params: { courseId: c.id } })}
+        onCreated={(id) => void navigate({ to: "/courses/$courseId", params: { courseId: id } })}
       />
       <ChapterDialog open={chapterDialog} onClose={() => setChapterDialog(false)} />
       <PageGuide id="courses" title="Cursussen" steps={GUIDE} />
@@ -185,10 +178,9 @@ function Catalogue(
     onAdd: (chapterId: string, moduleId: string) => void
   }
 ) {
-  const chapters = useCourses((s) => s.chapters)
-  const courses = useCourses((s) => s.courses)
+  const { chapters, courses, manage: gate } = useCoursesSource()
   const shown = courses.filter((c) => statuses.includes(c.status))
-  const manage = useGate("team", 2).ok
+  const manage = gate.ok
   const full = statuses.includes("live")
 
   if (shown.length === 0) {
@@ -243,7 +235,7 @@ function Catalogue(
                         null}
                     </div>
                     {list.length ?
-                      <CourseRows courses={list} draggable={manage && full} /> :
+                      <CourseRows moduleId={m.id} courses={list} draggable={manage && full} /> :
                       (
                         <button
                           type="button"
@@ -267,15 +259,15 @@ function Catalogue(
   )
 }
 
-function CourseRows({ courses, draggable }: { courses: Course[]; draggable: boolean }) {
-  const order = useCourses((s) => s.orderCourses)
+function CourseRows({ moduleId, courses, draggable }: { moduleId: string; courses: Course[]; draggable: boolean }) {
+  const { orderCourses } = useCoursesSource().commands
   const ids = courses.map((c) => c.id)
   return (
     <Reorder.Group
       as="ul"
       axis="y"
       values={ids}
-      onReorder={(next: string[]) => order(next)}
+      onReorder={(next: string[]) => orderCourses(moduleId, next)}
       className="flex flex-col overflow-hidden rounded-xl bg-paper shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--ink)_9%,transparent)]"
     >
       {courses.map((c) => <CourseRow key={c.id} c={c} draggable={draggable} />)}
@@ -286,10 +278,9 @@ function CourseRows({ courses, draggable }: { courses: Course[]; draggable: bool
 function CourseRow({ c, draggable }: { c: Course; draggable: boolean }) {
   const navigate = useNavigate()
   const controls = useDragControls()
-  const members = useWorkspace((s) => s.members)
-  const progress = useCourses((s) => s.progress)
+  const { team, progress, roleLabel } = useCoursesSource()
   const now = useNow(60_000)
-  const reached = members.filter((m) => m.status === "active" && reaches(c, m))
+  const reached = team.filter((m) => m.reach(c))
   const done =
     reached.filter((m) => stateOf(c, progress.find((p) => p.courseId === c.id && p.memberId === m.id), now) === "done")
       .length
@@ -323,7 +314,8 @@ function CourseRow({ c, draggable }: { c: Course; draggable: boolean }) {
       <span className="flex min-w-0 flex-col">
         <span className="truncate font-medium text-base text-ink">{c.title}</span>
         <span className="truncate text-ink-3 text-sm">
-          {plural(c.blocks.length, "blok", "blokken")} · {minutesOf(c)} min · {audienceLine(c.audience, c.suppliers)}
+          {plural(c.blocks.length, "blok", "blokken")} · {minutesOf(c)} min ·{" "}
+          {audienceLine(c.audience, c.suppliers, roleLabel)}
         </span>
       </span>
       <span className="hidden md:block">
@@ -363,9 +355,9 @@ function CourseRow({ c, draggable }: { c: Course; draggable: boolean }) {
 
 export function CourseMenu({ c, onRemoved }: { c: Course; onRemoved?: () => void }) {
   const navigate = useNavigate()
-  const me = useMyName()
-  const manage = useGate("team", 2).ok
-  const store = useCourses.getState
+  const source = useCoursesSource()
+  const manage = source.manage.ok
+  const { duplicate, setStatus, remove } = source.commands
   const ready = blockers(c).length === 0
   return (
     <DropdownMenu>
@@ -409,16 +401,11 @@ export function CourseMenu({ c, onRemoved }: { c: Course; onRemoved?: () => void
                 Bewerken
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => {
-                  const copy = store().duplicate(c.id, me)
-                  if (copy) {
-                    undoable(
-                      `“${copy.title}” gemaakt`,
-                      store().remove([copy.id]),
-                      "Als concept, met dezelfde blokken."
-                    )
-                  }
-                }}
+                onClick={() =>
+                  duplicate(
+                    c.id,
+                    (title) => ({ label: `“${title}” gemaakt`, detail: "Als concept, met dezelfde blokken." })
+                  )}
               >
                 <Copy className="size-3.5" strokeWidth={1.75} />
                 Dupliceren
@@ -429,11 +416,10 @@ export function CourseMenu({ c, onRemoved }: { c: Course; onRemoved?: () => void
                   <DropdownMenuItem
                     disabled={!ready}
                     onClick={() =>
-                      undoable(
-                        `“${c.title}” gepubliceerd`,
-                        store().setStatus([c.id], "live"),
-                        "Het team ziet hem nu onder Mijn cursussen."
-                      )}
+                      setStatus(c.id, "live", {
+                        label: `“${c.title}” gepubliceerd`,
+                        detail: "Het team ziet hem nu onder Mijn cursussen."
+                      })}
                   >
                     <Upload className="size-3.5" strokeWidth={1.75} />
                     {ready ? "Publiceren" : "Nog niet klaar om te publiceren"}
@@ -444,11 +430,10 @@ export function CourseMenu({ c, onRemoved }: { c: Course; onRemoved?: () => void
                 (
                   <DropdownMenuItem
                     onClick={() =>
-                      undoable(
-                        `“${c.title}” terug naar concept`,
-                        store().setStatus([c.id], "draft"),
-                        "Het team ziet hem niet meer. De voortgang blijft bewaard."
-                      )}
+                      setStatus(c.id, "draft", {
+                        label: `“${c.title}” terug naar concept`,
+                        detail: "Het team ziet hem niet meer. De voortgang blijft bewaard."
+                      })}
                   >
                     <RotateCcw className="size-3.5" strokeWidth={1.75} />
                     Publicatie intrekken
@@ -458,7 +443,7 @@ export function CourseMenu({ c, onRemoved }: { c: Course; onRemoved?: () => void
               {c.status === "archived" ?
                 (
                   <DropdownMenuItem
-                    onClick={() => undoable(`“${c.title}” teruggezet als concept`, store().setStatus([c.id], "draft"))}
+                    onClick={() => setStatus(c.id, "draft", { label: `“${c.title}” teruggezet als concept` })}
                   >
                     <RotateCcw className="size-3.5" strokeWidth={1.75} />
                     Terugzetten
@@ -467,11 +452,10 @@ export function CourseMenu({ c, onRemoved }: { c: Course; onRemoved?: () => void
                 (
                   <DropdownMenuItem
                     onClick={() =>
-                      undoable(
-                        `“${c.title}” gearchiveerd`,
-                        store().setStatus([c.id], "archived"),
-                        "De voortgang van het team blijft bewaard."
-                      )}
+                      setStatus(c.id, "archived", {
+                        label: `“${c.title}” gearchiveerd`,
+                        detail: "De voortgang van het team blijft bewaard."
+                      })}
                   >
                     <Archive className="size-3.5" strokeWidth={1.75} />
                     Archiveren
@@ -479,8 +463,9 @@ export function CourseMenu({ c, onRemoved }: { c: Course; onRemoved?: () => void
                 )}
               <DropdownMenuItem
                 variant="destructive"
+                disabled={!source.admin.ok}
                 onClick={() => {
-                  undoable(`“${c.title}” verwijderd`, store().remove([c.id]))
+                  remove(c.id, { label: `“${c.title}” verwijderd` })
                   onRemoved?.()
                 }}
               >
@@ -496,16 +481,17 @@ export function CourseMenu({ c, onRemoved }: { c: Course; onRemoved?: () => void
 }
 
 function ChapterMenu({ id, first, last }: { id: string; first: boolean; last: boolean }) {
-  const ch = useCourses((s) => s.chapters.find((c) => c.id === id))
+  const { chapters, commands } = useCoursesSource()
+  const ch = chapters.find((c) => c.id === id)
   const [dialog, setDialog] = useState<"rename" | "module" | null>(null)
   const [name, setName] = useState("")
   if (!ch) return null
   const move = (d: -1 | 1) => {
-    const ids = useCourses.getState().chapters.map((c) => c.id)
+    const ids = chapters.map((c) => c.id)
     const i = ids.indexOf(id)
     const j = i + d
     ;[ids[i], ids[j]] = [ids[j]!, ids[i]!]
-    useCourses.getState().orderChapters(ids)
+    commands.orderChapters(ids)
   }
   return (
     <>
@@ -557,8 +543,8 @@ function ChapterMenu({ id, first, last }: { id: string; first: boolean; last: bo
         disabled={!name.trim()}
         width={440}
         onSubmit={() => {
-          if (dialog === "rename") undoable("Hoofdstuk hernoemd", useCourses.getState().renameChapter(id, name.trim()))
-          else undoable(`Module “${name.trim()}” toegevoegd`, useCourses.getState().addModule(id, name.trim()).undo)
+          if (dialog === "rename") commands.renameChapter(id, name.trim(), { label: "Hoofdstuk hernoemd" })
+          else commands.addModule(id, name.trim(), { label: `Module “${name.trim()}” toegevoegd` })
           setDialog(null)
         }}
       >
@@ -578,19 +564,16 @@ function ChapterMenu({ id, first, last }: { id: string; first: boolean; last: bo
 
 function Aside() {
   const navigate = useNavigate()
-  const allQuestions = useCourses((s) => s.questions)
+  const { questions: allQuestions, courses, progress, team, nameOf } = useCoursesSource()
   const questions = useMemo(() => allQuestions.filter((q) => !q.answer), [allQuestions])
-  const courses = useCourses((s) => s.courses)
-  const progress = useCourses((s) => s.progress)
-  const members = useWorkspace((s) => s.members)
   const now = useNow(60_000)
   const behind = useMemo(
     () =>
       courses
         .filter((c) => c.status === "live" && c.deadline)
         .flatMap((c) =>
-          members
-            .filter((m) => m.status === "active" && reaches(c, m))
+          team
+            .filter((m) => m.reach(c))
             .map((m) => ({
               m,
               c,
@@ -602,7 +585,7 @@ function Aside() {
             )
         )
         .slice(0, 6),
-    [courses, members, progress, now]
+    [courses, team, progress, now]
   )
   return (
     <aside className="flex flex-col gap-6 xl:sticky xl:top-4 xl:self-start">
@@ -621,7 +604,7 @@ function Aside() {
           (
             <ul className="flex flex-col gap-1">
               {questions.slice(0, 3).map((q) => {
-                const m = members.find((x) => x.id === q.memberId)
+                const name = nameOf(q.memberId)
                 const c = courses.find((x) => x.id === q.courseId)
                 return (
                   <li key={q.id}>
@@ -630,11 +613,11 @@ function Aside() {
                       onClick={() => void navigate({ to: "/courses", search: { view: "questions" } as never })}
                       className="flex w-full gap-2.5 rounded-lg bg-paper px-3 py-2.5 text-left transition-colors hover:bg-arc-tint/50"
                     >
-                      <PersonDisc seed={q.memberId} name={m?.name ?? "?"} size={24} />
+                      <PersonDisc seed={q.memberId} name={name ?? "?"} size={24} />
                       <span className="flex min-w-0 flex-col gap-0.5">
                         <span className="line-clamp-2 text-ink text-sm">{q.text}</span>
                         <span className="truncate text-ink-3 text-xs">
-                          {m?.name.split(" ")[0]} · {c?.title} · {formatRelative(q.at)}
+                          {name?.split(" ")[0]} · {c?.title} · {formatRelative(q.at)}
                         </span>
                       </span>
                     </button>
@@ -669,7 +652,7 @@ function Aside() {
                     </span>
                   </span>
                   {state === "late" ? <PersonStatePill state="late" /> : null}
-                  <RemindButton name={m.name} course={c.title} />
+                  <RemindButton name={m.name} course={c} learnerId={m.id} />
                 </li>
               ))}
             </ul>
@@ -680,18 +663,21 @@ function Aside() {
   )
 }
 
-function RemindButton({ name, course }: { name: string; course: string }) {
+function RemindButton({ name, course, learnerId }: { name: string; course: Course; learnerId: string }) {
   const [sent, setSent] = useState(false)
+  const { remind } = useCoursesSource().commands
   return (
     <button
       type="button"
-      aria-label={`${name} herinneren aan ${course}`}
+      aria-label={`${name} herinneren aan ${course.title}`}
       title={sent ? "Herinnering gestuurd" : "Herinneren"}
       disabled={sent}
       onClick={() => {
         setSent(true)
-        undoable(`Herinnering naar ${name.split(" ")[0]}`, () =>
-          setSent(false), `Over “${course}”, in de app en per mail.`)
+        remind(course.id, learnerId, {
+          label: `Herinnering naar ${name.split(" ")[0]}`,
+          detail: `Over “${course.title}”, in de app en per mail.`
+        }, () => setSent(false))
       }}
       className="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-ink/6 hover:text-ink disabled:text-signal-green"
     >
@@ -704,13 +690,12 @@ function RemindButton({ name, course }: { name: string; course: string }) {
 
 function MyCourses() {
   const navigate = useNavigate()
-  const me = useWorkspace((s) => s.members.find((m) => m.id === ME))
-  const courses = useCourses((s) => s.courses)
-  const progress = useCourses((s) => s.progress)
+  const { me, team, courses, progress } = useCoursesSource()
   const now = useNow(60_000)
-  const mine = useMemo(() => (me ? courses.filter((c) => reaches(c, me)) : []), [courses, me])
+  const self = team.find((m) => m.id === me.id)
+  const mine = useMemo(() => (self ? courses.filter((c) => self.reach(c)) : []), [courses, self])
   const rows = mine.map((c) => {
-    const p = progress.find((x) => x.courseId === c.id && x.memberId === ME)
+    const p = progress.find((x) => x.courseId === c.id && x.memberId === me.id)
     return { c, p, state: stateOf(c, p, now) }
   })
   const rank = { late: 0, busy: 1, todo: 2, failed: 3, done: 4 } as const
@@ -847,29 +832,10 @@ function MyCourses() {
 /* ── the team ─────────────────────────────────────────────────────────────────────────────── */
 
 function TeamMatrix() {
-  const allCourses = useCourses((s) => s.courses)
+  const { courses: allCourses, progress, team, partners } = useCoursesSource()
   const courses = useMemo(() => allCourses.filter((c) => c.status === "live"), [allCourses])
-  const progress = useCourses((s) => s.progress)
-  const allMembers = useWorkspace((s) => s.members)
   /* The team, then any supplier a live course is open to: their progress is kept under their own id. */
-  const members = useMemo(() => {
-    const team = allMembers.filter((m) => m.status === "active").map((m) => ({
-      id: m.id,
-      name: m.name,
-      role: m.role,
-      reach: (c: Course) => reaches(c, m)
-    }))
-    const open = (c: Course, id: string) =>
-      c.status === "live" &&
-      (c.suppliers.kind === "all" || (c.suppliers.kind === "some" && c.suppliers.ids.includes(id)))
-    const partners = suppliers.filter((sp) => allCourses.some((c) => open(c, sp.id))).map((sp) => ({
-      id: sp.id,
-      name: sp.name,
-      role: "Leverancier",
-      reach: (c: Course) => open(c, sp.id)
-    }))
-    return [...team, ...partners]
-  }, [allMembers, allCourses])
+  const members = useMemo(() => [...team, ...partners], [team, partners])
   const now = useNow(60_000)
   if (courses.length === 0) {
     return (
@@ -979,7 +945,8 @@ function TeamMatrix() {
 }
 
 function ProgressCell({ c, memberId, name }: { c: Course; memberId: string; name: string }) {
-  const p = useCourses((s) => s.progress.find((x) => x.courseId === c.id && x.memberId === memberId))
+  const { progress, admin, commands } = useCoursesSource()
+  const p = progress.find((x) => x.courseId === c.id && x.memberId === memberId)
   const now = useNow(60_000)
   const state = stateOf(c, p, now)
   const extra = state === "busy"
@@ -1025,24 +992,23 @@ function ProgressCell({ c, memberId, name }: { c: Course; memberId: string; name
           </dl>
         </div>
         <div className="flex items-center gap-1 bg-mist px-2 py-2">
-          {state !== "done" ? <RemindButtonWide name={name} course={c.title} /> : null}
+          {state !== "done" ? <RemindButtonWide name={name} course={c} learnerId={memberId} /> : null}
           {p ?
             (
-              <Gate perm="team" arg={2}>
+              <SourceGate gate={admin}>
                 <button
                   type="button"
                   onClick={() =>
-                    undoable(
-                      `Voortgang van ${name.split(" ")[0]} gewist`,
-                      useCourses.getState().reset(c.id, memberId),
-                      "Hij of zij begint opnieuw bij het eerste blok."
-                    )}
+                    commands.reset(c.id, memberId, {
+                      label: `Voortgang van ${name.split(" ")[0]} gewist`,
+                      detail: "Hij of zij begint opnieuw bij het eerste blok."
+                    })}
                   className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-ink-2 text-sm transition-colors hover:bg-ink/6 hover:text-ink"
                 >
                   <RotateCcw className="size-3.5" strokeWidth={1.75} />
                   Opnieuw laten doen
                 </button>
-              </Gate>
+              </SourceGate>
             ) :
             null}
         </div>
@@ -1051,16 +1017,19 @@ function ProgressCell({ c, memberId, name }: { c: Course; memberId: string; name
   )
 }
 
-function RemindButtonWide({ name, course }: { name: string; course: string }) {
+function RemindButtonWide({ name, course, learnerId }: { name: string; course: Course; learnerId: string }) {
   const [sent, setSent] = useState(false)
+  const { remind } = useCoursesSource().commands
   return (
     <button
       type="button"
       disabled={sent}
       onClick={() => {
         setSent(true)
-        undoable(`Herinnering naar ${name.split(" ")[0]}`, () =>
-          setSent(false), `Over “${course}”, in de app en per mail.`)
+        remind(course.id, learnerId, {
+          label: `Herinnering naar ${name.split(" ")[0]}`,
+          detail: `Over “${course.title}”, in de app en per mail.`
+        }, () => setSent(false))
       }}
       className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-ink-2 text-sm transition-colors hover:bg-ink/6 hover:text-ink disabled:text-ink-3"
     >
@@ -1075,11 +1044,8 @@ function RemindButtonWide({ name, course }: { name: string; course: string }) {
 function Questions() {
   const navigate = useNavigate()
   const [tab, setTab] = useState<"open" | "answered">("open")
-  const questions = useCourses((s) => s.questions)
-  const courses = useCourses((s) => s.courses)
-  const members = useWorkspace((s) => s.members)
-  const me = useMyName()
-  const manage = useGate("team", 2).ok
+  const { questions, courses, nameOf, manage: gate, commands } = useCoursesSource()
+  const manage = gate.ok
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const list = questions.filter((q) => (tab === "open" ? !q.answer : !!q.answer))
   return (
@@ -1106,7 +1072,7 @@ function Questions() {
         (
           <ul className="flex flex-col gap-3">
             {list.map((q) => {
-              const m = members.find((x) => x.id === q.memberId)
+              const m = nameOf(q.memberId)
               const c = courses.find((x) => x.id === q.courseId)
               const block = c?.blocks.find((b) => b.id === q.blockId)
               const blockTitle = block ? (block.kind === "quiz" ? block.question : block.title) : undefined
@@ -1117,10 +1083,10 @@ function Questions() {
                   className="flex flex-col gap-3 rounded-xl bg-paper p-4 shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--ink)_9%,transparent)]"
                 >
                   <div className="flex items-start gap-3">
-                    <PersonDisc seed={q.memberId} name={m?.name ?? "?"} size={30} />
+                    <PersonDisc seed={q.memberId} name={m ?? "?"} size={30} />
                     <div className="flex min-w-0 flex-1 flex-col gap-1">
                       <span className="text-ink-3 text-sm">
-                        <span className="font-medium text-ink">{m?.name ?? "Iemand"}</span> bij{" "}
+                        <span className="font-medium text-ink">{m ?? "Iemand"}</span> bij{" "}
                         <button
                           type="button"
                           onClick={() =>
@@ -1153,7 +1119,7 @@ function Questions() {
                           value={draft}
                           onChange={(e) => setDrafts((d) => ({ ...d, [q.id]: e.target.value }))}
                           rows={2}
-                          aria-label={`Antwoord aan ${m?.name ?? "teamlid"}`}
+                          aria-label={`Antwoord aan ${m ?? "teamlid"}`}
                           placeholder="Je antwoord. Het blijft bij het blok staan voor wie de cursus later volgt."
                           className="field w-full resize-y rounded-md px-3 py-2 text-base text-ink outline-none placeholder:text-ink-3 focus:bg-paper"
                         />
@@ -1162,10 +1128,9 @@ function Questions() {
                             type="button"
                             disabled={!draft.trim()}
                             onClick={() => {
-                              undoable(
-                                `Antwoord naar ${m?.name.split(" ")[0] ?? "teamlid"}`,
-                                useCourses.getState().answer(q.id, draft.trim(), me)
-                              )
+                              commands.answer(q.id, draft.trim(), {
+                                label: `Antwoord naar ${m?.split(" ")[0] ?? "teamlid"}`
+                              })
                               setDrafts((d) => ({ ...d, [q.id]: "" }))
                             }}
                             className="flex h-8 items-center rounded-md bg-abyss px-3 font-medium text-mesh-ink text-sm shadow-primary transition-colors hover:bg-abyss-2 disabled:opacity-45"
@@ -1191,11 +1156,10 @@ function NewCourseDialog(
   { value, onClose, onCreated }: {
     value: { chapterId?: string; moduleId?: string } | null
     onClose: () => void
-    onCreated?: (c: Course) => void
+    onCreated?: (id: string) => void
   }
 ) {
-  const chapters = useCourses((s) => s.chapters)
-  const me = useMyName()
+  const { chapters, commands } = useCoursesSource()
   const navigate = useNavigate()
   const [title, setTitle] = useState("")
   const [chapterId, setChapterId] = useState("")
@@ -1225,20 +1189,19 @@ function NewCourseDialog(
       primaryLabel="Cursus maken"
       disabled={!title.trim() || (needsChapter ? !newChapter.trim() : !ch || !mod)}
       width={480}
-      onSubmit={() => {
-        const store = useCourses.getState()
-        let cid: string | undefined = ch?.id
-        let mid: string | undefined = mod?.id
-        if (needsChapter) {
-          cid = store.addChapter(newChapter.trim()).id
-          mid = useCourses.getState().chapters.find((c) => c.id === cid)?.modules[0]?.id
-        }
-        if (!cid || !mid) return
-        const c = store.create({ title: title.trim(), chapterId: cid, moduleId: mid }, me)
+      onSubmit={async () => {
+        const draft = needsChapter
+          ? { title: title.trim(), newChapter: newChapter.trim() }
+          : ch && mod
+          ? { title: title.trim(), chapterId: ch.id, moduleId: mod.id }
+          : undefined
+        if (!draft) return
+        const id = await commands.create(draft)
+        if (!id) return
         reset()
         onClose()
-        if (onCreated) onCreated(c)
-        else void navigate({ to: "/courses/$courseId", params: { courseId: c.id } })
+        if (onCreated) onCreated(id)
+        else void navigate({ to: "/courses/$courseId", params: { courseId: id } })
       }}
     >
       <Field label="Naam">
@@ -1288,6 +1251,7 @@ function NewCourseDialog(
 }
 
 function ChapterDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { addChapter } = useCoursesSource().commands
   const [name, setName] = useState("")
   return (
     <FormDialog
@@ -1304,7 +1268,7 @@ function ChapterDialog({ open, onClose }: { open: boolean; onClose: () => void }
       disabled={!name.trim()}
       width={440}
       onSubmit={() => {
-        undoable(`Hoofdstuk “${name.trim()}” toegevoegd`, useCourses.getState().addChapter(name.trim()).undo)
+        addChapter(name.trim(), { label: `Hoofdstuk “${name.trim()}” toegevoegd` })
         setName("")
         onClose()
       }}

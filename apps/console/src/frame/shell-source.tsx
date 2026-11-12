@@ -2,6 +2,7 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { Frame } from "@insyte/api/rpc/ShellRpcs"
 import type { AreaId, Level, RoleDef, SpecialId } from "@insyte/domain/Permissions"
 import type { ChatList } from "@insyte/modules/chats/domain/Chats"
+import type { CourseCatalogue } from "@insyte/modules/courses/domain/Courses"
 import type { MailboxView } from "@insyte/modules/inbox/domain/Inbox"
 import { GateRoleProvider } from "@insyte/ui/app/access/gate-role"
 import { panelForPath } from "@insyte/ui/app/lib/app-shell-config"
@@ -20,7 +21,9 @@ import { Option } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { type ReactNode, useMemo, useRef, useState } from "react"
 import { conversationOf } from "../chats/chat-of.tsx"
+import { courseOf, questionOf } from "../courses/courses-source.tsx"
 import { chatsAtom } from "../data/chats.ts"
+import { coursesAtom } from "../data/courses.ts"
 import { FRAME, frameWrites, inboxAtom, notePrefsAtom, NOTES, presenceAtom, VIEWS, viewsAtom } from "../data/frame.ts"
 import { inboxCountsAtom, mailboxesAtom } from "../data/inbox.ts"
 import { ticketCountsAtom } from "../data/tickets.ts"
@@ -84,6 +87,7 @@ const NOT_YET: Record<string, string> = {
 
 const NO_COUNTS = Atom.make(AsyncResult.initial<Readonly<Record<string, number>>, never>())
 const NO_CHATS = Atom.make(AsyncResult.initial<ChatList, never>())
+const NO_COURSES = Atom.make(AsyncResult.initial<CourseCatalogue, never>())
 const NO_MAILBOXES = Atom.make(AsyncResult.initial<ReadonlyArray<MailboxView>, never>())
 
 /** What the console makes from the panel's button and the top bar's + menu. */
@@ -101,6 +105,13 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   // The chats panel lists the conversations and their unread counts, on the chats page only (M11 step 4).
   const onChats = useRouterState({ select: (s) => s.location.pathname.startsWith("/chats") })
   const chats = value(useAtomValue(onChats ? chatsAtom : NO_CHATS))
+  // The courses panel counts the drafts, the archive and the open questions, on the courses pages only (M17 step 4).
+  const onCourses = useRouterState({ select: (s) => s.location.pathname.startsWith("/courses") })
+  const catalogue = value(useAtomValue(onCourses ? coursesAtom : NO_COURSES))
+  const panelCourses = useMemo(() => ({
+    courses: catalogue?.courses.map(courseOf) ?? [],
+    questions: catalogue?.questions.map(questionOf) ?? []
+  }), [catalogue])
   const conversations = useMemo<Array<Conversation>>(() => chats?.conversations.map(conversationOf) ?? [], [chats])
   const chatPins = useMemo(() => chats?.conversations.filter((c) => c.pinned).map((c) => c.id) ?? [], [chats])
   // The inbox panel counts each folder and mailbox from the server, and lists the mailboxes, on the inbox page only
@@ -268,7 +279,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     },
     returns: { records: [] },
     sheets: { sheets: [], folders: [] },
-    courses: { courses: [], questions: [] },
+    courses: panelCourses,
     chat: { pinned: chatPins, created: [] },
     settings: { roles: [roleOf(frame)] },
     loading: { pace: "live", setPace: () => {} },

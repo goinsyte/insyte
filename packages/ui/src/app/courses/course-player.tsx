@@ -2,18 +2,15 @@ import { useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Edit3, Lock, MessageSquare, RotateCcw, X } from "../../icons"
-import { Markdown } from "../ai/article-screen"
 import { EmptyState } from "../common/empty-state"
 import { Field, FormDialog, TextAreaField } from "../common/form-dialog"
+import { Markdown } from "../common/markdown"
 import { PageHeader } from "../common/page-header"
-import { ME } from "../lib/assignees"
 import { type Block, BLOCK_LABEL, type Course, type Progress, quizzesOf, videoHost } from "../lib/courses"
-import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
-import { useCourses } from "../stores/courses-store"
-import { useWorkspace } from "../stores/workspace-store"
 import { VideoFrame } from "./course-editor"
 import { BLOCK_GLYPH, CourseBadge, Meter, plural } from "./parts"
+import { type Checked, useCoursesSource } from "./source"
 
 export type PlayerSearch = { preview?: string; block?: string }
 
@@ -21,10 +18,11 @@ export type PlayerSearch = { preview?: string; block?: string }
 export function CoursePlayerPage() {
   const { courseId } = useParams({ strict: false }) as { courseId?: string }
   const { preview, block } = useSearch({ strict: false }) as PlayerSearch
+  const { me } = useCoursesSource()
   return (
     <CoursePlayer
       courseId={courseId ?? ""}
-      memberId={ME}
+      memberId={me.id}
       preview={preview === "1"}
       startAt={block}
       back={{ label: "Mijn cursussen", to: "/courses", search: { view: "mine" } }}
@@ -52,8 +50,11 @@ export function CoursePlayer(
   }
 ) {
   const navigate = useNavigate()
-  const c = useCourses((s) => s.courses.find((x) => x.id === courseId))
-  const stored = useCourses((s) => s.progress.find((p) => p.courseId === courseId && p.memberId === memberId))
+  const source = useCoursesSource()
+  const c = source.courses.find((x) => x.id === courseId)
+  const stored = source.progress.find((p) => p.courseId === courseId && p.memberId === memberId)
+  // What a checked question says, where the host tells the right answer only once the learner's is in.
+  const [checked, setChecked] = useState<Record<string, Checked>>({})
   const [local, setLocal] = useState<Progress>({
     courseId,
     memberId,
@@ -94,22 +95,26 @@ export function CoursePlayer(
         done: l.done.includes(blockId) ? l.done : [...l.done, blockId],
         answers: answer === undefined ? l.answers : { ...l.answers, [blockId]: answer }
       }))
-    } else useCourses.getState().step(c.id, memberId, blockId, answer)
+    } else {
+      return source.commands.step(c.id, blockId, answer).then((said) => {
+        if (said) setChecked((x) => ({ ...x, [blockId]: said }))
+      })
+    }
   }
-  const finish = () => {
-    let score: number
+  const finish = async () => {
+    let score: number | undefined
     if (preview) {
       const qs = quizzesOf(c)
       score = qs.length
         ? Math.round((qs.filter((q) => local.answers[q.id] === q.correct).length / qs.length) * 100)
         : 100
       setLocal((l) => ({ ...l, finishedAt: new Date().toISOString(), score, attempts: l.attempts + 1 }))
-    } else score = useCourses.getState().finish(c.id, memberId)
-    setResult(score)
+    } else score = await source.commands.finish(c.id)
+    if (score !== undefined) setResult(score)
   }
   const retake = () => {
     if (preview) setLocal((l) => ({ ...l, done: [], answers: {}, finishedAt: undefined }))
-    else useCourses.getState().retake(c.id, memberId)
+    else source.commands.retake(c.id)
     setResult(null)
     setAt(0)
   }
@@ -252,7 +257,7 @@ export function CoursePlayer(
                   (
                     <BlockView
                       key={block.id}
-                      b={block}
+                      b={block.kind === "quiz" && checked[block.id] ? { ...block, ...checked[block.id] } : block}
                       i={at}
                       n={c.blocks.length}
                       answer={p?.answers[block.id]}
@@ -297,9 +302,9 @@ export function CoursePlayer(
                       disabled={!c.blocks.every((b) =>
                         done.has(b.id) || (b.id === block?.id && b.kind !== "quiz" && b.kind !== "video")
                       )}
-                      onClick={() => {
-                        if (block && block.kind !== "quiz") step(block.id)
-                        finish()
+                      onClick={async () => {
+                        if (block && block.kind !== "quiz") await step(block.id)
+                        await finish()
                       }}
                       className="flex h-9 items-center gap-1.5 rounded-lg bg-abyss px-3.5 font-medium text-base text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2 disabled:opacity-45"
                       title={allDone ? undefined : "Rond eerst elk blok af"}
@@ -312,7 +317,7 @@ export function CoursePlayer(
             </div>
           </div>
         )}
-      <AskDialog open={asking} onClose={() => setAsking(false)} c={c} memberId={memberId} blockId={block?.id} />
+      <AskDialog open={asking} onClose={() => setAsking(false)} c={c} blockId={block?.id} />
     </div>
   )
 }
@@ -329,13 +334,12 @@ function BlockView(
   }
 ) {
   const still = useReducedMotion()
-  const questions = useCourses((s) => s.questions)
+  const { questions, nameOf } = useCoursesSource()
   const answers = useMemo(() => questions.filter((q) => q.courseId === courseId && q.blockId === b.id && q.answer), [
     questions,
     courseId,
     b.id
   ])
-  const members = useWorkspace((s) => s.members)
   return (
     <motion.article
       initial={still ? false : { opacity: 0, y: 6 }}
@@ -375,9 +379,7 @@ function BlockView(
               <div key={q.id} className="flex flex-col gap-1 rounded-lg bg-mist px-3.5 py-2.5 text-sm">
                 <span className="text-ink">
                   <span className="text-ink-3">
-                    {members.find((m) =>
-                      m.id === q.memberId
-                    )?.name.split(" ")[0] ?? "Iemand"}:
+                    {nameOf(q.memberId)?.split(" ")[0] ?? "Iemand"}:
                   </span>
                   {q.text}
                 </span>
@@ -553,7 +555,8 @@ function Certificate(
   }
 ) {
   const still = useReducedMotion()
-  const member = useWorkspace((s) => s.members.find((m) => m.id === memberId))
+  const { team, me } = useCoursesSource()
+  const member = team.find((m) => m.id === memberId) ?? (me.id === memberId ? me : undefined)
   const passed = score >= c.passMark || quizzesOf(c).length === 0
   const date = useMemo(
     () =>
@@ -634,16 +637,16 @@ function Certificate(
 }
 
 function AskDialog(
-  { open, onClose, c, memberId, blockId }: {
+  { open, onClose, c, blockId }: {
     open: boolean
     onClose: () => void
     c: Course
-    memberId: string
     blockId?: string
   }
 ) {
   const [text, setText] = useState("")
-  const author = useWorkspace((s) => s.members.find((m) => m.id === c.createdBy)?.name ?? "de beheerder")
+  const { nameOf, commands } = useCoursesSource()
+  const author = nameOf(c.createdBy) ?? "de beheerder"
   const block = c.blocks.find((b) => b.id === blockId)
   return (
     <FormDialog
@@ -662,11 +665,10 @@ function AskDialog(
       disabled={!text.trim()}
       width={480}
       onSubmit={() => {
-        undoable(
-          "Vraag gestuurd",
-          useCourses.getState().ask({ courseId: c.id, memberId, blockId, text: text.trim() }),
-          `Naar ${author}.`
-        )
+        commands.ask({ courseId: c.id, blockId, text: text.trim() }, {
+          label: "Vraag gestuurd",
+          detail: `Naar ${author}.`
+        })
         setText("")
         onClose()
       }}

@@ -10,7 +10,6 @@ import {
   DropdownMenuTrigger
 } from "../../components/dropdown-menu"
 import { Switch } from "../../components/switch"
-import { suppliers } from "../../data-source"
 import {
   ArrowDown,
   ArrowUp,
@@ -29,7 +28,7 @@ import {
   Upload,
   X
 } from "../../icons"
-import { ReadOnlyNotice } from "../access/route-gate"
+import { ReadOnlyNotice } from "../access/read-only-notice"
 import { EmptyState } from "../common/empty-state"
 import { PageHeader } from "../common/page-header"
 import {
@@ -44,19 +43,15 @@ import {
   minutesOf,
   newId,
   quizzesOf,
-  suggestQuestions,
   videoHost
 } from "../lib/courses"
 import { formatRelative } from "../lib/format"
-import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
 import { UnsavedBar } from "../settings/form"
-import { useGate } from "../stores/access-store"
-import { useCourses } from "../stores/courses-store"
-import { useWorkspace } from "../stores/workspace-store"
 import { Segmented } from "../team/bits"
 import { CourseMenu } from "./courses-screen"
 import { BLOCK_GLYPH, CourseBadge, CourseStatusPill, plural } from "./parts"
+import { useCoursesSource } from "./source"
 
 type Quiz = Extract<Block, { kind: "quiz" }>
 
@@ -74,7 +69,7 @@ const SECTIONS = [
  */
 export function CourseEditorPage() {
   const { courseId } = useParams({ strict: false }) as { courseId?: string }
-  const c = useCourses((s) => s.courses.find((x) => x.id === courseId))
+  const c = useCoursesSource().courses.find((x) => x.id === courseId)
   if (!c) {
     return (
       <div className="flex min-w-0 flex-col">
@@ -88,8 +83,7 @@ export function CourseEditorPage() {
 
 function Editor({ saved }: { saved: Course }) {
   const navigate = useNavigate()
-  const gate = useGate("team", 2)
-  const chapters = useCourses((s) => s.chapters)
+  const { manage: gate, chapters, commands, suggest } = useCoursesSource()
   const savedKey = JSON.stringify(saved)
   const [draft, setDraft] = useState<Course>(saved)
   const last = useRef(savedKey)
@@ -108,26 +102,18 @@ function Editor({ saved }: { saved: Course }) {
   const setBlock = (id: string, next: Block) =>
     setDraft((d) => ({ ...d, blocks: d.blocks.map((b) => (b.id === id ? next : b)) }))
 
-  const save = () => {
-    const undo = useCourses.getState().save(saved.id, draft)
-    undoable(
-      `“${draft.title}” opgeslagen`,
-      undo,
-      saved.status === "live"
+  const save = () =>
+    commands.save(saved, draft, {
+      label: `“${draft.title}” opgeslagen`,
+      detail: saved.status === "live"
         ? "Het team ziet de nieuwe versie meteen."
         : "Nog een concept: het team ziet hem pas na publiceren."
-    )
-  }
-  const publish = () => {
-    const store = useCourses.getState()
-    const before = store.courses
-    store.save(saved.id, { ...draft, status: "live", publishedAt: draft.publishedAt ?? new Date().toISOString() })
-    undoable(
-      `“${draft.title}” gepubliceerd`,
-      () => useCourses.setState({ courses: before }),
-      "Het team ziet hem nu onder Mijn cursussen."
-    )
-  }
+    })
+  const publish = () =>
+    commands.publish(saved, draft, {
+      label: `“${draft.title}” gepubliceerd`,
+      detail: "Het team ziet hem nu onder Mijn cursussen."
+    })
 
   /* The outline follows the section being read: the last one whose top has passed a third of the window. */
   useEffect(() => {
@@ -151,7 +137,11 @@ function Editor({ saved }: { saved: Course }) {
     requestAnimationFrame(() => go(`blk-${b.id}`))
   }
   const propose = () => {
-    const qs = suggestQuestions(draft)
+    if (!suggest) {
+      toast("Nog niet beschikbaar", { description: "Vragen laten voorstellen komt met de AI-assistent." })
+      return
+    }
+    const qs = suggest(draft)
     if (qs.length === 0) {
       toast("Geen vragen gevonden", {
         description:
@@ -684,7 +674,9 @@ export function VideoFrame(
 
 function ImageBlock({ b, onChange }: { b: Extract<Block, { kind: "image" }>; onChange: (b: Block) => void }) {
   const input = useRef<HTMLInputElement>(null)
-  const pick = (file: File | undefined) => {
+  const { courseId } = useParams({ strict: false }) as { courseId?: string }
+  const { uploadImage } = useCoursesSource()
+  const pick = async (file: File | undefined) => {
     if (!file) return
     if (!file.type.startsWith("image/")) {
       return void toast("Dat is geen afbeelding", { description: "Kies een PNG, JPG of WebP." })
@@ -692,9 +684,8 @@ function ImageBlock({ b, onChange }: { b: Extract<Block, { kind: "image" }>; onC
     if (file.size > 1_500_000) {
       return void toast("Die afbeelding is te groot", { description: "Kies er een tot 1,5 MB, of verklein hem eerst." })
     }
-    const r = new FileReader()
-    r.onload = () => onChange({ ...b, src: String(r.result) })
-    r.readAsDataURL(file)
+    const src = await uploadImage(courseId ?? "", file)
+    if (src !== undefined) onChange({ ...b, src })
   }
   return (
     <>
@@ -735,7 +726,7 @@ function ImageBlock({ b, onChange }: { b: Extract<Block, { kind: "image" }>; onC
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault()
-              pick(e.dataTransfer.files[0])
+              void pick(e.dataTransfer.files[0])
             }}
             className="hatch flex h-40 flex-col items-center justify-center gap-1 rounded-lg text-ink-3 transition-colors hover:text-ink"
           >
@@ -749,7 +740,7 @@ function ImageBlock({ b, onChange }: { b: Extract<Block, { kind: "image" }>; onC
         type="file"
         accept="image/png,image/jpeg,image/webp"
         className="hidden"
-        onChange={(e) => pick(e.target.files?.[0])}
+        onChange={(e) => void pick(e.target.files?.[0])}
       />
       <input
         value={b.caption}
@@ -974,16 +965,17 @@ function Chips<T extends string>(
   )
 }
 
-const toggle = <T>(xs: ReadonlyArray<T>, x: T) => (xs.includes(x) ? xs.filter((y) => y !== x) : [...xs, x])
+function toggle<T>(xs: ReadonlyArray<T>, x: T) {
+  return xs.includes(x) ? xs.filter((y) => y !== x) : [...xs, x]
+}
 
 function Settings({ draft, set }: { draft: Course; set: (p: Partial<Course>) => void }) {
-  const allMembers = useWorkspace((s) => s.members)
-  const members = useMemo(() => allMembers.filter((m) => m.status === "active"), [allMembers])
+  const { team: members, roles: offered, roleLabel, suppliers } = useCoursesSource()
   const roles = useMemo(
     () => [
-      ...new Set([...allMembers.map((m) => m.role), ...(draft.audience.kind === "some" ? draft.audience.roles : [])])
+      ...new Set([...offered.map((r) => r.id), ...(draft.audience.kind === "some" ? draft.audience.roles : [])])
     ],
-    [allMembers, draft.audience]
+    [offered, draft.audience]
   )
   const a = draft.audience
   const sup = draft.suppliers
@@ -1023,7 +1015,7 @@ function Settings({ draft, set }: { draft: Course; set: (p: Partial<Course>) => 
             <>
               <Chips
                 label="Rollen"
-                items={roles.map((r) => ({ id: r, label: r }))}
+                items={roles.map((r) => ({ id: r, label: roleLabel(r) }))}
                 picked={a.roles}
                 onToggle={(r) => set({ audience: { ...a, roles: toggle(a.roles, r) } })}
               />

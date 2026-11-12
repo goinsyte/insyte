@@ -19,7 +19,10 @@ import { connectionOf } from "./slack.ts"
  * - `ticket.assigned`: who was put on a ticket hears of it, once the undo window has passed and if still on it;
  * - `ticket.mentioned`: who a ticket comment names with `@` hears of it;
  * - `chat.mentioned`: who a chat message names with `@` hears of it, if they are in it and did not mute it;
- * - `quality_check.submitted`: who asked for the check, and whoever handles products, hear the supplier answered.
+ * - `quality_check.submitted`: who asked for the check, and whoever handles products, hear the supplier answered;
+ * - `course.assigned`: who a course was published for, or reminded of it, hears of it while it is live and they have
+ *   not passed it;
+ * - `course.question` / `course.answered`: a course's maker hears of a question on it; the asker of the answer.
  *
  * A member deactivated or removed hears nothing. Who has "Alleen als het mij betreft" on for the kind hears only of
  * what concerns them directly (they were put on it, named in it, asked for it or sent the invitation). The in-app switch
@@ -245,6 +248,65 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             video: check.video
           },
           direct: [check.requestedBy]
+        }
+      }
+      case "course.assigned": {
+        // A course published for teammates, or one reminded of it (M17 step 4): who still has it to do hears of it.
+        const [course] = yield* sql<{ title: string; deadline: string | null }>`
+          select title, to_char(deadline, 'YYYY-MM-DD') as deadline from courses
+          where id = ${event.courseId} and status = 'live' and deleted_at is null`
+        if (course === undefined) return undefined
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m
+          where m.id in ${sql.in([...event.memberIds, ""])} and m.deactivated_at is null and m.removed_at is null
+            and not exists (select 1 from course_progress p join courses c on c.id = p.course_id
+                            where p.course_id = ${event.courseId} and p.principal_kind = 'member'
+                              and p.principal_id = m.id and p.finished_at is not null
+                              and coalesce(p.score, 100) >= c.pass_mark)`
+        const named = recipients.map((r) => r.id).filter((r) => r !== event.by)
+        return {
+          kind: "course.assigned",
+          recipients: named,
+          direct: named,
+          subjectType: "course",
+          subjectId: event.courseId,
+          actor: event.by,
+          data: { title: course.title, deadline: course.deadline, reminder: event.reminder }
+        }
+      }
+      case "course.question":
+      case "course.answered": {
+        // A question on a course (M17 step 4): its maker hears it; the answer goes back to who asked.
+        const [q] = yield* sql<{
+          courseId: string
+          title: string
+          createdBy: string
+          askerKind: string
+          askerId: string
+          text: string
+          answer: string | null
+        }>`
+          select q.course_id, c.title, c.created_by, q.asker_kind, q.asker_id, q.text, q.answer
+          from course_questions q join courses c on c.id = q.course_id
+          where q.id = ${event.questionId} and c.deleted_at is null`
+        if (q === undefined) return undefined
+        if (event.type === "course.answered" && (q.answer === null || q.askerKind !== "member")) return undefined
+        const to = event.type === "course.question" ? q.createdBy : q.askerId
+        const recipients = yield* sql<{ id: string }>`
+          select id from members where id = ${to} and deactivated_at is null and removed_at is null`
+        const named = recipients.map((r) => r.id).filter((r) => r !== event.by)
+        return {
+          kind: event.type,
+          recipients: named,
+          direct: named,
+          subjectType: "course",
+          subjectId: q.courseId,
+          actor: event.by,
+          data: {
+            title: q.title,
+            questionId: event.questionId,
+            comment: (event.type === "course.question" ? q.text : q.answer ?? "").slice(0, 280)
+          }
         }
       }
       default:

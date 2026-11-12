@@ -99,6 +99,9 @@ export type EventKey =
 	| "chat.mention"
 	| "team.invite"
 	| "team.access"
+	| "course.assigned"
+	| "course.question"
+	| "course.answered"
 	| "integration.disconnected"
 	| "integration.sync"
 	| "insyte.proposal"
@@ -148,6 +151,9 @@ export const EVENTS: ReadonlyArray<EventDef> = [
 	{ key: "chat.mention", group: "Team", label: "Vermelding", detail: "Iemand noemt je met @ in een chat of reactie.", primary: true, defaults: ch(true, false, true, true) },
 	{ key: "team.invite", group: "Team", label: "Uitnodigingen", detail: "Geaccepteerd, of bijna verlopen.", primary: false, defaults: ch(true, true, false, false) },
 	{ key: "team.access", group: "Team", label: "Toegangsverzoeken", detail: "Iemand vraagt om meer rechten, of er komt antwoord op een verzoek.", primary: true, defaults: ch(true, false, false, false) },
+	{ key: "course.assigned", group: "Team", label: "Cursus voor jou", detail: "Een cursus staat voor je klaar, of iemand herinnert je eraan.", primary: true, defaults: ch(true, true, false, false) },
+	{ key: "course.question", group: "Team", label: "Vraag bij een cursus", detail: "Iemand stelt een vraag bij een cursus die jij maakte.", primary: true, defaults: ch(true, false, false, false) },
+	{ key: "course.answered", group: "Team", label: "Antwoord op je vraag", detail: "Je vraag bij een cursus is beantwoord.", primary: false, defaults: ch(true, false, false, false) },
 	{ key: "integration.disconnected", group: "Koppelingen", label: "Koppeling verbroken", detail: "Een dienst geeft Insyte geen toegang meer.", primary: true, defaults: ch(true, true, false, false) },
 	{ key: "integration.sync", group: "Koppelingen", label: "Synchronisatie met fouten", detail: "Een sync is klaar, maar sloeg records over.", primary: false, defaults: ch(true, false, false, false) },
 	{ key: "insyte.proposal", group: "Insyte", label: "Voorstel klaar", detail: "Insyte heeft iets getekend dat jij kunt uitvoeren of negeren.", primary: true, defaults: ch(true, false, true, false) },

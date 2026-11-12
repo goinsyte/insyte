@@ -85,6 +85,9 @@
         "!src/app/lib/home/kinds.ts",
         "!src/app/chats/**",
         "!src/app/inbox/**",
+        "!src/app/courses/**",
+        "!src/app/lib/courses.ts",
+        "!src/app/stores/courses-store.ts",
       ],
     },
     "apps/console": {

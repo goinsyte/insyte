@@ -1,14 +1,14 @@
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useMemo } from "react"
 import { Play } from "../../icons"
-import { useNow } from "../ask/agent-parts"
 import { EmptyState } from "../common/empty-state"
 import { PageHeader } from "../common/page-header"
+import { useNow } from "../hooks/use-now"
 import { type Course, dayLabel, minutesOf, shareDone, stateOf } from "../lib/courses"
 import { ME_SUPPLIER } from "../lib/supplier-work"
-import { useCourses } from "../stores/courses-store"
 import { CoursePlayer } from "./course-player"
 import { CourseBadge, PersonStatePill, plural } from "./parts"
+import { useCoursesSource } from "./source"
 
 const forSupplier = (c: Course, id: string) =>
   c.status === "live" && (c.suppliers.kind === "all" || (c.suppliers.kind === "some" && c.suppliers.ids.includes(id)))
@@ -19,8 +19,7 @@ const forSupplier = (c: Course, id: string) =>
  */
 export function SupplierTrainingPage() {
   const navigate = useNavigate()
-  const all = useCourses((s) => s.courses)
-  const progress = useCourses((s) => s.progress)
+  const { courses: all, progress } = useCoursesSource()
   const now = useNow(60_000)
   const courses = useMemo(() => all.filter((c) => forSupplier(c, ME_SUPPLIER.id)), [all])
   return (
@@ -73,7 +72,7 @@ export function SupplierTrainingPage() {
 
 export function SupplierCoursePage() {
   const { courseId } = useParams({ strict: false }) as { courseId?: string }
-  const c = useCourses((s) => s.courses.find((x) => x.id === courseId))
+  const c = useCoursesSource().courses.find((x) => x.id === courseId)
   if (c && !forSupplier(c, ME_SUPPLIER.id)) {
     return (
       <EmptyState

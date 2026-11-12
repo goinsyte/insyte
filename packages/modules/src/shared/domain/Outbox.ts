@@ -199,6 +199,33 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     checkIds: Schema.Array(Schema.String)
   }),
+  // A course for teammates (M17 step 4): published to its audience, or "Herinneren" to one person who has not finished.
+  // Told once the undo window has passed, if the course is still live and they still have it to do. `by` is the
+  // principal.
+  Schema.Struct({
+    type: Schema.Literal("course.assigned"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    courseId: Schema.String,
+    memberIds: Schema.Array(Schema.String),
+    reminder: Schema.Boolean,
+    by: Schema.String
+  }),
+  // A question asked on a course (M17 step 4): its maker hears of it; an answer reaches the asker.
+  Schema.Struct({
+    type: Schema.Literal("course.question"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    questionId: Schema.String,
+    by: Schema.String
+  }),
+  Schema.Struct({
+    type: Schema.Literal("course.answered"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    questionId: Schema.String,
+    by: Schema.String
+  }),
   // Return labels asked for (M9.2): made at the carrier once the undo window has passed.
   Schema.Struct({
     type: Schema.Literal("return.label_requested"),

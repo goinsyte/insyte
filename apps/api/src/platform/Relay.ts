@@ -421,7 +421,10 @@ const NOTIFIED = new Set<OutboxEvent["type"]>([
   "ticket.assigned",
   "ticket.mentioned",
   "chat.mentioned",
-  "quality_check.submitted"
+  "quality_check.submitted",
+  "course.assigned",
+  "course.question",
+  "course.answered"
 ])
 
 const SINKS: ReadonlyArray<Sink> = [

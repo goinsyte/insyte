@@ -2,6 +2,7 @@ import { Db } from "@insyte/database/Db"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
+import { CoursesService } from "@insyte/modules/courses/Courses"
 import { FileStore } from "@insyte/modules/shared/domain/Documents"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect, Option } from "effect"
@@ -12,7 +13,8 @@ import { userFrom } from "../../platform/Sessions.ts"
 /*
  * `GET /api/files/:id` (M8.5): one of the workspace's files, for a signed-in member who may see what it belongs to (a
  * packing slip is an order's: Bestellingen at Bekijken; a return label a return's, M9.2: Retouren at Bekijken). Through
- * the console's origin, like every route of the session.
+ * the console's origin, like every route of the session. A course's image (M17 step 4) goes to whoever may take the
+ * course or reads the catalogue.
  */
 
 const notFound = HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
@@ -35,11 +37,16 @@ export const FileRoutes = HttpRouter.add(
     const db = yield* Db
     const file = yield* Effect.gen(function*() {
       const [row] = yield* db.scoped((sql) =>
-        sql<{ r2Key: string; name: string; mime: string; ownerType: string }>`
-          select r2_key, name, mime, owner_type from files where id = ${id ?? ""} and deleted_at is null
-            and owner_type in ('forwarding_item', 'return', 'quality_check')`
+        sql<{ r2Key: string; name: string; mime: string; ownerType: string; ownerId: string | null }>`
+          select r2_key, name, mime, owner_type, owner_id from files where id = ${id ?? ""} and deleted_at is null
+            and owner_type in ('forwarding_item', 'return', 'quality_check', 'course')`
       )
       if (row === undefined) return undefined
+      if (row.ownerType === "course") {
+        const courses = yield* CoursesService
+        const may = yield* db.scoped((sql) => courses.mayReadFile(sql, row.ownerId ?? ""))
+        return may ? row : undefined
+      }
       // What it belongs to decides who may have it: an order's slip at Bestellingen, a return's label at Retouren, a
       // supplier's quality photo at Producten (M9.4).
       yield* Policy.require(
@@ -56,7 +63,11 @@ export const FileRoutes = HttpRouter.add(
     if (stored === undefined) return notFound
     return HttpServerResponse.uint8Array(stored.bytes, {
       contentType: stored.mime,
-      headers: { "content-disposition": `inline; filename="${file.name}"`, "cache-control": "private, no-store" }
+      headers: {
+        "content-disposition": `inline; filename="${file.name}"`,
+        "cache-control": "private, no-store",
+        "x-content-type-options": "nosniff"
+      }
     })
   }).pipe(Effect.orDie, withRequestDb, Effect.withSpan("Files.downloadRoute"))
 )

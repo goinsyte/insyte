@@ -95,6 +95,10 @@
     "!packages/ui/src/app/chats/**",
     // Graduated (08 §3): the Inbox, wired to Threads.* and Mailboxes.* in M11 (step 13.2b).
     "!packages/ui/src/app/inbox/**",
+    // Graduated (08 §3): Cursussen, wired to Courses.* in M17 (step 20.4).
+    "!packages/ui/src/app/courses/**",
+    "!packages/ui/src/app/lib/courses.ts",
+    "!packages/ui/src/app/stores/courses-store.ts",
     // Graduated (08 §3): wired to the API, so held to this repo's rules.
     "!packages/ui/src/app/auth/login-screen.tsx",
     "!packages/ui/src/app/onboarding/shared-steps.tsx",

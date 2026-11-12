@@ -117,14 +117,18 @@ export function minutesOf(c: Pick<Course, "blocks">): number {
 export const quizzesOf = (c: Pick<Course, "blocks">) =>
   c.blocks.filter((b): b is Extract<Block, { kind: "quiz" }> => b.kind === "quiz")
 
-/** Who the course reaches, said the way the editor says it. */
-export function audienceLine(a: Audience, suppliers: SupplierAccess): string {
+/** Who the course reaches, said the way the editor says it; a role by its name where the audience holds its id. */
+export function audienceLine(
+  a: Audience,
+  suppliers: SupplierAccess,
+  roleLabel: (role: string) => string = (role) => role
+): string {
   const team = a.kind === "all"
     ? "Hele team"
     : a.kind === "none"
     ? "Niemand van het team"
     : [
-      ...a.roles,
+      ...a.roles.map(roleLabel),
       ...(a.members.length ? [`${a.members.length} ${a.members.length === 1 ? "persoon" : "personen"}`] : [])
     ].join(", ") || "Niemand gekozen"
   const sup = suppliers.kind === "all"
