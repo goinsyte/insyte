@@ -14,7 +14,7 @@ import { BrandLogo } from "./brand-logos"
 
 /*
  * A recipe app just installed (M17 step 3): the API key Insyte made for it, shown once, to paste into the app. It is the
- * key dialog's secret step (`developer/key-dialog.tsx`) in the app's own words. Events sent to the app wait for
+ * key dialog's secret step (`developer/key-dialog.tsx`) in the app's own words, with what the key can reach. Events sent to the app wait for
  * Insyte's outbound webhooks (M19.4), and the dialog says so.
  */
 
@@ -26,6 +26,8 @@ export interface AppKey {
   name: string
   secret: string
   prefix: string
+  /** The key starts without writing (its recipe reads only). */
+  readOnly: boolean
 }
 
 export function AppKeyDialog({ value, onClose }: { value: AppKey | null; onClose: () => void }) {
@@ -56,6 +58,10 @@ export function AppKeyDialog({ value, onClose }: { value: AppKey | null; onClose
             </div>
             <p className="text-ink-2 text-sm leading-normal">
               Daarna zie je alleen nog het begin: <Token>{value.prefix}…</Token>, onder Instellingen, dan API-sleutels.
+            </p>
+            <p className="text-ink-2 text-sm leading-normal">
+              De sleutel kan nooit meer dan jouw eigen rol, en alleen in jouw winkels.
+              {value.readOnly ? " Hij leest alleen: schrijven zet je aan bij de rechten van de app." : null}
             </p>
             <div className="flex items-center justify-between gap-3 rounded-lg bg-mist px-3 py-2.5">
               <span className="text-base text-ink">Events van Insyte naar {vendorName(value.name)} sturen</span>

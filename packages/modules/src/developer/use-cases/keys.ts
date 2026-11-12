@@ -188,18 +188,28 @@ export const createOn = Effect.fn("ApiKeys.createOn")(function*(sql: SqlClient.S
   return new WithSecret({ key: yield* readKey(sql, id), secret: token.token })
 })
 
-/** A key's own scopes replaced on the caller's transaction (an app's scopes taken back in the Marketplace, M17). */
+/**
+ * A key's own scopes replaced on the caller's transaction (an app's scopes taken back in the Marketplace, M17), and its
+ * stores narrowed to `within` when given: what it reaches can shrink there, never grow.
+ */
 export const rescopeOn = Effect.fn("ApiKeys.rescopeOn")(function*(
   sql: SqlClient.SqlClient,
   id: string,
-  access: KeyAccess
+  access: KeyAccess,
+  within?: StoreAccess
 ) {
   yield* Policy.require("integrations", 3)
-  yield* readKey(sql, id)
+  const key = yield* readKey(sql, id)
   const checked = yield* checkAccess(sql, access).pipe(Effect.catchTag("Invalid", Effect.die))
-  yield* sql`update api_keys set access = ${JSON.stringify(checked)}::jsonb where id = ${id}`
+  const stores = narrowed(key.stores, within)
+  yield* sql`update api_keys set access = ${JSON.stringify(checked)}::jsonb, stores = ${JSON.stringify(stores)}::jsonb
+             where id = ${id}`
   yield* audit(sql, "api_key.rescoped", id, { access: checked.kind })
 })
+
+/** The stores of `held` that `within` also reaches. */
+const narrowed = (held: StoreAccess, within: StoreAccess | undefined): StoreAccess =>
+  within === undefined || within === "all" ? held : held === "all" ? within : held.filter((s) => within.includes(s))
 
 export const update = Effect.fn("ApiKeys.update")(function*(input: UpdateKey) {
   yield* Policy.require("integrations", 3)
@@ -260,14 +270,19 @@ export const revoke = Effect.fn("ApiKeys.revoke")(function*(id: string) {
   return yield* db.scoped((sql) => Effect.andThen(revokeOn(sql, id), readKeys(sql)))
 })
 
-/** `revoke` on the caller's transaction (a recipe app uninstalled, M17). */
+/**
+ * `revoke` on the caller's transaction (a recipe app uninstalled, M17): when it was revoked now, or `null` when it
+ * already was, so an undo knows whether the revocation is its own.
+ */
 export const revokeOn = Effect.fn("ApiKeys.revokeOn")(function*(sql: SqlClient.SqlClient, id: string) {
   yield* Policy.require("integrations", 3)
   const principal = yield* CurrentPrincipal
   yield* readKey(sql, id)
-  yield* sql`update api_keys set revoked_at = now(), revoked_by = ${principal.id}
-             where id = ${id} and revoked_at is null`
+  const [revoked] = yield* sql<{ revokedAt: Date }>`
+    update api_keys set revoked_at = now(), revoked_by = ${principal.id}
+    where id = ${id} and revoked_at is null returning revoked_at`
   yield* audit(sql, "api_key.revoked", id)
+  return revoked?.revokedAt ?? null
 })
 
 export const restore = Effect.fn("ApiKeys.restore")(function*(id: string) {
@@ -276,10 +291,26 @@ export const restore = Effect.fn("ApiKeys.restore")(function*(id: string) {
   return yield* db.scoped((sql) => Effect.andThen(restoreOn(sql, id), readKeys(sql)))
 })
 
-/** `restore` on the caller's transaction (a recipe app's Undo, M17). */
-export const restoreOn = Effect.fn("ApiKeys.restoreOn")(function*(sql: SqlClient.SqlClient, id: string) {
+/**
+ * `restore` on the caller's transaction (a recipe app's Undo, M17). Given `revokedAt`, only the revocation made then is
+ * undone: a key revoked again since, by anyone, stays revoked. Whether it is working again.
+ */
+export const restoreOn = Effect.fn("ApiKeys.restoreOn")(function*(
+  sql: SqlClient.SqlClient,
+  id: string,
+  revokedAt?: Date
+) {
   yield* Policy.require("integrations", 3)
   yield* readKey(sql, id)
-  yield* sql`update api_keys set revoked_at = null, revoked_by = null where id = ${id}`
+  // Postgres keeps microseconds and a `Date` milliseconds: the revocation is the one within that millisecond.
+  const restored = yield* sql<{ id: string }>`
+    update api_keys set revoked_at = null, revoked_by = null
+    where id = ${id} and ${
+    revokedAt === undefined
+      ? sql`true`
+      : sql`abs(extract(epoch from revoked_at - ${revokedAt}::timestamptz)) < 0.001`
+  } returning id`
+  if (restored.length === 0) return false
   yield* audit(sql, "api_key.restored", id)
+  return true
 })

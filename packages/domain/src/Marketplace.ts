@@ -5,7 +5,9 @@
  *
  * - `connect`: it is one of Insyte's own connections; installing it is that connection's connect flow (Klaviyo's OAuth).
  * - `key`: a recipe app that talks to Insyte's public API; installing it makes a scoped API key for it, shown once.
- *   An outbound webhook endpoint joins it once Insyte sends webhooks (M19.4).
+ *   The key reaches only the areas its recipe names, never more than the installer's own role and stores, and reads
+ *   only unless the recipe writes or the operator gives writing back. An outbound webhook endpoint joins it once
+ *   Insyte sends webhooks (M19.4).
  * - `soon`: neither exists yet; the card says Binnenkort and nothing installs.
  *
  * The copy is the design's (`marketplace/app-catalog.ts`, the `extensions` fixture), word for word.
@@ -30,9 +32,20 @@ export type AppBadge = "editors_choice" | "best_seller" | "new" | "trending"
 /** A connection Insyte already makes for a workspace, whose own flow an app's install starts. */
 export type AppProvider = "klaviyo"
 
+/**
+ * What a recipe app's key may reach: the API areas its triggers and actions use, whether a new key may write (when not,
+ * the write scope starts taken back), and how many days it lasts (`null`: until the app is removed). The defaults are
+ * here, one place to change them.
+ */
+export interface KeyRecipe {
+  readonly areas: ReadonlyArray<"orders" | "customers" | "support" | "chargebacks" | "products" | "returns">
+  readonly write: boolean
+  readonly expiresInDays: number | null
+}
+
 export type AppInstall =
   | { readonly kind: "connect"; readonly provider: AppProvider }
-  | { readonly kind: "key" }
+  | ({ readonly kind: "key" } & KeyRecipe)
   | { readonly kind: "soon" }
 
 /** What an app may do once installed, as the detail lists it; the id is what a revoked scope is stored as. */
@@ -308,10 +321,16 @@ export const CATALOG: ReadonlyArray<CatalogApp> = [
       "Zaps met meerdere stappen, ingebouwde vertraging en filter"
     ],
     scopes: [
-      { id: "events.read", label: "Events lezen die je via Zaps start" },
-      { id: "data.write", label: "Schrijven naar alles wat je Insyte-abonnement beschikbaar stelt" }
+      { id: "records.read", label: "Bestellingen, klanten, tickets en chargebacks lezen, met namen en e-mailadressen" },
+      { id: "records.write", label: "Bestellingen, klanten, tickets en chargebacks wijzigen" }
     ],
-    install: { kind: "key" }
+    // Its triggers' areas, reading only until writing is given back; how long the key lasts is still open.
+    install: {
+      kind: "key",
+      areas: ["orders", "customers", "support", "chargebacks"],
+      write: false,
+      expiresInDays: null
+    }
   },
   {
     id: "ext_googleads",
@@ -349,5 +368,5 @@ export const COLLECTIONS = {
 /** Whether an install can be done here, or the card says Binnenkort. */
 export const installable = (app: CatalogApp) => app.install.kind !== "soon"
 
-/** A recipe app's key, by the scopes it still holds: reading every area the API reaches, and writing to them. */
-export const KEY_SCOPES = { read: "events.read", write: "data.write" } as const
+/** A recipe app's key, by the scopes it still holds: reading its recipe's areas, and writing to them. */
+export const KEY_SCOPES = { read: "records.read", write: "records.write" } as const

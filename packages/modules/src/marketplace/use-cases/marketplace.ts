@@ -1,9 +1,16 @@
 import { Db } from "@insyte/database/Db"
 import { Conflict, Invalid, NotFound } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
-import { CATALOG, CATALOG_BY_ID, type CatalogApp, COLLECTIONS, KEY_SCOPES } from "@insyte/domain/Marketplace"
+import {
+  CATALOG,
+  CATALOG_BY_ID,
+  type CatalogApp,
+  COLLECTIONS,
+  KEY_SCOPES,
+  type KeyRecipe
+} from "@insyte/domain/Marketplace"
 import * as Policy from "@insyte/domain/Policy"
-import { CurrentPrincipal } from "@insyte/domain/Principal"
+import { CurrentPrincipal, type Principal } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import * as Audit from "../../shared/use-cases/Audit.ts"
@@ -17,7 +24,7 @@ import {
   ScopesChange,
   UninstallResult
 } from "../domain/Marketplace.ts"
-import { AppKeys, type KeyLevel } from "../domain/Ports.ts"
+import { AppKeys, type KeyGrant, type KeyLevel } from "../domain/Ports.ts"
 
 /*
  * The Marketplace (M17 step 3; widgets/05 §6). Browsing the catalogue, what the workspace has installed, the
@@ -27,7 +34,9 @@ import { AppKeys, type KeyLevel } from "../domain/Ports.ts"
  * A connector app (Klaviyo) is installed when its connection is: connected from the Marketplace or from anywhere else
  * in Insyte, it shows as installed. Its install keeps a row (who started it, when it was last opened) and names the
  * connect flow the console starts; its uninstall comes after the connection is let go, and cannot be undone. A recipe
- * app (Zapier) gets a key of its own, shown once; its uninstall revokes the key with it, and Undo puts both back.
+ * app (Zapier) gets a key of its own, shown once, that reaches no more than its recipe's areas, the acting member's own
+ * levels and stores (`grantOf`), and reads only until writing is given back. Its uninstall revokes the key with it, and
+ * Undo puts both back; a key revoked by anyone else stays revoked.
  */
 
 export const RESTORE = "marketplace.restore"
@@ -124,6 +133,23 @@ const ready = (id: string) => CATALOG_BY_ID[id]?.install.kind !== "soon"
 const levelOf = (revoked: ReadonlyArray<string>): KeyLevel =>
   revoked.includes(KEY_SCOPES.read) ? 0 : revoked.includes(KEY_SCOPES.write) ? 1 : 2
 
+/**
+ * What a recipe app's key may reach, least first: its recipe's areas only, each at what is left of its scopes and never
+ * above the acting member's own level there (Bekijken reads, Bewerken and up writes), in the member's own stores.
+ */
+const grantOf = (recipe: KeyRecipe, revoked: ReadonlyArray<string>, principal: Principal): KeyGrant => {
+  const level = levelOf(revoked)
+  return {
+    scopes: Object.fromEntries(
+      recipe.areas.map((area) => [area, Math.min(level, principal.role.levels[area], 2) as KeyLevel])
+    ),
+    stores: principal.storeScope === null ? "all" : [...principal.storeScope]
+  }
+}
+
+/** The scopes a new key starts without: writing, unless its recipe writes. */
+const startsRevoked = (recipe: KeyRecipe): ReadonlyArray<string> => recipe.write ? [] : [KEY_SCOPES.write]
+
 export const catalog = Effect.fn("Marketplace.catalog")(() =>
   Effect.succeed(
     new Catalog({
@@ -185,27 +211,34 @@ export const recommended = Effect.fn("Marketplace.recommended")(function*() {
 export const install = Effect.fn("Marketplace.install")(function*(appId: string) {
   const app = yield* appOf(appId)
   yield* Policy.require("integrations", 2)
-  if (app.install.kind === "soon") return yield* new Conflict({ entity: "app", reason: "soon" })
+  const how = app.install
+  if (how.kind === "soon") return yield* new Conflict({ entity: "app", reason: "soon" })
   const principal = yield* CurrentPrincipal
   const keys = yield* AppKeys
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const existing = yield* liveRow(sql, app.id)
-      if (app.install.kind === "connect") {
+      if (how.kind === "connect") {
         if (existing === undefined) {
           yield* sql`insert into app_installs (id, workspace_id, app_id, installed_by)
                      values (${mintId("app")}, ${principal.workspaceId}, ${app.id}, ${principal.id})`
-          yield* audit(sql, "app.installed", app.id, { via: "connection", provider: app.install.provider })
+          yield* audit(sql, "app.installed", app.id, { via: "connection", provider: how.provider })
         }
         const now = (yield* readInstalls(sql)).find((i) => i.appId === app.id) ?? null
-        return new InstallResult({ install: now, key: null, connect: now === null ? app.install.provider : null })
+        return new InstallResult({ install: now, key: null, connect: now === null ? how.provider : null })
       }
       if (existing !== undefined) return yield* new Conflict({ entity: "app", reason: "installed" })
-      const key = yield* keys.create(sql, { label: app.name, level: 2 })
+      const revoked = startsRevoked(how)
+      const key = yield* keys.create(sql, {
+        label: app.name,
+        grant: grantOf(how, revoked, principal),
+        expiresInDays: how.expiresInDays
+      })
       const id = mintId("app")
-      yield* sql`insert into app_installs (id, workspace_id, app_id, installed_by, api_key_id)
-                 values (${id}, ${principal.workspaceId}, ${app.id}, ${principal.id}, ${key.keyId})`
+      yield* sql`insert into app_installs (id, workspace_id, app_id, installed_by, api_key_id, revoked_scopes)
+                 values (${id}, ${principal.workspaceId}, ${app.id}, ${principal.id}, ${key.keyId},
+                         ${[...revoked]}::text[])`
       yield* audit(sql, "app.installed", app.id, { via: "key", key: key.keyId })
       const row = yield* liveRow(sql, app.id)
       return new InstallResult({
@@ -237,12 +270,17 @@ export const uninstall = Effect.fn("Marketplace.uninstall")(function*(appId: str
         return new UninstallResult({ undo: null })
       }
       if (row === undefined) return yield* new NotFound({ entity: "app_install", id: app.id })
-      if (row.apiKeyId !== null) yield* keys.revoke(sql, row.apiKeyId)
+      // Only a revocation made here is this undo's to take back: a key already revoked stays so.
+      const revokedAt = row.apiKeyId === null ? null : yield* keys.revoke(sql, row.apiKeyId)
       yield* sql`update app_installs set removed_at = now(), removed_by = ${principal.id} where id = ${row.id}`
       yield* audit(sql, "app.uninstalled", app.id, { via: "key", key: row.apiKeyId })
       const undo = yield* Undo.issue(sql, {
         command: RESTORE,
-        compensation: { installId: row.id, keyId: row.apiKeyId }
+        compensation: {
+          installId: row.id,
+          keyId: revokedAt === null ? null : row.apiKeyId,
+          revokedAt: revokedAt?.toISOString() ?? null
+        }
       })
       return new UninstallResult({ undo })
     })
@@ -250,20 +288,27 @@ export const uninstall = Effect.fn("Marketplace.uninstall")(function*(appId: str
 })
 
 const decodeRestore = Schema.decodeUnknownEffect(
-  Schema.Struct({ installId: Schema.String, keyId: Schema.NullOr(Schema.String) })
+  Schema.Struct({
+    installId: Schema.String,
+    keyId: Schema.NullOr(Schema.String),
+    revokedAt: Schema.NullOr(Schema.String)
+  })
 )
 
-/** `Shared.undo` for `marketplace.restore`: the app back as it was, its key working again. */
+/**
+ * `Shared.undo` for `marketplace.restore`: the app back as it was, and its key working again if the uninstall revoked
+ * it and nobody has revoked it since.
+ */
 export const restore = Effect.fn("Marketplace.restore")(function*(sql: SqlClient.SqlClient, compensation: unknown) {
   yield* Policy.require("integrations", 2)
-  const { installId, keyId } = yield* decodeRestore(compensation).pipe(Effect.orDie)
+  const { installId, keyId, revokedAt } = yield* decodeRestore(compensation).pipe(Effect.orDie)
   const keys = yield* AppKeys
   const [row] = yield* sql<{ appId: string }>`select app_id from app_installs where id = ${installId}`
   if (row === undefined) return yield* new NotFound({ entity: "app_install", id: installId })
   // Installed again in the meantime: that install stands.
   if ((yield* liveRow(sql, row.appId)) !== undefined) return yield* new Conflict({ entity: "app", reason: "installed" })
   yield* sql`update app_installs set removed_at = null, removed_by = null where id = ${installId}`
-  if (keyId !== null) yield* keys.restore(sql, keyId)
+  if (keyId !== null && revokedAt !== null) yield* keys.restore(sql, keyId, new Date(revokedAt))
   yield* audit(sql, "app.restored", row.appId)
 })
 
@@ -294,8 +339,11 @@ export const setScopes = Effect.fn("Marketplace.setScopes")(function*(input: {
 const write = (sql: SqlClient.SqlClient, app: CatalogApp, row: Row, revoked: ReadonlyArray<string>) =>
   Effect.gen(function*() {
     const keys = yield* AppKeys
+    const principal = yield* CurrentPrincipal
     yield* sql`update app_installs set revoked_scopes = ${[...revoked]}::text[] where id = ${row.id}`
-    if (row.apiKeyId !== null) yield* keys.rescope(sql, row.apiKeyId, levelOf(revoked))
+    if (row.apiKeyId !== null && app.install.kind === "key") {
+      yield* keys.rescope(sql, row.apiKeyId, grantOf(app.install, revoked, principal))
+    }
     yield* audit(sql, "app.scopes_changed", app.id, { before: row.revokedScopes, after: revoked })
   })
 

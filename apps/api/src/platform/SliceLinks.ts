@@ -1,4 +1,3 @@
-import { API_AREAS } from "@insyte/domain/Permissions"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { ActionFailed, ChatCommands } from "@insyte/modules/chats/Links"
 import { restore as restoreChats } from "@insyte/modules/chats/use-cases/commands"
@@ -16,7 +15,7 @@ import { ensureLegs } from "@insyte/modules/forwarding/use-cases/legs"
 import { ThreadTickets } from "@insyte/modules/inbox/domain/Ports"
 import { restore as restoreInbox } from "@insyte/modules/inbox/use-cases/commands"
 import { lastSyncOf, restore as restoreMarketing } from "@insyte/modules/marketing/use-cases/klaviyo"
-import { AppKeys, type KeyLevel } from "@insyte/modules/marketplace/domain/Ports"
+import { AppKeys, type KeyGrant } from "@insyte/modules/marketplace/domain/Ports"
 import { rescope as rescopeApp, restore as restoreApp } from "@insyte/modules/marketplace/use-cases/marketplace"
 import { restore as restoreNotifications } from "@insyte/modules/notifications/use-cases/prefs"
 import { cancel as cancelOrders, restore as restoreOrders, setNote } from "@insyte/modules/orders/use-cases/commands"
@@ -85,18 +84,16 @@ const threadTickets = ThreadTickets.of({ make: fromThread, remove: removeFromThr
 
 const ThreadTicketsLive = Layer.succeed(ThreadTickets, threadTickets)
 
-/** A recipe app's key over every area the API reaches, at one level (clamped per area by the developer slice). */
-const accessAt = (level: KeyLevel) => ({
-  kind: "custom" as const,
-  scopes: Object.fromEntries(API_AREAS.map((a) => [a.id, level]))
-})
+/** What the Marketplace grants a recipe app's key, as the developer slice keeps it (clamped per area there too). */
+const accessOf = (grant: KeyGrant) => ({ kind: "custom" as const, scopes: { ...grant.scopes } })
 
 /** What an app's key does without making one: revoked, put back and narrowed, on the Marketplace's transaction. */
 const keysKept = {
   revoke: (sql: Parameters<typeof revokeOn>[0], keyId: string) => revokeOn(sql, keyId),
-  restore: (sql: Parameters<typeof restoreKeyOn>[0], keyId: string) => restoreKeyOn(sql, keyId),
-  rescope: (sql: Parameters<typeof rescopeOn>[0], keyId: string, level: KeyLevel) =>
-    rescopeOn(sql, keyId, accessAt(level))
+  restore: (sql: Parameters<typeof restoreKeyOn>[0], keyId: string, revokedAt: Date) =>
+    restoreKeyOn(sql, keyId, revokedAt),
+  rescope: (sql: Parameters<typeof rescopeOn>[0], keyId: string, grant: KeyGrant) =>
+    rescopeOn(sql, keyId, accessOf(grant), grant.stores === "all" ? "all" : [...grant.stores])
 }
 
 /** An undo puts a key back or narrows it; it never makes one. */
@@ -114,9 +111,9 @@ export const AppKeysLive = Layer.effect(
       create: (sql, input) =>
         createKeyOn(sql, {
           label: input.label,
-          access: accessAt(input.level),
-          stores: "all",
-          expiresInDays: null,
+          access: accessOf(input.grant),
+          stores: input.grant.stores === "all" ? "all" : [...input.grant.stores],
+          expiresInDays: input.expiresInDays,
           ips: [],
           agent: false
         }).pipe(

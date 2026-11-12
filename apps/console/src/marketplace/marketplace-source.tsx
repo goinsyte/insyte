@@ -1,5 +1,5 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
-import { CATALOG_BY_ID } from "@insyte/domain/Marketplace"
+import { CATALOG_BY_ID, KEY_SCOPES } from "@insyte/domain/Marketplace"
 import type { Catalog, InstallView } from "@insyte/modules/marketplace/domain/Marketplace"
 import { ConfirmDialog } from "@insyte/ui/app/common/confirm-dialog"
 import type { Extension } from "@insyte/ui/app/lib/types/domain"
@@ -24,8 +24,9 @@ import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
  *
  * - Klaviyo is a connection Insyte already makes: installing it is Klaviyo's approval page, and back to Apps. Removing
  *   it lets the connection go first, for good, so it asks.
- * - Zapier gets an API key of its own, shown once to paste into Zapier. Removing it revokes the key, with Ongedaan
- *   maken; so does taking its scopes back.
+ * - Zapier gets an API key of its own, shown once to paste into Zapier: its triggers' areas, reading only, never more
+ *   than the installer's own role and stores. Removing it revokes the key, with Ongedaan maken; so does taking its
+ *   scopes back, or giving writing back.
  * - Every other app says Binnenkort.
  *
  * "Openen" goes where the app is used in Insyte, not to a dialog of switches nothing reads.
@@ -154,8 +155,15 @@ export function useConsoleMarketplace(): { source: MarketplaceSource; overlay: R
     }
     const exit = await write.install({ payload: { appId: ext.id }, ...keys })
     if (Exit.isFailure(exit)) return refused(failureOf(exit))
-    if (exit.value.key !== null) {
-      setShown({ appId: ext.id, name: ext.name, secret: exit.value.key.secret, prefix: exit.value.key.prefix })
+    const { key, install: made } = exit.value
+    if (key !== null) {
+      setShown({
+        appId: ext.id,
+        name: ext.name,
+        secret: key.secret,
+        prefix: key.prefix,
+        readOnly: made?.revokedScopes.includes(KEY_SCOPES.write) ?? false
+      })
     }
   }
 

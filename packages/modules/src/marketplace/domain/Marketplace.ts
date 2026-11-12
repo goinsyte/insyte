@@ -11,7 +11,12 @@ export const AppScopeView = Schema.Struct({ id: Schema.String, label: Schema.Str
 
 export const AppInstallSpec = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("connect"), provider: Schema.Literal("klaviyo") }),
-  Schema.Struct({ kind: Schema.Literal("key") }),
+  Schema.Struct({
+    kind: Schema.Literal("key"),
+    areas: Schema.Array(Schema.Literals(["orders", "customers", "support", "chargebacks", "products", "returns"])),
+    write: Schema.Boolean,
+    expiresInDays: Schema.NullOr(Schema.Int)
+  }),
   Schema.Struct({ kind: Schema.Literal("soon") })
 ])
 
