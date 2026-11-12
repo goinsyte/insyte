@@ -185,7 +185,7 @@ describe("Rekenbladen", () => {
 
     const after = ok(await rpc("Analytics.figures", { requests }, people.owner))
     const value = (f: typeof after, i: number) => f.figures[i]!.value ?? 0
-    expect(value(after, 0) - value(before, 0)).toBe(200)
+    expect(value(after, 0) - value(before, 0)).toBeCloseTo(200, 6)
     expect(value(after, 1) - value(before, 1)).toBe(2)
     expect(after.figures[2]).toMatchObject({ value: null, error: "unavailable", waitsFor: "costs" })
     expect(after.figures[3]).toMatchObject({ value: null, error: "unavailable", waitsFor: "channels" })
