@@ -43,7 +43,8 @@ const argShown = (a: ActionView, names: ReadonlyMap<string, string>): string | u
   return a.arg
 }
 
-const actionOf = (a: ActionView, names: ReadonlyMap<string, string>): ChatAction => {
+/** A card as the design draws it. Its "Ongedaan maken" is only offered to who ran it: the server keeps it theirs. */
+const actionOf = (a: ActionView, meId: string, names: ReadonlyMap<string, string>): ChatAction => {
   const arg = argShown(a, names)
   return {
     id: a.id,
@@ -53,7 +54,7 @@ const actionOf = (a: ActionView, names: ReadonlyMap<string, string>): ChatAction
     by: a.by,
     state: a.state,
     ...(a.decidedBy === null ? {} : { decidedBy: firstName(a.decidedBy.name) }),
-    ...(a.undoUntil === null ? {} : { undoUntil: a.undoUntil }),
+    ...(a.undoUntil === null || a.createdBy !== meId ? {} : { undoUntil: a.undoUntil }),
     ...(a.error === null ? {} : { error: a.error })
   }
 }
@@ -79,7 +80,7 @@ export const messageOf = (m: MessageRow, meId: string, names: ReadonlyMap<string
   at: iso(m.createdAt),
   ...(m.reactions.length === 0 ? {} : { reactions: m.reactions.map((r) => ({ ...r })) }),
   ...(m.records.length === 0 ? {} : { records: m.records.map((r) => ({ ...r })) }),
-  ...(m.action === null ? {} : { action: actionOf(m.action, names) }),
+  ...(m.action === null ? {} : { action: actionOf(m.action, meId, names) }),
   ...(m.editedAt === null ? {} : { edited_at: iso(m.editedAt) }),
   deleted: m.deleted,
   pinned: m.pinnedAt !== null,

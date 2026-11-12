@@ -6,14 +6,20 @@ import { Effect, Option, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import {
+  type ChannelState,
   type EventPref,
   NotePrefs,
   NotePrefsChange,
   NotifyPrefsInput,
+  PushNotRegistered,
   QuietHoursEmpty,
   type SetNotePref,
+  SlackChannelId,
   SlackNotConnected
 } from "../domain/Notifications.ts"
+import { Slack, WebPush } from "../domain/Ports.ts"
+import { deviceCount } from "./push.ts"
+import { connectionOf } from "./slack.ts"
 
 /*
  * What a member hears and where (M5.2 for the app; M11 step 13.5 for the rest). A kind never set follows the
@@ -23,11 +29,26 @@ import {
 
 export const RESTORE = "notifications.restore"
 
-/** Whether push and Slack can deliver yet: their adapters arrive with 13.5b (VAPID keys, a Slack app). */
-export const CHANNEL_STATE: Readonly<Record<"push" | "slack", "connected" | "unavailable">> = {
-  push: "unavailable",
-  slack: "unavailable"
-}
+/**
+ * Whether push and Slack can deliver for the member: push once the stage has VAPID keys and the member allowed it on a
+ * browser; Slack once the stage has the app and the workspace connected it.
+ */
+const channelsOf = (sql: SqlClient.SqlClient, memberId: string) =>
+  Effect.gen(function*() {
+    const push = yield* WebPush
+    const slack = yield* Slack
+    const devices = push.publicKey === null ? 0 : yield* deviceCount(sql, memberId)
+    const connection = yield* connectionOf(sql)
+    return {
+      channels: {
+        push: push.publicKey === null ? "unavailable" : devices > 0 ? "connected" : "available",
+        slack: connection !== undefined ? "connected" : slack.configured ? "available" : "unavailable"
+      } satisfies Record<"push" | "slack", ChannelState>,
+      pushKey: push.publicKey,
+      slackTeam: connection === undefined ? null : connection.team ?? "Slack",
+      devices
+    }
+  })
 
 const DEFAULT_SETTINGS = {
   quiet: { on: true, from: "22:00", to: "07:00", weekend: false },
@@ -50,6 +71,7 @@ interface SettingsRow {
 }
 
 const decodeDigestAt = Schema.decodeUnknownOption(NotifyPrefsInput.fields.digest.fields.at)
+const isSlackChannel = Schema.is(SlackChannelId)
 
 /** Every kind's channels: the member's rows over the catalogue's defaults. */
 export const eventsOf = (
@@ -85,6 +107,7 @@ const readPrefs = (sql: SqlClient.SqlClient, memberId: string) =>
       from workspaces w left join members m on m.id = ${memberId} left join auth."user" u on u.id = m.user_id
       where w.id = app_workspace_id()`
     const events = eventsOf(rows)
+    const { channels, pushKey, slackTeam } = yield* channelsOf(sql, memberId)
     return new NotePrefs({
       app: Object.fromEntries(rows.map((r) => [r.kind, r.channels.includes("app")])),
       events,
@@ -108,7 +131,9 @@ const readPrefs = (sql: SqlClient.SqlClient, memberId: string) =>
         disputeAmountMinor: Number(ws?.alerts["dispute_amount_minor"] ?? 10000),
         currency: ws?.currency ?? "EUR"
       },
-      channels: CHANNEL_STATE
+      channels,
+      pushKey,
+      slackTeam
     })
   })
 
@@ -171,19 +196,27 @@ const inputOf = (prefs: NotePrefs): NotifyPrefsInput => ({
 
 /**
  * The Meldingen page saved (widgets/04 §D): a kind the catalogue does not know is `Invalid`; quiet hours that begin
- * when they end are `QuietHoursEmpty`; a Slack channel while Slack is not connected is `SlackNotConnected`. Answers the
+ * when they end are `QuietHoursEmpty`; a Slack channel while Slack is not connected is `SlackNotConnected` (one that
+ * is no channel id is `Invalid`); a push switch turned on with push on no browser is `PushNotRegistered`. Answers the
  * settings as saved and the undo that puts the previous ones back.
  */
 export const setAll = Effect.fn("Notifications.setPrefs")(function*(input: NotifyPrefsInput) {
   const unknown = Object.keys(input.events).filter((k) => notificationKind(k) === undefined)
   if (unknown.length > 0) return yield* new Invalid({ fields: { events: "unknown" } })
   if (input.quiet.on && input.quiet.from === input.quiet.to) return yield* new QuietHoursEmpty()
-  if (input.slackChannel !== null && CHANNEL_STATE.slack !== "connected") return yield* new SlackNotConnected()
+  if (input.slackChannel !== null && !isSlackChannel(input.slackChannel)) {
+    return yield* new Invalid({ fields: { slackChannel: "unknown" } })
+  }
   const { workspaceId, id } = yield* CurrentPrincipal
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      const before = inputOf(yield* readPrefs(sql, id))
+      const current = yield* readPrefs(sql, id)
+      const before = inputOf(current)
+      if (input.slackChannel !== null && current.channels.slack !== "connected") return yield* new SlackNotConnected()
+      // A push switch turned on needs a browser to go to; one left on as it was is kept.
+      const pushOn = Object.entries(input.events).some(([kind, p]) => p.push && before.events[kind]?.push !== true)
+      if (pushOn && current.channels.push !== "connected") return yield* new PushNotRegistered()
       yield* write(sql, workspaceId, id, input)
       const undo = yield* Undo.issue(sql, { command: RESTORE, compensation: { before } })
       return new NotePrefsChange({ prefs: yield* readPrefs(sql, id), undo })

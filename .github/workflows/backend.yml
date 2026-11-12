@@ -199,6 +199,12 @@ jobs:
       AFTERSHIP_WEBHOOK_SECRET: ${{ secrets.AFTERSHIP_WEBHOOK_SECRET }}
       SENDCLOUD_PUBLIC_KEY: ${{ secrets.SENDCLOUD_PUBLIC_KEY }}
       SENDCLOUD_SECRET_KEY: ${{ secrets.SENDCLOUD_SECRET_KEY }}
+      # Web push's VAPID key pair and contact, Slack's app client (with SEAL_KEYS); each stays off until all of its are set.
+      VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+      VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+      VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+      SLACK_CLIENT_ID: ${{ secrets.SLACK_CLIENT_ID }}
+      SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}
       # The console's build reads these (Vite): Sentry in the browser, tagged with the environment and the commit.
       VITE_SENTRY_DSN: ${{ vars.SENTRY_DSN }}
       VITE_ENVIRONMENT: staging
@@ -278,6 +284,12 @@ jobs:
       AFTERSHIP_WEBHOOK_SECRET: ${{ secrets.AFTERSHIP_WEBHOOK_SECRET }}
       SENDCLOUD_PUBLIC_KEY: ${{ secrets.SENDCLOUD_PUBLIC_KEY }}
       SENDCLOUD_SECRET_KEY: ${{ secrets.SENDCLOUD_SECRET_KEY }}
+      # Web push's VAPID key pair and contact, Slack's app client (with SEAL_KEYS); each stays off until all of its are set.
+      VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+      VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+      VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+      SLACK_CLIENT_ID: ${{ secrets.SLACK_CLIENT_ID }}
+      SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}
       # The console's build reads these (Vite): Sentry in the browser, tagged with the environment and the commit.
       VITE_SENTRY_DSN: ${{ vars.SENTRY_DSN }}
       VITE_ENVIRONMENT: production

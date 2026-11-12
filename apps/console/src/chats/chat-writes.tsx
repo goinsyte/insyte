@@ -1,11 +1,10 @@
 import { useAtomSet } from "@effect/atom-react"
-import type { MessageChange } from "@insyte/modules/chats/domain/Chats"
 import type { ChatWrites } from "@insyte/ui/app/chats/source"
 import { undoable } from "@insyte/ui/app/lib/undo"
 import { useNavigate } from "@tanstack/react-router"
 import { Exit } from "effect"
 import { toast } from "sonner"
-import { chatKey, CHATS, chatWrites } from "../data/chats.ts"
+import { CHAT_PAGES, chatKey, CHATS, chatWrites } from "../data/chats.ts"
 import { TICKETS } from "../data/tickets.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 import { ticketOf } from "../tickets/ticket-of.ts"
@@ -13,8 +12,9 @@ import { argSent } from "./chat-of.tsx"
 
 /*
  * What the chats screen does in the console (M11 step 4): every write the server's `Chats.*`, refreshing the list and
- * the conversation it touched. A command's card keeps its "Ongedaan maken" in this tab only, as the token is this
- * tab's; a message taken back and a new channel get the design's toast with its undo. A refusal is said once, in Dutch.
+ * the conversation it touched. A command's card keeps its "Ongedaan maken" for five minutes, from any tab of whoever ran
+ * it (`Chats.undoAction`, by the card); a message taken back and a new channel get the design's toast with its undo. A
+ * refusal is said once, in Dutch.
  */
 
 /** Why the server would not run a command, as the card would have said it. */
@@ -25,7 +25,9 @@ const REFUSED: Record<string, string> = {
   note_required: "Schrijf de notitie na de bestelling",
   unknown_member: "Noem de collega, bijvoorbeeld @Sofía",
   unknown_status: "Zeg bezig, wacht of klaar",
-  decided: "Iemand anders heeft deze kaart al afgehandeld"
+  decided: "Iemand anders heeft deze kaart al afgehandeld",
+  undo_expired: "De vijf minuten om dit ongedaan te maken zijn voorbij",
+  undone: "Dit is al ongedaan gemaakt"
 }
 
 const COPY: RefusalCopy = {
@@ -59,14 +61,6 @@ function ok<A>(exit: Exit.Exit<A, unknown>): exit is Exit.Success<A, unknown> {
   return false
 }
 
-/** A command card's undo, by its action: what "Ongedaan maken" spends, for as long as this tab is open. */
-const UNDO = new Map<string, string>()
-
-const keep = (change: MessageChange) => {
-  const action = change.message.action
-  if (action !== null && change.undo !== null) UNDO.set(action.id, change.undo.token)
-}
-
 export function useChatWrites(
   { team, setDraft, typed }: {
     team: ReadonlyArray<{ id: string; name: string }>
@@ -90,6 +84,7 @@ export function useChatWrites(
     runCommand: useAtomSet(chatWrites.runCommand, { mode: "promiseExit" }),
     confirm: useAtomSet(chatWrites.confirm, { mode: "promiseExit" }),
     decline: useAtomSet(chatWrites.decline, { mode: "promiseExit" }),
+    undoAction: useAtomSet(chatWrites.undoAction, { mode: "promiseExit" }),
     createTicket: useAtomSet(chatWrites.createTicket, { mode: "promiseExit" }),
     undo: useAtomSet(chatWrites.undo, { mode: "promiseExit" })
   }
@@ -123,7 +118,7 @@ export function useChatWrites(
         },
         ...keys(c.id)
       }).then((exit) => {
-        if (ok(exit)) keep(exit.value)
+        ok(exit)
       })
     },
     confirm: async (a) => {
@@ -134,17 +129,14 @@ export function useChatWrites(
         refused(error)
         return undefined
       }
-      keep(exit.value)
       const action = exit.value.message.action
       return action?.state === "failed" ? (action.error ?? "Er ging iets mis. Probeer het opnieuw.") : undefined
     },
     decline: (a) => void write.decline({ payload: { actionId: a.id }, reactivityKeys: [...CHATS] }).then(ok),
-    canUndo: (a) => UNDO.has(a.id),
+    // The card only carries `undoUntil` for whoever ran it (`actionOf`); the server holds the five minutes.
+    canUndo: () => true,
     undo: async (a) => {
-      const token = UNDO.get(a.id)
-      if (token === undefined) return false
-      const exit = await write.undo({ payload: { token }, reactivityKeys: [...CHATS] })
-      UNDO.delete(a.id)
+      const exit = await write.undoAction({ payload: { actionId: a.id }, reactivityKeys: [...CHATS, ...CHAT_PAGES] })
       return ok(exit)
     },
     react: (m, emoji) => {

@@ -103,7 +103,7 @@ export const RpcContext = Layer.mergeAll(
   QueueHandlers.pipe(Layer.provide(QueueService.layer)),
   HomeHandlers.pipe(Layer.provide(HomeService.layer)),
   ProposalsHandlers.pipe(Layer.provide(ProposalsService.layer)),
-  ChatsHandlers.pipe(Layer.provide(ChatsService.layer)),
+  ChatsHandlers.pipe(Layer.provide(Layer.mergeAll(ChatsService.layer, UndoService.layer))),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
   WorkspacesHandlers.pipe(Layer.provide(WorkspaceSettings.layer)),
   ShellHandlers.pipe(

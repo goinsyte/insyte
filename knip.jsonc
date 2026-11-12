@@ -88,8 +88,8 @@
     },
     "apps/console": {
       // The Worker's entry is `main` in wrangler.jsonc; routes are discovered by TanStack Start's plugin and imported
-      // only by the generated route tree.
-      "entry": ["src/routes/**/*.tsx"],
+      // only by the generated route tree. `public/sw.js` is registered by the page at run time (`navigator.serviceWorker`).
+      "entry": ["src/routes/**/*.tsx", "public/sw.js"],
     },
     "infra": {
       // Read by the alchemy CLI, which knip does not follow.

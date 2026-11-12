@@ -18,7 +18,12 @@ const NAMES = [
   "AFTERSHIP_API_KEY",
   "AFTERSHIP_WEBHOOK_SECRET",
   "SENDCLOUD_PUBLIC_KEY",
-  "SENDCLOUD_SECRET_KEY"
+  "SENDCLOUD_SECRET_KEY",
+  "VAPID_PUBLIC_KEY",
+  "VAPID_PRIVATE_KEY",
+  "VAPID_SUBJECT",
+  "SLACK_CLIENT_ID",
+  "SLACK_CLIENT_SECRET"
 ]
 
 const source = process.env["INSYTE_ENV_FILE"] ?? join(homedir(), "vantion/insyte/.env.local")

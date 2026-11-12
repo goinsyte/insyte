@@ -1,5 +1,6 @@
-import { Invalid } from "@insyte/domain/Errors"
+import { Conflict, Forbidden, Invalid } from "@insyte/domain/Errors"
 import {
+  BeginSlackConnect,
   ListNotes,
   NoteCounts,
   NoteIds,
@@ -7,9 +8,16 @@ import {
   NotePrefs,
   NotePrefsChange,
   NotifyPrefsInput,
+  PushDevice,
+  PushDeviceId,
+  PushNotRegistered,
+  PushSubscribe,
+  PushTested,
+  PushUnavailable,
   QuietHoursEmpty,
   SetNotePref,
   SetRead,
+  SlackChannel,
   SlackNotConnected,
   Snooze
 } from "@insyte/modules/notifications/domain/Notifications"
@@ -37,8 +45,24 @@ export class NotificationsRpcs extends RpcGroup.make(
   Rpc.make("Notifications.setPrefs", {
     payload: NotifyPrefsInput,
     success: NotePrefsChange,
-    error: Schema.Union([Invalid, QuietHoursEmpty, SlackNotConnected])
-  })
+    error: Schema.Union([Invalid, QuietHoursEmpty, SlackNotConnected, PushNotRegistered])
+  }),
+  // Web push (M11 step 13.5): the member's own browsers, one subscribed, one let go, and a test message to all.
+  Rpc.make("Notifications.pushDevices", { success: Schema.Array(PushDevice) }),
+  Rpc.make("Notifications.subscribePush", { payload: PushSubscribe, success: PushDevice, error: PushUnavailable }),
+  Rpc.make("Notifications.unsubscribePush", { payload: PushDeviceId, success: Schema.Array(PushDevice) }),
+  Rpc.make("Notifications.testPush", {
+    success: PushTested,
+    error: Schema.Union([PushUnavailable, PushNotRegistered])
+  }),
+  // Slack (M11 step 13.5): where a member's messages can go; connecting and letting go are Instellingen at Beheren.
+  Rpc.make("Notifications.slackChannels", { success: Schema.Array(SlackChannel), error: Conflict }),
+  Rpc.make("Notifications.beginSlackConnect", {
+    payload: BeginSlackConnect,
+    success: Schema.Struct({ authorizeUrl: Schema.String }),
+    error: Schema.Union([Forbidden, Conflict])
+  }),
+  Rpc.make("Notifications.disconnectSlack", { error: Forbidden })
 )
   // Innermost first: `Member` needs the person (`Authenticated`) and the connection (`WithDb`) around it.
   .middleware(Member)

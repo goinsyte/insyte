@@ -1,12 +1,13 @@
 import { beforeAll, describe, expect, it } from "vitest"
-import { failure, join, ok, pastUndo, person, relay, run } from "./journeys.ts"
+import { ageUndo, cookiesOf, failure, join, ok, password, pastUndo, person, post, relay, run } from "./journeys.ts"
 import { rpc, sessionMe } from "./support.ts"
 
 /*
  * Chats (step 13.4, M11 step 4): the team's `#algemeen` from the first look; messages paged, threaded, reacted to,
  * edited, taken back with Undo and pinned; a DM only its two can open; a mention that tells the teammate unless they
  * muted the conversation; a new channel with its own Undo; and the commands that post a card: `/ticket` at once with an
- * Undo that takes the ticket away again, `/annuleren` only on a confirm, and a refund refused until M13 has one.
+ * Undo that takes the ticket away again, `/annuleren` only on a confirm, and a refund refused until M13 has one. A
+ * card's Undo holds five minutes for whoever ran it, from any of their sessions (13.4c).
  */
 
 const inbox = async (cookie: string) =>
@@ -16,12 +17,14 @@ describe("chats", () => {
   const people = { owner: "", service: "", view: "", finance: "" }
   let workspace = ""
   let ownerId = ""
+  let ownerEmail = ""
   let serviceId = ""
   let general = ""
 
   beforeAll(async () => {
     const owner = await person("chats-owner", "Chats B.V.")
     people.owner = owner.cookie
+    ownerEmail = owner.email
     const me = ok(await sessionMe(owner.cookie)).principals[0]!
     workspace = me.workspaceId
     ownerId = me.id
@@ -267,5 +270,64 @@ describe("chats", () => {
     expect(
       failure(await rpc("Chats.runCommand", { conversationId: general, command: "note", arg: "x" }, people.owner))
     ).toMatchObject({ _tag: "CommandRefused", reason: "target_required" })
+  })
+  it("keeps a card's Undo five minutes for who ran it, from any session, and refuses it after", async () => {
+    const ticket = ok(await rpc("Tickets.create", { title: "Retour zonder label" }, people.owner)).tickets[0]!
+    const assigned = ok(
+      await rpc("Chats.runCommand", {
+        conversationId: general,
+        command: "assign",
+        target: { kind: "ticket", id: ticket.id },
+        arg: serviceId
+      }, people.owner)
+    )
+    const action = assigned.message.action!
+    expect(action).toMatchObject({ command: "assign", state: "done", createdBy: ownerId })
+    // The card's window, not the toast's eight seconds.
+    expect(action.undoUntil! - Date.now()).toBeGreaterThan(290_000)
+    expect(assigned.undo!.until).toBe(action.undoUntil)
+
+    // A minute on: the assignment's own eight seconds are over and its notice went; the card still holds.
+    await pastUndo(workspace)
+    await relay(workspace)
+    await ageUndo(workspace, 60)
+
+    // Only who ran it: a teammate who can read the card has no undo of theirs to take back.
+    expect(failure(await rpc("Chats.undoAction", { actionId: action.id }, people.service))).toMatchObject({
+      _tag: "NotFound"
+    })
+    expect(failure(await rpc("Chats.undoAction", { actionId: action.id }, people.finance))).toMatchObject({
+      _tag: "Forbidden"
+    })
+
+    // Another session of the same person (another tab or device) takes it back, by the card alone.
+    const elsewhere = cookiesOf(await post("/api/auth/sign-in/email", { email: ownerEmail, password }))
+    const undone = ok(await rpc("Chats.undoAction", { actionId: action.id }, elsewhere))
+    expect(undone.message.action).toMatchObject({ id: action.id, state: "undone", undoUntil: null })
+    expect(ok(await rpc("Tickets.get", { id: ticket.id }, people.owner)).ticket.assignees).toEqual([])
+    // Once is all: the first tab is told it was taken back already.
+    expect(failure(await rpc("Chats.undoAction", { actionId: action.id }, people.owner))).toMatchObject({
+      _tag: "CommandRefused",
+      reason: "undone"
+    })
+
+    // Past the five minutes it is refused, in the card's words, and what the command did stays.
+    const made = ok(
+      await rpc(
+        "Chats.runCommand",
+        { conversationId: general, command: "ticket", arg: "Na vijf minuten" },
+        people.owner
+      )
+    )
+    await ageUndo(workspace, 301)
+    expect(failure(await rpc("Chats.undoAction", { actionId: made.message.action!.id }, people.owner)))
+      .toMatchObject({ _tag: "CommandRefused", reason: "undo_expired" })
+    expect(ok(await rpc("Tickets.get", { id: made.message.records[0]!.id }, people.owner)).ticket.title).toBe(
+      "Na vijf minuten"
+    )
+    // And a toast's undo keeps its own eight seconds: a message taken back cannot be had again after them.
+    const said = ok(await rpc("Chats.send", { conversationId: general, body: "Even weg" }, people.owner))
+    const gone = ok(await rpc("Chats.deleteMessage", { messageId: said.message.id }, people.owner))
+    expect(gone.undo!.until - Date.now()).toBeLessThan(10_000)
   })
 })

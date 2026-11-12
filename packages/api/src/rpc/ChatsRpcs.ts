@@ -1,4 +1,4 @@
-import { Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
+import { Conflict, Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
 import {
   ActionIdInput,
   ChatList,
@@ -97,6 +97,12 @@ export class ChatsRpcs extends RpcGroup.make(
     payload: ActionIdInput,
     success: MessageChange,
     error: Schema.Union([Forbidden, NotFound, NotAMember, CommandRefused])
+  }),
+  // A card's "Ongedaan maken", by the card: its runner's, from any tab, for five minutes (`CARD_UNDO_SECONDS`).
+  Rpc.make("Chats.undoAction", {
+    payload: ActionIdInput,
+    success: MessageChange,
+    error: Schema.Union([Forbidden, NotFound, NotAMember, CommandRefused, Conflict])
   })
 )
   .middleware(Member)

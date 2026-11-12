@@ -35,6 +35,12 @@ export type ActionState = typeof ActionState.Type
 /** A money or irreversible command: it posts its card in `confirm` and runs only on a confirm, with no Undo. */
 export const CONFIRMED: ReadonlySet<CommandId> = new Set(["refund", "cancel", "evidence", "accept"])
 
+/**
+ * How long a card's "Ongedaan maken" holds, as the design has it: five minutes, from any tab or device of the person
+ * who ran it (`Chats.undoAction`), not the eight seconds of a toast's undo (`UNDO_SECONDS`).
+ */
+export const CARD_UNDO_SECONDS = 300
+
 export const Person = Schema.Struct({ id: Schema.String, name: Schema.String })
 export type Person = typeof Person.Type
 
@@ -202,7 +208,8 @@ export class NameTaken extends Schema.TaggedError<NameTaken>()("NameTaken", { na
 
 /**
  * A command that cannot run as asked, with the design's reasons (`commands.ts` `blocked`): not available here yet, the
- * record of the wrong kind, a note or a person or a status missing, or the card already decided.
+ * record of the wrong kind, a note or a person or a status missing, or the card already decided; or a card's undo
+ * that can no longer be had.
  */
 export class CommandRefused extends Schema.TaggedError<CommandRefused>()("CommandRefused", {
   reason: Schema.Literals([
@@ -212,7 +219,10 @@ export class CommandRefused extends Schema.TaggedError<CommandRefused>()("Comman
     "note_required",
     "unknown_member",
     "unknown_status",
-    "decided"
+    "decided",
+    // A card's undo (`Chats.undoAction`): its five minutes are over, or it was undone already (another tab).
+    "undo_expired",
+    "undone"
   ])
 }) {}
 
