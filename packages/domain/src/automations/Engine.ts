@@ -1,5 +1,5 @@
 import { referencesIn } from "./Fields.ts"
-import { SCOPE_IDS } from "./Scopes.ts"
+import { SCOPE_GRANTS } from "./Scopes.ts"
 import { STEPS_BY_ID } from "./Steps.ts"
 
 /*
@@ -136,40 +136,6 @@ export const handlingOf = (variantId: string): Handling => {
 }
 
 /* ── the flow's service account (M12 step 2) ───────────────────────────────────────────────── */
-
-type Grant = { readonly area: string; readonly level: 1 | 2 | 3; readonly special?: string }
-
-/**
- * What each of a flow's rights lets its service account do, in the permission catalogue's terms (one vocabulary with
- * the API keys): an area at a level, and for money and disputes the special that guards them.
- */
-export const SCOPE_GRANTS: Readonly<Record<string, ReadonlyArray<Grant>>> = {
-  "orders.read": [{ area: "orders", level: 1 }],
-  "orders.write": [{ area: "orders", level: 2 }],
-  "customers.read": [{ area: "customers", level: 1 }],
-  "customers.write": [{ area: "customers", level: 2 }],
-  "customers.email": [{ area: "customers", level: 1 }, { area: "support", level: 2 }],
-  "tickets.write": [{ area: "support", level: 2 }],
-  "team.notify": [{ area: "team", level: 1 }],
-  "suppliers.message": [{ area: "suppliers", level: 2 }],
-  "refunds.write": [{ area: "orders", level: 2, special: "refunds.write" }],
-  "payments.read": [{ area: "orders", level: 1 }],
-  "disputes.write": [{ area: "chargebacks", level: 2, special: "disputes.write" }],
-  "stock.read": [{ area: "products", level: 1 }],
-  "marketing.write": [{ area: "customers", level: 2 }],
-  "accounting.write": [{ area: "data", level: 2 }],
-  "files.write": [{ area: "data", level: 2 }],
-  "ai.draft": [{ area: "support", level: 1 }]
-}
-
-/** The rights an account holds: what the version needs, less what was switched off, plus what was added. */
-export const accountScopes = (
-  required: ReadonlyArray<string>,
-  settings: { readonly scopesOff: ReadonlyArray<string>; readonly scopesExtra: ReadonlyArray<string> }
-): ReadonlyArray<string> => {
-  const held = new Set([...required.filter((s) => !settings.scopesOff.includes(s)), ...settings.scopesExtra])
-  return SCOPE_IDS.filter((s) => held.has(s))
-}
 
 /** The levels and specials those rights add up to; every area starts at 0 and reads its records at 1 at most. */
 export const grantsOf = (scopes: ReadonlyArray<string>) => {

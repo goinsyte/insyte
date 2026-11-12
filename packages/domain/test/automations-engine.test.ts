@@ -1,18 +1,16 @@
 import { describe, expect, it } from "vitest"
 import {
-  accountScopes,
   fill,
   grantsOf,
   handlingOf,
   holds,
   missingIn,
   RUNNABLE,
-  SCOPE_GRANTS,
   startedBy,
   timelineOf,
   TRIGGER_EVENTS
 } from "../src/automations/Engine.ts"
-import { SCOPE_IDS } from "../src/automations/Scopes.ts"
+import { accountScopes, SCOPE_GRANTS, SCOPE_IDS } from "../src/automations/Scopes.ts"
 import { STEPS, STEPS_BY_ID } from "../src/automations/Steps.ts"
 
 const order = {

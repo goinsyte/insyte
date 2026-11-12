@@ -1,5 +1,4 @@
 import { Db } from "@insyte/database/Db"
-import { accountScopes } from "@insyte/domain/automations/Engine"
 import {
   type Flow,
   MAX_STEPS,
@@ -8,7 +7,7 @@ import {
   triggerOf,
   validate
 } from "@insyte/domain/automations/Graph"
-import { SCOPE_IDS } from "@insyte/domain/automations/Scopes"
+import { accountScopes, SCOPE_IDS } from "@insyte/domain/automations/Scopes"
 import { nodesOfTemplate, TEMPLATES_BY_ID } from "@insyte/domain/automations/Templates"
 import { Conflict, Invalid, NotFound } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
@@ -34,9 +33,10 @@ import {
   type SetStatusInput,
   type UpdateSettingsInput
 } from "../domain/Automations.ts"
-import { mayHand, syncAccount } from "./accounts.ts"
+import { syncAccount } from "./accounts.ts"
 import { UNPUBLISHED } from "./engine.ts"
 import { connectedBrands, detailOf, rowOf1, settingsOf } from "./read.ts"
+import { mayHand } from "./rights.ts"
 
 /*
  * The automation commands (M12 step 1; api.md §2.14, widgets/05 §1). Automatiseringen · Bewerken makes, copies and
