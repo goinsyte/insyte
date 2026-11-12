@@ -150,8 +150,14 @@ export function ConsoleWork(
   )
 }
 
-/** The screens an empty view's first steps may link to; automations and integrations have none in the console yet. */
-const CONSOLE_HAS: ReadonlySet<string> = new Set(["/suppliers", "/settings/stores", "/settings/team", "/tickets"])
+/** The screens an empty view's first steps may link to; integrations have none in the console yet. */
+const CONSOLE_HAS: ReadonlySet<string> = new Set([
+  "/suppliers",
+  "/settings/stores",
+  "/settings/team",
+  "/tickets",
+  "/automations"
+])
 
 /** The Monday of the week a day is in, as the agenda's week view starts it. */
 const mondayOf = (day: string) => addDays(dayStart(day), -((new Date(dayStart(day)).getDay() + 6) % 7))

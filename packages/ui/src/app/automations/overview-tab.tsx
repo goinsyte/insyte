@@ -10,7 +10,7 @@ import { hashOf, runLabel } from "./runs";
 import { RecordLink, RUN_DOT } from "./runs-tab";
 import { StepTile } from "./step-tile";
 import { titleOf } from "./summary";
-import { workflowStore } from "./workflow-store";
+import { useAutomationsSource } from "./source";
 
 const DAYS = 30;
 const MIN_PER_STEP = 1.5;
@@ -36,7 +36,8 @@ function sentenceOf(w: WorkflowState): string {
 /** Runs per day over the 30 days up to the last run, summing to the flow's own 30-day count. */
 function daily(w: WorkflowState): { days: number[]; total: number; end: number } {
 	const end = w.history[0] ? Date.parse(w.history[0].at) : Date.now();
-	const counted = automations.find((a) => a.id === w.automationId)?.runs_30d;
+	// The console installs no seed: only the design app has written-down runs.
+	const counted = (automations as typeof automations | undefined)?.find((a) => a.id === w.automationId)?.runs_30d;
 	const inWindow = w.history.filter((r) => end - Date.parse(r.at) < DAYS * 86_400_000);
 	const total = Math.max(inWindow.length, counted ?? inWindow.length);
 	const days = Array.from({ length: DAYS }, () => 0);
@@ -62,6 +63,7 @@ function daily(w: WorkflowState): { days: number[]; total: number; end: number }
  * version with who published it and why, and the records it touched.
  */
 export function OverviewTab({ workflow: w, onOpenTab }: { workflow: WorkflowState; onOpenTab: (t: "workflow" | "runs") => void }) {
+	const { editor, runs } = useAutomationsSource();
 	const trigger = w.nodes[0] ? VARIANTS_BY_ID[w.nodes[0].variantId] : undefined;
 	const { days, total, end } = useMemo(() => daily(w), [w]);
 	const done = w.history.filter((r) => r.status !== "waiting");
@@ -118,8 +120,8 @@ export function OverviewTab({ workflow: w, onOpenTab }: { workflow: WorkflowStat
 					<EmptyState
 						compact
 						kind="automations"
-						title="Nog geen runs."
-						body={w.version === 0 ? "Publiceer de flow om hem te laten draaien." : "De trigger is nog niet afgegaan."}
+						title={runs ? "Nog geen runs." : "Binnenkort."}
+						body={!runs ? "Hier staan de runs zodra flows echt draaien." : w.version === 0 ? "Publiceer de flow om hem te laten draaien." : "De trigger is nog niet afgegaan."}
 					/>
 				) : (
 					<>
@@ -175,7 +177,7 @@ export function OverviewTab({ workflow: w, onOpenTab }: { workflow: WorkflowStat
 										<button
 											type="button"
 											onClick={() => {
-												const undo = workflowStore.restoreVersion(w.automationId, v.v);
+												const undo = editor.restoreVersion(w.automationId, v.v);
 												if (!undo) return;
 												onOpenTab("workflow");
 												undoable(`v${v.v} staat op het canvas`, undo, "Publiceer om hem weer live te zetten.");

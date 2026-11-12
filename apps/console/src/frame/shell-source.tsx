@@ -84,7 +84,7 @@ const NO_COUNTS = Atom.make(AsyncResult.initial<Readonly<Record<string, number>>
 const NO_CHATS = Atom.make(AsyncResult.initial<ChatList, never>())
 
 /** What the console makes from the panel's button and the top bar's + menu. */
-const MADE_HERE = new Set(["return", "ticket", "channel"])
+const MADE_HERE = new Set(["return", "ticket", "channel", "automation"])
 
 export function ConsoleShellSource({ frame, children }: { frame: Frame; children: ReactNode }) {
   const navigate = useNavigate()
@@ -289,7 +289,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     panelFor: (pathname) => {
       const cfg = panelForPath(pathname)
       if (cfg === null) return null
-      // Only a return, a ticket and a channel are made from the console yet: any other button is off, and says so as its
+      // Only a return, a ticket, a channel and an automation are made from the console yet: any other button is off, and says so as its
       // page does.
       const panel = cfg.cta === undefined
         ? cfg

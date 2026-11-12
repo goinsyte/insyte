@@ -7,12 +7,10 @@ import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { PageGuide } from "../common/page-guide";
 import { formatDateTime } from "../lib/format";
-import { members } from "../../data-source";
-import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
 import type { WorkflowState } from "./node-types";
 import { SCOPES, scopeNeeds } from "./scopes";
-import { workflowStore } from "./workflow-store";
+import { useAutomationsSource } from "./source";
 
 const LIMITS = [
 	{ value: "0", label: "Geen limiet" },
@@ -38,6 +36,7 @@ const GUIDE = [
 export function SettingsTab({ workflow, onDelete }: { workflow: WorkflowState; onDelete: () => void }) {
 	const id = workflow.automationId;
 	const s = workflow.settings;
+	const { commands, people } = useAutomationsSource();
 	const needs = useMemo(() => scopeNeeds(workflow.nodes), [workflow.nodes]);
 	const [audit, setAudit] = useState(false);
 	const [allScopes, setAllScopes] = useState(false);
@@ -49,10 +48,9 @@ export function SettingsTab({ workflow, onDelete }: { workflow: WorkflowState; o
 
 	function toggle(scope: string, on: boolean) {
 		const needed = needs.has(scope);
-		const before = s;
-		if (needed) workflowStore.updateSettings(id, { scopesOff: on ? s.scopesOff.filter((x) => x !== scope) : [...s.scopesOff, scope] });
-		else workflowStore.updateSettings(id, { scopesExtra: on ? [...s.scopesExtra, scope] : s.scopesExtra.filter((x) => x !== scope) });
-		if (needed && !on) undoable("Recht uitgezet", () => workflowStore.updateSettings(id, before), `${needs.get(scope)?.map((n) => n.label).join(", ")} mislukt zonder dit recht.`);
+		const said = needed && !on ? { label: "Recht uitgezet", detail: `${needs.get(scope)?.map((n) => n.label).join(", ")} mislukt zonder dit recht.` } : undefined;
+		if (needed) void commands.updateSettings(id, { scopesOff: on ? s.scopesOff.filter((x) => x !== scope) : [...s.scopesOff, scope] }, said);
+		else void commands.updateSettings(id, { scopesExtra: on ? [...s.scopesExtra, scope] : s.scopesExtra.filter((x) => x !== scope) });
 	}
 
 	return (
@@ -127,14 +125,12 @@ export function SettingsTab({ workflow, onDelete }: { workflow: WorkflowState; o
 						checked={workflow.status === "active"}
 						disabled={workflow.version === 0}
 						onCheckedChange={(c) => {
-							const before = workflow.status;
-							workflowStore.setStatus(id, c ? "active" : "paused");
-							undoable(c ? "Flow staat aan" : "Flow gepauzeerd", () => workflowStore.setStatus(id, before));
+							void commands.setStatus(id, c ? "active" : "paused", { label: c ? "Flow staat aan" : "Flow gepauzeerd" });
 						}}
 					/>
 				</Row>
 				<Row label="Limiet">
-					<Select items={LIMITS} value={String(s.rateLimit)} onValueChange={(v) => workflowStore.updateSettings(id, { rateLimit: Number(v) })}>
+					<Select items={LIMITS} value={String(s.rateLimit)} onValueChange={(v) => void commands.updateSettings(id, { rateLimit: Number(v) })}>
 						<SelectTrigger size="sm" className="w-56 bg-paper text-sm">
 							<SelectValue />
 						</SelectTrigger>
@@ -152,17 +148,17 @@ export function SettingsTab({ workflow, onDelete }: { workflow: WorkflowState; o
 			<Section icon={Bell} title="Bij een fout">
 				<Row label="Melding naar">
 					<Select
-						items={members.map((m) => ({ value: m.name, label: m.name }))}
+						items={[...people]}
 						value={s.notify}
-						onValueChange={(v) => workflowStore.updateSettings(id, { notify: String(v) })}
+						onValueChange={(v) => void commands.updateSettings(id, { notify: String(v) })}
 					>
 						<SelectTrigger size="sm" className="w-56 bg-paper text-sm">
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
-							{members.map((m) => (
-								<SelectItem key={m.id} value={m.name}>
-									{m.name}
+							{people.map((m) => (
+								<SelectItem key={m.value} value={m.value}>
+									{m.label}
 								</SelectItem>
 							))}
 						</SelectContent>

@@ -1,4 +1,4 @@
-import { useNavigate, getRouteApi } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Plus, Sparkles } from "../../icons";
 import { useCallback, useMemo } from "react";
@@ -6,10 +6,6 @@ import { useAskInsyte } from "../shell/ask-insyte-context";
 import { flatNodes, NODE_VARIANTS, VARIANTS_BY_ID, type WorkflowState } from "./node-types";
 import { StepTile } from "./step-tile";
 import { BrandLogo } from "../marketplace/brand-logos";
-import {
-	useWorkflows,
-	workflowStore,
-} from "./workflow-store";
 import { EmptyPage } from "../common/empty-page";
 import { EmptyState } from "../common/empty-state";
 import { PageGuide } from "../common/page-guide";
@@ -19,16 +15,14 @@ import {
 	type Facet,
 	facetFilter,
 } from "../table/data-table";
-import { automations } from "../../data-source";
+import { automations as seeded } from "../../data-source";
 import type { Automation as SeedAutomation } from "../lib/types/domain";
 import { useOnCreate } from "../stores/create-intent";
-import { useWorkspace } from "../stores/workspace-store";
-import { useCustomers, useProducts } from "../hooks/use-operator-data";
-import { draftFromTemplate, HistoryView, RecommendedView, recommendations, TemplatesView, usesAi } from "./library";
+import { HistoryView, RecommendedView, TemplatesView, usesAi } from "./library";
+import { useAutomationsSource } from "./source";
 import { TEMPLATES } from "../lib/automation-templates";
 import { VIEWS } from "./automations-search";
 
-const Route = getRouteApi("/_admin/automations/");
 type View = (typeof VIEWS)[number];
 
 const TITLE: Record<View, string> = {
@@ -51,7 +45,12 @@ const GUIDE = [
    chips off its own steps. */
 type Automation = SeedAutomation;
 
-const SEED_BY_ID = new Map(automations.map((a) => [a.id, a]));
+// The design app's seeded flows keep their written chips; the console installs no seed.
+let seedById: Map<string, SeedAutomation> | undefined;
+const seedOf = (id: string) => {
+	seedById ??= new Map(((seeded as typeof seeded | undefined) ?? []).map((a) => [a.id, a]));
+	return seedById.get(id);
+};
 
 const FACETS: ReadonlyArray<Facet> = [
 	{
@@ -65,25 +64,16 @@ const FACETS: ReadonlyArray<Facet> = [
 	},
 ];
 
-export function AutomationsPage() {
+/** The page's address: one of the area panel's views, or the list. */
+export function AutomationsPage({ view }: { view?: View | undefined }) {
 	const ask = useAskInsyte();
 	const navigate = useNavigate();
-	const workflows = useWorkflows();
-	const view = Route.useSearch().view;
-	const orders = useWorkspace((s) => s.orders);
-	const { data: products } = useProducts();
-	const { data: customers } = useCustomers();
-	const chargebacks = useWorkspace((s) => s.chargebacks);
-	const tickets = useWorkspace((s) => s.tickets);
-	const recommended = useMemo(
-		() => recommendations({ orders, products, customers, chargebacks, tickets }, workflows),
-		[orders, products, customers, chargebacks, tickets, workflows],
-	);
+	const { commands, recommended, runs, workflows } = useAutomationsSource();
 
 	const rows = useMemo<Automation[]>(
 		() =>
 			Object.values(workflows).map((w) => {
-				const seed = SEED_BY_ID.get(w.automationId);
+				const seed = seedOf(w.automationId);
 				const labels = w.nodes.map(
 					(n) => VARIANTS_BY_ID[n.variantId]?.label ?? "",
 				);
@@ -121,10 +111,10 @@ export function AutomationsPage() {
 	}, [rows]);
 
 	// A blank draft, opened in the builder with "Describe the flow" up.
-	const newAutomation = useCallback(() => {
-		const id = workflowStore.create();
-		navigate({ to: "/automations/$automationId", params: { automationId: id } });
-	}, [navigate]);
+	const newAutomation = useCallback(async () => {
+		const id = await commands.create();
+		if (id !== null) navigate({ to: "/automations/$automationId", params: { automationId: id } });
+	}, [commands, navigate]);
 	useOnCreate("automation", newAutomation);
 
 	const columns = useMemo<Array<ColumnDef<Automation, unknown>>>(
@@ -224,7 +214,11 @@ export function AutomationsPage() {
 				) : view === "recommended" ? (
 					<RecommendedView items={recommended} />
 				) : view === "history" ? (
-					<HistoryView workflows={workflows} />
+					runs ? (
+						<HistoryView workflows={workflows} />
+					) : (
+						<EmptyState kind="automations" title="Binnenkort." body="Hier staat elke uitvoering zodra flows echt draaien." />
+					)
 				) : rows.length === 0 ? (
 					<EmptyPage
 						kind="automations"
@@ -239,7 +233,10 @@ export function AutomationsPage() {
 								id: t.id,
 								label: t.name,
 								body: t.description,
-								onClick: () => navigate({ to: "/automations/$automationId", params: { automationId: draftFromTemplate(t) } }),
+								onClick: () =>
+									void commands.create({ templateId: t.id }).then((id) => {
+										if (id !== null) navigate({ to: "/automations/$automationId", params: { automationId: id } });
+									}),
 							})),
 							{ id: "all", label: `Alle ${TEMPLATES.length} sjablonen`, body: "Per soort: bestellingen, klanten, klantenservice, voorraad en geschillen.", to: "/automations", search: { view: "templates" } },
 						]}

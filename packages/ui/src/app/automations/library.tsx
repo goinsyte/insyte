@@ -3,11 +3,11 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { ArrowRight, Plus, Sparkles } from "../../icons";
 import { useMemo } from "react";
 import { toast } from "sonner";
-import { flatNodes, newNodeId, VARIANTS_BY_ID, type WorkflowRun, type WorkflowState } from "./node-types";
+import { flatNodes, VARIANTS_BY_ID, type WorkflowRun, type WorkflowState } from "./node-types";
 import { runLabel } from "./runs";
 import { RUN_DOT, seconds } from "./runs-tab";
 import { StepTile } from "./step-tile";
-import { workflowStore } from "./workflow-store";
+import { type Recommendation, useAutomationsSource } from "./source";
 import { EmptyState } from "../common/empty-state";
 import { DataTable, type Facet, facetFilter } from "../table/data-table";
 import { type AutomationTemplate, TEMPLATES, type WorkspaceFacts } from "../lib/automation-templates";
@@ -23,25 +23,12 @@ import { cn } from "../lib/utils";
 /** Whether a flow has an AI step anywhere, a lane of a splitsing included. */
 export const usesAi = (w: WorkflowState) => flatNodes(w.nodes).some((n) => VARIANTS_BY_ID[n.variantId]?.ai === true);
 
-/** A saved draft made from a template's steps; nothing runs until it is turned on. */
-export function draftFromTemplate(t: AutomationTemplate): string {
-	const id = workflowStore.create({
-		name: t.name,
-		nodes: t.steps.map((s) => ({
-			id: newNodeId(),
-			variantId: s.variantId,
-			config: { ...(VARIANTS_BY_ID[s.variantId]?.defaultConfig ?? {}), summary: s.summary },
-		})),
-	});
-	workflowStore.updateMeta(id, { description: t.description });
-	workflowStore.save(id);
-	return id;
-}
-
 function useStartFrom() {
 	const navigate = useNavigate();
-	return (t: AutomationTemplate) => {
-		const id = draftFromTemplate(t);
+	const { commands } = useAutomationsSource();
+	return async (t: AutomationTemplate) => {
+		const id = await commands.create({ templateId: t.id });
+		if (id === null) return;
 		navigate({ to: "/automations/$automationId", params: { automationId: id } });
 		toast(`Concept opgesteld vanuit “${t.name}”. Het draait zodra je het aanzet.`);
 	};
@@ -88,7 +75,7 @@ function TemplateRow({
 			</div>
 			<button
 				type="button"
-				onClick={() => start(t)}
+				onClick={() => void start(t)}
 				className={cn(
 					"flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-3 font-medium text-sm transition-colors",
 					primary ? "bg-abyss text-mesh-ink shadow-primary hover:bg-abyss-2" : "text-arc-ink hover:bg-arc-tint",
@@ -148,7 +135,7 @@ export function recommendations(facts: WorkspaceFacts, workflows: Record<string,
 	}).sort((a, b) => b.evidence.count - a.evidence.count);
 }
 
-export function RecommendedView({ items }: { items: ReturnType<typeof recommendations> }) {
+export function RecommendedView({ items }: { items: ReadonlyArray<Recommendation> }) {
 	const navigate = useNavigate();
 	if (items.length === 0)
 		return (

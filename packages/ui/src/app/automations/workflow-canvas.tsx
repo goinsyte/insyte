@@ -9,7 +9,8 @@ import { VARIANTS_BY_ID, type WorkflowNode, type WorkflowSettings } from "./node
 import { missingScope } from "./scopes";
 import { CARD_W, NodeCard } from "./workflow-node-card";
 import { StepPicker } from "./workflow-palette";
-import { draftFromPrompt, type Lane, nameFromNodes, type Place, UNTITLED, useActiveRun, workflowStore } from "./workflow-store";
+import { type StepIssue, useAutomationsSource } from "./source";
+import { type Lane, nameFromNodes, type Place, UNTITLED, useActiveRun } from "./flow-edits";
 
 const EXAMPLES = [
 	"Als een bestelling te laat is, mail de klant en maak een ticket aan voor Maya",
@@ -21,6 +22,8 @@ type Props = {
 	automationId: string;
 	nodes: WorkflowNode[];
 	settings: WorkflowSettings;
+	/** What is wrong per step, where the host says. */
+	issues?: ReadonlyMap<string, ReadonlyArray<StepIssue>> | undefined;
 	selectedId: string | null;
 	onSelect: (id: string | null) => void;
 };
@@ -39,7 +42,8 @@ export function parseSlot(id: string): Place | null {
  * connector (drop a step on it, or click it to pick one), and a Ja/nee-splitsing drawn as two lanes
  * that meet again. The AI line at the foot turns a sentence into steps, like a composer; zoom sits bottom left.
  */
-export function WorkflowCanvas({ automationId, nodes, settings, selectedId, onSelect }: Props) {
+export function WorkflowCanvas({ automationId, nodes, settings, issues, selectedId, onSelect }: Props) {
+	const { draftFromPrompt, editor } = useAutomationsSource();
 	const [zoom, setZoom] = useState(1);
 	const scroller = useRef<HTMLDivElement>(null);
 	const content = useRef<HTMLDivElement>(null);
@@ -69,11 +73,11 @@ export function WorkflowCanvas({ automationId, nodes, settings, selectedId, onSe
 	}, [fit, nodes.length]);
 
 	const add = (variantId: string, place: Place) => {
-		const n = workflowStore.insertAt(automationId, variantId, place);
+		const n = editor.insertAt(automationId, variantId, place);
 		if (n) onSelect(n.id);
 	};
 	const remove = (id: string) => {
-		const undo = workflowStore.removeNode(automationId, id);
+		const undo = editor.removeNode(automationId, id);
 		if (selectedId === id) onSelect(null);
 		if (undo) undoable("Stap verwijderd", undo);
 	};
@@ -86,6 +90,7 @@ export function WorkflowCanvas({ automationId, nodes, settings, selectedId, onSe
 			running={runningId === n.id}
 			failed={failedId === n.id}
 			blocked={missingScope(n, settings) !== null}
+			issues={issues?.get(n.id)}
 			onSelect={() => onSelect(n.id)}
 			onRemove={VARIANTS_BY_ID[n.variantId]?.kind === "trigger" ? undefined : () => remove(n.id)}
 		/>
@@ -95,7 +100,7 @@ export function WorkflowCanvas({ automationId, nodes, settings, selectedId, onSe
 
 	return (
 		<div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-glacier">
-			<PromptBar automationId={automationId} onDrafted={(id) => onSelect(id)} />
+			{draftFromPrompt ? <PromptBar automationId={automationId} draftFromPrompt={draftFromPrompt} onDrafted={(id) => onSelect(id)} /> : null}
 			<div ref={scroller} className="bg-dot-grid-ink min-h-0 flex-1 overflow-auto px-12 pt-10 pb-28">
 				<div ref={content} className="mx-auto flex w-max min-w-full flex-col items-center" style={{ zoom }}>
 					{nodes.length === 0 ? (
@@ -307,7 +312,12 @@ function EmptyCanvas({ onAdd }: { onAdd: (variantId: string) => void }) {
  * The AI line: one sentence in, the steps out. Scripted from the words (`draftFromPrompt`), so the same
  * sentence lays out the same flow; what was on the canvas comes back with Undo.
  */
-function PromptBar({ automationId, onDrafted }: { automationId: string; onDrafted: (id: string | null) => void }) {
+function PromptBar({
+	automationId,
+	draftFromPrompt,
+	onDrafted,
+}: { automationId: string; draftFromPrompt: (prompt: string) => WorkflowNode[]; onDrafted: (id: string | null) => void }) {
+	const { editor } = useAutomationsSource();
 	const [text, setText] = useState("");
 	const [focused, setFocused] = useState(false);
 	const input = useRef<HTMLInputElement>(null);
@@ -315,16 +325,16 @@ function PromptBar({ automationId, onDrafted }: { automationId: string; onDrafte
 	function draft(sentence: string) {
 		const t = sentence.trim();
 		if (!t) return;
-		const current = workflowStore.getWorkflow(automationId);
+		const current = editor.getWorkflow(automationId);
 		const before = current?.nodes ?? [];
 		const beforeName = current?.name;
 		const steps = draftFromPrompt(t);
-		workflowStore.replaceNodes(automationId, steps, !current || current.name === UNTITLED ? nameFromNodes(steps) : undefined);
+		editor.replaceNodes(automationId, steps, !current || current.name === UNTITLED ? nameFromNodes(steps) : undefined);
 		onDrafted(null);
 		setText("");
 		input.current?.blur();
 		const n = steps.length + steps.reduce((k, s) => k + (s.branches ? s.branches.yes.length + s.branches.no.length : 0), 0);
-		if (before.length > 0) undoable(`${n} stappen neergezet`, () => workflowStore.replaceNodes(automationId, before, beforeName), "Wat er stond, komt terug met Ongedaan maken.");
+		if (before.length > 0) undoable(`${n} stappen neergezet`, () => editor.replaceNodes(automationId, before, beforeName), "Wat er stond, komt terug met Ongedaan maken.");
 		else toast(`${n} stappen neergezet`, { description: "Klik een stap om hem aan te passen, en publiceer als het klopt." });
 	}
 

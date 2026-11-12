@@ -18,7 +18,8 @@ import { parseSlot, WorkflowCanvas } from "./workflow-canvas";
 import { WorkflowInspector } from "./workflow-inspector";
 import { NodeCard } from "./workflow-node-card";
 import { PalettePreview, WorkflowPalette } from "./workflow-palette";
-import { type Place, placeOf, runStore, useWorkflow, workflowStore } from "./workflow-store";
+import { useAutomationsSource } from "./source";
+import { type Place, placeOf, runStore } from "./flow-edits";
 
 type ActiveDrag = { kind: "palette"; variantId: string } | { kind: "node"; nodeId: string } | null;
 
@@ -33,7 +34,9 @@ const collision: CollisionDetection = (args) => {
  * the width: a flow is still readable on a phone, but nobody builds one there.
  */
 export function WorkflowBuilder({ automationId }: { automationId: string }) {
+	const { editor, useIssues, useWorkflow } = useAutomationsSource();
 	const workflow = useWorkflow(automationId);
+	const issues = useIssues?.(automationId);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [active, setActive] = useState<ActiveDrag>(null);
 	const [collapsed, setCollapsed] = useState(false);
@@ -56,7 +59,7 @@ export function WorkflowBuilder({ automationId }: { automationId: string }) {
 			toast("Een ja/nee-splitsing kan alleen in de hoofdlijn", { description: "Zet hem boven of onder de splitsing die er al staat." });
 			return;
 		}
-		const n = workflowStore.insertAt(automationId, variantId, place);
+		const n = editor.insertAt(automationId, variantId, place);
 		if (!n) return;
 		setSelectedId(n.id);
 		if (v.kind === "trigger") toast(`Trigger is nu ${v.label}`);
@@ -80,7 +83,7 @@ export function WorkflowBuilder({ automationId }: { automationId: string }) {
 			toast("Een ja/nee-splitsing kan alleen in de hoofdlijn");
 			return;
 		}
-		if (n) workflowStore.moveTo(automationId, drag.nodeId, place);
+		if (n) editor.moveTo(automationId, drag.nodeId, place);
 	}
 
 	const selected = selectedId ? findNode(workflow.nodes, selectedId) : null;
@@ -92,7 +95,7 @@ export function WorkflowBuilder({ automationId }: { automationId: string }) {
 				<div className="hidden lg:flex">
 					<WorkflowPalette collapsed={collapsed} onToggleCollapsed={() => setCollapsed((c) => !c)} onAdd={(v) => add(v)} />
 				</div>
-				<WorkflowCanvas automationId={automationId} nodes={workflow.nodes} settings={workflow.settings} selectedId={selectedId} onSelect={setSelectedId} />
+				<WorkflowCanvas automationId={automationId} nodes={workflow.nodes} settings={workflow.settings} issues={issues} selectedId={selectedId} onSelect={setSelectedId} />
 				{selected ? (
 					<div className="hidden lg:flex">
 						<WorkflowInspector
@@ -100,6 +103,7 @@ export function WorkflowBuilder({ automationId }: { automationId: string }) {
 							automationId={automationId}
 							node={selected}
 							settings={workflow.settings}
+							issues={issues?.get(selected.id)}
 							onClose={() => setSelectedId(null)}
 						/>
 					</div>

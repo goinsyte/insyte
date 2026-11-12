@@ -11,7 +11,7 @@ import { cn } from "../lib/utils";
 import { type RunStatus, type RunStep, VARIANTS_BY_ID, type WorkflowRun, type WorkflowState } from "./node-types";
 import { runLabel } from "./runs";
 import { StepTile } from "./step-tile";
-import { rerun } from "./workflow-store";
+import { useAutomationsSource } from "./source";
 
 export const seconds = (ms: number) =>
 	ms < 1000 ? `${ms} ms` : `${(ms / 1000).toLocaleString("nl-NL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} s`;
@@ -39,7 +39,7 @@ export function RecordLink({ record, className }: { record: NonNullable<Workflow
 	const cls = cn("font-medium text-ink underline-offset-2 hover:text-arc-ink hover:underline", className);
 	if (record.kind === "order") return <Link to={RECORD_PATH.order} params={{ orderId: record.id }} className={cls}>{record.number}</Link>;
 	if (record.kind === "product") return <Link to={RECORD_PATH.product} params={{ productId: record.id }} className={cls}>{record.number}</Link>;
-	if (record.kind === "chargeback") return <Link to={RECORD_PATH.chargeback} params={{ chargebackId: record.id }} className={cls}>{record.number}</Link>;
+	if (record.kind === "chargeback") return <Link to={RECORD_PATH.chargeback as never} params={{ chargebackId: record.id } as never} className={cls}>{record.number}</Link>;
 	if (record.kind === "customer") return <Link to={RECORD_PATH.customer} params={{ customerId: record.id }} className={cls}>{record.number}</Link>;
 	return <span className={cls}>{record.number}</span>;
 }
@@ -59,10 +59,11 @@ const CUTS: ReadonlyArray<{ id: Cut; label: string }> = [
  */
 export function RunsTab({ workflow }: { workflow: WorkflowState }) {
 	const navigate = useNavigate();
-	const { run: openId } = useSearch({ from: "/_admin/automations/$automationId" });
+	const { run: openId } = useSearch({ strict: false }) as { run?: string };
 	const [cut, setCut] = useState<Cut>("all");
 	const drawerRef = useRef<HTMLDivElement>(null);
 	const id = workflow.automationId;
+	const { rerun } = useAutomationsSource();
 	const rows = useMemo(() => (cut === "all" ? workflow.history : workflow.history.filter((r) => r.status === cut)), [workflow.history, cut]);
 	const open = workflow.history.find((r) => r.id === openId) ?? null;
 	const select = (runId: string | undefined) =>
@@ -157,7 +158,7 @@ export function RunsTab({ workflow }: { workflow: WorkflowState }) {
 							run={open}
 							onClose={() => select(undefined)}
 							onRerun={() => {
-								const next = rerun(id, open);
+								const next = rerun?.(id, open);
 								if (!next) return;
 								toast("Opnieuw gestart en geslaagd", { description: `${next.record?.number ?? ""} · zelfde sleutel ${next.key}, dus niets is dubbel gedaan.` });
 								select(next.id);
