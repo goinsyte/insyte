@@ -48,3 +48,22 @@ export class SessionMe extends Schema.Class<SessionMe>("domain/SessionMe")({
 export class CurrentViewer extends Context.Service<CurrentViewer, { readonly user: SessionUser | null }>()(
   "domain/CurrentViewer"
 ) {}
+
+/**
+ * One of the person's own signed-in sessions, as Instellingen → Beveiliging lists them (M3.3): the device it was opened
+ * on, the country Cloudflare saw it from, and when it last renewed. `current` is the one asking.
+ */
+export class ActiveSession extends Schema.Class<ActiveSession>("domain/ActiveSession")({
+  id: Schema.String,
+  /** "Mac · Chrome" (`deviceOf`). */
+  device: Schema.String,
+  /** Two letters, or `null` when it is not known. */
+  country: Schema.NullOr(Schema.String),
+  /** When the session last renewed (at most daily) or was opened: ISO 8601. */
+  lastActiveAt: Schema.String,
+  current: Schema.Boolean
+}) {}
+
+/** Signs out one of the person's other sessions. Their current one signs out through better-auth. */
+export const RevokeSession = Schema.Struct({ id: Schema.String })
+export type RevokeSession = typeof RevokeSession.Type

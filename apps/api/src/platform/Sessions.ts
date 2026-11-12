@@ -33,3 +33,10 @@ export const userFrom = Effect.fn("Sessions.userFrom")(function*(headers: Header
     twoFactorEnabled: found.user.twoFactorEnabled === true
   }))
 })
+
+/** The session the request signs in with, by id (Beveiliging's "Dit apparaat"); a cookie cache hit costs no query. */
+export const currentSessionId = Effect.fn("Sessions.currentSessionId")(function*(headers: Headers) {
+  const auth = yield* (yield* BetterAuth).forRequest
+  const found = yield* Effect.promise(() => auth.api.getSession({ headers })).pipe(Effect.orElseSucceed(() => null))
+  return found?.session.id ?? ""
+})

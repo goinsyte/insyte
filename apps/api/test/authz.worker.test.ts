@@ -13,6 +13,7 @@ import { QualityRpcs } from "@insyte/api/rpc/QualityRpcs"
 import { QueueRpcs } from "@insyte/api/rpc/QueueRpcs"
 import { ReturnsRpcs } from "@insyte/api/rpc/ReturnsRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
+import { SessionRpcs } from "@insyte/api/rpc/SessionRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
 import { StoresRpcs } from "@insyte/api/rpc/StoresRpcs"
 import { SuppliersRpcs } from "@insyte/api/rpc/SuppliersRpcs"
@@ -260,6 +261,7 @@ const PAYLOADS: Record<string, unknown> = {
   "Workspaces.setAlerts": { delayHours: 0, disputeAmountMinor: 0 },
   "Workspaces.setRetention": { days: 7 },
   "Workspaces.getRegional": undefined,
+  "Workspaces.getSecurity": undefined,
   "Workspaces.saveRegional": {
     language: "xx",
     currencyDisplay: "EUR",
@@ -305,7 +307,11 @@ const PAYLOADS: Record<string, unknown> = {
     digest: { on: true, at: "08:00" },
     follow: { assigned: true, mentioned: true, created: true },
     slackChannel: null
-  }
+  },
+  // The person's own sessions (M3.3): every role reads and ends its own; an unknown one is NotFound, past no gate.
+  "Session.me": undefined,
+  "Session.listSessions": undefined,
+  "Session.revoke": { id: "ses_none" }
 }
 
 const manifest = [
@@ -330,7 +336,8 @@ const manifest = [
   ...ProposalsRpcs.requests.keys(),
   ...WorkspacesRpcs.requests.keys(),
   ...ChatsRpcs.requests.keys(),
-  ...NotificationsRpcs.requests.keys()
+  ...NotificationsRpcs.requests.keys(),
+  ...SessionRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

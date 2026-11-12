@@ -21,6 +21,7 @@ import { QueueService } from "@insyte/modules/queue/Queue"
 import { PortalService } from "@insyte/modules/returns/Portal"
 import { ReturnsService } from "@insyte/modules/returns/Returns"
 import { RolesService } from "@insyte/modules/roles/RolesService"
+import { ActiveSessions } from "@insyte/modules/sessions/ActiveSessions"
 import { StoresService } from "@insyte/modules/stores/Stores"
 import { SuppliersService } from "@insyte/modules/suppliers/Suppliers"
 import { TicketsService } from "@insyte/modules/tickets/Tickets"
@@ -70,7 +71,7 @@ export const RpcRoutes = RpcHttp(ConsoleRpcs, RPC_PATH)
  */
 export const RpcContext = Layer.mergeAll(
   SystemHandlers,
-  SessionHandlers.pipe(Layer.provide(Workspaces.layer)),
+  SessionHandlers.pipe(Layer.provide([Workspaces.layer, ActiveSessions.layer])),
   OnboardingHandlers.pipe(
     Layer.provide(Onboarding.layer),
     Layer.provide(Layer.mergeAll(Workspaces.founder, Workspaces.setup))

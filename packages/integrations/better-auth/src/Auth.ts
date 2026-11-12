@@ -43,6 +43,15 @@ export interface AuthConfig {
   readonly google?: { readonly clientId: string; readonly clientSecret: string } | undefined
 }
 
+/**
+ * The visitor's country as Cloudflare saw it (`cf-ipcountry`, set on the console's request and forwarded by the service
+ * binding): two letters, or nothing where it has none (locally, or `XX`/`T1` for unknown and Tor).
+ */
+export const countryOf = (headers: Headers | undefined) => {
+  const country = headers?.get("cf-ipcountry")?.toUpperCase()
+  return country !== undefined && /^[A-Z]{2}$/.test(country) && country !== "XX" ? country : null
+}
+
 /** The header a sign-up from the invitation landing carries: `<invitation id>.<its secret>`. */
 export const INVITATION_HEADER = "x-insyte-invitation"
 
@@ -184,6 +193,15 @@ export const authOptions = (config: AuthConfig, database: BetterAuthOptions["dat
             await config.recordEvent?.({ kind: "sign_up", userId: user.id, request: ctx?.request ?? undefined })
           }
         }
+      },
+      session: {
+        create: {
+          // Where the session was opened, for Beveiliging's Actieve sessies (M3.3): the country Cloudflare saw.
+          before: async (
+            session: Record<string, unknown>,
+            ctx?: { readonly headers?: Headers | undefined; readonly request?: Request | undefined } | null
+          ) => ({ data: { ...session, country: countryOf(ctx?.request?.headers ?? ctx?.headers) } })
+        }
       }
     },
     user: { fields: COLUMNS.user },
@@ -226,7 +244,8 @@ export const authOptions = (config: AuthConfig, database: BetterAuthOptions["dat
       // Which workspace and principal the session acts as: written only by the server (Session.switchPrincipal, M3).
       additionalFields: {
         activeWorkspaceId: { type: "string", required: false, input: false, fieldName: "active_workspace_id" },
-        activePrincipalKind: { type: "string", required: false, input: false, fieldName: "active_principal_kind" }
+        activePrincipalKind: { type: "string", required: false, input: false, fieldName: "active_principal_kind" },
+        country: { type: "string", required: false, input: false, fieldName: "country" }
       }
     },
     plugins: [twoFactorPlugin()],

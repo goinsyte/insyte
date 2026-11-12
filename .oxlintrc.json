@@ -99,7 +99,11 @@
     // Graduated (08 §3): Account and Regio, wired to Workspaces.* in M3.1, with the settings form kit.
     "!packages/ui/src/app/settings/form.tsx",
     "!packages/ui/src/app/settings/profile-screen.tsx",
-    "!packages/ui/src/app/settings/regional-screen.tsx"
+    "!packages/ui/src/app/settings/regional-screen.tsx",
+    // Graduated (08 §3): Beveiliging, wired to Session.* and Workspaces.getSecurity in M3.3.
+    "!packages/ui/src/app/settings/security-screen.tsx",
+    "!packages/ui/src/app/settings/security-source.tsx",
+    "!packages/ui/src/app/settings/security-demo-source.tsx"
   ],
   "rules": {
     "no-console": "warn",
