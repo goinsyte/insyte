@@ -269,7 +269,7 @@ function Numbers({ a: am, b: bm, onPeriods }: { a: string; b: string; onPeriods:
             Analyse
           </h1>
           <Link
-            to="/costs"
+            to={"/costs" as never}
             className="flex h-8 items-center rounded-md px-2.5 font-medium text-mesh-ink-2 text-sm transition-colors hover:bg-mesh-ink/10 hover:text-mesh-ink"
           >
             Kosten en nettowinst
@@ -334,7 +334,7 @@ function FigureCell({ it, first }: { it: FigureView; first: boolean }) {
               <span className="text-mesh-ink-3 tabular-nums">was {it.before}</span>
             </span>
           ) :
-          <span className="text-mesh-ink-3 text-xs">Nog niet beschikbaar</span>}
+          <span className="text-mesh-ink-3 text-xs">{it.note ?? "Nog niet beschikbaar"}</span>}
       </dd>
     </>
   )

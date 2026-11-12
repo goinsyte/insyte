@@ -114,12 +114,13 @@ export const delivery = (
 ): Omit<Finding, "recordCount"> | undefined => {
   const parcelsA = sum(a, (c) => c.parcels)
   const parcelsB = sum(b, (c) => c.parcels)
-  if (parcelsA === 0 && parcelsB === 0) return undefined
+  // Nothing delivered in A is nothing to read; nothing in B leaves A without a comparison, so no points.
+  if (parcelsA === 0) return undefined
   const onTime = (cells: ReadonlyArray<DeliveriesCell>, parcels: number) =>
     parcels === 0 ? 0 : round1((sum(cells, (c) => c.onTime) / parcels) * 100)
   const onTimeA = onTime(a, parcelsA)
   const onTimeB = onTime(b, parcelsB)
-  const pts = round1(onTimeA - onTimeB)
+  const pts = parcelsB === 0 ? 0 : round1(onTimeA - onTimeB)
   const key = (c: DeliveriesCell) => enc(c.dims["supplier_id"] ?? null, c.dims["country"] ?? null)
   const ms = moves(group(a, key, (c) => c.late), group(b, key, (c) => c.late), "up")
   const daysLate = group(a, key, (c) => c.daysLateSum)
@@ -135,6 +136,7 @@ export const delivery = (
       onTimeB,
       pts,
       delivered: parcelsA,
+      deliveredB: parcelsB,
       late: sum(a, (c) => c.late),
       supplier: supplierId === null ? null : (names.suppliers.get(supplierId) ?? null),
       country,

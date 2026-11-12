@@ -39,6 +39,8 @@ export interface FigureView {
   digits?: number | undefined
   goodWhenUp: boolean
   available: boolean
+  /** Why there is no change to show; "Nog niet beschikbaar" when absent. */
+  note?: string | undefined
   open?: (() => void) | undefined
 }
 

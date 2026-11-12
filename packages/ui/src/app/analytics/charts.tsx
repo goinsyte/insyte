@@ -200,6 +200,7 @@ const ltX = (v: number) => ((Math.max(LT_MIN, Math.min(LT_MAX, v)) - LT_MIN) / (
 export function LeadTimeChart({ lit }: { lit?: string | undefined }) {
   const { charts, openSupplier } = useAnalyticsSource()
   if (charts.leadTimes === null) return <Bones height={120} />
+  if (charts.leadTimes.length === 0) return <p className="text-ink-3 text-sm">Nog niets bezorgd in deze periode.</p>
   return (
     <figure className="flex flex-col gap-0.5">
       {charts.leadTimes.map((r) => {
