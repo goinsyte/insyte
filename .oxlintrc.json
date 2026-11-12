@@ -74,6 +74,11 @@
     "!packages/ui/src/app/customers/**",
     // Graduated (08 §3): the suppliers screen, wired to its commands in M8.
     "!packages/ui/src/app/suppliers/**",
+    // Graduated (08 §3): the supplier statements, wired to Suppliers.statements in M13 (step 15.6).
+    "!packages/ui/src/app/supplier/statements-screen.tsx",
+    "!packages/ui/src/app/supplier/statement-screen.tsx",
+    "!packages/ui/src/app/supplier/statements-source.tsx",
+    "!packages/ui/src/app/supplier/statements-demo.tsx",
     // Graduated (08 §3): returns, the returns portal and quality, wired in M9.
     "!packages/ui/src/app/returns/**",
     "!packages/ui/src/app/quality/**",
