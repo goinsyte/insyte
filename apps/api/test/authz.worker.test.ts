@@ -19,6 +19,7 @@ import { ReturnsRpcs } from "@insyte/api/rpc/ReturnsRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
 import { RunsRpcs } from "@insyte/api/rpc/RunsRpcs"
 import { SessionRpcs } from "@insyte/api/rpc/SessionRpcs"
+import { SettingsDepthRpcs } from "@insyte/api/rpc/SettingsDepthRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
 import { ShellRpcs } from "@insyte/api/rpc/ShellRpcs"
 import { StoresRpcs } from "@insyte/api/rpc/StoresRpcs"
@@ -300,6 +301,19 @@ const PAYLOADS: Record<string, unknown> = {
     weekStart: "mon",
     timezone: "Europe/Amsterdam"
   },
+  // Settings depth (20.1b): each write is refused after the permission (a link without https, a text file as the
+  // logo, erasing on before the saved periods were counted); the count is of other periods than the saved ones.
+  "WorkspaceSettings.get": { section: "shipping" },
+  "WorkspaceSettings.save": {
+    section: "links",
+    value: { review: "geen-link", unsubscribe: "", restock: "" },
+    baseVersion: 0
+  },
+  "Shipping.statusCounts": undefined,
+  "Templates.linkUsage": undefined,
+  "Brand.uploadLogo": { name: "logo.txt", mime: "text/plain", data: "eA==" },
+  "Retention.count": { classes: [{ id: "contact", months: 3 }] },
+  "Retention.setErasing": { on: true },
   "Chats.list": undefined,
   "Chats.messages": { conversationId: "cnv_none" },
   "Chats.thread": { messageId: "msg_none" },
@@ -426,7 +440,8 @@ const manifest = [
   ...ChargebacksRpcs.requests.keys(),
   ...CostsRpcs.requests.keys(),
   ...AuditRpcs.requests.keys(),
-  ...TrashRpcs.requests.keys()
+  ...TrashRpcs.requests.keys(),
+  ...SettingsDepthRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

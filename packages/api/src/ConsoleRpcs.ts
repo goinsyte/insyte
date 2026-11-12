@@ -23,6 +23,7 @@ import { ReturnsRpcs } from "./rpc/ReturnsRpcs.ts"
 import { RolesRpcs } from "./rpc/RolesRpcs.ts"
 import { RunsRpcs } from "./rpc/RunsRpcs.ts"
 import { SessionRpcs } from "./rpc/SessionRpcs.ts"
+import { SettingsDepthRpcs } from "./rpc/SettingsDepthRpcs.ts"
 import { SharedRpcs } from "./rpc/SharedRpcs.ts"
 import { ShellRpcs } from "./rpc/ShellRpcs.ts"
 import { StoresRpcs } from "./rpc/StoresRpcs.ts"
@@ -74,3 +75,4 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(CostsRpcs)
   .merge(AuditRpcs)
   .merge(TrashRpcs)
+  .merge(SettingsDepthRpcs)

@@ -27,6 +27,7 @@ import { PortalService } from "@insyte/modules/returns/Portal"
 import { ReturnsService } from "@insyte/modules/returns/Returns"
 import { RolesService } from "@insyte/modules/roles/RolesService"
 import { ActiveSessions } from "@insyte/modules/sessions/ActiveSessions"
+import { SettingsDepth } from "@insyte/modules/settings/SettingsDepth"
 import { StoresService } from "@insyte/modules/stores/Stores"
 import { SuppliersService } from "@insyte/modules/suppliers/Suppliers"
 import { TicketsService } from "@insyte/modules/tickets/Tickets"
@@ -62,6 +63,7 @@ import { ReturnsHandlers } from "./handlers/returns.ts"
 import { RolesHandlers } from "./handlers/roles.ts"
 import { RunsHandlers } from "./handlers/runs.ts"
 import { SessionHandlers } from "./handlers/session.ts"
+import { SettingsDepthHandlers } from "./handlers/settings-depth.ts"
 import { SharedHandlers } from "./handlers/shared.ts"
 import { ShellHandlers } from "./handlers/shell.ts"
 import { StoresHandlers } from "./handlers/stores.ts"
@@ -121,6 +123,7 @@ export const RpcContext = Layer.mergeAll(
   CostsHandlers.pipe(Layer.provide(CostsService.layer)),
   AuditHandlers.pipe(Layer.provide(AuditService.layer)),
   TrashHandlers.pipe(Layer.provide(TrashService.layer)),
+  SettingsDepthHandlers.pipe(Layer.provide(SettingsDepth.layer)),
   ShellHandlers.pipe(
     Layer.provide(
       Layer.mergeAll(

@@ -50,11 +50,12 @@ export const FileRoutes = HttpRouter.add(
       const [row] = yield* db.scoped((sql) =>
         sql<{ r2Key: string; name: string; mime: string; ownerType: string; ownerId: string }>`
           select r2_key, name, mime, owner_type, owner_id from files where id = ${id ?? ""} and deleted_at is null
-            and owner_type in ('forwarding_item', 'return', 'quality_check', 'chargeback')`
+            and owner_type in ('forwarding_item', 'return', 'quality_check', 'chargeback', 'brand')`
       )
       if (row === undefined) return undefined
       // What it belongs to decides who may have it: an order's slip at Bestellingen, a return's label at Retouren, a
       // supplier's quality photo at Producten (M9.4), a case's evidence at Chargebacks (M13).
+      // …and the workspace's logo (Huisstijl, M17 step 20.1b) at Instellingen.
       yield* Policy.require(
         row.ownerType === "return"
           ? "returns"
@@ -62,6 +63,8 @@ export const FileRoutes = HttpRouter.add(
           ? "products"
           : row.ownerType === "chargeback"
           ? "chargebacks"
+          : row.ownerType === "brand"
+          ? "settings"
           : "orders",
         1
       )
@@ -85,7 +88,15 @@ export const FileRoutes = HttpRouter.add(
     if (stored === undefined) return notFound
     return HttpServerResponse.uint8Array(stored.bytes, {
       contentType: stored.mime,
-      headers: { "content-disposition": disposition(file.name), "cache-control": "private, no-store" }
+      headers: {
+        "content-disposition": disposition(file.name),
+        "cache-control": "private, no-store",
+        // An uploaded logo (an SVG, too) is shown as an image, never run as a page on the console's origin.
+        ...(file.ownerType === "brand"
+          ? { "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox" }
+          : {}),
+        "x-content-type-options": "nosniff"
+      }
     })
   }).pipe(Effect.orDie, withRequestDb, Effect.withSpan("Files.downloadRoute"))
 )

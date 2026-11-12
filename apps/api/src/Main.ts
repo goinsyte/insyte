@@ -20,6 +20,7 @@ import {
   sweep
 } from "./platform/Relay.ts"
 import { withRequestDb } from "./platform/RequestDb.ts"
+import { retentionSweep } from "./platform/Retention.ts"
 import { trashSweep } from "./platform/TrashSweep.ts"
 
 // The Durable Object classes this Worker hosts; infra and `wrangler.jsonc` bind them by these names.
@@ -114,6 +115,8 @@ export default {
       if (at.getUTCHours() === 4 && at.getUTCMinutes() === 0) {
         ctx.waitUntil(background.runPromise(withRequestDb(adSpendSweep())).finally(() => Telemetry.flush()))
       }
+      // The nightly erase of what is past its retention, at 03:00 in each workspace's timezone (M17 step 20.1b).
+      ctx.waitUntil(background.runPromise(withRequestDb(retentionSweep(at))).finally(() => Telemetry.flush()))
     }
   }
 } satisfies ExportedHandler<Env, EventsMessage | IngestMessage>

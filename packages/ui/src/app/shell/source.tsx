@@ -58,7 +58,7 @@ export interface ShellSource {
 	notifications: Pick<NotificationsState, "notes" | "prefs" | "setRead" | "wake">;
 	home: Pick<HomeState, "widgets" | "engine" | "add" | "remove" | "setEngine">;
 	nav: NavState & NavActions;
-	settingsDepth: Pick<SettingsDepthState, "keys" | "gotoOn">;
+	settingsDepth: Pick<SettingsDepthState, "keys" | "gotoOn" | "setKey" | "resetKeys" | "setGotoOn">;
 	access: Pick<AccessState, "viewAs" | "setViewAs">;
 	autonomy: Pick<AutonomyState, "budget">;
 	ask: Pick<AskState, "start">;
