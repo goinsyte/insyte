@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/react-router"
 import { useMemo, useState } from "react"
-import { toast } from "sonner"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,27 +7,27 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "../../components/dropdown-menu"
-import { extensions as allExtensions } from "../../data-source"
 import { ArrowUpRight, ExternalLink, Lock, MoreVertical, Trash2 } from "../../icons"
-import { useMarketplaceState } from "../hooks/use-marketplace-state"
 import { ZONE } from "../lib/format"
 import type { Extension } from "../lib/types/domain"
 import { cn } from "../lib/utils"
 import { KIND_FOR, KIND_LABEL, KIND_STYLE, vendorName } from "../marketplace/app-catalog"
 import { AppDetailModal } from "../marketplace/app-detail-modal"
 import { BrandLogo } from "../marketplace/brand-logos"
-import { OpenAppDialog, PermissionsDialog } from "../marketplace/marketplace-dialogs"
+import { InPlaceApp } from "../marketplace/in-place-app"
+import { PermissionsDialog } from "../marketplace/marketplace-dialogs"
+import { useMarketplaceState } from "../shell/state"
 import { SettingCard } from "./setting-card"
 
 export function SettingsAppsPage() {
-  const { records, isInstalled, uninstall, markOpened } = useMarketplaceState()
+  const { apps, records, isInstalled, uninstall, markOpened, open } = useMarketplaceState()
   const [detail, setDetail] = useState<Extension | null>(null)
   const [permissionsFor, setPermissionsFor] = useState<Extension | null>(null)
   const [running, setRunning] = useState<Extension | null>(null)
 
   const installed = useMemo(
-    () => allExtensions.filter((e) => isInstalled(e.id)),
-    [isInstalled]
+    () => apps.filter((e) => isInstalled(e.id)),
+    [apps, isInstalled]
   )
 
   return (
@@ -73,14 +72,14 @@ export function SettingsAppsPage() {
                   last={i === installed.length - 1}
                   onOpen={() => {
                     markOpened(ext.id)
-                    setRunning(ext)
+                    // Where the host has the app's own place, it opens there; the design opens it in place.
+                    if (open) open(ext)
+                    else setRunning(ext)
                   }}
                   onViewDetails={() => setDetail(ext)}
                   onPermissions={() => setPermissionsFor(ext)}
-                  onUninstall={() => {
-                    uninstall(ext.id)
-                    toast(`${ext.name} verwijderd`)
-                  }}
+                  // The host confirms what goes for good, and offers Ongedaan maken when it can come back.
+                  onUninstall={() => uninstall(ext)}
                 />
               ))}
             </ul>
@@ -101,13 +100,17 @@ export function SettingsAppsPage() {
           if (!o) setPermissionsFor(null)
         }}
       />
-      <OpenAppDialog
-        extension={running}
-        open={!!running}
-        onOpenChange={(o) => {
-          if (!o) setRunning(null)
-        }}
-      />
+      {open === undefined ?
+        (
+          <InPlaceApp
+            extension={running}
+            open={!!running}
+            onOpenChange={(o) => {
+              if (!o) setRunning(null)
+            }}
+          />
+        ) :
+        null}
     </>
   )
 }

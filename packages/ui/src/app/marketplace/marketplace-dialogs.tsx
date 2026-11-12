@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react"
-import { toast } from "sonner"
 import {
   Dialog,
   DialogContent,
@@ -11,18 +10,15 @@ import {
 import { Switch } from "../../components/switch"
 import { CheckCircle2, Lock } from "../../icons"
 import type { Extension } from "../lib/types/domain"
-import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
 import { Field, INPUT_CLASS, SelectInput } from "../settings/form"
-import { useSettings } from "../stores/settings-store"
-import { useWorkspace } from "../stores/workspace-store"
-import { FEATURES_FOR, PERMISSIONS_FOR, vendorName } from "./app-catalog"
-import { BrandLogo } from "./brand-logos"
+import { useMarketplaceState } from "../shell/state"
+import { PERMISSIONS_FOR, vendorName } from "./app-catalog"
 
 /*
- * The small dialogs the Marketplace and Settings → Apps open: feedback, the legal pages, an
- * installed app opened inside Insyte, and the scopes an app holds. Everything is simulated and kept
- * in the settings store, so a choice made here is still there on the next visit.
+ * The small dialogs the Marketplace and Settings → Apps open: feedback, the legal pages and the scopes an app holds,
+ * through the host's source (`marketplace-source.ts`). The in-place app dialog is the design's own
+ * (`open-app-dialog.tsx`).
  */
 
 const PRIMARY =
@@ -32,7 +28,8 @@ const GHOST = "flex h-9 items-center justify-center rounded-md px-3 font-medium 
 const FEEDBACK_CATEGORIES = ["Een app voorstellen", "Er werkt iets niet", "Een app-vermelding klopt niet", "Anders"]
 
 export function FeedbackDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-  const addFeedback = useSettings((s) => s.addFeedback)
+  const { sendFeedback } = useMarketplaceState()
+  const [sending, setSending] = useState(false)
   const [category, setCategory] = useState(FEEDBACK_CATEGORIES[0])
   const [message, setMessage] = useState("")
   const [sent, setSent] = useState(false)
@@ -43,10 +40,13 @@ export function FeedbackDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     setSent(false)
   }, [open])
 
-  function send() {
-    if (!message.trim()) return
-    addFeedback({ category, message: message.trim(), at: Date.now() })
-    setSent(true)
+  // A failure keeps what was written; the host says why.
+  async function send() {
+    if (!message.trim() || sending) return
+    setSending(true)
+    const kept = await sendFeedback({ category, message: message.trim() })
+    setSending(false)
+    if (kept) setSent(true)
   }
 
   return (
@@ -93,7 +93,7 @@ export function FeedbackDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 <button type="button" onClick={() => onOpenChange(false)} className={GHOST}>
                   Annuleren
                 </button>
-                <button type="submit" disabled={!message.trim()} className={PRIMARY}>
+                <button type="submit" disabled={!message.trim() || sending} className={PRIMARY}>
                   Feedback sturen
                 </button>
               </DialogFooter>
@@ -173,78 +173,6 @@ export function LegalDialog({ open, onOpenChange }: { open: boolean; onOpenChang
   )
 }
 
-const GENERIC_SETTINGS = [
-  "Nieuwe bestellingen automatisch synchroniseren",
-  "Updates in de inbox plaatsen",
-  "Klantlabels delen"
-]
-
-/**
- * An installed app opened inside Insyte. There is no vendor behind it in the demo, so it shows what
- * a connected app would: who it is, that it is connected, and a few settings that stick.
- */
-export function OpenAppDialog({
-  extension,
-  open,
-  onOpenChange
-}: {
-  extension: Extension | null
-  open: boolean
-  onOpenChange: (v: boolean) => void
-}) {
-  const workspace = useWorkspace((s) => s.account.workspace)
-  const values = useSettings((s) => (extension ? s.appSettings[extension.id] : undefined))
-  const setAppSetting = useSettings((s) => s.setAppSetting)
-  if (!extension) return null
-  const ext = extension
-  const settings = (FEATURES_FOR[ext.id] ?? GENERIC_SETTINGS).slice(0, 3)
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-[520px]">
-        <header className="flex items-center gap-3.5 px-5 pt-5 pr-14 pb-4">
-          <BrandLogo extId={ext.id} name={ext.name} size={44} />
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <DialogTitle>{ext.name}</DialogTitle>
-            <DialogDescription className="flex items-center gap-1.5 text-sm">
-              <span className="size-1.5 shrink-0 rounded-full bg-signal-green" aria-hidden />
-              Gekoppeld aan {workspace}
-            </DialogDescription>
-          </div>
-        </header>
-        <div className="flex flex-col gap-1 px-5 pb-5">
-          <p className="pb-2 text-sm text-ink-3">
-            Door {vendorName(ext.name)} · Zojuist gesynchroniseerd
-          </p>
-          <ul className="flex flex-col overflow-hidden rounded-lg">
-            {settings.map((label, i) => {
-              const checked = values?.[label] ?? i < 2
-              return (
-                <li key={label} className="flex items-center justify-between gap-4 px-3 py-2.5 odd:bg-mist">
-                  <span className="text-base text-ink leading-snug">{label}</span>
-                  <Switch
-                    checked={checked}
-                    aria-label={label}
-                    onCheckedChange={(v) => {
-                      setAppSetting(ext.id, label, v)
-                      toast.success(`${label} ${v ? "aan" : "uit"}`)
-                    }}
-                  />
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-        <footer className="flex items-center justify-end bg-mist px-5 py-3">
-          <button type="button" onClick={() => onOpenChange(false)} className={PRIMARY}>
-            Klaar
-          </button>
-        </footer>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 /** Each scope an app holds, as a switch; the ones turned off are saved as revoked, with an undo. */
 export function PermissionsDialog({
   extension,
@@ -255,10 +183,9 @@ export function PermissionsDialog({
   open: boolean
   onOpenChange: (v: boolean) => void
 }) {
-  const revokedScopes = useSettings((s) => s.revokedScopes)
-  const setRevokedScopes = useSettings((s) => s.setRevokedScopes)
-  const saved = extension ? (revokedScopes[extension.id] ?? []) : []
-  const [revoked, setRevoked] = useState<string[]>(saved)
+  const { revokedScopes, setRevokedScopes, canRescope } = useMarketplaceState()
+  const saved = extension ? revokedScopes(extension.id) : []
+  const [revoked, setRevoked] = useState<Array<string>>([...saved])
   const savedKey = saved.join("\n")
   // Each opening starts from what is saved, not from the last visit's unsaved switches.
   useEffect(() => {
@@ -269,16 +196,13 @@ export function PermissionsDialog({
   const ext = extension
   const permissions = PERMISSIONS_FOR[ext.id] ?? []
   const unchanged = [...revoked].sort().join("\n") === [...saved].sort().join("\n")
+  // An app whose rights are its provider's grant lists them, and they are changed at the provider.
+  const fixed = !canRescope(ext.id)
 
+  // The host saves and offers Ongedaan maken.
   function save() {
-    const before = saved
-    setRevokedScopes(ext.id, revoked)
+    setRevokedScopes(ext, revoked)
     onOpenChange(false)
-    const n = revoked.length
-    undoable(
-      n === 0 ? `${ext.name} heeft al zijn rechten` : `${ext.name} is ${n} ${n === 1 ? "recht" : "rechten"} kwijt`,
-      () => setRevokedScopes(ext.id, before)
-    )
   }
 
   return (
@@ -287,7 +211,11 @@ export function PermissionsDialog({
         <DialogHeader>
           <DialogTitle>Rechten van {ext.name}</DialogTitle>
           <DialogDescription>
-            Zet uit wat deze app niet mag doen. Functies die het nodig hebben, werken pas weer als je het aanzet.
+            {fixed ?
+              `Deze rechten gaf je bij ${
+                vendorName(ext.name)
+              } zelf. Wil je er minder geven, verwijder de app dan en koppel opnieuw.` :
+              "Zet uit wat deze app niet mag doen. Functies die het nodig hebben, werken pas weer als je het aanzet."}
           </DialogDescription>
         </DialogHeader>
         {permissions.length === 0 ?
@@ -309,6 +237,7 @@ export function PermissionsDialog({
                     </span>
                     <Switch
                       checked={granted}
+                      disabled={fixed}
                       aria-label={p}
                       onCheckedChange={(v) => setRevoked((r) => (v ? r.filter((x) => x !== p) : [...r, p]))}
                     />

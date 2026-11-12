@@ -1,10 +1,9 @@
 import { useRef, useState } from "react"
-import { toast } from "sonner"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../../components/dialog"
 import { ArrowUpRight, Check, CheckCircle2, ExternalLink, Lock, Star } from "../../icons"
-import { useMarketplaceState } from "../hooks/use-marketplace-state"
+import { SoonChip } from "../common/soon-chip"
 import type { Extension } from "../lib/types/domain"
-import { useSettings } from "../stores/settings-store"
+import { useMarketplaceState } from "../shell/state"
 import {
   FEATURES_FOR,
   formatInstalls,
@@ -17,7 +16,7 @@ import {
   vendorName
 } from "./app-catalog"
 import { BrandLogo } from "./brand-logos"
-import { OpenAppDialog } from "./marketplace-dialogs"
+import { InPlaceApp } from "./in-place-app"
 
 export function AppDetailModal({
   extension,
@@ -28,10 +27,9 @@ export function AppDetailModal({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { isInstalled, install, uninstall, markOpened } = useMarketplaceState()
+  const { isInstalled, install, uninstall, markOpened, open: openApp, revokedScopes, soon } = useMarketplaceState()
   const popup = useRef<HTMLDivElement>(null)
   const [running, setRunning] = useState(false)
-  const revokedScopes = useSettings((s) => s.revokedScopes)
 
   if (!extension) return null
 
@@ -41,25 +39,29 @@ export function AppDetailModal({
   const installed = isInstalled(ext.id)
   const features = FEATURES_FOR[ext.id] ?? []
   // An installed app lists only the scopes it still holds; the rest were taken back in Settings.
-  const revoked = installed ? (revokedScopes[ext.id] ?? []) : []
+  const revoked = installed ? revokedScopes(ext.id) : []
+  const later = soon(ext.id)
   const permissions = (PERMISSIONS_FOR[ext.id] ?? []).filter((p) => !revoked.includes(p))
   const pricing = PRICING_FOR[ext.id] ?? "Neem contact op met de aanbieder"
   const vendor = vendorName(ext.name)
   const url = VENDOR_URL[ext.id]
 
+  // What came of it is the host's to say: a toast, a provider's approval page, a key shown once, a confirmation.
   function handleInstall() {
-    install(ext.id)
-    toast.success(`${ext.name} geïnstalleerd`)
+    install(ext)
   }
 
   function handleUninstall() {
-    uninstall(ext.id)
-    toast(`${ext.name} verwijderd`)
+    uninstall(ext)
   }
 
+  // Where the host has the app's own place, it opens there; the design opens it in place.
   function handleOpen() {
     markOpened(ext.id)
-    setRunning(true)
+    if (openApp) {
+      onOpenChange(false)
+      openApp(ext)
+    } else setRunning(true)
   }
 
   return (
@@ -163,6 +165,8 @@ export function AppDetailModal({
                   Geïnstalleerd
                 </span>
               ) :
+              later ?
+              <span className="text-sm text-ink-2">Deze app kun je nog niet installeren.</span> :
               <span className="text-sm text-ink-2">Binnen seconden geïnstalleerd. Geen developer nodig.</span>}
             <div className="flex items-center gap-1.5">
               {installed ?
@@ -185,6 +189,8 @@ export function AppDetailModal({
                     </button>
                   </>
                 ) :
+                later ?
+                <SoonChip /> :
                 (
                   <button
                     type="button"
@@ -198,7 +204,7 @@ export function AppDetailModal({
           </footer>
         </DialogContent>
       </Dialog>
-      <OpenAppDialog extension={ext} open={running} onOpenChange={setRunning} />
+      {openApp === undefined ? <InPlaceApp extension={ext} open={running} onOpenChange={setRunning} /> : null}
     </>
   )
 }

@@ -75,11 +75,20 @@ const graduated = [
   "app/lib/home/day.ts",
   "app/lib/home/kinds.ts",
   "app/chats/",
-  "app/inbox/"
+  "app/inbox/",
+  "app/marketplace/",
+  "app/settings/apps-screen.tsx"
 ]
 
-/** Inside a graduated directory but not yet edited for the backend: the queue panel waits for the proposals branches. */
-const notYet = new Set(["app/dashboard/queue-panel.tsx"])
+/**
+ * Inside a graduated directory but not yet edited for the backend: the queue panel waits for the proposals branches;
+ * the Marketplace's modal and its brand logos are drawn as ported (M17 step 3 changed only what they read).
+ */
+const notYet = new Set([
+  "app/dashboard/queue-panel.tsx",
+  "app/marketplace/marketplace-modal.tsx",
+  "app/marketplace/brand-logos.tsx"
+])
 
 const ported = (name: string): boolean =>
   portedPaths.some((prefix) => name.startsWith(prefix)) &&

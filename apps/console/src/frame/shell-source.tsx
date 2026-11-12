@@ -11,6 +11,7 @@ import { DEFAULT_PREFS, type Note, type NotifyPrefs } from "@insyte/ui/app/lib/n
 import { withServerCounts } from "@insyte/ui/app/lib/panel-counts"
 import type { Conversation, Member } from "@insyte/ui/app/lib/types/domain"
 import { type PanelMailbox, type ShellSource, ShellSourceProvider } from "@insyte/ui/app/shell/source"
+import { useMarketplaceModalStore } from "@insyte/ui/app/stores/marketplace-modal-store"
 import type { NavState } from "@insyte/ui/app/stores/nav-store"
 import type { PanelState } from "@insyte/ui/app/stores/panel-store"
 import type { PinsState, Shortcut } from "@insyte/ui/app/stores/pins-store"
@@ -24,6 +25,7 @@ import { chatsAtom } from "../data/chats.ts"
 import { FRAME, frameWrites, inboxAtom, notePrefsAtom, NOTES, presenceAtom, VIEWS, viewsAtom } from "../data/frame.ts"
 import { inboxCountsAtom, mailboxesAtom } from "../data/inbox.ts"
 import { ticketCountsAtom } from "../data/tickets.ts"
+import { useConsoleMarketplace } from "../marketplace/marketplace-source.tsx"
 import { notifyPrefsOf } from "../notifications/settings-source.ts"
 import { ConsoleInvite } from "./invite.tsx"
 import { toNote } from "./notes.ts"
@@ -123,6 +125,9 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     [mailboxes, inboxCounts]
   )
   const areaCounts = ticketCounts ?? inboxCounts
+  // The Marketplace (M17 step 3): read while its modal is open or Instellingen → Apps shows.
+  const marketplace = useConsoleMarketplace()
+  const openMarketplace = useMarketplaceModalStore((s) => s.openModal)
   const write = {
     setRead: useAtomSet(frameWrites.setRead, { mode: "promiseExit" }),
     recordVisit: useAtomSet(frameWrites.recordVisit, { mode: "promiseExit" }),
@@ -237,7 +242,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     access: { viewAs: null, setViewAs: () => {} },
     autonomy: { budget: { limit: null, used: 0 } },
     ask: { start: () => void navigate({ to: "/ask" as never }) },
-    marketplaceModal: { openModal: () => void navigate({ to: "/settings/apps" as never }) },
+    marketplaceModal: { openModal: openMarketplace },
     team: {
       workspaces: [{
         id: frame.workspace.id,
@@ -278,23 +283,14 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     currentRole: roleOf(frame),
     workflows: {},
     supplierOrders: NO_ROWS,
-    // No marketplace yet (M17): nothing installed.
-    marketplace: {
-      records: {},
-      installedIds: [],
-      isInstalled: () => false,
-      getRecord: () => undefined,
-      install: () => {},
-      uninstall: () => {},
-      markOpened: () => {}
-    } as unknown as ShellSource["marketplace"],
+    marketplace: marketplace.source,
     navPrefs: navPrefsOf(navState),
     extensions: NO_ROWS,
     heardNotes: notes.filter((n) => prefs.events[n.event]?.app !== false),
     inbox: { threads: [], mailboxes: onInbox ? panelMailboxes ?? [] : undefined },
     agentEntries: NO_ROWS,
     queueRows: NO_ROWS,
-    // Customize waits for Start's board, an app's detail for the marketplace (M17), connecting a store for Shopify (M6).
+    // Customize waits for Start's board, an app's detail from the rail for its pins (M17), connecting a store for Shopify (M6).
     slots: {
       Customize: null,
       AppDetail: null,
@@ -349,7 +345,10 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   // refuses what the role may not do.
   return (
     <ShellSourceProvider value={source}>
-      <GateRoleProvider value={gateRole}>{children}</GateRoleProvider>
+      <GateRoleProvider value={gateRole}>
+        {children}
+        {marketplace.overlay}
+      </GateRoleProvider>
     </ShellSourceProvider>
   )
 }
