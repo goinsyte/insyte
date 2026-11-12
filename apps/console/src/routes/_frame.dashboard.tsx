@@ -24,6 +24,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { type ReactNode, useEffect, useState } from "react"
+import { chatsAtom } from "../data/chats.ts"
 import { frameAtom } from "../data/frame.ts"
 import { briefAtom, widgetsAtom, widgetsKey } from "../data/home.ts"
 import { completeTaskAtom, START, startAtom } from "../data/onboarding.ts"
@@ -77,7 +78,12 @@ export const Route = createFileRoute("/_frame/dashboard")({
       const board = boardOfFrame(frame)
       const atom = widgetsAtom(widgetsKey(board.range, board.ids))
       context.registry.mount(atom)
-      yield* AtomRegistry.getResult(context.registry, atom)
+      // "Ongelezen chats" reads the conversations the chats page does.
+      if (board.chats) context.registry.mount(chatsAtom)
+      yield* Effect.all([
+        AtomRegistry.getResult(context.registry, atom),
+        board.chats ? Effect.ignore(AtomRegistry.getResult(context.registry, chatsAtom)) : Effect.void
+      ], { concurrency: "unbounded" })
     })
     await Effect.runPromise(
       Effect.all([
