@@ -72,11 +72,15 @@ const mcpCall = async (token: string, name: string, args: Record<string, unknown
   return { isError: message.result.isError as boolean, value: JSON.parse(message.result.content[0].text) as Json }
 }
 
-/** Starts a run by hand over `/v1`, as a key. */
+/** Starts a run by hand over `/v1`, as a key, under an Idempotency-Key of its own. */
 const startBy = (key: string, automationId: string, orderId: string) =>
   call(`${HOST}/v1/automations/${automationId}/runs`, {
     method: "POST",
-    headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+    headers: {
+      authorization: `Bearer ${key}`,
+      "content-type": "application/json",
+      "idempotency-key": `start-${crypto.randomUUID()}`
+    },
     body: JSON.stringify({ order_id: orderId })
   })
 
