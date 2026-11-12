@@ -5,6 +5,7 @@ import { CurrentUser } from "@insyte/domain/Session"
 import { RECORDED_BULK } from "@insyte/integrations-shopify/RecordedBulk"
 import { drainWorkspace, markRecentWorkspace, rebuildWorkspace } from "@insyte/modules/facts/Facts"
 import { receive } from "@insyte/modules/inbox/use-cases/inbound"
+import { isReplyAddress, receiveReply } from "@insyte/modules/notifications/use-cases/replies"
 import { refreshWorkspace } from "@insyte/modules/queue/Queue"
 import { registerParcels } from "@insyte/modules/returns/use-cases/parcels"
 import { addLine, emptyBatch, type MirrorBatch, parseJsonl } from "@insyte/modules/stores/domain/Mirror"
@@ -442,7 +443,7 @@ const NotifySweep = HttpRouter.add(
 
 /**
  * `GET /api/__dev/notify/deliveries?workspace=<id>`: the workspace's deliveries outside the app, newest first, ids,
- * channels and states only. Refused in production.
+ * channels, states, why one did not go, and a mail's answer token (M11 step 13.5). Refused in production.
  */
 const NotifyDeliveries = HttpRouter.add(
   "GET",
@@ -454,8 +455,18 @@ const NotifyDeliveries = HttpRouter.add(
     const workspace = (yield* workspaceParam) as WorkspaceId
     const db = yield* Db
     const deliveries = yield* db.scopedFor((sql) =>
-      sql<{ recipientId: string; channel: string; kind: string; state: string; attempts: number }>`
-        select recipient_id, channel, kind, state, attempts from notification_deliveries
+      sql<
+        {
+          recipientId: string
+          channel: string
+          kind: string
+          state: string
+          attempts: number
+          error: string | null
+          replyToken: string | null
+        }
+      >`
+        select recipient_id, channel, kind, state, attempts, error, reply_token from notification_deliveries
         order by created_at desc limit 50`
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace }))
     return HttpServerResponse.jsonUnsafe({ deliveries })
@@ -596,7 +607,8 @@ const FactsRebuild = HttpRouter.add(
 
 /**
  * `POST /api/__dev/mail/inbound` `{ to, raw }`: a raw RFC 822 mail delivered to a forwarding address, as Cloudflare Email
- * Routing hands it to the Worker's `email()` handler (M11 step 1), down the same path. For the worker tests, the
+ * Routing hands it to the Worker's `email()` handler (M11 step 1), down the same path, an answer to a notification mail
+ * included (`{ reply }`, M11 step 13.5). For the worker tests, the
  * journey and a person trying a preview, where no MX points at the Worker. Refused in production.
  */
 const InboundMail = HttpRouter.add(
@@ -613,6 +625,11 @@ const InboundMail = HttpRouter.add(
       return HttpServerResponse.jsonUnsafe({ error: { code: "invalid" } }, { status: 400 })
     }
     const mail = yield* Effect.promise(() => parseMail(raw))
+    if (isReplyAddress(to)) {
+      return HttpServerResponse.jsonUnsafe({
+        reply: yield* receiveReply(to, mail.from.email, mail.text).pipe(Effect.orDie)
+      })
+    }
     const stored = yield* receive(to, mail).pipe(Effect.orDie)
     if (stored === undefined) {
       return HttpServerResponse.jsonUnsafe({ error: { code: "unknown_address" } }, { status: 404 })

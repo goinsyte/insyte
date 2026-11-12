@@ -45,6 +45,7 @@ import mail from "./migrations/0050_mail.ts"
 import notify from "./migrations/0052_notify.ts"
 import authSessionCountry from "./migrations/0053_auth_session_country.ts"
 import sessionEvents from "./migrations/0054_session_events.ts"
+import push from "./migrations/0055_push.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -99,5 +100,6 @@ export const Migrations = {
   "0050_mail": mail,
   "0052_notify": notify,
   "0053_auth_session_country": authSessionCountry,
-  "0054_session_events": sessionEvents
+  "0054_session_events": sessionEvents,
+  "0055_push": push
 }
