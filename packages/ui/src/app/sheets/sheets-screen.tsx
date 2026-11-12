@@ -33,17 +33,14 @@ import { EmptyState } from "../common/empty-state"
 import { Field, FormDialog, TextField } from "../common/form-dialog"
 import { PageGuide } from "../common/page-guide"
 import { PageHeader } from "../common/page-header"
-import { ME } from "../lib/assignees"
 import { formatRelative } from "../lib/format"
 import { type TemplateId, TEMPLATES } from "../lib/sheet-templates"
-import { addr, display, evaluator, fromCsv, isErr, type Sheet, type Tab } from "../lib/sheets"
-import { undoable } from "../lib/undo"
+import { addr, display, evaluator, fromCsv, isErr, type Tab } from "../lib/sheets"
 import { cn } from "../lib/utils"
+import { PageSkeleton } from "../loading/page-skeletons"
 import { useOnCreate } from "../stores/create-intent"
-import { useSheets } from "../stores/sheets-store"
-import { useWorkspace } from "../stores/workspace-store"
 import { PersonDisc } from "../team/bits"
-import { SHEET_CURRENCY, useFigures } from "./figures"
+import { type SheetCard as Card, useSheetsSource } from "./sheets-source"
 
 export type SheetsSearch = { view?: string; folder?: string }
 
@@ -61,7 +58,8 @@ const GUIDE = [
   }
 ] as const
 
-const linked = (s: Sheet) => s.tabs.some((t) => Object.values(t.cells).some((c) => /INSYTE\(/i.test(c.v)))
+/** What the menu needs of a sheet: a card, or the open sheet. */
+type MenuSheet = Pick<Card, "id" | "title" | "pinned" | "archived" | "ownerId" | "shared">
 
 /**
  * Rekenbladen (`/sheets`, PLAN 40). The area panel cuts the list: everything, pinned, recent, shared
@@ -71,8 +69,9 @@ const linked = (s: Sheet) => s.tabs.some((t) => Object.values(t.cells).some((c) 
 export function SheetsPage() {
   const { view, folder } = useSearch({ strict: false }) as SheetsSearch
   const navigate = useNavigate()
-  const all = useSheets((s) => s.sheets)
-  const folders = useSheets((s) => s.folders)
+  const source = useSheetsSource()
+  const { folders, me } = source
+  const all = source.sheets ?? []
   const [q, setQ] = useState("")
   const [layout, setLayout] = useState<"grid" | "list">("grid")
   const [creating, setCreating] = useState<TemplateId | null>(null)
@@ -82,19 +81,21 @@ export function SheetsPage() {
   const shown = useMemo(() => {
     let xs = all.filter((s) => (view === "archive" ? s.archived : !s.archived))
     if (view === "pinned") xs = xs.filter((s) => s.pinned)
-    if (view === "shared") xs = xs.filter((s) => s.ownerId !== ME && s.shared.includes(ME))
+    if (view === "shared") xs = xs.filter((s) => s.ownerId !== me && s.shared.includes(me))
     if (folder) xs = xs.filter((s) => s.folderId === folder)
     if (view === "recent") xs = [...xs].sort((a, b) => (b.openedAt ?? "").localeCompare(a.openedAt ?? "")).slice(0, 8)
     else xs = [...xs].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt))
     if (q.trim()) xs = xs.filter((s) => s.title.toLowerCase().includes(q.trim().toLowerCase()))
     return xs
-  }, [all, view, folder, q])
+  }, [all, view, folder, q, me])
 
   const folderName = folders.find((f) => f.id === folder)?.name
   const title = folderName ??
     { pinned: "Vastgezet", recent: "Recent", shared: "Gedeeld met mij", archive: "Archief" }[view ?? ""] ??
     "Rekenbladen"
-  const open = (s: Sheet) => void navigate({ to: "/sheets/$sheetId", params: { sheetId: s.id } })
+  const open = (id: string | undefined) => {
+    if (id !== undefined) void navigate({ to: "/sheets/$sheetId", params: { sheetId: id } })
+  }
 
   const importFile = (f: File | undefined) => {
     if (!f) return
@@ -105,13 +106,7 @@ export function SheetsPage() {
     r.onload = () => {
       const rows = fromCsv(String(r.result))
       if (!rows.length) return void toast("Het bestand is leeg")
-      const s = useSheets.getState().importRows(f.name.replace(/\.\w+$/, ""), rows, ME)
-      undoable(
-        `“${s.title}” geïmporteerd`,
-        useSheets.getState().remove([s.id]),
-        `${rows.length} rijen. Alles boven 40 rijen of 12 kolommen is weggelaten.`
-      )
-      open(s)
+      void source.importRows(f.name.replace(/\.\w+$/, ""), rows).then(open)
     }
     r.readAsText(f)
   }
@@ -143,6 +138,8 @@ export function SheetsPage() {
       />
     </>
   )
+
+  if (source.sheets === null) return <PageSkeleton kind="cards" title="Rekenbladen" />
 
   if (all.length === 0) {
     return (
@@ -263,7 +260,7 @@ export function SheetsPage() {
             layout === "grid" ?
             (
               <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-                {shown.map((s) => <SheetCard key={s.id} s={s} onOpen={() => open(s)} />)}
+                {shown.map((s) => <SheetCard key={s.id} s={s} onOpen={() => open(s.id)} />)}
               </ul>
             ) :
             <SheetList sheets={shown} onOpen={open} />}
@@ -279,7 +276,7 @@ export function SheetsPage() {
 
 /** The first rows and columns of a tab, computed, at a size that reads as a sheet and not as data. */
 function Preview({ tab, rows = 5, cols = 3 }: { tab: Tab; rows?: number; cols?: number }) {
-  const figures = useFigures()
+  const { figures, currency } = useSheetsSource()
   const ev = useMemo(() => evaluator({ tabs: [tab], figures }, tab.id), [tab, figures])
   return (
     <div
@@ -293,7 +290,7 @@ function Preview({ tab, rows = 5, cols = 3 }: { tab: Tab; rows?: number; cols?: 
         const a = addr(c, r)
         const v = ev.value(a)
         const cell = tab.cells[a]
-        const text = display(v, cell?.fmt, SHEET_CURRENCY, true)
+        const text = display(v, cell?.fmt, currency, true)
         return (
           <span
             key={a}
@@ -312,14 +309,14 @@ function Preview({ tab, rows = 5, cols = 3 }: { tab: Tab; rows?: number; cols?: 
   )
 }
 
-function SheetCard({ s, onOpen }: { s: Sheet; onOpen: () => void }) {
-  const owner = useWorkspace((st) => st.members.find((m) => m.id === s.ownerId))
+function SheetCard({ s, onOpen }: { s: Card; onOpen: () => void }) {
+  const owner = useSheetsSource().members.find((m) => m.id === s.ownerId)
   return (
     <li className="group/card relative flex flex-col overflow-hidden rounded-xl bg-paper shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--ink)_9%,transparent)] transition-shadow hover:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--ink)_16%,transparent),0_6px_18px_-10px_rgb(0_0_0/0.18)]">
       <button type="button" onClick={onOpen} className="flex flex-col text-left" aria-label={`${s.title} openen`}>
         <span className="block bg-mist p-3 pb-0">
           <span className="block overflow-hidden rounded-t-md shadow-[0_0_0_1px_color-mix(in_oklch,var(--ink)_7%,transparent)]">
-            {s.tabs[0] ? <Preview tab={s.tabs[0]} /> : null}
+            {s.preview ? <Preview tab={s.preview} /> : null}
           </span>
         </span>
         <span className="flex flex-col gap-1.5 px-3.5 pt-3 pb-3">
@@ -330,7 +327,7 @@ function SheetCard({ s, onOpen }: { s: Sheet; onOpen: () => void }) {
           <span className="flex items-center gap-2 text-ink-3 text-xs">
             <PersonDisc seed={s.ownerId} name={owner?.name ?? "?"} size={18} />
             <span className="truncate">Bewerkt {formatRelative(s.updatedAt)}</span>
-            {linked(s) ?
+            {s.linked ?
               (
                 <span className="ml-auto flex h-5 shrink-0 items-center gap-1 rounded-full bg-arc-tint px-1.5 font-medium text-arc-ink">
                   <Sparkle className="size-3" strokeWidth={1.75} />
@@ -348,9 +345,8 @@ function SheetCard({ s, onOpen }: { s: Sheet; onOpen: () => void }) {
   )
 }
 
-function SheetList({ sheets, onOpen }: { sheets: Sheet[]; onOpen: (s: Sheet) => void }) {
-  const members = useWorkspace((s) => s.members)
-  const folders = useSheets((s) => s.folders)
+function SheetList({ sheets, onOpen }: { sheets: ReadonlyArray<Card>; onOpen: (id: string) => void }) {
+  const { members, folders } = useSheetsSource()
   return (
     <div className="table-scroll overflow-hidden rounded-xl bg-paper shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--ink)_9%,transparent)]">
       <div className="grid min-w-[640px] grid-cols-[minmax(0,1fr)_140px_160px_120px_32px] gap-3 bg-mist px-3 py-2 font-medium text-ink-3 text-xs">
@@ -366,12 +362,12 @@ function SheetList({ sheets, onOpen }: { sheets: Sheet[]; onOpen: (s: Sheet) => 
           <div
             key={s.id}
             className="grid min-w-[640px] cursor-pointer grid-cols-[minmax(0,1fr)_140px_160px_120px_32px] items-center gap-3 px-3 py-2 text-ink-2 text-sm transition-colors odd:bg-paper even:bg-mist/50 hover:bg-arc-tint/50"
-            onClick={() => onOpen(s)}
+            onClick={() => onOpen(s.id)}
           >
             <span className="flex min-w-0 items-center gap-2">
               {s.pinned ? <Pin className="size-3.5 shrink-0 text-ink-3" strokeWidth={1.75} /> : null}
               <span className="truncate font-medium text-ink">{s.title}</span>
-              {linked(s)
+              {s.linked
                 ? <span className="rounded-full bg-arc-tint px-1.5 font-medium text-arc-ink text-xs">Insyte</span>
                 : null}
             </span>
@@ -393,12 +389,11 @@ function SheetList({ sheets, onOpen }: { sheets: Sheet[]; onOpen: (s: Sheet) => 
   )
 }
 
-export function SheetMenu({ s, onGone }: { s: Sheet; onGone?: () => void }) {
+export function SheetMenu({ s, onGone }: { s: MenuSheet; onGone?: () => void }) {
   const navigate = useNavigate()
-  const folders = useSheets((st) => st.folders)
-  const members = useWorkspace((st) => st.members)
-  const store = useSheets.getState
-  const mine = s.ownerId === ME
+  const source = useSheetsSource()
+  const { folders, members, me } = source
+  const mine = s.ownerId === me
   const [folderDialog, setFolderDialog] = useState(false)
   return (
     <>
@@ -414,8 +409,7 @@ export function SheetMenu({ s, onGone }: { s: Sheet; onGone?: () => void }) {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuItem
-            onClick={() =>
-              undoable(s.pinned ? "Losgemaakt" : "Vastgezet", store().patch([s.id], { pinned: !s.pinned }))}
+            onClick={() => source.patch([s.id], { pinned: !s.pinned }, s.pinned ? "Losgemaakt" : "Vastgezet")}
           >
             {s.pinned
               ? <PinOff className="size-3.5" strokeWidth={1.75} />
@@ -429,14 +423,14 @@ export function SheetMenu({ s, onGone }: { s: Sheet; onGone?: () => void }) {
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="w-48">
               <DropdownMenuItem
-                onClick={() => undoable("Uit de map gehaald", store().patch([s.id], { folderId: undefined }))}
+                onClick={() => source.patch([s.id], { folderId: null }, "Uit de map gehaald")}
               >
                 Geen map
               </DropdownMenuItem>
               {folders.map((f) => (
                 <DropdownMenuItem
                   key={f.id}
-                  onClick={() => undoable(`Naar ${f.name}`, store().patch([s.id], { folderId: f.id }))}
+                  onClick={() => source.patch([s.id], { folderId: f.id }, `Naar ${f.name}`)}
                 >
                   {f.name}
                 </DropdownMenuItem>
@@ -457,22 +451,20 @@ export function SheetMenu({ s, onGone }: { s: Sheet; onGone?: () => void }) {
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-56">
                   {members
-                    .filter((m) => m.id !== ME && m.status === "active")
+                    .filter((m) => m.id !== me && m.active)
                     .map((m) => {
                       const on = s.shared.includes(m.id)
                       return (
                         <DropdownMenuItem
                           key={m.id}
                           onClick={() =>
-                            undoable(
+                            source.share(
+                              s.id,
+                              m.id,
+                              !on,
                               on
                                 ? `Niet meer gedeeld met ${m.name.split(" ")[0]}`
                                 : `Gedeeld met ${m.name.split(" ")[0]}`,
-                              store().patch([s.id], {
-                                shared: on
-                                  ? s.shared.filter((x) => x !== m.id)
-                                  : [...s.shared, m.id]
-                              }),
                               on ? undefined : "Kan bekijken en bewerken."
                             )}
                         >
@@ -488,11 +480,9 @@ export function SheetMenu({ s, onGone }: { s: Sheet; onGone?: () => void }) {
             null}
           <DropdownMenuItem
             onClick={() => {
-              const c = store().duplicate(s.id, ME)
-              if (c) {
-                undoable(`“${c.title}” gemaakt`, store().remove([c.id]))
-                void navigate({ to: "/sheets/$sheetId", params: { sheetId: c.id } })
-              }
+              void source.duplicate(s.id).then((id) => {
+                if (id !== undefined) void navigate({ to: "/sheets/$sheetId", params: { sheetId: id } })
+              })
             }}
           >
             <Copy className="size-3.5" strokeWidth={1.75} />
@@ -502,7 +492,7 @@ export function SheetMenu({ s, onGone }: { s: Sheet; onGone?: () => void }) {
           {s.archived ?
             (
               <DropdownMenuItem
-                onClick={() => undoable(`“${s.title}” teruggezet`, store().patch([s.id], { archived: false }))}
+                onClick={() => source.patch([s.id], { archived: false }, `“${s.title}” teruggezet`)}
               >
                 <RotateCcw className="size-3.5" strokeWidth={1.75} />
                 Terugzetten
@@ -511,7 +501,7 @@ export function SheetMenu({ s, onGone }: { s: Sheet; onGone?: () => void }) {
             (
               <DropdownMenuItem
                 onClick={() => {
-                  undoable(`“${s.title}” gearchiveerd`, store().patch([s.id], { archived: true, pinned: false }))
+                  source.patch([s.id], { archived: true, pinned: false }, `“${s.title}” gearchiveerd`)
                   onGone?.()
                 }}
               >
@@ -524,7 +514,7 @@ export function SheetMenu({ s, onGone }: { s: Sheet; onGone?: () => void }) {
               <DropdownMenuItem
                 variant="destructive"
                 onClick={() => {
-                  undoable(`“${s.title}” verwijderd`, store().remove([s.id]))
+                  source.remove([s.id], `“${s.title}” verwijderd`)
                   onGone?.()
                 }}
               >
@@ -538,15 +528,16 @@ export function SheetMenu({ s, onGone }: { s: Sheet; onGone?: () => void }) {
       <FolderDialog
         open={folderDialog}
         onClose={() => setFolderDialog(false)}
-        onMade={(id) => undoable("Map gemaakt", store().patch([s.id], { folderId: id }))}
+        moveSheetIds={[s.id]}
       />
     </>
   )
 }
 
 export function FolderDialog(
-  { open, onClose, onMade }: { open: boolean; onClose: () => void; onMade?: (id: string) => void }
+  { open, onClose, moveSheetIds }: { open: boolean; onClose: () => void; moveSheetIds?: ReadonlyArray<string> }
 ) {
+  const source = useSheetsSource()
   const [name, setName] = useState("")
   return (
     <FormDialog
@@ -562,8 +553,7 @@ export function FolderDialog(
       disabled={!name.trim()}
       width={420}
       onSubmit={() => {
-        const { id } = useSheets.getState().addFolder(name.trim())
-        onMade?.(id)
+        void source.addFolder(name.trim(), moveSheetIds)
         setName("")
         onClose()
       }}
@@ -620,11 +610,12 @@ function NewSheetDialog(
   { value, onClose, onCreated, folderId }: {
     value: TemplateId | null
     onClose: () => void
-    onCreated: (s: Sheet) => void
-    folderId?: string
+    onCreated: (id: string | undefined) => void
+    folderId?: string | undefined
   }
 ) {
-  const folders = useSheets((s) => s.folders)
+  const source = useSheetsSource()
+  const { folders } = source
   const [pick, setPick] = useState<TemplateId | null>(null)
   const [title, setTitle] = useState("")
   const [folder, setFolder] = useState<string>("")
@@ -644,14 +635,13 @@ function NewSheetDialog(
       primaryLabel="Rekenblad maken"
       width={560}
       onSubmit={() => {
-        const s = useSheets.getState().create(
-          title.trim() || (t === "blank" ? "Naamloos rekenblad" : def.title),
-          t,
-          ME,
-          folder || folderId || undefined
-        )
+        const made = source.create({
+          title: title.trim() || (t === "blank" ? "Naamloos rekenblad" : def.title),
+          template: t,
+          folderId: folder || folderId || undefined
+        })
         close()
-        onCreated(s)
+        void made.then(onCreated)
       }}
     >
       <div role="radiogroup" aria-label="Sjabloon" className="grid grid-cols-3 gap-2">

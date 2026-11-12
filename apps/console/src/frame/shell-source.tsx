@@ -3,6 +3,7 @@ import type { Frame } from "@insyte/api/rpc/ShellRpcs"
 import type { AreaId, Level, RoleDef, SpecialId } from "@insyte/domain/Permissions"
 import type { ChatList } from "@insyte/modules/chats/domain/Chats"
 import type { MailboxView } from "@insyte/modules/inbox/domain/Inbox"
+import type { SheetList } from "@insyte/modules/sheets/domain/Sheets"
 import { GateRoleProvider } from "@insyte/ui/app/access/gate-role"
 import { panelForPath } from "@insyte/ui/app/lib/app-shell-config"
 import { navByPersona } from "@insyte/ui/app/lib/nav-config"
@@ -23,6 +24,7 @@ import { conversationOf } from "../chats/chat-of.tsx"
 import { chatsAtom } from "../data/chats.ts"
 import { FRAME, frameWrites, inboxAtom, notePrefsAtom, NOTES, presenceAtom, VIEWS, viewsAtom } from "../data/frame.ts"
 import { inboxCountsAtom, mailboxesAtom } from "../data/inbox.ts"
+import { sheetsAtom } from "../data/sheets.ts"
 import { ticketCountsAtom } from "../data/tickets.ts"
 import { notifyPrefsOf } from "../notifications/settings-source.ts"
 import { ConsoleInvite } from "./invite.tsx"
@@ -85,9 +87,10 @@ const NOT_YET: Record<string, string> = {
 const NO_COUNTS = Atom.make(AsyncResult.initial<Readonly<Record<string, number>>, never>())
 const NO_CHATS = Atom.make(AsyncResult.initial<ChatList, never>())
 const NO_MAILBOXES = Atom.make(AsyncResult.initial<ReadonlyArray<MailboxView>, never>())
+const NO_SHEETS = Atom.make(AsyncResult.initial<SheetList, never>())
 
 /** What the console makes from the panel's button and the top bar's + menu. */
-const MADE_HERE = new Set(["return", "ticket", "channel", "thread"])
+const MADE_HERE = new Set(["return", "ticket", "channel", "thread", "sheet"])
 
 export function ConsoleShellSource({ frame, children }: { frame: Frame; children: ReactNode }) {
   const navigate = useNavigate()
@@ -121,6 +124,22 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
         count: inboxCounts?.[`/inbox?mailbox=${m.id}`]
       })),
     [mailboxes, inboxCounts]
+  )
+  // The Rekenbladen panel: the folders and each view's count, from `Sheets.list`, on the sheets pages only (M14 step 4).
+  const onSheets = useRouterState({ select: (s) => s.location.pathname.startsWith("/sheets") })
+  const sheetList = value(useAtomValue(onSheets ? sheetsAtom : NO_SHEETS))
+  const sheets = useMemo<ShellSource["sheets"]>(
+    () => ({
+      sheets: [],
+      folders: sheetList?.folders.map((f) => ({ id: f.id, name: f.name })) ?? [],
+      ...(sheetList === undefined ? {} : {
+        counts: {
+          ...sheetList.counts,
+          folders: Object.fromEntries(sheetList.folders.map((f) => [f.id, f.count]))
+        }
+      })
+    }),
+    [sheetList]
   )
   const areaCounts = ticketCounts ?? inboxCounts
   const write = {
@@ -267,7 +286,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
       createdCustomers: []
     },
     returns: { records: [] },
-    sheets: { sheets: [], folders: [] },
+    sheets,
     courses: { courses: [], questions: [] },
     chat: { pinned: chatPins, created: [] },
     settings: { roles: [roleOf(frame)] },

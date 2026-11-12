@@ -11,7 +11,7 @@ import { BrandLogo } from "../marketplace/brand-logos";
 import { MailboxMark } from "../inbox/channel-mark";
 import { MAILBOXES, mailboxStatus, PROVIDER_LABEL } from "../lib/mailboxes";
 import type { ThreadState } from "../stores/inbox-store";
-import type { PanelMailbox } from "./source";
+import type { PanelMailbox, SheetPanelCounts } from "./source";
 import type { WorkflowState } from "../automations/node-types";
 import { TEMPLATES } from "../lib/automation-templates";
 import { deriveCustomerStatus } from "../customers/customer-status-badge";
@@ -87,6 +87,7 @@ export function SubPanel() {
 	const questions = useCourses((s) => s.questions);
 	const sheetList = useSheets((s) => s.sheets);
 	const sheetFolders = useSheets((s) => s.folders);
+	const sheetCounts = useSheets((s) => s.counts);
 	const queueRows = useForwardingRows();
 	const can = useCan();
 	const role = useCurrentRole();
@@ -118,7 +119,7 @@ export function SubPanel() {
 						: base.title === "Cursussen"
 						? withCourses(base, courses, questions)
 						: base.title === "Rekenbladen"
-						? withSheets(base, sheetList, sheetFolders)
+						? withSheets(base, sheetList, sheetFolders, sheetCounts)
 						: base;
 
 	return (
@@ -525,23 +526,25 @@ const RETURN_VIEW: Record<string, (r: ReturnRecord) => boolean> = {
 	returns: (r) => r.kind === "return",
 	claims: (r) => r.kind === "claim",
 };
-function withSheets(cfg: SubPanelConfig, sheets: ReadonlyArray<Sheet>, folders: ReadonlyArray<SheetFolder>): SubPanelConfig {
+function withSheets(cfg: SubPanelConfig, sheets: ReadonlyArray<Sheet>, folders: ReadonlyArray<SheetFolder>, counts?: SheetPanelCounts): SubPanelConfig {
 	const live = sheets.filter((s) => !s.archived);
-	const n: Record<string, number> = {
+	const n: Record<string, number> = counts ? { pinned: counts.pinned, shared: counts.shared, archive: counts.archive } : {
 		pinned: live.filter((s) => s.pinned).length,
 		shared: live.filter((s) => s.ownerId !== ME && s.shared.includes(ME)).length,
 		archive: sheets.filter((s) => s.archived).length,
 	};
+	const all = counts?.all ?? live.length;
+	const inFolder = (id: string) => counts?.folders[id] ?? live.filter((s) => s.folderId === id).length;
 	return {
 		...cfg,
 		sections: cfg.sections.map((section) =>
 			section.label === "Mappen"
-				? { ...section, items: folders.map((f) => ({ to: "/sheets", label: f.name, icon: Folder, search: { folder: f.id }, count: live.filter((s) => s.folderId === f.id).length || undefined })) }
+				? { ...section, items: folders.map((f) => ({ to: "/sheets", label: f.name, icon: Folder, search: { folder: f.id }, count: inFolder(f.id) || undefined })) }
 				: {
 						...section,
 						items: section.items.map((item) => {
 							const v = item.search?.view as string | undefined;
-							const count = v ? n[v] : item.exact && item.to === "/sheets" ? live.length : undefined;
+							const count = v ? n[v] : item.exact && item.to === "/sheets" ? all : undefined;
 							return { ...item, count: count ? count : undefined };
 						}),
 					},

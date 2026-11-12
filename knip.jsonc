@@ -84,6 +84,7 @@
         "!src/app/lib/home/day.ts",
         "!src/app/lib/home/kinds.ts",
         "!src/app/analytics/**",
+        "!src/app/sheets/**",
         "!src/app/chats/**",
         "!src/app/inbox/**",
       ],

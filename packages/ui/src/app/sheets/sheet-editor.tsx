@@ -1,4 +1,4 @@
-import { Link, useNavigate, useParams } from "@tanstack/react-router"
+import { Link, useNavigate } from "@tanstack/react-router"
 import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import {
@@ -12,7 +12,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "../../components/popove
 import { Bold, ChevronDown, Copy, Download, Edit3, Plus, Sigma, Sparkle, Trash2, Undo2 } from "../../icons"
 import { EmptyState } from "../common/empty-state"
 import { PageHeader } from "../common/page-header"
-import { MONTHS } from "../lib/analytics/engine"
 import { newId } from "../lib/courses"
 import { formatRelative } from "../lib/format"
 import {
@@ -34,19 +33,14 @@ import {
   ROWS,
   shift,
   type Tab,
-  toCsv,
   type Value
 } from "../lib/sheets"
-import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
 import { Arriving } from "../loading/bones"
-import { useArrival } from "../loading/pace"
-import { GridBones } from "../loading/page-skeletons"
-import { useSheets } from "../stores/sheets-store"
-import { useWorkspace } from "../stores/workspace-store"
+import { GridBones, PageSkeleton } from "../loading/page-skeletons"
 import { PersonDisc } from "../team/bits"
-import { SHEET_CURRENCY, useFigures } from "./figures"
 import { SheetMenu } from "./sheets-screen"
+import { type SheetDoc, useSheetDoc, useSheetsSource } from "./sheets-source"
 
 type Pos = { c: number; r: number }
 type Sel = { a: Pos; b: Pos }
@@ -80,9 +74,10 @@ const FMT_LABEL: Record<Fmt, string> = {
  * where a linked cell reads its figure.
  */
 export function SheetEditorPage() {
-  const { sheetId } = useParams({ strict: false }) as { sheetId?: string }
-  const sheet = useSheets((s) => s.sheets.find((x) => x.id === sheetId))
-  if (!sheet) {
+  const doc = useSheetDoc()
+  const sheet = doc.sheet
+  if (doc.status === "loading") return <PageSkeleton kind="grid" title="Rekenblad" />
+  if (sheet === null || doc.status === "missing") {
     return (
       <div className="flex min-w-0 flex-col">
         <PageHeader title="Rekenblad" crumbs={[{ label: "Rekenbladen", to: "/sheets" }]} />
@@ -90,18 +85,19 @@ export function SheetEditorPage() {
       </div>
     )
   }
-  return <Editor key={sheet.id} id={sheet.id} />
+  return <Editor key={sheet.id} doc={doc} />
 }
 
-function Editor({ id }: { id: string }) {
+function Editor({ doc }: { doc: SheetDoc }) {
   /* The formulas are evaluated in the browser, so the cells are the last thing to appear: the grid
 	   is there at once, the values a beat later (ADR-0028). */
-  const computed = useArrival(`sheet:${id}`, 320)
+  const computed = doc.computed
   const navigate = useNavigate()
-  const sheet = useSheets((s) => s.sheets.find((x) => x.id === id))!
-  const folders = useSheets((s) => s.folders)
-  const owner = useWorkspace((s) => s.members.find((m) => m.id === sheet.ownerId))
-  const figures = useFigures()
+  const sheet = doc.sheet!
+  const id = sheet.id
+  const source = useSheetsSource()
+  const { folders, figures, currency, months } = source
+  const owner = source.members.find((m) => m.id === sheet.ownerId)
   const [tabId, setTabId] = useState(sheet.tabs[0]!.id)
   const tab = sheet.tabs.find((t) => t.id === tabId) ?? sheet.tabs[0]!
   const [sel, setSel] = useState<Sel>({ a: { c: 0, r: 0 }, b: { c: 0, r: 0 } })
@@ -113,9 +109,13 @@ function Editor({ id }: { id: string }) {
   const barInput = useRef<HTMLInputElement>(null)
   const [, bump] = useState(0)
 
-  useEffect(() => {
-    useSheets.getState().open(id)
-  }, [id])
+  // The tabs as last set, for the history: an edit lands before the host has rendered it.
+  const latest = useRef(sheet.tabs)
+  latest.current = sheet.tabs
+  const setTabs = (tabs: Tab[]) => {
+    latest.current = tabs
+    doc.setTabs(tabs)
+  }
 
   const ev = useMemo(() => evaluator({ tabs: sheet.tabs, figures }, tab.id), [sheet.tabs, figures, tab.id])
   const active = sel.a
@@ -127,29 +127,30 @@ function Editor({ id }: { id: string }) {
   /* ── history ── */
   const commit = useCallback(
     (tabs: Tab[]) => {
-      past.current.push(useSheets.getState().sheets.find((s) => s.id === id)!.tabs)
+      past.current.push(latest.current)
       if (past.current.length > 100) past.current.shift()
       future.current = []
-      useSheets.getState().setTabs(id, tabs)
+      latest.current = tabs
+      doc.setTabs(tabs)
       bump((n) => n + 1)
     },
-    [id]
+    [doc]
   )
   const undo = () => {
     const prev = past.current.pop()
     if (!prev) return
-    future.current.push(sheet.tabs)
-    useSheets.getState().setTabs(id, prev)
+    future.current.push(latest.current)
+    setTabs(prev)
     bump((n) => n + 1)
   }
   const redo = () => {
     const next = future.current.pop()
     if (!next) return
-    past.current.push(sheet.tabs)
-    useSheets.getState().setTabs(id, next)
+    past.current.push(latest.current)
+    setTabs(next)
     bump((n) => n + 1)
   }
-  const editTab = (f: (t: Tab) => Tab) => commit(sheet.tabs.map((t) => (t.id === tab.id ? f(t) : t)))
+  const editTab = (f: (t: Tab) => Tab) => commit(latest.current.map((t) => (t.id === tab.id ? f(t) : t)))
   const setCells = (patch: Record<string, Partial<Cell> | null>) =>
     editTab((t) => {
       const cells = { ...t.cells }
@@ -415,8 +416,8 @@ function Editor({ id }: { id: string }) {
     const f = tab.cells[addr(b.c0, b.r0)]?.fmt === "money" || tab.cells[addr(b.c0, b.r1)]?.fmt === "money"
       ? "money"
       : undefined
-    return { sum: display(sum, f, SHEET_CURRENCY), avg: display(sum / xs.length, f, SHEET_CURRENCY), n: xs.length }
-  }, [sel, ev, tab.cells])
+    return { sum: display(sum, f, currency), avg: display(sum / xs.length, f, currency), n: xs.length }
+  }, [sel, ev, tab.cells, currency])
 
   const exportCsv = () => {
     let maxR = 0
@@ -434,15 +435,7 @@ function Editor({ id }: { id: string }) {
       for (let c = 0; c <= maxC; c++) row.push(plain(ev.value(addr(c, r))))
       rows.push(row)
     }
-    const blob = new Blob([`﻿${toCsv(rows)}`], { type: "text/csv;charset=utf-8" })
-    const a = document.createElement("a")
-    a.href = URL.createObjectURL(blob)
-    a.download = `${sheet.title} - ${tab.name}.csv`
-    a.click()
-    URL.revokeObjectURL(a.href)
-    toast(`${tab.name} gedownload als CSV`, {
-      description: "Met de waarden zoals ze nu staan, gescheiden door puntkomma's."
-    })
+    doc.exportCsv(tab, rows)
   }
 
   const folder = folders.find((f) => f.id === sheet.folderId)
@@ -455,7 +448,7 @@ function Editor({ id }: { id: string }) {
         title={
           <TitleInput
             value={sheet.title}
-            onChange={(title) => undoable("Naam gewijzigd", useSheets.getState().patch([id], { title }))}
+            onChange={(title) => source.patch([id], { title }, "Naam gewijzigd")}
           />
         }
         crumbs={[
@@ -465,7 +458,9 @@ function Editor({ id }: { id: string }) {
         meta={
           <span className="flex items-center gap-2 text-ink-3 text-sm">
             <PersonDisc seed={sheet.ownerId} name={owner?.name ?? "?"} size={18} />
-            Opgeslagen · bewerkt {formatRelative(sheet.updatedAt)}
+            {doc.save === "saving" ? "Opslaan…" : doc.save === "failed" ? "Niet opgeslagen" : "Opgeslagen"} · bewerkt
+            {" "}
+            {formatRelative(sheet.updatedAt)}
             {sheet.shared.length ? ` · gedeeld met ${sheet.shared.length}` : ""}
           </span>
         }
@@ -523,7 +518,7 @@ function Editor({ id }: { id: string }) {
             <span className="flex-1" />
             <LinkPicker
               rows={b.r1 - b.r0 + 1}
-              monthInA={MONTHS.some((m) => String(ev.value(addr(0, b.r0))).toLowerCase() === m.label.toLowerCase())}
+              monthInA={months.some((m) => String(ev.value(addr(0, b.r0))).toLowerCase() === m.label.toLowerCase())}
               onPick={(metric, month) => {
                 const patch: Record<string, Partial<Cell>> = {}
                 for (let r = b.r0; r <= b.r1; r++) {
@@ -573,7 +568,7 @@ function Editor({ id }: { id: string }) {
                 >
                   <Sparkle className="size-3" strokeWidth={1.75} />
                   {METRICS.find((m) => m.id === link.metric.toLowerCase())?.label ?? link.metric}
-                  {link.month ? ` · ${MONTHS.find((m) => m.id === link.month)?.abbr ?? link.month}` : ""}
+                  {link.month ? ` · ${months.find((m) => m.id === link.month)?.abbr ?? link.month}` : ""}
                 </Link>
               ) :
               null}
@@ -753,7 +748,7 @@ function GridCell({
   onDouble: () => void
   children?: ReactNode
 }) {
-  const text = display(value, cell?.fmt, SHEET_CURRENCY)
+  const text = display(value, cell?.fmt, useSheetsSource().currency)
   const num = typeof value === "number"
   return (
     <td
@@ -855,11 +850,13 @@ const Sep = () => <span aria-hidden className="mx-1 h-4 w-px bg-ink/10" />
 function LinkPicker(
   { rows, monthInA, onPick }: { rows: number; monthInA: boolean; onPick: (metric: string, month: string) => void }
 ) {
+  const { months } = useSheetsSource()
+  const last = months.at(-1)?.id ?? ""
   const [open, setOpen] = useState(false)
-  const [month, setMonth] = useState<string>(monthInA && rows > 1 ? "row" : "2026-05")
+  const [month, setMonth] = useState<string>(monthInA && rows > 1 ? "row" : last)
   useEffect(() => {
-    if (open) setMonth(monthInA ? "row" : "2026-05")
-  }, [open, monthInA])
+    if (open) setMonth(monthInA ? "row" : last)
+  }, [open, monthInA, last])
   const groups = ["Verkoop", "Kosten", "Resultaat", "Kanalen"] as const
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -884,7 +881,7 @@ function LinkPicker(
                 </MonthChip>
               ) :
               null}
-            {MONTHS.map((m) => (
+            {months.map((m) => (
               <MonthChip key={m.id} on={month === m.id} onClick={() => setMonth(m.id)}>
                 {m.abbr}
               </MonthChip>

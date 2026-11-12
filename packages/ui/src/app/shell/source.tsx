@@ -27,6 +27,9 @@ import type { ReturnsState } from "../stores/returns-store";
 import type { SettingsDepthState } from "../stores/settings-depth-store";
 import type { SettingsState } from "../stores/settings-store";
 import type { SheetsState } from "../stores/sheets-store";
+
+/** The Rekenbladen panel's counts: every view's and each folder's, the archive left out of all but its own. */
+export type SheetPanelCounts = { all: number; pinned: number; shared: number; archive: number; folders: Record<string, number> };
 import type { TeamState, useSeats as SeatsHook } from "../stores/team-store";
 import type { ViewsState } from "../stores/views-store";
 import type { WorkspaceState } from "../stores/workspace-store";
@@ -77,7 +80,8 @@ export interface ShellSource {
 	>;
 	workspace: Pick<WorkspaceState, "tickets" | "orders" | "chargebacks" | "queue" | "members" | "integrations" | "createdCustomers">;
 	returns: Pick<ReturnsState, "records">;
-	sheets: Pick<SheetsState, "sheets" | "folders">;
+	/** `counts`, where the host reads its sheets elsewhere (the console's `Sheets.list`), is what the panel shows. */
+	sheets: Pick<SheetsState, "sheets" | "folders"> & { counts?: SheetPanelCounts };
 	courses: Pick<CoursesState, "courses" | "questions">;
 	chat: Pick<ChatState, "pinned" | "created">;
 	settings: Pick<SettingsState, "roles">;

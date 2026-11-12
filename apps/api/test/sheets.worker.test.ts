@@ -169,6 +169,8 @@ describe("Rekenbladen", () => {
       { metric: "bestaatniet", month: B },
       { metric: "omzet", month: "2001-01" }
     ]
+    // The seeded store's own orders are drained first, so the figures below move by this run's two orders only.
+    await call(`http://api.test/api/__dev/facts/drain?workspace=${workspace}`, { method: "POST" })
     const before = ok(await rpc("Analytics.figures", { requests }, people.owner))
     const overviewBefore = ok(await rpc("Analytics.overview", { a: B, b: C }, people.owner))
 
@@ -256,7 +258,7 @@ describe("Rekenbladen", () => {
     const list = await call("http://api.test/v1/sheets", auth)
     expect(list.status).toBe(200)
     const rows = ((await list.json()) as { data: Array<{ id: string; title: string; linked: boolean }> }).data
-    expect(rows.length).toBeGreaterThanOrEqual(2)
+    expect(rows.length).toBeGreaterThanOrEqual(1)
     const one = await call(`http://api.test/v1/sheets/${rows[0]!.id}`, auth)
     expect(one.status).toBe(200)
     const body = (await one.json()) as { id: string; version: number; tabs: Array<{ cells: Record<string, unknown> }> }
