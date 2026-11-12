@@ -59,8 +59,11 @@ const settle = async (runs: Awaited<ReturnType<typeof introspectWorkflow>>, coun
   }
   const all = await runs.get()
   expect(all.length).toBeGreaterThanOrEqual(count)
-  for (const run of all) await run.waitForStatus("complete")
+  for (const instance of all) await instance.waitForStatus("complete")
 }
+
+/** A colleague's invitation address, unique to this run. */
+const email = (who: string) => `whk-${who}-${run}@invited.test`
 
 /** The minute cron, as if it ran at `at` (never a quarter past: only the minute's work). */
 const cron = async (at: number) => {
@@ -407,7 +410,6 @@ describe("outbound webhooks", () => {
         stores: "all"
       }, store.cookie)
     )
-    const email = (who: string) => `whk-${who}-${run}@invited.test`
     ok(
       await rpc("Invitations.send", {
         rows: [
