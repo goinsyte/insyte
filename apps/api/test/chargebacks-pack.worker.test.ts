@@ -167,10 +167,17 @@ describe("evidence packs", () => {
     const order = await orderNumbered(store.cookie, "#1002")
     const created = ok(await rpc("Chargebacks.createManual", { ...manual, orderId: order.id }, store.cookie))
       .chargebacks[0]!
+    const pdf = new Uint8Array([37, 80, 68, 70, 45, 49, 46, 55])
+    // The route refuses a body without a declared length (#117), as a browser always sends one.
     const uploaded = await (await call(`http://api.test/api/chargebacks/${created.id}/evidence`, {
       method: "PUT",
-      headers: { cookie: store.cookie, "content-type": "application/pdf", "x-file-name": "pakbon.pdf" },
-      body: new Uint8Array([37, 80, 68, 70, 45, 49, 46, 55])
+      headers: {
+        cookie: store.cookie,
+        "content-type": "application/pdf",
+        "content-length": String(pdf.byteLength),
+        "x-file-name": "pakbon.pdf"
+      },
+      body: pdf
     })).json() as Json
     ok(await rpc("Chargebacks.addEvidence", { chargebackId: created.id, fileIds: [uploaded.id] }, store.cookie))
 
