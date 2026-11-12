@@ -27,6 +27,11 @@ export type StepField =
     readonly options: ReadonlyArray<{ readonly value: string; readonly label: string }>
   }
   | { readonly key: string; readonly label: string; readonly type: "switch" }
+  /**
+   * A teammate, by member id: the inspector picks one, and the run checks the answer against that id, never a name a
+   * person can change on themselves. `<key>_name` beside it is the name as it was picked, for the canvas.
+   */
+  | { readonly key: string; readonly label: string; readonly type: "member"; readonly required?: boolean }
 
 /** What a trigger's run is about: the record its `{{field}}` references read from. */
 export type RecordKind = "order" | "chargeback" | "product" | "conversation" | "customers" | "payload"
@@ -199,7 +204,7 @@ export const STEPS: ReadonlyArray<Step> = [
     "Insyte",
     {
       defaults: { approver: "Elena Hart" },
-      fields: [{ key: "approver", label: "Goedkeuring door", type: "text", required: true }]
+      fields: [{ key: "approver", label: "Goedkeuring door", type: "member", required: true }]
     }
   ),
   act("action.refund", "Terugbetalen", "Gedeeltelijke of volledige terugbetaling", "Insyte", {
@@ -494,6 +499,8 @@ export const fieldSchemaOf = (field: StepField): Schema.Top => {
       return Schema.Literals(field.options.map((o) => o.value) as [string, ...Array<string>])
     case "switch":
       return Schema.Boolean
+    case "member":
+      return Schema.String.check(Schema.isMaxLength(100))
   }
 }
 

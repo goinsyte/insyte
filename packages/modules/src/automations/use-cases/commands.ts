@@ -115,6 +115,39 @@ const freshIds = (nodes: Flow): Flow =>
       })
   }))
 
+const APPROVAL = "action.require_approval"
+
+/**
+ * "Goedkeuring door" as a member id (the step's `member` field). A name, from a draft saved before the inspector picked
+ * teammates or typed by hand, becomes the teammate it names when exactly one active member goes by it, else it is
+ * emptied, so the step asks for one: an answer is never checked against a name, which a person can change on themselves.
+ */
+const withApprovers = Effect.fn("Automations.withApprovers")(function*(sql: SqlClient.SqlClient, nodes: Flow) {
+  const all = nodes.flatMap((n) => (n.branches === undefined ? [n] : [n, ...n.branches.yes, ...n.branches.no]))
+  if (!all.some((n) => n.variantId === APPROVAL)) return nodes
+  const members = yield* sql<{ id: string; name: string }>`
+    select m.id, u.name from members m join auth."user" u on u.id = m.user_id
+    where m.deactivated_at is null and m.removed_at is null`
+  const fix = <N extends { readonly variantId: string; readonly config: Readonly<Record<string, unknown>> }>(
+    n: N
+  ): N => {
+    if (n.variantId !== APPROVAL) return n
+    const named = String(n.config["approver"] ?? "").trim()
+    const byName = members.filter((m) => m.name.trim().toLowerCase() === named.toLowerCase())
+    const m = members.find((x) => x.id === named) ?? (byName.length === 1 ? byName[0] : undefined)
+    const { approver_name: _was, ...rest } = n.config
+    return {
+      ...n,
+      config: m === undefined ? { ...rest, approver: "" } : { ...rest, approver: m.id, approver_name: m.name }
+    }
+  }
+  return nodes.map((n) =>
+    n.branches === undefined
+      ? fix(n)
+      : { ...fix(n), branches: { yes: n.branches.yes.map(fix), no: n.branches.no.map(fix) } }
+  )
+})
+
 const insert = Effect.fn("Automations.insert")(function*(
   sql: SqlClient.SqlClient,
   input: { readonly name: string; readonly description: string; readonly nodes: Flow; readonly template: string | null }
@@ -122,10 +155,11 @@ const insert = Effect.fn("Automations.insert")(function*(
   const principal = yield* CurrentPrincipal
   const id = mintId("auto")
   const owner = principal.kind === "member" ? principal.id : null
+  const nodes = yield* withApprovers(sql, input.nodes)
   yield* sql`
     insert into automations (id, workspace_id, name, description, owner_member_id, draft_nodes, template, created_by)
     values (${id}, ${principal.workspaceId}, ${input.name}, ${input.description}, ${owner},
-            ${JSON.stringify(input.nodes)}::jsonb, ${input.template}, ${principal.id})`
+            ${JSON.stringify(nodes)}::jsonb, ${input.template}, ${principal.id})`
   yield* sql`insert into automation_settings (workspace_id, automation_id) values (${principal.workspaceId}, ${id})`
   return id
 })
@@ -168,8 +202,9 @@ export const saveDraft = Effect.fn("Automations.saveDraft")(function*(input: typ
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       yield* lock(sql, input.id)
+      const nodes = yield* withApprovers(sql, input.nodes)
       const [saved] = yield* sql<{ draftSavedAt: Date }>`
-        update automations set draft_nodes = ${JSON.stringify(input.nodes)}::jsonb, draft_saved_at = now(),
+        update automations set draft_nodes = ${JSON.stringify(nodes)}::jsonb, draft_saved_at = now(),
                                name = coalesce(${input.name?.trim() ?? null}, name),
                                description = coalesce(${input.description ?? null}, description)
         where id = ${input.id} returning draft_saved_at`
@@ -178,7 +213,7 @@ export const saveDraft = Effect.fn("Automations.saveDraft")(function*(input: typ
       const { row } = yield* rowOf1(sql, input.id)
       return new DraftSaved({
         savedAt: saved!.draftSavedAt.getTime(),
-        issues: validate(input.nodes, { scopesOff: settings.scopesOff, connected, selfId: input.id }),
+        issues: validate(nodes, { scopesOff: settings.scopesOff, connected, selfId: input.id }),
         automation: row
       })
     })
@@ -251,7 +286,12 @@ export const publish = Effect.fn("Automations.publish")(function*(input: typeof 
   const { change, outboxIds } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const a = yield* lock(sql, input.id)
-      const nodes = JSON.parse(a.draftJson) as Flow
+      // A draft kept before approvers were teammates is read the same way a save reads it.
+      const nodes = yield* withApprovers(sql, JSON.parse(a.draftJson) as Flow)
+      const draftJson = JSON.stringify(nodes)
+      if (draftJson !== JSON.stringify(JSON.parse(a.draftJson))) {
+        yield* sql`update automations set draft_nodes = ${draftJson}::jsonb where id = ${a.id}`
+      }
       if (a.liveVersion > 0) {
         const [live] = yield* sql<{ nodesJson: string }>`
           select nodes::text as nodes_json from automation_versions
@@ -272,7 +312,7 @@ export const publish = Effect.fn("Automations.publish")(function*(input: typeof 
       yield* sql`
         insert into automation_versions (workspace_id, automation_id, version, nodes, note, scopes_required,
                                          published_by)
-        values (${principal.workspaceId}, ${a.id}, ${version}, ${a.draftJson}::jsonb,
+        values (${principal.workspaceId}, ${a.id}, ${version}, ${draftJson}::jsonb,
                 ${input.note.trim() || "Gepubliceerd"}, ${[...scopesRequired(nodes)]}::text[], ${principal.id})`
       const status: AutomationStatus = a.status === "draft" ? "active" : a.status
       yield* sql`update automations set live_version = ${version}, status = ${status}, trigger_variant = ${trigger}
