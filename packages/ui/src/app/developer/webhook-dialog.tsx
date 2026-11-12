@@ -11,21 +11,17 @@ import {
 import { Switch } from "../../components/switch"
 import { Check, Minus, Search } from "../../icons"
 import { Field, SelectField, TextField } from "../common/form-dialog"
-import { API_VERSIONS, type ApiVersion, EVENT_GROUPS, newSecret, RETRY, type WebhookEndpoint } from "../lib/developer"
 import type { StoreScope } from "../lib/permissions"
 import { cn } from "../lib/utils"
-import { useDeveloper } from "../stores/developer-store"
+import { API_VERSIONS, type ApiVersion, EVENT_GROUPS, RETRY, type WebhookEndpoint } from "../lib/webhooks-core"
 import { GHOST_BTN, PRIMARY_BTN, Segmented } from "../team/bits"
-import { StoreAccessPicker } from "../team/store-access-picker"
+import { StorePicker } from "../team/bits"
 import { HeadersEditor } from "./bits"
+import { type EndpointDraft, useWebhooksSource } from "./webhooks-source"
 
-const ME = "mem_elena"
 const URL_OK = /^https:\/\/[^\s/]+\.[^\s]+$/
 
-type Draft = Pick<
-  WebhookEndpoint,
-  "url" | "description" | "events" | "apiVersion" | "stores" | "headers" | "retry" | "active"
->
+type Draft = EndpointDraft
 
 const BLANK: Draft = {
   url: "",
@@ -51,7 +47,9 @@ export function WebhookDialog(
     onSaved?: (id: string) => void
   }
 ) {
+  const source = useWebhooksSource()
   const [d, setD] = useState<Draft>(BLANK)
+  const [saving, setSaving] = useState(false)
   const [touched, setTouched] = useState(false)
   useEffect(() => {
     if (!open) return
@@ -75,37 +73,32 @@ export function WebhookDialog(
   const urlOk = URL_OK.test(d.url.trim())
   const ok = urlOk && d.events.length > 0
 
-  function save() {
+  async function save() {
     setTouched(true)
-    if (!ok) return
+    if (!ok || saving) return
     const clean = {
       ...d,
       url: d.url.trim(),
       description: d.description.trim(),
       headers: d.headers.filter((h) => h.key.trim())
     }
-    const store = useDeveloper.getState()
-    if (endpoint) {
-      const before = endpoint
-      store.updateWebhook(endpoint.id, clean)
-      toast("Endpoint bijgewerkt", {
-        action: { label: "Ongedaan maken", onClick: () => useDeveloper.getState().updateWebhook(before.id, before) }
-      })
-      onSaved?.(endpoint.id)
-    } else {
-      const id = `we_${Date.now().toString(36)}`
-      store.addWebhook({
-        ...clean,
-        id,
-        secret: newSecret(),
-        failures: 0,
-        created_at: new Date().toISOString(),
-        created_by: ME
-      })
-      toast.success("Endpoint toegevoegd", { description: "Stuur een testevent om te zien of het aankomt." })
-      onSaved?.(id)
+    setSaving(true)
+    try {
+      if (endpoint) {
+        const undo = await source.update(endpoint.id, clean)
+        if (!undo) return
+        toast("Endpoint bijgewerkt", { action: { label: "Ongedaan maken", onClick: undo } })
+        onSaved?.(endpoint.id)
+      } else {
+        const id = await source.create(clean)
+        if (!id) return
+        toast.success("Endpoint toegevoegd", { description: "Stuur een testevent om te zien of het aankomt." })
+        onSaved?.(id)
+      }
+      onOpenChange(false)
+    } finally {
+      setSaving(false)
     }
-    onOpenChange(false)
   }
 
   return (
@@ -121,7 +114,7 @@ export function WebhookDialog(
           className="flex flex-col gap-5"
           onSubmit={(e) => {
             e.preventDefault()
-            save()
+            void save()
           }}
         >
           <div className="flex flex-col gap-1.5">
@@ -178,7 +171,7 @@ export function WebhookDialog(
 
           <div className="flex flex-col gap-2">
             <span className="font-medium text-ink-3 text-sm leading-none">Alleen events van</span>
-            <StoreAccessPicker value={d.stores} onChange={(stores: StoreScope) => set({ stores })} />
+            <StorePicker value={d.stores} onChange={(stores: StoreScope) => set({ stores })} stores={source.stores} />
           </div>
 
           <div className="flex flex-col gap-2">
@@ -200,7 +193,7 @@ export function WebhookDialog(
             <button type="button" onClick={() => onOpenChange(false)} className={GHOST_BTN}>
               Annuleren
             </button>
-            <button type="submit" className={PRIMARY_BTN}>
+            <button type="submit" className={PRIMARY_BTN} disabled={saving}>
               {endpoint ? "Opslaan" : "Endpoint toevoegen"}
             </button>
           </DialogFooter>

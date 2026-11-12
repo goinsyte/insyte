@@ -20,6 +20,7 @@ import { ACCESS_LIST, ROLES } from "./roles.ts"
 import { STORE_SYNC, STORES } from "./stores.ts"
 import { TEAM } from "./team.ts"
 import { TICKETS } from "./tickets.ts"
+import { WEBHOOKS } from "./webhooks.ts"
 import { WORKSPACE } from "./workspace.ts"
 
 /*
@@ -36,6 +37,8 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   role: [...ROLES, ...TEAM],
   access_request: [...ACCESS, ...ACCESS_LIST],
   api_key: KEYS,
+  // An endpoint changed, or an attempt to it came back (M19.4).
+  webhook_endpoint: WEBHOOKS,
   store: [...STORES, ...STORE_SYNC, ...ORDERS, ...CUSTOMERS, ...PRODUCTS],
   order: [...ORDERS, ...CUSTOMERS],
   customer: CUSTOMERS,

@@ -75,7 +75,14 @@ const graduated = [
   "app/lib/home/day.ts",
   "app/lib/home/kinds.ts",
   "app/chats/",
-  "app/inbox/"
+  "app/inbox/",
+  "app/settings/webhooks-screen.tsx",
+  "app/settings/webhooks-page.tsx",
+  "app/developer/webhook-dialog.tsx",
+  "app/developer/delivery-drawer.tsx",
+  "app/developer/webhooks-source.tsx",
+  "app/developer/webhooks-demo-source.tsx",
+  "app/lib/webhooks-core.ts"
 ]
 
 /** Inside a graduated directory but not yet edited for the backend: the queue panel waits for the proposals branches. */

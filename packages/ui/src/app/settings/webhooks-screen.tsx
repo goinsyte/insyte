@@ -1,5 +1,5 @@
-import { getRouteApi, Link, useNavigate } from "@tanstack/react-router"
-import { useMemo, useState } from "react"
+import { Link } from "@tanstack/react-router"
+import { useState } from "react"
 import { toast } from "sonner"
 import {
   DropdownMenu,
@@ -10,37 +10,31 @@ import {
 } from "../../components/dropdown-menu"
 import { Switch } from "../../components/switch"
 import { ArrowLeft, ChevronRight, Edit3, Eye, EyeOff, Plus, RefreshCcw, Send, Trash2, Webhook } from "../../icons"
-import { Blocked, Gate } from "../access/gate"
+import { Blocked } from "../access/blocked"
 import { EmptyState } from "../common/empty-state"
 import { PageGuide } from "../common/page-guide"
-import { CopyButton, Notice, StatusCode, Token } from "../developer/bits"
+import { CopyButton, MadeByName, Notice, StatusCode, Token } from "../developer/bits"
 import { DeliveryDrawer } from "../developer/delivery-drawer"
-import { MadeBy } from "../developer/made-by"
 import { WebhookDialog } from "../developer/webhook-dialog"
-import {
-  AUTO_DISABLE_AFTER,
-  delivered,
-  type Delivery,
-  type EndpointState,
-  endpointState,
-  EVENT_LABEL,
-  health,
-  RETRY,
-  type WebhookEndpoint
-} from "../lib/developer"
+import { EditGate as Gate, useWebhooksSource, type WebhooksSearch } from "../developer/webhooks-source"
 import { formatDate, formatRelative } from "../lib/format"
 import { storeScopeLabel } from "../lib/permissions"
 import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
-import { useGate } from "../stores/access-store"
-import { useDeveloper } from "../stores/developer-store"
-import { useWorkspace } from "../stores/workspace-store"
+import {
+  AUTO_DISABLE_AFTER,
+  delivered,
+  type EndpointState,
+  EVENT_LABEL,
+  type Health,
+  RETRY,
+  timedOut,
+  type WebhookEndpoint
+} from "../lib/webhooks-core"
 import { Segmented, WELL_BTN } from "../team/bits"
 import { BandedList, SectionAction, SettingCard, StatusPill } from "./setting-card"
 
-const Route = getRouteApi("/_admin/settings/webhooks")
-
-export type Search = { endpoint?: string; levering?: string }
+export type Search = WebhooksSearch
 
 const STATE: Record<EndpointState, { tone: "success" | "warning" | "danger" | "info" | "neutral"; label: string }> = {
   active: { tone: "success", label: "In orde" },
@@ -84,8 +78,7 @@ const GUIDE = [
   }
 ] as const
 
-function healthLine(deliveries: ReadonlyArray<Delivery>) {
-  const h = health(deliveries)
+function healthLine(h: Health) {
   return h.rate === null ? "Geen leveringen in 24 uur" : `${pct(h.rate)} geslaagd in 24 uur`
 }
 
@@ -97,8 +90,8 @@ function healthLine(deliveries: ReadonlyArray<Delivery>) {
  * is warned before Insyte stops sending to it, and says so in words once it has.
  */
 export function WebhooksPage() {
-  const { endpoint } = Route.useSearch()
-  const hooks = useDeveloper((s) => s.webhooks)
+  const { endpoint } = useWebhooksSource().search
+  const hooks = useWebhooksSource().endpoints
   const open = hooks.find((w) => w.id === endpoint)
   return (
     <>
@@ -109,17 +102,11 @@ export function WebhooksPage() {
 }
 
 function EndpointList() {
-  const navigate = useNavigate()
-  const hooks = useDeveloper((s) => s.webhooks)
-  const deliveries = useDeveloper((s) => s.deliveries)
-  const edit = useGate("integrations", 2)
+  const source = useWebhooksSource()
+  const hooks = source.endpoints
+  const edit = source.can.edit
   const [adding, setAdding] = useState(false)
-  const byEndpoint = useMemo(() => {
-    const m = new Map<string, Delivery[]>()
-    for (const d of deliveries) m.set(d.endpointId, [...(m.get(d.endpointId) ?? []), d])
-    return m
-  }, [deliveries])
-  const go = (id: string) => void navigate({ to: "/settings/webhooks", search: { endpoint: id } })
+  const go = (id: string) => source.go({ endpoint: id })
   const failing = hooks.filter((w) => w.failures > 0 || w.autoDisabled)
 
   return (
@@ -152,8 +139,8 @@ function EndpointList() {
           (
             <BandedList>
               {hooks.map((w) => {
-                const ds = byEndpoint.get(w.id) ?? []
-                const state = endpointState(w, ds)
+                const stats = source.stats(w)
+                const state = stats.state
                 const pill = STATE[state]
                 return (
                   <li
@@ -179,7 +166,7 @@ function EndpointList() {
                         <span className="truncate font-medium text-base text-ink tabular-nums">{w.url}</span>
                         <span className="truncate text-ink-2 text-sm">{w.description || "Geen omschrijving"}</span>
                         <span className="truncate text-ink-3 text-xs tabular-nums">
-                          {w.events.length} {w.events.length === 1 ? "event" : "events"} · {healthLine(ds)}
+                          {w.events.length} {w.events.length === 1 ? "event" : "events"} · {healthLine(stats.health)}
                           {state === "failing" ? ` · ${w.failures} op rij mislukt` : ""}
                         </span>
                       </span>
@@ -192,19 +179,15 @@ function EndpointList() {
                         className="data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45"
                         checked={w.active && !w.autoDisabled}
                         aria-label={`${w.url} aan of uit`}
-                        onCheckedChange={(on) => {
-                          const before = { active: w.active, autoDisabled: w.autoDisabled, failures: w.failures }
-                          useDeveloper.getState().updateWebhook(
-                            w.id,
-                            on
-                              ? { active: true, autoDisabled: false, failures: w.autoDisabled ? 0 : w.failures }
-                              : { active: false }
-                          )
-                          undoable(
-                            on ? "Endpoint staat aan" : "Endpoint staat uit",
-                            () => useDeveloper.getState().updateWebhook(w.id, before),
-                            on ? undefined : "Events in die tijd worden niet bewaard."
-                          )
+                        onCheckedChange={async (on) => {
+                          const undo = await source.setActive(w.id, on)
+                          if (undo) {
+                            undoable(
+                              on ? "Endpoint staat aan" : "Endpoint staat uit",
+                              undo,
+                              on ? undefined : "Events in die tijd worden niet bewaard."
+                            )
+                          }
                         }}
                       />
                     </Gate>
@@ -221,30 +204,28 @@ function EndpointList() {
 }
 
 function EndpointDetail({ w }: { w: WebhookEndpoint }) {
-  const navigate = useNavigate()
-  const { levering } = Route.useSearch()
-  const all = useDeveloper((s) => s.deliveries)
-  const stores = useWorkspace((s) => s.stores)
-  const edit = useGate("integrations", 2)
-  const deliveries = useMemo(() => all.filter((d) => d.endpointId === w.id), [all, w.id])
+  const source = useWebhooksSource()
+  const { levering } = source.search
+  const stores = source.stores
+  const edit = source.can.edit
+  const deliveries = source.useDeliveries(w.id)
   const [cut, setCut] = useState<"all" | "failed" | "retrying">("all")
   const [shown, setShown] = useState(25)
   const [editing, setEditing] = useState(false)
   const [reveal, setReveal] = useState(false)
-  const state = endpointState(w, deliveries)
-  const h = health(deliveries)
-  const recent = deliveries.filter((d) => Date.now() - Date.parse(d.at) <= 86_400_000)
-  const avg = recent.length ? Math.round(recent.reduce((n, d) => n + d.ms, 0) / recent.length) : null
+  const { state, health: h, avgMs: avg } = source.stats(w)
+  const secret = source.secretOf(w.id)
   const rows = deliveries.filter((
     d
   ) => (cut === "failed" ? !delivered(d) : cut === "retrying" ? d.nextRetry !== undefined : true))
   const open = deliveries.find((d) => d.id === levering) ?? null
   const openDelivery = (id: string | undefined) =>
-    void navigate({ to: "/settings/webhooks", search: { endpoint: w.id, levering: id }, replace: true })
+    source.go({ endpoint: w.id, ...(id === undefined ? {} : { levering: id }) }, { replace: true })
   const left = AUTO_DISABLE_AFTER - w.failures
 
-  function test(event: string) {
-    const d = useDeveloper.getState().sendTest(w.id, event)
+  async function test(event: string) {
+    const d = await source.sendTest(w.id, event)
+    if (!d) return
     if (delivered(d)) {
       toast.success(`Testevent aangekomen · ${d.status} in ${d.ms} ms`, {
         description: EVENT_LABEL[event],
@@ -256,20 +237,27 @@ function EndpointDetail({ w }: { w: WebhookEndpoint }) {
       })}
   }
 
-  function remove() {
-    const undo = useDeveloper.getState().removeWebhook(w.id)
-    void navigate({ to: "/settings/webhooks", search: {} })
+  async function remove() {
+    const undo = await source.remove(w.id)
+    if (!undo) return
+    source.go({})
     undoable("Endpoint verwijderd", undo, "Er gaan geen events meer heen.")
   }
 
-  function rotate() {
-    const { before } = useDeveloper.getState().rotateSecret(w.id)
+  async function rotate() {
+    const undo = await source.rotateSecret(w.id)
+    if (!undo) return
     setReveal(true)
     undoable(
       "Nieuw geheim gemaakt",
-      () => useDeveloper.getState().updateWebhook(w.id, { secret: before }),
+      undo,
       "Werk de controle aan jouw kant bij: leveringen worden vanaf nu met het nieuwe geheim ondertekend."
     )
+  }
+
+  async function toggleReveal() {
+    if (!reveal && secret === undefined && (await source.revealSecret(w.id)) === undefined) return
+    setReveal((v) => !v)
   }
 
   return (
@@ -291,7 +279,7 @@ function EndpointDetail({ w }: { w: WebhookEndpoint }) {
             </h2>
             <p className="text-ink-2 text-sm">{w.description || "Geen omschrijving"}</p>
             <p className="flex flex-wrap items-center gap-1.5 text-ink-3 text-xs">
-              <MadeBy memberId={w.created_by} /> · toegevoegd{" "}
+              <MadeByName memberId={w.created_by} name={source.personName(w.created_by)} /> · toegevoegd{" "}
               {formatDate(w.created_at, { day: "numeric", month: "long", year: "numeric" })}
             </p>
           </div>
@@ -310,7 +298,7 @@ function EndpointDetail({ w }: { w: WebhookEndpoint }) {
                     {w.events.map((e) => (
                       <DropdownMenuItem
                         key={e}
-                        onClick={() => test(e)}
+                        onClick={() => void test(e)}
                         className="flex-col items-start gap-0"
                       >
                         <span className="text-ink">{EVENT_LABEL[e] ?? e}</span>
@@ -337,7 +325,7 @@ function EndpointDetail({ w }: { w: WebhookEndpoint }) {
             <Gate perm="integrations" arg={2}>
               <button
                 type="button"
-                onClick={remove}
+                onClick={() => void remove()}
                 aria-label="Endpoint verwijderen"
                 className={cn(WELL_BTN, "hover:bg-signal-red-bg hover:text-signal-red")}
               >
@@ -356,8 +344,7 @@ function EndpointDetail({ w }: { w: WebhookEndpoint }) {
               (
                 <button
                   type="button"
-                  onClick={() =>
-                    useDeveloper.getState().updateWebhook(w.id, { autoDisabled: false, failures: 0, active: true })}
+                  onClick={() => void source.setActive(w.id, true)}
                   className="flex h-8 items-center rounded-md bg-abyss px-3 font-medium text-mesh-ink text-sm hover:bg-abyss-2"
                 >
                   Weer aanzetten
@@ -403,12 +390,12 @@ function EndpointDetail({ w }: { w: WebhookEndpoint }) {
         <div className="flex flex-col gap-2 rounded-xl bg-paper px-3.5 py-3">
           <div className="flex flex-wrap items-center gap-2">
             <Token className="h-7 px-2 text-sm">
-              {reveal ? w.secret : `${w.secret.slice(0, 10)}${"•".repeat(18)}`}
+              {reveal && secret !== undefined ? secret : `${w.secret.slice(0, 10)}${"•".repeat(18)}`}
             </Token>
             <Gate perm="integrations" arg={2}>
               <button
                 type="button"
-                onClick={() => setReveal((v) => !v)}
+                onClick={() => void toggleReveal()}
                 className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-ink-2 text-sm hover:bg-ink/6 hover:text-ink disabled:pointer-events-none disabled:opacity-45"
               >
                 {reveal
@@ -418,12 +405,12 @@ function EndpointDetail({ w }: { w: WebhookEndpoint }) {
               </button>
             </Gate>
             <Gate perm="integrations" arg={2}>
-              <CopyButton value={w.secret} tone="ghost" />
+              <CopyButton value={secret ?? ""} tone="ghost" disabled={secret === undefined} />
             </Gate>
             <Gate perm="integrations" arg={2}>
               <button
                 type="button"
-                onClick={rotate}
+                onClick={() => void rotate()}
                 className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-ink-2 text-sm hover:bg-ink/6 hover:text-ink disabled:pointer-events-none disabled:opacity-45"
               >
                 <RefreshCcw className="size-3.5" strokeWidth={1.75} />
@@ -523,7 +510,7 @@ function EndpointDetail({ w }: { w: WebhookEndpoint }) {
                         <StatusCode status={d.status} />
                       </td>
                       <td className="px-2.5 text-right tabular-nums">{d.attempts}</td>
-                      <td className="px-2.5 text-right tabular-nums">{d.status === null ? "> 10 s" : `${d.ms} ms`}</td>
+                      <td className="px-2.5 text-right tabular-nums">{timedOut(d) ? "> 10 s" : `${d.ms} ms`}</td>
                       <td className="px-2.5 tabular-nums">{d.nextRetry ? formatRelative(d.nextRetry) : "—"}</td>
                       <td className="whitespace-nowrap px-2.5 text-right tabular-nums">{formatRelative(d.at)}</td>
                     </tr>

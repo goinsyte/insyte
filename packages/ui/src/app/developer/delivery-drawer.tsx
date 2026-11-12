@@ -1,14 +1,20 @@
-import { useRef } from "react"
+import { useRef, useState } from "react"
 import { toast } from "sonner"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../../components/sheet"
 import { RefreshCcw, X } from "../../icons"
-import { Gate } from "../access/gate"
-import { delivered, type Delivery, EVENT_LABEL, type WebhookEndpoint } from "../lib/developer"
 import { formatDateTime, formatRelative } from "../lib/format"
 import { ZONE } from "../lib/format"
-import { useDeveloper } from "../stores/developer-store"
+import {
+  delivered,
+  type Delivery,
+  DELIVERY_ERROR,
+  EVENT_LABEL,
+  timedOut,
+  type WebhookEndpoint
+} from "../lib/webhooks-core"
 import { PRIMARY_BTN } from "../team/bits"
 import { BodyView, CopyButton, JsonView, StatusCode, Token } from "./bits"
+import { EditGate as Gate, useWebhooksSource } from "./webhooks-source"
 
 /**
  * One delivery, opened from the log: what was sent (headers and body, as Insyte signed them), what
@@ -32,10 +38,24 @@ export function DeliveryDrawer(
         showCloseButton={false}
         initialFocus={ref}
       >
-        {delivery ? <Body ref={ref} d={delivery} endpoint={endpoint} onClose={onClose} onOpen={onOpen} /> : null}
+        {delivery ? <Loaded ref={ref} d={delivery} endpoint={endpoint} onClose={onClose} onOpen={onOpen} /> : null}
       </SheetContent>
     </Sheet>
   )
+}
+
+/** The delivery as its host has it in full: the body and answer, which the log leaves out. */
+function Loaded(
+  { d, ...rest }: {
+    d: Delivery
+    endpoint: WebhookEndpoint
+    onClose: () => void
+    onOpen: (id: string) => void
+    ref: React.Ref<HTMLDivElement>
+  }
+) {
+  const full = useWebhooksSource().useDelivery(d)
+  return <Body d={full} {...rest} />
 }
 
 function Body(
@@ -47,7 +67,9 @@ function Body(
     ref: React.Ref<HTMLDivElement>
   }
 ) {
+  const source = useWebhooksSource()
   const ok = delivered(d)
+  const [redelivering, setRedelivering] = useState(false)
   const ts = Math.floor(Date.parse(d.at) / 1000)
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -55,8 +77,9 @@ function Body(
     "Insyte-Event": d.event,
     "Insyte-Delivery": d.id,
     "Insyte-Api-Version": endpoint.apiVersion,
-    "Insyte-Signature": `t=${ts},v1=${endpoint.secret.slice(6, 22)}…`,
-    ...Object.fromEntries(endpoint.headers.map((h) => [h.key, h.value]))
+    "Insyte-Signature": d.signature ?? `t=${ts},v1=${endpoint.secret.slice(6, 22)}…`,
+    // A header's value never comes back from the server: there it reads as dots.
+    ...Object.fromEntries(endpoint.headers.map((h) => [h.key, h.value || "••••••••"]))
   }
   return (
     <div ref={ref} tabIndex={-1} className="flex min-h-full flex-col outline-none">
@@ -87,8 +110,8 @@ function Body(
         {(
           [
             ["Antwoord", <StatusCode key="s" status={d.status} />],
-            ["Pogingen", `${d.attempts} van ${Math.max(endpoint.retry, 1)}`],
-            ["Duur", d.status === null ? "> 10 s" : `${d.ms} ms`],
+            ["Pogingen", `${d.attempts} van ${d.maxAttempts ?? Math.max(endpoint.retry, 1)}`],
+            ["Duur", timedOut(d) ? "> 10 s" : `${d.ms} ms`],
             [
               "Verstuurd",
               new Intl.DateTimeFormat("nl-NL", { hour: "2-digit", minute: "2-digit", timeZone: ZONE }).format(
@@ -149,7 +172,7 @@ function Body(
           {d.status === null
             ? (
               <p className="rounded-lg bg-mist px-3.5 py-3 text-ink-3 text-sm">
-                Geen antwoord binnen 10 seconden. Insyte heeft de verbinding verbroken.
+                {DELIVERY_ERROR[d.error ?? "timeout"] ?? DELIVERY_ERROR.timeout}
               </p>
             )
             : <BodyView body={d.response} />}
@@ -162,12 +185,18 @@ function Body(
           <button
             type="button"
             className={PRIMARY_BTN}
-            onClick={() => {
-              const next = useDeveloper.getState().redeliver(d.id)
+            disabled={redelivering}
+            onClick={async () => {
+              setRedelivering(true)
+              const next = await source.redeliver(d.id).finally(() => setRedelivering(false))
               if (!next) return
-              toast.success(`Opnieuw verstuurd · ${next.status} in ${next.ms} ms`, {
-                description: "Zelfde body en event-id, zodat het endpoint een dubbele herkent."
-              })
+              if (delivered(next)) {
+                toast.success(`Opnieuw verstuurd · ${next.status} in ${next.ms} ms`, {
+                  description: "Zelfde body en event-id, zodat het endpoint een dubbele herkent."
+                })
+              } else {toast.error(`Opnieuw versturen mislukt · ${next.status ?? "geen antwoord"}`, {
+                  description: "Bekijk het antwoord in de levering."
+                })}
               onOpen(next.id)
             }}
           >
