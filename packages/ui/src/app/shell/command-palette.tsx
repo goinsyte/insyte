@@ -13,7 +13,7 @@ import type { Persona } from "../lib/types/persona";
 import { useEffect, useState } from "react";
 import { CREATE_ITEMS, useStartCreate } from "./new-menu";
 import { RotateCcw } from "../../icons";
-import { useCreateUnavailable, useInboxThreads, useRecordSearch, useReturns, useShellData, useWorkspace } from "./state";
+import { useCreateUnavailable, useInboxPanel, useRecordSearch, useReturns, useShellData, useWorkspace } from "./state";
 
 type CommandPaletteProps = {
 	open: boolean;
@@ -39,7 +39,7 @@ export function CommandPalette({
 	const chargebacks = useWorkspace((s) => s.chargebacks);
 	const made = useWorkspace((s) => s.createdCustomers);
 	const returnRecords = useReturns((s) => s.records);
-	const inboxThreads = useInboxThreads();
+	const inboxThreads = useInboxPanel().threads;
 	const admin = persona === "admin";
 	const [query, setQuery] = useState("");
 	// Each opening starts empty: the last search is not typed into again.
