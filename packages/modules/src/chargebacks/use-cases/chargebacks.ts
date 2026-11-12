@@ -268,7 +268,7 @@ export const get = Effect.fn("Chargebacks.get")(function*(id: string) {
 })
 
 /** The number the next case opened by hand gets, without taking it: `DSP-n`, past any the team typed that way. */
-export const peekNumber = (sql: SqlClient.SqlClient) =>
+const peekNumber = (sql: SqlClient.SqlClient) =>
   Effect.map(
     sql<{ n: string }>`
       select greatest(

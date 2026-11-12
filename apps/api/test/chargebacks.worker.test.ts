@@ -56,11 +56,27 @@ const tool = async (token: string, name: string, args: Record<string, unknown>) 
   return { isError: message.result.isError as boolean, value: JSON.parse(message.result.content[0].text) as Json }
 }
 
-const upload = (cookie: string, chargebackId: string, type = "application/pdf", name = "pakbon.pdf") =>
+// The first bytes of each kind of file, as its type says: `%PDF-1.7` and a PNG's signature.
+const PDF = new Uint8Array([37, 80, 68, 70, 45, 49, 46, 55])
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13])
+
+const upload = (
+  cookie: string,
+  chargebackId: string,
+  type = "application/pdf",
+  name = "pakbon.pdf",
+  bytes = type === "image/png" ? PNG : PDF
+) =>
   call(`http://api.test/api/chargebacks/${chargebackId}/evidence`, {
     method: "PUT",
-    headers: { cookie, "content-type": type, "x-file-name": encodeURIComponent(name) },
-    body: new Uint8Array([37, 80, 68, 70, 45, 49, 46, 55])
+    // A browser declares the length of the file it sends; the route refuses a body that does not.
+    headers: {
+      cookie,
+      "content-type": type,
+      "content-length": String(bytes.byteLength),
+      "x-file-name": encodeURIComponent(name)
+    },
+    body: bytes
   })
 
 const remind = async (workspace: string, at: number) =>
@@ -329,5 +345,126 @@ describe("chargebacks", () => {
     expect((await tool(viewer, "get_chargeback", { chargeback_id: created.id })).value).toMatchObject({
       case_number: created.caseNumber
     })
+  })
+
+  it("cleans a file's name, refuses a file that is not what it says, and a body of no declared length", async () => {
+    const store = await importedStore("cb-files")
+    const created = ok(await rpc("Chargebacks.createManual", manual, store.cookie)).chargebacks[0]!
+
+    // A name with a line break and quotes is kept without them, and still downloads.
+    const odd = await upload(store.cookie, created.id, "application/pdf", "bon\r\nSet-Cookie: x=\"1\".pdf")
+    expect(odd.status).toBe(201)
+    const file = await odd.json() as { id: string; name: string }
+    expect(file.name).toBe("bonSet-Cookie: x=1.pdf")
+    const got = await call(`http://api.test/api/files/${file.id}`, { headers: { cookie: store.cookie } })
+    expect(got.status).toBe(200)
+    expect(got.headers.get("content-disposition")).toBe(
+      `inline; filename="bonSet-Cookie: x=1.pdf"; filename*=UTF-8''bonSet-Cookie%3A%20x%3D1.pdf`
+    )
+    expect(got.headers.get("set-cookie")).toBeNull()
+    // A name beyond ASCII keeps its letters in `filename*`.
+    const accented = await (await upload(store.cookie, created.id, "application/pdf", "één.pdf")).json() as {
+      id: string
+    }
+    expect(
+      (await call(`http://api.test/api/files/${accented.id}`, { headers: { cookie: store.cookie } })).headers.get(
+        "content-disposition"
+      )
+    ).toBe(`inline; filename="__n.pdf"; filename*=UTF-8''%C3%A9%C3%A9n.pdf`)
+
+    // A PDF that says it is a PNG, a PNG that says it is text: refused, not stored under a type it is not.
+    expect((await upload(store.cookie, created.id, "image/png", "foto.png", PDF)).status).toBe(415)
+    expect((await upload(store.cookie, created.id, "text/plain", "notitie.txt", PNG)).status).toBe(415)
+    expect(
+      (await upload(
+        store.cookie,
+        created.id,
+        "text/plain",
+        "notitie.txt",
+        new Uint8Array(new TextEncoder().encode("Hoi"))
+      ))
+        .status
+    ).toBe(201)
+
+    // A chunked body past ten megabytes, without a declared length, is refused before it is read.
+    const chunk = new Uint8Array(1024 * 1024)
+    let sent = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent === 11) return controller.close()
+        sent++
+        controller.enqueue(chunk)
+      }
+    })
+    const chunked = await call(`http://api.test/api/chargebacks/${created.id}/evidence`, {
+      method: "PUT",
+      headers: { cookie: store.cookie, "content-type": "application/pdf", "x-file-name": "groot.pdf" },
+      body
+    })
+    expect(chunked.status).toBe(411)
+    expect(sent).toBeLessThan(11)
+    // A declared size past the limit is refused unread too.
+    const big = await call(`http://api.test/api/chargebacks/${created.id}/evidence`, {
+      method: "PUT",
+      headers: {
+        cookie: store.cookie,
+        "content-type": "application/pdf",
+        "content-length": String(11 * 1024 * 1024),
+        "x-file-name": "groot.pdf"
+      },
+      body: PDF
+    })
+    expect(big.status).toBe(413)
+  })
+
+  it("keeps a store's case, its evidence and its notes from a member fenced to another store", async () => {
+    const store = await importedStore("cb-fence")
+    // A role like Klantenservice, held to another store.
+    const made = ok(await rpc("Roles.create", { label: "Andere winkel", from: "service" }, store.cookie))
+    const role = made.roles.roles.find((r) => r.id === made.id)!
+    ok(
+      await rpc("Roles.update", {
+        id: role.id,
+        levels: role.levels,
+        specials: role.specials,
+        refundLimit: role.refundLimit,
+        stores: ["store_elsewhere"]
+      }, store.cookie)
+    )
+    const email = `cb-${run}-fenced@invited.test`
+    ok(await rpc("Invitations.send", { rows: [{ email, roleId: role.id, stores: "all" }] }, store.cookie))
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    const fenced = await join(email)
+
+    // A case about one of the store's orders sits in that store.
+    const [order] = ok(await rpc("Orders.list", { limit: 5 }, store.cookie)).rows
+    const created = ok(
+      await rpc("Chargebacks.createManual", { ...manual, amountMinor: 25_000, orderId: order!.id }, store.cookie)
+    ).chargebacks[0]!
+    const file = await (await upload(store.cookie, created.id)).json() as { id: string }
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    expect(await remind(store.workspace, created.deadlineAt - 5 * DAY + 60_000)).toHaveLength(1)
+    await relay(store.workspace)
+
+    expect(failure(await rpc("Chargebacks.get", { id: created.id }, fenced))).toMatchObject({ _tag: "NotFound" })
+    expect((await call(`http://api.test/api/files/${file.id}`, { headers: { cookie: fenced } })).status).toBe(404)
+    expect((await call(`http://api.test/api/files/${file.id}`, { headers: { cookie: store.cookie } })).status).toBe(200)
+    const theirs = ok(await rpc("Notifications.list", { tab: "inbox", cursor: null }, fenced)).items
+    expect(theirs.filter((n) => n.subjectType === "chargeback")).toEqual([])
+    const owners = ok(await rpc("Notifications.list", { tab: "inbox", cursor: null }, store.cookie)).items
+    expect(owners.filter((n) => n.kind === "chargeback.deadline")).toHaveLength(1)
+  })
+
+  it("numbers two cases opened at once one after the other", async () => {
+    const store = await importedStore("cb-race")
+    const [a, b] = await Promise.all([
+      rpc("Chargebacks.createManual", manual, store.cookie),
+      rpc("Chargebacks.createManual", manual, store.cookie)
+    ])
+    const numbers = [ok(a).chargebacks[0]!.caseNumber, ok(b).chargebacks[0]!.caseNumber].toSorted()
+    expect(numbers).toEqual(["DSP-1", "DSP-2"])
+    expect(ok(await rpc("Chargebacks.nextCaseNumber", undefined, store.cookie)).caseNumber).toBe("DSP-3")
   })
 })

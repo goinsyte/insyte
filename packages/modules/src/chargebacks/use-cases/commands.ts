@@ -25,7 +25,7 @@ import {
   type SetNoteInput
 } from "../domain/Chargebacks.ts"
 import { MANUAL_DEADLINE_MS, reasonOf } from "../domain/Rules.ts"
-import { caseScope, peekNumber, rowsOf } from "./chargebacks.ts"
+import { caseScope, rowsOf } from "./chargebacks.ts"
 
 /*
  * The chargeback commands (M13 step 3, the evidence half of step 4; widgets/04 §E), inside the role's stores. Opening a
@@ -149,10 +149,15 @@ export const createManual = Effect.fn("Chargebacks.createManual")(function*(inpu
       const typed = input.caseNumber?.trim() ?? ""
       let caseNumber = typed
       if (typed === "") {
-        // The next `DSP-n`, past any number the team typed that way, and the counter moved past it.
-        const n = yield* peekNumber(sql)
-        yield* sql`update workspace_counters set next = ${n + 1} where kind = 'chargeback'`
-        caseNumber = `DSP-${n}`
+        // The next `DSP-n`, past any number the team typed that way, taken and the counter moved past it in one
+        // statement: two cases opened at once wait on the counter's row, and the second gets the number after.
+        const [counter] = yield* sql<{ n: string }>`
+          update workspace_counters
+          set next = greatest(next, coalesce((select max(substring(case_number from '^DSP-(\\d{1,12})$')::bigint) + 1
+                                              from chargebacks where case_number ~ '^DSP-\\d{1,12}$'), 1)) + 1
+          where kind = 'chargeback'
+          returning next - 1 as n`
+        caseNumber = `DSP-${Number(counter?.n ?? 1)}`
       }
       const [taken] = yield* sql`select 1 from chargebacks where lower(case_number) = lower(${caseNumber})`
       if (taken !== undefined) return yield* new CaseNumberTaken({ caseNumber })

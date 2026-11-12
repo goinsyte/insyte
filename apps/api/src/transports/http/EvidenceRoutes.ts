@@ -10,7 +10,8 @@ import { userFrom } from "../../platform/Sessions.ts"
 /*
  * `PUT /api/chargebacks/:id/evidence` (M13 step 4): one file for a case's pack, uploaded before `Chargebacks.addEvidence`
  * puts it in. The body is the file, its name in `x-file-name`; the signed-in member needs Chargebacks · Bewerken. Through
- * the console's origin, like every route of the session. A declared size past ten megabytes is refused unread.
+ * the console's origin, like every route of the session. A declared size past ten megabytes is refused unread, and so
+ * is a body without a declared size (a chunked one), so no body is ever read past the limit.
  */
 
 const MAX_BYTES = 10 * 1024 * 1024
@@ -25,7 +26,9 @@ export const EvidenceRoutes = HttpRouter.add(
     const request = yield* HttpServerRequest.HttpServerRequest
     const { id } = yield* HttpRouter.params
     const headers = new Headers(request.headers as Record<string, string>)
-    if (Number(headers.get("content-length") ?? 0) > MAX_BYTES) return refusal(413, "too_large")
+    const declared = headers.get("content-length")
+    if (declared === null || !/^\d+$/.test(declared)) return refusal(411, "length_required")
+    if (Number(declared) > MAX_BYTES) return refusal(413, "too_large")
     const user = yield* userFrom(headers)
     if (Option.isNone(user)) return refusal(401, "unauthenticated")
     const [active] = yield* Effect.flatMap(Effect.service(Workspaces), (w) => w.memberships).pipe(
