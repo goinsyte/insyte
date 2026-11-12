@@ -43,7 +43,7 @@ type Panel = { type: "thread"; id: string } | { type: "record"; stack: ChatRecor
 const READ = new Set<string>()
 
 export function ChatsPage() {
-  const search = useRouterState({ select: (s) => s.location.search }) as { id?: string }
+  const search = useRouterState({ select: (s) => s.location.search }) as { id?: string; message?: string }
   const reduce = useReducedMotion() ?? false
   const source = useChatsSource()
   const { conversations: all, people, writes } = source
@@ -182,6 +182,16 @@ export function ChatsPage() {
     )
     window.setTimeout(() => setHighlight(null), 1800)
   }
+
+  /* A search hit (`?message=`) lands on its message, once, when it is on screen. One older than the loaded page is not:
+     the conversation opens as it would. */
+  const landed = useRef<string | null>(null)
+  useEffect(() => {
+    const id = search.message
+    if (id === undefined || landed.current === id || !view.ready || !messages.some((m) => m.id === id)) return
+    landed.current = id
+    jump(id)
+  })
 
   /* The "Nieuw" line sits above the unread messages, the first time the conversation opens. */
   const [unreadFrom] = useState(() => new Map<string, string | undefined>())

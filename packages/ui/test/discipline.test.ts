@@ -75,6 +75,7 @@ const graduated = [
   "app/lib/home/day.ts",
   "app/lib/home/kinds.ts",
   "app/chats/",
+  "app/inbox/",
   "app/automations/"
 ]
 

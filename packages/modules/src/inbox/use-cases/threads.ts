@@ -4,6 +4,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import { likePattern, prefixPattern, SearchHit } from "../../shared/domain/Search.ts"
 import {
   type Address,
   type Folder,
@@ -218,6 +219,50 @@ export const get = Effect.fn("Threads.get")(function*(id: string) {
       const [thread] = yield* rowsOf(sql, [id])
       if (thread === undefined) return yield* new NotFound({ entity: "thread", id })
       return new ThreadDetail({ thread, messages: yield* messagesOf(sql, id) })
+    })
+  )
+})
+
+/**
+ * Up to `limit` threads for `Search.records`: a subject that starts with the text first, then one that holds it, then a
+ * correspondent's name or address, then a message's text; newest first within each. Every mailbox is the team's, so
+ * anyone at Klantenservice · Bekijken finds every thread; the Prullenbak and spam stay out. The hit names the subject
+ * and who wrote in, and opens the thread in the inbox (`?thread=`, as the design's route reads it).
+ */
+export const search = Effect.fn("Threads.search")(function*(q: string, limit: number) {
+  const allowed = yield* Policy.require("support", 1).pipe(
+    Effect.as(true),
+    Effect.catchTag("Forbidden", () => Effect.succeed(false))
+  )
+  const text = q.trim()
+  if (!allowed || text === "") return [] as Array<SearchHit>
+  const db = yield* Db
+  const pattern = likePattern(text)
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const party = sql`exists (select 1 from jsonb_array_elements(t.participants) p
+                               where p ->> 'name' ilike ${pattern} or p ->> 'email' ilike ${pattern})`
+      const rows = yield* sql<{ id: string; subject: string; participants: string }>`
+        select t.id, t.subject, t.participants::text as participants from email_threads t
+        where t.deleted_at is null and t.spam_at is null
+          and (t.subject ilike ${pattern} or ${party}
+               or exists (select 1 from email_messages m where m.thread_id = t.id and m.body_text ilike ${pattern}))
+        order by case when t.subject ilike ${prefixPattern(text)} then 0 when t.subject ilike ${pattern} then 1
+                      when ${party} then 2 else 3 end,
+                 t.last_message_at desc, t.id
+        limit ${limit}`
+      return rows.map((r) => {
+        // Read as text: the SQL client camelCases the keys of a json value.
+        const people = JSON.parse(r.participants) as Array<{ name?: string; email?: string; team?: boolean }>
+        const other = people.find((p) => p.team !== true) ?? people[0]
+        return new SearchHit({
+          kind: "thread",
+          id: r.id,
+          title: r.subject.trim() || "(geen onderwerp)",
+          subtitle: other === undefined ? null : (other.name?.trim() || other.email || null),
+          href: `/inbox?thread=${r.id}`
+        })
+      })
     })
   )
 })

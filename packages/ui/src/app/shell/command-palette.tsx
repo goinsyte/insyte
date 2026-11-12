@@ -8,12 +8,12 @@ import {
 	CommandShortcut,
 } from "../../components/command";
 import { useNavigate } from "@tanstack/react-router";
-import { CornerDownLeft, ShoppingBag, Sparkles, Ticket, User } from "../../icons";
+import { CornerDownLeft, Inbox, MessagesSquare, ShoppingBag, Sparkles, Ticket, User } from "../../icons";
 import type { Persona } from "../lib/types/persona";
 import { useEffect, useState } from "react";
 import { CREATE_ITEMS, useStartCreate } from "./new-menu";
 import { RotateCcw } from "../../icons";
-import { useCreateUnavailable, useRecordSearch, useReturns, useShellData, useWorkspace } from "./state";
+import { useCreateUnavailable, useInboxPanel, useRecordSearch, useReturns, useShellData, useWorkspace } from "./state";
 
 type CommandPaletteProps = {
 	open: boolean;
@@ -39,6 +39,7 @@ export function CommandPalette({
 	const chargebacks = useWorkspace((s) => s.chargebacks);
 	const made = useWorkspace((s) => s.createdCustomers);
 	const returnRecords = useReturns((s) => s.records);
+	const inboxThreads = useInboxPanel().threads;
 	const admin = persona === "admin";
 	const [query, setQuery] = useState("");
 	// Each opening starts empty: the last search is not typed into again.
@@ -49,6 +50,14 @@ export function CommandPalette({
 	const found = useRecordSearch(query);
 	const orderHits = found?.orders ?? orders.map((o) => ({ id: o.id, number: o.number, customer: o.customer_name }));
 	const customerHits = found?.customers ?? [...made, ...customers];
+	const ticketHits = found?.tickets ?? tickets.map((t) => ({ id: t.id, number: t.number, title: t.title }));
+	const threadHits =
+		found?.threads ??
+		inboxThreads.map((t) => ({ id: t.id, subject: t.subject, from: t.participants[0]?.name ?? "" }));
+	// The workspace's own chat messages are not the frame's to hold: only a host's search finds them.
+	const messageHits = found?.messages ?? [];
+	// The host has matched its hits already, on more than the row shows (a description, a mail's text): they stay listed.
+	const keywords = found === null ? undefined : [query];
 
 	function go(to: string, params?: Record<string, string>, search?: Record<string, string>) {
 		onOpenChange(false);
@@ -103,7 +112,7 @@ export function CommandPalette({
 					<>
 						<CommandGroup heading="Bestellingen">
 							{orderHits.map((o) => (
-								<CommandItem key={o.id} value={`${o.number} ${o.customer}`} onSelect={() => go("/orders/$orderId", { orderId: o.id })}>
+								<CommandItem key={o.id} value={`${o.number} ${o.customer}`} keywords={keywords} onSelect={() => go("/orders/$orderId", { orderId: o.id })}>
 									<ShoppingBag className="size-4" />
 									<span className="tabular-nums">{o.number}</span>
 									<span className="truncate text-ink-3">{o.customer}</span>
@@ -121,7 +130,7 @@ export function CommandPalette({
 						</CommandGroup>
 						<CommandGroup heading="Klanten">
 							{customerHits.map((c) => (
-								<CommandItem key={c.id} value={`${c.name} ${c.email}`} onSelect={() => go("/customers/$customerId", { customerId: c.id })}>
+								<CommandItem key={c.id} value={`${c.name} ${c.email}`} keywords={keywords} onSelect={() => go("/customers/$customerId", { customerId: c.id })}>
 									<User className="size-4" />
 									<span>{c.name}</span>
 									<span className="truncate text-ink-3">{c.email}</span>
@@ -129,11 +138,37 @@ export function CommandPalette({
 							))}
 						</CommandGroup>
 						<CommandGroup heading="Tickets">
-							{tickets.map((t) => (
-								<CommandItem key={t.id} value={`${t.number} ${t.title}`} onSelect={() => go("/tickets", undefined, { ticket: t.id })}>
+							{ticketHits.map((t) => (
+								<CommandItem key={t.id} value={`${t.number} ${t.title}`} keywords={keywords} onSelect={() => go("/tickets", undefined, { ticket: t.id })}>
 									<Ticket className="size-4" />
 									<span className="tabular-nums">{t.number}</span>
 									<span className="truncate text-ink-3">{t.title}</span>
+								</CommandItem>
+							))}
+						</CommandGroup>
+						<CommandGroup heading="Inbox">
+							{threadHits.map((t) => (
+								<CommandItem key={t.id} value={`${t.id} ${t.subject} ${t.from}`} keywords={keywords} onSelect={() => go("/inbox", undefined, { thread: t.id })}>
+									<Inbox className="size-4" />
+									<span className="truncate">{t.subject}</span>
+									<span className="shrink-0 text-ink-3">{t.from}</span>
+								</CommandItem>
+							))}
+						</CommandGroup>
+						<CommandGroup heading="Chats">
+							{messageHits.map((m) => (
+								<CommandItem
+									key={m.id}
+									value={`${m.id} ${m.where} ${m.text}`}
+									keywords={keywords}
+									onSelect={() => {
+										onOpenChange(false);
+										navigate({ href: m.href } as never);
+									}}
+								>
+									<MessagesSquare className="size-4" />
+									<span className="shrink-0">{m.where}</span>
+									<span className="truncate text-ink-3">{m.text}</span>
 								</CommandItem>
 							))}
 						</CommandGroup>

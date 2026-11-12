@@ -156,6 +156,7 @@ const CONSOLE_HAS: ReadonlySet<string> = new Set([
   "/settings/stores",
   "/settings/team",
   "/tickets",
+  "/inbox",
   "/automations"
 ])
 

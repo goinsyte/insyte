@@ -4,6 +4,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import { likePattern, prefixPattern, SearchHit } from "../../shared/domain/Search.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import { DEFAULT_LABELS, SYSTEM_TEMPLATES } from "../domain/Rules.ts"
 import {
@@ -287,4 +288,38 @@ export const numberOf = Effect.fn("Tickets.numberOf")(function*(sql: SqlClient.S
   const scope = yield* ticketScope(sql)
   const [row] = yield* sql<{ number: string }>`select t.number from tickets t where t.id = ${ticketId} and ${scope}`
   return row === undefined ? undefined : Number(row.number)
+})
+
+/**
+ * Up to `limit` tickets for `Search.records`, inside the role's stores: by number (`12` or `#12`) first, then a title
+ * that starts with the text, then one that holds it, then a description that does; open before done, newest change
+ * first. The Prullenbak and spam stay out. Nothing for a role without Klantenservice.
+ */
+export const search = Effect.fn("Tickets.search")(function*(q: string, limit: number) {
+  const allowed = yield* Policy.require("support", 1).pipe(
+    Effect.as(true),
+    Effect.catchTag("Forbidden", () => Effect.succeed(false))
+  )
+  const text = q.trim()
+  if (!allowed || text === "") return [] as Array<SearchHit>
+  const db = yield* Db
+  const pattern = likePattern(text)
+  const number = /^#?\d{1,15}$/.test(text) ? text.replace("#", "") : null
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const scope = yield* ticketScope(sql)
+      const byNumber = number === null ? sql`false` : sql`t.number = ${number}::bigint`
+      const rows = yield* sql<{ id: string; number: string; title: string }>`
+        select t.id, t.number, t.title from tickets t
+        where ${scope} and t.deleted_at is null and t.spam_at is null
+          and (${byNumber} or t.title ilike ${pattern} or t.description ilike ${pattern})
+        order by case when ${byNumber} then 0 when t.title ilike ${prefixPattern(text)} then 1
+                      when t.title ilike ${pattern} then 2 else 3 end,
+                 (t.status = 'done'), t.updated_at desc, t.id
+        limit ${limit}`
+      return rows.map((r) =>
+        new SearchHit({ kind: "ticket", id: r.id, title: `#${r.number}`, subtitle: r.title, href: `/tickets/${r.id}` })
+      )
+    })
+  )
 })

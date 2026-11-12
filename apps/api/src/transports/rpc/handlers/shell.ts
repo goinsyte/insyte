@@ -1,6 +1,7 @@
 import { Frame, ShellRpcs } from "@insyte/api/rpc/ShellRpcs"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
+import { ChatsService } from "@insyte/modules/chats/Chats"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import { InboxService } from "@insyte/modules/inbox/Inbox"
 import { Members } from "@insyte/modules/members/Members"
@@ -8,6 +9,7 @@ import { NotificationsService } from "@insyte/modules/notifications/Notification
 import { OrdersService } from "@insyte/modules/orders/Orders"
 import { PrefsService } from "@insyte/modules/prefs/PrefsService"
 import { ProductsService } from "@insyte/modules/products/Products"
+import type { SearchKind } from "@insyte/modules/shared/domain/Search"
 import { TicketsService } from "@insyte/modules/tickets/Tickets"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect } from "effect"
@@ -64,11 +66,17 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
   const customers = yield* CustomersService
   const tickets = yield* TicketsService
   const inbox = yield* InboxService
+  const chats = yield* ChatsService
+  // Each kind through its own slice, which answers nothing where the role may not look (support level, stores, a DM).
   const SEARCHES = {
     order: (q: string, limit: number) => orders.search(q, limit),
     product: (q: string, limit: number) => products.search(q, limit),
-    customer: (q: string, limit: number) => customers.search(q, limit)
+    customer: (q: string, limit: number) => customers.search(q, limit),
+    ticket: (q: string, limit: number) => tickets.search(q, limit),
+    thread: (q: string, limit: number) => inbox.search(q, limit),
+    message: (q: string, limit: number) => chats.search(q, limit)
   } as const
+  const EVERY: ReadonlyArray<SearchKind> = ["order", "customer", "product", "ticket", "thread", "message"]
 
   const countsFor = (area: string) => {
     if (area === "tickets") {
@@ -129,7 +137,7 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
       }),
     "Nav.counts": ({ area }) => countsFor(area),
     "Search.records": ({ q, kinds, limit }) =>
-      Effect.forEach(kinds ?? (["order", "customer", "product"] as const), (kind) => SEARCHES[kind](q, limit ?? 5), {
+      Effect.forEach(new Set(kinds ?? EVERY), (kind) => SEARCHES[kind](q, limit ?? 5), {
         concurrency: 1
       }).pipe(Effect.map((perKind) => perKind.flat()))
   })
