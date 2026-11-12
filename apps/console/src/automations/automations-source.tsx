@@ -21,7 +21,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { toast } from "sonner"
-import { AUTOMATIONS, automationWrites } from "../data/automations.ts"
+import { automationFieldsAtom, AUTOMATIONS, automationWrites } from "../data/automations.ts"
 import { frameAtom } from "../data/frame.ts"
 import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
 import { issuesByNode, publishedOf, templateOf, workflowOfDetail, workflowOfRow } from "./automation-of.tsx"
@@ -205,6 +205,15 @@ export function useConsoleAutomationsSource(input: {
       const issues = useSyncExternalStore(copies.subscribe, () => copies.get(id)?.issues, () => copies.get(id)?.issues)
       return issues ?? NO_ISSUES
     },
+    useFields: (id) => {
+      const trigger = useSyncExternalStore(
+        copies.subscribe,
+        () => copies.get(id)?.working.nodes[0]?.variantId,
+        () => copies.get(id)?.working.nodes[0]?.variantId
+      )
+      const rows = Option.getOrUndefined(AsyncResult.value(useAtomValue(automationFieldsAtom(trigger ?? ""))))
+      return useMemo(() => rows?.map((r) => r.path) ?? NO_FIELDS, [rows])
+    },
     useSaving: (id) =>
       useSyncExternalStore(
         copies.subscribe,
@@ -221,6 +230,7 @@ export function useConsoleAutomationsSource(input: {
 }
 
 const NO_ISSUES: ReadonlyMap<string, ReadonlyArray<StepIssue>> = new Map()
+const NO_FIELDS: ReadonlyArray<string> = []
 
 function useCommands(copies: Copies): { commands: AutomationCommands; editor: WorkflowEditor } {
   const keys = { reactivityKeys: [...AUTOMATIONS] }

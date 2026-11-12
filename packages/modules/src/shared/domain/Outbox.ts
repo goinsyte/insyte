@@ -159,8 +159,7 @@ export const OutboxEvent = Schema.Union([
     memberIds: Schema.Array(Schema.String),
     by: Schema.String
   }),
-  // A flow's version was published (M12 step 1), once the undo window has passed: counted as a product event. The
-  // executor that runs it is a later step.
+  // A flow's version was published (M12 step 1), once the undo window has passed: counted as a product event.
   Schema.Struct({
     type: Schema.Literal("automation.published"),
     workspaceId: Schema.String,
@@ -169,6 +168,17 @@ export const OutboxEvent = Schema.Union([
     version: Schema.Int,
     trigger: Schema.String,
     steps: Schema.Int
+  }),
+  // A run told a teammate something (M12 step 3): its "Team waarschuwen" step, or that it failed.
+  Schema.Struct({
+    type: Schema.Literal("automation.notify"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    kind: Schema.Literals(["alert", "failed"]),
+    automationId: Schema.String,
+    runId: Schema.String,
+    memberIds: Schema.Array(Schema.String),
+    detail: Schema.String
   }),
   // A ticket comment named teammates with `@` (M11 step 3): each of them hears of it.
   Schema.Struct({

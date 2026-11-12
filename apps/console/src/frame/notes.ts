@@ -109,6 +109,18 @@ const sentence = (note: ServerNote): Sentence => {
         reason: "mention",
         quote: true
       }
+    case "automation.alert":
+    case "automation.failed":
+      // A run of a flow (M12 step 3): its "Team waarschuwen", or that it failed; the row opens the flow's runs.
+      return {
+        title: note.kind === "automation.alert" ? "vraagt je aandacht in" : "kon een run niet afmaken in",
+        record: String(data["name"] ?? ""),
+        detail: String(data["detail"] ?? ""),
+        source: "automation",
+        to: `/automations/${note.subjectId ?? ""}`,
+        search: { tab: "runs" },
+        person: "Automatisering"
+      }
     case "supplier.message": {
       // A supplier's answer to a quality check, through its link (M9.4), as the design writes it.
       const photos = Number(data["photos"] ?? 0)
