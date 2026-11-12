@@ -129,6 +129,15 @@ describe("the flow's service account", () => {
   })
 })
 
+const row = (nodeId: string, status: "succeeded" | "failed" | "waiting", attempt = 1, lane?: "yes" | "no") => ({
+  nodeId,
+  status,
+  attempt,
+  ms: 5,
+  explanation: null,
+  lane
+})
+
 describe("a run's steps in the Runs drawer", () => {
   const nodes = [
     { id: "t", variantId: "trigger.shipping_delay", config: {} },
@@ -144,15 +153,6 @@ describe("a run's steps in the Runs drawer", () => {
     { id: "a", variantId: "action.require_approval", config: {} },
     { id: "k", variantId: "action.create_ticket", config: {} }
   ]
-  const row = (nodeId: string, status: "succeeded" | "failed" | "waiting", attempt = 1, lane?: "yes" | "no") => ({
-    nodeId,
-    status,
-    attempt,
-    ms: 5,
-    explanation: null,
-    lane
-  })
-
   it("skips the lane not taken, and shows what a waiting run has not reached as pending", () => {
     const steps = timelineOf(nodes, [
       row("t", "succeeded"),

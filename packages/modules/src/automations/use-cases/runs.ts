@@ -53,6 +53,7 @@ interface RawRun {
   readonly orderNumber: string | null
   readonly customerName: string | null
   readonly steps: number
+  readonly waitingVariant: string | null
 }
 
 const SELECT = (sql: SqlClient.SqlClient) =>
@@ -61,7 +62,10 @@ const SELECT = (sql: SqlClient.SqlClient) =>
            r.summary, r.record_kind, r.record_id, r.trigger_event, r.started_at, r.finished_at,
            o.number as order_number, o.customer_name,
            (select count(*)::int from automation_run_steps s
-            where s.run_id = r.id and s.status in ('succeeded', 'failed')) as steps
+            where s.run_id = r.id and s.status in ('succeeded', 'failed')) as steps,
+           (select s.variant from automation_run_steps s
+            where s.run_id = r.id and s.status = 'waiting' and r.status = 'waiting'
+            order by s.started_at desc limit 1) as waiting_variant
     from automation_runs r
     join automations a on a.id = r.automation_id
     left join orders o on r.record_kind = 'order' and o.id = r.record_id`
@@ -76,6 +80,11 @@ const causeOf = (r: RawRun) => {
     ? "Met de hand gestart"
     : trigger
 }
+
+const waitKind = (variant: string) =>
+  variant === "action.require_approval" ? "approval" as const : variant === "delay.wait_no_reply"
+    ? "reply" as const
+    : "wait" as const
 
 const rowOf = (r: RawRun) =>
   new RunRow({
@@ -95,7 +104,8 @@ const rowOf = (r: RawRun) =>
     startedAt: r.startedAt.getTime(),
     finishedAt: r.finishedAt?.getTime() ?? null,
     durationMs: Math.max(0, (r.finishedAt?.getTime() ?? Date.now()) - r.startedAt.getTime()),
-    steps: r.steps
+    steps: r.steps,
+    waiting: r.waitingVariant === null ? null : waitKind(r.waitingVariant)
   })
 
 const countsOf = (rows: ReadonlyArray<{ status: string; n: number }>) => {
@@ -201,11 +211,7 @@ const detailOf = Effect.fn("Runs.detailOf")(function*(sql: SqlClient.SqlClient, 
       ? null
       : {
         nodeId: waiting.nodeId,
-        kind: waiting.variantId === "action.require_approval"
-          ? "approval"
-          : waiting.variantId === "delay.wait_no_reply"
-          ? "reply"
-          : "wait",
+        kind: waitKind(waiting.variantId),
         approver: waiting.variantId === "action.require_approval" ? String(waiting.config["approver"] ?? "") : null
       }
   })

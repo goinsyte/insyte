@@ -7,7 +7,7 @@ import type { WorkflowNode, WorkflowRun, WorkflowSettings, WorkflowState } from 
  * What the automations screens read and do, from whoever hosts them (as `tickets/source.tsx` is for the tickets
  * screens): the design app from its workflow store, the console from `Automations.*` (M12 step 1). The markup is the
  * design's. What the host cannot do yet is absent, and the screens say "Binnenkort" for it, never made up: the console
- * has no runs, no test and no AI line until the executor and M15.
+ * has no AI line until M15. Its runs come from `Runs.*` and its test from `Automations.test` (M12 steps 4 and 5).
  */
 
 /** What a change said: the toast's words. A host with undo tokens offers "Ongedaan maken" with it. */
@@ -69,8 +69,14 @@ export interface AutomationsSource {
   people: ReadonlyArray<{ value: string; label: string }>
   /** "Test met voorbeeld"; absent, the button says Binnenkort. */
   test?: ((id: string) => Promise<TestResult | null>) | undefined
-  /** "Opnieuw" on a run; absent where there are no runs. */
-  rerun?: ((id: string, run: WorkflowRun) => WorkflowRun | null) | undefined
+  /** "Opnieuw" on a run; absent where there are no runs. The console's answers once the server has started it. */
+  rerun?: ((id: string, run: WorkflowRun) => WorkflowRun | null | Promise<WorkflowRun | null>) | undefined
+  /** One run with its steps and what went in, as the drawer shows it; absent, the run as the list holds it. */
+  useRun?: ((id: string, runId: string | undefined) => WorkflowRun | undefined) | undefined
+  /** "Stoppen" on a run that is under way or waits; absent, the drawer offers only "Opnieuw". */
+  stopRun?: ((id: string, run: WorkflowRun) => Promise<boolean>) | undefined
+  /** The answer to "Goedkeuring vragen" on a waiting run; absent, the drawer only says it waits. */
+  decide?: ((id: string, run: WorkflowRun, answer: "approve" | "decline") => Promise<boolean>) | undefined
   /** The AI line under the canvas; absent until M15. */
   draftFromPrompt?: ((prompt: string) => WorkflowNode[]) | undefined
   /** What is wrong per step, by node id; absent, the canvas shows only the rights it lacks. */

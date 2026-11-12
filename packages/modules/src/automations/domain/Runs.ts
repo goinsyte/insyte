@@ -41,7 +41,9 @@ export class RunRow extends Schema.Class<RunRow>("automations/RunRow")({
   finishedAt: Schema.NullOr(Schema.Finite),
   durationMs: Schema.Int,
   /** Steps that did something (succeeded or failed). */
-  steps: Schema.Int
+  steps: Schema.Int,
+  /** For a waiting run: a teammate's answer, the customer's, or the clock. */
+  waiting: Schema.NullOr(Schema.Literals(["approval", "reply", "wait"]))
 }) {}
 
 export class RunCounts extends Schema.Class<RunCounts>("automations/RunCounts")({

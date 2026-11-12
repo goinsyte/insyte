@@ -1,12 +1,14 @@
 import type { AutomationDetail, AutomationRow } from "@insyte/modules/automations/domain/Automations"
-import type { WorkflowNode, WorkflowState } from "@insyte/ui/app/automations/node-types"
+import type { RunDetail, RunRow } from "@insyte/modules/automations/domain/Runs"
+import type { WorkflowNode, WorkflowRun, WorkflowState } from "@insyte/ui/app/automations/node-types"
 import type { StepIssue } from "@insyte/ui/app/automations/source"
+import { titleOf } from "@insyte/ui/app/automations/summary"
 import { TEMPLATES } from "@insyte/ui/app/lib/automation-templates"
 
 /*
- * The server's flows in the screens' shapes (`node-types.ts`): a row for the list, a detail for the builder. There are
- * no runs yet, so a flow's history is empty and its run count is the server's. `notify` is a member id, as the source's
- * `people` offer them; the owner when none is chosen. `.tsx` because the ui types reach `data-source`.
+ * The server's flows in the screens' shapes (`node-types.ts`): a row for the list, a detail for the builder, and their
+ * runs (`Runs.list`, `Runs.get`); the source lays a flow's runs into its history. `notify` is a member id, as the
+ * source's `people` offer them; the owner when none is chosen. `.tsx` because the ui types reach `data-source`.
  */
 
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -76,3 +78,36 @@ export const issuesByNode = (
 }
 
 export const templateOf = (id: string) => TEMPLATES.find((t) => t.id === id)
+
+/** A run as the list holds it: its steps and what went in come with `Runs.get`. */
+export const runOfRow = (r: RunRow): WorkflowRun => ({
+  id: r.id,
+  at: iso(r.startedAt),
+  status: r.status,
+  steps: r.steps,
+  durationMs: r.durationMs,
+  cause: r.cause,
+  ...(r.status === "failed" && r.reason !== null ? { error: r.reason } : {}),
+  ...((r.status === "stopped" || r.status === "skipped") && r.reason !== null ? { reason: r.reason } : {}),
+  ...(r.manual ? { manual: true } : {}),
+  ...(r.record === null ? {} : { record: { ...r.record } }),
+  version: r.version,
+  key: r.key,
+  ...(r.waiting === null ? {} : { waitingOn: { kind: r.waiting } })
+})
+
+export const runOfDetail = (d: RunDetail): WorkflowRun => ({
+  ...runOfRow(d.run),
+  timeline: d.steps.map((s) => ({
+    nodeId: s.nodeId,
+    variantId: s.variantId,
+    label: titleOf({ id: s.nodeId, variantId: s.variantId, config: { ...s.config } }),
+    status: s.status,
+    ms: s.ms,
+    ...(s.lane === null ? {} : { lane: s.lane })
+  })),
+  input: { ...d.input },
+  ...(d.waitingOn === null
+    ? {}
+    : { waitingOn: { kind: d.waitingOn.kind, ...(d.waitingOn.approver ? { approver: d.waitingOn.approver } : {}) } })
+})

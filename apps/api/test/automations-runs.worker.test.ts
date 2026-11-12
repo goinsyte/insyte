@@ -125,7 +125,12 @@ describe("a flow's runs", () => {
 
     const runOf = async (automationId: string) => ok(await rpc("Runs.list", { automationId }, store.cookie)).rows[0]!
     const waiting = await until(() => runOf(approved), (r) => r.status === "waiting")
-    expect(waiting).toMatchObject({ version: 1, record: { kind: "order", number: "#1003" }, manual: false })
+    expect(waiting).toMatchObject({
+      version: 1,
+      record: { kind: "order", number: "#1003" },
+      manual: false,
+      waiting: "approval"
+    })
 
     // A new version while it waits: the run keeps the one it started on.
     ok(

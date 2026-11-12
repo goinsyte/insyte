@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../../components/sheet"
 import { AlertTriangle, Check, Clock, Minus, RefreshCcw, X } from "../../icons"
+import { ConfirmDialog } from "../common/confirm-dialog"
 import { EmptyState } from "../common/empty-state"
 import { formatDateTime } from "../lib/format"
 import { cn } from "../lib/utils"
@@ -22,7 +23,10 @@ export const RUN_DOT: Record<RunStatus, string> = {
   succeeded: "bg-signal-green",
   failed: "bg-signal-red",
   waiting: "bg-signal-amber",
-  duplicate: "bg-ink-4"
+  duplicate: "bg-ink-4",
+  running: "bg-arc",
+  stopped: "bg-ink-4",
+  skipped: "bg-ink-4"
 }
 
 export function RunStatusCell({ run }: { run: WorkflowRun }) {
@@ -82,12 +86,15 @@ export function RunsTab({ workflow }: { workflow: WorkflowState }) {
   const [cut, setCut] = useState<Cut>("all")
   const drawerRef = useRef<HTMLDivElement>(null)
   const id = workflow.automationId
-  const { rerun } = useAutomationsSource()
+  const { decide, rerun, stopRun, useRun } = useAutomationsSource()
   const rows = useMemo(() => (cut === "all" ? workflow.history : workflow.history.filter((r) => r.status === cut)), [
     workflow.history,
     cut
   ])
-  const open = workflow.history.find((r) => r.id === openId) ?? null
+  const listed = workflow.history.find((r) => r.id === openId)
+  // A run just started ("Opnieuw") is open before the list has it.
+  const read = useRun?.(id, openId)
+  const open = read ?? listed ?? null
   const select = (runId: string | undefined) =>
     navigate({
       to: "/automations/$automationId",
@@ -216,16 +223,26 @@ export function RunsTab({ workflow }: { workflow: WorkflowState }) {
                 flow={workflow.name}
                 run={open}
                 onClose={() => select(undefined)}
-                onRerun={() => {
-                  const next = rerun?.(id, open)
+                onRerun={async () => {
+                  const next = await rerun?.(id, open)
                   if (!next) return
-                  toast("Opnieuw gestart en geslaagd", {
-                    description: `${
-                      next.record?.number ?? ""
-                    } · zelfde sleutel ${next.key}, dus niets is dubbel gedaan.`
-                  })
+                  if (next.status === "succeeded") {
+                    toast("Opnieuw gestart en geslaagd", {
+                      description: `${
+                        next.record?.number ?? ""
+                      } · zelfde sleutel ${next.key}, dus niets is dubbel gedaan.`
+                    })
+                  } else {
+                    toast("Opnieuw gestart", {
+                      description: `${
+                        next.record?.number ?? ""
+                      } · zelfde sleutel ${next.key}: wat de eerste run al deed, gebeurt niet nog eens.`
+                    })
+                  }
                   select(next.id)
                 }}
+                {...(stopRun === undefined ? {} : { onStop: () => stopRun(id, open) })}
+                {...(decide === undefined ? {} : { onDecide: (answer) => decide(id, open, answer) })}
               />
             ) :
             null}
@@ -240,23 +257,42 @@ const STEP_ICON: Record<RunStep["status"], { icon: typeof Check; tone: string; w
   error: { icon: X, tone: "bg-signal-red-bg text-signal-red", word: "mislukt" },
   waiting: { icon: Clock, tone: "bg-signal-amber-bg text-signal-amber", word: "wacht" },
   pending: { icon: Minus, tone: "bg-ink/6 text-ink-3", word: "nog niet" },
-  skipped: { icon: Minus, tone: "bg-ink/6 text-ink-3", word: "overgeslagen" }
+  skipped: { icon: Minus, tone: "bg-ink/6 text-ink-3", word: "overgeslagen" },
+  stopped: { icon: Minus, tone: "bg-ink/6 text-ink-3", word: "gestopt" }
 }
+
+/** Whether a run is still going: it can be stopped, not run again. */
+const underWay = (r: WorkflowRun) => r.status === "running" || r.status === "waiting"
 
 function RunDrawer({
   ref,
   flow,
   run,
   onClose,
-  onRerun
+  onRerun,
+  onStop,
+  onDecide
 }: {
   ref: React.Ref<HTMLDivElement>
   flow: string
   run: WorkflowRun
   onClose: () => void
   onRerun: () => void
+  onStop?: () => Promise<boolean>
+  onDecide?: (answer: "approve" | "decline") => Promise<boolean>
 }) {
   const steps = run.timeline ?? []
+  const [stopping, setStopping] = useState(false)
+  const [busy, setBusy] = useState<"stop" | "approve" | "decline" | null>(null)
+  const act = async (what: "stop" | "approve" | "decline", go: () => Promise<boolean>) => {
+    setBusy(what)
+    try {
+      await go()
+    } finally {
+      setBusy(null)
+    }
+  }
+  const stoppable = onStop !== undefined && underWay(run)
   return (
     <div ref={ref} tabIndex={-1} className="flex h-full flex-col outline-none">
       <div className="flex items-start gap-3 px-4 pt-4 pb-3">
@@ -267,14 +303,28 @@ function RunDrawer({
           </SheetTitle>
           <SheetDescription className="truncate text-ink-3 text-xs">Run van {flow}</SheetDescription>
         </div>
-        <button
-          type="button"
-          onClick={onRerun}
-          className="flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-mesh-ink text-sm shadow-primary hover:bg-abyss-2"
-        >
-          <RefreshCcw className="size-3.5" />
-          Opnieuw
-        </button>
+        {stoppable ?
+          (
+            <button
+              type="button"
+              onClick={() => setStopping(true)}
+              disabled={busy !== null}
+              className="flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-ink/6 px-3 font-medium text-ink text-sm hover:bg-ink/10 disabled:opacity-50"
+            >
+              <X className="size-3.5" />
+              {busy === "stop" ? "Stoppen…" : "Stoppen"}
+            </button>
+          ) :
+          (
+            <button
+              type="button"
+              onClick={onRerun}
+              className="flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-mesh-ink text-sm shadow-primary hover:bg-abyss-2"
+            >
+              <RefreshCcw className="size-3.5" />
+              Opnieuw
+            </button>
+          )}
         <button
           type="button"
           onClick={onClose}
@@ -334,12 +384,58 @@ function RunDrawer({
             </p>
           ) :
           null}
-        {run.status === "waiting" ?
+        {(run.status === "stopped" || run.status === "skipped") && run.reason ?
+          <p className="mt-3 rounded-lg bg-mist px-3 py-2.5 text-ink-2 text-sm leading-[1.5]">{run.reason}</p> :
+          null}
+        {run.status === "waiting" && run.waitingOn?.kind === "approval" ?
+          (
+            <div className="mt-3 flex flex-col gap-2 rounded-lg bg-signal-amber-bg px-3 py-2.5">
+              <p className="text-ink-2 text-sm leading-[1.5]">
+                {run.waitingOn.approver
+                  ? `De run wacht op goedkeuring van ${run.waitingOn.approver}. Zonder antwoord binnen zeven dagen stopt hij.`
+                  : "De run wacht op goedkeuring. Zonder antwoord binnen zeven dagen stopt hij."}
+              </p>
+              {onDecide ?
+                (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={busy !== null}
+                      onClick={() => void act("approve", () => onDecide("approve"))}
+                      className="flex h-7 items-center gap-1.5 rounded-md bg-abyss px-2.5 font-medium text-mesh-ink text-xs shadow-primary hover:bg-abyss-2 disabled:opacity-50"
+                    >
+                      <Check className="size-3" />
+                      {busy === "approve" ? "Goedkeuren…" : "Goedkeuren"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy !== null}
+                      onClick={() => void act("decline", () => onDecide("decline"))}
+                      className="flex h-7 items-center gap-1.5 rounded-md bg-paper px-2.5 font-medium text-ink text-xs hover:bg-ink/6 disabled:opacity-50"
+                    >
+                      <X className="size-3" />
+                      {busy === "decline" ? "Afwijzen…" : "Afwijzen"}
+                    </button>
+                  </div>
+                ) :
+                null}
+            </div>
+          ) :
+          run.status === "waiting" ?
           (
             <p className="mt-3 rounded-lg bg-signal-amber-bg px-3 py-2.5 text-ink-2 text-sm leading-[1.5]">
-              {runLabel(run) === "Wacht op antwoord"
+              {run.waitingOn?.kind === "wait"
+                ? "De run wacht tot de wachttijd voorbij is. Daarna gaat hij vanzelf verder."
+                : runLabel(run) === "Wacht op antwoord"
                 ? "De run wacht tot de klant antwoordt, of tot de wachttijd voorbij is. Daarna gaat hij vanzelf verder."
                 : "Insyte heeft een voorstel klaargezet. De run gaat verder zodra iemand het uitvoert of negeert."}
+            </p>
+          ) :
+          null}
+        {run.status === "running" ?
+          (
+            <p className="mt-3 rounded-lg bg-mist px-3 py-2.5 text-ink-2 text-sm leading-[1.5]">
+              De run loopt nog. Deze lijst werkt vanzelf bij.
             </p>
           ) :
           null}
@@ -408,6 +504,23 @@ function RunDrawer({
           ) :
           null}
       </div>
+      {onStop ?
+        (
+          <ConfirmDialog
+            open={stopping}
+            onOpenChange={setStopping}
+            title="Deze run stoppen?"
+            description="Stappen die al gedaan zijn, blijven gedaan. De rest gebeurt niet meer, en dit kun je niet terugdraaien."
+            confirmLabel="Stoppen"
+            cancelLabel="Laten lopen"
+            tone="destructive"
+            onConfirm={() => {
+              setStopping(false)
+              void act("stop", onStop)
+            }}
+          />
+        ) :
+        null}
     </div>
   )
 }

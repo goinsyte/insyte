@@ -11,13 +11,13 @@ import { createFileRoute } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { useConsoleAutomationsSource } from "../automations/automations-source.tsx"
-import { automationsAtom, recommendedAtom } from "../data/automations.ts"
+import { automationsAtom, recommendedAtom, runsAtom } from "../data/automations.ts"
 
 /**
  * Automatiseringen (step 14.1, M12 step 1): the reference's list over `Automations.list`, with the library's templates
  * and the ones the workspace's records recommend (`?view=`). The loader reads both on the server; until they are in,
- * the reference's table skeleton stands in. Geschiedenis says Binnenkort until flows run. A role that may not see
- * automations is told which permission it misses.
+ * the reference's table skeleton stands in. Geschiedenis is the workspace's newest runs (`Runs.list`, M12 step 5), read
+ * with them. A role that may not see automations is told which permission it misses.
  */
 
 type View = (typeof VIEWS)[number]
@@ -32,10 +32,12 @@ export const Route = createFileRoute("/_frame/automations/")({
     // Mounted so the values survive until the registry is dehydrated into the document.
     context.registry.mount(automationsAtom)
     context.registry.mount(recommendedAtom)
+    context.registry.mount(runsAtom(""))
     await Effect.runPromise(
       Effect.all([
         Effect.ignore(AtomRegistry.getResult(context.registry, automationsAtom)),
-        Effect.ignore(AtomRegistry.getResult(context.registry, recommendedAtom))
+        Effect.ignore(AtomRegistry.getResult(context.registry, recommendedAtom)),
+        Effect.ignore(AtomRegistry.getResult(context.registry, runsAtom("")))
       ], { concurrency: "unbounded" })
     )
   },
