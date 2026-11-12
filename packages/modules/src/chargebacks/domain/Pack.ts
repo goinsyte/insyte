@@ -80,13 +80,10 @@ export interface CaseFacts {
     readonly refunds: ReadonlyArray<{ readonly amountMinor: number; readonly currency: string; readonly at: number }>
   } | null
   readonly shipments: ReadonlyArray<Shipment>
-  readonly tickets: ReadonlyArray<{
-    readonly number: string
-    readonly title: string
-    readonly description: string
-    readonly at: number
-    readonly sent: ReadonlyArray<{ readonly at: number; readonly body: string }>
-  }>
+  /**
+   * What was written with the customer, oldest first: mail in and mail sent. Tickets are the team's own work (their
+   * titles and notes are internal) and are not here.
+   */
   readonly threads: ReadonlyArray<{ readonly subject: string; readonly mails: ReadonlyArray<Mail> }>
   readonly chat: ReadonlyArray<
     { readonly where: string; readonly author: string; readonly at: number; readonly body: string }
@@ -102,7 +99,7 @@ export const documentsFor = (f: CaseFacts): ReadonlyArray<DocumentKind> =>
       case "delivery":
         return f.shipments.some(delivered)
       case "correspondence":
-        return f.tickets.length > 0 || f.threads.length > 0
+        return f.threads.length > 0
       case "chat":
         return f.chat.length > 0
       case "invoice":
@@ -204,12 +201,12 @@ export const narrativeOf = (f: CaseFacts): string => {
       `De vervoerder meldt het pakket als bezorgd${s.deliveredAt === null ? "" : ` op ${moment(s.deliveredAt, tz)}`}.`
     )
   }
-  const contacts = f.tickets.length + f.threads.length
+  const contacts = f.threads.length
   if (contacts > 0) {
     out.push(
-      `Er ${contacts === 1 ? "is één gesprek" : `zijn ${contacts} gesprekken`} met de klant over deze bestelling; ${
-        contacts === 1 ? "het staat" : "ze staan"
-      } in dit pakket.`
+      `Er ${contacts === 1 ? "is één gesprek" : `zijn ${contacts} gesprekken`} met de klant${
+        order === null ? "" : " over deze bestelling"
+      }; ${contacts === 1 ? "het staat" : "ze staan"} in dit pakket.`
     )
   }
   for (const r of order?.refunds ?? []) {
@@ -276,17 +273,6 @@ const body = (kind: DocumentKind, f: CaseFacts): string => {
       }${f.shipments.filter(delivered).map((s, i) => `<h2>Bezorging ${i + 1}</h2>${shipmentRows(s, tz)}`).join("")}`
     }
     case "correspondence": {
-      const tickets = f.tickets.map((t) =>
-        `<h2>Ticket #${esc(t.number)} · ${esc(t.title)}</h2><p class="muted">${esc(moment(t.at, tz))}</p>${
-          t.description === "" ? "" : `<div class="mail"><p>${esc(t.description)}</p></div>`
-        }${
-          t.sent.map((m) =>
-            `<div class="mail"><strong>${esc(f.brand)}</strong> · <span class="muted">${
-              esc(moment(m.at, tz))
-            }</span><p>${esc(m.body)}</p></div>`
-          ).join("")
-        }`
-      )
       const threads = f.threads.map((t) =>
         `<h2>${esc(t.subject === "" ? "(geen onderwerp)" : t.subject)}</h2>${
           t.mails.map((m) =>
@@ -296,7 +282,7 @@ const body = (kind: DocumentKind, f: CaseFacts): string => {
           ).join("")
         }`
       )
-      return [...tickets, ...threads].join("")
+      return threads.join("")
     }
     case "chat":
       return `<p class="muted">Wat het team in Insyte over deze bestelling of zaak schreef.</p>${

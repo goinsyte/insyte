@@ -1,7 +1,7 @@
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
-import { failure, ok, relay } from "./journeys.ts"
+import { failure, ok, relay, run } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"
 
@@ -25,6 +25,18 @@ const manual = {
   amountMinor: 8_950,
   reasonCode: "not_received" as const
 }
+
+const deliver = async (to: string, raw: string) => {
+  const response = await call("http://api.test/api/__dev/mail/inbound", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ to, raw })
+  })
+  expect(response.status).toBe(200)
+}
+
+const mime = (lines: Record<string, string>, body: string) =>
+  [...Object.entries(lines).map(([k, v]) => `${k}: ${v}`), "MIME-Version: 1.0", "", body].join("\r\n")
 
 const orderNumbered = async (cookie: string, number: string) =>
   ok(await rpc("Orders.list", { limit: 50 }, cookie)).rows.find((o) => o.number === number)!
@@ -59,12 +71,45 @@ describe("evidence packs", () => {
   it("gathers the case's documents from its order, delivery and correspondence, as Insyte's, and says how far", async () => {
     const store = await importedStore("cb-gather")
     const order = await orderNumbered(store.cookie, "#1002")
+    expect(order.customerEmail).not.toBeNull()
+    // The team's own ticket on the order: internal, never part of what goes to the provider.
     ok(
       await rpc("Tickets.create", {
-        title: "Pakket nooit ontvangen",
-        description: "De klant zegt dat er niets is bezorgd.",
+        title: "Waarschijnlijk fraudeur",
+        description: "Vorige keer ook een chargeback, niet meer leveren.",
         related: { type: "order", id: order.id }
       }, store.cookie)
+    )
+    // The customer's mail: eleven threads about #1002, the oldest first, and one about another order.
+    const box = ok(
+      await rpc(
+        "Mailboxes.connect",
+        { provider: "forward", address: "support@gather.test", label: "Support" },
+        store.cookie
+      )
+    )
+    const from = `Klant <${order.customerEmail}>`
+    for (let i = 1; i <= 11; i++) {
+      const n = String(i).padStart(2, "0")
+      await deliver(
+        box.forwardingAddress!,
+        mime({
+          From: from,
+          To: box.forwardingAddress!,
+          Subject: `Vraag ${n} over bestelling #1002`,
+          Date: new Date(Date.UTC(2026, 9, 10, 9, i)).toUTCString(),
+          "Message-ID": `<gather-${n}-${run}@klant.test>`
+        }, i === 11 ? "Het pakket is nooit aangekomen." : `Bericht ${n}`)
+      )
+    }
+    await deliver(
+      box.forwardingAddress!,
+      mime({
+        From: from,
+        To: box.forwardingAddress!,
+        Subject: "Retour van bestelling #10021",
+        "Message-ID": `<gather-other-${run}@klant.test>`
+      }, "Een andere bestelling.")
     )
     const created = ok(await rpc("Chargebacks.createManual", { ...manual, orderId: order.id }, store.cookie))
       .chargebacks[0]!
@@ -102,7 +147,17 @@ describe("evidence packs", () => {
     expect(sent.text).toContain("3S201")
     expect(sent.text).toContain("PostNL")
     expect((await opened(store.cookie, delivery!.fileId!)).text).toContain("3S201")
-    expect((await opened(store.cookie, correspondence!.fileId!)).text).toContain("Pakket nooit ontvangen")
+    const contact = (await opened(store.cookie, correspondence!.fileId!)).text
+    // The latest ten threads about the order, from the customer: not the team's ticket, nor another order's mail.
+    expect(contact).toContain("Het pakket is nooit aangekomen.")
+    expect(contact).toContain("Vraag 02 over bestelling #1002")
+    expect(contact).not.toContain("Vraag 01")
+    expect(contact).not.toContain("#10021")
+    expect(contact).not.toContain("fraudeur")
+    expect(contact.indexOf("Vraag 02")).toBeLessThan(contact.indexOf("Vraag 11"))
+    for (const item of detail.evidence) {
+      expect((await opened(store.cookie, item.fileId!)).text).not.toContain("fraudeur")
+    }
     expect((await opened(store.cookie, invoice!.fileId!)).text).toContain("#1002")
     expect((await opened(store.cookie, narrative!.fileId!)).text).toContain("DSP-1")
   })
@@ -147,8 +202,16 @@ describe("evidence packs", () => {
     const firstIds = new Set(first.map((e) => e.id))
     expect(second.evidence.filter((e) => e.source === "insyte").every((e) => !firstIds.has(e.id))).toBe(true)
     expect(second.evidence[0]!.id).toBe(first[0]!.id)
-    // Undo on the old removal does not bring the first account back next to the new one.
-    ok(await rpc("Shared.undo", { token: removed.undo!.token }, store.cookie))
+    // The first run's documents are gone, rows and objects: only this run's and the upload are kept.
+    for (const item of first.filter((e) => e.source === "insyte")) {
+      expect((await opened(store.cookie, item.fileId!)).status).toBe(404)
+    }
+    expect((await opened(store.cookie, first[0]!.fileId!)).status).toBe(200)
+    const kept = await env.FILES.list({ prefix: `${store.workspace}/evidence/${created.id}/` })
+    expect(kept.objects).toHaveLength(5)
+    // Undo on the old removal does not bring the first account back next to the new one. (On a slow run its window
+    // may have passed, and Undo is refused: the pack is the same either way.)
+    await rpc("Shared.undo", { token: removed.undo!.token }, store.cookie)
     expect(
       ok(await rpc("Chargebacks.get", { id: created.id }, store.cookie)).evidence
         .filter((e) => e.name.startsWith("toelichting"))

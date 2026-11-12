@@ -3,7 +3,7 @@ import { mintId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
-import type { SqlClient } from "effect/sql"
+import type { SqlClient, Statement } from "effect/sql"
 import { Documents, FileStore } from "../../shared/domain/Documents.ts"
 import { Relay } from "../../shared/domain/Outbox.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
@@ -105,6 +105,7 @@ interface CaseRow {
   readonly deadlineAt: Date
   readonly orderId: string | null
   readonly customerId: string | null
+  readonly storeId: string | null
   readonly brand: string
   readonly timezone: string
 }
@@ -151,13 +152,28 @@ const addressOf = (text: string | null): ReadonlyArray<string> => {
 const MAX_TEXT = 4000
 const cut = (s: string) => (s.length <= MAX_TEXT ? s : `${s.slice(0, MAX_TEXT).trimEnd()} …`)
 
+/** How many threads, mails per thread and team messages a pack takes: the latest, for a customer of many years. */
+const MAX_THREADS = 10
+const MAX_MAILS = 30
+const MAX_CHAT = 100
+
+/** Rows read newest first, to keep the latest, in the order they are read in. */
+const oldestFirst = <A>(rows: ReadonlyArray<A>): Array<A> => rows.map((_, i) => rows[rows.length - 1 - i]!)
+
+/** The order's number as a word in a mail (`#1042`, `1042`, `NL-1042`), not as part of a longer number. */
+const numberPattern = (number: string) => {
+  const bare = number.replace(/^#/, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  return `(^|[^0-9A-Za-z])${bare}([^0-9A-Za-z]|$)`
+}
+
 /** Everything the documents are made from, read fresh in the case's workspace. */
 export const factsOf = Effect.fn("Chargebacks.factsOf")(function*(sql: SqlClient.SqlClient, chargebackId: string) {
   const [c] = yield* sql<CaseRow>`
     select c.case_number, c.provider, c.reason, c.reason_code, c.amount_minor, c.currency,
            coalesce(cu.name, nullif(o.customer_name, ''), c.customer_name) as customer_name,
            coalesce(o.customer_email, cu.email) as customer_email, c.opened_at, c.deadline_at, c.order_id,
-           coalesce(c.customer_id, o.customer_id) as customer_id, coalesce(s.name, w.name) as brand,
+           coalesce(c.customer_id, o.customer_id) as customer_id, coalesce(o.store_id, c.store_id) as store_id,
+           coalesce(s.name, w.name) as brand,
            w.timezone
     from chargebacks c join workspaces w on w.id = c.workspace_id
     left join orders o on o.id = c.order_id
@@ -227,29 +243,34 @@ export const factsOf = Effect.fn("Chargebacks.factsOf")(function*(sql: SqlClient
     }
   }
 
-  // What the customer and the team said: tickets about the order or the customer, and their mail threads.
-  const about = sql.or([
-    ...(c.orderId === null ? [] : [sql`t.order_id = ${c.orderId}`]),
-    ...(c.customerId === null ? [] : [sql`t.customer_id = ${c.customerId}`])
-  ])
-  const tickets = c.orderId === null && c.customerId === null ? [] : yield* sql<
-    { id: string; number: string; title: string; description: string; createdAt: Date }
-  >`select t.id, t.number, t.title, t.description, t.created_at from tickets t
-    where ${about} and t.deleted_at is null and t.spam_at is null order by t.created_at limit 20`
-  const sent = tickets.length === 0 ? [] : yield* sql<{ ticketId: string; body: string; createdAt: Date }>`
-    select ticket_id, body, created_at from ticket_comments
-    where ticket_id in ${sql.in(tickets.map((t) => t.id))} and kind = 'email_sent' and deleted_at is null
-    order by created_at`
-  const threadWhere = sql.or([
-    ...(tickets.length === 0 ? [] : [sql`t.ticket_id in ${sql.in(tickets.map((t) => t.id))}`]),
+  // What was written with the customer: mail in and mail sent, never the team's tickets (their titles and notes are
+  // internal). With an order, the threads about it: one a ticket on the order was made from (a ticket of the case's
+  // store), or one of the customer's whose mail names the order's number. Without one, the customer's latest threads.
+  const orderTickets = c.orderId === null ? [] : (yield* sql<{ id: string }>`
+    select t.id from tickets t where t.order_id = ${c.orderId} and t.deleted_at is null
+      and ${c.storeId === null ? sql`true` : sql`(t.store_id is null or t.store_id = ${c.storeId})`}`).map((t) => t.id)
+  const theirs = [
     ...(c.customerId === null ? [] : [sql`t.customer_id = ${c.customerId}`]),
     ...(c.customerEmail === null ? [] : [sql`exists (select 1 from jsonb_array_elements(t.participants) p
                                                     where lower(p ->> 'email') = lower(${c.customerEmail}))`])
-  ])
-  const threads = tickets.length === 0 && c.customerId === null && c.customerEmail === null ? [] : yield* sql<
-    { id: string; subject: string }
-  >`select t.id, t.subject from email_threads t
-    where ${threadWhere} and t.deleted_at is null and t.spam_at is null order by t.last_message_at desc limit 10`
+  ]
+  const named = order === null ? undefined : numberPattern(order.number)
+  const aboutTheOrder = named === undefined ? undefined : sql`(t.subject ~* ${named} or exists (
+    select 1 from email_messages em where em.thread_id = t.id and (em.subject ~* ${named} or em.body_text ~* ${named})))`
+  const threadWhere = [
+    ...(orderTickets.length === 0 ? [] : [sql`t.ticket_id in ${sql.in(orderTickets)}`]),
+    ...(theirs.length === 0 ? [] : [
+      aboutTheOrder === undefined ? sql.or(theirs) : sql.and([sql.or(theirs), aboutTheOrder])
+    ])
+  ]
+  const threads = threadWhere.length === 0 ? [] : oldestFirst(
+    yield* sql<{ id: string; subject: string }>`
+    select t.id, t.subject from email_threads t
+    where ${sql.or(threadWhere)} and t.deleted_at is null and t.spam_at is null
+    order by t.last_message_at desc limit ${MAX_THREADS}`
+  )
+  // The latest of each thread, read oldest first. A mail still waiting for its undo window, or one that did not go,
+  // was never said to the customer.
   const mails = threads.length === 0 ? [] : yield* sql<{
     threadId: string
     direction: "inbound" | "outbound"
@@ -258,23 +279,28 @@ export const factsOf = Effect.fn("Chargebacks.factsOf")(function*(sql: SqlClient
     sentAt: Date
     subject: string
     bodyText: string
-    sendState: string | null
-  }>`select thread_id, direction, from_name, from_address, sent_at, subject, body_text, send_state
-     from email_messages where thread_id in ${sql.in(threads.map((t) => t.id))} order by sent_at limit 200`
+  }>`select thread_id, direction, from_name, from_address, sent_at, subject, body_text from (
+       select m.*, row_number() over (partition by m.thread_id order by m.sent_at desc, m.id desc) as latest
+       from email_messages m
+       where m.thread_id in ${sql.in(threads.map((t) => t.id))}
+         and (m.direction = 'inbound' or m.send_state = 'sent')) x
+     where latest <= ${MAX_MAILS} order by sent_at, id`
 
-  // The team's own words about the order or the case, in its channels (a DM stays between its two).
+  // The team's own words about the order or the case, in its channels (a DM stays between its two): the latest.
   const refs = [
     ...(c.orderId === null ? [] : [JSON.stringify([{ kind: "order", id: c.orderId }])]),
     JSON.stringify([{ kind: "chargeback", id: chargebackId }])
   ]
-  const chat = yield* sql<{ channel: string; author: string | null; createdAt: Date; body: string }>`
+  const chat = oldestFirst(
+    yield* sql<{ channel: string; author: string | null; createdAt: Date; body: string }>`
     select coalesce(cv.name, '') as channel, u.name as author, m.created_at, m.body
     from messages m join conversations cv on cv.id = m.conversation_id
     left join members mb on m.author_kind = 'member' and mb.id = m.author_id
     left join auth."user" u on u.id = mb.user_id
     where cv.kind = 'channel' and m.deleted_at is null and m.body <> ''
       and (${sql.or(refs.map((r) => sql`m.records @> ${r}::jsonb`))})
-    order by m.created_at limit 100`
+    order by m.created_at desc, m.id desc limit ${MAX_CHAT}`
+  )
 
   const tz = c.timezone
   return {
@@ -292,18 +318,10 @@ export const factsOf = Effect.fn("Chargebacks.factsOf")(function*(sql: SqlClient
     timezone: tz,
     order,
     shipments,
-    tickets: tickets.map((t) => ({
-      number: String(t.number),
-      title: t.title,
-      description: cut(t.description),
-      at: t.createdAt.getTime(),
-      sent: sent.filter((s) => s.ticketId === t.id).map((s) => ({ at: s.createdAt.getTime(), body: cut(s.body) }))
-    })),
     threads: threads.map((t) => ({
       subject: t.subject,
       mails: mails
-        // A mail still waiting for its undo window, or one that did not go, was never said to the customer.
-        .filter((m) => m.threadId === t.id && (m.direction === "inbound" || m.sendState === "sent"))
+        .filter((m) => m.threadId === t.id)
         .map((m): Mail => ({
           inbound: m.direction === "inbound",
           from: m.fromName === "" ? m.fromAddress : `${m.fromName} <${m.fromAddress}>`,
@@ -336,26 +354,46 @@ const refOf = (runId: string, kind: DocumentKind) => `${runId}:${kind}`
 
 /**
  * The first step: which documents this case can have, counted as the pack's total, and what Insyte gathered on an
- * earlier run out of the pack. Answers the documents to gather, none when the run is not the pack's.
+ * earlier run gone, rows and objects: they hold the customer's address and mail, and the new run replaces them. Answers
+ * the documents to gather, none when the run is not the pack's.
  */
 export const planPack = Effect.fn("Chargebacks.planPack")(function*(chargebackId: string, runId: string) {
   const db = yield* Db
-  return yield* db.scopedFor((sql) =>
+  const { kinds, keys } = yield* db.scopedFor((sql) =>
     Effect.gen(function*() {
-      if (!(yield* current(sql, chargebackId, runId))) return [] as ReadonlyArray<DocumentKind>
+      const none = { kinds: [] as ReadonlyArray<DocumentKind>, keys: [] as ReadonlyArray<string> }
+      if (!(yield* current(sql, chargebackId, runId))) return none
       const facts = yield* factsOf(sql, chargebackId)
-      if (facts === undefined) return [] as ReadonlyArray<DocumentKind>
-      const kinds = documentsFor(facts)
-      yield* sql`update evidence_items set removed_at = now()
-                 where chargeback_id = ${chargebackId} and source = 'insyte' and removed_at is null
-                   and (source_ref is null or source_ref not like ${`${runId}:%`})`
-      yield* sql`update evidence_packs set progress_total = ${kinds.length},
+      if (facts === undefined) return none
+      const planned = documentsFor(facts)
+      const retired = yield* retire(
+        sql,
+        sql`chargeback_id = ${chargebackId} and source = 'insyte'
+                                          and (source_ref is null or source_ref not like ${`${runId}:%`})`
+      )
+      yield* sql`update evidence_packs set progress_total = ${planned.length},
                    narrative_text = ${narrativeOf(facts)}
                  where chargeback_id = ${chargebackId}`
-      return kinds
+      return { kinds: planned, keys: retired }
     })
   )
+  yield* Effect.flatMap(Effect.service(FileStore), (s) => s.remove(keys))
+  return kinds
 })
+
+/** Insyte's items that `where` picks, out of the pack with their files: the bucket keys to delete. */
+const retire = (sql: SqlClient.SqlClient, where: Statement.Fragment) =>
+  Effect.gen(function*() {
+    const items = yield* sql<{ fileId: string | null }>`
+      delete from evidence_items where ${where} returning file_id`
+    const ids = items.flatMap((i) => (i.fileId === null ? [] : [i.fileId]))
+    if (ids.length === 0) return [] as ReadonlyArray<string>
+    const files = yield* sql<{ r2Key: string }>`
+      delete from files where id in ${sql.in(ids)} and owner_type = 'chargeback'
+        and not exists (select 1 from evidence_items e where e.file_id = files.id)
+      returning r2_key`
+    return files.map((f) => f.r2Key)
+  })
 
 /**
  * One document: read, rendered (a PDF, or its HTML where the stage has no browser), kept in R2, and put at the end of
@@ -386,7 +424,7 @@ export const gatherDocument = Effect.fn("Chargebacks.gatherDocument")(function*(
   const key = `${plan.workspaceId}/evidence/${chargebackId}/${runId}-${kind}.${file.extension}`
   yield* Effect.flatMap(Effect.service(FileStore), (s) => s.put(key, file.bytes, file.mime))
   const name = `${plan.stem}.${file.extension}`
-  return yield* db.scopedFor((sql) =>
+  const outcome = yield* db.scopedFor((sql) =>
     Effect.gen(function*() {
       if (!(yield* current(sql, chargebackId, runId))) return "skipped" as const
       const [kept] = yield* sql<{ id: string }>`
@@ -411,6 +449,9 @@ export const gatherDocument = Effect.fn("Chargebacks.gatherDocument")(function*(
       return "made" as const
     })
   )
+  // Another run took the pack over while this one rendered: what it put in the bucket is no one's.
+  if (outcome === "skipped") yield* Effect.flatMap(Effect.service(FileStore), (s) => s.remove([key]))
+  return outcome
 })
 
 /** The last step: the pack is ready, and its timeline says what Insyte put in it. */
