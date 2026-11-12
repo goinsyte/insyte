@@ -355,17 +355,16 @@ describe("outbound webhooks", () => {
       await m.disableSleeps()
     })
     const a = ok(
-      await rpc("Webhooks.create", input("https://ok.webhooks.example/a", ["order.cancelled"]), store.cookie)
+      await rpc("Webhooks.create", input("https://ok.webhooks.example/a", ["customer.updated"]), store.cookie)
     )
     const b = ok(
-      await rpc("Webhooks.create", input("https://echo.webhooks.example/b", ["order.cancelled"]), store.cookie)
+      await rpc("Webhooks.create", input("https://echo.webhooks.example/b", ["customer.updated"]), store.cookie)
     )
-    // Three orders that can still be cancelled: open, nothing on its way.
-    const orders = ok(await rpc("Orders.list", { limit: 50 }, store.cookie)).rows
-      .filter((o) => o.status !== "cancelled" && o.status !== "refunded" && o.fulfillmentStatus === "unfulfilled")
-      .slice(0, 3)
-    expect(orders).toHaveLength(3)
-    ok(await rpc("Orders.cancel", { ids: orders.map((o) => o.id), restock: false, notify: false }, store.cookie))
+    // Three customers tagged at once: one fact, three public events.
+    const customers = ok(await rpc("Customers.list", { limit: 50 }, store.cookie)).rows.slice(0, 3)
+    expect(customers).toHaveLength(3)
+    ok(await rpc("Customers.tag", { ids: customers.map((c) => c.id), add: ["erp"], remove: [] }, store.cookie))
+    await pastUndo(store.workspace)
     await relay(store.workspace)
     await settle(runs, 6)
 
@@ -381,9 +380,9 @@ describe("outbound webhooks", () => {
       )
     )
     expect(new Set(bodies.map((d) => (d.body as { data: { id: string } }).data.id))).toEqual(
-      new Set(orders.map((o) => o.id))
+      new Set(customers.map((c) => c.id))
     )
-    // One event per order, the same id at both endpoints.
+    // One event per customer, the same id at both endpoints.
     const eventsA = ok(await rpc("Webhooks.deliveries", { endpointId: a.endpoint.id }, store.cookie)).map((r) =>
       r.eventId
     )
