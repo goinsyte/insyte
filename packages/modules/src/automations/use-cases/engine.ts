@@ -156,7 +156,11 @@ export const orderContext = Effect.fn("Automations.orderContext")(function*(sql:
   return context
 })
 
-/** The run's plan, or `null` when it is no longer running (closed, or its flow removed). */
+/**
+ * The run's plan, or `null` when there is nothing left to do: the run is closed, or the version it was pinned to is gone
+ * (its first publication was undone), which closes it as stopped. A removed or paused flow is not checked here: every
+ * action checks it again just before it runs (`actOnce`), so a run that waits days acts on the flow as it is then.
+ */
 export const loadRun = Effect.fn("Automations.loadRun")(function*(runId: string) {
   const db = yield* Db
   return yield* db.scopedFor((sql) =>
@@ -172,7 +176,7 @@ export const loadRun = Effect.fn("Automations.loadRun")(function*(runId: string)
         recordKind: string
         recordId: string
         triggerEvent: string
-        nodesJson: string
+        nodesJson: string | null
         storeScope: Array<string> | null
         accountId: string | null
         accountLabel: string | null
@@ -184,12 +188,17 @@ export const loadRun = Effect.fn("Automations.loadRun")(function*(runId: string)
                sa.version as account_version, sa.scopes as account_scopes
         from automation_runs r
         join automations a on a.id = r.automation_id
-        join automation_versions v on v.automation_id = r.automation_id and v.version = r.version
+        left join automation_versions v on v.automation_id = r.automation_id and v.version = r.version
         left join service_accounts sa on sa.id = r.service_account_id and sa.disabled_at is null
         where r.id = ${runId}`
       // Not there yet: the relay's transaction that wrote it has not committed. The step is tried again.
       if (r === undefined) return yield* new StepFailed({ explanation: "De run is er nog niet.", terminal: false })
       if (r.status !== "running" && r.status !== "waiting") return null
+      if (r.nodesJson === null) {
+        yield* sql`update automation_runs set status = 'stopped', reason = ${UNPUBLISHED}, finished_at = now()
+                   where id = ${runId} and status in ('running', 'waiting')`
+        return null
+      }
       const context = r.recordKind === "order" ? yield* orderContext(sql, r.recordId) : {}
       const plan: RunPlan = {
         runId,
@@ -258,14 +267,7 @@ export const inputOf = (context: RunContext): Record<string, string> => {
   )
 }
 
-/** Whether the run is still going: a run cancelled from the Runs tab does nothing more. */
-export const isOpen = Effect.fn("Automations.isOpen")(function*(runId: string) {
-  const db = yield* Db
-  const [r] = yield* db.scopedFor((sql) =>
-    sql<{ status: string }>`select status from automation_runs where id = ${runId}`
-  )
-  return r?.status === "running" || r?.status === "waiting"
-})
+export const UNPUBLISHED = "De publicatie is ongedaan gemaakt; de run is gestopt."
 
 /* ── writing what a step did ───────────────────────────────────────────────────────────────── */
 
@@ -285,13 +287,16 @@ export interface StepRecord {
 /** One step's row, written again by a retried attempt; the run says `waiting` while a step waits. */
 export const recordStep = Effect.fn("Automations.recordStep")(function*(step: StepRecord) {
   const db = yield* Db
-  yield* db.scopedFor((sql) =>
-    Effect.gen(function*() {
-      const [run] = yield* sql<
-        { workspaceId: string }
-      >`select workspace_id from automation_runs where id = ${step.runId}`
-      if (run === undefined) return
-      yield* sql`
+  yield* db.scopedFor((sql) => writeStep(sql, step))
+})
+
+const writeStep = (sql: SqlClient.SqlClient, step: StepRecord) =>
+  Effect.gen(function*() {
+    const [run] = yield* sql<
+      { workspaceId: string }
+    >`select workspace_id from automation_runs where id = ${step.runId}`
+    if (run === undefined) return
+    yield* sql`
         insert into automation_run_steps (workspace_id, run_id, run_at, node_id, attempt, variant, status, input,
                                           output, error, explanation, finished_at)
         values (${run.workspaceId}, ${step.runId}, ${new Date(step.runAt)}, ${step.nodeId}, ${step.attempt ?? 1},
@@ -301,11 +306,9 @@ export const recordStep = Effect.fn("Automations.recordStep")(function*(step: St
         on conflict (run_id, node_id, attempt, run_at) do update set status = excluded.status,
           output = excluded.output, error = excluded.error, explanation = excluded.explanation,
           finished_at = excluded.finished_at`
-      yield* sql`update automation_runs set status = ${step.status === "waiting" ? "waiting" : "running"}
+    yield* sql`update automation_runs set status = ${step.status === "waiting" ? "waiting" : "running"}
                  where id = ${step.runId} and status in ('running', 'waiting')`
-    })
-  )
-})
+  })
 
 /**
  * The run closed: succeeded, stopped by a condition or an answer, or failed. A failed run is told to whoever the flow's
@@ -529,6 +532,102 @@ export const act = Effect.fn("Automations.act")(function*(
     default:
       return { status: "skipped" as const, output: {}, explanation: notYet(node.variantId, plan.connected) }
   }
+})
+
+/** What an action step came to: done (now, or by an earlier attempt), or the run is to stop before it acts. */
+export type ActOutcome =
+  | {
+    readonly kind: "done"
+    readonly status: "succeeded" | "skipped"
+    readonly output: Record<string, unknown>
+    readonly explanation?: string | undefined
+  }
+  | { readonly kind: "stop"; readonly reason: string }
+
+const stop = (reason: string) => ({ stop: reason }) as const
+
+/**
+ * The flow as it is now, for the action about to run: the run still open, the flow on and not removed, the version it
+ * was pinned to still there, and its account enabled, with the rights and stores it holds today. A run that waited days
+ * acts as the flow is when it wakes, never as it was when it started.
+ */
+const liveOf = Effect.fn("Automations.liveOf")(function*(sql: SqlClient.SqlClient, plan: RunPlan) {
+  const [f] = yield* sql<{
+    runStatus: string
+    status: string
+    removed: boolean
+    storeScope: Array<string> | null
+    pinned: number | null
+    accountId: string | null
+    label: string | null
+    accountVersion: number | null
+    scopes: Array<string> | null
+    disabled: boolean | null
+  }>`
+    select r.status as run_status, a.status, a.deleted_at is not null as removed, a.store_scope, v.version as pinned,
+           sa.id as account_id, sa.label, sa.version as account_version, sa.scopes, sa.disabled_at is not null as disabled
+    from automation_runs r
+    join automations a on a.id = r.automation_id
+    left join automation_versions v on v.automation_id = a.id and v.version = r.version
+    left join service_accounts sa on sa.automation_id = a.id
+    where r.id = ${plan.runId}
+    for share of r`
+  if (f === undefined || (f.runStatus !== "running" && f.runStatus !== "waiting")) return stop("Gestopt.")
+  if (f.removed) return stop("De flow is verwijderd; de rest van de run is niet gedaan.")
+  if (f.pinned === null) return stop(UNPUBLISHED)
+  if (f.status !== "active") return stop("De flow staat uit; de rest van de run is niet gedaan.")
+  if (f.accountId === null || f.disabled === true) {
+    return stop("De flow heeft geen actief serviceaccount meer; de rest van de run is niet gedaan.")
+  }
+  return {
+    account: { id: f.accountId, label: f.label ?? "", version: f.accountVersion ?? 1, scopes: f.scopes ?? [] },
+    storeScope: f.storeScope
+  } as const
+})
+
+/**
+ * One action step, once: in one transaction, the flow is read as it is now (`liveOf`), the action runs through its
+ * slice as the account it holds today, and the step's row is written. A retried attempt (Workflows retries a step whose
+ * answer it did not keep) finds that row and does not act again; an attempt that failed left nothing behind. What the
+ * slice's own events say may wait for the relay's minute sweep, as they commit with the step.
+ */
+export const actOnce = Effect.fn("Automations.actOnce")(function*(
+  plan: RunPlan,
+  node: { readonly id: string; readonly variantId: string; readonly config: Readonly<Record<string, unknown>> },
+  attempt: number
+) {
+  const db = yield* Db
+  return yield* db.scopedFor((sql) =>
+    Effect.gen(function*() {
+      const [done] = yield* sql<{ status: "succeeded" | "skipped"; outputJson: string; explanation: string | null }>`
+        select status, output::text as output_json, explanation from automation_run_steps
+        where run_id = ${plan.runId} and node_id = ${node.id} and status in ('succeeded', 'skipped')
+        order by attempt desc limit 1`
+      if (done !== undefined) {
+        return {
+          kind: "done",
+          status: done.status,
+          output: JSON.parse(done.outputJson) as Record<string, unknown>,
+          explanation: done.explanation ?? undefined
+        } satisfies ActOutcome as ActOutcome
+      }
+      const live = yield* liveOf(sql, plan)
+      if ("stop" in live) return { kind: "stop", reason: live.stop } satisfies ActOutcome as ActOutcome
+      const did = yield* act({ ...plan, account: live.account, storeScope: live.storeScope }, node)
+      yield* writeStep(sql, {
+        runId: plan.runId,
+        runAt: plan.runAt,
+        nodeId: node.id,
+        variant: node.variantId,
+        attempt,
+        status: did.status,
+        input: { ...node.config },
+        output: did.output,
+        ...(did.explanation === undefined ? {} : { explanation: did.explanation })
+      })
+      return { kind: "done", ...did } satisfies ActOutcome as ActOutcome
+    })
+  )
 })
 
 /** Whether the run's customer wrote in since the run started ("Wachten op antwoord"). */
