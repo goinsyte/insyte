@@ -126,6 +126,29 @@ export default Alchemy.Stack(
       ? { KLAVIYO_CLIENT_ID: klaviyoClientId, KLAVIYO_CLIENT_SECRET: klaviyoClientSecret.value }
       : {}
 
+    /*
+     * Notifications by push and in Slack (M11 step 13.5b). Web push signs with the stage's VAPID key pair (all three in
+     * the GitHub environment, `bunx web-push generate-vapid-keys`); without them the page says push is not available
+     * yet. Slack's OAuth app (client id and secret) the way Klaviyo's is, with the sealer for the bot token: without
+     * them, "Slack koppelen" says it is not available yet. Previews never: Slack lists one redirect URL per stage.
+     */
+    const vapidPublic = Option.filter(yield* Config.Redacted("VAPID_PUBLIC_KEY").pipe(Config.option), set)
+    const vapidPrivate = Option.filter(yield* Config.Redacted("VAPID_PRIVATE_KEY").pipe(Config.option), set)
+    const vapidSubject = Option.filter(yield* Config.Redacted("VAPID_SUBJECT").pipe(Config.option), set)
+    const vapid = environment !== "preview" && Option.isSome(vapidPublic) && Option.isSome(vapidPrivate) &&
+        Option.isSome(vapidSubject)
+      ? {
+        VAPID_PUBLIC_KEY: vapidPublic.value,
+        VAPID_PRIVATE_KEY: vapidPrivate.value,
+        VAPID_SUBJECT: vapidSubject.value
+      }
+      : {}
+    const slackClientId = Option.filter(yield* Config.Redacted("SLACK_CLIENT_ID").pipe(Config.option), set)
+    const slackClientSecret = Option.filter(yield* Config.Redacted("SLACK_CLIENT_SECRET").pipe(Config.option), set)
+    const slack = Option.isSome(sealKeys) && Option.isSome(slackClientId) && Option.isSome(slackClientSecret)
+      ? { SLACK_CLIENT_ID: slackClientId.value, SLACK_CLIENT_SECRET: slackClientSecret.value }
+      : {}
+
     // AfterShip (M8.4): Insyte's own account, its key and webhook secret in the GitHub environment; without them, parcels
     // keep Shopify's own status.
     const aftershipKey = Option.filter(yield* Config.Redacted("AFTERSHIP_API_KEY").pipe(Config.option), set)
@@ -262,6 +285,8 @@ export default Alchemy.Stack(
         ...seal,
         ...shopify,
         ...klaviyo,
+        ...vapid,
+        ...slack,
         ...aftership,
         ...sendcloud,
         ...mail,
