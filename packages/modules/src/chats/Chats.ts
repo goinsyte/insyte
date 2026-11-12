@@ -4,6 +4,7 @@ import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
 import { Relay } from "../shared/domain/Outbox.ts"
+import type { SearchHit } from "../shared/domain/Search.ts"
 import type {
   ChatList,
   ChatMembers,
@@ -48,6 +49,8 @@ export class ChatsService extends Context.Service<ChatsService, {
   readonly thread: (messageId: string) => Effect.Effect<ChatThread, Missing, R>
   readonly pinnedMessages: (conversationId: string) => Effect.Effect<ReadonlyArray<MessageRow>, Missing, R>
   readonly members: (conversationId: string) => Effect.Effect<ChatMembers, Missing, R>
+  /** Matches for `Search.records`, in the conversations the principal may be in; none without Klantenservice. */
+  readonly search: (q: string, limit: number) => Effect.Effect<ReadonlyArray<SearchHit>, never, R>
   readonly send: (
     input: typeof SendInput.Type
   ) => Effect.Effect<MessageChange, Missing | EmptyMessage | Invalid, R>
@@ -90,6 +93,7 @@ export class ChatsService extends Context.Service<ChatsService, {
         thread: (id) => run(Reads.thread(id)),
         pinnedMessages: (id) => run(Reads.pinnedMessages(id)),
         members: (id) => run(Reads.members(id)),
+        search: (q, limit) => run(Reads.search(q, limit)),
         send: (input) => run(Commands.send(input)),
         edit: (input) => run(Commands.edit(input)),
         remove: (id) => run(Commands.remove(id)),

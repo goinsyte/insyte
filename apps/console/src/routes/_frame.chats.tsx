@@ -15,15 +15,18 @@ import { chatMessagesAtom, chatsAtom } from "../data/chats.ts"
 /**
  * Chats (step 13.4b, M11 step 4): the reference's team chat over `Chats.*`, in the frame. `?id=` names the open
  * conversation, the first one where it names none; `?id=conv_dm_<member>` opens the direct thread with that teammate,
- * made the first time. The loader reads the conversations and the open one's newest messages on the server; until they
- * are in, the reference's channel skeleton stands in. A role that may not see the chats is told which permission it
- * misses.
+ * made the first time; `?message=` (a search hit) lands on that message once it is on screen. The loader reads the
+ * conversations and the open one's newest messages on the server; until they are in, the reference's channel skeleton
+ * stands in. A role that may not see the chats is told which permission it misses.
  */
 
-type ChatsSearch = { id?: string }
+type ChatsSearch = { id?: string; message?: string }
 
 export const Route = createFileRoute("/_frame/chats")({
-  validateSearch: (s: Record<string, unknown>): ChatsSearch => (typeof s["id"] === "string" ? { id: s["id"] } : {}),
+  validateSearch: (s: Record<string, unknown>): ChatsSearch => ({
+    ...(typeof s["id"] === "string" ? { id: s["id"] } : {}),
+    ...(typeof s["message"] === "string" ? { message: s["message"] } : {})
+  }),
   head: () => ({ meta: [{ title: "Chats · Insyte" }] }),
   loaderDeps: ({ search }) => ({ id: search.id }),
   loader: async ({ context, deps }) => {
