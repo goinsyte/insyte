@@ -216,6 +216,11 @@ export type Plate = {
 	confidence: string;
 	/** The primary action names what filing does, not "Submit". */
 	fileLabel: string;
+	/**
+	 * What the stamp says once filed, where filing has not done it yet: "Wordt verstuurd…" for a mail that waits out
+	 * the undo window. Absent, the stamp says "Uitgevoerd".
+	 */
+	filed?: string | undefined;
 };
 
 /* ── from apps/console/src/lib/mock-data/members.ts ── */

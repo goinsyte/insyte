@@ -413,7 +413,7 @@ function QueueItem({
           selected ? "text-ink-2" : "text-mesh-ink-2"
         )}
       >
-        {done ? (row.state === "filed" ? "uitgevoerd" : "—") : row.due}
+        {done ? (row.state === "filed" ? (row.plate?.filed ?? "Uitgevoerd").toLowerCase() : "—") : row.due}
       </span>
     </motion.button>
   )
