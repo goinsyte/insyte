@@ -215,6 +215,33 @@ const OutboxDue = HttpRouter.add(
 )
 
 /**
+ * `POST /api/__dev/undo/age?workspace=<id>&seconds=<n>`: the workspace's undo windows as if `n` seconds had passed, so
+ * a test can stand between a toast's eight seconds and a chat card's five minutes without sleeping. Refused in
+ * production.
+ */
+const UndoAge = HttpRouter.add(
+  "POST",
+  "/api/__dev/undo/age",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const seconds = Number(new URL(request.url, "http://local").searchParams.get("seconds") ?? "0")
+    const db = yield* Db
+    const aged = yield* db.scopedFor((sql) =>
+      sql<{ command: string }>`
+        update undo_tokens set expires_at = expires_at - make_interval(secs => ${
+        Number.isFinite(seconds) ? seconds : 0
+      })
+        where used_at is null returning command`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe({ aged: aged.length })
+  }).pipe(withRequestDb)
+)
+
+/**
  * `POST /api/__dev/invitations/lapse?workspace=<id>&id=<invitation>`: the invitation's week is over, so the landing's
  * expired state can be tried without waiting it out. Refused in production.
  */
@@ -656,6 +683,7 @@ export const DevRoutes = Layer.mergeAll(
   AuthEventsOf,
   OutboxOf,
   UndoOf,
+  UndoAge,
   OutboxDue,
   InvitationLapse,
   ProposalLapse,

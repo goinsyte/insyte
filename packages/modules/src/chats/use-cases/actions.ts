@@ -1,4 +1,5 @@
 import { Db } from "@insyte/database/Db"
+import { NotFound } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
@@ -6,6 +7,7 @@ import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import {
+  CARD_UNDO_SECONDS,
   type ChatsRestore,
   type CommandId,
   CommandRefused,
@@ -82,17 +84,19 @@ const execute = Effect.fn("Chats.execute")(function*(actionId: string) {
       } else {
         const inner = ran.success.undo
         if (inner !== null) {
+          // The card's own window (five minutes) holds the command's: the card's undo spends it whenever it comes.
           undo = yield* Undo.issue(sql, {
             command: RESTORE,
             compensation: {
               kind: "action",
               id: actionId,
               innerHash: yield* Undo.hashOf(inner.token)
-            } satisfies ChatsRestore
+            } satisfies ChatsRestore,
+            seconds: CARD_UNDO_SECONDS
           })
         }
         yield* sql`update chat_actions set state = 'done', error = null,
-                     undo_until = ${undo === null ? null : new Date(Math.min(undo.until, inner!.until))}
+                     undo_until = ${undo === null ? null : new Date(undo.until)}
                    where id = ${actionId}`
         // What the command made (a ticket) is shared on the card's message, so it shows as a live record card.
         const made = ran.success.made
@@ -188,6 +192,46 @@ export const declineAction = Effect.fn("Chats.declineAction")(function*(actionId
                  where id = ${actionId}`
       const m = yield* messageIn(sql, a.messageId)
       yield* announce(sql, m.conversation, m.id, true)
+      return new MessageChange({ message: yield* messageRow(sql, m.id), undo: null })
+    })
+  )
+})
+
+/**
+ * The token a card's "Ongedaan maken" spends (`Chats.undoAction`), by the card: the person who ran it may take it back
+ * from any tab or device for its five minutes; after that, or once taken back, it is refused in the card's words. What
+ * the token undoes is `restore`'s, run by `Shared.undo`'s machinery where the app is composed.
+ */
+export const cardUndo = Effect.fn("Chats.cardUndo")(function*(actionId: string) {
+  yield* Policy.require("support", 1)
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const [a] = yield* sql<{ messageId: string; state: string }>`
+        select message_id, state from chat_actions where id = ${actionId}`
+      if (a === undefined) return yield* new NotFound({ entity: "chat_action", id: actionId })
+      // The conversation's own check: who may not read it may not take back its cards.
+      yield* messageIn(sql, a.messageId)
+      if (a.state === "undone") return yield* new CommandRefused({ reason: "undone" })
+      if (a.state !== "done") return yield* new CommandRefused({ reason: "decided" })
+      // Only who ran it holds the token: anyone else is told there is nothing of theirs to take back.
+      const held = yield* Undo.heldBy(sql, RESTORE, { kind: "action", id: actionId })
+      if (held === undefined) return yield* new NotFound({ entity: "undo", id: "token" })
+      if (held.used) return yield* new CommandRefused({ reason: "undone" })
+      if (held.lapsed) return yield* new CommandRefused({ reason: "undo_expired" })
+      return held.hash
+    })
+  )
+})
+
+/** The card's message as it is now, after its undo. */
+export const actionMessage = Effect.fn("Chats.actionMessage")(function*(actionId: string) {
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const [a] = yield* sql<{ messageId: string }>`select message_id from chat_actions where id = ${actionId}`
+      if (a === undefined) return yield* new NotFound({ entity: "chat_action", id: actionId })
+      const m = yield* messageIn(sql, a.messageId)
       return new MessageChange({ message: yield* messageRow(sql, m.id), undo: null })
     })
   )

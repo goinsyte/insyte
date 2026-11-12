@@ -1154,6 +1154,13 @@
     "finance": "deny",
     "view": "allow"
   },
+  "Chats.undoAction": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
   "Threads.list": {
     "owner": "allow",
     "admin": "allow",

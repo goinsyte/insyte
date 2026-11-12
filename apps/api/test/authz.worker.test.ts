@@ -291,6 +291,7 @@ const PAYLOADS: Record<string, unknown> = {
   "Chats.runCommand": { conversationId: "cnv_none", command: "note", arg: "x" },
   "Chats.confirmAction": { actionId: "cha_none" },
   "Chats.declineAction": { actionId: "cha_none" },
+  "Chats.undoAction": { actionId: "cha_none" },
   // Each member's own notifications (M5.2, M11 step 13.5): every role, nobody else's rows; unknown kinds are refused.
   "Notifications.list": { tab: "inbox", cursor: null },
   "Notifications.counts": undefined,
