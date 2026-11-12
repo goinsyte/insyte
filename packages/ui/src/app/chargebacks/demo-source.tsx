@@ -15,7 +15,7 @@ import {
 
 /*
  * The chargeback screens over the design app's workspace store, as they were before the seam (`source.tsx`): its
- * cases, the simulated pack it draws, submitting and accepting, and adding and removing files with Undo.
+ * cases, the simulated pack it draws, submitting and accepting, and adding and removing files and the note with Undo.
  */
 
 const PROVIDER_LABEL: Record<Chargeback["provider"], string> = { paypal: "PayPal", klarna: "Klarna", stripe: "Stripe" }
@@ -86,7 +86,13 @@ const commands: ChargebackCommands = {
       })
     } else toast.success(`${counted(cases.length, "zaak", "zaken")} ingediend`)
   },
-  draw: (id) => useWorkspace.getState().buildEvidence(id)
+  draw: (id) => useWorkspace.getState().buildEvidence(id),
+  note: (c, note) => {
+    const before = c
+    useWorkspace.getState().setChargebackNote(c.id, note)
+    undoable("Notitie opgeslagen", () => useWorkspace.getState().restoreChargeback(before))
+    return Promise.resolve(true)
+  }
 }
 
 function nextCaseNumber(data: ReadonlyArray<Chargeback>) {

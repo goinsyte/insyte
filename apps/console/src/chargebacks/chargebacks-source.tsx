@@ -11,7 +11,7 @@ import type { Chargeback, Currency } from "@insyte/ui/app/lib/types/domain"
 import { undoable } from "@insyte/ui/app/lib/undo"
 import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
-import { useMemo } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { CHARGEBACK_WRITES, chargebackWrites, nextCaseNumberAtom } from "../data/chargebacks.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
@@ -20,8 +20,9 @@ import { caseOf, chargebackOf, providerName, reasonCodeOf } from "./chargeback-o
 /*
  * The chargeback screens' sources in the console (M13): `Chargebacks.list` and `Chargebacks.get` as the design's, with
  * the server's commands. A file goes up through `PUT /api/chargebacks/:id/evidence` first, then into the pack. What
- * the payment connections bring is left out, not made up: no pack is drawn and nothing is submitted until Stripe,
- * Klarna or PayPal is connected (M13 step 2), and the screens say so where the design offers it.
+ * the payment connections bring is left out, not made up: nothing is submitted until Stripe, Klarna or PayPal is
+ * connected (M13 step 2), and the screens say so where the design offers it. Insyte gathers a pack on the server
+ * (`Chargebacks.assemblePack`, M13 step 4); the case's page follows it as it comes in.
  */
 
 const COPY: RefusalCopy = {
@@ -62,13 +63,18 @@ const UPLOAD: Record<number, [string, string]> = {
 const submitUnavailable = (provider: Chargeback["provider"]) =>
   `Koppel ${providerName(provider)} om bewijs in te dienen. Dat is nog niet beschikbaar.`
 
-function useCommands(itemIdsOf: (c: Chargeback) => ReadonlyArray<string>): ChargebackCommands {
+function useCommands(
+  itemIdsOf: (c: Chargeback) => ReadonlyArray<string>,
+  asked: (id: string, ok: boolean) => void = () => undefined
+): ChargebackCommands {
   const keys = { reactivityKeys: [...CHARGEBACK_WRITES] }
   const write = {
     createManual: useAtomSet(chargebackWrites.createManual, { mode: "promiseExit" }),
     accept: useAtomSet(chargebackWrites.accept, { mode: "promiseExit" }),
     addEvidence: useAtomSet(chargebackWrites.addEvidence, { mode: "promiseExit" }),
     removeEvidence: useAtomSet(chargebackWrites.removeEvidence, { mode: "promiseExit" }),
+    setNote: useAtomSet(chargebackWrites.setNote, { mode: "promiseExit" }),
+    assemblePack: useAtomSet(chargebackWrites.assemblePack, { mode: "promiseExit" }),
     undo: useAtomSet(chargebackWrites.undo, { mode: "promiseExit" })
   }
   const undo = (token: string) =>
@@ -134,6 +140,23 @@ function useCommands(itemIdsOf: (c: Chargeback) => ReadonlyArray<string>): Charg
       const name = c.evidence_files[index]?.name ?? "Bestand"
       said(await write.removeEvidence({ payload: { chargebackId: c.id, itemId }, ...keys }), `${name} verwijderd`)
     },
+    note: async (c, note) => {
+      const exit = await write.setNote({ payload: { id: c.id, note }, ...keys })
+      if (Exit.isFailure(exit)) {
+        refused(failureOf(exit))
+        return false
+      }
+      said(exit, "Notitie opgeslagen")
+      return true
+    },
+    draw: async (id) => {
+      asked(id, true)
+      const exit = await write.assemblePack({ payload: { ids: [id] }, ...keys })
+      if (Exit.isFailure(exit)) {
+        asked(id, false)
+        refused(failureOf(exit))
+      }
+    },
     accept: async (cases) => {
       const exit = await write.accept({ payload: { ids: cases.map((c) => c.id) }, ...keys })
       if (Exit.isFailure(exit)) return refused(failureOf(exit))
@@ -174,15 +197,35 @@ export function useConsoleChargebacksListSource(list: ChargebackList): Chargebac
 export function useConsoleChargebackDetailSource(detail: ChargebackDetail): ChargebackDetailSource {
   const c = useMemo(() => caseOf(detail), [detail])
   const itemIds = useMemo(() => detail.evidence.map((e) => e.id), [detail])
-  const commands = useCommands(() => itemIds)
+  // Asked for, and the case not yet read again: the pack as it was then, so the plate keeps gathering until it is.
+  const [askedFrom, setAskedFrom] = useState<number | null>(null)
+  const startedAt = detail.pack?.startedAt ?? 0
+  const commands = useCommands(() => itemIds, (_id, ok) => setAskedFrom(ok ? startedAt : null))
+  const gathering = detail.pack?.state === "assembling" || (askedFrom !== null && startedAt === askedFrom)
+  usePackOutcome(detail)
   return {
     useCase: (id) => (id === c.id ? c : undefined),
     record: { won: detail.stats.won, decided: detail.stats.decided },
     commands,
     submitUnavailable: (x) => submitUnavailable(x.provider),
+    pack: () => ({ building: gathering, done: detail.pack?.done ?? 0, total: detail.pack?.total ?? 0 }),
     fileHref: (_x, index) => {
       const fileId = detail.evidence[index]?.fileId
       return fileId === null || fileId === undefined ? undefined : `/api/files/${fileId}`
     }
   }
+}
+
+/** Says once when a pack this tab watched being gathered could not be made: the plate offers it again. */
+function usePackOutcome(detail: ChargebackDetail) {
+  const state = detail.pack?.state
+  const before = useRef(state)
+  useEffect(() => {
+    if (before.current === "assembling" && state === "failed") {
+      toast.error("Het bewijspakket kon niet worden samengesteld", {
+        description: "Probeer het opnieuw. Wat je zelf toevoegde, staat er nog."
+      })
+    }
+    before.current = state
+  }, [state])
 }

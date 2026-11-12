@@ -5,8 +5,7 @@ import type { IndexItem } from "../marketing-sections/link-index"
 /**
  * What the chargeback screens read and do, from whoever hosts them (as `returns/source.tsx` is for returns): the design
  * app from its workspace store, the console from `Chargebacks.*` (M13). The markup is the design's. What the host
- * cannot do yet is absent and the screen says so, never made up: gathering a pack and submitting it wait for the
- * payment connections. Money is in major units, times are ISO strings, as `lib/types/domain.ts` has them.
+ * cannot do yet is absent and the screen says so, never made up: submitting a pack waits for the payment connections. Money is in major units, times are ISO strings, as `lib/types/domain.ts` has them.
  */
 
 /** "Nieuw bewijspakket", as the dialog has it: the reason is one of `REASONS`, by its Dutch label. */
@@ -33,7 +32,12 @@ export interface ChargebackCommands {
   submit?: ((cases: ReadonlyArray<Chargeback>) => void) | undefined
   /** "Bewijspakket samenstellen"; absent where Insyte cannot gather the evidence yet. */
   draw?: ((id: string) => Promise<void>) | undefined
+  /** "Notities": the case's note for the team; true once it is kept, false keeps what was typed. */
+  note: (c: Chargeback, note: string) => Promise<boolean>
 }
+
+/** A pack being gathered where the host does it out of sight: how far it got. */
+export type PackProgress = { building: boolean; done: number; total: number }
 
 export interface ChargebacksListSource {
   cases: Array<Chargeback>
@@ -58,6 +62,8 @@ export interface ChargebackDetailSource {
   commands: ChargebackCommands
   /** Why "Indienen" cannot go yet, where `submit` is absent. */
   submitUnavailable?: ((c: Chargeback) => string) | undefined
+  /** The case's pack as the host gathers it; absent where the screen's own wait is all there is. */
+  pack?: ((c: Chargeback) => PackProgress | undefined) | undefined
   /** Where the pack's file at `index` opens; absent where there is nothing to open. */
   fileHref?: ((c: Chargeback, index: number) => string | undefined) | undefined
 }

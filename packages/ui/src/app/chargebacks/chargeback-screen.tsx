@@ -74,7 +74,7 @@ export function ChargebackDetail() {
 }
 
 function CaseView({ c }: { c: Chargeback }) {
-  const { commands, record, fileHref, submitUnavailable } = useChargebackDetailSource()
+  const { commands, record, fileHref, submitUnavailable, pack } = useChargebackDetailSource()
   const role = useGateRole()
   const [building, setBuilding] = useState(false)
   const [confirm, setConfirm] = useState<"submit" | "accept" | null>(null)
@@ -96,6 +96,10 @@ function CaseView({ c }: { c: Chargeback }) {
   // The win rate is counted from the cases on file, not asserted: the pack used to say "~78%".
   const decided = record.decided
   const won = record.won
+
+  // Where the host gathers the pack out of sight, its progress is the host's; else the screen's own wait.
+  const progress = pack?.(c)
+  const gathering = building || progress?.building === true
 
   async function draw() {
     if (!commands.draw) return
@@ -270,7 +274,8 @@ function CaseView({ c }: { c: Chargeback }) {
                 caseNumber={c.case_number}
                 provider={provider}
                 files={c.evidence_files.length}
-                building={building}
+                building={gathering}
+                progress={progress?.building === true ? progress : undefined}
                 record={decided > 0 ? `${won} van ${decided} beslechte zaken gewonnen` : undefined}
                 onDraw={commands.draw ? draw : undefined}
                 onSubmit={() => setConfirm("submit")}
@@ -381,6 +386,8 @@ function CaseView({ c }: { c: Chargeback }) {
             </dl>
           </section>
 
+          <NotePanel key={`${c.id}:${c.notes ?? ""}`} c={c} blocked={editBlocked} onSave={commands.note} />
+
           {/* Timeline */}
           <section className="panel flex flex-col gap-3 rounded-lg p-4">
             <span className="font-medium text-xs text-ink-2">
@@ -451,6 +458,7 @@ function AiEvidencePack({
   provider,
   files,
   building,
+  progress,
   record,
   onDraw,
   onSubmit,
@@ -461,6 +469,8 @@ function AiEvidencePack({
   provider: string
   files: number
   building: boolean
+  /** The host's count of the documents in so far, while it gathers. */
+  progress?: { done: number; total: number } | undefined
   /** The record on file, counted rather than claimed. */
   record?: string
   /** Absent where Insyte cannot draw the pack yet. */
@@ -484,7 +494,7 @@ function AiEvidencePack({
       <div className="flex flex-col gap-1.5">
         <h2 className="font-medium text-xl text-mesh-ink">
           {building
-            ? `Verzamelen · ${files} van 4`
+            ? `Verzamelen · ${progress?.done ?? files} van ${progress?.total || 4}`
             : ready
             ? `${files} ${files === 1 ? "document" : "documenten"} klaar voor ${provider}.`
             : `Insyte kan het bewijs voor ${caseNumber} samenstellen.`}
@@ -591,6 +601,75 @@ function EvidenceRow({
         ) :
         null}
     </motion.li>
+  )
+}
+
+/* --------------------------------- Notes --------------------------------- */
+
+/** "Notities": the case's note for the team, kept when it is saved; a save that fails keeps what was typed. */
+function NotePanel({
+  c,
+  blocked,
+  onSave
+}: {
+  c: Chargeback
+  /** Why the role cannot change it. */
+  blocked: string | undefined
+  onSave: (c: Chargeback, note: string) => Promise<boolean>
+}) {
+  const saved = c.notes ?? ""
+  const [draft, setDraft] = useState(saved)
+  const [saving, setSaving] = useState(false)
+  const dirty = draft.trim() !== saved.trim()
+
+  async function save() {
+    setSaving(true)
+    const kept = await onSave(c, draft.trim())
+    setSaving(false)
+    if (kept) setDraft(draft.trim())
+  }
+
+  return (
+    <section className="panel flex flex-col gap-2 rounded-lg p-4">
+      <span className="font-medium text-xs text-ink-2">Notities</span>
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        readOnly={blocked !== undefined}
+        title={blocked}
+        maxLength={2000}
+        rows={3}
+        aria-label="Notities"
+        placeholder={blocked === undefined ? "bijv. klant vroeg per e-mail om terugbetaling…" : "Nog geen notities."}
+        className="field rounded-md px-3 py-2.5 text-ink text-sm leading-[1.55] outline-none placeholder:text-ink-3 focus:bg-paper"
+      />
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1 text-ink-3 text-xs">Alleen zichtbaar voor je team.</span>
+        {dirty && blocked === undefined ?
+          (
+            <>
+              <button
+                type="button"
+                onClick={() => setDraft(saved)}
+                disabled={saving}
+                className="flex h-7 items-center rounded-md px-2 font-medium text-ink-2 text-xs transition-colors hover:bg-ink/6 hover:text-ink disabled:opacity-45"
+              >
+                Annuleren
+              </button>
+              <button
+                type="button"
+                onClick={() => void save()}
+                disabled={saving}
+                className="flex h-7 items-center gap-1.5 rounded-md bg-abyss px-2.5 font-medium text-mesh-ink text-xs shadow-primary transition-colors hover:bg-abyss-2 disabled:opacity-80"
+              >
+                {saving ? <Loader className="size-3.5 animate-spin" /> : null}
+                {saving ? "Opslaan…" : "Opslaan"}
+              </button>
+            </>
+          ) :
+          null}
+      </div>
+    </section>
   )
 }
 
