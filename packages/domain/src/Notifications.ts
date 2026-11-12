@@ -33,6 +33,7 @@ export const NOTIFICATION_KINDS = [
   { key: "supplier.stock", primary: false, defaults: ch(true, false, false, false) },
   { key: "automation.failed", primary: true, defaults: ch(true, true, false, true) },
   { key: "automation.done", primary: false, defaults: ch(true, false, false, false) },
+  { key: "automation.alert", primary: true, defaults: ch(true, true, true, false) },
   { key: "chat.mention", primary: true, defaults: ch(true, false, true, true) },
   { key: "team.invite", primary: false, defaults: ch(true, true, false, false) },
   { key: "team.access", primary: true, defaults: ch(true, false, false, false) },

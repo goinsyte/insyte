@@ -1,4 +1,5 @@
 import { AccessRpcs } from "./rpc/AccessRpcs.ts"
+import { AutomationsRpcs } from "./rpc/AutomationsRpcs.ts"
 import { ChargebacksRpcs } from "./rpc/ChargebacksRpcs.ts"
 import { ChatsRpcs } from "./rpc/ChatsRpcs.ts"
 import { CommerceRpcs } from "./rpc/CommerceRpcs.ts"
@@ -18,6 +19,7 @@ import { QualityLinkRpcs, QualityRpcs } from "./rpc/QualityRpcs.ts"
 import { QueueRpcs } from "./rpc/QueueRpcs.ts"
 import { ReturnsRpcs } from "./rpc/ReturnsRpcs.ts"
 import { RolesRpcs } from "./rpc/RolesRpcs.ts"
+import { RunsRpcs } from "./rpc/RunsRpcs.ts"
 import { SessionRpcs } from "./rpc/SessionRpcs.ts"
 import { SharedRpcs } from "./rpc/SharedRpcs.ts"
 import { ShellRpcs } from "./rpc/ShellRpcs.ts"
@@ -64,3 +66,5 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(ProposalsRpcs)
   .merge(WorkspacesRpcs)
   .merge(ChatsRpcs)
+  .merge(AutomationsRpcs)
+  .merge(RunsRpcs)

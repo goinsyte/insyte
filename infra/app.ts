@@ -258,6 +258,11 @@ export default Alchemy.Stack(
           className: "ReturnLabelWorkflow",
           workflowName: `insyte-return-label-${stage}`
         }),
+        // A flow's run (M12 step 3), hosted by this Worker (`AutomationRunWorkflow`); one per stage.
+        AUTOMATION_RUN: Cloudflare.Workflow("AutomationRun", {
+          className: "AutomationRunWorkflow",
+          workflowName: `insyte-automation-run-${stage}`
+        }),
         ENVIRONMENT: environment,
         // Where `Main.ts` serves `/v1` and nothing else.
         PUBLIC_API_HOST: `insyte-api-${stage}.${WORKERS_SUBDOMAIN}`,

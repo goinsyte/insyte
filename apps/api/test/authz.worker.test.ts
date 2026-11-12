@@ -1,4 +1,5 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { AutomationsRpcs } from "@insyte/api/rpc/AutomationsRpcs"
 import { ChargebacksRpcs } from "@insyte/api/rpc/ChargebacksRpcs"
 import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
@@ -14,6 +15,7 @@ import { QualityRpcs } from "@insyte/api/rpc/QualityRpcs"
 import { QueueRpcs } from "@insyte/api/rpc/QueueRpcs"
 import { ReturnsRpcs } from "@insyte/api/rpc/ReturnsRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
+import { RunsRpcs } from "@insyte/api/rpc/RunsRpcs"
 import { SessionRpcs } from "@insyte/api/rpc/SessionRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
 import { ShellRpcs } from "@insyte/api/rpc/ShellRpcs"
@@ -190,6 +192,29 @@ const PAYLOADS: Record<string, unknown> = {
     portal: { on: false, handle: "x", intro: "", done: "" }
   },
   "Orders.tracking": { orderId: "ord_none" },
+  // Automations (M12 step 1): Bekijken reads, Bewerken drafts, Beheren pauses and removes; publishing is its own right.
+  "Automations.list": {},
+  "Automations.get": { id: "auto_none" },
+  "Automations.versions": { id: "auto_none" },
+  "Automations.fields": { triggerVariant: "trigger.order_placed" },
+  "Automations.recommended": undefined,
+  "Automations.create": { templateId: "tpl_none" },
+  "Automations.saveDraft": { id: "auto_none", nodes: [] },
+  "Automations.duplicate": { id: "auto_none" },
+  "Automations.remove": { id: "auto_none" },
+  "Automations.restore": { id: "auto_none" },
+  "Automations.publish": { id: "auto_none", note: "" },
+  "Automations.setStatus": { id: "auto_none", status: "paused" },
+  "Automations.updateSettings": { id: "auto_none" },
+  "Automations.test": { id: "auto_none" },
+  "Runs.list": {},
+  "Runs.get": { id: "run_none" },
+  "Runs.stats": { automationId: "auto_none", days: 30 },
+  "Runs.records": { automationId: "auto_none" },
+  "Runs.rerun": { id: "run_none" },
+  "Runs.cancel": { id: "run_none" },
+  "Runs.approve": { id: "run_none", stepId: "n1" },
+  "Runs.decline": { id: "run_none", stepId: "n1" },
   "Tickets.list": {},
   "Tickets.get": { id: "tkt_none" },
   "Tickets.options": undefined,
@@ -366,6 +391,8 @@ const manifest = [
   ...TrackingRpcs.requests.keys(),
   ...ReturnsRpcs.requests.keys(),
   ...TicketsRpcs.requests.keys(),
+  ...AutomationsRpcs.requests.keys(),
+  ...RunsRpcs.requests.keys(),
   ...ThreadsRpcs.requests.keys(),
   ...QualityRpcs.requests.keys(),
   ...QueueRpcs.requests.keys(),
