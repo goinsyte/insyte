@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import { type ReactNode, useState } from "react"
+import { type ReactElement, type ReactNode, useState } from "react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,6 +8,7 @@ import {
   DropdownMenuTrigger
 } from "../../components/dropdown-menu"
 import { Edit3, MoreHorizontal, Plus, RotateCcw, Sheet as SheetIcon, Trash2 } from "../../icons"
+import { Blocked } from "../access/blocked"
 import { EmptyPage } from "../common/empty-page"
 import { Field, FormDialog, TextField } from "../common/form-dialog"
 import { PageGuide } from "../common/page-guide"
@@ -44,6 +45,10 @@ const GROUP: Record<CostKind, string> = {
 const SOURCE_NAME: Record<string, string> = { meta: "Meta Ads", "google-ads": "Google Ads" }
 
 const NO_FIGURES = { revenue: 0, orders: 0, ads: 0, other: 0, costs: 0, net: 0, margin: 0, roas: 0 }
+
+/** A control the role may not use: there, disabled, saying what is missing (as `Gate` does from the design's store). */
+const Gated = ({ gate, children }: { gate: CostsSource["edit"]; children: ReactElement }) =>
+  gate.ok ? children : <Blocked reason={gate.reason}>{children}</Blocked>
 
 /** "Koppelen", where the host has somewhere to connect: its integrations screen, or its own step. */
 function ConnectLink(
@@ -89,7 +94,7 @@ export function CostsPage() {
           count="0 kostenposten"
           title="Nog geen kosten"
           body="Vul in wat de winkel per maand kost: inkoop, betaalkosten, verpakking, het team, advertenties. Dan rekent Insyte de nettowinst uit, in Analyse en in je rekenbladen."
-          action={source.canEdit ? { label: "Eerste kostenpost", onClick: () => setDialog("new") } : undefined}
+          action={source.edit.ok ? { label: "Eerste kostenpost", onClick: () => setDialog("new") } : undefined}
           starts={connect === undefined ? undefined : [{
             id: "meta",
             label: "Meta Ads koppelen",
@@ -120,18 +125,16 @@ export function CostsPage() {
                 Winst per maand
               </Link>
             )}
-            {source.canEdit ?
-              (
-                <button
-                  type="button"
-                  onClick={() => setDialog("new")}
-                  className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-mesh-ink text-sm shadow-primary transition-colors hover:bg-abyss-2"
-                >
-                  <Plus className="size-3.5" strokeWidth={2} />
-                  Kostenpost
-                </button>
-              ) :
-              null}
+            <Gated gate={source.edit}>
+              <button
+                type="button"
+                onClick={() => setDialog("new")}
+                className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-mesh-ink text-sm shadow-primary transition-colors hover:bg-abyss-2"
+              >
+                <Plus className="size-3.5" strokeWidth={2} />
+                Kostenpost
+              </button>
+            </Gated>
           </>
         }
       />
@@ -244,7 +247,8 @@ export function CostsPage() {
 function LineRow({ l, band, onEdit }: { l: CostRow; band: boolean; onEdit: () => void }) {
   const source = useCostsSource()
   const money = moneyIn(source.currency)
-  const { canEdit, months } = source
+  const { months } = source
+  const canEdit = source.edit.ok
   const reads = l.reads
   const editable = canEdit && (l.kind === "fixed" || l.kind === "ads")
   const rule = l.kind === "percent"

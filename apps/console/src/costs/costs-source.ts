@@ -143,7 +143,7 @@ export function useConsoleCostsSource(list: CostsList): CostsSource {
     figures,
     currency: list.currency,
     rangeLabel: rangeOf(list.months),
-    canEdit: edit.ok,
+    edit,
     connect: {
       run: (source) =>
         void toast(`${PROVIDER[source]} koppelen kan nog niet`, {

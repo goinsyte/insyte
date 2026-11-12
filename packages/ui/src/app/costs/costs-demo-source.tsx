@@ -50,7 +50,7 @@ function useDemoCostsSource(): CostsSource {
     figures,
     currency: "USD",
     rangeLabel: RANGE,
-    canEdit: gate.ok,
+    edit: gate,
     profitSheet: "sh_profit",
     connect: { to: "/settings/integrations" },
     add: (line, said) => {

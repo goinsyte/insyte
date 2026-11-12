@@ -78,8 +78,8 @@ export interface CostsSource {
   currency: string
   /** The header's "januari tot mei 2026". */
   rangeLabel: string
-  /** Kosten bewerken. */
-  canEdit: boolean
+  /** Kosten bewerken: when not, what the role misses, for the disabled "Kostenpost". */
+  edit: { ok: boolean; reason: string }
   /** The sheet "Winst per maand" opens; absent where the host has no sheets yet. */
   profitSheet?: string | undefined
   /**
