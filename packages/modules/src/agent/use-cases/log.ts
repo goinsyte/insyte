@@ -250,35 +250,40 @@ const one = Effect.fn("AgentLog.one")(function*(sql: SqlClient.SqlClient, id: st
   const [row] = lock
     ? yield* sql<
       Row & {
-        readonly input: unknown
-        readonly effect: AgentEffect | null
+        readonly input: string | null
+        readonly effect: string | null
         readonly tokenHash: string | null
         readonly undoPrincipal: string | null
         readonly undoneBy: string | null
         readonly undoneAt: Date | null
       }
     >`
-        select ${columns(sql)}, a.input, a.effect, encode(a.undo_token_hash, 'hex') as token_hash, a.undo_principal,
-               a.undone_by, a.undone_at
+        select ${columns(sql)}, a.input::text as input, a.effect::text as effect,
+               encode(a.undo_token_hash, 'hex') as token_hash, a.undo_principal, a.undone_by, a.undone_at
         from agent_actions a ${joins(sql)}
         where a.id = ${id} and a.decision = 'run'
         for update of a`
     : yield* sql<
       Row & {
-        readonly input: unknown
-        readonly effect: AgentEffect | null
+        readonly input: string | null
+        readonly effect: string | null
         readonly tokenHash: string | null
         readonly undoPrincipal: string | null
         readonly undoneBy: string | null
         readonly undoneAt: Date | null
       }
     >`
-        select ${columns(sql)}, a.input, a.effect, encode(a.undo_token_hash, 'hex') as token_hash, a.undo_principal,
-               a.undone_by, a.undone_at
+        select ${columns(sql)}, a.input::text as input, a.effect::text as effect,
+               encode(a.undo_token_hash, 'hex') as token_hash, a.undo_principal, a.undone_by, a.undone_at
         from agent_actions a ${joins(sql)}
         where a.id = ${id} and a.decision = 'run'`
   if (row === undefined || !visible.includes(row.action)) return yield* new NotFound({ entity: "agent_action", id })
-  return row
+  // Read as text: the client's camel-casing of result names reaches into jsonb too, and would turn `_tag` into `Tag`.
+  return {
+    ...row,
+    input: row.input === null ? null : (JSON.parse(row.input) as unknown),
+    effect: row.effect === null ? null : (JSON.parse(row.effect) as AgentEffect | null)
+  }
 })
 
 export const get = Effect.fn("AgentLog.get")(function*(sql: SqlClient.SqlClient, id: string) {
