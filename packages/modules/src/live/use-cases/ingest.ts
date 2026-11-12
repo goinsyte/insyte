@@ -8,9 +8,17 @@ import { pageOf, sourceOf } from "../domain/Sessions.ts"
 /*
  * The Web Pixel's ingest (M14 step 3; api.md §4.4), behind `POST /api/public/pixel/:storeId`: which workspace the
  * store is in and its key's hash (`route_pixel`, kept per isolate for a minute so a busy store does not ask Postgres on
- * every page view; a repaired key reaches every isolate within that minute), the key checked, the event read, and the visitor handed to the workspace's live room. Nothing about
- * the visitor is written anywhere: Shopify's client id is hashed with the store before it leaves this function, the IP
- * is not seen here at all, and the only write is the store's `last_event_at`, at most once a minute.
+ * every page view; a repaired key reaches every isolate within that minute), the key checked, the event read, the
+ * store's own rate limit taken, and the visitor handed to the workspace's live room. Nothing about the visitor is
+ * written anywhere: Shopify's client id is hashed with the store before it leaves this function, the IP is not seen
+ * here at all, and the only write is the store's `last_event_at`, at most once a minute.
+ *
+ * The key is a public identifier, not a secret: Shopify gives pixel settings to the visitor's browser, so anyone who
+ * opens the storefront can read it, and a script can send any origin or none. What it buys is that an event names a
+ * store whose pixel is current. Forged traffic is bounded by the route's limits (per IP before anything, per store only
+ * once the key matches, so a flood without the key cannot use up a store's budget) and by the room's caps on sessions.
+ * A store unknown here is remembered for a minute, and a wrong key reads the route again at most every 10 seconds, so
+ * neither costs a Postgres query per request.
  */
 
 export interface Geo {
@@ -21,22 +29,34 @@ export interface Geo {
 }
 
 export interface IngestAnswer {
-  readonly status: 204 | 400 | 403 | 404
+  readonly status: 204 | 400 | 403 | 404 | 429
+  /** With a 429: when to try again. */
+  readonly retryAfterSeconds?: number
   /** The origin to allow in the answer's CORS headers: the request's, when it is one of the store's. */
   readonly allowOrigin: string | null
 }
 
 interface Route {
   readonly workspaceId: string
-  readonly ingestKeyHash: string
+  /** The current key's hash, and an install's pending one (see `pixels.ts`): either is taken. */
+  readonly keyHashes: ReadonlyArray<string>
   readonly origins: ReadonlyArray<string>
   readonly readAt: number
 }
 
 const ROUTE_TTL_MS = 60_000
+const UNKNOWN_TTL_MS = 60_000
+const REREAD_EVERY_MS = 10_000
 const SEEN_EVERY_MS = 60_000
-/** Per isolate: a store's route and when its `last_event_at` was last touched from here. */
+/** Past this many remembered unknown stores, the isolate forgets them all rather than grow. */
+const UNKNOWN_KEPT = 10_000
+/**
+ * Per isolate: a store's route, the stores with no route (until when), when a wrong key last read a route again, and
+ * when its `last_event_at` was last touched from here.
+ */
 const routes = new Map<string, Route>()
+const unknown = new Map<string, number>()
+const reread = new Map<string, number>()
 const seen = new Map<string, number>()
 
 const decode = Schema.decodeUnknownOption(PixelEvent)
@@ -50,19 +70,32 @@ export const keyHash = (key: string) => Effect.flatMap(Effect.service(KeyHasher)
  */
 export const forgetRoute = (storeId: string) => {
   routes.delete(storeId)
+  unknown.delete(storeId)
+  reread.delete(storeId)
 }
 
 const readRoute = Effect.fn("Live.routePixel")(function*(storeId: string) {
   const db = yield* Db
   const [row] = yield* db.routing((sql) =>
-    sql<{ workspaceId: string; ingestKeyHash: string; origins: ReadonlyArray<string> }>`
-      select workspace_id, ingest_key_hash, origins from route_pixel(${storeId})`
+    sql<{
+      workspaceId: string
+      ingestKeyHash: string | null
+      pendingKeyHash: string | null
+      origins: ReadonlyArray<string>
+    }>`select workspace_id, ingest_key_hash, pending_key_hash, origins from route_pixel(${storeId})`
   )
   if (row === undefined) {
     routes.delete(storeId)
+    if (unknown.size >= UNKNOWN_KEPT) unknown.clear()
+    unknown.set(storeId, Date.now() + UNKNOWN_TTL_MS)
     return undefined
   }
-  const route = { ...row, readAt: Date.now() }
+  const route: Route = {
+    workspaceId: row.workspaceId,
+    keyHashes: [row.ingestKeyHash, row.pendingKeyHash].filter((h) => h !== null),
+    origins: row.origins,
+    readAt: Date.now()
+  }
   routes.set(storeId, route)
   return route
 })
@@ -81,14 +114,20 @@ const hostsOf = (origins: ReadonlyArray<string>) =>
     }
   })
 
+/** The store's own rate limit, taken only once the key matched: ok, or when to try again. */
+export type Admit = (storeId: string) => Effect.Effect<{ readonly ok: boolean; readonly retryAfterSeconds: number }>
+
 export const ingest = Effect.fn("Live.ingest")(function*(input: {
   readonly storeId: string
   readonly origin: string | null
   readonly body: unknown
   readonly geo: Geo
+  readonly admit: Admit
 }) {
+  const now = Date.now()
+  if ((unknown.get(input.storeId) ?? 0) > now) return { status: 404, allowOrigin: null } satisfies IngestAnswer
   const cached = routes.get(input.storeId)
-  let route = cached !== undefined && Date.now() - cached.readAt < ROUTE_TTL_MS
+  let route = cached !== undefined && now - cached.readAt < ROUTE_TTL_MS
     ? cached
     : yield* readRoute(input.storeId)
   if (route === undefined) return { status: 404, allowOrigin: null } satisfies IngestAnswer
@@ -97,9 +136,21 @@ export const ingest = Effect.fn("Live.ingest")(function*(input: {
   const event = decode(input.body)
   if (event._tag === "None") return { status: 400, allowOrigin } satisfies IngestAnswer
   const hash = yield* keyHash(event.value.key)
-  // A repaired key is new: a cached route with the old hash is read again once before the key is refused.
-  if (hash !== route.ingestKeyHash && route === cached) route = yield* readRoute(input.storeId)
-  if (route === undefined || hash !== route.ingestKeyHash) return { status: 403, allowOrigin } satisfies IngestAnswer
+  // A repaired key is new: a cached route with the old hash is read again before the key is refused, at most every
+  // 10 seconds per store, so a stream of wrong keys does not reach Postgres.
+  if (
+    !route.keyHashes.includes(hash) && route === cached && now - (reread.get(input.storeId) ?? 0) >= REREAD_EVERY_MS
+  ) {
+    reread.set(input.storeId, now)
+    route = yield* readRoute(input.storeId)
+  }
+  if (route === undefined || !route.keyHashes.includes(hash)) {
+    return { status: 403, allowOrigin } satisfies IngestAnswer
+  }
+  const admitted = yield* input.admit(input.storeId)
+  if (!admitted.ok) {
+    return { status: 429, allowOrigin, retryAfterSeconds: admitted.retryAfterSeconds } satisfies IngestAnswer
+  }
 
   const hasher = yield* KeyHasher
   const visitorId = (yield* hasher.hash(`pixel-client:${input.storeId}:${event.value.clientId}`)).slice(0, 20)

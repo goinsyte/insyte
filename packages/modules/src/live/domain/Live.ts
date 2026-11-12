@@ -164,8 +164,11 @@ export class StorePixels extends Schema.Class<StorePixels>("live/StorePixels")({
 
 export const InstallPixel = Schema.Struct({ storeId: Schema.String })
 
-/** Shopify would not install the pixel: the store has not granted the pixel scopes, or Shopify refused. */
+/**
+ * Shopify would not install the pixel: the store has not granted the pixel scopes, or Shopify refused; or another
+ * install of the same store's pixel is running (`busy`).
+ */
 export class PixelInstallFailed extends Schema.TaggedError<PixelInstallFailed>()("PixelInstallFailed", {
-  reason: Schema.Literals(["unavailable", "scope", "shopify"]),
+  reason: Schema.Literals(["unavailable", "scope", "shopify", "busy"]),
   message: Schema.String
 }) {}

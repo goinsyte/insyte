@@ -47,7 +47,7 @@ export const snapshot = Effect.fn("Live.snapshot")(function*() {
       const scope = yield* inScope(sql, "s.id")
       const orderScope = yield* inScope(sql, "o.store_id")
       const stores = yield* sql<{ id: string; name: string; pixel: boolean }>`
-        select s.id, s.name, (p.store_id is not null) as pixel
+        select s.id, s.name, (p.installed_at is not null) as pixel
         from stores s left join store_pixels p on p.store_id = s.id
         where s.status = 'connected' and ${scope}
         order by s.created_at`

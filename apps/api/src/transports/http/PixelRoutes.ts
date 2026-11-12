@@ -8,10 +8,18 @@ import { withRequestDb } from "../../platform/RequestDb.ts"
 
 /*
  * `POST /api/public/pixel/:storeId` (M14 step 3; api.md §4.4): the Insyte Web Pixel's events from a storefront, on the
- * API's public hostname. Unauthenticated: the store's ingest key, in the body, is the credential. In front of the use
- * case: a 4 KB body cap, and the `RateLimiter` per store and per IP, so a script cannot fill a room or spend the
- * database. The answer allows the request's origin only when it is one of the store's storefronts (or the opaque origin
- * of Shopify's pixel sandbox), and says nothing more than its status. Cloudflare's geo for the request is the visitor's
+ * API's public hostname. Unauthenticated: the store's ingest key, in the body, names the store's current pixel. It is
+ * public (Shopify hands pixel settings to the browser), so it is no credential, and what holds a script back is the
+ * order of the checks here:
+ *
+ * 1. A store id that is not one of ours' shape is a 404 before any I/O.
+ * 2. The limit per IP (per /64 for IPv6, where one host has a whole block), before anything that costs.
+ * 3. The body, read with a running count and cut off past 4 KB.
+ * 4. The use case: the route (cached, unknown stores remembered), origin, event, key; and only then the limit per
+ *    store, so a flood without the key cannot use up a store's budget and silence its real events.
+ *
+ * The answer allows the request's origin only when it is one of the store's storefronts (or the opaque origin of
+ * Shopify's pixel sandbox), and says nothing more than its status. Cloudflare's geo for the request is the visitor's
  * city; the IP itself is only a rate-limit key and goes no further.
  *
  * The pixel posts `text/plain` (a simple request, no preflight); a preflight is answered anyway, for a client that
@@ -34,6 +42,44 @@ const cors = (origin: string | null): Record<string, string> =>
       "access-control-max-age": "86400",
       vary: "origin"
     }
+
+/** A store id as `connect.ts` mints it: `sto_` and a TypeID's 26 characters. */
+const isStoreId = (id: string) => /^sto_[0-9a-hjkmnp-tv-z]{26}$/.test(id)
+
+/** The limiter's key for an address: an IPv6 address by its /64, which one host or tenant usually holds whole. */
+const ipKey = (ip: string) => {
+  if (!ip.includes(":")) return `ip:${ip}`
+  const [head = "", tail = ""] = ip.split("::")
+  const left = head === "" ? [] : head.split(":")
+  const right = tail === "" ? [] : tail.split(":")
+  const groups = ip.includes("::") ? [...left, ...Array(8 - left.length - right.length).fill("0"), ...right] : left
+  return `ip6:${groups.slice(0, 4).map((g) => g.toLowerCase().replace(/^0+(?=.)/, "")).join(":")}::/64`
+}
+
+/** The body as text, or `null` once it passes `max` bytes: the stream is cancelled there, never buffered whole. */
+const readCapped = async (request: Request, max: number): Promise<string | null> => {
+  if (request.body === null) return ""
+  const reader = request.body.getReader()
+  const chunks: Array<Uint8Array> = []
+  let size = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > max) {
+      await reader.cancel().catch(() => undefined)
+      return null
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(size)
+  let at = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, at)
+    at += chunk.byteLength
+  }
+  return new TextDecoder().decode(bytes)
+}
 
 const answer = (status: number, origin: string | null, extra: Record<string, string> = {}) =>
   HttpServerResponse.empty({ status, headers: { ...cors(origin), ...extra } })
@@ -58,18 +104,18 @@ const ingest = Effect.gen(function*() {
   const request = yield* HttpServerRequest.toWeb(yield* HttpServerRequest.HttpServerRequest)
   const { storeId = "" } = yield* HttpRouter.params
   const origin = request.headers.get("origin")
+  if (!isStoreId(storeId)) return answer(404, null)
   if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return answer(413, null)
 
   const limits = yield* RateLimits
   const ip = limits.ipLimits ? ipOf(request.headers) : null
-  for (const [key, limit] of [[`pixel:${storeId}`, PER_STORE], [ip === null ? null : `ip:${ip}`, PER_IP]] as const) {
-    if (key === null) continue
-    const taken = yield* limits.take(key, limit.bucket, limit.limit, limit.windowSeconds)
+  if (ip !== null) {
+    const taken = yield* limits.take(ipKey(ip), PER_IP.bucket, PER_IP.limit, PER_IP.windowSeconds)
     if (!taken.ok) return answer(429, null, { "retry-after": String(taken.retryAfterSeconds) })
   }
 
-  const text = yield* Effect.promise(() => request.text().then((t) => t, () => ""))
-  if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) return answer(413, null)
+  const text = yield* Effect.promise(() => readCapped(request, MAX_BODY_BYTES).then((t) => t, () => ""))
+  if (text === null) return answer(413, null)
   const body = (() => {
     try {
       return JSON.parse(text) as unknown
@@ -79,9 +125,20 @@ const ingest = Effect.gen(function*() {
   })()
   const said = yield* Effect.flatMap(
     Effect.service(LiveService),
-    (live) => live.ingest({ storeId, origin, body, geo: geoOf(request) })
+    (live) =>
+      live.ingest({
+        storeId,
+        origin,
+        body,
+        geo: geoOf(request),
+        admit: (store) => limits.take(`pixel:${store}`, PER_STORE.bucket, PER_STORE.limit, PER_STORE.windowSeconds)
+      })
   ).pipe(withRequestDb)
-  return answer(said.status, said.allowOrigin)
+  return answer(
+    said.status,
+    said.allowOrigin,
+    said.retryAfterSeconds === undefined ? {} : { "retry-after": String(said.retryAfterSeconds) }
+  )
 }).pipe(Effect.withSpan("Live.pixelRoute"))
 
 /** The preflight: allowed for any origin the store's pixel row names, which the POST checks again. */

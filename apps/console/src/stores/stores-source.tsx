@@ -52,6 +52,8 @@ const refused = (error: unknown) => {
         })
         : tagged["reason"] === "unavailable"
         ? toast.error("Live kan hier nog niet worden aangezet")
+        : tagged["reason"] === "busy"
+        ? toast.error("Live wordt al aangezet", { description: "Wacht even en kijk dan opnieuw." })
         : toast.error("Shopify zette Live niet aan", { description: "Probeer het zo nog eens." }))
     default:
       return void toast.error("Dat lukte niet", { description: "Probeer het zo nog eens." })

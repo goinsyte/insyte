@@ -175,6 +175,10 @@ export const recordedPixelSettings = new Map<string, string>()
 const recordedMutation = (shop: string, query: string, variables: Record<string, unknown>): unknown | undefined => {
   const name = Object.keys(MUTATIONS).find((m) => query.includes(`${m}(`))
   if (name === undefined) return undefined
+  // A `pixeltaken-*` shop already has the app's pixel, whose id Insyte lost: Shopify refuses a second one.
+  if (name === "webPixelCreate" && shop.startsWith("pixeltaken-")) {
+    return { webPixelCreate: { userErrors: [{ field: ["webPixel"], code: "TAKEN", message: "Pixel already exists" }] } }
+  }
   if ((name === "webPixelCreate" || name === "webPixelUpdate") && !shop.startsWith("refuse-")) {
     recordedPixelSettings.set(shop, String((variables["webPixel"] as { settings?: unknown } | undefined)?.settings))
   }
@@ -244,6 +248,7 @@ const recordedQuery = (shop: string, query: string, variables: Record<string, un
   if (query.includes("primaryDomain")) {
     return { shop: { primaryDomain: { url: `https://www.${shop.replace(".myshopify.com", "")}.test` } } }
   }
+  if (query.includes("webPixel {")) return { webPixel: { id: "gid://shopify/WebPixel/7" } }
   if (query.includes("shopPolicies")) return { shop: { shopPolicies: RECORDED_SHOP.shopPolicies } }
   const field = ["products", "customers", "orders"].find((f) => query.includes(`${f}(first:`))!
   const type = field === "products" ? "Product" : field === "customers" ? "Customer" : "Order"

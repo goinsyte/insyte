@@ -1,5 +1,5 @@
 import type { LiveEvent, LiveVisitor, PixelHit } from "@insyte/modules/live/domain/Live"
-import { apply, emptyRoom, sweep, visitorsOf } from "@insyte/modules/live/domain/Sessions"
+import { apply, emptyRoom, sweep, VISITORS_SHOWN, visitorsOf } from "@insyte/modules/live/domain/Sessions"
 import { DurableObject, env } from "cloudflare:workers"
 import { roomOf } from "./Room.ts"
 
@@ -12,7 +12,8 @@ import { roomOf } from "./Room.ts"
  *
  * Frames are batched: at most one `live.visitors` every 500 ms, sent through the workspace's realtime room to the tabs
  * that hold a lease, each narrowed to the stores its member's role may see. While someone watches, a sweep every five
- * seconds takes away the visitors who have gone.
+ * seconds takes away the visitors who have gone. The room's sessions are capped (`Sessions.ts`), and so is a frame: at
+ * most `VISITORS_SHOWN` upserts, the rest in the next.
  *
  * Plain Durable Object RPC, no Effect, as the other objects: the Worker reaches it through `LiveRooms.ts`.
  */
@@ -40,7 +41,10 @@ export class LiveRoomDurableObject extends DurableObject<Cloudflare.Env> {
   /** One pixel event, from the ingest. */
   hit(workspaceId: string, hit: PixelHit): void {
     this.workspaceId = workspaceId
-    const { visitor, event } = apply(this.room, hit)
+    const applied = apply(this.room, hit)
+    // A new visitor in a full room: not taken.
+    if (applied === undefined) return
+    const { visitor, event } = applied
     this.upserts.set(visitor.id, visitor)
     this.removed.delete(visitor.id)
     if (event !== undefined) this.fresh.push(event)
@@ -94,10 +98,12 @@ export class LiveRoomDurableObject extends DurableObject<Cloudflare.Env> {
     this.lastFlush = now
     for (const id of sweep(this.room, now)) this.gone(id)
     for (const [tab, s] of this.subscribers) if (s.until <= now) this.subscribers.delete(tab)
-    const upserts = [...this.upserts.values()]
+    const pending = [...this.upserts.values()]
+    const upserts = pending.slice(0, VISITORS_SHOWN)
     const removed = [...this.removed]
     const events = this.fresh
-    this.upserts = new Map()
+    // Past a frame's cap the rest wait for the next flush.
+    this.upserts = new Map(pending.slice(VISITORS_SHOWN).map((v) => [v.id, v]))
     this.removed = new Set()
     this.fresh = []
     if (this.subscribers.size === 0 || this.workspaceId === null) return
@@ -127,8 +133,8 @@ export class LiveRoomDurableObject extends DurableObject<Cloudflare.Env> {
         })
       }
     }
-    // While someone watches, the gone are taken away even when nobody new arrives.
-    this.schedule(SWEEP_MS)
+    // While someone watches, the gone are taken away even when nobody new arrives; a cut frame goes on soon.
+    this.schedule(this.upserts.size > 0 ? FLUSH_MS : SWEEP_MS)
   }
 }
 

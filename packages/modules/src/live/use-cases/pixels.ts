@@ -13,9 +13,10 @@ import { forgetRoute, keyHash } from "./ingest.ts"
 
 /*
  * A store's Web Pixel from Instellingen → Winkels (M14 step 3). Installing makes a fresh ingest key, hands it to the
- * Insyte pixel extension on Shopify (`webPixelCreate`, or `webPixelUpdate` when the store has one), and keeps only the
- * key's hash and the storefront origins it may post from. Repairing is installing again: the old key stops working the
- * moment the new hash is written. It needs the store to have granted `write_pixels` and the app's pixel extension to
+ * Insyte pixel extension on Shopify (`webPixelCreate`, or `webPixelUpdate` when the store has one; on Shopify's `TAKEN`,
+ * the shop's existing pixel is found and updated), and keeps only the key's hash and the storefront origins it may post
+ * from. One install per store at a time (a lease on its row). Repairing is installing again: the old key stops working
+ * the moment the new hash is promoted. It needs the store to have granted `write_pixels` and the app's pixel extension to
  * be deployed (`shopify app deploy`); Shopify's refusal is said as it is, never as success.
  */
 
@@ -23,11 +24,17 @@ const PRIMARY_DOMAIN = `query { shop { primaryDomain { url } } }`
 const CREATE = `mutation ($webPixel: WebPixelInput!) {
   webPixelCreate(webPixel: $webPixel) { userErrors { code field message } webPixel { id } }
 }`
+/** The app's own pixel on the shop: there is at most one. */
+const EXISTING = `query { webPixel { id } }`
 const UPDATE = `mutation ($id: ID!, $webPixel: WebPixelInput!) {
   webPixelUpdate(id: $id, webPixel: $webPixel) { userErrors { code field message } webPixel { id } }
 }`
 
-/** 32 random bytes, URL-safe: the pixel's key, shown to no one and kept by Shopify in the pixel's settings. */
+/**
+ * 32 random bytes, URL-safe: the pixel's key, kept by Shopify in the pixel's settings. Not a secret: pixel settings
+ * reach the visitor's browser, so anyone who opens the storefront can read it. It names the store's current pixel, so a
+ * repair cuts off an old one; the ingest's limits and the room's caps bound what a script that copies it can do.
+ */
 const newKey = () => {
   const bytes = crypto.getRandomValues(new Uint8Array(32))
   return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
@@ -61,6 +68,9 @@ export const list = Effect.fn("Live.pixels")(function*() {
   })
 })
 
+/** How long one install may hold the store before another may start: longer than Shopify's three calls take. */
+const LEASE = "60 seconds"
+
 export const install = Effect.fn("Live.installPixel")(function*(input: { readonly storeId: string }) {
   yield* Policy.require("settings", 3)
   const principal = yield* CurrentPrincipal
@@ -73,31 +83,58 @@ export const install = Effect.fn("Live.installPixel")(function*(input: { readonl
     Effect.flatMap(
       inScope(sql, "s.id"),
       (scope) =>
-        sql<{ connectionId: string; shopDomain: string; pixelId: string | null }>`
-        select s.connection_id, s.shop_domain, p.shopify_web_pixel_id as pixel_id
-        from stores s left join store_pixels p on p.store_id = s.id
+        sql<{ connectionId: string; shopDomain: string }>`
+        select s.connection_id, s.shop_domain from stores s
         where s.id = ${input.storeId} and s.status = 'connected' and ${scope}`
     )
   )
   if (store === undefined) return yield* new NotFound({ entity: "store", id: input.storeId })
 
-  const target = { connectionId: store.connectionId, shop: store.shopDomain }
+  // The lease, and the new key's hash as pending: from here the ingest takes the new key as well as the old, so a
+  // request that dies after Shopify has the key, before the hash is promoted, leaves a pixel that still works.
   const key = newKey()
+  const hash = yield* keyHash(key)
+  const [leased] = yield* db.scoped((sql) =>
+    sql<{ pixelId: string | null; repaired: boolean }>`
+      insert into store_pixels (store_id, workspace_id, pending_key_hash, installing_until)
+      values (${input.storeId}, ${principal.workspaceId}, ${hash}, now() + ${LEASE}::interval)
+      on conflict (store_id) do update set pending_key_hash = excluded.pending_key_hash,
+        installing_until = excluded.installing_until
+        where store_pixels.installing_until is null or store_pixels.installing_until < now()
+      returning shopify_web_pixel_id as pixel_id, (ingest_key_hash is not null) as repaired`
+  )
+  if (leased === undefined) {
+    return yield* new PixelInstallFailed({
+      reason: "busy",
+      message: "Another install of this store's pixel is running"
+    })
+  }
+  forgetRoute(input.storeId)
+
+  const target = { connectionId: store.connectionId, shop: store.shopDomain }
   const webPixel = { settings: JSON.stringify({ storeId: input.storeId, ingestKey: key, endpoint }) }
+  const update = (id: string) =>
+    Effect.map(
+      mutate(target, UPDATE, { id, webPixel }, "webPixelUpdate"),
+      (updated) => updated.errors.length === 0 ? idOf(updated.data, "webPixelUpdate") ?? id : null
+    )
   const shopify = Effect.gen(function*() {
     const domain = yield* mutate(target, PRIMARY_DOMAIN, {}, "shop")
     const primary = (domain.data as { shop?: { primaryDomain?: { url?: string } } } | null)?.shop?.primaryDomain?.url
-    let pixelId: string | null = null
-    if (store.pixelId !== null) {
-      const updated = yield* mutate(target, UPDATE, { id: store.pixelId, webPixel }, "webPixelUpdate")
-      if (updated.errors.length === 0) pixelId = idOf(updated.data, "webPixelUpdate") ?? store.pixelId
-    }
+    let pixelId = leased.pixelId === null ? null : yield* update(leased.pixelId)
     if (pixelId === null) {
       const created = yield* mutate(target, CREATE, { webPixel }, "webPixelCreate")
-      if (created.errors.length > 0) {
+      if (created.errors.length > 0 && codeOf(created.data) === "TAKEN") {
+        // The app's one pixel is on the shop already, but its id is not here (a row lost, or an install that died
+        // before it was saved): find it and give it the new key.
+        const existing = yield* mutate(target, EXISTING, {}, "webPixel")
+        const id = (existing.data as { webPixel?: { id?: string } | null } | null)?.webPixel?.id
+        if (id !== undefined) pixelId = yield* update(id)
+      }
+      if (pixelId === null && created.errors.length > 0) {
         return yield* new PixelInstallFailed({ reason: "shopify", message: created.errors[0]!.message })
       }
-      pixelId = idOf(created.data, "webPixelCreate")
+      pixelId ??= idOf(created.data, "webPixelCreate")
     }
     return { pixelId, primary: primary === undefined ? null : originOf(primary) }
   }).pipe(
@@ -111,22 +148,26 @@ export const install = Effect.fn("Live.installPixel")(function*(input: { readonl
             message: error instanceof ShopifyRefused ? error.reason : error._tag
           })
         )
+    ),
+    // Shopify did not take the key: it is nobody's, so it stops counting, and the lease goes.
+    Effect.tapError(() =>
+      db.scoped((sql) =>
+        sql`update store_pixels set pending_key_hash = null, installing_until = null
+            where store_id = ${input.storeId} and pending_key_hash = ${hash}`
+      ).pipe(Effect.ignore)
     )
   )
   const installed = yield* shopify
-  const hash = yield* keyHash(key)
   const origins = [...new Set([installed.primary, `https://${store.shopDomain}`].filter((o) => o !== null))]
   yield* db.scoped((sql) =>
     Effect.gen(function*() {
       yield* sql`
-        insert into store_pixels (store_id, workspace_id, shopify_web_pixel_id, ingest_key_hash, origins, installed_by)
-        values (${input.storeId}, ${principal.workspaceId}, ${installed.pixelId}, ${hash}, ${origins},
-                ${principal.id})
-        on conflict (store_id) do update set shopify_web_pixel_id = excluded.shopify_web_pixel_id,
-          ingest_key_hash = excluded.ingest_key_hash, origins = excluded.origins, installed_at = now(),
-          installed_by = excluded.installed_by`
+        update store_pixels set ingest_key_hash = ${hash}, pending_key_hash = null, installing_until = null,
+          shopify_web_pixel_id = ${installed.pixelId}, origins = ${origins}, installed_at = now(),
+          installed_by = ${principal.id}
+        where store_id = ${input.storeId} and pending_key_hash = ${hash}`
       yield* Audit.write(sql, principal.workspaceId, { kind: principal.kind, id: principal.id }, {
-        action: store.pixelId === null ? "store.pixel_installed" : "store.pixel_repaired",
+        action: leased.repaired ? "store.pixel_repaired" : "store.pixel_installed",
         subjectType: "store",
         subjectId: input.storeId
       })
@@ -135,6 +176,10 @@ export const install = Effect.fn("Live.installPixel")(function*(input: { readonl
   forgetRoute(input.storeId)
   return yield* list()
 })
+
+const codeOf = (data: unknown): string | undefined =>
+  (data as { webPixelCreate?: { userErrors?: ReadonlyArray<{ code?: string }> } } | null)?.webPixelCreate
+    ?.userErrors?.[0]?.code
 
 const idOf = (data: unknown, root: string): string | null =>
   ((data as Record<string, { webPixel?: { id?: string } | null } | null> | null)?.[root]?.webPixel?.id) ?? null
