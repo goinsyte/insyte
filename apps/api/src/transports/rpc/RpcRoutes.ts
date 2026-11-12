@@ -1,6 +1,11 @@
 import { ConsoleRpcs, RPC_PATH } from "@insyte/api/ConsoleRpcs"
 import { Access } from "@insyte/modules/access/Access"
+import { AuditService } from "@insyte/modules/audit/Audit"
+import { AutomationsService } from "@insyte/modules/automations/Automations"
+import { RunsService } from "@insyte/modules/automations/Runs"
+import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
 import { ChatsService } from "@insyte/modules/chats/Chats"
+import { CostsService } from "@insyte/modules/costs/Costs"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
 import { FirstAnalysisService } from "@insyte/modules/first-analysis/FirstAnalysis"
@@ -27,14 +32,19 @@ import { StoresService } from "@insyte/modules/stores/Stores"
 import { SuppliersService } from "@insyte/modules/suppliers/Suppliers"
 import { TicketsService } from "@insyte/modules/tickets/Tickets"
 import { TrackingService } from "@insyte/modules/tracking/Tracking"
+import { TrashService } from "@insyte/modules/trash/Trash"
 import { UndoService } from "@insyte/modules/undo/Undo"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { WorkspaceSettings } from "@insyte/modules/workspaces/WorkspaceSettings"
 import { Layer } from "effect"
 import { RpcSerialization } from "effect/rpc"
 import { AccessHandlers } from "./handlers/access.ts"
+import { AuditHandlers } from "./handlers/audit.ts"
+import { AutomationsHandlers } from "./handlers/automations.ts"
+import { ChargebacksHandlers } from "./handlers/chargebacks.ts"
 import { ChatsHandlers } from "./handlers/chats.ts"
 import { CommerceHandlers } from "./handlers/commerce.ts"
+import { CostsHandlers } from "./handlers/costs.ts"
 import { DeveloperHandlers } from "./handlers/developer.ts"
 import { FirstAnalysisHandlers } from "./handlers/first-analysis.ts"
 import { ForwardingHandlers } from "./handlers/forwarding.ts"
@@ -51,6 +61,7 @@ import { QualityHandlers } from "./handlers/quality.ts"
 import { QueueHandlers } from "./handlers/queue.ts"
 import { ReturnsHandlers } from "./handlers/returns.ts"
 import { RolesHandlers } from "./handlers/roles.ts"
+import { RunsHandlers } from "./handlers/runs.ts"
 import { SessionHandlers } from "./handlers/session.ts"
 import { SettingsDepthHandlers } from "./handlers/settings-depth.ts"
 import { SharedHandlers } from "./handlers/shared.ts"
@@ -61,6 +72,7 @@ import { SystemHandlers } from "./handlers/system.ts"
 import { ThreadsHandlers } from "./handlers/threads.ts"
 import { TicketsHandlers } from "./handlers/tickets.ts"
 import { TrackingHandlers } from "./handlers/tracking.ts"
+import { TrashHandlers } from "./handlers/trash.ts"
 import { WorkspacesHandlers } from "./handlers/workspaces.ts"
 import { RpcHttp } from "./RpcHttp.ts"
 
@@ -98,6 +110,9 @@ export const RpcContext = Layer.mergeAll(
   ReturnsHandlers.pipe(Layer.provide(ReturnsService.layer)),
   PortalHandlers.pipe(Layer.provide(PortalService.layer)),
   TicketsHandlers.pipe(Layer.provide(TicketsService.layer)),
+  AutomationsHandlers.pipe(Layer.provide(AutomationsService.layer)),
+  RunsHandlers.pipe(Layer.provide(RunsService.layer)),
+  ChargebacksHandlers.pipe(Layer.provide(ChargebacksService.layer)),
   ThreadsHandlers.pipe(Layer.provide(InboxService.layer)),
   QueueHandlers.pipe(Layer.provide(QueueService.layer)),
   HomeHandlers.pipe(Layer.provide(HomeService.layer)),
@@ -105,6 +120,9 @@ export const RpcContext = Layer.mergeAll(
   ChatsHandlers.pipe(Layer.provide(Layer.mergeAll(ChatsService.layer, UndoService.layer))),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
   WorkspacesHandlers.pipe(Layer.provide(WorkspaceSettings.layer)),
+  CostsHandlers.pipe(Layer.provide(CostsService.layer)),
+  AuditHandlers.pipe(Layer.provide(AuditService.layer)),
+  TrashHandlers.pipe(Layer.provide(TrashService.layer)),
   SettingsDepthHandlers.pipe(Layer.provide(SettingsDepth.layer)),
   ShellHandlers.pipe(
     Layer.provide(

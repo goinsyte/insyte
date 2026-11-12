@@ -57,7 +57,7 @@
     /*
      * Listed entry by entry rather than as the directory, because dprint cannot un-exclude a file inside an excluded
      * directory. What is missing has graduated (08 §3): edited for the backend, so formatted like code written here
-     * (`auth/login-screen.tsx`, `onboarding/shared-steps.tsx`, `onboarding/admin-steps.tsx`, `lib/form-errors.ts`, `lib/returns.ts`, `lib/quality.ts`, `dashboard/` but `queue-panel.tsx`, `stores/home-store.ts`, `lib/home/day.ts`, `lib/home/kinds.ts`, `settings/workspace-source.tsx`, `settings/workspace-demo-source.tsx`, `settings/form.tsx`, `settings/profile-screen.tsx`, `settings/regional-screen.tsx`, `settings/security-screen.tsx`, `chats/`, `inbox/`, `settings/depth/` but `email-domain-screen.tsx`, `log-screen.tsx` and `trash-screen.tsx`; `lib/auth-client.ts` and `lib/errors.ts` are
+     * (`auth/login-screen.tsx`, `onboarding/shared-steps.tsx`, `onboarding/admin-steps.tsx`, `lib/form-errors.ts`, `lib/returns.ts`, `lib/quality.ts`, `dashboard/` but `queue-panel.tsx`, `stores/home-store.ts`, `lib/home/day.ts`, `lib/home/kinds.ts`, `settings/workspace-source.tsx`, `settings/workspace-demo-source.tsx`, `settings/form.tsx`, `settings/profile-screen.tsx`, `settings/regional-screen.tsx`, `settings/security-screen.tsx`, `settings/depth/log-screen.tsx`, `settings/depth/trash-screen.tsx`, `chats/`, `inbox/`, `automations/`, `costs/`, `settings/depth/` but `email-domain-screen.tsx`; `lib/auth-client.ts` and `lib/errors.ts` are
      * written here). The list only shrinks.
      */
     "packages/ui/src/app/access/",
@@ -69,10 +69,8 @@
     "packages/ui/src/app/ask/",
     "packages/ui/src/app/auth/invitation-screen.tsx",
     "packages/ui/src/app/auth/invite-shell.tsx",
-    "packages/ui/src/app/automations/",
     "packages/ui/src/app/chargebacks/",
     "packages/ui/src/app/common/",
-    "packages/ui/src/app/costs/",
     "packages/ui/src/app/courses/",
     "packages/ui/src/app/dashboard/queue-panel.tsx",
     "packages/ui/src/app/data/",
@@ -155,8 +153,6 @@
     "packages/ui/src/app/settings/apps-screen.tsx",
     "packages/ui/src/app/settings/billing-screen.tsx",
     "packages/ui/src/app/settings/depth/email-domain-screen.tsx",
-    "packages/ui/src/app/settings/depth/log-screen.tsx",
-    "packages/ui/src/app/settings/depth/trash-screen.tsx",
     "packages/ui/src/app/settings/integrations-screen.tsx",
     "packages/ui/src/app/settings/member-table.tsx",
     "packages/ui/src/app/settings/roles-page.tsx",

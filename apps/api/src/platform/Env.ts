@@ -1,3 +1,4 @@
+import type { AutomationRunParams } from "../workflows/AutomationRun.ts"
 import type { AnalysisParams } from "../workflows/FirstAnalysis.ts"
 import type { ForwardSendParams } from "../workflows/ForwardSend.ts"
 import type { MarketingSyncParams } from "../workflows/MarketingSync.ts"
@@ -37,6 +38,8 @@ declare global {
       readonly FORWARD_SEND: Workflow<ForwardSendParams>
       /** A return's label from the carrier (M9.2): one instance per outbox event (`ReturnLabelWorkflow`). */
       readonly RETURN_LABEL: Workflow<ReturnLabelParams>
+      /** A flow's run (M12 step 3): one instance per run (`AutomationRunWorkflow`). */
+      readonly AUTOMATION_RUN: Workflow<AutomationRunParams>
       /** The Klaviyo OAuth app (M7.5); without both, Klaviyo cannot be connected. `recorded` in the worker tests. */
       readonly KLAVIYO_CLIENT_ID?: string
       readonly KLAVIYO_CLIENT_SECRET?: string

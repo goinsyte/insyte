@@ -3,6 +3,7 @@ import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
 import { PwnedPasswords } from "@insyte/integrations-better-auth/PwnedPasswords"
 import { PostHogAnalytics } from "@insyte/integrations-posthog/PostHog"
 import { ResendMailer } from "@insyte/integrations-resend/ResendMailer"
+import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
 import { QualityLinkService } from "@insyte/modules/quality/Quality"
 import { PortalService } from "@insyte/modules/returns/Portal"
 import type { Mailer } from "@insyte/modules/shared/domain/Mailer"
@@ -14,6 +15,7 @@ import { FetchHttpClient, type HttpClient, HttpServer } from "effect/http"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
 import { ConnectRoutes, KlaviyoConnectRoutes, SlackConnectRoutes } from "../transports/http/ConnectRoutes.ts"
 import { DevRoutes } from "../transports/http/DevRoutes.ts"
+import { EvidenceRoutes } from "../transports/http/EvidenceRoutes.ts"
 import { FileRoutes } from "../transports/http/FileRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
 import { PortalRoutes } from "../transports/http/PortalRoutes.ts"
@@ -34,8 +36,10 @@ import { RpcContext, RpcRoutes } from "../transports/rpc/RpcRoutes.ts"
 import { ShopperLive } from "../transports/rpc/ShopperLive.ts"
 import { ViewerLive } from "../transports/rpc/ViewerLive.ts"
 import { WithDbLive } from "../transports/rpc/WithDbLive.ts"
+import { AdSpendLive } from "./AdSpend.ts"
 import { AnalysesLive } from "./Analyses.ts"
 import { AuthHooksLive } from "./AuthHooks.ts"
+import { AutomationRunsLive } from "./AutomationRuns.ts"
 import { BackfillsLive } from "./Backfills.ts"
 import { AppInfo, BetaSettings, ConfigLive } from "./Bindings.ts"
 import { ConnectionGateLive } from "./ConnectionGate.ts"
@@ -81,6 +85,7 @@ const Transports = Layer.mergeAll(
   FileRoutes,
   PortalRoutes,
   QualityMediaRoutes,
+  EvidenceRoutes,
   PublicApiRoutes,
   McpRoutes,
   RequestContext,
@@ -123,6 +128,7 @@ const PwnedPasswordsLive = Layer.unwrap(
 export const AppLayer = Transports.pipe(
   // The RPC handlers; the public API's and the MCP server's way in, and what a key reads (M19.2, M19.3).
   // …and the returns portal's and the quality link's, for their upload routes (M9.3, M9.4).
+  // …and the chargebacks', for a case's evidence (M13 step 4).
   Layer.provideMerge(
     Layer.mergeAll(
       RpcContext,
@@ -130,7 +136,8 @@ export const AppLayer = Transports.pipe(
       Resources.layer,
       StoresService.layer,
       PortalService.layer,
-      QualityLinkService.layer
+      QualityLinkService.layer,
+      ChargebacksService.layer
     )
   ),
   Layer.provideMerge(WithDbLive),
@@ -169,6 +176,8 @@ export const AppLayer = Transports.pipe(
       IngestQueueLive,
       // …and the first analysis's Workflow (M6.5).
       AnalysesLive,
+      // …and a flow's runs: "Opnieuw", stopping one, the answer to "Goedkeuring vragen" (M12 step 5).
+      AutomationRunsLive,
       // …and where one slice's need meets another's use case.
       SliceLinks
     )
@@ -211,13 +220,17 @@ export const BackgroundLayer = Layer.mergeAll(
   ForwardSendsLive,
   // Return labels are made at the carrier once their window has passed (M9.2).
   ReturnLabelsLive,
+  // A trigger's event starts a flow's run (M12 step 3).
+  AutomationRunsLive,
   // A return label's PDF goes with the shopper's mail (M9.3).
   FileStoreR2,
   // Notes by push and in Slack, its token sealed; an answer to a notification mail as a comment (M11 step 13.5).
   WebPushChoice,
   SlackChoice,
   SealerLive,
-  NoteRepliesLive
+  NoteRepliesLive,
+  // Ad spend from Meta and Google Ads (M13 step 5): not configured until Insyte has their app keys.
+  AdSpendLive
 ).pipe(
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),

@@ -72,22 +72,28 @@ const graduated = [
   "app/settings/notifications-screen.tsx",
   "app/settings/notifications-source.tsx",
   "app/settings/notifications-demo-source.tsx",
+  "app/settings/depth/log-screen.tsx",
+  "app/settings/depth/trash-screen.tsx",
+  "app/settings/log-source.tsx",
+  "app/settings/log-demo-source.tsx",
+  "app/settings/trash-source.tsx",
+  "app/settings/trash-demo-source.tsx",
   "app/lib/home/day.ts",
   "app/lib/home/kinds.ts",
   "app/chats/",
   "app/inbox/",
+  "app/automations/",
+  "app/costs/",
   "app/settings/depth/"
 ]
 
 /**
  * Inside a graduated directory but not yet edited for the backend: the queue panel waits for the proposals branches,
- * E-mail en domein for the sending domain (20.1c), Logboek and Prullenbak for their own step.
+ * E-mail en domein for the sending domain (20.1c).
  */
 const notYet = new Set([
   "app/dashboard/queue-panel.tsx",
-  "app/settings/depth/email-domain-screen.tsx",
-  "app/settings/depth/log-screen.tsx",
-  "app/settings/depth/trash-screen.tsx"
+  "app/settings/depth/email-domain-screen.tsx"
 ])
 
 const ported = (name: string): boolean =>

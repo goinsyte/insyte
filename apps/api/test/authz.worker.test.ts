@@ -1,6 +1,10 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { AuditRpcs } from "@insyte/api/rpc/AuditRpcs"
+import { AutomationsRpcs } from "@insyte/api/rpc/AutomationsRpcs"
+import { ChargebacksRpcs } from "@insyte/api/rpc/ChargebacksRpcs"
 import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
+import { CostsRpcs } from "@insyte/api/rpc/CostsRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
@@ -13,6 +17,7 @@ import { QualityRpcs } from "@insyte/api/rpc/QualityRpcs"
 import { QueueRpcs } from "@insyte/api/rpc/QueueRpcs"
 import { ReturnsRpcs } from "@insyte/api/rpc/ReturnsRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
+import { RunsRpcs } from "@insyte/api/rpc/RunsRpcs"
 import { SessionRpcs } from "@insyte/api/rpc/SessionRpcs"
 import { SettingsDepthRpcs } from "@insyte/api/rpc/SettingsDepthRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
@@ -22,6 +27,7 @@ import { SuppliersRpcs } from "@insyte/api/rpc/SuppliersRpcs"
 import { ThreadsRpcs } from "@insyte/api/rpc/ThreadsRpcs"
 import { TicketsRpcs } from "@insyte/api/rpc/TicketsRpcs"
 import { TrackingRpcs } from "@insyte/api/rpc/TrackingRpcs"
+import { TrashRpcs } from "@insyte/api/rpc/TrashRpcs"
 import { WorkspacesRpcs } from "@insyte/api/rpc/WorkspacesRpcs"
 import { Exit } from "effect"
 import { beforeAll, describe, expect, it } from "vitest"
@@ -190,6 +196,29 @@ const PAYLOADS: Record<string, unknown> = {
     portal: { on: false, handle: "x", intro: "", done: "" }
   },
   "Orders.tracking": { orderId: "ord_none" },
+  // Automations (M12 step 1): Bekijken reads, Bewerken drafts, Beheren pauses and removes; publishing is its own right.
+  "Automations.list": {},
+  "Automations.get": { id: "auto_none" },
+  "Automations.versions": { id: "auto_none" },
+  "Automations.fields": { triggerVariant: "trigger.order_placed" },
+  "Automations.recommended": undefined,
+  "Automations.create": { templateId: "tpl_none" },
+  "Automations.saveDraft": { id: "auto_none", nodes: [] },
+  "Automations.duplicate": { id: "auto_none" },
+  "Automations.remove": { id: "auto_none" },
+  "Automations.restore": { id: "auto_none" },
+  "Automations.publish": { id: "auto_none", note: "" },
+  "Automations.setStatus": { id: "auto_none", status: "paused" },
+  "Automations.updateSettings": { id: "auto_none" },
+  "Automations.test": { id: "auto_none" },
+  "Runs.list": {},
+  "Runs.get": { id: "run_none" },
+  "Runs.stats": { automationId: "auto_none", days: 30 },
+  "Runs.records": { automationId: "auto_none" },
+  "Runs.rerun": { id: "run_none" },
+  "Runs.cancel": { id: "run_none" },
+  "Runs.approve": { id: "run_none", stepId: "n1" },
+  "Runs.decline": { id: "run_none", stepId: "n1" },
   "Tickets.list": {},
   "Tickets.get": { id: "tkt_none" },
   "Tickets.options": undefined,
@@ -344,7 +373,41 @@ const PAYLOADS: Record<string, unknown> = {
   // The frame and the one search (M5, M11 step 6): every member; a kind or area the role cannot open answers nothing.
   "Shell.frame": { path: "/inbox" },
   "Nav.counts": { area: "tickets" },
-  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] }
+  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] },
+  // Chargebacks (M13): Bekijken reads, Bewerken changes a case, Beheren accepts. Unknown cases, and a case opened by hand
+  // without a customer, are refused past the permission check, so nothing is made.
+  "Chargebacks.list": {},
+  "Chargebacks.get": { id: "cb_none" },
+  "Chargebacks.stats": undefined,
+  "Chargebacks.nextCaseNumber": undefined,
+  "Chargebacks.createManual": {
+    provider: "stripe",
+    customer: { name: " " },
+    amountMinor: 1000,
+    reasonCode: "not_received"
+  },
+  "Chargebacks.setNote": { id: "cb_none", note: "Iets" },
+  "Chargebacks.accept": { ids: ["cb_none"] },
+  "Chargebacks.addEvidence": { chargebackId: "cb_none", fileIds: ["fil_none"] },
+  "Chargebacks.removeEvidence": { chargebackId: "cb_none", itemId: "evi_none" },
+  "Chargebacks.reorderEvidence": { chargebackId: "cb_none", itemIds: ["evi_none"] },
+  // Kosten (M13 step 5): Analyse · Bekijken to read, `costs.write` to change; a blank name or a line that is not there.
+  "Costs.list": {},
+  "Costs.figures": { months: ["2026-01"] },
+  "Costs.create": { name: "   ", kind: "fixed" },
+  "Costs.update": { id: "cost_none", name: "Iets", kind: "fixed" },
+  "Costs.setAmount": { lineId: "cost_none", month: "2026-01", amountMinor: 100 },
+  "Costs.readFromSource": { id: "cost_none" },
+  "Costs.remove": { id: "cost_none" },
+  // The Logboek and the Prullenbak (M17 step 20.1a): reading the log at Instellingen · Bekijken, its CSV also with
+  // Exporteren; the trash at Bewerken. The ids are in no trash, so nothing is put back or purged; the trash is empty.
+  "Audit.list": { category: "settings" },
+  "Audit.facets": undefined,
+  "Audit.export": { category: "settings" },
+  "Trash.list": undefined,
+  "Trash.restore": { ids: ["tkt_none"] },
+  "Trash.purge": { ids: ["tkt_none"] },
+  "Trash.empty": undefined
 }
 
 const manifest = [
@@ -362,6 +425,8 @@ const manifest = [
   ...TrackingRpcs.requests.keys(),
   ...ReturnsRpcs.requests.keys(),
   ...TicketsRpcs.requests.keys(),
+  ...AutomationsRpcs.requests.keys(),
+  ...RunsRpcs.requests.keys(),
   ...ThreadsRpcs.requests.keys(),
   ...QualityRpcs.requests.keys(),
   ...QueueRpcs.requests.keys(),
@@ -372,6 +437,10 @@ const manifest = [
   ...NotificationsRpcs.requests.keys(),
   ...SessionRpcs.requests.keys(),
   ...ShellRpcs.requests.keys(),
+  ...ChargebacksRpcs.requests.keys(),
+  ...CostsRpcs.requests.keys(),
+  ...AuditRpcs.requests.keys(),
+  ...TrashRpcs.requests.keys(),
   ...SettingsDepthRpcs.requests.keys()
 ]
 
