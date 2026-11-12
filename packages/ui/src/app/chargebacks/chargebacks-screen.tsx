@@ -1,15 +1,14 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Copy, Download, FileText, Plus, Send, Sparkles, XCircle } from "../../icons";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchCut } from "../filters/use-search-cut";
 import { useOnCreate } from "../stores/create-intent";
 import { toast } from "sonner";
 import { useAskInsyte } from "../shell/ask-insyte-context";
 import { OPEN_AS_MODAL } from "../common/detail-shell";
 import { EmptyState } from "../common/empty-state";
-import { DemoAreaEmpty as AreaEmpty } from "../marketing-sections/closings";
-import { ListClosing } from "../marketing-sections/closings";
+import { AreaEmpty } from "../common/area-empty";
 import {
 	Field,
 	FormDialog,
@@ -24,12 +23,15 @@ import {
 	facetFilter,
 	type RowAction,
 } from "../table/data-table";
-import { copyLines, counted, exportCsv, patchMany } from "../lib/bulk";
+import { copyLines, counted, exportCsv } from "../lib/bulk-io";
 import { formatCurrency } from "../lib/format";
 import { BrandLogo } from "../marketplace/brand-logos";
-import { useWorkspace } from "../stores/workspace-store";
-import type { Chargeback, ChargebackStatus } from "../lib/types/domain";
+import type { Chargeback, ChargebackStatus, Currency } from "../lib/types/domain";
 import { cn } from "../lib/utils";
+import { canRole, permissionName } from "../lib/permissions";
+import { useGateRole } from "../access/gate-role";
+import { ConfirmDialog } from "../common/confirm-dialog";
+import { type ChargebackCommands, type NewChargebackInput, REASONS, useChargebacksListSource } from "./source";
 
 const FACETS: ReadonlyArray<Facet> = [
 	{
@@ -57,42 +59,47 @@ const FACETS: ReadonlyArray<Facet> = [
 const isOpenCase = (c: Chargeback) => c.status === "open" || c.status === "awaiting_evidence";
 
 /* The selection bar's actions on cases. Drawing a pack is the same pack the case screen draws;
-   submitting and accepting come back with one Undo for the whole selection. */
-const CASE_ACTIONS: ReadonlyArray<RowAction<Chargeback>> = [
-	{
-		id: "draw",
-		needs: { perm: "chargebacks", arg: 2 },
-		label: "Bewijspakketten samenstellen",
-		icon: Sparkles,
-		group: "Bewijs",
-		shortcut: "e",
-		bar: true,
-		applies: (c) => isOpenCase(c),
-		run: (rows) => {
-			const { buildEvidence } = useWorkspace.getState();
-			for (const c of rows) void buildEvidence(c.id);
-			toast(`${counted(rows.length, "bewijspakket", "bewijspakketten")} in de maak`, {
-				description: "Elk pakket verschijnt bij zijn zaak zodra de documenten verzameld zijn.",
-			});
-		},
-	},
-	{
-		id: "submit",
-		needs: { perm: "disputes.write" },
-		label: "Indienen bij aanbieder",
-		icon: Send,
-		group: "Bewijs",
-		shortcut: "s",
-		bar: true,
-		applies: (c) => isOpenCase(c) && c.evidence_files.length > 0,
-		run: (rows) =>
-			patchMany(
-				"chargebacks",
-				rows.map((c) => c.id),
-				(c) => ({ ...c, status: "submitted" }),
-				`${counted(rows.length, "zaak", "zaken")} ingediend`,
-			),
-	},
+   submitting goes as one, and accepting is confirmed first: neither can be taken back. What the
+   host cannot do yet is not offered. */
+const caseActions = (
+	commands: ChargebackCommands,
+	accept: (rows: Array<Chargeback>) => void,
+): ReadonlyArray<RowAction<Chargeback>> => [
+	...(commands.draw
+		? [
+				{
+					id: "draw",
+					needs: { perm: "chargebacks", arg: 2 },
+					label: "Bewijspakketten samenstellen",
+					icon: Sparkles,
+					group: "Bewijs",
+					shortcut: "e",
+					bar: true,
+					applies: (c: Chargeback) => isOpenCase(c),
+					run: (rows: Array<Chargeback>) => {
+						for (const c of rows) void commands.draw?.(c.id);
+						toast(`${counted(rows.length, "bewijspakket", "bewijspakketten")} in de maak`, {
+							description: "Elk pakket verschijnt bij zijn zaak zodra de documenten verzameld zijn.",
+						});
+					},
+				} satisfies RowAction<Chargeback>,
+			]
+		: []),
+	...(commands.submit
+		? [
+				{
+					id: "submit",
+					needs: { perm: "disputes.write" },
+					label: "Indienen bij aanbieder",
+					icon: Send,
+					group: "Bewijs",
+					shortcut: "s",
+					bar: true,
+					applies: (c: Chargeback) => isOpenCase(c) && c.evidence_files.length > 0,
+					run: (rows: Array<Chargeback>) => commands.submit?.(rows),
+				} satisfies RowAction<Chargeback>,
+			]
+		: []),
 	{
 		id: "copy",
 		label: "Zaaknummers kopiëren",
@@ -121,7 +128,7 @@ const CASE_ACTIONS: ReadonlyArray<RowAction<Chargeback>> = [
 		group: "Export",
 		run: (rows) =>
 			copyLines(
-				rows.map((c) => `${c.case_number} · ${c.customer_name} · ${formatCurrency(c.amount)} · ${STATUS_STYLE[c.status].label.toLowerCase()}`),
+				rows.map((c) => `${c.case_number} · ${c.customer_name} · ${formatCurrency(c.amount, c.currency)} · ${STATUS_STYLE[c.status].label.toLowerCase()}`),
 				"een samenvatting",
 			),
 	},
@@ -133,13 +140,7 @@ const CASE_ACTIONS: ReadonlyArray<RowAction<Chargeback>> = [
 		group: "Danger",
 		destructive: true,
 		applies: (c) => isOpenCase(c),
-		run: (rows) =>
-			patchMany(
-				"chargebacks",
-				rows.map((c) => c.id),
-				(c) => ({ ...c, status: "lost" }),
-				`${counted(rows.length, "zaak", "zaken")} geaccepteerd als verloren`,
-			),
+		run: accept,
 	},
 ];
 
@@ -147,11 +148,15 @@ export function ChargebacksPage() {
 	const navigate = useNavigate();
 	const ask = useAskInsyte();
 
-	// The cases are the workspace's, so a submission on the detail screen is a submission here.
-	const data = useWorkspace((s) => s.chargebacks);
-	const setData = (next: (d: Chargeback[]) => Chargeback[]) =>
-		useWorkspace.setState((s) => ({ chargebacks: next(s.chargebacks) }));
+	// The cases are the host's, so a submission on the detail screen is a submission here.
+	const source = useChargebacksListSource();
+	const { cases: data, commands } = source;
 	const [newOpen, setNewOpen] = useState(false);
+	const [accepting, setAccepting] = useState<Array<Chargeback> | null>(null);
+	const actions = useMemo(() => caseActions(commands, setAccepting), [commands]);
+	const role = useGateRole();
+	const createBlocked =
+		role !== null && !canRole(role, "chargebacks", 2) ? `Je rol ${role.label} mist ${permissionName("chargebacks", 2)}` : undefined;
 	useOnCreate("evidence", useCallback(() => setNewOpen(true), []));
 	useSearchCut("chargebacks", "tab", {
 		action_required: { field: "status", values: ["open", "awaiting_evidence"] },
@@ -169,22 +174,12 @@ export function ChargebacksPage() {
 	);
 
 	const standing = useMemo(() => {
-		const decided = data.filter(
-			(c) => c.status === "won" || c.status === "lost",
-		).length;
-		const winRate =
-			decided === 0
-				? 0
-				: Math.round(
-						(data.filter((c) => c.status === "won").length / decided) * 100,
-					);
-		const recovered = data
-			.filter((c) => c.status === "won")
-			.reduce((s, c) => s + c.amount, 0);
-		return `${openCases.length} ${openCases.length === 1 ? "heeft" : "hebben"} bewijs nodig · ${winRate}% van de beslechte zaken gewonnen · ${formatCurrency(
+		const { open, wonPct, recovered, currency } = source.standing;
+		return `${open} ${open === 1 ? "heeft" : "hebben"} bewijs nodig · ${wonPct}% van de beslechte zaken gewonnen · ${formatCurrency(
 			recovered,
+			currency,
 		)} teruggehaald`;
-	}, [data, openCases.length]);
+	}, [source.standing]);
 
 	function reviewAndSubmit() {
 		const target = openCases[0];
@@ -192,10 +187,7 @@ export function ChargebacksPage() {
 			toast("Geen zaken die op bewijs wachten om in te dienen");
 			return;
 		}
-		setData((d) =>
-			d.map((c) => (c.id === target.id ? { ...c, status: "submitted" } : c)),
-		);
-		toast.success(`${target.case_number} ingediend bij ${PROVIDER_LABEL[target.provider]}`);
+		commands.submit?.([target]);
 	}
 
 	function editPack() {
@@ -208,34 +200,6 @@ export function ChargebacksPage() {
 			to: "/chargebacks/$chargebackId",
 			params: { chargebackId: target.id },
 		});
-	}
-
-	function createChargeback(input: NewChargebackInput) {
-		const id = `cb_${Date.now()}`;
-		const opened = new Date().toISOString();
-		const deadline = new Date(
-			Date.now() + 14 * 24 * 60 * 60 * 1000,
-		).toISOString();
-		setData((d) => [
-			{
-				id,
-				case_number: input.case_number,
-				provider: input.provider,
-				customer_id: "cust_new",
-				customer_name: input.customer_name,
-				amount: input.amount,
-				currency: "USD",
-				reason: input.reason,
-				status: "awaiting_evidence",
-				deadline_at: deadline,
-				opened_at: opened,
-				evidence_files: [],
-				timeline: [{ at: opened, actor: "Jij", event: "Zaak handmatig geopend" }],
-				notes: input.notes || undefined,
-			},
-			...d,
-		]);
-		toast.success(`Bewijspakket ${input.case_number} aangemaakt`);
 	}
 
 	const columns = useMemo<Array<ColumnDef<Chargeback, unknown>>>(
@@ -353,7 +317,9 @@ export function ChargebacksPage() {
 						<button
 							type="button"
 							onClick={() => setNewOpen(true)}
-							className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-xs text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2"
+							disabled={createBlocked !== undefined}
+							title={createBlocked}
+							className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-xs text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2 disabled:pointer-events-none disabled:opacity-45"
 						>
 							<Plus className="size-3.5" strokeWidth={2} />
 							Nieuw bewijspakket
@@ -363,7 +329,8 @@ export function ChargebacksPage() {
 			/>
 
 			<div className="flex min-w-0 flex-col gap-3 px-5 pb-6">
-				{openCases.length > 0 ? (
+				{/* What Insyte drew is offered only where it can draw and submit one. */}
+				{openCases.length > 0 && commands.draw && commands.submit ? (
 					<AiPrompt
 						caseNumber={openCases[0]?.case_number ?? "—"}
 						onEdit={editPack}
@@ -372,13 +339,13 @@ export function ChargebacksPage() {
 				) : null}
 
 				{data.length === 0 ? (
-					<AreaEmpty area="chargebacks" />
+					<AreaEmpty area="chargebacks" starts={source.starts} />
 				) : (
 					<DataTable
 						columns={columns}
 						data={data}
 						facets={FACETS}
-						actions={CASE_ACTIONS}
+						actions={actions}
 						noun={["case", "cases"]}
 						getRowId={(c) => c.id}
 						searchPlaceholder="Zoek zaken"
@@ -414,13 +381,37 @@ export function ChargebacksPage() {
 					/>
 				)}
 			</div>
-			<ListClosing area="chargebacks" empty={data.length === 0} />
+			{source.Closing ? <source.Closing empty={data.length === 0} /> : null}
 
 			<NewChargebackDialog
 				open={newOpen}
 				onOpenChange={setNewOpen}
-				onCreate={createChargeback}
-				nextCaseNumber={nextCaseNumber(data)}
+				onCreate={commands.create}
+				nextCaseNumber={source.nextCaseNumber}
+				currency={source.currency}
+			/>
+			<ConfirmDialog
+				open={accepting !== null}
+				onOpenChange={(v) => !v && setAccepting(null)}
+				title={`${counted(accepting?.length ?? 0, "zaak", "zaken")} accepteren als verloren?`}
+				description={
+					<>
+						Dit kan niet ongedaan worden gemaakt: elke zaak sluit als verloren en het bedrag blijft bij de klant.
+						<span className="mt-2 flex flex-col gap-0.5">
+							{(accepting ?? []).map((c) => (
+								<span key={c.id} className="tabular-nums">
+									{c.case_number} · {c.customer_name} · {formatCurrency(c.amount, c.currency)}
+								</span>
+							))}
+						</span>
+					</>
+				}
+				confirmLabel="Accepteren als verloren"
+				tone="destructive"
+				onConfirm={() => {
+					if (accepting) commands.accept(accepting);
+					setAccepting(null);
+				}}
 			/>
 		</div>
 	);
@@ -539,43 +530,19 @@ function timeLeft(iso: string) {
 	return `nog ${weeks} ${weeks === 1 ? "week" : "weken"}`;
 }
 
-function nextCaseNumber(data: Chargeback[]) {
-	const nums = data
-		.map((c) => Number.parseInt(c.case_number.replace(/[^0-9]/g, ""), 10))
-		.filter((n) => !Number.isNaN(n));
-	const max = nums.length === 0 ? 2200 : Math.max(...nums);
-	return `DSP-${max + 1}`;
-}
-
-type NewChargebackInput = {
-	case_number: string;
-	customer_name: string;
-	provider: Chargeback["provider"];
-	amount: number;
-	reason: string;
-	notes: string;
-};
-
-const REASONS = [
-	"Niet-geautoriseerde transactie",
-	"Niet ontvangen",
-	"Verkeerd artikel verzonden",
-	"Product niet zoals beschreven",
-	"Terugbetaling aangevraagd",
-	"Service niet naar tevredenheid",
-	"Betalingsgeschil",
-] as const;
-
 function NewChargebackDialog({
 	open,
 	onOpenChange,
 	onCreate,
 	nextCaseNumber: initialCaseNumber,
+	currency,
 }: {
 	open: boolean;
 	onOpenChange: (v: boolean) => void;
-	onCreate: (input: NewChargebackInput) => void;
+	/** True once made; false keeps what was typed, the host having said why. */
+	onCreate: (input: NewChargebackInput) => Promise<boolean>;
 	nextCaseNumber: string;
+	currency: Currency;
 }) {
 	const [caseNumber, setCaseNumber] = useState(initialCaseNumber);
 	const [customer, setCustomer] = useState("");
@@ -585,6 +552,11 @@ function NewChargebackDialog({
 		"Niet-geautoriseerde transactie",
 	);
 	const [notes, setNotes] = useState("");
+	const [saving, setSaving] = useState(false);
+	// The number the host has next, once it is known (it can arrive after the dialog mounts).
+	useEffect(() => {
+		if (!open) setCaseNumber(initialCaseNumber);
+	}, [initialCaseNumber, open]);
 
 	function reset() {
 		setCaseNumber(initialCaseNumber);
@@ -595,7 +567,8 @@ function NewChargebackDialog({
 		setNotes("");
 	}
 
-	function submit() {
+	async function submit() {
+		if (saving) return;
 		if (!customer.trim()) {
 			toast.error("Naam van de klant is verplicht");
 			return;
@@ -605,7 +578,8 @@ function NewChargebackDialog({
 			toast.error("Vul een geldig betwist bedrag in");
 			return;
 		}
-		onCreate({
+		setSaving(true);
+		const made = await onCreate({
 			case_number: caseNumber.trim() || initialCaseNumber,
 			customer_name: customer.trim(),
 			provider,
@@ -613,6 +587,8 @@ function NewChargebackDialog({
 			reason,
 			notes: notes.trim(),
 		});
+		setSaving(false);
+		if (!made) return;
 		reset();
 		onOpenChange(false);
 	}
@@ -626,8 +602,9 @@ function NewChargebackDialog({
 			}}
 			title="Nieuw bewijspakket"
 			description="Open handmatig een chargebackzaak. Insyte begint met bewijs verzamelen zodra de zaak is aangemaakt."
-			primaryLabel="Zaak aanmaken"
-			onSubmit={submit}
+			primaryLabel={saving ? "Aanmaken…" : "Zaak aanmaken"}
+			onSubmit={() => void submit()}
+			disabled={saving}
 			width={560}
 		>
 			<div className="grid grid-cols-2 gap-4">
@@ -651,7 +628,7 @@ function NewChargebackDialog({
 				/>
 			</Field>
 			<div className="grid grid-cols-2 gap-4">
-				<Field label="Betwist bedrag (USD)">
+				<Field label={`Betwist bedrag (${currency})`}>
 					<TextField value={amount} onChange={setAmount} type="number" />
 				</Field>
 				<Field label="Reden">

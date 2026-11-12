@@ -159,6 +159,27 @@ export const OutboxEvent = Schema.Union([
     memberIds: Schema.Array(Schema.String),
     by: Schema.String
   }),
+  // A flow's version was published (M12 step 1), once the undo window has passed: counted as a product event.
+  Schema.Struct({
+    type: Schema.Literal("automation.published"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    automationId: Schema.String,
+    version: Schema.Int,
+    trigger: Schema.String,
+    steps: Schema.Int
+  }),
+  // A run told a teammate something (M12 step 3): its "Team waarschuwen" step, or that it failed.
+  Schema.Struct({
+    type: Schema.Literal("automation.notify"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    kind: Schema.Literals(["alert", "failed"]),
+    automationId: Schema.String,
+    runId: Schema.String,
+    memberIds: Schema.Array(Schema.String),
+    detail: Schema.String
+  }),
   // A ticket comment named teammates with `@` (M11 step 3): each of them hears of it.
   Schema.Struct({
     type: Schema.Literal("ticket.mentioned"),
@@ -273,6 +294,21 @@ export const OutboxEvent = Schema.Union([
     workspaceId: Schema.String,
     userId: Schema.String,
     messageId: Schema.String
+  }),
+  // A chargeback opened (M13 step 3): whoever handles chargebacks hears of it, once one opened by hand has waited out
+  // its undo window; `by` is who opened it (null for a provider's), who does not hear of their own.
+  Schema.Struct({
+    type: Schema.Literal("chargeback.opened"),
+    workspaceId: Schema.String,
+    chargebackId: Schema.String,
+    by: Schema.NullOr(Schema.String)
+  }),
+  // A case's deadline is coming (the hourly sweep, M13 step 3): five days, two days or six hours to go.
+  Schema.Struct({
+    type: Schema.Literal("chargeback.deadline_near"),
+    workspaceId: Schema.String,
+    chargebackId: Schema.String,
+    offset: Schema.Literals(["5d", "2d", "6h"])
   }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.

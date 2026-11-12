@@ -88,6 +88,8 @@ describe("the MCP server", () => {
       "create_ticket",
       "file_proposal",
       "forward_orders",
+      "get_automation",
+      "get_chargeback",
       "get_cost_figures",
       "get_costs",
       "get_order",
@@ -96,6 +98,9 @@ describe("the MCP server", () => {
       "get_return",
       "get_ticket",
       "inspect_return",
+      "list_automation_runs",
+      "list_automations",
+      "list_chargebacks",
       "list_customers",
       "list_forwarding",
       "list_members",
@@ -116,6 +121,7 @@ describe("the MCP server", () => {
       "set_ticket_status",
       "start_return",
       "tag_order",
+      "trigger_automation",
       "update_shipping_address",
       "update_ticket",
       "whoami"
@@ -140,6 +146,11 @@ describe("the MCP server", () => {
         "get_ticket",
         "list_queue",
         "get_proposal",
+        "list_chargebacks",
+        "get_chargeback",
+        "list_automations",
+        "get_automation",
+        "list_automation_runs",
         "get_costs",
         "get_cost_figures"
       ]

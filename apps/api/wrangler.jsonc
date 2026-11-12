@@ -57,6 +57,8 @@
     { "binding": "FORWARD_SEND", "name": "insyte-forward-send", "class_name": "ForwardSendWorkflow" },
     // A return's label from the carrier (M9.2), after the undo window.
     { "binding": "RETURN_LABEL", "name": "insyte-return-label", "class_name": "ReturnLabelWorkflow" },
+    // A flow's run (M12 step 3): its pinned version, step by step.
+    { "binding": "AUTOMATION_RUN", "name": "insyte-automation-run", "class_name": "AutomationRunWorkflow" },
   ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] },
