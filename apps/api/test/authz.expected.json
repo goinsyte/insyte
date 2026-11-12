@@ -1496,5 +1496,40 @@
     "service": "allow",
     "finance": "allow",
     "view": "allow"
+  },
+  "Live.snapshot": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Live.subscribe": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Live.unsubscribe": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Live.pixels": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Live.installPixel": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
   }
 }

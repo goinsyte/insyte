@@ -15,7 +15,9 @@ embedded = false
 # `read_legal_policies`: the first analysis reads the shipping and refund policies (step 8.5).
 # `write_returns`, `write_gift_cards` (step 11.3): a Shopify return approved or declined from Insyte, and a return
 # settled with a gift card. A store connected before approves the new scopes once, on its next visit to the app.
-scopes = "read_orders,write_orders,read_customers,write_customers,read_products,write_products,read_inventory,write_inventory,read_locations,read_fulfillments,write_merchant_managed_fulfillment_orders,read_returns,write_returns,write_draft_orders,write_discounts,write_gift_cards,read_legal_policies"
+# `read_pixels`, `write_pixels`, `read_customer_events` (M14 step 3): Live's Web Pixel (`extensions/insyte-live`),
+# installed per store from Instellingen → Winkels.
+scopes = "read_orders,write_orders,read_customers,write_customers,read_products,write_products,read_inventory,write_inventory,read_locations,read_fulfillments,write_merchant_managed_fulfillment_orders,read_returns,write_returns,write_draft_orders,write_discounts,write_gift_cards,read_legal_policies,read_pixels,write_pixels,read_customer_events"
 
 [auth]
 # Where Shopify sends the operator back after they approve the app: the console's own origin, per stage.

@@ -484,6 +484,8 @@ const ROUTE_AREAS: ReadonlyArray<readonly [string, AreaId, Level]> = [
   ["/chargebacks", "chargebacks", 1],
   ["/automations", "automations", 1],
   ["/analytics", "analytics", 1],
+  // Live shows revenue today and the store's visitors (M14 step 3).
+  ["/live", "analytics", 1],
   ["/data", "data", 1],
   ["/affiliates", "affiliates", 1],
   ["/settings/team", "team", 1],

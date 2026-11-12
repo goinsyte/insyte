@@ -22,6 +22,8 @@ import { withRequestDb } from "./platform/RequestDb.ts"
 // The Durable Object classes this Worker hosts; infra and `wrangler.jsonc` bind them by these names.
 export { RateLimiter } from "./platform/RateLimiter.ts"
 export { RoomDurableObject } from "./platform/Room.ts"
+// The live room per workspace (M14 step 3): storefront visitors in memory.
+export { LiveRoomDurableObject } from "./platform/LiveRoom.ts"
 // The gate per external account (M6.3), and the store backfill's Workflow.
 export { ConnectionGateObject } from "./platform/ConnectionGate.ts"
 export { ShopifyBackfillWorkflow } from "./workflows/ShopifyBackfill.ts"
@@ -102,7 +104,8 @@ export default {
 
 /**
  * On the Worker's own public hostname only the public API, the MCP server and the webhooks answer (M19.2, M19.3,
- * M6.3, M8.3, M8.4): `/v1`, `/mcp`, `/hooks/shopify`, `/hooks/aftership` and `/hooks/supplier/:id`. Everything else (auth, the RPC, the dev routes) is reached through the console's service binding, on the
+ * M6.3, M8.3, M8.4): `/v1`, `/mcp`, `/hooks/shopify`, `/hooks/aftership` and `/hooks/supplier/:id`; and the
+ * storefront's Web Pixel, `/api/public/pixel/:storeId` (M14 step 3). Everything else (auth, the RPC, the dev routes) is reached through the console's service binding, on the
  * console's origin.
  */
 const servedHere = (request: Request): boolean => {
@@ -110,7 +113,7 @@ const servedHere = (request: Request): boolean => {
   if (env.PUBLIC_API_HOST === undefined || url.host !== env.PUBLIC_API_HOST) return true
   return url.pathname === "/mcp" || url.pathname === "/v1" || url.pathname.startsWith("/v1/") ||
     url.pathname === "/hooks/shopify" || url.pathname === "/hooks/aftership" ||
-    url.pathname.startsWith("/hooks/supplier/")
+    url.pathname.startsWith("/hooks/supplier/") || url.pathname.startsWith("/api/public/pixel/")
 }
 
 /**

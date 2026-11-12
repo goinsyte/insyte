@@ -7,6 +7,7 @@ import { FirstAnalysisService } from "@insyte/modules/first-analysis/FirstAnalys
 import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
 import { HomeService } from "@insyte/modules/home/Home"
 import { InboxService } from "@insyte/modules/inbox/Inbox"
+import { LiveService } from "@insyte/modules/live/Live"
 import { MarketingService } from "@insyte/modules/marketing/Marketing"
 import { Landing } from "@insyte/modules/members/Landing"
 import { Members } from "@insyte/modules/members/Members"
@@ -39,6 +40,7 @@ import { FirstAnalysisHandlers } from "./handlers/first-analysis.ts"
 import { ForwardingHandlers } from "./handlers/forwarding.ts"
 import { HomeHandlers } from "./handlers/home.ts"
 import { LandingHandlers } from "./handlers/landing.ts"
+import { LiveHandlers } from "./handlers/live.ts"
 import { MarketingHandlers } from "./handlers/marketing.ts"
 import { MembersHandlers } from "./handlers/members.ts"
 import { NotificationsHandlers } from "./handlers/notifications.ts"
@@ -103,6 +105,7 @@ export const RpcContext = Layer.mergeAll(
   ChatsHandlers.pipe(Layer.provide(Layer.mergeAll(ChatsService.layer, UndoService.layer))),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
   WorkspacesHandlers.pipe(Layer.provide(WorkspaceSettings.layer)),
+  LiveHandlers.pipe(Layer.provide(LiveService.layer)),
   ShellHandlers.pipe(
     Layer.provide(
       Layer.mergeAll(

@@ -5,6 +5,7 @@ import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
 import { HomeRpcs } from "@insyte/api/rpc/HomeRpcs"
+import { LiveRpcs } from "@insyte/api/rpc/LiveRpcs"
 import { MarketingRpcs } from "@insyte/api/rpc/MarketingRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
 import { NotificationsRpcs } from "@insyte/api/rpc/NotificationsRpcs"
@@ -330,7 +331,14 @@ const PAYLOADS: Record<string, unknown> = {
   // The frame and the one search (M5, M11 step 6): every member; a kind or area the role cannot open answers nothing.
   "Shell.frame": { path: "/inbox" },
   "Nav.counts": { area: "tickets" },
-  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] }
+  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] },
+  // Live (M14 step 3): the room at Analyse Bekijken; a store's pixel at Instellingen, installed at Beheren (a store
+  // that does not exist, so nothing is installed).
+  "Live.snapshot": undefined,
+  "Live.subscribe": { tab: "authz-tab-0001" },
+  "Live.unsubscribe": { tab: "authz-tab-0001" },
+  "Live.pixels": undefined,
+  "Live.installPixel": { storeId: "store_none" }
 }
 
 const manifest = [
@@ -357,7 +365,8 @@ const manifest = [
   ...ChatsRpcs.requests.keys(),
   ...NotificationsRpcs.requests.keys(),
   ...SessionRpcs.requests.keys(),
-  ...ShellRpcs.requests.keys()
+  ...ShellRpcs.requests.keys(),
+  ...LiveRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

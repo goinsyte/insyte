@@ -3,6 +3,7 @@ import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
 import { PwnedPasswords } from "@insyte/integrations-better-auth/PwnedPasswords"
 import { PostHogAnalytics } from "@insyte/integrations-posthog/PostHog"
 import { ResendMailer } from "@insyte/integrations-resend/ResendMailer"
+import { LiveService } from "@insyte/modules/live/Live"
 import { QualityLinkService } from "@insyte/modules/quality/Quality"
 import { PortalService } from "@insyte/modules/returns/Portal"
 import type { Mailer } from "@insyte/modules/shared/domain/Mailer"
@@ -16,6 +17,7 @@ import { ConnectRoutes, KlaviyoConnectRoutes, SlackConnectRoutes } from "../tran
 import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { FileRoutes } from "../transports/http/FileRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
+import { PixelRoutes } from "../transports/http/PixelRoutes.ts"
 import { PortalRoutes } from "../transports/http/PortalRoutes.ts"
 import { QualityMediaRoutes } from "../transports/http/QualityMediaRoutes.ts"
 import { RealtimeRoutes } from "../transports/http/RealtimeRoutes.ts"
@@ -48,6 +50,7 @@ import { InvitationLinksLive } from "./InvitationLinks.ts"
 import { KeyHasherLive } from "./KeyHasher.ts"
 import { KlaviyoChoice, MarketingSyncsLive } from "./Klaviyo.ts"
 import { LabelsChoice, ReturnLabelsLive } from "./Labels.ts"
+import { LiveRoomsLive } from "./LiveRooms.ts"
 import { MailerCapture } from "./Mail.ts"
 import { NoteRepliesLive, SlackChoice, WebPushChoice } from "./Notify.ts"
 import { ObservabilityLive } from "./Observability.ts"
@@ -81,6 +84,7 @@ const Transports = Layer.mergeAll(
   FileRoutes,
   PortalRoutes,
   QualityMediaRoutes,
+  PixelRoutes,
   PublicApiRoutes,
   McpRoutes,
   RequestContext,
@@ -130,7 +134,9 @@ export const AppLayer = Transports.pipe(
       Resources.layer,
       StoresService.layer,
       PortalService.layer,
-      QualityLinkService.layer
+      QualityLinkService.layer,
+      // …and the Web Pixel's ingest (M14 step 3).
+      LiveService.layer
     )
   ),
   Layer.provideMerge(WithDbLive),
@@ -169,6 +175,8 @@ export const AppLayer = Transports.pipe(
       IngestQueueLive,
       // …and the first analysis's Workflow (M6.5).
       AnalysesLive,
+      // …and the live rooms (M14 step 3).
+      LiveRoomsLive,
       // …and where one slice's need meets another's use case.
       SliceLinks
     )

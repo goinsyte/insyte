@@ -94,7 +94,9 @@ export const TENANT_TABLES = [
   "notification_settings",
   "notification_deliveries",
   "digests",
-  "push_subscriptions"
+  "push_subscriptions",
+  // Live (M14 step 3): a store's Web Pixel and the hash of its ingest key.
+  "store_pixels"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

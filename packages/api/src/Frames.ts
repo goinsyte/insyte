@@ -1,3 +1,4 @@
+import { LiveEvent, LiveVisitor } from "@insyte/modules/live/domain/Live"
 import { Schema } from "effect"
 
 /*
@@ -82,6 +83,20 @@ export const ChatTyping = Schema.Struct({
   principalId: Schema.String
 })
 
+/**
+ * Who is on the store now (M14 step 3), from the workspace's live room, at most every 500 ms, to the tabs that hold a
+ * `Live.subscribe` lease. ADR-0013's one exception: it carries content, anonymised visitor sessions (a hashed id, a
+ * city and country, a page title, a source), never personal data and never stored.
+ */
+export const LiveVisitors = Schema.Struct({
+  v: Schema.Literal(1),
+  type: Schema.Literal("live.visitors"),
+  upserts: Schema.Array(LiveVisitor),
+  removed: Schema.Array(Schema.String),
+  events: Schema.Array(LiveEvent)
+})
+export type LiveVisitors = typeof LiveVisitors.Type
+
 export const Frame = Schema.Union([
   Hello,
   PresenceFrame,
@@ -89,6 +104,7 @@ export const Frame = Schema.Union([
   NotesChanged,
   JobProgress,
   ChatMessage,
-  ChatTyping
+  ChatTyping,
+  LiveVisitors
 ])
 export type Frame = typeof Frame.Type

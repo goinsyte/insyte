@@ -97,14 +97,19 @@ const MUTATIONS: Record<string, { readonly field?: string; readonly ok: Record<s
   draftOrderCreate: { ok: {} },
   draftOrderComplete: { ok: {} },
   returnApproveRequest: { ok: {} },
-  returnDeclineRequest: { ok: {} }
+  returnDeclineRequest: { ok: {} },
+  // The Live pixel (M14 step 3): created once per store, updated with a new key on a repair.
+  webPixelCreate: { ok: { webPixel: { id: "gid://shopify/WebPixel/1" } } },
+  webPixelUpdate: { ok: { webPixel: { id: "gid://shopify/WebPixel/1" } } }
 }
 
 /** The calls a `noscope-*` shop's token may not make, and the scope each needs. */
 const NEWER_SCOPES: Record<string, string> = {
   giftCardCreate: "write_gift_cards",
   returnApproveRequest: "write_returns",
-  returnDeclineRequest: "write_returns"
+  returnDeclineRequest: "write_returns",
+  webPixelCreate: "write_pixels",
+  webPixelUpdate: "write_pixels"
 }
 
 /** Codes made (gift cards, discounts), draft orders made and what each completed into. */
@@ -164,9 +169,15 @@ const refundsTaken = (key: string) => {
   return refundIds.get(key)!
 }
 
+/** The Live pixel's settings each shop was last given (M14 step 3): a worker test reads the ingest key from here. */
+export const recordedPixelSettings = new Map<string, string>()
+
 const recordedMutation = (shop: string, query: string, variables: Record<string, unknown>): unknown | undefined => {
   const name = Object.keys(MUTATIONS).find((m) => query.includes(`${m}(`))
   if (name === undefined) return undefined
+  if ((name === "webPixelCreate" || name === "webPixelUpdate") && !shop.startsWith("refuse-")) {
+    recordedPixelSettings.set(shop, String((variables["webPixel"] as { settings?: unknown } | undefined)?.settings))
+  }
   const { field = "userErrors", ok } = MUTATIONS[name]!
   const refused = shop.startsWith("refuse-")
   if (refused) return { [name]: { [field]: [{ field: ["id"], message: "Deze bestelling kan niet worden gewijzigd" }] } }
@@ -230,6 +241,9 @@ const recordedQuery = (shop: string, query: string, variables: Record<string, un
   }
   if (query.includes("node(id:")) return { node: nest(shop, String(variables["id"])) }
   if (query.includes("shipsToCountries")) return { shop: { shipsToCountries: RECORDED_SHOP.shipsToCountries } }
+  if (query.includes("primaryDomain")) {
+    return { shop: { primaryDomain: { url: `https://www.${shop.replace(".myshopify.com", "")}.test` } } }
+  }
   if (query.includes("shopPolicies")) return { shop: { shopPolicies: RECORDED_SHOP.shopPolicies } }
   const field = ["products", "customers", "orders"].find((f) => query.includes(`${f}(first:`))!
   const type = field === "products" ? "Product" : field === "customers" ? "Customer" : "Order"

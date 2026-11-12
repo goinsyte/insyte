@@ -6,6 +6,7 @@ import type { BackfillParams } from "../workflows/ShopifyBackfill.ts"
 import type { ShopifyWriteParams } from "../workflows/ShopifyWrite.ts"
 import type { ConnectionGateObject } from "./ConnectionGate.ts"
 import type { IngestMessage } from "./IngestQueue.ts"
+import type { LiveRoomDurableObject } from "./LiveRoom.ts"
 import type { RateLimiter } from "./RateLimiter.ts"
 import type { EventsMessage } from "./Relay.ts"
 import type { RoomDurableObject } from "./Room.ts"
@@ -25,6 +26,8 @@ declare global {
       readonly ROOMS: DurableObjectNamespace<RoomDurableObject>
       /** The gate per external account (M6.3): its token, its bucket; by connection id (`ConnectionGate.ts`). */
       readonly CONNECTION_GATE: DurableObjectNamespace<ConnectionGateObject>
+      /** The live rooms (M14 step 3): one per workspace, `ws:<workspace>`; storefront visitors in memory only. */
+      readonly LIVE: DurableObjectNamespace<LiveRoomDurableObject>
       /** A store's first import (M6.3): one instance per connect (`ShopifyBackfillWorkflow`). */
       readonly SHOPIFY_BACKFILL: Workflow<BackfillParams>
       /** A store's first analysis (M6.5): one instance per analysis (`FirstAnalysisWorkflow`). */
