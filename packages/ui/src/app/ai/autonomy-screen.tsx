@@ -1,20 +1,17 @@
 import { Link, useSearch } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, ArrowUp, Clock, Grid2x2, RotateCcw } from "../../icons"
-import { ReadOnlyNotice } from "../access/route-gate"
-import { useMyName } from "../ask/agent-parts"
+import { ReadOnlyNotice } from "../access/read-only-notice"
 import { PageGuide } from "../common/page-guide"
 import { Notice } from "../developer/bits"
 import { DEFAULT_POLICY, diffPolicy, ENTRY, joinNl, LEVEL_LABEL, NEVER_REACHABLE, type Policy } from "../lib/autonomy"
 import { formatDateTime } from "../lib/format"
 import { euro } from "../lib/permissions"
-import { undoable } from "../lib/undo"
 import { UnsavedBar } from "../settings/form"
 import { SettingCard } from "../settings/setting-card"
-import { useGate } from "../stores/access-store"
-import { useAutonomy, workspaceSpent } from "../stores/autonomy-store"
 import { WELL_BTN } from "../team/bits"
 import { AutonomyMatrix } from "./autonomy-matrix"
+import { useAutonomySource } from "./autonomy-source"
 
 export type AutonomySearch = { actie?: string }
 
@@ -51,14 +48,13 @@ const GUIDE = [
 
 export function AutonomyPage() {
   const search = useSearch({ strict: false }) as AutonomySearch
-  const policy = useAutonomy((s) => s.policy)
-  const version = useAutonomy((s) => s.version)
-  const history = useAutonomy((s) => s.history)
-  const spent = useAutonomy(workspaceSpent)
-  const budget = useAutonomy((s) => s.budget)
-  const gate = useGate("ai.autonomy")
+  // The console's from `Autonomy.get`; the design app's from its store.
+  const source = useAutonomySource()
+  const { policy, version, history, spent, budget } = source
+  // Changed with the ai.autonomy special; the host says whether the viewer has it.
+  const gate = source.gate
   const readOnly = !gate.ok
-  const me = useMyName()
+  const [saving, setSaving] = useState(false)
   const [draft, setDraft] = useState<Policy>(policy)
   const savedKey = JSON.stringify(policy)
   const last = useRef(savedKey)
@@ -82,18 +78,17 @@ export function AutonomyPage() {
     return () => window.clearTimeout(t)
   }, [search.actie])
 
+  // A save that did not go keeps the draft; the host said why.
   function save() {
-    const undo = useAutonomy.getState().savePolicy(draft, me)
-    undoable(
-      `Zelfstandigheid opgeslagen · versie ${version + 1}`,
-      undo,
-      "Vanaf nu werkt Insyte volgens deze regels. Elke wijziging staat in de geschiedenis."
-    )
+    if (saving) return
+    setSaving(true)
+    void source.save(draft).finally(() => setSaving(false))
   }
 
   function restore() {
-    const undo = useAutonomy.getState().savePolicy(DEFAULT_POLICY, me)
-    undoable("Zelfstandigheid staat weer op de standaard", undo, "Alles komt weer eerst als voorstel bij jou.")
+    if (saving) return
+    setSaving(true)
+    void source.restore().finally(() => setSaving(false))
   }
 
   return (
@@ -101,7 +96,16 @@ export function AutonomyPage() {
       {readOnly ? <ReadOnlyNotice reason={gate.reason} /> : null}
       {spent ?
         (
-          <Notice tone="amber" action={<Link to="/settings/ai/limits" className={WELL_BTN}>Limieten openen</Link>}>
+          <Notice
+            tone="amber"
+            action={source.pages.limits ?
+              (
+                <Link to={"/settings/ai/limits" as string} className={WELL_BTN}>
+                  Limieten openen
+                </Link>
+              ) :
+              undefined}
+          >
             <span className="font-medium">Limiet bereikt.</span> {euro(budget.used)} van {euro(budget.limit ?? 0)}{" "}
             deze maand. Tot de maand omslaat of je de limiet verhoogt, komt alles wat Insyte zelf zou doen als voorstel
             bij jou.
@@ -116,7 +120,7 @@ export function AutonomyPage() {
             icon={Grid2x2}
             action={!readOnly && !atDefault ?
               (
-                <button type="button" onClick={restore} className={WELL_BTN}>
+                <button type="button" onClick={restore} disabled={saving} className={WELL_BTN}>
                   <RotateCcw className="size-3.5" strokeWidth={1.75} />
                   Standaard herstellen
                 </button>
@@ -180,13 +184,17 @@ export function AutonomyPage() {
                 </ul>
               )}
           </section>
-          <Link to="/ask/activity" className="px-1 font-medium text-arc-ink text-sm hover:underline">
-            Wat Insyte deed
-          </Link>
+          {source.pages.activity ?
+            (
+              <Link to={"/ask/activity" as string} className="px-1 font-medium text-arc-ink text-sm hover:underline">
+                Wat Insyte deed
+              </Link>
+            ) :
+            null}
         </aside>
       </div>
 
-      <UnsavedBar visible={dirty && !readOnly} onDiscard={() => setDraft(policy)} onSave={save} />
+      <UnsavedBar visible={dirty && !readOnly} onDiscard={() => setDraft(policy)} onSave={save} saving={saving} />
       <PageGuide id="settings.ai.autonomy" title="Zelfstandigheid" steps={GUIDE} />
     </>
   )

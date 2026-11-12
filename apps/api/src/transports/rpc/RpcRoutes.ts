@@ -1,5 +1,6 @@
 import { ConsoleRpcs, RPC_PATH } from "@insyte/api/ConsoleRpcs"
 import { Access } from "@insyte/modules/access/Access"
+import { AgentLogService, AiBudgetService, AutonomyService } from "@insyte/modules/agent/Agent"
 import { ChatsService } from "@insyte/modules/chats/Chats"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
@@ -32,6 +33,7 @@ import { WorkspaceSettings } from "@insyte/modules/workspaces/WorkspaceSettings"
 import { Layer } from "effect"
 import { RpcSerialization } from "effect/rpc"
 import { AccessHandlers } from "./handlers/access.ts"
+import { AgentHandlers } from "./handlers/agent.ts"
 import { ChatsHandlers } from "./handlers/chats.ts"
 import { CommerceHandlers } from "./handlers/commerce.ts"
 import { DeveloperHandlers } from "./handlers/developer.ts"
@@ -100,6 +102,9 @@ export const RpcContext = Layer.mergeAll(
   QueueHandlers.pipe(Layer.provide(QueueService.layer)),
   HomeHandlers.pipe(Layer.provide(HomeService.layer)),
   ProposalsHandlers.pipe(Layer.provide(ProposalsService.layer)),
+  AgentHandlers.pipe(
+    Layer.provide(Layer.mergeAll(AutonomyService.layer, AiBudgetService.layer, AgentLogService.layer))
+  ),
   ChatsHandlers.pipe(Layer.provide(Layer.mergeAll(ChatsService.layer, UndoService.layer))),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
   WorkspacesHandlers.pipe(Layer.provide(WorkspaceSettings.layer)),

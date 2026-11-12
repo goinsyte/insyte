@@ -356,6 +356,30 @@ const actionV1 = (a: ProposalView["action"]) => {
       return { kind: "notify_delayed_order" as const, subject_id: a.orderId }
     case "CreateSupplierTicket":
       return { kind: "create_supplier_ticket" as const, subject_id: a.productId }
+    case "CancelOrder":
+      return { kind: "cancel_order" as const, subject_id: a.orderId }
+    case "RefundOrder":
+      return { kind: "refund_order" as const, subject_id: a.orderId }
+    case "ResolveReturn":
+      return { kind: "resolve_return" as const, subject_id: a.returnId }
+    case "ForwardOrder":
+      return { kind: "forward_orders" as const, subject_id: a.legIds[0] ?? "" }
+    case "SendReturnLabel":
+      return { kind: "send_return_label" as const, subject_id: a.returnId }
+    case "TagOrder":
+      return { kind: "tag_order" as const, subject_id: a.orderId }
+    case "SetOrderNote":
+      return { kind: "set_order_note" as const, subject_id: a.orderId }
+    case "CreateTicket":
+      return { kind: "create_ticket" as const, subject_id: a.related?.id ?? "" }
+    case "UpdateTicket":
+      return { kind: "update_ticket" as const, subject_id: a.ticketId }
+    case "SetTicketStatus":
+      return { kind: "set_ticket_status" as const, subject_id: a.ticketId }
+    case "AssignTicket":
+      return { kind: "assign_ticket" as const, subject_id: a.ticketId }
+    case "CommentTicket":
+      return { kind: "comment_on_ticket" as const, subject_id: a.ticketId }
   }
 }
 

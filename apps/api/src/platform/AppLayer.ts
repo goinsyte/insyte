@@ -169,8 +169,8 @@ export const AppLayer = Transports.pipe(
       IngestQueueLive,
       // …and the first analysis's Workflow (M6.5).
       AnalysesLive,
-      // …and where one slice's need meets another's use case.
-      SliceLinks
+      // …and where one slice's need meets another's use case (a filed plate's return label is Sendcloud's).
+      SliceLinks.pipe(Layer.provide(LabelsChoice))
     )
   ),
   // better-auth, built per request by the auth routes and the session check, over the app's hooks.
@@ -248,7 +248,7 @@ export const SyncLayer = Layer.mergeAll(
   DocumentsChoice,
   FileStoreR2,
   // Where one slice's need meets another's use case: the mirror's followers, a write-back's read again.
-  SliceLinks
+  SliceLinks.pipe(Layer.provide(LabelsChoice))
 )
   .pipe(
     Layer.provideMerge(HyperdriveConnect),

@@ -78,3 +78,11 @@ export const restore: (
   compensation: unknown,
   deps: Parameters<typeof Proposals.restore>[2]
 ) => Effect.Effect<void, Forbidden | NotFound | Conflict | SqlError.SqlError, CurrentPrincipal> = Proposals.restore
+
+/** A plate for what an agent asked first (origin `agent`), on the caller's transaction; its id (M15 step 6). */
+export const proposeIn: (
+  sql: SqlClient.SqlClient,
+  draft: Proposer.Draft
+) => Effect.Effect<string, SqlError.SqlError> = Proposals.proposeIn
+
+export type { Draft as ProposalDraft } from "./use-cases/proposer.ts"

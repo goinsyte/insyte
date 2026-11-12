@@ -216,8 +216,8 @@ const OutboxDue = HttpRouter.add(
 
 /**
  * `POST /api/__dev/undo/age?workspace=<id>&seconds=<n>`: the workspace's undo windows as if `n` seconds had passed, so
- * a test can stand between a toast's eight seconds and a chat card's five minutes without sleeping. Refused in
- * production.
+ * a test can stand between a toast's eight seconds and a chat card's five minutes without sleeping; the agent log's
+ * windows age with them. Refused in production.
  */
 const UndoAge = HttpRouter.add(
   "POST",
@@ -235,7 +235,15 @@ const UndoAge = HttpRouter.add(
         update undo_tokens set expires_at = expires_at - make_interval(secs => ${
         Number.isFinite(seconds) ? seconds : 0
       })
-        where used_at is null returning command`
+        where used_at is null returning command`.pipe(
+        // An agent's action in the log keeps its own five minutes (M15 step 6).
+        Effect.tap(() =>
+          sql`update agent_actions set undo_until = undo_until - make_interval(secs => ${
+            Number.isFinite(seconds) ? seconds : 0
+          })
+              where undo_until is not null`
+        )
+      )
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
     return HttpServerResponse.jsonUnsafe({ aged: aged.length })
   }).pipe(withRequestDb)

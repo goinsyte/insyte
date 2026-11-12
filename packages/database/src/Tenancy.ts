@@ -94,7 +94,13 @@ export const TENANT_TABLES = [
   "notification_settings",
   "notification_deliveries",
   "digests",
-  "push_subscriptions"
+  "push_subscriptions",
+  "agents",
+  "autonomy_policies",
+  "autonomy_policy_versions",
+  "agent_actions",
+  "agent_touchpoints",
+  "ai_budgets"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

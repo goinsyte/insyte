@@ -1,4 +1,5 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { AgentRpcs } from "@insyte/api/rpc/AgentRpcs"
 import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
@@ -330,7 +331,20 @@ const PAYLOADS: Record<string, unknown> = {
   // The frame and the one search (M5, M11 step 6): every member; a kind or area the role cannot open answers nothing.
   "Shell.frame": { path: "/inbox" },
   "Nav.counts": { area: "tickets" },
-  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] }
+  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] },
+  // Insyte AI (M15 step 6): read by every member; a save on a version that is not current is refused as stale (or,
+  // for budgets, a person not in the team), and taking back an action that does not exist is `NotFound`.
+  "Autonomy.get": {},
+  "Autonomy.set": { levels: {}, baseVersion: -1 },
+  "Autonomy.resetDefaults": { baseVersion: -1 },
+  "AiBudget.get": undefined,
+  "AiBudget.setMany": { entries: [{ scope: "mem_none", limit: 10 }] },
+  "AgentLog.list": {},
+  "AgentLog.counts": undefined,
+  "AgentLog.get": { id: "aga_none" },
+  "AgentLog.undo": { id: "aga_none" },
+  "AgentLog.redo": { id: "aga_none" },
+  "AgentLog.compensate": { id: "aga_none" }
 }
 
 const manifest = [
@@ -357,7 +371,8 @@ const manifest = [
   ...ChatsRpcs.requests.keys(),
   ...NotificationsRpcs.requests.keys(),
   ...SessionRpcs.requests.keys(),
-  ...ShellRpcs.requests.keys()
+  ...ShellRpcs.requests.keys(),
+  ...AgentRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {
