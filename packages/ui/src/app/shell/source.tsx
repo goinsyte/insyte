@@ -41,6 +41,16 @@ import type { CreateKind } from "../stores/create-intent";
  * read it through `shell/state.ts` exactly as they read the stores. Records of areas a host does not have yet are
  * empty there, and the frame shows what it shows for an empty workspace.
  */
+/** A mailbox as the inbox's panel lists it, from a host that has them (M11). */
+export type PanelMailbox = {
+	id: string;
+	label: string;
+	live: boolean;
+	logo: { brand: string; name: string };
+	/** Its threads in the inbox. */
+	count: number | undefined;
+};
+
 export interface ShellSource {
 	panel: PanelState;
 	pins: PinsState;
@@ -84,7 +94,11 @@ export interface ShellSource {
 	extensions: ReadonlyArray<Extension>;
 	/** The persona's notifications, minus what their settings keep out of the app. */
 	heardNotes: ReadonlyArray<Note>;
-	inbox: Pick<InboxState, "threads">;
+	/**
+	 * The inbox's threads, for the panel to count; or, from a host that counts on the server, its mailboxes with
+	 * their threads in the inbox, and the panel keeps the server's folder counts.
+	 */
+	inbox: Pick<InboxState, "threads"> & { mailboxes?: ReadonlyArray<PanelMailbox> | undefined };
 	/** What Insyte did, newest first (the agent log's rows). */
 	agentEntries: ReadonlyArray<AgentLogEntry>;
 	/** The forwarding queue's rows as of this minute. */
@@ -139,10 +153,15 @@ export interface ShellSource {
 	>;
 }
 
-/** What the palette lists under Bestellingen and Klanten. */
+/** What the palette lists under Bestellingen, Klanten, Tickets, Inbox and Chats. */
 export type RecordHits = {
 	orders: ReadonlyArray<{ id: string; number: string; customer: string }>;
 	customers: ReadonlyArray<{ id: string; name: string; email: string }>;
+	tickets: ReadonlyArray<{ id: string; number: string; title: string }>;
+	/** Mail threads: the subject and who wrote in. */
+	threads: ReadonlyArray<{ id: string; subject: string; from: string }>;
+	/** Chat messages: the words around the match, where they were said (and by whom), and the address that opens them. */
+	messages: ReadonlyArray<{ id: string; text: string; where: string; href: string }>;
 };
 
 const ShellSourceContext = createContext<ShellSource | null>(null);

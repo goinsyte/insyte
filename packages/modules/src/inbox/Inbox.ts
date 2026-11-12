@@ -4,6 +4,7 @@ import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
 import { Relay } from "../shared/domain/Outbox.ts"
+import type { SearchHit } from "../shared/domain/Search.ts"
 import type {
   AssignInput,
   ComposeInput,
@@ -50,6 +51,8 @@ export class InboxService extends Context.Service<InboxService, {
   /** The area panel's counts, for the frame. */
   readonly counts: Effect.Effect<ThreadCounts, Forbidden, R>
   readonly get: (id: string) => Effect.Effect<ThreadDetail, Forbidden | NotFound, R>
+  /** Matches for `Search.records`; none where the role cannot read the inbox. */
+  readonly search: (q: string, limit: number) => Effect.Effect<ReadonlyArray<SearchHit>, never, R>
   readonly markRead: (input: typeof ReadInput.Type) => Effect.Effect<ThreadChange, Forbidden | NotFound, R>
   readonly star: (input: typeof StarInput.Type) => Effect.Effect<ThreadChange, Forbidden | NotFound, R>
   readonly label: (input: typeof LabelInput.Type) => Effect.Effect<ThreadChange, Forbidden | NotFound, R>
@@ -88,6 +91,7 @@ export class InboxService extends Context.Service<InboxService, {
         list: (input) => run(Threads.list(input)),
         counts: run(Threads.counts()),
         get: (id) => run(Threads.get(id)),
+        search: (q, limit) => run(Threads.search(q, limit)),
         markRead: (input) => run(Commands.markRead(input)),
         star: (input) => run(Commands.star(input)),
         label: (input) => run(Commands.label(input)),

@@ -5,6 +5,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import { excerptOf, likePattern, SearchHit } from "../../shared/domain/Search.ts"
 import {
   type ActionView,
   ChatList,
@@ -405,6 +406,65 @@ export const members = Effect.fn("Chats.members")(function*(conversationId: stri
         order by lower(coalesce(u.name, '')), m.id`
       return new ChatMembers({
         members: rows.map((r) => ({ id: r.id, kind: "member" as const, name: r.name, image: r.image, title: r.title }))
+      })
+    })
+  )
+})
+
+/**
+ * Up to `limit` messages for `Search.records`, newest first, from the conversations the principal may be in (as
+ * `conversationOf` decides: any live channel, a DM only for its two). A deleted message, an archived channel and a DM
+ * between others stay out. The hit is the words around the match, where it was said and by whom, and opens the
+ * conversation on it; an answer kept to its thread opens on the message it answers, which is in the stream.
+ */
+export const search = Effect.fn("Chats.search")(function*(q: string, limit: number) {
+  const allowed = yield* Policy.require("support", 1).pipe(
+    Effect.as(true),
+    Effect.catchTag("Forbidden", () => Effect.succeed(false))
+  )
+  const text = q.trim()
+  if (!allowed || text === "") return [] as Array<SearchHit>
+  const principal = yield* CurrentPrincipal
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const rows = yield* sql<{
+        id: string
+        conversationId: string
+        kind: ConversationRow["kind"]
+        name: string
+        dmName: string | null
+        body: string
+        authorKind: string
+        authorName: string
+        replyTo: string | null
+        alsoInChannel: boolean
+      }>`
+        select m.id, m.conversation_id, c.kind, c.name, m.body, m.author_kind, coalesce(au.name, '') as author_name,
+               m.reply_to, m.also_in_channel,
+               (select coalesce(ou.name, '') from conversation_members x
+                left join members om on om.id = x.principal_id left join auth."user" ou on ou.id = om.user_id
+                where c.kind = 'dm' and x.conversation_id = c.id and x.principal_id <> ${principal.id}
+                limit 1) as dm_name
+        from messages m
+        join conversations c on c.id = m.conversation_id
+        left join conversation_members me on me.conversation_id = c.id and me.principal_id = ${principal.id}
+        left join members am on am.id = m.author_id left join auth."user" au on au.id = am.user_id
+        where c.archived_at is null and (c.kind <> 'dm' or me.principal_id is not null)
+          and m.deleted_at is null and m.body ilike ${likePattern(text)}
+        order by m.created_at desc, m.id desc
+        limit ${limit}`
+      return rows.map((r) => {
+        const where = r.kind === "dm" ? (r.dmName || "Oud-collega") : `#${r.name}`
+        const author = r.authorKind === "insyte" ? "Insyte" : r.authorName || "Oud-collega"
+        const at = r.replyTo !== null && !r.alsoInChannel ? r.replyTo : r.id
+        return new SearchHit({
+          kind: "message",
+          id: r.id,
+          title: excerptOf(r.body, text),
+          subtitle: `${where} · ${author}`,
+          href: `/chats?id=${r.conversationId}&message=${at}`
+        })
       })
     })
   )

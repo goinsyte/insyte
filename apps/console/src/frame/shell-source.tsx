@@ -2,6 +2,7 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { Frame } from "@insyte/api/rpc/ShellRpcs"
 import type { AreaId, Level, RoleDef, SpecialId } from "@insyte/domain/Permissions"
 import type { ChatList } from "@insyte/modules/chats/domain/Chats"
+import type { MailboxView } from "@insyte/modules/inbox/domain/Inbox"
 import { GateRoleProvider } from "@insyte/ui/app/access/gate-role"
 import { panelForPath } from "@insyte/ui/app/lib/app-shell-config"
 import { navByPersona } from "@insyte/ui/app/lib/nav-config"
@@ -9,7 +10,7 @@ import { navActions, navPrefsOf } from "@insyte/ui/app/lib/nav-model"
 import { DEFAULT_PREFS, type Note, type NotifyPrefs } from "@insyte/ui/app/lib/notifications"
 import { withServerCounts } from "@insyte/ui/app/lib/panel-counts"
 import type { Conversation, Member } from "@insyte/ui/app/lib/types/domain"
-import { type ShellSource, ShellSourceProvider } from "@insyte/ui/app/shell/source"
+import { type PanelMailbox, type ShellSource, ShellSourceProvider } from "@insyte/ui/app/shell/source"
 import type { NavState } from "@insyte/ui/app/stores/nav-store"
 import type { PanelState } from "@insyte/ui/app/stores/panel-store"
 import type { PinsState, Shortcut } from "@insyte/ui/app/stores/pins-store"
@@ -21,6 +22,7 @@ import { type ReactNode, useMemo, useRef, useState } from "react"
 import { conversationOf } from "../chats/chat-of.tsx"
 import { chatsAtom } from "../data/chats.ts"
 import { FRAME, frameWrites, inboxAtom, notePrefsAtom, NOTES, presenceAtom, VIEWS, viewsAtom } from "../data/frame.ts"
+import { inboxCountsAtom, mailboxesAtom } from "../data/inbox.ts"
 import { ticketCountsAtom } from "../data/tickets.ts"
 import { notifyPrefsOf } from "../notifications/settings-source.ts"
 import { ConsoleInvite } from "./invite.tsx"
@@ -82,9 +84,10 @@ const NOT_YET: Record<string, string> = {
 
 const NO_COUNTS = Atom.make(AsyncResult.initial<Readonly<Record<string, number>>, never>())
 const NO_CHATS = Atom.make(AsyncResult.initial<ChatList, never>())
+const NO_MAILBOXES = Atom.make(AsyncResult.initial<ReadonlyArray<MailboxView>, never>())
 
 /** What the console makes from the panel's button and the top bar's + menu. */
-const MADE_HERE = new Set(["return", "ticket", "channel", "automation"])
+const MADE_HERE = new Set(["return", "ticket", "channel", "thread", "automation"])
 
 export function ConsoleShellSource({ frame, children }: { frame: Frame; children: ReactNode }) {
   const navigate = useNavigate()
@@ -100,6 +103,26 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   const chats = value(useAtomValue(onChats ? chatsAtom : NO_CHATS))
   const conversations = useMemo<Array<Conversation>>(() => chats?.conversations.map(conversationOf) ?? [], [chats])
   const chatPins = useMemo(() => chats?.conversations.filter((c) => c.pinned).map((c) => c.id) ?? [], [chats])
+  // The inbox panel counts each folder and mailbox from the server, and lists the mailboxes, on the inbox page only
+  // (M11 step 2).
+  const onInbox = useRouterState({ select: (s) => s.location.pathname.startsWith("/inbox") })
+  const inboxCounts = value(useAtomValue(onInbox ? inboxCountsAtom : NO_COUNTS))
+  const mailboxes = value(useAtomValue(onInbox ? mailboxesAtom : NO_MAILBOXES))
+  const panelMailboxes = useMemo<ReadonlyArray<PanelMailbox> | undefined>(
+    () =>
+      mailboxes?.map((m) => ({
+        id: m.id,
+        label: m.label,
+        live: m.status === "connected",
+        logo: m.provider === "forward" ? { brand: "email", name: "E-mail" } : {
+          brand: m.provider,
+          name: m.provider === "gmail" ? "Gmail" : "Outlook"
+        },
+        count: inboxCounts?.[`/inbox?mailbox=${m.id}`]
+      })),
+    [mailboxes, inboxCounts]
+  )
+  const areaCounts = ticketCounts ?? inboxCounts
   const write = {
     setRead: useAtomSet(frameWrites.setRead, { mode: "promiseExit" }),
     recordVisit: useAtomSet(frameWrites.recordVisit, { mode: "promiseExit" }),
@@ -268,7 +291,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     navPrefs: navPrefsOf(navState),
     extensions: NO_ROWS,
     heardNotes: notes.filter((n) => prefs.events[n.event]?.app !== false),
-    inbox: { threads: [] },
+    inbox: { threads: [], mailboxes: onInbox ? panelMailboxes ?? [] : undefined },
     agentEntries: NO_ROWS,
     queueRows: NO_ROWS,
     // Customize waits for Start's board, an app's detail for the marketplace (M17), connecting a store for Shopify (M6).
@@ -283,20 +306,20 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     workspaceName: frame.workspace.name,
     // ADR-0028: the design's demo counts dropped, the server's in their place.
     useRecordSearch: useConsoleRecordSearch,
-    // A return is started from its page (M9.1), a ticket written on the board (M11), a channel in Chats (M11 step 4);
-    // the rest is not made here yet.
+    // A return is started from its page (M9.1), a ticket written on the board (M11), a channel in Chats (M11 step 4), a
+    // mail in the inbox (M11 step 2); the rest is not made here yet.
     unavailable: (kind) => MADE_HERE.has(kind) ? null : NOT_YET[kind] ?? "Dit kan hier nog niet",
     panelFor: (pathname) => {
       const cfg = panelForPath(pathname)
       if (cfg === null) return null
-      // Only a return, a ticket, a channel and an automation are made from the console yet: any other button is off, and says so as its
-      // page does.
+      // Only a return, a ticket, a channel, a mail and an automation are made from the console yet: any other button is
+      // off, and says so as its page does.
       const panel = cfg.cta === undefined
         ? cfg
         : MADE_HERE.has(cfg.cta.create ?? "")
         ? cfg
         : { ...cfg, cta: { ...cfg.cta, unavailable: NOT_YET[cfg.cta.create ?? ""] ?? "Dit kan hier nog niet" } }
-      return withServerCounts(panel, ticketCounts === undefined ? frame.counts : { ...frame.counts, ...ticketCounts })
+      return withServerCounts(panel, areaCounts === undefined ? frame.counts : { ...frame.counts, ...areaCounts })
     },
     automationsPanel: { recommended: 0, ai: 0, Extras: null },
     operator: { products: NO_ROWS, customers: NO_ROWS },

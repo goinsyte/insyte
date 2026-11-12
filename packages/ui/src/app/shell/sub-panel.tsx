@@ -8,8 +8,10 @@ import { useCreateIntent } from "../stores/create-intent";
 import type { Conversation, Ticket, TicketSource } from "../lib/types/domain";
 import { SourceMark } from "../tickets/source-mark";
 import { BrandLogo } from "../marketplace/brand-logos";
+import { MailboxMark } from "../inbox/channel-mark";
 import { MAILBOXES, mailboxStatus, PROVIDER_LABEL } from "../lib/mailboxes";
 import type { ThreadState } from "../stores/inbox-store";
+import type { PanelMailbox } from "./source";
 import type { WorkflowState } from "../automations/node-types";
 import { TEMPLATES } from "../lib/automation-templates";
 import { deriveCustomerStatus } from "../customers/customer-status-badge";
@@ -34,7 +36,7 @@ import type { QueueRow } from "../lib/queue-row";
 import { type ForwardView, inView as forwardInView } from "../lib/forwarding";
 import { type AgentLogEntry, canUndo } from "../lib/agent-log";
 import { ReportSection, ShortcutsSection } from "./panel-shortcuts";
-import { useAgentLogEntries, useAutomationsPanel, useCan, useCanOpen, useChatStore, useCourses, useCurrentRole, useForwardingRows, useInboxThreads, useNotifications, useOperator, usePanel, usePanelFor, useReturns, useSheets, useShellData, useShellSlots, useSupplierOrders, useWorkflows, useWorkspace, useWorkspaceName } from "./state";
+import { useAgentLogEntries, useAutomationsPanel, useCan, useCanOpen, useChatStore, useCourses, useCurrentRole, useForwardingRows, useInboxPanel, useNotifications, useOperator, usePanel, usePanelFor, useReturns, useSheets, useShellData, useShellSlots, useSupplierOrders, useWorkflows, useWorkspace, useWorkspaceName } from "./state";
 
 /**
  * The area panel: 224px of `mist`, adjacent to the rail, carrying where you are.
@@ -66,7 +68,7 @@ export function SubPanel() {
 	const pinnedChats = useChatStore((s) => s.pinned);
 	const tickets = useWorkspace((s) => s.tickets);
 	const integrations = useWorkspace((s) => s.integrations);
-	const threads = useInboxThreads();
+	const { threads, mailboxes: inboxMailboxes } = useInboxPanel();
 	const workflows = useWorkflows();
 	const supplierRows = useSupplierOrders();
 	const orders = useWorkspace((s) => s.orders);
@@ -104,7 +106,7 @@ export function SubPanel() {
 			: base.title === "Tickets"
 				? withTickets(base, tickets, integrations)
 				: base.title === "Inbox"
-					? withInbox(base, threads, integrations)
+					? withInbox(base, threads, integrations, inboxMailboxes)
 					: pathname.startsWith("/supplier/orders")
 						? withSupplierOrders(base, supplierRows)
 						: base.title === "Automatiseringen"
@@ -397,7 +399,9 @@ function withInbox(
 	cfg: SubPanelConfig,
 	threads: ReadonlyArray<ThreadState>,
 	integrations: ReadonlyArray<{ key: string; status: string; syncedAt?: string }>,
+	mailboxes?: ReadonlyArray<PanelMailbox>,
 ): SubPanelConfig {
+	if (mailboxes) return withServerMailboxes(cfg, mailboxes);
 	const open = threads.filter((t) => !t.archived && !t.spam);
 	const counts: Record<string, number> = {
 		all: open.length,
@@ -451,6 +455,35 @@ function withInbox(
 						];
 					}),
 					{ to: "/settings/integrations", label: "Kanaal koppelen", icon: Plus },
+				],
+			},
+			...sections.slice(1),
+		].filter((x): x is NonNullable<typeof x> => x !== undefined),
+	};
+}
+
+/**
+ * Inbox's panel from a host that counts on the server (the console, M11): the folders keep the counts it put in, the
+ * customer agent's views wait for the agent (M15), and Kanalen lists the workspace's own mailboxes.
+ */
+function withServerMailboxes(cfg: SubPanelConfig, mailboxes: ReadonlyArray<PanelMailbox>): SubPanelConfig {
+	const sections = cfg.sections.filter((section) => !section.items.some((item) => item.search?.view !== undefined));
+	return {
+		...cfg,
+		sections: [
+			sections[0],
+			{
+				label: "Kanalen",
+				items: [
+					...mailboxes.map((m) => ({
+						to: "/inbox",
+						label: m.live ? m.label : `${m.label} · offline`,
+						icon: List,
+						mark: <MailboxMark logo={m.logo} />,
+						search: { mailbox: m.id },
+						count: m.count === 0 ? undefined : m.count,
+					})),
+					{ to: "/inbox", label: "Kanaal koppelen", icon: Plus, search: { connect: "mailbox" } },
 				],
 			},
 			...sections.slice(1),

@@ -74,10 +74,12 @@ const searchAtom = Atom.family((key: string) => {
 })
 
 const hitOf = (h: SearchHit): RecordHit => {
-  const ref: ChatRecordRef = { kind: h.kind, id: h.id }
-  if (h.kind === "order") return { ref, kind: h.kind, code: h.title, title: h.subtitle ?? "" }
-  if (h.kind === "customer") return { ref, kind: h.kind, code: h.subtitle ?? h.title, title: h.title }
-  return { ref, kind: h.kind, code: h.subtitle ?? "", title: h.title }
+  // Only the kinds in `SEARCHED` are asked for; a thread or a chat message is not a record card.
+  const kind = h.kind as (typeof SEARCHED)[number]
+  const ref: ChatRecordRef = { kind, id: h.id }
+  if (kind === "order") return { ref, kind, code: h.title, title: h.subtitle ?? "" }
+  if (kind === "customer") return { ref, kind, code: h.subtitle ?? h.title, title: h.title }
+  return { ref, kind, code: h.subtitle ?? "", title: h.title }
 }
 
 /** Without a query the picker mixes kinds rather than showing four orders first, as the design's does. */
