@@ -93,7 +93,8 @@ export const TENANT_TABLES = [
   "attachments",
   "notification_settings",
   "notification_deliveries",
-  "digests"
+  "digests",
+  "push_subscriptions"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

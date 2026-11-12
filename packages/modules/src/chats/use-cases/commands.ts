@@ -436,7 +436,8 @@ export const restore = Effect.fn("Chats.restore")(function*(
       return
     }
     case "action": {
-      const inner = yield* Undo.redeemByHash(sql, r.innerHash)
+      // The card's five minutes govern the command's own eight seconds (`CARD_UNDO_SECONDS`).
+      const inner = yield* Undo.redeemByHash(sql, r.innerHash, { outer: true })
       yield* deps.runInner(inner.command, inner.compensation)
       const [a] = yield* sql<{ messageId: string; conversationId: string }>`
         update chat_actions set state = 'undone', undo_until = null where id = ${r.id} and state = 'done'

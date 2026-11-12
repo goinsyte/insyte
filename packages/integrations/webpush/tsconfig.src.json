@@ -1,0 +1,13 @@
+{
+  // Web push for the API Worker (M11 step 13.5): VAPID and RFC 8291 over WebCrypto, Effect's HttpClient for the send.
+  // Workers and Node both provide both.
+  "extends": "../../../tsconfig.base.json",
+  "include": ["src/**/*.ts"],
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo",
+    "lib": ["ES2023", "DOM"],
+    "types": []
+  }
+}

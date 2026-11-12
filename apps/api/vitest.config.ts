@@ -1,5 +1,18 @@
 import { cloudflareTest } from "@cloudflare/vitest-plugin"
+import { generateKeyPairSync } from "node:crypto"
 import { defineConfig } from "vitest/config"
+
+/** A VAPID key pair made for the run (M11 step 13.5): push is available, and no key is ever committed. */
+const vapid = (() => {
+  const { privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" })
+  const jwk = privateKey.export({ format: "jwk" })
+  const point = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x!, "base64url"), Buffer.from(jwk.y!, "base64url")])
+  return {
+    VAPID_PUBLIC_KEY: point.toString("base64url"),
+    VAPID_PRIVATE_KEY: jwk.d!,
+    VAPID_SUBJECT: "mailto:test@insyte.test"
+  }
+})()
 
 /** The Worker's tests run inside workerd, against `wrangler.jsonc`, through the Worker's own `fetch`. */
 export default defineConfig({
@@ -12,6 +25,9 @@ export default defineConfig({
         bindings: {
           SHOPIFY_ADAPTER: "recorded",
           KLAVIYO_ADAPTER: "recorded",
+          PUSH_ADAPTER: "recorded",
+          SLACK_ADAPTER: "recorded",
+          ...vapid,
           SUPPLIER_API_ADAPTER: "recorded",
           TRACKING_ADAPTER: "recorded",
           LABELS_ADAPTER: "recorded",
