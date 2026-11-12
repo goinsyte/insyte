@@ -32,7 +32,7 @@ import { caseScope, peekNumber, rowsOf } from "./chargebacks.ts"
  * case by hand, its note and its pack take Chargebacks · Bewerken, each with one undo token (`chargebacks.restore`);
  * accepting takes Beheren and cannot be taken back (ADR-0023): the money goes back to the customer, so the console
  * confirms with the cases listed and offers no Undo. Submitting a pack to the provider waits for a payment connection
- * (M13 step 2, `Chargebacks.submit` in 15.4).
+ * (M13 step 2). Gathering a pack is `pack.ts`.
  */
 
 export const RESTORE = "chargebacks.restore"
@@ -44,9 +44,9 @@ interface Locked {
   readonly note: string
 }
 
-const OPEN: ReadonlySet<ChargebackStatus> = new Set(["open", "awaiting_evidence"])
+export const OPEN: ReadonlySet<ChargebackStatus> = new Set(["open", "awaiting_evidence"])
 
-const lock = Effect.fn("Chargebacks.lock")(function*(sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) {
+export const lock = Effect.fn("Chargebacks.lock")(function*(sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) {
   const scope = yield* caseScope(sql)
   const rows = yield* sql<Locked>`
     select c.id, c.case_number, c.status, c.note from chargebacks c
@@ -370,7 +370,14 @@ export const restore = Effect.fn("Chargebacks.restore")(function*(sql: SqlClient
       return
     }
     case "removed": {
-      yield* sql`update evidence_items set removed_at = null where id = ${undo.itemId}`
+      // Not where a later pack gathered the same document again: that one is the pack's now.
+      const back = yield* sql`update evidence_items e set removed_at = null where e.id = ${undo.itemId}
+                 and not exists (select 1 from evidence_items o
+                                 where o.chargeback_id = e.chargeback_id and o.removed_at is null and o.id <> e.id
+                                   and e.source = 'insyte' and o.source = 'insyte'
+                                   and split_part(o.source_ref, ':', 2) = split_part(e.source_ref, ':', 2))
+                 returning e.id`
+      if (back.length === 0) return
       yield* sql`delete from chargeback_events where id = ${undo.eventId}`
       yield* audit(sql, "chargeback.restored", undo.chargebackId)
       return

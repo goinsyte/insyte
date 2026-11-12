@@ -3,8 +3,8 @@ import { Schema } from "effect"
 /*
  * Start's three other views (M10.3b; widgets/02 Part A, "Mijn werk", "Agenda", "Activiteit"): facts from rows, never
  * words. The console writes every sentence, in Dutch, and decides where a row leads. A source the role cannot read
- * contributes nothing; a source whose milestone has not landed (chargebacks M13, automations M12, payouts M13, the
- * digest M11, agent actions M15) is not read here at all. Times are epoch milliseconds; a day is `YYYY-MM-DD` in the
+ * contributes nothing; a source whose milestone has not landed (automations M12, payouts M13, the digest M11, agent
+ * actions M15) is not read here at all. A chargeback's deadline comes through its queue row (M13). Times are epoch milliseconds; a day is `YYYY-MM-DD` in the
  * workspace's timezone.
  */
 

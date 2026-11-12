@@ -6,8 +6,10 @@ import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
 import { FileStore } from "../shared/domain/Documents.ts"
 import { Relay } from "../shared/domain/Outbox.ts"
+import type { SearchHit } from "../shared/domain/Search.ts"
 import type {
   AddEvidenceInput,
+  AssemblePackInput,
   CaseClosed,
   CaseNumberTaken,
   ChargebackChange,
@@ -23,6 +25,7 @@ import type {
 } from "./domain/Chargebacks.ts"
 import * as Read from "./use-cases/chargebacks.ts"
 import * as Commands from "./use-cases/commands.ts"
+import { assemblePack } from "./use-cases/pack.ts"
 import { remindIn } from "./use-cases/reminders.ts"
 import { uploadEvidence } from "./use-cases/upload.ts"
 
@@ -30,9 +33,10 @@ type R = Db | CurrentPrincipal
 type Ids = { readonly ids: ReadonlyArray<string> }
 
 /**
- * The chargebacks slice (M13 step 3, the evidence half of step 4): the cases and their counts and standing, one case
- * with its pack and timeline, a case opened by hand, its note, its pack's files, and accepting cases as lost. Disputes
- * from a payment provider, assembling a pack and submitting it wait for the payment connections (M13 step 2, 15.4).
+ * The chargebacks slice (M13 steps 3 and 4): the cases and their counts and standing, one case with its pack and
+ * timeline, a case opened by hand, its note, its pack's files, Insyte gathering its pack (`EvidencePackWorkflow`),
+ * accepting cases as lost, and the palette's search. Disputes from a payment provider and submitting a pack wait for
+ * the payment connections (M13 step 2).
  *
  * @effect-expect-leaking Db CurrentPrincipal
  */
@@ -57,6 +61,12 @@ export class ChargebacksService extends Context.Service<ChargebacksService, {
   readonly reorderEvidence: (
     input: typeof ReorderEvidenceInput.Type
   ) => Effect.Effect<ChargebackChange, Forbidden | NotFound | CaseClosed | Invalid, R>
+  /** "Bewijspakket samenstellen": a run of the `EvidencePackWorkflow` per case (none for one already gathering). */
+  readonly assemblePack: (
+    input: typeof AssemblePackInput.Type
+  ) => Effect.Effect<ChargebackChange, Forbidden | NotFound | CaseClosed, R>
+  /** The palette's cases: never refuses, answers nothing without Chargebacks · Bekijken. */
+  readonly search: (q: string, limit: number) => Effect.Effect<ReadonlyArray<SearchHit>, never, R>
   /** One file for a case's pack, before `addEvidence` puts it in. */
   readonly upload: (input: {
     readonly chargebackId: string
@@ -94,6 +104,8 @@ export class ChargebacksService extends Context.Service<ChargebacksService, {
         addEvidence: (input) => run(Commands.addEvidence(input)),
         removeEvidence: (input) => run(Commands.removeEvidence(input)),
         reorderEvidence: (input) => run(Commands.reorderEvidence(input)),
+        assemblePack: (input) => run(assemblePack(input)),
+        search: (q, limit) => run(Read.search(q, limit)),
         upload: (input) => run(uploadEvidence(input))
       }
     })
@@ -123,3 +135,6 @@ export const remindWorkspace = (
 
 /** `Shared.undo` for `chargebacks.restore`. */
 export const restore = Commands.restore
+
+/** The `EvidencePackWorkflow`'s steps, as `system` in the case's workspace. */
+export { failPack, finishPack, gatherDocument, planPack } from "./use-cases/pack.ts"

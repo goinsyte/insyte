@@ -17,6 +17,29 @@ const REASON_OF: Record<ReasonCode, Reason> = {
 
 export const reasonOf = (code: ReasonCode): Reason => REASON_OF[code]
 
+/** The dialog's reasons in its words (`REASONS` in the screens' `chargebacks/source.tsx`), for the pack's documents. */
+const REASON_LABEL: Record<ReasonCode, string> = {
+  unauthorized: "Niet-geautoriseerde transactie",
+  not_received: "Niet ontvangen",
+  wrong_item: "Verkeerd artikel verzonden",
+  not_as_described: "Product niet zoals beschreven",
+  refund_requested: "Terugbetaling aangevraagd",
+  service: "Service niet naar tevredenheid",
+  payment_dispute: "Betalingsgeschil"
+}
+
+const NORMALISED_LABEL: Record<Reason, string> = {
+  item_not_received: "Niet ontvangen",
+  not_as_described: "Product niet zoals beschreven",
+  unauthorized: "Niet-geautoriseerde transactie",
+  duplicate: "Dubbele afschrijving",
+  other: "Andere reden"
+}
+
+/** A case's reason as the team reads it: the dialog's words for its code, else the normalised reason's. */
+export const reasonLabel = (code: string, reason: Reason): string =>
+  REASON_LABEL[code as ReasonCode] ?? NORMALISED_LABEL[reason]
+
 /** A case opened by hand has fourteen days for its evidence (domain.md §8). */
 export const MANUAL_DEADLINE_MS = 14 * 86_400_000
 

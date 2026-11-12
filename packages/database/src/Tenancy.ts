@@ -72,6 +72,7 @@ export const TENANT_TABLES = [
   "chargebacks",
   "evidence_items",
   "chargeback_events",
+  "evidence_packs",
   "quality_checks",
   "quality_check_media",
   "product_phases",

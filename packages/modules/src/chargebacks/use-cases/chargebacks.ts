@@ -3,7 +3,7 @@ import { NotFound } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
-import { likePattern } from "../../shared/domain/Search.ts"
+import { likePattern, prefixPattern, SearchHit } from "../../shared/domain/Search.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import {
   ChargebackDetail,
@@ -13,6 +13,7 @@ import {
   ChargebackStats,
   type ChargebackTab,
   type EvidenceItem,
+  type EvidencePack,
   type ListInput
 } from "../domain/Chargebacks.ts"
 import { PROVIDER_NAME } from "../domain/Rules.ts"
@@ -248,6 +249,31 @@ export const timelineOf = (sql: SqlClient.SqlClient, chargebackId: string, provi
       }))
   )
 
+/** The case's pack as the page shows it, or `null` before one was asked for. */
+const packOf = (sql: SqlClient.SqlClient, chargebackId: string) =>
+  Effect.map(
+    sql<{
+      state: EvidencePack["state"]
+      progressDone: number
+      progressTotal: number
+      startedAt: Date
+      readyAt: Date | null
+      narrativeText: string
+      error: string | null
+    }>`select state, progress_done, progress_total, started_at, ready_at, narrative_text, error
+       from evidence_packs where chargeback_id = ${chargebackId}`,
+    ([p]): EvidencePack | null =>
+      p === undefined ? null : {
+        state: p.state,
+        done: p.progressDone,
+        total: p.progressTotal,
+        startedAt: p.startedAt.getTime(),
+        readyAt: ms(p.readyAt),
+        narrative: p.narrativeText,
+        error: p.error
+      }
+  )
+
 export const get = Effect.fn("Chargebacks.get")(function*(id: string) {
   yield* Policy.require("chargebacks", 1)
   const db = yield* Db
@@ -259,6 +285,7 @@ export const get = Effect.fn("Chargebacks.get")(function*(id: string) {
       if (row === undefined) return yield* new NotFound({ entity: "chargeback", id })
       return new ChargebackDetail({
         chargeback: toRow(row),
+        pack: yield* packOf(sql, id),
         evidence: yield* evidenceOf(sql, id),
         timeline: yield* timelineOf(sql, id, row.provider),
         stats: yield* statsOf(sql)
@@ -283,4 +310,43 @@ export const nextCaseNumber = Effect.fn("Chargebacks.nextCaseNumber")(function*(
   yield* Policy.require("chargebacks", 2)
   const db = yield* Db
   return yield* db.scoped((sql) => Effect.map(peekNumber(sql), (n) => ({ caseNumber: `DSP-${n}` })))
+})
+
+/**
+ * The palette's chargebacks (`Search.records`): by case number, the customer's name or the order's number, inside the
+ * role's stores; nothing without Chargebacks · Bekijken, so the search never refuses. A case number that starts with
+ * the text first, then open cases, nearest deadline first.
+ */
+export const search = Effect.fn("Chargebacks.search")(function*(q: string, limit: number) {
+  const allowed = yield* Policy.require("chargebacks", 1).pipe(
+    Effect.as(true),
+    Effect.catchTag("Forbidden", () => Effect.succeed(false))
+  )
+  const text = q.trim()
+  if (!allowed || text === "") return [] as Array<SearchHit>
+  const db = yield* Db
+  const pattern = likePattern(text)
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const scope = yield* caseScope(sql)
+      const rows = yield* sql<{ id: string; caseNumber: string; customerName: string }>`
+        select c.id, c.case_number, coalesce(cu.name, c.customer_name) as customer_name
+        from ${sql.literal(FROM)}
+        where ${scope}
+          and (c.case_number ilike ${pattern} or coalesce(cu.name, c.customer_name) ilike ${pattern}
+               or o.number ilike ${pattern})
+        order by (c.case_number ilike ${prefixPattern(text)}) desc,
+                 (c.status in ('open', 'awaiting_evidence')) desc, c.deadline_at, c.id
+        limit ${limit}`
+      return rows.map((r) =>
+        new SearchHit({
+          kind: "chargeback",
+          id: r.id,
+          title: r.caseNumber,
+          subtitle: r.customerName,
+          href: `/chargebacks/${r.id}`
+        })
+      )
+    })
+  )
 })

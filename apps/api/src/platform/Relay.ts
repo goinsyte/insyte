@@ -1,6 +1,7 @@
 import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
+import { EvidencePacks } from "@insyte/modules/chargebacks/domain/Ports"
 import {
   drainIn,
   drainWorkspace,
@@ -69,6 +70,7 @@ type SinkServices =
   | MarketingSyncs
   | ForwardSends
   | ReturnLabels
+  | EvidencePacks
   | FileStore
   | WebPush
   | Slack
@@ -168,6 +170,8 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
     // A chargeback's note to the team (M13 step 3) is the notifications' business.
     case "chargeback.opened":
     case "chargeback.deadline_near":
+    // Gathering a pack is Insyte's work, not a person's moment.
+    case "chargeback.pack_requested":
     // The delay mail is counted as the filing that put it in line.
     case "order.delay_mail":
       return undefined
@@ -523,6 +527,22 @@ const SINKS: ReadonlyArray<Sink> = [
         ? Effect.flatMap(
           Effect.service(ReturnLabels),
           (labels) => labels.start({ key: `rl-${id}`, workspaceId: event.workspaceId, returnIds: event.returnIds })
+        )
+        : undefined
+  },
+  {
+    // Evidence packs asked for (M13 step 4): one Workflow per case, named by its run.
+    name: "chargebacks",
+    run: (_id, event) =>
+      event.type === "chargeback.pack_requested"
+        ? Effect.forEach(
+          event.packs,
+          (p) =>
+            Effect.flatMap(
+              Effect.service(EvidencePacks),
+              (packs) => packs.start({ workspaceId: event.workspaceId, chargebackId: p.chargebackId, runId: p.runId })
+            ),
+          { discard: true }
         )
         : undefined
   },

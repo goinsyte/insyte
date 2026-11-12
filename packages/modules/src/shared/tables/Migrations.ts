@@ -47,6 +47,7 @@ import authSessionCountry from "./migrations/0053_auth_session_country.ts"
 import sessionEvents from "./migrations/0054_session_events.ts"
 import push from "./migrations/0055_push.ts"
 import disputes from "./migrations/0058_disputes.ts"
+import evidencePacks from "./migrations/0062_evidence_packs.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -103,5 +104,6 @@ export const Migrations = {
   "0053_auth_session_country": authSessionCountry,
   "0054_session_events": sessionEvents,
   "0055_push": push,
-  "0058_disputes": disputes
+  "0058_disputes": disputes,
+  "0062_evidence_packs": evidencePacks
 }

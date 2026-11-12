@@ -151,8 +151,28 @@ export const ChargebackEvent = Schema.Struct({
 })
 export type ChargebackEvent = typeof ChargebackEvent.Type
 
+/**
+ * The pack Insyte gathered for a case (`Chargebacks.assemblePack`): assembling (`done` of `total` documents in), ready,
+ * submitted, or failed with why. Absent until it is first asked for.
+ */
+export const PackState = Schema.Literals(["assembling", "ready", "submitted", "failed"])
+export type PackState = typeof PackState.Type
+
+export const EvidencePack = Schema.Struct({
+  state: PackState,
+  done: Schema.Int,
+  total: Schema.Int,
+  startedAt: Schema.Finite,
+  readyAt: Schema.NullOr(Schema.Finite),
+  /** The account Insyte drafted, as the pack's `narrative` document has it. */
+  narrative: Schema.String,
+  error: Schema.NullOr(Schema.String)
+})
+export type EvidencePack = typeof EvidencePack.Type
+
 export class ChargebackDetail extends Schema.Class<ChargebackDetail>("chargebacks/ChargebackDetail")({
   chargeback: ChargebackRow,
+  pack: Schema.NullOr(EvidencePack),
   /** The pack, in its order. */
   evidence: Schema.Array(EvidenceItem),
   /** Oldest first, as the timeline reads. */
@@ -165,6 +185,11 @@ export class ChargebackDetail extends Schema.Class<ChargebackDetail>("chargeback
 const Ids = Schema.Array(Schema.String).check(Schema.isMinLength(1), Schema.isMaxLength(500))
 export const IdInput = Schema.Struct({ id: Schema.String })
 export const IdsInput = Schema.Struct({ ids: Ids })
+
+/** "Bewijspakket samenstellen" and the selection bar's "Bewijspakketten samenstellen": one Workflow per case. */
+export const AssemblePackInput = Schema.Struct({
+  ids: Schema.Array(Schema.String).check(Schema.isMinLength(1), Schema.isMaxLength(50))
+})
 
 /** "Nieuw bewijspakket": a case opened by hand, in the workspace's currency, its deadline fourteen days out. */
 export const CreateManualInput = Schema.Struct({
