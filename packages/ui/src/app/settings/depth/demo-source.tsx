@@ -30,7 +30,9 @@ export function DemoSettingsDepthSource({ children }: { children: ReactNode }) {
       privacy: state.privacy
     },
     save: (key, next, said, log) => {
-      const changes: ReadonlyArray<FieldChange> = log.changes.length > 0 ? log.changes : [["Instellingen", "", "gewijzigd"]]
+      const changes: ReadonlyArray<FieldChange> = log.changes.length > 0
+        ? log.changes
+        : [["Instellingen", "", "gewijzigd"]]
       const undo = useSettingsDepth.getState().save(key, next, { who: me, ...log, changes })
       undoable(said.label, undo, said.detail)
       return Promise.resolve(true)

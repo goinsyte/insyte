@@ -107,7 +107,13 @@
     // Graduated (08 §3): Beveiliging, wired to Session.* and Workspaces.getSecurity in M3.3.
     "!packages/ui/src/app/settings/security-screen.tsx",
     "!packages/ui/src/app/settings/security-source.tsx",
-    "!packages/ui/src/app/settings/security-demo-source.tsx"
+    "!packages/ui/src/app/settings/security-demo-source.tsx",
+    // Graduated (08 §3): Verzending, Sjablonen, Huisstijl, Btw, Gegevens en privacy and Sneltoetsen, wired to
+    // WorkspaceSettings.* and Retention.* in M17 (step 20.1b). E-mail en domein (20.1c), Logboek and Prullenbak follow.
+    "!packages/ui/src/app/settings/depth/**",
+    "packages/ui/src/app/settings/depth/email-domain-screen.tsx",
+    "packages/ui/src/app/settings/depth/log-screen.tsx",
+    "packages/ui/src/app/settings/depth/trash-screen.tsx"
   ],
   "rules": {
     "no-console": "warn",

@@ -35,4 +35,5 @@ export function useSection<K extends DepthSection>(
   return { saved, draft, setDraft, dirty, discard: () => setDraft(saved), save, canEdit: gate.ok }
 }
 
-export const WELL = "field h-9 w-full rounded-md px-3 text-base text-ink outline-none placeholder:text-ink-3 focus:bg-paper"
+export const WELL =
+  "field h-9 w-full rounded-md px-3 text-base text-ink outline-none placeholder:text-ink-3 focus:bg-paper"
