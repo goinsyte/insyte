@@ -1,12 +1,9 @@
 import { Link } from "@tanstack/react-router"
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../../components/sheet"
 import { ArrowUpRight, Sparkle, X } from "../../icons"
-import { toTokens } from "../lib/analytics/ask"
-import { money } from "../lib/analytics/engine"
-import { COUNTRY_NAME, type HistOrder, REFUND_REASON_LABEL, STORE_NAME } from "../lib/analytics/history"
 import { cn } from "../lib/utils"
-import { useAnalytics } from "../stores/analytics-store"
+import { type DrawerView, type RecordTone, useAnalyticsSource } from "./analytics-source"
 import { Drivers } from "./drivers"
 import { useWriting } from "./writing"
 
@@ -16,12 +13,11 @@ import { useWriting } from "./writing"
  * traceable to where it came from" is kept.
  */
 export function ExplainDrawer() {
-  const e = useAnalytics((s) => s.explaining)
-  const close = useAnalytics((s) => s.explain)
+  const { drawer, closeDrawer } = useAnalyticsSource()
   return (
-    <Sheet open={e !== null} onOpenChange={(v) => !v && close(null)}>
+    <Sheet open={drawer !== null} onOpenChange={(v) => !v && closeDrawer()}>
       <SheetContent side="right" showCloseButton={false} className="w-full gap-0 bg-paper p-0 sm:max-w-[560px]">
-        {e ? <Body key={`${e.title}:${e.value}:${e.compare}`} onClose={() => close(null)} /> : null}
+        {drawer ? <Body key={drawer.key} e={drawer} onClose={closeDrawer} /> : null}
       </SheetContent>
     </Sheet>
   )
@@ -29,13 +25,21 @@ export function ExplainDrawer() {
 
 const PAGE = 40
 
-function Body({ onClose }: { onClose: () => void }) {
-  const e = useAnalytics((s) => s.explaining)!
-  const tokens = useMemo(() => toTokens(e.text), [e.text])
-  const { phase, shown } = useWriting(`explain:${e.title}:${e.value}:${e.compare}`, 1, tokens.length)
+const words = (text: string) => text.split(/(\s+)/).filter((w) => w !== "")
+
+const TONE: Record<RecordTone, string> = {
+  red: "text-signal-red",
+  amber: "text-signal-amber",
+  muted: "text-ink-3",
+  plain: "text-ink-2"
+}
+
+function Body({ e, onClose }: { e: DrawerView; onClose: () => void }) {
+  const tokens = useMemo(() => words(e.text ?? ""), [e.text])
+  const { phase, shown } = useWriting(`explain:${e.key}`, 1, tokens.length)
   const writing = phase !== "done"
-  const [limit, setLimit] = useState(PAGE)
-  const rows = useMemo(() => [...e.records].sort((a, b) => b.at.localeCompare(a.at)), [e.records])
+  const rows = e.records ?? []
+  const rest = e.total - rows.length
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -60,84 +64,103 @@ function Body({ onClose }: { onClose: () => void }) {
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-5 pb-6">
-        <section className="flex gap-3 rounded-lg bg-arc-tint/50 p-3.5">
-          <Sparkle className="mt-0.5 size-4 shrink-0 text-arc-ink" strokeWidth={1.75} />
-          <p className="text-base text-ink leading-relaxed">
-            {phase === "thinking" ? <span className="ask-shimmer">De regels lezen</span> : (
-              <>
-                {tokens.slice(0, shown).map((t, i) =>
-                  // biome-ignore lint/suspicious/noArrayIndexKey: an append-only stream of one paragraph
-                  "t" in t
-                    ? <span key={i} className={writing && i >= shown - 6 ? "ask-word" : undefined}>{t.t}</span>
-                    : null
-                )}
-                {writing ? <span aria-hidden className="ask-caret" /> : null}
-              </>
-            )}
-          </p>
-        </section>
+        {e.failed ?
+          (
+            <section role="alert" className="flex flex-col items-start gap-3 rounded-lg bg-mist p-3.5">
+              <p className="text-base text-ink-2">Dit kon niet worden gelezen.</p>
+              <button
+                type="button"
+                onClick={e.failed.retry}
+                className="field flex h-9 w-fit cursor-pointer items-center rounded-md px-3 font-medium text-base text-ink hover:field-hover"
+              >
+                Opnieuw proberen
+              </button>
+            </section>
+          ) :
+          (
+            <section className="flex gap-3 rounded-lg bg-arc-tint/50 p-3.5">
+              <Sparkle className="mt-0.5 size-4 shrink-0 text-arc-ink" strokeWidth={1.75} />
+              <p className="text-base text-ink leading-relaxed">
+                {e.text === null || phase === "thinking" ?
+                  <span className="ask-shimmer">De regels lezen</span> :
+                  (
+                    <>
+                      {tokens.slice(0, shown).map((t, i) => (
+                        // An append-only stream of one paragraph.
+                        <span key={i} className={writing && i >= shown - 6 ? "ask-word" : undefined}>{t}</span>
+                      ))}
+                      {writing ? <span aria-hidden className="ask-caret" /> : null}
+                    </>
+                  )}
+              </p>
+            </section>
+          )}
 
         {e.drivers.length > 0 ?
           (
             <section className="flex flex-col gap-2">
               <h3 className="font-medium text-ink-3 text-xs">Wat erachter zit</h3>
-              <Drivers drivers={e.drivers} unit={e.unit} />
+              <Drivers drivers={e.drivers} />
             </section>
           ) :
           null}
 
-        {rows.length > 0 ?
+        {e.total > 0 ?
           (
             <section className="flex flex-col gap-2">
               <h3 className="flex items-baseline gap-2 font-medium text-ink-3 text-xs">
                 De bestellingen die meetellen
-                <span className="tabular-nums">{rows.length.toLocaleString("nl-NL")}</span>
+                <span className="tabular-nums">{e.total.toLocaleString("nl-NL")}</span>
               </h3>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-ink-3 text-xs">
-                    <th className="pb-1.5 font-medium">Bestelling</th>
-                    <th className="pb-1.5 font-medium">Product</th>
-                    <th className="pb-1.5 font-medium">Waar</th>
-                    <th className="pb-1.5 font-medium">Wat er gebeurde</th>
-                    <th className="pb-1.5 text-right font-medium">Totaal</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.slice(0, limit).map((o) => (
-                    <tr key={o.id} className="shadow-[inset_0_1px_0_color-mix(in_oklch,var(--ink)_7%,transparent)]">
-                      <td className="py-1.5 pr-2 align-top">
-                        <span className="flex flex-col">
-                          <span className="font-medium text-ink tabular-nums">{o.number}</span>
-                          <span className="text-ink-3 text-xs tabular-nums">{dayLabel(o.day)}</span>
-                        </span>
-                      </td>
-                      <td className="max-w-[9rem] truncate py-1.5 pr-2 align-top text-ink-2">
-                        {o.qty > 1 ? `${o.qty} × ` : ""}
-                        {o.title}
-                      </td>
-                      <td className="py-1.5 pr-2 align-top text-ink-2">
-                        <span className="flex flex-col">
-                          <span>{COUNTRY_NAME[o.country]}</span>
-                          <span className="text-ink-3 text-xs">{STORE_NAME[o.store]}</span>
-                        </span>
-                      </td>
-                      <td className="py-1.5 pr-2 align-top">
-                        <Outcome o={o} />
-                      </td>
-                      <td className="py-1.5 text-right align-top text-ink tabular-nums">{money(o.total)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {rows.length > limit ?
+              {e.records === null ?
+                <p className="ask-shimmer text-sm">De bestellingen lezen</p> :
+                (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-ink-3 text-xs">
+                        <th className="pb-1.5 font-medium">Bestelling</th>
+                        <th className="pb-1.5 font-medium">Product</th>
+                        <th className="pb-1.5 font-medium">Waar</th>
+                        <th className="pb-1.5 font-medium">Wat er gebeurde</th>
+                        <th className="pb-1.5 text-right font-medium">Totaal</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((o) => (
+                        <tr key={o.id} className="shadow-[inset_0_1px_0_color-mix(in_oklch,var(--ink)_7%,transparent)]">
+                          <td className="py-1.5 pr-2 align-top">
+                            <span className="flex flex-col">
+                              <span className="font-medium text-ink tabular-nums">{o.number}</span>
+                              <span className="text-ink-3 text-xs tabular-nums">{o.day}</span>
+                            </span>
+                          </td>
+                          <td className="max-w-[9rem] truncate py-1.5 pr-2 align-top text-ink-2">{o.item}</td>
+                          <td className="py-1.5 pr-2 align-top text-ink-2">
+                            <span className="flex flex-col">
+                              <span>{o.country}</span>
+                              <span className="text-ink-3 text-xs">{o.store}</span>
+                            </span>
+                          </td>
+                          <td className="py-1.5 pr-2 align-top">
+                            <span className={cn("whitespace-nowrap", TONE[o.tone])}>{o.outcome}</span>
+                          </td>
+                          <td className="py-1.5 text-right align-top text-ink tabular-nums">{o.total}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              {e.more && rest > 0 ?
                 (
                   <button
                     type="button"
-                    onClick={() => setLimit((n) => n + PAGE)}
-                    className="h-8 cursor-pointer self-start rounded-md px-2.5 font-medium text-arc-ink text-sm hover:bg-arc-tint"
+                    disabled={e.more.loading}
+                    onClick={e.more.load}
+                    className="h-8 cursor-pointer self-start rounded-md px-2.5 font-medium text-arc-ink text-sm hover:bg-arc-tint disabled:cursor-default disabled:opacity-60"
                   >
-                    Nog {Math.min(PAGE, rows.length - limit)} van {(rows.length - limit).toLocaleString("nl-NL")} tonen
+                    {e.more.loading ?
+                      "Bestellingen lezen" :
+                      `Nog ${Math.min(PAGE, rest)} van ${rest.toLocaleString("nl-NL")} tonen`}
                   </button>
                 ) :
                 null}
@@ -150,7 +173,7 @@ function Body({ onClose }: { onClose: () => void }) {
         (
           <footer className="flex justify-end bg-mist px-5 py-3">
             <Link
-              to={e.open.to}
+              to={e.open.to as never}
               search={e.open.search as never}
               onClick={onClose}
               className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3.5 font-medium text-base text-mesh-ink shadow-primary hover:bg-abyss-2"
@@ -163,23 +186,4 @@ function Body({ onClose }: { onClose: () => void }) {
         null}
     </div>
   )
-}
-
-const dayLabel = (d: string) =>
-  new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short", timeZone: "UTC" }).format(
-    new Date(`${d}T12:00:00Z`)
-  )
-
-function Outcome({ o }: { o: HistOrder }) {
-  const late = o.took !== undefined ? o.took - o.promised : 0
-  const [label, tone] = o.status === "refunded"
-    ? [`Terugbetaald · ${o.refundReason ? REFUND_REASON_LABEL[o.refundReason] : ""}`, "text-signal-red"]
-    : o.status === "cancelled"
-    ? ["Geannuleerd", "text-ink-3"]
-    : o.status === "in_transit"
-    ? ["Onderweg", "text-ink-2"]
-    : late > 0
-    ? [`${late} ${late === 1 ? "dag" : "dagen"} te laat`, "text-signal-amber"]
-    : ["Op tijd", "text-ink-2"]
-  return <span className={cn("whitespace-nowrap", tone)}>{label}</span>
 }

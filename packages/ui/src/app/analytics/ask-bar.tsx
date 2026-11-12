@@ -1,88 +1,18 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { useState } from "react"
-import { ArrowUpRight, CornerDownLeft, X } from "../../icons"
-import { Answer, FollowUps, InsyteMark, Thinking } from "../ask/parts"
-import { ask, type AskAnswer, SUGGESTED } from "../lib/analytics/ask"
-import type { Span } from "../lib/analytics/engine"
+import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import { ArrowUpRight, X } from "../../icons"
+import { Answer, FollowUps, Thinking } from "../ask/parts"
+import { type AnswerChart, ask, type AskAnswer } from "../lib/analytics/ask"
+import { money, type Span } from "../lib/analytics/engine"
 import { useAnalytics } from "../stores/analytics-store"
-import { AnswerBars } from "./charts"
+import { anim, AXIS, ClientChart, num, Tip } from "./charts"
 import { useWriting } from "./writing"
 
 /**
- * Ask about the numbers: one field, and the answers it gets. Starting questions show only while
- * the field has focus; an answer is written out with its own chart and the orders behind it,
- * computed from the same rows as everything else on the page. The field and the answers are
- * separate so the field can sit in the sidebar while answers land in the reading column.
+ * The design app's answers: each written out with its own chart and the orders behind it, computed
+ * from the same rows as everything else on the page (`lib/analytics/ask`).
  */
-export function AskField({ onAsk }: { onAsk: (q: string) => void }) {
-  const [q, setQ] = useState("")
-  const [focused, setFocused] = useState(false)
-
-  function submit(text: string) {
-    const t = text.trim()
-    if (!t) return
-    onAsk(t)
-    setQ("")
-  }
-
-  return (
-    <div className="relative">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          submit(q)
-        }}
-        className="field flex h-10 items-center gap-2.5 rounded-lg pr-1 pl-2 focus-within:bg-paper focus-within:ring-2 focus-within:ring-arc/25"
-      >
-        <InsyteMark size={22} />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          placeholder="Vraag iets over deze cijfers"
-          aria-label="Vraag iets over deze cijfers"
-          className="min-w-0 flex-1 bg-transparent text-ink text-sm outline-none placeholder:text-ink-3"
-        />
-        {q.trim() ?
-          (
-            <button
-              type="submit"
-              aria-label="Vragen"
-              className="flex size-8 cursor-pointer items-center justify-center rounded-md bg-abyss text-mesh-ink hover:bg-abyss-2"
-            >
-              <CornerDownLeft className="size-3.5" strokeWidth={2} />
-            </button>
-          ) :
-          null}
-      </form>
-      {focused && !q ?
-        (
-          <ul
-            aria-label="Vragen om mee te beginnen"
-            className="panel-raised absolute top-full right-0 left-0 z-20 mt-1.5 flex w-[min(320px,calc(100vw-2rem))] flex-col rounded-xl p-1.5"
-          >
-            {SUGGESTED.map((s) => (
-              <li key={s}>
-                <button
-                  type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    submit(s)
-                  }}
-                  className="flex min-h-8 w-full cursor-pointer items-center rounded-md px-2.5 py-1.5 text-left text-ink-2 text-sm hover:bg-ink/5 hover:text-ink"
-                >
-                  {s}
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) :
-        null}
-    </div>
-  )
-}
-
 export function useAnswers(A: Span, B: Span) {
   const [answers, setAnswers] = useState<AskAnswer[]>([])
   return {
@@ -177,5 +107,46 @@ function AnswerBlock({ a, onAsk, onDismiss }: { a: AskAnswer; onAsk: (q: string)
         ) :
         null}
     </motion.article>
+  )
+}
+
+/* ── An answer's chart ──────────────────────────────────────────────────────────────────────── */
+
+function AnswerBars({ chart }: { chart: AnswerChart }) {
+  const still = useReducedMotion()
+  const fmt = (v: number) =>
+    chart.unit === "$" ? money(v) : chart.unit === "%" ? `${num(v)}%` : chart.unit === "h" ? `${num(v)} u` : num(v)
+  const two = chart.rows.some((r) => r.b !== undefined)
+  return (
+    <div style={{ height: 16 + chart.rows.length * (two ? 30 : 24) }}>
+      <ClientChart>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={chart.rows}
+            layout="vertical"
+            margin={{ top: 0, right: 8, left: 0, bottom: 0 }}
+            barGap={2}
+            barCategoryGap="24%"
+          >
+            <XAxis type="number" hide />
+            <YAxis type="category" dataKey="label" {...AXIS} width={132} />
+            <Tooltip
+              cursor={{ fill: "color-mix(in oklch, var(--ink) 4%, transparent)" }}
+              content={(p) => (
+                <Tip
+                  {...p}
+                  rows={(pl) =>
+                    pl.map((
+                      x
+                    ) => [x.dataKey === "a" ? chart.legend[0] : (chart.legend[1] ?? ""), fmt(Number(x.value))])}
+                />
+              )}
+            />
+            {two ? <Bar dataKey="b" fill="var(--ink-5)" radius={2} {...anim(still)} /> : null}
+            <Bar dataKey="a" fill="var(--arc)" radius={2} {...anim(still)} />
+          </BarChart>
+        </ResponsiveContainer>
+      </ClientChart>
+    </div>
   )
 }

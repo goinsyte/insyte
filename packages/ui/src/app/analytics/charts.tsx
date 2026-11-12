@@ -13,69 +13,37 @@ import {
   XAxis,
   YAxis
 } from "recharts"
-import type { AnswerChart } from "../lib/analytics/ask"
-import {
-  daily,
-  dec1,
-  isLate,
-  leadTimes,
-  metrics,
-  money,
-  num,
-  pct,
-  round1,
-  type Span,
-  WEEKDAYS
-} from "../lib/analytics/engine"
-import {
-  COUNTRY_NAME,
-  DISPUTE_REASON_LABEL,
-  type DisputeReason,
-  type HistOrder,
-  HISTORY,
-  REFUND_REASON_LABEL,
-  type RefundReason,
-  STORE_NAME,
-  TICKET_TOPIC_LABEL
-} from "../lib/analytics/history"
 import { cn } from "../lib/utils"
 import { ChartBones } from "../loading/page-skeletons"
 import { Stream } from "../loading/stream"
-import { useAnalytics } from "../stores/analytics-store"
+import { type ReasonView, useAnalyticsSource } from "./analytics-source"
 
 /**
  * The charts a finding carries. Bare — no card, no title, no legend beyond what a dashed line
- * needs — because the sentence above each one is its title. Every mark opens the drawer.
+ * needs — because the sentence above each one is its title. Every mark opens the drawer. What
+ * they draw is the source's (`analytics-source.tsx`); until it is read, the gridlines stand in.
  */
 
-const AXIS = { tick: { fontSize: 12, fill: "var(--ink-3)" }, tickLine: false, axisLine: false } as const
-const anim = (still: boolean | null) => ({
+export const AXIS = { tick: { fontSize: 12, fill: "var(--ink-3)" }, tickLine: false, axisLine: false } as const
+export const anim = (still: boolean | null) => ({
   isAnimationActive: !still,
   animationDuration: 600,
   animationEasing: "ease-out" as const
 })
-const dayName = (s: Span, d: number) => `${d} ${s.abbr}`
-const kilo = (v: unknown) => {
-  const n = Number(v) / 1000
-  return `$${Number.isInteger(n) ? n : dec1(n)}k`
-}
-const cap = (x: string) => x.charAt(0).toUpperCase() + x.slice(1)
-function by<T>(xs: T[], key: (x: T) => string) {
-  const g = new Map<string, T[]>()
-  for (const x of xs) g.set(key(x), [...(g.get(key(x)) ?? []), x])
-  return g
-}
+export const num = (n: number) => n.toLocaleString("nl-NL", { maximumFractionDigits: 1 })
 
-function Tip({
+type Payload = ReadonlyArray<{ value?: unknown; dataKey?: unknown }>
+
+export function Tip({
   active,
   payload,
   label,
   rows
 }: {
   active?: boolean
-  payload?: ReadonlyArray<{ value?: unknown; dataKey?: unknown }>
+  payload?: Payload
   label?: unknown
-  rows: (p: ReadonlyArray<{ value?: unknown; dataKey?: unknown }>) => Array<[string, string]>
+  rows: (p: Payload) => Array<[string, string]>
 }) {
   if (!active || !payload || payload.length === 0) return null
   return (
@@ -93,47 +61,27 @@ function Tip({
 
 /* ── Revenue by day ─────────────────────────────────────────────────────────────────────────── */
 
-export function RevenueChart({ A, B }: { A: Span; B: Span }) {
+export function RevenueChart() {
   const still = useReducedMotion()
-  const explain = useAnalytics((s) => s.explain)
+  const { A, B, charts, money, kilo, openDay } = useAnalyticsSource()
+  const dayName = (d: number) => `${d} ${A.abbr}`
   const data = useMemo(
-    () => daily(A, B).map((p) => ({ ...p, low: p.band?.[0], spread: p.band ? p.band[1] - p.band[0] : undefined })),
-    [A, B]
+    () =>
+      (charts.daily ?? []).map((p) => ({
+        ...p,
+        label: String(p.day),
+        low: p.band?.[0],
+        spread: p.band ? p.band[1] - p.band[0] : undefined
+      })),
+    [charts.daily]
   )
+  if (charts.daily === null) return <Bones height={200} />
   const forecast = data.some((p) => p.forecast !== undefined && p.revenue === null)
 
   function open(i: number) {
     const p = data[i]
     if (!p || p.revenue === null) return
-    const on = (s: Span) => (o: HistOrder) => o.day === `${s.month}-${String(p.day).padStart(2, "0")}`
-    const oa = metrics(A).counted.filter(on(A))
-    const ob = metrics(B).counted.filter(on(B))
-    const va = oa.reduce((n, o) => n + o.total, 0)
-    const vb = ob.reduce((n, o) => n + o.total, 0)
-    const ga = by(oa, (o) => o.store)
-    const gb = by(ob, (o) => o.store)
-    const drivers = [...new Set([...ga.keys(), ...gb.keys()])]
-      .map((k) => ({
-        label: STORE_NAME[k] ?? k,
-        value: Math.round(
-          (ga.get(k) ?? []).reduce((n, o) => n + o.total, 0) - (gb.get(k) ?? []).reduce((n, o) => n + o.total, 0)
-        )
-      }))
-      .sort((x, y) => Math.abs(y.value) - Math.abs(x.value))
-    explain({
-      title: `Omzet op ${dayName(A, p.day)}`,
-      value: money(va),
-      compare: `tegenover ${money(vb)} op ${dayName(B, p.day)}`,
-      text: `${oa.length} ${oa.length === 1 ? "betaalde bestelling bracht" : "betaalde bestellingen brachten"} op ${
-        dayName(A, p.day)
-      } ${money(va)} op, ${dec1(Math.abs(pct(va, vb)))}% ${
-        pct(va, vb) >= 0 ? "meer" : "minder"
-      } dan op dezelfde dag in ${B.label}.`,
-      drivers,
-      unit: "$",
-      records: oa,
-      open: { label: "Bestellingen openen", to: "/orders" }
-    })
+    openDay(p.day)
   }
 
   return (
@@ -159,24 +107,22 @@ export function RevenueChart({ A, B }: { A: Span; B: Span }) {
                 {...AXIS}
                 interval="preserveStartEnd"
                 minTickGap={48}
-                tickFormatter={(v) => dayName(A, Number(v))}
+                tickFormatter={(v) => dayName(Number(v))}
               />
-              <YAxis {...AXIS} width={44} tickFormatter={kilo} />
+              <YAxis {...AXIS} width={44} tickFormatter={(v) => kilo(Number(v))} />
               <Tooltip
                 cursor={{ stroke: "var(--arc)", strokeWidth: 1, strokeDasharray: "3 3" }}
                 content={(p) => (
                   <Tip
                     {...p}
-                    label={dayName(A, Number(p.label))}
+                    label={dayName(Number(p.label))}
                     rows={(pl) =>
                       pl
                         .filter((x) =>
                           (x.dataKey === "revenue" || x.dataKey === "revenuePrev" || x.dataKey === "forecast") &&
                           typeof x.value === "number"
                         )
-                        .map((
-                          x
-                        ) => [
+                        .map((x) => [
                           x.dataKey === "revenue" ? A.short : x.dataKey === "forecast" ? "Schatting" : B.short,
                           money(Number(x.value))
                         ])}
@@ -248,39 +194,21 @@ export function RevenueChart({ A, B }: { A: Span; B: Span }) {
 const LT_MIN = -3
 const LT_MAX = 7
 const hash = (s: string) => [...s].reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 7)
+const ltX = (v: number) => ((Math.max(LT_MIN, Math.min(LT_MAX, v)) - LT_MIN) / (LT_MAX - LT_MIN)) * 100
 
 /** Every delivered parcel as a dot, by how early or late it was, one row per supplier. */
-export function LeadTimeChart({ A, lit }: { A: Span; lit?: string }) {
-  const explain = useAnalytics((s) => s.explain)
-  const rows = useMemo(() => leadTimes(A), [A])
-  const x = (v: number) => ((Math.max(LT_MIN, Math.min(LT_MAX, v)) - LT_MIN) / (LT_MAX - LT_MIN)) * 100
+export function LeadTimeChart({ lit }: { lit?: string | undefined }) {
+  const { charts, openSupplier } = useAnalyticsSource()
+  if (charts.leadTimes === null) return <Bones height={120} />
   return (
     <figure className="flex flex-col gap-0.5">
-      {rows.map((r) => {
-        const sample = r.rows.filter((o) => hash(o.id) % Math.max(1, Math.ceil(r.rows.length / 240)) === 0)
+      {charts.leadTimes.map((r) => {
         const on = lit === undefined || lit === r.key
         return (
           <button
             key={r.key}
             type="button"
-            onClick={() => {
-              const late = r.rows.filter(isLate)
-              const g = by(late, (o) => o.country)
-              explain({
-                title: `${r.label}, te late pakketten`,
-                value: `${num(round1((late.length / r.rows.length) * 100))}%`,
-                compare: `van ${r.rows.length.toLocaleString("nl-NL")} bezorgd in ${A.label}`,
-                text: `${late.length} van de ${
-                  r.rows.length.toLocaleString("nl-NL")
-                } pakketten van ${r.label} kwamen na de beloofde datum aan.`,
-                drivers: [...g].map(([c, xs]) => ({
-                  label: COUNTRY_NAME[c as keyof typeof COUNTRY_NAME],
-                  value: xs.length
-                })).sort((p, q) => q.value - p.value),
-                unit: "orders",
-                records: late
-              })
-            }}
+            onClick={() => openSupplier(r.key)}
             className="group grid cursor-pointer grid-cols-[6.5rem_minmax(0,1fr)_3rem] items-center gap-3 rounded-md py-1.5 text-left sm:grid-cols-[9rem_minmax(0,1fr)_3.5rem]"
           >
             <span className={cn("truncate text-sm", on ? "text-ink" : "text-ink-2")}>{r.label}</span>
@@ -290,9 +218,8 @@ export function LeadTimeChart({ A, lit }: { A: Span; lit?: string }) {
                 on ? "opacity-100" : "opacity-35"
               )}
             >
-              <span aria-hidden className="absolute top-0 bottom-0 w-px bg-ink/30" style={{ left: `${x(0)}%` }} />
-              {sample.map((o) => {
-                const d = o.took! - o.promised
+              <span aria-hidden className="absolute top-0 bottom-0 w-px bg-ink/30" style={{ left: `${ltX(0)}%` }} />
+              {r.dots.map((o) => {
                 const jx = (hash(o.id) % 100) / 100
                 const jy = (hash(`${o.id}y`) % 100) / 100
                 return (
@@ -301,9 +228,9 @@ export function LeadTimeChart({ A, lit }: { A: Span; lit?: string }) {
                     aria-hidden
                     className={cn(
                       "absolute size-1.5 rounded-full",
-                      d > 1 ? "bg-signal-red/70" : d > 0 ? "bg-signal-amber/70" : "bg-ink/18"
+                      o.d > 1 ? "bg-signal-red/70" : o.d > 0 ? "bg-signal-amber/70" : "bg-ink/18"
                     )}
-                    style={{ left: `calc(${x(d + (jx - 0.5) * 0.8)}% - 3px)`, top: `${4 + jy * 22}px` }}
+                    style={{ left: `calc(${ltX(o.d + (jx - 0.5) * 0.8)}% - 3px)`, top: `${4 + jy * 22}px` }}
                   />
                 )
               })}
@@ -311,10 +238,10 @@ export function LeadTimeChart({ A, lit }: { A: Span; lit?: string }) {
             <span
               className={cn(
                 "text-right text-sm tabular-nums",
-                r.late / r.rows.length > 0.1 ? "font-medium text-signal-red" : "text-ink-2"
+                r.late > 10 ? "font-medium text-signal-red" : "text-ink-2"
               )}
             >
-              {num(round1((r.late / r.rows.length) * 100))}%
+              {num(r.late)}%
             </span>
           </button>
         )
@@ -323,7 +250,7 @@ export function LeadTimeChart({ A, lit }: { A: Span; lit?: string }) {
         <span />
         <span className="relative h-4">
           {[-2, 0, 2, 4, 6].map((d) => (
-            <span key={d} className="absolute -translate-x-1/2 tabular-nums" style={{ left: `${x(d)}%` }}>
+            <span key={d} className="absolute -translate-x-1/2 tabular-nums" style={{ left: `${ltX(d)}%` }}>
               {d === 0 ? "beloofd" : d > 0 ? `+${d}d` : `${d}d`}
             </span>
           ))}
@@ -339,24 +266,21 @@ export function LeadTimeChart({ A, lit }: { A: Span; lit?: string }) {
 function Reasons({
   rows,
   lit,
-  onPick,
-  A,
-  B
+  onPick
 }: {
-  rows: Array<{ key: string; label: string; a: number; b: number }>
-  lit?: string
+  rows: ReadonlyArray<ReasonView>
+  lit?: string | undefined
   onPick: (r: string) => void
-  A: Span
-  B: Span
 }) {
   const still = useReducedMotion()
+  const { A, B } = useAnalyticsSource()
   return (
     <figure className="flex flex-col gap-1">
       <div style={{ height: 16 + rows.length * 30 }}>
         <ClientChart>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
-              data={rows}
+              data={[...rows]}
               layout="vertical"
               margin={{ top: 0, right: 8, left: 0, bottom: 0 }}
               barGap={2}
@@ -391,9 +315,9 @@ function Reasons({
                 {rows.map((r) => (
                   <Cell
                     key={r.key}
-                    fill={lit === undefined || lit === r.key
-                      ? "var(--arc)"
-                      : "color-mix(in oklch, var(--arc) 35%, transparent)"}
+                    fill={lit === undefined || lit === r.key ?
+                      "var(--arc)" :
+                      "color-mix(in oklch, var(--arc) 35%, transparent)"}
                   />
                 ))}
               </Bar>
@@ -415,118 +339,25 @@ function Reasons({
   )
 }
 
-export function RefundsChart({ A, B, lit }: { A: Span; B: Span; lit?: string }) {
-  const explain = useAnalytics((s) => s.explain)
-  const a = metrics(A)
-  const b = metrics(B)
-  const rows = useMemo(() => {
-    const reasons = [...new Set([...a.refunds, ...b.refunds].map((o) => o.refundReason!))]
-    return reasons
-      .map((r) => ({
-        key: r,
-        label: REFUND_REASON_LABEL[r],
-        a: a.refunds.filter((o) => o.refundReason === r).length,
-        b: b.refunds.filter((o) => o.refundReason === r).length
-      }))
-      .sort((x, y) => y.a - x.a)
-  }, [a, b])
-  return (
-    <Reasons
-      A={A}
-      B={B}
-      rows={rows}
-      lit={lit}
-      onPick={(key) => {
-        const reason = REFUND_REASON_LABEL[key as RefundReason] ?? key
-        const ra = a.refunds.filter((o) => o.refundReason === key)
-        const rb = b.refunds.filter((o) => o.refundReason === key)
-        const ga = by(ra, (o) => o.title)
-        const gb = by(rb, (o) => o.title)
-        explain({
-          title: `Terugbetalingen wegens “${reason}”`,
-          value: String(ra.length),
-          compare: `tegenover ${rb.length} in ${B.short}`,
-          text: `In ${A.label} ${ra.length === 1 ? "kwam" : "kwamen"} ${ra.length} ${
-            ra.length === 1 ? "bestelling" : "bestellingen"
-          } terug wegens “${reason}”, tegenover ${rb.length} in ${B.label}.`,
-          drivers: [...new Set([...ga.keys(), ...gb.keys()])]
-            .map((k) => ({
-              label: k,
-              value: (ga.get(k)?.length ?? 0) - (gb.get(k)?.length ?? 0),
-              detail: `${gb.get(k)?.length ?? 0} → ${ga.get(k)?.length ?? 0}`
-            }))
-            .sort((x, y) => Math.abs(y.value) - Math.abs(x.value))
-            .slice(0, 6),
-          unit: "refunds",
-          records: ra
-        })
-      }}
-    />
-  )
+export function RefundsChart({ lit }: { lit?: string | undefined }) {
+  const { charts, openRefundReason } = useAnalyticsSource()
+  if (charts.refunds === null) return <Bones height={136} />
+  return <Reasons rows={charts.refunds} lit={lit} onPick={openRefundReason} />
 }
 
-export function DisputesChart({ A, B, lit }: { A: Span; B: Span; lit?: string }) {
-  const explain = useAnalytics((s) => s.explain)
-  const a = metrics(A)
-  const b = metrics(B)
-  const rows = useMemo(() => {
-    const reasons = [...new Set([...a.disputes, ...b.disputes].map((d) => d.reason))]
-    return reasons
-      .map((r) => ({
-        key: r,
-        label: DISPUTE_REASON_LABEL[r],
-        a: a.disputes.filter((d) => d.reason === r).length,
-        b: b.disputes.filter((d) => d.reason === r).length
-      }))
-      .sort((x, y) => y.a - x.a)
-  }, [a, b])
-  return (
-    <Reasons
-      A={A}
-      B={B}
-      rows={rows}
-      lit={lit}
-      onPick={(key) => {
-        const reason = DISPUTE_REASON_LABEL[key as DisputeReason] ?? key
-        const ds = a.disputes.filter((d) => d.reason === key)
-        const ids = new Set(ds.map((d) => d.order))
-        explain({
-          title: `Geschillen wegens “${reason}”`,
-          value: String(ds.length),
-          compare: `tegenover ${b.disputes.filter((d) => d.reason === key).length} in ${B.short}`,
-          text: `In ${A.label} ${
-            ds.length === 1 ? "is 1 geschil" : `zijn ${ds.length} geschillen`
-          } geopend wegens “${reason}”, samen ${money(ds.reduce((n, d) => n + d.amount, 0))}.`,
-          drivers: [],
-          unit: "cases",
-          records: HISTORY.orders.filter((o) => ids.has(o.id)),
-          open: { label: "Geschillen openen", to: "/chargebacks" }
-        })
-      }}
-    />
-  )
+export function DisputesChart({ lit }: { lit?: string | undefined }) {
+  const { charts, openDisputeReason } = useAnalyticsSource()
+  if (charts.disputes === null) return <Bones height={136} />
+  return <Reasons rows={charts.disputes} lit={lit} onPick={openDisputeReason} />
 }
 
 /* ── Support by weekday ─────────────────────────────────────────────────────────────────────── */
 
-export function SupportChart({ A, B }: { A: Span; B: Span }) {
+export function SupportChart() {
   const still = useReducedMotion()
-  const explain = useAnalytics((s) => s.explain)
-  const a = metrics(A)
-  const b = metrics(B)
-  const data = useMemo(() => {
-    const h = (m: typeof a, w: number) => {
-      const t = m.tickets.filter((x) => x.weekday === w)
-      return t.length === 0 ? 0 : round1(t.reduce((n, x) => n + x.resolveH, 0) / t.length)
-    }
-    return [1, 2, 3, 4, 5, 6, 0].map((w) => ({
-      w,
-      label: cap(WEEKDAYS[w]!.slice(0, 2)),
-      a: h(a, w),
-      b: h(b, w),
-      n: a.tickets.filter((x) => x.weekday === w).length
-    }))
-  }, [a, b])
+  const { A, B, charts, openWeekday } = useAnalyticsSource()
+  if (charts.support === null) return <Bones height={180} />
+  const data = [...charts.support]
   return (
     <figure className="h-[180px]">
       <ClientChart>
@@ -552,25 +383,7 @@ export function SupportChart({ A, B }: { A: Span; B: Span }) {
               cursor="pointer"
               onClick={(_, i) => {
                 const d = data[i]
-                if (!d) return
-                const ts = a.tickets.filter((t) => t.weekday === d.w)
-                explain({
-                  title: `Tickets op ${WEEKDAYS[d.w]}`,
-                  value: `${num(d.a)} u`,
-                  compare: `tot opgelost, tegenover ${num(a.resolveH)} u over de hele week`,
-                  text: `In ${A.label} ${d.n === 1 ? "kwam 1 ticket" : `kwamen ${d.n} tickets`} op ${
-                    WEEKDAYS[d.w]
-                  } binnen, gemiddeld na ${num(d.a)} u opgelost.${
-                    d.w === 0 || d.w === 6 ? " In het weekend heeft niemand dienst, dus die wachten tot maandag." : ""
-                  }`,
-                  drivers: [...by(ts, (t) => TICKET_TOPIC_LABEL[t.topic])].map(([k, xs]) => ({
-                    label: k,
-                    value: xs.length
-                  })).sort((p, q) => q.value - p.value),
-                  unit: "cases",
-                  records: [],
-                  open: { label: "Tickets openen", to: "/tickets" }
-                })
+                if (d) openWeekday(d.w)
               }}
             >
               {data.map((d) => (
@@ -587,44 +400,11 @@ export function SupportChart({ A, B }: { A: Span; B: Span }) {
   )
 }
 
-/* ── An answer's chart ──────────────────────────────────────────────────────────────────────── */
-
-export function AnswerBars({ chart }: { chart: AnswerChart }) {
-  const still = useReducedMotion()
-  const fmt = (
-    v: number
-  ) => (chart.unit === "$" ? money(v) : chart.unit === "%" ? `${num(v)}%` : chart.unit === "h" ? `${num(v)} u` : num(v))
-  const two = chart.rows.some((r) => r.b !== undefined)
+/** A chart not read yet: its gridlines, at its height. */
+function Bones({ height }: { height: number }) {
   return (
-    <div style={{ height: 16 + chart.rows.length * (two ? 30 : 24) }}>
-      <ClientChart>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={chart.rows}
-            layout="vertical"
-            margin={{ top: 0, right: 8, left: 0, bottom: 0 }}
-            barGap={2}
-            barCategoryGap="24%"
-          >
-            <XAxis type="number" hide />
-            <YAxis type="category" dataKey="label" {...AXIS} width={132} />
-            <Tooltip
-              cursor={{ fill: "color-mix(in oklch, var(--ink) 4%, transparent)" }}
-              content={(p) => (
-                <Tip
-                  {...p}
-                  rows={(pl) =>
-                    pl.map((
-                      x
-                    ) => [x.dataKey === "a" ? chart.legend[0] : (chart.legend[1] ?? ""), fmt(Number(x.value))])}
-                />
-              )}
-            />
-            {two ? <Bar dataKey="b" fill="var(--ink-5)" radius={2} {...anim(still)} /> : null}
-            <Bar dataKey="a" fill="var(--arc)" radius={2} {...anim(still)} />
-          </BarChart>
-        </ResponsiveContainer>
-      </ClientChart>
+    <div style={{ height }}>
+      <ChartBones />
     </div>
   )
 }
@@ -633,7 +413,7 @@ export function AnswerBars({ chart }: { chart: AnswerChart }) {
  * Recharts measures its box before it draws, so a chart can only be drawn in the browser. The server
  * sends the gridlines it will hang from, and the line is drawn in after hydration (ADR-0028).
  */
-function ClientChart({ children }: { children: ReactNode }) {
+export function ClientChart({ children }: { children: ReactNode }) {
   return (
     <Stream id={`chart:${useId()}`} after={380} fallback={<ChartBones />} className="h-full w-full">
       {children}

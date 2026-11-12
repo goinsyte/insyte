@@ -1,30 +1,17 @@
 import { motion, useReducedMotion } from "motion/react"
-import { dec1, money } from "../lib/analytics/engine"
 import { cn } from "../lib/utils"
+import type { DriverView } from "./analytics-source"
 
 /**
  * What moved a number, as signed bars on a centre line: right for what added, left for what took
- * away, each with its value written out so the sign never rests on the bar alone. The same drawing
- * serves the plate (in chalk) and the explain drawer (in ink).
+ * away, each with its value written out (`shown`) so the sign never rests on the bar alone. The same
+ * drawing serves the plate (in chalk) and the explain drawer (in ink).
  */
-export type DriverUnit = "$" | "orders" | "pts" | "refunds" | "cases" | "h"
-
-export function formatDriver(v: number, unit: DriverUnit) {
-  const sign = v > 0 ? "+" : v < 0 ? "−" : ""
-  const abs = Math.abs(v)
-  if (unit === "$") return `${sign}${money(abs)}`
-  if (unit === "h") return `${sign}${dec1(abs)} u`
-  if (unit === "pts") return `${sign}${abs.toLocaleString("nl-NL")} pp`
-  return `${sign}${abs.toLocaleString("nl-NL")}`
-}
-
 export function Drivers({
   drivers,
-  unit,
   dark = false
 }: {
-  drivers: ReadonlyArray<{ label: string; value: number; detail?: string }>
-  unit: DriverUnit
+  drivers: ReadonlyArray<DriverView>
   dark?: boolean
 }) {
   const still = useReducedMotion()
@@ -63,7 +50,7 @@ export function Drivers({
               />
             </span>
             <span className={cn("text-right tabular-nums", dark ? "text-mesh-ink" : "text-ink")}>
-              {formatDriver(d.value, unit)}
+              {d.shown}
             </span>
           </li>
         )
