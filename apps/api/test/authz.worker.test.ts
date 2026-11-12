@@ -15,6 +15,7 @@ import { ReturnsRpcs } from "@insyte/api/rpc/ReturnsRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
 import { SessionRpcs } from "@insyte/api/rpc/SessionRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
+import { ShellRpcs } from "@insyte/api/rpc/ShellRpcs"
 import { StoresRpcs } from "@insyte/api/rpc/StoresRpcs"
 import { SuppliersRpcs } from "@insyte/api/rpc/SuppliersRpcs"
 import { ThreadsRpcs } from "@insyte/api/rpc/ThreadsRpcs"
@@ -325,7 +326,11 @@ const PAYLOADS: Record<string, unknown> = {
   // The person's own sessions (M3.3): every role reads and ends its own; an unknown one is NotFound, past no gate.
   "Session.me": undefined,
   "Session.listSessions": undefined,
-  "Session.revoke": { id: "ses_none" }
+  "Session.revoke": { id: "ses_none" },
+  // The frame and the one search (M5, M11 step 6): every member; a kind or area the role cannot open answers nothing.
+  "Shell.frame": { path: "/inbox" },
+  "Nav.counts": { area: "tickets" },
+  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] }
 }
 
 const manifest = [
@@ -351,7 +356,8 @@ const manifest = [
   ...WorkspacesRpcs.requests.keys(),
   ...ChatsRpcs.requests.keys(),
   ...NotificationsRpcs.requests.keys(),
-  ...SessionRpcs.requests.keys()
+  ...SessionRpcs.requests.keys(),
+  ...ShellRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

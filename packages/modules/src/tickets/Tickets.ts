@@ -4,6 +4,7 @@ import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
 import { Relay } from "../shared/domain/Outbox.ts"
+import type { SearchHit } from "../shared/domain/Search.ts"
 import type {
   AssignInput,
   CommentInput,
@@ -40,6 +41,8 @@ export class TicketsService extends Context.Service<TicketsService, {
   /** The area panel's counts, for the frame. */
   readonly counts: Effect.Effect<TicketCounts, Forbidden, R>
   readonly get: (id: string) => Effect.Effect<TicketDetail, Forbidden | NotFound, R>
+  /** Matches for `Search.records`; none where the role cannot see the area. */
+  readonly search: (q: string, limit: number) => Effect.Effect<ReadonlyArray<SearchHit>, never, R>
   readonly options: Effect.Effect<TicketOptions, Forbidden, R>
   readonly create: (
     input: typeof CreateInput.Type
@@ -72,6 +75,7 @@ export class TicketsService extends Context.Service<TicketsService, {
         list: (input) => run(Tickets.list(input)),
         counts: run(Tickets.counts()),
         get: (id) => run(Tickets.get(id)),
+        search: (q, limit) => run(Tickets.search(q, limit)),
         options: run(Tickets.options()),
         create: (input) => run(Commands.create(input)),
         duplicate: (id) => run(Commands.duplicate(id)),

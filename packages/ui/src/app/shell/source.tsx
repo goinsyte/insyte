@@ -153,10 +153,15 @@ export interface ShellSource {
 	>;
 }
 
-/** What the palette lists under Bestellingen and Klanten. */
+/** What the palette lists under Bestellingen, Klanten, Tickets, Inbox and Chats. */
 export type RecordHits = {
 	orders: ReadonlyArray<{ id: string; number: string; customer: string }>;
 	customers: ReadonlyArray<{ id: string; name: string; email: string }>;
+	tickets: ReadonlyArray<{ id: string; number: string; title: string }>;
+	/** Mail threads: the subject and who wrote in. */
+	threads: ReadonlyArray<{ id: string; subject: string; from: string }>;
+	/** Chat messages: the words around the match, where they were said (and by whom), and the address that opens them. */
+	messages: ReadonlyArray<{ id: string; text: string; where: string; href: string }>;
 };
 
 const ShellSourceContext = createContext<ShellSource | null>(null);
