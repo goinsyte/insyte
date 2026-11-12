@@ -15,7 +15,11 @@ export const neonApi = async <T>(path: string, init?: { method: string; body: st
     },
     ...(init === undefined ? {} : { body: init.body })
   })
-  if (!response.ok) throw new Error(`Neon ${path}: ${response.status}`)
+  if (!response.ok) {
+    // Neon's error body names the reason (`{ code, message }`); it carries no secret.
+    const reason = await response.text().then((t) => t.slice(0, 300), () => "")
+    throw new Error(`Neon ${path}: ${response.status} ${reason}`)
+  }
   return response.json() as Promise<T>
 }
 
