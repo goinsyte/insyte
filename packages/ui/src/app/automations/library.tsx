@@ -134,7 +134,7 @@ export function recommendations(facts: WorkspaceFacts, workflows: Record<string,
     if (same.some((w) => w.status === "active")) return []
     const idle = same.find((w) => w.status !== "active")
     return [{ template: t, evidence, idle }]
-  }).sort((a, b) => b.evidence.count - a.evidence.count)
+  }).toSorted((a, b) => b.evidence.count - a.evidence.count)
 }
 
 export function RecommendedView({ items }: { items: ReadonlyArray<Recommendation> }) {
@@ -203,7 +203,7 @@ export function HistoryView({ workflows }: { workflows: Record<string, WorkflowS
     () =>
       Object.values(workflows)
         .flatMap((w) => w.history.map((r) => ({ ...r, flowId: w.automationId, flow: w.name })))
-        .sort((a, b) => Date.parse(b.at) - Date.parse(a.at)),
+        .toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at)),
     [workflows]
   )
   const columns = useMemo<Array<ColumnDef<RunRow, unknown>>>(

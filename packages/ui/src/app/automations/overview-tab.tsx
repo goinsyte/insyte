@@ -181,8 +181,13 @@ export function OverviewTab(
                           month: "short"
                         })
                       }: ${n} ${n === 1 ? "run" : "runs"}`}
-                      className={cn("flex-1 rounded-t-[2px]", n === 0 ? "bg-ink/6" : "bg-arc/70 hover:bg-arc")}
-                      style={{ height: `${Math.max(4, (n / max) * 100)}%` }}
+                      className={cn("flex-1", n === 0 ? "bg-ink/6" : "bg-arc/70 hover:bg-arc")}
+                      // A bar's 2px top corners are below the radius ladder, so they are the bar's own, not a role.
+                      style={{
+                        height: `${Math.max(4, (n / max) * 100)}%`,
+                        borderTopLeftRadius: 2,
+                        borderTopRightRadius: 2
+                      }}
                     />
                   ))}
                 </div>
@@ -248,7 +253,7 @@ export function OverviewTab(
             <p className="rounded-lg bg-mist px-3 py-3 text-ink-3 text-sm">Nog geen.</p> :
             (
               <ul className="flex flex-col">
-                {records.map(({ record, runs, last }) => (
+                {records.map(({ record, runs: count, last }) => (
                   <li key={record.id} className="flex items-center gap-2.5 rounded-md px-2.5 py-2 odd:bg-mist">
                     <span
                       className={cn("size-1.5 shrink-0 rounded-full", RUN_DOT[last.status])}
@@ -258,7 +263,7 @@ export function OverviewTab(
                     <RecordLink record={record} className="shrink-0 text-sm tabular-nums" />
                     <span className="min-w-0 flex-1 truncate text-ink-2 text-sm">{record.name}</span>
                     <span className="shrink-0 text-ink-3 text-xs tabular-nums">
-                      {runs} {runs === 1 ? "run" : "runs"}
+                      {count} {count === 1 ? "run" : "runs"}
                     </span>
                   </li>
                 ))}

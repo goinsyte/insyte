@@ -81,7 +81,7 @@ export function sampleFor(triggerId: string | undefined, n: number): Sample {
 }
 
 /** Why a step stopped, and what fixes it, by the kind of step it is. */
-export function failureOf(node: WorkflowNode): { error: string; fix: string } {
+function failureOf(node: WorkflowNode): { error: string; fix: string } {
   const v = VARIANTS_BY_ID[node.variantId]
   const id = v?.id ?? ""
   if (id.includes("klaviyo") || id === "action.send_email" || id.includes("gmail") || id.includes("outlook")) {
@@ -124,7 +124,7 @@ const MS = (seed: number, i: number) => 60 + ((seed * (i + 3) * 7919) % 1100)
  * The steps a run walks. A splitsing takes one lane (the yes lane when the order is over €100); the
  * other lane's steps are skipped. `stopAt` ends the walk there with that status.
  */
-export function walk(
+function walk(
   nodes: ReadonlyArray<WorkflowNode>,
   seed: number,
   bigOrder: boolean,
@@ -223,7 +223,7 @@ export function makeRun(
     steps: timeline.filter((s) => s.status === "ok" || s.status === "error").length,
     durationMs,
     cause: nodes[0] ? titleOf(nodes[0]) : "De trigger",
-    ...(failure ?? {}),
+    ...failure,
     ...(opts.manual ? { manual: true } : {}),
     record: { kind: record.kind, id: record.id, number: record.number, name: record.name },
     version: opts.version,

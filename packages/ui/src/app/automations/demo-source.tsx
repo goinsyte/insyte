@@ -23,7 +23,7 @@ export function draftFromTemplate(t: AutomationTemplate): string {
     nodes: t.steps.map((s) => ({
       id: newNodeId(),
       variantId: s.variantId,
-      config: { ...(VARIANTS_BY_ID[s.variantId]?.defaultConfig ?? {}), summary: s.summary }
+      config: { ...VARIANTS_BY_ID[s.variantId]?.defaultConfig, summary: s.summary }
     }))
   })
   workflowStore.updateMeta(id, { description: t.description })

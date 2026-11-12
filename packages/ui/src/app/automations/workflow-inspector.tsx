@@ -35,7 +35,8 @@ export function WorkflowInspector({
   onClose: () => void
 }) {
   const navigate = useNavigate()
-  const { editor } = useAutomationsSource()
+  const { editor, useFields } = useAutomationsSource()
+  const fields = useFields?.(automationId) ?? FIELDS
   const v = VARIANTS_BY_ID[node.variantId]
   if (!v) return null
   const isTrigger = v.kind === "trigger"
@@ -164,7 +165,7 @@ export function WorkflowInspector({
             <div className="flex flex-col gap-1.5">
               <span className="text-ink-3 text-xs">Velden van het record, te schrijven als {"{{veld}}"}</span>
               <div className="flex flex-wrap gap-1">
-                {FIELDS.map((k) => <VarChip key={k} name={k} />)}
+                {fields.map((k) => <VarChip key={k} name={k} />)}
               </div>
             </div>
           ) :

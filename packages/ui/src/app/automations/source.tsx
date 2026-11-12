@@ -77,6 +77,8 @@ export interface AutomationsSource {
   useIssues?: ((id: string) => ReadonlyMap<string, ReadonlyArray<StepIssue>>) | undefined
   /** Whether the canvas is kept: shown beside the name; absent, the design's store keeps it at once. */
   useSaving?: ((id: string) => "saving" | "saved" | "failed" | null) | undefined
+  /** "Velden van het record": what this flow's trigger offers to `{{…}}`; absent, the design's four. */
+  useFields?: ((id: string) => ReadonlyArray<string>) | undefined
   /** Runs and Geschiedenis; `false` until the executor writes runs. */
   runs: boolean
   /** Whether the role may publish, and pause or remove a flow; when not, the sentence the button says. */

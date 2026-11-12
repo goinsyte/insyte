@@ -59,8 +59,8 @@ export function SettingsTab({ workflow, onDelete }: { workflow: WorkflowState; o
   const needs = useMemo(() => scopeNeeds(workflow.nodes), [workflow.nodes])
   const [audit, setAudit] = useState(false)
   const [allScopes, setAllScopes] = useState(false)
-  const relevant = (id: string) => needs.has(id) || s.scopesExtra.includes(id)
-  const sorted = [...SCOPES].sort((a, b) => Number(relevant(b.id)) - Number(relevant(a.id)))
+  const relevant = (scope: string) => needs.has(scope) || s.scopesExtra.includes(scope)
+  const sorted = [...SCOPES].toSorted((a, b) => Number(relevant(b.id)) - Number(relevant(a.id)))
   const hidden = sorted.filter((x) => !relevant(x.id)).length
   const scopes = allScopes ? sorted : sorted.filter((x) => relevant(x.id))
   const created = workflow.versions.at(-1)?.at

@@ -13,7 +13,7 @@ import { BrandLogo } from "../marketplace/brand-logos"
 import { useAskInsyte } from "../shell/ask-insyte-context"
 import { useOnCreate } from "../stores/create-intent"
 import { DataTable, type Facet, facetFilter } from "../table/data-table"
-import { VIEWS } from "./automations-search"
+import type { VIEWS } from "./automations-search"
 import { HistoryView, RecommendedView, TemplatesView, usesAi } from "./library"
 import { flatNodes, NODE_VARIANTS, VARIANTS_BY_ID, type WorkflowState } from "./node-types"
 import { useAutomationsSource } from "./source"
@@ -123,10 +123,10 @@ export function AutomationsPage({ view }: { view?: View | undefined }) {
   const standing = useMemo(() => {
     const active = rows.filter((a) => a.status === "active").length
     const draft = rows.filter((a) => a.status === "draft").length
-    const runs = rows.reduce((sum, a) => sum + (a.total_runs ?? 0), 0)
+    const total = rows.reduce((sum, a) => sum + (a.total_runs ?? 0), 0)
     return `${active} actief · ${rows.length - active - draft} gepauzeerd · ${draft} ${
       draft === 1 ? "concept" : "concepten"
-    } · ${runs.toLocaleString("nl-NL")} ${runs === 1 ? "uitvoering" : "uitvoeringen"} in totaal`
+    } · ${total.toLocaleString("nl-NL")} ${total === 1 ? "uitvoering" : "uitvoeringen"} in totaal`
   }, [rows])
 
   // A blank draft, opened in the builder with "Describe the flow" up.

@@ -14,7 +14,7 @@ export const node = (
 ): WorkflowNode => ({
   id: newNodeId(),
   variantId,
-  config: { ...(VARIANTS_BY_ID[variantId]?.defaultConfig ?? {}), ...config },
+  config: { ...VARIANTS_BY_ID[variantId]?.defaultConfig, ...config },
   ...(branches ? { branches } : {})
 })
 

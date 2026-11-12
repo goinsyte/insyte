@@ -25,11 +25,12 @@ function readDismissed(): string[] {
   }
 }
 
+const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+
 /** "vandaag 10:42", "gisteren 18:05", "22 mei". */
 function when(at: string) {
   const d = new Date(at)
   const today = new Date()
-  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
   const diff = (day(today) - day(d)) / 86_400_000
   const time = d.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })
   if (diff === 0) return `vandaag ${time}`
@@ -57,7 +58,7 @@ export function AutomationsPanelExtras() {
     () =>
       Object.values(workflows)
         .flatMap((w) => w.history.map((r) => ({ run: r, flow: w })))
-        .sort((a, b) => Date.parse(b.run.at) - Date.parse(a.run.at))
+        .toSorted((a, b) => Date.parse(b.run.at) - Date.parse(a.run.at))
         .slice(0, 5),
     [workflows]
   )

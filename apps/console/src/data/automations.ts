@@ -40,6 +40,11 @@ export const automationAtom = Atom.family((id: string) =>
   )
 )
 
+/** "Velden van het record" for a trigger (`Automations.fields`); the list is the catalogue's, so it is read once. */
+export const automationFieldsAtom = Atom.family((triggerVariant: string) =>
+  ConsoleClient.query("Automations.fields", { triggerVariant }).pipe(Atom.keepAlive)
+)
+
 export const automationWrites = {
   create: ConsoleClient.mutation("Automations.create"),
   saveDraft: ConsoleClient.mutation("Automations.saveDraft"),

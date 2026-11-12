@@ -136,7 +136,7 @@ function seedVersions(nodes: WorkflowNode[], count: number, last: string, first:
       note: v === count && count > 2 ? NOTES[4] : NOTES[Math.min(i, 3)],
       nodes: v === count ? nodes : cloneNodes(nodes.slice(0, kept))
     }
-  }).reverse()
+  }).toReversed()
 }
 
 /* Which of a flow's recent runs did not simply go through, by position from the newest. */
@@ -278,7 +278,7 @@ function normalize(w: Partial<WorkflowState> & { automationId: string }): Workfl
     owner: w.owner ?? ME,
     version: w.version ?? 0,
     versions: w.versions ?? [],
-    settings: { ...DEFAULT_SETTINGS, ...(w.settings ?? {}) }
+    settings: { ...DEFAULT_SETTINGS, ...w.settings }
   }
 }
 

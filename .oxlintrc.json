@@ -93,6 +93,8 @@
     "!packages/ui/src/app/lib/home/kinds.ts",
     // Graduated (08 §3): Chats, wired to Chats.* in M11 (step 13.4b).
     "!packages/ui/src/app/chats/**",
+    // Graduated (08 §3): Automatiseringen, wired to Automations.* in M12 (step 14.1b).
+    "!packages/ui/src/app/automations/**",
     // Graduated (08 §3): wired to the API, so held to this repo's rules.
     "!packages/ui/src/app/auth/login-screen.tsx",
     "!packages/ui/src/app/onboarding/shared-steps.tsx",
