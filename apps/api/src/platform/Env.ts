@@ -41,6 +41,16 @@ declare global {
       readonly KLAVIYO_CLIENT_ID?: string
       readonly KLAVIYO_CLIENT_SECRET?: string
       readonly KLAVIYO_ADAPTER?: string
+      /** Web push (M11 step 13.5): the VAPID key pair and contact; without all three, push is not available. */
+      readonly VAPID_PUBLIC_KEY?: string
+      readonly VAPID_PRIVATE_KEY?: string
+      readonly VAPID_SUBJECT?: string
+      /** `recorded` in the worker tests: no push service is called. */
+      readonly PUSH_ADAPTER?: string
+      /** The Slack app (M11 step 13.5); without both, Slack cannot be connected. `recorded` in the worker tests. */
+      readonly SLACK_CLIENT_ID?: string
+      readonly SLACK_CLIENT_SECRET?: string
+      readonly SLACK_ADAPTER?: string
       /** Shopify's webhooks (M6.3): received deliveries' ids, applied by this Worker's `queue` handler. */
       readonly INGEST: Queue<IngestMessage>
       /** Lines per backfill page, 2000 by default; the worker tests read small pages. */

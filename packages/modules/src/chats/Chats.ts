@@ -74,6 +74,9 @@ export class ChatsService extends Context.Service<ChatsService, {
   ) => Effect.Effect<MessageChange, Missing | CommandRefused, R>
   readonly confirmAction: (actionId: string) => Effect.Effect<MessageChange, Missing | CommandRefused, R>
   readonly declineAction: (actionId: string) => Effect.Effect<MessageChange, Missing | CommandRefused, R>
+  /** The card's undo token, by the card, for its runner only and within its five minutes. */
+  readonly cardUndo: (actionId: string) => Effect.Effect<string, Missing | CommandRefused, R>
+  readonly actionMessage: (actionId: string) => Effect.Effect<MessageChange, Missing, R>
 }>()("modules/ChatsService") {
   // A database that does not answer is a defect, as everywhere. The relay and the other slices' commands are taken once.
   static readonly layer = Layer.effect(
@@ -108,7 +111,9 @@ export class ChatsService extends Context.Service<ChatsService, {
         openSupplierChannel: (id) => run(Commands.openSupplierChannel(id)),
         runCommand: (input) => run(Actions.runCommand(input)),
         confirmAction: (id) => run(Actions.confirmAction(id)),
-        declineAction: (id) => run(Actions.declineAction(id))
+        declineAction: (id) => run(Actions.declineAction(id)),
+        cardUndo: (id) => run(Actions.cardUndo(id)),
+        actionMessage: (id) => run(Actions.actionMessage(id))
       }
     })
   )

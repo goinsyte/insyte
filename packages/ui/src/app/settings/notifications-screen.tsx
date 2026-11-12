@@ -1,10 +1,12 @@
 import { Link } from "@tanstack/react-router"
-import { useEffect, useMemo, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { Checkbox } from "../../components/checkbox"
 import { Switch } from "../../components/switch"
 import { Bell, Eye, Mail, Moon, Send } from "../../icons"
+import { ConfirmDialog } from "../common/confirm-dialog"
 import { PageGuide } from "../common/page-guide"
+import { counted } from "../lib/counted"
 import {
   type Channel,
   CHANNELS,
@@ -16,7 +18,7 @@ import {
 } from "../lib/notifications"
 import { cn } from "../lib/utils"
 import { FieldRow, INPUT_CLASS, SelectInput, UnsavedBar } from "./form"
-import { useNotificationSettingsSource } from "./notifications-source"
+import { type PushHere, type SlackHere, useNotificationSettingsSource } from "./notifications-source"
 import { SettingCard } from "./setting-card"
 
 const DIGEST_TIMES = ["06:00", "07:00", "07:30", "08:00", "08:30", "09:00", "10:00"]
@@ -53,6 +55,9 @@ const GUIDE = [
 
 /** What a column that cannot deliver says, in its header and in each row. */
 const NOT_CONNECTED = "Niet gekoppeld"
+
+/** What a channel this environment does not have yet says. */
+const NOT_YET = "Nog niet beschikbaar"
 
 /**
  * What the operator hears, where, and when.
@@ -102,34 +107,35 @@ export function NotificationSettings() {
           <FieldRow label="E-mail">
             <span className={cn(INPUT_CLASS, "flex items-center text-ink-2")}>{email}</span>
           </FieldRow>
-          <FieldRow label="Mobiel push">
-            {source.testPush ?
-              (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    source.testPush?.()
-                  }}
-                  className="field flex h-9 w-fit items-center gap-2 rounded-md px-3 font-medium text-base text-ink hover:field-hover"
-                >
-                  <Bell className="size-4 text-ink-3" strokeWidth={1.75} />
-                  Testmelding sturen
-                </button>
-              ) :
-              <span className="flex h-9 items-center text-base text-ink-3">{NOT_CONNECTED}</span>}
-          </FieldRow>
-          <FieldRow label="Slack">
-            {source.connected.slack ?
-              (
-                <SelectInput
-                  value={draft.slackChannel}
-                  onChange={(v) => setDraft((d) => ({ ...d, slackChannel: v }))}
-                  options={source.slackChannels}
-                />
-              ) :
-              <span className="flex h-9 items-center text-base text-ink-3">{NOT_CONNECTED}</span>}
-          </FieldRow>
+          {source.push ? <PushRow push={source.push} testPush={source.testPush} /> : (
+            <FieldRow label="Mobiel push">
+              {source.testPush ?
+                <FieldButton icon onClick={source.testPush}>Testmelding sturen</FieldButton> :
+                <span className="flex h-9 items-center text-base text-ink-3">{NOT_CONNECTED}</span>}
+            </FieldRow>
+          )}
+          {source.slack ?
+            (
+              <SlackRow
+                slack={source.slack}
+                channel={draft.slackChannel}
+                channels={source.slackChannels}
+                onChannel={(v) => setDraft((d) => ({ ...d, slackChannel: v }))}
+              />
+            ) :
+            (
+              <FieldRow label="Slack">
+                {source.connected.slack ?
+                  (
+                    <SelectInput
+                      value={draft.slackChannel}
+                      onChange={(v) => setDraft((d) => ({ ...d, slackChannel: v }))}
+                      options={source.slackChannels}
+                    />
+                  ) :
+                  <span className="flex h-9 items-center text-base text-ink-3">{NOT_CONNECTED}</span>}
+              </FieldRow>
+            )}
         </div>
       </SettingCard>
 
@@ -357,6 +363,165 @@ function ChannelSwitch(
           </span>
         )}
     </span>
+  )
+}
+
+/** The design's field button ("Testmelding sturen"), inside a row that is a label, so a click is only the button's. */
+function FieldButton(
+  { icon = false, disabled = false, onClick, children }: {
+    icon?: boolean
+    disabled?: boolean
+    onClick: () => void
+    children: ReactNode
+  }
+) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={(e) => {
+        e.preventDefault()
+        onClick()
+      }}
+      className="field flex h-9 w-fit items-center gap-2 rounded-md px-3 font-medium text-base text-ink hover:field-hover disabled:opacity-50"
+    >
+      {icon ? <Bell className="size-4 text-ink-3" strokeWidth={1.75} /> : null}
+      {children}
+    </button>
+  )
+}
+
+/** A quieter second step beside a field ("Uitzetten op dit apparaat", "Ontkoppelen"). */
+function QuietButton({ disabled = false, onClick, children }: {
+  disabled?: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={(e) => {
+        e.preventDefault()
+        onClick()
+      }}
+      className="h-9 w-fit px-1 text-ink-2 text-sm underline decoration-ink-3/40 underline-offset-2 hover:text-ink hover:decoration-ink-2 disabled:opacity-50"
+    >
+      {children}
+    </button>
+  )
+}
+
+const Muted = ({ children }: { children: ReactNode }) => (
+  <span className="flex h-9 items-center text-base text-ink-3">{children}</span>
+)
+
+/**
+ * "Mobiel push" where the host can deliver it: on in this browser, or a step to turn it on; what the browser or the
+ * environment cannot do is said, with the way out where there is one.
+ */
+export function PushRow({ push, testPush }: { push: PushHere; testPush: (() => void) | undefined }) {
+  const others = push.state === "on" ? push.devices - 1 : push.devices
+  const elsewhere = others > 0
+    ? `Staat ook aan op ${counted(others, "ander apparaat", "andere apparaten")}.`
+    : undefined
+  switch (push.state) {
+    case "unavailable":
+      return (
+        <FieldRow label="Mobiel push">
+          <Muted>{NOT_YET}</Muted>
+        </FieldRow>
+      )
+    case "unsupported":
+      return (
+        <FieldRow
+          label="Mobiel push"
+          hint="Op een iPhone of iPad zet je Insyte eerst op je beginscherm en open je het daar."
+        >
+          <Muted>Niet in deze browser</Muted>
+        </FieldRow>
+      )
+    case "blocked":
+      return (
+        <FieldRow label="Mobiel push" hint="Sta meldingen voor Insyte toe in de instellingen van je browser.">
+          <Muted>Geblokkeerd in deze browser</Muted>
+        </FieldRow>
+      )
+    case "off":
+      return (
+        <FieldRow label="Mobiel push" {...(elsewhere === undefined ? {} : { hint: elsewhere })}>
+          <FieldButton icon disabled={push.busy} onClick={push.enable}>Push aanzetten</FieldButton>
+        </FieldRow>
+      )
+    case "on":
+      return (
+        <FieldRow label="Mobiel push" {...(elsewhere === undefined ? {} : { hint: elsewhere })}>
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {testPush
+              ? <FieldButton icon disabled={push.busy} onClick={testPush}>Testmelding sturen</FieldButton>
+              : null}
+            <QuietButton disabled={push.busy} onClick={push.disable}>Uitzetten op dit apparaat</QuietButton>
+          </span>
+        </FieldRow>
+      )
+  }
+}
+
+/**
+ * Slack where the host can connect it: a manager connects the workspace and may let it go again (asked first, as it
+ * stops Slack for everyone); every member picks where theirs go.
+ */
+export function SlackRow({ slack, channel, channels, onChannel }: {
+  slack: SlackHere
+  channel: string
+  channels: ReadonlyArray<string | { value: string; label: string }>
+  onChannel: (v: string) => void
+}) {
+  const [asking, setAsking] = useState(false)
+  if (slack.state === "unavailable") {
+    return (
+      <FieldRow label="Slack">
+        <Muted>{NOT_YET}</Muted>
+      </FieldRow>
+    )
+  }
+  if (slack.state === "available") {
+    return slack.manage ?
+      (
+        <FieldRow label="Slack">
+          <FieldButton disabled={slack.busy} onClick={slack.connect}>Slack koppelen</FieldButton>
+        </FieldRow>
+      ) :
+      (
+        <FieldRow label="Slack" hint="Een eigenaar of beheerder koppelt Slack voor de workspace.">
+          <Muted>{NOT_CONNECTED}</Muted>
+        </FieldRow>
+      )
+  }
+  return (
+    <>
+      <FieldRow label="Slack" {...(slack.team === null ? {} : { hint: `Gekoppeld met ${slack.team}` })}>
+        <span className="flex flex-col gap-1">
+          <SelectInput
+            value={channel}
+            onChange={onChannel}
+            options={[{ value: "", label: "Kies een kanaal" }, ...channels]}
+          />
+          {slack.manage ?
+            <QuietButton disabled={slack.busy} onClick={() => setAsking(true)}>Slack ontkoppelen</QuietButton> :
+            null}
+        </span>
+      </FieldRow>
+      <ConfirmDialog
+        open={asking}
+        onOpenChange={setAsking}
+        title="Slack ontkoppelen?"
+        description="Meldingen gaan dan voor niemand in de workspace meer naar Slack, en ieders kanaalkeuze vervalt. Je kunt Slack later opnieuw koppelen."
+        confirmLabel="Ontkoppelen"
+        tone="destructive"
+        onConfirm={slack.disconnect}
+      />
+    </>
   )
 }
 

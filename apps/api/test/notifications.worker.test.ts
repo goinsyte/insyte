@@ -163,7 +163,7 @@ describe("notifications beyond the app", () => {
   let colleagueEmail = ""
   let workspace = ""
 
-  it("reads the design's defaults, with the address mail goes to and push and Slack not yet connected", async () => {
+  it("reads the design's defaults, with the address mail goes to and push and Slack offered, not connected", async () => {
     owner = await person("notify-owner", "Klok B.V.")
     workspace = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
     const p = await prefs(owner.cookie)
@@ -177,7 +177,9 @@ describe("notifications beyond the app", () => {
       email: owner.email,
       timezone: "Europe/Amsterdam",
       alerts: { delayHours: 48, disputeAmountMinor: 10000, currency: "EUR" },
-      channels: { push: "unavailable", slack: "unavailable" }
+      // The worker tests run with VAPID keys and the recorded Slack app (`vitest.config.ts`).
+      channels: { push: "available", slack: "available" },
+      slackTeam: null
     })
   })
 
@@ -185,7 +187,7 @@ describe("notifications beyond the app", () => {
     const p = inputOf(await prefs(owner.cookie))
     expect(failure(await rpc("Notifications.setPrefs", { ...p, quiet: { ...p.quiet, to: "22:00" } }, owner.cookie)))
       .toMatchObject({ _tag: "QuietHoursEmpty" })
-    expect(failure(await rpc("Notifications.setPrefs", { ...p, slackChannel: "#ops" }, owner.cookie)))
+    expect(failure(await rpc("Notifications.setPrefs", { ...p, slackChannel: "C0OPERATIONS" }, owner.cookie)))
       .toMatchObject({ _tag: "SlackNotConnected" })
     expect(
       failure(
@@ -195,6 +197,8 @@ describe("notifications beyond the app", () => {
         }, owner.cookie)
       )
     ).toMatchObject({ _tag: "Invalid" })
+    expect(failure(await rpc("Notifications.setPrefs", { ...p, slackChannel: "#ops" }, owner.cookie)))
+      .toMatchObject({ _tag: "Invalid" })
     // Quiet hours off may begin when they end: there are none.
     ok(await rpc("Notifications.setPrefs", { ...p, quiet: { ...p.quiet, on: false, to: "22:00" } }, owner.cookie))
     ok(await rpc("Notifications.setPrefs", p, owner.cookie))

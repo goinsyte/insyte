@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import {
   Box,
   CornerDownLeft,
+  Hash,
   type IconComponent,
   Pause,
   Play,
@@ -14,9 +15,10 @@ import {
   X
 } from "../../icons"
 import { Glyph } from "../common/glyph"
-import { formatCurrency } from "../lib/format"
+import { formatCurrency, initials } from "../lib/format"
 import { countryFlag, countryName } from "../lib/format-flag"
 import { ago } from "../lib/home/dates"
+import { personStyle } from "../lib/person-color"
 import type { Currency } from "../lib/types/domain"
 import { cn } from "../lib/utils"
 import { ProductThumb } from "../product/product-thumb"
@@ -328,5 +330,57 @@ export function ReturnsView({ rows: open }: { rows: ReadonlyArray<ReturnsRow> })
         </li>
       ))}
     </ul>
+  )
+}
+
+/** One conversation on "Ongelezen chats": a channel's `#name` or a DM's person, its last words and what is unread. */
+export type ChatRow = { id: string; group: boolean; name: string; preview: string; unread: number }
+
+/** "Ongelezen chats": the conversations with the most unread first, and how much is unread in all. */
+export function ChatsView({ rows, unread }: { rows: ReadonlyArray<ChatRow>; unread: number }) {
+  if (rows.every((c) => !c.preview)) {
+    return <Quiet>#algemeen is nog stil.</Quiet>
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="px-2 text-sm text-ink-2 tabular-nums">
+        {unread === 0 ? "Je bent bij" : `${unread} ongelezen ${unread === 1 ? "bericht" : "berichten"}`}
+      </p>
+      <ul className="flex flex-col">
+        {rows.map((c) => (
+          <li key={c.id}>
+            <Link to={"/chats" as string} search={{ id: c.id } as never} className={cn(ROW, "h-11")}>
+              {c.group ?
+                (
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-band text-ink-2">
+                    <Hash className="size-3.5" strokeWidth={1.75} />
+                  </span>
+                ) :
+                (
+                  <span
+                    className="flex size-7 shrink-0 items-center justify-center rounded-full font-medium text-xs"
+                    style={personStyle(c.name)}
+                  >
+                    {initials(c.name)}
+                  </span>
+                )}
+              <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                <span className={cn("truncate text-base", c.unread > 0 ? "font-medium text-ink" : "text-ink-2")}>
+                  {c.group ? `#${c.name}` : c.name}
+                </span>
+                <span className="truncate text-xs text-ink-3">{c.preview || "Nog geen berichten"}</span>
+              </span>
+              {c.unread > 0 ?
+                (
+                  <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-arc px-1.5 font-medium text-2xs text-mesh-ink tabular-nums">
+                    {c.unread}
+                  </span>
+                ) :
+                null}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }

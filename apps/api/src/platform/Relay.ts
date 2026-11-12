@@ -11,6 +11,7 @@ import { ForwardSends } from "@insyte/modules/forwarding/domain/Forwarding"
 import { sendQueued } from "@insyte/modules/inbox/use-cases/send"
 import { MarketingSyncs } from "@insyte/modules/marketing/domain/Marketing"
 import { InvitationLinks } from "@insyte/modules/members/domain/Ports"
+import type { Slack, WebPush } from "@insyte/modules/notifications/domain/Ports"
 import { digestDue, sendDue } from "@insyte/modules/notifications/use-cases/deliveries"
 import { fanOut } from "@insyte/modules/notifications/use-cases/fanout"
 import { sendDelayMail } from "@insyte/modules/orders/use-cases/delay-mail"
@@ -22,6 +23,7 @@ import type { FileStore } from "@insyte/modules/shared/domain/Documents"
 import { Mailer } from "@insyte/modules/shared/domain/Mailer"
 import { type OutboxEvent, Relay } from "@insyte/modules/shared/domain/Outbox"
 import { ProductAnalytics, type ProductEvent } from "@insyte/modules/shared/domain/ProductAnalytics"
+import type { Sealer } from "@insyte/modules/shared/domain/Sealer"
 import { ShopifyWrites } from "@insyte/modules/shared/domain/ShopifyWrites"
 import { Backfills } from "@insyte/modules/stores/domain/Ports"
 import { env, waitUntil } from "cloudflare:workers"
@@ -68,6 +70,9 @@ type SinkServices =
   | ForwardSends
   | ReturnLabels
   | FileStore
+  | WebPush
+  | Slack
+  | Sealer
 
 /** What a sink does with an event, in the event's workspace; `undefined` when the event is not its business. */
 interface Sink {
@@ -364,17 +369,19 @@ export const notifyWorkspace = (workspaceId: WorkspaceId, at?: Date) =>
     Effect.provideService(CurrentWorkspace, { id: workspaceId })
   )
 
-const digestWorkspaces = Effect.flatMap(Effect.service(Db), (db) =>
-  db.routing((sql) =>
-    Effect.map(
-      sql<{ workspaceId: WorkspaceId }>`select workspace_id from digest_workspaces()`,
-      (rows) => rows.map((r) => r.workspaceId)
-    )
-  ))
+/** The workspaces with a member whose digest is due at `at` (0055). */
+const digestWorkspaces = (at: Date) =>
+  Effect.flatMap(Effect.service(Db), (db) =>
+    db.routing((sql) =>
+      Effect.map(
+        sql<{ workspaceId: WorkspaceId }>`select workspace_id from digest_workspaces(${at})`,
+        (rows) => rows.map((r) => r.workspaceId)
+      )
+    ))
 
-/** Every 15 minutes: the daily digests whose hour has come, per workspace (M11 step 13.5). */
-export const digestSweep = Effect.fn("Relay.digestSweep")(function*() {
-  for (const workspaceId of yield* digestWorkspaces) yield* digestWorkspace(workspaceId)
+/** Every 15 minutes: the daily digests whose hour has come at the cron's time, per workspace (M11 step 13.5). */
+export const digestSweep = Effect.fn("Relay.digestSweep")(function*(at: Date) {
+  for (const workspaceId of yield* digestWorkspaces(at)) yield* digestWorkspace(workspaceId, at)
 }, Effect.orDie)
 
 /** One workspace's digests due at `at` (over the notes since `since`, a test's), sent, as `system`. */
