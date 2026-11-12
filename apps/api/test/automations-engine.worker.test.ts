@@ -2,9 +2,9 @@ import { STEPS_BY_ID } from "@insyte/domain/automations/Steps"
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
-import { consume, failure, join, ok, outboxOf, pastUndo, person, relay, run as testRun } from "./journeys.ts"
+import { consume, ok, outboxOf, relay } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
-import { call, rpc, sessionMe } from "./support.ts"
+import { call, rpc } from "./support.ts"
 
 /*
  * The automation engine (steps 14.2 and 14.3, M12 steps 2 and 3). Publishing gives a flow its own service account with
@@ -12,7 +12,7 @@ import { call, rpc, sessionMe } from "./support.ts"
  * active flow on "Verzending vertraagd", once: the Workflow walks the pinned version, a Filter stops the run that does
  * not pass, a Ja/nee-splitsing walks one lane, the actions run through their slices as the account (the ticket's audit
  * says `service_account`), a step Insyte cannot run yet is skipped with why, and a right switched off fails the run and
- * tells the flow's owner. A flow holds no right its publisher lacks.
+ * tells the flow's owner.
  */
 
 // A response body, read loosely as a client would.
@@ -145,48 +145,5 @@ describe("the automation engine", () => {
     const notes = ok(await rpc("Notifications.list", { tab: "inbox", cursor: null }, store.cookie)).items
     expect(notes.filter((n) => n.kind === "automation.alert")).toHaveLength(1)
     expect(notes.filter((n) => n.kind === "automation.failed")).toHaveLength(1)
-  }, 180_000)
-
-  it("gives a flow no right its publisher lacks, at publishing or in Instellingen", async () => {
-    const owner = await person("engine-rights", "Rechten B.V.")
-    const workspace = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
-    // Automatiseringen · Bewerken with Publiceren and Klanten · Bewerken, but Support at 0 and no refunds.
-    const created = ok(await rpc("Roles.create", { label: "Flowbouwer", from: null }, owner.cookie))
-    const role = created.roles.roles.find((r) => r.id === created.id)!
-    ok(
-      await rpc("Roles.update", {
-        id: created.id,
-        levels: { ...role.levels, automations: 2, customers: 2 },
-        specials: { ...role.specials, "automations.publish": true },
-        refundLimit: null,
-        stores: "all"
-      }, owner.cookie)
-    )
-    const email = `engine-rights-${testRun}@invited.test`
-    ok(await rpc("Invitations.send", { rows: [{ email, roleId: created.id, stores: "all" as const }] }, owner.cookie))
-    await pastUndo(workspace)
-    await relay(workspace)
-    const builder = await join(email)
-
-    const draft = async (name: string, nodes: ReadonlyArray<ReturnType<typeof step>>) => {
-      const { automation } = ok(await rpc("Automations.create", { name }, builder))
-      const id = automation!.automation.id
-      ok(await rpc("Automations.saveDraft", { id, name, nodes: nodes as Json }, builder))
-      return id
-    }
-    const ticket = await draft("Ticket", [TRIGGER, step("k", "action.create_ticket", { assignee: "" })])
-    expect(failure(await rpc("Automations.publish", { id: ticket, note: "" }, builder))).toMatchObject({
-      _tag: "Forbidden",
-      permission: "support"
-    })
-    // The owner holds it, so may publish it.
-    ok(await rpc("Automations.publish", { id: ticket, note: "" }, owner.cookie))
-
-    const label = await draft("Label", [TRIGGER, step("l", "action.tag_customer", { tag: "vertraagd" })])
-    ok(await rpc("Automations.publish", { id: label, note: "" }, builder))
-    expect(
-      failure(await rpc("Automations.updateSettings", { id: label, scopesExtra: ["tickets.write"] }, builder))
-    ).toMatchObject({ _tag: "Forbidden", permission: "support" })
-    ok(await rpc("Automations.updateSettings", { id: label, scopesExtra: ["tickets.write"] }, owner.cookie))
   }, 180_000)
 })

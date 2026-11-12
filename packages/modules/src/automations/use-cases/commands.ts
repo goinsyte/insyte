@@ -1,5 +1,4 @@
 import { Db } from "@insyte/database/Db"
-import { accountScopes } from "@insyte/domain/automations/Engine"
 import {
   type Flow,
   MAX_STEPS,
@@ -34,7 +33,7 @@ import {
   type SetStatusInput,
   type UpdateSettingsInput
 } from "../domain/Automations.ts"
-import { mayHand, syncAccount } from "./accounts.ts"
+import { syncAccount } from "./accounts.ts"
 import { UNPUBLISHED } from "./engine.ts"
 import { connectedBrands, detailOf, rowOf1, settingsOf } from "./read.ts"
 import { mayHand } from "./rights.ts"
