@@ -31,6 +31,8 @@ import {
   assign as assignTicket,
   create as createTicket,
   fromThread,
+  purgeIn as purgeTickets,
+  putBack as putBackTickets,
   removeFromThread,
   restore as restoreTickets,
   setStatus as setTicketStatus
@@ -38,6 +40,7 @@ import {
 import { numberOf } from "@insyte/modules/tickets/use-cases/tickets"
 import { ReturnParcels } from "@insyte/modules/tracking/Parcels"
 import { ensureDeliveries } from "@insyte/modules/tracking/use-cases/tracking"
+import { TrashKinds } from "@insyte/modules/trash/domain/Trash"
 import { type Compensation, UndoCompensations } from "@insyte/modules/undo/domain/Ports"
 import { Effect, Layer } from "effect"
 
@@ -58,6 +61,7 @@ import { Effect, Layer } from "effect"
  *   AfterShip       → a return's parcel, for the returns slice (M9.2)
  *   the inbox       → a ticket made from a thread, and taken away again (M11 step 2)
  *   a chat command  → an order's note or cancellation, a ticket made, assigned or moved (M11.4), and its undo
+ *   the Prullenbak  → each kind's own put-back and purge (M17 step 20.1a)
  */
 
 const MirrorFollowersLive = Layer.succeed(MirrorFollowers, {
@@ -199,6 +203,14 @@ const ChatCommandsLive = Layer.succeed(ChatCommands, {
   }
 })
 
+/** The Prullenbak's kinds, also for the daily sweep (`TrashSweep.ts`). */
+export const TrashKindsLive = Layer.succeed(TrashKinds, {
+  ticket: {
+    restore: (ids) => Effect.map(putBackTickets({ ids }), (change) => (change.undo === null ? [] : [change.undo])),
+    purge: purgeTickets
+  }
+})
+
 const RefunderLive = Layer.succeed(Refunder, {
   refund: (sql, input) =>
     Effect.map(
@@ -225,7 +237,8 @@ export const SliceLinks = StoreMirror.layer.pipe(
       KlaviyoSyncsLive,
       ReturnParcelsLive,
       ShopifyReturnsLive,
-      ThreadTicketsLive
+      ThreadTicketsLive,
+      TrashKindsLive
     )
   )
 )

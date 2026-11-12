@@ -1,4 +1,5 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { AuditRpcs } from "@insyte/api/rpc/AuditRpcs"
 import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
@@ -21,6 +22,7 @@ import { SuppliersRpcs } from "@insyte/api/rpc/SuppliersRpcs"
 import { ThreadsRpcs } from "@insyte/api/rpc/ThreadsRpcs"
 import { TicketsRpcs } from "@insyte/api/rpc/TicketsRpcs"
 import { TrackingRpcs } from "@insyte/api/rpc/TrackingRpcs"
+import { TrashRpcs } from "@insyte/api/rpc/TrashRpcs"
 import { WorkspacesRpcs } from "@insyte/api/rpc/WorkspacesRpcs"
 import { Exit } from "effect"
 import { beforeAll, describe, expect, it } from "vitest"
@@ -330,7 +332,16 @@ const PAYLOADS: Record<string, unknown> = {
   // The frame and the one search (M5, M11 step 6): every member; a kind or area the role cannot open answers nothing.
   "Shell.frame": { path: "/inbox" },
   "Nav.counts": { area: "tickets" },
-  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] }
+  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] },
+  // The Logboek and the Prullenbak (M17 step 20.1a): reading the log at Instellingen · Bekijken, its CSV also with
+  // Exporteren; the trash at Bewerken. The ids are in no trash, so nothing is put back or purged; the trash is empty.
+  "Audit.list": { category: "settings" },
+  "Audit.facets": undefined,
+  "Audit.export": { category: "settings" },
+  "Trash.list": undefined,
+  "Trash.restore": { ids: ["tkt_none"] },
+  "Trash.purge": { ids: ["tkt_none"] },
+  "Trash.empty": undefined
 }
 
 const manifest = [
@@ -357,7 +368,9 @@ const manifest = [
   ...ChatsRpcs.requests.keys(),
   ...NotificationsRpcs.requests.keys(),
   ...SessionRpcs.requests.keys(),
-  ...ShellRpcs.requests.keys()
+  ...ShellRpcs.requests.keys(),
+  ...AuditRpcs.requests.keys(),
+  ...TrashRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

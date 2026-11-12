@@ -1,4 +1,5 @@
 import { AccessRpcs } from "./rpc/AccessRpcs.ts"
+import { AuditRpcs } from "./rpc/AuditRpcs.ts"
 import { ChatsRpcs } from "./rpc/ChatsRpcs.ts"
 import { CommerceRpcs } from "./rpc/CommerceRpcs.ts"
 import { DeveloperRpcs } from "./rpc/DeveloperRpcs.ts"
@@ -26,6 +27,7 @@ import { SystemRpcs } from "./rpc/SystemRpcs.ts"
 import { ThreadsRpcs } from "./rpc/ThreadsRpcs.ts"
 import { TicketsRpcs } from "./rpc/TicketsRpcs.ts"
 import { TrackingRpcs } from "./rpc/TrackingRpcs.ts"
+import { TrashRpcs } from "./rpc/TrashRpcs.ts"
 import { WorkspacesRpcs } from "./rpc/WorkspacesRpcs.ts"
 
 /** Where the console calls every RPC. The client and the server name the same path. */
@@ -62,3 +64,5 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(ProposalsRpcs)
   .merge(WorkspacesRpcs)
   .merge(ChatsRpcs)
+  .merge(AuditRpcs)
+  .merge(TrashRpcs)

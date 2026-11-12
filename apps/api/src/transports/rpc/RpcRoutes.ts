@@ -1,5 +1,6 @@
 import { ConsoleRpcs, RPC_PATH } from "@insyte/api/ConsoleRpcs"
 import { Access } from "@insyte/modules/access/Access"
+import { AuditService } from "@insyte/modules/audit/Audit"
 import { ChatsService } from "@insyte/modules/chats/Chats"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
@@ -26,12 +27,14 @@ import { StoresService } from "@insyte/modules/stores/Stores"
 import { SuppliersService } from "@insyte/modules/suppliers/Suppliers"
 import { TicketsService } from "@insyte/modules/tickets/Tickets"
 import { TrackingService } from "@insyte/modules/tracking/Tracking"
+import { TrashService } from "@insyte/modules/trash/Trash"
 import { UndoService } from "@insyte/modules/undo/Undo"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { WorkspaceSettings } from "@insyte/modules/workspaces/WorkspaceSettings"
 import { Layer } from "effect"
 import { RpcSerialization } from "effect/rpc"
 import { AccessHandlers } from "./handlers/access.ts"
+import { AuditHandlers } from "./handlers/audit.ts"
 import { ChatsHandlers } from "./handlers/chats.ts"
 import { CommerceHandlers } from "./handlers/commerce.ts"
 import { DeveloperHandlers } from "./handlers/developer.ts"
@@ -59,6 +62,7 @@ import { SystemHandlers } from "./handlers/system.ts"
 import { ThreadsHandlers } from "./handlers/threads.ts"
 import { TicketsHandlers } from "./handlers/tickets.ts"
 import { TrackingHandlers } from "./handlers/tracking.ts"
+import { TrashHandlers } from "./handlers/trash.ts"
 import { WorkspacesHandlers } from "./handlers/workspaces.ts"
 import { RpcHttp } from "./RpcHttp.ts"
 
@@ -103,6 +107,8 @@ export const RpcContext = Layer.mergeAll(
   ChatsHandlers.pipe(Layer.provide(Layer.mergeAll(ChatsService.layer, UndoService.layer))),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
   WorkspacesHandlers.pipe(Layer.provide(WorkspaceSettings.layer)),
+  AuditHandlers.pipe(Layer.provide(AuditService.layer)),
+  TrashHandlers.pipe(Layer.provide(TrashService.layer)),
   ShellHandlers.pipe(
     Layer.provide(
       Layer.mergeAll(
