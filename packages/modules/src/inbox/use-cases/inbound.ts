@@ -1,9 +1,10 @@
 import { Db } from "@insyte/database/Db"
 import { mintId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
-import { Config, Effect } from "effect"
+import { Config, Effect, Option } from "effect"
 import type { SqlClient } from "effect/sql"
 import { FileStore } from "../../shared/domain/Documents.ts"
+import { PendingEvents, Relay } from "../../shared/domain/Outbox.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import { type Address, ATTACHMENT_MAX_BYTES, type InboundMail } from "../domain/Inbox.ts"
 
@@ -151,19 +152,30 @@ export const store = Effect.fn("Inbox.store")(function*(
   return { threadId, messageId, duplicate: false }
 })
 
-/** The `email()` handler's and the dev route's way in: the mailbox a forwarding address is, then the mail into it. */
+/**
+ * The `email()` handler's and the dev route's way in: the mailbox a forwarding address is, then the mail into it. Once
+ * it is committed the relay is kicked, where there is one, so the inbox's open tabs hear of it now rather than at the
+ * next sweep.
+ */
 export const receive = Effect.fn("Inbox.receive")(function*(to: string, mail: InboundMail) {
   const db = yield* Db
   const [route] = yield* db.routing((sql) =>
     sql<{ workspaceId: string; mailboxId: string }>`select * from mailbox_route(${to.trim().toLowerCase()})`
   )
   if (route === undefined) return undefined
-  return yield* db.scopedFor((sql) =>
+  const pending: Array<string> = []
+  const stored = yield* db.scopedFor((sql) =>
     Effect.gen(function*() {
       const [mailbox] = yield* sql<Mailbox>`
         select id, address, forwarding_address from mailboxes where id = ${route.mailboxId} for update`
       if (mailbox === undefined) return undefined
       return yield* store(sql, route.workspaceId, mailbox, mail)
     })
-  ).pipe(Effect.provideService(CurrentWorkspace, { id: route.workspaceId as never }))
+  ).pipe(
+    Effect.provideService(CurrentWorkspace, { id: route.workspaceId as never }),
+    Effect.provideService(PendingEvents, { add: (id) => void pending.push(id) })
+  )
+  const relay = yield* Effect.serviceOption(Relay)
+  if (pending.length > 0 && Option.isSome(relay)) yield* relay.value.kick(pending)
+  return stored
 })

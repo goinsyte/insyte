@@ -10,6 +10,7 @@ import { KEYS } from "./developer.ts"
 import { FIRST_ANALYSIS } from "./first-analysis.ts"
 import { FRAME, NOTES, presenceAtom } from "./frame.ts"
 import { HOME } from "./home.ts"
+import { INBOX } from "./inbox.ts"
 import { ORDERS } from "./orders.ts"
 import { PRODUCTS } from "./products.ts"
 import { QUALITY } from "./quality.ts"
@@ -44,6 +45,9 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   return: [...RETURNS, ...QUALITY],
   quality_check: QUALITY,
   ticket: TICKETS,
+  // The inbox (M11 step 2): a thread read, changed, sent or arrived; a mailbox connected.
+  thread: INBOX,
+  mailbox: INBOX,
   // Start's queue (M10.1): its refresh says when it changed. A plate is drawn on its row (M10.2).
   queue_item: QUEUE,
   proposal: QUEUE,
