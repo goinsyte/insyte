@@ -7,6 +7,7 @@ import { ForwardingRpcs } from "./rpc/ForwardingRpcs.ts"
 import { HomeRpcs } from "./rpc/HomeRpcs.ts"
 import { InvitationRpcs, LandingRpcs } from "./rpc/LandingRpcs.ts"
 import { MarketingRpcs } from "./rpc/MarketingRpcs.ts"
+import { MarketplaceRpcs } from "./rpc/MarketplaceRpcs.ts"
 import { MembersRpcs } from "./rpc/MembersRpcs.ts"
 import { NotificationsRpcs } from "./rpc/NotificationsRpcs.ts"
 import { OnboardingRpcs } from "./rpc/OnboardingRpcs.ts"
@@ -62,3 +63,4 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(ProposalsRpcs)
   .merge(WorkspacesRpcs)
   .merge(ChatsRpcs)
+  .merge(MarketplaceRpcs)

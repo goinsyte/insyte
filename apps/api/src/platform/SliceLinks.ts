@@ -1,13 +1,23 @@
+import { API_AREAS } from "@insyte/domain/Permissions"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { ActionFailed, ChatCommands } from "@insyte/modules/chats/Links"
 import { restore as restoreChats } from "@insyte/modules/chats/use-cases/commands"
 import { KlaviyoSyncs } from "@insyte/modules/customers/domain/Ports"
 import { restore as restoreCustomers } from "@insyte/modules/customers/use-cases/commands"
+import { KeyHasher } from "@insyte/modules/developer/domain/Ports"
+import {
+  createOn as createKeyOn,
+  rescopeOn,
+  restoreOn as restoreKeyOn,
+  revokeOn
+} from "@insyte/modules/developer/use-cases/keys"
 import { restore as restoreForwarding } from "@insyte/modules/forwarding/use-cases/commands"
 import { ensureLegs } from "@insyte/modules/forwarding/use-cases/legs"
 import { ThreadTickets } from "@insyte/modules/inbox/domain/Ports"
 import { restore as restoreInbox } from "@insyte/modules/inbox/use-cases/commands"
 import { lastSyncOf, restore as restoreMarketing } from "@insyte/modules/marketing/use-cases/klaviyo"
+import { AppKeys, type KeyLevel } from "@insyte/modules/marketplace/domain/Ports"
+import { rescope as rescopeApp, restore as restoreApp } from "@insyte/modules/marketplace/use-cases/marketplace"
 import { restore as restoreNotifications } from "@insyte/modules/notifications/use-cases/prefs"
 import { cancel as cancelOrders, restore as restoreOrders, setNote } from "@insyte/modules/orders/use-cases/commands"
 import { notifyDelay } from "@insyte/modules/orders/use-cases/delay-mail"
@@ -58,6 +68,7 @@ import { Effect, Layer } from "effect"
  *   AfterShip       → a return's parcel, for the returns slice (M9.2)
  *   the inbox       → a ticket made from a thread, and taken away again (M11 step 2)
  *   a chat command  → an order's note or cancellation, a ticket made, assigned or moved (M11.4), and its undo
+ *   the Marketplace → a recipe app's API key, made, revoked, put back and narrowed by the developer slice (M17)
  */
 
 const MirrorFollowersLive = Layer.succeed(MirrorFollowers, {
@@ -74,6 +85,47 @@ const threadTickets = ThreadTickets.of({ make: fromThread, remove: removeFromThr
 
 const ThreadTicketsLive = Layer.succeed(ThreadTickets, threadTickets)
 
+/** A recipe app's key over every area the API reaches, at one level (clamped per area by the developer slice). */
+const accessAt = (level: KeyLevel) => ({
+  kind: "custom" as const,
+  scopes: Object.fromEntries(API_AREAS.map((a) => [a.id, level]))
+})
+
+/** What an app's key does without making one: revoked, put back and narrowed, on the Marketplace's transaction. */
+const keysKept = {
+  revoke: (sql: Parameters<typeof revokeOn>[0], keyId: string) => revokeOn(sql, keyId),
+  restore: (sql: Parameters<typeof restoreKeyOn>[0], keyId: string) => restoreKeyOn(sql, keyId),
+  rescope: (sql: Parameters<typeof rescopeOn>[0], keyId: string, level: KeyLevel) =>
+    rescopeOn(sql, keyId, accessAt(level))
+}
+
+/** An undo puts a key back or narrows it; it never makes one. */
+const undoKeys = AppKeys.of({ ...keysKept, create: () => Effect.die(new Error("an undo makes no API key")) })
+
+/**
+ * The Marketplace's recipe apps' keys (M17), with the hasher a new key's secret is stored under. Composed beside the
+ * hasher in the app layer, not in `SliceLinks`, which the background layers share without one.
+ */
+export const AppKeysLive = Layer.effect(
+  AppKeys,
+  Effect.map(Effect.service(KeyHasher), (hasher) =>
+    AppKeys.of({
+      ...keysKept,
+      create: (sql, input) =>
+        createKeyOn(sql, {
+          label: input.label,
+          access: accessAt(input.level),
+          stores: "all",
+          expiresInDays: null,
+          ips: [],
+          agent: false
+        }).pipe(
+          Effect.provideService(KeyHasher, hasher),
+          Effect.map((made) => ({ keyId: made.key.id, secret: made.secret, prefix: made.key.prefix }))
+        )
+    }))
+)
+
 const compensations: Record<string, Compensation> = {
   "orders.restore": restoreOrders,
   "products.restore": restoreProducts,
@@ -88,6 +140,10 @@ const compensations: Record<string, Compensation> = {
   "quality.restore": restoreQuality,
   "queue.restore": restoreQueue,
   "notifications.restore": restoreNotifications,
+  "marketplace.restore": (sql, compensation) =>
+    restoreApp(sql, compensation).pipe(Effect.provideService(AppKeys, undoKeys)),
+  "marketplace.rescope": (sql, compensation) =>
+    rescopeApp(sql, compensation).pipe(Effect.provideService(AppKeys, undoKeys)),
   // A filed plate's Undo spends the command's own token and runs that command's compensation from this same table.
   "proposals.restore": (sql, compensation) =>
     restoreProposal(sql, compensation, {

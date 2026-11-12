@@ -57,7 +57,7 @@ import { RelayLive } from "./Relay.ts"
 import { SealerLive } from "./Seal.ts"
 import { ShopifyAdminChoice, ShopifyGraphqlChoice } from "./Shopify.ts"
 import { ShopifyWritesLive } from "./ShopifyWrites.ts"
-import { SliceLinks } from "./SliceLinks.ts"
+import { AppKeysLive, SliceLinks } from "./SliceLinks.ts"
 import { TrackingChoice } from "./Tracking.ts"
 
 /*
@@ -170,7 +170,9 @@ export const AppLayer = Transports.pipe(
       // …and the first analysis's Workflow (M6.5).
       AnalysesLive,
       // …and where one slice's need meets another's use case.
-      SliceLinks
+      SliceLinks,
+      // …and the Marketplace's recipe apps' keys, under the same hasher (M17).
+      AppKeysLive.pipe(Layer.provide(KeyHasherLive))
     )
   ),
   // better-auth, built per request by the auth routes and the session check, over the app's hooks.

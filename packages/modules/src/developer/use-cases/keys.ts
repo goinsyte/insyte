@@ -159,29 +159,46 @@ export const activity = Effect.fn("ApiKeys.activity")(function*(id: string) {
 export const create = Effect.fn("ApiKeys.create")(function*(input: CreateKey) {
   yield* Policy.require("integrations", 3)
   yield* checkFields(input)
+  const db = yield* Db
+  return yield* db.scoped((sql) => createOn(sql, input))
+})
+
+/**
+ * A key made on the caller's transaction (the Marketplace's recipe app, M17): the same checks, hash and audit as
+ * `create`, answered with its secret.
+ */
+export const createOn = Effect.fn("ApiKeys.createOn")(function*(sql: SqlClient.SqlClient, input: CreateKey) {
+  yield* Policy.require("integrations", 3)
+  yield* checkFields(input)
   const principal = yield* CurrentPrincipal
   const hasher = yield* KeyHasher
-  const db = yield* Db
-  return yield* db.scoped((sql) =>
-    Effect.gen(function*() {
-      const access = yield* checkAccess(sql, input.access)
-      const id = mintId("key")
-      const token = mintToken()
-      const hash = yield* hasher.hash(token.secret)
-      yield* sql`insert into api_keys (id, workspace_id, label, lookup, prefix, secret_hash, access, stores, expires_at, ips,
-                                       agent, created_by)
-                 values (${id}, ${principal.workspaceId}, ${input.label.trim()}, ${token.lookup}, ${token.prefix},
-                         decode(${hash}, 'hex'), ${JSON.stringify(access)}::jsonb, ${
-        JSON.stringify(input.stores)
-      }::jsonb,
-                         ${
-        input.expiresInDays === null ? null : sql`now() + make_interval(days => ${input.expiresInDays})`
-      },
-                         ${input.ips.map((ip) => ip.trim())}::text[], ${input.agent}, ${principal.id})`
-      yield* audit(sql, "api_key.created", id, { access: access.kind, agent: input.agent })
-      return new WithSecret({ key: yield* readKey(sql, id), secret: token.token })
-    })
-  )
+  const access = yield* checkAccess(sql, input.access)
+  const id = mintId("key")
+  const token = mintToken()
+  const hash = yield* hasher.hash(token.secret)
+  yield* sql`insert into api_keys (id, workspace_id, label, lookup, prefix, secret_hash, access, stores, expires_at, ips,
+                                   agent, created_by)
+             values (${id}, ${principal.workspaceId}, ${input.label.trim()}, ${token.lookup}, ${token.prefix},
+                     decode(${hash}, 'hex'), ${JSON.stringify(access)}::jsonb, ${JSON.stringify(input.stores)}::jsonb,
+                     ${
+    input.expiresInDays === null ? null : sql`now() + make_interval(days => ${input.expiresInDays})`
+  },
+                     ${input.ips.map((ip) => ip.trim())}::text[], ${input.agent}, ${principal.id})`
+  yield* audit(sql, "api_key.created", id, { access: access.kind, agent: input.agent })
+  return new WithSecret({ key: yield* readKey(sql, id), secret: token.token })
+})
+
+/** A key's own scopes replaced on the caller's transaction (an app's scopes taken back in the Marketplace, M17). */
+export const rescopeOn = Effect.fn("ApiKeys.rescopeOn")(function*(
+  sql: SqlClient.SqlClient,
+  id: string,
+  access: KeyAccess
+) {
+  yield* Policy.require("integrations", 3)
+  yield* readKey(sql, id)
+  const checked = yield* checkAccess(sql, access).pipe(Effect.catchTag("Invalid", Effect.die))
+  yield* sql`update api_keys set access = ${JSON.stringify(checked)}::jsonb where id = ${id}`
+  yield* audit(sql, "api_key.rescoped", id, { access: checked.kind })
 })
 
 export const update = Effect.fn("ApiKeys.update")(function*(input: UpdateKey) {
@@ -239,28 +256,30 @@ export const endGrace = Effect.fn("ApiKeys.endGrace")(function*(id: string) {
 /** Revoked: refused at once; the row stays, greyed, and its undo puts it back as it was. */
 export const revoke = Effect.fn("ApiKeys.revoke")(function*(id: string) {
   yield* Policy.require("integrations", 3)
-  const principal = yield* CurrentPrincipal
   const db = yield* Db
-  return yield* db.scoped((sql) =>
-    Effect.gen(function*() {
-      yield* readKey(sql, id)
-      yield* sql`update api_keys set revoked_at = now(), revoked_by = ${principal.id}
-                 where id = ${id} and revoked_at is null`
-      yield* audit(sql, "api_key.revoked", id)
-      return yield* readKeys(sql)
-    })
-  )
+  return yield* db.scoped((sql) => Effect.andThen(revokeOn(sql, id), readKeys(sql)))
+})
+
+/** `revoke` on the caller's transaction (a recipe app uninstalled, M17). */
+export const revokeOn = Effect.fn("ApiKeys.revokeOn")(function*(sql: SqlClient.SqlClient, id: string) {
+  yield* Policy.require("integrations", 3)
+  const principal = yield* CurrentPrincipal
+  yield* readKey(sql, id)
+  yield* sql`update api_keys set revoked_at = now(), revoked_by = ${principal.id}
+             where id = ${id} and revoked_at is null`
+  yield* audit(sql, "api_key.revoked", id)
 })
 
 export const restore = Effect.fn("ApiKeys.restore")(function*(id: string) {
   yield* Policy.require("integrations", 3)
   const db = yield* Db
-  return yield* db.scoped((sql) =>
-    Effect.gen(function*() {
-      yield* readKey(sql, id)
-      yield* sql`update api_keys set revoked_at = null, revoked_by = null where id = ${id}`
-      yield* audit(sql, "api_key.restored", id)
-      return yield* readKeys(sql)
-    })
-  )
+  return yield* db.scoped((sql) => Effect.andThen(restoreOn(sql, id), readKeys(sql)))
+})
+
+/** `restore` on the caller's transaction (a recipe app's Undo, M17). */
+export const restoreOn = Effect.fn("ApiKeys.restoreOn")(function*(sql: SqlClient.SqlClient, id: string) {
+  yield* Policy.require("integrations", 3)
+  yield* readKey(sql, id)
+  yield* sql`update api_keys set revoked_at = null, revoked_by = null where id = ${id}`
+  yield* audit(sql, "api_key.restored", id)
 })

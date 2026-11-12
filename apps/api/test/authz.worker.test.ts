@@ -6,6 +6,7 @@ import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
 import { HomeRpcs } from "@insyte/api/rpc/HomeRpcs"
 import { MarketingRpcs } from "@insyte/api/rpc/MarketingRpcs"
+import { MarketplaceRpcs } from "@insyte/api/rpc/MarketplaceRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
 import { NotificationsRpcs } from "@insyte/api/rpc/NotificationsRpcs"
 import { ProposalsRpcs } from "@insyte/api/rpc/ProposalsRpcs"
@@ -330,7 +331,18 @@ const PAYLOADS: Record<string, unknown> = {
   // The frame and the one search (M5, M11 step 6): every member; a kind or area the role cannot open answers nothing.
   "Shell.frame": { path: "/inbox" },
   "Nav.counts": { area: "tickets" },
-  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] }
+  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] },
+  // The Marketplace (M17 step 3): browsing, opening and feedback are every member's; installing, uninstalling and
+  // scopes are Koppelingen at Bewerken. A Binnenkort app and an app not installed are refused after the gate.
+  "Marketplace.catalog": undefined,
+  "Marketplace.installs": undefined,
+  "Marketplace.get": { appId: "ext_none" },
+  "Marketplace.recommended": undefined,
+  "Marketplace.install": { appId: "ext_yotpo" },
+  "Marketplace.uninstall": { appId: "ext_zapier" },
+  "Marketplace.setScopes": { appId: "ext_zapier", revoked: [] },
+  "Marketplace.open": { appId: "ext_zapier" },
+  "Marketplace.feedback": { category: "other", message: " " }
 }
 
 const manifest = [
@@ -357,7 +369,8 @@ const manifest = [
   ...ChatsRpcs.requests.keys(),
   ...NotificationsRpcs.requests.keys(),
   ...SessionRpcs.requests.keys(),
-  ...ShellRpcs.requests.keys()
+  ...ShellRpcs.requests.keys(),
+  ...MarketplaceRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {
