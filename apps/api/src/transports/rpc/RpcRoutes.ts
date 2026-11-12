@@ -4,6 +4,7 @@ import { AutomationsService } from "@insyte/modules/automations/Automations"
 import { RunsService } from "@insyte/modules/automations/Runs"
 import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
 import { ChatsService } from "@insyte/modules/chats/Chats"
+import { CostsService } from "@insyte/modules/costs/Costs"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
 import { FirstAnalysisService } from "@insyte/modules/first-analysis/FirstAnalysis"
@@ -39,6 +40,7 @@ import { AutomationsHandlers } from "./handlers/automations.ts"
 import { ChargebacksHandlers } from "./handlers/chargebacks.ts"
 import { ChatsHandlers } from "./handlers/chats.ts"
 import { CommerceHandlers } from "./handlers/commerce.ts"
+import { CostsHandlers } from "./handlers/costs.ts"
 import { DeveloperHandlers } from "./handlers/developer.ts"
 import { FirstAnalysisHandlers } from "./handlers/first-analysis.ts"
 import { ForwardingHandlers } from "./handlers/forwarding.ts"
@@ -112,6 +114,7 @@ export const RpcContext = Layer.mergeAll(
   ChatsHandlers.pipe(Layer.provide(Layer.mergeAll(ChatsService.layer, UndoService.layer))),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
   WorkspacesHandlers.pipe(Layer.provide(WorkspaceSettings.layer)),
+  CostsHandlers.pipe(Layer.provide(CostsService.layer)),
   ShellHandlers.pipe(
     Layer.provide(
       Layer.mergeAll(

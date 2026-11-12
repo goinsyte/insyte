@@ -36,6 +36,7 @@ import { RpcContext, RpcRoutes } from "../transports/rpc/RpcRoutes.ts"
 import { ShopperLive } from "../transports/rpc/ShopperLive.ts"
 import { ViewerLive } from "../transports/rpc/ViewerLive.ts"
 import { WithDbLive } from "../transports/rpc/WithDbLive.ts"
+import { AdSpendLive } from "./AdSpend.ts"
 import { AnalysesLive } from "./Analyses.ts"
 import { AuthHooksLive } from "./AuthHooks.ts"
 import { AutomationRunsLive } from "./AutomationRuns.ts"
@@ -227,7 +228,9 @@ export const BackgroundLayer = Layer.mergeAll(
   WebPushChoice,
   SlackChoice,
   SealerLive,
-  NoteRepliesLive
+  NoteRepliesLive,
+  // Ad spend from Meta and Google Ads (M13 step 5): not configured until Insyte has their app keys.
+  AdSpendLive
 ).pipe(
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),

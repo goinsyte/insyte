@@ -102,7 +102,9 @@ const Tools = McpServer.toolkit(InsyteTools).pipe(
       comment_on_ticket: ({ ticket_id, idempotency_key, ...body }) =>
         read.commentTicket(ticket_id, body, idempotency_key),
       list_chargebacks: (query) => read.chargebacks(query),
-      get_chargeback: ({ chargeback_id }) => read.chargeback(chargeback_id)
+      get_chargeback: ({ chargeback_id }) => read.chargeback(chargeback_id),
+      get_costs: ({ from, to }) => read.costs(from, to),
+      get_cost_figures: ({ months }) => read.costFigures(months)
     }
   })))
 )
@@ -111,7 +113,7 @@ export const McpRoutes = McpServer.layerHttpRequestScoped({
   name: "Insyte",
   version: "1.0.0",
   instructions:
-    "Insyte for dropshipping operators. Read the workspace's team and roles, and its orders, products, customers and suppliers; tag orders, note them, change their address, cancel and refund them; forward paid orders to their suppliers and move them to another supplier; start, approve, reject, label, receive, inspect and settle returns; write, change, move, assign and comment on tickets; read chargebacks with their evidence and timeline, with the key's scopes. Cancelling, refunding, forwarding and settling a return with a refund cannot be undone: confirm them with the person first.",
+    "Insyte for dropshipping operators. Read the workspace's team and roles, and its orders, products, customers and suppliers; tag orders, note them, change their address, cancel and refund them; forward paid orders to their suppliers and move them to another supplier; start, approve, reject, label, receive, inspect and settle returns; write, change, move, assign and comment on tickets; read chargebacks with their evidence and timeline; read the costs and the months' net profit, with the key's scopes. Cancelling, refunding, forwarding and settling a return with a refund cannot be undone: confirm them with the person first.",
   path: "/mcp",
   protocols: [McpProtocol.v2026_07_28],
   registrations: Tools

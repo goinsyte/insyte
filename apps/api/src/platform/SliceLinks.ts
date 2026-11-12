@@ -3,6 +3,7 @@ import { restore as restoreAutomations } from "@insyte/modules/automations/use-c
 import { restore as restoreChargebacks } from "@insyte/modules/chargebacks/Chargebacks"
 import { ActionFailed, ChatCommands } from "@insyte/modules/chats/Links"
 import { restore as restoreChats } from "@insyte/modules/chats/use-cases/commands"
+import { restore as restoreCosts } from "@insyte/modules/costs/use-cases/commands"
 import { KlaviyoSyncs } from "@insyte/modules/customers/domain/Ports"
 import { restore as restoreCustomers } from "@insyte/modules/customers/use-cases/commands"
 import { restore as restoreForwarding } from "@insyte/modules/forwarding/use-cases/commands"
@@ -92,6 +93,7 @@ const compensations: Record<string, Compensation> = {
   "quality.restore": restoreQuality,
   "queue.restore": restoreQueue,
   "notifications.restore": restoreNotifications,
+  "costs.restore": restoreCosts,
   // A filed plate's Undo spends the command's own token and runs that command's compensation from this same table.
   "proposals.restore": (sql, compensation) =>
     restoreProposal(sql, compensation, {

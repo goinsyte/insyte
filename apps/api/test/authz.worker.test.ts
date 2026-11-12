@@ -3,6 +3,7 @@ import { AutomationsRpcs } from "@insyte/api/rpc/AutomationsRpcs"
 import { ChargebacksRpcs } from "@insyte/api/rpc/ChargebacksRpcs"
 import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
+import { CostsRpcs } from "@insyte/api/rpc/CostsRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
@@ -373,7 +374,15 @@ const PAYLOADS: Record<string, unknown> = {
   "Chargebacks.accept": { ids: ["cb_none"] },
   "Chargebacks.addEvidence": { chargebackId: "cb_none", fileIds: ["fil_none"] },
   "Chargebacks.removeEvidence": { chargebackId: "cb_none", itemId: "evi_none" },
-  "Chargebacks.reorderEvidence": { chargebackId: "cb_none", itemIds: ["evi_none"] }
+  "Chargebacks.reorderEvidence": { chargebackId: "cb_none", itemIds: ["evi_none"] },
+  // Kosten (M13 step 5): Analyse · Bekijken to read, `costs.write` to change; a blank name or a line that is not there.
+  "Costs.list": {},
+  "Costs.figures": { months: ["2026-01"] },
+  "Costs.create": { name: "   ", kind: "fixed" },
+  "Costs.update": { id: "cost_none", name: "Iets", kind: "fixed" },
+  "Costs.setAmount": { lineId: "cost_none", month: "2026-01", amountMinor: 100 },
+  "Costs.readFromSource": { id: "cost_none" },
+  "Costs.remove": { id: "cost_none" }
 }
 
 const manifest = [
@@ -403,7 +412,8 @@ const manifest = [
   ...NotificationsRpcs.requests.keys(),
   ...SessionRpcs.requests.keys(),
   ...ShellRpcs.requests.keys(),
-  ...ChargebacksRpcs.requests.keys()
+  ...ChargebacksRpcs.requests.keys(),
+  ...CostsRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

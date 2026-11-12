@@ -76,7 +76,8 @@ const graduated = [
   "app/lib/home/kinds.ts",
   "app/chats/",
   "app/inbox/",
-  "app/automations/"
+  "app/automations/",
+  "app/costs/"
 ]
 
 /** Inside a graduated directory but not yet edited for the backend: the queue panel waits for the proposals branches. */
