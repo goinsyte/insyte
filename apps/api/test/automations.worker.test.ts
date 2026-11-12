@@ -234,51 +234,6 @@ describe("automations", () => {
     expect(tag(failure(await rpc("Automations.publish", { id, note: "" }, people.owner)))).toBe("InvalidFlow")
   })
 
-  it("gives a flow no right its publisher lacks, at publishing or in Instellingen", async () => {
-    // Automatiseringen · Bewerken with Publiceren and Klanten · Bewerken, but Support at 0.
-    const created = ok(await rpc("Roles.create", { label: "Flowbouwer", from: null }, people.owner))
-    const role = created.roles.roles.find((r) => r.id === created.id)!
-    ok(
-      await rpc("Roles.update", {
-        id: created.id,
-        levels: { ...role.levels, automations: 2, customers: 2 },
-        specials: { ...role.specials, "automations.publish": true },
-        refundLimit: null,
-        stores: "all"
-      }, people.owner)
-    )
-    const email = `automations-${run}-builder@invited.test`
-    ok(await rpc("Invitations.send", { rows: [{ email, roleId: created.id, stores: "all" as const }] }, people.owner))
-    await pastUndo(workspace)
-    await relay(workspace)
-    const builder = await join(email)
-
-    const draft = async (name: string, action: { variantId: string; config: Record<string, unknown> }) => {
-      const { automation } = ok(await rpc("Automations.create", { name }, builder))
-      const id = automation!.automation.id
-      const nodes = [{ id: "t", variantId: "trigger.shipping_delay", config: {} }, { id: "x", ...action }]
-      ok(await rpc("Automations.saveDraft", { id, name, nodes }, builder))
-      return id
-    }
-    const ticket = await draft("Ticket", {
-      variantId: "action.create_ticket",
-      config: { title: "Vertraagd", assignee: "" }
-    })
-    expect(failure(await rpc("Automations.publish", { id: ticket, note: "" }, builder))).toMatchObject({
-      _tag: "Forbidden",
-      permission: "support"
-    })
-    // The owner holds it, so may publish it.
-    ok(await rpc("Automations.publish", { id: ticket, note: "" }, people.owner))
-
-    const label = await draft("Label", { variantId: "action.tag_customer", config: { tag: "vertraagd" } })
-    ok(await rpc("Automations.publish", { id: label, note: "" }, builder))
-    expect(
-      failure(await rpc("Automations.updateSettings", { id: label, scopesExtra: ["tickets.write"] }, builder))
-    ).toMatchObject({ _tag: "Forbidden", permission: "support" })
-    ok(await rpc("Automations.updateSettings", { id: label, scopesExtra: ["tickets.write"] }, people.owner))
-  })
-
   it("copies a flow as a draft and removes one with Undo", async () => {
     const { automation } = ok(await rpc("Automations.create", { templateId: "tpl_late" }, people.owner))
     const id = automation!.automation.id
@@ -338,5 +293,50 @@ describe("automations", () => {
     expect(listed.value.counts.all).toBe(page.body.counts.all)
     const detail = await mcpCall(key, "get_automation", { automation_id: page.body.data[0].id })
     expect(detail.value.versions.length).toBeGreaterThan(0)
+  })
+
+  it("gives a flow no right its publisher lacks, at publishing or in Instellingen", async () => {
+    // Automatiseringen · Beheren with Publiceren and Klanten · Bewerken, but Support at 0.
+    const created = ok(await rpc("Roles.create", { label: "Flowbouwer", from: null }, people.owner))
+    const role = created.roles.roles.find((r) => r.id === created.id)!
+    ok(
+      await rpc("Roles.update", {
+        id: created.id,
+        levels: { ...role.levels, automations: 3, customers: 2 },
+        specials: { ...role.specials, "automations.publish": true },
+        refundLimit: null,
+        stores: "all"
+      }, people.owner)
+    )
+    const email = `automations-${run}-builder@invited.test`
+    ok(await rpc("Invitations.send", { rows: [{ email, roleId: created.id, stores: "all" as const }] }, people.owner))
+    await pastUndo(workspace)
+    await relay(workspace)
+    const builder = await join(email)
+
+    const draft = async (name: string, action: { variantId: string; config: Record<string, unknown> }) => {
+      const { automation } = ok(await rpc("Automations.create", { name }, builder))
+      const id = automation!.automation.id
+      const nodes = [{ id: "t", variantId: "trigger.shipping_delay", config: {} }, { id: "x", ...action }]
+      ok(await rpc("Automations.saveDraft", { id, name, nodes }, builder))
+      return id
+    }
+    const ticket = await draft("Ticket", {
+      variantId: "action.create_ticket",
+      config: { title: "Vertraagd", assignee: "" }
+    })
+    expect(failure(await rpc("Automations.publish", { id: ticket, note: "" }, builder))).toMatchObject({
+      _tag: "Forbidden",
+      permission: "support"
+    })
+    // The owner holds it, so may publish it.
+    ok(await rpc("Automations.publish", { id: ticket, note: "" }, people.owner))
+
+    const label = await draft("Label", { variantId: "action.tag_customer", config: { tag: "vertraagd" } })
+    ok(await rpc("Automations.publish", { id: label, note: "" }, builder))
+    expect(
+      failure(await rpc("Automations.updateSettings", { id: label, scopesExtra: ["tickets.write"] }, builder))
+    ).toMatchObject({ _tag: "Forbidden", permission: "support" })
+    ok(await rpc("Automations.updateSettings", { id: label, scopesExtra: ["tickets.write"] }, people.owner))
   })
 })
