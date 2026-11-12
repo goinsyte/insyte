@@ -7,7 +7,7 @@ import {
   triggerOf,
   validate
 } from "@insyte/domain/automations/Graph"
-import { SCOPE_IDS } from "@insyte/domain/automations/Scopes"
+import { accountScopes, SCOPE_IDS } from "@insyte/domain/automations/Scopes"
 import { nodesOfTemplate, TEMPLATES_BY_ID } from "@insyte/domain/automations/Templates"
 import { Conflict, Invalid, NotFound } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
@@ -34,6 +34,7 @@ import {
   type UpdateSettingsInput
 } from "../domain/Automations.ts"
 import { connectedBrands, detailOf, rowOf1, settingsOf } from "./read.ts"
+import { mayHand } from "./rights.ts"
 
 /*
  * The automation commands (M12 step 1; api.md §2.14, widgets/05 §1). Automatiseringen · Bewerken makes, copies and
@@ -277,6 +278,8 @@ export const restoreRemoved = Effect.fn("Automations.restoreRemoved")(function*(
 /**
  * "Publiceren": the draft as the next version, with its note, if it can run (`validate`'s errors refuse it) and differs
  * from the live one. A draft's first publication turns it on; a paused flow stays paused on its new version.
+ * The publisher hands the flow its rights, so must hold each one (`mayHand`), and the flow runs in the publisher's
+ * stores (`store_scope`; null for all of them), as a key never does more than the one who made it.
  */
 export const publish = Effect.fn("Automations.publish")(function*(input: typeof PublishInput.Type) {
   yield* Policy.require("automations", 2)
@@ -307,6 +310,7 @@ export const publish = Effect.fn("Automations.publish")(function*(input: typeof 
         selfId: a.id
       })
       if (!publishable(issues)) return yield* new InvalidFlow({ issues: issues.filter((i) => i.severity === "error") })
+      yield* mayHand(principal, accountScopes([...scopesRequired(nodes)], settings))
       const version = a.liveVersion + 1
       const trigger = triggerOf(nodes)!.variantId
       yield* sql`
@@ -315,7 +319,8 @@ export const publish = Effect.fn("Automations.publish")(function*(input: typeof 
         values (${principal.workspaceId}, ${a.id}, ${version}, ${draftJson}::jsonb,
                 ${input.note.trim() || "Gepubliceerd"}, ${[...scopesRequired(nodes)]}::text[], ${principal.id})`
       const status: AutomationStatus = a.status === "draft" ? "active" : a.status
-      yield* sql`update automations set live_version = ${version}, status = ${status}, trigger_variant = ${trigger}
+      yield* sql`update automations set live_version = ${version}, status = ${status}, trigger_variant = ${trigger},
+                   store_scope = ${principal.storeScope === null ? null : [...principal.storeScope]}::text[]
                  where id = ${a.id}`
       yield* audit(sql, "automation.published", a.id, { version, note: input.note, from: a.status, to: status })
       const outboxId = yield* Outbox.write(sql, principal.workspaceId, {
@@ -364,7 +369,8 @@ export const setStatus = Effect.fn("Automations.setStatus")(function*(input: typ
 
 /**
  * Instellingen: the rights, who hears of a failed run, and the rate. Beheren changes them; granting a right (switching
- * one on, or adding one no step needs) is publishing's right, as it widens what the flow may do.
+ * one on, or adding one no step needs) is publishing's right, as it widens what the flow may do: the one granting must
+ * hold what the new rights give (`mayHand`), and the flow's stores narrow to theirs.
  */
 export const updateSettings = Effect.fn("Automations.updateSettings")(function*(
   input: typeof UpdateSettingsInput.Type
@@ -397,7 +403,22 @@ export const updateSettings = Effect.fn("Automations.updateSettings")(function*(
       }
       const grants = before.scopesOff.some((s) => !next.scopesOff.includes(s)) ||
         next.scopesExtra.some((s) => !before.scopesExtra.includes(s))
-      if (grants) yield* Policy.requireAction("automations.publish")
+      if (grants) {
+        yield* Policy.requireAction("automations.publish")
+        const principal = yield* CurrentPrincipal
+        const [live] = yield* sql<{ required: Array<string> | null; storeScope: Array<string> | null }>`
+          select v.scopes_required as required, a.store_scope
+          from automations a
+          left join automation_versions v on v.automation_id = a.id and v.version = a.live_version
+          where a.id = ${a.id}`
+        const held = new Set(accountScopes(live?.required ?? [], before))
+        yield* mayHand(principal, accountScopes(live?.required ?? [], next).filter((s) => !held.has(s)))
+        if (principal.storeScope !== null) {
+          const fence = principal.storeScope
+          const narrowed = live?.storeScope == null ? [...fence] : live.storeScope.filter((s) => fence.includes(s))
+          yield* sql`update automations set store_scope = ${narrowed}::text[] where id = ${a.id}`
+        }
+      }
       if (next.notifyMemberId !== null) {
         const [m] = yield* sql<{ id: string }>`
           select id from members where id = ${next.notifyMemberId} and deactivated_at is null and removed_at is null`
