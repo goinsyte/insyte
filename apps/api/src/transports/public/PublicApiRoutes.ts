@@ -104,6 +104,7 @@ const ForwardingLive = HttpApiBuilder.group(
       (act) =>
         handlers
           .handle("suppliers", () => act.suppliers)
+          .handle("statements", ({ params }) => act.supplierStatements(params.id))
           .handle("legs", ({ query }) => act.legs(query.view))
           .handle(
             "forward",

@@ -63,6 +63,7 @@ const Tools = McpServer.toolkit(InsyteTools).pipe(
         kicking(read.refundOrder(order_id, body, idempotency_key)),
       get_order_tracking: ({ order_id }) => read.tracking(order_id),
       list_suppliers: () => read.suppliers,
+      list_supplier_statements: ({ supplier_id }) => read.supplierStatements(supplier_id),
       list_forwarding: ({ view }) => read.legs(view),
       forward_orders: ({ idempotency_key, ...body }) => kicking(read.forwardLegs(body, idempotency_key)),
       reroute_leg: ({ leg_id, idempotency_key, supplier_id }) =>

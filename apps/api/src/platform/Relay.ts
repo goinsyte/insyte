@@ -165,6 +165,8 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
     case "return.requested":
     case "return.label_requested":
     case "quality_check.submitted":
+    // The monthly close (M13 step 6) is Insyte's, not a person's moment.
+    case "statements.closed":
     // The delay mail is counted as the filing that put it in line.
     case "order.delay_mail":
       return undefined
@@ -421,7 +423,8 @@ const NOTIFIED = new Set<OutboxEvent["type"]>([
   "ticket.assigned",
   "ticket.mentioned",
   "chat.mentioned",
-  "quality_check.submitted"
+  "quality_check.submitted",
+  "statements.closed"
 ])
 
 const SINKS: ReadonlyArray<Sink> = [

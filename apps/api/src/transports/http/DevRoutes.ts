@@ -10,6 +10,7 @@ import { refreshWorkspace } from "@insyte/modules/queue/Queue"
 import { registerParcels } from "@insyte/modules/returns/use-cases/parcels"
 import { addLine, emptyBatch, type MirrorBatch, parseJsonl } from "@insyte/modules/stores/domain/Mirror"
 import { applyBatch } from "@insyte/modules/stores/use-cases/mirror"
+import { closeWorkspace } from "@insyte/modules/suppliers/use-cases/statements"
 import { sweepWorkspace } from "@insyte/modules/tracking/use-cases/tracking"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect, Layer, Option } from "effect"
@@ -429,6 +430,32 @@ const TrackingSweep = HttpRouter.add(
 )
 
 /**
+ * `POST /api/__dev/statements/close?workspace=<id>&month=YYYY-MM`: one workspace's monthly close of the supplier
+ * statements (M13 step 6), as `MonthlyCloseWorkflow`'s step does, for the worker tests and a preview. Unlike the cron it
+ * closes a month still running (what a test just shipped is this month's). Refused in production.
+ */
+const StatementsClose = HttpRouter.add(
+  "POST",
+  "/api/__dev/statements/close",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const query = new URL(request.url, "http://local").searchParams
+    const month = query.get("month") ?? ""
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "invalid" } }, { status: 400 })
+    }
+    const outcome = yield* closeWorkspace(month, { early: true }).pipe(
+      Effect.provideService(CurrentWorkspace, { id: (query.get("workspace") ?? "") as WorkspaceId }),
+      Effect.orDie
+    )
+    return HttpServerResponse.jsonUnsafe(outcome)
+  }).pipe(withRequestDb)
+)
+
+/**
  * `POST /api/__dev/queue/refresh?workspace=<id>`: the workspace's queue on Start brought in line now, as the 15-minute
  * sweep does (M10.1), for the worker tests (a stock-out has no event of its own). Refused in production.
  */
@@ -673,6 +700,7 @@ export const DevRoutes = Layer.mergeAll(
   FactsRebuild,
   StoreSeed,
   TrackingSweep,
+  StatementsClose,
   QueueRefresh,
   NotifySweep,
   NotifyDeliveries,

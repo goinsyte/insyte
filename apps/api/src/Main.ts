@@ -18,6 +18,7 @@ import {
   sweep
 } from "./platform/Relay.ts"
 import { withRequestDb } from "./platform/RequestDb.ts"
+import { startMonthlyClose } from "./workflows/MonthlyClose.ts"
 
 // The Durable Object classes this Worker hosts; infra and `wrangler.jsonc` bind them by these names.
 export { RateLimiter } from "./platform/RateLimiter.ts"
@@ -29,6 +30,7 @@ export { ShopifyBackfillWorkflow } from "./workflows/ShopifyBackfill.ts"
 export { FirstAnalysisWorkflow } from "./workflows/FirstAnalysis.ts"
 export { ForwardSendWorkflow } from "./workflows/ForwardSend.ts"
 export { MarketingSyncWorkflow } from "./workflows/MarketingSync.ts"
+export { MonthlyCloseWorkflow } from "./workflows/MonthlyClose.ts"
 export { ReturnLabelWorkflow } from "./workflows/ReturnLabel.ts"
 export { ShopifyWriteWorkflow } from "./workflows/ShopifyWrite.ts"
 
@@ -83,7 +85,8 @@ export default {
 
   /** Every minute (on staging every fifteenth, `infra/app.ts`): the relay's sweep for events a kick missed and the
    * notes quiet hours or a failed try held back (M11.5); every fifteenth, the stores' reconcile (M6.3), the tracking sweep (M8.4), Start's queue (M10.1), the
-   * daily facts (M10.4, at 02:00 UTC their nightly pass) and the members' daily digests (M11.5). */
+   * daily facts (M10.4, at 02:00 UTC their nightly pass), the members' daily digests (M11.5) and, on the 1st at 03:00 UTC,
+   * the supplier statements' monthly close (M13 step 6). */
   scheduled(controller, _env, ctx) {
     ctx.waitUntil(background.runPromise(withRequestDb(sweep())).finally(() => Telemetry.flush()))
     ctx.waitUntil(background.runPromise(withRequestDb(notifySweep())).finally(() => Telemetry.flush()))
@@ -96,6 +99,10 @@ export default {
       // Start's queue (M10.1): what no event says, a stock-out or a review coming due.
       ctx.waitUntil(background.runPromise(withRequestDb(queueSweep())).finally(() => Telemetry.flush()))
       ctx.waitUntil(background.runPromise(withRequestDb(digestSweep(at))).finally(() => Telemetry.flush()))
+      // The supplier statements' monthly close (M13 step 6), `0 3 1 * *`: inside this cron, as an account has few.
+      if (at.getUTCDate() === 1 && at.getUTCHours() === 3 && at.getUTCMinutes() === 0) {
+        ctx.waitUntil(startMonthlyClose(at))
+      }
     }
   }
 } satisfies ExportedHandler<Env, EventsMessage | IngestMessage>

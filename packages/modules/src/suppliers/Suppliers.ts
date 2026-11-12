@@ -6,9 +6,18 @@ import { SqlError } from "effect/sql"
 import type { SupplierApi } from "../forwarding/domain/Forwarding.ts"
 import type { Sealer } from "../shared/domain/Sealer.ts"
 import type { AssignInput, CreateInput, SetPausedInput, SupplierChange, UpdateInput } from "./domain/Commands.ts"
+import type {
+  MarkPaidInput,
+  StatementChange,
+  StatementDetail,
+  StatementInput,
+  StatementList,
+  StatementsInput
+} from "./domain/Statements.ts"
 import type { ListInput, SupplierDetail, SupplierList } from "./domain/Suppliers.ts"
 import * as Commands from "./use-cases/commands.ts"
 import * as Integration from "./use-cases/integration.ts"
+import * as Statements from "./use-cases/statements.ts"
 import * as Suppliers from "./use-cases/suppliers.ts"
 
 type R = Db | CurrentPrincipal
@@ -39,6 +48,12 @@ export class SuppliersService extends Context.Service<SuppliersService, {
   ) => Effect.Effect<{ readonly secret: Redacted.Redacted<string> }, Forbidden | NotFound | Invalid, A>
   readonly disconnectApi: (id: string) => Effect.Effect<void, Forbidden | NotFound, R>
   readonly testConnection: (id: string) => Effect.Effect<PingOutcome, Forbidden | NotFound, A>
+  /** A supplier's statements (M13 step 6), the running month first while it has lines. */
+  readonly statements: (input: typeof StatementsInput.Type) => Effect.Effect<StatementList, Forbidden | NotFound, R>
+  readonly statement: (input: typeof StatementInput.Type) => Effect.Effect<StatementDetail, Forbidden | NotFound, R>
+  readonly markStatementPaid: (
+    input: typeof MarkPaidInput.Type
+  ) => Effect.Effect<StatementChange, Forbidden | NotFound, R>
 }>()("modules/SuppliersService") {
   static readonly layer = Layer.succeed(SuppliersService, {
     list: (input) => Suppliers.list(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
@@ -50,6 +65,9 @@ export class SuppliersService extends Context.Service<SuppliersService, {
     remove: (id) => Commands.remove(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     connectApi: (input) => Integration.connectApi(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     disconnectApi: (id) => Integration.disconnectApi(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-    testConnection: (id) => Integration.testConnection(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))
+    testConnection: (id) => Integration.testConnection(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    statements: (input) => Statements.list(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    statement: (input) => Statements.get(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    markStatementPaid: (input) => Statements.markPaid(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))
   })
 }

@@ -30,6 +30,7 @@ import {
   Role,
   ScopeMissingV1,
   Supplier,
+  SupplierStatementsV1,
   Ticket,
   TicketComment,
   TicketDetailV1,
@@ -210,6 +211,15 @@ export const ListSuppliers = Tool.make("list_suppliers", {
     "The workspace's suppliers: whether each is paused, how it takes its orders (portal, email or api), and its open and delayed orders. Use it to pick a supplier for reroute_leg. Needs suppliers.read.",
   success: Schema.Struct({ data: Schema.Array(Supplier) }),
   failure: ScopeMissingV1,
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const ListSupplierStatements = Tool.make("list_supplier_statements", {
+  description:
+    "A supplier's monthly statements, newest first: what the brand owes it per month (shipped lines at cost, less its returns that were refunded), in minor units of the workspace currency, and whether each is open (running month), processing (closed, to be paid) or paid. Find supplier ids with list_suppliers. Needs suppliers.read.",
+  parameters: Schema.Struct({ supplier_id: Schema.String }),
+  success: SupplierStatementsV1,
+  failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
   dependencies: asKey()
 }).annotate(Tool.Readonly, true)
 
@@ -507,6 +517,7 @@ export const InsyteTools = Toolkit.make(
   RefundOrder,
   GetOrderTracking,
   ListSuppliers,
+  ListSupplierStatements,
   ListForwarding,
   ForwardOrders,
   RerouteLeg,

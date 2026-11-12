@@ -94,6 +94,7 @@ export type EventKey =
 	| "supplier.delay"
 	| "supplier.message"
 	| "supplier.stock"
+	| "supplier.statement"
 	| "automation.failed"
 	| "automation.done"
 	| "chat.mention"
@@ -143,6 +144,7 @@ export const EVENTS: ReadonlyArray<EventDef> = [
 	{ key: "supplier.delay", group: "Leveranciers", label: "Vertraging gemeld", detail: "Een leverancier verschuift een overdrachtsdatum.", primary: true, mine: true, defaults: ch(true, true, false, false) },
 	{ key: "supplier.message", group: "Leveranciers", label: "Bericht van een leverancier", detail: "In het gedeelde kanaal met die leverancier.", primary: false, defaults: ch(true, false, false, true) },
 	{ key: "supplier.stock", group: "Leveranciers", label: "Voorraad bijna op", detail: "Een product raakt op binnen een week, op het huidige tempo.", primary: false, defaults: ch(true, false, false, false) },
+	{ key: "supplier.statement", group: "Leveranciers", label: "Afrekeningen klaar", detail: "Op de 1e: wat elke leverancier voor de maand ervoor krijgt.", primary: false, defaults: ch(true, false, false, false) },
 	{ key: "automation.failed", group: "Automatiseringen", label: "Uitvoering mislukt", detail: "Een stap in een flow kon niet worden uitgevoerd.", primary: true, defaults: ch(true, true, false, true) },
 	{ key: "automation.done", group: "Automatiseringen", label: "Flow aangezet of gepauzeerd", detail: "Iemand verandert een flow die voor de werkruimte draait.", primary: false, defaults: ch(true, false, false, false) },
 	{ key: "chat.mention", group: "Team", label: "Vermelding", detail: "Iemand noemt je met @ in een chat of reactie.", primary: true, defaults: ch(true, false, true, true) },

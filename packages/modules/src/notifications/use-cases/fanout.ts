@@ -19,7 +19,8 @@ import { connectionOf } from "./slack.ts"
  * - `ticket.assigned`: who was put on a ticket hears of it, once the undo window has passed and if still on it;
  * - `ticket.mentioned`: who a ticket comment names with `@` hears of it;
  * - `chat.mentioned`: who a chat message names with `@` hears of it, if they are in it and did not mute it;
- * - `quality_check.submitted`: who asked for the check, and whoever handles products, hear the supplier answered.
+ * - `quality_check.submitted`: who asked for the check, and whoever handles products, hear the supplier answered;
+ * - `statements.closed`: whoever may mark supplier statements paid hears the month's are ready.
  *
  * A member deactivated or removed hears nothing. Who has "Alleen als het mij betreft" on for the kind hears only of
  * what concerns them directly (they were put on it, named in it, asked for it or sent the invitation). The in-app switch
@@ -245,6 +246,32 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             video: check.video
           },
           direct: [check.requestedBy]
+        }
+      }
+      case "statements.closed": {
+        // The month's supplier statements are closed (M13 step 6): whoever may mark them paid hears they are ready.
+        const [sum] = yield* sql<{ count: number; totalMinor: string; currency: string; payDay: string }>`
+          select count(*)::int as count, coalesce(sum(total_minor), 0) as total_minor,
+                 trim(min(currency)) as currency, to_char(min(pay_day), 'YYYY-MM-DD') as pay_day
+          from supplier_statements where id in ${sql.in([...event.statementIds, ""])}`
+        if (sum === undefined || sum.count === 0) return undefined
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'suppliers')::int, 0) >= 3)`
+        return {
+          kind: "supplier.statement",
+          recipients: recipients.map((r) => r.id),
+          subjectType: "supplier_statement",
+          subjectId: event.statementIds[0] ?? "",
+          actor: null,
+          data: {
+            month: event.month,
+            count: sum.count,
+            totalMinor: Number(sum.totalMinor),
+            currency: sum.currency,
+            payDay: sum.payDay
+          }
         }
       }
       default:

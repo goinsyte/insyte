@@ -1,6 +1,7 @@
 import type { AnalysisParams } from "../workflows/FirstAnalysis.ts"
 import type { ForwardSendParams } from "../workflows/ForwardSend.ts"
 import type { MarketingSyncParams } from "../workflows/MarketingSync.ts"
+import type { MonthlyCloseParams } from "../workflows/MonthlyClose.ts"
 import type { ReturnLabelParams } from "../workflows/ReturnLabel.ts"
 import type { BackfillParams } from "../workflows/ShopifyBackfill.ts"
 import type { ShopifyWriteParams } from "../workflows/ShopifyWrite.ts"
@@ -37,6 +38,8 @@ declare global {
       readonly FORWARD_SEND: Workflow<ForwardSendParams>
       /** A return's label from the carrier (M9.2): one instance per outbox event (`ReturnLabelWorkflow`). */
       readonly RETURN_LABEL: Workflow<ReturnLabelParams>
+      /** The supplier statements' monthly close (M13 step 6): one instance per month (`MonthlyCloseWorkflow`). */
+      readonly MONTHLY_CLOSE: Workflow<MonthlyCloseParams>
       /** The Klaviyo OAuth app (M7.5); without both, Klaviyo cannot be connected. `recorded` in the worker tests. */
       readonly KLAVIYO_CLIENT_ID?: string
       readonly KLAVIYO_CLIENT_SECRET?: string

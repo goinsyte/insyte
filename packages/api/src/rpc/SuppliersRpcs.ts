@@ -6,6 +6,14 @@ import {
   SupplierChange,
   UpdateInput
 } from "@insyte/modules/suppliers/domain/Commands"
+import {
+  MarkPaidInput,
+  StatementChange,
+  StatementDetail,
+  StatementInput,
+  StatementList,
+  StatementsInput
+} from "@insyte/modules/suppliers/domain/Statements"
 import { ListInput, SupplierDetail, SupplierList } from "@insyte/modules/suppliers/domain/Suppliers"
 import { Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/rpc"
@@ -53,6 +61,22 @@ export class SuppliersRpcs extends RpcGroup.make(
   Rpc.make("Suppliers.testConnection", {
     payload: ById,
     success: Schema.Struct({ ok: Schema.Boolean, ms: Schema.NullOr(Schema.Int), reason: Schema.NullOr(Schema.String) }),
+    error: Schema.Union([Forbidden, NotFound])
+  }),
+  // Supplier statements, the brand's side (M13 step 6): reading at Bekijken, marking paid at Beheren, with Undo.
+  Rpc.make("Suppliers.statements", {
+    payload: StatementsInput,
+    success: StatementList,
+    error: Schema.Union([Forbidden, NotFound])
+  }),
+  Rpc.make("Suppliers.statement", {
+    payload: StatementInput,
+    success: StatementDetail,
+    error: Schema.Union([Forbidden, NotFound])
+  }),
+  Rpc.make("Suppliers.markStatementPaid", {
+    payload: MarkPaidInput,
+    success: StatementChange,
     error: Schema.Union([Forbidden, NotFound])
   })
 )

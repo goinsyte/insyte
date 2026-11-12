@@ -1,5 +1,6 @@
 import { type AreaId, type Level } from "@insyte/domain/Permissions"
 import type { Note as ServerNote } from "@insyte/modules/notifications/domain/Notifications"
+import { dayName, money, monthName } from "@insyte/modules/notifications/domain/Words"
 import type { EventKey, Note } from "@insyte/ui/app/lib/notifications"
 import { permissionName } from "@insyte/ui/app/lib/permissions"
 
@@ -126,6 +127,19 @@ const sentence = (note: ServerNote): Sentence => {
         search: { tab: "quality", check: note.subjectId ?? "" },
         person: String(data["by"] ?? "") || "De leverancier",
         org: String(data["supplier"] ?? "")
+      }
+    }
+    case "supplier.statement": {
+      // The month's supplier statements closed (M13 step 6): what is to be paid, and when.
+      const count = Number(data["count"] ?? 0)
+      return {
+        title: "De afrekeningen staan klaar voor",
+        record: monthName(String(data["month"] ?? "")),
+        detail: `${count} ${count === 1 ? "leverancier" : "leveranciers"}, samen ${
+          money(Number(data["totalMinor"] ?? 0), String(data["currency"] ?? "") || "EUR")
+        }. Betaling op ${dayName(String(data["payDay"] ?? ""))}.`,
+        source: "supplier",
+        to: "/suppliers"
       }
     }
     default:
