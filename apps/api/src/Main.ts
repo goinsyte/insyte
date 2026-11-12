@@ -30,6 +30,7 @@ export { RoomDurableObject } from "./platform/Room.ts"
 export { ConnectionGateObject } from "./platform/ConnectionGate.ts"
 export { ShopifyBackfillWorkflow } from "./workflows/ShopifyBackfill.ts"
 // A store's first analysis (M6.5).
+export { EvidencePackWorkflow } from "./workflows/EvidencePack.ts"
 export { FirstAnalysisWorkflow } from "./workflows/FirstAnalysis.ts"
 export { ForwardSendWorkflow } from "./workflows/ForwardSend.ts"
 export { MarketingSyncWorkflow } from "./workflows/MarketingSync.ts"

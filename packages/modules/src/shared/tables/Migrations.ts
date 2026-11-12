@@ -52,6 +52,7 @@ import disputes from "./migrations/0058_disputes.ts"
 import costs from "./migrations/0059_costs.ts"
 import trash from "./migrations/0060_trash.ts"
 import settingsDepth from "./migrations/0061_settings_depth.ts"
+import evidencePacks from "./migrations/0062_evidence_packs.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -113,5 +114,6 @@ export const Migrations = {
   "0058_disputes": disputes,
   "0059_costs": costs,
   "0060_trash": trash,
-  "0061_settings_depth": settingsDepth
+  "0061_settings_depth": settingsDepth,
+  "0062_evidence_packs": evidencePacks
 }

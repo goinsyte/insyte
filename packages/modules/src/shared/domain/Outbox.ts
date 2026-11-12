@@ -310,6 +310,13 @@ export const OutboxEvent = Schema.Union([
     chargebackId: Schema.String,
     offset: Schema.Literals(["5d", "2d", "6h"])
   }),
+  // Packs asked for (M13 step 4): one `EvidencePackWorkflow` per case, named by its run.
+  Schema.Struct({
+    type: Schema.Literal("chargeback.pack_requested"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    packs: Schema.Array(Schema.Struct({ chargebackId: Schema.String, runId: Schema.String }))
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

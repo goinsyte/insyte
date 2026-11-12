@@ -63,7 +63,7 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
 // Kosten works its shares and per-order amounts out from revenue and orders (M13 step 5).
 for (const kind of ["order", "store"]) REFETCH[kind] = [...(REFETCH[kind] ?? []), ...COSTS]
 // Start's figures (M10.3) sum over every one of these.
-for (const kind of ["order", "ticket", "return", "product", "store", "member", "queue_item"]) {
+for (const kind of ["order", "ticket", "return", "product", "store", "member", "queue_item", "chargeback"]) {
   REFETCH[kind] = [...(REFETCH[kind] ?? []), ...HOME]
 }
 const EVERYTHING = [...new Set([...Object.values(REFETCH).flat(), ...CHATS, ...CHAT_PAGES])]
@@ -105,8 +105,12 @@ const connection = (reconnected: boolean, heard: Heard) =>
           })
         }
         // A store's import moved on: its counts, and the store itself once it is in.
-        if (frame.value.type === "job.progress") {
+        if (frame.value.type === "job.progress" && frame.value.kind === "store_backfill") {
           for (const key of frame.value.label === "done" ? [...STORE_SYNC, ...STORES] : STORE_SYNC) keys.add(key)
+        }
+        // A case's evidence pack moved on (M13 step 4): the case, its "Verzamelen · n van m".
+        if (frame.value.type === "job.progress" && frame.value.kind === "evidence_pack") {
+          for (const key of CHARGEBACKS) keys.add(key)
         }
       }
       if (keys.size > 0) yield* Reactivity.invalidate([...keys])

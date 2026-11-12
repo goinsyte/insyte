@@ -33,7 +33,7 @@ const holds = Effect.fn("Home.holds")(function*() {
 const queueScope = Effect.fn("Home.queueScope")(function*(sql: SqlClient.SqlClient) {
   const can = yield* holds()
   const { role } = yield* CurrentPrincipal
-  const areas = (["orders", "returns", "products", "settings"] as const).filter((a) => can(a))
+  const areas = (["orders", "returns", "products", "settings", "chargebacks"] as const).filter((a) => can(a))
   const stores = role.stores === "all"
     ? sql`true`
     : sql`(q.store_id is null or q.store_id = any(${[...role.stores]}))`

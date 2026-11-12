@@ -61,8 +61,12 @@ const eventOf = (e: ChargebackEvent, provider: string): string => {
       return `${names.length === 1 ? names[0] : files(names.length)} toegevoegd`
     case "evidence_removed":
       return `${String(e.data["name"] ?? "Bestand")} verwijderd`
-    case "pack_assembled":
-      return "Bewijspakket opgesteld"
+    case "pack_assembled": {
+      const n = typeof e.data["count"] === "number" ? e.data["count"] : null
+      return n === null
+        ? "Bewijspakket opgesteld"
+        : `Bewijspakket opgesteld · ${n} ${n === 1 ? "document" : "documenten"}`
+    }
     case "submitted":
       return `Bewijs ingediend bij ${provider}`
     case "accepted":

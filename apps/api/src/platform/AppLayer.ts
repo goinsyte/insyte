@@ -44,6 +44,7 @@ import { BackfillsLive } from "./Backfills.ts"
 import { AppInfo, BetaSettings, ConfigLive } from "./Bindings.ts"
 import { ConnectionGateLive } from "./ConnectionGate.ts"
 import { DocumentsChoice, FileStoreR2 } from "./Documents.ts"
+import { EvidencePacksLive } from "./EvidencePacks.ts"
 import { ForwardSendsLive, SupplierApiChoice } from "./Forwarding.ts"
 import { HumanCheck } from "./HumanCheck.ts"
 import { HyperdriveConnect } from "./Hyperdrive.ts"
@@ -220,6 +221,8 @@ export const BackgroundLayer = Layer.mergeAll(
   ForwardSendsLive,
   // Return labels are made at the carrier once their window has passed (M9.2).
   ReturnLabelsLive,
+  // A case's evidence pack is gathered by its Workflow (M13 step 4).
+  EvidencePacksLive,
   // A trigger's event starts a flow's run (M12 step 3).
   AutomationRunsLive,
   // A return label's PDF goes with the shopper's mail (M9.3).

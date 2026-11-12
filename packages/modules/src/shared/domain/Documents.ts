@@ -20,6 +20,8 @@ export class Documents extends Context.Service<Documents, {
 export class FileStore extends Context.Service<FileStore, {
   readonly put: (key: string, bytes: Uint8Array, mime: string) => Effect.Effect<void, DocumentNotMade>
   readonly get: (key: string) => Effect.Effect<{ readonly bytes: Uint8Array; readonly mime: string } | undefined>
+  /** Gone for good, as far as the bucket can say: a key that is not there is no failure. */
+  readonly remove: (keys: ReadonlyArray<string>) => Effect.Effect<void>
 }>()("shared/FileStore") {}
 
 /**

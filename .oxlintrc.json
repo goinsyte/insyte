@@ -95,6 +95,8 @@
     "!packages/ui/src/app/chats/**",
     // Graduated (08 §3): the Inbox, wired to Threads.* and Mailboxes.* in M11 (step 13.2b).
     "!packages/ui/src/app/inbox/**",
+    // Graduated (08 §3): Chargebacks, wired to Chargebacks.* in M13 (steps 15.3 and 15.4).
+    "!packages/ui/src/app/chargebacks/**",
     // Graduated (08 §3): Automatiseringen, wired to Automations.* in M12 (step 14.1b).
     "!packages/ui/src/app/automations/**",
     // Graduated (08 §3): Kosten, wired to Costs.* in M13 (step 15.5).

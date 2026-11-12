@@ -373,7 +373,10 @@ const PAYLOADS: Record<string, unknown> = {
   // The frame and the one search (M5, M11 step 6): every member; a kind or area the role cannot open answers nothing.
   "Shell.frame": { path: "/inbox" },
   "Nav.counts": { area: "tickets" },
-  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] },
+  "Search.records": {
+    q: "zeeland",
+    kinds: ["order", "customer", "product", "ticket", "thread", "message", "chargeback"]
+  },
   // Chargebacks (M13): Bekijken reads, Bewerken changes a case, Beheren accepts. Unknown cases, and a case opened by hand
   // without a customer, are refused past the permission check, so nothing is made.
   "Chargebacks.list": {},
@@ -391,6 +394,7 @@ const PAYLOADS: Record<string, unknown> = {
   "Chargebacks.addEvidence": { chargebackId: "cb_none", fileIds: ["fil_none"] },
   "Chargebacks.removeEvidence": { chargebackId: "cb_none", itemId: "evi_none" },
   "Chargebacks.reorderEvidence": { chargebackId: "cb_none", itemIds: ["evi_none"] },
+  "Chargebacks.assemblePack": { ids: ["cb_none"] },
   // Kosten (M13 step 5): Analyse · Bekijken to read, `costs.write` to change; a blank name or a line that is not there.
   "Costs.list": {},
   "Costs.figures": { months: ["2026-01"] },

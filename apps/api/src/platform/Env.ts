@@ -1,4 +1,5 @@
 import type { AutomationRunParams } from "../workflows/AutomationRun.ts"
+import type { EvidencePackParams } from "../workflows/EvidencePack.ts"
 import type { AnalysisParams } from "../workflows/FirstAnalysis.ts"
 import type { ForwardSendParams } from "../workflows/ForwardSend.ts"
 import type { MarketingSyncParams } from "../workflows/MarketingSync.ts"
@@ -38,6 +39,8 @@ declare global {
       readonly FORWARD_SEND: Workflow<ForwardSendParams>
       /** A return's label from the carrier (M9.2): one instance per outbox event (`ReturnLabelWorkflow`). */
       readonly RETURN_LABEL: Workflow<ReturnLabelParams>
+      /** A case's evidence pack (M13 step 4): one instance per run (`EvidencePackWorkflow`). */
+      readonly EVIDENCE_PACK: Workflow<EvidencePackParams>
       /** A flow's run (M12 step 3): one instance per run (`AutomationRunWorkflow`). */
       readonly AUTOMATION_RUN: Workflow<AutomationRunParams>
       /** The Klaviyo OAuth app (M7.5); without both, Klaviyo cannot be connected. `recorded` in the worker tests. */
@@ -60,7 +63,7 @@ declare global {
       readonly SYNC_PAGE_LINES?: string
       /** Files (M8.5): packing slips now, uploads later, one bucket per stage. */
       readonly FILES: R2Bucket
-      /** Browser Rendering (M8.5): packing slips as PDF. */
+      /** Browser Rendering (M8.5): packing slips as PDF, and an evidence pack's documents (M13 step 4). */
       readonly BROWSER: BrowserRun
       /** `html` in the worker tests, which have no browser: the slip is stored as its HTML. */
       readonly DOCUMENTS_ADAPTER?: string

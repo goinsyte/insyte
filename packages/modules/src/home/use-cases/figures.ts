@@ -303,6 +303,8 @@ export const widgets = Effect.fn("Home.widgets")(function*(input: WidgetsInput) 
         out.stock = { rows }
       }
 
+      if (want("chargebacks", "chargebacks")) out.chargebacks = yield* chargebacksWidget(sql)
+
       if (want("returns", "returns")) {
         const scope = yield* inScope(sql, "r.store_id")
         const rows = yield* sql<
@@ -401,13 +403,46 @@ export const widgets = Effect.fn("Home.widgets")(function*(input: WidgetsInput) 
   )
 })
 
+/**
+ * The chargebacks card (M13): the cases inside the role's stores (one opened by hand without a store is everyone's),
+ * what the open ones dispute in the workspace currency at the latest rate, and the nearest deadline.
+ */
+const chargebacksWidget = Effect.fn("Home.chargebacks")(function*(sql: SqlClient.SqlClient) {
+  const scope = yield* inScope(sql, "c.store_id")
+  const cases = sql`(select * from chargebacks c where (c.store_id is null or ${scope}))`
+  const [counts] = yield* sql<{ open: number; won: number; decided: number; submitted: number; atStake: string }>`
+    select count(*) filter (where c.status in ('open', 'awaiting_evidence'))::int as open,
+           count(*) filter (where c.status = 'won')::int as won,
+           count(*) filter (where c.status in ('won', 'lost'))::int as decided,
+           count(*) filter (where c.status = 'submitted')::int as submitted,
+           coalesce(round(sum(c.amount_minor * fx.rate) filter (where c.status in ('open', 'awaiting_evidence'))), 0)
+             ::bigint as at_stake
+    from ${cases} c join workspaces w on w.id = c.workspace_id
+    left join lateral (
+      select case when c.currency = w.currency then 1::numeric
+                  else (select f.rate from fx_rates f where f.base = c.currency and f.quote = w.currency
+                        order by f.day desc limit 1) end as rate) fx on true`
+  const [nearest] = yield* sql<{ id: string; caseNumber: string; customerName: string; deadlineAt: Date }>`
+    select c.id, c.case_number, coalesce(cu.name, c.customer_name) as customer_name, c.deadline_at
+    from ${cases} c left join customers cu on cu.id = c.customer_id
+    where c.status in ('open', 'awaiting_evidence') order by c.deadline_at, c.id limit 1`
+  return {
+    open: counts?.open ?? 0,
+    atStakeMinor: Number(counts?.atStake ?? 0),
+    won: counts?.won ?? 0,
+    decided: counts?.decided ?? 0,
+    submitted: counts?.submitted ?? 0,
+    nearest: nearest === undefined ? null : { ...nearest, deadlineAt: nearest.deadlineAt.getTime() }
+  }
+})
+
 export const brief = Effect.fn("Home.brief")(function*() {
   const can = yield* reads()
   const { role } = yield* CurrentPrincipal
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      const areas = (["orders", "returns", "products", "settings"] as const).filter((a) => can(a))
+      const areas = (["orders", "returns", "products", "settings", "chargebacks"] as const).filter((a) => can(a))
       const stores = role.stores === "all" ? sql`true` : sql`(q.store_id is null or q.store_id = any(${[
         ...role.stores
       ]}))`
@@ -427,11 +462,17 @@ export const brief = Effect.fn("Home.brief")(function*() {
             where t.status <> 'done' and t.priority = 'high' and t.archived_at is null and t.deleted_at is null
               and t.spam_at is null and (t.store_id is null or ${ticketScope})`)[0]?.n ?? 0
         : null
+      const caseScope = yield* inScope(sql, "c.store_id")
+      const evidence = can("chargebacks")
+        ? (yield* sql<{ n: number }>`
+            select count(*)::int as n from chargebacks c
+            where c.status in ('open', 'awaiting_evidence') and (c.store_id is null or ${caseScope})`)[0]?.n ?? 0
+        : null
       return new HomeBrief({
         needsYou: queue?.needsYou ?? 0,
         delayed: can("orders") ? orders?.delayed ?? 0 : null,
         urgent,
-        evidence: null,
+        evidence,
         firstDay: !(orders?.any ?? false) && (queue?.open ?? 0) === 0
       })
     })

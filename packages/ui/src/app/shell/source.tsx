@@ -162,6 +162,8 @@ export type RecordHits = {
 	threads: ReadonlyArray<{ id: string; subject: string; from: string }>;
 	/** Chat messages: the words around the match, where they were said (and by whom), and the address that opens them. */
 	messages: ReadonlyArray<{ id: string; text: string; where: string; href: string }>;
+	/** Chargebacks: the case number and the customer. */
+	chargebacks: ReadonlyArray<{ id: string; case_number: string; customer_name: string }>;
 };
 
 const ShellSourceContext = createContext<ShellSource | null>(null);

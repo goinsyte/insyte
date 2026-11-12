@@ -14,6 +14,7 @@ export const ChargebacksHandlers = ChargebacksRpcs.toLayer(Effect.gen(function*(
     "Chargebacks.accept": (input) => chargebacks.accept(input),
     "Chargebacks.addEvidence": (input) => chargebacks.addEvidence(input),
     "Chargebacks.removeEvidence": (input) => chargebacks.removeEvidence(input),
-    "Chargebacks.reorderEvidence": (input) => chargebacks.reorderEvidence(input)
+    "Chargebacks.reorderEvidence": (input) => chargebacks.reorderEvidence(input),
+    "Chargebacks.assemblePack": (input) => chargebacks.assemblePack(input)
   })
 }))

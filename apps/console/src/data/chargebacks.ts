@@ -44,5 +44,7 @@ export const chargebackWrites = {
   accept: ConsoleClient.mutation("Chargebacks.accept"),
   addEvidence: ConsoleClient.mutation("Chargebacks.addEvidence"),
   removeEvidence: ConsoleClient.mutation("Chargebacks.removeEvidence"),
+  setNote: ConsoleClient.mutation("Chargebacks.setNote"),
+  assemblePack: ConsoleClient.mutation("Chargebacks.assemblePack"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const

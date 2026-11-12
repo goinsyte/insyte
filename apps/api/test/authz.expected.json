@@ -1560,6 +1560,13 @@
     "finance": "allow",
     "view": "deny"
   },
+  "Chargebacks.assemblePack": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "deny"
+  },
   "Chargebacks.accept": {
     "owner": "allow",
     "admin": "allow",

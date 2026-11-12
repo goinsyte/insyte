@@ -136,7 +136,8 @@ export const RpcContext = Layer.mergeAll(
         CustomersService.layer,
         TicketsService.layer,
         InboxService.layer,
-        ChatsService.layer
+        ChatsService.layer,
+        ChargebacksService.layer
       )
     )
   )

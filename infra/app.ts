@@ -218,7 +218,7 @@ export default Alchemy.Stack(
       env: {
         HYPERDRIVE: hyperdrive,
         FILES: files,
-        // Browser Rendering (M8.5): packing slips as PDF.
+        // Browser Rendering (M8.5): packing slips as PDF, and an evidence pack's documents (M13 step 4).
         BROWSER: Cloudflare.Browser("BROWSER"),
         EVENTS: events,
         INGEST: ingest,
@@ -257,6 +257,11 @@ export default Alchemy.Stack(
         RETURN_LABEL: Cloudflare.Workflow("ReturnLabel", {
           className: "ReturnLabelWorkflow",
           workflowName: `insyte-return-label-${stage}`
+        }),
+        // A case's evidence pack (M13 step 4), hosted by this Worker (`EvidencePackWorkflow`); one per stage.
+        EVIDENCE_PACK: Cloudflare.Workflow("EvidencePack", {
+          className: "EvidencePackWorkflow",
+          workflowName: `insyte-evidence-pack-${stage}`
         }),
         // A flow's run (M12 step 3), hosted by this Worker (`AutomationRunWorkflow`); one per stage.
         AUTOMATION_RUN: Cloudflare.Workflow("AutomationRun", {
