@@ -98,6 +98,9 @@ export function Segmented<T extends string | number>({
 	);
 }
 
+/** It names itself (`aria-label`), so a `Field` around it is not a <label> as well. */
+Segmented.namesItself = true;
+
 export const GHOST_BTN =
 	"flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 font-medium text-base text-ink-2 transition-colors hover:bg-ink/6 hover:text-ink disabled:pointer-events-none disabled:opacity-50";
 export const PRIMARY_BTN =
