@@ -951,6 +951,89 @@ export class ProposalsGroup extends HttpApiGroup.make("proposals")
   .annotate(OpenApi.Title, "Proposals")
 {}
 
+/** A flow (M12 step 1): its definition, as the builder holds it. Runs and triggering one come with the executor. */
+export const AutomationStepV1 = Schema.Struct({
+  id: Schema.String,
+  step: Schema.String.annotate({ description: "The step's kind, as `trigger.order_shipped` or `action.send_email`." }),
+  config: Schema.Record(Schema.String, Schema.Unknown),
+  branches: Schema.optional(
+    Schema.Struct({
+      yes: Schema.Array(
+        Schema.Struct({ id: Schema.String, step: Schema.String, config: Schema.Record(Schema.String, Schema.Unknown) })
+      ),
+      no: Schema.Array(
+        Schema.Struct({ id: Schema.String, step: Schema.String, config: Schema.Record(Schema.String, Schema.Unknown) })
+      )
+    })
+  ).annotate({ description: "A yes/no split's two lanes, which merge back into the line after it." })
+})
+
+export const AutomationV1 = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  description: Schema.String,
+  status: Schema.String.annotate({ description: "draft (never published), active or paused." }),
+  live_version: Schema.Int.annotate({ description: "The published version that runs; 0 for a draft." }),
+  trigger: Schema.NullOr(Schema.String).annotate({ description: "The draft's trigger step, if it has one." }),
+  unpublished_changes: Schema.Boolean,
+  owner: Schema.NullOr(Schema.Struct({ id: Schema.String, name: Schema.String })),
+  runs_total: Schema.Int,
+  saved_at: Schema.String,
+  created_at: Schema.String
+})
+
+export const AutomationPageV1 = Schema.Struct({
+  data: Schema.Array(AutomationV1),
+  counts: Schema.Struct({ all: Schema.Int, active: Schema.Int, paused: Schema.Int, draft: Schema.Int })
+})
+
+export const AutomationDetailV1 = Schema.Struct({
+  ...AutomationV1.fields,
+  draft: Schema.Array(AutomationStepV1),
+  live: Schema.NullOr(Schema.Array(AutomationStepV1)),
+  versions: Schema.Array(
+    Schema.Struct({
+      version: Schema.Int,
+      note: Schema.String,
+      published_at: Schema.String,
+      published_by: Schema.NullOr(Schema.Struct({ id: Schema.String, name: Schema.String }))
+    })
+  ),
+  issues: Schema.Array(
+    Schema.Struct({
+      step_id: Schema.NullOr(Schema.String),
+      code: Schema.String,
+      field: Schema.NullOr(Schema.String),
+      severity: Schema.String.annotate({ description: "error stops publishing; warning does not." }),
+      message: Schema.String
+    })
+  )
+})
+
+export const AutomationStatusFilter = Schema.Literals(["draft", "active", "paused"])
+
+export class AutomationsGroup extends HttpApiGroup.make("automations")
+  .add(
+    HttpApiEndpoint.get("automations", "/automations", {
+      query: Schema.Struct({ status: Schema.optional(AutomationStatusFilter) }),
+      success: AutomationPageV1,
+      error: [ScopeMissingV1]
+    }).annotate(
+      OpenApi.Description,
+      "The workspace's flows, newest first, with each status's count. Needs `automations.read`."
+    ),
+    HttpApiEndpoint.get("automation", "/automations/:id", {
+      params: ById,
+      success: AutomationDetailV1,
+      error: [ScopeMissingV1, NotFoundV1]
+    }).annotate(
+      OpenApi.Description,
+      "One flow: its draft and live steps, its published versions, and what is wrong with the draft per step. Needs `automations.read`."
+    )
+  )
+  .annotate(OpenApi.Title, "Automations")
+{}
+
 export class PublicApi extends HttpApi.make("insyte")
   .add(
     KeyGroup,
@@ -960,6 +1043,7 @@ export class PublicApi extends HttpApi.make("insyte")
     ForwardingGroup,
     ReturnsGroup,
     TicketsGroup,
+    AutomationsGroup,
     QueueGroup,
     ProposalsGroup
   )

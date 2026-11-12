@@ -172,6 +172,15 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
         groups: { workspace: event.workspaceId },
         properties: { action: event.action }
       }
+    // Publishing a flow (M12 step 1): the moment an operator hands work to Insyte, by its trigger and size.
+    case "automation.published":
+      return {
+        outboxId: id,
+        event: "automation_published",
+        distinctId: event.userId,
+        groups: { workspace: event.workspaceId },
+        properties: { version: event.version, trigger: event.trigger, steps: event.steps }
+      }
     // Handling an order in Insyte is an activation moment (M7): counted by what was done and to how many.
     case "order.updated":
     case "order.cancelled":
