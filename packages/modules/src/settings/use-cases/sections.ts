@@ -11,6 +11,7 @@ import {
   type Checked,
   checkLinks,
   checkRetention,
+  checkSenders,
   checkShipping,
   checkVat,
   decodeOr
@@ -31,6 +32,7 @@ import {
   type VatStore,
   VatValue
 } from "../domain/Settings.ts"
+import { domainNameOf, mailboxesOf, storedOf } from "./senders.ts"
 
 /*
  * The settings sections (M17 step 20.1b; widgets/05 §7): read at Instellingen · Bekijken, saved at Bewerken (Gegevens
@@ -151,6 +153,15 @@ export const sectionOf = Effect.fn("WorkspaceSettings.sectionOf")(function*(
         : yield* sql<{ id: string }>`select id from files where id = ${value.logoFileId} and deleted_at is null`
       return { section, value, logoUrl: file === undefined ? null : `/api/files/${file.id}`, ...stamp } as const
     }
+    case "domain_senders": {
+      const stored = storedOf(row?.value)
+      return {
+        section,
+        value: { from: stored.from, replyTo: stored.replyTo },
+        domain: yield* domainNameOf(sql, stored.domain),
+        ...stamp
+      } as const
+    }
     case "vat": {
       const stores = yield* storesOf(sql)
       return {
@@ -256,6 +267,10 @@ const check = (sql: SqlClient.SqlClient, section: SettingsSectionId, value: unkn
           select id from files where id = ${checked.ok.logoFileId} and kind = 'logo' and deleted_at is null`
         return (file === undefined ? { fields: { logoFileId: "unknown" } } : checked) as Checked<unknown>
       }
+      case "domain_senders": {
+        const domain = yield* domainNameOf(sql, storedOf((yield* readRow(sql, section))?.value).domain)
+        return checkSenders(value, domain, yield* mailboxesOf(sql)) as Checked<unknown>
+      }
       case "vat":
         return checkVat(value, (yield* storesOf(sql)).map((s) => s.id)) as Checked<unknown>
       case "retention":
@@ -265,7 +280,8 @@ const check = (sql: SqlClient.SqlClient, section: SettingsSectionId, value: unkn
 
 /**
  * Writes `next` as the section's next version, with an audit line per changed field; `current` is the row it read
- * under lock (none: never saved). Retention keeps whether erasing is on: only `Retention.setErasing` switches it.
+ * under lock (none: never saved). Retention keeps whether erasing is on: only `Retention.setErasing` switches it; E-mail
+ * en domein keeps its domain: only `SendingDomain.get` and `verify` write that.
  */
 export const writeSection = Effect.fn("WorkspaceSettings.writeSection")(function*(
   sql: SqlClient.SqlClient,
@@ -275,7 +291,11 @@ export const writeSection = Effect.fn("WorkspaceSettings.writeSection")(function
 ) {
   const principal = yield* CurrentPrincipal
   const before = (yield* sectionOf(sql, section, current)).value
-  const stored = section === "retention" ? { ...(next as object), erasing: erasingOf(current?.value) } : next
+  const stored = section === "retention"
+    ? { ...(next as object), erasing: erasingOf(current?.value) }
+    : section === "domain_senders"
+    ? { ...(next as object), domain: storedOf(current?.value).domain ?? null }
+    : next
   const json = JSON.stringify(stored)
   if (current === undefined) {
     yield* sql`insert into workspace_settings (workspace_id, section, value, updated_by)
@@ -297,27 +317,31 @@ export const writeSection = Effect.fn("WorkspaceSettings.writeSection")(function
   return before
 })
 
+/** A save on the caller's transaction, after its permission: checked, over the version read, audited, undoable. */
+export const saveIn = Effect.fn("WorkspaceSettings.saveIn")(function*(sql: SqlClient.SqlClient, input: SaveSection) {
+  const checked = yield* check(sql, input.section, input.value)
+  if ("fields" in checked) return yield* new Invalid({ fields: checked.fields })
+  const current = yield* readRow(sql, input.section, true)
+  if ((current?.version ?? 0) !== input.baseVersion) {
+    return yield* new Conflict({ entity: "workspace_settings", reason: "stale_version" })
+  }
+  const before = yield* writeSection(sql, input.section, current, checked.ok)
+  const undo = yield* Undo.issue(sql, { command: RESTORE, compensation: { section: input.section, before } })
+  const section = yield* sectionOf(sql, input.section, yield* readRow(sql, input.section))
+  return { section, undo }
+})
+
 export const save = Effect.fn("WorkspaceSettings.save")(function*(input: SaveSection) {
   yield* Policy.require("settings", saveLevel(input.section))
   const db = yield* Db
-  return yield* db.scoped((sql) =>
-    Effect.gen(function*() {
-      const checked = yield* check(sql, input.section, input.value)
-      if ("fields" in checked) return yield* new Invalid({ fields: checked.fields })
-      const current = yield* readRow(sql, input.section, true)
-      if ((current?.version ?? 0) !== input.baseVersion) {
-        return yield* new Conflict({ entity: "workspace_settings", reason: "stale_version" })
-      }
-      const before = yield* writeSection(sql, input.section, current, checked.ok)
-      const undo = yield* Undo.issue(sql, { command: RESTORE, compensation: { section: input.section, before } })
-      const section = yield* sectionOf(sql, input.section, yield* readRow(sql, input.section))
-      return { section, undo }
-    })
-  )
+  return yield* db.scoped((sql) => saveIn(sql, input))
 })
 
 const decodeRestore = Schema.decodeUnknownEffect(
-  Schema.Struct({ section: Schema.Literals(["shipping", "links", "brand", "vat", "retention"]), before: Schema.Json })
+  Schema.Struct({
+    section: Schema.Literals(["shipping", "links", "brand", "domain_senders", "vat", "retention"]),
+    before: Schema.Json
+  })
 )
 
 /** `Shared.undo` for `settings.restore`: the section as it was, written as its next version (audited as any save). */

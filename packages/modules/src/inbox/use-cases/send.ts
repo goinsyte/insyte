@@ -3,6 +3,7 @@ import type { SqlClient } from "effect/sql"
 import { Mailer } from "../../shared/domain/Mailer.ts"
 import { PendingEvents } from "../../shared/domain/Outbox.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
+import * as Senders from "../../shared/use-cases/Senders.ts"
 
 /*
  * The relay's `support` sink (M11 step 2): a message the team wrote, once its undo window has passed, through the
@@ -47,6 +48,7 @@ export const sendQueued = Effect.fn("Inbox.sendQueued")(function*(sql: SqlClient
       kind: "support.message",
       to: to.email,
       sender: m.label,
+      ...(yield* Senders.customerSender(sql, "support.message")),
       reference: m.id,
       support: {
         subject: m.subject,

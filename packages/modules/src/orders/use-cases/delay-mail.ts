@@ -9,6 +9,7 @@ import { Relay } from "../../shared/domain/Outbox.ts"
 import { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
+import * as Senders from "../../shared/use-cases/Senders.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import type { OrdersRestore } from "../domain/Commands.ts"
@@ -113,6 +114,7 @@ export const sendDelayMail = Effect.fn("Orders.sendDelayMail")(
       kind: "order.delayed",
       to: m.address,
       sender: m.shop,
+      ...(yield* Senders.customerSender(sql, "order.delayed")),
       reference: m.orderId,
       orderDelay: {
         shop: m.shop,

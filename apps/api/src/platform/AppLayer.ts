@@ -55,6 +55,7 @@ import { ProductAnalyticsCapture } from "./ProductAnalyticsCapture.ts"
 import { RateLimits } from "./RateLimits.ts"
 import { RelayLive } from "./Relay.ts"
 import { SealerLive } from "./Seal.ts"
+import { SendingDomainsChoice } from "./SendingDomains.ts"
 import { ShopifyAdminChoice, ShopifyGraphqlChoice } from "./Shopify.ts"
 import { ShopifyWritesLive } from "./ShopifyWrites.ts"
 import { SliceLinks } from "./SliceLinks.ts"
@@ -163,6 +164,8 @@ export const AppLayer = Transports.pipe(
       TrackingChoice,
       // …and Sendcloud, for whether return labels can be asked for (M9.2).
       LabelsChoice,
+      // …and the brand's sending domain at Resend, for E-mail en domein (M17 step 20.1c).
+      SendingDomainsChoice,
       // …and the files bucket, for downloads (M8.5).
       FileStoreR2,
       ConnectionGateLive,

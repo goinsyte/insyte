@@ -7,8 +7,9 @@ import { Resend } from "./Resend.ts"
 /*
  * The `Mailer` port over Resend (16 §3): staging and production, where `MAIL_ADAPTER=resend`. The adapter owns the
  * templates (`emails/`, rendered by `MailRenderer`), the links they carry (`MailUrls`, from `CONSOLE_ORIGIN`) and the
- * sender, `MAIL_FROM`: `noreply@mail.goinsyte.com` once that domain is verified in Resend. A mail that does not go is
- * `MailNotSent` with the reason; the caller logs it and goes on.
+ * sender, `MAIL_FROM`: `noreply@mail.goinsyte.com` once that domain is verified in Resend, or the brand's own address
+ * where the mail says one (`Mail.from`, E-mail en domein). A mail that does not go is `MailNotSent` with the reason; the
+ * caller logs it and goes on.
  */
 
 /**
@@ -128,13 +129,15 @@ export const ResendMailer = Layer.effect(
     return Mailer.of({
       send: Effect.fn("ResendMailer.send")(function*(mail: Mail) {
         const rendered = yield* render(mail)
+        // The brand's own address once its domain is verified (E-mail en domein), else Insyte's; the name is the store's.
+        const replyTo = mail.memberNote?.replyTo ?? mail.replyTo
         yield* resend.send({
-          from: fromIn(from, mail.sender),
+          from: fromIn(mail.from ?? from, mail.sender),
           to: mail.to,
           ...rendered,
           idempotencyKey: yield* idempotencyKey(mail),
           attachments: mail.attachments,
-          ...(mail.memberNote?.replyTo === undefined ? {} : { replyTo: mail.memberNote.replyTo }),
+          ...(replyTo === undefined ? {} : { replyTo }),
           ...(mail.support === undefined ? {} : {
             replyTo: mail.support.replyTo,
             headers: {

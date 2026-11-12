@@ -17,7 +17,7 @@ import { Effect, Layer, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { AppInfo } from "../../platform/Bindings.ts"
 import { parseMail } from "../../platform/InboundMail.ts"
-import { refusedReferences } from "../../platform/Mail.ts"
+import { capturedSenders, refusedReferences } from "../../platform/Mail.ts"
 import { digestWorkspace, notifyWorkspace } from "../../platform/Relay.ts"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 import { retentionWorkspace } from "../../platform/Retention.ts"
@@ -56,7 +56,10 @@ const CapturedMail = HttpRouter.add(
         where to_address = ${to} and (${reference}::text is null or reference = ${reference})
         order by sent_at desc, id desc limit 20`
     )
-    return HttpServerResponse.jsonUnsafe({ mails })
+    // The sender each record's newest mail went with (E-mail en domein), which the table does not keep.
+    return HttpServerResponse.jsonUnsafe({
+      mails: mails.map((m) => ({ ...m, ...(m.reference === null ? {} : capturedSenders.get(m.reference)) }))
+    })
   }).pipe(withRequestDb)
 )
 

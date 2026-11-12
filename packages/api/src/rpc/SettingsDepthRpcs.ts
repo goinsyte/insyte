@@ -1,4 +1,5 @@
 import { Conflict, Forbidden, Invalid } from "@insyte/domain/Errors"
+import { SaveSenders, SendersChange, SendingDomainState } from "@insyte/modules/settings/domain/SendingDomain"
 import {
   CountRetention,
   ErasingChange,
@@ -21,10 +22,10 @@ import { Member } from "./Member.ts"
 import { WithDb } from "./WithDb.ts"
 
 /**
- * Settings depth (M17 track 1, step 20.1b; api.md §2.34): Verzending, Sjablonen, Huisstijl, Btw and Gegevens en
- * privacy. Reading takes Instellingen · Bekijken; saving Bewerken, retention's periods and turning the nightly erase on
- * Beheren. A save over an older version is `Conflict { reason: "stale_version" }`. Not reachable by an API key
- * (`settings` is `api: false`).
+ * Settings depth (M17 track 1, steps 20.1b and 20.1c; api.md §2.34): Verzending, Sjablonen, Huisstijl, E-mail en
+ * domein, Btw and Gegevens en privacy. Reading takes Instellingen · Bekijken; saving and checking the DNS again
+ * Bewerken, retention's periods and turning the nightly erase on Beheren. A save over an older version is
+ * `Conflict { reason: "stale_version" }`. Not reachable by an API key (`settings` is `api: false`).
  */
 export class SettingsDepthRpcs extends RpcGroup.make(
   Rpc.make("WorkspaceSettings.get", { payload: GetSection, success: SettingsSection, error: Forbidden }),
@@ -49,6 +50,14 @@ export class SettingsDepthRpcs extends RpcGroup.make(
     payload: SetErasing,
     success: ErasingChange,
     error: Schema.Union([Forbidden, NotCounted])
+  }),
+  // E-mail en domein (20.1c): the sending domain and its records, a check again, and the senders.
+  Rpc.make("SendingDomain.get", { success: SendingDomainState, error: Forbidden }),
+  Rpc.make("SendingDomain.verify", { success: SendingDomainState, error: Forbidden }),
+  Rpc.make("SendingDomain.saveSenders", {
+    payload: SaveSenders,
+    success: SendersChange,
+    error: Schema.Union([Forbidden, Invalid, Conflict])
   })
 )
   // Innermost first: `Member` needs the person (`Authenticated`) and the connection (`WithDb`) around it.

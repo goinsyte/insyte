@@ -178,6 +178,24 @@ describe("ResendMailer", () => {
     expect(Exit.isFailure(noFacts) && JSON.stringify(noFacts.cause)).toContain("return.resolved needs its return")
   })
 
+  it("sends from the brand's own address where the mail says one, still in the store's name (20.1c)", async () => {
+    const seen: Array<Seen> = []
+    const http = fakeResend(() => Promise.resolve(Response.json({ id: "re_7" })), seen)
+    await sendWith(http, {
+      kind: "order.delayed",
+      to: "anna@example.com",
+      sender: "Northwind",
+      from: "service@northwind.store",
+      replyTo: "support@northwind.store",
+      reference: "ord_1",
+      orderDelay: { shop: "Northwind", number: "#1002", subject: "Later", paragraphs: ["Het duurt langer."], items: [] }
+    })
+    expect(seen[0]?.body).toMatchObject({
+      from: "Northwind <service@northwind.store>",
+      reply_to: "support@northwind.store"
+    })
+  })
+
   it("turns a refusal, a missing link and missing facts into MailNotSent, and sends nothing for the last two", async () => {
     const refused = await sendWith(
       fakeResend(() => Promise.resolve(Response.json({ message: "nope" }, { status: 422 }))),

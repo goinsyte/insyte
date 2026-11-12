@@ -1,0 +1,17 @@
+{
+  "Status": 3,
+  "TC": false,
+  "RD": true,
+  "RA": true,
+  "AD": false,
+  "CD": false,
+  "Question": [{ "name": "_dmarc.example.com", "type": 16 }],
+  "Authority": [
+    {
+      "name": "example.com",
+      "type": 6,
+      "TTL": 1800,
+      "data": "ns.example.com. hostmaster.example.com. 1 7200 3600 1209600 3600"
+    }
+  ]
+}
