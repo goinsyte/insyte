@@ -45,13 +45,14 @@ import { presenceAtom } from "../data/frame.ts"
 import { breakdownAtom, TODOS, todosAtom, todoWrites, widgetsAtom, widgetsKey } from "../data/home.ts"
 import { completeTaskAtom, START } from "../data/onboarding.ts"
 import { usePrefSection } from "../frame/prefs.ts"
+import { ConsoleChats } from "./chats-card.tsx"
 import { ConsoleBookmarks, ConsoleMentions, ConsoleToday } from "./home-views.tsx"
 
 /*
  * Start's board in the console (M10.3), over `Home.widgets`: the design's cards drawn from the read, money from minor
  * units of the workspace currency, and the arrangement kept in the member's `board` preference. Only the cards the
- * console can fill are offered; chargebacks (M13), automations (M12), Insyte and the customer agent (M15) and chats
- * come with their milestones. "Agenda vandaag", "Vermeldingen en toegewezen" and "Bladwijzers" (M10.3b) are
+ * console can fill are offered; chargebacks (M13), automations (M12), Insyte and the customer agent (M15) come with
+ * their milestones. "Ongelezen chats" reads `Chats.list` (`chats-card.tsx`), and the team card's "Bericht" opens the DM. "Agenda vandaag", "Vermeldingen en toegewezen" and "Bladwijzers" (M10.3b) are
  * `home-views.tsx`'s.
  */
 
@@ -72,6 +73,7 @@ export const OFFERED: ReadonlyArray<WidgetId> = [
   "recent",
   "today",
   "mentions",
+  "chats",
   "bookmarks",
   "todo",
   "setup"
@@ -163,10 +165,13 @@ const same = (a: BoardPref, b: BoardPref) => JSON.stringify(a) === JSON.stringif
 
 const idsOf = (b: BoardPref) => b.widgets.map((w) => w.id).filter((id) => READ.has(id))
 
-/** The read the saved board needs, for the route's loader: its window and the cards `Home.widgets` fills. */
+/**
+ * The read the saved board needs, for the route's loader: its window, the cards `Home.widgets` fills, and whether
+ * "Ongelezen chats" is on it (`Chats.list`).
+ */
 export function boardOfFrame(frame: Frame) {
   const b = boardOf(frame.prefs.sections.board?.value ?? BOARD_DEFAULT)
-  return { range: b.range, ids: idsOf(b) }
+  return { range: b.range, ids: idsOf(b), chats: b.widgets.some((w) => w.id === "chats") }
 }
 
 /**
@@ -558,10 +563,11 @@ export function useHomeSlots(
         analyse={false}
       />
     )),
-    team: team.length === 0 ? <Quiet>Je bent hier nog alleen.</Quiet> : <TeamView team={team} message={false} />,
+    team: team.length === 0 ? <Quiet>Je bent hier nog alleen.</Quiet> : <TeamView team={team} message />,
     recent: <RecentView recent={recent} />,
     today: <ConsoleToday />,
     mentions: <ConsoleMentions />,
+    chats: <ConsoleChats />,
     bookmarks: <ConsoleBookmarks />,
     todo: <TodoCard />,
     setup: tasks === undefined ? <WidgetBones rows={4} /> : (

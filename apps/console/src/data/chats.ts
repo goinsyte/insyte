@@ -84,6 +84,7 @@ export const chatWrites = {
   runCommand: ConsoleClient.mutation("Chats.runCommand"),
   confirm: ConsoleClient.mutation("Chats.confirmAction"),
   decline: ConsoleClient.mutation("Chats.declineAction"),
+  undoAction: ConsoleClient.mutation("Chats.undoAction"),
   createTicket: ConsoleClient.mutation("Tickets.create"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const

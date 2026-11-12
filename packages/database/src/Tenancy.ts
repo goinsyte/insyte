@@ -94,6 +94,7 @@ export const TENANT_TABLES = [
   "notification_settings",
   "notification_deliveries",
   "digests",
+  "push_subscriptions",
   "automations",
   "automation_versions",
   "automation_settings"

@@ -95,7 +95,7 @@ export const ResendMailer = Layer.effect(
           case "member.notification": {
             const facts = mail.memberNote
             if (facts === undefined) return Effect.fail(missing(mail, "its note"))
-            const { path, ...words } = facts
+            const { path, replyTo: _replyTo, ...words } = facts
             return renderer.render("platform.notification", {
               ...words,
               url: urls.console(path),
@@ -134,6 +134,7 @@ export const ResendMailer = Layer.effect(
           ...rendered,
           idempotencyKey: yield* idempotencyKey(mail),
           attachments: mail.attachments,
+          ...(mail.memberNote?.replyTo === undefined ? {} : { replyTo: mail.memberNote.replyTo }),
           ...(mail.support === undefined ? {} : {
             replyTo: mail.support.replyTo,
             headers: {

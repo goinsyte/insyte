@@ -4,6 +4,7 @@ import { mintId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
+import type { SqlClient } from "effect/sql"
 import { PendingEvents } from "../../shared/domain/Outbox.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
@@ -62,4 +63,29 @@ export const comment = Effect.fn("Tickets.comment")(function*(input: typeof Comm
       return made!
     })
   )
+})
+
+/**
+ * An answer to a notification mail about a ticket (M11 step 13.5), as the member's comment, on the caller's
+ * transaction in the ticket's workspace. The notifications slice has checked who wrote it and that they may comment;
+ * a ticket deleted since takes no comment (`false`). It names no one.
+ */
+export const commentFromMail = Effect.fn("Tickets.commentFromMail")(function*(
+  sql: SqlClient.SqlClient,
+  input: { readonly workspaceId: string; readonly ticketId: string; readonly memberId: string; readonly body: string }
+) {
+  const [t] = yield* sql`select 1 from tickets where id = ${input.ticketId} and deleted_at is null for update`
+  if (t === undefined) return false
+  const id = mintId("tcm")
+  yield* sql`insert into ticket_comments (id, workspace_id, ticket_id, kind, author_kind, author_id, body, mentions)
+             values (${id}, ${input.workspaceId}, ${input.ticketId}, 'comment', 'member', ${input.memberId},
+                     ${input.body}, '{}'::text[])`
+  yield* sql`update tickets set updated_at = now() where id = ${input.ticketId}`
+  yield* Audit.write(sql, input.workspaceId, { kind: "member", id: input.memberId }, {
+    action: "ticket.commented",
+    subjectType: "ticket",
+    subjectId: input.ticketId,
+    diff: { commentId: id, mentions: [], via: "email" }
+  })
+  return true
 })

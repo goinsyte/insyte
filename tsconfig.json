@@ -22,6 +22,8 @@
     { "path": "./packages/integrations/shopify" },
     { "path": "./packages/integrations/posthog" },
     { "path": "./packages/integrations/klaviyo" },
+    { "path": "./packages/integrations/webpush" },
+    { "path": "./packages/integrations/slack" },
     { "path": "./packages/integrations/supplier-api" },
     { "path": "./packages/integrations/aftership" },
     { "path": "./packages/integrations/sendcloud" },

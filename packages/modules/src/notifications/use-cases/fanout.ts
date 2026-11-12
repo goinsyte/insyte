@@ -5,7 +5,7 @@ import type { SqlClient } from "effect/sql"
 import type { OutboxEvent } from "../../shared/domain/Outbox.ts"
 import { quietUntil } from "../domain/Quiet.ts"
 import { plan as planDelivery } from "./deliveries.ts"
-import { CHANNEL_STATE } from "./prefs.ts"
+import { connectionOf } from "./slack.ts"
 
 /*
  * The relay's notifications sink (M5.2): a domain event → one row per member who should hear of it, in the event's
@@ -24,7 +24,8 @@ import { CHANNEL_STATE } from "./prefs.ts"
  * A member deactivated or removed hears nothing. Who has "Alleen als het mij betreft" on for the kind hears only of
  * what concerns them directly (they were put on it, named in it, asked for it or sent the invitation). The in-app switch
  * decides the row in the inbox; each other channel that is on and can deliver gets a delivery of its own
- * (`deliveries.ts`), push and Slack held until the member's quiet hours end (M11 step 13.5). Answers who got a row,
+ * (`deliveries.ts`), push and Slack held until the member's quiet hours end (M11 step 13.5): push once the member
+ * allowed it on a browser, Slack once the workspace connected it and the member chose a channel. Answers who got a row,
  * with their unread count, for the realtime frame.
  */
 
@@ -260,6 +261,8 @@ interface Heard {
   readonly quietTo: string | null
   readonly quietWeekend: boolean | null
   readonly timezone: string
+  readonly devices: number
+  readonly slackChannel: string | null
 }
 
 export const fanOut = Effect.fn("Notifications.fanOut")(function*(
@@ -271,12 +274,14 @@ export const fanOut = Effect.fn("Notifications.fanOut")(function*(
   if (planned === undefined || planned.recipients.length === 0) return []
   const defaults = notificationKind(planned.kind)?.defaults
   const members = yield* sql<Heard>`
-    select m.id, p.channels, p.only_mine, s.quiet_on, s.quiet_from, s.quiet_to, s.quiet_weekend, w.timezone
+    select m.id, p.channels, p.only_mine, s.quiet_on, s.quiet_from, s.quiet_to, s.quiet_weekend, w.timezone,
+           s.slack_channel, (select count(*)::int from push_subscriptions ps where ps.recipient_id = m.id) as devices
     from members m
     join workspaces w on w.id = m.workspace_id
     left join notification_prefs p on p.recipient_id = m.id and p.kind = ${planned.kind}
     left join notification_settings s on s.recipient_id = m.id
     where m.id in ${sql.in([...planned.recipients])} and m.deactivated_at is null and m.removed_at is null`
+  const slack = yield* connectionOf(sql)
   const now = new Date()
   const out: Array<{ readonly recipientId: string; readonly unread: number }> = []
   for (const member of members) {
@@ -291,7 +296,13 @@ export const fanOut = Effect.fn("Notifications.fanOut")(function*(
                          ${planned.subjectId}, ${planned.actor === null ? null : "member"}, ${planned.actor},
                          ${JSON.stringify(planned.data)}::jsonb)`
     }
-    // E-mail goes now; push and Slack, once they can deliver, wait out the member's quiet hours.
+    // E-mail goes now; push (to a browser the member allowed it on) and Slack (connected, a channel chosen) wait out
+    // the member's quiet hours.
+    const can = {
+      email: true,
+      push: member.devices > 0,
+      slack: slack !== undefined && member.slackChannel !== null
+    }
     const quiet = {
       on: member.quietOn ?? true,
       from: member.quietFrom ?? "22:00",
@@ -299,7 +310,7 @@ export const fanOut = Effect.fn("Notifications.fanOut")(function*(
       weekend: member.quietWeekend ?? false
     }
     for (const channel of ["email", "push", "slack"] as const) {
-      if (!on.has(channel) || (channel !== "email" && CHANNEL_STATE[channel] !== "connected")) continue
+      if (!on.has(channel) || !can[channel]) continue
       yield* planDelivery(sql, {
         workspaceId,
         recipientId: member.id,

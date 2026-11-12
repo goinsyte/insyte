@@ -6,17 +6,15 @@ import { customers } from "../../data-source"
 import { products } from "../../data-source"
 import { suppliers } from "../../data-source"
 import { SCENARIO } from "../../data-source"
-import { Hash, type IconComponent, Inbox, Mail, Sparkle, Workflow } from "../../icons"
+import { type IconComponent, Inbox, Mail, Sparkle, Workflow } from "../../icons"
 import { UndoControl, useNow } from "../ask/agent-parts"
 import { Glyph } from "../common/glyph"
 import { canUndo } from "../lib/agent-log"
 import { counts } from "../lib/analytics/engine"
 import { type Country, COUNTRY_NAME, HISTORY, HISTORY_END } from "../lib/analytics/history"
-import { initials } from "../lib/format"
 import { clock, dayKey } from "../lib/home/dates"
 import { convert } from "../lib/money"
 import { dayGroup, stateOf } from "../lib/notifications"
-import { personStyle } from "../lib/person-color"
 import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
 import { useHeardNotes } from "../notifications/heard"
@@ -30,7 +28,7 @@ import { type Shortcut, usePins } from "../stores/pins-store"
 import { useWorkspace } from "../stores/workspace-store"
 import { useDay } from "./use-day"
 
-import { BestsellersView, CountriesView, LiveView, Quiet, RecentView, ROW } from "./card-views"
+import { BestsellersView, ChatsView, CountriesView, LiveView, Quiet, RecentView, ROW } from "./card-views"
 import { BookmarksView, MentionsView, TodayView } from "./day-cards"
 /*
  * The home's compact cards, in ClickUp's density: 32–36px rows, one line each, the record's own glyph
@@ -363,55 +361,16 @@ export function ChatsCard() {
       b.unread_count - a.unread_count || Date.parse(b.last_message_at) - Date.parse(a.last_message_at)
     )
     .slice(0, 5)
-  const unread = list.reduce((n, c) => n + c.unread_count, 0)
-  if (list.every((c) => !c.last_message_preview)) {
-    return <Quiet>#algemeen is nog stil.</Quiet>
-  }
   return (
-    <div className="flex flex-col gap-1">
-      <p className="px-2 text-sm text-ink-2 tabular-nums">
-        {unread === 0 ? "Je bent bij" : `${unread} ongelezen ${unread === 1 ? "bericht" : "berichten"}`}
-      </p>
-      <ul className="flex flex-col">
-        {list.map((c) => {
-          const group = c.type !== "dm"
-          return (
-            <li key={c.id}>
-              <Link to={"/chats" as string} search={{ id: c.id } as never} className={cn(ROW, "h-11")}>
-                {group ?
-                  (
-                    <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-band text-ink-2">
-                      <Hash className="size-3.5" strokeWidth={1.75} />
-                    </span>
-                  ) :
-                  (
-                    <span
-                      className="flex size-7 shrink-0 items-center justify-center rounded-full font-medium text-xs"
-                      style={personStyle(c.name)}
-                    >
-                      {initials(c.name)}
-                    </span>
-                  )}
-                <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                  <span
-                    className={cn("truncate text-base", c.unread_count > 0 ? "font-medium text-ink" : "text-ink-2")}
-                  >
-                    {group ? `#${c.name}` : c.name}
-                  </span>
-                  <span className="truncate text-xs text-ink-3">{c.last_message_preview || "Nog geen berichten"}</span>
-                </span>
-                {c.unread_count > 0 ?
-                  (
-                    <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-arc px-1.5 font-medium text-2xs text-mesh-ink tabular-nums">
-                      {c.unread_count}
-                    </span>
-                  ) :
-                  null}
-              </Link>
-            </li>
-          )
-        })}
-      </ul>
-    </div>
+    <ChatsView
+      rows={list.map((c) => ({
+        id: c.id,
+        group: c.type !== "dm",
+        name: c.name,
+        preview: c.last_message_preview,
+        unread: c.unread_count
+      }))}
+      unread={list.reduce((n, c) => n + c.unread_count, 0)}
+    />
   )
 }

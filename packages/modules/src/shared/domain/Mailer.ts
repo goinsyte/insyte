@@ -121,6 +121,8 @@ export interface MemberNoteFacts {
   readonly record?: string | undefined
   readonly actionLabel: string
   readonly path: string
+  /** Where an answer goes: the delivery's own address on the inbound domain, when the record takes comments. */
+  readonly replyTo?: string | undefined
 }
 
 /** One line of the digest: the note's sentence, its detail and its console path. */
