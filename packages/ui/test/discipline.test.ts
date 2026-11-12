@@ -81,11 +81,10 @@ const graduated = [
 
 /**
  * Inside a graduated directory but not yet edited for the backend: the queue panel waits for the proposals branches,
- * E-mail en domein for the sending domain (20.1c), Logboek and Prullenbak for their own step.
+ * Logboek and Prullenbak for their own step.
  */
 const notYet = new Set([
   "app/dashboard/queue-panel.tsx",
-  "app/settings/depth/email-domain-screen.tsx",
   "app/settings/depth/log-screen.tsx",
   "app/settings/depth/trash-screen.tsx"
 ])
