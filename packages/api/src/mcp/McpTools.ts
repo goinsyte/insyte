@@ -9,6 +9,9 @@ import {
   AutomationRunStatusFilter,
   AutomationRunV1,
   AutomationStatusFilter,
+  ChargebackDetailV1,
+  ChargebackPageV1,
+  ChargebackTabV1,
   ConflictV1,
   CurrentApiKey,
   CustomerPageV1,
@@ -49,7 +52,7 @@ import {
 
 /*
  * The MCP server's tools (M19.3): what an agent with an API key may read, in the public API's shapes, and the order
- * commands (M7), forwarding (M8), returns (M9) and tickets (M11) as `/v1` has them. The same key, the same scopes, the same request log; inviting, removing and
+ * commands (M7), forwarding (M8), returns (M9) and tickets (M11) as `/v1` has them, and the chargebacks to read (M13). The same key, the same scopes, the same request log; inviting, removing and
  * changing roles stay with people.
  */
 
@@ -283,6 +286,31 @@ export const FileProposal = Tool.make("file_proposal", {
   failure: WriteFailure,
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
+
+const ChargebackId = Schema.String.annotate({
+  description: "The chargeback's id (cb_…), as list_chargebacks gives it."
+})
+
+export const ListChargebacks = Tool.make("list_chargebacks", {
+  description:
+    "Chargebacks, nearest evidence deadline first, with each tab's count and the workspace's record (won out of decided, what the won cases kept): tab action_required (open or waiting for evidence), submitted, won or lost; provider stripe, klarna or paypal. Needs chargebacks.read.",
+  parameters: Schema.Struct({
+    tab: Schema.optional(ChargebackTabV1),
+    provider: Schema.optional(Schema.Literals(["stripe", "klarna", "paypal"]))
+  }),
+  success: ChargebackPageV1,
+  failure: ScopeMissingV1,
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const GetChargeback = Tool.make("get_chargeback", {
+  description:
+    "One chargeback with its evidence pack, in its order, and its timeline (opened, evidence added or removed, reminders, the outcome). Needs chargebacks.read.",
+  parameters: Schema.Struct({ chargeback_id: ChargebackId }),
+  success: ChargebackDetailV1,
+  failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
 
 export const ListReturns = Tool.make("list_returns", {
   description:
@@ -583,5 +611,7 @@ export const InsyteTools = Toolkit.make(
   ListAutomations,
   GetAutomation,
   ListAutomationRuns,
-  TriggerAutomation
+  TriggerAutomation,
+  ListChargebacks,
+  GetChargeback
 )

@@ -3,6 +3,7 @@ import { Effect, Option, Schedule, Schema } from "effect"
 import { Reactivity } from "effect/reactivity"
 import { Socket } from "effect/socket"
 import { ACCESS } from "./access.ts"
+import { CHARGEBACKS } from "./chargebacks.ts"
 import { CHAT_PAGES, chatKey, CHATS, type Typing, TYPING_MS, typingAtom } from "./chats.ts"
 import { ConsoleClient } from "./client.ts"
 import { CUSTOMERS } from "./customers.ts"
@@ -45,6 +46,8 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   return: [...RETURNS, ...QUALITY],
   quality_check: QUALITY,
   ticket: TICKETS,
+  // A chargeback opened, its pack changed, accepted, or reminded of its deadline (M13).
+  chargeback: CHARGEBACKS,
   // The inbox (M11 step 2): a thread read, changed, sent or arrived; a mailbox connected.
   thread: INBOX,
   mailbox: INBOX,

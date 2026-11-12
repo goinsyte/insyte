@@ -2,6 +2,7 @@ import { ConsoleRpcs, RPC_PATH } from "@insyte/api/ConsoleRpcs"
 import { Access } from "@insyte/modules/access/Access"
 import { AutomationsService } from "@insyte/modules/automations/Automations"
 import { RunsService } from "@insyte/modules/automations/Runs"
+import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
 import { ChatsService } from "@insyte/modules/chats/Chats"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
@@ -35,6 +36,7 @@ import { Layer } from "effect"
 import { RpcSerialization } from "effect/rpc"
 import { AccessHandlers } from "./handlers/access.ts"
 import { AutomationsHandlers } from "./handlers/automations.ts"
+import { ChargebacksHandlers } from "./handlers/chargebacks.ts"
 import { ChatsHandlers } from "./handlers/chats.ts"
 import { CommerceHandlers } from "./handlers/commerce.ts"
 import { DeveloperHandlers } from "./handlers/developer.ts"
@@ -102,6 +104,7 @@ export const RpcContext = Layer.mergeAll(
   TicketsHandlers.pipe(Layer.provide(TicketsService.layer)),
   AutomationsHandlers.pipe(Layer.provide(AutomationsService.layer)),
   RunsHandlers.pipe(Layer.provide(RunsService.layer)),
+  ChargebacksHandlers.pipe(Layer.provide(ChargebacksService.layer)),
   ThreadsHandlers.pipe(Layer.provide(InboxService.layer)),
   QueueHandlers.pipe(Layer.provide(QueueService.layer)),
   HomeHandlers.pipe(Layer.provide(HomeService.layer)),

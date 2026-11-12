@@ -48,6 +48,7 @@ import sessionEvents from "./migrations/0054_session_events.ts"
 import push from "./migrations/0055_push.ts"
 import automations from "./migrations/0056_automations.ts"
 import automationEngine from "./migrations/0057_automation_engine.ts"
+import disputes from "./migrations/0058_disputes.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -105,5 +106,6 @@ export const Migrations = {
   "0054_session_events": sessionEvents,
   "0055_push": push,
   "0056_automations": automations,
-  "0057_automation_engine": automationEngine
+  "0057_automation_engine": automationEngine,
+  "0058_disputes": disputes
 }

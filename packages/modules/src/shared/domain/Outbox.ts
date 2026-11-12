@@ -295,6 +295,21 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     messageId: Schema.String
   }),
+  // A chargeback opened (M13 step 3): whoever handles chargebacks hears of it, once one opened by hand has waited out
+  // its undo window; `by` is who opened it (null for a provider's), who does not hear of their own.
+  Schema.Struct({
+    type: Schema.Literal("chargeback.opened"),
+    workspaceId: Schema.String,
+    chargebackId: Schema.String,
+    by: Schema.NullOr(Schema.String)
+  }),
+  // A case's deadline is coming (the hourly sweep, M13 step 3): five days, two days or six hours to go.
+  Schema.Struct({
+    type: Schema.Literal("chargeback.deadline_near"),
+    workspaceId: Schema.String,
+    chargebackId: Schema.String,
+    offset: Schema.Literals(["5d", "2d", "6h"])
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

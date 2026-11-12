@@ -18,6 +18,8 @@ import { AutomationsService } from "@insyte/modules/automations/Automations"
 import type { AutomationRow, AutomationStatus } from "@insyte/modules/automations/domain/Automations"
 import type { RunDetail, RunRow, RunStatus } from "@insyte/modules/automations/domain/Runs"
 import { RunsService } from "@insyte/modules/automations/Runs"
+import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
+import type { ChargebackRow, ChargebackStats, ChargebackTab } from "@insyte/modules/chargebacks/domain/Chargebacks"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import type { LegRow } from "@insyte/modules/forwarding/domain/Forwarding"
 import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
@@ -396,6 +398,34 @@ const proposalV1 = (p: ProposalView) => ({
   execution_error: p.executionError
 })
 
+const chargebackV1 = (c: ChargebackRow) => ({
+  id: c.id,
+  case_number: c.caseNumber,
+  provider: c.provider,
+  from_provider: c.fromProvider,
+  status: c.status,
+  reason: c.reason,
+  reason_code: c.reasonCode,
+  amount: { amount_minor: c.amountMinor, currency: c.currency },
+  customer: { id: c.customerId, name: c.customerName },
+  order: c.orderId === null ? null : { id: c.orderId, number: c.orderNumber },
+  store_id: c.storeId,
+  deadline_at: iso(c.deadlineAt)!,
+  opened_at: iso(c.openedAt)!,
+  submitted_at: iso(c.submittedAt),
+  outcome_at: iso(c.outcomeAt),
+  note: c.note,
+  evidence_count: c.evidenceCount
+})
+
+const chargebackStatsV1 = (s: ChargebackStats) => ({
+  open: s.open,
+  won: s.won,
+  decided: s.decided,
+  won_pct: s.wonPct,
+  recovered: { amount_minor: s.recoveredMinor, currency: s.currency }
+})
+
 const automationV1 = (a: AutomationRow) => ({
   id: a.id,
   name: a.name,
@@ -459,7 +489,53 @@ const make = Effect.gen(function*() {
   const ticketOne = (id: string) => Effect.map(tickets.get(id), (d) => ticketV1(d.ticket))
   const queue = yield* QueueService
   const proposals = yield* ProposalsService
+  const chargebacks = yield* ChargebacksService
   return {
+    chargebacks: (query: {
+      readonly tab?: ChargebackTab | undefined
+      readonly provider?: ChargebackRow["provider"] | undefined
+    }) =>
+      chargebacks.list({
+        limit: 500,
+        ...(query.tab === undefined ? {} : { tab: query.tab }),
+        ...(query.provider === undefined ? {} : { provider: query.provider })
+      }).pipe(
+        Effect.map((list) => ({
+          data: list.rows.map(chargebackV1),
+          counts: {
+            all: list.counts.all,
+            action_required: list.counts.actionRequired,
+            submitted: list.counts.submitted,
+            won: list.counts.won,
+            lost: list.counts.lost
+          },
+          stats: chargebackStatsV1(list.stats)
+        })),
+        Effect.catchTag("Forbidden", scopeMissing)
+      ),
+    chargeback: (id: string) =>
+      chargebacks.get(id).pipe(
+        Effect.map((d) => ({
+          ...chargebackV1(d.chargeback),
+          evidence: d.evidence.map((e) => ({
+            id: e.id,
+            kind: e.kind,
+            source: e.source,
+            name: e.name,
+            size_bytes: e.sizeBytes,
+            file_id: e.fileId,
+            added_at: iso(e.addedAt)!
+          })),
+          timeline: d.timeline.map((t) => ({
+            id: t.id,
+            at: iso(t.at)!,
+            kind: t.kind,
+            actor: { kind: t.actor.kind, name: t.actor.name },
+            data: t.data
+          }))
+        })),
+        Effect.catchTags({ Forbidden: scopeMissing, NotFound: notFound })
+      ),
     queue: (tab?: "needs_you" | "drawn" | "all") =>
       queue.list(tab === undefined ? {} : { tab }).pipe(
         Effect.map((list) => ({
@@ -1091,7 +1167,8 @@ export class Resources extends Context.Service<Resources, Effect.Success<typeof 
         AutomationsService.layer,
         RunsService.layer,
         QueueService.layer,
-        ProposalsService.layer
+        ProposalsService.layer,
+        ChargebacksService.layer
       )
     )
   )

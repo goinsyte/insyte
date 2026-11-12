@@ -5,7 +5,7 @@ import {
 	DropdownMenuTrigger,
 } from "../../components/dropdown-menu";
 import { ArrowRight, Check, FileText, Loader, MoreHorizontal, Sparkles, Trash2, Upload } from "../../icons";
-import { getRouteApi } from "@tanstack/react-router";
+import { useParams } from "@tanstack/react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
@@ -16,11 +16,10 @@ import { PageGuide } from "../common/page-guide";
 import { BrandLogo } from "../marketplace/brand-logos";
 import { formatCurrency, formatDate, formatDateTime } from "../lib/format";
 import type { Chargeback } from "../lib/types/domain";
-import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { useWorkspace } from "../stores/workspace-store";
-
-const Route = getRouteApi("/_admin/chargebacks/$chargebackId");
+import { canRole, permissionName } from "../lib/permissions";
+import { useGateRole } from "../access/gate-role";
+import { useChargebackDetailSource } from "./source";
 
 const STATUS: Record<string, { label: string; bg: string; fg: string }> = {
 	awaiting_evidence: {
@@ -54,13 +53,16 @@ const GUIDE = [
 const PROVIDER: Record<Chargeback["provider"], string> = { stripe: "Stripe", klarna: "Klarna", paypal: "PayPal" };
 
 export function ChargebackDetail() {
-	const { id } = Route.useLoaderData();
-	const c = useWorkspace((s) => s.chargebacks.find((x) => x.id === id)) as Chargeback;
-	const all = useWorkspace((s) => s.chargebacks);
-	const buildEvidence = useWorkspace((s) => s.buildEvidence);
-	const submitEvidence = useWorkspace((s) => s.submitEvidence);
-	const acceptChargeback = useWorkspace((s) => s.acceptChargeback);
-	const restoreChargeback = useWorkspace((s) => s.restoreChargeback);
+	const { chargebackId: id = "" } = useParams({ strict: false }) as { chargebackId?: string };
+	const found = useChargebackDetailSource().useCase(id);
+	// The route answers for a case that is not there; until the host has it, there is nothing to draw.
+	if (found === undefined) return null;
+	return <CaseView c={found} />;
+}
+
+function CaseView({ c }: { c: Chargeback }) {
+	const { commands, record, fileHref, submitUnavailable } = useChargebackDetailSource();
+	const role = useGateRole();
 	const [building, setBuilding] = useState(false);
 	const [confirm, setConfirm] = useState<"submit" | "accept" | null>(null);
 	const [packDismissed, setPackDismissed] = useState(false);
@@ -68,44 +70,30 @@ export function ChargebackDetail() {
 	const status = STATUS[c.status] ?? STATUS.awaiting_evidence;
 	const provider = PROVIDER[c.provider];
 	const open = c.status === "awaiting_evidence" || c.status === "open";
+	// Bewerken adds and removes files; Beheren accepts. Without them the control says what is missing.
+	const editBlocked = role !== null && !canRole(role, "chargebacks", 2) ? `Je rol ${role.label} mist ${permissionName("chargebacks", 2)}` : undefined;
+	const acceptBlocked = role !== null && !canRole(role, "chargebacks", 3) ? `Je rol ${role.label} mist ${permissionName("chargebacks", 3)}` : undefined;
+	// Where the host cannot submit yet, the button stays and says why.
+	const submitBlocked = commands.submit ? undefined : submitUnavailable?.(c);
 
 	// The win rate is counted from the cases on file, not asserted: the pack used to say "~78%".
-	const decided = all.filter((x) => x.status === "won" || x.status === "lost");
-	const won = decided.filter((x) => x.status === "won").length;
+	const decided = record.decided;
+	const won = record.won;
 
 	async function draw() {
+		if (!commands.draw) return;
 		setBuilding(true);
-		await buildEvidence(c.id);
+		await commands.draw(c.id);
 		setBuilding(false);
 	}
 
 	function attach(files: FileList | null) {
 		if (!files || files.length === 0) return;
-		const before = c;
-		useWorkspace.setState((s) => ({
-			chargebacks: s.chargebacks.map((x) =>
-				x.id === c.id
-					? {
-							...x,
-							evidence_files: [
-								...x.evidence_files,
-								...Array.from(files).map((f) => ({ name: f.name, size: f.size, kind: "upload" })),
-							],
-						}
-					: x,
-			),
-		}));
-		undoable(`${files.length === 1 ? files[0]?.name : `${files.length} bestanden`} toegevoegd`, () => restoreChargeback(before));
+		commands.attach(c, Array.from(files));
 	}
 
-	function removeFile(name: string) {
-		const before = c;
-		useWorkspace.setState((s) => ({
-			chargebacks: s.chargebacks.map((x) =>
-				x.id === c.id ? { ...x, evidence_files: x.evidence_files.filter((f) => f.name !== name) } : x,
-			),
-		}));
-		undoable(`${name} verwijderd`, () => restoreChargeback(before));
+	function removeFile(index: number) {
+		commands.remove(c, index);
 	}
 
 	const daysLeft = Math.ceil(
@@ -114,7 +102,8 @@ export function ChargebackDetail() {
 	const deadlineTone =
 		daysLeft < 3 ? "danger" : daysLeft < 7 ? "warning" : "neutral";
 
-	const showAiPack = open && !packDismissed;
+	// The plate offers what Insyte drew; where it cannot draw yet, it stands only over a pack the team put together.
+	const showAiPack = open && !packDismissed && (commands.draw !== undefined || c.evidence_files.length > 0);
 
 	return (
 		<DetailShell
@@ -163,7 +152,9 @@ export function ChargebackDetail() {
 						<button
 							type="button"
 							onClick={() => fileInput.current?.click()}
-							className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-xs text-ink transition-colors hover:bg-ink/6"
+							disabled={editBlocked !== undefined}
+							title={editBlocked}
+							className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-xs text-ink transition-colors hover:bg-ink/6 disabled:pointer-events-none disabled:opacity-45"
 						>
 							<Upload className="size-3.5" strokeWidth={1.75} />
 							Bewijs toevoegen
@@ -172,8 +163,8 @@ export function ChargebackDetail() {
 					{open ? (
 						<button
 							type="button"
-							disabled={c.evidence_files.length === 0}
-							title={c.evidence_files.length === 0 ? "Voeg eerst bewijs toe of stel het samen" : undefined}
+							disabled={c.evidence_files.length === 0 || submitBlocked !== undefined}
+							title={submitBlocked ?? (c.evidence_files.length === 0 ? "Voeg eerst bewijs toe of stel het samen" : undefined)}
 							onClick={() => setConfirm("submit")}
 							className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-2.5 font-medium text-xs text-mesh-ink shadow-primary transition-colors hover:bg-abyss-2 disabled:pointer-events-none disabled:opacity-45"
 						>
@@ -201,7 +192,12 @@ export function ChargebackDetail() {
 								Zaaknummer kopiëren
 							</DropdownMenuItem>
 							{open ? (
-								<DropdownMenuItem variant="destructive" onClick={() => setConfirm("accept")}>
+								<DropdownMenuItem
+									variant="destructive"
+									disabled={acceptBlocked !== undefined}
+									title={acceptBlocked}
+									onClick={() => setConfirm("accept")}
+								>
 									Geschil accepteren
 								</DropdownMenuItem>
 							) : null}
@@ -214,24 +210,20 @@ export function ChargebackDetail() {
 						description={`${provider} beoordeelt wat je stuurt zoals het is; je kunt daarna niets meer toevoegen. Er wordt ${formatCurrency(c.amount, c.currency)} betwist.`}
 						confirmLabel={`Indienen bij ${provider}`}
 						onConfirm={() => {
-							submitEvidence(c.id);
+							commands.submit?.([c]);
 							setConfirm(null);
-							toast.success(`Bewijs ingediend bij ${provider}`, {
-								description: `${c.case_number} · uitspraak meestal binnen 30 dagen`,
-							});
 						}}
 					/>
 					<ConfirmDialog
 						open={confirm === "accept"}
 						onOpenChange={(v) => !v && setConfirm(null)}
 						title="Geschil accepteren?"
-						description={`${formatCurrency(c.amount, c.currency)} gaat terug naar ${c.customer_name} en de zaak sluit als verloren.`}
+						description={`${formatCurrency(c.amount, c.currency)} gaat terug naar ${c.customer_name} en de zaak sluit als verloren. Dit kan niet ongedaan worden gemaakt.`}
 						confirmLabel="Accepteren en terugbetalen"
 						tone="destructive"
 						onConfirm={() => {
-							acceptChargeback(c.id);
+							commands.accept([c]);
 							setConfirm(null);
-							toast(`${c.case_number} geaccepteerd`);
 						}}
 					/>
 				</>
@@ -246,9 +238,10 @@ export function ChargebackDetail() {
 							provider={provider}
 							files={c.evidence_files.length}
 							building={building}
-							record={decided.length > 0 ? `${won} van ${decided.length} beslechte zaken gewonnen` : undefined}
-							onDraw={draw}
+							record={decided > 0 ? `${won} van ${decided} beslechte zaken gewonnen` : undefined}
+							onDraw={commands.draw ? draw : undefined}
 							onSubmit={() => setConfirm("submit")}
+							submitBlocked={submitBlocked}
 							onDismiss={() => setPackDismissed(true)}
 						/>
 					) : c.status === "submitted" ? (
@@ -288,7 +281,9 @@ export function ChargebackDetail() {
 								<button
 									type="button"
 									onClick={() => fileInput.current?.click()}
-									className="flex h-7 items-center gap-1.5 rounded-md px-2 font-medium text-sm text-ink-2 leading-none transition-colors hover:bg-ink/6 hover:text-ink"
+									disabled={editBlocked !== undefined}
+									title={editBlocked}
+									className="flex h-7 items-center gap-1.5 rounded-md px-2 font-medium text-sm text-ink-2 leading-none transition-colors hover:bg-ink/6 hover:text-ink disabled:pointer-events-none disabled:opacity-45"
 								>
 									<Upload className="size-3.5" strokeWidth={1.75} />
 									Uploaden
@@ -300,21 +295,31 @@ export function ChargebackDetail() {
 								compact
 								kind="chargebacks"
 								title="Nog geen bestanden."
-								body="Insyte verzamelt bewijs uit de gekoppelde winkels."
-								action={{
-									label: "Bewijspakket samenstellen",
-									onClick: () => void draw(),
-								}}
+								body={
+									commands.draw
+										? "Insyte verzamelt bewijs uit de gekoppelde winkels."
+										: "Voeg bewijs toe: een bezorgbevestiging, een factuur of mails met de klant."
+								}
+								action={
+									!open
+										? undefined
+										: commands.draw
+											? { label: "Bewijspakket samenstellen", onClick: () => void draw() }
+											: editBlocked === undefined
+												? { label: "Bewijs toevoegen", onClick: () => fileInput.current?.click() }
+												: undefined
+								}
 							/>
 						) : (
 							<ul className="flex flex-col divide-y divide-ink/7">
 								<AnimatePresence initial={false}>
-									{c.evidence_files.map((f) => (
+									{c.evidence_files.map((f, i) => (
 										<EvidenceRow
-											key={f.name}
+											key={`${i}-${f.name}`}
 											file={f}
-											removable={open}
-											onRemove={() => removeFile(f.name)}
+											href={fileHref?.(c, i)}
+											removable={open && editBlocked === undefined}
+											onRemove={() => removeFile(i)}
 										/>
 									))}
 								</AnimatePresence>
@@ -422,6 +427,7 @@ function AiEvidencePack({
 	onDraw,
 	onSubmit,
 	onDismiss,
+	submitBlocked,
 }: {
 	caseNumber: string;
 	provider: string;
@@ -429,9 +435,12 @@ function AiEvidencePack({
 	building: boolean;
 	/** The record on file, counted rather than claimed. */
 	record?: string;
-	onDraw: () => void;
+	/** Absent where Insyte cannot draw the pack yet. */
+	onDraw?: (() => void) | undefined;
 	onSubmit: () => void;
 	onDismiss: () => void;
+	/** Why it cannot be submitted yet. */
+	submitBlocked?: string | undefined;
 }) {
 	const ready = files > 0 && !building;
 	return (
@@ -455,11 +464,13 @@ function AiEvidencePack({
 			</div>
 
 			<div className="flex items-center gap-2">
-				{ready ? (
+				{ready || !onDraw ? (
 					<button
 						type="button"
 						onClick={onSubmit}
-						className="group/btn flex h-8 items-center justify-center gap-1.5 rounded-md bg-paper px-3 font-medium text-abyss text-xs transition-colors hover:bg-arc-tint"
+						disabled={submitBlocked !== undefined || !ready}
+						title={submitBlocked}
+						className="group/btn flex h-8 items-center justify-center gap-1.5 rounded-md bg-paper px-3 font-medium text-abyss text-xs transition-colors hover:bg-arc-tint disabled:pointer-events-none disabled:opacity-45"
 					>
 						Indienen bij {provider}
 						<ArrowRight className="size-3.5 transition-transform group-hover/btn:translate-x-0.5" strokeWidth={2} />
@@ -483,16 +494,20 @@ function AiEvidencePack({
 					Niet nu
 				</button>
 			</div>
+			{submitBlocked ? <p className="text-mesh-ink-3 text-xs">{submitBlocked}</p> : null}
 		</section>
 	);
 }
 
 function EvidenceRow({
 	file,
+	href,
 	removable,
 	onRemove,
 }: {
 	file: { name: string; size: number; kind: string };
+	/** Where the file opens; absent where there is nothing to open. */
+	href?: string | undefined;
 	removable: boolean;
 	onRemove: () => void;
 }) {
@@ -511,7 +526,13 @@ function EvidenceRow({
 				<FileText className="size-3.5 text-ink-3" strokeWidth={1.75} />
 			</span>
 			<div className="flex min-w-0 flex-1 flex-col">
-				<span className="truncate font-medium text-base text-ink leading-none">{file.name}</span>
+				{href ? (
+					<a href={href} target="_blank" rel="noreferrer" className="truncate font-medium text-base text-ink leading-none hover:underline">
+						{file.name}
+					</a>
+				) : (
+					<span className="truncate font-medium text-base text-ink leading-none">{file.name}</span>
+				)}
 				<div className="mt-1 flex items-center gap-2 text-xs text-ink-3 leading-none">
 					<span className="tabular-nums">{Math.max(1, Math.round(file.size / 1024))} KB</span>
 					<span>·</span>

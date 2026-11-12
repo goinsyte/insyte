@@ -1,5 +1,6 @@
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { restore as restoreAutomations } from "@insyte/modules/automations/use-cases/commands"
+import { restore as restoreChargebacks } from "@insyte/modules/chargebacks/Chargebacks"
 import { ActionFailed, ChatCommands } from "@insyte/modules/chats/Links"
 import { restore as restoreChats } from "@insyte/modules/chats/use-cases/commands"
 import { KlaviyoSyncs } from "@insyte/modules/customers/domain/Ports"
@@ -85,6 +86,7 @@ const compensations: Record<string, Compensation> = {
   "returns.restore": restoreReturns,
   "tickets.restore": restoreTickets,
   "automations.restore": restoreAutomations,
+  "chargebacks.restore": restoreChargebacks,
   "inbox.restore": (sql, compensation) =>
     restoreInbox(sql, compensation).pipe(Effect.provideService(ThreadTickets, threadTickets)),
   "quality.restore": restoreQuality,
