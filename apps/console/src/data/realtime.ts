@@ -5,6 +5,7 @@ import { Socket } from "effect/socket"
 import { ACCESS } from "./access.ts"
 import { CHAT_PAGES, chatKey, CHATS, type Typing, TYPING_MS, typingAtom } from "./chats.ts"
 import { ConsoleClient } from "./client.ts"
+import { COSTS } from "./costs.ts"
 import { CUSTOMERS } from "./customers.ts"
 import { KEYS } from "./developer.ts"
 import { FIRST_ANALYSIS } from "./first-analysis.ts"
@@ -52,8 +53,12 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   queue_item: QUEUE,
   proposal: QUEUE,
   // The workspace's own settings (M3.1); its name is in the frame's store selector.
-  workspace: [...WORKSPACE, ...FRAME]
+  workspace: [...WORKSPACE, ...FRAME],
+  // Kosten (M13 step 5): a line or a month changed.
+  cost_line: COSTS
 }
+// Kosten works its shares and per-order amounts out from revenue and orders (M13 step 5).
+for (const kind of ["order", "store"]) REFETCH[kind] = [...(REFETCH[kind] ?? []), ...COSTS]
 // Start's figures (M10.3) sum over every one of these.
 for (const kind of ["order", "ticket", "return", "product", "store", "member", "queue_item"]) {
   REFETCH[kind] = [...(REFETCH[kind] ?? []), ...HOME]
