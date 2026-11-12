@@ -3,6 +3,7 @@ import { isReplyAddress, receiveReply } from "@insyte/modules/notifications/use-
 import { env, tracing } from "cloudflare:workers"
 import { ManagedRuntime } from "effect"
 import { HttpRouter } from "effect/http"
+import { adSpendSweep } from "./platform/AdSpend.ts"
 import { AppLayer, BackgroundLayer } from "./platform/AppLayer.ts"
 import type { Env } from "./platform/Env.ts"
 import { parseMail } from "./platform/InboundMail.ts"
@@ -83,7 +84,8 @@ export default {
 
   /** Every minute (on staging every fifteenth, `infra/app.ts`): the relay's sweep for events a kick missed and the
    * notes quiet hours or a failed try held back (M11.5); every fifteenth, the stores' reconcile (M6.3), the tracking sweep (M8.4), Start's queue (M10.1), the
-   * daily facts (M10.4, at 02:00 UTC their nightly pass) and the members' daily digests (M11.5). */
+   * daily facts (M10.4, at 02:00 UTC their nightly pass) and the members' daily digests (M11.5); at 04:00 UTC the day's
+   * ad spend from every connected ad account (M13 step 5). */
   scheduled(controller, _env, ctx) {
     ctx.waitUntil(background.runPromise(withRequestDb(sweep())).finally(() => Telemetry.flush()))
     ctx.waitUntil(background.runPromise(withRequestDb(notifySweep())).finally(() => Telemetry.flush()))
@@ -96,6 +98,9 @@ export default {
       // Start's queue (M10.1): what no event says, a stock-out or a review coming due.
       ctx.waitUntil(background.runPromise(withRequestDb(queueSweep())).finally(() => Telemetry.flush()))
       ctx.waitUntil(background.runPromise(withRequestDb(digestSweep(at))).finally(() => Telemetry.flush()))
+      if (at.getUTCHours() === 4 && at.getUTCMinutes() === 0) {
+        ctx.waitUntil(background.runPromise(withRequestDb(adSpendSweep())).finally(() => Telemetry.flush()))
+      }
     }
   }
 } satisfies ExportedHandler<Env, EventsMessage | IngestMessage>

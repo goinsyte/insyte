@@ -1,6 +1,7 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
 import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
+import { CostsRpcs } from "@insyte/api/rpc/CostsRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
@@ -330,7 +331,15 @@ const PAYLOADS: Record<string, unknown> = {
   // The frame and the one search (M5, M11 step 6): every member; a kind or area the role cannot open answers nothing.
   "Shell.frame": { path: "/inbox" },
   "Nav.counts": { area: "tickets" },
-  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] }
+  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] },
+  // Kosten (M13 step 5): Analyse · Bekijken to read, `costs.write` to change; a blank name or a line that is not there.
+  "Costs.list": {},
+  "Costs.figures": { months: ["2026-01"] },
+  "Costs.create": { name: "   ", kind: "fixed" },
+  "Costs.update": { id: "cost_none", name: "Iets", kind: "fixed" },
+  "Costs.setAmount": { lineId: "cost_none", month: "2026-01", amountMinor: 100 },
+  "Costs.readFromSource": { id: "cost_none" },
+  "Costs.remove": { id: "cost_none" }
 }
 
 const manifest = [
@@ -357,7 +366,8 @@ const manifest = [
   ...ChatsRpcs.requests.keys(),
   ...NotificationsRpcs.requests.keys(),
   ...SessionRpcs.requests.keys(),
-  ...ShellRpcs.requests.keys()
+  ...ShellRpcs.requests.keys(),
+  ...CostsRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {
