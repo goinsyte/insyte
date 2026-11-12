@@ -30,6 +30,8 @@ export { FirstAnalysisWorkflow } from "./workflows/FirstAnalysis.ts"
 export { ForwardSendWorkflow } from "./workflows/ForwardSend.ts"
 export { MarketingSyncWorkflow } from "./workflows/MarketingSync.ts"
 export { ReturnLabelWorkflow } from "./workflows/ReturnLabel.ts"
+// A flow's run (M12 step 3).
+export { AutomationRunWorkflow } from "./workflows/AutomationRun.ts"
 export { ShopifyWriteWorkflow } from "./workflows/ShopifyWrite.ts"
 
 /** Module scope: the layer is built once per isolate, and building it does no request-time I/O. */

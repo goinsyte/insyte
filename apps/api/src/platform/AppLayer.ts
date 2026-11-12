@@ -36,6 +36,7 @@ import { ViewerLive } from "../transports/rpc/ViewerLive.ts"
 import { WithDbLive } from "../transports/rpc/WithDbLive.ts"
 import { AnalysesLive } from "./Analyses.ts"
 import { AuthHooksLive } from "./AuthHooks.ts"
+import { AutomationRunsLive } from "./AutomationRuns.ts"
 import { BackfillsLive } from "./Backfills.ts"
 import { AppInfo, BetaSettings, ConfigLive } from "./Bindings.ts"
 import { ConnectionGateLive } from "./ConnectionGate.ts"
@@ -211,6 +212,8 @@ export const BackgroundLayer = Layer.mergeAll(
   ForwardSendsLive,
   // Return labels are made at the carrier once their window has passed (M9.2).
   ReturnLabelsLive,
+  // A trigger's event starts a flow's run (M12 step 3).
+  AutomationRunsLive,
   // A return label's PDF goes with the shopper's mail (M9.3).
   FileStoreR2,
   // Notes by push and in Slack, its token sealed; an answer to a notification mail as a comment (M11 step 13.5).

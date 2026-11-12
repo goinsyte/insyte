@@ -19,7 +19,8 @@ import { connectionOf } from "./slack.ts"
  * - `ticket.assigned`: who was put on a ticket hears of it, once the undo window has passed and if still on it;
  * - `ticket.mentioned`: who a ticket comment names with `@` hears of it;
  * - `chat.mentioned`: who a chat message names with `@` hears of it, if they are in it and did not mute it;
- * - `quality_check.submitted`: who asked for the check, and whoever handles products, hear the supplier answered.
+ * - `quality_check.submitted`: who asked for the check, and whoever handles products, hear the supplier answered;
+ * - `automation.notify`: who a run's "Team waarschuwen" names, or who watches a flow whose run failed (M12 step 3).
  *
  * A member deactivated or removed hears nothing. Who has "Alleen als het mij betreft" on for the kind hears only of
  * what concerns them directly (they were put on it, named in it, asked for it or sent the invitation). The in-app switch
@@ -173,6 +174,25 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             title: ticket.title,
             ...(said === undefined ? {} : { comment: said.body.slice(0, 280) })
           }
+        }
+      }
+      case "automation.notify": {
+        // A run (M12 step 3): its flow by name; who may not see automations hears nothing.
+        const [flow] = yield* sql<{ name: string }>`select name from automations where id = ${event.automationId}`
+        if (flow === undefined) return undefined
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.id in ${sql.in([...event.memberIds, ""])} and m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'automations')::int, 0) >= 1)`
+        const named = recipients.map((r) => r.id)
+        return {
+          kind: event.kind === "alert" ? "automation.alert" : "automation.failed",
+          recipients: named,
+          direct: named,
+          subjectType: "automation",
+          subjectId: event.automationId,
+          actor: null,
+          data: { name: flow.name, runId: event.runId, detail: event.detail.slice(0, 280) }
         }
       }
       case "chat.mentioned": {

@@ -33,6 +33,7 @@ import {
   type SetStatusInput,
   type UpdateSettingsInput
 } from "../domain/Automations.ts"
+import { syncAccount } from "./accounts.ts"
 import { connectedBrands, detailOf, rowOf1, settingsOf } from "./read.ts"
 
 /*
@@ -219,6 +220,7 @@ export const remove = Effect.fn("Automations.remove")(function*(id: string) {
     Effect.gen(function*() {
       yield* lock(sql, id)
       yield* sql`update automations set deleted_at = now() where id = ${id}`
+      yield* syncAccount(sql, id)
       yield* audit(sql, "automation.removed", id)
       return yield* answer(sql, null, { kind: "removed", id })
     })
@@ -233,6 +235,7 @@ export const restoreRemoved = Effect.fn("Automations.restoreRemoved")(function*(
     Effect.gen(function*() {
       yield* lock(sql, id, true)
       yield* sql`update automations set deleted_at = null where id = ${id}`
+      yield* syncAccount(sql, id)
       yield* audit(sql, "automation.restored", id)
       return yield* answer(sql, id, null)
     })
@@ -277,6 +280,7 @@ export const publish = Effect.fn("Automations.publish")(function*(input: typeof 
       const status: AutomationStatus = a.status === "draft" ? "active" : a.status
       yield* sql`update automations set live_version = ${version}, status = ${status}, trigger_variant = ${trigger}
                  where id = ${a.id}`
+      yield* syncAccount(sql, a.id, { renew: true })
       yield* audit(sql, "automation.published", a.id, { version, note: input.note, from: a.status, to: status })
       const outboxId = yield* Outbox.write(sql, principal.workspaceId, {
         type: "automation.published",
@@ -316,6 +320,7 @@ export const setStatus = Effect.fn("Automations.setStatus")(function*(input: typ
       if (a.liveVersion === 0) return yield* new Conflict({ entity: "automation", reason: "not_published" })
       if (a.status === input.status) return yield* answer(sql, a.id, null)
       yield* sql`update automations set status = ${input.status} where id = ${a.id}`
+      yield* syncAccount(sql, a.id)
       yield* audit(sql, "automation.status_changed", a.id, { from: a.status, to: input.status })
       return yield* answer(sql, a.id, { kind: "status", id: a.id, status: a.status })
     })
@@ -371,6 +376,7 @@ export const updateSettings = Effect.fn("Automations.updateSettings")(function*(
         on conflict (automation_id) do update set scopes_off = excluded.scopes_off,
           scopes_extra = excluded.scopes_extra, notify_member_id = excluded.notify_member_id,
           rate_limit_per_hour = excluded.rate_limit_per_hour`
+      yield* syncAccount(sql, a.id)
       yield* audit(sql, "automation.settings_changed", a.id, { before, after: next })
       return yield* answer(sql, a.id, { kind: "settings", id: a.id, settings: before })
     })
@@ -382,6 +388,12 @@ const decodeRestore = Schema.decodeUnknownEffect(AutomationsRestore)
 /** `automations.restore`: what the toast's "Ongedaan maken" puts back. */
 export const restore = Effect.fn("Automations.restore")(function*(sql: SqlClient.SqlClient, compensation: unknown) {
   const undo = yield* decodeRestore(compensation).pipe(Effect.orDie)
+  yield* undoOf(sql, undo)
+  // The flow's account follows what the undo put back (M12 step 2).
+  if (undo.kind !== "created") yield* syncAccount(sql, undo.id)
+})
+
+const undoOf = Effect.fn("Automations.undoOf")(function*(sql: SqlClient.SqlClient, undo: AutomationsRestore) {
   const principal = yield* CurrentPrincipal
   switch (undo.kind) {
     case "created": {
