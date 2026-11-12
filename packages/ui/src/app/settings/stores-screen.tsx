@@ -22,7 +22,7 @@ import { useStoresSource } from "../shops/source";
  * an undo, and the row offers to connect again.
  */
 export function StoresPage() {
-	const { stores, activeId, setActive, disconnect, restore, Connect: ConnectStoreDialog } = useStoresSource();
+	const { stores, activeId, setActive, disconnect, restore, installPixel, Connect: ConnectStoreDialog } = useStoresSource();
 	const [connecting, setConnecting] = useState<{ domain?: string } | null>(null);
 
 	return (
@@ -96,6 +96,19 @@ export function StoresPage() {
 											>
 												Openen in Shopify
 											</DropdownMenuItem>
+											{installPixel !== undefined ? (
+												<DropdownMenuItem
+													disabled={s.status !== "connected"}
+													onClick={async () => {
+														if (!(await installPixel(s.id))) return;
+														toast.success(`Live staat aan voor ${s.name}`, {
+															description: "Bezoekers verschijnen op Live zodra ze je winkel openen.",
+														});
+													}}
+												>
+													{s.livePixel === "installed" ? "Live herstellen" : "Live aanzetten"}
+												</DropdownMenuItem>
+											) : null}
 											<DropdownMenuItem
 												variant="destructive"
 												disabled={s.status !== "connected"}
