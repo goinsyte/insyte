@@ -1329,6 +1329,48 @@
     "finance": "allow",
     "view": "allow"
   },
+  "Analytics.periods": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Analytics.overview": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Analytics.charts": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Analytics.findings": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Analytics.explain": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Analytics.records": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
   "Notifications.list": {
     "owner": "allow",
     "admin": "allow",
