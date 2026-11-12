@@ -73,7 +73,8 @@ const graduated = [
   "app/settings/notifications-source.tsx",
   "app/settings/notifications-demo-source.tsx",
   "app/lib/home/day.ts",
-  "app/lib/home/kinds.ts"
+  "app/lib/home/kinds.ts",
+  "app/chats/"
 ]
 
 /** Inside a graduated directory but not yet edited for the backend: the queue panel waits for the proposals branches. */

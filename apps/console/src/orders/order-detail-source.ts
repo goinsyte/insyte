@@ -86,7 +86,7 @@ function timelineOf(d: OrderDetail, method: string): Array<TimelineStep> {
 
 const NO_TAGS: ReadonlyArray<string> = []
 
-function consoleOrderDetail(d: OrderDetail): OrderDetailSource {
+export function consoleOrderDetail(d: OrderDetail): OrderDetailSource {
   const images = new Map(d.lines.map((l) => [l.id, l.imageUrl]))
   const skus = new Map(d.lines.map((l) => [l.id, l.sku]))
   const address = addressOf(d.shippingAddress)

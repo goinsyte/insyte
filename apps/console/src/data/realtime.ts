@@ -3,6 +3,7 @@ import { Effect, Option, Schedule, Schema } from "effect"
 import { Reactivity } from "effect/reactivity"
 import { Socket } from "effect/socket"
 import { ACCESS } from "./access.ts"
+import { CHAT_PAGES, chatKey, CHATS, type Typing, TYPING_MS, typingAtom } from "./chats.ts"
 import { ConsoleClient } from "./client.ts"
 import { CUSTOMERS } from "./customers.ts"
 import { KEYS } from "./developer.ts"
@@ -53,13 +54,19 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
 for (const kind of ["order", "ticket", "return", "product", "store", "member", "queue_item"]) {
   REFETCH[kind] = [...(REFETCH[kind] ?? []), ...HOME]
 }
-const EVERYTHING = [...new Set(Object.values(REFETCH).flat())]
+const EVERYTHING = [...new Set([...Object.values(REFETCH).flat(), ...CHATS, ...CHAT_PAGES])]
 
 const decodeFrame = Schema.decodeUnknownOption(Schema.fromJsonString(Frame))
 const text = new TextDecoder()
 
+/** What a connection tells the tab besides what to refetch: who is here, and who is typing. */
+interface Heard {
+  readonly present: (memberIds: ReadonlyArray<string>) => void
+  readonly typing: (t: Typing) => void
+}
+
 /** One connection: its frames until it closes. `reconnected` refetches everything once it says hello. */
-const connection = (reconnected: boolean, present: (memberIds: ReadonlyArray<string>) => void) =>
+const connection = (reconnected: boolean, heard: Heard) =>
   Effect.gen(function*() {
     const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/realtime`
     const reader = yield* (yield* Socket.makeWebSocket(url)).reader
@@ -69,11 +76,22 @@ const connection = (reconnected: boolean, present: (memberIds: ReadonlyArray<str
         const frame = decodeFrame(typeof chunk === "string" ? chunk : text.decode(chunk))
         if (Option.isNone(frame)) continue
         if (frame.value.type === "hello" || frame.value.type === "presence") {
-          present(frame.value.presence.map((p) => p.memberId))
+          heard.present(frame.value.presence.map((p) => p.memberId))
         }
         if (frame.value.type === "hello" && reconnected) { for (const key of EVERYTHING) keys.add(key) }
         if (frame.value.type === "notes.changed") { for (const key of [...NOTES, ...FRAME]) keys.add(key) }
         if (frame.value.type === "records.changed") { for (const key of REFETCH[frame.value.kind] ?? []) keys.add(key) }
+        // A message posted or changed (M11.4): the list's previews and counts, and that conversation's page and threads.
+        if (frame.value.type === "chat.message" || frame.value.type === "chat.message.updated") {
+          for (const key of [...CHATS, chatKey(frame.value.conversationId)]) keys.add(key)
+        }
+        if (frame.value.type === "chat.typing") {
+          heard.typing({
+            conversationId: frame.value.conversationId,
+            principalId: frame.value.principalId,
+            at: Date.now()
+          })
+        }
         // A store's import moved on: its counts, and the store itself once it is in.
         if (frame.value.type === "job.progress") {
           for (const key of frame.value.label === "done" ? [...STORE_SYNC, ...STORES] : STORE_SYNC) keys.add(key)
@@ -87,8 +105,18 @@ const connection = (reconnected: boolean, present: (memberIds: ReadonlyArray<str
 export const realtimeAtom = ConsoleClient.runtime.atom((get) =>
   Effect.suspend(() => {
     let attempts = 0
-    const present = (memberIds: ReadonlyArray<string>) => get.set(presenceAtom, memberIds)
-    return Effect.suspend(() => connection(attempts++ > 0, present)).pipe(
+    const heard: Heard = {
+      present: (memberIds) => get.set(presenceAtom, memberIds),
+      // One entry per person and conversation, the stale ones dropped as a new one comes.
+      typing: (t) =>
+        get.set(typingAtom, [
+          ...get.once(typingAtom).filter((x) =>
+            t.at - x.at < TYPING_MS && !(x.conversationId === t.conversationId && x.principalId === t.principalId)
+          ),
+          t
+        ])
+    }
+    return Effect.suspend(() => connection(attempts++ > 0, heard)).pipe(
       // Doubling from half a second, never more than 30 s apart, for as long as the screen is open.
       Effect.retry(Schedule.min([Schedule.exponential("500 millis"), Schedule.spaced("30 seconds")])),
       Effect.provide(Socket.layerWebSocketConstructorGlobal)

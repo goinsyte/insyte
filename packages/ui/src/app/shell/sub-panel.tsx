@@ -324,6 +324,7 @@ function withChats(
 		label: c.type === "group" ? `# ${c.name}` : c.name,
 		icon: c.type === "group" ? MessagesSquare : User,
 		search: { id: c.id },
+		...(c.unread_count > 0 ? { count: c.unread_count } : {}),
 	});
 	const first = (items: SubPanelConfig["sections"][number]["items"]) =>
 		[...items].sort((a, b) => Number(pinned.includes(String(b.search?.id))) - Number(pinned.includes(String(a.search?.id))));
