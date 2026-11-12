@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { Clock, Moon, Sun, Ticket, Truck } from "../../icons"
 import { Glyph } from "../common/glyph"
+import { useHydrated } from "../hooks/use-hydrated"
 import { getGreeting } from "../lib/greetings"
 
 /**
@@ -27,18 +28,23 @@ export function HeroView(
   }
 ) {
   const still = useReducedMotion()
+  // The greeting and the date are the reader's clock, which the server does not have: they wait for hydration, so the
+  // server's render and the browser's first one agree. The words rise in as before; until then the line keeps its height.
+  const hydrated = useHydrated()
   const first = name.split(" ")[0] ?? name
   const now = new Date()
   const greeting = getGreeting(first, now)
   const night = greeting.mode === "evening" || greeting.mode === "latenight" || greeting.mode === "predawn"
   const date = new Intl.DateTimeFormat("nl-NL", { weekday: "long", day: "numeric", month: "long" }).format(now)
 
-  const words = greeting.salutation.split(" ")
+  const all = greeting.salutation.split(" ")
+  const words = hydrated ? all : []
 
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-        <h1 className="font-medium text-3xl text-ink" aria-label={greeting.salutation}>
+        <h1 className="font-medium text-3xl text-ink" aria-label={hydrated ? greeting.salutation : undefined}>
+          {hydrated ? null : <span aria-hidden className="inline-block">{"\u00a0"}</span>}
           {words.map((w, i) => (
             <motion.span
               // biome-ignore lint/suspicious/noArrayIndexKey: the words of one sentence, in order
@@ -53,16 +59,20 @@ export function HeroView(
             </motion.span>
           ))}
         </h1>
-        <p className="flex items-center gap-1.5 text-sm text-ink-3">
-          <Glyph icon={night ? Moon : Sun} size={13} draw={false} className="text-ink-3" />
-          {date}
-        </p>
+        {hydrated ?
+          (
+            <p className="flex items-center gap-1.5 text-sm text-ink-3">
+              <Glyph icon={night ? Moon : Sun} size={13} draw={false} className="text-ink-3" />
+              {date}
+            </p>
+          ) :
+          null}
       </div>
       <motion.div
         className="flex flex-wrap items-center gap-x-1 gap-y-1 text-base text-ink-2"
         initial={still ? false : { opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ duration: 0.3, delay: 0.05 + words.length * 0.06 }}
+        transition={{ duration: 0.3, delay: 0.05 + all.length * 0.06 }}
       >
         {firstDay ? <span>Je werkruimte staat klaar.</span> : (
           <>
