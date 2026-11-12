@@ -20,6 +20,7 @@ import {
   sweep
 } from "./platform/Relay.ts"
 import { withRequestDb } from "./platform/RequestDb.ts"
+import { trashSweep } from "./platform/TrashSweep.ts"
 
 // The Durable Object classes this Worker hosts; infra and `wrangler.jsonc` bind them by these names.
 export { RateLimiter } from "./platform/RateLimiter.ts"
@@ -88,8 +89,8 @@ export default {
   /** Every minute (on staging every fifteenth, `infra/app.ts`): the relay's sweep for events a kick missed and the
    * notes quiet hours or a failed try held back (M11.5); every fifteenth, the stores' reconcile (M6.3), the tracking sweep (M8.4), Start's queue (M10.1), the
    * daily facts (M10.4, at 02:00 UTC their nightly pass) and the members' daily digests (M11.5); on the hour, the
-   * chargeback deadline reminders (M13 step 3); at 04:00 UTC the day's ad spend from every connected ad account (M13
-   * step 5). */
+   * chargeback deadline reminders (M13 step 3); at 03:00 UTC the Prullenbak's sweep (M17); at 04:00 UTC the day's ad
+   * spend from every connected ad account (M13 step 5). */
   scheduled(controller, _env, ctx) {
     ctx.waitUntil(background.runPromise(withRequestDb(sweep())).finally(() => Telemetry.flush()))
     ctx.waitUntil(background.runPromise(withRequestDb(notifySweep())).finally(() => Telemetry.flush()))
@@ -105,6 +106,10 @@ export default {
       // On the hour: the chargeback deadline reminders that have come (M13 step 3).
       if (at.getUTCMinutes() === 0) {
         ctx.waitUntil(background.runPromise(withRequestDb(deadlineSweep(at))).finally(() => Telemetry.flush()))
+      }
+      // The Prullenbak's items past their 30 days, once a day at 03:00 UTC (M17 step 20.1a).
+      if (at.getUTCHours() === 3 && at.getUTCMinutes() === 0) {
+        ctx.waitUntil(background.runPromise(withRequestDb(trashSweep())).finally(() => Telemetry.flush()))
       }
       if (at.getUTCHours() === 4 && at.getUTCMinutes() === 0) {
         ctx.waitUntil(background.runPromise(withRequestDb(adSpendSweep())).finally(() => Telemetry.flush()))

@@ -13,6 +13,7 @@ import { registerParcels } from "@insyte/modules/returns/use-cases/parcels"
 import { addLine, emptyBatch, type MirrorBatch, parseJsonl } from "@insyte/modules/stores/domain/Mirror"
 import { applyBatch } from "@insyte/modules/stores/use-cases/mirror"
 import { sweepWorkspace } from "@insyte/modules/tracking/use-cases/tracking"
+import { sweepWorkspace as sweepTrash } from "@insyte/modules/trash/use-cases/trash"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect, Layer, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
@@ -23,6 +24,7 @@ import { refusedReferences } from "../../platform/Mail.ts"
 import { digestWorkspace, notifyWorkspace } from "../../platform/Relay.ts"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 import { userFrom } from "../../platform/Sessions.ts"
+import { TrashKindsLive } from "../../platform/SliceLinks.ts"
 
 /**
  * `GET /api/__dev/mail?to=<address>`: the mails the capture adapter "sent" to one address, newest first. For the
@@ -767,9 +769,38 @@ const CostsSync = HttpRouter.add(
   }).pipe(Effect.provide(AdSpendLive), withRequestDb)
 )
 
+/**
+ * `POST /api/__dev/trash/sweep?workspace=<id>&age=<days>`: the workspace's trashed tickets as if deleted `age` days
+ * earlier, then the Prullenbak's daily sweep for that workspace (M17 step 20.1a), so the 30 days need not be waited
+ * out. Refused in production.
+ */
+const TrashSweep = HttpRouter.add(
+  "POST",
+  "/api/__dev/trash/sweep",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = (yield* workspaceParam) as WorkspaceId
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const age = Number(new URL(request.url, "http://local").searchParams.get("age") ?? "0")
+    const db = yield* Db
+    yield* db.scopedFor((sql) =>
+      sql`update tickets set deleted_at = deleted_at - make_interval(days => ${Number.isFinite(age) ? age : 0})
+          where deleted_at is not null`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace }))
+    const purged = yield* sweepTrash().pipe(
+      Effect.provideService(CurrentWorkspace, { id: workspace }),
+      Effect.provide(TrashKindsLive)
+    )
+    return HttpServerResponse.jsonUnsafe({ purged })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
 export const DevRoutes = Layer.mergeAll(
   CostsAdAccount,
   CostsSync,
+  TrashSweep,
   InboundMail,
   FactsOrders,
   FactsOf,

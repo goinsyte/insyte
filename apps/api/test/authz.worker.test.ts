@@ -1,4 +1,5 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { AuditRpcs } from "@insyte/api/rpc/AuditRpcs"
 import { AutomationsRpcs } from "@insyte/api/rpc/AutomationsRpcs"
 import { ChargebacksRpcs } from "@insyte/api/rpc/ChargebacksRpcs"
 import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
@@ -25,6 +26,7 @@ import { SuppliersRpcs } from "@insyte/api/rpc/SuppliersRpcs"
 import { ThreadsRpcs } from "@insyte/api/rpc/ThreadsRpcs"
 import { TicketsRpcs } from "@insyte/api/rpc/TicketsRpcs"
 import { TrackingRpcs } from "@insyte/api/rpc/TrackingRpcs"
+import { TrashRpcs } from "@insyte/api/rpc/TrashRpcs"
 import { WorkspacesRpcs } from "@insyte/api/rpc/WorkspacesRpcs"
 import { Exit } from "effect"
 import { beforeAll, describe, expect, it } from "vitest"
@@ -382,7 +384,16 @@ const PAYLOADS: Record<string, unknown> = {
   "Costs.update": { id: "cost_none", name: "Iets", kind: "fixed" },
   "Costs.setAmount": { lineId: "cost_none", month: "2026-01", amountMinor: 100 },
   "Costs.readFromSource": { id: "cost_none" },
-  "Costs.remove": { id: "cost_none" }
+  "Costs.remove": { id: "cost_none" },
+  // The Logboek and the Prullenbak (M17 step 20.1a): reading the log at Instellingen · Bekijken, its CSV also with
+  // Exporteren; the trash at Bewerken. The ids are in no trash, so nothing is put back or purged; the trash is empty.
+  "Audit.list": { category: "settings" },
+  "Audit.facets": undefined,
+  "Audit.export": { category: "settings" },
+  "Trash.list": undefined,
+  "Trash.restore": { ids: ["tkt_none"] },
+  "Trash.purge": { ids: ["tkt_none"] },
+  "Trash.empty": undefined
 }
 
 const manifest = [
@@ -413,7 +424,9 @@ const manifest = [
   ...SessionRpcs.requests.keys(),
   ...ShellRpcs.requests.keys(),
   ...ChargebacksRpcs.requests.keys(),
-  ...CostsRpcs.requests.keys()
+  ...CostsRpcs.requests.keys(),
+  ...AuditRpcs.requests.keys(),
+  ...TrashRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {
