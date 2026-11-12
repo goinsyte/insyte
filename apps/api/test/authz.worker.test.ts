@@ -308,6 +308,19 @@ const PAYLOADS: Record<string, unknown> = {
     follow: { assigned: true, mentioned: true, created: true },
     slackChannel: null
   },
+  // Push and Slack (M11 step 13.5b): every role keeps its own browsers and picks its own channel; connecting the
+  // workspace's Slack, and letting it go, is a manager's (settings level 3).
+  "Notifications.pushDevices": undefined,
+  "Notifications.subscribePush": {
+    endpoint: "https://push.test/authz",
+    keys: { p256dh: `B${"A".repeat(86)}`, auth: "A".repeat(22) },
+    label: "Authz"
+  },
+  "Notifications.unsubscribePush": { id: "psub_none" },
+  "Notifications.testPush": undefined,
+  "Notifications.slackChannels": undefined,
+  "Notifications.beginSlackConnect": { returnPath: "/settings/notifications" },
+  "Notifications.disconnectSlack": undefined,
   // The person's own sessions (M3.3): every role reads and ends its own; an unknown one is NotFound, past no gate.
   "Session.me": undefined,
   "Session.listSessions": undefined,

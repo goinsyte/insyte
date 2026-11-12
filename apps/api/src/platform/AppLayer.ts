@@ -12,7 +12,7 @@ import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Config, Effect, Layer, Option, Scheduler } from "effect"
 import { FetchHttpClient, type HttpClient, HttpServer } from "effect/http"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
-import { ConnectRoutes, KlaviyoConnectRoutes } from "../transports/http/ConnectRoutes.ts"
+import { ConnectRoutes, KlaviyoConnectRoutes, SlackConnectRoutes } from "../transports/http/ConnectRoutes.ts"
 import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { FileRoutes } from "../transports/http/FileRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
@@ -49,6 +49,7 @@ import { KeyHasherLive } from "./KeyHasher.ts"
 import { KlaviyoChoice, MarketingSyncsLive } from "./Klaviyo.ts"
 import { LabelsChoice, ReturnLabelsLive } from "./Labels.ts"
 import { MailerCapture } from "./Mail.ts"
+import { NoteRepliesLive, SlackChoice, WebPushChoice } from "./Notify.ts"
 import { ObservabilityLive } from "./Observability.ts"
 import { ProductAnalyticsCapture } from "./ProductAnalyticsCapture.ts"
 import { RateLimits } from "./RateLimits.ts"
@@ -73,6 +74,7 @@ const Transports = Layer.mergeAll(
   RealtimeRoutes,
   ConnectRoutes,
   KlaviyoConnectRoutes,
+  SlackConnectRoutes,
   WebhookRoutes,
   SupplierHookRoutes,
   TrackingRoutes,
@@ -151,6 +153,10 @@ export const AppLayer = Transports.pipe(
       ShopifyGraphqlChoice,
       // …and Klaviyo's OAuth app and API (M7.5).
       KlaviyoChoice,
+      // …and web push, Slack, and an answer to a notification mail as a comment (M11 step 13.5).
+      WebPushChoice,
+      SlackChoice,
+      NoteRepliesLive,
       // …and a supplier's own API, for "Verbinding testen" (M8.2).
       SupplierApiChoice,
       // …and AfterShip, for its webhooks (M8.4).
@@ -206,7 +212,12 @@ export const BackgroundLayer = Layer.mergeAll(
   // Return labels are made at the carrier once their window has passed (M9.2).
   ReturnLabelsLive,
   // A return label's PDF goes with the shopper's mail (M9.3).
-  FileStoreR2
+  FileStoreR2,
+  // Notes by push and in Slack, its token sealed; an answer to a notification mail as a comment (M11 step 13.5).
+  WebPushChoice,
+  SlackChoice,
+  SealerLive,
+  NoteRepliesLive
 ).pipe(
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),

@@ -14,6 +14,7 @@
     "@insyte/domain": "workspace:*",
     "@insyte/integrations-better-auth": "workspace:*",
     "@insyte/integrations-klaviyo": "workspace:*",
+    "@insyte/integrations-slack": "workspace:*",
     "@insyte/integrations-aftership": "workspace:*",
     "@insyte/integrations-sendcloud": "workspace:*",
     "@insyte/integrations-supplier-api": "workspace:*",
@@ -21,6 +22,7 @@
     "@insyte/integrations-resend": "workspace:*",
     "@insyte/integrations-shopify": "workspace:*",
     "@insyte/integrations-turnstile": "workspace:*",
+    "@insyte/integrations-webpush": "workspace:*",
     "@insyte/modules": "workspace:*",
     "effect": "catalog:",
     "postal-mime": "catalog:"

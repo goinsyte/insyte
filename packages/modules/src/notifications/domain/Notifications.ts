@@ -89,8 +89,13 @@ export const NotifyPrefsInput = Schema.Struct({
 })
 export type NotifyPrefsInput = typeof NotifyPrefsInput.Type
 
-/** Whether a channel outside the app can deliver: e-mail always; push and Slack once their adapters are set up. */
-export const ChannelState = Schema.Literals(["connected", "unavailable"])
+/**
+ * Whether a channel outside the app can deliver. Push: `unavailable` without the stage's VAPID keys, `available` while
+ * the member allowed it on no browser yet, `connected` once on one. Slack: `unavailable` without the stage's Slack
+ * app, `available` while the workspace has not connected it, `connected` once it has.
+ */
+export const ChannelState = Schema.Literals(["connected", "available", "unavailable"])
+export type ChannelState = typeof ChannelState.Type
 
 /**
  * The member's notification settings: every kind's channels (a kind never set follows the catalogue's default), quiet
@@ -108,7 +113,11 @@ export class NotePrefs extends Schema.Class<NotePrefs>("notifications/NotePrefs"
   email: Schema.String,
   timezone: Schema.String,
   alerts: Schema.Struct({ delayHours: Schema.Int, disputeAmountMinor: Schema.Int, currency: Schema.String }),
-  channels: Schema.Struct({ push: ChannelState, slack: ChannelState })
+  channels: Schema.Struct({ push: ChannelState, slack: ChannelState }),
+  /** The stage's VAPID public key, which a browser subscribes with; `null` while push is unavailable. */
+  pushKey: Schema.NullOr(Schema.String),
+  /** The Slack workspace's name once it is connected. */
+  slackTeam: Schema.NullOr(Schema.String)
 }) {}
 
 /** A saved page, with its Undo: the settings as they were. */
@@ -124,3 +133,59 @@ export class QuietHoursEmpty extends Schema.TaggedError<QuietHoursEmpty>()("Quie
 export class SlackNotConnected extends Schema.TaggedError<SlackNotConnected>()("SlackNotConnected", {}) {}
 export const SetNotePref = Schema.Struct({ kind: Schema.String, app: Schema.Boolean })
 export type SetNotePref = typeof SetNotePref.Type
+
+/** A push switch turned on while the member allowed push on no browser. */
+export class PushNotRegistered extends Schema.TaggedError<PushNotRegistered>()("PushNotRegistered", {}) {}
+
+/** Push cannot be set up on this stage: it has no VAPID keys. */
+export class PushUnavailable extends Schema.TaggedError<PushUnavailable>()("PushUnavailable", {}) {}
+
+/** A base64url string of exactly `bytes` bytes once decoded. */
+const base64url = (bytes: number) =>
+  Schema.String.check(Schema.isPattern(new RegExp(`^[A-Za-z0-9_-]{${Math.ceil((bytes * 4) / 3)}}={0,2}$`)))
+
+/** What a browser's `PushSubscription.toJSON()` gives, and a label for the device (its browser and system). */
+export const PushSubscribe = Schema.Struct({
+  endpoint: Schema.String.check(Schema.isPattern(/^https:\/\/[^\s]{8,2000}$/)),
+  keys: Schema.Struct({ p256dh: base64url(65), auth: base64url(16) }),
+  label: Schema.String.check(Schema.isMaxLength(120))
+})
+export type PushSubscribe = typeof PushSubscribe.Type
+
+/**
+ * One browser the member allowed push on. `endpointHash` is the SHA-256 of its endpoint, hex: the browser hashes its
+ * own to know whether it is this one, and the endpoint itself never leaves the server.
+ */
+export class PushDevice extends Schema.Class<PushDevice>("notifications/PushDevice")({
+  id: Schema.String,
+  label: Schema.String,
+  endpointHash: Schema.String,
+  createdAt: Schema.Finite,
+  lastSentAt: Schema.NullOr(Schema.Finite)
+}) {}
+
+export const PushDeviceId = Schema.Struct({ id: Schema.String })
+
+/** "Testmelding sturen": how many browsers it reached, and how many the push service said were gone. */
+export class PushTested extends Schema.Class<PushTested>("notifications/PushTested")({
+  sent: Schema.Int,
+  removed: Schema.Int
+}) {}
+
+/** A channel Slack can post in: its id and `#name`; `dm` is "Privébericht aan mij". */
+export class SlackChannel extends Schema.Class<SlackChannel>("notifications/SlackChannel")({
+  id: Schema.String,
+  name: Schema.String
+}) {}
+
+/** Where the member's Slack messages go: a channel id, or `dm` for a direct message from the app. */
+export const SLACK_DM = "dm"
+export const SlackChannelId = Schema.String.check(Schema.isPattern(/^(dm|[CG][A-Z0-9]{6,20})$/))
+
+export const BeginSlackConnect = Schema.Struct({ returnPath: Schema.String })
+
+/** Slack's way back went wrong: the state did not hold, or Slack refused the code. */
+export class SlackConnectFailed extends Schema.TaggedError<SlackConnectFailed>()("SlackConnectFailed", {
+  reason: Schema.Literals(["state", "exchange"]),
+  returnPath: Schema.optional(Schema.String)
+}) {}
