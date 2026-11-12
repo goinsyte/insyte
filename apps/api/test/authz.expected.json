@@ -1476,6 +1476,27 @@
     "finance": "allow",
     "view": "allow"
   },
+  "Shell.frame": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Nav.counts": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Search.records": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
   "Automations.list": {
     "owner": "allow",
     "admin": "allow",
@@ -1566,26 +1587,5 @@
     "service": "deny",
     "finance": "deny",
     "view": "deny"
-  },
-  "Shell.frame": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "allow",
-    "finance": "allow",
-    "view": "allow"
-  },
-  "Nav.counts": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "allow",
-    "finance": "allow",
-    "view": "allow"
-  },
-  "Search.records": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "allow",
-    "finance": "allow",
-    "view": "allow"
   }
 }
