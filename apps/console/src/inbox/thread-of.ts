@@ -20,7 +20,7 @@ const CLOCK = new Intl.DateTimeFormat("nl-NL", {
 export const timeOf = (at: string) => CLOCK.format(new Date(at))
 
 /** Where the thread is, as `Threads.list`'s folders put it: the Prullenbak first, then spam, the archive, a snooze. */
-export const placeOf = (r: ThreadRow, now: number): Place =>
+const placeOf = (r: ThreadRow, now: number): Place =>
   r.deletedAt !== null
     ? "trash"
     : r.spamAt !== null

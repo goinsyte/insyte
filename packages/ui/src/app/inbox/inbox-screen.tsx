@@ -144,7 +144,7 @@ const sentLine = (m: LetterEntry) => {
 /** A send that answered at once, or later: `done` once it went; the busy flag while it is on its way. */
 function useSettle() {
   const [busy, setBusy] = useState(false)
-  const settle = useCallback(<A>(sent: A | Promise<A>, done: (a: A) => void) => {
+  const settle = useCallback(function settle<A>(sent: A | Promise<A>, done: (a: A) => void) {
     if (!(sent instanceof Promise)) return done(sent)
     setBusy(true)
     void sent.then((a) => {
@@ -160,6 +160,11 @@ export function InboxPage() {
   const navigate = useNavigate()
   const { search, go, me, people, writes, gate, time, threads, mailboxes } = source
   const folder = search.folder ?? "all"
+  /** The new mail's thread, opened once it is made; whether it was. */
+  const openComposed = (id: string | undefined) => {
+    if (id !== undefined) go({ ...search, folder: undefined, mailbox: undefined, thread: id })
+    return id !== undefined
+  }
   const mailbox = mailboxes.find((m) => m.id === search.mailbox)
   const channel = search.channel
   const agentView = search.view
@@ -825,11 +830,7 @@ export function InboxPage() {
         onOpenChange={setComposing}
         onSend={(m) => {
           const made = writes.compose({ ...m, mailbox: mailbox?.id }, { label: `E-mail verstuurd naar ${m.to}` })
-          const open = (id: string | undefined) => {
-            if (id !== undefined) go({ ...search, folder: undefined, mailbox: undefined, thread: id })
-            return id !== undefined
-          }
-          return made instanceof Promise ? made.then(open) : open(made)
+          return made instanceof Promise ? made.then(openComposed) : openComposed(made)
         }}
       />
       <PageGuide id="inbox" title="Inbox" steps={source.channels ? GUIDE : GUIDE.slice(0, 1)} />
