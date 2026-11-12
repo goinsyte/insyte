@@ -7,6 +7,7 @@ import { BrandLogo } from "../../marketplace/brand-logos";
 import { UnsavedBar } from "../form";
 import { BandedList, BandedRow, SettingCard } from "../setting-card";
 import { useSection } from "./kit";
+import { useSettingsDepthSource } from "./source";
 
 const SHOW: Record<ShipStatus["show"], string> = { all: "Overal", line: "Alleen in de statusregel", hidden: "Niet tonen" };
 
@@ -16,6 +17,7 @@ const SHOW: Record<ShipStatus["show"], string> = { all: "Overal", line: "Alleen 
  * "waar is mijn pakket". The preview beside it is the status page with the picked row in it.
  */
 export function ShippingPage() {
+	const source = useSettingsDepthSource();
 	const s = useSection("shipping", "Verzending", (a, b) => b.flatMap((x) => {
 		const o = a.find((y) => y.id === x.id);
 		const out: Array<[string, string, string]> = [];
@@ -86,7 +88,7 @@ export function ShippingPage() {
 
 			<SettingCard title="Volgen" subtitle="Waar Insyte de status van een zending vandaan haalt.">
 				<BandedList>
-					<BandedRow leading={<BrandLogo brand="17track" name="17TRACK" size={32} />} title="17TRACK" detail="Niet gekoppeld · nu leest Insyte de statussen uit Shopify, die minder vaak bijwerken" trailing={<Link to="/marketplace" className="field flex h-8 items-center rounded-md px-2.5 font-medium text-ink text-sm hover:field-hover">Koppelen</Link>} />
+					<BandedRow leading={<BrandLogo brand="17track" name="17TRACK" size={32} />} title="17TRACK" detail="Niet gekoppeld · nu leest Insyte de statussen uit Shopify, die minder vaak bijwerken" trailing={source.trackingUnavailable ? <span className="text-ink-3 text-sm">Nog niet beschikbaar</span> : <Link to={"/marketplace" as never} className="field flex h-8 items-center rounded-md px-2.5 font-medium text-ink text-sm hover:field-hover">Koppelen</Link>} />
 				</BandedList>
 			</SettingCard>
 			<UnsavedBar visible={s.dirty && s.canEdit} onDiscard={s.discard} onSave={() => s.save("Verzendstatussen opgeslagen", "Klanten lezen de nieuwe zinnen vanaf de volgende update van hun zending.")} />

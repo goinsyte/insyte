@@ -4,6 +4,7 @@ import { cn } from "../../lib/utils";
 import { FieldRow, UnsavedBar } from "../form";
 import { SettingCard } from "../setting-card";
 import { useSection, WELL } from "./kit";
+import { useSettingsDepthSource } from "./source";
 
 const FIELDS: ReadonlyArray<{ key: keyof TemplateLinks; label: string; variable: string; uses: number; hint: string }> = [
 	{ key: "review", label: "Reviewlink", variable: "{review_link}", uses: 3, hint: "Na een bezorging en bij een tevreden antwoord." },
@@ -20,13 +21,16 @@ const bad = (v: string) => v.trim() !== "" && !/^https:\/\/[^\s.]+\.[^\s]+$/.tes
  */
 export function TemplatesPage() {
 	const s = useSection("links", "Sjablonen", (a, b) => FIELDS.filter((f) => a[f.key] !== b[f.key]).map((f) => [f.label, a[f.key], b[f.key]]));
+	const usage = useSettingsDepthSource().linkUsage;
 	const invalid = FIELDS.some((f) => bad(s.draft[f.key]));
 	return (
 		<>
 			<SettingCard title="Vaste links" icon={Link2} subtitle="Een link per soort. Sjablonen gebruiken ze met de variabele ernaast.">
 				<div className="flex flex-col">
-					{FIELDS.map((f) => (
-						<FieldRow key={f.key} label={f.label} hint={`${f.hint} In ${f.uses} ${f.uses === 1 ? "sjabloon" : "sjablonen"}.`}>
+					{FIELDS.map((f) => {
+						const uses = usage?.[f.key] ?? f.uses;
+						return (
+						<FieldRow key={f.key} label={f.label} hint={`${f.hint} In ${uses} ${uses === 1 ? "sjabloon" : "sjablonen"}.`}>
 							<span className="flex flex-col gap-1.5">
 								<input value={s.draft[f.key]} disabled={!s.canEdit} onChange={(e) => s.setDraft({ ...s.draft, [f.key]: e.target.value })} placeholder="https://" inputMode="url" aria-invalid={bad(s.draft[f.key])} aria-label={f.label} className={cn(WELL, "aria-[invalid=true]:bg-signal-red-bg")} />
 								<span className="flex items-center gap-2 text-xs">
@@ -35,7 +39,8 @@ export function TemplatesPage() {
 								</span>
 							</span>
 						</FieldRow>
-					))}
+						);
+					})}
 				</div>
 			</SettingCard>
 			<SettingCard title="Voorbeeld" subtitle="Het sjabloon Pakket bezorgd, zoals de klant het krijgt.">

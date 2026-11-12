@@ -7,6 +7,7 @@ import { FieldRow, UnsavedBar } from "../form";
 import { SettingCard } from "../setting-card";
 import { Segmented } from "../../team/bits";
 import { useSection, WELL } from "./kit";
+import { useSettingsDepthSource } from "./source";
 
 const FONT_STACK = { Systeem: "system-ui, sans-serif", Inter: "Inter, system-ui, sans-serif", Georgia: "Georgia, serif" } as const;
 
@@ -27,6 +28,7 @@ export function BrandPage() {
 		if (a.widget !== b.widget) out.push(["Chatvenster", a.widget === "right" ? "rechts" : "links", b.widget === "right" ? "rechts" : "links"]);
 		return out;
 	});
+	const upload = useSettingsDepthSource().uploadLogo;
 	const d = s.draft;
 	const file = useRef<HTMLInputElement>(null);
 	const hexOk = isHex(d.color);
@@ -37,6 +39,12 @@ export function BrandPage() {
 		if (!f) return;
 		if (!/^image\/(png|jpeg|webp|svg\+xml)$/.test(f.type)) return void toast("Dat is geen logo", { description: "Kies een PNG, JPG, WebP of SVG." });
 		if (f.size > 400_000) return void toast("Dat logo is te groot", { description: "Kies er een tot 400 kB; het staat klein in mails en de chat." });
+		if (upload) {
+			void upload(f).then((logo) => {
+				if (logo !== undefined) s.setDraft((x) => ({ ...x, logo }));
+			});
+			return;
+		}
 		const r = new FileReader();
 		r.onload = () => set({ logo: String(r.result) });
 		r.readAsDataURL(f);

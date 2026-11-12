@@ -37,13 +37,20 @@ export const FileRoutes = HttpRouter.add(
       const [row] = yield* db.scoped((sql) =>
         sql<{ r2Key: string; name: string; mime: string; ownerType: string }>`
           select r2_key, name, mime, owner_type from files where id = ${id ?? ""} and deleted_at is null
-            and owner_type in ('forwarding_item', 'return', 'quality_check')`
+            and owner_type in ('forwarding_item', 'return', 'quality_check', 'brand')`
       )
       if (row === undefined) return undefined
       // What it belongs to decides who may have it: an order's slip at Bestellingen, a return's label at Retouren, a
       // supplier's quality photo at Producten (M9.4).
+      // …and the workspace's logo (Huisstijl, M17 step 20.1b) at Instellingen.
       yield* Policy.require(
-        row.ownerType === "return" ? "returns" : row.ownerType === "quality_check" ? "products" : "orders",
+        row.ownerType === "return"
+          ? "returns"
+          : row.ownerType === "quality_check"
+          ? "products"
+          : row.ownerType === "brand"
+          ? "settings"
+          : "orders",
         1
       )
       return row
@@ -56,7 +63,15 @@ export const FileRoutes = HttpRouter.add(
     if (stored === undefined) return notFound
     return HttpServerResponse.uint8Array(stored.bytes, {
       contentType: stored.mime,
-      headers: { "content-disposition": `inline; filename="${file.name}"`, "cache-control": "private, no-store" }
+      headers: {
+        "content-disposition": `inline; filename="${file.name}"`,
+        "cache-control": "private, no-store",
+        // An uploaded logo (an SVG, too) is shown as an image, never run as a page on the console's origin.
+        ...(file.ownerType === "brand"
+          ? { "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox" }
+          : {}),
+        "x-content-type-options": "nosniff"
+      }
     })
   }).pipe(Effect.orDie, withRequestDb, Effect.withSpan("Files.downloadRoute"))
 )

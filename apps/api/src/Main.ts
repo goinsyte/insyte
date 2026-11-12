@@ -18,6 +18,7 @@ import {
   sweep
 } from "./platform/Relay.ts"
 import { withRequestDb } from "./platform/RequestDb.ts"
+import { retentionSweep } from "./platform/Retention.ts"
 
 // The Durable Object classes this Worker hosts; infra and `wrangler.jsonc` bind them by these names.
 export { RateLimiter } from "./platform/RateLimiter.ts"
@@ -96,6 +97,8 @@ export default {
       // Start's queue (M10.1): what no event says, a stock-out or a review coming due.
       ctx.waitUntil(background.runPromise(withRequestDb(queueSweep())).finally(() => Telemetry.flush()))
       ctx.waitUntil(background.runPromise(withRequestDb(digestSweep(at))).finally(() => Telemetry.flush()))
+      // The nightly erase of what is past its retention, at 03:00 in each workspace's timezone (M17 step 20.1b).
+      ctx.waitUntil(background.runPromise(withRequestDb(retentionSweep(at))).finally(() => Telemetry.flush()))
     }
   }
 } satisfies ExportedHandler<Env, EventsMessage | IngestMessage>

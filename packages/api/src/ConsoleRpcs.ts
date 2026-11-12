@@ -18,6 +18,7 @@ import { QueueRpcs } from "./rpc/QueueRpcs.ts"
 import { ReturnsRpcs } from "./rpc/ReturnsRpcs.ts"
 import { RolesRpcs } from "./rpc/RolesRpcs.ts"
 import { SessionRpcs } from "./rpc/SessionRpcs.ts"
+import { SettingsDepthRpcs } from "./rpc/SettingsDepthRpcs.ts"
 import { SharedRpcs } from "./rpc/SharedRpcs.ts"
 import { ShellRpcs } from "./rpc/ShellRpcs.ts"
 import { StoresRpcs } from "./rpc/StoresRpcs.ts"
@@ -62,3 +63,4 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(ProposalsRpcs)
   .merge(WorkspacesRpcs)
   .merge(ChatsRpcs)
+  .merge(SettingsDepthRpcs)

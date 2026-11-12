@@ -6,7 +6,7 @@ import { GOTO_DEFAULTS } from "../../lib/settings-depth";
 import { undoable } from "../../lib/undo";
 import { cn } from "../../lib/utils";
 import { SHORTCUTS } from "../../shell/shell-dialogs";
-import { useSettingsDepth } from "../../stores/settings-depth-store";
+import { useSettingsDepth } from "../../shell/state";
 import { SettingCard } from "../setting-card";
 
 const Kbd = ({ children, live }: { children: string; live?: boolean }) => (
@@ -21,6 +21,10 @@ const Kbd = ({ children, live }: { children: string; live?: boolean }) => (
 export function ShortcutsPage() {
 	const keys = useSettingsDepth((s) => s.keys);
 	const on = useSettingsDepth((s) => s.gotoOn);
+	// The keys are the frame's (`ShellSource.settingsDepth`): the design's store, or the member's preferences.
+	const setKey = useSettingsDepth((s) => s.setKey);
+	const resetKeys = useSettingsDepth((s) => s.resetKeys);
+	const setGotoOn = useSettingsDepth((s) => s.setGotoOn);
 	const [listening, setListening] = useState<string | null>(null);
 
 	useEffect(() => {
@@ -35,14 +39,14 @@ export function ShortcutsPage() {
 			const taken = GOTO_DEFAULTS.find((g) => g.id !== listening && (keys[g.id] ?? g.key) === k);
 			if (taken) return void toast(`${k} gaat al naar ${taken.label}`, { description: "Kies een andere toets, of geef die eerst een nieuwe." });
 			const target = GOTO_DEFAULTS.find((g) => g.id === listening)!;
-			undoable(`G dan ${k} gaat naar ${target.label}`, useSettingsDepth.getState().setKey(listening, k));
+			undoable(`G dan ${k} gaat naar ${target.label}`, setKey(listening, k));
 			setListening(null);
 		};
 		window.addEventListener("keydown", onKey, true);
 		return () => window.removeEventListener("keydown", onKey, true);
-	}, [listening, keys]);
+	}, [listening, keys, setKey]);
 
-	const changed = GOTO_DEFAULTS.some((g) => keys[g.id] !== g.key);
+	const changed = GOTO_DEFAULTS.some((g) => (keys[g.id] ?? g.key) !== g.key);
 	return (
 		<>
 			<SettingCard
@@ -52,13 +56,13 @@ export function ShortcutsPage() {
 				action={
 					<span className="flex items-center gap-3">
 						{changed ? (
-							<button type="button" onClick={() => undoable("Sneltoetsen terug naar standaard", useSettingsDepth.getState().resetKeys())} className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-ink-2 text-xs hover:bg-ink/6 hover:text-ink">
+							<button type="button" onClick={() => undoable("Sneltoetsen terug naar standaard", resetKeys())} className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-ink-2 text-xs hover:bg-ink/6 hover:text-ink">
 								<RotateCcw className="size-3.5" strokeWidth={1.75} />
 								Standaard
 							</button>
 						) : null}
 						<label className="flex items-center gap-2 text-ink-2 text-sm">
-							<Switch checked={on} onCheckedChange={(v) => useSettingsDepth.getState().setGotoOn(v)} />
+							<Switch checked={on} onCheckedChange={(v) => setGotoOn(v)} />
 							{on ? "Aan" : "Uit"}
 						</label>
 					</span>

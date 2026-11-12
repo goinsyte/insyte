@@ -57,6 +57,8 @@ const PANEL_DEFAULTS: PanelPrefs = {
 type PinsPrefs = Pick<PinsState, "pinned" | "favourites" | "reportDismissed">
 const PINS_DEFAULTS: PinsPrefs = { pinned: [], favourites: [], reportDismissed: null }
 
+const SHORTCUT_DEFAULTS = { keys: {} as Record<string, string>, gotoOn: true }
+
 const NO_ROWS = [] as const
 
 const roleOf = (frame: Frame): RoleDef & { viewing: boolean } => ({
@@ -138,10 +140,9 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   const [nav, setNav] = usePrefSection(frame, "rail", NAV_DEFAULTS)
   const [panel, setPanel] = usePrefSection(frame, "panel", PANEL_DEFAULTS)
   const [pins, setPins] = usePrefSection(frame, "pins", PINS_DEFAULTS)
-  const [shortcuts] = usePrefSection(frame, "shortcuts", {
-    keys: {} as Record<string, string>,
-    gotoOn: true
-  })
+  const [shortcuts, setShortcuts] = usePrefSection(frame, "shortcuts", SHORTCUT_DEFAULTS)
+  const shortcutsRef = useRef(shortcuts)
+  shortcutsRef.current = shortcuts
   const navRef = useRef(nav)
   navRef.current = nav
   const [active, setActive] = useState<Record<string, string | null>>({})
@@ -233,7 +234,21 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     },
     home: { widgets: [], engine: "grid", add: () => {}, remove: () => {}, setEngine: () => {} },
     nav: navState,
-    settingsDepth: shortcuts,
+    // Sneltoetsen (M17 step 20.1b): the member's own, in `Prefs.shortcuts`; each change answers its local undo.
+    settingsDepth: {
+      ...shortcuts,
+      setKey: (id, key) => {
+        const before = shortcutsRef.current
+        setShortcuts({ ...before, keys: { ...before.keys, [id]: key } })
+        return () => setShortcuts({ ...shortcutsRef.current, keys: before.keys })
+      },
+      resetKeys: () => {
+        const before = shortcutsRef.current
+        setShortcuts({ ...before, keys: {} })
+        return () => setShortcuts({ ...shortcutsRef.current, keys: before.keys })
+      },
+      setGotoOn: (gotoOn) => setShortcuts({ ...shortcutsRef.current, gotoOn })
+    },
     access: { viewAs: null, setViewAs: () => {} },
     autonomy: { budget: { limit: null, used: 0 } },
     ask: { start: () => void navigate({ to: "/ask" as never }) },

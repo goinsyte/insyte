@@ -23,6 +23,8 @@ import { approve as approveReturns, restore as restoreReturns } from "@insyte/mo
 import { shopifyReturn } from "@insyte/modules/returns/use-cases/mirror"
 import { parcelUpdated } from "@insyte/modules/returns/use-cases/parcels"
 import { linkReplacements } from "@insyte/modules/returns/use-cases/shopify"
+import { restoreErasing } from "@insyte/modules/settings/use-cases/retention"
+import { restore as restoreSettings } from "@insyte/modules/settings/use-cases/sections"
 import { MirrorFollowers } from "@insyte/modules/stores/domain/Ports"
 import { StoreMirror } from "@insyte/modules/stores/Mirror"
 import { ShopifyReturns } from "@insyte/modules/stores/ShopifyReturns"
@@ -88,6 +90,8 @@ const compensations: Record<string, Compensation> = {
   "quality.restore": restoreQuality,
   "queue.restore": restoreQueue,
   "notifications.restore": restoreNotifications,
+  "settings.restore": restoreSettings,
+  "retention.restore": restoreErasing,
   // A filed plate's Undo spends the command's own token and runs that command's compensation from this same table.
   "proposals.restore": (sql, compensation) =>
     restoreProposal(sql, compensation, {

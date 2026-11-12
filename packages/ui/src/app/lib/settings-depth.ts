@@ -39,6 +39,32 @@ export type SettingsDepthSeed = {
 
 export const TRASH_DAYS = 30;
 
+/** The carrier statuses as the page names them, in its order, with the tone of each (Verzending). */
+export const SHIP_CARRIERS: ReadonlyArray<{ id: string; carrier: string; tone: ShipTone }> = [
+	{ id: "info", carrier: "Label aangemaakt", tone: "neutral" },
+	{ id: "supplier", carrier: "Bij de leverancier", tone: "neutral" },
+	{ id: "country", carrier: "Onderweg naar het land", tone: "neutral" },
+	{ id: "local", carrier: "Bij de lokale vervoerder", tone: "arc" },
+	{ id: "noinfo", carrier: "Nog geen info van de vervoerder", tone: "neutral" },
+	{ id: "transit", carrier: "Onderweg", tone: "arc" },
+	{ id: "pickup", carrier: "Klaar om op te halen", tone: "arc" },
+	{ id: "out", carrier: "Wordt vandaag bezorgd", tone: "arc" },
+	{ id: "failed", carrier: "Bezorging mislukt", tone: "red" },
+	{ id: "exception", carrier: "Probleem met de zending", tone: "amber" },
+	{ id: "stale", carrier: "Geen updates meer", tone: "neutral" },
+	{ id: "delivered", carrier: "Bezorgd", tone: "green" },
+];
+
+/** The kinds of data a period is kept for, as Gegevens en privacy names them. */
+export const RETENTION_COPY: ReadonlyArray<{ id: string; label: string; detail: string }> = [
+	{ id: "contact", label: "Klantcontact", detail: "E-mails, chats en WhatsApp-berichten met klanten, met hun tickets en notities." },
+	{ id: "uploads", label: "Bijlagen", detail: "Foto's uit het retourportaal en bijlagen bij e-mails." },
+	{ id: "logs", label: "Logboeken", detail: "Inlogpogingen, webhookverzoeken en wat Insyte deed." },
+	{ id: "ads", label: "Advertentielog", detail: "Wat een automatisering met Meta Ads deed: budgetten, pauzes, de cijfers erbij." },
+	{ id: "courses", label: "Cursusvoortgang", detail: "Antwoorden, scores en herkansingen per teamlid." },
+	{ id: "customers", label: "Klantgegevens", detail: "Naam, adres en e-mail van klanten zonder bestelling in deze periode." },
+];
+
 export const GOTO_DEFAULTS: ReadonlyArray<GoTo> = [
 	{ id: "dashboard", label: "Dashboard", to: "/dashboard", key: "D" },
 	{ id: "orders", label: "Bestellingen", to: "/orders", key: "B" },

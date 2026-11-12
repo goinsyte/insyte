@@ -1,16 +1,13 @@
 import { useState } from "react";
 import { Shield, Trash2 } from "../../../icons";
 import { Switch } from "../../../components/switch";
-import { useMyName } from "../../ask/agent-parts";
 import { ConfirmDialog } from "../../common/confirm-dialog";
 import { formatRelative } from "../../lib/format";
-import type { Retention } from "../../lib/settings-depth";
-import { undoable } from "../../lib/undo";
 import { cn } from "../../lib/utils";
-import { useSettingsDepth } from "../../stores/settings-depth-store";
 import { UnsavedBar } from "../form";
 import { SettingCard } from "../setting-card";
 import { useSection } from "./kit";
+import { useSettingsDepthSource } from "./source";
 
 const PERIODS: ReadonlyArray<{ months: number | null; label: string }> = [
 	{ months: 3, label: "3 maanden" },
@@ -22,13 +19,11 @@ const PERIODS: ReadonlyArray<{ months: number | null; label: string }> = [
 ];
 const label = (m: number | null) => PERIODS.find((p) => p.months === m)?.label ?? `${m} maanden`;
 
-/* What a shorter period would catch: the seeded count is for the period set; a shorter one finds more. */
-const would = (c: Retention, months: number | null) => (months === null ? 0 : Math.round(c.count * Math.max(0.2, (c.months ?? months) / months)));
-
 /**
  * Gegevens en privacy (`/settings/privacy`, PLAN 43): how long each kind of data is kept, a dry run
  * that counts what would go, and only then the switch that erases it every night. Turning erasing
- * on asks first, because what it removes cannot be brought back.
+ * on asks first, because what it removes cannot be brought back. The count and the switch are the host's
+ * (`SettingsDepthSource.privacy`); a period changed since the count shows no figure until it is counted again.
  */
 export function PrivacyPage() {
 	const s = useSection("privacy", "Gegevens en privacy", (a, b) =>
@@ -36,22 +31,17 @@ export function PrivacyPage() {
 			const o = a.classes.find((x) => x.id === c.id);
 			return o && o.months !== c.months ? [[`Bewaren: ${c.label}`, label(o.months), label(c.months)] as [string, string, string]] : [];
 		}),
+		3,
 	);
-	const live = useSettingsDepth((st) => st.privacy);
-	const me = useMyName();
-	const [counted, setCounted] = useState<string | null>(live.countedAt ?? null);
+	const privacy = useSettingsDepthSource().privacy!;
+	const live = { erasing: privacy.erasing };
+	const counted = privacy.countedAt;
 	const [confirm, setConfirm] = useState(false);
-	const total = s.draft.classes.reduce((n, c) => n + would(c, c.months), 0);
+	const total = s.draft.classes.reduce((n, c) => n + (privacy.countOf(c, c.months) ?? 0), 0);
 
-	const count = () => {
-		const at = new Date().toISOString();
-		setCounted(at);
-		useSettingsDepth.setState({ privacy: { ...useSettingsDepth.getState().privacy, countedAt: at } });
-	};
-	const setErasing = (on: boolean) => {
-		const undo = useSettingsDepth.getState().save("privacy", { ...live, erasing: on }, { who: me, page: "Gegevens en privacy", to: "/settings/privacy", changes: [["Verwijderen", on ? "uit" : "aan", on ? "aan" : "uit"]] });
-		undoable(on ? "Verwijderen staat aan" : "Verwijderen staat uit", undo, on ? "Vannacht om 03:00 verwijdert Insyte wat ouder is dan de termijn." : "Er wordt niets meer verwijderd tot je het weer aanzet.");
-	};
+	const count = () => privacy.count(s.draft.classes);
+	const setErasing = (on: boolean) =>
+		privacy.setErasing(on, on ? { label: "Verwijderen staat aan", detail: "Vannacht om 03:00 verwijdert Insyte wat ouder is dan de termijn." } : { label: "Verwijderen staat uit", detail: "Er wordt niets meer verwijderd tot je het weer aanzet." });
 
 	return (
 		<>
@@ -70,7 +60,7 @@ export function PrivacyPage() {
 									</option>
 								))}
 							</select>
-							<span className="text-right text-sm tabular-nums">{counted ? <span className={would(c, c.months) ? "text-ink" : "text-ink-3"}>{would(c, c.months).toLocaleString("nl-NL")} weg</span> : <span className="text-ink-3">—</span>}</span>
+							<span className="text-right text-sm tabular-nums">{counted && privacy.countOf(c, c.months) !== null ? <span className={privacy.countOf(c, c.months) ? "text-ink" : "text-ink-3"}>{(privacy.countOf(c, c.months) ?? 0).toLocaleString("nl-NL")} weg</span> : <span className="text-ink-3">—</span>}</span>
 						</div>
 					))}
 				</div>
@@ -84,7 +74,7 @@ export function PrivacyPage() {
 							<span className="font-medium">{live.erasing ? "Verwijderen staat aan." : "Alleen tellen."}</span> {live.erasing ? "Elke nacht om 03:00." : "Er wordt nog niets verwijderd."}
 							{counted ? <span className="text-ink-2"> Bij de huidige termijnen gaan {total.toLocaleString("nl-NL")} items weg (geteld {formatRelative(counted)}).</span> : null}
 						</span>
-						<button type="button" onClick={count} className="field flex h-8 items-center rounded-md px-2.5 font-medium text-ink text-sm hover:field-hover">
+						<button type="button" onClick={count} disabled={privacy.counting} className="field flex h-8 items-center rounded-md px-2.5 font-medium text-ink text-sm hover:field-hover">
 							Nu tellen
 						</button>
 						{live.erasing ? (

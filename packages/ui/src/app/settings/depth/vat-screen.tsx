@@ -2,10 +2,10 @@ import { Receipt } from "../../../icons";
 import { Switch } from "../../../components/switch";
 import type { StoreVat } from "../../lib/settings-depth";
 import { cn } from "../../lib/utils";
-import { useWorkspace } from "../../stores/workspace-store";
 import { FieldRow, UnsavedBar } from "../form";
 import { SettingCard } from "../setting-card";
 import { useSection, WELL } from "./kit";
+import { useSettingsDepthSource } from "./source";
 
 const yes = (b: boolean) => (b ? "aan" : "uit");
 
@@ -15,7 +15,7 @@ const yes = (b: boolean) => (b ? "aan" : "uit");
  * refund amounts read these.
  */
 export function VatPage() {
-	const stores = useWorkspace((s) => s.stores);
+	const stores = useSettingsDepthSource().stores ?? [];
 	const s = useSection("vat", "Btw", (a, b) => {
 		const out: Array<[string, string, string]> = [];
 		for (const st of b.stores) {
