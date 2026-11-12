@@ -258,6 +258,11 @@ export default Alchemy.Stack(
           className: "ReturnLabelWorkflow",
           workflowName: `insyte-return-label-${stage}`
         }),
+        // A webhook delivery's attempts (M19.4), hosted by this Worker (`WebhookDeliveryWorkflow`); one per stage.
+        WEBHOOK_DELIVERY: Cloudflare.Workflow("WebhookDelivery", {
+          className: "WebhookDeliveryWorkflow",
+          workflowName: `insyte-webhook-delivery-${stage}`
+        }),
         ENVIRONMENT: environment,
         // Where `Main.ts` serves `/v1` and nothing else.
         PUBLIC_API_HOST: `insyte-api-${stage}.${WORKERS_SUBDOMAIN}`,

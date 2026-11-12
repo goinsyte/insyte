@@ -274,6 +274,14 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     messageId: Schema.String
   }),
+  // Insyte switched a webhook endpoint off after five failed attempts in a row (M19.4): whoever manages the
+  // integrations hears of it. `userId` is `system`.
+  Schema.Struct({
+    type: Schema.Literal("webhook.disabled"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    endpointId: Schema.String
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

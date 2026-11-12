@@ -4,6 +4,7 @@ import type { MarketingSyncParams } from "../workflows/MarketingSync.ts"
 import type { ReturnLabelParams } from "../workflows/ReturnLabel.ts"
 import type { BackfillParams } from "../workflows/ShopifyBackfill.ts"
 import type { ShopifyWriteParams } from "../workflows/ShopifyWrite.ts"
+import type { WebhookDeliveryParams } from "../workflows/WebhookDelivery.ts"
 import type { ConnectionGateObject } from "./ConnectionGate.ts"
 import type { IngestMessage } from "./IngestQueue.ts"
 import type { RateLimiter } from "./RateLimiter.ts"
@@ -37,6 +38,10 @@ declare global {
       readonly FORWARD_SEND: Workflow<ForwardSendParams>
       /** A return's label from the carrier (M9.2): one instance per outbox event (`ReturnLabelWorkflow`). */
       readonly RETURN_LABEL: Workflow<ReturnLabelParams>
+      /** A webhook delivery's attempts (M19.4): one instance per delivery (`WebhookDeliveryWorkflow`). */
+      readonly WEBHOOK_DELIVERY: Workflow<WebhookDeliveryParams>
+      /** `recorded` in the worker tests: no endpoint is called, the URL decides the answer. */
+      readonly WEBHOOK_ADAPTER?: string
       /** The Klaviyo OAuth app (M7.5); without both, Klaviyo cannot be connected. `recorded` in the worker tests. */
       readonly KLAVIYO_CLIENT_ID?: string
       readonly KLAVIYO_CLIENT_SECRET?: string

@@ -15,7 +15,8 @@ import {
   factsSweep,
   notifySweep,
   queueSweep,
-  sweep
+  sweep,
+  webhooksSweep
 } from "./platform/Relay.ts"
 import { withRequestDb } from "./platform/RequestDb.ts"
 
@@ -31,6 +32,7 @@ export { ForwardSendWorkflow } from "./workflows/ForwardSend.ts"
 export { MarketingSyncWorkflow } from "./workflows/MarketingSync.ts"
 export { ReturnLabelWorkflow } from "./workflows/ReturnLabel.ts"
 export { ShopifyWriteWorkflow } from "./workflows/ShopifyWrite.ts"
+export { WebhookDeliveryWorkflow } from "./workflows/WebhookDelivery.ts"
 
 /** Module scope: the layer is built once per isolate, and building it does no request-time I/O. */
 const web = HttpRouter.toWebHandler(AppLayer)
@@ -96,6 +98,8 @@ export default {
       // Start's queue (M10.1): what no event says, a stock-out or a review coming due.
       ctx.waitUntil(background.runPromise(withRequestDb(queueSweep())).finally(() => Telemetry.flush()))
       ctx.waitUntil(background.runPromise(withRequestDb(digestSweep(at))).finally(() => Telemetry.flush()))
+      // Webhook deliveries older than 30 days (M19.4).
+      ctx.waitUntil(background.runPromise(withRequestDb(webhooksSweep())).finally(() => Telemetry.flush()))
     }
   }
 } satisfies ExportedHandler<Env, EventsMessage | IngestMessage>

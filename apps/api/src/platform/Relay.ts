@@ -1,6 +1,12 @@
 import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
+import type { WebhookRuns } from "@insyte/modules/developer/domain/Ports"
+import {
+  expire as expireDeliveries,
+  fanOut as webhookFanOut,
+  isWebhookSource
+} from "@insyte/modules/developer/use-cases/deliveries"
 import {
   drainIn,
   drainWorkspace,
@@ -73,6 +79,7 @@ type SinkServices =
   | WebPush
   | Slack
   | Sealer
+  | WebhookRuns
 
 /** What a sink does with an event, in the event's workspace; `undefined` when the event is not its business. */
 interface Sink {
@@ -120,6 +127,7 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
       }
     case "access.requested":
     case "access.decided":
+    case "webhook.disabled":
       // Notifications are their business (M5); the product events do not count them.
       return undefined
     case "store.synced":
@@ -421,7 +429,8 @@ const NOTIFIED = new Set<OutboxEvent["type"]>([
   "ticket.assigned",
   "ticket.mentioned",
   "chat.mentioned",
-  "quality_check.submitted"
+  "quality_check.submitted",
+  "webhook.disabled"
 ])
 
 const SINKS: ReadonlyArray<Sink> = [
@@ -522,6 +531,12 @@ const SINKS: ReadonlyArray<Sink> = [
         : undefined
   },
   {
+    // The public events a fact is (M19.4): a delivery per subscribed endpoint, each on its own run.
+    name: "webhooks",
+    run: (id, event, sql) =>
+      isWebhookSource(event) ? webhookFanOut(sql, id, event).pipe(Effect.asVoid, Effect.orDie) : undefined
+  },
+  {
     name: "posthog",
     run: (id, event) => {
       const product = productEventOf(id, event)
@@ -571,6 +586,11 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId }))
   }
 })
+
+/** Every 15 minutes: webhook deliveries past their 30 days, in every workspace (M19.4). */
+export const webhooksSweep = Effect.fn("Relay.webhooksSweep")(function*() {
+  return yield* expireDeliveries()
+}, Effect.orDie)
 
 /** The minute cron's sweep: every due event a kick missed, back onto the queue in batches. */
 export const sweep = Effect.fn("Relay.sweep")(function*() {

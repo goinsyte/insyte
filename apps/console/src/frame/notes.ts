@@ -128,6 +128,17 @@ const sentence = (note: ServerNote): Sentence => {
         org: String(data["supplier"] ?? "")
       }
     }
+    case "integration.disconnected":
+      // A webhook endpoint Insyte switched off after five failed attempts in a row (M19.4).
+      return {
+        title: "Insyte heeft een webhook-endpoint uitgezet:",
+        record: String(data["url"] ?? ""),
+        detail: "Na 5 mislukte leveringen op rij. Er gaan geen events meer heen tot je het weer aanzet.",
+        tone: "amber",
+        source: "integration",
+        to: "/settings/webhooks",
+        search: { endpoint: note.subjectId ?? "" }
+      }
     default:
       return { title: "heeft iets voor je", to: "/notifications" }
   }
