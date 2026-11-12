@@ -9,6 +9,7 @@ import {
   RUNNABLE,
   SCOPE_GRANTS,
   startedBy,
+  timelineOf,
   TRIGGER_EVENTS
 } from "../src/automations/Engine.ts"
 import { SCOPE_IDS } from "../src/automations/Scopes.ts"
@@ -125,5 +126,56 @@ describe("the flow's service account", () => {
       specials: { "refunds.write": true }
     })
     expect(grantsOf([])).toEqual({ levels: {}, specials: {} })
+  })
+})
+
+describe("a run's steps in the Runs drawer", () => {
+  const nodes = [
+    { id: "t", variantId: "trigger.shipping_delay", config: {} },
+    {
+      id: "s",
+      variantId: "condition.branch",
+      config: {},
+      branches: {
+        yes: [{ id: "y", variantId: "action.tag_customer", config: {} }],
+        no: [{ id: "n", variantId: "action.track_event", config: {} }]
+      }
+    },
+    { id: "a", variantId: "action.require_approval", config: {} },
+    { id: "k", variantId: "action.create_ticket", config: {} }
+  ]
+  const row = (nodeId: string, status: "succeeded" | "failed" | "waiting", attempt = 1, lane?: "yes" | "no") => ({
+    nodeId,
+    status,
+    attempt,
+    ms: 5,
+    explanation: null,
+    lane
+  })
+
+  it("skips the lane not taken, and shows what a waiting run has not reached as pending", () => {
+    const steps = timelineOf(nodes, [
+      row("t", "succeeded"),
+      row("s", "succeeded", 1, "no"),
+      row("n", "succeeded"),
+      row(
+        "a",
+        "waiting"
+      )
+    ], true)
+    expect(steps.map((s) => [s.nodeId, s.lane, s.status])).toEqual([
+      ["t", null, "ok"],
+      ["s", null, "ok"],
+      ["y", "yes", "skipped"],
+      ["n", "no", "ok"],
+      ["a", null, "waiting"],
+      ["k", null, "pending"]
+    ])
+  })
+
+  it("reads a step's latest attempt, and what a finished run never reached as skipped", () => {
+    const steps = timelineOf(nodes, [row("t", "succeeded"), row("s", "failed"), row("s", "succeeded", 2, "yes")], false)
+    expect(steps.find((s) => s.nodeId === "s")).toMatchObject({ status: "ok", attempt: 2 })
+    expect(steps.find((s) => s.nodeId === "k")?.status).toBe("skipped")
   })
 })

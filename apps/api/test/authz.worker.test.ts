@@ -14,6 +14,7 @@ import { QualityRpcs } from "@insyte/api/rpc/QualityRpcs"
 import { QueueRpcs } from "@insyte/api/rpc/QueueRpcs"
 import { ReturnsRpcs } from "@insyte/api/rpc/ReturnsRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
+import { RunsRpcs } from "@insyte/api/rpc/RunsRpcs"
 import { SessionRpcs } from "@insyte/api/rpc/SessionRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
 import { ShellRpcs } from "@insyte/api/rpc/ShellRpcs"
@@ -204,6 +205,15 @@ const PAYLOADS: Record<string, unknown> = {
   "Automations.publish": { id: "auto_none", note: "" },
   "Automations.setStatus": { id: "auto_none", status: "paused" },
   "Automations.updateSettings": { id: "auto_none" },
+  "Automations.test": { id: "auto_none" },
+  "Runs.list": {},
+  "Runs.get": { id: "run_none" },
+  "Runs.stats": { automationId: "auto_none", days: 30 },
+  "Runs.records": { automationId: "auto_none" },
+  "Runs.rerun": { id: "run_none" },
+  "Runs.cancel": { id: "run_none" },
+  "Runs.approve": { id: "run_none", stepId: "n1" },
+  "Runs.decline": { id: "run_none", stepId: "n1" },
   "Tickets.list": {},
   "Tickets.get": { id: "tkt_none" },
   "Tickets.options": undefined,
@@ -364,6 +374,7 @@ const manifest = [
   ...ReturnsRpcs.requests.keys(),
   ...TicketsRpcs.requests.keys(),
   ...AutomationsRpcs.requests.keys(),
+  ...RunsRpcs.requests.keys(),
   ...ThreadsRpcs.requests.keys(),
   ...QualityRpcs.requests.keys(),
   ...QueueRpcs.requests.keys(),

@@ -7,6 +7,8 @@ import {
   act,
   decide,
   finishRun,
+  inputOf,
+  isOpen,
   loadRun,
   notYet,
   recordStep,
@@ -94,6 +96,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
           await step.do(`${node.id}:1`, QUICK, async (ctx) => {
             await record(node, ctx.attempt, {
               status: "succeeded",
+              input: inputOf(plan.context),
               output: { summary: plan.context["trigger.summary"] ?? "" }
             })
           })
@@ -186,6 +189,19 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
             }
         }
         case "action": {
+          if (plan.done.includes(node.id)) {
+            await step.do(`${node.id}:1`, QUICK, async (ctx) => {
+              await record(node, ctx.attempt, {
+                status: "succeeded",
+                output: { reused: true },
+                explanation: "Al gedaan in een eerdere run met dezelfde sleutel; niet opnieuw gedaan."
+              })
+            })
+            return undefined
+          }
+          // Cancelled from the Runs tab while it waited: nothing more is done.
+          const open = await step.do(`${node.id}:open`, QUICK, () => exec(isOpen(runId)))
+          if (!open) return { status: "stopped", reason: "Gestopt." }
           try {
             await step.do(`${node.id}:1`, RETRY, async (ctx) => {
               const exit = await runExit(workspaceId, act(plan, node))

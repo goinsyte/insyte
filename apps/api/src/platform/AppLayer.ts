@@ -170,6 +170,8 @@ export const AppLayer = Transports.pipe(
       IngestQueueLive,
       // …and the first analysis's Workflow (M6.5).
       AnalysesLive,
+      // …and a flow's runs: "Opnieuw", stopping one, the answer to "Goedkeuring vragen" (M12 step 5).
+      AutomationRunsLive,
       // …and where one slice's need meets another's use case.
       SliceLinks
     )

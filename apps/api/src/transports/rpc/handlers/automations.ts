@@ -17,6 +17,7 @@ export const AutomationsHandlers = AutomationsRpcs.toLayer(Effect.gen(function*(
     "Automations.restore": ({ id }) => automations.restore(id),
     "Automations.publish": (input) => automations.publish(input),
     "Automations.setStatus": (input) => automations.setStatus(input),
-    "Automations.updateSettings": (input) => automations.updateSettings(input)
+    "Automations.updateSettings": (input) => automations.updateSettings(input),
+    "Automations.test": (input) => automations.test(input)
   })
 }))

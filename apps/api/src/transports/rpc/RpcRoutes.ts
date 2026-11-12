@@ -1,6 +1,7 @@
 import { ConsoleRpcs, RPC_PATH } from "@insyte/api/ConsoleRpcs"
 import { Access } from "@insyte/modules/access/Access"
 import { AutomationsService } from "@insyte/modules/automations/Automations"
+import { RunsService } from "@insyte/modules/automations/Runs"
 import { ChatsService } from "@insyte/modules/chats/Chats"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
@@ -52,6 +53,7 @@ import { QualityHandlers } from "./handlers/quality.ts"
 import { QueueHandlers } from "./handlers/queue.ts"
 import { ReturnsHandlers } from "./handlers/returns.ts"
 import { RolesHandlers } from "./handlers/roles.ts"
+import { RunsHandlers } from "./handlers/runs.ts"
 import { SessionHandlers } from "./handlers/session.ts"
 import { SharedHandlers } from "./handlers/shared.ts"
 import { ShellHandlers } from "./handlers/shell.ts"
@@ -99,6 +101,7 @@ export const RpcContext = Layer.mergeAll(
   PortalHandlers.pipe(Layer.provide(PortalService.layer)),
   TicketsHandlers.pipe(Layer.provide(TicketsService.layer)),
   AutomationsHandlers.pipe(Layer.provide(AutomationsService.layer)),
+  RunsHandlers.pipe(Layer.provide(RunsService.layer)),
   ThreadsHandlers.pipe(Layer.provide(InboxService.layer)),
   QueueHandlers.pipe(Layer.provide(QueueService.layer)),
   HomeHandlers.pipe(Layer.provide(HomeService.layer)),
