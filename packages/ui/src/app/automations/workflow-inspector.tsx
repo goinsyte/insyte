@@ -8,7 +8,7 @@ import { kindLabel, VARIANTS_BY_ID, type WorkflowNode, type WorkflowSettings } f
 import { missingScope, SCOPE_LABEL } from "./scopes";
 import { StepTile } from "./step-tile";
 import { VarChip, VarText } from "./summary";
-import { workflowStore } from "./workflow-store";
+import { type StepIssue, useAutomationsSource } from "./source";
 
 const WELL = "field h-8 w-full rounded-md px-2.5 text-ink text-sm outline-none placeholder:text-ink-3 hover:field-hover focus:bg-paper";
 
@@ -23,18 +23,24 @@ export function WorkflowInspector({
 	automationId,
 	node,
 	settings,
+	issues,
 	onClose,
 }: {
 	automationId: string;
 	node: WorkflowNode;
 	settings: WorkflowSettings;
+	/** What the host says is wrong with this step. */
+	issues?: ReadonlyArray<StepIssue> | undefined;
 	onClose: () => void;
 }) {
 	const navigate = useNavigate();
+	const { editor } = useAutomationsSource();
 	const v = VARIANTS_BY_ID[node.variantId];
 	if (!v) return null;
 	const isTrigger = v.kind === "trigger";
-	const set = (patch: Record<string, unknown>) => workflowStore.updateNodeConfig(automationId, node.id, patch);
+	const set = (patch: Record<string, unknown>) => editor.updateNodeConfig(automationId, node.id, patch);
+	const fieldIssue = (key: string) => issues?.find((i) => i.field === key && i.code !== "missing_field");
+	const stepIssues = issues?.filter((i) => i.field === undefined && i.code !== "scope_off") ?? [];
 	const missing = missingScope(node, settings);
 
 	return (
@@ -60,6 +66,16 @@ export function WorkflowInspector({
 				</button>
 			</div>
 			<p className="px-3 pb-3 text-ink-3 text-xs leading-[1.5]">{v.description}</p>
+			{stepIssues.length > 0 ? (
+				<ul className="mx-3 mb-3 flex flex-col gap-1 rounded-md bg-signal-amber-bg px-2.5 py-2">
+					{stepIssues.map((i) => (
+						<li key={i.code} className="flex items-start gap-1.5 text-ink-2 text-xs leading-[1.5]">
+							<AlertTriangle className={cn("mt-0.5 size-3 shrink-0", i.severity === "error" ? "text-signal-red" : "text-signal-amber")} />
+							{i.message}
+						</li>
+					))}
+				</ul>
+			) : null}
 
 			<div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 pb-3">
 				<Row label={isTrigger ? "Wanneer" : "Titel op het canvas"}>
@@ -99,8 +115,9 @@ export function WorkflowInspector({
 						);
 					const text = String(value ?? "");
 					const empty = "required" in f && f.required && text.trim() === "";
+					const wrong = fieldIssue(f.key);
 					return (
-						<Row key={f.key} label={f.label} hint={empty ? "Nodig om te draaien" : undefined}>
+						<Row key={f.key} label={f.label} hint={empty ? "Nodig om te draaien" : wrong?.message}>
 							{f.type === "textarea" ? (
 								<textarea
 									value={text}
@@ -163,7 +180,7 @@ export function WorkflowInspector({
 					<button
 						type="button"
 						onClick={() => {
-							const undo = workflowStore.removeNode(automationId, node.id);
+							const undo = editor.removeNode(automationId, node.id);
 							onClose();
 							if (undo) undoable("Stap verwijderd", undo);
 						}}

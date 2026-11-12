@@ -1,4 +1,5 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { AutomationsRpcs } from "@insyte/api/rpc/AutomationsRpcs"
 import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
@@ -189,6 +190,20 @@ const PAYLOADS: Record<string, unknown> = {
     portal: { on: false, handle: "x", intro: "", done: "" }
   },
   "Orders.tracking": { orderId: "ord_none" },
+  // Automations (M12 step 1): Bekijken reads, Bewerken drafts, Beheren pauses and removes; publishing is its own right.
+  "Automations.list": {},
+  "Automations.get": { id: "auto_none" },
+  "Automations.versions": { id: "auto_none" },
+  "Automations.fields": { triggerVariant: "trigger.order_placed" },
+  "Automations.recommended": undefined,
+  "Automations.create": { templateId: "tpl_none" },
+  "Automations.saveDraft": { id: "auto_none", nodes: [] },
+  "Automations.duplicate": { id: "auto_none" },
+  "Automations.remove": { id: "auto_none" },
+  "Automations.restore": { id: "auto_none" },
+  "Automations.publish": { id: "auto_none", note: "" },
+  "Automations.setStatus": { id: "auto_none", status: "paused" },
+  "Automations.updateSettings": { id: "auto_none" },
   "Tickets.list": {},
   "Tickets.get": { id: "tkt_none" },
   "Tickets.options": undefined,
@@ -348,6 +363,7 @@ const manifest = [
   ...TrackingRpcs.requests.keys(),
   ...ReturnsRpcs.requests.keys(),
   ...TicketsRpcs.requests.keys(),
+  ...AutomationsRpcs.requests.keys(),
   ...ThreadsRpcs.requests.keys(),
   ...QualityRpcs.requests.keys(),
   ...QueueRpcs.requests.keys(),

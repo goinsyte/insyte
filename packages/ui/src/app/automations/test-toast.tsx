@@ -2,7 +2,7 @@ import { AlertTriangle, Check } from "../../icons";
 import { motion, useReducedMotion } from "motion/react";
 import { toast } from "sonner";
 import { cn } from "../lib/utils";
-import type { TestResult } from "./workflow-store";
+import type { TestResult } from "./flow-edits";
 
 const DURATION = 7000;
 

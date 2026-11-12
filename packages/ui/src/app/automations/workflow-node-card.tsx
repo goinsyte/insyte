@@ -2,6 +2,7 @@ import { useDraggable } from "@dnd-kit/core";
 import { AlertTriangle, MoreHorizontal, Trash2 } from "../../icons";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../../components/dropdown-menu";
 import { cn } from "../lib/utils";
+import type { StepIssue } from "./source";
 import { kindLabel, VARIANTS_BY_ID, type WorkflowNode } from "./node-types";
 import { StepTile } from "./step-tile";
 import { summaryOf, titleOf, VarText } from "./summary";
@@ -15,6 +16,8 @@ type Props = {
 	failed?: boolean;
 	/** The flow does not hold the right this step needs. */
 	blocked?: boolean;
+	/** What the host says is wrong with it; the first error, else the first warning, is shown on the strip. */
+	issues?: ReadonlyArray<StepIssue> | undefined;
 	onSelect?: () => void;
 	onRemove?: () => void;
 	preview?: boolean;
@@ -26,10 +29,11 @@ type Props = {
  * with a splitsing fits a laptop screen without scrolling. The strip is tinted by kind: a trigger
  * green, an AI step dark (the product proposing), everything else `mist`.
  */
-export function NodeCard({ node, selected, running, failed, blocked, onSelect, onRemove, preview }: Props) {
+export function NodeCard({ node, selected, running, failed, blocked, issues, onSelect, onRemove, preview }: Props) {
 	const v = VARIANTS_BY_ID[node.variantId];
 	const drag = useDraggable({ id: `node:${node.id}`, data: { kind: "node", nodeId: node.id }, disabled: preview || v?.kind === "trigger" });
 	if (!v) return null;
+	const issue = issues?.find((i) => i.severity === "error" && i.code !== "scope_off") ?? issues?.find((i) => i.severity === "warning");
 	const strip = failed
 		? "bg-signal-red-bg text-signal-red"
 		: v.kind === "trigger"
@@ -76,6 +80,11 @@ export function NodeCard({ node, selected, running, failed, blocked, onSelect, o
 					<span title="De flow heeft het recht voor deze stap niet" className="flex items-center gap-1 text-signal-amber text-xs">
 						<AlertTriangle className="size-3" />
 						Recht uit
+					</span>
+				) : issue ? (
+					<span title={issue.message} className={cn("flex min-w-0 items-center gap-1 truncate text-xs", issue.severity === "error" ? "text-signal-red" : "text-signal-amber")}>
+						<AlertTriangle className="size-3 shrink-0" />
+						<span className="truncate">{issue.code === "connection_missing" ? issue.message : issue.code === "missing_field" ? "Aanvullen" : "Klopt niet"}</span>
 					</span>
 				) : null}
 				{onRemove ? (

@@ -3,6 +3,9 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import {
+  AutomationDetailV1,
+  AutomationPageV1,
+  AutomationStatusFilter,
   ConflictV1,
   CurrentApiKey,
   CustomerPageV1,
@@ -400,6 +403,26 @@ export const ResolveReturn = Tool.make("resolve_return", {
   dependencies: asKey()
 }).annotate(Tool.Destructive, true)
 
+export const ListAutomations = Tool.make("list_automations", {
+  description:
+    "The workspace's flows, newest first, with each status's count (draft, active, paused); by default every one. Needs automations.read.",
+  parameters: Schema.Struct({ status: Schema.optional(AutomationStatusFilter) }),
+  success: AutomationPageV1,
+  failure: ScopeMissingV1,
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const GetAutomation = Tool.make("get_automation", {
+  description:
+    "One flow: its draft and live steps, its published versions, and what is wrong with the draft per step. Needs automations.read.",
+  parameters: Schema.Struct({
+    automation_id: Schema.String.annotate({ description: "The flow's id (auto_…), as list_automations gives it." })
+  }),
+  success: AutomationDetailV1,
+  failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
 const TicketId = Schema.String.annotate({ description: "The ticket's id (tkt_…), as list_tickets gives it." })
 const MemberId = Schema.String.annotate({ description: "A teammate's member id (mem_…), as list_members gives it." })
 
@@ -529,5 +552,7 @@ export const InsyteTools = Toolkit.make(
   UpdateTicket,
   SetTicketStatus,
   AssignTicket,
-  CommentOnTicket
+  CommentOnTicket,
+  ListAutomations,
+  GetAutomation
 )

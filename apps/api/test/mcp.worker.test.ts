@@ -88,12 +88,14 @@ describe("the MCP server", () => {
       "create_ticket",
       "file_proposal",
       "forward_orders",
+      "get_automation",
       "get_order",
       "get_order_tracking",
       "get_proposal",
       "get_return",
       "get_ticket",
       "inspect_return",
+      "list_automations",
       "list_customers",
       "list_forwarding",
       "list_members",
@@ -137,7 +139,9 @@ describe("the MCP server", () => {
         "list_tickets",
         "get_ticket",
         "list_queue",
-        "get_proposal"
+        "get_proposal",
+        "list_automations",
+        "get_automation"
       ]
     ) {
       expect(hints[read]?.["readOnlyHint"]).toBe(true)

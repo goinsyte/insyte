@@ -87,7 +87,7 @@ const NO_CHATS = Atom.make(AsyncResult.initial<ChatList, never>())
 const NO_MAILBOXES = Atom.make(AsyncResult.initial<ReadonlyArray<MailboxView>, never>())
 
 /** What the console makes from the panel's button and the top bar's + menu. */
-const MADE_HERE = new Set(["return", "ticket", "channel", "thread"])
+const MADE_HERE = new Set(["return", "ticket", "channel", "thread", "automation"])
 
 export function ConsoleShellSource({ frame, children }: { frame: Frame; children: ReactNode }) {
   const navigate = useNavigate()
@@ -312,8 +312,8 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     panelFor: (pathname) => {
       const cfg = panelForPath(pathname)
       if (cfg === null) return null
-      // Only a return, a ticket, a channel and a mail are made from the console yet: any other button is off, and says so
-      // as its page does.
+      // Only a return, a ticket, a channel, a mail and an automation are made from the console yet: any other button is
+      // off, and says so as its page does.
       const panel = cfg.cta === undefined
         ? cfg
         : MADE_HERE.has(cfg.cta.create ?? "")

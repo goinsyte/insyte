@@ -2,8 +2,6 @@ import { useSyncExternalStore } from "react";
 import { automations } from "../../data-source";
 import { SCENARIO } from "../../data-source";
 import {
-	flatNodes,
-	newNodeId,
 	VARIANTS_BY_ID,
 	type VersionEntry,
 	type WorkflowNode,
@@ -11,6 +9,7 @@ import {
 	type WorkflowSettings,
 	type WorkflowState,
 } from "./node-types";
+import { cloneNodes, insertInto, isTrigger, type Lane, nameFromNodes, node, type Place, placeOf, runStore, type TestResult, UNTITLED, useActiveRun, without } from "./flow-edits";
 import { makeRun, sampleFor, seedRuns } from "./runs";
 import { missingScope } from "./scopes";
 import { titleOf } from "./summary";
@@ -55,25 +54,12 @@ function actionByText(text: string) {
 	return "action.create_ticket";
 }
 
-const node = (variantId: string, config: Record<string, unknown> = {}, branches?: WorkflowNode["branches"]): WorkflowNode => ({
-	id: newNodeId(),
-	variantId,
-	config: { ...(VARIANTS_BY_ID[variantId]?.defaultConfig ?? {}), ...config },
-	...(branches ? { branches } : {}),
-});
 
 /** A flow from its steps, in order: what something outside the builder prepares (the first analysis). */
 export const nodesFrom = (steps: ReadonlyArray<readonly [string, Record<string, unknown>?]>) => steps.map(([id, config]) => node(id, config));
 
 const DEFAULT_SETTINGS: WorkflowSettings = { scopesOff: [], scopesExtra: [], notify: ME, rateLimit: 0 };
 
-const cloneNodes = (nodes: ReadonlyArray<WorkflowNode>): WorkflowNode[] =>
-	nodes.map((n) => ({
-		...n,
-		id: newNodeId(),
-		config: { ...n.config },
-		...(n.branches ? { branches: { yes: cloneNodes(n.branches.yes), no: cloneNodes(n.branches.no) } } : {}),
-	}));
 
 /* The canonical flow, the one the builder opens on: a late order, an apology drafted in the brand's
    voice, and a splitsing on the order's value: a big order gets a discount and a person, a small one
@@ -219,20 +205,6 @@ export function draftFromPrompt(prompt: string): WorkflowNode[] {
 	return nodes;
 }
 
-export const UNTITLED = "Naamloze automatisering";
-
-/** A name read off the steps: "Bestelling vertraagd → E-mail versturen + Ticket aanmaken". */
-export function nameFromNodes(nodes: WorkflowNode[]) {
-	const [trigger, ...rest] = nodes;
-	if (!trigger) return UNTITLED;
-	const actions = flatNodes(rest)
-		.map((n) => VARIANTS_BY_ID[n.variantId])
-		.filter((v) => v?.kind === "action")
-		.slice(0, 2)
-		.map((v) => v.label);
-	const head = VARIANTS_BY_ID[trigger.variantId]?.label ?? "Flow";
-	return actions.length ? `${head} → ${actions.join(" + ")}` : head;
-}
 
 /* What was published survives a reload, in this browser, and so does the work on the canvas that is
    not published yet: it is kept apart (`working`) so the builder still says "not published" after a
@@ -322,61 +294,9 @@ function notify() {
 	for (const l of listeners) l();
 }
 
-/* ── where a step goes: the main line, or one lane of a splitsing ────────────────────────────────── */
+export { cloneNodes, insertInto, isTrigger, nameFromNodes, node, placeOf, runStore, UNTITLED, useActiveRun, without };
+export type { Lane, Place, TestResult };
 
-export type Lane = { branchId: string; side: "yes" | "no" };
-export type Place = { lane?: Lane; index: number };
-
-const isTrigger = (n?: WorkflowNode) => (n ? VARIANTS_BY_ID[n.variantId]?.kind === "trigger" : false);
-
-function withList(nodes: WorkflowNode[], lane: Lane | undefined, f: (list: WorkflowNode[]) => WorkflowNode[]): WorkflowNode[] {
-	if (!lane) return f(nodes);
-	return nodes.map((n) => (n.id === lane.branchId && n.branches ? { ...n, branches: { ...n.branches, [lane.side]: f(n.branches[lane.side]) } } : n));
-}
-
-function without(nodes: WorkflowNode[], nodeId: string): [WorkflowNode[], WorkflowNode | null] {
-	let found: WorkflowNode | null = null;
-	const out = nodes
-		.filter((n) => {
-			if (n.id === nodeId) {
-				found = n;
-				return false;
-			}
-			return true;
-		})
-		.map((n) => {
-			if (!n.branches || found) return n;
-			const [yes, a] = without(n.branches.yes, nodeId);
-			const [no, b] = without(n.branches.no, nodeId);
-			found = a ?? b;
-			return found ? { ...n, branches: { yes, no } } : n;
-		});
-	return [out, found];
-}
-
-/** Where a node sits now. */
-export function placeOf(nodes: ReadonlyArray<WorkflowNode>, nodeId: string): Place | null {
-	const i = nodes.findIndex((n) => n.id === nodeId);
-	if (i >= 0) return { index: i };
-	for (const n of nodes) {
-		if (!n.branches) continue;
-		for (const side of ["yes", "no"] as const) {
-			const j = n.branches[side].findIndex((m) => m.id === nodeId);
-			if (j >= 0) return { lane: { branchId: n.id, side }, index: j };
-		}
-	}
-	return null;
-}
-
-function insertInto(nodes: WorkflowNode[], n: WorkflowNode, place: Place): WorkflowNode[] {
-	return withList(nodes, place.lane, (list) => {
-		const min = !place.lane && isTrigger(list[0]) ? 1 : 0;
-		const at = Math.max(min, Math.min(place.index, list.length));
-		const next = [...list];
-		next.splice(at, 0, n);
-		return next;
-	});
-}
 
 function set(id: string, patch: (w: WorkflowState) => WorkflowState) {
 	const w = state[id];
@@ -567,31 +487,9 @@ export function useWorkflows(): Record<string, WorkflowState> {
 
 /* The step a test is on, shared by the header that starts it and the canvas that lights it; and the
    step a failed test stopped at, which the canvas keeps red until the flow is edited. */
-type ActiveRun = { automationId: string; nodeId: string | null; failedId?: string };
-let activeRun: ActiveRun | null = null;
-const runListeners = new Set<() => void>();
-
-export const runStore = {
-	get: () => activeRun,
-	set(next: ActiveRun | null) {
-		activeRun = next;
-		for (const l of runListeners) l();
-	},
-	subscribe(l: () => void) {
-		runListeners.add(l);
-		return () => runListeners.delete(l);
-	},
-};
-
-export function useActiveRun() {
-	return useSyncExternalStore(runStore.subscribe, runStore.get, runStore.get);
-}
 
 const STEP_MS = 320;
 
-export type TestResult =
-	| { ok: true; sample: { number: string; name: string }; steps: number }
-	| { ok: false; sample: { number: string; name: string }; nodeId: string; step: string; reason: string };
 
 /** What stops a step in a test: a field it cannot do without, or a right the flow does not hold. */
 function blocker(n: WorkflowNode, settings: WorkflowSettings): string | null {
@@ -611,7 +509,7 @@ function blocker(n: WorkflowNode, settings: WorkflowSettings): string | null {
  */
 export async function simulateTest(id: string): Promise<TestResult | null> {
 	const w = state[id];
-	if (!w || w.nodes.length === 0 || activeRun?.nodeId) return null;
+	if (!w || w.nodes.length === 0 || runStore.get()?.nodeId) return null;
 	const s = sampleFor(w.nodes[0]?.variantId, 4);
 	const sample = { number: s.number, name: s.name };
 	const path = w.nodes.flatMap((n) => (n.branches ? [n, ...(s.bigOrder ? n.branches.yes : n.branches.no)] : [n]));
