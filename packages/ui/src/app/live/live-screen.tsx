@@ -2,21 +2,22 @@ import { useNavigate } from "@tanstack/react-router"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { useMemo, useState } from "react"
 import { ArrowRight, CheckCircle2, CreditCard, Eye, Pause, Play, ShoppingBag } from "../../icons"
-import { useNow } from "../ask/agent-parts"
 import { EmptyPage } from "../common/empty-page"
 import { PageGuide } from "../common/page-guide"
 import { PageHeader } from "../common/page-header"
+import { useNow } from "../hooks/use-now"
 import { formatCurrency } from "../lib/format"
 import type { Currency } from "../lib/types/domain"
 import { cn } from "../lib/utils"
 import { GRIDS, type MapView } from "../lib/world-dots"
 import { WidgetBones } from "../loading/page-skeletons"
-import { type Stage, STAGE_LABEL } from "../stores/visitors-store"
 import { Segmented } from "../team/bits"
 import {
   type LiveConnection,
   type LiveFeedEvent as LiveEvent,
   type LiveVisitor as Visitor,
+  type Stage,
+  STAGE_LABEL,
   useLiveSource
 } from "./live-source"
 
@@ -66,6 +67,8 @@ export function LivePage() {
   const [view, setView] = useState<View>("world")
   const [focus, setFocus] = useState<string | null>(null)
 
+  // A visitor the host could not place is counted, not drawn.
+  const placed = useMemo(() => visitors.filter((v) => v.lon !== 0 || v.lat !== 0), [visitors])
   const count = (st: Stage) => visitors.filter((v) => v.stage === st).length
   const boughtToday = events.filter((e) => e.kind === "bought" && now - e.at < 10 * 60_000).length
   const funnel: Array<{ stage: Stage; n: number; label: string }> = [
@@ -208,7 +211,7 @@ export function LivePage() {
           </div>
 
           <div className="relative mt-4 flex flex-col-reverse gap-3 sm:block">
-            <WorldMap visitors={visitors} view={view} focus={focus} onFocus={setFocus} />
+            <WorldMap visitors={placed} view={view} focus={focus} onFocus={setFocus} />
             <div className="flex justify-end px-4 sm:absolute sm:top-2 sm:right-4 sm:px-0">
               <div
                 role="radiogroup"
@@ -281,7 +284,7 @@ export function LivePage() {
 
 function tally(vs: ReadonlyArray<Visitor>, key: (v: Visitor) => string) {
   const m = new Map<string, number>()
-  for (const v of vs) m.set(key(v), (m.get(key(v)) ?? 0) + 1)
+  for (const v of vs) if (key(v) !== "") m.set(key(v), (m.get(key(v)) ?? 0) + 1)
   return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
 }
 
@@ -383,7 +386,7 @@ function WorldMap(
               }}
             >
               <span className="font-medium text-ink">
-                {[focused.city, focused.country].filter(Boolean).join(", ")}
+                {[focused.city, focused.country].filter(Boolean).join(", ") || "Onbekende plek"}
               </span>
               <dl className="mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-ink-2 text-xs">
                 <dt className="text-ink-3">Nu</dt>
@@ -423,7 +426,9 @@ const KIND_GLYPH = {
 } as const
 
 function sentence(e: LiveEvent, currency: Currency) {
-  const who = `Iemand uit ${e.visitor.city || e.visitor.country}`
+  // A host that could not place the visitor leaves both empty.
+  const place = e.visitor.city || e.visitor.country
+  const who = place ? `Iemand uit ${place}` : "Iemand"
   if (e.kind === "arrive") {
     return `${who} kwam binnen via ${
       e.visitor.source.toLowerCase() === "direct" ? "een directe link" : e.visitor.source
@@ -431,8 +436,9 @@ function sentence(e: LiveEvent, currency: Currency) {
   }
   if (e.kind === "cart") return `${who} legde ${e.visitor.page} in het mandje`
   if (e.kind === "checkout") return `${who} begon met afrekenen`
+  if (e.amount === undefined) return `${who} kocht iets`
   return `${who} kocht voor ${
-    formatCurrency(e.amount ?? 0, currency, {
+    formatCurrency(e.amount, currency, {
       currencyDisplay: "narrowSymbol",
       minimumFractionDigits: 2,
       maximumFractionDigits: 2

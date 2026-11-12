@@ -1,6 +1,5 @@
 import { createContext, useContext } from "react"
 import type { Currency } from "../lib/types/domain"
-import type { Stage } from "../stores/visitors-store"
 
 /**
  * What `/live` reads, from whoever hosts it (as `settings/notifications-source.tsx` is for Meldingen): the design app
@@ -8,6 +7,16 @@ import type { Stage } from "../stores/visitors-store"
  * `live.visitors` frames (M14 step 3). A host says honestly what it has: no store yet, a store without the Live pixel,
  * nobody right now, or the connection lost and coming back.
  */
+
+/** Where a visitor is in the funnel. */
+export type Stage = "browsing" | "cart" | "checkout" | "bought"
+
+export const STAGE_LABEL: Record<Stage, string> = {
+  browsing: "Kijkt rond",
+  cart: "In mandje",
+  checkout: "Rekent af",
+  bought: "Gekocht"
+}
 
 /** One visitor on the map: anonymised, as the design's `Visitor` (whose extra fields a host may leave out). */
 export interface LiveVisitor {
