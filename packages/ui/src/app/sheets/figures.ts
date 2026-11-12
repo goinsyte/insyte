@@ -12,7 +12,7 @@ export const SHEET_CURRENCY = "USD"
 const LATEST: Month = MONTH_IDS[MONTH_IDS.length - 1]!
 
 /** "2026-04", "apr", "april" or nothing (the latest month) → the month, or why not. */
-export function monthOf(arg: string | undefined): Month | SheetError {
+function monthOf(arg: string | undefined): Month | SheetError {
   if (!arg) return LATEST
   const a = arg.trim().toLowerCase()
   const hit = MONTHS.find((m) => m.id === a || m.abbr === a || m.label.toLowerCase() === a)
