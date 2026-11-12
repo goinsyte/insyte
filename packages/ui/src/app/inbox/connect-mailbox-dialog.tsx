@@ -2,7 +2,7 @@ import { useState } from "react"
 import { Check, Copy } from "../../icons"
 import { Field, FormDialog, TextField } from "../common/form-dialog"
 import { cn } from "../lib/utils"
-import { BrandLogo } from "../marketplace/brand-logos"
+import { MailboxMark } from "./channel-mark"
 import type { TeamGate } from "./source"
 
 /*
@@ -127,7 +127,7 @@ export function ConnectMailboxDialog({
               c.ready ? "bg-arc-tint" : "bg-ink/4 opacity-60"
             )}
           >
-            <BrandLogo brand={c.brand} name={c.name} size={20} />
+            <MailboxMark logo={{ brand: c.brand, name: c.name }} size={20} />
             <span className="flex min-w-0 flex-col gap-0.5">
               <span className="font-medium text-base text-ink leading-tight">{c.name}</span>
               <span className="text-ink-2 text-sm leading-snug">{c.body}</span>

@@ -8,6 +8,7 @@ import { useCreateIntent } from "../stores/create-intent";
 import type { Conversation, Ticket, TicketSource } from "../lib/types/domain";
 import { SourceMark } from "../tickets/source-mark";
 import { BrandLogo } from "../marketplace/brand-logos";
+import { MailboxMark } from "../inbox/channel-mark";
 import { MAILBOXES, mailboxStatus, PROVIDER_LABEL } from "../lib/mailboxes";
 import type { ThreadState } from "../stores/inbox-store";
 import type { PanelMailbox } from "./source";
@@ -478,7 +479,7 @@ function withServerMailboxes(cfg: SubPanelConfig, mailboxes: ReadonlyArray<Panel
 						to: "/inbox",
 						label: m.live ? m.label : `${m.label} · offline`,
 						icon: List,
-						mark: <BrandLogo brand={m.logo.brand} name={m.logo.name} size={14} />,
+						mark: <MailboxMark logo={m.logo} />,
 						search: { mailbox: m.id },
 						count: m.count === 0 ? undefined : m.count,
 					})),

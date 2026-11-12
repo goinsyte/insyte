@@ -35,9 +35,8 @@ import { initials } from "../lib/format"
 import { personStyle } from "../lib/person-color"
 import { cn } from "../lib/utils"
 import { Arriving, Lines } from "../loading/bones"
-import { BrandLogo } from "../marketplace/brand-logos"
 import { useOnCreate } from "../stores/create-intent"
-import { ChannelMark } from "./channel-mark"
+import { ChannelMark, MailboxMark } from "./channel-mark"
 import {
   type Folder,
   type InboxMailbox,
@@ -211,7 +210,14 @@ export function InboxPage() {
     )
   }, [inFolderThreads, query, filters])
 
-  const active = filtered.find((t) => t.id === search.thread) ?? filtered[0] ?? null
+  /*
+   * The thread `?thread=` names, even outside the folder on screen: a link from the search palette or a ticket names a
+   * thread, not where it is, and an archived or snoozed one should still open. Without a name, the folder's first.
+   */
+  const active = filtered.find((t) => t.id === search.thread) ??
+    threads.find((t) => t.id === search.thread && t.place !== "gone") ??
+    filtered[0] ??
+    null
 
   /*
    * Three columns do not fit in a phone. Below `lg` the index and the letter take turns, which is
@@ -575,7 +581,7 @@ export function InboxPage() {
                 activeMailbox ?
                 (
                   <span className="hidden items-center gap-1.5 text-sm text-ink-3 leading-none lg:flex">
-                    <BrandLogo brand={activeMailbox.logo.brand} name={activeMailbox.logo.name} size={14} />
+                    <MailboxMark logo={activeMailbox.logo} />
                     Aan {activeMailbox.address}
                   </span>
                 ) :
@@ -766,7 +772,7 @@ export function InboxPage() {
                   {offline && activeMailbox ?
                     (
                       <div className="flex shrink-0 items-center gap-2 bg-signal-amber-bg px-4 py-2 text-sm text-signal-amber">
-                        <BrandLogo brand={activeMailbox.logo.brand} name={activeMailbox.logo.name} size={14} />
+                        <MailboxMark logo={activeMailbox.logo} />
                         <span className="min-w-0 flex-1">
                           {activeMailbox.address}{" "}
                           is ontkoppeld. Er wordt niets vanaf verstuurd en er komt geen nieuwe mail binnen tot{" "}
@@ -1062,7 +1068,7 @@ function ComposeDialog({
 function MailboxHeader({ mailbox, count }: { mailbox: InboxMailbox; count: number }) {
   return (
     <div className="sticky top-0 z-[1] flex h-9 items-center gap-2 bg-glacier px-5">
-      <BrandLogo brand={mailbox.logo.brand} name={mailbox.logo.name} size={14} />
+      <MailboxMark logo={mailbox.logo} />
       <span className="min-w-0 truncate font-medium text-sm text-ink-2">{mailbox.address}</span>
       <span className="text-sm text-ink-3 tabular-nums">{count}</span>
       {mailbox.status.live ?

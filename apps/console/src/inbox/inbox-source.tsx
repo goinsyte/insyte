@@ -1,4 +1,4 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react"
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { MailboxView, ThreadDetail, ThreadList } from "@insyte/modules/inbox/domain/Inbox"
 import type { TicketOptions } from "@insyte/modules/tickets/domain/Tickets"
 import { EmptyPage } from "@insyte/ui/app/common/empty-page"
@@ -104,10 +104,20 @@ export function useConsoleInboxSource(
   )
   const shownMailboxes = useMemo(() => mailboxes.map((m) => mailboxOf(m, now)), [mailboxes, now])
 
-  /** One thread's messages, once `Threads.get` is in. */
+  /**
+   * One thread's messages, once `Threads.get` is in. A message still waiting out its undo window, or on its way, is read
+   * again every ten seconds until it went or failed: the send says so only through the relay's sweep.
+   */
   const useLetter = (t: InboxThread): Letter => {
     const result = useAtomValue(threadAtom(t.id))
+    const refresh = useAtomRefresh(threadAtom(t.id))
     const detail: ThreadDetail | undefined = value(result)
+    const sending = detail?.messages.some((m) => m.sendState === "scheduled" || m.sendState === "sending") ?? false
+    useEffect(() => {
+      if (!sending) return
+      const timer = setTimeout(refresh, 10_000)
+      return () => clearTimeout(timer)
+    }, [sending, detail, refresh])
     return useMemo(
       () =>
         detail === undefined
