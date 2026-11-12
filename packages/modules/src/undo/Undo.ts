@@ -13,6 +13,8 @@ import * as Undo from "./use-cases/undo.ts"
  */
 export class UndoService extends Context.Service<UndoService, {
   readonly undo: (token: string) => Effect.Effect<void, Forbidden | NotFound | Conflict, Db | CurrentPrincipal>
+  /** The same by the token's hash, for an undo asked for by what it undoes (a chat card's). */
+  readonly undoByHash: (hash: string) => Effect.Effect<void, Forbidden | NotFound | Conflict, Db | CurrentPrincipal>
 }>()("modules/UndoService") {
   static readonly layer = Layer.effect(
     UndoService,
@@ -21,6 +23,11 @@ export class UndoService extends Context.Service<UndoService, {
       return {
         undo: (token) =>
           Undo.undo(token).pipe(
+            Effect.provideService(UndoCompensations, compensations),
+            Effect.catchIf(SqlError.isSqlError, Effect.die)
+          ),
+        undoByHash: (hash) =>
+          Undo.undoByHash(hash).pipe(
             Effect.provideService(UndoCompensations, compensations),
             Effect.catchIf(SqlError.isSqlError, Effect.die)
           )

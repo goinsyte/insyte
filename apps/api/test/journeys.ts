@@ -102,6 +102,10 @@ export const relay = async (workspace: string) => {
 export const pastUndo = (workspace: string) =>
   call(`http://api.test/api/__dev/outbox/due?workspace=${workspace}`, { method: "POST" })
 
+/** The workspace's undo windows as if `seconds` had passed (a chat card's five minutes against a toast's eight). */
+export const ageUndo = (workspace: string, seconds: number) =>
+  call(`http://api.test/api/__dev/undo/age?workspace=${workspace}&seconds=${seconds}`, { method: "POST" })
+
 export const ok = <A, E>(exit: Exit.Exit<A, E>): A => {
   if (Exit.isSuccess(exit)) return exit.value
   throw new Error(Cause.pretty(exit.cause))
