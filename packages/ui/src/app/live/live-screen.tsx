@@ -7,19 +7,18 @@ import { EmptyPage } from "../common/empty-page"
 import { PageGuide } from "../common/page-guide"
 import { PageHeader } from "../common/page-header"
 import { formatCurrency } from "../lib/format"
+import type { Currency } from "../lib/types/domain"
 import { cn } from "../lib/utils"
 import { GRIDS, type MapView } from "../lib/world-dots"
-import { useArrival } from "../loading/pace"
 import { WidgetBones } from "../loading/page-skeletons"
-import {
-  type LiveEvent,
-  type Stage,
-  STAGE_LABEL,
-  useVisitorFeed,
-  useVisitors,
-  type Visitor
-} from "../stores/visitors-store"
+import { type Stage, STAGE_LABEL } from "../stores/visitors-store"
 import { Segmented } from "../team/bits"
+import {
+  type LiveConnection,
+  type LiveFeedEvent as LiveEvent,
+  type LiveVisitor as Visitor,
+  useLiveSource
+} from "./live-source"
 
 const GUIDE = [{
   title: "Wie er nu op je winkel is",
@@ -39,24 +38,30 @@ const STAGE_FILL: Record<Stage, string> = {
 
 type View = MapView
 
+/** The header's status, by the connection: the design's three, and the console's way back after a drop. */
+const STATUS: Record<LiveConnection, string> = {
+  connecting: "Verbinden",
+  live: "Werkt zichzelf bij",
+  reconnecting: "Opnieuw verbinden",
+  error: "Geen verbinding"
+}
+
 /**
  * Live (`/live`, PLAN 41): the store right now. One plate: the funnel in the plate's own figures,
  * the world as a dot matrix with every visitor on it, and a title block at the foot. Under it, what
- * just happened, and what they are looking at, where they are and where they came from.
+ * just happened, and what they are looking at, where they are and where they came from. Who is on
+ * the store comes from the host (`live-source.tsx`).
  */
 export function LivePage() {
-  useVisitorFeed()
   const navigate = useNavigate()
+  const source = useLiveSource()
   /* The page and the map's land are drawn with the frame; who is on the store comes over the live
-	   connection, which opens after the page does (ADR-0028). Until it has, the figures are bones and
-	   the map is land without anyone on it. */
-  const connected = useArrival("live:socket", 640)
-  const allVisitors = useVisitors((s) => s.visitors)
-  const allEvents = useVisitors((s) => s.events)
-  const visitors = connected ? allVisitors : NO_VISITORS
-  const events = connected ? allEvents : NO_EVENTS
-  const base = useVisitors((s) => s.base)
-  const paused = useVisitors((s) => s.paused)
+     connection, which opens after the page does (ADR-0028). Until it has, the figures are bones and
+     the map is land without anyone on it. A connection that dropped keeps the last figures. */
+  const connected = source.connection === "live" || source.connection === "reconnecting"
+  const visitors = connected ? source.visitors : NO_VISITORS
+  const events = connected ? source.events : NO_EVENTS
+  const paused = source.paused
   const now = useNow(1000)
   const [view, setView] = useState<View>("world")
   const [focus, setFocus] = useState<string | null>(null)
@@ -70,17 +75,62 @@ export function LivePage() {
     { stage: "bought", n: boughtToday, label: "Gekocht, laatste 10 min" }
   ]
 
-  if (connected && visitors.length === 0 && events.length === 0) {
+  if (source.connection === "error") {
     return (
       <div className="flex min-w-0 flex-col">
         <PageHeader title="Live" crumbs={[{ label: "Dashboard", to: "/dashboard" }]} />
-        <EmptyPage
-          kind="live"
-          count="0 bezoekers"
-          title="Nog niemand op je winkel"
-          body="Live laat zien wie er nu op je winkel is, waar ze vandaan komen en wie er afrekent. Het begint zodra je Shopify-winkel gekoppeld is en de eerste bezoeker binnenkomt."
-          action={{ label: "Winkel koppelen", onClick: () => void navigate({ to: "/settings/stores" }) }}
-        />
+        <div role="alert" className="flex flex-col items-start gap-3 px-5 pb-12">
+          <p className="text-base text-ink-2">Live kon niet worden geladen.</p>
+          {source.retry
+            ? (
+              <button
+                type="button"
+                onClick={source.retry}
+                className="field flex h-9 w-fit items-center rounded-md px-3 font-medium text-base text-ink hover:field-hover"
+              >
+                Opnieuw proberen
+              </button>
+            )
+            : null}
+        </div>
+      </div>
+    )
+  }
+
+  /* Nothing to show says why: no store yet, a store without the Live pixel, or nobody right now. */
+  if (connected && (source.pixel !== "installed" || (visitors.length === 0 && events.length === 0))) {
+    const toStores = () => void navigate({ to: "/settings/stores" })
+    return (
+      <div className="flex min-w-0 flex-col">
+        <PageHeader title="Live" crumbs={[{ label: "Dashboard", to: "/dashboard" }]} />
+        {source.pixel === "no_store"
+          ? (
+            <EmptyPage
+              kind="live"
+              count="0 bezoekers"
+              title="Nog niemand op je winkel"
+              body="Live laat zien wie er nu op je winkel is, waar ze vandaan komen en wie er afrekent. Het begint zodra je Shopify-winkel gekoppeld is en de eerste bezoeker binnenkomt."
+              action={{ label: "Winkel koppelen", onClick: toStores }}
+            />
+          )
+          : source.pixel === "not_installed"
+          ? (
+            <EmptyPage
+              kind="live"
+              count="0 bezoekers"
+              title="Live staat nog niet aan"
+              body="Zet de Live-pixel aan voor je winkel bij Instellingen → Winkels. Daarna zie je hier wie er op je winkel is, waar ze vandaan komen en wie er afrekent."
+              action={{ label: "Naar Winkels", onClick: toStores }}
+            />
+          )
+          : (
+            <EmptyPage
+              kind="live"
+              count="0 bezoekers"
+              title="Nog niemand op je winkel"
+              body={`De Live-pixel staat aan op ${source.storesLabel}. Zodra er iemand op je winkel komt, zie je het hier.`}
+            />
+          )}
       </div>
     )
   }
@@ -96,16 +146,20 @@ export function LivePage() {
               aria-hidden
               className={cn(
                 "size-1.5",
-                !connected ? "animate-pulse bg-ink-4" : paused ? "bg-ink-4" : "animate-pulse bg-signal-green"
+                source.connection !== "live"
+                  ? "animate-pulse bg-ink-4"
+                  : paused
+                  ? "bg-ink-4"
+                  : "animate-pulse bg-signal-green"
               )}
             />
-            {!connected ? "Verbinden" : paused ? "Gepauzeerd" : "Werkt zichzelf bij"} · Northwind US en EU
+            {source.connection === "live" && paused ? "Gepauzeerd" : STATUS[source.connection]} · {source.storesLabel}
           </span>
         }
         actions={
           <button
             type="button"
-            onClick={() => useVisitors.getState().setPaused(!paused)}
+            onClick={() => source.setPaused(!paused)}
             className="field flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-ink text-sm transition-colors hover:field-hover"
           >
             {paused
@@ -145,7 +199,9 @@ export function LivePage() {
             <span className="flex-1" />
             <div className="flex flex-col items-end gap-1.5">
               <span className="figure text-4xl text-mesh-ink">
-                {connected ? formatCurrency(base, "USD", { currencyDisplay: "narrowSymbol" }) : <FigureBone w={150} />}
+                {connected
+                  ? formatCurrency(source.revenueToday, source.currency, { currencyDisplay: "narrowSymbol" })
+                  : <FigureBone w={150} />}
               </span>
               <span className="text-mesh-ink-2 text-xs">Omzet vandaag</span>
             </div>
@@ -201,7 +257,7 @@ export function LivePage() {
             /* Until the connection is open the lists have not been counted, which is not the same as
 					    empty: they stand as bones rather than saying "Nog niemand". */
           }
-          {connected ? <Feed events={events} now={now} /> : <WidgetBones rows={5} />}
+          {connected ? <Feed events={events} now={now} currency={source.currency} /> : <WidgetBones rows={5} />}
           <aside className="flex flex-col gap-6">
             {connected ?
               (
@@ -327,7 +383,7 @@ function WorldMap(
               }}
             >
               <span className="font-medium text-ink">
-                {focused.city}, {focused.country}
+                {[focused.city, focused.country].filter(Boolean).join(", ")}
               </span>
               <dl className="mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-ink-2 text-xs">
                 <dt className="text-ink-3">Nu</dt>
@@ -366,8 +422,8 @@ const KIND_GLYPH = {
   leave: Eye
 } as const
 
-function sentence(e: LiveEvent) {
-  const who = `Iemand uit ${e.visitor.city}`
+function sentence(e: LiveEvent, currency: Currency) {
+  const who = `Iemand uit ${e.visitor.city || e.visitor.country}`
   if (e.kind === "arrive") {
     return `${who} kwam binnen via ${
       e.visitor.source.toLowerCase() === "direct" ? "een directe link" : e.visitor.source
@@ -376,7 +432,7 @@ function sentence(e: LiveEvent) {
   if (e.kind === "cart") return `${who} legde ${e.visitor.page} in het mandje`
   if (e.kind === "checkout") return `${who} begon met afrekenen`
   return `${who} kocht voor ${
-    formatCurrency(e.amount ?? 0, "USD", {
+    formatCurrency(e.amount ?? 0, currency, {
       currencyDisplay: "narrowSymbol",
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
@@ -384,7 +440,9 @@ function sentence(e: LiveEvent) {
   }`
 }
 
-function Feed({ events, now }: { events: ReadonlyArray<LiveEvent>; now: number }) {
+function Feed(
+  { events, now, currency }: { events: ReadonlyArray<LiveEvent>; now: number; currency: Currency }
+) {
   const [only, setOnly] = useState<"all" | "money">("all")
   const list = useMemo(
     () =>
@@ -438,7 +496,7 @@ function Feed({ events, now }: { events: ReadonlyArray<LiveEvent>; now: number }
                 <span
                   className={cn("min-w-0 flex-1 truncate", e.kind === "bought" ? "font-medium text-ink" : "text-ink-2")}
                 >
-                  {sentence(e)}
+                  {sentence(e, currency)}
                 </span>
                 {e.order ? <span className="shrink-0 text-ink-3 text-xs tabular-nums">{e.order}</span> : null}
                 <span className="w-14 shrink-0 text-right text-ink-3 text-xs tabular-nums">
