@@ -30,6 +30,7 @@ export default defineConfig({
           ...vapid,
           SUPPLIER_API_ADAPTER: "recorded",
           TRACKING_ADAPTER: "recorded",
+          FX_ADAPTER: "recorded",
           LABELS_ADAPTER: "recorded",
           DOCUMENTS_ADAPTER: "html",
           SYNC_PAGE_LINES: "4"
