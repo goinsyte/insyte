@@ -85,6 +85,8 @@
         "!src/app/lib/home/kinds.ts",
         "!src/app/chats/**",
         "!src/app/inbox/**",
+        "!src/app/automations/**",
+        "!src/app/costs/**",
       ],
     },
     "apps/console": {

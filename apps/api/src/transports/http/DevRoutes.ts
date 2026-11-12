@@ -3,6 +3,8 @@ import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
 import { RECORDED_BULK } from "@insyte/integrations-shopify/RecordedBulk"
+import { remindWorkspace } from "@insyte/modules/chargebacks/Chargebacks"
+import { syncAdSpend } from "@insyte/modules/costs/Costs"
 import { drainWorkspace, markRecentWorkspace, rebuildWorkspace } from "@insyte/modules/facts/Facts"
 import { receive } from "@insyte/modules/inbox/use-cases/inbound"
 import { isReplyAddress, receiveReply } from "@insyte/modules/notifications/use-cases/replies"
@@ -15,6 +17,7 @@ import { sweepWorkspace as sweepTrash } from "@insyte/modules/trash/use-cases/tr
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect, Layer, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
+import { AdSpendLive } from "../../platform/AdSpend.ts"
 import { AppInfo } from "../../platform/Bindings.ts"
 import { parseMail } from "../../platform/InboundMail.ts"
 import { refusedReferences } from "../../platform/Mail.ts"
@@ -448,6 +451,25 @@ const QueueRefresh = HttpRouter.add(
 )
 
 /**
+ * `POST /api/__dev/chargebacks/remind?workspace=<id>&at=<iso>`: one workspace's turn of the hourly deadline reminders
+ * (M13 step 3) as if it were `at` (now when absent); answers the outbox rows it wrote. Refused in production.
+ */
+const ChargebackRemind = HttpRouter.add(
+  "POST",
+  "/api/__dev/chargebacks/remind",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = (yield* workspaceParam) as WorkspaceId
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const at = new URL(request.url, "http://local").searchParams.get("at")
+    const outboxIds = yield* remindWorkspace(workspace, at === null ? undefined : new Date(at))
+    return HttpServerResponse.jsonUnsafe({ outboxIds })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+/**
  * `POST /api/__dev/notify/sweep?workspace=<id>&at=<iso>`: one workspace's turn of the notification sweeps (M11 step
  * 13.5) as if it were `at` (now when absent): the notes due then sent, and the digests whose hour has come; `&since=`
  * widens the digest's window to the notes since then, for a day that is not today. Refused in production.
@@ -668,6 +690,86 @@ const InboundMail = HttpRouter.add(
 )
 
 /**
+ * `GET /api/__dev/automations/runs?workspace=<id>`: one workspace's flow runs with their steps, and the flows' service
+ * accounts, read in that workspace's scope. For the engine's worker tests until the Runs tab reads them (M12 step 5).
+ * Refused in production.
+ */
+const AutomationRunsOf = HttpRouter.add(
+  "GET",
+  "/api/__dev/automations/runs",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const db = yield* Db
+    const found = yield* db.scopedFor((sql) =>
+      Effect.all({
+        runs: sql`
+          select id, automation_id, version, service_account_id, trigger_variant, record_id, status, reason
+          from automation_runs order by started_at, id`,
+        steps: sql`
+          select run_id, node_id, attempt, variant, status, output, explanation
+          from automation_run_steps order by started_at, node_id`,
+        accounts: sql`
+          select id, automation_id, label, scopes, version, disabled_at is not null as disabled
+          from service_accounts order by created_at`
+      })
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe(found)
+  }).pipe(withRequestDb)
+)
+
+/**
+ * `POST /api/__dev/costs/ad-account?workspace=<id>` `{ provider, status, spend: [{ day, spendMinor, currency? }] }`: an
+ * ad account as a connection would leave it, with the spend it reported, for the costs' worker tests (M13 step 5): no
+ * Meta or Google Ads account can be connected yet. `POST /api/__dev/costs/sync`: the daily ad spend sync now. Refused
+ * in production.
+ */
+const CostsAdAccount = HttpRouter.add(
+  "POST",
+  "/api/__dev/costs/ad-account",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = { id: (yield* workspaceParam) as WorkspaceId }
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const body = (yield* request.json) as {
+      readonly provider: "meta" | "google_ads"
+      readonly status?: string
+      readonly spend?: ReadonlyArray<{ readonly day: string; readonly spendMinor: number; readonly currency?: string }>
+    }
+    const db = yield* Db
+    const id = mintId("con")
+    yield* db.scopedFor((sql) =>
+      Effect.gen(function*() {
+        yield* sql`insert into connections (id, workspace_id, provider, account_ref, status)
+                   values (${id}, ${workspace.id}, ${body.provider}, ${`act_${id}`}, ${body.status ?? "connected"})`
+        for (const s of body.spend ?? []) {
+          yield* sql`insert into ad_spend_day (workspace_id, connection_id, provider, account_ref, day, spend_minor,
+                                               currency)
+                     values (${workspace.id}, ${id}, ${body.provider}, ${`act_${id}`}, ${s.day}::date, ${s.spendMinor},
+                             ${s.currency ?? "EUR"})`
+        }
+      })
+    ).pipe(Effect.provideService(CurrentWorkspace, workspace))
+    return HttpServerResponse.jsonUnsafe({ connectionId: id })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+const CostsSync = HttpRouter.add(
+  "POST",
+  "/api/__dev/costs/sync",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    return HttpServerResponse.jsonUnsafe({ written: yield* syncAdSpend() })
+  }).pipe(Effect.provide(AdSpendLive), withRequestDb)
+)
+
+/**
  * `POST /api/__dev/trash/sweep?workspace=<id>&age=<days>`: the workspace's trashed tickets as if deleted `age` days
  * earlier, then the Prullenbak's daily sweep for that workspace (M17 step 20.1a), so the 30 days need not be waited
  * out. Refused in production.
@@ -696,6 +798,8 @@ const TrashSweep = HttpRouter.add(
 )
 
 export const DevRoutes = Layer.mergeAll(
+  CostsAdAccount,
+  CostsSync,
   TrashSweep,
   InboundMail,
   FactsOrders,
@@ -705,6 +809,7 @@ export const DevRoutes = Layer.mergeAll(
   StoreSeed,
   TrackingSweep,
   QueueRefresh,
+  ChargebackRemind,
   NotifySweep,
   NotifyDeliveries,
   StoreConnection,
@@ -713,6 +818,7 @@ export const DevRoutes = Layer.mergeAll(
   MailRefuse,
   AuthEventsOf,
   OutboxOf,
+  AutomationRunsOf,
   UndoOf,
   UndoAge,
   OutboxDue,

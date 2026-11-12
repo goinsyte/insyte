@@ -69,6 +69,9 @@ export const TENANT_TABLES = [
   "ticket_labels",
   "ticket_comments",
   "ticket_templates",
+  "chargebacks",
+  "evidence_items",
+  "chargeback_events",
   "quality_checks",
   "quality_check_media",
   "product_phases",
@@ -94,7 +97,16 @@ export const TENANT_TABLES = [
   "notification_settings",
   "notification_deliveries",
   "digests",
-  "push_subscriptions"
+  "push_subscriptions",
+  "automations",
+  "automation_versions",
+  "automation_settings",
+  "service_accounts",
+  "automation_runs",
+  "automation_run_steps",
+  "cost_lines",
+  "cost_line_amounts",
+  "ad_spend_day"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

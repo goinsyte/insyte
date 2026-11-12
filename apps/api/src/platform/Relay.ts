@@ -1,6 +1,9 @@
 import { Db } from "@insyte/database/Db"
+import { TRIGGER_EVENTS } from "@insyte/domain/automations/Engine"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
+import { AutomationRuns } from "@insyte/modules/automations/domain/Ports"
+import { startRuns } from "@insyte/modules/automations/use-cases/engine"
 import {
   drainIn,
   drainWorkspace,
@@ -69,6 +72,7 @@ type SinkServices =
   | MarketingSyncs
   | ForwardSends
   | ReturnLabels
+  | AutomationRuns
   | FileStore
   | WebPush
   | Slack
@@ -165,6 +169,9 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
     case "return.requested":
     case "return.label_requested":
     case "quality_check.submitted":
+    // A chargeback's note to the team (M13 step 3) is the notifications' business.
+    case "chargeback.opened":
+    case "chargeback.deadline_near":
     // The delay mail is counted as the filing that put it in line.
     case "order.delay_mail":
       return undefined
@@ -176,6 +183,18 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
         distinctId: event.userId,
         groups: { workspace: event.workspaceId },
         properties: { action: event.action }
+      }
+    // A run's note to a teammate (M12 step 3) is the notifications' business.
+    case "automation.notify":
+      return undefined
+    // Publishing a flow (M12 step 1): the moment an operator hands work to Insyte, by its trigger and size.
+    case "automation.published":
+      return {
+        outboxId: id,
+        event: "automation_published",
+        distinctId: event.userId,
+        groups: { workspace: event.workspaceId },
+        properties: { version: event.version, trigger: event.trigger, steps: event.steps }
       }
     // Handling an order in Insyte is an activation moment (M7): counted by what was done and to how many.
     case "order.updated":
@@ -326,7 +345,7 @@ const notifications = Effect.fn("Relay.notifications")(
 )
 
 /** The record kinds whose change may open, update or close a queue row on Start (M10.1). */
-const QUEUED = new Set(["order", "return", "quality_check", "store", "product"])
+const QUEUED = new Set(["order", "return", "quality_check", "store", "product", "chargeback"])
 
 /** The queue sink (M10.1): the workspace's queue brought in line, and its open tabs told when it changed. */
 const queue = Effect.fn("Relay.queue")(
@@ -421,7 +440,10 @@ const NOTIFIED = new Set<OutboxEvent["type"]>([
   "ticket.assigned",
   "ticket.mentioned",
   "chat.mentioned",
-  "quality_check.submitted"
+  "quality_check.submitted",
+  "chargeback.opened",
+  "chargeback.deadline_near",
+  "automation.notify"
 ])
 
 const SINKS: ReadonlyArray<Sink> = [
@@ -519,6 +541,18 @@ const SINKS: ReadonlyArray<Sink> = [
           Effect.service(ReturnLabels),
           (labels) => labels.start({ key: `rl-${id}`, workspaceId: event.workspaceId, returnIds: event.returnIds })
         )
+        : undefined
+  },
+  {
+    // A trigger's event (M12 step 3): a run per active flow and record, each its own Workflow, named by the run.
+    name: "automations",
+    run: (id, event, sql) =>
+      TRIGGER_EVENTS.has(event.type)
+        ? Effect.gen(function*() {
+          const runs = yield* startRuns(sql, id, event).pipe(Effect.orDie)
+          const starter = yield* AutomationRuns
+          for (const runId of runs) yield* starter.start({ workspaceId: event.workspaceId, runId })
+        })
         : undefined
   },
   {

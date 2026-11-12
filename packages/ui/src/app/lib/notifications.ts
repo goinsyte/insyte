@@ -96,6 +96,7 @@ export type EventKey =
 	| "supplier.stock"
 	| "automation.failed"
 	| "automation.done"
+	| "automation.alert"
 	| "chat.mention"
 	| "team.invite"
 	| "team.access"
@@ -145,6 +146,7 @@ export const EVENTS: ReadonlyArray<EventDef> = [
 	{ key: "supplier.stock", group: "Leveranciers", label: "Voorraad bijna op", detail: "Een product raakt op binnen een week, op het huidige tempo.", primary: false, defaults: ch(true, false, false, false) },
 	{ key: "automation.failed", group: "Automatiseringen", label: "Uitvoering mislukt", detail: "Een stap in een flow kon niet worden uitgevoerd.", primary: true, defaults: ch(true, true, false, true) },
 	{ key: "automation.done", group: "Automatiseringen", label: "Flow aangezet of gepauzeerd", detail: "Iemand verandert een flow die voor de werkruimte draait.", primary: false, defaults: ch(true, false, false, false) },
+	{ key: "automation.alert", group: "Automatiseringen", label: "Waarschuwing uit een flow", detail: "Een flow vraagt met “Team waarschuwen” jouw aandacht.", primary: true, defaults: ch(true, true, true, false) },
 	{ key: "chat.mention", group: "Team", label: "Vermelding", detail: "Iemand noemt je met @ in een chat of reactie.", primary: true, defaults: ch(true, false, true, true) },
 	{ key: "team.invite", group: "Team", label: "Uitnodigingen", detail: "Geaccepteerd, of bijna verlopen.", primary: false, defaults: ch(true, true, false, false) },
 	{ key: "team.access", group: "Team", label: "Toegangsverzoeken", detail: "Iemand vraagt om meer rechten, of er komt antwoord op een verzoek.", primary: true, defaults: ch(true, false, false, false) },

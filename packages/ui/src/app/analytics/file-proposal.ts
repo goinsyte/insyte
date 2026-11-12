@@ -1,4 +1,4 @@
-import { draftFromTemplate } from "../automations/library";
+import { draftFromTemplate } from "../automations/demo-source";
 import { workflowStore } from "../automations/workflow-store";
 import { ticketsStore } from "../tickets/tickets-store";
 import { TEMPLATES } from "../lib/automation-templates";
