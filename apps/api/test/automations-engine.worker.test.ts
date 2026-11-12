@@ -2,7 +2,7 @@ import { STEPS_BY_ID } from "@insyte/domain/automations/Steps"
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
-import { consume, failure, join, ok, outboxOf, pastUndo, person, relay, run } from "./journeys.ts"
+import { consume, failure, join, ok, outboxOf, pastUndo, person, relay, run as testRun } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc, sessionMe } from "./support.ts"
 
@@ -162,7 +162,7 @@ describe("the automation engine", () => {
         stores: "all"
       }, owner.cookie)
     )
-    const email = `engine-rights-${run}@invited.test`
+    const email = `engine-rights-${testRun}@invited.test`
     ok(await rpc("Invitations.send", { rows: [{ email, roleId: created.id, stores: "all" as const }] }, owner.cookie))
     await pastUndo(workspace)
     await relay(workspace)

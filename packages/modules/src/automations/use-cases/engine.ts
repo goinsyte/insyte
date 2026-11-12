@@ -501,6 +501,8 @@ export type ActOutcome =
   }
   | { readonly kind: "stop"; readonly reason: string }
 
+const stop = (reason: string) => ({ stop: reason }) as const
+
 /**
  * The flow as it is now, for the action about to run: the run still open, the flow on and not removed, the version it
  * was pinned to still there, and its account enabled, with the rights and stores it holds today. A run that waited days
@@ -527,7 +529,6 @@ const liveOf = Effect.fn("Automations.liveOf")(function*(sql: SqlClient.SqlClien
     left join service_accounts sa on sa.automation_id = a.id
     where r.id = ${plan.runId}
     for share of r`
-  const stop = (reason: string) => ({ stop: reason }) as const
   if (f === undefined || (f.runStatus !== "running" && f.runStatus !== "waiting")) return stop("Gestopt.")
   if (f.removed) return stop("De flow is verwijderd; de rest van de run is niet gedaan.")
   if (f.pinned === null) return stop(UNPUBLISHED)
