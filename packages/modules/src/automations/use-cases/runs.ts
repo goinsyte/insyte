@@ -28,6 +28,7 @@ import {
   RunStep
 } from "../domain/Runs.ts"
 import { keyOf } from "./engine.ts"
+import { mayHand } from "./rights.ts"
 
 /*
  * A flow's runs (M12 step 5; api.md §2.14): the list with its counts, one run with its steps over its pinned version,
@@ -86,7 +87,25 @@ const waitKind = (variant: string) =>
     ? "reply" as const
     : "wait" as const
 
-const rowOf = (r: RawRun) =>
+/**
+ * What the reader's role may see of a run's record: the order number with Bestellingen · Bekijken, the customer's name
+ * (and what the trigger read) with Klanten · Bekijken too. Automatiseringen alone shows the run, not the customer.
+ */
+interface Sees {
+  readonly orders: boolean
+  readonly customers: boolean
+}
+
+const seesOf = Effect.map(Effect.service(CurrentPrincipal), (principal): Sees => {
+  const role = {
+    ...principal.role,
+    stores: principal.role.stores === "all" ? "all" as const : [...principal.role.stores]
+  }
+  const orders = canRole(role, "orders", 1)
+  return { orders, customers: orders && canRole(role, "customers", 1) }
+})
+
+const rowOf = (sees: Sees) => (r: RawRun) =>
   new RunRow({
     id: r.id,
     automationId: r.automationId,
@@ -97,7 +116,12 @@ const rowOf = (r: RawRun) =>
     triggerVariant: r.triggerVariant,
     cause: causeOf(r),
     record: r.recordKind === "order"
-      ? { kind: "order", id: r.recordId, number: r.orderNumber ?? "", name: r.customerName ?? "" }
+      ? {
+        kind: "order",
+        id: r.recordId,
+        number: sees.orders ? r.orderNumber ?? "" : "",
+        name: sees.customers ? r.customerName ?? "" : ""
+      }
       : null,
     manual: r.triggerEvent.startsWith("rerun:") || r.triggerEvent.startsWith("manual:"),
     key: keyOf(r),
@@ -136,23 +160,24 @@ export const list = Effect.fn("Runs.list")(function*(input: typeof RunListInput.
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const scope = yield* visible(sql)
+      const sees = yield* seesOf
       const flow = input.automationId === undefined ? sql`true` : sql`r.automation_id = ${input.automationId}`
       const status = input.status === undefined ? sql`true` : sql`r.status = ${input.status}`
       const after = parseCursor(input.cursor)
       const page = yield* sql<RawRun>`
         ${SELECT(sql)}
-        where a.deleted_at is null and ${scope} and ${flow} and ${status}
+        where ${scope} and ${flow} and ${status}
           ${after === null ? sql`` : sql`and (r.started_at, r.id) < (${after.at}, ${after.id})`}
         order by r.started_at desc, r.id desc limit ${limit + 1}`
       const counts = yield* sql<{ status: string; n: number }>`
         select r.status, count(*)::int as n from automation_runs r
         join automations a on a.id = r.automation_id
         left join orders o on r.record_kind = 'order' and o.id = r.record_id
-        where a.deleted_at is null and ${scope} and ${flow}
+        where ${scope} and ${flow}
         group by r.status`
       const rows = page.slice(0, limit)
       return new RunList({
-        rows: rows.map(rowOf),
+        rows: rows.map(rowOf(sees)),
         counts: countsOf(counts),
         next: page.length > limit ? cursorOf(rows[rows.length - 1]!) : null
       })
@@ -160,16 +185,18 @@ export const list = Effect.fn("Runs.list")(function*(input: typeof RunListInput.
   )
 })
 
+/** One run, a removed flow's too: what it did stays readable, and one still open can be stopped. */
 const runOf = Effect.fn("Runs.runOf")(function*(sql: SqlClient.SqlClient, id: string, lock = false) {
   const scope = yield* visible(sql)
   const [r] = yield* sql<RawRun>`
-    ${SELECT(sql)} where r.id = ${id} and a.deleted_at is null and ${scope}
+    ${SELECT(sql)} where r.id = ${id} and ${scope}
     ${lock ? sql`for update of r` : sql``}`
   if (r === undefined) return yield* new NotFound({ entity: "run", id })
   return r
 })
 
 const detailOf = Effect.fn("Runs.detailOf")(function*(sql: SqlClient.SqlClient, r: RawRun) {
+  const sees = yield* seesOf
   const [v] = yield* sql<{ nodesJson: string }>`
     select nodes::text as nodes_json from automation_versions
     where automation_id = ${r.automationId} and version = ${r.version}`
@@ -201,10 +228,17 @@ const detailOf = Effect.fn("Runs.detailOf")(function*(sql: SqlClient.SqlClient, 
   )
   const head = nodes[0]
   const triggerRow = raw.find((s) => s.nodeId === head?.id)
-  const input = triggerRow === undefined ? {} : (JSON.parse(triggerRow.inputJson) as Record<string, string>)
+  const input = triggerRow === undefined || !sees.customers
+    ? {}
+    : (JSON.parse(triggerRow.inputJson) as Record<string, string>)
   const waiting = open ? steps.find((s) => s.status === "waiting") : undefined
+  const approverId = waiting?.variantId === "action.require_approval" ? String(waiting.config["approver"] ?? "") : ""
+  const [named] = approverId === ""
+    ? []
+    : yield* sql<{ name: string }>`
+      select u.name from members m join auth."user" u on u.id = m.user_id where m.id = ${approverId}`
   return new RunDetail({
-    run: rowOf(r),
+    run: rowOf(sees)(r),
     steps: steps.map((s) => new RunStep({ ...s, config: { ...s.config } })),
     input,
     waitingOn: waiting === undefined
@@ -212,7 +246,9 @@ const detailOf = Effect.fn("Runs.detailOf")(function*(sql: SqlClient.SqlClient, 
       : {
         nodeId: waiting.nodeId,
         kind: waitKind(waiting.variantId),
-        approver: waiting.variantId === "action.require_approval" ? String(waiting.config["approver"] ?? "") : null
+        approver: waiting.variantId === "action.require_approval"
+          ? named?.name ?? String(waiting.config["approver_name"] ?? "")
+          : null
       }
   })
 })
@@ -298,7 +334,9 @@ export const records = Effect.fn("Runs.records")(function*(input: typeof RunReco
 
 /**
  * A run row for a flow's live version on one record, started by hand; `skipped` with its reason when the flow is
- * off or has no account. Answers its id, and whether the Workflow should start.
+ * off, has no account, the order lies outside the flow's stores, or the hour's limit is reached (the same count the
+ * trigger keeps, `startRuns`). Whoever starts it must hold what the flow's account may do (`mayHand`): a key with
+ * only `automations.write` does not get tickets made through it. Answers its id, and whether the Workflow should start.
  */
 const insertRun = Effect.fn("Runs.insertRun")(function*(
   sql: SqlClient.SqlClient,
@@ -311,20 +349,35 @@ const insertRun = Effect.fn("Runs.insertRun")(function*(
     liveVersion: number
     status: string
     triggerVariant: string | null
+    storeScope: Array<string> | null
+    rateLimit: number
     accountId: string | null
+    scopes: Array<string> | null
   }>`
-    select a.workspace_id, a.live_version, a.status, a.trigger_variant, sa.id as account_id
-    from automations a left join service_accounts sa on sa.automation_id = a.id and sa.disabled_at is null
+    select a.workspace_id, a.live_version, a.status, a.trigger_variant, a.store_scope,
+           coalesce(s.rate_limit_per_hour, 0) as rate_limit, sa.id as account_id, sa.scopes
+    from automations a
+    left join automation_settings s on s.automation_id = a.id
+    left join service_accounts sa on sa.automation_id = a.id and sa.disabled_at is null
     where a.id = ${automationId} and a.deleted_at is null for update of a`
   if (flow === undefined) return yield* new NotFound({ entity: "automation", id: automationId })
   if (flow.liveVersion === 0) return yield* new Conflict({ entity: "automation", reason: "not_published" })
+  yield* mayHand(yield* CurrentPrincipal, flow.scopes ?? [])
   const scope = yield* inScope(sql, "o.store_id")
-  const [order] = yield* sql<{ id: string }>`select o.id from orders o where o.id = ${recordId} and ${scope}`
+  const [order] = yield* sql<{ id: string; storeId: string }>`
+    select o.id, o.store_id from orders o where o.id = ${recordId} and ${scope}`
   if (order === undefined) return yield* new NotFound({ entity: "order", id: recordId })
+  const [hour] = yield* sql<{ n: number }>`
+    select count(*)::int as n from automation_runs
+    where automation_id = ${automationId} and status <> 'skipped' and started_at > now() - interval '1 hour'`
   const reason = flow.status !== "active"
     ? "De flow staat uit."
     : flow.accountId === null
     ? "De flow heeft geen actief serviceaccount."
+    : flow.storeScope !== null && !flow.storeScope.includes(order.storeId)
+    ? "De bestelling hoort bij een winkel waar de flow niet in draait."
+    : flow.rateLimit > 0 && (hour?.n ?? 0) >= flow.rateLimit
+    ? `De limiet van ${flow.rateLimit} runs per uur is bereikt.`
     : null
   const id = mintId("run")
   yield* sql`
@@ -351,17 +404,32 @@ const started = Effect.fn("Runs.started")(function*(
   return made
 })
 
-/** Starts the Workflow once the row is committed; the Workflow waits for the row if it is quicker. */
+/**
+ * Starts the Workflow once the row is committed; the Workflow waits for the row if it is quicker. When Workflows will
+ * not take it, the row says so (`failed`) instead of standing `running` with nothing behind it, and the answer is that
+ * run, so a retry under the same Idempotency-Key does not start a second one.
+ */
 const kick = (made: { readonly id: string; readonly workspaceId: string; readonly start: boolean }) =>
   made.start
     ? Effect.flatMap(Effect.service(AutomationRuns), (runs) =>
-      runs.start({ workspaceId: made.workspaceId, runId: made.id }))
+      runs.start({ workspaceId: made.workspaceId, runId: made.id }).pipe(
+        Effect.catchCause(() =>
+          Effect.flatMap(Effect.service(Db), (db) =>
+            db.scoped((sql) =>
+              sql`
+                update automation_runs set status = 'failed', reason = ${"De run kon niet worden gestart."},
+                       finished_at = now()
+                where id = ${made.id} and status = 'running'`
+            )).pipe(Effect.asVoid)
+        )
+      ))
     : Effect.void
 
 /** `POST /v1/automations/{id}/runs`: the flow's live version on one order, by hand. */
 export const start = Effect.fn("Runs.start")(
   function*(input: { readonly automationId: string; readonly recordId: string }) {
-    // Bewerken, as a key's automations.write: the run acts as the flow's own account, not as the caller.
+    // Bewerken, as a key's automations.write: the run acts as the flow's own account, not as the caller, so the
+    // caller must hold what that account may do (insertRun).
     yield* Policy.require("automations", 2)
     const db = yield* Db
     const made = yield* db.scoped((sql) =>
@@ -375,13 +443,16 @@ export const start = Effect.fn("Runs.start")(
   }
 )
 
-/** "Opnieuw": the same record again on the live version, under the first run's key. */
+/**
+ * "Opnieuw": the same record again on the live version, under the first run's key. The first run is locked while
+ * the next number is counted, so two quick clicks make runs 1 and 2, not two of run 1.
+ */
 export const rerun = Effect.fn("Runs.rerun")(function*(id: string) {
   yield* Policy.require("automations", 3)
   const db = yield* Db
   const made = yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      const r = yield* runOf(sql, id)
+      const r = yield* runOf(sql, id, true)
       if (r.status === "running" || r.status === "waiting") {
         return yield* new Conflict({ entity: "run", reason: "still_running" })
       }
@@ -427,8 +498,9 @@ export const cancel = Effect.fn("Runs.cancel")(function*(id: string) {
 })
 
 /**
- * The answer to "Goedkeuring vragen": the teammate the step names gives it, or someone who may publish the flow.
- * The run goes on (approved) or stops (declined) once the Workflow hears it.
+ * The answer to "Goedkeuring vragen": the teammate the step names (by member id, which nobody can take on by renaming
+ * themselves), or someone who may publish the flow. The run goes on (approved) or stops (declined) once the Workflow
+ * hears it.
  */
 const answer = (approved: boolean) =>
   Effect.fn(approved ? "Runs.approve" : "Runs.decline")(
@@ -444,15 +516,14 @@ const answer = (approved: boolean) =>
           if (waiting === null || waiting.kind !== "approval" || waiting.nodeId !== input.stepId) {
             return yield* new Conflict({ entity: "run", reason: "not_waiting" })
           }
-          const [me] = principal.userId === null
-            ? []
-            : yield* sql<{ name: string }>`select name from auth."user" where id = ${principal.userId}`
-          const named = (waiting.approver ?? "").trim().toLowerCase()
+          const step = detail.steps.find((s) => s.nodeId === input.stepId)
+          const approverId = String(step?.config["approver"] ?? "")
+          const named = principal.kind === "member" && approverId !== "" && principal.id === approverId
           const mayPublish = canRole(
             { ...principal.role, stores: principal.role.stores === "all" ? "all" : [...principal.role.stores] },
             "automations.publish"
           )
-          if (!mayPublish && (me === undefined || named === "" || me.name.trim().toLowerCase() !== named)) {
+          if (!named && !mayPublish) {
             return yield* new Forbidden({
               permission: "automations.publish",
               level: 0,
@@ -465,6 +536,9 @@ const answer = (approved: boolean) =>
             subjectId: input.id,
             diff: { step: input.stepId }
           })
+          const [me] = principal.userId === null
+            ? []
+            : yield* sql<{ name: string }>`select name from auth."user" where id = ${principal.userId}`
           return me?.name ?? principal.role.label
         })
       )

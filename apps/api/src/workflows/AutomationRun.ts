@@ -164,7 +164,10 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
           await step.do(`${node.id}:wait`, QUICK, async (ctx) => {
             await record(node, ctx.attempt, {
               status: "waiting",
-              input: { approver: String(config["approver"] ?? "") },
+              input: {
+                approver: String(config["approver"] ?? ""),
+                approver_name: String(config["approver_name"] ?? "")
+              },
               explanation: "Wacht op goedkeuring in het tabblad Runs."
             })
           })

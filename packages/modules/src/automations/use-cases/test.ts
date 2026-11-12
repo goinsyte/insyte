@@ -1,7 +1,7 @@
 import { Db } from "@insyte/database/Db"
-import { accountScopes, fill, handlingOf, missingIn } from "@insyte/domain/automations/Engine"
+import { fill, handlingOf, missingIn } from "@insyte/domain/automations/Engine"
 import { type FlowNode, type LaneNode, scopesRequired, validate } from "@insyte/domain/automations/Graph"
-import { SCOPE_LABEL } from "@insyte/domain/automations/Scopes"
+import { accountScopes, SCOPE_LABEL } from "@insyte/domain/automations/Scopes"
 import { STEPS_BY_ID } from "@insyte/domain/automations/Steps"
 import { NotFound } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
@@ -16,7 +16,8 @@ import { connectedBrands, rowOf1, settingsOf } from "./read.ts"
  * "Test met voorbeeld" (M12 step 4; api.md §2.14): the draft walked against a real order, as a run would, with nothing
  * kept or sent. Conditions and splitsingen are decided on the order; waits and approvals are passed over; each action
  * says what it would do, or why it could not: a field the order lacks, a right the flow would not hold, a teammate who
- * is not there, a service not connected. Nothing is written, so there is nothing to roll back.
+ * is not there, a service not connected. Nothing is written, so there is nothing to roll back. It shows a real order
+ * and its customer, so it takes Bestellingen · Bekijken and Klanten · Bekijken beside Automatiseringen · Bewerken.
  */
 
 type Step = FlowNode | LaneNode
@@ -26,6 +27,8 @@ const label = (n: Step) => STEPS_BY_ID[n.variantId]?.label ?? n.variantId
 export const test = Effect.fn("Automations.test")(
   function*(input: { readonly id: string; readonly recordRef?: string | undefined }) {
     yield* Policy.require("automations", 2)
+    yield* Policy.require("orders", 1)
+    yield* Policy.require("customers", 1)
     const db = yield* Db
     return yield* db.scoped((sql) =>
       Effect.gen(function*() {
@@ -103,7 +106,9 @@ export const test = Effect.fn("Automations.test")(
                   n,
                   lane,
                   "ok",
-                  `Vraagt ${String(n.config["approver"] ?? "")} om goedkeuring; de test gaat uit van ja.`
+                  `Vraagt ${
+                    String(n.config["approver_name"] ?? "") || "een collega"
+                  } om goedkeuring; de test gaat uit van ja.`
                 )
                 return undefined
               case "unsupported": {
