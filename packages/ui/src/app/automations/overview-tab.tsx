@@ -79,7 +79,7 @@ export function OverviewTab(
   const { editor, runs } = useAutomationsSource()
   const trigger = w.nodes[0] ? VARIANTS_BY_ID[w.nodes[0].variantId] : undefined
   const { days, total, end } = useMemo(() => daily(w), [w])
-  const done = w.history.filter((r) => r.status !== "waiting")
+  const done = w.history.filter((r) => r.status !== "waiting" && r.status !== "running")
   const okRate = done.length ? Math.round((done.filter((r) => r.status !== "failed").length / done.length) * 100) : null
   const actions = flatNodes(w.nodes).filter((n) => VARIANTS_BY_ID[n.variantId]?.kind === "action").length
   const saved = (total * actions * MIN_PER_STEP) / 60

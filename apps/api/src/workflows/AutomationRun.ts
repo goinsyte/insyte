@@ -7,6 +7,7 @@ import {
   actOnce,
   decide,
   finishRun,
+  inputOf,
   loadRun,
   notYet,
   recordStep,
@@ -103,6 +104,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
           await step.do(`${node.id}:1`, QUICK, async (ctx) => {
             await record(node, ctx.attempt, {
               status: "succeeded",
+              input: inputOf(plan.context),
               output: { summary: plan.context["trigger.summary"] ?? "" }
             })
           })
@@ -162,7 +164,10 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
           await step.do(`${node.id}:wait`, QUICK, async (ctx) => {
             await record(node, ctx.attempt, {
               status: "waiting",
-              input: { approver: String(config["approver"] ?? "") },
+              input: {
+                approver: String(config["approver"] ?? ""),
+                approver_name: String(config["approver_name"] ?? "")
+              },
               explanation: "Wacht op goedkeuring in het tabblad Runs."
             })
           })
@@ -195,6 +200,17 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
             }
         }
         case "action": {
+          if (plan.done.includes(node.id)) {
+            await step.do(`${node.id}:1`, QUICK, async (ctx) => {
+              await record(node, ctx.attempt, {
+                status: "succeeded",
+                output: { reused: true },
+                explanation: "Al gedaan in een eerdere run met dezelfde sleutel; niet opnieuw gedaan."
+              })
+            })
+            return undefined
+          }
+          // Cancelled from the Runs tab while it waited, or the flow paused, removed or narrowed: `actOnce` reads it.
           try {
             const outcome = await step.do(`${node.id}:1`, RETRY, async (ctx) => {
               const exit = await actionStep(workspaceId, plan, node, ctx.attempt)

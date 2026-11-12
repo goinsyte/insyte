@@ -21,8 +21,10 @@ import type {
   TriggerFieldRow,
   UpdateSettingsInput
 } from "./domain/Automations.ts"
+import type { TestInput, TestResult } from "./domain/Runs.ts"
 import * as Commands from "./use-cases/commands.ts"
 import * as Read from "./use-cases/read.ts"
+import * as Test from "./use-cases/test.ts"
 
 type R = Db | CurrentPrincipal
 
@@ -57,6 +59,8 @@ export class AutomationsService extends Context.Service<AutomationsService, {
   readonly updateSettings: (
     input: typeof UpdateSettingsInput.Type
   ) => Effect.Effect<AutomationChange, Forbidden | NotFound | Invalid, R>
+  /** "Test met voorbeeld" (M12 step 4): the draft walked against an order, nothing kept or sent. */
+  readonly test: (input: typeof TestInput.Type) => Effect.Effect<TestResult, Forbidden | NotFound, R>
 }>()("modules/AutomationsService") {
   // A database that does not answer is a defect, as everywhere. The relay is taken once, for the published event.
   static readonly layer = Layer.effect(
@@ -77,7 +81,8 @@ export class AutomationsService extends Context.Service<AutomationsService, {
         restore: (id) => run(Commands.restoreRemoved(id)),
         publish: (input) => run(Commands.publish(input)),
         setStatus: (input) => run(Commands.setStatus(input)),
-        updateSettings: (input) => run(Commands.updateSettings(input))
+        updateSettings: (input) => run(Commands.updateSettings(input)),
+        test: (input) => run(Test.test(input))
       }
     })
   )

@@ -18,6 +18,7 @@ import {
   TriggerFieldRow,
   UpdateSettingsInput
 } from "@insyte/modules/automations/domain/Automations"
+import { TestInput, TestResult } from "@insyte/modules/automations/domain/Runs"
 import { Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/rpc"
 import { Authenticated } from "./Authenticated.ts"
@@ -65,7 +66,9 @@ export class AutomationsRpcs extends RpcGroup.make(
     payload: UpdateSettingsInput,
     success: AutomationChange,
     error: Schema.Union([Forbidden, NotFound, Invalid])
-  })
+  }),
+  // "Test met voorbeeld" (M12 step 4): the draft walked against an order; nothing kept or sent.
+  Rpc.make("Automations.test", { payload: TestInput, success: TestResult, error: Changed })
 )
   .middleware(Member)
   .middleware(Authenticated)

@@ -88,6 +88,9 @@ const Tools = McpServer.toolkit(InsyteTools).pipe(
         kicking(read.resolveReturn(return_id, { resolution }, idempotency_key)),
       list_automations: ({ status }) => read.automations(status),
       get_automation: ({ automation_id }) => read.automation(automation_id),
+      list_automation_runs: ({ automation_id, status, cursor }) => read.runs(automation_id, { status, cursor }),
+      trigger_automation: ({ automation_id, order_id, idempotency_key }) =>
+        read.startRun(automation_id, { order_id }, idempotency_key),
       list_tickets: ({ view }) => read.tickets(view),
       get_ticket: ({ ticket_id }) => read.ticket(ticket_id),
       create_ticket: ({ idempotency_key, ...body }) => read.createTicket(body, idempotency_key),

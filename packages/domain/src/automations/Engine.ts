@@ -149,3 +149,74 @@ export const grantsOf = (scopes: ReadonlyArray<string>) => {
   }
   return { levels, specials }
 }
+
+/* ── a run's steps as the Runs drawer shows them (M12 step 5) ──────────────────────────────── */
+
+/** What the engine wrote for one step (its latest attempt). */
+export interface StepRow {
+  readonly nodeId: string
+  readonly status: "succeeded" | "failed" | "skipped" | "waiting" | "stopped"
+  readonly attempt: number
+  readonly ms: number
+  readonly explanation: string | null
+  /** A splitsing's lane, as its step decided it. */
+  readonly lane?: "yes" | "no" | undefined
+}
+
+export interface TimelineStep {
+  readonly nodeId: string
+  readonly variantId: string
+  readonly config: Readonly<Record<string, unknown>>
+  readonly lane: "yes" | "no" | null
+  readonly status: "ok" | "error" | "skipped" | "waiting" | "pending" | "stopped"
+  readonly ms: number
+  readonly attempt: number
+  readonly explanation: string | null
+}
+
+const SHOWN = { succeeded: "ok", failed: "error", skipped: "skipped", waiting: "waiting", stopped: "stopped" } as const
+
+type Shape = {
+  readonly id: string
+  readonly variantId: string
+  readonly config: Readonly<Record<string, unknown>>
+  readonly branches?: { readonly yes: ReadonlyArray<Shape>; readonly no: ReadonlyArray<Shape> } | undefined
+}
+
+/**
+ * The run's version laid out step by step with what each did: a lane a splitsing did not take is skipped, a step a
+ * waiting run has not reached is `pending`, and one a finished run never reached is skipped.
+ */
+export const timelineOf = (
+  nodes: ReadonlyArray<Shape>,
+  rows: ReadonlyArray<StepRow>,
+  open: boolean
+): ReadonlyArray<TimelineStep> => {
+  const latest = new Map<string, StepRow>()
+  for (const r of rows) {
+    const was = latest.get(r.nodeId)
+    if (was === undefined || r.attempt >= was.attempt) latest.set(r.nodeId, r)
+  }
+  const one = (n: Shape, lane: "yes" | "no" | null, taken: boolean): TimelineStep => {
+    const row = latest.get(n.id)
+    return {
+      nodeId: n.id,
+      variantId: n.variantId,
+      config: n.config,
+      lane,
+      status: row !== undefined ? SHOWN[row.status] : !taken ? "skipped" : open ? "pending" : "skipped",
+      ms: row?.ms ?? 0,
+      attempt: row?.attempt ?? 1,
+      explanation: row?.explanation ?? null
+    }
+  }
+  return nodes.flatMap((n) => {
+    const head = one(n, null, true)
+    if (n.branches === undefined) return [head]
+    const decided = latest.get(n.id)?.lane
+    const lanes = (["yes", "no"] as const).flatMap((side) =>
+      n.branches![side].map((m) => one(m, side, decided === undefined || decided === side))
+    )
+    return [head, ...lanes]
+  })
+}

@@ -951,7 +951,7 @@ export class ProposalsGroup extends HttpApiGroup.make("proposals")
   .annotate(OpenApi.Title, "Proposals")
 {}
 
-/** A flow (M12 step 1): its definition, as the builder holds it. Runs and triggering one come with the executor. */
+/** A flow (M12 step 1): its definition, as the builder holds it. */
 export const AutomationStepV1 = Schema.Struct({
   id: Schema.String,
   step: Schema.String.annotate({ description: "The step's kind, as `trigger.order_shipped` or `action.send_email`." }),
@@ -1012,6 +1012,43 @@ export const AutomationDetailV1 = Schema.Struct({
 
 export const AutomationStatusFilter = Schema.Literals(["draft", "active", "paused"])
 
+/** A flow's run (M12 step 5): one trigger event for one record, on the version that was live when it started. */
+export const AutomationRunV1 = Schema.Struct({
+  id: Schema.String,
+  automation_id: Schema.String,
+  version: Schema.Int,
+  status: Schema.String.annotate({ description: "running, waiting, succeeded, failed, stopped or skipped." }),
+  reason: Schema.NullOr(Schema.String).annotate({ description: "Why it failed, stopped or was skipped." }),
+  trigger: Schema.String,
+  manual: Schema.Boolean.annotate({ description: "Started by hand (again, or through this API)." }),
+  record: Schema.NullOr(Schema.Struct({ type: Schema.String, id: Schema.String, number: Schema.String })),
+  started_at: Schema.String,
+  finished_at: Schema.NullOr(Schema.String),
+  steps: Schema.Array(
+    Schema.Struct({
+      step_id: Schema.String,
+      step: Schema.String,
+      lane: Schema.NullOr(Schema.String),
+      status: Schema.String.annotate({ description: "ok, error, skipped, waiting, pending or stopped." }),
+      explanation: Schema.NullOr(Schema.String)
+    })
+  ).annotate({ description: "Each step of the run's version and what it did; empty in a list." })
+})
+
+export const AutomationRunPageV1 = Schema.Struct({
+  data: Schema.Array(AutomationRunV1),
+  next_cursor: Schema.NullOr(Schema.String)
+})
+
+export const AutomationRunStatusFilter = Schema.Literals([
+  "running",
+  "waiting",
+  "succeeded",
+  "failed",
+  "stopped",
+  "skipped"
+])
+
 export class AutomationsGroup extends HttpApiGroup.make("automations")
   .add(
     HttpApiEndpoint.get("automations", "/automations", {
@@ -1029,6 +1066,29 @@ export class AutomationsGroup extends HttpApiGroup.make("automations")
     }).annotate(
       OpenApi.Description,
       "One flow: its draft and live steps, its published versions, and what is wrong with the draft per step. Needs `automations.read`."
+    ),
+    HttpApiEndpoint.get("runs", "/automations/:id/runs", {
+      params: ById,
+      query: Schema.Struct({
+        status: Schema.optional(AutomationRunStatusFilter),
+        limit: Schema.optional(Schema.FiniteFromString),
+        cursor: Schema.optional(Schema.String)
+      }),
+      success: AutomationRunPageV1,
+      error: [ScopeMissingV1, NotFoundV1]
+    }).annotate(
+      OpenApi.Description,
+      "The flow's runs, newest first, in pages of up to 200. Needs `automations.read`."
+    ),
+    HttpApiEndpoint.post("startRun", "/automations/:id/runs", {
+      params: ById,
+      headers: Writes,
+      payload: Schema.Struct({ order_id: Schema.String }),
+      success: AutomationRunV1,
+      error: WriteErrors
+    }).annotate(
+      OpenApi.Description,
+      "Runs the flow's live version for one order now, as its trigger would, and answers the run as it started; its steps act as the flow's own service account. Refused for a flow never published (`409`, `not_published`); a paused flow's run is written `skipped`. Needs `automations.write`."
     )
   )
   .annotate(OpenApi.Title, "Automations")

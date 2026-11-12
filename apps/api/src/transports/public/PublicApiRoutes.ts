@@ -217,6 +217,12 @@ const AutomationsLive = HttpApiBuilder.group(
         handlers
           .handle("automations", ({ query }) => act.automations(query.status))
           .handle("automation", ({ params }) => act.automation(params.id))
+          .handle("runs", ({ params, query }) => act.runs(params.id, query))
+          .handle(
+            "startRun",
+            ({ params, payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.startRun(params.id, payload, key))
+          )
     )
 )
 

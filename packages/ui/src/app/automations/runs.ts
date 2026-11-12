@@ -178,6 +178,11 @@ export function runLabel(r: WorkflowRun): string {
   if (r.status === "succeeded") return "Geslaagd"
   if (r.status === "failed") return "Mislukt"
   if (r.status === "duplicate") return "Dubbel, overgeslagen"
+  if (r.status === "running") return "Loopt"
+  if (r.status === "stopped") return "Gestopt"
+  if (r.status === "skipped") return "Overgeslagen"
+  if (r.waitingOn?.kind === "approval") return "Wacht op goedkeuring"
+  if (r.waitingOn?.kind === "wait") return "Wacht"
   const step = r.timeline?.find((s) => s.status === "waiting")
   return step?.variantId === "delay.wait_no_reply" ? "Wacht op antwoord" : "Wacht op voorstel"
 }

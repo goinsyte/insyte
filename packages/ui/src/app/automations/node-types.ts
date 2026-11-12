@@ -202,14 +202,15 @@ export type WorkflowState = {
   history: WorkflowRun[]
 }
 
-export type RunStatus = "succeeded" | "failed" | "waiting" | "duplicate"
+/** `running`, `stopped` and `skipped` are the console's: a run under way, one stopped, one a paused flow passed over. */
+export type RunStatus = "succeeded" | "failed" | "waiting" | "duplicate" | "running" | "stopped" | "skipped"
 
 export type RunStep = {
   nodeId: string
   variantId: string
   label: string
-  /** `pending` is a step a waiting run has not reached yet. */
-  status: "ok" | "error" | "skipped" | "waiting" | "pending"
+  /** `pending` is a step a waiting run has not reached yet; `stopped`, one a stopped run ended on. */
+  status: "ok" | "error" | "skipped" | "waiting" | "pending" | "stopped"
   ms: number
   /** In a lane of a splitsing: which one. */
   lane?: "yes" | "no"
@@ -227,6 +228,10 @@ export type WorkflowRun = {
   error?: string
   /** For a failed run: what fixes it. */
   fix?: string
+  /** For a stopped or skipped run: why, in plain words. */
+  reason?: string
+  /** For a waiting run: a teammate's answer (and who), the customer's, or the clock. */
+  waitingOn?: { kind: "approval" | "reply" | "wait"; approver?: string | undefined }
   /** Started by hand rather than by its trigger. */
   manual?: boolean
   /** The record that started it. */

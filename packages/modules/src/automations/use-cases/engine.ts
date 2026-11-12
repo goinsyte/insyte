@@ -42,6 +42,8 @@ export interface RunPlan {
   readonly account: { id: string; label: string; version: number; scopes: Array<string> } | null
   readonly storeScope: Array<string> | null
   readonly connected: Array<string>
+  /** Actions an earlier run of the same key already did: "Opnieuw" does not do them twice. */
+  readonly done: Array<string>
 }
 
 /* ── starting runs ─────────────────────────────────────────────────────────────────────────── */
@@ -120,7 +122,7 @@ const regionName = (code: string) => {
 }
 
 /** What an order run's steps can read, as the fields `Fields.ts` names. */
-const orderContext = Effect.fn("Automations.orderContext")(function*(sql: SqlClient.SqlClient, orderId: string) {
+export const orderContext = Effect.fn("Automations.orderContext")(function*(sql: SqlClient.SqlClient, orderId: string) {
   const [o] = yield* sql<{
     number: string
     totalMinor: string
@@ -173,6 +175,7 @@ export const loadRun = Effect.fn("Automations.loadRun")(function*(runId: string)
         summary: string
         recordKind: string
         recordId: string
+        triggerEvent: string
         nodesJson: string | null
         storeScope: Array<string> | null
         accountId: string | null
@@ -181,7 +184,7 @@ export const loadRun = Effect.fn("Automations.loadRun")(function*(runId: string)
         accountScopes: Array<string> | null
       }>`
         select r.workspace_id, r.automation_id, a.name, r.version, r.started_at, r.status, r.summary, r.record_kind, r.record_id,
-               v.nodes::text as nodes_json, a.store_scope, sa.id as account_id, sa.label as account_label,
+               r.trigger_event, v.nodes::text as nodes_json, a.store_scope, sa.id as account_id, sa.label as account_label,
                sa.version as account_version, sa.scopes as account_scopes
         from automation_runs r
         join automations a on a.id = r.automation_id
@@ -217,12 +220,52 @@ export const loadRun = Effect.fn("Automations.loadRun")(function*(runId: string)
             scopes: r.accountScopes ?? []
           },
         storeScope: r.storeScope,
-        connected: [...(yield* connectedBrands(sql))]
+        connected: [...(yield* connectedBrands(sql))],
+        done: yield* doneBefore(sql, r.automationId, r.triggerEvent)
       }
       return plan
     })
   )
 })
+
+/**
+ * A run started again ("Opnieuw") is `rerun:<key>:<n>`; the actions the earlier runs of that key did are not done
+ * again, so a ticket made the first time is not made twice.
+ */
+export const keyOf = (run: { readonly id: string; readonly triggerEvent: string }) =>
+  run.triggerEvent.startsWith("rerun:") ? run.triggerEvent.split(":")[1] ?? run.id : run.id
+
+const doneBefore = Effect.fn("Automations.doneBefore")(function*(
+  sql: SqlClient.SqlClient,
+  automationId: string,
+  triggerEvent: string
+) {
+  if (!triggerEvent.startsWith("rerun:")) return []
+  const key = triggerEvent.split(":")[1] ?? ""
+  const rows = yield* sql<{ nodeId: string }>`
+    select distinct s.node_id from automation_run_steps s
+    join automation_runs r on r.id = s.run_id
+    where r.automation_id = ${automationId} and (r.id = ${key} or r.trigger_event like ${`rerun:${key}:%`})
+      and s.status = 'succeeded' and s.variant like 'action.%'`
+  return rows.map((r) => r.nodeId)
+})
+
+/** What the run read when it started, as the Runs drawer's Invoer shows it. */
+export const inputOf = (context: RunContext): Record<string, string> => {
+  const pick: Array<[string, string]> = [
+    ["Bestelling", "order.number"],
+    ["Klant", "customer.name"],
+    ["E-mail", "customer.email"],
+    ["Totaal", "order.total"],
+    ["Land", "order.country"]
+  ]
+  return Object.fromEntries(
+    pick.flatMap(([label, path]) => {
+      const value = context[path] ?? ""
+      return value === "" ? [] : [[label, path === "order.total" ? `€ ${value}` : value]]
+    })
+  )
+}
 
 export const UNPUBLISHED = "De publicatie is ongedaan gemaakt; de run is gestopt."
 
@@ -359,7 +402,7 @@ const explain = (variantId: string, error: unknown): StepFailed => {
 }
 
 /** Active members whose name is `name` (case aside), for "Toewijzen aan" and "Wie". */
-const membersNamed = (sql: SqlClient.SqlClient, name: string) =>
+export const membersNamed = (sql: SqlClient.SqlClient, name: string) =>
   Effect.map(
     sql<{ id: string }>`
       select m.id from members m join auth."user" u on u.id = m.user_id
