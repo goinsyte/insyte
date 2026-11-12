@@ -1,10 +1,12 @@
 import { STEPS_BY_ID } from "@insyte/domain/automations/Steps"
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
+import { Exit } from "effect"
 import { describe, expect, it } from "vitest"
+import { actionStep, planOf } from "../src/workflows/AutomationRun.ts"
 import { consume, ok, outboxOf, relay } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
-import { call, rpc } from "./support.ts"
+import { call, rpc, sessionMe } from "./support.ts"
 
 /*
  * The automation engine (steps 14.2 and 14.3, M12 steps 2 and 3). Publishing gives a flow its own service account with
@@ -12,7 +14,8 @@ import { call, rpc } from "./support.ts"
  * active flow on "Verzending vertraagd", once: the Workflow walks the pinned version, a Filter stops the run that does
  * not pass, a Ja/nee-splitsing walks one lane, the actions run through their slices as the account (the ticket's audit
  * says `service_account`), a step Insyte cannot run yet is skipped with why, and a right switched off fails the run and
- * tells the flow's owner.
+ * tells the flow's owner. An action reads the flow as it is when it runs (a flow paused while its run waited does
+ * nothing more), and an attempt Workflows retries finds the first one's row and does not act twice.
  */
 
 // A response body, read loosely as a client would.
@@ -44,6 +47,9 @@ const step = (id: string, variantId: string, config: Record<string, unknown> = {
 })
 
 const TRIGGER = step("t", "trigger.shipping_delay")
+
+/** A run plan's "Ticket aanmaken" step. */
+const ticketStep = (plan: Json) => plan.nodes.find((n: Json) => n.id === "k")
 
 describe("the automation engine", () => {
   it("runs each active flow once per delayed order, as its own service account", async () => {
@@ -145,5 +151,59 @@ describe("the automation engine", () => {
     const notes = ok(await rpc("Notifications.list", { tab: "inbox", cursor: null }, store.cookie)).items
     expect(notes.filter((n) => n.kind === "automation.alert")).toHaveLength(1)
     expect(notes.filter((n) => n.kind === "automation.failed")).toHaveLength(1)
+  }, 180_000)
+
+  it("acts once per step, and as the flow is when the step runs", async () => {
+    const store = await importedStore("engine-once")
+    const me = ok(await sessionMe(store.cookie)).principals[0]!.id
+    const flow = async (name: string, title: string) => {
+      const { automation } = ok(await rpc("Automations.create", { name }, store.cookie))
+      const id = automation!.automation.id
+      const nodes = [
+        TRIGGER,
+        step("a", "action.require_approval", { approver: me }),
+        step("k", "action.create_ticket", { title, assignee: "" })
+      ]
+      ok(await rpc("Automations.saveDraft", { id, name, nodes: nodes as Json }, store.cookie))
+      ok(await rpc("Automations.publish", { id, note: "" }, store.cookie))
+      return id
+    }
+    const once = await flow("Eén keer", "Precies één ticket")
+    const paused = await flow("Gepauzeerd terwijl hij wacht", "Nooit na pauze")
+
+    await using workflows = await introspectWorkflow(env.AUTOMATION_RUN)
+    await workflows.modifyAll(async (m) => {
+      await m.disableSleeps()
+    })
+    expect((await sweep(store.workspace)).status).toBe(200)
+    await relay(store.workspace)
+    const waiting = async () => {
+      for (let i = 0; i < 150; i++) {
+        const runs = (await runsOf(store.workspace)).runs
+        if (runs.filter((r) => r.status === "waiting").length === 2) return runs
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      throw new Error("the runs did not wait")
+    }
+    const runs = await waiting()
+    const runOf = (automationId: string) => runs.find((r) => r.automationId === automationId)!.id
+
+    // A retried attempt finds the first one's row: one ticket.
+    const plan = JSON.parse(await planOf(store.workspace, runOf(once)))
+    for (const attempt of [1, 2]) {
+      const exit = await actionStep(store.workspace, plan, ticketStep(plan), attempt)
+      expect(Exit.isSuccess(exit) && exit.value.kind).toBe("done")
+    }
+    // Paused while it waited: the step does nothing and says why.
+    ok(await rpc("Automations.setStatus", { id: paused, status: "paused" }, store.cookie))
+    const later = JSON.parse(await planOf(store.workspace, runOf(paused)))
+    const stopped = await actionStep(store.workspace, later, ticketStep(later), 1)
+    expect(Exit.isSuccess(stopped) && stopped.value).toEqual({
+      kind: "stop",
+      reason: "De flow staat uit; de rest van de run is niet gedaan."
+    })
+    const titles = ok(await rpc("Tickets.list", { view: "all" }, store.cookie)).rows.map((t) => t.title)
+    expect(titles.filter((t) => t === "Precies één ticket")).toHaveLength(1)
+    expect(titles).not.toContain("Nooit na pauze")
   }, 180_000)
 })
