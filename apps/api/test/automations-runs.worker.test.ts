@@ -356,6 +356,7 @@ describe("a flow's runs", () => {
     const narrowed = await flow("Recht uit terwijl hij wacht", gated("Na recht uit"))
     const named = await flow("Elena keurt goed", gated("Door Elena"))
     const once = await flow("Eén keer", gated("Precies één keer"))
+    const dropped = await flow("Verwijderd en gestopt", gated("Na verwijderen gestopt"))
     const limited = await flow("Met limiet", [TRIGGER, step("e", "action.track_event")])
     ok(await rpc("Automations.updateSettings", { id: limited, rateLimit: 30 }, store.cookie))
 
@@ -367,11 +368,12 @@ describe("a flow's runs", () => {
     await relay(store.workspace)
     const runOf = async (automationId: string) => ok(await rpc("Runs.list", { automationId }, store.cookie)).rows[0]!
     const waitingOf = (id: string) => until(() => runOf(id), (r) => r.status === "waiting")
-    const [p, r, n, e, o] = await Promise.all([paused, removed, narrowed, named, once].map(waitingOf))
+    const [p, r, n, e, o, d] = await Promise.all([paused, removed, narrowed, named, once, dropped].map(waitingOf))
 
     // Paused, removed, narrowed while it waits: approved after, the run does nothing more.
     ok(await rpc("Automations.setStatus", { id: paused, status: "paused" }, store.cookie))
     ok(await rpc("Automations.remove", { id: removed }, store.cookie))
+    ok(await rpc("Automations.remove", { id: dropped }, store.cookie))
     await pastUndo(store.workspace)
     ok(await rpc("Automations.updateSettings", { id: narrowed, scopesOff: ["tickets.write"] }, store.cookie))
     for (const w of [p!, r!, n!]) ok(await rpc("Runs.approve", { id: w.id, stepId: "a" }, store.cookie))
@@ -391,6 +393,9 @@ describe("a flow's runs", () => {
     })
     expect((await settled(n!.id)).run.status).toBe("failed")
     expect((await settled(n!.id)).run.reason).toContain("De flow mist het recht")
+
+    // A removed flow's waiting run can still be stopped from the Runs tab.
+    expect(ok(await rpc("Runs.cancel", { id: d!.id }, store.cookie)).run).toMatchObject({ status: "stopped" })
 
     // Only the teammate the step names (by id), or someone who may publish, answers it.
     const asked = ok(await rpc("Runs.get", { id: e!.id }, store.cookie))
