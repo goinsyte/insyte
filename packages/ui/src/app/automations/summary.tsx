@@ -73,7 +73,7 @@ export function summaryOf(node: WorkflowNode): string {
     case "action.refund":
       return `${s(c.amount) || "…"}${s(c.reason) ? ` · ${s(c.reason)}` : ""}`
     case "action.require_approval":
-      return `Door ${s(c.approver) || "…"}`
+      return `Door ${s(c.approver_name) || s(c.approver) || "…"}`
     case "action.assign_supplier":
       return s(c.supplier) || "Kies een leverancier"
     case "action.ai_compose":

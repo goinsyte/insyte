@@ -4,7 +4,7 @@ import { STEPS_BY_ID } from "@insyte/domain/automations/Steps"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import {
-  act,
+  actOnce,
   decide,
   finishRun,
   loadRun,
@@ -28,8 +28,11 @@ import { withRequestDb } from "../platform/RequestDb.ts"
  * `step.do("<node>:1")` that decides or acts and writes what it did, so a replay does nothing twice; "Wachten" sleeps,
  * "Wachten op antwoord" sleeps and then looks for the customer's mail, "Goedkeuring vragen" waits for the answer the
  * Runs tab sends (seven days at most). A Ja/nee-splitsing is decided in its step and walks one lane. An action runs
- * through its slice as the flow's service account; a refusal that trying again cannot change fails the run at once, the
- * rest are retried. A step Insyte cannot run yet is skipped, with why.
+ * through its slice as the flow's service account, as the flow is just then: a flow paused, removed or narrowed since
+ * the run started stops it, or fails the step for the right it no longer holds (`actOnce`). The action and its row
+ * commit together, so a retried attempt does not act twice. A refusal that trying again cannot change fails the run at
+ * once, the rest are retried. A step Insyte cannot run yet is skipped, with why. A run that cannot even be read closes
+ * as failed rather than staying open.
  */
 
 export interface AutomationRunParams {
@@ -69,7 +72,13 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
     const { workspaceId, runId } = event.payload
     const exec = <A>(effect: Effect.Effect<A, unknown, unknown>) => run(workspaceId, effect)
     // The plan crosses the step as text: its steps' settings are any JSON, which the step's type cannot say.
-    const loaded = await step.do("load", QUICK, () => exec(Effect.map(loadRun(runId), (p) => JSON.stringify(p))))
+    let loaded: string
+    try {
+      loaded = await step.do("load", QUICK, () => planOf(workspaceId, runId))
+    } catch {
+      await step.do("finish", QUICK, () => exec(finishRun(runId, "failed", "De run kon niet worden gelezen.")))
+      return { outcome: "failed" as const }
+    }
     const plan = JSON.parse(loaded) as RunPlan | null
     if (plan === null) return { outcome: "closed" as const }
 
@@ -187,17 +196,15 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
         }
         case "action": {
           try {
-            await step.do(`${node.id}:1`, RETRY, async (ctx) => {
-              const exit = await runExit(workspaceId, act(plan, node))
+            const outcome = await step.do(`${node.id}:1`, RETRY, async (ctx) => {
+              const exit = await actionStep(workspaceId, plan, node, ctx.attempt)
               if (Exit.isSuccess(exit)) {
                 const done = exit.value
-                await record(node, ctx.attempt, {
-                  status: done.status,
-                  input: { ...config },
-                  output: done.output,
-                  ...(done.explanation === undefined ? {} : { explanation: done.explanation })
-                })
-                return
+                if (done.kind === "stop") {
+                  await record(node, ctx.attempt, { status: "stopped", explanation: done.reason })
+                  return done.reason
+                }
+                return null
               }
               const failure = Cause.squash(exit.cause)
               const failed = failure instanceof StepFailed
@@ -212,7 +219,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
               if (failed.terminal) throw new NonRetryableError(failed.explanation)
               throw new Error(failed.explanation)
             })
-            return undefined
+            return outcome === null ? undefined : { status: "stopped", reason: outcome }
           } catch (error) {
             return {
               status: "failed",
@@ -248,6 +255,14 @@ const program = <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unkno
 
 const runExit = <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unknown>) =>
   runtime.runPromiseExit(program(workspaceId, effect)).finally(() => Telemetry.flush())
+
+/** The run's plan as text (it crosses a step), or `"null"` when there is nothing left to do. */
+export const planOf = (workspaceId: string, runId: string) =>
+  run(workspaceId, Effect.map(loadRun(runId), (p) => JSON.stringify(p)))
+
+/** One action step's attempt, as the Workflow makes it; a retried attempt finds the first one's row and does not act. */
+export const actionStep = (workspaceId: string, plan: RunPlan, node: Node, attempt: number) =>
+  runExit(workspaceId, actOnce(plan, node, attempt))
 
 /** One step's effect in the workspace, over a connection of its own. */
 const run = async <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unknown>): Promise<A> => {

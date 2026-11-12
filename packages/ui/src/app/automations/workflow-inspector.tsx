@@ -35,7 +35,7 @@ export function WorkflowInspector({
   onClose: () => void
 }) {
   const navigate = useNavigate()
-  const { editor, useFields } = useAutomationsSource()
+  const { editor, people, useFields } = useAutomationsSource()
   const fields = useFields?.(automationId) ?? FIELDS
   const v = VARIANTS_BY_ID[node.variantId]
   if (!v) return null
@@ -113,6 +113,35 @@ export function WorkflowInspector({
                     {f.options.map((o) => (
                       <SelectItem key={o.value} value={o.value}>
                         {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Row>
+            )
+          }
+          if (f.type === "member") {
+            // A teammate by id; the name beside it is for the canvas, never what an answer is checked against.
+            const picked = String(value ?? "")
+            const empty = f.required === true && picked === ""
+            return (
+              <Row key={f.key} label={f.label} hint={empty ? "Nodig om te draaien" : fieldIssue(f.key)?.message}>
+                <Select
+                  items={[...people]}
+                  value={picked}
+                  onValueChange={(x) =>
+                    set({
+                      [f.key]: x,
+                      [`${f.key}_name`]: people.find((p) => p.value === x)?.label ?? ""
+                    })}
+                >
+                  <SelectTrigger size="sm" className="w-full text-sm">
+                    <SelectValue placeholder="Kies een collega" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {people.map((p) => (
+                      <SelectItem key={p.value} value={p.value}>
+                        {p.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
