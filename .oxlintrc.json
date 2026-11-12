@@ -79,10 +79,8 @@
     "!packages/ui/src/app/quality/**",
     "!packages/ui/src/app/lib/returns.ts",
     "!packages/ui/src/app/lib/quality.ts",
-    // Graduated (08 §3): Start's screens and the home store, wired to Home.* and the queue in M10. The queue panel
-    // follows once the proposals branches (12.2) land, since they edit it.
+    // Graduated (08 §3): Start's screens, the queue panel and the home store, wired to Home.* and the queue in M10.
     "!packages/ui/src/app/dashboard/**",
-    "packages/ui/src/app/dashboard/queue-panel.tsx",
     "!packages/ui/src/app/stores/home-store.ts",
     // Graduated (08 §3): Instellingen → Meldingen, wired to Notifications.* in M11 (step 13.5).
     "!packages/ui/src/app/settings/notifications-screen.tsx",

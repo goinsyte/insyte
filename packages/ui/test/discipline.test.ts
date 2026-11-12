@@ -78,12 +78,9 @@ const graduated = [
   "app/inbox/"
 ]
 
-/** Inside a graduated directory but not yet edited for the backend: the queue panel waits for the proposals branches. */
-const notYet = new Set(["app/dashboard/queue-panel.tsx"])
-
 const ported = (name: string): boolean =>
   portedPaths.some((prefix) => name.startsWith(prefix)) &&
-  (notYet.has(name) || !graduated.some((prefix) => name.startsWith(prefix)))
+  !graduated.some((prefix) => name.startsWith(prefix))
 
 const files = sources(src).filter(([name]) => !ported(name))
 
