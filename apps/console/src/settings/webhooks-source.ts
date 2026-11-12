@@ -69,7 +69,8 @@ const asDetail = (detail: WebhookDeliveryDetail): Delivery => ({
   ...asDelivery(detail.delivery),
   request: (detail.body ?? {}) as Record<string, unknown>,
   response: detail.response ?? "",
-  ...(detail.signature === null ? {} : { signature: detail.signature })
+  ...(detail.signature === null ? {} : { signature: detail.signature }),
+  ...(detail.redacted ? { redacted: true } : {})
 })
 
 const COPY: RefusalCopy = {
@@ -100,11 +101,12 @@ const INVALID: Readonly<Record<string, string>> = {
   "events.unknown": "Een van de events bestaat niet meer.",
   "apiVersion.unknown": "Die API-versie bestaat niet.",
   "headers.too_many": "Hooguit 10 extra headers.",
-  "headers.format": "Een headernaam bestaat uit letters, cijfers en streepjes.",
+  "headers.format": "Een headernaam bestaat uit letters, cijfers en streepjes, en een waarde past op één regel.",
   "headers.forbidden": "Die header zet Insyte zelf. Kies een andere naam.",
   "headers.duplicate": "Elke header mag één keer voorkomen.",
   "headers.too_long": "Een headerwaarde mag hooguit 1000 tekens zijn.",
   "stores.unknown": "Een van de winkels bestaat niet meer.",
+  "stores.forbidden": "Je rol reikt niet tot die winkels. Kies alleen winkels waar je bij kunt.",
   "event.unknown": "Dat event bestaat niet."
 }
 

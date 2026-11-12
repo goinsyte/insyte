@@ -10,7 +10,7 @@ import { Sealer } from "../../shared/domain/Sealer.ts"
 import type { StoreAccess } from "../../shared/domain/Stores.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
-import { HEADER_NAME, isForbiddenHeader, urlRefusal } from "../domain/Delivery.ts"
+import { HEADER_NAME, HEADER_VALUE, isForbiddenHeader, urlRefusal } from "../domain/Delivery.ts"
 import {
   EndpointChange,
   type EndpointInput,
@@ -20,6 +20,7 @@ import {
   type UpdateEndpoint,
   WebhookEndpointView
 } from "../domain/Webhook.ts"
+import { reachOf } from "./deliveries.ts"
 
 /*
  * Instellingen → Webhooks (M19.4): the endpoints. Seeing them is `integrations` at Bekijken, changing them Bewerken
@@ -148,9 +149,15 @@ const checkInput = (sql: SqlClient.SqlClient, input: EndpointInput) =>
     else if (new Set(headers.map((h) => h.key.trim().toLowerCase())).size !== headers.length) {
       fields["headers"] = "duplicate"
     } else if (headers.some((h) => (h.value ?? "").length > 1000)) fields["headers"] = "too_long"
-    if (input.stores !== "all") {
+    else if (headers.some((h) => !HEADER_VALUE.test(h.value ?? ""))) fields["headers"] = "format"
+    // An endpoint hears no store beyond the person's own: "all" is for a role that reaches all of them.
+    const reach = reachOf(yield* CurrentPrincipal)
+    if (input.stores === "all") {
+      if (reach !== "all") fields["stores"] = "forbidden"
+    } else {
       const known = yield* sql<{ id: string }>`select id from stores where id in ${sql.in([...input.stores, ""])}`
       if (input.stores.length === 0 || known.length !== new Set(input.stores).size) fields["stores"] = "unknown"
+      else if (reach !== "all" && input.stores.some((s) => !reach.includes(s))) fields["stores"] = "forbidden"
     }
     if (Object.keys(fields).length > 0) return yield* new Invalid({ fields })
   })

@@ -64,7 +64,9 @@ export class WebhookDeliveryDetail extends Schema.Class<WebhookDeliveryDetail>("
   delivery: WebhookDeliveryView,
   body: Schema.Unknown,
   signature: Schema.NullOr(Schema.String),
-  response: Schema.NullOr(Schema.String)
+  response: Schema.NullOr(Schema.String),
+  /** The body and the answer are left out: the role does not read the event's area (orders, customers, …). */
+  redacted: Schema.Boolean
 }) {}
 
 export const WebhookHeader = Schema.Struct({

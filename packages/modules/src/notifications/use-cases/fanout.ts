@@ -20,7 +20,8 @@ import { connectionOf } from "./slack.ts"
  * - `ticket.mentioned`: who a ticket comment names with `@` hears of it;
  * - `chat.mentioned`: who a chat message names with `@` hears of it, if they are in it and did not mute it;
  * - `quality_check.submitted`: who asked for the check, and whoever handles products, hear the supplier answered;
- * - `webhook.disabled`: the owner and whoever manages the integrations hear Insyte switched an endpoint off.
+ * - `webhook.disabled`: the owner and whoever may change the integrations (Bewerken) hear Insyte switched an endpoint
+ *   off.
  *
  * A member deactivated or removed hears nothing. Who has "Alleen als het mij betreft" on for the kind hears only of
  * what concerns them directly (they were put on it, named in it, asked for it or sent the invitation). The in-app switch
@@ -256,7 +257,7 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
         const recipients = yield* sql<{ id: string }>`
           select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
           where m.deactivated_at is null and m.removed_at is null
-            and (r.id = 'owner' or coalesce((r.levels ->> 'integrations')::int, 0) >= 3)`
+            and (r.id = 'owner' or coalesce((r.levels ->> 'integrations')::int, 0) >= 2)`
         return {
           kind: "integration.disconnected",
           recipients: recipients.map((r) => r.id),

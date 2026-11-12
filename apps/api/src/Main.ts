@@ -16,6 +16,7 @@ import {
   notifySweep,
   queueSweep,
   sweep,
+  webhooksRearm,
   webhooksSweep
 } from "./platform/Relay.ts"
 import { withRequestDb } from "./platform/RequestDb.ts"
@@ -83,13 +84,15 @@ export default {
     }
   },
 
-  /** Every minute (on staging every fifteenth, `infra/app.ts`): the relay's sweep for events a kick missed and the
-   * notes quiet hours or a failed try held back (M11.5); every fifteenth, the stores' reconcile (M6.3), the tracking sweep (M8.4), Start's queue (M10.1), the
+  /** Every minute (on staging every fifteenth, `infra/app.ts`): the relay's sweep for events a kick missed, the
+   * notes quiet hours or a failed try held back (M11.5) and the webhook deliveries whose run never started or died
+   * (M19.4); every fifteenth, the stores' reconcile (M6.3), the tracking sweep (M8.4), Start's queue (M10.1), the
    * daily facts (M10.4, at 02:00 UTC their nightly pass) and the members' daily digests (M11.5). */
   scheduled(controller, _env, ctx) {
     ctx.waitUntil(background.runPromise(withRequestDb(sweep())).finally(() => Telemetry.flush()))
     ctx.waitUntil(background.runPromise(withRequestDb(notifySweep())).finally(() => Telemetry.flush()))
     const at = new Date(controller.scheduledTime)
+    ctx.waitUntil(background.runPromise(withRequestDb(webhooksRearm(at))).finally(() => Telemetry.flush()))
     if (at.getUTCMinutes() % 15 === 0) {
       const nightly = at.getUTCHours() === 2 && at.getUTCMinutes() === 0
       ctx.waitUntil(background.runPromise(withRequestDb(factsSweep(nightly))).finally(() => Telemetry.flush()))

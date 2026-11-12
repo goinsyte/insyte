@@ -983,6 +983,10 @@ export const WEBHOOKS_DESCRIPTION = [
   `${WEBHOOK_AUTO_DISABLE_AFTER} failed attempts in a row Insyte switches the endpoint off. ` +
   "Order is not guaranteed and an event may arrive twice: order by `created_at`, dedupe on `id`.",
   "",
+  "Before each attempt Insyte resolves the endpoint's name and refuses one that points at a private or internal " +
+  "address. That check is defence in depth, not a guarantee against a name that answers differently a moment later " +
+  "(DNS rebinding): authenticate every request by its signature, never by where it came from.",
+  "",
   "| Group | Events (✓ sent today) |",
   "| --- | --- |",
   ...WEBHOOK_EVENT_GROUPS.map((g) =>

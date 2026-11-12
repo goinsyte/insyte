@@ -11,13 +11,17 @@ import { roomOf } from "../platform/Room.ts"
 /*
  * A webhook delivery's attempts (M19.4): one durable step per attempt, then a sleep until the next one the retry
  * schedule allows (1 m, 10 m, 1 h, … 72 h), until it is delivered, out of attempts, or cancelled. A step is retried only
- * when it could not run (the database, or a delivery whose relay has not committed yet); what the endpoint answered is
- * the attempt's result, never a throw. The workspace's open tabs hear the endpoint changed after each attempt.
+ * when it could not run (the database, the resolver not answering, a delivery not found); what the endpoint answered is
+ * the attempt's result, never a throw. A run that gives up or dies leaves its delivery open, and the minute sweep
+ * re-arms it with a run of the next number (`run`); this one, if it ever wakes, finds itself stale and sends nothing.
+ * The workspace's open tabs hear the endpoint changed after each attempt, as a step of its own that never fails.
  */
 
 export interface WebhookDeliveryParams {
   readonly workspaceId: string
   readonly deliveryId: string
+  /** The delivery's run number (`webhook_deliveries.runs`); 0 for the first. */
+  readonly run?: number
 }
 
 const ATTEMPT: WorkflowStepConfig = {
@@ -31,20 +35,26 @@ const MAX_STEPS = 8
 export class WebhookDeliveryWorkflow extends WorkflowEntrypoint<Cloudflare.Env, WebhookDeliveryParams> {
   override async run(event: Readonly<WorkflowEvent<WebhookDeliveryParams>>, step: WorkflowStep) {
     const { workspaceId, deliveryId } = event.payload
+    const number = event.payload.run ?? 0
     let last: Attempted = { next: null }
     for (let n = 1; n <= MAX_STEPS; n++) {
       last = await step.do(`attempt ${n}`, ATTEMPT, async () => {
-        const result = await run(workspaceId, attempt(deliveryId))
-        // Made on a relay that has not committed yet: try the step again shortly.
-        if (result.missing === true) throw new Error(`delivery ${deliveryId} is not there yet`)
+        const result = await run(workspaceId, attempt(deliveryId, number))
+        // Not found (its transaction not visible yet, or gone): try the step again shortly.
+        if (result.missing === true) throw new Error(`delivery ${deliveryId} not found`)
         return result
       })
-      if (last.endpointId !== undefined) {
-        await roomOf(workspaceId).broadcast({
-          v: 1,
-          type: "records.changed",
-          kind: "webhook_endpoint",
-          ids: [last.endpointId]
+      const endpointId = last.endpointId
+      if (endpointId !== undefined && last.stale !== true) {
+        await step.do(`tell ${n}`, async () => {
+          await roomOf(workspaceId).broadcast({
+            v: 1,
+            type: "records.changed",
+            kind: "webhook_endpoint",
+            ids: [endpointId]
+          })
+            .catch(() => undefined)
+          return true
         })
       }
       if (last.next === null) break

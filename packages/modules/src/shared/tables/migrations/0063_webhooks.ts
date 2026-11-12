@@ -12,8 +12,12 @@ import { statements } from "../statements.ts"
  *   Removing is soft (`deleted_at`), for its Undo.
  * - `webhook_deliveries`: one row per event per endpoint (its id is `Insyte-Delivery`, derived from the event and the
  *   endpoint, so a relay that runs twice makes one), and one per test or redelivery. The body as sent, the signature
- *   header, the last attempt's status, time and the start of the answer, the attempts and the next one's time. Kept
- *   30 days: `webhook_deliveries_expire()` deletes older rows, for the 15-minute sweep, as `system`.
+ *   header, the last attempt's status, time and the start of the answer, the attempts and the next one's time, and the
+ *   store the record belongs to (`null` for a test), which fences the log to a role's stores. Its attempts run on a
+ *   Workflow: `runs` counts the runs it was given (a re-armed one is the next), `run_started_at` when the current one
+ *   was handed over. Kept 30 days: `webhook_deliveries_expire()` deletes older rows, for the 15-minute sweep, as
+ *   `system`. `webhook_deliveries_stranded(at, n)` lists the open deliveries whose run never started or has gone
+ *   quiet, ids only, for the minute sweep that re-arms them.
  */
 export default statements(
   `create table webhook_endpoints (
@@ -47,6 +51,7 @@ export default statements(
      endpoint_id      text not null references webhook_endpoints(id) on delete cascade,
      event_id         text not null,
      event            text not null,
+     store_id         text,
      test             boolean not null default false,
      redelivery_of    text,
      body             jsonb not null,
@@ -60,13 +65,18 @@ export default statements(
      attempts         int not null default 0,
      max_attempts     int not null check (max_attempts between 1 and 8),
      next_attempt_at  timestamptz,
+     runs             int not null default 0,
+     run_started_at   timestamptz,
      created_at       timestamptz not null default now(),
      attempted_at     timestamptz
    )`,
   "create index webhook_deliveries_endpoint on webhook_deliveries (endpoint_id, created_at desc)",
   "create index webhook_deliveries_age on webhook_deliveries (created_at)",
+  "create index webhook_deliveries_event on webhook_deliveries (event_id)",
+  "create index webhook_deliveries_open on webhook_deliveries (created_at) where outcome in ('pending', 'retrying')",
   tenantTable("webhook_deliveries", { membersOnly: true }),
   "create policy webhook_deliveries_expire on webhook_deliveries as permissive for delete to insyte_owner using (true)",
+  "create policy webhook_deliveries_routing on webhook_deliveries as permissive for select to insyte_owner using (true)",
   `create function webhook_deliveries_expire() returns int
      language plpgsql security definer set search_path = public as $$
      declare prior text := current_setting('app.principal_kind', true);
@@ -79,5 +89,24 @@ export default statements(
        return gone;
      end $$`,
   "revoke all on function webhook_deliveries_expire() from public",
-  "grant execute on function webhook_deliveries_expire() to insyte_app"
+  "grant execute on function webhook_deliveries_expire() to insyte_app",
+  /*
+   * Stranded at `at`: open, and either never handed to a run a minute after it was made (or re-armed), or quiet ten
+   * minutes past the attempt it waits for (a run that died). A run's attempt takes seconds, so ten minutes is slack.
+   */
+  `create function webhook_deliveries_stranded(at timestamptz, n int)
+     returns table (workspace_id text, id text)
+     language plpgsql security definer set search_path = public as $$
+     declare prior text := current_setting('app.principal_kind', true);
+     begin
+       perform set_config('app.principal_kind', 'system', true);
+       return query select d.workspace_id, d.id from webhook_deliveries d
+                    where d.outcome in ('pending', 'retrying')
+                      and ((d.run_started_at is null and d.created_at < at - interval '1 minute')
+                           or coalesce(d.next_attempt_at, d.run_started_at) < at - interval '10 minutes')
+                    order by d.created_at limit n;
+       perform set_config('app.principal_kind', coalesce(prior, ''), true);
+     end $$`,
+  "revoke all on function webhook_deliveries_stranded(timestamptz, int) from public",
+  "grant execute on function webhook_deliveries_stranded(timestamptz, int) to insyte_app"
 )

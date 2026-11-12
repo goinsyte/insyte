@@ -154,3 +154,6 @@ export const isForbiddenHeader = (name: string): boolean => {
 }
 
 export const HEADER_NAME = /^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$/
+
+/** A header value `fetch` can send: tab, the visible ASCII and space, and Latin-1 bytes; no line breaks, no NUL. */
+export const HEADER_VALUE = /^[\t\x20-\x7e\x80-\xff]*$/

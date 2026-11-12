@@ -170,7 +170,12 @@ export type Delivery = {
   signature?: string
   /** The attempts its policy allows; the demo takes the endpoint's. */
   maxAttempts?: number
+  /** The body and the answer are held back: the viewer's role does not read the event's records. */
+  redacted?: boolean
 }
+
+/** What the drawer says in place of a body the viewer's role may not read. */
+export const REDACTED = "Je rol mag deze gegevens niet zien."
 
 export const delivered = (d: Delivery) => d.status !== null && d.status >= 200 && d.status < 300
 
@@ -203,5 +208,6 @@ export const DELIVERY_ERROR: Record<string, string> = {
   private_address: "Deze URL wijst naar een intern netwerk. Daar stuurt Insyte niets heen.",
   invalid_url: "Dit is geen geldige URL.",
   pending: "Nog niet verstuurd. De eerste poging volgt zo.",
-  cancelled: "Niet verstuurd: het endpoint stond uit of is verwijderd."
+  cancelled: "Niet verstuurd: het endpoint stond uit of is verwijderd.",
+  internal: "Niet verstuurd door een storing bij Insyte. Verstuur het opnieuw."
 }

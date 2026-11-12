@@ -9,6 +9,7 @@ import {
   type Delivery,
   DELIVERY_ERROR,
   EVENT_LABEL,
+  REDACTED,
   timedOut,
   type WebhookEndpoint
 } from "../lib/webhooks-core"
@@ -160,9 +161,20 @@ function Body(
         <section className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-2">
             <h3 className="font-medium text-ink-3 text-xs">Body</h3>
-            <CopyButton value={JSON.stringify(d.request, null, 2)} label="JSON kopiëren" tone="ghost" className="h-7" />
+            {d.redacted === true
+              ? null
+              : (
+                <CopyButton
+                  value={JSON.stringify(d.request, null, 2)}
+                  label="JSON kopiëren"
+                  tone="ghost"
+                  className="h-7"
+                />
+              )}
           </div>
-          <JsonView value={d.request} />
+          {d.redacted === true
+            ? <p className="rounded-lg bg-mist px-3.5 py-3 text-ink-3 text-sm">{REDACTED}</p>
+            : <JsonView value={d.request} />}
         </section>
 
         <section className="flex flex-col gap-2">
@@ -175,6 +187,8 @@ function Body(
                 {DELIVERY_ERROR[d.error ?? "timeout"] ?? DELIVERY_ERROR.timeout}
               </p>
             )
+            : d.redacted === true
+            ? <p className="rounded-lg bg-mist px-3.5 py-3 text-ink-3 text-sm">{REDACTED}</p>
             : <BodyView body={d.response} />}
         </section>
       </div>

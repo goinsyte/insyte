@@ -1,7 +1,14 @@
-import { introspectWorkflow } from "cloudflare:test"
+import {
+  createExecutionContext,
+  createScheduledController,
+  introspectWorkflow,
+  introspectWorkflowInstance,
+  waitOnExecutionContext
+} from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
-import { failure, ok, pastUndo, person, relay } from "./journeys.ts"
+import worker from "../src/Main.ts"
+import { failure, join, ok, pastUndo, person, relay, run } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { rpc } from "./support.ts"
 
@@ -10,7 +17,9 @@ import { rpc } from "./support.ts"
  * it would send inside a network or over plain HTTP, and hears the events it takes, signed, through a Workflow of its
  * own per delivery (the recorded sender answers by the URL's first label). Five failed attempts in a row switch it off
  * and tell the owner; a test send and a redelivery are deliveries of one attempt; a change, a rotation and a removal
- * are taken back with undo; another workspace sees none of it.
+ * are taken back with undo; another workspace sees none of it. A delivery whose run went quiet is re-armed by the
+ * minute cron, and the old run sends nothing; a bulk fact's deliveries are made in one go and run after commit; a member
+ * subscribes to and reads the deliveries of their own stores only, and the body only where their role reads its records.
  */
 
 const input = (url: string, events: Array<string>, extra: Record<string, unknown> = {}) => ({
@@ -51,6 +60,28 @@ const settle = async (runs: Awaited<ReturnType<typeof introspectWorkflow>>, coun
   const all = await runs.get()
   expect(all.length).toBeGreaterThanOrEqual(count)
   for (const run of all) await run.waitForStatus("complete")
+}
+
+/** The minute cron, as if it ran at `at` (never a quarter past: only the minute's work). */
+const cron = async (at: number) => {
+  const minute = new Date(at).getUTCMinutes() % 15 === 0 ? at + 60_000 : at
+  const ctx = createExecutionContext()
+  await worker.scheduled(createScheduledController({ scheduledTime: minute }), env, ctx)
+  await waitOnExecutionContext(ctx)
+}
+
+/** Waits until the endpoint's deliveries are as `done` says. */
+const until = async (
+  cookie: string,
+  endpointId: string,
+  done: (rows: ReadonlyArray<{ outcome: string; attempts: number }>) => boolean
+) => {
+  for (let i = 0; i < 200; i++) {
+    const rows = ok(await rpc("Webhooks.deliveries", { endpointId }, cookie))
+    if (done(rows)) return rows
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error("the deliveries did not get there")
 }
 
 describe("outbound webhooks", () => {
@@ -274,5 +305,170 @@ describe("outbound webhooks", () => {
     expect(ok(await rpc("Webhooks.list", undefined, stranger.cookie))).toEqual([])
     expect(failure(await rpc("Webhooks.revealSecret", { id }, stranger.cookie))).toMatchObject({ _tag: "NotFound" })
     expect(failure(await rpc("Webhooks.remove", { id }, stranger.cookie))).toMatchObject({ _tag: "NotFound" })
+  })
+
+  it("re-arms a delivery whose run went quiet, and a stale run sends nothing", async () => {
+    const store = await importedStore("whk-rearm")
+    // The first run keeps its sleeps: after its first failure it waits a real minute, as if it had died.
+    const made = ok(
+      await rpc("Webhooks.create", input("https://fail.webhooks.example/r", ["order.cancelled"]), store.cookie)
+    )
+    const order = await orderNumbered(store.cookie, "#1001")
+    ok(await rpc("Orders.cancel", { ids: [order.id], restock: false, notify: false }, store.cookie))
+    await relay(store.workspace)
+    const [first] = await until(store.cookie, made.endpoint.id, (rows) => rows[0]?.attempts === 1)
+    expect(first).toMatchObject({ outcome: "retrying", attempts: 1, maxAttempts: 3 })
+    const id = (first as { id: string }).id
+
+    // Fifteen minutes on, ten past the attempt it waits for: the cron gives it a run of the next number.
+    await using rearmed = await introspectWorkflowInstance(env.WEBHOOK_DELIVERY, `${id}-1`)
+    await rearmed.modify(async (m) => {
+      await m.disableSleeps()
+    })
+    await cron(Date.now() + 15 * 60_000)
+    await rearmed.waitForStatus("complete")
+    const [after] = ok(await rpc("Webhooks.deliveries", { endpointId: made.endpoint.id }, store.cookie))
+    expect(after).toMatchObject({ id, outcome: "failed", attempts: 3 })
+
+    // The old run, should it wake, is no longer the delivery's: it records nothing and sends nothing.
+    await using stale = await introspectWorkflowInstance(env.WEBHOOK_DELIVERY, `${id}-stale`)
+    await env.WEBHOOK_DELIVERY.create({
+      id: `${id}-stale`,
+      params: { workspaceId: store.workspace, deliveryId: id, run: 0 }
+    })
+    expect(await stale.waitForStepResult({ name: "attempt 1" })).toMatchObject({ stale: true, next: null })
+    await stale.waitForStatus("complete")
+    const [still] = ok(await rpc("Webhooks.deliveries", { endpointId: made.endpoint.id }, store.cookie))
+    expect(still).toMatchObject({ outcome: "failed", attempts: 3 })
+
+    // Nothing open is left for the cron, however late it runs.
+    await cron(Date.now() + 60 * 60_000)
+    expect(ok(await rpc("Webhooks.deliveries", { endpointId: made.endpoint.id }, store.cookie))[0]).toMatchObject({
+      attempts: 3
+    })
+  })
+
+  it("makes a bulk fact's deliveries in one go, and runs them once it has committed", async () => {
+    const store = await importedStore("whk-bulk")
+    await using runs = await introspectWorkflow(env.WEBHOOK_DELIVERY)
+    await runs.modifyAll(async (m) => {
+      await m.disableSleeps()
+    })
+    const a = ok(
+      await rpc("Webhooks.create", input("https://ok.webhooks.example/a", ["order.cancelled"]), store.cookie)
+    )
+    const b = ok(
+      await rpc("Webhooks.create", input("https://echo.webhooks.example/b", ["order.cancelled"]), store.cookie)
+    )
+    // Three orders that can still be cancelled: open, nothing on its way.
+    const orders = ok(await rpc("Orders.list", { limit: 50 }, store.cookie)).rows
+      .filter((o) => o.status !== "cancelled" && o.status !== "refunded" && o.fulfillmentStatus === "unfulfilled")
+      .slice(0, 3)
+    expect(orders).toHaveLength(3)
+    ok(await rpc("Orders.cancel", { ids: orders.map((o) => o.id), restock: false, notify: false }, store.cookie))
+    await relay(store.workspace)
+    await settle(runs, 6)
+
+    for (const endpoint of [a, b]) {
+      const rows = ok(await rpc("Webhooks.deliveries", { endpointId: endpoint.endpoint.id }, store.cookie))
+      expect(rows).toHaveLength(3)
+      // Each one delivered on its first try: its run never looked for a row that was not there yet.
+      expect(rows.every((r) => r.outcome === "delivered" && r.attempts === 1)).toBe(true)
+    }
+    const bodies = await Promise.all(
+      ok(await rpc("Webhooks.deliveries", { endpointId: b.endpoint.id }, store.cookie)).map((r) =>
+        rpc("Webhooks.delivery", { id: r.id }, store.cookie).then(ok)
+      )
+    )
+    expect(new Set(bodies.map((d) => (d.body as { data: { id: string } }).data.id))).toEqual(
+      new Set(orders.map((o) => o.id))
+    )
+    // One event per order, the same id at both endpoints.
+    const eventsA = ok(await rpc("Webhooks.deliveries", { endpointId: a.endpoint.id }, store.cookie)).map((r) =>
+      r.eventId
+    )
+    expect(new Set(eventsA)).toEqual(new Set(bodies.map((d) => d.delivery.eventId)))
+  })
+
+  it("fences a member to their stores and their role's records", async () => {
+    const store = await importedStore("whk-fence")
+    await using runs = await introspectWorkflow(env.WEBHOOK_DELIVERY)
+    await runs.modifyAll(async (m) => {
+      await m.disableSleeps()
+    })
+    // A role that sees the integrations but no orders.
+    const role = ok(await rpc("Roles.create", { label: "Koppelingen", from: "view" }, store.cookie))
+    const base = role.roles.roles.find((r) => r.id === role.id)!
+    ok(
+      await rpc("Roles.update", {
+        id: role.id,
+        levels: { ...base.levels, orders: 0, integrations: 1 },
+        specials: base.specials,
+        refundLimit: null,
+        stores: "all"
+      }, store.cookie)
+    )
+    const email = (who: string) => `whk-${who}-${run}@invited.test`
+    ok(
+      await rpc("Invitations.send", {
+        rows: [
+          { email: email("own"), roleId: "admin", stores: [store.storeId] },
+          { email: email("away"), roleId: "admin", stores: ["sto_elsewhere"] },
+          { email: email("blind"), roleId: role.id, stores: "all" }
+        ]
+      }, store.cookie)
+    )
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    const own = await join(email("own"))
+    const away = await join(email("away"))
+    const blind = await join(email("blind"))
+
+    // Subscribing: "all" is for a role that reaches every store; a member's own store is theirs to pick.
+    const make = (cookie: string, stores: "all" | Array<string>) =>
+      rpc("Webhooks.create", input("https://ok.webhooks.example/f", ["order.cancelled"], { stores }), cookie)
+    expect(failure(await make(own, "all"))).toMatchObject({ _tag: "Invalid", fields: { stores: "forbidden" } })
+    expect(failure(await make(away, [store.storeId]))).toMatchObject({ fields: { stores: "forbidden" } })
+    expect(ok(await make(own, [store.storeId])).endpoint.stores).toEqual([store.storeId])
+    // A header value that would break the request line is refused.
+    expect(
+      failure(
+        await rpc(
+          "Webhooks.create",
+          input("https://ok.webhooks.example/h", ["order.cancelled"], {
+            headers: [{ key: "X-Token", value: "a\r\nInjected: 1" }]
+          }),
+          store.cookie
+        )
+      )
+    ).toMatchObject({ fields: { headers: "format" } })
+
+    // The owner's endpoint hears an order of the store, and has a test send.
+    const made = ok(
+      await rpc("Webhooks.create", input("https://echo.webhooks.example/o", ["order.cancelled"]), store.cookie)
+    )
+    const order = await orderNumbered(store.cookie, "#1001")
+    ok(await rpc("Orders.cancel", { ids: [order.id], restock: false, notify: false }, store.cookie))
+    await relay(store.workspace)
+    const test = ok(await rpc("Webhooks.sendTest", { id: made.endpoint.id, event: "order.cancelled" }, store.cookie))
+    await settle(runs, 2)
+    const all = ok(await rpc("Webhooks.deliveries", { endpointId: made.endpoint.id }, store.cookie))
+    const real = all.find((d) => !d.test)!
+    expect(all).toHaveLength(2)
+
+    // Outside the store: only the test send, and the order's delivery is not there to open or send again.
+    expect(ok(await rpc("Webhooks.deliveries", { endpointId: made.endpoint.id }, away)).map((d) => d.id)).toEqual([
+      test.deliveryId
+    ])
+    expect(failure(await rpc("Webhooks.delivery", { id: real.id }, away))).toMatchObject({ _tag: "NotFound" })
+    expect(failure(await rpc("Webhooks.redeliver", { id: real.id }, away))).toMatchObject({ _tag: "NotFound" })
+    expect(ok(await rpc("Webhooks.deliveries", { endpointId: made.endpoint.id }, own))).toHaveLength(2)
+
+    // A role without orders sees that it went, not what it carried.
+    const hidden = ok(await rpc("Webhooks.delivery", { id: real.id }, blind))
+    expect(hidden).toMatchObject({ body: null, response: null, redacted: true, delivery: { outcome: "delivered" } })
+    expect(JSON.stringify(hidden)).not.toContain(order.id)
+    const shown = ok(await rpc("Webhooks.delivery", { id: real.id }, store.cookie))
+    expect(shown).toMatchObject({ redacted: false, body: { data: { id: order.id } } })
   })
 })
