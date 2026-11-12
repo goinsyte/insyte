@@ -54,6 +54,13 @@ const mcpCall = async (token: string, name: string, args: Record<string, unknown
   return { isError: message.result.isError as boolean, value: JSON.parse(message.result.content[0].text) as Json }
 }
 
+// A flow that asks `approver` before it makes a ticket.
+const approvalFlow = (approver: string) => [
+  { id: "t", variantId: "trigger.shipping_delay", config: {} },
+  { id: "a", variantId: "action.require_approval", config: { approver } },
+  { id: "k", variantId: "action.create_ticket", config: { title: "Na goedkeuring", assignee: "" } }
+]
+
 const tag = (failed: unknown) => (failed as { _tag?: string } | undefined)?._tag
 
 describe("automations", () => {
@@ -204,6 +211,27 @@ describe("automations", () => {
     ok(await rpc("Shared.undo", { token: off.undo!.token }, people.owner))
     const back = ok(await rpc("Automations.get", { id }, people.owner))
     expect(back.settings).toMatchObject({ scopesOff: [], rateLimit: 0 })
+  })
+
+  it("keeps who approves as a teammate's id, mapping a name from an older draft, and refuses one nobody answers to", async () => {
+    const ownerId = ok(await sessionMe(people.owner)).principals[0]!.id
+    const { automation } = ok(await rpc("Automations.create", { name: "Goedkeuring" }, people.owner))
+    const id = automation!.automation.id
+    // A name, as drafts held before the inspector picked teammates: the one member who goes by it.
+    const named = ok(
+      await rpc("Automations.saveDraft", { id, nodes: approvalFlow("persoon automations-owner") }, people.owner)
+    )
+    expect(named.automation.nodes[1]!.config).toEqual({ approver: ownerId, approver_name: "Persoon automations-owner" })
+    expect(named.issues.filter((i) => i.nodeId === "a")).toEqual([])
+    const byId = ok(await rpc("Automations.saveDraft", { id, nodes: approvalFlow(ownerId) }, people.owner))
+    expect(byId.automation.nodes[1]!.config).toMatchObject({ approver: ownerId })
+    // Nobody goes by it: emptied, so the step asks for a teammate and the flow cannot be published.
+    const nobody = ok(await rpc("Automations.saveDraft", { id, nodes: approvalFlow("Niemand Bekend") }, people.owner))
+    expect(nobody.automation.nodes[1]!.config).toEqual({ approver: "" })
+    expect(nobody.issues).toContainEqual(
+      expect.objectContaining({ nodeId: "a", code: "missing_field", field: "approver" })
+    )
+    expect(tag(failure(await rpc("Automations.publish", { id, note: "" }, people.owner)))).toBe("InvalidFlow")
   })
 
   it("copies a flow as a draft and removes one with Undo", async () => {
