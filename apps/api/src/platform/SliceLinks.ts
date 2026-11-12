@@ -1,4 +1,5 @@
 import { CurrentPrincipal } from "@insyte/domain/Principal"
+import { figuresIn } from "@insyte/modules/analytics/use-cases/figures"
 import { ActionFailed, ChatCommands } from "@insyte/modules/chats/Links"
 import { restore as restoreChats } from "@insyte/modules/chats/use-cases/commands"
 import { KlaviyoSyncs } from "@insyte/modules/customers/domain/Ports"
@@ -23,6 +24,8 @@ import { approve as approveReturns, restore as restoreReturns } from "@insyte/mo
 import { shopifyReturn } from "@insyte/modules/returns/use-cases/mirror"
 import { parcelUpdated } from "@insyte/modules/returns/use-cases/parcels"
 import { linkReplacements } from "@insyte/modules/returns/use-cases/shopify"
+import { SheetFigures } from "@insyte/modules/sheets/domain/Ports"
+import { restore as restoreSheets } from "@insyte/modules/sheets/use-cases/commands"
 import { MirrorFollowers } from "@insyte/modules/stores/domain/Ports"
 import { StoreMirror } from "@insyte/modules/stores/Mirror"
 import { ShopifyReturns } from "@insyte/modules/stores/ShopifyReturns"
@@ -58,6 +61,7 @@ import { Effect, Layer } from "effect"
  *   AfterShip       → a return's parcel, for the returns slice (M9.2)
  *   the inbox       → a ticket made from a thread, and taken away again (M11 step 2)
  *   a chat command  → an order's note or cancellation, a ticket made, assigned or moved (M11.4), and its undo
+ *   a sheet export  → the INSYTE() figures from analytics, on the export's transaction (M14 step 4)
  */
 
 const MirrorFollowersLive = Layer.succeed(MirrorFollowers, {
@@ -88,6 +92,7 @@ const compensations: Record<string, Compensation> = {
   "quality.restore": restoreQuality,
   "queue.restore": restoreQueue,
   "notifications.restore": restoreNotifications,
+  "sheets.restore": restoreSheets,
   // A filed plate's Undo spends the command's own token and runs that command's compensation from this same table.
   "proposals.restore": (sql, compensation) =>
     restoreProposal(sql, compensation, {
@@ -109,6 +114,10 @@ const compensations: Record<string, Compensation> = {
 }
 
 const UndoCompensationsLive = Layer.succeed(UndoCompensations, compensations)
+
+const SheetFiguresLive = Layer.succeed(SheetFigures, {
+  read: (sql, requests) => figuresIn(sql, requests)
+})
 
 const ProposalLinksLive = Layer.succeed(ProposalLinks, {
   run: (action) => {
@@ -225,7 +234,8 @@ export const SliceLinks = StoreMirror.layer.pipe(
       KlaviyoSyncsLive,
       ReturnParcelsLive,
       ShopifyReturnsLive,
-      ThreadTicketsLive
+      ThreadTicketsLive,
+      SheetFiguresLive
     )
   )
 )

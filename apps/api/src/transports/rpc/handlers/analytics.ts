@@ -10,6 +10,7 @@ export const AnalyticsHandlers = AnalyticsRpcs.toLayer(Effect.gen(function*() {
     "Analytics.charts": (input) => analytics.charts(input),
     "Analytics.findings": (input) => analytics.findings(input),
     "Analytics.explain": (ref) => analytics.explain(ref),
-    "Analytics.records": (input) => analytics.records(input)
+    "Analytics.records": (input) => analytics.records(input),
+    "Analytics.figures": (input) => analytics.figures(input)
   })
 }))

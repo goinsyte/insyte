@@ -82,6 +82,18 @@ export const ChatTyping = Schema.Struct({
   principalId: Schema.String
 })
 
+/**
+ * A sheet changed (M14 step 4): sent to the members who can open it. An open editor at an older version reads it again;
+ * the list refetches. Ids and the version only.
+ */
+export const SheetChanged = Schema.Struct({
+  v: Schema.Literal(1),
+  type: Schema.Literal("sheet.changed"),
+  sheetId: Schema.String,
+  version: Schema.Int,
+  by: Schema.String
+})
+
 export const Frame = Schema.Union([
   Hello,
   PresenceFrame,
@@ -89,6 +101,7 @@ export const Frame = Schema.Union([
   NotesChanged,
   JobProgress,
   ChatMessage,
-  ChatTyping
+  ChatTyping,
+  SheetChanged
 ])
 export type Frame = typeof Frame.Type

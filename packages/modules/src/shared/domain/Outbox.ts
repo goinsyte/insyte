@@ -274,6 +274,16 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     messageId: Schema.String
   }),
+  // A sheet was saved, renamed, moved, shared or put back (M14 step 4): the realtime sink tells the tabs of the members
+  // who can open it (`to`) to read it again. Its version tells an open editor whether it already has it.
+  Schema.Struct({
+    type: Schema.Literal("sheet.changed"),
+    workspaceId: Schema.String,
+    sheetId: Schema.String,
+    version: Schema.Int,
+    by: Schema.String,
+    to: Schema.Array(Schema.String)
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

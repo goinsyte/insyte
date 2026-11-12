@@ -23,6 +23,7 @@ import { PortalService } from "@insyte/modules/returns/Portal"
 import { ReturnsService } from "@insyte/modules/returns/Returns"
 import { RolesService } from "@insyte/modules/roles/RolesService"
 import { ActiveSessions } from "@insyte/modules/sessions/ActiveSessions"
+import { SheetsService } from "@insyte/modules/sheets/Sheets"
 import { StoresService } from "@insyte/modules/stores/Stores"
 import { SuppliersService } from "@insyte/modules/suppliers/Suppliers"
 import { TicketsService } from "@insyte/modules/tickets/Tickets"
@@ -54,6 +55,7 @@ import { ReturnsHandlers } from "./handlers/returns.ts"
 import { RolesHandlers } from "./handlers/roles.ts"
 import { SessionHandlers } from "./handlers/session.ts"
 import { SharedHandlers } from "./handlers/shared.ts"
+import { SheetsHandlers } from "./handlers/sheets.ts"
 import { ShellHandlers } from "./handlers/shell.ts"
 import { StoresHandlers } from "./handlers/stores.ts"
 import { SuppliersHandlers } from "./handlers/suppliers.ts"
@@ -104,6 +106,7 @@ export const RpcContext = Layer.mergeAll(
   AnalyticsHandlers.pipe(Layer.provide(AnalyticsService.layer)),
   ProposalsHandlers.pipe(Layer.provide(ProposalsService.layer)),
   ChatsHandlers.pipe(Layer.provide(Layer.mergeAll(ChatsService.layer, UndoService.layer))),
+  SheetsHandlers.pipe(Layer.provide(SheetsService.layer)),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
   WorkspacesHandlers.pipe(Layer.provide(WorkspaceSettings.layer)),
   ShellHandlers.pipe(

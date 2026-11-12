@@ -307,6 +307,14 @@ const chat = (event: Extract<OutboxEvent, { type: "chat.posted" }>) =>
     else await Promise.all(event.to.map((memberId) => room.sendTo(memberId, frame)))
   }).pipe(Effect.withSpan("Relay.chat"))
 
+/** The sheets sink (M14 step 4): a changed sheet's version to the tabs of each member who can open it. */
+const sheets = (event: Extract<OutboxEvent, { type: "sheet.changed" }>) =>
+  Effect.promise(async () => {
+    const room = roomOf(event.workspaceId)
+    const frame = { v: 1, type: "sheet.changed", sheetId: event.sheetId, version: event.version, by: event.by }
+    await Promise.all(event.to.map((memberId) => room.sendTo(memberId, frame)))
+  }).pipe(Effect.withSpan("Relay.sheets"))
+
 /**
  * The notifications sink (M5.2): rows for whoever should hear of the event, then each one's tabs their count; what
  * goes out by e-mail goes now, on this transaction (M11 step 13.5).
@@ -436,6 +444,10 @@ const SINKS: ReadonlyArray<Sink> = [
   {
     name: "chat",
     run: (_id, event) => event.type === "chat.posted" ? chat(event) : undefined
+  },
+  {
+    name: "sheets",
+    run: (_id, event) => event.type === "sheet.changed" ? sheets(event) : undefined
   },
   {
     name: "queue",

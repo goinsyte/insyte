@@ -16,6 +16,7 @@ import { ReturnsRpcs } from "@insyte/api/rpc/ReturnsRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
 import { SessionRpcs } from "@insyte/api/rpc/SessionRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
+import { SheetsRpcs } from "@insyte/api/rpc/SheetsRpcs"
 import { ShellRpcs } from "@insyte/api/rpc/ShellRpcs"
 import { StoresRpcs } from "@insyte/api/rpc/StoresRpcs"
 import { SuppliersRpcs } from "@insyte/api/rpc/SuppliersRpcs"
@@ -259,6 +260,23 @@ const PAYLOADS: Record<string, unknown> = {
   "Analytics.findings": { a: "2026-01", b: "2025-12" },
   "Analytics.explain": { a: "2026-01", b: "2025-12", key: { _tag: "paid_orders" } },
   "Analytics.records": { explainKey: { a: "2026-01", b: "2025-12", key: { _tag: "paid_orders" } } },
+  // Rekenbladen (M14 step 4): Data · Bekijken; the service role has none. Ids that do not exist, so nothing changes;
+  // the export also needs Data · Exporteren, which Alleen lezen lacks.
+  "Analytics.figures": { requests: [{ metric: "omzet", month: "2026-01" }] },
+  "Sheets.list": {},
+  "Sheets.counts": undefined,
+  "Sheets.folders": undefined,
+  "Sheets.get": { id: "sh_none" },
+  "Sheets.create": { template: "blank", folderId: "fld_none" },
+  "Sheets.saveTabs": { id: "sh_none", baseVersion: 1, tabs: [{ id: "tab_1", name: "Blad1", cells: {}, widths: {} }] },
+  "Sheets.update": { ids: ["sh_none"], pinned: true },
+  "Sheets.share": { id: "sh_none", memberId: "mem_none", on: true },
+  "Sheets.duplicate": { id: "sh_none" },
+  "Sheets.remove": { ids: ["sh_none"] },
+  "Sheets.restore": { ids: ["sh_none"] },
+  "Sheets.markOpened": { id: "sh_none" },
+  "Sheets.createFolder": { name: "" },
+  "Sheets.export": { id: "sh_none", format: "csv" },
   "Proposals.get": { id: "prp_none" },
   "Proposals.file": { id: "prp_none" },
   "Proposals.discard": { id: "prp_none" },
@@ -364,6 +382,7 @@ const manifest = [
   ...ProposalsRpcs.requests.keys(),
   ...WorkspacesRpcs.requests.keys(),
   ...ChatsRpcs.requests.keys(),
+  ...SheetsRpcs.requests.keys(),
   ...NotificationsRpcs.requests.keys(),
   ...SessionRpcs.requests.keys(),
   ...ShellRpcs.requests.keys()

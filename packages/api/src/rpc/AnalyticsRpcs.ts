@@ -1,11 +1,13 @@
 import { Forbidden, Invalid } from "@insyte/domain/Errors"
 import {
   AnalyticsCharts,
+  AnalyticsFigures,
   AnalyticsFindings,
   AnalyticsOverview,
   AnalyticsPeriods,
   ExplainRef,
   Explanation,
+  FiguresInput,
   PairInput,
   RecordsInput,
   RecordsPage
@@ -29,7 +31,10 @@ export class AnalyticsRpcs extends RpcGroup.make(
   Rpc.make("Analytics.charts", { payload: PairInput, success: AnalyticsCharts, error: Refused }),
   Rpc.make("Analytics.findings", { payload: PairInput, success: AnalyticsFindings, error: Refused }),
   Rpc.make("Analytics.explain", { payload: ExplainRef, success: Explanation, error: Refused }),
-  Rpc.make("Analytics.records", { payload: RecordsInput, success: RecordsPage, error: Refused })
+  Rpc.make("Analytics.records", { payload: RecordsInput, success: RecordsPage, error: Refused }),
+  // A sheet's INSYTE() cells in one batch (M14 step 4): Data · Bekijken; a figure the role may not see is refused in
+  // its own answer, not the call.
+  Rpc.make("Analytics.figures", { payload: FiguresInput, success: AnalyticsFigures, error: Forbidden })
 )
   .middleware(Member)
   .middleware(Authenticated)
