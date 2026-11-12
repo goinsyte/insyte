@@ -1,7 +1,8 @@
+import { canRole } from "@insyte/domain/Permissions"
 import { useRouterState } from "@tanstack/react-router"
 import { useEffect, useRef, useState } from "react"
+import { useGateRole } from "../../access/gate-role"
 import type { SettingsDepthSeed } from "../../lib/settings-depth"
-import { useGate } from "../../stores/access-store"
 import { type DepthSection, type FieldChange, useSettingsDepthSource } from "./source"
 
 /**
@@ -28,11 +29,20 @@ export function useSection<K extends DepthSection>(
     }
   }, [savedKey])
   const to = useRouterState({ select: (s) => s.location.pathname })
-  const gate = useGate("settings", level)
+  // The host's role (the design's access store, the console's frame); the server refuses what it may not either way.
+  const role = useGateRole()
   const dirty = JSON.stringify(draft) !== savedKey
   const save = (message: string, detail?: string) =>
     source.save(key, draft, { label: message, detail }, { page, to, changes: describe(saved, draft) })
-  return { saved, draft, setDraft, dirty, discard: () => setDraft(saved), save, canEdit: gate.ok }
+  return {
+    saved,
+    draft,
+    setDraft,
+    dirty,
+    discard: () => setDraft(saved),
+    save,
+    canEdit: role === null || canRole(role, "settings", level)
+  }
 }
 
 export const WELL =

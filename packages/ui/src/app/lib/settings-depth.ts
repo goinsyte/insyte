@@ -85,6 +85,10 @@ export const GOTO_DEFAULTS: ReadonlyArray<GoTo> = [
 /** A wording with the carrier filled in, the way the customer reads it. */
 export const filled = (label: string, carrier = "PostNL") => label.replace(/\{vervoerder\}/gi, carrier);
 
+/** Huisstijl's colours are the shop's own, not the house's tokens: white to read against, and the colour it starts at. */
+export const BRAND_WHITE = "#ffffff";
+export const BRAND_DEFAULT_COLOR = "#1F3A5F";
+
 /** WCAG relative luminance contrast between two hex colours. */
 export function contrast(a: string, b: string): number {
 	const lum = (hex: string) => {

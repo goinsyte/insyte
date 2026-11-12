@@ -1,7 +1,7 @@
 import { useRef } from "react"
 import { toast } from "sonner"
 import { MessageCircle, Palette, Upload, X } from "../../../icons"
-import { contrast, isHex } from "../../lib/settings-depth"
+import { BRAND_DEFAULT_COLOR, BRAND_WHITE, contrast, isHex } from "../../lib/settings-depth"
 import { cn } from "../../lib/utils"
 import { Segmented } from "../../team/bits"
 import { FieldRow, UnsavedBar } from "../form"
@@ -38,8 +38,8 @@ export function BrandPage() {
   const d = s.draft
   const file = useRef<HTMLInputElement>(null)
   const hexOk = isHex(d.color)
-  const ratio = hexOk ? contrast(d.color, "#ffffff") : 0
-  const color = hexOk ? d.color : "#1F3A5F"
+  const ratio = hexOk ? contrast(d.color, BRAND_WHITE) : 0
+  const color = hexOk ? d.color : BRAND_DEFAULT_COLOR
   const set = (p: Partial<typeof d>) => s.setDraft({ ...d, ...p })
   const pick = (f: File | undefined) => {
     if (!f) return
@@ -132,7 +132,7 @@ export function BrandPage() {
                     )}
                   >
                     {!hexOk
-                      ? "Een kleur als #1F3A5F."
+                      ? `Een kleur als ${BRAND_DEFAULT_COLOR}.`
                       : ratio >= 4.5
                       ? `Contrast met wit ${ratio.toFixed(1).replace(".", ",")}:1, goed leesbaar op knoppen.`
                       : `Contrast met wit ${
