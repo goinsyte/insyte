@@ -40,7 +40,7 @@ import {
 import { numberOf } from "@insyte/modules/tickets/use-cases/tickets"
 import { ReturnParcels } from "@insyte/modules/tracking/Parcels"
 import { ensureDeliveries } from "@insyte/modules/tracking/use-cases/tracking"
-import { TrashKinds } from "@insyte/modules/trash/domain/Trash"
+import { TrashKinds } from "@insyte/modules/trash/TrashKinds"
 import { type Compensation, UndoCompensations } from "@insyte/modules/undo/domain/Ports"
 import { Effect, Layer } from "effect"
 

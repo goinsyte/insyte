@@ -3,7 +3,8 @@ import type { Forbidden, NotFound } from "@insyte/domain/Errors"
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
-import { type TrashIds, TrashKinds, type TrashList, type TrashPurged, type TrashRestored } from "./domain/Trash.ts"
+import type { TrashIds, TrashList, TrashPurged, TrashRestored } from "./domain/Trash.ts"
+import { TrashKinds } from "./TrashKinds.ts"
 import * as Trash from "./use-cases/trash.ts"
 
 type R = Db | CurrentPrincipal

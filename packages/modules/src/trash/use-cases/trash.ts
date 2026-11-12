@@ -12,11 +12,11 @@ import {
   type TrashIds,
   type TrashItem,
   type TrashKind,
-  TrashKinds,
   type TrashList,
   type TrashPurged,
   type TrashRestored
 } from "../domain/Trash.ts"
+import { TrashKinds } from "../TrashKinds.ts"
 
 /*
  * The Prullenbak's commands (M17 step 20.1a; api.md §2.34). Every one takes Instellingen · Bewerken; an item is listed
