@@ -83,6 +83,7 @@
         "!src/app/settings/security-demo-source.tsx",
         "!src/app/lib/home/day.ts",
         "!src/app/lib/home/kinds.ts",
+        "!src/app/analytics/**",
         "!src/app/chats/**",
         "!src/app/inbox/**",
       ],
