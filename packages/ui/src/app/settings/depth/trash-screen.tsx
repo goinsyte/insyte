@@ -15,11 +15,9 @@ import { ConfirmDialog } from "../../common/confirm-dialog"
 import { EmptyState } from "../../common/empty-state"
 import { formatRelative } from "../../lib/format"
 import { TRASH_DAYS, type TrashItem } from "../../lib/settings-depth"
-import { undoable } from "../../lib/undo"
 import { cn } from "../../lib/utils"
-import { useGate } from "../../stores/access-store"
-import { useSettingsDepth } from "../../stores/settings-depth-store"
 import { BandedList, SettingCard } from "../setting-card"
+import { useTrashSource } from "../trash-source"
 
 const KIND: Record<TrashItem["kind"], { icon: IconComponent; label: string }> = {
   ticket: { icon: Ticket, label: "Ticket" },
@@ -35,18 +33,16 @@ const left = (at: string) => Math.max(0, TRASH_DAYS - Math.floor((Date.now() - D
 /**
  * Prullenbak (`/settings/trash`, PLAN 43): what was deleted, for 30 days. Terugzetten puts it back
  * where it was (with Undo); Definitief verwijderen asks first, because after that it is gone.
- * Customers, orders and invoices follow Gegevens en privacy instead.
+ * Customers, orders and invoices follow Gegevens en privacy instead. The items and what is done
+ * with them are the host's (`trash-source.tsx`).
  */
 export function TrashPage() {
-  const trash = useSettingsDepth((s) => s.trash)
-  const gate = useGate("settings", 2)
-  const [gone, setGone] = useState<TrashItem[] | null>(null)
-  const restore = (items: TrashItem[]) =>
-    undoable(
-      items.length === 1 ? `“${items[0]!.title}” teruggezet` : `${items.length} items teruggezet`,
-      useSettingsDepth.getState().restore(items.map((i) => i.id)),
-      "Het staat weer waar het stond."
-    )
+  const source = useTrashSource()
+  const trash = source.items
+  const gate = { ok: source.canEdit }
+  // What the confirm is about: some items, or the whole trash ("Prullenbak legen").
+  const [gone, setGone] = useState<{ items: ReadonlyArray<TrashItem>; all: boolean } | null>(null)
+  const restore = (items: ReadonlyArray<TrashItem>) => source.restore(items)
   return (
     <>
       <SettingCard
@@ -57,7 +53,7 @@ export function TrashPage() {
           (
             <button
               type="button"
-              onClick={() => setGone(trash)}
+              onClick={() => setGone({ items: trash, all: true })}
               className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-signal-red text-xs hover:bg-signal-red-bg"
             >
               <Trash2 className="size-3.5" strokeWidth={1.75} />
@@ -118,7 +114,7 @@ export function TrashPage() {
                             type="button"
                             aria-label={`${t.title} definitief verwijderen`}
                             title="Definitief verwijderen"
-                            onClick={() => setGone([t])}
+                            onClick={() => setGone({ items: [t], all: false })}
                             className="flex size-8 items-center justify-center rounded-md text-ink-3 hover:bg-signal-red-bg hover:text-signal-red"
                           >
                             <Trash2 className="size-3.5" strokeWidth={1.75} />
@@ -136,13 +132,16 @@ export function TrashPage() {
         open={gone !== null}
         onOpenChange={(v) => !v && setGone(null)}
         tone="destructive"
-        title={gone && gone.length > 1 ? `${gone.length} items definitief verwijderen?` : "Definitief verwijderen?"}
-        description={gone && gone.length === 1
-          ? `“${gone[0]!.title}” is daarna weg en komt niet terug.`
+        title={gone && gone.items.length > 1
+          ? `${gone.items.length} items definitief verwijderen?`
+          : "Definitief verwijderen?"}
+        description={gone && gone.items.length === 1
+          ? `“${gone.items[0]!.title}” is daarna weg en komt niet terug.`
           : "Alles in de prullenbak is daarna weg en komt niet terug."}
         confirmLabel="Definitief verwijderen"
         onConfirm={() => {
-          useSettingsDepth.getState().purge((gone ?? []).map((g) => g.id))
+          if (gone?.all === true) source.empty()
+          else if (gone !== null) source.purge(gone.items)
           setGone(null)
         }}
       />

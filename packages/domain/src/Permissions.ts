@@ -494,6 +494,8 @@ const ROUTE_AREAS: ReadonlyArray<readonly [string, AreaId, Level]> = [
   ["/settings/api-keys", "integrations", 1],
   ["/settings/webhooks", "integrations", 1],
   ["/settings/agents", "integrations", 1],
+  ["/settings/log", "settings", 1],
+  ["/settings/trash", "settings", 2],
   ["/settings/profile", "settings", 1],
   ["/settings/stores", "settings", 1],
   ["/settings/ai/knowledge", "settings", 1],
