@@ -19,7 +19,9 @@ import { connectionOf } from "./slack.ts"
  * - `ticket.assigned`: who was put on a ticket hears of it, once the undo window has passed and if still on it;
  * - `ticket.mentioned`: who a ticket comment names with `@` hears of it;
  * - `chat.mentioned`: who a chat message names with `@` hears of it, if they are in it and did not mute it;
- * - `quality_check.submitted`: who asked for the check, and whoever handles products, hear the supplier answered.
+ * - `quality_check.submitted`: who asked for the check, and whoever handles products, hear the supplier answered;
+ * - `chargeback.opened`, `chargeback.deadline_near`: whoever may see chargebacks hears of a new case at or above the
+ *   workspace's threshold, and that a case's deadline is coming (M13 step 3).
  *
  * A member deactivated or removed hears nothing. Who has "Alleen als het mij betreft" on for the kind hears only of
  * what concerns them directly (they were put on it, named in it, asked for it or sent the invitation). The in-app switch
@@ -245,6 +247,53 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             video: check.video
           },
           direct: [check.requestedBy]
+        }
+      }
+      case "chargeback.opened":
+      case "chargeback.deadline_near": {
+        // A chargeback (M13 step 3): who may see chargebacks hears a new one at or above the workspace's threshold
+        // ("Vanaf €100"), and that an open case's deadline is coming; the one who opened it by hand hears nothing of
+        // their own. A case taken back, or closed since, says nothing.
+        const [c] = yield* sql<{
+          caseNumber: string
+          provider: string
+          customerName: string
+          amountMinor: string
+          currency: string
+          reasonCode: string
+          status: string
+          deadlineAt: Date
+          threshold: string | null
+        }>`
+          select c.case_number, c.provider, c.customer_name, c.amount_minor, c.currency, c.reason_code, c.status,
+                 c.deadline_at, (w.alerts ->> 'dispute_amount_minor') as threshold
+          from chargebacks c join workspaces w on w.id = c.workspace_id where c.id = ${event.chargebackId}`
+        if (c === undefined) return undefined
+        if (event.type === "chargeback.deadline_near" && c.status !== "open" && c.status !== "awaiting_evidence") {
+          return undefined
+        }
+        if (event.type === "chargeback.opened" && Number(c.amountMinor) < Number(c.threshold ?? 0)) return undefined
+        const by = event.type === "chargeback.opened" ? event.by : null
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'chargebacks')::int, 0) >= 1)`
+        return {
+          kind: event.type === "chargeback.opened" ? "chargeback.new" : "chargeback.deadline",
+          recipients: recipients.map((r) => r.id).filter((r) => r !== by),
+          subjectType: "chargeback",
+          subjectId: event.chargebackId,
+          actor: by,
+          data: {
+            caseNumber: c.caseNumber,
+            provider: c.provider,
+            customer: c.customerName,
+            amountMinor: Number(c.amountMinor),
+            currency: c.currency.trim(),
+            reasonCode: c.reasonCode,
+            deadlineAt: c.deadlineAt.getTime(),
+            ...(event.type === "chargeback.deadline_near" ? { offset: event.offset } : {})
+          }
         }
       }
       default:

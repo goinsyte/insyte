@@ -142,6 +142,19 @@ const ProposalsLive = HttpApiBuilder.group(
     )
 )
 
+const ChargebacksLive = HttpApiBuilder.group(
+  PublicApi,
+  "chargebacks",
+  (handlers) =>
+    Effect.map(
+      Effect.service(Resources),
+      (act) =>
+        handlers
+          .handle("chargebacks", ({ query }) => act.chargebacks(query))
+          .handle("chargeback", ({ params }) => act.chargeback(params.id))
+    )
+)
+
 const ReturnsLive = HttpApiBuilder.group(
   PublicApi,
   "returns",
@@ -273,7 +286,8 @@ export const PublicApiRoutes = Layer.mergeAll(
       ReturnsLive,
       TicketsLive,
       QueueLive,
-      ProposalsLive
+      ProposalsLive,
+      ChargebacksLive
     )
   ),
   Layer.provide(ApiKeyAuthLive)

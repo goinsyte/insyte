@@ -29,6 +29,30 @@ const text = (
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
 
+/** A chargeback's reasons as the case names them (`chargebacks/domain/Chargebacks.ts` `ReasonCode`). */
+const REASON: Record<string, string> = {
+  unauthorized: "Niet-geautoriseerde transactie",
+  not_received: "Niet ontvangen",
+  wrong_item: "Verkeerd artikel verzonden",
+  not_as_described: "Product niet zoals beschreven",
+  refund_requested: "Terugbetaling aangevraagd",
+  service: "Service niet naar tevredenheid",
+  payment_dispute: "Betalingsgeschil"
+}
+
+/** How long is left, as each deadline reminder says it (five days, two days, six hours). */
+const DEADLINE: Record<string, string> = {
+  "5d": "Nog vijf dagen om bewijs in te dienen.",
+  "2d": "Nog twee dagen om bewijs in te dienen.",
+  "6h": "Nog zes uur om bewijs in te dienen, anders vervalt het geschil in het voordeel van de klant."
+}
+
+/** The disputed amount in its own currency: "€ 49,95". */
+const disputed = (data: Record<string, unknown>) =>
+  new Intl.NumberFormat("nl-NL", { style: "currency", currency: text(data["currency"]) || "EUR" }).format(
+    Number(data["amountMinor"] ?? 0) / 100
+  )
+
 export const wordsOf = (note: NoteFacts): NoteWords => {
   const { data } = note
   const who = note.actor ?? "Iemand"
@@ -125,6 +149,29 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
         record: text(data["supplier"]) || undefined,
         actionLabel: "Controle bekijken",
         path: `/products/${text(data["productId"])}${query({ tab: "quality", check: id })}`
+      }
+    }
+    case "chargeback.new": {
+      // A chargeback at or above the threshold (M13 step 3): opened by a teammate by hand, or by a provider later.
+      const number = text(data["caseNumber"])
+      return {
+        title: note.actor === null ? `Nieuwe chargeback: ${number}` : `${who} opende chargeback ${number}`,
+        detail: `${text(data["customer"])} betwist ${disputed(data)}${
+          REASON[text(data["reasonCode"])] === undefined ? "" : ` · ${REASON[text(data["reasonCode"])]}`
+        }`,
+        record: `Chargeback ${number}`,
+        actionLabel: "Zaak openen",
+        path: `/chargebacks/${id}`
+      }
+    }
+    case "chargeback.deadline": {
+      const number = text(data["caseNumber"])
+      return {
+        title: `De bewijsdeadline van ${number} nadert`,
+        detail: DEADLINE[text(data["offset"])] ?? DEADLINE["2d"],
+        record: `Chargeback ${number}`,
+        actionLabel: "Zaak openen",
+        path: `/chargebacks/${id}`
       }
     }
     default:

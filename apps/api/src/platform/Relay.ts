@@ -165,6 +165,9 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
     case "return.requested":
     case "return.label_requested":
     case "quality_check.submitted":
+    // A chargeback's note to the team (M13 step 3) is the notifications' business.
+    case "chargeback.opened":
+    case "chargeback.deadline_near":
     // The delay mail is counted as the filing that put it in line.
     case "order.delay_mail":
       return undefined
@@ -326,7 +329,7 @@ const notifications = Effect.fn("Relay.notifications")(
 )
 
 /** The record kinds whose change may open, update or close a queue row on Start (M10.1). */
-const QUEUED = new Set(["order", "return", "quality_check", "store", "product"])
+const QUEUED = new Set(["order", "return", "quality_check", "store", "product", "chargeback"])
 
 /** The queue sink (M10.1): the workspace's queue brought in line, and its open tabs told when it changed. */
 const queue = Effect.fn("Relay.queue")(
@@ -421,7 +424,9 @@ const NOTIFIED = new Set<OutboxEvent["type"]>([
   "ticket.assigned",
   "ticket.mentioned",
   "chat.mentioned",
-  "quality_check.submitted"
+  "quality_check.submitted",
+  "chargeback.opened",
+  "chargeback.deadline_near"
 ])
 
 const SINKS: ReadonlyArray<Sink> = [

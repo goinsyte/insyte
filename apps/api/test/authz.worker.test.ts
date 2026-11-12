@@ -1,4 +1,5 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { ChargebacksRpcs } from "@insyte/api/rpc/ChargebacksRpcs"
 import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
@@ -330,7 +331,24 @@ const PAYLOADS: Record<string, unknown> = {
   // The frame and the one search (M5, M11 step 6): every member; a kind or area the role cannot open answers nothing.
   "Shell.frame": { path: "/inbox" },
   "Nav.counts": { area: "tickets" },
-  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] }
+  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] },
+  // Chargebacks (M13): Bekijken reads, Bewerken changes a case, Beheren accepts. Unknown cases, and a case opened by hand
+  // without a customer, are refused past the permission check, so nothing is made.
+  "Chargebacks.list": {},
+  "Chargebacks.get": { id: "cb_none" },
+  "Chargebacks.stats": undefined,
+  "Chargebacks.nextCaseNumber": undefined,
+  "Chargebacks.createManual": {
+    provider: "stripe",
+    customer: { name: " " },
+    amountMinor: 1000,
+    reasonCode: "not_received"
+  },
+  "Chargebacks.setNote": { id: "cb_none", note: "Iets" },
+  "Chargebacks.accept": { ids: ["cb_none"] },
+  "Chargebacks.addEvidence": { chargebackId: "cb_none", fileIds: ["fil_none"] },
+  "Chargebacks.removeEvidence": { chargebackId: "cb_none", itemId: "evi_none" },
+  "Chargebacks.reorderEvidence": { chargebackId: "cb_none", itemIds: ["evi_none"] }
 }
 
 const manifest = [
@@ -357,7 +375,8 @@ const manifest = [
   ...ChatsRpcs.requests.keys(),
   ...NotificationsRpcs.requests.keys(),
   ...SessionRpcs.requests.keys(),
-  ...ShellRpcs.requests.keys()
+  ...ShellRpcs.requests.keys(),
+  ...ChargebacksRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {
