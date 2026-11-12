@@ -1,8 +1,10 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { AuditRpcs } from "@insyte/api/rpc/AuditRpcs"
 import { AutomationsRpcs } from "@insyte/api/rpc/AutomationsRpcs"
 import { ChargebacksRpcs } from "@insyte/api/rpc/ChargebacksRpcs"
 import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
+import { CostsRpcs } from "@insyte/api/rpc/CostsRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
@@ -17,6 +19,7 @@ import { ReturnsRpcs } from "@insyte/api/rpc/ReturnsRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
 import { RunsRpcs } from "@insyte/api/rpc/RunsRpcs"
 import { SessionRpcs } from "@insyte/api/rpc/SessionRpcs"
+import { SettingsDepthRpcs } from "@insyte/api/rpc/SettingsDepthRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
 import { ShellRpcs } from "@insyte/api/rpc/ShellRpcs"
 import { StoresRpcs } from "@insyte/api/rpc/StoresRpcs"
@@ -24,6 +27,7 @@ import { SuppliersRpcs } from "@insyte/api/rpc/SuppliersRpcs"
 import { ThreadsRpcs } from "@insyte/api/rpc/ThreadsRpcs"
 import { TicketsRpcs } from "@insyte/api/rpc/TicketsRpcs"
 import { TrackingRpcs } from "@insyte/api/rpc/TrackingRpcs"
+import { TrashRpcs } from "@insyte/api/rpc/TrashRpcs"
 import { WorkspacesRpcs } from "@insyte/api/rpc/WorkspacesRpcs"
 import { Exit } from "effect"
 import { beforeAll, describe, expect, it } from "vitest"
@@ -297,6 +301,19 @@ const PAYLOADS: Record<string, unknown> = {
     weekStart: "mon",
     timezone: "Europe/Amsterdam"
   },
+  // Settings depth (20.1b): each write is refused after the permission (a link without https, a text file as the
+  // logo, erasing on before the saved periods were counted); the count is of other periods than the saved ones.
+  "WorkspaceSettings.get": { section: "shipping" },
+  "WorkspaceSettings.save": {
+    section: "links",
+    value: { review: "geen-link", unsubscribe: "", restock: "" },
+    baseVersion: 0
+  },
+  "Shipping.statusCounts": undefined,
+  "Templates.linkUsage": undefined,
+  "Brand.uploadLogo": { name: "logo.txt", mime: "text/plain", data: "eA==" },
+  "Retention.count": { classes: [{ id: "contact", months: 3 }] },
+  "Retention.setErasing": { on: true },
   "Chats.list": undefined,
   "Chats.messages": { conversationId: "cnv_none" },
   "Chats.thread": { messageId: "msg_none" },
@@ -377,7 +394,24 @@ const PAYLOADS: Record<string, unknown> = {
   "Chargebacks.addEvidence": { chargebackId: "cb_none", fileIds: ["fil_none"] },
   "Chargebacks.removeEvidence": { chargebackId: "cb_none", itemId: "evi_none" },
   "Chargebacks.reorderEvidence": { chargebackId: "cb_none", itemIds: ["evi_none"] },
-  "Chargebacks.assemblePack": { ids: ["cb_none"] }
+  "Chargebacks.assemblePack": { ids: ["cb_none"] },
+  // Kosten (M13 step 5): Analyse · Bekijken to read, `costs.write` to change; a blank name or a line that is not there.
+  "Costs.list": {},
+  "Costs.figures": { months: ["2026-01"] },
+  "Costs.create": { name: "   ", kind: "fixed" },
+  "Costs.update": { id: "cost_none", name: "Iets", kind: "fixed" },
+  "Costs.setAmount": { lineId: "cost_none", month: "2026-01", amountMinor: 100 },
+  "Costs.readFromSource": { id: "cost_none" },
+  "Costs.remove": { id: "cost_none" },
+  // The Logboek and the Prullenbak (M17 step 20.1a): reading the log at Instellingen · Bekijken, its CSV also with
+  // Exporteren; the trash at Bewerken. The ids are in no trash, so nothing is put back or purged; the trash is empty.
+  "Audit.list": { category: "settings" },
+  "Audit.facets": undefined,
+  "Audit.export": { category: "settings" },
+  "Trash.list": undefined,
+  "Trash.restore": { ids: ["tkt_none"] },
+  "Trash.purge": { ids: ["tkt_none"] },
+  "Trash.empty": undefined
 }
 
 const manifest = [
@@ -407,7 +441,11 @@ const manifest = [
   ...NotificationsRpcs.requests.keys(),
   ...SessionRpcs.requests.keys(),
   ...ShellRpcs.requests.keys(),
-  ...ChargebacksRpcs.requests.keys()
+  ...ChargebacksRpcs.requests.keys(),
+  ...CostsRpcs.requests.keys(),
+  ...AuditRpcs.requests.keys(),
+  ...TrashRpcs.requests.keys(),
+  ...SettingsDepthRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

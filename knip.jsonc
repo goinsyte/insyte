@@ -86,6 +86,8 @@
         "!src/app/chats/**",
         "!src/app/inbox/**",
         "!src/app/automations/**",
+        "!src/app/costs/**",
+        "!src/app/settings/depth/**",
       ],
     },
     "apps/console": {

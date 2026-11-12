@@ -125,6 +125,19 @@ const QueueLive = HttpApiBuilder.group(
     Effect.map(Effect.service(Resources), (act) => handlers.handle("queue", ({ query }) => act.queue(query.tab)))
 )
 
+const CostsLive = HttpApiBuilder.group(
+  PublicApi,
+  "costs",
+  (handlers) =>
+    Effect.map(
+      Effect.service(Resources),
+      (act) =>
+        handlers
+          .handle("costs", ({ query }) => act.costs(query.from, query.to))
+          .handle("figures", ({ query }) => act.costFigures(query.months))
+    )
+)
+
 const ProposalsLive = HttpApiBuilder.group(
   PublicApi,
   "proposals",
@@ -307,7 +320,8 @@ export const PublicApiRoutes = Layer.mergeAll(
       AutomationsLive,
       QueueLive,
       ProposalsLive,
-      ChargebacksLive
+      ChargebacksLive,
+      CostsLive
     )
   ),
   Layer.provide(ApiKeyAuthLive)

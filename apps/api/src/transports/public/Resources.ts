@@ -20,6 +20,8 @@ import type { RunDetail, RunRow, RunStatus } from "@insyte/modules/automations/d
 import { RunsService } from "@insyte/modules/automations/Runs"
 import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
 import type { ChargebackRow, ChargebackStats, ChargebackTab } from "@insyte/modules/chargebacks/domain/Chargebacks"
+import { CostsService } from "@insyte/modules/costs/Costs"
+import type { CostLine, MonthFigures } from "@insyte/modules/costs/domain/Costs"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import type { LegRow } from "@insyte/modules/forwarding/domain/Forwarding"
 import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
@@ -473,6 +475,42 @@ const runV1 = (r: RunRow, steps: RunDetail["steps"] = []) => ({
   }))
 })
 
+/** A month's figures in the public shape. */
+const figuresV1 = (f: MonthFigures) => ({
+  month: f.month,
+  revenue_minor: f.revenueMinor,
+  orders: f.orders,
+  ads_minor: f.adsMinor,
+  other_minor: f.otherMinor,
+  costs_minor: f.costsMinor,
+  net_minor: f.netMinor,
+  margin: f.margin,
+  roas: f.roas
+})
+
+const costLineV1 = (l: CostLine, months: ReadonlyArray<string>) => ({
+  id: l.id,
+  name: l.name,
+  kind: l.kind,
+  rate: l.rate,
+  rate_minor: l.rateMinor,
+  source: l.source,
+  reads_from_source: l.readsFromSource,
+  months: months.map((m) => {
+    const c = l.cells[m]
+    return { month: m, amount_minor: c?.amountMinor ?? 0, typed: c?.typed ?? false, source: c?.source ?? "none" }
+  })
+})
+
+/** A query parameter the use case refused, in the V1 envelope. */
+const badQuery = (field: string, message: string) =>
+  Effect.flatMap(CurrentApiKey, (key) =>
+    Effect.fail<InvalidRequestV1>({
+      error: { code: "InvalidRequestV1", message, request_id: key.requestId, field }
+    }))
+
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
+
 const make = Effect.gen(function*() {
   const members = yield* Members
   const roles = yield* RolesService
@@ -490,6 +528,7 @@ const make = Effect.gen(function*() {
   const queue = yield* QueueService
   const proposals = yield* ProposalsService
   const chargebacks = yield* ChargebacksService
+  const costs = yield* CostsService
   return {
     chargebacks: (query: {
       readonly tab?: ChargebackTab | undefined
@@ -536,6 +575,30 @@ const make = Effect.gen(function*() {
         })),
         Effect.catchTags({ Forbidden: scopeMissing, NotFound: notFound })
       ),
+    costs: (from?: string, to?: string) =>
+      costs.list({ ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }) }).pipe(
+        Effect.map((list) => ({
+          currency: list.currency,
+          months: list.months,
+          current: list.current,
+          lines: list.lines.map((l) => costLineV1(l, list.months)),
+          figures: list.figures.map(figuresV1)
+        })),
+        Effect.catchTags({
+          Forbidden: scopeMissing,
+          Invalid: () => badQuery("from", "The range runs from `from` to `to`, at most 36 months.")
+        })
+      ),
+    costFigures: (months: string) => {
+      const list = [...new Set(months.split(",").map((m) => m.trim()).filter((m) => m !== ""))]
+      if (list.length === 0 || list.length > 36 || list.some((m) => !MONTH.test(m))) {
+        return badQuery("months", "Name one to 36 months, YYYY-MM, separated by commas.")
+      }
+      return costs.figures({ months: list }).pipe(
+        Effect.map((f) => ({ currency: f.currency, data: f.figures.map(figuresV1) })),
+        Effect.catchTag("Forbidden", scopeMissing)
+      )
+    },
     queue: (tab?: "needs_you" | "drawn" | "all") =>
       queue.list(tab === undefined ? {} : { tab }).pipe(
         Effect.map((list) => ({
@@ -1168,7 +1231,8 @@ export class Resources extends Context.Service<Resources, Effect.Success<typeof 
         RunsService.layer,
         QueueService.layer,
         ProposalsService.layer,
-        ChargebacksService.layer
+        ChargebacksService.layer,
+        CostsService.layer
       )
     )
   )
