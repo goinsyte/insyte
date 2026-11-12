@@ -1,6 +1,7 @@
-import { Link } from "@tanstack/react-router"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { AlertTriangle, CheckCircle2, Copy, Mail, RefreshCcw } from "../../../icons"
+import { ConfirmDialog } from "../../common/confirm-dialog"
 import { formatRelative } from "../../lib/format"
 import type { DnsRecord, Domain } from "../../lib/settings-depth"
 import { cn } from "../../lib/utils"
@@ -21,21 +22,29 @@ const copy = (text: string, what: string) => {
 }
 
 /** Why there are no records to show, said plainly: what it means for the mail now, and what helps. */
-const NOT_READY: Record<Exclude<DomainHere["state"], "ready">, (domain: string) => [string, string]> = {
-  unavailable: () => [
+const NOT_READY: Record<"unavailable" | "failed", [string, string]> = {
+  unavailable: [
     "Mailen vanaf je eigen domein is nog niet beschikbaar.",
     "Mail gaat van Insyte uit, in de naam van je winkel."
   ],
-  no_domain: () => [
-    "Nog geen domein.",
-    "Vul bij Huisstijl je website in. Van dat domein gaat je mail dan uit."
+  failed: [
+    "De DNS-records zijn nu niet op te halen.",
+    "Mail gaat van Insyte uit tot het lukt. Probeer het zo opnieuw."
+  ]
+}
+
+/** No domain set up yet, or the last try did not take: what that means, and what to do. */
+const SET_UP: Record<"unclaimed" | "taken" | "failed", (domain: string) => [string, string]> = {
+  unclaimed: () => [
+    "Nog geen domein ingesteld.",
+    "Stel het domein in waarvan je winkel mailt. Daarna zie je de vier DNS-records voor je domeinbeheerder."
   ],
   taken: (domain) => [
     `${domain} is al in gebruik.`,
-    "Het domein hoort bij een andere werkruimte. Neem contact op met Insyte."
+    "Het domein hoort bij een andere werkruimte. Kies een ander domein of neem contact op met Insyte."
   ],
   failed: () => [
-    "De DNS-records zijn nu niet op te halen.",
+    "Het instellen lukte niet.",
     "Mail gaat van Insyte uit tot het lukt. Probeer het zo opnieuw."
   ]
 }
@@ -51,7 +60,8 @@ const keepSenders = (saved: Domain, draft: Domain, before: Domain): Domain =>
  * four records to put at the domain host, each with its state and a copy button, a check that asks
  * again, and what to tell whoever manages the domain. Until all four are found mail still goes out,
  * and the page says the honest part: it may land in spam. Where there is no domain to show, it says
- * why instead of showing records that are not real.
+ * why instead of showing records that are not real; with none set up yet, "Domein instellen", and
+ * once one is, "Domein verwijderen" (after a confirm: the DNS work is lost) where the host offers them.
  */
 export function EmailDomainPage() {
   const s = useSection(
@@ -76,9 +86,13 @@ export function EmailDomainPage() {
     d.records.map((r) => `${r.type}  ${r.name}  ${r.value}`).join("\n")
   }\n\nDank je.`
 
+  const [removing, setRemoving] = useState(false)
+  const state = here?.state ?? "ready"
+  const setUp = state === "unclaimed" || state === "taken" || (state === "failed" && d.records.length === 0)
+
   return (
     <>
-      {here === undefined || here.state === "ready"
+      {state === "ready"
         ? (
           <>
             <div
@@ -115,15 +129,29 @@ export function EmailDomainPage() {
                 d.checkedAt === "" ? "Nog niet gecontroleerd" : `Laatst gecontroleerd ${formatRelative(d.checkedAt)}`
               }.`}
               action={
-                <button
-                  type="button"
-                  disabled={checking || !s.canEdit}
-                  onClick={here?.check}
-                  className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-2.5 font-medium text-mesh-ink text-xs shadow-primary transition-colors hover:bg-abyss-2 disabled:opacity-60"
-                >
-                  <RefreshCcw className={cn("size-3.5", checking && "animate-spin")} strokeWidth={1.75} />
-                  {checking ? "Controleren…" : "Opnieuw controleren"}
-                </button>
+                <div className="flex items-center gap-2">
+                  {here?.remove !== undefined && s.canEdit
+                    ? (
+                      <button
+                        type="button"
+                        disabled={here.busy === true}
+                        onClick={() => setRemoving(true)}
+                        className="field flex h-8 items-center rounded-md px-2.5 font-medium text-ink text-xs hover:field-hover disabled:opacity-60"
+                      >
+                        Domein verwijderen
+                      </button>
+                    )
+                    : null}
+                  <button
+                    type="button"
+                    disabled={checking || !s.canEdit}
+                    onClick={here?.check}
+                    className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-2.5 font-medium text-mesh-ink text-xs shadow-primary transition-colors hover:bg-abyss-2 disabled:opacity-60"
+                  >
+                    <RefreshCcw className={cn("size-3.5", checking && "animate-spin")} strokeWidth={1.75} />
+                    {checking ? "Controleren…" : "Opnieuw controleren"}
+                  </button>
+                </div>
               }
             >
               <div className="table-scroll overflow-hidden rounded-xl bg-paper shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
@@ -156,7 +184,11 @@ export function EmailDomainPage() {
             </SettingCard>
           </>
         )
-        : <NotReady here={here} domain={d.domain} canEdit={s.canEdit} />}
+        : here !== undefined && setUp
+        ? <SetUp here={here} domain={d.domain} canEdit={s.canEdit} />
+        : here !== undefined
+        ? <NotReady here={here} canEdit={s.canEdit} />
+        : null}
 
       <SettingCard title="Afzenders" subtitle="Van welk adres Insyte mailt, en waar een antwoord landt.">
         <div className="flex flex-col">
@@ -182,31 +214,38 @@ export function EmailDomainPage() {
           </FieldRow>
         </div>
       </SettingCard>
+      {here?.remove !== undefined
+        ? (
+          <ConfirmDialog
+            open={removing}
+            onOpenChange={setRemoving}
+            tone="destructive"
+            title="Domein verwijderen?"
+            description={`Insyte haalt ${d.domain} weg. De DNS-records die je al toevoegde, tellen dan niet meer: een ander domein krijgt eigen records. Tot dat klaar is, gaat je mail van Insyte uit.`}
+            confirmLabel="Verwijderen"
+            onConfirm={() => {
+              setRemoving(false)
+              here.remove?.()
+            }}
+          />
+        )
+        : null}
       <UnsavedBar visible={s.dirty && s.canEdit} onDiscard={s.discard} onSave={() => s.save("Afzenders opgeslagen")} />
     </>
   )
 }
 
 /** The band in place of the records: why there are none, and the one thing that helps where there is one. */
-function NotReady({ here, domain, canEdit }: { here: DomainHere; domain: string; canEdit: boolean }) {
-  if (here.state === "ready") return null
-  const [title, detail] = NOT_READY[here.state](domain)
+function NotReady({ here, canEdit }: { here: DomainHere; canEdit: boolean }) {
+  if (here.state !== "unavailable" && here.state !== "failed") return null
+  const [title, detail] = NOT_READY[here.state]
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-xl bg-mist px-4 py-3">
       <Mail className="size-4 text-ink-3" strokeWidth={1.75} />
       <p className="min-w-0 flex-1 text-ink text-sm">
         <span className="font-medium">{title}</span> {detail}
       </p>
-      {here.state === "no_domain"
-        ? (
-          <Link
-            to={"/settings/brand" as never}
-            className="flex h-8 items-center rounded-md bg-paper px-2.5 font-medium text-ink text-sm hover:bg-paper/80"
-          >
-            Naar Huisstijl
-          </Link>
-        )
-        : here.state === "failed"
+      {here.state === "failed"
         ? (
           <button
             type="button"
@@ -217,6 +256,55 @@ function NotReady({ here, domain, canEdit }: { here: DomainHere; domain: string;
             <RefreshCcw className={cn("size-3.5", here.checking && "animate-spin")} strokeWidth={1.75} />
             Opnieuw proberen
           </button>
+        )
+        : null}
+    </div>
+  )
+}
+
+/**
+ * No domain yet: the name to set up (the website's, filled in) and "Domein instellen". Only then is the domain made at
+ * the provider, and only by someone who may change the settings.
+ */
+function SetUp({ here, domain, canEdit }: { here: DomainHere; domain: string; canEdit: boolean }) {
+  const [name, setName] = useState(domain)
+  useEffect(() => setName(domain), [domain])
+  const state = here.state === "taken" || here.state === "failed" ? here.state : "unclaimed"
+  const [title, detail] = SET_UP[state](name.trim() === "" ? domain : name.trim())
+  const busy = here.busy === true
+  return (
+    <div className="flex flex-col gap-3 rounded-xl bg-mist px-4 py-3">
+      <div className="flex items-center gap-3">
+        <Mail className="size-4 shrink-0 text-ink-3" strokeWidth={1.75} />
+        <p className="min-w-0 flex-1 text-ink text-sm">
+          <span className="font-medium">{title}</span> {detail}
+        </p>
+      </div>
+      {here.setUp !== undefined
+        ? (
+          <form
+            className="flex flex-wrap items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (name.trim() !== "") here.setUp?.(name.trim())
+            }}
+          >
+            <input
+              value={name}
+              disabled={!canEdit || busy}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="jouwwinkel.nl"
+              aria-label="Domein"
+              className={cn(WELL, "min-w-0 max-w-xs flex-1 bg-paper")}
+            />
+            <button
+              type="submit"
+              disabled={!canEdit || busy || name.trim() === ""}
+              className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-2.5 font-medium text-mesh-ink text-xs shadow-primary transition-colors hover:bg-abyss-2 disabled:opacity-60"
+            >
+              {busy ? "Instellen…" : "Domein instellen"}
+            </button>
+          </form>
         )
         : null}
     </div>

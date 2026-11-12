@@ -23,12 +23,16 @@ export const fromIn = (from: string, name: string | undefined) => {
   return `${/[()<>[\]:;@,.]/.test(clean) ? `"${clean}"` : clean} <${address}>`
 }
 
-/** The same mail, sent twice within a day, is one mail: the kind, the address, the link and the reference, hashed. */
+/**
+ * The same mail, sent twice within a day, is one mail: the kind, the address, the link and the reference, hashed, and
+ * the brand's own sender where it names one, so the same mail sent again from Insyte's address is not taken for it.
+ */
 const idempotencyKey = (mail: Mail) =>
   Effect.promise(async () => {
+    const own = mail.from === undefined ? "" : `|${mail.from.toLowerCase()}`
     const digest = await crypto.subtle.digest(
       "SHA-256",
-      new TextEncoder().encode(`${mail.kind}|${mail.to.toLowerCase()}|${mail.url ?? ""}|${mail.reference ?? ""}`)
+      new TextEncoder().encode(`${mail.kind}|${mail.to.toLowerCase()}|${mail.url ?? ""}|${mail.reference ?? ""}${own}`)
     )
     return `${mail.kind}/${[...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")}`
   })
@@ -39,6 +43,13 @@ const escape = (text: string) =>
 /** Plain text as HTML: escaped, its paragraphs and line breaks kept. */
 export const plainHtml = (text: string) =>
   text.split(/\n{2,}/).map((p) => `<p>${escape(p).replaceAll("\n", "<br>")}</p>`).join("\n")
+
+/**
+ * Resend refusing the brand's own sender: `403 validation_error`, "The example.com domain is not verified…", as for a
+ * domain that lapsed (a DNS record taken off) or was taken away.
+ */
+export const refusesSender = (reason: string) =>
+  /^resend 403\b/.test(reason) && /\bdomain\b.*\bnot verified\b/i.test(reason)
 
 const missing = (mail: Mail, what: string) => new MailNotSent({ kind: mail.kind, reason: `${mail.kind} needs ${what}` })
 
@@ -147,7 +158,13 @@ export const ResendMailer = Layer.effect(
             }
           })
         }).pipe(
-          Effect.mapError((error) => new MailNotSent({ kind: mail.kind, reason: error.reason }))
+          Effect.mapError((error) =>
+            new MailNotSent({
+              kind: mail.kind,
+              reason: error.reason,
+              ...(mail.from !== undefined && refusesSender(error.reason) ? { senderRefused: true } : {})
+            })
+          )
         )
       })
     })

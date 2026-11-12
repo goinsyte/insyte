@@ -37,15 +37,22 @@ export interface PrivacyHere {
 
 /**
  * E-mail en domein beyond its senders: where the domain stands and the check again. `ready` shows the records; the rest
- * say honestly why there are none: sending from your own domain is not available here, there is no website to take
- * the domain from, the domain is in use elsewhere, or its records could not be fetched.
+ * say honestly why there are none: sending from your own domain is not available here, no domain is set up yet, the
+ * domain is in use elsewhere, or its records could not be fetched. A host that can set the domain up and take it away
+ * gives `setUp` and `remove`; without them the page offers neither.
  */
 export interface DomainHere {
-  state: "ready" | "unavailable" | "no_domain" | "taken" | "failed"
+  state: "ready" | "unavailable" | "unclaimed" | "taken" | "failed"
   /** A check is out: the button spins and waits for it. */
   checking: boolean
   /** "Opnieuw controleren"; the host says what it found. */
   check: () => void
+  /** A set-up or a removal is out: its button waits for it. */
+  busy?: boolean | undefined
+  /** "Domein instellen", with the name as typed; the host says what came of it. */
+  setUp?: ((name: string) => void) | undefined
+  /** "Domein verwijderen", after the page's confirm. */
+  remove?: (() => void) | undefined
 }
 
 export interface SettingsDepthSource {

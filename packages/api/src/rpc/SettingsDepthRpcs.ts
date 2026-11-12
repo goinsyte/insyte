@@ -1,5 +1,10 @@
 import { Conflict, Forbidden, Invalid } from "@insyte/domain/Errors"
-import { SaveSenders, SendersChange, SendingDomainState } from "@insyte/modules/settings/domain/SendingDomain"
+import {
+  SaveSenders,
+  SendersChange,
+  SendingDomainState,
+  SetUpDomain
+} from "@insyte/modules/settings/domain/SendingDomain"
 import {
   CountRetention,
   ErasingChange,
@@ -51,9 +56,16 @@ export class SettingsDepthRpcs extends RpcGroup.make(
     success: ErasingChange,
     error: Schema.Union([Forbidden, NotCounted])
   }),
-  // E-mail en domein (20.1c): the sending domain and its records, a check again, and the senders.
+  // E-mail en domein (20.1c): the sending domain and its records, setting it up, a check again, taking it away, and
+  // the senders.
   Rpc.make("SendingDomain.get", { success: SendingDomainState, error: Forbidden }),
   Rpc.make("SendingDomain.verify", { success: SendingDomainState, error: Forbidden }),
+  Rpc.make("SendingDomain.setUp", {
+    payload: SetUpDomain,
+    success: SendingDomainState,
+    error: Schema.Union([Forbidden, Invalid])
+  }),
+  Rpc.make("SendingDomain.remove", { success: SendingDomainState, error: Forbidden }),
   Rpc.make("SendingDomain.saveSenders", {
     payload: SaveSenders,
     success: SendersChange,

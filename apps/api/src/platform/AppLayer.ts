@@ -220,7 +220,9 @@ export const BackgroundLayer = Layer.mergeAll(
   WebPushChoice,
   SlackChoice,
   SealerLive,
-  NoteRepliesLive
+  NoteRepliesLive,
+  // The sending domains' daily re-check (M17 step 20.1c).
+  SendingDomainsChoice
 ).pipe(
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),

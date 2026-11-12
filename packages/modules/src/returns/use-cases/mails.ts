@@ -2,7 +2,7 @@ import { mintId } from "@insyte/domain/Ids"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import { FileStore } from "../../shared/domain/Documents.ts"
-import { type Mail, Mailer, type ReturnMailFacts } from "../../shared/domain/Mailer.ts"
+import type { Mail, ReturnMailFacts } from "../../shared/domain/Mailer.ts"
 import * as Senders from "../../shared/use-cases/Senders.ts"
 import type { Resolution } from "../domain/Rules.ts"
 import type { StoredResolution } from "../domain/Shopify.ts"
@@ -145,11 +145,10 @@ export const shopperMail = Effect.fn("Returns.shopperMail")(function*(
     }
   })()
   const attachments = mail === "label" ? yield* labelPdf(sql, r.number, label!.fileId!) : undefined
-  yield* (yield* Mailer).send({
+  yield* Senders.sendToCustomer(sql, {
     kind: KIND[mail],
     to: r.customerEmail,
     sender: r.shop,
-    ...(yield* Senders.customerSender(sql, KIND[mail])),
     reference: returnId,
     returnMail: { ...facts, ...extra },
     ...(attachments === undefined ? {} : { attachments })

@@ -196,6 +196,37 @@ describe("ResendMailer", () => {
     })
   })
 
+  it("says when Resend refuses the brand's own sender, and keys that mail apart from Insyte's (20.1c)", async () => {
+    const seen: Array<Seen> = []
+    const notVerified = {
+      name: "validation_error",
+      message:
+        "The northwind.store domain is not verified. Please, add and verify your domain on https://resend.com/domains"
+    }
+    const mail: Mail = {
+      kind: "order.delayed",
+      to: "anna@example.com",
+      sender: "Northwind",
+      from: "service@northwind.store",
+      reference: "ord_1",
+      orderDelay: { shop: "Northwind", number: "#1002", subject: "Later", paragraphs: ["Het duurt langer."], items: [] }
+    }
+    const refused = await sendWith(
+      fakeResend(() => Promise.resolve(Response.json(notVerified, { status: 403 })), seen),
+      mail
+    )
+    expect(Exit.isFailure(refused) && JSON.stringify(refused.cause)).toContain("\"senderRefused\":true")
+    // Insyte's own sender refused the same way is not the brand's: nothing to fall back to.
+    const own = await sendWith(fakeResend(() => Promise.resolve(Response.json(notVerified, { status: 403 }))), {
+      ...mail,
+      from: undefined
+    })
+    expect(Exit.isFailure(own) && JSON.stringify(own.cause)).not.toContain("senderRefused")
+    const ok = fakeResend(() => Promise.resolve(Response.json({ id: "re_8" })), seen)
+    await sendWith(ok, { ...mail, from: undefined })
+    expect(seen[0]?.headers["idempotency-key"]).not.toBe(seen[1]?.headers["idempotency-key"])
+  })
+
   it("turns a refusal, a missing link and missing facts into MailNotSent, and sends nothing for the last two", async () => {
     const refused = await sendWith(
       fakeResend(() => Promise.resolve(Response.json({ message: "nope" }, { status: 422 }))),

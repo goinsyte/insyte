@@ -36,7 +36,11 @@ const oneOf = <T extends string | number>(values: ReadonlyArray<T>, u: unknown):
 
 /** A link a customer can open: https, a host with a dot, no spaces (the page's own rule). */
 export const HTTPS = /^https:\/\/[^\s.]+\.[^\s]+$/
-const EMAIL = /^[^\s@,;]+@[^\s@,;]+\.[a-z]{2,}$/i
+/**
+ * An address a mail can go from or to as it stands: a plain local part (no quotes, angle brackets or spaces, which a
+ * `Name <address>` header would break on) and a host of labels with a letter top-level domain.
+ */
+const EMAIL = /^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/i
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i
 /** An OSS number: the country code and then eight to twelve digits or letters, spaces taken out. */
 const OSS = /^[A-Z]{2}[0-9A-Z]{8,12}$/

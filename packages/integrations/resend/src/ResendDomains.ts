@@ -3,6 +3,7 @@ import {
   DomainsUnavailable,
   DomainTaken,
   type ProviderDomain,
+  type ProviderListed,
   SendingDomains
 } from "@insyte/modules/settings/domain/SendingDomain"
 import { Config, Effect, Layer, Redacted, Schema } from "effect"
@@ -10,7 +11,7 @@ import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
 
 /*
  * The `SendingDomains` port over Resend's domains API (M17 step 20.1c; ADR-0018): make a domain, read it with its
- * records and their status, and ask Resend to check them again. No SDK, as for sending (`Resend.ts`). DMARC is not a
+ * records and their status, ask Resend to check them again, find one by name and take one away. No SDK, as for sending (`Resend.ts`). DMARC is not a
  * Resend record, so it is asked of the DNS itself over Cloudflare's DNS-over-HTTPS JSON API.
  *
  * Resend's keys are full access or sending only; a sending-only key is refused on `/domains` (`restricted_api_key`).
@@ -40,6 +41,17 @@ const Domain = Schema.Struct({
   records: Schema.optional(Schema.Array(Record))
 })
 
+const Listed = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  created_at: Schema.optional(Schema.String)
+})
+
+const Page = Schema.Struct({ data: Schema.Array(Listed), has_more: Schema.optional(Schema.Boolean) })
+
+/** How many pages of the account's domains a lookup by name reads, at most (a hundred each). */
+const PAGES = 10
+
 const Refused = Schema.Struct({ name: Schema.optional(Schema.String), message: Schema.optional(Schema.String) })
 
 const Dns = Schema.Struct({
@@ -55,6 +67,16 @@ const providerOf = (d: typeof Domain.Type): ProviderDomain => ({
   region: d.region ?? REGION,
   records: (d.records ?? []).map((r) => ({ ...r }))
 })
+
+/**
+ * Resend's `created_at` (`2026-03-28 17:12:02.059593+00`) as epoch ms: Postgres's text, which `Date` does not read as
+ * it stands. Unreadable is NaN, which no claim is ever after.
+ */
+export const createdAtOf = (text: string | undefined): number => {
+  if (text === undefined) return Number.NaN
+  const iso = text.trim().replace(" ", "T").replace(/(\.\d{3})\d+/, "$1").replace(/([+-]\d{2})$/, "$1:00")
+  return Date.parse(iso)
+}
 
 /** Whether one of `_dmarc.<name>`'s TXT strings is a DMARC policy (a TXT's data comes quoted, maybe in parts). */
 export const hasDmarc = (answer: typeof Dns.Type) =>
@@ -126,6 +148,33 @@ export const ResendDomains = Layer.effect(
           Schema.Struct({ id: Schema.optional(Schema.String) })
         ).pipe(notTaken)
       }),
+      find: Effect.fn("ResendDomains.find")(function*(name: string) {
+        let after: string | undefined
+        for (let page = 0; page < PAGES; page += 1) {
+          const request = HttpClientRequest.get(API).pipe(
+            HttpClientRequest.setUrlParams({ limit: "100", ...(after === undefined ? {} : { after }) })
+          )
+          const listed = yield* call(request, Page).pipe(notTaken)
+          const hit = listed.data.find((d) => d.name.toLowerCase() === name)
+          if (hit !== undefined) return { id: hit.id, createdAt: createdAtOf(hit.created_at) } as ProviderListed
+          if (listed.has_more !== true || listed.data.length === 0) return undefined
+          after = listed.data[listed.data.length - 1]!.id
+        }
+        return undefined
+      }),
+      remove: Effect.fn("ResendDomains.remove")(function*(id: string) {
+        yield* call(
+          HttpClientRequest.delete(`${API}/${encodeURIComponent(id)}`),
+          Schema.Struct({ id: Schema.optional(Schema.String) })
+        ).pipe(
+          notTaken,
+          // Gone already (taken away by hand, or an earlier try whose answer was lost) is what was asked.
+          Effect.catchIf(
+            (e) => e._tag === "DomainsFailed" && /^resend 404\b/.test(e.reason),
+            () => Effect.void
+          )
+        )
+      }),
       dmarc: Effect.fn("ResendDomains.dmarc")(function*(name: string) {
         const request = HttpClientRequest.get(DOH).pipe(
           HttpClientRequest.setUrlParams({ name: `_dmarc.${name}`, type: "TXT" }),
@@ -151,5 +200,7 @@ export const SendingDomainsUnset = Layer.succeed(SendingDomains)(SendingDomains.
   create: () => Effect.fail(new DomainsUnavailable()),
   get: () => Effect.fail(new DomainsUnavailable()),
   verify: () => Effect.fail(new DomainsUnavailable()),
+  find: () => Effect.fail(new DomainsUnavailable()),
+  remove: () => Effect.fail(new DomainsUnavailable()),
   dmarc: () => Effect.succeed(false)
 }))

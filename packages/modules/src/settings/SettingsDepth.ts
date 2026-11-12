@@ -4,7 +4,13 @@ import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
 import type { FileStore } from "../shared/domain/Documents.ts"
-import type { SaveSenders, SendersChange, SendingDomains, SendingDomainState } from "./domain/SendingDomain.ts"
+import type {
+  SaveSenders,
+  SendersChange,
+  SendingDomains,
+  SendingDomainState,
+  SetUpDomain
+} from "./domain/SendingDomain.ts"
 import type {
   CountRetention,
   ErasingChange,
@@ -47,6 +53,10 @@ export class SettingsDepth extends Context.Service<SettingsDepth, {
   readonly setErasing: (input: SetErasing) => Effect.Effect<ErasingChange, Forbidden | NotCounted, R>
   readonly domain: Effect.Effect<SendingDomainState, Forbidden, R | SendingDomains>
   readonly verifyDomain: Effect.Effect<SendingDomainState, Forbidden, R | SendingDomains>
+  readonly setUpDomain: (
+    input: SetUpDomain
+  ) => Effect.Effect<SendingDomainState, Forbidden | Invalid, R | SendingDomains>
+  readonly removeDomain: Effect.Effect<SendingDomainState, Forbidden, R | SendingDomains>
   readonly saveSenders: (
     input: SaveSenders
   ) => Effect.Effect<SendersChange, Forbidden | Invalid | Conflict, R | SendingDomains>
@@ -62,6 +72,8 @@ export class SettingsDepth extends Context.Service<SettingsDepth, {
     setErasing: (input) => run(setErasing(input)),
     domain: run(SendingDomain.get()),
     verifyDomain: run(SendingDomain.verify()),
+    setUpDomain: (input) => run(SendingDomain.setUp(input)),
+    removeDomain: run(SendingDomain.remove()),
     saveSenders: (input) => run(SendingDomain.saveSenders(input))
   })
 }

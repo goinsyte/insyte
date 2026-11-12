@@ -19,6 +19,7 @@ import {
 } from "./platform/Relay.ts"
 import { withRequestDb } from "./platform/RequestDb.ts"
 import { retentionSweep } from "./platform/Retention.ts"
+import { sendingDomainSweep } from "./platform/SendingDomains.ts"
 
 // The Durable Object classes this Worker hosts; infra and `wrangler.jsonc` bind them by these names.
 export { RateLimiter } from "./platform/RateLimiter.ts"
@@ -84,7 +85,8 @@ export default {
 
   /** Every minute (on staging every fifteenth, `infra/app.ts`): the relay's sweep for events a kick missed and the
    * notes quiet hours or a failed try held back (M11.5); every fifteenth, the stores' reconcile (M6.3), the tracking sweep (M8.4), Start's queue (M10.1), the
-   * daily facts (M10.4, at 02:00 UTC their nightly pass) and the members' daily digests (M11.5). */
+   * daily facts (M10.4, at 02:00 UTC their nightly pass), the members' daily digests (M11.5), the nightly erase (20.1b)
+   * and, at 04:00 UTC, the sending domains' re-check (20.1c). */
   scheduled(controller, _env, ctx) {
     ctx.waitUntil(background.runPromise(withRequestDb(sweep())).finally(() => Telemetry.flush()))
     ctx.waitUntil(background.runPromise(withRequestDb(notifySweep())).finally(() => Telemetry.flush()))
@@ -99,6 +101,10 @@ export default {
       ctx.waitUntil(background.runPromise(withRequestDb(digestSweep(at))).finally(() => Telemetry.flush()))
       // The nightly erase of what is past its retention, at 03:00 in each workspace's timezone (M17 step 20.1b).
       ctx.waitUntil(background.runPromise(withRequestDb(retentionSweep(at))).finally(() => Telemetry.flush()))
+      // The sending domains' daily re-check, at 04:00 UTC (M17 step 20.1c).
+      if (at.getUTCHours() === 4 && at.getUTCMinutes() === 0) {
+        ctx.waitUntil(background.runPromise(withRequestDb(sendingDomainSweep())).finally(() => Telemetry.flush()))
+      }
     }
   }
 } satisfies ExportedHandler<Env, EventsMessage | IngestMessage>

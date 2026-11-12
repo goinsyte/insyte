@@ -1560,6 +1560,20 @@
     "finance": "deny",
     "view": "deny"
   },
+  "SendingDomain.setUp": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "SendingDomain.remove": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
   "SendingDomain.saveSenders": {
     "owner": "allow",
     "admin": "allow",

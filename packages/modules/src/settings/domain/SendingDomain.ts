@@ -3,10 +3,11 @@ import { UndoTicket } from "../../shared/domain/Undo.ts"
 
 /*
  * E-mail en domein (M17 step 20.1c; widgets/05 §7.4, ADR-0018): the brand's own sending domain at Resend, the four
- * records to put at its domain host and what each was found as, and the two senders. The domain is the brand's website
- * (Huisstijl), as the page has no field of its own for it. Its state lives in `workspace_settings` section
- * `domain_senders` beside the senders, written without a new version: the version guards what people type, and a check
- * between reading and saving must not make their save stale.
+ * records to put at its domain host and what each was found as, and the two senders. A domain is made at Resend only
+ * by "Domein instellen" (Bewerken), with the name typed there (the website at Huisstijl filled in), and claimed in
+ * `sending_domains` before Resend is asked, so one name is one workspace's and a lost answer can be picked up again.
+ * Its state lives in `workspace_settings` section `domain_senders` beside the senders, written without a new version:
+ * the version guards what people type, and a check between reading and saving must not make their save stale.
  */
 
 /* ── the provider, as a port ──────────────────────────────────────────────────────────────────── */
@@ -40,6 +41,12 @@ export class DomainTaken extends Schema.TaggedError<DomainTaken>()("DomainTaken"
 /** The provider could not be reached or refused for another reason; `reason` is its words, never the key. */
 export class DomainsFailed extends Schema.TaggedError<DomainsFailed>()("DomainsFailed", { reason: Schema.String }) {}
 
+/** A domain the provider holds by a name, as its list has it: its id and when it was made there (epoch ms). */
+export interface ProviderListed {
+  readonly id: string
+  readonly createdAt: number
+}
+
 /**
  * The sending domains, at Resend (`@insyte/integrations-resend/ResendDomains`). `configured` is false where the
  * environment has no key for them; every call then fails `DomainsUnavailable`. `dmarc` asks the DNS itself: the
@@ -52,6 +59,10 @@ export class SendingDomains extends Context.Service<SendingDomains, {
   ) => Effect.Effect<ProviderDomain, DomainsUnavailable | DomainTaken | DomainsFailed>
   readonly get: (id: string) => Effect.Effect<ProviderDomain, DomainsUnavailable | DomainsFailed>
   readonly verify: (id: string) => Effect.Effect<void, DomainsUnavailable | DomainsFailed>
+  /** The domain the provider holds by this name, if any: to tell one this workspace made from someone else's. */
+  readonly find: (name: string) => Effect.Effect<ProviderListed | undefined, DomainsUnavailable | DomainsFailed>
+  /** Takes the domain away at the provider; one already gone is gone. */
+  readonly remove: (id: string) => Effect.Effect<void, DomainsUnavailable | DomainsFailed>
   /** Whether `_dmarc.<name>` holds a DMARC policy. */
   readonly dmarc: (name: string) => Effect.Effect<boolean, DomainsFailed>
 }>()("settings/SendingDomains") {}
@@ -74,11 +85,11 @@ export const DomainRecord = Schema.Struct({
 export type DomainRecord = typeof DomainRecord.Type
 
 /**
- * Where the page stands: `ready` (the domain and its records), `unavailable` (no key that manages domains), `no_domain`
- * (no website at Huisstijl to take it from), `taken` (the provider holds that name already) or `failed` (the provider
- * could not be reached and nothing was read before).
+ * Where the page stands: `ready` (the domain and its records), `unavailable` (no key that manages domains), `unclaimed`
+ * (no domain set up yet: `domain` is the website's, to fill in), `taken` (that name is someone else's) or `failed` (the
+ * provider could not be reached, and nothing was read before or the set-up did not go through).
  */
-export const DOMAIN_STATES = ["ready", "unavailable", "no_domain", "taken", "failed"] as const
+export const DOMAIN_STATES = ["ready", "unavailable", "unclaimed", "taken", "failed"] as const
 
 /** "Mails van Insyte" and "Antwoorden naar": empty is Insyte's own sender, and answers to the sender. */
 export const SendersValue = Schema.Struct({ from: Schema.String, replyTo: Schema.String })
@@ -91,7 +102,9 @@ export const StoredDomain = Schema.Struct({
   verified: Schema.Boolean,
   records: Schema.Array(DomainRecord),
   checkedAt: Schema.NullOr(Schema.Finite),
-  checks: Schema.Int
+  checks: Schema.Int,
+  /** When the provider was last read (epoch ms): a page view within `FRESH_MS` of it reads what is kept. */
+  readAt: Schema.optional(Schema.Finite)
 })
 export type StoredDomain = typeof StoredDomain.Type
 
@@ -105,7 +118,7 @@ export type StoredSenders = typeof StoredSenders.Type
 
 export const SendingDomainState = Schema.Struct({
   state: Schema.Literals(DOMAIN_STATES),
-  /** The domain, or the one it would be (the website's); none without a website. */
+  /** The domain, or the one it would be (the website's, or the one a set-up is pending for); none without either. */
   domain: Schema.NullOr(Schema.String),
   records: Schema.Array(DomainRecord),
   /** Mail from the domain is signed: shoppers' mail goes from "Mails van Insyte". */
@@ -125,6 +138,10 @@ export type SaveSenders = typeof SaveSenders.Type
 export const SendersChange = Schema.Struct({ domain: SendingDomainState, undo: UndoTicket })
 export type SendersChange = typeof SendersChange.Type
 
+/** "Domein instellen": the name as typed. */
+export const SetUpDomain = Schema.Struct({ name: Schema.String })
+export type SetUpDomain = typeof SetUpDomain.Type
+
 /* ── rules ────────────────────────────────────────────────────────────────────────────────────── */
 
 /**
@@ -142,6 +159,32 @@ export const domainOfWebsite = (website: string): string | null => {
   if (!name.includes(".") || name.endsWith(".myshopify.com") || /^[\d.]+$/.test(name)) return null
   return name
 }
+
+/** Insyte's own sending domain and its parent: never a workspace's. */
+const RESERVED = /(^|\.)goinsyte\.com$/
+
+/** A domain name as people type it: a host of labels with a dot, a letter top-level domain, at most 253 long. */
+const HOST = /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/
+
+/**
+ * The domain "Domein instellen" names: lower case, without a scheme, `www.`, a path or a trailing dot. None where it is
+ * not a domain to send from: not a host, a shop's platform address, or Insyte's own.
+ */
+export const domainOfInput = (text: string): string | null => {
+  const name = text.trim().toLowerCase().replace(/^[a-z]+:\/\//, "").replace(/[/?#].*$/, "").replace(/\.$/, "")
+    .replace(/^www\./, "")
+  if (!HOST.test(name) || name.endsWith(".myshopify.com") || RESERVED.test(name)) return null
+  return name
+}
+
+/** How long a read of the provider stands for a page view: within it, what is kept is shown (Resend's rate limit). */
+export const FRESH_MS = 10 * 60_000
+/** A claim never verified is let go after this long, so a name typed wrongly or taken in bad faith comes free again. */
+export const RELEASE_MS = 14 * 24 * 60 * 60_000
+/** A set-up whose answer never came is cleaned up after this long. */
+export const PENDING_MS = 24 * 60 * 60_000
+/** A domain the provider says it made up to this long before the claim is still the claim's (clocks differ). */
+export const CLOCK_SKEW_MS = 60_000
 
 const FOUND = new Set(["verified"])
 const PENDING = new Set(["pending"])

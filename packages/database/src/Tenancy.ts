@@ -96,7 +96,8 @@ export const TENANT_TABLES = [
   "digests",
   "push_subscriptions",
   "workspace_settings",
-  "retention_runs"
+  "retention_runs",
+  "sending_domains"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

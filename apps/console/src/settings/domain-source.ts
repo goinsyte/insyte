@@ -10,10 +10,12 @@ import { DEPTH, depthWrites, sendingDomainAtom } from "../data/settings-depth.ts
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 
 /*
- * E-mail en domein in the console (M17 step 20.1c): `SendingDomain.get` as the design's domain, "Opnieuw controleren"
- * through `SendingDomain.verify` (the toast says what it found), and the senders saved through
- * `SendingDomain.saveSenders` over the version they were read at, with their undo. Where there is no domain to show the
- * page says why (`DomainHere.state`); a record is only ever one Resend listed or the DNS answered.
+ * E-mail en domein in the console (M17 step 20.1c): `SendingDomain.get` as the design's domain, "Domein instellen"
+ * through `SendingDomain.setUp`, "Opnieuw controleren" through `SendingDomain.verify` (the toast says what it found),
+ * "Domein verwijderen" through `SendingDomain.remove`, and the senders saved through `SendingDomain.saveSenders` over
+ * the version they were read at, with their undo. Where there is no domain to show the page says why
+ * (`DomainHere.state`; a set-up that did not take is said until the next try); a record is only ever one Resend listed
+ * or the DNS answered.
  */
 
 /** Why a record is not found yet, as the page says it under the value. */
@@ -62,7 +64,7 @@ const senderRefusal = (fields: Record<string, string>, domain: string) => {
   const from = fields["from"]
   if (from === "format") return "Mails van Insyte is geen geldig e-mailadres."
   if (from === "not_on_domain") return `Mails van Insyte moet een adres op ${domain} zijn.`
-  if (from === "no_domain") return "Er is nog geen domein om vanaf te mailen. Vul eerst bij Huisstijl je website in."
+  if (from === "no_domain") return "Er is nog geen domein om vanaf te mailen. Stel eerst je domein in."
   const replyTo = fields["replyTo"]
   if (replyTo === "format") return "Antwoorden naar is geen geldig e-mailadres."
   if (replyTo === "not_a_mailbox") {
@@ -81,6 +83,12 @@ const copyFor = (domain: string): RefusalCopy => ({
   },
   other: (tagged) => {
     if (tagged._tag !== "Invalid") return false
+    if ((tagged["fields"] as Record<string, string>)["domain"] === "format") {
+      toast.error("Dat is geen domein", {
+        description: "Vul een domein in zoals jouwwinkel.nl, zonder https:// of pad."
+      })
+      return true
+    }
     const said = senderRefusal(tagged["fields"] as Record<string, string>, domain)
     if (said === undefined) return false
     toast.error("Dat kan zo niet", { description: said })
@@ -94,9 +102,14 @@ const foundOf = (state: { records: ReadonlyArray<{ status: string }> }) =>
 export function useConsoleDomainSource(state: SendingDomainState): SettingsDepthSource {
   const save = useAtomSet(depthWrites.saveSenders, { mode: "promiseExit" })
   const verify = useAtomSet(depthWrites.verifyDomain, { mode: "promiseExit" })
+  const setUp = useAtomSet(depthWrites.setUpDomain, { mode: "promiseExit" })
+  const remove = useAtomSet(depthWrites.removeDomain, { mode: "promiseExit" })
   const undo = useAtomSet(depthWrites.undo, { mode: "promiseExit" })
   const refresh = useAtomRefresh(sendingDomainAtom)
   const [checking, setChecking] = useState(false)
+  const [busy, setBusy] = useState(false)
+  // What the last "Domein instellen" came to where it did not take: the page says so until the next try.
+  const [attempt, setAttempt] = useState<"taken" | "failed" | "unavailable" | null>(null)
   const saved = useMemo(() => designDomain(state), [state])
   const copy = copyFor(saved.domain)
   return {
@@ -118,7 +131,38 @@ export function useConsoleDomainSource(state: SendingDomainState): SettingsDepth
       return true
     },
     domain: {
-      state: state.state,
+      state: state.state === "unclaimed" && attempt !== null ? attempt : state.state,
+      busy,
+      setUp: (name) => {
+        if (busy) return
+        setBusy(true)
+        void setUp({ payload: { name }, reactivityKeys: [...DEPTH] }).then((exit) => {
+          setBusy(false)
+          if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), copy)
+          const now = exit.value
+          setAttempt(now.state === "taken" || now.state === "failed" || now.state === "unavailable" ? now.state : null)
+          if (now.state === "ready") {
+            toast(`${now.domain ?? name} ingesteld`, {
+              description: "Voeg de vier DNS-records toe bij je domeinbeheerder en controleer daarna opnieuw."
+            })
+          }
+        })
+      },
+      remove: () => {
+        if (busy) return
+        setBusy(true)
+        void remove({ payload: undefined, reactivityKeys: [...DEPTH] }).then((exit) => {
+          setBusy(false)
+          if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), copy)
+          setAttempt(null)
+          if (exit.value.state !== "unclaimed") {
+            return void toast.error("Verwijderen lukte niet", { description: "Probeer het zo opnieuw." })
+          }
+          toast(`${saved.domain} verwijderd`, {
+            description: "Mail gaat van Insyte uit tot een nieuw domein klaar is."
+          })
+        })
+      },
       checking,
       check: () => {
         if (checking) return

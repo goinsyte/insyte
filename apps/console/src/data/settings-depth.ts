@@ -71,6 +71,8 @@ export const depthWrites = {
   count: ConsoleClient.mutation("Retention.count"),
   setErasing: ConsoleClient.mutation("Retention.setErasing"),
   verifyDomain: ConsoleClient.mutation("SendingDomain.verify"),
+  setUpDomain: ConsoleClient.mutation("SendingDomain.setUp"),
+  removeDomain: ConsoleClient.mutation("SendingDomain.remove"),
   saveSenders: ConsoleClient.mutation("SendingDomain.saveSenders"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const

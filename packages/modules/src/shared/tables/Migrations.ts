@@ -47,6 +47,7 @@ import authSessionCountry from "./migrations/0053_auth_session_country.ts"
 import sessionEvents from "./migrations/0054_session_events.ts"
 import push from "./migrations/0055_push.ts"
 import settingsDepth from "./migrations/0061_settings_depth.ts"
+import sendingDomains from "./migrations/0065_sending_domains.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -103,5 +104,6 @@ export const Migrations = {
   "0053_auth_session_country": authSessionCountry,
   "0054_session_events": sessionEvents,
   "0055_push": push,
-  "0061_settings_depth": settingsDepth
+  "0061_settings_depth": settingsDepth,
+  "0065_sending_domains": sendingDomains
 }

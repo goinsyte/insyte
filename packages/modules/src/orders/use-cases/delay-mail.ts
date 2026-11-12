@@ -4,7 +4,6 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
-import { Mailer } from "../../shared/domain/Mailer.ts"
 import { Relay } from "../../shared/domain/Outbox.ts"
 import { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
@@ -110,11 +109,10 @@ export const sendDelayMail = Effect.fn("Orders.sendDelayMail")(
       select coalesce(p.title, ol.title) as title, ol.variant_title, ol.quantity as qty
       from order_lines ol left join products p on p.id = ol.product_id
       where ol.order_id = ${m.orderId} order by ol.id`
-    const sent = yield* (yield* Mailer).send({
+    const sent = yield* Senders.sendToCustomer(sql, {
       kind: "order.delayed",
       to: m.address,
       sender: m.shop,
-      ...(yield* Senders.customerSender(sql, "order.delayed")),
       reference: m.orderId,
       orderDelay: {
         shop: m.shop,

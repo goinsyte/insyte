@@ -30,6 +30,9 @@ const StoredSenders = Schema.Struct({
 
 const decode = Schema.decodeUnknownOption(StoredSenders)
 
+/** A plain address, as E-mail en domein's check lets one through: anything else is never put in a header. */
+const PLAIN = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/
+
 /** What a mail of `kind` is sent with, by the stored section (none: never saved): nothing, Insyte's sender. */
 export const sendersFor = (
   stored: unknown,
@@ -40,12 +43,12 @@ export const sendersFor = (
   if (value === undefined) return {}
   const domain = value.domain
   const from = value.from.trim().toLowerCase()
-  const onDomain = domain !== null && domain !== undefined && domain.verified &&
+  const onDomain = domain !== null && domain !== undefined && domain.verified && PLAIN.test(from) &&
     from.endsWith(`@${domain.name.toLowerCase()}`)
-  const replyTo = value.replyTo.trim()
+  const replyTo = value.replyTo.trim().toLowerCase()
   return {
     ...(onDomain ? { from } : {}),
     // The inbox's own messages are answered to their mailbox: that is how the answer finds its thread.
-    ...(replyTo === "" || kind === "support.message" ? {} : { replyTo })
+    ...(!PLAIN.test(replyTo) || kind === "support.message" ? {} : { replyTo })
   }
 }

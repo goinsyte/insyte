@@ -288,6 +288,8 @@ const PAYLOADS: Record<string, unknown> = {
   // E-mail en domein (20.1c): a sender that is no address is refused after the permission.
   "SendingDomain.get": undefined,
   "SendingDomain.verify": undefined,
+  "SendingDomain.setUp": { name: "geen domein" },
+  "SendingDomain.remove": undefined,
   "SendingDomain.saveSenders": { from: "geen-adres", replyTo: "", baseVersion: 0 },
   "Chats.list": undefined,
   "Chats.messages": { conversationId: "cnv_none" },

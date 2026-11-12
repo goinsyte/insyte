@@ -1,6 +1,5 @@
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
-import { Mailer } from "../../shared/domain/Mailer.ts"
 import { PendingEvents } from "../../shared/domain/Outbox.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import * as Senders from "../../shared/use-cases/Senders.ts"
@@ -44,11 +43,10 @@ export const sendQueued = Effect.fn("Inbox.sendQueued")(function*(sql: SqlClient
   if (m.status !== "connected") yield* failed("De mailbox is ontkoppeld.")
   else if (to === undefined) yield* failed("Geen ontvanger.")
   else {
-    const sent = yield* (yield* Mailer).send({
+    const sent = yield* Senders.sendToCustomer(sql, {
       kind: "support.message",
       to: to.email,
       sender: m.label,
-      ...(yield* Senders.customerSender(sql, "support.message")),
       reference: m.id,
       support: {
         subject: m.subject,
@@ -58,7 +56,7 @@ export const sendQueued = Effect.fn("Inbox.sendQueued")(function*(sql: SqlClient
         inReplyTo: m.inReplyTo === null ? null : angle(m.inReplyTo),
         references: m.references.map(angle)
       }
-    }).pipe(Effect.match({ onFailure: (e) => e.reason, onSuccess: () => null }))
+    }).pipe(Effect.as(null), Effect.catchTag("MailNotSent", (e) => Effect.succeed(e.reason)))
     if (sent === null) {
       yield* sql`update email_messages set send_state = 'sent', sent_at = now(), send_error = null where id = ${m.id}`
     } else {

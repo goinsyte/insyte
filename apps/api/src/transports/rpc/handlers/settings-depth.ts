@@ -14,6 +14,8 @@ export const SettingsDepthHandlers = SettingsDepthRpcs.toLayer(Effect.gen(functi
     "Retention.setErasing": (input) => settings.setErasing(input),
     "SendingDomain.get": () => settings.domain,
     "SendingDomain.verify": () => settings.verifyDomain,
+    "SendingDomain.setUp": (input) => settings.setUpDomain(input),
+    "SendingDomain.remove": () => settings.removeDomain,
     "SendingDomain.saveSenders": (input) => settings.saveSenders(input)
   })
 }))

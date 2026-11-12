@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { checkSenders } from "../src/settings/domain/Check.ts"
-import { domainOfWebsite } from "../src/settings/domain/SendingDomain.ts"
+import { domainOfInput, domainOfWebsite } from "../src/settings/domain/SendingDomain.ts"
 import { sendersFor } from "../src/shared/domain/Senders.ts"
 
 /*
@@ -23,6 +23,17 @@ describe("the sending domain", () => {
     expect(domainOfWebsite("https://localhost")).toBeNull()
   })
 
+  it("sets up a domain as typed, and never a platform address or Insyte's own", () => {
+    expect(domainOfInput(" https://www.Northwind.store/shop ")).toBe("northwind.store")
+    expect(domainOfInput("mail.northwind.store.")).toBe("mail.northwind.store")
+    expect(domainOfInput("northwind")).toBeNull()
+    expect(domainOfInput("geen domein")).toBeNull()
+    expect(domainOfInput("northwind.myshopify.com")).toBeNull()
+    expect(domainOfInput("goinsyte.com")).toBeNull()
+    expect(domainOfInput("mail.goinsyte.com")).toBeNull()
+    expect(domainOfInput("-bad.nl")).toBeNull()
+  })
+
   it("keeps a sender on the domain and an answer address that is a connected mailbox", () => {
     const mailboxes = ["support@northwind.store"]
     expect(
@@ -42,6 +53,10 @@ describe("the sending domain", () => {
     expect(checkSenders({ from: "geen adres", replyTo: "hallo@elders.nl" }, "northwind.store", mailboxes)).toEqual({
       fields: { from: "format", replyTo: "not_a_mailbox" }
     })
+    // Nothing a `Name <address>` header would break on.
+    for (const from of [`a>"<b@northwind.store`, "a<b@northwind.store", `"a b"@northwind.store`]) {
+      expect(checkSenders({ from, replyTo: "" }, "northwind.store", mailboxes)).toEqual({ fields: { from: "format" } })
+    }
   })
 
   it("sends a shopper's mail from the brand once its domain is verified, and Insyte's before", () => {
@@ -49,6 +64,10 @@ describe("the sending domain", () => {
     expect(sendersFor(stored(false), "return.approved")).toEqual({ replyTo: "support@northwind.store" })
     expect(sendersFor(stored(true), "order.delayed")).toEqual({
       from: "service@northwind.store",
+      replyTo: "support@northwind.store"
+    })
+    // Kept before the check was this strict: never put in a header.
+    expect(sendersFor(stored(true, `a>"<b@northwind.store`), "order.delayed")).toEqual({
       replyTo: "support@northwind.store"
     })
     // Not on the domain (saved before the domain changed): Insyte's sender stays.

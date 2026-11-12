@@ -11,6 +11,16 @@ import { SqlClient } from "effect/sql"
 export const refusedReferences = new Set<string>()
 
 /**
+ * The sending domains whose `from` the capture adapter refuses as Resend does a domain that is not verified
+ * (`POST /api/__dev/mail/refuse-sender`): so a brand's mail falling back to Insyte's address can be seen. Only this
+ * isolate's, and never in production.
+ */
+export const refusedSenderDomains = new Set<string>()
+
+const senderRefused = (mail: Mail) =>
+  mail.from !== undefined && refusedSenderDomains.has(mail.from.slice(mail.from.lastIndexOf("@") + 1).toLowerCase())
+
+/**
  * The address and the answer address the capture adapter was asked to send a record's newest mail with (E-mail en
  * domein, M17 step 20.1c), by its reference, for the dev route: `captured_mail` predates them. Only this isolate's.
  */
@@ -33,6 +43,14 @@ export const MailerCapture = Layer.effect(
       send: (mail) =>
         mail.reference !== undefined && refusedReferences.has(mail.reference)
           ? Effect.fail(new MailNotSent({ kind: mail.kind, reason: "het adres weigert de mail" }))
+          : senderRefused(mail)
+          ? Effect.fail(
+            new MailNotSent({
+              kind: mail.kind,
+              reason: "resend 403: validation_error The domain is not verified.",
+              senderRefused: true
+            })
+          )
           : Effect.sync(() => {
             if (mail.reference !== undefined) {
               capturedSenders.set(mail.reference, { from: mail.from ?? null, replyTo: mail.replyTo ?? null })

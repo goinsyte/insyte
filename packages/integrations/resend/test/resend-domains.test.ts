@@ -3,7 +3,7 @@ import { ConfigProvider, Effect, Exit, Layer } from "effect"
 import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http"
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
-import { ResendDomains, SendingDomainsUnset } from "../src/ResendDomains.ts"
+import { createdAtOf, ResendDomains, SendingDomainsUnset } from "../src/ResendDomains.ts"
 
 /*
  * The sending-domain adapter (M17 step 20.1c) against answers in the shape Resend's domains API documents them and
@@ -145,6 +145,57 @@ describe("ResendDomains", () => {
     const unreachable = await using(fake({}), (d) => d.verify(ID))
     expect(JSON.stringify(unreachable)).toContain("resend unreachable")
     expect(JSON.stringify([restricted, taken, down, unreachable])).not.toContain("re_full_key")
+  })
+
+  it("finds a domain by name through the pages of the account's list, with when Resend made it", async () => {
+    const seen: Array<Seen> = []
+    let page = 0
+    const http = fake({
+      "GET /domains": () => {
+        page += 1
+        return Response.json(
+          page === 1
+            ? { object: "list", has_more: true, data: [{ id: "d_other", name: "other.example", created_at: "x" }] }
+            : recorded("domains-list")
+        )
+      }
+    }, seen)
+    const hit = await using(http, (d) => d.find("example.com"))
+    expect(hit).toEqual(Exit.succeed({ id: ID, createdAt: Date.parse("2026-03-28T17:12:02.059Z") }))
+    expect(seen.map((s) => s.url)).toEqual([
+      "https://api.resend.com/domains?limit=100",
+      "https://api.resend.com/domains?limit=100&after=d_other"
+    ])
+    const none = await using(
+      fake({ "GET /domains": () => Response.json(recorded("domains-list")) }),
+      (d) => d.find("elders.example")
+    )
+    expect(none).toEqual(Exit.succeed(undefined))
+    expect(createdAtOf("2026-03-28 17:12:02.059593+00")).toBe(Date.parse("2026-03-28T17:12:02.059Z"))
+    expect(createdAtOf(undefined)).toBeNaN()
+  })
+
+  it("takes a domain away, and one already gone is gone", async () => {
+    const seen: Array<Seen> = []
+    const removed = await using(
+      fake({ [`DELETE /domains/${ID}`]: () => Response.json({ object: "domain", id: ID, deleted: true }) }, seen),
+      (d) => d.remove(ID)
+    )
+    expect(removed).toEqual(Exit.succeed(undefined))
+    expect(seen[0]).toMatchObject({ method: "DELETE", url: `https://api.resend.com/domains/${ID}` })
+    const gone = await using(
+      fake({
+        [`DELETE /domains/${ID}`]: () =>
+          Response.json({ name: "not_found", message: "Domain not found" }, { status: 404 })
+      }),
+      (d) => d.remove(ID)
+    )
+    expect(gone).toEqual(Exit.succeed(undefined))
+    const down = await using(
+      fake({ [`DELETE /domains/${ID}`]: () => new Response("upstream", { status: 503 }) }),
+      (d) => d.remove(ID)
+    )
+    expect(JSON.stringify(down)).toContain("resend 503")
   })
 
   it("without a key, is not configured and says so on every call", async () => {
