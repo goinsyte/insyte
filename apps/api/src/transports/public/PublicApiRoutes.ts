@@ -128,6 +128,19 @@ const AnalyticsLive = HttpApiBuilder.group(
     )
 )
 
+const SheetsLive = HttpApiBuilder.group(
+  PublicApi,
+  "sheets",
+  (handlers) =>
+    Effect.map(
+      Effect.service(Resources),
+      (act) =>
+        handlers
+          .handle("list", () => act.sheets)
+          .handle("get", ({ params }) => act.sheet(params.id))
+    )
+)
+
 const QueueLive = HttpApiBuilder.group(
   PublicApi,
   "queue",
@@ -283,6 +296,7 @@ export const PublicApiRoutes = Layer.mergeAll(
       ReturnsLive,
       TicketsLive,
       AnalyticsLive,
+      SheetsLive,
       QueueLive,
       ProposalsLive
     )

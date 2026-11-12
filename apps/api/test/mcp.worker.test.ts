@@ -93,6 +93,7 @@ describe("the MCP server", () => {
       "get_order_tracking",
       "get_proposal",
       "get_return",
+      "get_sheet",
       "get_ticket",
       "inspect_return",
       "list_customers",
@@ -103,6 +104,7 @@ describe("the MCP server", () => {
       "list_queue",
       "list_returns",
       "list_roles",
+      "list_sheets",
       "list_suppliers",
       "list_tickets",
       "receive_return",
@@ -139,7 +141,9 @@ describe("the MCP server", () => {
         "get_ticket",
         "list_queue",
         "get_proposal",
-        "get_analytics_overview"
+        "get_analytics_overview",
+        "list_sheets",
+        "get_sheet"
       ]
     ) {
       expect(hints[read]?.["readOnlyHint"]).toBe(true)
@@ -192,6 +196,19 @@ describe("the MCP server", () => {
     })
     expect(refused.message.result.isError).toBe(true)
     expect(JSON.stringify(refused.message.result.content)).toContain("analytics.read")
+  })
+
+  it("lists the key's member's sheets and opens one (M14 step 4)", async () => {
+    ok(await rpc("Sheets.create", { template: "ads" }, owner.cookie))
+    const listed = await mcp(agent.secret, "tools/call", { name: "list_sheets", arguments: {} })
+    expect(listed.message.result.isError).toBe(false)
+    const [first] = content(listed.message).data as Array<{ id: string; title: string; linked: boolean }>
+    expect(first).toMatchObject({ linked: true })
+    const one = await mcp(agent.secret, "tools/call", { name: "get_sheet", arguments: { sheet_id: first!.id } })
+    expect(content(one.message)).toMatchObject({ id: first!.id, version: 1 })
+    const refused = await mcp(narrow, "tools/call", { name: "list_sheets", arguments: {} })
+    expect(refused.message.result.isError).toBe(true)
+    expect(JSON.stringify(refused.message.result.content)).toContain("data.read")
   })
 
   it("turns away a request without a valid key with a 401 before any JSON-RPC", async () => {
