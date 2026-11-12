@@ -109,7 +109,7 @@ const asNumber = (v: unknown) => (typeof v === "number" ? v : 0)
 const asString = (v: unknown) => (typeof v === "string" ? v : null)
 
 /** "1–12 november" and "1–12 nov" while A runs; "oktober 2026" and "oktober" for a whole month. */
-export const labelsOf = (s: Span): PeriodLabels => {
+const labelsOf = (s: Span): PeriodLabels => {
   const name = nameOf(s.month)
   const days = s.days === 1 ? "1" : `1–${s.days}`
   return s.full ?
