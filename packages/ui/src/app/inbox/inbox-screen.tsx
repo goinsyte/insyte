@@ -1,6 +1,5 @@
-import { getRouteApi, useNavigate } from "@tanstack/react-router"
-import { Link } from "@tanstack/react-router"
-import { useCallback, useMemo, useState } from "react"
+import { Link, useNavigate } from "@tanstack/react-router"
+import { Fragment, type ReactNode, useCallback, useMemo, useState } from "react"
 import { toast } from "sonner"
 import {
   DropdownMenu,
@@ -9,6 +8,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from "../../components/dropdown-menu"
 import {
@@ -25,27 +27,26 @@ import {
   UserPlus,
   UserX
 } from "../../icons"
-import { useNow } from "../ask/agent-parts"
 import { InsyteMark } from "../ask/parts"
-import { EmptyPage } from "../common/empty-page"
 import { Field, FormDialog, TextAreaField, TextField } from "../common/form-dialog"
 import { PageGuide } from "../common/page-guide"
-import { ME as MY_ID } from "../lib/assignees"
 import { CHANNEL_LABEL, CHAT_CHANNELS } from "../lib/channels"
 import { initials } from "../lib/format"
-import { type Mailbox, MAILBOXES, mailboxStatus, PROVIDER_LABEL } from "../lib/mailboxes"
 import { personStyle } from "../lib/person-color"
-import type { EmailThread } from "../lib/types/domain"
-import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
+import { Arriving, Lines } from "../loading/bones"
 import { BrandLogo } from "../marketplace/brand-logos"
 import { useOnCreate } from "../stores/create-intent"
-import { type ThreadState, useInbox } from "../stores/inbox-store"
-import { useWorkspace } from "../stores/workspace-store"
-import { AgentBanner } from "./agent-banner"
-import { ChannelHeader, ChannelMark, ChatLetter } from "./channel-parts"
-
-const Route = Object.assign(getRouteApi("/_admin/inbox/"), { fullPath: "/inbox/" } as const)
+import { ChannelMark } from "./channel-mark"
+import {
+  type Folder,
+  type InboxMailbox,
+  type InboxSource,
+  type InboxThread,
+  type LetterEntry,
+  type Sent,
+  useInboxSource
+} from "./source"
 
 /* ─────────────────────────────────────────────────────────────────────
    Inbox — the index on `glacier`, the letter on `paper`.
@@ -68,6 +69,9 @@ const Route = Object.assign(getRouteApi("/_admin/inbox/"), { fullPath: "/inbox/"
 
    The selected thread floods `abyss` — the same sentence the dashboard
    queue speaks for the row you are reading.
+
+   What it reads and does comes from its host (`source.tsx`): the design app's stores, or the console's
+   `Threads.*`. The chat channels, the customer agent and Insyte's drafts are the host's to add.
    ───────────────────────────────────────────────────────────────────── */
 
 const GUIDE = [
@@ -98,9 +102,7 @@ const FOLDERS = {
   archive: "Archief",
   trash: "Prullenbak",
   spam: "Spam"
-} as const
-
-type FolderId = keyof typeof FOLDERS
+} as const satisfies Record<Folder, string>
 
 type ThreadFilter = "unread" | "starred" | "attachments" | "customer"
 const FILTERS: Array<{ id: ThreadFilter; label: string }> = [
@@ -110,107 +112,55 @@ const FILTERS: Array<{ id: ThreadFilter; label: string }> = [
   { id: "customer", label: "Van een klant" }
 ]
 
-const matches = (t: ThreadState, f: ThreadFilter): boolean =>
+const matches = (t: InboxThread, f: ThreadFilter): boolean =>
   f === "unread"
     ? t.unread
     : f === "starred"
     ? t.starred
     : f === "attachments"
-    ? t.messages.some((m) => m.attachments.length > 0)
-    : t.messages.some((m) => m.direction === "inbound")
+    ? t.hasAttachments
+    : t.hasInbound
 
-const SUGGESTED_REPLY = `Hoi Maya,
-
-Bedankt voor je bericht. Ik heb je bestelling bekeken: die ligt vertraagd in ons magazijn, en daarom is de track & trace nog niet bijgewerkt.
-
-Het team verwacht dat hij binnen 24–48 uur wordt verzonden. Omdat je hem vrijdag nodig hebt, heb ik hem met voorrang laten oppakken.
-
-Excuses voor de vertraging. Zodra de track & trace verandert, laten we het je weten.
-
-Met vriendelijke groet,
-Carroline`
-
-const MAYA_WARMER = `Hoi Maya,
-
-Fijn dat je contact opneemt. Ik begrijp heel goed dat je dit vrijdag in huis wilt hebben, en het spijt me dat je moet wachten.
-
-Ik heb je bestelling net bekeken: die ligt op dit moment nog in ons magazijn. Het team verwacht dat hij binnen 24–48 uur wordt verzonden, en ik heb hem zelf voorrang gegeven zodat hij zo snel mogelijk de deur uit gaat.
-
-Zodra de track & trace is bijgewerkt, hoor je het meteen van me. Bedankt voor je geduld.
-
-Hartelijke groet,
-Carroline`
-
-const MAYA_SHORTER =
-  `Hoi Maya, je bestelling is vertraagd in het magazijn, maar wordt binnen 24–48 uur verzonden. Ik heb hem voorrang gegeven zodat hij er vrijdag is. Je krijgt de track & trace zodra die is bijgewerkt.
-
-— Carroline`
-
-/**
- * Insyte's drafts for a thread. The first thread has the full worked example; every other thread
- * gets a draft addressed to whoever wrote and about what they wrote, not someone else's order.
- */
-function draftsFor(t: EmailThread | null): { reply: string; warmer: string; shorter: string } {
-  if (!t || t.id === "th_1") return { reply: SUGGESTED_REPLY, warmer: MAYA_WARMER, shorter: MAYA_SHORTER }
-  const name = otherParticipant(t).name.split(" ")[0] ?? "daar"
-  const topic = t.subject.replace(/^(re|fwd?):\s*/i, "")
-  return {
-    reply:
-      `Hoi ${name},\n\nBedankt voor je bericht over “${topic}”. Ik zoek het nu voor je uit en kom vandaag nog bij je terug met een antwoord.\n\nMet vriendelijke groet,\nElena`,
-    warmer:
-      `Hoi ${name},\n\nBedankt dat je contact opneemt, en voor je geduld. Ik heb je bericht over “${topic}” zelf opgepakt en zorg dat je vandaag nog van me hoort.\n\nHartelijke groet,\nElena`,
-    shorter: `Hoi ${name}, bedankt voor je bericht over “${topic}”. Ik kom er vandaag bij je op terug.\n\n— Elena`
-  }
-}
-
-function seedBody(t: EmailThread): string {
-  if (t.id === "th_1") {
-    return `Hallo Insyte-team,
-
-Mijn bestelling van afgelopen dinsdag staat nog steeds op "wordt klaargemaakt voor verzending". De verwachte datum is al voorbij en ik heb dit vrijdag echt nodig voor een cadeau. Kunnen jullie de laatste track & trace voor me bekijken?
-
-Alvast bedankt,
-Maya`
-  }
-  if (t.messages[0]?.body_text) return t.messages[0].body_text
-  return `${t.last_message_preview}\n\nBedankt,\n${otherParticipant(t).name.split(" ")[0]}`
-}
-
-function otherParticipant(t: EmailThread) {
-  return (
-    t.participants.find((p) => !p.email.endsWith("northwindclothing.co")) ??
-      t.participants[0]
-  )
-}
-
-function formatTimeOfDay(iso: string) {
-  return new Intl.DateTimeFormat("nl-NL", {
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(iso))
-}
-
-function inFolder(t: ThreadState, folder: FolderId): boolean {
-  if (folder === "trash" || folder === "spam") return false
-  if (folder === "archive") return !!t.archived
-  if (t.archived || t.spam) return false
+/** The folders as the server keeps them: the inbox is what is not set aside and not snoozed into the future. */
+function inFolder(t: InboxThread, folder: Folder, me: string): boolean {
+  if (folder === "trash" || folder === "spam" || folder === "archive") return t.place === folder
+  if (t.place !== "inbox") return false
   if (folder === "unassigned") return !t.assignee
-  if (folder === "mine") return t.assignee === MY_ID
+  if (folder === "mine") return t.assignee === me
   if (folder === "linked") return !!t.ticket_id
   return true
 }
 
+/** What a message the team sent says on its line: "Jij antwoordde", "Sanne stuurde door naar …". */
+const sentLine = (m: LetterEntry) => {
+  const by = m.by ?? "Jij"
+  return m.kind === "reply"
+    ? `${by} antwoordde`
+    : m.kind === "forward"
+    ? `${by} stuurde door naar ${m.to}`
+    : `${by} schreef`
+}
+
+/** A send that answered at once, or later: `done` once it went; the busy flag while it is on its way. */
+function useSettle() {
+  const [busy, setBusy] = useState(false)
+  const settle = useCallback(<A>(sent: A | Promise<A>, done: (a: A) => void) => {
+    if (!(sent instanceof Promise)) return done(sent)
+    setBusy(true)
+    void sent.then((a) => {
+      setBusy(false)
+      done(a)
+    })
+  }, [])
+  return { busy, settle }
+}
+
 export function InboxPage() {
-  const navigate = useNavigate({ from: Route.fullPath })
-  const search = Route.useSearch()
+  const source = useInboxSource()
+  const navigate = useNavigate()
+  const { search, go, me, people, writes, gate, time, threads, mailboxes } = source
   const folder = search.folder ?? "all"
-  const threads = useInbox((s) => s.threads)
-  const update = useInbox((s) => s.update)
-  const addThread = useInbox((s) => s.add)
-  const removeThread = useInbox((s) => s.remove)
-  const integrations = useWorkspace((s) => s.integrations)
-  const members = useWorkspace((s) => s.members)
-  const mailbox = MAILBOXES.find((m) => m.id === search.mailbox)
+  const mailbox = mailboxes.find((m) => m.id === search.mailbox)
   const channel = search.channel
   const agentView = search.view
   const title = mailbox
@@ -222,42 +172,38 @@ export function InboxPage() {
     : agentView === "insyte"
     ? "Door Insyte afgehandeld"
     : FOLDERS[folder]
-  const now = useNow(60_000)
   const [query, setQuery] = useState("")
   const [filters, setFilters] = useState<Array<ThreadFilter>>([])
-  const createTicket = useWorkspace((s) => s.createTicket)
   const [searchOpen, setSearchOpen] = useState(false)
   const [draft, setDraft] = useState("")
   const [showSuggestion, setShowSuggestion] = useState(true)
   const [forwarding, setForwarding] = useState(false)
   const [composing, setComposing] = useState(false)
+  const reply = useSettle()
   useOnCreate("thread", useCallback(() => setComposing(true), []))
 
   const inFolderThreads = useMemo(
     () =>
       threads.filter(
         (t) =>
-          inFolder(t, folder) &&
+          inFolder(t, folder, me) &&
           (!mailbox || t.mailbox === mailbox.id) &&
           (!channel || (channel === "email" ? !t.channel : t.channel === channel)) &&
           (!agentView ||
             (agentView === "handed_over" ? t.agent?.state === "handed_over" : t.agent?.state === "handled"))
       ),
-    [threads, folder, mailbox, channel, agentView]
+    [threads, folder, mailbox, channel, agentView, me]
   )
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     const faceted = inFolderThreads.filter((t) => filters.every((f) => matches(t, f)))
     if (!q) return faceted
-    return faceted.filter((t) => {
-      const other = otherParticipant(t)
-      return (
-        t.subject.toLowerCase().includes(q) ||
-        other.name.toLowerCase().includes(q) ||
-        t.last_message_preview.toLowerCase().includes(q)
-      )
-    })
+    return faceted.filter((t) =>
+      t.subject.toLowerCase().includes(q) ||
+      t.other.name.toLowerCase().includes(q) ||
+      t.last_message_preview.toLowerCase().includes(q)
+    )
   }, [inFolderThreads, query, filters])
 
   const active = filtered.find((t) => t.id === search.thread) ?? filtered[0] ?? null
@@ -273,149 +219,102 @@ export function InboxPage() {
 
   /** The list, one group per mailbox, then one per chat channel, in the order they are connected. */
   const groups = [
-    ...MAILBOXES.map((m) => ({
+    ...mailboxes.map((m) => ({
       key: m.id,
-      mailbox: m as Mailbox | undefined,
+      mailbox: m as InboxMailbox | undefined,
       channel: undefined as (typeof CHAT_CHANNELS)[number] | undefined,
       threads: filtered.filter((t) => !t.channel && t.mailbox === m.id)
     })),
     ...CHAT_CHANNELS.map((c) => ({
       key: c,
-      mailbox: undefined as Mailbox | undefined,
+      mailbox: undefined as InboxMailbox | undefined,
       channel: c as (typeof CHAT_CHANNELS)[number] | undefined,
       threads: filtered.filter((t) => t.channel === c)
     }))
   ].filter((g) => g.threads.length > 0)
-  const activeMailbox = MAILBOXES.find((m) => m.id === active?.mailbox)
-  const offline = activeMailbox !== undefined && !mailboxStatus(activeMailbox, integrations).live
+  const activeMailbox = mailboxes.find((m) => m.id === active?.mailbox)
+  const offline = activeMailbox !== undefined && !activeMailbox.status.live
+  const drafts = active === null ? undefined : source.drafts?.(active)
+  const ChannelHeader = source.channels?.Header
+  const ChannelLetter = source.channels?.Letter
 
   function assign(memberId: string | undefined) {
     if (!active) return
-    const before = active.assignee
-    const id = active.id
-    update(id, { assignee: memberId })
-    const who = members.find((m) => m.id === memberId)
-    undoable(
-      memberId === undefined
+    const who = people.find((m) => m.id === memberId)
+    writes.assign(active, memberId, {
+      label: memberId === undefined
         ? "Toewijzing verwijderd"
-        : memberId === MY_ID
+        : memberId === me
         ? "Aan jou toegewezen"
-        : `Toegewezen aan ${who?.name ?? "collega"}`,
-      () => update(id, { assignee: before })
-    )
+        : `Toegewezen aan ${who?.name ?? "collega"}`
+    })
   }
 
-  function selectThread(id: string) {
-    navigate({ search: (s) => ({ ...s, thread: id }) })
-    update(id, { unread: false })
+  function selectThread(t: InboxThread) {
+    go({ ...search, thread: t.id })
+    if (t.unread) writes.markRead(t, true)
     setDraft("")
     setShowSuggestion(true)
   }
 
   function toggleStar() {
     if (!active) return
-    update(active.id, { starred: !active.starred })
+    writes.star(active, !active.starred)
   }
 
   function archive() {
     if (!active) return
-    leave(active, { archived: true }, `“${active.subject}” gearchiveerd`)
+    leave(active, "archive", `“${active.subject}” gearchiveerd`)
   }
 
   /** Take a thread out of the list, move to the next one, and offer it back. */
-  function leave(thread: ThreadState, patch: Partial<ThreadState>, message: string) {
-    update(thread.id, patch)
+  function leave(thread: InboxThread, as: "archive" | "spam" | "snooze" | "trash", message: string) {
+    writes.setAside(thread, as, { label: message })
     const next = filtered.find((t) => t.id !== thread.id)
-    navigate({ search: (s) => ({ ...s, thread: next?.id }) })
-    undoable(message, () => update(thread.id, { archived: false, spam: false }))
+    go({ ...search, thread: next?.id })
   }
 
   function linkToTicket() {
     if (!active) return
     if (active.ticket_id) {
-      navigate({ to: "/tickets", search: { ticket: active.ticket_id } as never })
+      void navigate({ to: "/tickets", search: { ticket: active.ticket_id } } as never)
       return
     }
-    const from = otherParticipant(active)
-    const ticket = createTicket({
-      title: active.subject,
-      description: `Van ${from.name} (${from.email}): ${active.last_message_preview}`,
-      priority: "medium"
-    })
-    update(active.id, { ticket_id: ticket.id })
-    toast.success(`Ticket ${ticket.number} aangemaakt vanuit deze mail`, {
-      action: { label: "Openen", onClick: () => navigate({ to: "/tickets", search: { ticket: ticket.id } as never }) }
-    })
-  }
-
-  /** A chat reply: a bubble that waits out the window before it leaves, so Undo means it never went. */
-  function sendChat(thread: ThreadState, text: string, template?: string) {
-    const at = new Date().toISOString()
-    const msg = {
-      id: `m_${Date.now()}`,
-      from: "team" as const,
-      name: members.find((m) => m.id === MY_ID)?.name ?? "Elena Hart",
-      at,
-      text,
-      read: false,
-      template
-    }
-    const before = thread
-    update(thread.id, {
-      chat: [...(thread.chat ?? []), msg],
-      last_message_at: at,
-      last_message_preview: text.slice(0, 80)
-    })
-    undoable(
-      "Wordt verstuurd…",
-      () =>
-        update(before.id, {
-          chat: before.chat,
-          last_message_at: before.last_message_at,
-          last_message_preview: before.last_message_preview
-        }),
-      `Via ${CHANNEL_LABEL[thread.channel ?? "email"]} aan ${otherParticipant(thread).name}.`
-    )
+    writes.linkTicket(active)
   }
 
   function useDraft() {
-    setDraft(draftsFor(active).reply)
+    if (!drafts) return
+    setDraft(drafts.reply)
     setShowSuggestion(false)
     toast("Concept van Insyte in je antwoord gezet")
   }
 
   function rewriteDraft(style: "warmer" | "shorter") {
-    const map = draftsFor(active)
-    setDraft(map[style])
+    if (!drafts) return
+    setDraft(drafts[style])
     setShowSuggestion(false)
     toast.success(style === "warmer" ? "Herschreven · warmer" : "Herschreven · korter")
   }
 
   function sendReply() {
-    if (!active || offline) return
+    if (!active || offline || reply.busy) return
     if (!draft.trim()) {
-      toast.error("Schrijf eerst een antwoord of gebruik het concept van Insyte")
+      toast.error(
+        source.drafts ? "Schrijf eerst een antwoord of gebruik het concept van Insyte" : "Schrijf eerst een antwoord"
+      )
       return
     }
-    const at = new Date().toISOString()
-    const entry = { id: `sent_${Date.now()}`, kind: "reply" as const, at, body: draft.trim() }
-    const before = active
-    update(active.id, {
-      last_message_preview: draft.slice(0, 80),
-      last_message_at: at,
-      sent: [...(active.sent ?? []), entry]
-    })
-    undoable(
-      `Antwoord verstuurd naar ${otherParticipant(active).name}`,
-      () =>
-        update(before.id, {
-          sent: before.sent,
-          last_message_preview: before.last_message_preview,
-          last_message_at: before.last_message_at
-        })
+    // A send that did not go keeps the draft, and the host has said why.
+    reply.settle(
+      writes.reply(active, draft.trim(), { label: `Antwoord verstuurd naar ${active.other.name}` }),
+      (ok) => {
+        if (ok) setDraft("")
+      }
     )
-    setDraft("")
   }
+
+  const locked = gate.ok ? undefined : gate.reason
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -512,19 +411,12 @@ export function InboxPage() {
                   aria-label={g.mailbox?.address ?? (g.channel ? CHANNEL_LABEL[g.channel] : g.key)}
                 >
                   {g.mailbox
-                    ? (
-                      <MailboxHeader
-                        mailbox={g.mailbox}
-                        count={g.threads.length}
-                        status={mailboxStatus(g.mailbox, integrations)}
-                      />
-                    )
-                    : g.channel
+                    ? <MailboxHeader mailbox={g.mailbox} count={g.threads.length} />
+                    : g.channel && ChannelHeader
                     ? <ChannelHeader channel={g.channel} count={g.threads.length} />
                     : null}
                   {g.threads.map((t) => {
-                    const other = otherParticipant(t)
-                    const owner = members.find((m) => m.id === t.assignee)
+                    const owner = people.find((m) => m.id === t.assignee)
                     const isActive = active?.id === t.id
                     return (
                       <button
@@ -532,14 +424,14 @@ export function InboxPage() {
                         type="button"
                         role="option"
                         aria-selected={isActive}
-                        onClick={() => selectThread(t.id)}
+                        onClick={() => selectThread(t)}
                         className={cn(
                           "flex w-full flex-col gap-1 px-5 py-3 text-left transition-colors",
                           isActive ? "flood" : "hover:bg-ink/6"
                         )}
                       >
                         <div className="flex w-full items-baseline gap-2">
-                          {t.channel && t.channel !== "email"
+                          {t.channel
                             ? (
                               <span className="self-center">
                                 <ChannelMark channel={t.channel} size={14} />
@@ -568,7 +460,7 @@ export function InboxPage() {
                                 : "text-ink-2"
                             )}
                           >
-                            {other.name}
+                            {t.other.name}
                           </p>
                           {t.unread && !isActive ?
                             (
@@ -584,7 +476,7 @@ export function InboxPage() {
                               isActive ? "text-mesh-ink-2" : "text-ink-3"
                             )}
                           >
-                            {formatTimeOfDay(t.last_message_at)}
+                            {time(t.last_message_at)}
                           </span>
                         </div>
                         <p
@@ -641,35 +533,7 @@ export function InboxPage() {
       {threads.length === 0 ?
         (
           <section className="hidden min-w-0 flex-1 overflow-y-auto bg-paper px-6 lg:block">
-            <EmptyPage
-              kind="inbox"
-              count="0 berichten"
-              title="Nog niets binnen"
-              body="Koppel je support-mailbox, Gmail of Outlook, en je berichten komen hier binnen."
-              action={{ label: "Mailbox koppelen", onClick: () => void navigate({ to: "/settings/integrations" }) }}
-              secondary={{ label: "Nieuwe e-mail", onClick: () => setComposing(true) }}
-              startsTitle="Daarna je andere kanalen"
-              starts={[
-                {
-                  id: "whatsapp",
-                  label: "WhatsApp Business",
-                  body: "Klanten appen je nummer, jij antwoordt hier.",
-                  to: "/settings/integrations"
-                },
-                {
-                  id: "instagram",
-                  label: "Instagram",
-                  body: "Berichten en reacties op je stories.",
-                  to: "/settings/integrations"
-                },
-                {
-                  id: "webchat",
-                  label: "Websitechat",
-                  body: "Een chat op je Shopify-winkel.",
-                  to: "/settings/integrations"
-                }
-              ]}
-            />
+            <source.Empty onCompose={() => setComposing(true)} />
           </section>
         ) :
         active === null ?
@@ -690,13 +554,13 @@ export function InboxPage() {
             <div className="flex h-12 shrink-0 items-center justify-between gap-2 pr-4 pl-3 lg:pl-6">
               <button
                 type="button"
-                onClick={() => navigate({ search: (s) => ({ ...s, thread: undefined }) })}
+                onClick={() => go({ ...search, thread: undefined })}
                 className="-ml-1 flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-base text-ink-2 leading-none transition-colors hover:bg-ink/6 hover:text-ink lg:hidden"
               >
                 <ChevronLeft className="size-4" strokeWidth={1.75} />
                 {title}
               </button>
-              {active.channel && active.channel !== "email" ?
+              {active.channel ?
                 (
                   <span className="hidden items-center gap-1.5 text-sm text-ink-3 leading-none lg:flex">
                     <ChannelMark channel={active.channel} size={14} />
@@ -706,21 +570,25 @@ export function InboxPage() {
                 activeMailbox ?
                 (
                   <span className="hidden items-center gap-1.5 text-sm text-ink-3 leading-none lg:flex">
-                    <BrandLogo brand={activeMailbox.provider} name={PROVIDER_LABEL[activeMailbox.provider]} size={14} />
+                    <BrandLogo brand={activeMailbox.logo.brand} name={activeMailbox.logo.name} size={14} />
                     Aan {activeMailbox.address}
                   </span>
                 ) :
                 null}
               <div className="flex items-center gap-1">
                 <AssignMenu
-                  assignee={members.find((m) => m.id === active.assignee)}
-                  members={members.filter((m) => m.status === "active")}
+                  assignee={people.find((m) => m.id === active.assignee)}
+                  members={people}
+                  me={me}
+                  locked={locked}
                   onAssign={assign}
                 />
                 <button
                   type="button"
                   onClick={linkToTicket}
-                  className="flex h-8 items-center gap-2 rounded-md px-2.5 text-base text-ink-2 leading-none transition-colors hover:bg-ink/6 hover:text-ink"
+                  disabled={!active.ticket_id && locked !== undefined}
+                  title={active.ticket_id ? undefined : locked}
+                  className="flex h-8 items-center gap-2 rounded-md px-2.5 text-base text-ink-2 leading-none transition-colors hover:bg-ink/6 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Ticket className="size-4" strokeWidth={1.75} />
                   {active.ticket_id ? "Gekoppeld" : "Aan ticket koppelen"}
@@ -729,7 +597,9 @@ export function InboxPage() {
                   type="button"
                   aria-label="Archiveren"
                   onClick={archive}
-                  className="flex size-8 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-ink/6 hover:text-ink"
+                  disabled={locked !== undefined}
+                  title={locked}
+                  className="flex size-8 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-ink/6 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Archive className="size-4" strokeWidth={1.75} />
                 </button>
@@ -737,8 +607,10 @@ export function InboxPage() {
                   type="button"
                   aria-label={active.starred ? "Ster verwijderen" : "Ster geven"}
                   onClick={toggleStar}
+                  disabled={locked !== undefined}
+                  title={locked}
                   className={cn(
-                    "flex size-8 items-center justify-center rounded-md transition-colors hover:bg-ink/6",
+                    "flex size-8 items-center justify-center rounded-md transition-colors hover:bg-ink/6 disabled:cursor-not-allowed disabled:opacity-50",
                     active.starred
                       ? "text-signal-amber"
                       : "text-ink-3 hover:text-ink"
@@ -763,82 +635,67 @@ export function InboxPage() {
                     <DropdownMenuItem
                       onClick={() => {
                         if (!active) return
-                        update(active.id, { unread: true })
-                        navigate({ search: (s) => ({ ...s, thread: undefined }) })
+                        writes.markRead(active, false)
+                        go({ ...search, thread: undefined })
                       }}
                     >
                       Markeren als ongelezen
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      onClick={() => active && leave(active, { archived: true }, "Een uur uitgesteld")}
+                      disabled={locked !== undefined}
+                      onClick={() => active && leave(active, "snooze", "Een uur uitgesteld")}
                     >
                       1 uur uitstellen
                     </DropdownMenuItem>
                     <DropdownMenuItem
+                      disabled={locked !== undefined}
                       onClick={() => active && setForwarding(true)}
                     >
                       Doorsturen…
                     </DropdownMenuItem>
+                    {writes.putBack && active.place !== "inbox" ?
+                      (
+                        <DropdownMenuItem
+                          disabled={locked !== undefined}
+                          onClick={() => active && writes.putBack?.(active, { label: "Terug in de inbox" })}
+                        >
+                          Terug naar de inbox
+                        </DropdownMenuItem>
+                      ) :
+                      null}
+                    {writes.label ? <LabelMenu thread={active} label={writes.label} locked={locked} /> : null}
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       variant="destructive"
-                      onClick={() => active && leave(active, { spam: true }, "Gemeld als spam")}
+                      disabled={locked !== undefined}
+                      onClick={() => active && leave(active, "spam", "Gemeld als spam")}
                     >
                       Spam melden
                     </DropdownMenuItem>
+                    {writes.trash && active.place !== "trash" ?
+                      (
+                        <DropdownMenuItem
+                          variant="destructive"
+                          disabled={locked !== undefined}
+                          onClick={() => active && leave(active, "trash", "Naar de prullenbak")}
+                        >
+                          Naar prullenbak
+                        </DropdownMenuItem>
+                      ) :
+                      null}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
             </div>
 
-            {active.channel ?
-              (
-                <ChatLetter
-                  thread={active}
-                  now={now}
-                  banner={<AgentBanner thread={active} />}
-                  composerDisabled={active.agent?.state === "active"
-                    ? "Insyte voert dit gesprek. Neem het over om zelf te antwoorden."
-                    : undefined}
-                  onSend={(text, tpl) => sendChat(active, text, tpl?.name)}
-                />
-              ) :
+            {active.channel && ChannelLetter ?
+              <ChannelLetter thread={active} /> :
               (
                 <>
                   <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8">
-                    <h1 className="max-w-[60ch] pt-1 pb-5 font-medium text-xl text-ink leading-[1.25] tracking-[-0.02em]">
-                      {active.subject}
-                    </h1>
-                    <div className="flex items-baseline gap-2.5 pb-4">
-                      <span className="font-medium text-base text-ink leading-none">
-                        {otherParticipant(active).name}
-                      </span>
-                      <span className="text-sm text-ink-3 leading-none">
-                        {otherParticipant(active).email}
-                      </span>
-                      <span className="ml-auto shrink-0 text-sm text-ink-3 leading-none tabular-nums">
-                        {formatTimeOfDay(active.last_message_at)}
-                      </span>
-                    </div>
-                    <div className="max-w-[60ch] whitespace-pre-wrap text-base text-ink leading-[1.65]">
-                      {active.body ?? seedBody(active)}
-                    </div>
+                    <LetterBody thread={active} source={source} />
 
-                    {(active.sent ?? []).map((m) => (
-                      <div key={m.id} className="mt-6 flex max-w-[60ch] flex-col gap-2 rounded-lg bg-mist px-4 py-3">
-                        <span className="flex items-baseline gap-2 text-sm text-ink-3">
-                          <span className="font-medium text-ink-2">
-                            {m.kind === "reply" ? "Jij antwoordde" : `Jij stuurde door naar ${m.to}`}
-                          </span>
-                          <span className="tabular-nums">{formatTimeOfDay(m.at)}</span>
-                        </span>
-                        {m.body
-                          ? <p className="whitespace-pre-wrap text-base text-ink leading-[1.65]">{m.body}</p>
-                          : null}
-                      </div>
-                    ))}
-
-                    {showSuggestion ?
+                    {showSuggestion && drafts ?
                       (
                         <div className="mt-8 flex max-w-[60ch] flex-col gap-3">
                           {/* Insyte speaks on the dark ground, here as everywhere else. */}
@@ -853,7 +710,7 @@ export function InboxPage() {
                               </span>
                             </div>
                             <p className="whitespace-pre-wrap text-base text-mesh-ink-2 leading-[1.65]">
-                              {draftsFor(active).reply}
+                              {drafts.reply}
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
@@ -892,6 +749,7 @@ export function InboxPage() {
                           <textarea
                             value={draft}
                             onChange={(e) => setDraft(e.target.value)}
+                            readOnly={reply.busy}
                             rows={Math.max(6, draft.split("\n").length + 1)}
                             className="field w-full rounded-lg p-3.5 text-base text-ink leading-[1.65] outline-none hover:field-hover focus-visible:bg-paper"
                           />
@@ -903,22 +761,15 @@ export function InboxPage() {
                   {offline && activeMailbox ?
                     (
                       <div className="flex shrink-0 items-center gap-2 bg-signal-amber-bg px-4 py-2 text-sm text-signal-amber">
-                        <BrandLogo
-                          brand={activeMailbox.provider}
-                          name={PROVIDER_LABEL[activeMailbox.provider]}
-                          size={14}
-                        />
+                        <BrandLogo brand={activeMailbox.logo.brand} name={activeMailbox.logo.name} size={14} />
                         <span className="min-w-0 flex-1">
                           {activeMailbox.address}{" "}
                           is ontkoppeld. Er wordt niets vanaf verstuurd en er komt geen nieuwe mail binnen tot{" "}
-                          {PROVIDER_LABEL[activeMailbox.provider]} weer gekoppeld is.
+                          {activeMailbox.providerLabel} weer gekoppeld is.
                         </span>
-                        <Link
-                          to="/settings/integrations"
-                          className="shrink-0 font-medium underline-offset-2 hover:underline"
-                        >
-                          {PROVIDER_LABEL[activeMailbox.provider]} opnieuw koppelen
-                        </Link>
+                        <ConnectAction className="shrink-0 font-medium underline-offset-2 hover:underline">
+                          {activeMailbox.reconnectLabel}
+                        </ConnectAction>
                       </div>
                     ) :
                     null}
@@ -930,7 +781,9 @@ export function InboxPage() {
                           setShowSuggestion(false)
                           setDraft((d) => d || " ")
                         }}
-                        className="flex h-8 items-center gap-2 rounded-md px-2.5 text-base text-ink-2 leading-none transition-colors hover:bg-ink/6 hover:text-ink"
+                        disabled={locked !== undefined}
+                        title={locked}
+                        className="flex h-8 items-center gap-2 rounded-md px-2.5 text-base text-ink-2 leading-none transition-colors hover:bg-ink/6 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Reply className="size-4" strokeWidth={1.75} />
                         Beantwoorden
@@ -938,7 +791,9 @@ export function InboxPage() {
                       <button
                         type="button"
                         onClick={() => setForwarding(true)}
-                        className="flex h-8 items-center gap-2 rounded-md px-2.5 text-base text-ink-2 leading-none transition-colors hover:bg-ink/6 hover:text-ink"
+                        disabled={locked !== undefined}
+                        title={locked}
+                        className="flex h-8 items-center gap-2 rounded-md px-2.5 text-base text-ink-2 leading-none transition-colors hover:bg-ink/6 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Reply className="size-4 -scale-x-100" strokeWidth={1.75} />
                         Doorsturen
@@ -947,11 +802,12 @@ export function InboxPage() {
                     <button
                       type="button"
                       onClick={sendReply}
-                      disabled={offline}
+                      disabled={offline || reply.busy || locked !== undefined}
+                      title={locked}
                       className="flex h-8 items-center gap-2 rounded-md bg-abyss px-3.5 font-medium text-base text-mesh-ink leading-none shadow-primary transition-colors hover:bg-abyss-2 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Send className="size-3.5" strokeWidth={2} />
-                      Antwoord versturen
+                      {reply.busy ? "Versturen…" : "Antwoord versturen"}
                     </button>
                   </div>
                 </>
@@ -962,52 +818,133 @@ export function InboxPage() {
         open={forwarding && active !== null}
         onOpenChange={setForwarding}
         subject={active?.subject ?? ""}
-        onSend={(to, note) => {
-          if (!active) return
-          const before = active
-          update(active.id, {
-            sent: [...(active.sent ?? []), {
-              id: `fwd_${Date.now()}`,
-              kind: "forward",
-              at: new Date().toISOString(),
-              body: note,
-              to
-            }]
-          })
-          undoable(`Doorgestuurd naar ${to}`, () => update(before.id, { sent: before.sent }))
-        }}
+        onSend={(to, note) => (active ? writes.forward(active, to, note, { label: `Doorgestuurd naar ${to}` }) : false)}
       />
       <ComposeDialog
         open={composing}
         onOpenChange={setComposing}
-        onSend={({ to, subject, body }) => {
-          const at = new Date().toISOString()
-          const id = `thread_new_${Date.now()}`
-          const thread: ThreadState = {
-            id,
-            subject,
-            participants: [
-              { name: "Elena Hart", email: "elena@northwindclothing.co" },
-              { name: to.split("@")[0] ?? to, email: to }
-            ],
-            last_message_at: at,
-            last_message_preview: body.slice(0, 80),
-            unread: false,
-            starred: false,
-            labels: [],
-            messages: [],
-            mailbox: mailbox?.id ?? "support",
-            assignee: MY_ID,
-            body: "",
-            sent: [{ id: `sent_${Date.now()}`, kind: "reply", at, body }]
+        onSend={(m) => {
+          const made = writes.compose({ ...m, mailbox: mailbox?.id }, { label: `E-mail verstuurd naar ${m.to}` })
+          const open = (id: string | undefined) => {
+            if (id !== undefined) go({ ...search, folder: undefined, mailbox: undefined, thread: id })
+            return id !== undefined
           }
-          addThread(thread)
-          navigate({ search: (s) => ({ ...s, folder: undefined, mailbox: undefined, thread: id }) })
-          undoable(`E-mail verstuurd naar ${to}`, () => removeThread(id))
+          return made instanceof Promise ? made.then(open) : open(made)
         }}
       />
-      <PageGuide id="inbox" title="Inbox" steps={GUIDE} />
+      <PageGuide id="inbox" title="Inbox" steps={source.channels ? GUIDE : GUIDE.slice(0, 1)} />
     </div>
+  )
+}
+
+/** The letter itself: the subject, then every message in order, the customer's as the letter and the team's on mist. */
+function LetterBody({ thread, source }: { thread: InboxThread; source: InboxSource }) {
+  const { entries, ready } = source.useLetter(thread)
+  const first = entries[0]
+  return (
+    <>
+      <h1 className="max-w-[60ch] pt-1 pb-5 font-medium text-xl text-ink leading-[1.25] tracking-[-0.02em]">
+        {thread.subject}
+      </h1>
+      {!ready ?
+        (
+          <Arriving label="Bericht laden" className="flex max-w-[60ch] flex-col gap-3">
+            <Lines n={5} />
+          </Arriving>
+        ) :
+        (
+          <>
+            {/* A thread the team started opens on whom it went to. */}
+            {first !== undefined && first.direction !== "inbound" ?
+              <From name={thread.other.name} email={thread.other.email} at={source.time(first.at)} /> :
+              null}
+            {entries.map((m, i) =>
+              m.direction === "inbound" ?
+                (
+                  <Fragment key={m.id}>
+                    <From name={m.from.name} email={m.from.email} at={source.time(m.at)} later={i > 0} />
+                    <div className="max-w-[60ch] whitespace-pre-wrap text-base text-ink leading-[1.65]">
+                      {m.body}
+                    </div>
+                  </Fragment>
+                ) :
+                (
+                  <div key={m.id} className="mt-6 flex max-w-[60ch] flex-col gap-2 rounded-lg bg-mist px-4 py-3">
+                    <span className="flex items-baseline gap-2 text-sm text-ink-3">
+                      <span className="font-medium text-ink-2">{sentLine(m)}</span>
+                      <span className="tabular-nums">{source.time(m.at)}</span>
+                      {m.state === "scheduled" || m.state === "sending" ? <span>Wordt verstuurd…</span> : null}
+                      {m.state === "failed" ?
+                        (
+                          <span className="font-medium text-signal-red">
+                            Niet verstuurd{m.error ? `: ${m.error}` : ""}
+                          </span>
+                        ) :
+                        null}
+                    </span>
+                    {m.body
+                      ? <p className="whitespace-pre-wrap text-base text-ink leading-[1.65]">{m.body}</p>
+                      : null}
+                  </div>
+                )
+            )}
+          </>
+        )}
+    </>
+  )
+}
+
+/** Who wrote, from where, and when: the line above a message. */
+function From({ name, email, at, later = false }: { name: string; email: string; at: string; later?: boolean }) {
+  return (
+    <div className={cn("flex items-baseline gap-2.5 pb-4", later && "mt-8")}>
+      <span className="font-medium text-base text-ink leading-none">
+        {name}
+      </span>
+      <span className="text-sm text-ink-3 leading-none">
+        {email}
+      </span>
+      <span className="ml-auto shrink-0 text-sm text-ink-3 leading-none tabular-nums">
+        {at}
+      </span>
+    </div>
+  )
+}
+
+/** "Mailbox koppelen" and "Opnieuw koppelen", where the host connects one: its page, or its dialog. */
+function ConnectAction({ className, children }: { className: string; children: ReactNode }) {
+  const { connect } = useInboxSource()
+  if ("to" in connect) {
+    return <Link to={connect.to as never} className={className}>{children}</Link>
+  }
+  return <button type="button" onClick={connect.onClick} className={className}>{children}</button>
+}
+
+/** The thread's labels, on or off, from the ones the host offers. */
+function LabelMenu(
+  { thread, label, locked }: {
+    thread: InboxThread
+    label: NonNullable<InboxSource["writes"]["label"]>
+    locked: string | undefined
+  }
+) {
+  const offered = [...new Set([...label.offered, ...thread.labels])]
+  if (offered.length === 0) return null
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger disabled={locked !== undefined}>Labels</DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-52">
+        {offered.map((name) => (
+          <DropdownMenuCheckboxItem
+            key={name}
+            checked={thread.labels.includes(name)}
+            onCheckedChange={(on) => label.set(thread, name, on === true)}
+          >
+            {name}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   )
 }
 
@@ -1020,10 +957,11 @@ function ForwardDialog({
   open: boolean
   onOpenChange: (v: boolean) => void
   subject: string
-  onSend: (to: string, note: string) => void
+  onSend: (to: string, note: string) => Sent
 }) {
   const [to, setTo] = useState("")
   const [note, setNote] = useState("")
+  const { busy, settle } = useSettle()
   const valid = /.+@.+\..+/.test(to.trim())
   return (
     <FormDialog
@@ -1037,13 +975,16 @@ function ForwardDialog({
       }}
       title="Deze mail doorsturen"
       description={`“${subject}”, met alle berichten erin.`}
-      primaryLabel="Doorsturen"
-      disabled={!valid}
+      primaryLabel={busy ? "Doorsturen…" : "Doorsturen"}
+      disabled={!valid || busy}
       onSubmit={() => {
-        onSend(to.trim(), note.trim())
-        setTo("")
-        setNote("")
-        onOpenChange(false)
+        // What did not go stays in the dialog, and the host has said why.
+        settle(onSend(to.trim(), note.trim()), (ok) => {
+          if (!ok) return
+          setTo("")
+          setNote("")
+          onOpenChange(false)
+        })
       }}
     >
       <Field label="Aan">
@@ -1068,11 +1009,12 @@ function ComposeDialog({
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
-  onSend: (m: { to: string; subject: string; body: string }) => void
+  onSend: (m: { to: string; subject: string; body: string }) => Sent
 }) {
   const [to, setTo] = useState("")
   const [subject, setSubject] = useState("")
   const [body, setBody] = useState("")
+  const { busy, settle } = useSettle()
   const valid = /.+@.+\..+/.test(to.trim()) && subject.trim() !== "" && body.trim() !== ""
   const reset = () => {
     setTo("")
@@ -1088,13 +1030,15 @@ function ComposeDialog({
       }}
       title="Nieuwe e-mail"
       description="Verstuurd vanuit je supportinbox. De mail komt bovenaan de inbox te staan."
-      primaryLabel="Versturen"
-      disabled={!valid}
+      primaryLabel={busy ? "Versturen…" : "Versturen"}
+      disabled={!valid || busy}
       width={560}
       onSubmit={() => {
-        onSend({ to: to.trim(), subject: subject.trim(), body: body.trim() })
-        reset()
-        onOpenChange(false)
+        settle(onSend({ to: to.trim(), subject: subject.trim(), body: body.trim() }), (ok) => {
+          if (!ok) return
+          reset()
+          onOpenChange(false)
+        })
       }}
     >
       <Field label="Aan">
@@ -1114,28 +1058,23 @@ function ComposeDialog({
  * A mailbox's band in the list: the provider's logo, the address mail arrives at, and whether it is
  * still arriving. A disconnected mailbox keeps its threads and says what to do about it.
  */
-function MailboxHeader(
-  { mailbox, count, status }: { mailbox: Mailbox; count: number; status: { live: boolean; line: string } }
-) {
+function MailboxHeader({ mailbox, count }: { mailbox: InboxMailbox; count: number }) {
   return (
     <div className="sticky top-0 z-[1] flex h-9 items-center gap-2 bg-glacier px-5">
-      <BrandLogo brand={mailbox.provider} name={PROVIDER_LABEL[mailbox.provider]} size={14} />
+      <BrandLogo brand={mailbox.logo.brand} name={mailbox.logo.name} size={14} />
       <span className="min-w-0 truncate font-medium text-sm text-ink-2">{mailbox.address}</span>
       <span className="text-sm text-ink-3 tabular-nums">{count}</span>
-      {status.live ?
+      {mailbox.status.live ?
         (
           <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-ink-3">
             <span className="size-1.5 rounded-full bg-signal-green" aria-hidden />
-            {status.line}
+            {mailbox.status.line}
           </span>
         ) :
         (
-          <Link
-            to="/settings/integrations"
-            className="ml-auto shrink-0 rounded-sm bg-signal-amber-bg px-1.5 py-0.5 font-medium text-signal-amber text-xs hover:underline"
-          >
+          <ConnectAction className="ml-auto shrink-0 rounded-sm bg-signal-amber-bg px-1.5 py-0.5 font-medium text-signal-amber text-xs hover:underline">
             Opnieuw koppelen
-          </Link>
+          </ConnectAction>
         )}
     </div>
   )
@@ -1145,10 +1084,14 @@ function MailboxHeader(
 function AssignMenu({
   assignee,
   members,
+  me,
+  locked,
   onAssign
 }: {
   assignee: { id: string; name: string } | undefined
   members: ReadonlyArray<{ id: string; name: string; role: string }>
+  me: string
+  locked: string | undefined
   onAssign: (memberId: string | undefined) => void
 }) {
   return (
@@ -1156,7 +1099,9 @@ function AssignMenu({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex h-8 items-center gap-2 rounded-md px-2.5 text-base text-ink-2 leading-none transition-colors hover:bg-ink/6 hover:text-ink"
+          disabled={locked !== undefined}
+          title={locked}
+          className="flex h-8 items-center gap-2 rounded-md px-2.5 text-base text-ink-2 leading-none transition-colors hover:bg-ink/6 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
         >
           {assignee ?
             (
@@ -1168,7 +1113,7 @@ function AssignMenu({
               </span>
             ) :
             <UserPlus className="size-4" strokeWidth={1.75} />}
-          {assignee ? (assignee.id === MY_ID ? "Jij" : assignee.name.split(" ")[0]) : "Toewijzen"}
+          {assignee ? (assignee.id === me ? "Jij" : assignee.name.split(" ")[0]) : "Toewijzen"}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
@@ -1182,7 +1127,7 @@ function AssignMenu({
             >
               {initials(m.name).slice(0, 1)}
             </span>
-            <span className="min-w-0 flex-1 truncate">{m.id === MY_ID ? `${m.name} (jij)` : m.name}</span>
+            <span className="min-w-0 flex-1 truncate">{m.id === me ? `${m.name} (jij)` : m.name}</span>
             {assignee?.id === m.id
               ? <span className="text-xs text-ink-3">Toegewezen</span>
               : <span className="text-xs text-ink-3">{m.role}</span>}

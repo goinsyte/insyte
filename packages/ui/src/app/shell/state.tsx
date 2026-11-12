@@ -44,7 +44,7 @@ export const useNavPrefs = () => useShellSource().navPrefs;
 export const useExtensions = () => useShellSource().extensions;
 export const useHeardNotes = () => useShellSource().heardNotes;
 export const useShellData = () => useShellSource().data;
-export const useInboxThreads = () => useShellSource().inbox.threads;
+export const useInboxPanel = () => useShellSource().inbox;
 export const useAgentLogEntries = () => useShellSource().agentEntries;
 export const useForwardingRows = () => useShellSource().queueRows;
 export const useOperator = () => useShellSource().operator;
