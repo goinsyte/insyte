@@ -58,7 +58,7 @@ export function BrandPage() {
       return
     }
     const r = new FileReader()
-    r.onload = () => set({ logo: String(r.result) })
+    r.addEventListener("load", () => set({ logo: String(r.result) }), { once: true })
     r.readAsDataURL(f)
   }
 
