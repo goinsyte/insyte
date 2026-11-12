@@ -19,6 +19,8 @@ export type AuthEventKind =
   | "password_changed"
   | "two_factor_enabled"
   | "two_factor_disabled"
+  /** Its owner signed a session out from Instellingen → Beveiliging (M3.3), recorded by the Worker, not better-auth. */
+  | "session_revoked"
 
 export interface AuthEvent {
   readonly kind: AuthEventKind

@@ -157,9 +157,10 @@ export default Alchemy.Stack(
 
     /*
      * The outbox relay (M1.4): committed events' ids go onto EVENTS, which this stage's API Worker consumes; what fails
-     * its retries lands in the dead-letter queue. EU jurisdiction, which can only be set at creation. The minute sweep
-     * for events a kick missed runs on staging and production only: an account has few cron triggers, and a preview
-     * each would spend them.
+     * its retries lands in the dead-letter queue. EU jurisdiction, which can only be set at creation. The sweep for
+     * events a kick missed runs on staging and production only: an account has few cron triggers, and a preview each
+     * would spend them. Production sweeps every minute; staging every fifteenth, so its database can suspend between
+     * sweeps (a minute's cron keeps it awake around the clock). The fifteen-minute work runs on both alike.
      */
     // Files (M8.5): packing slips now, uploads later; in the EU, one bucket per stage.
     // A preview's files are test data: its teardown empties the bucket (R2 refuses to delete a full one). Staging and
@@ -187,7 +188,7 @@ export default Alchemy.Stack(
       main: "../apps/api/src/Main.ts",
       compatibility: { date: COMPATIBILITY_DATE, flags: ["nodejs_compat", "enable_request_signal"] },
       placement: { region: "aws:eu-central-1" },
-      ...(environment === "preview" ? {} : { crons: ["* * * * *"] }),
+      ...(environment === "preview" ? {} : { crons: [environment === "production" ? "* * * * *" : "*/15 * * * *"] }),
       // The public API and the MCP server (M19.2, M19.3) on the Worker's own hostname; the rest only through the console.
       workersDev: true,
       observability: OBSERVABILITY,
