@@ -164,8 +164,8 @@ describe("Analyse", () => {
     expect(after.basis.orders - before.basis.orders).toBe(5)
     expect(after.basis.tickets - before.basis.tickets).toBe(1)
 
-    // The charts: day 1 holds A's two orders; the refund lands on A by its own day; the supplierless lead-time row has
-    // the late order at two days past its promise... at least as late as promised.
+    // The charts: day 1 holds A's two orders in euros; the refund lands on A, its own day; the late order is a dot past
+    // the promise.
     const charts = ok(await rpc("Analytics.charts", pair, owner.cookie))
     const day1 = (c: typeof charts) => c.daily.find((d) => d.day === 1)!
     expect((day1(charts).a ?? 0) - (day1(chartsBefore).a ?? 0)).toBe(20000)
@@ -202,7 +202,25 @@ describe("Analyse", () => {
     const found = ok(await rpc("Analytics.findings", pair, owner.cookie))
     expect(found.findings.map((f) => f.kind)).toEqual(expect.arrayContaining(["revenue", "refunds", "support"]))
     const weights = found.findings.map((f) => f.weight)
-    expect(weights).toEqual([...weights].sort((x, y) => y - x))
+    expect(weights).toEqual(weights.toSorted((x, y) => y - x))
+
+    // The same overview over `/v1`, as a key that reads Analyse.
+    const key = ok(
+      await rpc("ApiKeys.create", {
+        label: "Analyse",
+        access: { kind: "custom", scopes: { analytics: 1 } },
+        stores: "all",
+        expiresInDays: 30,
+        ips: [],
+        agent: false
+      }, owner.cookie)
+    ).secret
+    const rest = await call(`http://api.test/v1/analytics/overview?a=${A}&b=${B}`, {
+      headers: { authorization: `Bearer ${key}` }
+    })
+    expect(rest.status).toBe(200)
+    const body = await rest.json() as { figures: Array<{ id: string; a: number | null }> }
+    expect(body.figures.find((f) => f.id === "revenue")?.a).toBe(figure(after.figures, "revenue").a)
 
     // A month that has not begun is refused.
     const later = await rpc("Analytics.overview", { a: month(-2), b: A }, owner.cookie)

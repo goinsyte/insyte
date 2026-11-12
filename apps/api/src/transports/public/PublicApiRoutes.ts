@@ -118,6 +118,16 @@ const ForwardingLive = HttpApiBuilder.group(
     )
 )
 
+const AnalyticsLive = HttpApiBuilder.group(
+  PublicApi,
+  "analytics",
+  (handlers) =>
+    Effect.map(
+      Effect.service(Resources),
+      (act) => handlers.handle("overview", ({ query }) => act.analyticsOverview(query.a, query.b))
+    )
+)
+
 const QueueLive = HttpApiBuilder.group(
   PublicApi,
   "queue",
@@ -272,6 +282,7 @@ export const PublicApiRoutes = Layer.mergeAll(
       ForwardingLive,
       ReturnsLive,
       TicketsLive,
+      AnalyticsLive,
       QueueLive,
       ProposalsLive
     )

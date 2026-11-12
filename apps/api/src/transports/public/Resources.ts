@@ -13,6 +13,8 @@ import { Conflict, type Forbidden } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
 import { isSpecial, type Permission, scopesOf } from "@insyte/domain/Permissions"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
+import { AnalyticsService } from "@insyte/modules/analytics/Analytics"
+import type { AnalyticsOverview } from "@insyte/modules/analytics/domain/Analytics"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import type { LegRow } from "@insyte/modules/forwarding/domain/Forwarding"
 import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
@@ -384,6 +386,33 @@ const proposalV1 = (p: ProposalView) => ({
   execution_error: p.executionError
 })
 
+/** Analyse's overview in the public shape. */
+const overviewV1 = (o: AnalyticsOverview) => {
+  const span = (x: AnalyticsOverview["A"]) => ({
+    month: x.month,
+    from: x.from,
+    to: x.to,
+    days: x.days,
+    in_progress: x.inProgress
+  })
+  return {
+    currency: o.currency,
+    a: span(o.A),
+    b: span(o.B),
+    figures: o.figures.map((f) => ({
+      id: f.id,
+      a: f.a,
+      b: f.b,
+      available: f.available,
+      basis: { rows: f.basis.rows, by: f.basis.by, a_count: f.basis.a, b_count: f.basis.b }
+    })),
+    orders_total: o.basis.orders,
+    tickets_total: o.basis.tickets,
+    first_order_day: o.basis.since,
+    unconverted: o.unconverted
+  }
+}
+
 const make = Effect.gen(function*() {
   const members = yield* Members
   const roles = yield* RolesService
@@ -398,7 +427,25 @@ const make = Effect.gen(function*() {
   const ticketOne = (id: string) => Effect.map(tickets.get(id), (d) => ticketV1(d.ticket))
   const queue = yield* QueueService
   const proposals = yield* ProposalsService
+  const analytics = yield* AnalyticsService
   return {
+    analyticsOverview: (a: string, b: string) =>
+      analytics.overview({ a, b }).pipe(
+        Effect.map(overviewV1),
+        Effect.catchTags({
+          Forbidden: scopeMissing,
+          Invalid: () =>
+            Effect.flatMap(CurrentApiKey, (key) =>
+              Effect.fail<InvalidRequestV1>({
+                error: {
+                  code: "InvalidRequestV1",
+                  message: "Both months must have begun.",
+                  request_id: key.requestId,
+                  field: "a"
+                }
+              }))
+        })
+      ),
     queue: (tab?: "needs_you" | "drawn" | "all") =>
       queue.list(tab === undefined ? {} : { tab }).pipe(
         Effect.map((list) => ({
@@ -976,6 +1023,7 @@ export class Resources extends Context.Service<Resources, Effect.Success<typeof 
         TrackingService.layer,
         ReturnsService.layer,
         TicketsService.layer,
+        AnalyticsService.layer,
         QueueService.layer,
         ProposalsService.layer
       )

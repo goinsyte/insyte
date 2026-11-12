@@ -88,6 +88,7 @@ describe("the MCP server", () => {
       "create_ticket",
       "file_proposal",
       "forward_orders",
+      "get_analytics_overview",
       "get_order",
       "get_order_tracking",
       "get_proposal",
@@ -137,7 +138,8 @@ describe("the MCP server", () => {
         "list_tickets",
         "get_ticket",
         "list_queue",
-        "get_proposal"
+        "get_proposal",
+        "get_analytics_overview"
       ]
     ) {
       expect(hints[read]?.["readOnlyHint"]).toBe(true)
@@ -168,6 +170,28 @@ describe("the MCP server", () => {
     const refused = await mcp(narrow, "tools/call", { name: "list_members", arguments: {} })
     expect(refused.message.result.isError).toBe(true)
     expect(JSON.stringify(refused.message.result.content)).toContain("team.read")
+  })
+
+  it("reads Analyse's six figures with analytics.read, and refuses them without it (M14 step 2)", async () => {
+    const overview = await mcp(agent.secret, "tools/call", {
+      name: "get_analytics_overview",
+      arguments: { a: "2026-02", b: "2026-01" }
+    })
+    expect(overview.message.result.isError).toBe(false)
+    expect(content(overview.message).figures.map((f: { id: string }) => f.id)).toEqual([
+      "revenue",
+      "paid_orders",
+      "on_time",
+      "refund_rate",
+      "disputes",
+      "resolve_hours"
+    ])
+    const refused = await mcp(narrow, "tools/call", {
+      name: "get_analytics_overview",
+      arguments: { a: "2026-02", b: "2026-01" }
+    })
+    expect(refused.message.result.isError).toBe(true)
+    expect(JSON.stringify(refused.message.result.content)).toContain("analytics.read")
   })
 
   it("turns away a request without a valid key with a 401 before any JSON-RPC", async () => {
