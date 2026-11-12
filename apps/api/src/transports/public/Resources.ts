@@ -9,10 +9,15 @@ import {
   type ScopeMissingV1,
   type ValidationFailedV1
 } from "@insyte/api/http/PublicApi"
+import { type Flow, triggerOf } from "@insyte/domain/automations/Graph"
 import { Conflict, type Forbidden } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
 import { isSpecial, type Permission, scopesOf } from "@insyte/domain/Permissions"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
+import { AutomationsService } from "@insyte/modules/automations/Automations"
+import type { AutomationRow, AutomationStatus } from "@insyte/modules/automations/domain/Automations"
+import type { RunDetail, RunRow, RunStatus } from "@insyte/modules/automations/domain/Runs"
+import { RunsService } from "@insyte/modules/automations/Runs"
 import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
 import type { ChargebackRow, ChargebackStats, ChargebackTab } from "@insyte/modules/chargebacks/domain/Chargebacks"
 import { CustomersService } from "@insyte/modules/customers/Customers"
@@ -100,7 +105,14 @@ export const keyOf = (header: string | undefined) =>
 const fail = <Code extends string, Extra extends Record<string, unknown>>(code: Code, message: string, extra: Extra) =>
   Effect.flatMap(CurrentApiKey, (key) => Effect.fail({ error: { code, message, request_id: key.requestId, ...extra } }))
 
-const ENTITY: Record<string, string> = { return: "return", ticket: "ticket", customer: "customer", member: "member" }
+const ENTITY: Record<string, string> = {
+  return: "return",
+  ticket: "ticket",
+  customer: "customer",
+  member: "member",
+  automation: "automation",
+  run: "run"
+}
 const notFound = (e?: { readonly entity?: string }) =>
   fail("NotFoundV1" as const, `No such ${ENTITY[e?.entity ?? ""] ?? "order"} in this key's stores.`, {})
 const conflict = (reason: string) => fail("ConflictV1" as const, `Not possible now: ${reason}.`, { reason })
@@ -414,6 +426,53 @@ const chargebackStatsV1 = (s: ChargebackStats) => ({
   recovered: { amount_minor: s.recoveredMinor, currency: s.currency }
 })
 
+const automationV1 = (a: AutomationRow) => ({
+  id: a.id,
+  name: a.name,
+  description: a.description,
+  status: a.status,
+  live_version: a.liveVersion,
+  trigger: triggerOf(a.nodes)?.variantId ?? null,
+  unpublished_changes: a.dirty,
+  owner: a.owner,
+  runs_total: a.runsTotal,
+  saved_at: new Date(a.savedAt).toISOString(),
+  created_at: new Date(a.createdAt).toISOString()
+})
+
+const lane = (n: { readonly id: string; readonly variantId: string; readonly config: Record<string, unknown> }) => ({
+  id: n.id,
+  step: n.variantId,
+  config: n.config
+})
+
+const stepsV1 = (nodes: Flow) =>
+  nodes.map((n) => ({
+    ...lane(n),
+    ...(n.branches === undefined ? {} : { branches: { yes: n.branches.yes.map(lane), no: n.branches.no.map(lane) } })
+  }))
+
+/** A run in the public shape; its steps only where one run is read. */
+const runV1 = (r: RunRow, steps: RunDetail["steps"] = []) => ({
+  id: r.id,
+  automation_id: r.automationId,
+  version: r.version,
+  status: r.status,
+  reason: r.reason,
+  trigger: r.triggerVariant,
+  manual: r.manual,
+  record: r.record === null ? null : { type: r.record.kind, id: r.record.id, number: r.record.number },
+  started_at: new Date(r.startedAt).toISOString(),
+  finished_at: iso(r.finishedAt),
+  steps: steps.map((s) => ({
+    step_id: s.nodeId,
+    step: s.variantId,
+    lane: s.lane,
+    status: s.status,
+    explanation: s.explanation
+  }))
+})
+
 const make = Effect.gen(function*() {
   const members = yield* Members
   const roles = yield* RolesService
@@ -425,6 +484,8 @@ const make = Effect.gen(function*() {
   const tracking = yield* TrackingService
   const returns = yield* ReturnsService
   const tickets = yield* TicketsService
+  const automations = yield* AutomationsService
+  const runs = yield* RunsService
   const ticketOne = (id: string) => Effect.map(tickets.get(id), (d) => ticketV1(d.ticket))
   const queue = yield* QueueService
   const proposals = yield* ProposalsService
@@ -789,6 +850,57 @@ const make = Effect.gen(function*() {
         })),
         Effect.catchTag("Forbidden", scopeMissing)
       ),
+    automations: (status?: AutomationStatus) =>
+      automations.list(status === undefined ? {} : { status }).pipe(
+        Effect.map((list) => ({ data: list.rows.map(automationV1), counts: list.counts })),
+        Effect.catchTag("Forbidden", scopeMissing)
+      ),
+    runs: (
+      id: string,
+      query: {
+        readonly status?: RunStatus | undefined
+        readonly limit?: number | undefined
+        readonly cursor?: string | undefined
+      }
+    ) =>
+      Effect.gen(function*() {
+        yield* automations.get(id)
+        const list = yield* runs.list({
+          automationId: id,
+          ...(query.status === undefined ? {} : { status: query.status }),
+          ...(query.limit === undefined ? {} : { limit: Math.min(200, Math.max(1, Math.floor(query.limit))) }),
+          ...(query.cursor === undefined ? {} : { cursor: query.cursor })
+        })
+        return { data: list.rows.map((r) => runV1(r)), next_cursor: list.next }
+      }).pipe(Effect.catchTags({ Forbidden: scopeMissing, NotFound: notFound })),
+    startRun: (id: string, body: { readonly order_id: string }, key?: string) =>
+      Idempotency.once(
+        key,
+        ["automation.run", id, body.order_id],
+        Effect.map(runs.start({ automationId: id, recordId: body.order_id }), (d) => runV1(d.run, d.steps))
+      ).pipe(Effect.catch(writeV1)),
+    automation: (id: string) =>
+      automations.get(id).pipe(
+        Effect.map((d) => ({
+          ...automationV1(d.automation),
+          draft: stepsV1(d.automation.nodes),
+          live: d.liveNodes === null ? null : stepsV1(d.liveNodes),
+          versions: d.versions.map((v) => ({
+            version: v.version,
+            note: v.note,
+            published_at: new Date(v.at).toISOString(),
+            published_by: v.by
+          })),
+          issues: d.issues.map((i) => ({
+            step_id: i.nodeId,
+            code: i.code,
+            field: i.field ?? null,
+            severity: i.severity,
+            message: i.message
+          }))
+        })),
+        Effect.catchTags({ Forbidden: scopeMissing, NotFound: notFound })
+      ),
     ticket: (id: string) =>
       tickets.get(id).pipe(
         Effect.map((d) => ({ ...ticketV1(d.ticket), comments: d.comments.map(commentV1) })),
@@ -1052,6 +1164,8 @@ export class Resources extends Context.Service<Resources, Effect.Success<typeof 
         TrackingService.layer,
         ReturnsService.layer,
         TicketsService.layer,
+        AutomationsService.layer,
+        RunsService.layer,
         QueueService.layer,
         ProposalsService.layer,
         ChargebacksService.layer

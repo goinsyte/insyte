@@ -1,3 +1,4 @@
+import type { AutomationRunParams } from "../workflows/AutomationRun.ts"
 import type { EvidencePackParams } from "../workflows/EvidencePack.ts"
 import type { AnalysisParams } from "../workflows/FirstAnalysis.ts"
 import type { ForwardSendParams } from "../workflows/ForwardSend.ts"
@@ -40,6 +41,8 @@ declare global {
       readonly RETURN_LABEL: Workflow<ReturnLabelParams>
       /** A case's evidence pack (M13 step 4): one instance per run (`EvidencePackWorkflow`). */
       readonly EVIDENCE_PACK: Workflow<EvidencePackParams>
+      /** A flow's run (M12 step 3): one instance per run (`AutomationRunWorkflow`). */
+      readonly AUTOMATION_RUN: Workflow<AutomationRunParams>
       /** The Klaviyo OAuth app (M7.5); without both, Klaviyo cannot be connected. `recorded` in the worker tests. */
       readonly KLAVIYO_CLIENT_ID?: string
       readonly KLAVIYO_CLIENT_SECRET?: string

@@ -402,7 +402,7 @@ export const activity = Effect.fn("Home.activity")(function*(input: ActivityInpu
                  null::bigint as amount_minor, null::text as currency, null::text as customer,
                  coalesce(o.number, r.number, '#' || t.number::text, p.title, qp.title, s.name, nullif(c.name, '')) as label,
                  coalesce(o.store_id, r.store_id, t.store_id, p.store_id, qp.store_id, c.store_id) as store_id,
-                 coalesce(u.name, sa.name) as actor_name
+                 coalesce(u.name, sa.name, sv.label) as actor_name
           from audit_events a
           left join orders o on a.subject_type = 'order' and o.id = a.subject_id
           left join returns r on a.subject_type = 'return' and r.id = a.subject_id
@@ -415,6 +415,7 @@ export const activity = Effect.fn("Home.activity")(function*(input: ActivityInpu
           left join members m on a.actor_kind = 'member' and m.id = a.actor_id
           left join auth."user" u on u.id = m.user_id
           left join suppliers sa on a.actor_kind = 'supplier_contact' and sa.id = a.actor_id
+          left join service_accounts sv on a.actor_kind = 'service_account' and sv.id = a.actor_id
           where a.at > now() - make_interval(days => ${ACTIVITY_DAYS})
             and a.subject_type = any(${types}) and a.action <> all(${QUIET})
           union all

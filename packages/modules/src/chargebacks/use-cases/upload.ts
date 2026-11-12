@@ -4,7 +4,7 @@ import { mintId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
-import { FileStore } from "../../shared/domain/Documents.ts"
+import { cleanFileName, FileStore } from "../../shared/domain/Documents.ts"
 import { CaseClosed } from "../domain/Chargebacks.ts"
 import { caseScope } from "./chargebacks.ts"
 
@@ -29,6 +29,27 @@ const TYPES: Record<string, string> = {
   "message/rfc822": "eml"
 }
 
+/** What the first bytes say a file is, for the types that say it; `undefined` for text, a mail or anything else. */
+const sniff = (bytes: Uint8Array): string | undefined => {
+  const at = (offset: number, ...signature: Array<number>) => signature.every((b, i) => bytes[offset + i] === b)
+  if (at(0, 0x25, 0x50, 0x44, 0x46, 0x2d)) return "application/pdf" // %PDF-
+  if (at(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "image/png"
+  if (at(0, 0xff, 0xd8, 0xff)) return "image/jpeg"
+  if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return "image/webp" // RIFF....WEBP
+  if (at(0, 0x47, 0x49, 0x46, 0x38)) return "image/gif" // GIF8
+  if (at(4, 0x66, 0x74, 0x79, 0x70)) return "image/heic" // ....ftyp
+  return undefined
+}
+
+/**
+ * The type a file claims must be the one its bytes show: a PDF, an image, each by its signature; a text, a CSV or a mail
+ * is not one of those. A file that says otherwise is refused, not stored under a type it is not.
+ */
+const matches = (mime: string, bytes: Uint8Array) => {
+  const found = sniff(bytes)
+  return mime.startsWith("text/") || mime === "message/rfc822" ? found === undefined : found === mime
+}
+
 export const uploadEvidence = Effect.fn("Chargebacks.uploadEvidence")(function*(input: {
   readonly chargebackId: string
   readonly name: string
@@ -42,6 +63,7 @@ export const uploadEvidence = Effect.fn("Chargebacks.uploadEvidence")(function*(
   if (input.bytes.byteLength === 0 || input.bytes.byteLength > MAX_EVIDENCE_BYTES) {
     return yield* new Invalid({ fields: { file: "size" } })
   }
+  if (!matches(mime, input.bytes)) return yield* new Invalid({ fields: { file: "type" } })
   const principal = yield* CurrentPrincipal
   const db = yield* Db
   return yield* db.scoped((sql) =>
@@ -57,7 +79,7 @@ export const uploadEvidence = Effect.fn("Chargebacks.uploadEvidence")(function*(
       const key = `${principal.workspaceId}/evidence/${input.chargebackId}/${id}.${extension}`
       // A bucket that does not take the file is a defect, as a database that does not answer.
       yield* Effect.flatMap(Effect.service(FileStore), (files) => files.put(key, input.bytes, mime)).pipe(Effect.orDie)
-      const name = input.name.trim().slice(0, 200) || `bewijs.${extension}`
+      const name = Array.from(cleanFileName(input.name).trim()).slice(0, 200).join("").trim() || `bewijs.${extension}`
       yield* sql`insert into files (id, workspace_id, r2_key, name, mime, size_bytes, kind, owner_type, owner_id,
                                     uploaded_by)
                  values (${id}, ${principal.workspaceId}, ${key}, ${name}, ${mime}, ${input.bytes.byteLength},

@@ -38,6 +38,7 @@ import { ViewerLive } from "../transports/rpc/ViewerLive.ts"
 import { WithDbLive } from "../transports/rpc/WithDbLive.ts"
 import { AnalysesLive } from "./Analyses.ts"
 import { AuthHooksLive } from "./AuthHooks.ts"
+import { AutomationRunsLive } from "./AutomationRuns.ts"
 import { BackfillsLive } from "./Backfills.ts"
 import { AppInfo, BetaSettings, ConfigLive } from "./Bindings.ts"
 import { ConnectionGateLive } from "./ConnectionGate.ts"
@@ -175,6 +176,8 @@ export const AppLayer = Transports.pipe(
       IngestQueueLive,
       // …and the first analysis's Workflow (M6.5).
       AnalysesLive,
+      // …and a flow's runs: "Opnieuw", stopping one, the answer to "Goedkeuring vragen" (M12 step 5).
+      AutomationRunsLive,
       // …and where one slice's need meets another's use case.
       SliceLinks
     )
@@ -219,6 +222,8 @@ export const BackgroundLayer = Layer.mergeAll(
   ReturnLabelsLive,
   // A case's evidence pack is gathered by its Workflow (M13 step 4).
   EvidencePacksLive,
+  // A trigger's event starts a flow's run (M12 step 3).
+  AutomationRunsLive,
   // A return label's PDF goes with the shopper's mail (M9.3).
   FileStoreR2,
   // Notes by push and in Slack, its token sealed; an answer to a notification mail as a comment (M11 step 13.5).

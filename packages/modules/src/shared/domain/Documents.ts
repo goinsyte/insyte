@@ -23,3 +23,13 @@ export class FileStore extends Context.Service<FileStore, {
   /** Gone for good, as far as the bucket can say: a key that is not there is no failure. */
   readonly remove: (keys: ReadonlyArray<string>) => Effect.Effect<void>
 }>()("shared/FileStore") {}
+
+/**
+ * A file's name as typed, without control characters, quotes, backslashes or a lone half of a character, so no header
+ * it goes into (`content-disposition`) can break.
+ */
+export const cleanFileName = (name: string) =>
+  Array.from(name).filter((ch) => {
+    const c = ch.codePointAt(0) ?? 0
+    return c > 0x1f && c !== 0x7f && ch !== "\"" && ch !== "\\" && (c < 0xd800 || c > 0xdfff)
+  }).join("")

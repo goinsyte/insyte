@@ -2,7 +2,8 @@ import { Db } from "@insyte/database/Db"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
-import { FileStore } from "@insyte/modules/shared/domain/Documents"
+import { caseScope } from "@insyte/modules/chargebacks/use-cases/chargebacks"
+import { cleanFileName, FileStore } from "@insyte/modules/shared/domain/Documents"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
@@ -15,6 +16,17 @@ import { userFrom } from "../../platform/Sessions.ts"
  * a chargeback's evidence the case's, M13: Chargebacks at Bekijken). Through
  * the console's origin, like every route of the session.
  */
+
+/**
+ * `inline` with the file's name twice (RFC 6266): a plain ASCII fallback without quotes, backslashes or control
+ * characters, and the full name as RFC 5987 `filename*`. A name as typed can never break the header.
+ */
+const disposition = (name: string) => {
+  const clean = cleanFileName(name)
+  const ascii = clean.replace(/[^\x20-\x7e]/g, "_") || "bestand"
+  const encoded = encodeURIComponent(clean).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+  return `inline; filename="${ascii}"; filename*=UTF-8''${encoded}`
+}
 
 const notFound = HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
 
@@ -36,8 +48,8 @@ export const FileRoutes = HttpRouter.add(
     const db = yield* Db
     const file = yield* Effect.gen(function*() {
       const [row] = yield* db.scoped((sql) =>
-        sql<{ r2Key: string; name: string; mime: string; ownerType: string }>`
-          select r2_key, name, mime, owner_type from files where id = ${id ?? ""} and deleted_at is null
+        sql<{ r2Key: string; name: string; mime: string; ownerType: string; ownerId: string }>`
+          select r2_key, name, mime, owner_type, owner_id from files where id = ${id ?? ""} and deleted_at is null
             and owner_type in ('forwarding_item', 'return', 'quality_check', 'chargeback')`
       )
       if (row === undefined) return undefined
@@ -53,6 +65,16 @@ export const FileRoutes = HttpRouter.add(
           : "orders",
         1
       )
+      // A case's evidence is as fenced as the case: a role or member held to other stores does not find it (M13).
+      if (row.ownerType === "chargeback") {
+        const [held] = yield* db.scoped((sql) =>
+          Effect.flatMap(
+            caseScope(sql),
+            (scope) => sql`select 1 from chargebacks c where c.id = ${row.ownerId} and ${scope}`
+          )
+        )
+        if (held === undefined) return undefined
+      }
       return row
     }).pipe(
       Effect.provideService(CurrentPrincipal, active.principal),
@@ -63,7 +85,7 @@ export const FileRoutes = HttpRouter.add(
     if (stored === undefined) return notFound
     return HttpServerResponse.uint8Array(stored.bytes, {
       contentType: stored.mime,
-      headers: { "content-disposition": `inline; filename="${file.name}"`, "cache-control": "private, no-store" }
+      headers: { "content-disposition": disposition(file.name), "cache-control": "private, no-store" }
     })
   }).pipe(Effect.orDie, withRequestDb, Effect.withSpan("Files.downloadRoute"))
 )

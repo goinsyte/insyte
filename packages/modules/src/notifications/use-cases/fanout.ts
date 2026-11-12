@@ -21,7 +21,8 @@ import { connectionOf } from "./slack.ts"
  * - `chat.mentioned`: who a chat message names with `@` hears of it, if they are in it and did not mute it;
  * - `quality_check.submitted`: who asked for the check, and whoever handles products, hear the supplier answered;
  * - `chargeback.opened`, `chargeback.deadline_near`: whoever may see chargebacks hears of a new case at or above the
- *   workspace's threshold, and that a case's deadline is coming (M13 step 3).
+ *   workspace's threshold, and that a case's deadline is coming (M13 step 3), within the stores they may see;
+ * - `automation.notify`: who a run's "Team waarschuwen" names, or who watches a flow whose run failed (M12 step 3).
  *
  * A member deactivated or removed hears nothing. Who has "Alleen als het mij betreft" on for the kind hears only of
  * what concerns them directly (they were put on it, named in it, asked for it or sent the invitation). The in-app switch
@@ -177,6 +178,25 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
           }
         }
       }
+      case "automation.notify": {
+        // A run (M12 step 3): its flow by name; who may not see automations hears nothing.
+        const [flow] = yield* sql<{ name: string }>`select name from automations where id = ${event.automationId}`
+        if (flow === undefined) return undefined
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.id in ${sql.in([...event.memberIds, ""])} and m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'automations')::int, 0) >= 1)`
+        const named = recipients.map((r) => r.id)
+        return {
+          kind: event.kind === "alert" ? "automation.alert" : "automation.failed",
+          recipients: named,
+          direct: named,
+          subjectType: "automation",
+          subjectId: event.automationId,
+          actor: null,
+          data: { name: flow.name, runId: event.runId, detail: event.detail.slice(0, 280) }
+        }
+      }
       case "chat.mentioned": {
         // A chat message named teammates (M11 step 4): who reads chats and is in the conversation (a DM's two, or a
         // channel's readers) hears of it, unless they muted it; the conversation is the subject.
@@ -253,7 +273,8 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
       case "chargeback.deadline_near": {
         // A chargeback (M13 step 3): who may see chargebacks hears a new one at or above the workspace's threshold
         // ("Vanaf €100"), and that an open case's deadline is coming; the one who opened it by hand hears nothing of
-        // their own. A case taken back, or closed since, says nothing.
+        // their own. A case taken back, or closed since, says nothing. A role or member fenced to stores hears only of
+        // its own stores' cases, as `caseScope` shows them.
         const [c] = yield* sql<{
           caseNumber: string
           provider: string
@@ -263,9 +284,10 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
           reasonCode: string
           status: string
           deadlineAt: Date
+          storeId: string | null
           threshold: string | null
         }>`
-          select c.case_number, c.provider, c.customer_name, c.amount_minor, c.currency, c.reason_code, c.status,
+          select c.case_number, c.store_id, c.provider, c.customer_name, c.amount_minor, c.currency, c.reason_code, c.status,
                  c.deadline_at, (w.alerts ->> 'dispute_amount_minor') as threshold
           from chargebacks c join workspaces w on w.id = c.workspace_id where c.id = ${event.chargebackId}`
         if (c === undefined) return undefined
@@ -277,7 +299,10 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
         const recipients = yield* sql<{ id: string }>`
           select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
           where m.deactivated_at is null and m.removed_at is null
-            and (r.id = 'owner' or coalesce((r.levels ->> 'chargebacks')::int, 0) >= 1)`
+            and (r.id = 'owner' or coalesce((r.levels ->> 'chargebacks')::int, 0) >= 1)
+            and (${c.storeId}::text is null
+              or ((r.stores = '"all"'::jsonb or r.stores @> jsonb_build_array(${c.storeId}::text))
+                and (m.stores = '"all"'::jsonb or m.stores @> jsonb_build_array(${c.storeId}::text))))`
         return {
           kind: event.type === "chargeback.opened" ? "chargeback.new" : "chargeback.deadline",
           recipients: recipients.map((r) => r.id).filter((r) => r !== by),

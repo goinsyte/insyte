@@ -220,6 +220,25 @@ const ReturnsLive = HttpApiBuilder.group(
     )
 )
 
+const AutomationsLive = HttpApiBuilder.group(
+  PublicApi,
+  "automations",
+  (handlers) =>
+    Effect.map(
+      Effect.service(Resources),
+      (act) =>
+        handlers
+          .handle("automations", ({ query }) => act.automations(query.status))
+          .handle("automation", ({ params }) => act.automation(params.id))
+          .handle("runs", ({ params, query }) => act.runs(params.id, query))
+          .handle(
+            "startRun",
+            ({ params, payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.startRun(params.id, payload, key))
+          )
+    )
+)
+
 const TicketsLive = HttpApiBuilder.group(
   PublicApi,
   "tickets",
@@ -285,6 +304,7 @@ export const PublicApiRoutes = Layer.mergeAll(
       ForwardingLive,
       ReturnsLive,
       TicketsLive,
+      AutomationsLive,
       QueueLive,
       ProposalsLive,
       ChargebacksLive

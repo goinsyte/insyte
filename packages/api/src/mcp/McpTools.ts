@@ -3,6 +3,12 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import {
+  AutomationDetailV1,
+  AutomationPageV1,
+  AutomationRunPageV1,
+  AutomationRunStatusFilter,
+  AutomationRunV1,
+  AutomationStatusFilter,
   ChargebackDetailV1,
   ChargebackPageV1,
   ChargebackTabV1,
@@ -428,6 +434,50 @@ export const ResolveReturn = Tool.make("resolve_return", {
   dependencies: asKey()
 }).annotate(Tool.Destructive, true)
 
+export const ListAutomations = Tool.make("list_automations", {
+  description:
+    "The workspace's flows, newest first, with each status's count (draft, active, paused); by default every one. Needs automations.read.",
+  parameters: Schema.Struct({ status: Schema.optional(AutomationStatusFilter) }),
+  success: AutomationPageV1,
+  failure: ScopeMissingV1,
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const GetAutomation = Tool.make("get_automation", {
+  description:
+    "One flow: its draft and live steps, its published versions, and what is wrong with the draft per step. Needs automations.read.",
+  parameters: Schema.Struct({
+    automation_id: Schema.String.annotate({ description: "The flow's id (auto_…), as list_automations gives it." })
+  }),
+  success: AutomationDetailV1,
+  failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+const AutomationId = Schema.String.annotate({ description: "The flow's id (auto_…), as list_automations gives it." })
+
+export const ListAutomationRuns = Tool.make("list_automation_runs", {
+  description:
+    "One flow's runs, newest first: each with its status (running, waiting, succeeded, failed, stopped, skipped), why, the order it ran for and the version it ran on. Needs automations.read.",
+  parameters: Schema.Struct({
+    automation_id: AutomationId,
+    status: Schema.optional(AutomationRunStatusFilter),
+    cursor: Schema.optional(Schema.String)
+  }),
+  success: AutomationRunPageV1,
+  failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const TriggerAutomation = Tool.make("trigger_automation", {
+  description:
+    "Runs a flow's live version for one order now, as its trigger would; its steps act as the flow's own service account, so they may create tickets, label the customer or notify the team. Answers the run as it started. Needs automations.write.",
+  parameters: Schema.Struct({ automation_id: AutomationId, order_id: OrderId, idempotency_key: IdempotencyKey }),
+  success: AutomationRunV1,
+  failure: WriteFailure,
+  dependencies: asKey()
+})
+
 const TicketId = Schema.String.annotate({ description: "The ticket's id (tkt_…), as list_tickets gives it." })
 const MemberId = Schema.String.annotate({ description: "A teammate's member id (mem_…), as list_members gives it." })
 
@@ -558,6 +608,10 @@ export const InsyteTools = Toolkit.make(
   SetTicketStatus,
   AssignTicket,
   CommentOnTicket,
+  ListAutomations,
+  GetAutomation,
+  ListAutomationRuns,
+  TriggerAutomation,
   ListChargebacks,
   GetChargeback
 )

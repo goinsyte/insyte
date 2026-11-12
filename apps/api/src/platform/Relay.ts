@@ -1,6 +1,9 @@
 import { Db } from "@insyte/database/Db"
+import { TRIGGER_EVENTS } from "@insyte/domain/automations/Engine"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
+import { AutomationRuns } from "@insyte/modules/automations/domain/Ports"
+import { startRuns } from "@insyte/modules/automations/use-cases/engine"
 import { EvidencePacks } from "@insyte/modules/chargebacks/domain/Ports"
 import {
   drainIn,
@@ -71,6 +74,7 @@ type SinkServices =
   | ForwardSends
   | ReturnLabels
   | EvidencePacks
+  | AutomationRuns
   | FileStore
   | WebPush
   | Slack
@@ -183,6 +187,18 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
         distinctId: event.userId,
         groups: { workspace: event.workspaceId },
         properties: { action: event.action }
+      }
+    // A run's note to a teammate (M12 step 3) is the notifications' business.
+    case "automation.notify":
+      return undefined
+    // Publishing a flow (M12 step 1): the moment an operator hands work to Insyte, by its trigger and size.
+    case "automation.published":
+      return {
+        outboxId: id,
+        event: "automation_published",
+        distinctId: event.userId,
+        groups: { workspace: event.workspaceId },
+        properties: { version: event.version, trigger: event.trigger, steps: event.steps }
       }
     // Handling an order in Insyte is an activation moment (M7): counted by what was done and to how many.
     case "order.updated":
@@ -430,7 +446,8 @@ const NOTIFIED = new Set<OutboxEvent["type"]>([
   "chat.mentioned",
   "quality_check.submitted",
   "chargeback.opened",
-  "chargeback.deadline_near"
+  "chargeback.deadline_near",
+  "automation.notify"
 ])
 
 const SINKS: ReadonlyArray<Sink> = [
@@ -528,6 +545,18 @@ const SINKS: ReadonlyArray<Sink> = [
           Effect.service(ReturnLabels),
           (labels) => labels.start({ key: `rl-${id}`, workspaceId: event.workspaceId, returnIds: event.returnIds })
         )
+        : undefined
+  },
+  {
+    // A trigger's event (M12 step 3): a run per active flow and record, each its own Workflow, named by the run.
+    name: "automations",
+    run: (id, event, sql) =>
+      TRIGGER_EVENTS.has(event.type)
+        ? Effect.gen(function*() {
+          const runs = yield* startRuns(sql, id, event).pipe(Effect.orDie)
+          const starter = yield* AutomationRuns
+          for (const runId of runs) yield* starter.start({ workspaceId: event.workspaceId, runId })
+        })
         : undefined
   },
   {
