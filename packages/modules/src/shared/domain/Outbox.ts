@@ -180,6 +180,14 @@ export const OutboxEvent = Schema.Union([
     memberIds: Schema.Array(Schema.String),
     detail: Schema.String
   }),
+  // A ticket was made or retitled (M15 step 2): Insyte AI reads its topic, after the event's transaction, where a model
+  // is set up; the keyword rules' topic stands until then.
+  Schema.Struct({
+    type: Schema.Literal("ticket.topic_requested"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    ticketId: Schema.String
+  }),
   // A ticket comment named teammates with `@` (M11 step 3): each of them hears of it.
   Schema.Struct({
     type: Schema.Literal("ticket.mentioned"),
@@ -382,6 +390,28 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     month: Schema.String,
     statementIds: Schema.Array(Schema.String)
+  }),
+  // A CSV was uploaded into the Data hub (M14 step 5): its `ImportParseWorkflow` reads it into rows.
+  Schema.Struct({
+    type: Schema.Literal("import.uploaded"),
+    workspaceId: Schema.String,
+    importId: Schema.String,
+    userId: Schema.String
+  }),
+  // An export was asked for (M14 step 5): its `ExportWorkflow` writes the file.
+  Schema.Struct({
+    type: Schema.Literal("export.requested"),
+    workspaceId: Schema.String,
+    exportId: Schema.String,
+    userId: Schema.String
+  }),
+  // An export's file is ready, or could not be written (M14 step 5): the member who asked hears it. `userId` is theirs.
+  Schema.Struct({
+    type: Schema.Literal("export.finished"),
+    workspaceId: Schema.String,
+    exportId: Schema.String,
+    userId: Schema.String,
+    state: Schema.Literals(["ready", "failed"])
   }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.

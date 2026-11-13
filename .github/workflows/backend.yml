@@ -203,6 +203,10 @@ jobs:
       AFTERSHIP_WEBHOOK_SECRET: ${{ secrets.AFTERSHIP_WEBHOOK_SECRET }}
       SENDCLOUD_PUBLIC_KEY: ${{ secrets.SENDCLOUD_PUBLIC_KEY }}
       SENDCLOUD_SECRET_KEY: ${{ secrets.SENDCLOUD_SECRET_KEY }}
+      # Insyte AI: Claude through the stage's AI Gateway; the fake answers until the key and the gateway are set.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      AI_GATEWAY_ID: ${{ vars.AI_GATEWAY_ID }}
+      AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
       # Web push's VAPID key pair and contact, Slack's app client (with SEAL_KEYS); each stays off until all of its are set.
       VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
       VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
@@ -288,6 +292,10 @@ jobs:
       AFTERSHIP_WEBHOOK_SECRET: ${{ secrets.AFTERSHIP_WEBHOOK_SECRET }}
       SENDCLOUD_PUBLIC_KEY: ${{ secrets.SENDCLOUD_PUBLIC_KEY }}
       SENDCLOUD_SECRET_KEY: ${{ secrets.SENDCLOUD_SECRET_KEY }}
+      # Insyte AI: Claude through the stage's AI Gateway; the fake answers until the key and the gateway are set.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      AI_GATEWAY_ID: ${{ vars.AI_GATEWAY_ID }}
+      AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
       # Web push's VAPID key pair and contact, Slack's app client (with SEAL_KEYS); each stays off until all of its are set.
       VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
       VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
