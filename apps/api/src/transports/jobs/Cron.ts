@@ -1,5 +1,5 @@
 import { fill as fillRates } from "@insyte/modules/fx/Fx"
-import { Effect } from "effect"
+import { Effect, type ManagedRuntime } from "effect"
 import { adSpendSweep } from "../../platform/AdSpend.ts"
 import { BackgroundRuntime as background } from "../../platform/BackgroundLayer.ts"
 import { deadlineSweep } from "../../platform/Deadlines.ts"
@@ -27,46 +27,55 @@ import { startMonthlyClose } from "../../workflows/MonthlyClose.ts"
  * day's ad spend from every connected ad account (M13 step 5) and the sending domains' re-check (20.1c); at 02:00 UTC the ECB's reference rates into
  * `fx_rates` (§0.4). */
 export const scheduled: ExportedHandlerScheduledHandler<Env> = (controller, _env, ctx) => {
-  ctx.waitUntil(background.runPromise(withRequestDb(sweep())).finally(() => Telemetry.flush()))
-  ctx.waitUntil(background.runPromise(withRequestDb(notifySweep())).finally(() => Telemetry.flush()))
+  // One exporter for the whole turn (`Observability.ts`), flushed once every job in it has settled.
+  const spans = Telemetry.open()
+  const turns: Array<Promise<unknown>> = []
+  const turn = <A, E, R, ER>(runtime: ManagedRuntime.ManagedRuntime<R, ER>, effect: Effect.Effect<A, E, R>) => {
+    const job = runtime.runPromise(spans.provide(effect))
+    turns.push(job)
+    ctx.waitUntil(job)
+  }
+  turn(background, withRequestDb(sweep()))
+  turn(background, withRequestDb(notifySweep()))
   const at = new Date(controller.scheduledTime)
-  ctx.waitUntil(background.runPromise(withRequestDb(webhooksRearm(at))).finally(() => Telemetry.flush()))
+  turn(background, withRequestDb(webhooksRearm(at)))
   if (at.getUTCMinutes() % 15 === 0) {
     const nightly = at.getUTCHours() === 2 && at.getUTCMinutes() === 0
-    ctx.waitUntil(background.runPromise(withRequestDb(factsSweep(nightly))).finally(() => Telemetry.flush()))
+    turn(background, withRequestDb(factsSweep(nightly)))
     // The rates the conversions read (§0.4): the ECB's last 90 days, so a night it missed fills in on the next.
-    if (nightly) ctx.waitUntil(background.runPromise(withRequestDb(ratesFill)).finally(() => Telemetry.flush()))
-    ctx.waitUntil(syncRuntime.runPromise(reconcile).finally(() => Telemetry.flush()))
-    ctx.waitUntil(syncRuntime.runPromise(trackingSweep).finally(() => Telemetry.flush()))
+    if (nightly) turn(background, withRequestDb(ratesFill))
+    turn(syncRuntime, reconcile)
+    turn(syncRuntime, trackingSweep)
     // Start's queue (M10.1): what no event says, a stock-out or a review coming due.
-    ctx.waitUntil(background.runPromise(withRequestDb(queueSweep())).finally(() => Telemetry.flush()))
-    ctx.waitUntil(background.runPromise(withRequestDb(digestSweep(at))).finally(() => Telemetry.flush()))
+    turn(background, withRequestDb(queueSweep()))
+    turn(background, withRequestDb(digestSweep(at)))
     // On the hour: the chargeback deadline reminders that have come (M13 step 3).
     if (at.getUTCMinutes() === 0) {
-      ctx.waitUntil(background.runPromise(withRequestDb(deadlineSweep(at))).finally(() => Telemetry.flush()))
+      turn(background, withRequestDb(deadlineSweep(at)))
     }
     // The Prullenbak's items past their 30 days, once a day at 03:00 UTC (M17 step 20.1a).
     if (at.getUTCHours() === 3 && at.getUTCMinutes() === 0) {
-      ctx.waitUntil(background.runPromise(withRequestDb(trashSweep())).finally(() => Telemetry.flush()))
+      turn(background, withRequestDb(trashSweep()))
       // The Data hub's exports past their seven days (M14 step 5).
-      ctx.waitUntil(background.runPromise(withRequestDb(exportSweep())).finally(() => Telemetry.flush()))
+      turn(background, withRequestDb(exportSweep()))
     }
     if (at.getUTCHours() === 4 && at.getUTCMinutes() === 0) {
-      ctx.waitUntil(background.runPromise(withRequestDb(adSpendSweep())).finally(() => Telemetry.flush()))
+      turn(background, withRequestDb(adSpendSweep()))
     }
     // The nightly erase of what is past its retention, at 03:00 in each workspace's timezone (M17 step 20.1b).
-    ctx.waitUntil(background.runPromise(withRequestDb(retentionSweep(at))).finally(() => Telemetry.flush()))
+    turn(background, withRequestDb(retentionSweep(at)))
     // Webhook deliveries older than 30 days (M19.4).
-    ctx.waitUntil(background.runPromise(withRequestDb(webhooksSweep())).finally(() => Telemetry.flush()))
+    turn(background, withRequestDb(webhooksSweep()))
     // The supplier statements' monthly close (M13 step 6), `0 3 1 * *`: inside this cron, as an account has few.
     if (at.getUTCDate() === 1 && at.getUTCHours() === 3 && at.getUTCMinutes() === 0) {
       ctx.waitUntil(startMonthlyClose(at))
     }
     // The sending domains' daily re-check, at 04:00 UTC (M17 step 20.1c).
     if (at.getUTCHours() === 4 && at.getUTCMinutes() === 0) {
-      ctx.waitUntil(background.runPromise(withRequestDb(sendingDomainSweep())).finally(() => Telemetry.flush()))
+      turn(background, withRequestDb(sendingDomainSweep()))
     }
   }
+  ctx.waitUntil(Promise.allSettled(turns).then(spans.flush))
 }
 
 /** The nightly rates fill; the ECB unreachable is logged, and tomorrow's turn writes the days again. */

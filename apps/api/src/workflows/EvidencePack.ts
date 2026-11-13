@@ -66,7 +66,7 @@ const run = async <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unk
     // Said in the logs: a step the Workflow retries is otherwise silent.
     Effect.tapCause((cause) => Effect.logWarning("an evidence pack step failed", { workspaceId, cause }))
   ) as Effect.Effect<A, unknown, never>
-  const exit = await runtime.runPromiseExit(program).finally(() => Telemetry.flush())
+  const exit = await Telemetry.runExit(runtime, program)
   if (Exit.isSuccess(exit)) return exit.value
   throw Cause.squash(exit.cause)
 }

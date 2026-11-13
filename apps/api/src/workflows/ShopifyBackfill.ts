@@ -100,7 +100,7 @@ const run = async <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unk
   const program = withRequestDb(effect).pipe(
     Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId })
   ) as Effect.Effect<A, unknown, never>
-  const exit = await runtime.runPromiseExit(program).finally(() => Telemetry.flush())
+  const exit = await Telemetry.runExit(runtime, program)
   if (Exit.isSuccess(exit)) return exit.value
   const failure = Cause.findErrorOption(exit.cause)
   if (failure._tag === "Some" && (failure.value as { _tag?: string })._tag === "TokenRefused") {

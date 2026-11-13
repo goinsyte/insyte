@@ -10,12 +10,14 @@ import { withRequestDb } from "../../platform/RequestDb.ts"
  * Shopify's webhooks (M6.3), each delivery acked or retried on its own.
  */
 export const queue: ExportedHandlerQueueHandler<Env, EventsMessage | IngestMessage> = async (batch, _env, ctx) => {
-  if (batch.queue.startsWith("insyte-ingest")) return ingest(batch as MessageBatch<IngestMessage>)
-  const events = batch as MessageBatch<EventsMessage>
+  // The batch's own exporter (`Observability.ts`), flushed after the acks, in at most three seconds.
+  const spans = Telemetry.open()
   try {
-    await background.runPromise(withRequestDb(deliver(events.messages.flatMap((m) => m.body.outboxIds))))
+    if (batch.queue.startsWith("insyte-ingest")) return await ingest(batch as MessageBatch<IngestMessage>, spans)
+    const events = batch as MessageBatch<EventsMessage>
+    await background.runPromise(spans.provide(withRequestDb(deliver(events.messages.flatMap((m) => m.body.outboxIds)))))
     batch.ackAll()
   } finally {
-    ctx.waitUntil(Telemetry.flush())
+    ctx.waitUntil(spans.flush())
   }
 }

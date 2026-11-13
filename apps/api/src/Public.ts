@@ -16,8 +16,12 @@ const web = HttpRouter.toWebHandler(PublicLayer)
 
 export default {
   async fetch(request, _env, ctx) {
-    const response = await web.handler(continueTrace(request))
-    ctx.waitUntil(Telemetry.flush()) // spans leave after the response is out (17 §1)
-    return response
+    // This request's own exporter (`Observability.ts`); its spans leave after the response is out (17 §1).
+    const spans = Telemetry.open()
+    try {
+      return await web.handler(continueTrace(request), spans.context)
+    } finally {
+      ctx.waitUntil(spans.flush())
+    }
   }
 } satisfies ExportedHandler<Env>

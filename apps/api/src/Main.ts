@@ -20,9 +20,13 @@ export default {
     if (!servedHere(request)) return Response.json({ error: { code: "not_found" } }, { status: 404 })
     // The public API and the MCP server: the public Worker's, on this Worker's hostname (ADR-0041 step 5).
     if (isPublicPath(new URL(request.url).pathname)) return env.PUBLIC.fetch(request)
-    const response = await web.handler(continueTrace(request))
-    ctx.waitUntil(Telemetry.flush()) // spans leave after the response is out (17 §1)
-    return response
+    // This request's own exporter (`Observability.ts`); its spans leave after the response is out (17 §1).
+    const spans = Telemetry.open()
+    try {
+      return await web.handler(continueTrace(request), spans.context)
+    } finally {
+      ctx.waitUntil(spans.flush())
+    }
   },
   // A support mail (M11 step 1): its handler and the background layer load on the first one, not at startup.
   email: (message, bindings, ctx) =>
