@@ -369,6 +369,11 @@ function ShopperRequests() {
         </SectionAction>
       }
     >
+      {source.requests.shoppersHidden && rows.length > 0 && (
+        <p className="mb-3 rounded-xl bg-mist px-4 py-3 text-ink-2 text-sm">
+          Je rol ziet geen klantgegevens. Daarom staat er niet bij over wie een verzoek gaat.
+        </p>
+      )}
       {rows.length === 0
         ? <p className="rounded-xl bg-mist px-4 py-3 text-ink-2 text-sm">Nog geen verzoeken van klanten.</p>
         : (
@@ -377,7 +382,7 @@ function ShopperRequests() {
               <BandedRow
                 key={r.id}
                 leading={<Tile icon={r.kind === "access" ? Eye : Trash2} tone="neutral" />}
-                title={r.subject ?? "Onbekende klant"}
+                title={r.subject ?? (source.requests.shoppersHidden ? "Klant" : "Onbekende klant")}
                 detail={shopperDetail(r)}
                 trailing={r.href !== null
                   ? <DownloadLink href={r.href} label="Pakket" />
@@ -538,21 +543,28 @@ function Deletion() {
         ? (
           <div className="flex flex-wrap items-center gap-3 rounded-xl bg-signal-amber-bg px-4 py-3">
             <span className="min-w-0 flex-1 text-sm text-ink">
-              <span className="font-medium">Deze werkruimte wordt verwijderd op {moment(pending.dueAt)}.</span>{" "}
+              <span className="font-medium">
+                {pending.stoppable
+                  ? <>Deze werkruimte wordt verwijderd op {moment(pending.dueAt)}.</>
+                  : "Deze werkruimte wordt nu verwijderd."}
+              </span>{" "}
               <span className="text-ink-2">
                 {pending.requestedBy === null ? "Aangevraagd" : `Aangevraagd door ${pending.requestedBy}`} op{" "}
-                {day(pending.requestedAt)}. Tot dan werkt alles zoals altijd.
+                {day(pending.requestedAt)}.{" "}
+                {pending.stoppable ? "Tot dan werkt alles zoals altijd." : "Dit kan niet meer worden gestopt."}
               </span>
             </span>
-            <button
-              type="button"
-              disabled={!source.owner || stopping}
-              title={source.owner ? undefined : "Alleen de eigenaar kan dit stoppen"}
-              onClick={() => void stop()}
-              className="flex h-8 items-center rounded-md bg-abyss px-2.5 font-medium text-mesh-ink text-sm shadow-primary hover:bg-abyss-2 disabled:opacity-45"
-            >
-              Verwijderen stoppen
-            </button>
+            {pending.stoppable && (
+              <button
+                type="button"
+                disabled={!source.owner || stopping}
+                title={source.owner ? undefined : "Alleen de eigenaar kan dit stoppen"}
+                onClick={() => void stop()}
+                className="flex h-8 items-center rounded-md bg-abyss px-2.5 font-medium text-mesh-ink text-sm shadow-primary hover:bg-abyss-2 disabled:opacity-45"
+              >
+                Verwijderen stoppen
+              </button>
+            )}
           </div>
         )
         : (

@@ -16,7 +16,8 @@ const COPY: RefusalCopy = {
   gone: "Dat verzoek bestaat niet meer",
   conflicts: {
     deletion_waiting: ["Verwijderen loopt al", "De werkruimte wordt al verwijderd. Je kunt het hieronder stoppen."],
-    no_deletion: ["Er loopt geen verwijdering", "De werkruimte wordt niet verwijderd."]
+    no_deletion: ["Er loopt geen verwijdering", "De werkruimte wordt niet verwijderd."],
+    purging: ["Verwijderen is al begonnen", "De werkruimte wordt nu verwijderd. Dat kan niet meer worden gestopt."]
   },
   invalid: { mismatch: "De naam klopt niet met die van de werkruimte." },
   other: (tagged) => {
@@ -68,7 +69,8 @@ export function useConsoleDataSource(inventory: Inventory, requests: PrivacyRequ
       schedule: requests.schedule,
       exports: requests.exports.map((e) => ({ ...e, href: href(e.fileId) })),
       shoppers: requests.shoppers.map((r) => ({ ...r, href: href(r.fileId) })),
-      deletion: requests.deletion
+      deletion: requests.deletion,
+      shoppersHidden: requests.shoppersHidden
     },
     owner: requests.owner,
     mayRequestAccess: exporting.ok && viewing.ok,

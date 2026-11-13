@@ -79,6 +79,8 @@ declare global {
       readonly INGEST: Queue<IngestMessage>
       /** Lines per backfill page, 2000 by default; the worker tests read small pages. */
       readonly SYNC_PAGE_LINES?: string
+      /** Rows per page of a privacy export (M17 step 5), 1000 by default; the worker tests read small pages. */
+      readonly PRIVACY_EXPORT_PAGE_ROWS?: string
       /** Files (M8.5): packing slips now, uploads later, one bucket per stage. */
       readonly FILES: R2Bucket
       /** Browser Rendering (M8.5): packing slips as PDF, and an evidence pack's documents (M13 step 4). */

@@ -37,7 +37,7 @@ export interface DataInventory {
   }>
 }
 
-export type RequestState = "open" | "running" | "ready" | "failed" | "waiting" | "done" | "cancelled"
+export type RequestState = "open" | "running" | "ready" | "failed" | "waiting" | "purging" | "done" | "cancelled"
 
 export type ExportSchedule = "off" | "weekly" | "monthly"
 
@@ -70,7 +70,10 @@ export interface DataRequests {
   schedule: ExportSchedule
   exports: ReadonlyArray<ExportEntry>
   shoppers: ReadonlyArray<ShopperRequestEntry>
-  deletion: { requestedAt: number; requestedBy: string | null; dueAt: number } | null
+  /** `stoppable` while it waits; once the purge has begun it can no longer be stopped. */
+  deletion: { requestedAt: number; requestedBy: string | null; dueAt: number; stoppable: boolean } | null
+  /** The viewer may not see customers: the shoppers' requests are listed without whom they are about. */
+  shoppersHidden: boolean
 }
 
 export interface DataSource {

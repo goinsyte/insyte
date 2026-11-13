@@ -1,11 +1,20 @@
-import { TENANT_TABLES } from "@insyte/database/Tenancy"
 import { describe, expect, it } from "vitest"
-import { crc32, toCsv, unzip, withoutSecrets, zip } from "../src/privacy/domain/Archive.ts"
-import { EXCLUDED, EXPORTED } from "../src/privacy/use-cases/exports.ts"
+import {
+  crc32,
+  cut,
+  toCsv,
+  unzip,
+  withoutSecrets,
+  zip,
+  zipEnd,
+  zipEntry,
+  type ZipRecord
+} from "../src/privacy/domain/Archive.ts"
 
 /*
- * Je gegevens' export (M17 step 5): the ZIP written by hand reads back as it went in, a table's CSV quotes what needs
- * quoting, a secret column never leaves, and every tenant table is either exported or left out with a reason.
+ * Je gegevens' export (M17 step 5): the ZIP written by hand reads back as it went in, also when written an entry at a
+ * time and sent in parts; a table's CSV quotes what needs quoting; a secret never leaves, however deep in a value.
+ * Which tables an export holds is checked against the database itself (`apps/api/test/privacy.worker.test.ts`).
  */
 
 const text = (s: string) => new TextEncoder().encode(s)
@@ -47,13 +56,55 @@ describe("withoutSecrets", () => {
     expect(withoutSecrets({ id: "k", token_hash: "x", sealed_token: "y", reply_token: "z", name: "Sleutel" }))
       .toEqual({ id: "k", name: "Sleutel" })
   })
+
+  it("drops them inside a jsonb value too, in objects and in arrays", () => {
+    expect(withoutSecrets({
+      id: "whe",
+      headers: [{ key: "X-Sleutel", sealed: "v1.abc" }, { key: "X-Naam", value: "insyte" }],
+      previous: { email: "a@b.nl", token_hash: "h", nested: [{ secret: "s", kept: 1 }] }
+    })).toEqual({
+      id: "whe",
+      headers: [{ key: "X-Sleutel" }, { key: "X-Naam", value: "insyte" }],
+      previous: { email: "a@b.nl", nested: [{ kept: 1 }] }
+    })
+  })
 })
 
-describe("what the export holds", () => {
-  it("exports every tenant table but the ones left out, each with its reason", () => {
-    for (const table of TENANT_TABLES) expect(EXPORTED.includes(table) !== table in EXCLUDED, table).toBe(true)
-    expect(Object.keys(EXCLUDED)).toContain("connection_credentials")
-    for (const reason of Object.values(EXCLUDED)) expect(reason?.length).toBeGreaterThan(10)
-    expect(EXPORTED).toEqual(expect.arrayContaining(["customers", "orders", "products", "tickets", "audit_events"]))
+describe("an archive written in steps", () => {
+  it("reads back the same, written an entry at a time and cut into parts of one size", async () => {
+    const at = new Date("2026-11-13T10:00:00Z")
+    const entries = Array.from({ length: 7 }, (_, i) => ({
+      name: `csv/orders${i === 0 ? "" : `-000${i + 1}`}.csv`,
+      bytes: text(`id,total\r\n${"x".repeat(50 + i * 37)},${i}\r\n`)
+    }))
+    // As the run does it: each step writes its entries at the offset so far and carries what is not a whole part.
+    const size = 64
+    const sent: Array<Uint8Array> = []
+    const records: Array<ZipRecord> = []
+    let carried: Uint8Array = new Uint8Array()
+    let offset = 0
+    for (const entry of entries) {
+      const one = await zipEntry(entry, offset, at)
+      records.push(one.record)
+      offset += one.bytes.length
+      const { parts, rest } = cut(carried, [one.bytes], size)
+      for (const part of parts) expect(part.length).toBe(size)
+      sent.push(...parts)
+      carried = rest
+    }
+    const last = cut(carried, [zipEnd(records, offset, at)], size)
+    sent.push(...last.parts, last.rest)
+    const archive = new Uint8Array(sent.reduce((n, p) => n + p.length, 0))
+    let at2 = 0
+    for (const part of sent) {
+      archive.set(part, at2)
+      at2 += part.length
+    }
+    expect(archive).toEqual(await zip(entries, at))
+    const read = await unzip(archive)
+    expect(read.map((e) => e.name)).toEqual(entries.map((e) => e.name))
+    expect(read.map((e) => new TextDecoder().decode(e.bytes))).toEqual(
+      entries.map((e) => new TextDecoder().decode(e.bytes))
+    )
   })
 })

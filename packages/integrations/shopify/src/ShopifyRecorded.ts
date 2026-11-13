@@ -310,6 +310,7 @@ export const ShopifyRecorded = Layer.succeed(ShopifyAdmin)(ShopifyAdmin.of({
   verifyCallback: (query) => Effect.succeed(query["hmac"] === "valid"),
   verifyWebhook: (_body, hmac) => Effect.succeed(hmac === "valid"),
   exists: (shop) => Effect.succeed(!shop.startsWith("missing-")),
+  uninstall: () => Effect.void,
   exchange: (_shop, code) =>
     code === "refused"
       ? Effect.fail(new ShopifyRefused({ status: 400, reason: "invalid_request" }))

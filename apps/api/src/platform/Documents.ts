@@ -35,10 +35,39 @@ export const DocumentsChoice = Layer.unwrap(
   )
 )
 
+const r2 = <A>(what: string, run: () => Promise<A>) =>
+  Effect.tryPromise({ try: run, catch: (cause) => new DocumentNotMade({ reason: `r2 ${what}: ${String(cause)}` }) })
+
 export const FileStoreR2 = Layer.succeed(FileStore)(FileStore.of({
   // Best effort: an object the bucket keeps after a failed delete holds nothing a files row still points at.
   remove: (keys) =>
     keys.length === 0 ? Effect.void : Effect.promise(() => env.FILES.delete([...keys]).catch(() => undefined)),
+  removePrefix: (prefix) =>
+    Effect.promise(async () => {
+      let removed = 0
+      let cursor: string | undefined
+      do {
+        const page = await env.FILES.list({ prefix, ...(cursor === undefined ? {} : { cursor }) })
+        const keys = page.objects.map((o) => o.key)
+        if (keys.length > 0) await env.FILES.delete(keys).catch(() => undefined)
+        removed += keys.length
+        cursor = page.truncated ? page.cursor : undefined
+      } while (cursor !== undefined)
+      return removed
+    }),
+  begin: (key, mime) =>
+    r2("begin", () => env.FILES.createMultipartUpload(key, { httpMetadata: { contentType: mime } })).pipe(
+      Effect.map((upload) => upload.uploadId)
+    ),
+  putPart: (key, uploadId, partNumber, bytes) =>
+    r2("part", () => env.FILES.resumeMultipartUpload(key, uploadId).uploadPart(partNumber, bytes)).pipe(
+      Effect.map((part) => ({ partNumber: part.partNumber, etag: part.etag }))
+    ),
+  complete: (key, uploadId, parts) =>
+    r2("complete", () => env.FILES.resumeMultipartUpload(key, uploadId).complete([...parts])).pipe(Effect.asVoid),
+  // An upload never completed is dropped by the bucket after a week anyway.
+  abandon: (key, uploadId) =>
+    Effect.promise(() => env.FILES.resumeMultipartUpload(key, uploadId).abort().catch(() => undefined)),
   put: (key, bytes, mime) =>
     Effect.tryPromise({
       try: () => env.FILES.put(key, bytes, { httpMetadata: { contentType: mime } }),

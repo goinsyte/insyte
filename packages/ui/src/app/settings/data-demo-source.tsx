@@ -146,7 +146,7 @@ export function DemoDataSource({ children }: { children: ReactNode }) {
   const source: DataSource = {
     workspaceName: account.workspace,
     inventory,
-    requests: { schedule, exports, shoppers, deletion },
+    requests: { schedule, exports, shoppers, deletion, shoppersHidden: false },
     owner,
     mayRequestAccess: can("data.export") && can("customers", 1),
     mayErase: can("customers", 3),
@@ -243,7 +243,7 @@ export function DemoDataSource({ children }: { children: ReactNode }) {
       return Promise.resolve(true)
     },
     requestDeletion: () => {
-      setDeletion({ requestedAt: Date.now(), requestedBy: me, dueAt: Date.now() + 7 * DAY })
+      setDeletion({ requestedAt: Date.now(), requestedBy: me, dueAt: Date.now() + 7 * DAY, stoppable: true })
       return Promise.resolve(true)
     },
     cancelDeletion: () => {

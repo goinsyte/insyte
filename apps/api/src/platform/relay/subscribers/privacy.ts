@@ -7,11 +7,12 @@ export const Privacy = subscriber("privacy", {
   "privacy.export_requested": (_id, event) =>
     Effect.flatMap(
       Effect.service(PrivacyRuns),
-      (runs) => runs.startExport({ workspaceId: event.workspaceId, requestId: event.requestId })
+      (runs) => runs.startExport({ workspaceId: event.workspaceId, requestId: event.requestId, attempt: event.attempt })
     ),
   "privacy.deletion_requested": (_id, event) =>
     Effect.flatMap(
       Effect.service(PrivacyRuns),
-      (runs) => runs.startDeletion({ workspaceId: event.workspaceId, requestId: event.requestId })
+      (runs) =>
+        runs.startDeletion({ workspaceId: event.workspaceId, requestId: event.requestId, attempt: event.attempt })
     )
 })

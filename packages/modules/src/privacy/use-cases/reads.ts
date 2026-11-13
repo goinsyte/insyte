@@ -36,6 +36,20 @@ export const requireOwner = Effect.fn("Privacy.requireOwner")(function*() {
   return principal
 })
 
+/**
+ * The stores the principal reaches: their role's, narrowed by their own (a member invited to some stores, a key made
+ * for some); null for every store.
+ */
+export const reachOf = (principal: {
+  readonly role: { readonly stores: "all" | ReadonlyArray<string> }
+  readonly storeScope: ReadonlyArray<string> | null
+}): ReadonlyArray<string> | null => {
+  const role = principal.role.stores
+  const own = principal.storeScope
+  if (role === "all") return own
+  return own === null ? role : own.filter((s) => role.includes(s))
+}
+
 /** Each category's count, over the tables it is made of. */
 const COUNTS: ReadonlyArray<readonly [CategoryId, string]> = [
   ["customers", "select count(*)::int as n from customers where deleted_at is null"],
@@ -108,6 +122,8 @@ interface RequestRow {
   readonly customerName: string | null
   readonly customerEmail: string | null
   readonly customerShopifyId: string | null
+  readonly customerStore: string | null
+  readonly storeId: string | null
   readonly requestedBy: string | null
   readonly receivedAt: Date
   readonly dueAt: Date
@@ -122,7 +138,8 @@ const DAY = 24 * 60 * 60 * 1000
 export const requestRows = (sql: SqlClient.SqlClient) =>
   sql<RequestRow>`
     select g.id, g.kind, g.source, g.state, g.subject, c.name as customer_name, c.email as customer_email,
-           g.customer_shopify_id, g.requested_by, g.received_at, g.due_at, g.completed_at,
+           g.customer_shopify_id, c.store_id as customer_store, g.store_id, g.requested_by, g.received_at, g.due_at,
+           g.completed_at,
            case when f.deleted_at is null then g.file_id end as file_id, f.size_bytes::text as size_bytes
     from gdpr_requests g
     left join customers c on c.id = g.customer_id
@@ -146,6 +163,13 @@ export const requests = Effect.fn("Privacy.requests")(function*() {
         rows.flatMap((r) => (r.requestedBy === null ? [] : [{ kind: "member", id: r.requestedBy }]))
       )
       const by = (r: RequestRow) => (r.requestedBy === null ? null : names.get(`member:${r.requestedBy}`) ?? null)
+      // Who the shopper is shows only to someone who may see customers, and of the stores their role reaches.
+      const seesCustomers = yield* Policy.require("customers", 1).pipe(
+        Effect.as(true),
+        Effect.catchIf((e): e is Forbidden => e instanceof Forbidden, () => Effect.succeed(false))
+      )
+      const reach = reachOf(principal)
+      const reaches = (store: string | null) => reach === null || (store !== null && reach.includes(store))
       const exports = rows.filter((r) => r.kind === "workspace_export").slice(0, 50).map((r): ExportRow => {
         const expiresAt = r.completedAt === null ? null : r.completedAt.getTime() + EXPORT_DAYS * DAY
         const live = r.state === "ready" && expiresAt !== null && expiresAt > Date.now()
@@ -166,20 +190,23 @@ export const requests = Effect.fn("Privacy.requests")(function*() {
           id: r.id,
           kind: r.kind === "data_request" ? "access" : "erasure",
           source: r.source === "shopify" ? "shopify" : "operator",
-          subject: r.subject ?? r.customerEmail ?? (r.customerName || null) ??
-            (r.customerShopifyId === null ? null : `Shopify-klant ${r.customerShopifyId}`),
+          subject: !seesCustomers || !reaches(r.storeId ?? r.customerStore) ? null : r.subject ?? r.customerEmail ??
+            (r.customerName || null) ?? (r.customerShopifyId === null ? null : `Shopify-klant ${r.customerShopifyId}`),
           state: r.state,
           receivedAt: r.receivedAt.getTime(),
           dueAt: r.dueAt.getTime(),
           completedAt: r.completedAt?.getTime() ?? null,
           fileId: r.fileId
         }))
-      const waiting = rows.find((r) => r.kind === "workspace_delete" && r.state === "waiting")
+      const waiting = rows.find((r) =>
+        r.kind === "workspace_delete" && (r.state === "waiting" || r.state === "purging")
+      )
       const deletion: Deletion | null = waiting === undefined ? null : {
         id: waiting.id,
         requestedAt: waiting.receivedAt.getTime(),
         requestedBy: by(waiting),
-        dueAt: waiting.dueAt.getTime()
+        dueAt: waiting.dueAt.getTime(),
+        stoppable: waiting.state === "waiting"
       }
       return {
         workspaceName: workspace?.name ?? "",
@@ -187,25 +214,38 @@ export const requests = Effect.fn("Privacy.requests")(function*() {
         exports,
         shoppers,
         deletion,
+        shoppersHidden: !seesCustomers,
         owner: principal.kind === "member" && principal.role.id === "owner"
       } satisfies PrivacyRequests
     })
   )
 })
 
-/** Whether the viewer may download a request's file: the owner a workspace export, Exporteren a shopper's package. */
+/**
+ * Whether the viewer may download a request's file, within its 7 days: the owner a workspace export; Exporteren and
+ * Klanten · Bekijken a shopper's package, when their role reaches every store the package was made from.
+ */
 export const mayDownload = Effect.fn("Privacy.mayDownload")(function*(sql: SqlClient.SqlClient, requestId: string) {
   const principal = yield* CurrentPrincipal
-  const [row] = yield* sql<{ kind: string; live: boolean }>`
-    select kind, coalesce(completed_at > now() - make_interval(days => ${EXPORT_DAYS}), false) as live
+  const [row] = yield* sql<
+    { kind: string; live: boolean; storeId: string | null; stores: ReadonlyArray<string> | null }
+  >`
+    select kind, store_id, stores,
+           coalesce(state = 'ready' and files_removed_at is null
+                    and completed_at > now() - make_interval(days => ${EXPORT_DAYS}), false) as live
     from gdpr_requests where id = ${requestId}`
-  if (row === undefined) return false
-  if (row.kind === "workspace_export") {
-    return row.live && principal.kind === "member" && principal.role.id === "owner"
-  }
-  return yield* Policy.requireAction("data.export").pipe(
+  if (row === undefined || !row.live) return false
+  if (row.kind === "workspace_export") return principal.kind === "member" && principal.role.id === "owner"
+  if (row.kind !== "data_request") return false
+  const allowed = yield* Policy.requireAction("data.export").pipe(
     Effect.andThen(Policy.require("customers", 1)),
     Effect.as(true),
     Effect.catchIf((e): e is Forbidden => e instanceof Forbidden, () => Effect.succeed(false))
   )
+  if (!allowed) return false
+  const reach = reachOf(principal)
+  if (reach === null) return true
+  const made = [...(row.stores ?? []), ...(row.storeId === null ? [] : [row.storeId])]
+  // Made from every store (`stores` null) is more than a role held to some may have.
+  return row.stores !== null && made.every((s) => reach.includes(s))
 })

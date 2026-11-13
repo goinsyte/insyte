@@ -70,7 +70,16 @@ export const Inventory = Schema.Struct({
 })
 export type Inventory = typeof Inventory.Type
 
-export const RequestState = Schema.Literals(["open", "running", "ready", "failed", "waiting", "done", "cancelled"])
+export const RequestState = Schema.Literals([
+  "open",
+  "running",
+  "ready",
+  "failed",
+  "waiting",
+  "purging",
+  "done",
+  "cancelled"
+])
 export type RequestState = typeof RequestState.Type
 
 export const ExportSchedule = Schema.Literals(["off", "weekly", "monthly"])
@@ -97,7 +106,10 @@ export const ShopperRequest = Schema.Struct({
   id: Schema.String,
   kind: Schema.Literals(["access", "erasure"]),
   source: Schema.Literals(["shopify", "operator"]),
-  /** The shopper as Insyte knows them: a name or an address; null when the request names nobody Insyte holds. */
+  /**
+   * The shopper as Insyte knows them: a name or an address; null when the request names nobody Insyte holds, or the
+   * viewer may not see that customer (no Klanten · Bekijken, or a store their role does not reach).
+   */
   subject: Schema.NullOr(Schema.String),
   state: RequestState,
   receivedAt: Schema.Finite,
@@ -114,7 +126,9 @@ export const Deletion = Schema.Struct({
   requestedAt: Schema.Finite,
   requestedBy: Schema.NullOr(Schema.String),
   /** When the workspace goes, unless the deletion is stopped first. */
-  dueAt: Schema.Finite
+  dueAt: Schema.Finite,
+  /** Still waiting: it can be stopped. False once the purge has begun. */
+  stoppable: Schema.Boolean
 })
 export type Deletion = typeof Deletion.Type
 
@@ -125,6 +139,8 @@ export const PrivacyRequests = Schema.Struct({
   exports: Schema.Array(ExportRow),
   shoppers: Schema.Array(ShopperRequest),
   deletion: Schema.NullOr(Deletion),
+  /** The viewer may not see customers: the shoppers' requests show without whom they are about. */
+  shoppersHidden: Schema.Boolean,
   /** The viewer is the owner: the export, its schedule and the deletion are theirs alone. */
   owner: Schema.Boolean
 })

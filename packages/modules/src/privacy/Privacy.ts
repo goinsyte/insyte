@@ -21,16 +21,27 @@ import { requestExport, setSchedule } from "./use-cases/exports.ts"
 import { inventory, requests } from "./use-cases/reads.ts"
 import { requestAccess, requestErasure } from "./use-cases/shoppers.ts"
 
-export { deletionDue, purgeWorkspace } from "./use-cases/deletion.ts"
 export {
+  deletionDue,
+  deletionsStranded,
+  purgeWorkspace,
+  restartDeletion,
+  revokeConnections
+} from "./use-cases/deletion.ts"
+export {
+  type Cursor,
   dueExports,
   EXCLUDED,
+  expiredFiles,
   EXPORTED,
+  exportPage,
   failExport,
   finishExport,
+  type Paged,
   planExport,
+  removeFiles,
   scheduleExport,
-  writePart
+  type Stream
 } from "./use-cases/exports.ts"
 export { mayDownload } from "./use-cases/reads.ts"
 

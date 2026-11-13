@@ -35,7 +35,8 @@ export default defineConfig({
           WEBHOOK_ADAPTER: "recorded",
           SENDING_DOMAINS_ADAPTER: "recorded",
           DOCUMENTS_ADAPTER: "html",
-          SYNC_PAGE_LINES: "4"
+          SYNC_PAGE_LINES: "4",
+          PRIVACY_EXPORT_PAGE_ROWS: "3"
         }
       }
     })
