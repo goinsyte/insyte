@@ -73,8 +73,10 @@ const mcpCall = async (token: string, name: string, args: Record<string, unknown
 }
 
 /** Starts a run by hand over `/v1`, as a key, under an Idempotency-Key of its own. */
-const startBy = (key: string, automationId: string, orderId: string) =>
-  call(`${HOST}/v1/automations/${automationId}/runs`, {
+// A key may send 10 requests a second (KeyDoor): a quick run of starts waits out a 429 and tries again, as a client
+// following `retry-after` would, so the test reaches the flow's own hourly limit and not the key's.
+const startBy = async (key: string, automationId: string, orderId: string): Promise<Response> => {
+  const response = await call(`${HOST}/v1/automations/${automationId}/runs`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${key}`,
@@ -83,6 +85,10 @@ const startBy = (key: string, automationId: string, orderId: string) =>
     },
     body: JSON.stringify({ order_id: orderId })
   })
+  if (response.status !== 429) return response
+  await new Promise((resolve) => setTimeout(resolve, Number(response.headers.get("retry-after") ?? 1) * 1000))
+  return startBy(key, automationId, orderId)
+}
 
 /** Asks again until `check` holds, as a run moves on in its own Workflow. */
 const until = async <A>(read: () => Promise<A>, check: (a: A) => boolean): Promise<A> => {
