@@ -1,4 +1,4 @@
-import { CurrentApiKey } from "@insyte/api/http/PublicApi"
+import { CurrentApiKey } from "@insyte/api/http/Security"
 import { Connect } from "@insyte/database/Connect"
 import type { Db } from "@insyte/database/Db"
 import { CurrentPrincipal } from "@insyte/domain/Principal"

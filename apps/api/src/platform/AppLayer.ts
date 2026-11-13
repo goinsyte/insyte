@@ -26,9 +26,8 @@ import { SystemRoutes } from "../transports/http/SystemRoutes.ts"
 import { TrackingRoutes } from "../transports/http/TrackingRoutes.ts"
 import { WebhookRoutes } from "../transports/http/WebhookRoutes.ts"
 import { KeyDoor } from "../transports/public/KeyDoor.ts"
-import { McpRoutes } from "../transports/public/McpRoutes.ts"
-import { PublicApiRoutes } from "../transports/public/PublicApiRoutes.ts"
-import { Resources } from "../transports/public/Resources.ts"
+import { McpLive } from "../transports/public/McpLive.ts"
+import { PublicApiLive } from "../transports/public/PublicApiLive.ts"
 import { AuthenticatedLive } from "../transports/rpc/AuthenticatedLive.ts"
 import { MemberLive } from "../transports/rpc/MemberLive.ts"
 import { RpcContext, RpcRoutes } from "../transports/rpc/RpcRoutes.ts"
@@ -92,8 +91,8 @@ const Transports = Layer.mergeAll(
   EvidenceRoutes,
   CourseMediaRoutes,
   PixelRoutes,
-  PublicApiRoutes,
-  McpRoutes,
+  PublicApiLive,
+  McpLive,
   RequestContext,
   NotFound
 )
@@ -108,7 +107,7 @@ const PwnedPasswordsLive = Layer.unwrap(
 )
 
 export const AppLayer = Transports.pipe(
-  // The RPC handlers; the public API's and the MCP server's way in, and what a key reads (M19.2, M19.3).
+  // The RPC handlers; the public API's and the MCP server's way in (M19.2, M19.3).
   // …and the returns portal's and the quality link's, for their upload routes (M9.3, M9.4); courses' for theirs and
   // the file route (M17).
   // …and the chargebacks', for a case's evidence (M13 step 4).
@@ -116,7 +115,6 @@ export const AppLayer = Transports.pipe(
     Layer.mergeAll(
       RpcContext,
       KeyDoor.layer,
-      Resources.layer,
       StoresService.layer,
       PortalService.layer,
       QualityLinkService.layer,
