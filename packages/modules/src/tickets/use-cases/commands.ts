@@ -5,7 +5,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
-import { Relay } from "../../shared/domain/Outbox.ts"
+import { PendingEvents, Relay } from "../../shared/domain/Outbox.ts"
 import { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
@@ -146,6 +146,21 @@ const tellAssigned = Effect.fn("Tickets.tellAssigned")(function*(
   return [id]
 })
 
+/**
+ * Insyte AI's read of the topic, after the transaction (M15 step 2, the relay's `ticket.topic_requested`): the keyword
+ * rules' topic stands until it answers, and wherever no model is set up.
+ */
+const askTopic = Effect.fn("Tickets.askTopic")(function*(sql: SqlClient.SqlClient, ticketId: string) {
+  const principal = yield* CurrentPrincipal
+  const id = yield* Outbox.write(sql, principal.workspaceId, {
+    type: "ticket.topic_requested",
+    workspaceId: principal.workspaceId,
+    userId: principal.userId ?? "system",
+    ticketId
+  })
+  ;(yield* PendingEvents)?.add(id)
+})
+
 const kick = (outboxIds: ReadonlyArray<string>) =>
   Effect.flatMap(
     Effect.service(Relay),
@@ -237,6 +252,7 @@ const make = Effect.fn("Tickets.make")(function*(
     assignees,
     template: input.template ?? null
   })
+  yield* askTopic(sql, id)
   return { id, outboxIds: yield* tellAssigned(sql, id, assignees) }
 })
 
@@ -349,10 +365,15 @@ export const update = Effect.fn("Tickets.update")(function*(input: typeof Update
         const labelsChanged = labels !== undefined && labels.join("\n") !== labelsBefore?.join("\n")
         if (labelsChanged) diff["labels"] = labels
         if (Object.keys(diff).length === 0) continue
+        // New words, a new topic: the rules' at once, Insyte AI's after (a topic it read stays while the words do).
+        const reworded = next.title !== l.title || next.description !== l.description
         yield* sql`update tickets set title = ${next.title}, description = ${next.description},
-                     priority = ${next.priority}, due_at = ${at(next.dueAt)},
-                     topic = ${topicOf(next.title, next.description)}
+                     priority = ${next.priority}, due_at = ${at(next.dueAt)}
+                     ${
+          reworded ? sql`, topic = ${topicOf(next.title, next.description)}, topic_source = 'rule'` : sql``
+        }
                    where id = ${l.id}`
+        if (reworded) yield* askTopic(sql, l.id)
         if (labelsChanged) yield* writeLabels(sql, principal.workspaceId, l.id, labels)
         yield* audit(sql, "ticket.updated", l.id, diff)
         restore.push(before(l, labelsChanged && labelsBefore !== undefined ? { labels: labelsBefore } : {}))

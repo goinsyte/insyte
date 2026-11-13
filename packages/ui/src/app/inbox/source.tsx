@@ -6,10 +6,25 @@ import type { TeamGate } from "../orders/source"
  * What the inbox screen reads and does, from whoever hosts it (as `tickets/source.tsx` is for the tickets screens):
  * the design app from its inbox and workspace stores, the console from `Threads.*` and `Mailboxes.*` (M11 step 2). The
  * markup is the design's. What the host cannot do yet is absent and left out, never made up: the chat channels and
- * the customer agent (M15), Insyte's drafts (M15), Gmail and Outlook (M11 step 1b). Times are ISO strings.
+ * the customer agent (M15), Gmail and Outlook (M11 step 1b). Times are ISO strings.
  */
 
 export type { TeamGate }
+
+/** Insyte's reply draft for the open thread, as the draft card shows it. */
+export interface ThreadDraft {
+  /** The draft; `undefined` while there is none (yet). */
+  reply: string | undefined
+  /** Warmer maken, Korter maken: the rewrite, or `undefined` when none came (the host said why). */
+  rewrite: (style: "warmer" | "shorter") => Promise<string | undefined>
+  /** "Concept gebruiken": the draft went into the composer. */
+  use: () => void
+}
+
+/** Insyte AI in the inbox (M15 step 2): a hook, called once per render with the open thread. */
+export interface InboxDrafts {
+  useDraft: (t: InboxThread | null) => ThreadDraft | undefined
+}
 
 export type Folder = "all" | "unassigned" | "mine" | "linked" | "archive" | "trash" | "spam"
 
@@ -143,8 +158,8 @@ export interface InboxSource {
   connect: { to: string } | { onClick: () => void }
   /** The letter's side before any mail arrived, with its way to write the first. */
   Empty: ComponentType<{ onCompose: () => void }>
-  /** Insyte's drafts for a thread ("Insyte stelde een antwoord op"); absent until drafts arrive (M15). */
-  drafts?: ((t: InboxThread) => { reply: string; warmer: string; shorter: string }) | undefined
+  /** Insyte's drafts for a thread ("Insyte stelde een antwoord op"); absent where there is no Insyte AI (M15). */
+  drafts?: InboxDrafts | undefined
   /** The chat channels' bands and letters (PLAN 27); absent until the host has them (M15). */
   channels?: {
     Header: ComponentType<{ channel: ChatChannel; count: number }>

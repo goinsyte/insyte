@@ -139,7 +139,11 @@ export const TENANT_TABLES = [
   // The Data hub (M14 step 5): CSV imports and their rows, and the files asked for.
   "imports",
   "import_rows",
-  "exports"
+  "exports",
+  // Insyte AI (M15 steps 1 and 2): every model call, what it cost; and the drafts a person may take or leave.
+  "model_calls",
+  "drafts",
+  "ai_reservations"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

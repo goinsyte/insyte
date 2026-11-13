@@ -13,6 +13,9 @@ import * as Outbox from "../../shared/use-cases/Outbox.ts"
  * may read, so a taken slug is learned from the insert itself (a `UniqueViolation`), as `Invalid { slug: "taken" }`.
  */
 
+/** Insyte AI's limit for a new workspace, in cents a month: € 20 (0074_ai gave the ones there were the same). */
+const DEFAULT_AI_LIMIT_MINOR = 2000
+
 const COUNTER_KINDS = ["order", "ticket", "chargeback", "return", "invoice", "automation_run"] as const
 
 // Effect classifies the driver's error: a unique violation names its constraint (`workspaces_slug_key`).
@@ -38,6 +41,9 @@ export const found = Effect.fn("Workspaces.found")(
     for (const kind of COUNTER_KINDS) {
       yield* sql`insert into workspace_counters (workspace_id, kind) values (${id}, ${kind})`
     }
+    // Insyte AI's first limit: € 20 a month (M15 step 1), raised or lifted on Limieten.
+    yield* sql`insert into ai_budgets (id, workspace_id, member_id, monthly_limit_minor)
+               values (${mintId("aib")}, ${id}, null, ${DEFAULT_AI_LIMIT_MINOR})`
     yield* Audit.write(sql, id, { kind: "member", id: member }, {
       action: "workspace.created",
       subjectType: "workspace",
