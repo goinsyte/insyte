@@ -120,6 +120,18 @@ export const FileRoutes = HttpRouter.add(
         )
         if (held === undefined) return undefined
       }
+      // A statement's PDF holds every line of it: for someone held to some stores, only when every line is theirs.
+      if (row.ownerType === "supplier_statement") {
+        const [outside] = yield* db.scoped((sql) =>
+          Effect.flatMap(
+            inScope(sql, "o.store_id"),
+            (scope) =>
+              sql`select 1 from supplier_statement_lines l left join orders o on o.id = l.order_id
+                  where l.statement_id = ${row.ownerId} and not coalesce(${scope}, false) limit 1`
+          )
+        )
+        if (outside !== undefined) return undefined
+      }
       return row
     }).pipe(
       Effect.provideService(CurrentPrincipal, active.principal),
