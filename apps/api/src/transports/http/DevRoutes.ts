@@ -12,6 +12,7 @@ import { isReplyAddress, receiveReply } from "@insyte/modules/notifications/use-
 import { refreshWorkspace } from "@insyte/modules/queue/Queue"
 import { registerParcels } from "@insyte/modules/returns/use-cases/parcels"
 import { dueWorkspaces } from "@insyte/modules/settings/use-cases/retention"
+import { recheck } from "@insyte/modules/settings/use-cases/sending-domain"
 import { addLine, emptyBatch, type MirrorBatch, parseJsonl } from "@insyte/modules/stores/domain/Mirror"
 import { applyBatch } from "@insyte/modules/stores/use-cases/mirror"
 import { closeWorkspace } from "@insyte/modules/suppliers/use-cases/statements"
@@ -23,7 +24,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { AdSpendLive } from "../../platform/AdSpend.ts"
 import { AppInfo } from "../../platform/Bindings.ts"
 import { parseMail } from "../../platform/InboundMail.ts"
-import { refusedReferences } from "../../platform/Mail.ts"
+import { capturedSenders, refusedReferences, refusedSenderDomains } from "../../platform/Mail.ts"
 import { digestWorkspace, notifyWorkspace } from "../../platform/Relay.ts"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 import { retentionWorkspace } from "../../platform/Retention.ts"
@@ -63,7 +64,10 @@ const CapturedMail = HttpRouter.add(
         where to_address = ${to} and (${reference}::text is null or reference = ${reference})
         order by sent_at desc, id desc limit 20`
     )
-    return HttpServerResponse.jsonUnsafe({ mails })
+    // The sender each record's newest mail went with (E-mail en domein), which the table does not keep.
+    return HttpServerResponse.jsonUnsafe({
+      mails: mails.map((m) => ({ ...m, ...(m.reference === null ? {} : capturedSenders.get(m.reference)) }))
+    })
   }).pipe(withRequestDb)
 )
 
@@ -86,6 +90,28 @@ const MailRefuse = HttpRouter.add(
     if (reference !== "" && query.get("off") === "1") refusedReferences.delete(reference)
     else if (reference !== "") refusedReferences.add(reference)
     return HttpServerResponse.jsonUnsafe({ refused: [...refusedReferences] })
+  })
+)
+
+/**
+ * `POST /api/__dev/mail/refuse-sender?domain=<name>`: the capture adapter refuses mail from that sending domain from now
+ * on, as Resend does one that is not verified (any more), so the brand's mail falling back to Insyte's address can be
+ * tried (E-mail en domein, M17 step 20.1c); `&off=1` takes it back. Refused in production.
+ */
+const MailRefuseSender = HttpRouter.add(
+  "POST",
+  "/api/__dev/mail/refuse-sender",
+  Effect.gen(function*() {
+    const { environment } = yield* AppInfo
+    if (environment === "production") {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const query = new URL(request.url, "http://local").searchParams
+    const domain = (query.get("domain") ?? "").toLowerCase()
+    if (domain !== "" && query.get("off") === "1") refusedSenderDomains.delete(domain)
+    else if (domain !== "") refusedSenderDomains.add(domain)
+    return HttpServerResponse.jsonUnsafe({ refused: [...refusedSenderDomains] })
   })
 )
 
@@ -871,6 +897,42 @@ const TrashSweep = HttpRouter.add(
  * ?workspace=<id>` runs the workspace's nightly erase now; `GET /api/__dev/retention/due?at=<iso>` lists the
  * workspaces the sweep would erase at that time.
  */
+/**
+ * E-mail en domein's worker tests (M17 step 20.1c), refused in production: `POST /api/__dev/sending-domain/age
+ * ?workspace=<id>&days=<n>` puts the workspace's claim that many days back; `POST /api/__dev/sending-domain/recheck
+ * ?workspace=<id>` runs its daily re-check now.
+ */
+const SendingDomainAge = HttpRouter.add(
+  "POST",
+  "/api/__dev/sending-domain/age",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = (yield* workspaceParam) as WorkspaceId
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const days = Number(new URL(request.url, "http://local").searchParams.get("days") ?? "0")
+    const db = yield* Db
+    yield* db.scopedFor((sql) =>
+      sql`update sending_domains set claimed_at = claimed_at - make_interval(days => ${days})`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace }))
+    return HttpServerResponse.jsonUnsafe({ aged: true })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+const SendingDomainRecheck = HttpRouter.add(
+  "POST",
+  "/api/__dev/sending-domain/recheck",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = (yield* workspaceParam) as WorkspaceId
+    const outcome = yield* recheck().pipe(Effect.provideService(CurrentWorkspace, { id: workspace }))
+    return HttpServerResponse.jsonUnsafe({ outcome })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
 const RetentionAge = HttpRouter.add(
   "POST",
   "/api/__dev/retention/age",
@@ -920,6 +982,8 @@ export const DevRoutes = Layer.mergeAll(
   CostsAdAccount,
   CostsSync,
   TrashSweep,
+  SendingDomainAge,
+  SendingDomainRecheck,
   RetentionAge,
   RetentionErase,
   RetentionDue,
@@ -941,6 +1005,7 @@ export const DevRoutes = Layer.mergeAll(
   StoreMirror,
   CapturedMail,
   MailRefuse,
+  MailRefuseSender,
   AuthEventsOf,
   OutboxOf,
   AutomationRunsOf,

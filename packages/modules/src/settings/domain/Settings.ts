@@ -1,19 +1,21 @@
 import { Schema } from "effect"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
+import { SendersValue } from "./SendingDomain.ts"
 
 /*
- * Settings depth (M17 track 1, step 20.1b; domain.md §16.1, widgets/05 §7): the workspace's sections the settings
- * pages Verzending, Sjablonen, Huisstijl, Btw and Gegevens en privacy edit, one `workspace_settings` row each. A section
- * never saved answers its defaults at version 0. The save names the version it read (`baseVersion`, api.md §1.1; the
- * widget map calls it `expectedVersion`) and a stale one is `Conflict { reason: "stale_version" }`. The payload's
- * value is plain JSON, checked by the use case after the permission, so a refusal names its field and a role without
- * the level is told so first. Codes only: the console says the sentences.
+ * Settings depth (M17 track 1, steps 20.1b and 20.1c; domain.md §16.1, widgets/05 §7): the workspace's sections the
+ * settings pages Verzending, Sjablonen, Huisstijl, E-mail en domein, Btw and Gegevens en privacy edit, one
+ * `workspace_settings` row each. A section never saved answers its defaults at version 0. The save names the version
+ * it read (`baseVersion`, api.md §1.1; the widget map calls it `expectedVersion`) and a stale one is
+ * `Conflict { reason: "stale_version" }`. The payload's value is plain JSON, checked by the use case after the
+ * permission, so a refusal names its field and a role without the level is told so first. Codes only: the console says
+ * the sentences.
  */
 
 /* ── sections ─────────────────────────────────────────────────────────────────────────────────── */
 
-/** The sections this step saves; `domain_senders` (E-mail en domein) waits for the sending domain (20.1c). */
-export const SECTIONS = ["shipping", "links", "brand", "vat", "retention"] as const
+/** The sections; `domain_senders` is E-mail en domein's senders (20.1c, `SendingDomain.ts`). */
+export const SECTIONS = ["shipping", "links", "brand", "domain_senders", "vat", "retention"] as const
 export const SettingsSectionId = Schema.Literals(SECTIONS)
 export type SettingsSectionId = typeof SettingsSectionId.Type
 
@@ -185,6 +187,13 @@ export const SettingsSection = Schema.Union([
     value: BrandValue,
     /** Where the console reads the saved logo; none without one. */
     logoUrl: Schema.NullOr(Schema.String),
+    ...stamp
+  }),
+  Schema.Struct({
+    section: Schema.Literal("domain_senders"),
+    value: SendersValue,
+    /** The sending domain "Mails van Insyte" must be on; none without one. */
+    domain: Schema.NullOr(Schema.String),
     ...stamp
   }),
   Schema.Struct({ section: Schema.Literal("vat"), value: VatValue, stores: Schema.Array(VatStore), ...stamp }),

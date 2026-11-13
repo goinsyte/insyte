@@ -111,11 +111,10 @@ const graduated = [
 ]
 
 /**
- * Inside a graduated directory but not yet edited for the backend: E-mail en domein waits for the sending domain
- * (20.1c); the Marketplace's modal and its brand logos are drawn as ported (M17 step 3 changed only what they read).
+ * Inside a graduated directory but not yet edited for the backend: the Marketplace's modal and its brand logos are
+ * drawn as ported (M17 step 3 changed only what they read).
  */
 const notYet = new Set([
-  "app/settings/depth/email-domain-screen.tsx",
   "app/marketplace/marketplace-modal.tsx",
   "app/marketplace/brand-logos.tsx"
 ])

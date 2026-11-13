@@ -11,6 +11,11 @@ export const SettingsDepthHandlers = SettingsDepthRpcs.toLayer(Effect.gen(functi
     "Templates.linkUsage": () => settings.linkUsage,
     "Brand.uploadLogo": (input) => settings.uploadLogo(input),
     "Retention.count": (input) => settings.count(input),
-    "Retention.setErasing": (input) => settings.setErasing(input)
+    "Retention.setErasing": (input) => settings.setErasing(input),
+    "SendingDomain.get": () => settings.domain,
+    "SendingDomain.verify": () => settings.verifyDomain,
+    "SendingDomain.setUp": (input) => settings.setUpDomain(input),
+    "SendingDomain.remove": () => settings.removeDomain,
+    "SendingDomain.saveSenders": (input) => settings.saveSenders(input)
   })
 }))

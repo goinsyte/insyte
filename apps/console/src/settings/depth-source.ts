@@ -71,6 +71,8 @@ const designOf = (section: SettingsSection, counts: StatusCounts | undefined) =>
         return { ...c, label: saved?.label ?? "", show: saved?.show ?? "all", orders: counts?.[c.id] ?? 0 }
       })
     case "links":
+    // E-mail en domein reads its senders through `SendingDomain.get` (`domain-source.ts`); as a section, they are this.
+    case "domain_senders":
       return { ...section.value }
     case "brand": {
       const { logoFileId: _, ...rest } = section.value

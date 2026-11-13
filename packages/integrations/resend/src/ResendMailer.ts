@@ -7,8 +7,9 @@ import { Resend } from "./Resend.ts"
 /*
  * The `Mailer` port over Resend (16 §3): staging and production, where `MAIL_ADAPTER=resend`. The adapter owns the
  * templates (`emails/`, rendered by `MailRenderer`), the links they carry (`MailUrls`, from `CONSOLE_ORIGIN`) and the
- * sender, `MAIL_FROM`: `noreply@mail.goinsyte.com` once that domain is verified in Resend. A mail that does not go is
- * `MailNotSent` with the reason; the caller logs it and goes on.
+ * sender, `MAIL_FROM`: `noreply@mail.goinsyte.com` once that domain is verified in Resend, or the brand's own address
+ * where the mail says one (`Mail.from`, E-mail en domein). A mail that does not go is `MailNotSent` with the reason; the
+ * caller logs it and goes on.
  */
 
 /**
@@ -22,12 +23,16 @@ export const fromIn = (from: string, name: string | undefined) => {
   return `${/[()<>[\]:;@,.]/.test(clean) ? `"${clean}"` : clean} <${address}>`
 }
 
-/** The same mail, sent twice within a day, is one mail: the kind, the address, the link and the reference, hashed. */
+/**
+ * The same mail, sent twice within a day, is one mail: the kind, the address, the link and the reference, hashed, and
+ * the brand's own sender where it names one, so the same mail sent again from Insyte's address is not taken for it.
+ */
 const idempotencyKey = (mail: Mail) =>
   Effect.promise(async () => {
+    const own = mail.from === undefined ? "" : `|${mail.from.toLowerCase()}`
     const digest = await crypto.subtle.digest(
       "SHA-256",
-      new TextEncoder().encode(`${mail.kind}|${mail.to.toLowerCase()}|${mail.url ?? ""}|${mail.reference ?? ""}`)
+      new TextEncoder().encode(`${mail.kind}|${mail.to.toLowerCase()}|${mail.url ?? ""}|${mail.reference ?? ""}${own}`)
     )
     return `${mail.kind}/${[...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")}`
   })
@@ -38,6 +43,13 @@ const escape = (text: string) =>
 /** Plain text as HTML: escaped, its paragraphs and line breaks kept. */
 export const plainHtml = (text: string) =>
   text.split(/\n{2,}/).map((p) => `<p>${escape(p).replaceAll("\n", "<br>")}</p>`).join("\n")
+
+/**
+ * Resend refusing the brand's own sender: `403 validation_error`, "The example.com domain is not verified…", as for a
+ * domain that lapsed (a DNS record taken off) or was taken away.
+ */
+export const refusesSender = (reason: string) =>
+  /^resend 403\b/.test(reason) && /\bdomain\b.*\bnot verified\b/i.test(reason)
 
 const missing = (mail: Mail, what: string) => new MailNotSent({ kind: mail.kind, reason: `${mail.kind} needs ${what}` })
 
@@ -128,13 +140,15 @@ export const ResendMailer = Layer.effect(
     return Mailer.of({
       send: Effect.fn("ResendMailer.send")(function*(mail: Mail) {
         const rendered = yield* render(mail)
+        // The brand's own address once its domain is verified (E-mail en domein), else Insyte's; the name is the store's.
+        const replyTo = mail.memberNote?.replyTo ?? mail.replyTo
         yield* resend.send({
-          from: fromIn(from, mail.sender),
+          from: fromIn(mail.from ?? from, mail.sender),
           to: mail.to,
           ...rendered,
           idempotencyKey: yield* idempotencyKey(mail),
           attachments: mail.attachments,
-          ...(mail.memberNote?.replyTo === undefined ? {} : { replyTo: mail.memberNote.replyTo }),
+          ...(replyTo === undefined ? {} : { replyTo }),
           ...(mail.support === undefined ? {} : {
             replyTo: mail.support.replyTo,
             headers: {
@@ -144,7 +158,13 @@ export const ResendMailer = Layer.effect(
             }
           })
         }).pipe(
-          Effect.mapError((error) => new MailNotSent({ kind: mail.kind, reason: error.reason }))
+          Effect.mapError((error) =>
+            new MailNotSent({
+              kind: mail.kind,
+              reason: error.reason,
+              ...(mail.from !== undefined && refusesSender(error.reason) ? { senderRefused: true } : {})
+            })
+          )
         )
       })
     })

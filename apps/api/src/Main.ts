@@ -24,6 +24,7 @@ import {
 } from "./platform/Relay.ts"
 import { withRequestDb } from "./platform/RequestDb.ts"
 import { retentionSweep } from "./platform/Retention.ts"
+import { sendingDomainSweep } from "./platform/SendingDomains.ts"
 import { trashSweep } from "./platform/TrashSweep.ts"
 import { startMonthlyClose } from "./workflows/MonthlyClose.ts"
 
@@ -102,7 +103,7 @@ export default {
    * daily facts (M10.4, at 02:00 UTC their nightly pass), the members' daily digests (M11.5) and the webhook
    * deliveries past 30 days (M19.4); on the hour, the chargeback deadline reminders (M13 step 3); at 03:00 UTC the
    * Prullenbak's sweep (M17) and, on the 1st, the supplier statements' monthly close (M13 step 6); at 04:00 UTC the
-   * day's ad spend from every connected ad account (M13 step 5); at 02:00 UTC the ECB's reference rates into
+   * day's ad spend from every connected ad account (M13 step 5) and the sending domains' re-check (20.1c); at 02:00 UTC the ECB's reference rates into
    * `fx_rates` (§0.4). */
   scheduled(controller, _env, ctx) {
     ctx.waitUntil(background.runPromise(withRequestDb(sweep())).finally(() => Telemetry.flush()))
@@ -137,6 +138,10 @@ export default {
       // The supplier statements' monthly close (M13 step 6), `0 3 1 * *`: inside this cron, as an account has few.
       if (at.getUTCDate() === 1 && at.getUTCHours() === 3 && at.getUTCMinutes() === 0) {
         ctx.waitUntil(startMonthlyClose(at))
+      }
+      // The sending domains' daily re-check, at 04:00 UTC (M17 step 20.1c).
+      if (at.getUTCHours() === 4 && at.getUTCMinutes() === 0) {
+        ctx.waitUntil(background.runPromise(withRequestDb(sendingDomainSweep())).finally(() => Telemetry.flush()))
       }
     }
   }

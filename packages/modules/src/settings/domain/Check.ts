@@ -1,4 +1,5 @@
 import { Option, Schema } from "effect"
+import type { SendersValue } from "./SendingDomain.ts"
 import {
   type BrandValue,
   FONTS,
@@ -35,7 +36,11 @@ const oneOf = <T extends string | number>(values: ReadonlyArray<T>, u: unknown):
 
 /** A link a customer can open: https, a host with a dot, no spaces (the page's own rule). */
 export const HTTPS = /^https:\/\/[^\s.]+\.[^\s]+$/
-const EMAIL = /^[^\s@,;]+@[^\s@,;]+\.[a-z]{2,}$/i
+/**
+ * An address a mail can go from or to as it stands: a plain local part (no quotes, angle brackets or spaces, which a
+ * `Name <address>` header would break on) and a host of labels with a letter top-level domain.
+ */
+const EMAIL = /^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/i
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i
 /** An OSS number: the country code and then eight to twelve digits or letters, spaces taken out. */
 const OSS = /^[A-Z]{2}[0-9A-Z]{8,12}$/
@@ -159,6 +164,32 @@ export const checkRetention = (value: unknown): Checked<RetentionValue> => {
       months: (months.has(id) ? months.get(id)! : RETENTION_DEFAULTS[id]) as RetentionValue["classes"][number]["months"]
     }))
   }))
+}
+
+/**
+ * E-mail en domein's senders (step 20.1c), both optional. "Mails van Insyte" is an address on the sending domain
+ * (`domain`: the made one, or the website's; none, it stays empty); "Antwoorden naar" one of the workspace's connected
+ * mailboxes (`mailboxes`, lower case), so an answer lands in the Inbox.
+ */
+export const checkSenders = (
+  value: unknown,
+  domain: string | null,
+  mailboxes: ReadonlyArray<string>
+): Checked<SendersValue> => {
+  if (!isRecord(value)) return { fields: { senders: "required" } }
+  const fields: Record<string, string> = {}
+  const from = (text(value["from"]) ?? "").toLowerCase()
+  if (from !== "") {
+    if (from.length > 254 || !EMAIL.test(from)) fields["from"] = "format"
+    else if (domain === null) fields["from"] = "no_domain"
+    else if (!from.endsWith(`@${domain}`)) fields["from"] = "not_on_domain"
+  }
+  const replyTo = (text(value["replyTo"]) ?? "").toLowerCase()
+  if (replyTo !== "") {
+    if (replyTo.length > 254 || !EMAIL.test(replyTo)) fields["replyTo"] = "format"
+    else if (!mailboxes.includes(replyTo)) fields["replyTo"] = "not_a_mailbox"
+  }
+  return done(fields, () => ({ from, replyTo }))
 }
 
 /** A stored value read back; a row from an older shape falls back to the defaults rather than failing the page. */

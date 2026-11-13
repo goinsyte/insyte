@@ -66,6 +66,7 @@ import { ProductAnalyticsCapture } from "./ProductAnalyticsCapture.ts"
 import { RateLimits } from "./RateLimits.ts"
 import { RelayLive } from "./Relay.ts"
 import { SealerLive } from "./Seal.ts"
+import { SendingDomainsChoice } from "./SendingDomains.ts"
 import { ShopifyAdminChoice, ShopifyGraphqlChoice } from "./Shopify.ts"
 import { ShopifyWritesLive } from "./ShopifyWrites.ts"
 import { AppKeysLive, SliceLinks } from "./SliceLinks.ts"
@@ -186,6 +187,8 @@ export const AppLayer = Transports.pipe(
       RatesChoice,
       // …and Sendcloud, for whether return labels can be asked for (M9.2).
       LabelsChoice,
+      // …and the brand's sending domain at Resend, for E-mail en domein (M17 step 20.1c).
+      SendingDomainsChoice,
       // …and the files bucket, for downloads (M8.5).
       FileStoreR2,
       // …and Browser Rendering, for the dev route's close of the supplier statements (M13 step 6).
@@ -260,7 +263,9 @@ export const BackgroundLayer = Layer.mergeAll(
   // A committed fact's webhook deliveries, each started on its own run (M19.4).
   WebhookRunsLive,
   // The ECB's reference rates, into `fx_rates` on the cron's nightly turn (§0.4).
-  RatesChoice
+  RatesChoice,
+  // The sending domains' daily re-check (M17 step 20.1c).
+  SendingDomainsChoice
 ).pipe(
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),

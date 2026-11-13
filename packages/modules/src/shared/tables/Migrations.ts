@@ -61,6 +61,7 @@ import live from "./migrations/0067_live.ts"
 import sheets from "./migrations/0068_sheets.ts"
 import supplierStatements from "./migrations/0069_statements.ts"
 import autonomy from "./migrations/0070_autonomy.ts"
+import sendingDomains from "./migrations/0072_sending_domains.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -131,5 +132,6 @@ export const Migrations = {
   "0067_live": live,
   "0068_sheets": sheets,
   "0069_statements": supplierStatements,
-  "0070_autonomy": autonomy
+  "0070_autonomy": autonomy,
+  "0072_sending_domains": sendingDomains
 }

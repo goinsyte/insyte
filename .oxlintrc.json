@@ -126,10 +126,9 @@
     "!packages/ui/src/app/settings/security-source.tsx",
     "!packages/ui/src/app/settings/security-demo-source.tsx",
     // Graduated (08 §3): Verzending, Sjablonen, Huisstijl, Btw, Gegevens en privacy and Sneltoetsen, wired to
-    // WorkspaceSettings.* and Retention.* in M17 (step 20.1b); Logboek and Prullenbak graduated in 20.1a. E-mail en
-    // domein (20.1c) follows.
+    // WorkspaceSettings.* and Retention.* in M17 (step 20.1b), and E-mail en domein to SendingDomain.* (20.1c); Logboek
+    // and Prullenbak in 20.1a.
     "!packages/ui/src/app/settings/depth/**",
-    "packages/ui/src/app/settings/depth/email-domain-screen.tsx",
     // Graduated (08 §3): Instellingen → Webhooks, wired to Webhooks.* in step 19a (M19.4).
     "!packages/ui/src/app/settings/webhooks-screen.tsx",
     "!packages/ui/src/app/settings/webhooks-page.tsx",

@@ -134,7 +134,8 @@ export const TENANT_TABLES = [
   "autonomy_policy_versions",
   "agent_actions",
   "agent_touchpoints",
-  "ai_budgets"
+  "ai_budgets",
+  "sending_domains"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 
