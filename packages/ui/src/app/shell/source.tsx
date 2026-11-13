@@ -36,6 +36,9 @@ import type { WorkspaceState } from "../stores/workspace-store";
 import type { MarketplaceSource } from "../marketplace/marketplace-source";
 import type { useNavPrefs as NavPrefsHook } from "../hooks/use-nav-prefs";
 import type { CreateKind } from "../stores/create-intent";
+import type { SyncLine } from "../lib/types/sync-health";
+
+export type { SyncLine } from "../lib/types/sync-health";
 
 /**
  * What the frame reads and does, from whoever hosts it (as `team/source.tsx` for Team): the design app answers from
@@ -107,6 +110,8 @@ export interface ShellSource {
 	agentEntries: ReadonlyArray<AgentLogEntry>;
 	/** The forwarding queue's rows as of this minute. */
 	queueRows: ReadonlyArray<QueueRow>;
+	/** The stores' sync in one line; `null` where the workspace has no store (the line is not drawn). */
+	syncLine: SyncLine | null;
 	/**
 	 * Parts of the frame that belong to features a host may not have yet: Customize (with Start's widgets), an
 	 * installed app's detail, connecting a store. `null` leaves them out.
