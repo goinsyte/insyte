@@ -24,12 +24,12 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { AdSpendLive } from "../../platform/AdSpend.ts"
 import { AppInfo } from "../../platform/Bindings.ts"
 import { parseMail } from "../../platform/InboundMail.ts"
+import { TrashKindsLive } from "../../platform/links/TrashKinds.ts"
 import { capturedSenders, refusedReferences, refusedSenderDomains } from "../../platform/Mail.ts"
 import { digestWorkspace, notifyWorkspace } from "../../platform/Relay.ts"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 import { retentionWorkspace } from "../../platform/Retention.ts"
 import { userFrom } from "../../platform/Sessions.ts"
-import { TrashKindsLive } from "../../platform/SliceLinks.ts"
 
 /**
  * `GET /api/__dev/mail?to=<address>`: the mails the capture adapter "sent" to one address, newest first. For the
