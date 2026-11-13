@@ -26,6 +26,21 @@ describe("migrations:check", () => {
     expect(checkMigrations(base, [platform], [])).toHaveLength(2)
   })
 
+  it("fails a new migration numbered at or below one already merged", () => {
+    // 0004 merged first (another pull request); this branch's 0003 would be skipped by every database that has 0004.
+    const merged = [...base, m("0004_disputes", `statements("create table disputes (…)")`)]
+    expect(checkMigrations(merged, [...merged, m("0003_automations", `statements("select 1")`)], [])).toEqual([
+      "0003_automations comes after 0004_disputes: numbers rise through the manifest",
+      "0003_automations is numbered at or below 0004, already merged: a database that has it would skip this one; " +
+      "renumber it above"
+    ])
+  })
+
+  it("fails numbers that do not rise through the manifest", () => {
+    const head = [...base, m("0005_b", `statements("select 1")`), m("0004_a", `statements("select 1")`)]
+    expect(checkMigrations(base, head, [])).toEqual(["0004_a comes after 0005_b: numbers rise through the manifest"])
+  })
+
   it("fails a drop column outside contract/", () => {
     expect(checkMigrations(base, [...base, m("0003_x", `"alter table outbox drop column attempts"`)], [])).toEqual([
       `0003_x: "drop column" is destructive; it belongs in a contract/ migration`

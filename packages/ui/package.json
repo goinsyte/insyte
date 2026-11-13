@@ -13,6 +13,8 @@
     "./app/marketplace/app-catalog": "./src/app/marketplace/app-catalog.ts",
     "./app/marketplace/marketplace-source": "./src/app/marketplace/marketplace-source.ts",
     "./app/stores/*": "./src/app/stores/*.ts",
+    "./app/automations/flow-edits": "./src/app/automations/flow-edits.ts",
+    "./app/automations/node-types": "./src/app/automations/node-types.ts",
     "./app/automations/workflow-store": "./src/app/automations/workflow-store.ts",
     "./app/onboarding/use-onboarding-state": "./src/app/onboarding/use-onboarding-state.ts",
     "./app/*-search": "./src/app/*-search.ts",

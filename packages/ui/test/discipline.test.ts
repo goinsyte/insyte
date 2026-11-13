@@ -72,20 +72,43 @@ const graduated = [
   "app/settings/notifications-screen.tsx",
   "app/settings/notifications-source.tsx",
   "app/settings/notifications-demo-source.tsx",
+  "app/settings/depth/log-screen.tsx",
+  "app/settings/depth/trash-screen.tsx",
+  "app/settings/log-source.tsx",
+  "app/settings/log-demo-source.tsx",
+  "app/settings/trash-source.tsx",
+  "app/settings/trash-demo-source.tsx",
   "app/lib/home/day.ts",
   "app/lib/home/kinds.ts",
+  "app/analytics/",
   "app/chats/",
   "app/inbox/",
+  "app/chargebacks/",
+  "app/automations/",
+  "app/costs/",
+  "app/settings/depth/",
+  "app/settings/webhooks-screen.tsx",
+  "app/settings/webhooks-page.tsx",
+  "app/developer/webhook-dialog.tsx",
+  "app/developer/delivery-drawer.tsx",
+  "app/developer/webhooks-source.tsx",
+  "app/developer/webhooks-demo-source.tsx",
+  "app/lib/webhooks-core.ts",
+  "app/courses/",
+  "app/lib/courses.ts",
+  "app/stores/courses-store.ts",
   "app/marketplace/",
   "app/settings/apps-screen.tsx"
 ]
 
 /**
- * Inside a graduated directory but not yet edited for the backend: the queue panel waits for the proposals branches;
- * the Marketplace's modal and its brand logos are drawn as ported (M17 step 3 changed only what they read).
+ * Inside a graduated directory but not yet edited for the backend: the queue panel waits for the proposals branches,
+ * E-mail en domein for the sending domain (20.1c); the Marketplace's modal and its brand logos are drawn as ported
+ * (M17 step 3 changed only what they read).
  */
 const notYet = new Set([
   "app/dashboard/queue-panel.tsx",
+  "app/settings/depth/email-domain-screen.tsx",
   "app/marketplace/marketplace-modal.tsx",
   "app/marketplace/brand-logos.tsx"
 ])

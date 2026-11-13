@@ -14,6 +14,7 @@ import { BestsellersView, CountriesView, LiveView, RecentView, ReturnsView } fro
 import { type SetupTaskId, setupTasks } from "@insyte/ui/app/dashboard/setup-checklist"
 import { WIDGET_DEFS as WIDGETS } from "@insyte/ui/app/dashboard/widget-defs"
 import {
+  ChargebacksView,
   MyTicketsView,
   OrdersView,
   RevenueView,
@@ -51,9 +52,10 @@ import { ConsoleBookmarks, ConsoleMentions, ConsoleToday } from "./home-views.ts
 /*
  * Start's board in the console (M10.3), over `Home.widgets`: the design's cards drawn from the read, money from minor
  * units of the workspace currency, and the arrangement kept in the member's `board` preference. Only the cards the
- * console can fill are offered; chargebacks (M13), automations (M12), Insyte and the customer agent (M15) come with
- * their milestones. "Ongelezen chats" reads `Chats.list` (`chats-card.tsx`), and the team card's "Bericht" opens the DM. "Agenda vandaag", "Vermeldingen en toegewezen" and "Bladwijzers" (M10.3b) are
- * `home-views.tsx`'s.
+ * console can fill are offered; automations (M12), Insyte and the customer agent (M15) come with their milestones,
+ * and chargebacks (M13 step 4) reads the cases waiting on evidence. "Ongelezen chats" reads `Chats.list`
+ * (`chats-card.tsx`), and the team card's "Bericht" opens the DM. "Agenda vandaag", "Vermeldingen en toegewezen" and
+ * "Bladwijzers" (M10.3b) are `home-views.tsx`'s.
  */
 
 /** The cards the console can fill, in the order "Kaart toevoegen" offers them. */
@@ -61,6 +63,7 @@ export const OFFERED: ReadonlyArray<WidgetId> = [
   "queue",
   "revenue",
   "orders",
+  "chargebacks",
   "live",
   "tickets",
   "mytickets",
@@ -83,6 +86,7 @@ export const OFFERED: ReadonlyArray<WidgetId> = [
 const READ: ReadonlySet<WidgetId> = new Set([
   "revenue",
   "orders",
+  "chargebacks",
   "suppliers",
   "tickets",
   "mytickets",
@@ -526,6 +530,17 @@ export function useHomeSlots(
       />
     )),
     orders: read("orders", (o) => <OrdersView stages={o.stages} delayed={o.delayed} />),
+    chargebacks: read("chargebacks", (c) => (
+      <ChargebacksView
+        open={c.open}
+        atStake={c.atStakeMinor / 100}
+        currency={currency}
+        won={c.won}
+        decided={c.decided}
+        submitted={c.submitted}
+        nearest={c.nearest}
+      />
+    )),
     suppliers: read("suppliers", (s) => <SuppliersView rows={s.rows} />),
     tickets: read("tickets", (t) => <TicketsView columns={t.columns} high={t.high} />),
     mytickets: read("mytickets", (m) => <MyTicketsView rows={m.rows} total={m.total} />),
