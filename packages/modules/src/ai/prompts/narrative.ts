@@ -1,5 +1,6 @@
 import { Schema } from "effect"
-import { DATA_RULE, definePrompt, FIGURE_RULE } from "./Prompt.ts"
+import { dataBlock } from "../domain/Guards.ts"
+import { DATA_RULE, definePrompt, FIGURE_RULE, MAX_TOKENS } from "./Prompt.ts"
 
 /*
  * An evidence pack's account (M15 step 2; M13 step 4's `narrative` document): the case's facts, already in plain
@@ -18,10 +19,10 @@ const Output = Schema.Struct({ text: Schema.String })
 
 export const narrativePrompt = definePrompt<NarrativeContext, typeof Output.Type>({
   id: "evidence_narrative",
-  version: "1.0.0",
+  version: "1.0.1",
   purpose: "evidence_narrative",
   effort: "low",
-  maxTokens: 2000,
+  maxTokens: MAX_TOKENS,
   system: `You write the account at the front of a chargeback evidence pack for a Dutch webshop. A reviewer at the
 payment provider reads it first; the documents behind it are in the pack.
 
@@ -37,7 +38,7 @@ shipment, delivery, contact with the customer), and end with what the shop asks:
 favour. State only what the facts say; leave out anything they do not. Separate paragraphs with a blank line. Return
 only the account in the "text" field.`,
   render: (c) =>
-    `Aanbieder: ${c.provider}\nReden van de betwisting: ${c.reasonLabel}\n\n<feiten>\n${c.facts}\n</feiten>`,
+    `Aanbieder: ${c.provider}\nReden van de betwisting: ${c.reasonLabel}\n\n${dataBlock("feiten", c.facts)}`,
   output: Output,
   fake: (c) => ({ text: c.facts })
 })

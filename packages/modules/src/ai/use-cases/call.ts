@@ -1,14 +1,34 @@
 import { mintId } from "@insyte/domain/Ids"
-import { Effect, Exit, Option } from "effect"
+import { Cause, Effect, Exit, Option } from "effect"
 import { AiError, LanguageModel, Prompt } from "effect/ai"
 import type { SqlClient, SqlError } from "effect/sql"
-import { AiModel, BudgetExceeded, CallSettings, type ModelInfo, ModelUnavailable } from "../domain/Ai.ts"
+import {
+  AiModel,
+  BudgetExceeded,
+  CallSettings,
+  type Meter,
+  type ModelInfo,
+  ModelUnavailable,
+  type Tokens
+} from "../domain/Ai.ts"
 import type { PromptDef } from "../prompts/Prompt.ts"
 
 /*
- * One model call (M15 step 1; ai.md §7, §8): the budget first, the model, then the row in `model_calls`, whatever the
- * outcome. The model is called outside any transaction where the caller can (`inTx` opens one per step on a request);
- * in background work already inside one, the same transaction serves all three. No prompt or answer text is stored.
+ * One model call (M15 step 1; ai.md §7, §8): its worst case reserved against the budget, the model, then the row in
+ * `model_calls` with what the provider billed, whatever the outcome. No prompt or answer text is stored.
+ *
+ * - The reservation is the prompt's whole room (its input, `maxTokens` of output) at the model's price, held in
+ *   `ai_reservations` under the workspace's lock until the row is in, so two calls at once cannot both spend the
+ *   last of a budget. `ai_month_used` counts it until it is settled.
+ * - What a call costs is the usage the provider reported, whether or not its answer was any good: an answer that does
+ *   not decode, one cut off at the limit and a refusal are all billed. When no usage came back and the request may
+ *   have run (a timeout, the caller gone, a dropped connection), it costs the worst case. A request the provider turned
+ *   away (an HTTP error) and one never sent cost nothing.
+ * - From the reservation to the row the call cannot be interrupted, except the model's own wait: a person who leaves
+ *   the page still leaves a row, and the reservation is settled.
+ *
+ * The model is called outside any transaction where the caller can (`inTx` opens one per step on a request); in
+ * background work already inside one, the same transaction serves all three.
  */
 
 /** A transaction to run a step in: `db.scoped` on a request, the open one in background work. */
@@ -33,60 +53,131 @@ export interface Called<O> {
 
 const euros = (micros: number) => Math.round(micros / 10_000) / 100
 
-/** The month's limits against the month's use; the first one spent refuses the call. */
-export const checkBudget = Effect.fn("Ai.checkBudget")(function*(sql: SqlClient.SqlClient, memberId: string | null) {
-  const limits = yield* sql<{ memberId: string | null; limitMinor: string | null }>`
-    select member_id, monthly_limit_minor as limit_minor from ai_budgets
-    where monthly_limit_minor is not null and (member_id is null or member_id = ${memberId})`
-  for (const scope of ["workspace", "member"] as const) {
-    const row = limits.find((l) => (scope === "workspace" ? l.memberId === null : l.memberId !== null))
-    if (row === undefined || row.limitMinor === null) continue
-    const [use] = yield* sql<{ used: string }>`
-      select ai_month_used(${scope === "workspace" ? null : memberId}) as used`
-    const used = Number(use?.used ?? 0)
-    const limit = Number(row.limitMinor)
-    if (used >= limit * 10_000) {
-      return yield* new BudgetExceeded({ scope, limit: Math.round(limit / 100), used: euros(used) })
-    }
-  }
-})
+const NONE: Tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
 
 /** Dollar micros for these tokens at this price (dollars per million tokens). */
-export const costOf = (
-  price: ModelInfo["price"],
-  t: { readonly input: number; readonly output: number; readonly cacheRead: number; readonly cacheWrite: number }
-) =>
+export const costOf = (price: ModelInfo["price"], t: Tokens) =>
   Math.round(
     t.input * price.input + t.output * price.output + t.cacheRead * price.cacheRead +
       t.cacheWrite * price.cacheWrite
   )
 
+/**
+ * The most a call of this prompt with this input can bill: its text at three characters a token (Dutch runs nearer
+ * four), and every token of its room as output.
+ */
+export const worstCase = <I, O>(prompt: PromptDef<I, O>, rendered: string): Tokens => ({
+  input: Math.ceil((prompt.system.length + rendered.length) / 3) + 50,
+  output: prompt.maxTokens,
+  cacheRead: 0,
+  cacheWrite: 0
+})
+
+/**
+ * The month's limits against the month's use with this call's worst case (in dollar micros, at today's rate) added;
+ * the first one it would overspend refuses the call. A limit already reached refuses even a call that costs nothing.
+ */
+export const checkBudget = Effect.fn("Ai.checkBudget")(
+  function*(sql: SqlClient.SqlClient, memberId: string | null, worstMicros = 0) {
+    const limits = yield* sql<{ memberId: string | null; limitMinor: string | null }>`
+      select member_id, monthly_limit_minor as limit_minor from ai_budgets
+      where monthly_limit_minor is not null and (member_id is null or member_id = ${memberId})`
+    for (const scope of ["workspace", "member"] as const) {
+      const row = limits.find((l) => (scope === "workspace" ? l.memberId === null : l.memberId !== null))
+      if (row === undefined || row.limitMinor === null) continue
+      const [use] = yield* sql<{ used: string; worst: string }>`
+        select ai_month_used(${scope === "workspace" ? null : memberId}) as used,
+               round(${worstMicros} * coalesce((select f.rate from fx_rates f where f.base = 'USD' and f.quote = 'EUR'
+                                                 order by f.day desc limit 1), 1)) as worst`
+      const used = Number(use?.used ?? 0)
+      const limit = Number(row.limitMinor) * 10_000
+      if (used >= limit || used + Number(use?.worst ?? 0) > limit) {
+        return yield* new BudgetExceeded({ scope, limit: Math.round(Number(row.limitMinor) / 100), used: euros(used) })
+      }
+    }
+  }
+)
+
+/**
+ * The call's worst case held against the budget, under the workspace's lock so the check and the hold are one step.
+ * With a `dedupeKey`, a second call for the same thing while the first is out finds it held: `busy`.
+ */
+export const reserve = Effect.fn("Ai.reserve")(function*(
+  sql: SqlClient.SqlClient,
+  caller: Caller,
+  promptId: string,
+  worstMicros: number,
+  dedupeKey: string | undefined
+) {
+  yield* sql`select pg_advisory_xact_lock(hashtextextended('ai_budget:' || app_workspace_id(), 0))`
+  yield* checkBudget(sql, caller.memberId, worstMicros)
+  const id = mintId("air")
+  const held = yield* sql`
+    insert into ai_reservations (id, workspace_id, member_id, prompt_id, cost_micros, dedupe_key)
+    values (${id}, app_workspace_id(), ${caller.memberId}, ${promptId}, ${worstMicros}, ${dedupeKey ?? null})
+    on conflict do nothing returning id`
+  if (held.length === 0) return yield* new ModelUnavailable({ reason: "busy" })
+  return id
+})
+
 const outcomeOf = (error: AiError.AiError) =>
   error.reason._tag === "ContentPolicyError" ? "refused" as const : "error" as const
 
-/** The model's answer for this prompt and input, and how long it took; a failure is an exit, not an error. */
-export const generate = <I, O>(prompt: PromptDef<I, O>, input: I) =>
+/** A fresh meter: nothing sent, nothing seen. */
+export const meter = (): Meter => ({ sent: false, rejected: false, usage: undefined })
+
+/**
+ * The model's answer for this prompt and input, and how long it took; a failure is an exit, not an error. `restore`
+ * is the one part a caller's interruption may stop (`call`'s mask).
+ */
+export const generate = <I, O>(
+  prompt: PromptDef<I, O>,
+  input: I,
+  seen: Meter = meter(),
+  restore: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R> = (effect) => effect
+) =>
   Effect.gen(function*() {
     const started = Date.now()
-    const exit = yield* LanguageModel.generateObject({
-      prompt: Prompt.make([
-        { role: "system", content: prompt.system },
-        { role: "user", content: prompt.render(input) }
-      ]),
-      schema: prompt.output,
-      objectName: prompt.id
-    }).pipe(
-      Effect.provideService(CallSettings, {
-        promptId: `${prompt.id}@${prompt.version}`,
-        effort: prompt.effort,
-        maxTokens: prompt.maxTokens,
-        fake: () => prompt.fake(input)
-      }),
-      Effect.timeout(`${prompt.timeoutSeconds ?? 90} seconds`),
-      Effect.exit
-    )
+    const exit = yield* restore(
+      LanguageModel.generateObject({
+        prompt: Prompt.make([
+          { role: "system", content: prompt.system },
+          { role: "user", content: prompt.render(input) }
+        ]),
+        schema: prompt.output,
+        objectName: prompt.id
+      }).pipe(
+        Effect.provideService(CallSettings, {
+          promptId: `${prompt.id}@${prompt.version}`,
+          effort: prompt.effort,
+          maxTokens: prompt.maxTokens,
+          fake: () => prompt.fake(input),
+          meter: seen
+        }),
+        Effect.timeout(`${prompt.timeoutSeconds ?? 90} seconds`)
+      )
+    ).pipe(Effect.exit)
     return { exit, latencyMs: Date.now() - started }
   })
+
+/** What the call is billed: what the provider said, else nothing if it never ran, else the worst case. */
+export const billed = (
+  seen: Meter,
+  exit: Exit.Exit<{ readonly usage: LanguageModel.GenerateObjectResponse<never, unknown>["usage"] }, unknown>,
+  worst: Tokens
+): Tokens => {
+  if (seen.usage !== undefined) return seen.usage
+  if (Exit.isSuccess(exit)) {
+    const usage = exit.value.usage
+    return {
+      input: usage.inputTokens.uncached ?? usage.inputTokens.total ?? 0,
+      output: usage.outputTokens.total ?? 0,
+      cacheRead: usage.inputTokens.cacheRead ?? 0,
+      cacheWrite: usage.inputTokens.cacheWrite ?? 0
+    }
+  }
+  return seen.rejected || !seen.sent ? NONE : worst
+}
 
 export interface CallOptions<O> {
   /**
@@ -94,9 +185,11 @@ export interface CallOptions<O> {
    * recorded as `guardrail_blocked` and the caller gets `ModelUnavailable` with `blocked`.
    */
   readonly guard?: ((output: O) => boolean) | undefined
+  /** One call at a time for this key (a thread's first draft for its last message): a second is `busy`. */
+  readonly dedupeKey?: string | undefined
 }
 
-/** Budget, model, row: the call as every slice makes it. */
+/** Reservation, model, row: the call as every slice makes it. */
 export const call = <I, O, X>(
   inTx: InTx<X>,
   caller: Caller,
@@ -104,43 +197,55 @@ export const call = <I, O, X>(
   input: I,
   options: CallOptions<O> = {}
 ) =>
-  Effect.gen(function*() {
-    const model = yield* AiModel
-    yield* inTx((sql) => checkBudget(sql, caller.memberId))
-    const { exit, latencyMs } = yield* generate(prompt, input)
-    const usage = Exit.isSuccess(exit) ? exit.value.usage : undefined
-    const tokens = {
-      input: usage?.inputTokens.uncached ?? usage?.inputTokens.total ?? 0,
-      output: usage?.outputTokens.total ?? 0,
-      cacheRead: usage?.inputTokens.cacheRead ?? 0,
-      cacheWrite: usage?.inputTokens.cacheWrite ?? 0
-    }
-    const error = Exit.isFailure(exit) ? Option.getOrUndefined(Exit.findErrorOption(exit)) : undefined
-    const blocked = Exit.isSuccess(exit) && options.guard !== undefined && !options.guard(exit.value.value as O)
-    const outcome = blocked
-      ? "guardrail_blocked" as const
-      : Exit.isSuccess(exit)
-      ? "ok" as const
-      : error !== undefined && AiError.isAiError(error)
-      ? outcomeOf(error)
-      : "error" as const
-    const said = Exit.isSuccess(exit) ? null : error === undefined ? "defect" : String(error).slice(0, 500)
-    const callId = mintId("mcl")
-    yield* inTx((sql) =>
-      sql`insert into model_calls (id, workspace_id, member_id, principal_kind, purpose, prompt_id, prompt_version,
-                                   provider, model, input_tokens, output_tokens, cached_tokens, cache_write_tokens,
-                                   cost_micros, latency_ms, outcome, error, subject_type, subject_id, test)
-          values (${callId}, app_workspace_id(), ${caller.memberId}, ${caller.principalKind}, ${prompt.purpose},
-                  ${prompt.id}, ${prompt.version}, ${model.provider}, ${model.model}, ${tokens.input},
-                  ${tokens.output}, ${tokens.cacheRead}, ${tokens.cacheWrite}, ${costOf(model.price, tokens)},
-                  ${latencyMs}, ${outcome}, ${said},
-                  ${caller.subject?.type ?? null}, ${caller.subject?.id ?? null}, ${caller.test ?? false})`
-    )
-    if (Exit.isFailure(exit) || blocked) {
-      yield* Effect.logWarning("a model call did not answer", { prompt: prompt.id, outcome })
-      return yield* new ModelUnavailable({
-        reason: outcome === "refused" ? "refused" : outcome === "guardrail_blocked" ? "blocked" : "failed"
-      })
-    }
-    return { value: exit.value.value as O, callId, model } satisfies Called<O>
-  }).pipe(Effect.withSpan("Ai.call", { attributes: { prompt: prompt.id, purpose: prompt.purpose } }))
+  Effect.uninterruptibleMask((restore) =>
+    Effect.gen(function*() {
+      const model = yield* AiModel
+      if (!model.ready) return yield* new ModelUnavailable({ reason: "unconfigured" })
+      const worst = worstCase(prompt, prompt.render(input))
+      const reservation = yield* inTx((sql) =>
+        reserve(sql, caller, prompt.id, costOf(model.price, worst), options.dedupeKey)
+      )
+      const seen = meter()
+      const { exit, latencyMs } = yield* generate(prompt, input, seen, restore)
+      const tokens = billed(seen, exit as Parameters<typeof billed>[1], worst)
+      const error = Exit.isFailure(exit) ? Option.getOrUndefined(Exit.findErrorOption(exit)) : undefined
+      const blocked = Exit.isSuccess(exit) && options.guard !== undefined && !options.guard(exit.value.value as O)
+      const outcome = blocked
+        ? "guardrail_blocked" as const
+        : Exit.isSuccess(exit)
+        ? "ok" as const
+        : error !== undefined && AiError.isAiError(error)
+        ? outcomeOf(error)
+        : "error" as const
+      const said = Exit.isSuccess(exit)
+        ? null
+        : error !== undefined
+        ? String(error).slice(0, 500)
+        : Cause.hasInterrupts(exit.cause)
+        ? "interrupted"
+        : "defect"
+      const callId = mintId("mcl")
+      yield* inTx((sql) =>
+        Effect.gen(function*() {
+          yield* sql`insert into model_calls (id, workspace_id, member_id, principal_kind, purpose, prompt_id,
+                                              prompt_version, provider, model, input_tokens, output_tokens,
+                                              cached_tokens, cache_write_tokens, cost_micros, latency_ms, outcome,
+                                              error, subject_type, subject_id, test)
+              values (${callId}, app_workspace_id(), ${caller.memberId}, ${caller.principalKind}, ${prompt.purpose},
+                      ${prompt.id}, ${prompt.version}, ${model.provider}, ${model.model}, ${tokens.input},
+                      ${tokens.output}, ${tokens.cacheRead}, ${tokens.cacheWrite}, ${costOf(model.price, tokens)},
+                      ${latencyMs}, ${outcome}, ${said},
+                      ${caller.subject?.type ?? null}, ${caller.subject?.id ?? null}, ${caller.test ?? false})`
+          yield* sql`update ai_reservations set settled_at = now(), model_call_id = ${callId}
+                     where id = ${reservation}`
+        })
+      )
+      if (Exit.isFailure(exit) || blocked) {
+        yield* Effect.logWarning("a model call did not answer", { prompt: prompt.id, outcome })
+        return yield* new ModelUnavailable({
+          reason: outcome === "refused" ? "refused" : outcome === "guardrail_blocked" ? "blocked" : "failed"
+        })
+      }
+      return { value: exit.value.value as O, callId, model } satisfies Called<O>
+    })
+  ).pipe(Effect.withSpan("Ai.call", { attributes: { prompt: prompt.id, purpose: prompt.purpose } }))

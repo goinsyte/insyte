@@ -42,6 +42,32 @@ export interface ModelInfo {
   readonly provider: "anthropic" | "fake"
   readonly model: string
   readonly price: Price
+  /**
+   * Whether Insyte may write here at all. The fake is ready only where it is asked for by name (`AI_ADAPTER=fake`: the
+   * worker tests, local runs); a deployed stage without its keys has no model, and nobody is shown a template's text
+   * as Insyte's draft.
+   */
+  readonly ready: boolean
+}
+
+/** Tokens as the provider bills them. */
+export interface Tokens {
+  readonly input: number
+  readonly output: number
+  readonly cacheRead: number
+  readonly cacheWrite: number
+}
+
+/**
+ * What the adapter saw of one call, for the meter whatever the outcome: whether the request went out, whether the
+ * provider turned it away before running it (an HTTP error: not billed), and the usage it reported. A provider bills
+ * an answer that fails to decode, one cut off at the limit and a refusal too: the usage is kept before the answer is
+ * read.
+ */
+export interface Meter {
+  sent: boolean
+  rejected: boolean
+  usage: Tokens | undefined
 }
 
 /** Which model is behind `LanguageModel`, and its price. Chosen by configuration where the app is composed. */
@@ -56,10 +82,11 @@ export interface CallSettings {
   readonly effort: Effort
   readonly maxTokens: number
   readonly fake: (() => unknown) | undefined
+  readonly meter: Meter | undefined
 }
 
 export const CallSettings = Context.Reference<CallSettings>("ai/CallSettings", {
-  defaultValue: () => ({ promptId: "unknown", effort: "low", maxTokens: 1024, fake: undefined })
+  defaultValue: () => ({ promptId: "unknown", effort: "low", maxTokens: 16_000, fake: undefined, meter: undefined })
 })
 
 /* ── errors ───────────────────────────────────────────────────────────────────────────────────────────────────── */
@@ -76,10 +103,16 @@ export class BudgetExceeded extends Schema.TaggedError<BudgetExceeded>()("Budget
 
 /**
  * The model did not answer usefully: it declined (`refused`), it or the gateway failed (`failed`), or its answer did
- * not pass the checks (`blocked`: a figure the record does not have).
+ * not pass the checks (`blocked`: a figure the record does not have). Or it was not asked: the stage has no model
+ * (`unconfigured`), or the same draft is being written already (`busy`).
  */
 export class ModelUnavailable extends Schema.TaggedError<ModelUnavailable>()("ModelUnavailable", {
-  reason: Schema.Literals(["refused", "failed", "blocked"])
+  reason: Schema.Literals(["refused", "failed", "blocked", "unconfigured", "busy"])
+}) {}
+
+/** Too many calls in a short time, the person's own or the workspace's: asked again after `retryAfterSeconds`. */
+export class AiRateLimited extends Schema.TaggedError<AiRateLimited>()("AiRateLimited", {
+  retryAfterSeconds: Schema.Int
 }) {}
 
 /* ── drafts ───────────────────────────────────────────────────────────────────────────────────────────────────── */
@@ -128,7 +161,7 @@ export const ThreadIdInput = Schema.Struct({ threadId: Schema.String })
 /** The thread's or the ticket's latest reply draft, when it is still about the last thing the customer wrote. */
 export class LatestDraft extends Schema.Class<LatestDraft>("ai/LatestDraft")({
   draft: Schema.NullOr(Draft),
-  /** Whether a new one may be asked for here: the role may, there is something to answer, and a model is set up. */
+  /** Whether a new one may be asked for here: the role may, there is something to answer, and a model is ready. */
   canDraft: Schema.Boolean
 }) {}
 

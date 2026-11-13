@@ -26,15 +26,22 @@ export const MODEL = "claude-opus-5-5"
 export const MODEL_INFO: ModelInfo = {
   provider: "anthropic",
   model: MODEL,
-  price: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 }
+  price: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
+  ready: true
 }
 
 const failed = (method: string, reason: AiError.AiErrorReason) => AiError.make({ module: "Anthropic", method, reason })
 
-const errorOf = (error: unknown): AiError.AiError => {
+/** The HTTP status of an SDK error, when it is one the provider answered with. */
+const statusOf = (error: unknown): number | undefined => {
   const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : NaN
+  return Number.isFinite(status) ? status : undefined
+}
+
+const errorOf = (error: unknown): AiError.AiError => {
+  const status = statusOf(error)
   const description = error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300)
-  if (Number.isFinite(status)) return failed("generateText", AiError.reasonFromHttpStatus({ status, description }))
+  if (status !== undefined) return failed("generateText", AiError.reasonFromHttpStatus({ status, description }))
   return failed("generateText", new AiError.UnknownError({ description }))
 }
 
@@ -98,6 +105,8 @@ export const makeAnthropic = (config: GatewayConfig) => {
                 .jsonSchema as Record<string, unknown>
             }
             : null
+          const seen = settings.meter
+          if (seen !== undefined) seen.sent = true
           const response = yield* Effect.tryPromise({
             try: (signal) =>
               anthropic.messages.create({
@@ -111,17 +120,25 @@ export const makeAnthropic = (config: GatewayConfig) => {
                 signal,
                 headers: { "cf-aig-metadata": JSON.stringify({ prompt: settings.promptId }) }
               }),
-            catch: errorOf
+            catch: (error) => {
+              // An HTTP error is the provider (or the gateway) turning the request away: nothing ran, nothing billed.
+              if (seen !== undefined && statusOf(error) !== undefined) seen.rejected = true
+              return errorOf(error)
+            }
           })
+          const u = response.usage
+          const cacheRead = u.cache_read_input_tokens ?? 0
+          const cacheWrite = u.cache_creation_input_tokens ?? 0
+          // Billed whatever comes next: a refusal, an answer cut off at the limit, one that does not decode.
+          if (seen !== undefined) {
+            seen.usage = { input: u.input_tokens, output: u.output_tokens, cacheRead, cacheWrite }
+          }
           if (response.stop_reason === "refusal") {
             return yield* failed(
               "generateText",
               new AiError.ContentPolicyError({ description: "The model declined to answer" })
             )
           }
-          const u = response.usage
-          const cacheRead = u.cache_read_input_tokens ?? 0
-          const cacheWrite = u.cache_creation_input_tokens ?? 0
           const parts: Array<Response.PartEncoded> = response.content.flatMap((b) =>
             b.type === "text" ? [{ type: "text" as const, text: b.text }] : []
           )
@@ -144,12 +161,16 @@ export const makeAnthropic = (config: GatewayConfig) => {
     }))
 }
 
-/** What the fake costs: nothing. */
+/** What the fake costs: nothing. Ready only where it is asked for by name (`AI_ADAPTER=fake`). */
 export const FAKE_INFO: ModelInfo = {
   provider: "fake",
   model: "fake",
-  price: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+  price: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  ready: true
 }
+
+/** A deployed stage without its keys: no model, so Insyte writes nothing there (and the fake is never shown). */
+export const NO_MODEL: ModelInfo = { ...FAKE_INFO, model: "none", ready: false }
 
 /**
  * The fake (tests, local runs, previews, any stage without the keys): each prompt's own deterministic answer

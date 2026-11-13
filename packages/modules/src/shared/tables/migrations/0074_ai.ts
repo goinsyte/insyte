@@ -13,9 +13,17 @@ import { statements } from "../statements.ts"
  *   took it into the composer.
  * - `tickets.topic_source`: whether the topic came from the keyword rules or the model.
  *
- * `ai_month_used` is the month's use in euro micros, the calendar month in the workspace's time zone, each call at its
- * day's rate (the latest the ECB had by then; none yet counts a dollar as a euro). `autonomy_decide` now reads it: a
- * workspace limit reached makes every agent action ask first, not only a limit of nothing.
+ * - `ai_reservations`: what a call may cost at most, held from before it is made until its `model_calls` row is in
+ *   (`settled_at`). Two calls at once cannot both spend the last of a budget, and a call whose Worker died on the way
+ *   counts at its worst case, since the provider may have billed it.
+ *
+ * `ai_month_used` is the month's use in euro micros, the calendar month in the workspace's time zone: the calls, and
+ * the reservations not settled yet, each at its day's rate (the latest the ECB had by then; none yet counts a dollar as
+ * a euro). `autonomy_decide` now reads it: a workspace limit reached makes every agent action ask first, not only a
+ * limit of nothing.
+ *
+ * Every workspace gets a limit of € 20 a month to begin with (`Workspaces.found` for new ones, here for the ones there
+ * are); an owner raises it, or lifts it, on Limieten.
  */
 
 const PURPOSES = `'plate', 'draft', 'ask', 'finding_text', 'automation_from_sentence', 'classify', 'summarize',
@@ -82,28 +90,57 @@ export default statements(
   tenantTable("drafts", { membersOnly: true }),
   "revoke delete on drafts from insyte_app",
   //
+  `create table ai_reservations (
+     id            text primary key,
+     workspace_id  text not null references workspaces(id) on delete cascade,
+     member_id     text,
+     prompt_id     text not null,
+     cost_micros   bigint not null check (cost_micros >= 0),
+     dedupe_key    text,
+     model_call_id text references model_calls(id) on delete set null,
+     created_at    timestamptz not null default now(),
+     settled_at    timestamptz
+   )`,
+  "create index ai_reservations_open on ai_reservations (workspace_id, created_at) where settled_at is null",
+  // One call at a time writes the same thing (a thread's first draft for its last message).
+  `create unique index ai_reservations_once on ai_reservations (workspace_id, dedupe_key)
+     where settled_at is null and dedupe_key is not null`,
+  tenantTable("ai_reservations", { membersOnly: true }),
+  "revoke delete on ai_reservations from insyte_app",
+  //
+  "alter table ai_budgets no force row level security",
+  `insert into ai_budgets (id, workspace_id, member_id, monthly_limit_minor)
+     select 'aib_' || replace(gen_random_uuid()::text, '-', ''), w.id, null, 2000 from workspaces w
+     on conflict (workspace_id, (coalesce(member_id, ''))) do nothing`,
+  "alter table ai_budgets force row level security",
+  //
   `alter table tickets add column topic_source text not null default 'rule'
      check (topic_source in ('rule', 'model'))`,
   //
   /*
-   * The month's use in euro micros: the workspace's (`p_member` null) or one person's. Invoked as the caller, so the
-   * workspace's own rows only.
+   * The month's use in euro micros: the workspace's (`p_member` null) or one person's, the calls made and the ones
+   * still reserved. Invoked as the caller, so the workspace's own rows only.
    */
   `create function ai_month_used(p_member text default null) returns bigint
      language sql stable set search_path = public as $$
        with ws as (
          select coalesce(w.timezone, 'Europe/Amsterdam') as tz from workspaces w where w.id = app_workspace_id()
+       ),
+       spent as (
+         select m.cost_micros, m.created_at, m.member_id from model_calls m where m.workspace_id = app_workspace_id()
+         union all
+         select a.cost_micros, a.created_at, a.member_id from ai_reservations a
+         where a.workspace_id = app_workspace_id() and a.settled_at is null
        )
        select coalesce(round(sum(m.cost_micros * coalesce(r.rate, 1))), 0)::bigint
-       from model_calls m
+       from spent m
        cross join ws
        left join lateral (
          select f.rate from fx_rates f
          where f.base = 'USD' and f.quote = 'EUR' and f.day <= (m.created_at at time zone ws.tz)::date
          order by f.day desc limit 1
        ) r on true
-       where m.workspace_id = app_workspace_id()
-         and m.created_at >= (date_trunc('month', now() at time zone ws.tz) at time zone ws.tz)
+       where m.created_at >= (date_trunc('month', now() at time zone ws.tz) at time zone ws.tz)
          and (p_member is null or m.member_id = p_member)
      $$`,
   "revoke all on function ai_month_used(text) from public",

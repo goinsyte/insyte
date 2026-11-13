@@ -14,6 +14,7 @@ export interface PromptDef<I, O> {
   readonly version: string
   readonly purpose: Purpose
   readonly effort: Effort
+  /** The answer's room, thinking included (`MAX_TOKENS` unless a prompt needs less). */
   readonly maxTokens: number
   /** How long a call may take before it counts as failed; 90 seconds unless said. */
   readonly timeoutSeconds?: number | undefined
@@ -27,6 +28,13 @@ export interface PromptDef<I, O> {
   /** The fake's answer. */
   readonly fake: (input: I) => O
 }
+
+/**
+ * Room for an answer: the model always thinks, and its thinking counts toward `max_tokens` even when only the answer
+ * comes back, so a limit sized for the answer alone cuts it off. 16,000 is as much as a call that does not stream
+ * should ask for. The meter reserves this much output before each call (`use-cases/call.ts`).
+ */
+export const MAX_TOKENS = 16_000
 
 export const definePrompt = <I, O>(prompt: PromptDef<I, O>): PromptDef<I, O> => prompt
 

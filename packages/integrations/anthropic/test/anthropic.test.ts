@@ -1,6 +1,6 @@
 import { replyPrompt } from "@insyte/modules/ai/prompts/reply"
 import { topicPrompt } from "@insyte/modules/ai/prompts/topic"
-import { generate } from "@insyte/modules/ai/use-cases/call"
+import { billed, generate, meter, worstCase } from "@insyte/modules/ai/use-cases/call"
 import { Effect, Exit, Redacted } from "effect"
 import { LanguageModel } from "effect/ai"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -60,17 +60,67 @@ describe("the Anthropic adapter", () => {
     expect(request!.headers.get("cf-aig-authorization")).toBe("Bearer gw-test")
     expect(request!.body).toMatchObject({
       model: "claude-opus-5-5",
-      max_tokens: 400,
+      max_tokens: 16_000,
       output_config: { effort: "low", format: { type: "json_schema" } }
     })
     expect(request!.body["system"]).toContain("classify")
   })
 
-  it("reads a refusal as the model declining", async () => {
+  it("reads a refusal as the model declining, and keeps what it billed", async () => {
     vi.stubGlobal("fetch", async () => answer({ stop_reason: "refusal", content: [] }))
-    const { exit } = await run(generate(topicPrompt, input), makeAnthropic(config))
+    const seen = meter()
+    const { exit } = await run(generate(topicPrompt, input, seen), makeAnthropic(config))
     expect(Exit.isFailure(exit)).toBe(true)
     expect(JSON.stringify(exit)).toContain("ContentPolicyError")
+    expect(seen.usage).toEqual({ input: 120, output: 30, cacheRead: 10, cacheWrite: 0 })
+  })
+
+  it("keeps the usage of an answer that does not decode, or is cut off at the limit", async () => {
+    vi.stubGlobal("fetch", async () =>
+      answer({
+        stop_reason: "max_tokens",
+        content: [{ type: "text", text: "{\"topic\": \"where_is" }],
+        usage: { input_tokens: 900, output_tokens: 16_000 }
+      }))
+    const seen = meter()
+    const { exit } = await run(generate(topicPrompt, input, seen), makeAnthropic(config))
+    expect(Exit.isFailure(exit)).toBe(true)
+    expect(seen).toMatchObject({ sent: true, rejected: false })
+    expect(billed(seen, exit, worstCase(topicPrompt, ""))).toEqual({
+      input: 900,
+      output: 16_000,
+      cacheRead: 0,
+      cacheWrite: 0
+    })
+  })
+
+  it("bills nothing for a request the provider turned away", async () => {
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response(JSON.stringify({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } }), {
+          status: 529,
+          headers: { "content-type": "application/json" }
+        })
+    )
+    const seen = meter()
+    const { exit } = await run(generate(topicPrompt, input, seen), makeAnthropic(config))
+    expect(Exit.isFailure(exit)).toBe(true)
+    expect(seen).toMatchObject({ sent: true, rejected: true, usage: undefined })
+    expect(billed(seen, exit, worstCase(topicPrompt, "")).output).toBe(0)
+  })
+
+  it("bills the worst case when the request went out and no answer came back", async () => {
+    vi.stubGlobal("fetch", async () => {
+      throw new TypeError("network connection lost")
+    })
+    const seen = meter()
+    const { exit } = await run(generate(topicPrompt, input, seen), makeAnthropic(config))
+    expect(Exit.isFailure(exit)).toBe(true)
+    expect(seen).toMatchObject({ sent: true, rejected: false, usage: undefined })
+    const worst = worstCase(topicPrompt, topicPrompt.render(input))
+    expect(billed(seen, exit, worst)).toEqual(worst)
+    expect(worst.output).toBe(16_000)
   })
 })
 
@@ -84,7 +134,6 @@ describe("the fake", () => {
         subject: "Waar is mijn pakket?",
         messages: [],
         orders: [],
-        note: null,
         rewrite: null
       }),
       makeFake
