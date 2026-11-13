@@ -65,6 +65,10 @@ const graduated = [
   "app/products/",
   "app/customers/",
   "app/suppliers/",
+  "app/supplier/statements-screen.tsx",
+  "app/supplier/statement-screen.tsx",
+  "app/supplier/statements-source.tsx",
+  // Not `statements-demo.tsx`: the design app's own invoice, a document made in the browser with its own colours.
   "app/returns/",
   "app/quality/",
   "app/dashboard/",

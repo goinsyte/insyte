@@ -24,6 +24,7 @@ import { RETURNS } from "./returns.ts"
 import { ACCESS_LIST, ROLES } from "./roles.ts"
 import { sheetKey, SHEETS } from "./sheets.ts"
 import { STORE_SYNC, STORES } from "./stores.ts"
+import { SUPPLIERS } from "./suppliers.ts"
 import { TEAM } from "./team.ts"
 import { TICKETS } from "./tickets.ts"
 import { WEBHOOKS } from "./webhooks.ts"
@@ -58,6 +59,8 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   ticket: TICKETS,
   // A chargeback opened, its pack changed, accepted, or reminded of its deadline (M13).
   chargeback: CHARGEBACKS,
+  // A month closed, or its file made (M13 step 6).
+  supplier_statement: SUPPLIERS,
   // The inbox (M11 step 2): a thread read, changed, sent or arrived; a mailbox connected.
   thread: INBOX,
   mailbox: INBOX,

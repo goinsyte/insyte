@@ -15,7 +15,8 @@ import { userFrom } from "../../platform/Sessions.ts"
  * `GET /api/files/:id` (M8.5): one of the workspace's files, for a signed-in member who may see what it belongs to (a
  * packing slip is an order's: Bestellingen at Bekijken; a return label a return's, M9.2: Retouren at Bekijken;
  * a chargeback's evidence the case's, M13: Chargebacks at Bekijken). Through the console's origin, like every route
- * of the session. A course's image (M17 step 4) goes to whoever may take the course or reads the catalogue.
+ * of the session. A course's image (M17 step 4) goes to whoever may take the course or reads the catalogue. A
+ * supplier statement's PDF (M13 step 6) is the supplier's: Leveranciers at Bekijken.
  */
 
 /**
@@ -51,7 +52,7 @@ export const FileRoutes = HttpRouter.add(
       const [row] = yield* db.scoped((sql) =>
         sql<{ r2Key: string; name: string; mime: string; ownerType: string; ownerId: string | null }>`
           select r2_key, name, mime, owner_type, owner_id from files where id = ${id ?? ""} and deleted_at is null
-            and owner_type in ('forwarding_item', 'return', 'quality_check', 'chargeback', 'brand', 'course')`
+            and owner_type in ('forwarding_item', 'return', 'quality_check', 'chargeback', 'brand', 'course', 'supplier_statement')`
       )
       if (row === undefined) return undefined
       if (row.ownerType === "course") {
@@ -71,6 +72,8 @@ export const FileRoutes = HttpRouter.add(
           ? "chargebacks"
           : row.ownerType === "brand"
           ? "settings"
+          : row.ownerType === "supplier_statement"
+          ? "suppliers"
           : "orders",
         1
       )

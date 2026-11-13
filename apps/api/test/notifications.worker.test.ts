@@ -167,7 +167,7 @@ describe("notifications beyond the app", () => {
     owner = await person("notify-owner", "Klok B.V.")
     workspace = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
     const p = await prefs(owner.cookie)
-    expect(Object.keys(p.events)).toHaveLength(30)
+    expect(Object.keys(p.events)).toHaveLength(31)
     expect(p.events["team.invite"]).toEqual({ app: true, email: true, push: false, slack: false, onlyMine: false })
     expect(p).toMatchObject({
       quiet: { on: true, from: "22:00", to: "07:00", weekend: false },

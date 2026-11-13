@@ -185,6 +185,8 @@ export const AppLayer = Transports.pipe(
       LabelsChoice,
       // …and the files bucket, for downloads (M8.5).
       FileStoreR2,
+      // …and Browser Rendering, for the dev route's close of the supplier statements (M13 step 6).
+      DocumentsChoice,
       ConnectionGateLive,
       IngestQueueLive,
       // …and the first analysis's Workflow (M6.5).

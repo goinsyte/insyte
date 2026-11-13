@@ -275,6 +275,11 @@ export default Alchemy.Stack(
           className: "WebhookDeliveryWorkflow",
           workflowName: `insyte-webhook-delivery-${stage}`
         }),
+        // The supplier statements' monthly close (M13 step 6), hosted by this Worker (`MonthlyCloseWorkflow`); one per stage.
+        MONTHLY_CLOSE: Cloudflare.Workflow("MonthlyClose", {
+          className: "MonthlyCloseWorkflow",
+          workflowName: `insyte-monthly-close-${stage}`
+        }),
         ENVIRONMENT: environment,
         // Where `Main.ts` serves `/v1` and nothing else.
         PUBLIC_API_HOST: `insyte-api-${stage}.${WORKERS_SUBDOMAIN}`,

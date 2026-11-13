@@ -65,6 +65,8 @@
     { "binding": "AUTOMATION_RUN", "name": "insyte-automation-run", "class_name": "AutomationRunWorkflow" },
     // A webhook delivery's attempts (M19.4): one per delivery, sleeping out the retry schedule.
     { "binding": "WEBHOOK_DELIVERY", "name": "insyte-webhook-delivery", "class_name": "WebhookDeliveryWorkflow" },
+    // The supplier statements' monthly close (M13 step 6), from the cron on the 1st.
+    { "binding": "MONTHLY_CLOSE", "name": "insyte-monthly-close", "class_name": "MonthlyCloseWorkflow" },
   ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] },

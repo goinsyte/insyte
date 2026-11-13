@@ -53,6 +53,24 @@ const disputed = (data: Record<string, unknown>) =>
     Number(data["amountMinor"] ?? 0) / 100
   )
 
+/** "november 2026" for `2026-11`; the input as it is when it is not a month. */
+export const monthName = (month: string) =>
+  /^\d{4}-\d{2}$/.test(month)
+    ? new Intl.DateTimeFormat("nl-NL", { month: "long", year: "numeric", timeZone: "UTC" })
+      .format(new Date(`${month}-15T12:00:00Z`))
+    : month
+
+/** "15 december" for `2026-12-15`. */
+export const dayName = (day: string) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(day)
+    ? new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "long", timeZone: "UTC" })
+      .format(new Date(`${day}T12:00:00Z`))
+    : day
+
+/** Minor units in a currency, as the console writes money. */
+export const money = (minor: number, currency: string) =>
+  new Intl.NumberFormat("nl-NL", { style: "currency", currency }).format(minor / 100)
+
 export const wordsOf = (note: NoteFacts): NoteWords => {
   const { data } = note
   const who = note.actor ?? "Iemand"
@@ -209,6 +227,17 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
         actionLabel: "Cursus openen",
         path: `/courses/learn/${id}`
       }
+    case "supplier.statement": {
+      const count = Number(data["count"] ?? 0)
+      return {
+        title: `De afrekeningen van ${monthName(text(data["month"]))} staan klaar`,
+        detail: `${count} ${count === 1 ? "leverancier" : "leveranciers"}, samen ${
+          money(Number(data["totalMinor"] ?? 0), text(data["currency"]) || "EUR")
+        }. Betaling op ${dayName(text(data["payDay"]))}.`,
+        actionLabel: "Leveranciers openen",
+        path: "/suppliers"
+      }
+    }
     default:
       return { title: "Er is een nieuwe melding voor je", actionLabel: "Meldingen openen", path: "/notifications" }
   }

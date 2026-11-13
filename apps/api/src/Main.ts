@@ -24,6 +24,7 @@ import {
 import { withRequestDb } from "./platform/RequestDb.ts"
 import { retentionSweep } from "./platform/Retention.ts"
 import { trashSweep } from "./platform/TrashSweep.ts"
+import { startMonthlyClose } from "./workflows/MonthlyClose.ts"
 
 // The Durable Object classes this Worker hosts; infra and `wrangler.jsonc` bind them by these names.
 export { RateLimiter } from "./platform/RateLimiter.ts"
@@ -38,6 +39,7 @@ export { EvidencePackWorkflow } from "./workflows/EvidencePack.ts"
 export { FirstAnalysisWorkflow } from "./workflows/FirstAnalysis.ts"
 export { ForwardSendWorkflow } from "./workflows/ForwardSend.ts"
 export { MarketingSyncWorkflow } from "./workflows/MarketingSync.ts"
+export { MonthlyCloseWorkflow } from "./workflows/MonthlyClose.ts"
 export { ReturnLabelWorkflow } from "./workflows/ReturnLabel.ts"
 // A flow's run (M12 step 3).
 export { AutomationRunWorkflow } from "./workflows/AutomationRun.ts"
@@ -98,7 +100,8 @@ export default {
    * (M19.4); every fifteenth, the stores' reconcile (M6.3), the tracking sweep (M8.4), Start's queue (M10.1), the
    * daily facts (M10.4, at 02:00 UTC their nightly pass), the members' daily digests (M11.5) and the webhook
    * deliveries past 30 days (M19.4); on the hour, the chargeback deadline reminders (M13 step 3); at 03:00 UTC the
-   * Prullenbak's sweep (M17); at 04:00 UTC the day's ad spend from every connected ad account (M13 step 5). */
+   * Prullenbak's sweep (M17) and, on the 1st, the supplier statements' monthly close (M13 step 6); at 04:00 UTC the
+   * day's ad spend from every connected ad account (M13 step 5). */
   scheduled(controller, _env, ctx) {
     ctx.waitUntil(background.runPromise(withRequestDb(sweep())).finally(() => Telemetry.flush()))
     ctx.waitUntil(background.runPromise(withRequestDb(notifySweep())).finally(() => Telemetry.flush()))
@@ -127,6 +130,10 @@ export default {
       ctx.waitUntil(background.runPromise(withRequestDb(retentionSweep(at))).finally(() => Telemetry.flush()))
       // Webhook deliveries older than 30 days (M19.4).
       ctx.waitUntil(background.runPromise(withRequestDb(webhooksSweep())).finally(() => Telemetry.flush()))
+      // The supplier statements' monthly close (M13 step 6), `0 3 1 * *`: inside this cron, as an account has few.
+      if (at.getUTCDate() === 1 && at.getUTCHours() === 3 && at.getUTCMinutes() === 0) {
+        ctx.waitUntil(startMonthlyClose(at))
+      }
     }
   }
 } satisfies ExportedHandler<Env, EventsMessage | IngestMessage>

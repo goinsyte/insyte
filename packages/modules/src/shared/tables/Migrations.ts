@@ -59,6 +59,7 @@ import courses from "./migrations/0065_courses.ts"
 import marketplace from "./migrations/0066_marketplace.ts"
 import live from "./migrations/0067_live.ts"
 import sheets from "./migrations/0068_sheets.ts"
+import supplierStatements from "./migrations/0069_statements.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -127,5 +128,6 @@ export const Migrations = {
   "0065_courses": courses,
   "0066_marketplace": marketplace,
   "0067_live": live,
-  "0068_sheets": sheets
+  "0068_sheets": sheets,
+  "0069_statements": supplierStatements
 }

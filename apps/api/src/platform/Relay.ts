@@ -186,6 +186,8 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
     case "chargeback.deadline_near":
     // Gathering a pack is Insyte's work, not a person's moment.
     case "chargeback.pack_requested":
+    // The monthly close (M13 step 6) is Insyte's, not a person's moment.
+    case "statements.closed":
     // The delay mail is counted as the filing that put it in line.
     case "order.delay_mail":
       return undefined
@@ -469,7 +471,8 @@ const NOTIFIED = new Set<OutboxEvent["type"]>([
   "webhook.disabled",
   "course.assigned",
   "course.question",
-  "course.answered"
+  "course.answered",
+  "statements.closed"
 ])
 
 const SINKS: ReadonlyArray<Sink> = [

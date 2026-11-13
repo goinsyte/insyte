@@ -826,6 +826,33 @@ const make = Effect.gen(function*() {
       })),
       Effect.catchTag("Forbidden", scopeMissing)
     ),
+    supplierStatements: (id: string) =>
+      suppliers.statements({ supplierId: id }).pipe(
+        Effect.map((list) => ({
+          supplier: list.supplier,
+          data: list.rows.map((r) => ({
+            id: r.id,
+            month: r.month,
+            status: r.status,
+            currency: r.currency,
+            shipped_minor: r.shippedMinor,
+            corrections_minor: r.correctionsMinor,
+            total_minor: r.totalMinor,
+            shipped_lines: r.shippedLines,
+            missing_lines: r.missingLines,
+            pay_day: r.payDay,
+            closed_at: iso(r.closedAt),
+            paid_at: iso(r.paidAt),
+            paid_reference: r.paidReference
+          })),
+          summary: {
+            currency: list.summary.currency,
+            paid_ytd_minor: list.summary.paidYtdMinor,
+            pay_day: list.summary.payDay
+          }
+        })),
+        Effect.catchTags({ Forbidden: scopeMissing, NotFound: notFound })
+      ),
     tracking: (id: string) =>
       tracking.forOrder(id).pipe(
         Effect.map((t) => ({

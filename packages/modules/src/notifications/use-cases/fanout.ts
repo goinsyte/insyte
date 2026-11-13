@@ -28,6 +28,7 @@ import { connectionOf } from "./slack.ts"
  * - `course.assigned`: who a course was published for, or reminded of it, hears of it while it is live and they have
  *   not passed it;
  * - `course.question` / `course.answered`: a course's maker hears of a question on it; the asker of the answer.
+ * - `statements.closed`: whoever may mark supplier statements paid hears the month's are ready.
  *
  * A member deactivated or removed hears nothing. Who has "Alleen als het mij betreft" on for the kind hears only of
  * what concerns them directly (they were put on it, named in it, asked for it or sent the invitation). The in-app switch
@@ -400,6 +401,32 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             title: q.title,
             questionId: event.questionId,
             comment: (event.type === "course.question" ? q.text : q.answer ?? "").slice(0, 280)
+          }
+        }
+      }
+      case "statements.closed": {
+        // The month's supplier statements are closed (M13 step 6): whoever may mark them paid hears they are ready.
+        const [sum] = yield* sql<{ count: number; totalMinor: string; currency: string; payDay: string }>`
+          select count(*)::int as count, coalesce(sum(total_minor), 0) as total_minor,
+                 trim(min(currency)) as currency, to_char(min(pay_day), 'YYYY-MM-DD') as pay_day
+          from supplier_statements where id in ${sql.in([...event.statementIds, ""])}`
+        if (sum === undefined || sum.count === 0) return undefined
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'suppliers')::int, 0) >= 3)`
+        return {
+          kind: "supplier.statement",
+          recipients: recipients.map((r) => r.id),
+          subjectType: "supplier_statement",
+          subjectId: event.statementIds[0] ?? "",
+          actor: null,
+          data: {
+            month: event.month,
+            count: sum.count,
+            totalMinor: Number(sum.totalMinor),
+            currency: sum.currency,
+            payDay: sum.payDay
           }
         }
       }
