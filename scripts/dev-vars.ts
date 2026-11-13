@@ -23,7 +23,11 @@ const NAMES = [
   "VAPID_PRIVATE_KEY",
   "VAPID_SUBJECT",
   "SLACK_CLIENT_ID",
-  "SLACK_CLIENT_SECRET"
+  "SLACK_CLIENT_SECRET",
+  "ANTHROPIC_API_KEY",
+  "AI_GATEWAY_ID",
+  "AI_GATEWAY_TOKEN",
+  "AI_ACCOUNT_ID"
 ]
 
 const source = process.env["INSYTE_ENV_FILE"] ?? join(homedir(), "vantion/insyte/.env.local")

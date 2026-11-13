@@ -69,6 +69,14 @@ declare global {
       readonly SLACK_CLIENT_ID?: string
       readonly SLACK_CLIENT_SECRET?: string
       readonly SLACK_ADAPTER?: string
+      /**
+       * Insyte AI (M15 step 1): Claude through the stage's AI Gateway (account, gateway, the Anthropic key, the
+       * gateway's token where it is authenticated). Without the first three, the fake answers.
+       */
+      readonly ANTHROPIC_API_KEY?: string
+      readonly AI_GATEWAY_ID?: string
+      readonly AI_ACCOUNT_ID?: string
+      readonly AI_GATEWAY_TOKEN?: string
       /** Shopify's webhooks (M6.3): received deliveries' ids, applied by the jobs Worker's `queue` handler. */
       readonly INGEST: Queue<IngestMessage>
       /** Lines per backfill page, 2000 by default; the worker tests read small pages. */
