@@ -1,7 +1,6 @@
-import { getRouteApi, Link } from "@tanstack/react-router"
+import { Link, useSearch } from "@tanstack/react-router"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useMemo, useRef, useState } from "react"
-import { toast } from "sonner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/table"
 import {
   ChevronRight,
@@ -19,22 +18,25 @@ import {
 } from "../../icons"
 import { Gate } from "../access/gate"
 import { ChipGroup } from "../common/form-dialog"
-import { exportCsv } from "../lib/bulk"
-import { endpointState, health } from "../lib/developer"
 import { formatCurrency, formatDateTime, formatRelative } from "../lib/format"
 import type { Order } from "../lib/types/domain"
-import { undoable } from "../lib/undo"
 import { cn } from "../lib/utils"
 import { BrandLogo } from "../marketplace/brand-logos"
 import { OrderStatusBadge } from "../orders/order-status-badge"
 import { BandedList, BandedRow, SettingCard, StatusPill } from "../settings/setting-card"
-import { useDeveloper } from "../stores/developer-store"
-import { type ImportBatch, parseCsv, useImports } from "../stores/import-store"
-import { useWorkspace } from "../stores/workspace-store"
 import { DataTable } from "../table/data-table"
-import { VIEWS } from "./data-search"
+import type { VIEWS } from "./data-search"
+import {
+  type DataExport,
+  type DataImport,
+  EXPORT_COLUMNS,
+  FULFILMENT_LABEL,
+  type Maybe,
+  type OrderColumn,
+  PAYMENT_LABEL,
+  useDataSource
+} from "./data-source"
 
-const Route = getRouteApi("/_admin/data")
 type View = (typeof VIEWS)[number]
 
 const COPY: Record<View | "overview", { title: string; body: string }> = {
@@ -49,7 +51,7 @@ const COPY: Record<View | "overview", { title: string; body: string }> = {
   },
   import: {
     title: "Importeren",
-    body: "Sleep een CSV hierheen, controleer de eerste rijen en importeer. De rijen blijven in deze browser."
+    body: "Sleep een CSV hierheen, controleer de eerste rijen en importeer."
   },
   export: {
     title: "Exporteren",
@@ -69,8 +71,9 @@ const COPY: Record<View | "overview", { title: string; body: string }> = {
   }
 }
 
+/** `/data`, with the view its `?view=` names, over the host's `DataSource`. */
 export function DataPage() {
-  const { view } = Route.useSearch()
+  const { view } = useSearch({ strict: false }) as { view?: View | undefined }
   const copy = COPY[view ?? "overview"]
   return (
     <div className="flex flex-col gap-6 px-5 py-4">
@@ -138,22 +141,19 @@ function ViewLink({
 }
 
 function OverviewView() {
-  const orders = useWorkspace((s) => s.orders)
-  const stores = useWorkspace((s) => s.stores)
-  const integrations = useWorkspace((s) => s.integrations)
-  const batches = useImports((s) => s.batches)
-  const connected = integrations.filter((i) => i.status === "connected").length
-  const imported = batches.reduce((n, b) => n + b.rows.length, 0)
-  const liveStores = stores.filter((s) => s.status === "connected").length
+  const { counts } = useDataSource()
+  const connected = counts.integrations.connected
+  const imported = counts.importedRows
+  const liveStores = counts.stores.live
 
   return (
     <div className="flex flex-col gap-8">
       <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
         {[
-          ["Bestellingen", orders.length],
+          ["Bestellingen", counts.orders],
           ["Geïmporteerde rijen", imported],
-          ["Winkels die synchroniseren", `${liveStores} van ${stores.length}`],
-          ["Koppelingen", `${connected} van ${integrations.length}`]
+          ["Winkels die synchroniseren", `${liveStores} van ${counts.stores.total}`],
+          ["Koppelingen", `${connected} van ${counts.integrations.total}`]
         ].map(([label, value]) => (
           <div key={label} className="flex flex-col gap-1">
             <dt className="text-sm text-ink-3">{label}</dt>
@@ -169,14 +169,14 @@ function OverviewView() {
             view="sheet"
             icon={Grid2x2}
             title="Tabel"
-            detail={`${orders.length} bestellingen als rijen`}
+            detail={`${counts.orders.toLocaleString("nl-NL")} bestellingen als rijen`}
           />
           <ViewLink
             view="import"
             icon={Upload}
             title="Importeren"
-            detail={batches.length
-              ? `${batches.length} ${batches.length === 1 ? "bestand" : "bestanden"} geïmporteerd deze sessie`
+            detail={counts.imports
+              ? `${counts.imports} ${counts.imports === 1 ? "bestand" : "bestanden"} geïmporteerd`
               : "Een CSV binnenhalen"}
           />
           <ViewLink
@@ -214,30 +214,6 @@ function OverviewView() {
 }
 
 /* ── Sheet ─────────────────────────────────────────────────────────────────────────────────── */
-
-const STATUS_LABEL: Record<string, string> = {
-  placed: "Geplaatst",
-  paid: "Betaald",
-  at_supplier: "Bij leverancier",
-  shipped: "Verzonden",
-  delivered: "Bezorgd",
-  refunded: "Terugbetaald",
-  cancelled: "Geannuleerd"
-}
-
-const PAYMENT_LABEL: Record<Order["payment_status"], string> = {
-  pending: "In afwachting",
-  paid: "Betaald",
-  refunded: "Terugbetaald",
-  voided: "Vervallen"
-}
-
-const FULFILMENT_LABEL: Record<Order["fulfillment_status"], string> = {
-  unfulfilled: "Niet afgehandeld",
-  partial: "Deels afgehandeld",
-  fulfilled: "Afgehandeld",
-  returned: "Retour"
-}
 
 const ORDER_COLUMNS: Array<ColumnDef<Order, unknown>> = [
   {
@@ -295,49 +271,40 @@ const ORDER_COLUMNS: Array<ColumnDef<Order, unknown>> = [
   }
 ]
 
-function batchColumns(batch: ImportBatch): Array<ColumnDef<string[], unknown>> {
-  return batch.header.map((h, i) => ({
+function importColumns(file: DataImport): Array<ColumnDef<Array<string>, unknown>> {
+  return file.header.map((h, i) => ({
     id: `c${i}`,
-    accessorFn: (r: string[]) => r[i] ?? "",
+    accessorFn: (r: Array<string>) => r[i] ?? "",
     header: h || `Kolom ${i + 1}`
   }))
 }
 
 function SheetView() {
-  const orders = useWorkspace((s) => s.orders)
-  const batches = useImports((s) => s.batches)
+  const { orders, imports } = useDataSource()
+  const rows = useMemo(() => [...orders], [orders])
   const [source, setSource] = useState("orders")
-  const batch = batches.find((b) => b.id === source)
-  const columns = useMemo(() => (batch ? batchColumns(batch) : []), [batch])
+  const file = imports.find((b) => b.id === source)
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      {batches.length > 0 ?
+      {imports.length > 0 ?
         (
           <SourceTabs
-            value={batch ? batch.id : "orders"}
+            value={file ? file.id : "orders"}
             onChange={setSource}
             options={[
               { id: "orders", label: "Bestellingen" },
-              ...batches.map((b) => ({ id: b.id, label: b.fileName }))
+              ...imports.map((b) => ({ id: b.id, label: b.fileName }))
             ]}
           />
         ) :
         null}
-      {batch ?
-        (
-          <DataTable
-            key={batch.id}
-            columns={columns}
-            data={batch.rows}
-            searchPlaceholder={`Zoeken in ${batch.fileName}`}
-            noun={["imported row", "imported rows"]}
-          />
-        ) :
+      {file ?
+        <ImportTable key={file.id} file={file} /> :
         (
           <DataTable
             columns={ORDER_COLUMNS}
-            data={orders}
+            data={rows}
             searchPlaceholder="Zoek op bestelling, klant, e-mail"
             initialSorting={[{ id: "placed", desc: true }]}
             noun={["sheet row", "sheet rows"]}
@@ -345,6 +312,29 @@ function SheetView() {
           />
         )}
     </div>
+  )
+}
+
+/** An imported file's rows, once its host has them. */
+function ImportTable({ file }: { file: DataImport }) {
+  const { useImportRows } = useDataSource()
+  const read = useImportRows(file.id)
+  const rows = useMemo(() => (read === undefined ? undefined : read.map((r) => [...r])), [read])
+  const columns = useMemo(() => importColumns(file), [file])
+  if (rows === undefined) {
+    return (
+      <p className="flex items-center gap-2 text-base text-ink-3">
+        <Loader className="size-3.5 animate-spin" /> {file.fileName} laden…
+      </p>
+    )
+  }
+  return (
+    <DataTable
+      columns={columns}
+      data={rows}
+      searchPlaceholder={`Zoeken in ${file.fileName}`}
+      noun={["imported row", "imported rows"]}
+    />
   )
 }
 
@@ -380,20 +370,12 @@ function SourceTabs({
 
 /* ── Import ────────────────────────────────────────────────────────────────────────────────── */
 
-const SAMPLE_CSV = `sku,title,stock,price
-NW-TEE-001,Heavyweight tee · black,142,29.00
-NW-TEE-002,Heavyweight tee · bone,88,29.00
-NW-HOOD-010,Loopback hoodie · navy,36,74.00
-NW-CAP-004,"Six-panel cap, washed",210,24.00
-NW-SOCK-003,Rib socks · 3 pack,4,18.00
-`
-
 function PreviewTable({
   header,
   rows
 }: {
-  header: string[]
-  rows: string[][]
+  header: ReadonlyArray<string>
+  rows: ReadonlyArray<ReadonlyArray<string | number>>
 }) {
   return (
     <div className="overflow-hidden rounded-xl bg-paper">
@@ -427,40 +409,17 @@ function PreviewTable({
 }
 
 function ImportView() {
-  const batches = useImports((s) => s.batches)
-  const addBatch = useImports((s) => s.addBatch)
-  const removeBatch = useImports((s) => s.removeBatch)
+  const { imports, pending, take, sample, cancel, commit, remove } = useDataSource()
   const input = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
-  const [pending, setPending] = useState<
-    {
-      fileName: string
-      header: string[]
-      rows: string[][]
-    } | null
-  >(null)
 
-  function read(fileName: string, text: string) {
-    const parsed = parseCsv(text)
-    if (parsed.header.length === 0 || parsed.rows.length === 0) {
-      toast.error(`${fileName} heeft geen rijen om te importeren`)
-      return
-    }
-    setPending({ fileName, ...parsed })
-  }
-
-  async function take(file: File | undefined) {
-    if (!file) return
-    if (!/\.csv$/i.test(file.name) && file.type !== "text/csv") {
-      toast.error("Hier kun je alleen CSV-bestanden importeren")
-      return
-    }
-    read(file.name, await file.text())
+  const pick = (file: File | undefined) => {
+    if (file) take(file)
   }
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      {pending ?
+      {pending?.state === "ready" ?
         (
           <div className="flex min-w-0 flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -469,38 +428,46 @@ function ImportView() {
                   {pending.fileName}
                 </span>
                 <span className="text-sm text-ink-3 tabular-nums">
-                  {pending.rows.length.toLocaleString("nl-NL")} rijen · {pending.header.length} kolommen · de eerste
-                  {" "}
-                  {Math.min(8, pending.rows.length)} getoond
+                  {pending.rowCount.toLocaleString("nl-NL")} rijen · {pending.header.length} kolommen · de eerste{" "}
+                  {Math.min(8, pending.rowCount)} getoond
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setPending(null)}
-                  className="flex h-8 items-center rounded-md px-3 font-medium text-base text-ink-2 transition-colors hover:bg-ink/6 hover:text-ink"
+                  onClick={cancel}
+                  disabled={pending.busy}
+                  className="flex h-8 items-center rounded-md px-3 font-medium text-base text-ink-2 transition-colors hover:bg-ink/6 hover:text-ink disabled:pointer-events-none disabled:opacity-50"
                 >
                   Annuleren
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    const batch = addBatch(pending)
-                    setPending(null)
-                    undoable(
-                      `${batch.rows.length.toLocaleString("nl-NL")} rijen geïmporteerd uit ${batch.fileName}`,
-                      () => removeBatch(batch.id),
-                      "Ze staan nu in Tabel."
-                    )
-                  }}
-                  className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3.5 font-medium text-base text-mesh-ink leading-none shadow-primary transition-colors hover:bg-abyss-2"
+                  onClick={commit}
+                  disabled={pending.busy}
+                  className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3.5 font-medium text-base text-mesh-ink leading-none shadow-primary transition-colors hover:bg-abyss-2 disabled:pointer-events-none disabled:opacity-50"
                 >
                   <Upload className="size-3.5" strokeWidth={1.75} />
-                  {pending.rows.length.toLocaleString("nl-NL")} rijen importeren
+                  {pending.rowCount.toLocaleString("nl-NL")} rijen importeren
                 </button>
               </div>
             </div>
-            <PreviewTable header={pending.header} rows={pending.rows.slice(0, 8)} />
+            <PreviewTable header={pending.header} rows={pending.firstRows.slice(0, 8)} />
+          </div>
+        ) :
+        pending?.state === "reading" ?
+        (
+          <div
+            role="status"
+            className="hatch flex flex-col items-center justify-center gap-3 rounded-xl bg-paper px-10 py-16 text-center"
+          >
+            <span className="flex size-12 items-center justify-center rounded-xl bg-mist">
+              <Loader className="size-6 animate-spin text-ink-2" strokeWidth={1.75} />
+            </span>
+            <span className="font-medium text-base text-ink">{pending.fileName} wordt gelezen…</span>
+            <span className="max-w-[420px] text-base text-ink-3 leading-[1.6]">
+              Zo zie je de eerste rijen.
+            </span>
           </div>
         ) :
         (
@@ -515,7 +482,7 @@ function ImportView() {
             onDrop={(e) => {
               e.preventDefault()
               setOver(false)
-              void take(e.dataTransfer.files[0])
+              pick(e.dataTransfer.files[0])
             }}
             className={cn(
               "hatch flex flex-col items-center justify-center gap-3 rounded-xl px-10 py-16 text-center transition-colors",
@@ -539,29 +506,29 @@ function ImportView() {
         accept=".csv,text/csv"
         className="hidden"
         onChange={(e) => {
-          void take(e.target.files?.[0])
+          pick(e.target.files?.[0])
           e.target.value = ""
         }}
       />
-      {pending ? null : (
+      {pending || sample === undefined ? null : (
         <button
           type="button"
-          onClick={() => read("inventory-sample.csv", SAMPLE_CSV)}
+          onClick={sample}
           className="self-start font-medium text-base text-arc-ink underline underline-offset-2"
         >
           Geen bestand bij de hand? Gebruik een voorbeeld
         </button>
       )}
 
-      {batches.length > 0 ?
+      {imports.length > 0 ?
         (
-          <SettingCard title="Geïmporteerd deze sessie" icon={Upload}>
+          <SettingCard title="Geïmporteerd" icon={Upload}>
             <BandedList>
-              {batches.map((b) => (
+              {imports.map((b) => (
                 <BandedRow
                   key={b.id}
                   title={b.fileName}
-                  detail={`${b.rows.length.toLocaleString("nl-NL")} rijen · ${b.header.length} kolommen · ${
+                  detail={`${b.rowCount.toLocaleString("nl-NL")} rijen · ${b.header.length} kolommen · ${
                     formatRelative(b.at)
                   }`}
                   trailing={
@@ -573,16 +540,15 @@ function ImportView() {
                       >
                         Openen in Tabel
                       </Link>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const restore = removeBatch(b.id)
-                          if (restore) undoable(`${b.fileName} verwijderd`, restore)
-                        }}
-                        className="flex h-7 items-center rounded-md px-2.5 font-medium text-ink-2 text-xs transition-colors hover:bg-signal-red-bg hover:text-signal-red"
-                      >
-                        Verwijderen
-                      </button>
+                      <Gate perm="data" arg={2}>
+                        <button
+                          type="button"
+                          onClick={() => remove(b)}
+                          className="flex h-7 items-center rounded-md px-2.5 font-medium text-ink-2 text-xs transition-colors hover:bg-signal-red-bg hover:text-signal-red"
+                        >
+                          Verwijderen
+                        </button>
+                      </Gate>
                     </>
                   }
                 />
@@ -597,101 +563,72 @@ function ImportView() {
 
 /* ── Export ────────────────────────────────────────────────────────────────────────────────── */
 
-type OrderColumn =
-  | "number"
-  | "customer"
-  | "email"
-  | "total"
-  | "currency"
-  | "status"
-  | "payment"
-  | "fulfillment"
-  | "items"
-  | "tracking"
-  | "placed"
-
-const EXPORT_COLUMNS: ReadonlyArray<{
-  id: OrderColumn
-  label: string
-  read: (o: Order) => string | number
-}> = [
-  { id: "number", label: "Bestelling", read: (o) => o.number },
-  { id: "customer", label: "Klant", read: (o) => o.customer_name },
-  { id: "email", label: "E-mail", read: (o) => o.customer_email },
-  { id: "total", label: "Totaal", read: (o) => o.total },
-  { id: "currency", label: "Valuta", read: (o) => o.currency },
-  { id: "status", label: "Status", read: (o) => STATUS_LABEL[o.status] ?? o.status },
-  { id: "payment", label: "Betaling", read: (o) => PAYMENT_LABEL[o.payment_status] },
-  { id: "fulfillment", label: "Afhandeling", read: (o) => FULFILMENT_LABEL[o.fulfillment_status] },
-  { id: "items", label: "Artikelen", read: (o) => o.line_items.length },
-  { id: "tracking", label: "Track & trace", read: (o) => o.tracking_number ?? "" },
-  { id: "placed", label: "Geplaatst", read: (o) => o.created_at }
-]
+const toggle = <T extends string>(list: ReadonlyArray<T>, id: T) =>
+  list.includes(id) ? list.filter((x) => x !== id) : [...list, id]
 
 function ExportView() {
-  const orders = useWorkspace((s) => s.orders)
-  const batches = useImports((s) => s.batches)
+  const { orders, imports, counts, useImportRows, exportFile, exporting, exports } = useDataSource()
   const [source, setSource] = useState("orders")
-  const batch = batches.find((b) => b.id === source)
-  const [picked, setPicked] = useState<OrderColumn[]>([
+  const file = imports.find((b) => b.id === source)
+  const fileRows = useImportRows(file?.id ?? null)
+  const [picked, setPicked] = useState<Array<OrderColumn>>([
     "number",
     "customer",
     "total",
     "status",
     "placed"
   ])
-  const [pickedImport, setPickedImport] = useState<Record<string, string[]>>(
+  const [pickedImport, setPickedImport] = useState<Record<string, Array<string>>>(
     {}
   )
 
   // An imported file exports its own columns, all of them until some are turned off.
-  const importCols = batch
-    ? (pickedImport[batch.id] ?? batch.header.map((_, i) => String(i)))
+  const importCols = file
+    ? (pickedImport[file.id] ?? file.header.map((_, i) => String(i)))
     : []
 
-  const { header, rows } = useMemo(() => {
-    if (batch) {
+  const { header, rows, count } = useMemo(() => {
+    if (file) {
       const idx = importCols.map(Number)
       return {
-        header: idx.map((i) => batch.header[i] ?? `Kolom ${i + 1}`),
-        rows: batch.rows.map((r) => idx.map((i) => r[i] ?? ""))
+        header: idx.map((i) => file.header[i] ?? `Kolom ${i + 1}`),
+        rows: (fileRows ?? []).slice(0, 5).map((r) => idx.map((i) => r[i] ?? "")),
+        count: file.rowCount
       }
     }
     const cols = EXPORT_COLUMNS.filter((c) => picked.includes(c.id))
     return {
       header: cols.map((c) => c.label),
-      rows: orders.map((o) => cols.map((c) => c.read(o)))
+      rows: orders.slice(0, 5).map((o) => cols.map((c) => c.read(o))),
+      count: counts.orders
     }
-  }, [batch, importCols, picked, orders])
-
-  const toggle = <T extends string>(list: T[], id: T) =>
-    list.includes(id) ? list.filter((x) => x !== id) : [...list, id]
+  }, [file, fileRows, importCols, picked, orders, counts.orders])
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      {batches.length > 0 ?
+      {imports.length > 0 ?
         (
           <SourceTabs
-            value={batch ? batch.id : "orders"}
+            value={file ? file.id : "orders"}
             onChange={setSource}
             options={[
               { id: "orders", label: "Bestellingen" },
-              ...batches.map((b) => ({ id: b.id, label: b.fileName }))
+              ...imports.map((b) => ({ id: b.id, label: b.fileName }))
             ]}
           />
         ) :
         null}
       <div className="flex flex-col gap-2">
         <span className="font-medium text-sm text-ink-3">Kolommen</span>
-        {batch ?
+        {file ?
           (
             <ChipGroup
               value={importCols}
-              options={batch.header.map((h, i) => ({
+              options={file.header.map((h, i) => ({
                 id: String(i),
                 label: h || `Kolom ${i + 1}`
               }))}
-              onToggle={(id) => setPickedImport((p) => ({ ...p, [batch.id]: toggle(importCols, id) }))}
+              onToggle={(id) => setPickedImport((p) => ({ ...p, [file.id]: toggle(importCols, id) }))}
             />
           ) :
           (
@@ -704,21 +641,22 @@ function ExportView() {
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="text-base text-ink-2 tabular-nums">
-          {rows.length.toLocaleString("nl-NL")} rijen · {header.length} kolommen
+          {count.toLocaleString("nl-NL")} rijen · {header.length} kolommen
         </span>
         <Gate perm="data.export">
           <button
             type="button"
-            disabled={header.length === 0 || rows.length === 0}
+            disabled={header.length === 0 || count === 0 || exporting}
             onClick={() =>
-              exportCsv(
-                batch ? batch.fileName.replace(/\.csv$/i, "-export") : "orders-export",
-                header,
-                rows
-              )}
+              exportFile({
+                source: file ? { import: file.id } : "orders",
+                columns: file ? importCols : picked
+              })}
             className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3.5 font-medium text-base text-mesh-ink leading-none shadow-primary transition-colors hover:bg-abyss-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <Download className="size-3.5" strokeWidth={1.75} />
+            {exporting ?
+              <Loader className="size-3.5 animate-spin" strokeWidth={1.75} /> :
+              <Download className="size-3.5" strokeWidth={1.75} />}
             CSV downloaden
           </button>
         </Gate>
@@ -727,24 +665,79 @@ function ExportView() {
         (
           <PreviewTable
             header={header}
-            rows={rows.slice(0, 5).map((r) => r.map(String))}
+            rows={rows.map((r) => r.map(String))}
           />
         ) :
         <p className="text-base text-ink-3">Kies minstens één kolom.</p>}
+      {exports.length > 0 ? <RecentExports exports={exports} /> : null}
     </div>
+  )
+}
+
+const EXPORT_STATE: Record<DataExport["state"], { tone: "success" | "info" | "danger" | "neutral"; label: string }> = {
+  queued: { tone: "info", label: "In de wachtrij" },
+  running: { tone: "info", label: "Wordt geschreven" },
+  ready: { tone: "success", label: "Klaar" },
+  failed: { tone: "danger", label: "Mislukt" },
+  expired: { tone: "neutral", label: "Verlopen" }
+}
+
+/** The member's exports: each file downloads for seven days. */
+function RecentExports({ exports }: { exports: ReadonlyArray<DataExport> }) {
+  return (
+    <SettingCard title="Recente exports" icon={Download}>
+      <BandedList>
+        {exports.map((e) => (
+          <BandedRow
+            key={e.id}
+            title={e.fileName}
+            detail={e.state === "running" || e.state === "queued"
+              ? `${e.done.toLocaleString("nl-NL")}${
+                e.total === null ? "" : ` van ${e.total.toLocaleString("nl-NL")}`
+              } rijen · gevraagd ${formatRelative(e.at)}`
+              : e.state === "ready" && e.expiresAt !== null
+              ? `${e.done.toLocaleString("nl-NL")} rijen · te downloaden tot ${formatDateTime(e.expiresAt)}`
+              : `${e.done.toLocaleString("nl-NL")} rijen · gevraagd ${formatRelative(e.at)}`}
+            trailing={
+              <>
+                <StatusPill tone={EXPORT_STATE[e.state].tone} label={EXPORT_STATE[e.state].label} />
+                {e.download === undefined ? null : (
+                  <button
+                    type="button"
+                    onClick={e.download}
+                    className="flex h-7 items-center gap-1.5 rounded-md px-2.5 font-medium text-ink-2 text-xs transition-colors hover:bg-ink/6 hover:text-ink"
+                  >
+                    <Download className="size-3.5" strokeWidth={1.75} />
+                    Downloaden
+                  </button>
+                )}
+              </>
+            }
+          />
+        ))}
+      </BandedList>
+    </SettingCard>
   )
 }
 
 /* ── Integrations ──────────────────────────────────────────────────────────────────────────── */
 
+/** A host's action as a button: done, or greyed out with why. */
+function act(action: Maybe): { onClick?: () => void; disabled?: boolean; title?: string } {
+  return typeof action === "function"
+    ? { onClick: () => void action() }
+    : { disabled: true, title: action.reason }
+}
+
 function IntegrationsView() {
-  const integrations = useWorkspace((s) => s.integrations)
-  const sync = useWorkspace((s) => s.syncIntegration)
+  const { integrations, manageIntegrations } = useDataSource()
   return (
     <SettingCard
       title={`Gekoppeld · ${integrations.filter((i) => i.status === "connected").length} van ${integrations.length}`}
       icon={Link2}
-      action={<SettingsLink to="/settings/integrations">Beheren in instellingen</SettingsLink>}
+      action={manageIntegrations ?
+        <SettingsLink to="/settings/integrations">Beheren in instellingen</SettingsLink> :
+        undefined}
     >
       <BandedList>
         {integrations.map((it) => (
@@ -762,11 +755,8 @@ function IntegrationsView() {
                   <button
                     type="button"
                     aria-label={`${it.name} nu synchroniseren`}
-                    onClick={async () => {
-                      await sync(it.key)
-                      toast.success(`${it.name} gesynchroniseerd`)
-                    }}
-                    className="flex size-7 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-ink/6 hover:text-ink"
+                    {...act(it.sync)}
+                    className="flex size-7 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-ink/6 hover:text-ink disabled:pointer-events-none disabled:opacity-50"
                   >
                     <RefreshCcw className="size-3.5" />
                   </button>
@@ -778,11 +768,13 @@ function IntegrationsView() {
                   <Loader className="size-3.5 animate-spin" /> Synchroniseren…
                 </span>
               ) :
+              manageIntegrations ?
               (
                 <SettingsLink to="/settings/integrations">
                   {it.status === "action_required" ? "Oplossen in instellingen" : "Koppelen"}
                 </SettingsLink>
-              )}
+              ) :
+              <StatusPill tone="neutral" label="Niet gekoppeld" />}
           />
         ))}
       </BandedList>
@@ -799,7 +791,8 @@ function SettingsLink({
 }) {
   return (
     <Link
-      to={to}
+      // Instellingen → Koppelingen is the design app's only (`manageIntegrations`).
+      to={to as never}
       className="flex h-7 items-center gap-1 rounded-md px-2.5 font-medium text-ink-2 text-xs transition-colors hover:bg-ink/6 hover:text-ink"
     >
       {children}
@@ -811,10 +804,7 @@ function SettingsLink({
 /* ── Sync status ───────────────────────────────────────────────────────────────────────────── */
 
 function SyncView() {
-  const stores = useWorkspace((s) => s.stores)
-  const orders = useWorkspace((s) => s.orders)
-  const syncs = useImports((s) => s.syncs)
-  const syncStore = useImports((s) => s.syncStore)
+  const { stores } = useDataSource()
 
   return (
     <SettingCard
@@ -824,10 +814,7 @@ function SyncView() {
     >
       <BandedList>
         {stores.map((st) => {
-          const sync = syncs[st.id]
-          const count = orders.filter((o) => o.store_id === st.id).length
-          const running = sync?.progress !== undefined
-          const live = st.status === "connected"
+          const running = st.progress !== undefined
           return (
             <BandedRow
               key={st.id}
@@ -839,28 +826,28 @@ function SyncView() {
                     <span className="h-1 w-32 overflow-hidden rounded-full bg-ink/8">
                       <span
                         className="block h-full rounded-full bg-arc transition-[width] duration-150"
-                        style={{ width: `${sync.progress}%` }}
+                        style={{ width: `${st.progress}%` }}
                       />
                     </span>
                     <span className="tabular-nums">
-                      Synchroniseren · {sync.progress}%
+                      Synchroniseren · {st.progress}%
                     </span>
                   </span>
                 ) :
-                !live ?
+                !st.live ?
                 (
                   `${st.domain} · niet gekoppeld`
                 ) :
-                sync?.syncedAt ?
+                st.syncedAt ?
                 (
-                  `${st.domain} · ${sync.records ?? count} bestellingen · gesynchroniseerd ${
-                    formatRelative(sync.syncedAt)
+                  `${st.domain} · ${st.orders === null ? "" : `${st.orders} bestellingen · `}gesynchroniseerd ${
+                    formatRelative(st.syncedAt)
                   }`
                 ) :
                 (
                   `${st.domain} · nog niet gesynchroniseerd`
                 )}
-              trailing={live ?
+              trailing={st.live ?
                 (
                   <>
                     <StatusPill
@@ -869,13 +856,8 @@ function SyncView() {
                     />
                     <button
                       type="button"
-                      disabled={running}
-                      onClick={async () => {
-                        await syncStore(st.id, count)
-                        toast.success(`${st.name} gesynchroniseerd`, {
-                          description: `${count} ${count === 1 ? "bestelling" : "bestellingen"} gecontroleerd`
-                        })
-                      }}
+                      {...act(st.sync)}
+                      disabled={running || typeof st.sync !== "function"}
                       className="flex h-7 items-center gap-1.5 rounded-md px-2.5 font-medium text-ink-2 text-xs transition-colors hover:bg-ink/6 hover:text-ink disabled:pointer-events-none disabled:opacity-50"
                     >
                       <RefreshCcw
@@ -898,10 +880,7 @@ function SyncView() {
 
 /* The endpoints Settings → Webhooks lists. They are added and changed there; this is the read. */
 function WebhooksView() {
-  const keys = useDeveloper((s) => s.apiKeys)
-  const endpoints = useDeveloper((s) => s.webhooks)
-  const deliveries = useDeveloper((s) => s.deliveries)
-  const active = keys.filter((k) => k.status === "active")
+  const { endpoints, keys: active } = useDataSource()
   return (
     <div className="flex flex-col gap-8">
       <SettingCard
@@ -919,9 +898,7 @@ function WebhooksView() {
             ) :
             null}
           {endpoints.map((w) => {
-            const ds = deliveries.filter((d) => d.endpointId === w.id)
-            const state = endpointState(w, ds)
-            const h = health(ds)
+            const { state, rate } = w
             return (
               <BandedRow
                 key={w.id}
@@ -931,10 +908,10 @@ function WebhooksView() {
                   </span>
                 }
                 title={w.url}
-                detail={`${w.events.length} events · ${
-                  h.rate === null
+                detail={`${w.events} events · ${
+                  rate === null
                     ? "geen leveringen in 24 uur"
-                    : `${h.rate.toLocaleString("nl-NL", { maximumFractionDigits: 1 })}% geslaagd in 24 uur`
+                    : `${rate.toLocaleString("nl-NL", { maximumFractionDigits: 1 })}% geslaagd in 24 uur`
                 }`}
                 trailing={
                   <StatusPill
@@ -976,9 +953,7 @@ function WebhooksView() {
                 </span>
               }
               title={k.label}
-              detail={`${k.prefix}… · ${
-                k.last_used_at ? `gebruikt ${formatRelative(k.last_used_at)}` : "nooit gebruikt"
-              }`}
+              detail={`${k.prefix}… · ${k.lastUsedAt ? `gebruikt ${formatRelative(k.lastUsedAt)}` : "nooit gebruikt"}`}
             />
           ))}
         </BandedList>
