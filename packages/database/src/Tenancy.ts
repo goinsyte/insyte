@@ -121,7 +121,12 @@ export const TENANT_TABLES = [
   "app_installs",
   "app_feedback",
   // Live (M14 step 3): a store's Web Pixel and the hash of its ingest key.
-  "store_pixels"
+  "store_pixels",
+  "sheet_folders",
+  "sheets",
+  "sheet_tabs",
+  "sheet_shares",
+  "sheet_member_state"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

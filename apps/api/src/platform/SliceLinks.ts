@@ -1,4 +1,5 @@
 import { CurrentPrincipal } from "@insyte/domain/Principal"
+import { figuresIn } from "@insyte/modules/analytics/use-cases/figures"
 import { restore as restoreAutomations } from "@insyte/modules/automations/use-cases/commands"
 import { restore as restoreChargebacks } from "@insyte/modules/chargebacks/Chargebacks"
 import { ActionFailed, ChatCommands } from "@insyte/modules/chats/Links"
@@ -39,6 +40,8 @@ import { parcelUpdated } from "@insyte/modules/returns/use-cases/parcels"
 import { linkReplacements } from "@insyte/modules/returns/use-cases/shopify"
 import { restoreErasing } from "@insyte/modules/settings/use-cases/retention"
 import { restore as restoreSettings } from "@insyte/modules/settings/use-cases/sections"
+import { SheetFigures } from "@insyte/modules/sheets/domain/Ports"
+import { restore as restoreSheets } from "@insyte/modules/sheets/use-cases/commands"
 import { MirrorFollowers } from "@insyte/modules/stores/domain/Ports"
 import { StoreMirror } from "@insyte/modules/stores/Mirror"
 import { ShopifyReturns } from "@insyte/modules/stores/ShopifyReturns"
@@ -79,6 +82,7 @@ import { Effect, Layer } from "effect"
  *   a chat command  → an order's note or cancellation, a ticket made, assigned or moved (M11.4), and its undo
  *   the Prullenbak  → each kind's own put-back and purge (M17 step 20.1a)
  *   the Marketplace → a recipe app's API key, made, revoked, put back and narrowed by the developer slice (M17)
+ *   a sheet export  → the INSYTE() figures from analytics, on the export's transaction (M14 step 4)
  */
 
 const MirrorFollowersLive = Layer.succeed(MirrorFollowers, {
@@ -154,6 +158,7 @@ const compensations: Record<string, Compensation> = {
   "settings.restore": restoreSettings,
   "retention.restore": restoreErasing,
   "webhooks.restore": restoreWebhooks,
+  "sheets.restore": restoreSheets,
   "courses.restore": restoreCourses,
   "marketplace.restore": (sql, compensation) =>
     restoreApp(sql, compensation).pipe(Effect.provideService(AppKeys, undoKeys)),
@@ -180,6 +185,10 @@ const compensations: Record<string, Compensation> = {
 }
 
 const UndoCompensationsLive = Layer.succeed(UndoCompensations, compensations)
+
+const SheetFiguresLive = Layer.succeed(SheetFigures, {
+  read: (sql, requests) => figuresIn(sql, requests)
+})
 
 const ProposalLinksLive = Layer.succeed(ProposalLinks, {
   run: (action) => {
@@ -305,7 +314,8 @@ export const SliceLinks = StoreMirror.layer.pipe(
       ReturnParcelsLive,
       ShopifyReturnsLive,
       ThreadTicketsLive,
-      TrashKindsLive
+      TrashKindsLive,
+      SheetFiguresLive
     )
   )
 )

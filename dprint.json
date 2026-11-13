@@ -163,7 +163,6 @@
     "packages/ui/src/app/settings/stores-page.tsx",
     "packages/ui/src/app/settings/stores-screen.tsx",
     "packages/ui/src/app/settings/team-screen.tsx",
-    "packages/ui/src/app/sheets/",
     "packages/ui/src/app/shell/",
     "packages/ui/src/app/shops/",
     "packages/ui/src/app/stores/access-store.ts",

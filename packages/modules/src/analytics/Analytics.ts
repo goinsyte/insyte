@@ -5,16 +5,19 @@ import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
 import type {
   AnalyticsCharts,
+  AnalyticsFigures,
   AnalyticsFindings,
   AnalyticsOverview,
   AnalyticsPeriods,
   ExplainRef,
   Explanation,
+  FiguresInput,
   PairInput,
   RecordsInput,
   RecordsPage
 } from "./domain/Analytics.ts"
 import * as Analytics from "./use-cases/analytics.ts"
+import * as Figures from "./use-cases/figures.ts"
 
 type R = Db | CurrentPrincipal
 
@@ -32,6 +35,8 @@ export class AnalyticsService extends Context.Service<AnalyticsService, {
   readonly findings: (input: PairInput) => Effect.Effect<AnalyticsFindings, Forbidden | Invalid, R>
   readonly explain: (ref: ExplainRef) => Effect.Effect<Explanation, Forbidden | Invalid, R>
   readonly records: (input: RecordsInput) => Effect.Effect<RecordsPage, Forbidden | Invalid, R>
+  /** A sheet's INSYTE() lookups (M14 step 4): Data · Bekijken, each figure Analyse · Bekijken. */
+  readonly figures: (input: FiguresInput) => Effect.Effect<AnalyticsFigures, Forbidden, R>
 }>()("modules/AnalyticsService") {
   // A database that does not answer is a defect, as everywhere.
   static readonly layer = Layer.succeed(AnalyticsService, {
@@ -40,6 +45,7 @@ export class AnalyticsService extends Context.Service<AnalyticsService, {
     charts: (input) => Analytics.charts(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     findings: (input) => Analytics.findings(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     explain: (ref) => Analytics.explain(ref).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-    records: (input) => Analytics.records(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))
+    records: (input) => Analytics.records(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    figures: (input) => Figures.figures(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))
   })
 }

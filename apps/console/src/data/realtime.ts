@@ -22,6 +22,7 @@ import { QUALITY } from "./quality.ts"
 import { QUEUE } from "./queue.ts"
 import { RETURNS } from "./returns.ts"
 import { ACCESS_LIST, ROLES } from "./roles.ts"
+import { sheetKey, SHEETS } from "./sheets.ts"
 import { STORE_SYNC, STORES } from "./stores.ts"
 import { TEAM } from "./team.ts"
 import { TICKETS } from "./tickets.ts"
@@ -79,7 +80,7 @@ for (const kind of ["order", "ticket", "return", "product", "store", "member", "
 }
 // Analyse (M14 step 2) sums orders and tickets, inside the role's stores.
 for (const kind of ["order", "ticket", "store"]) REFETCH[kind] = [...(REFETCH[kind] ?? []), ...ANALYTICS]
-const EVERYTHING = [...new Set([...Object.values(REFETCH).flat(), ...CHATS, ...CHAT_PAGES])]
+const EVERYTHING = [...new Set([...Object.values(REFETCH).flat(), ...CHATS, ...CHAT_PAGES, ...SHEETS])]
 
 const decodeFrame = Schema.decodeUnknownOption(Schema.fromJsonString(Frame))
 const text = new TextDecoder()
@@ -111,6 +112,10 @@ const connection = (reconnected: boolean, heard: Heard) =>
         // A message posted or changed (M11.4): the list's previews and counts, and that conversation's page and threads.
         if (frame.value.type === "chat.message" || frame.value.type === "chat.message.updated") {
           for (const key of [...CHATS, chatKey(frame.value.conversationId)]) keys.add(key)
+        }
+        // A rekenblad changed (M14 step 4): the list, and that sheet if it is open.
+        if (frame.value.type === "sheet.changed") {
+          for (const key of [...SHEETS, sheetKey(frame.value.sheetId)]) keys.add(key)
         }
         if (frame.value.type === "chat.typing") {
           heard.typing({

@@ -512,6 +512,8 @@ const ROUTE_AREAS: ReadonlyArray<readonly [string, AreaId, Level]> = [
   // Live shows revenue today and the store's visitors (M14 step 3).
   ["/live", "analytics", 1],
   ["/data", "data", 1],
+  // Rekenbladen are Data's (M14): one's own sheets need Bekijken; a figure inside also needs Analyse.
+  ["/sheets", "data", 1],
   ["/affiliates", "affiliates", 1],
   ["/settings/team", "team", 1],
   ["/settings/roles", "team", 1],

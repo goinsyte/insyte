@@ -5,6 +5,7 @@ import type { ChargebackList } from "@insyte/modules/chargebacks/domain/Chargeba
 import type { ChatList } from "@insyte/modules/chats/domain/Chats"
 import type { CourseCatalogue } from "@insyte/modules/courses/domain/Courses"
 import type { MailboxView } from "@insyte/modules/inbox/domain/Inbox"
+import type { SheetList } from "@insyte/modules/sheets/domain/Sheets"
 import { GateRoleProvider } from "@insyte/ui/app/access/gate-role"
 import { panelForPath } from "@insyte/ui/app/lib/app-shell-config"
 import { navByPersona } from "@insyte/ui/app/lib/nav-config"
@@ -30,6 +31,7 @@ import { chatsAtom } from "../data/chats.ts"
 import { coursesAtom } from "../data/courses.ts"
 import { FRAME, frameWrites, inboxAtom, notePrefsAtom, NOTES, presenceAtom, VIEWS, viewsAtom } from "../data/frame.ts"
 import { inboxCountsAtom, mailboxesAtom } from "../data/inbox.ts"
+import { sheetsAtom } from "../data/sheets.ts"
 import { ticketCountsAtom } from "../data/tickets.ts"
 import { useConsoleMarketplace } from "../marketplace/marketplace-source.tsx"
 import { notifyPrefsOf } from "../notifications/settings-source.ts"
@@ -97,9 +99,10 @@ const NO_CHATS = Atom.make(AsyncResult.initial<ChatList, never>())
 const NO_CHARGEBACKS = Atom.make(AsyncResult.initial<ChargebackList, never>())
 const NO_COURSES = Atom.make(AsyncResult.initial<CourseCatalogue, never>())
 const NO_MAILBOXES = Atom.make(AsyncResult.initial<ReadonlyArray<MailboxView>, never>())
+const NO_SHEETS = Atom.make(AsyncResult.initial<SheetList, never>())
 
 /** What the console makes from the panel's button and the top bar's + menu. */
-const MADE_HERE = new Set(["return", "ticket", "channel", "thread", "evidence", "automation"])
+const MADE_HERE = new Set(["return", "ticket", "channel", "thread", "evidence", "automation", "sheet"])
 
 export function ConsoleShellSource({ frame, children }: { frame: Frame; children: ReactNode }) {
   const navigate = useNavigate()
@@ -144,6 +147,22 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
         count: inboxCounts?.[`/inbox?mailbox=${m.id}`]
       })),
     [mailboxes, inboxCounts]
+  )
+  // The Rekenbladen panel: the folders and each view's count, from `Sheets.list`, on the sheets pages only (M14 step 4).
+  const onSheets = useRouterState({ select: (s) => s.location.pathname.startsWith("/sheets") })
+  const sheetList = value(useAtomValue(onSheets ? sheetsAtom : NO_SHEETS))
+  const sheets = useMemo<ShellSource["sheets"]>(
+    () => ({
+      sheets: [],
+      folders: sheetList?.folders.map((f) => ({ id: f.id, name: f.name })) ?? [],
+      ...(sheetList === undefined ? {} : {
+        counts: {
+          ...sheetList.counts,
+          folders: Object.fromEntries(sheetList.folders.map((f) => [f.id, f.count]))
+        }
+      })
+    }),
+    [sheetList]
   )
   const areaCounts = ticketCounts ?? inboxCounts
   // The Marketplace (M17 step 3): read while its modal is open or Instellingen → Apps shows.
@@ -306,7 +325,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
       createdCustomers: []
     },
     returns: { records: [] },
-    sheets: { sheets: [], folders: [] },
+    sheets,
     courses: panelCourses,
     chat: { pinned: chatPins, created: [] },
     settings: { roles: [roleOf(frame)] },

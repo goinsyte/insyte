@@ -39,6 +39,8 @@ import { ReturnsService } from "@insyte/modules/returns/Returns"
 import { RolesService } from "@insyte/modules/roles/RolesService"
 import type { FilterNode, ListInput } from "@insyte/modules/shared/domain/Filter"
 import * as Idempotency from "@insyte/modules/shared/use-cases/Idempotency"
+import type { SheetDetail, SheetRow } from "@insyte/modules/sheets/domain/Sheets"
+import { SheetsService } from "@insyte/modules/sheets/Sheets"
 import { SuppliersService } from "@insyte/modules/suppliers/Suppliers"
 import type { TicketComment, TicketRow } from "@insyte/modules/tickets/domain/Tickets"
 import { TicketsService } from "@insyte/modules/tickets/Tickets"
@@ -115,7 +117,8 @@ const ENTITY: Record<string, string> = {
   customer: "customer",
   member: "member",
   automation: "automation",
-  run: "run"
+  run: "run",
+  sheet: "sheet"
 }
 const notFound = (e?: { readonly entity?: string }) =>
   fail("NotFoundV1" as const, `No such ${ENTITY[e?.entity ?? ""] ?? "order"} in this key's stores.`, {})
@@ -540,6 +543,20 @@ const overviewV1 = (o: AnalyticsOverview) => {
   }
 }
 
+/** A sheet's row in the public shape. */
+const sheetSummaryV1 = (r: SheetRow | SheetDetail) => ({
+  id: r.id,
+  title: r.title,
+  folder_id: "folderId" in r ? r.folderId : r.folder?.id ?? null,
+  owner_id: r.ownerId,
+  shared_with: [...r.sharedWith],
+  pinned: r.pinned,
+  archived: r.archived,
+  linked: "linked" in r ? r.linked : r.tabs.some((t) => Object.values(t.cells).some((c) => /insyte\(/i.test(c.v))),
+  created_at: new Date("createdAt" in r ? r.createdAt : r.updatedAt).toISOString(),
+  updated_at: new Date(r.updatedAt).toISOString()
+})
+
 const make = Effect.gen(function*() {
   const members = yield* Members
   const roles = yield* RolesService
@@ -559,6 +576,7 @@ const make = Effect.gen(function*() {
   const chargebacks = yield* ChargebacksService
   const costs = yield* CostsService
   const analytics = yield* AnalyticsService
+  const sheets = yield* SheetsService
   return {
     chargebacks: (query: {
       readonly tab?: ChargebackTab | undefined
@@ -629,6 +647,24 @@ const make = Effect.gen(function*() {
         Effect.catchTag("Forbidden", scopeMissing)
       )
     },
+    sheets: sheets.list({}).pipe(
+      Effect.map((l) => ({ data: l.rows.map(sheetSummaryV1) })),
+      Effect.catchTag("Forbidden", scopeMissing)
+    ),
+    sheet: (id: string) =>
+      Effect.gen(function*() {
+        const d = yield* sheets.get({ id })
+        // The detail carries no creation time; the list row does.
+        const row = (yield* sheets.list({})).rows.find((r) => r.id === id)
+        return {
+          ...sheetSummaryV1(row ?? d),
+          folder_name: d.folder?.name ?? null,
+          version: d.version,
+          tabs: d.tabs.map((t) => ({ id: t.id, name: t.name, cells: { ...t.cells }, widths: { ...t.widths } }))
+        }
+      }).pipe(
+        Effect.catchTags({ Forbidden: scopeMissing, SheetNotFound: () => notFound({ entity: "sheet" }) })
+      ),
     analyticsOverview: (a: string, b: string) =>
       analytics.overview({ a, b }).pipe(
         Effect.map(overviewV1),
@@ -1277,6 +1313,7 @@ export class Resources extends Context.Service<Resources, Effect.Success<typeof 
         AutomationsService.layer,
         RunsService.layer,
         AnalyticsService.layer,
+        SheetsService.layer,
         QueueService.layer,
         ProposalsService.layer,
         ChargebacksService.layer,
