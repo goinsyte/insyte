@@ -31,7 +31,7 @@ export const me = Effect.fn("SupplierPortal.me")(function*() {
     Effect.gen(function*() {
       const [workspace] = yield* sql<{ id: string; name: string; logoFileId: string | null }>`
         select id, name, logo_file_id from partner_workspace_v`
-      const [supplier] = yield* sql<{ timezone: string }>`select timezone from suppliers`
+      const [supplier] = yield* sql<{ timezone: string }>`select timezone from supplier_self_v`
       return new SupplierMe({
         contact: { id: contact.contactId, name: contact.contactName, role: contact.role, scopes: contact.scopes },
         supplier: { id: contact.supplierId, name: contact.supplierName, timezone: supplier?.timezone ?? "UTC" },
@@ -149,7 +149,7 @@ export const productDetail = (sql: SqlClient.SqlClient, productId: string) =>
       select v.id, v.title, v.sku, ${availableSql(sql, "v.id")} as available,
              (select max(il.reported_at) from inventory_levels il where il.variant_id = v.id and il.source = 'supplier')
                as reported_at
-      from variants v where v.product_id = ${productId} order by v.position, v.id`
+      from supplier_variants_v v where v.product_id = ${productId} order by v.position, v.id`
     const waiting = (yield* orderRows(sql, { productId })).filter((o) =>
       o.status === "to_accept" || o.status === "to_ship"
     ).slice(0, 6)
@@ -186,7 +186,7 @@ export const listChecks = Effect.fn("SupplierPortal.quality.list")(function*(inp
     sql<CheckSql>`
       select q.id, q.product_id, p.title as product_title, q.kind, q.status, q.variants, q.deliverables, q.due_at,
              q.note, q.submitted_at, q.decision_note
-      from quality_checks q join supplier_products_v p on p.id = q.product_id
+      from supplier_checks_v q join supplier_products_v p on p.id = q.product_id
       where ${input.productId === undefined ? sql`true` : sql`q.product_id = ${input.productId}`}
       order by q.requested_at desc, q.id`
   )

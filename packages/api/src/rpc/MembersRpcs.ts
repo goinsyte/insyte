@@ -9,7 +9,10 @@ import {
   SetInvitationRole,
   SetLink,
   SetMemberRole,
+  SupplierAccess,
+  SupplierAccessChanged,
   SupplierInvitationsSent,
+  SupplierRef,
   Team
 } from "@insyte/modules/members/domain/Team"
 import { Schema } from "effect"
@@ -35,6 +38,24 @@ export class MembersRpcs extends RpcGroup.make(
     payload: SendSupplierInvitations,
     success: SupplierInvitationsSent,
     error: Schema.Union([Forbidden, Invalid])
+  }),
+  // A supplier's portal access from the brand's side (M16): read at `suppliers` Bekijken, changed at Beheren.
+  Rpc.make("Invitations.supplierAccess", { payload: SupplierRef, success: SupplierAccess, error: Forbidden }),
+  Rpc.make("Invitations.revokeSupplier", { payload: InvitationRefs, success: SupplierAccessChanged, error: Forbidden }),
+  Rpc.make("Invitations.restoreSupplier", {
+    payload: InvitationRef,
+    success: SupplierAccessChanged,
+    error: Schema.Union([Forbidden, NotFound, Conflict])
+  }),
+  Rpc.make("Invitations.revokeContact", {
+    payload: InvitationRef,
+    success: SupplierAccessChanged,
+    error: Schema.Union([Forbidden, NotFound])
+  }),
+  Rpc.make("Invitations.restoreContact", {
+    payload: InvitationRef,
+    success: SupplierAccessChanged,
+    error: Schema.Union([Forbidden, NotFound, Conflict])
   }),
   Rpc.make("Invitations.revoke", { payload: InvitationRefs, success: Team, error: Forbidden }),
   Rpc.make("Invitations.restore", {

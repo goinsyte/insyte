@@ -196,7 +196,9 @@ export const reportProblem = Effect.fn("SupplierPortal.orders.reportProblem")(fu
         return yield* new Conflict({ entity: "order", reason: "closed" })
       }
       const [s] = yield* sql<{ timezone: string; past: boolean }>`
-        select timezone, ${input.newDate ?? null}::date < (now() at time zone timezone)::date as past from suppliers`
+        select timezone, ${
+        input.newDate ?? null
+      }::date < (now() at time zone timezone)::date as past from supplier_self_v`
       if (s?.past === true) return yield* new Invalid({ fields: { newDate: "past" } })
       const snaps = yield* snapshot(sql, contact.supplierId, [input.orderId])
       yield* sql`update supplier_work set status = 'problem', problem_kind = ${input.kind}, problem_note = ${note},
@@ -255,7 +257,9 @@ export const saveStock = Effect.fn("SupplierPortal.products.saveStock")(function
       if (row === undefined) return yield* new NotFound({ entity: "product", id: input.productId })
       if (row.reporting === "live") return yield* new Conflict({ entity: "product", reason: "reporting_live" })
       const variants = new Set(
-        (yield* sql<{ id: string }>`select id from variants where product_id = ${input.productId}`).map((v) => v.id)
+        (yield* sql<{ id: string }>`select id from supplier_variants_v where product_id = ${input.productId}`).map((
+          v
+        ) => v.id)
       )
       const wanted = Object.entries(input.variantStock)
       const unknown = wanted.filter(([id]) => !variants.has(id))

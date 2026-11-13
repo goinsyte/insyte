@@ -9,6 +9,8 @@ import type {
   InviteRow,
   SeatLimitReached,
   SetLink,
+  SupplierAccess,
+  SupplierAccessChanged,
   SupplierInvitationsSent,
   SupplierInviteRow,
   Team,
@@ -16,7 +18,7 @@ import type {
 } from "./domain/Team.ts"
 import { directory } from "./use-cases/directory.ts"
 import * as Invitations from "./use-cases/invitations.ts"
-import { sendSupplier } from "./use-cases/invite-supplier.ts"
+import * as SupplierInvites from "./use-cases/invite-supplier.ts"
 import { send } from "./use-cases/invite.ts"
 import * as Link from "./use-cases/link.ts"
 import * as People from "./use-cases/members.ts"
@@ -39,6 +41,20 @@ export class Members extends Context.Service<Members, {
   readonly sendSupplier: (
     rows: ReadonlyArray<SupplierInviteRow>
   ) => Effect.Effect<typeof SupplierInvitationsSent.Type, Forbidden | Invalid, Db | CurrentPrincipal>
+  /** One supplier's portal access, and taking it back (M16): suppliers at Bekijken to read, Beheren to change. */
+  readonly supplierAccess: (supplierId: string) => Effect.Effect<SupplierAccess, Forbidden, Db | CurrentPrincipal>
+  readonly revokeSupplier: (
+    ids: ReadonlyArray<string>
+  ) => Effect.Effect<typeof SupplierAccessChanged.Type, Forbidden, Db | CurrentPrincipal>
+  readonly restoreSupplier: (
+    id: string
+  ) => Effect.Effect<typeof SupplierAccessChanged.Type, Forbidden | NotFound | Conflict, Db | CurrentPrincipal>
+  readonly revokeContact: (
+    id: string
+  ) => Effect.Effect<typeof SupplierAccessChanged.Type, Forbidden | NotFound, Db | CurrentPrincipal>
+  readonly restoreContact: (
+    id: string
+  ) => Effect.Effect<typeof SupplierAccessChanged.Type, Forbidden | NotFound | Conflict, Db | CurrentPrincipal>
   readonly revoke: (ids: ReadonlyArray<string>) => Effect.Effect<Team, Forbidden, Db | CurrentPrincipal>
   readonly restore: (
     id: string
@@ -79,7 +95,12 @@ export class Members extends Context.Service<Members, {
         get: run(get()),
         directory: run(directory()),
         send: (rows) => run(send(rows)),
-        sendSupplier: (rows) => run(sendSupplier(rows)),
+        sendSupplier: (rows) => run(SupplierInvites.sendSupplier(rows)),
+        supplierAccess: (supplierId) => run(SupplierInvites.supplierAccess(supplierId)),
+        revokeSupplier: (ids) => run(SupplierInvites.revokeSupplier(ids)),
+        restoreSupplier: (id) => run(SupplierInvites.restoreSupplier(id)),
+        revokeContact: (id) => run(SupplierInvites.revokeContact(id)),
+        restoreContact: (id) => run(SupplierInvites.restoreContact(id)),
         revoke: (ids) => run(Invitations.revoke(ids)),
         restore: (id) => run(Invitations.restore(id)),
         resend: (id) => run(Invitations.resend(id)),

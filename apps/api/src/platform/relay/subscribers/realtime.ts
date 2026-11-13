@@ -20,7 +20,14 @@ const partner = (event: Extract<OutboxEvent, { type: "partner.changed" }>) =>
     })
   ).pipe(Effect.withSpan("Relay.realtime.partner"))
 
+/** A contact's access revoked (M16): its portal tabs closed; reconnecting is refused, as every call is. */
+const revoked = (event: Extract<OutboxEvent, { type: "supplier.contact_revoked" }>) =>
+  Effect.promise(() => supplierRoomOf(event.workspaceId, event.supplierId).closeMember(event.contactId)).pipe(
+    Effect.withSpan("Relay.realtime.revoked")
+  )
+
 export const Realtime = subscriber("realtime", {
   "records.changed": (_id, event) => realtime(event),
-  "partner.changed": (_id, event) => partner(event)
+  "partner.changed": (_id, event) => partner(event),
+  "supplier.contact_revoked": (_id, event) => revoked(event)
 })

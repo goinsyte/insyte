@@ -154,22 +154,51 @@ export const tenantTable = (table: TenantTable, options: { readonly membersOnly?
     : [])
 ]
 
+/** A supplier contact acting for its own supplier, whose rows `own` (a predicate over the table's columns) names. */
+const asPartner = (own: string) =>
+  `app_principal_kind() = 'supplier_contact' and app_partner_id() is not null and (${own})`
+
 /**
- * A members-only table opened to a supplier contact (06 §5 family S, domain.md §18.1): its restrictive policy names
- * the member side or a supplier contact's own rows (`own`, a predicate over the table's columns and `app_partner_id()`).
- * One restrictive policy says "a partner principal sees only its projection", so a missing `app.partner_id` yields
- * nothing. `replaces` drops the members-only policy it widens (a contract migration, then).
+ * A members-only table opened to a supplier contact (06 §5 family S, domain.md §18.1). Reading: the member side, or a
+ * supplier contact's own rows (`own`, a predicate over the table's columns and `app_partner_id()`). Writing: the member
+ * side only, unless the portal writes there: `update`, `insert` and `remove` name the rows a contact may change, add or
+ * take away (each also held to `own`). Each is one restrictive policy, so a missing `app.partner_id` yields nothing, and
+ * a partner can never write a row that widens what it reads. Which columns it may change is `partnerGuard`'s.
+ * `replaces` drops the members-only policy it widens (a contract migration, then).
  */
 export const supplierProjection = (
   table: TenantTable,
   own: string,
-  options: { readonly replaces?: boolean } = {}
-): Array<string> => [
-  ...(options.replaces === false ? [] : [`drop policy ${table}_members on ${table}`]),
-  `create policy ${table}_side on ${table} as restrictive for all using (
-     app_is_member_side()
-     or (app_principal_kind() = 'supplier_contact' and app_partner_id() is not null and (${own})))`
-]
+  options: {
+    readonly replaces?: boolean
+    readonly update?: string
+    readonly insert?: string
+    readonly remove?: string
+  } = {}
+): Array<string> => {
+  const or = (writes: string | undefined) =>
+    writes === undefined ? "" : ` or (${asPartner(`(${own}) and (${writes})`)})`
+  return [
+    ...(options.replaces === false ? [] : [`drop policy ${table}_members on ${table}`]),
+    `create policy ${table}_side on ${table} as restrictive for select using (
+       app_is_member_side() or (${asPartner(own)}))`,
+    `create policy ${table}_side_insert on ${table} as restrictive for insert
+       with check (app_is_member_side()${or(options.insert)})`,
+    `create policy ${table}_side_update on ${table} as restrictive for update
+       using (app_is_member_side()${or(options.update)}) with check (app_is_member_side()${or(options.update)})`,
+    `create policy ${table}_side_delete on ${table} as restrictive for delete
+       using (app_is_member_side()${or(options.remove)})`
+  ]
+}
+
+/**
+ * The columns a partner principal may change on a row it may update (`supplierProjection`'s `update`): any other column
+ * changed by a supplier contact or an affiliate is refused (`partner_update_guard`, 0075), so the row's keys, its lines
+ * and who it belongs to stay as the brand set them.
+ */
+export const partnerGuard = (table: TenantTable, columns: ReadonlyArray<string>): string =>
+  `create trigger ${table}_partner_guard before update on ${table} for each row
+     execute function partner_update_guard(${[...columns, "updated_at"].map((c) => `'${c}'`).join(", ")})`
 
 /**
  * A workspace table no partner principal reads at all: the team's, its settings, its stores. The workspace policy

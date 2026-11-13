@@ -1,5 +1,5 @@
 import { SupplierPortalRpcs } from "@insyte/api/rpc/SupplierPortalRpcs"
-import { SupplierPortalService } from "@insyte/modules/supplier-portal/SupplierPortal"
+import { RESTORE, SupplierPortalService } from "@insyte/modules/supplier-portal/SupplierPortal"
 import { UndoService } from "@insyte/modules/undo/Undo"
 import { Effect } from "effect"
 
@@ -19,6 +19,7 @@ export const SupplierPortalHandlers = SupplierPortalRpcs.toLayer(Effect.gen(func
     "SupplierPortal.products.saveStock": (input) => portal.saveStock(input),
     "SupplierPortal.products.setReporting": (input) => portal.setReporting(input),
     "SupplierPortal.quality.list": (input) => portal.listChecks(input),
-    "SupplierPortal.undo": ({ token }) => undo.undo(token)
+    // Only the portal's own compensation: a supplier contact undoes nothing else, whatever token it holds.
+    "SupplierPortal.undo": ({ token }) => undo.undo(token, [RESTORE])
   })
 }))

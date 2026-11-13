@@ -126,7 +126,7 @@ export const orderRows = (
                  'variantTitle', l.variant_title, 'quantity', l.quantity, 'unitCostMinor', l.unit_cost_minor,
                  'image', l.image) order by l.id)
                from supplier_lines_v l where l.order_id = o.id), '[]'::jsonb) as lines
-      from supplier_orders_v o join suppliers s on s.id = o.supplier_id
+      from supplier_orders_v o join supplier_self_v s on s.id = o.supplier_id
       where ${filter.ids === undefined ? sql`true` : sql`o.id in ${sql.in([...filter.ids, ""])}`}
         and ${
       filter.productId === undefined
@@ -167,10 +167,14 @@ export const productRows = (sql: SqlClient.SqlClient, ids?: ReadonlyArray<string
   Effect.map(
     sql<ProductRowSql>`
       select p.id, p.title, p.images[1] as image, p.lead_days, p.stock_reporting as reporting,
-             (select count(*)::int from variants v where v.product_id = p.id) as variants,
-             coalesce((select sum(${availableSql(sql, "v.id")})::int from variants v where v.product_id = p.id), 0)
+             (select count(*)::int from supplier_variants_v v where v.product_id = p.id) as variants,
+             coalesce((select sum(${
+      availableSql(sql, "v.id")
+    })::int from supplier_variants_v v where v.product_id = p.id), 0)
                as units,
-             (select min(${availableSql(sql, "v.id")})::int from variants v where v.product_id = p.id) as lowest,
+             (select min(${
+      availableSql(sql, "v.id")
+    })::int from supplier_variants_v v where v.product_id = p.id) as lowest,
              (select count(distinct o.id)::int from supplier_orders_v o join supplier_lines_v l on l.order_id = o.id
               where l.product_id = p.id and o.work_status in ('to_accept', 'to_ship')
                 and o.order_status not in ('cancelled', 'refunded')) as open_orders

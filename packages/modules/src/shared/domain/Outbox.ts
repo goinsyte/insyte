@@ -390,6 +390,14 @@ export const OutboxEvent = Schema.Union([
     orderId: Schema.String,
     supplierId: Schema.String
   }),
+  // The brand took a supplier contact's portal access away (M16): its open portal tabs are closed at once; a new one is
+  // refused, as every call is.
+  Schema.Struct({
+    type: Schema.Literal("supplier.contact_revoked"),
+    workspaceId: Schema.String,
+    supplierId: Schema.String,
+    contactId: Schema.String
+  }),
   // A record a supplier's portal shows changed (M16 step 1): the realtime sink tells that supplier's room
   // (`sup:<workspace>:<supplier>`) to refetch it. Ids only, as `records.changed`.
   Schema.Struct({

@@ -89,6 +89,19 @@ export class RoomDurableObject extends DurableObject<Cloudflare.Env> {
     }
   }
 
+  /** Closes one member's sockets: a supplier contact whose access was revoked (M16). The others hear them leave. */
+  closeMember(memberId: string): void {
+    for (const ws of this.ctx.getWebSockets()) {
+      if ((ws.deserializeAttachment() as Attachment).memberId !== memberId) continue
+      this.leave(ws)
+      try {
+        ws.close(4403, "revoked")
+      } catch {
+        // Already closing.
+      }
+    }
+  }
+
   /** Who is here, for a test or a server-side read. */
   presence(): ReadonlyArray<{ readonly memberId: string; readonly since: number }> {
     return this.present()

@@ -120,6 +120,28 @@ export const SendSupplierInvitations = Schema.Struct({
 
 /** The invitations it sent (or renewed), by id: the supplier's page refetches its contacts. */
 export const SupplierInvitationsSent = Schema.Struct({ ids: Schema.Array(Schema.String) })
+/** One supplier's portal access, as its dialog shows it (M16): who signs in, and who is invited and has not yet. */
+export class SupplierAccess extends Schema.Class<SupplierAccess>("members/SupplierAccess")({
+  contacts: Schema.Array(Schema.Struct({
+    id: Schema.String,
+    name: Schema.String,
+    email: Schema.String,
+    role: Schema.Literals(["owner", "staff"]),
+    scopes: Schema.Array(Schema.String),
+    joinedAt: Schema.NullOr(Schema.Finite)
+  })),
+  invitations: Schema.Array(Schema.Struct({
+    id: Schema.String,
+    email: Schema.String,
+    name: Schema.NullOr(Schema.String),
+    scopes: Schema.Array(Schema.String),
+    sentAt: Schema.Finite,
+    lapsed: Schema.Boolean
+  }))
+}) {}
+export const SupplierRef = Schema.Struct({ supplierId: Schema.String })
+/** What a revoke or its undo changed, by id: the supplier's dialog refetches its access. */
+export const SupplierAccessChanged = Schema.Struct({ ids: Schema.Array(Schema.String) })
 export const InvitationRef = Schema.Struct({ id: Schema.String })
 export const InvitationRefs = Schema.Struct({ ids: Schema.Array(Schema.String) })
 export const SetInvitationRole = Schema.Struct({ id: Schema.String, roleId: Schema.String })

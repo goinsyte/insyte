@@ -181,5 +181,44 @@ describe("the supplier portal", () => {
     // The dashboard counts what is theirs.
     const dashboard = ok(await rpc("SupplierPortal.dashboard", undefined, cookie))
     expect(dashboard.figures.totalOrders).toBe(1)
+
+    // The portal's Undo takes back only the portal's own writes.
+    expect(failure(await rpc("SupplierPortal.undo", { token: "und_none.x" }, cookie))).toMatchObject({
+      _tag: "NotFound"
+    })
+
+    // The brand sees who signs in and who is invited, and takes either back.
+    const second = `noord-2-${run}@supplier.example`
+    const sent = ok(
+      await rpc(
+        "Invitations.sendSupplier",
+        { rows: [{ supplierId: atelier.id, email: second, scopes: [] }] },
+        store.cookie
+      )
+    )
+    const access = ok(await rpc("Invitations.supplierAccess", { supplierId: atelier.id }, store.cookie))
+    expect(access.contacts.map((c) => [c.name, c.role])).toEqual([["Noor", "owner"]])
+    expect(access.invitations.map((i) => i.email)).toEqual([second])
+    ok(await rpc("Invitations.revokeSupplier", { ids: sent.ids }, store.cookie))
+    expect(ok(await rpc("Invitations.supplierAccess", { supplierId: atelier.id }, store.cookie)).invitations).toEqual(
+      []
+    )
+    ok(await rpc("Invitations.restoreSupplier", { id: sent.ids[0]! }, store.cookie))
+    expect(
+      ok(await rpc("Invitations.supplierAccess", { supplierId: atelier.id }, store.cookie)).invitations.length
+    ).toBe(1)
+
+    // Revoked, the contact's session no longer reaches the portal; restored, it does again.
+    const contact = access.contacts[0]!
+    expect(failure(await rpc("Invitations.revokeContact", { id: contact.id }, cookie))).toMatchObject({
+      _tag: "NoWorkspace"
+    })
+    ok(await rpc("Invitations.revokeContact", { id: contact.id }, store.cookie))
+    expect(failure(await rpc("SupplierPortal.me", undefined, cookie))).toMatchObject({ _tag: "NotSupplierContact" })
+    expect(failure(await rpc("Invitations.revokeContact", { id: "sct_none" }, store.cookie))).toMatchObject({
+      _tag: "NotFound"
+    })
+    ok(await rpc("Invitations.restoreContact", { id: contact.id }, store.cookie))
+    expect(ok(await rpc("SupplierPortal.me", undefined, cookie)).contact.name).toBe("Noor")
   }, 180_000)
 })

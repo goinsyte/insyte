@@ -1,14 +1,16 @@
 import { Db } from "@insyte/database/Db"
-import { Invalid } from "@insyte/domain/Errors"
+import { Conflict, Invalid, NotFound } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
+import type { SqlClient, SqlError } from "effect/sql"
 import { Relay } from "../../shared/domain/Outbox.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { INVITATION_DAYS, InvitationLinks, UNDO_SECONDS } from "../domain/Ports.ts"
-import type { SupplierInviteRow } from "../domain/Team.ts"
-import { EMAIL, mailLater } from "./invite.ts"
+import { SupplierAccess, type SupplierInviteRow } from "../domain/Team.ts"
+import { cancelMail, EMAIL, mailLater } from "./invite.ts"
 
 /*
  * `Invitations.sendSupplier` (M16 step 2; `kind = 'supplier_portal'`): a supplier's person, invited to its portal for this
@@ -93,4 +95,163 @@ export const sendSupplier = Effect.fn("Invitations.sendSupplier")(function*(rows
   )
   yield* relay.kick(outboxIds, { afterSeconds: UNDO_SECONDS })
   return { ids }
+})
+
+/*
+ * Taking it back (M16; the brand's side, suppliers at Beheren): an invitation revoked before it is accepted (the send's
+ * own undo, inside the window, so its mail never goes), a contact's access revoked (every portal call holds the contact
+ * anew, so the next one is refused, and its open tabs are closed), and the undo of each.
+ */
+
+const audit = (sql: SqlClient.SqlClient, action: string, subjectId: string, diff?: Record<string, unknown>) =>
+  Effect.flatMap(
+    Effect.service(CurrentPrincipal),
+    (p) =>
+      Audit.write(sql, p.workspaceId, { kind: "member", id: p.id }, {
+        action,
+        subjectType: "supplier",
+        subjectId,
+        diff
+      })
+  )
+
+/** Who signs in to one supplier's portal, and who is invited and has not yet. */
+export const supplierAccess = Effect.fn("Invitations.supplierAccess")(function*(supplierId: string) {
+  yield* Policy.require("suppliers", 1)
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const contacts = yield* sql<{
+        id: string
+        name: string
+        email: string
+        role: "owner" | "staff"
+        scopes: ReadonlyArray<string>
+        joinedAt: Date | null
+      }>`
+        select c.id, c.name, lower(u.email) as email, c.role, c.portal_scopes as scopes, c.joined_at
+        from supplier_contacts c join auth."user" u on u.id = c.user_id
+        where c.supplier_id = ${supplierId} and c.revoked_at is null
+        order by c.joined_at nulls last, c.id`
+      const invitations = yield* sql<{
+        id: string
+        email: string
+        name: string | null
+        scopes: ReadonlyArray<string>
+        sentAt: Date
+        lapsed: boolean
+      }>`
+        select id, email, name, portal_scopes as scopes, sent_at, expires_at <= now() as lapsed from invitations
+        where kind = 'supplier_portal' and supplier_id = ${supplierId}
+          and accepted_at is null and revoked_at is null and declined_at is null
+        order by sent_at desc, id`
+      return new SupplierAccess({
+        contacts: contacts.map((c) => ({ ...c, joinedAt: c.joinedAt?.getTime() ?? null })),
+        invitations: invitations.map((i) => ({ ...i, sentAt: i.sentAt.getTime() }))
+      })
+    })
+  )
+})
+
+/** The links stop working at once and mail still waiting is cancelled. */
+export const revokeSupplier = Effect.fn("Invitations.revokeSupplier")(function*(ids: ReadonlyArray<string>) {
+  yield* Policy.require("suppliers", 3)
+  const principal = yield* CurrentPrincipal
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const revoked = ids.length === 0 ? [] : yield* sql<{ id: string; supplierId: string }>`
+        update invitations set revoked_at = now(), revoked_by = ${principal.id}
+        where id in ${sql.in([...ids])} and kind = 'supplier_portal'
+          and accepted_at is null and revoked_at is null and declined_at is null
+        returning id, supplier_id`
+      if (revoked.length > 0) yield* cancelMail(sql, revoked.map((r) => r.id))
+      for (const r of revoked) yield* audit(sql, "supplier.invitation_revoked", r.supplierId, { invitation: r.id })
+      return { ids: revoked.map((r) => r.id) }
+    })
+  )
+})
+
+/** Undo of a revoke: the same invitation and link, if no newer one went to the address; a cancelled mail goes after all. */
+export const restoreSupplier = Effect.fn("Invitations.restoreSupplier")(function*(id: string) {
+  yield* Policy.require("suppliers", 3)
+  const relay = yield* Relay
+  const db = yield* Db
+  const { outboxIds } = yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const restored = yield* sql<{ supplierId: string }>`
+        update invitations set revoked_at = null, revoked_by = null
+        where id = ${id} and kind = 'supplier_portal' and revoked_at is not null and accepted_at is null
+          and declined_at is null
+          and exists (select 1 from suppliers s where s.id = invitations.supplier_id and s.deleted_at is null)
+        returning supplier_id`.pipe(
+        Effect.catchIf(
+          (error: SqlError.SqlError) => error.reason._tag === "UniqueViolation",
+          () => Effect.fail(new Conflict({ entity: "invitation", reason: "newer_invitation" }))
+        )
+      )
+      const [row] = restored
+      if (row === undefined) return yield* new NotFound({ entity: "invitation", id })
+      const revived = (yield* sql<{ id: string }>`
+        update outbox set cancelled_at = null, not_before = now()
+        where event = 'member.invited' and payload ->> 'invitationId' = ${id}
+          and relayed_at is null and cancelled_at is not null
+          and (payload ->> 'round')::int = (select round from invitations where id = ${id})
+        returning id`).map((r) => r.id)
+      yield* audit(sql, "supplier.invitation_restored", row.supplierId, { invitation: id })
+      return { outboxIds: revived }
+    })
+  )
+  yield* relay.kick(outboxIds)
+  return { ids: [id] }
+})
+
+/**
+ * A contact's access taken away: `revoked_at` set, so the portal's next call (which holds the contact anew) is refused,
+ * and `supplier.contact_revoked` closes its open portal tabs.
+ */
+export const revokeContact = Effect.fn("Invitations.revokeContact")(function*(id: string) {
+  yield* Policy.require("suppliers", 3)
+  const principal = yield* CurrentPrincipal
+  const relay = yield* Relay
+  const db = yield* Db
+  const outboxId = yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const [row] = yield* sql<{ supplierId: string }>`
+        update supplier_contacts set revoked_at = now() where id = ${id} and revoked_at is null returning supplier_id`
+      if (row === undefined) return yield* new NotFound({ entity: "supplier_contact", id })
+      yield* audit(sql, "supplier.contact_revoked", row.supplierId, { contact: id })
+      return yield* Outbox.write(sql, principal.workspaceId, {
+        type: "supplier.contact_revoked",
+        workspaceId: principal.workspaceId,
+        supplierId: row.supplierId,
+        contactId: id
+      })
+    })
+  )
+  yield* relay.kick([outboxId])
+  return { ids: [id] }
+})
+
+/** Undo of a contact's revoke: back as it was, unless the supplier has another owner by now. */
+export const restoreContact = Effect.fn("Invitations.restoreContact")(function*(id: string) {
+  yield* Policy.require("suppliers", 3)
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const [row] = yield* sql<{ supplierId: string }>`
+        update supplier_contacts set revoked_at = null
+        where id = ${id} and revoked_at is not null
+          and exists (select 1 from suppliers s where s.id = supplier_contacts.supplier_id and s.deleted_at is null)
+        returning supplier_id`.pipe(
+        Effect.catchIf(
+          (error: SqlError.SqlError) => error.reason._tag === "UniqueViolation",
+          () => Effect.fail(new Conflict({ entity: "supplier_contact", reason: "owner_taken" }))
+        )
+      )
+      if (row === undefined) return yield* new NotFound({ entity: "supplier_contact", id })
+      yield* audit(sql, "supplier.contact_restored", row.supplierId, { contact: id })
+      return { ids: [id] }
+    })
+  )
 })
