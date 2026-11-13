@@ -29,6 +29,48 @@ const text = (
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
 
+/** A chargeback's reasons as the case names them (`chargebacks/domain/Chargebacks.ts` `ReasonCode`). */
+const REASON: Record<string, string> = {
+  unauthorized: "Niet-geautoriseerde transactie",
+  not_received: "Niet ontvangen",
+  wrong_item: "Verkeerd artikel verzonden",
+  not_as_described: "Product niet zoals beschreven",
+  refund_requested: "Terugbetaling aangevraagd",
+  service: "Service niet naar tevredenheid",
+  payment_dispute: "Betalingsgeschil"
+}
+
+/** How long is left, as each deadline reminder says it (five days, two days, six hours). */
+const DEADLINE: Record<string, string> = {
+  "5d": "Nog vijf dagen om bewijs in te dienen.",
+  "2d": "Nog twee dagen om bewijs in te dienen.",
+  "6h": "Nog zes uur om bewijs in te dienen, anders vervalt het geschil in het voordeel van de klant."
+}
+
+/** The disputed amount in its own currency: "€ 49,95". */
+const disputed = (data: Record<string, unknown>) =>
+  new Intl.NumberFormat("nl-NL", { style: "currency", currency: text(data["currency"]) || "EUR" }).format(
+    Number(data["amountMinor"] ?? 0) / 100
+  )
+
+/** "november 2026" for `2026-11`; the input as it is when it is not a month. */
+export const monthName = (month: string) =>
+  /^\d{4}-\d{2}$/.test(month)
+    ? new Intl.DateTimeFormat("nl-NL", { month: "long", year: "numeric", timeZone: "UTC" })
+      .format(new Date(`${month}-15T12:00:00Z`))
+    : month
+
+/** "15 december" for `2026-12-15`. */
+export const dayName = (day: string) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(day)
+    ? new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "long", timeZone: "UTC" })
+      .format(new Date(`${day}T12:00:00Z`))
+    : day
+
+/** Minor units in a currency, as the console writes money. */
+export const money = (minor: number, currency: string) =>
+  new Intl.NumberFormat("nl-NL", { style: "currency", currency }).format(minor / 100)
+
 export const wordsOf = (note: NoteFacts): NoteWords => {
   const { data } = note
   const who = note.actor ?? "Iemand"
@@ -125,6 +167,75 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
         record: text(data["supplier"]) || undefined,
         actionLabel: "Controle bekijken",
         path: `/products/${text(data["productId"])}${query({ tab: "quality", check: id })}`
+      }
+    }
+    case "chargeback.new": {
+      // A chargeback at or above the threshold (M13 step 3): opened by a teammate by hand, or by a provider later.
+      const number = text(data["caseNumber"])
+      return {
+        title: note.actor === null ? `Nieuwe chargeback: ${number}` : `${who} opende chargeback ${number}`,
+        detail: `${text(data["customer"])} betwist ${disputed(data)}${
+          REASON[text(data["reasonCode"])] === undefined ? "" : ` · ${REASON[text(data["reasonCode"])]}`
+        }`,
+        record: `Chargeback ${number}`,
+        actionLabel: "Zaak openen",
+        path: `/chargebacks/${id}`
+      }
+    }
+    case "chargeback.deadline": {
+      const number = text(data["caseNumber"])
+      return {
+        title: `De bewijsdeadline van ${number} nadert`,
+        detail: DEADLINE[text(data["offset"])] ?? DEADLINE["2d"],
+        record: `Chargeback ${number}`,
+        actionLabel: "Zaak openen",
+        path: `/chargebacks/${id}`
+      }
+    }
+    case "integration.disconnected":
+      // A webhook endpoint Insyte switched off (M19.4).
+      return {
+        title: "Insyte heeft een webhook-endpoint uitgezet",
+        detail: "Na 5 mislukte leveringen op rij. Er gaan geen events meer heen tot je het weer aanzet.",
+        record: text(data["url"]) || undefined,
+        actionLabel: "Endpoint bekijken",
+        path: `/settings/webhooks${query({ endpoint: id })}`
+      }
+    case "course.assigned":
+      return {
+        title: data["reminder"] === true
+          ? `${who} herinnert je aan de cursus “${text(data["title"])}”`
+          : `${who} zette de cursus “${text(data["title"])}” voor je klaar`,
+        detail: text(data["deadline"]) === "" ? undefined : `Graag af voor ${text(data["deadline"])}.`,
+        record: text(data["title"]) || undefined,
+        actionLabel: "Cursus openen",
+        path: `/courses/learn/${id}`
+      }
+    case "course.question":
+      return {
+        title: `${who} stelt een vraag bij de cursus “${text(data["title"])}”`,
+        quote: text(data["comment"]) || undefined,
+        record: text(data["title"]) || undefined,
+        actionLabel: "Vraag beantwoorden",
+        path: `/courses${query({ view: "questions" })}`
+      }
+    case "course.answered":
+      return {
+        title: `${who} beantwoordde je vraag bij de cursus “${text(data["title"])}”`,
+        quote: text(data["comment"]) || undefined,
+        record: text(data["title"]) || undefined,
+        actionLabel: "Cursus openen",
+        path: `/courses/learn/${id}`
+      }
+    case "supplier.statement": {
+      const count = Number(data["count"] ?? 0)
+      return {
+        title: `De afrekeningen van ${monthName(text(data["month"]))} staan klaar`,
+        detail: `${count} ${count === 1 ? "leverancier" : "leveranciers"}, samen ${
+          money(Number(data["totalMinor"] ?? 0), text(data["currency"]) || "EUR")
+        }. Betaling op ${dayName(text(data["payDay"]))}.`,
+        actionLabel: "Leveranciers openen",
+        path: "/suppliers"
       }
     }
     default:

@@ -1,7 +1,7 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { statementsFor } from "@insyte/ui/app/lib/supplier-statements";
 import { ME_SUPPLIER } from "@insyte/ui/app/lib/supplier-work";
-import { StatementPage } from "@insyte/ui/app/supplier/statement-screen";
+import { DemoStatementPage } from "@insyte/ui/app/supplier/statements-demo";
 
 export const Route = createFileRoute("/_supplier/supplier/statements/$month")({
 	loader: ({ params }) => {
@@ -9,5 +9,5 @@ export const Route = createFileRoute("/_supplier/supplier/statements/$month")({
 		if (!s) throw notFound();
 		return { s };
 	},
-	component: StatementPage,
+	component: DemoStatementPage,
 });

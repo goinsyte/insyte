@@ -3,7 +3,20 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import {
+  ActionNotAllowedV1,
+  AnalyticsOverviewV1,
+  AutomationDetailV1,
+  AutomationPageV1,
+  AutomationRunPageV1,
+  AutomationRunStatusFilter,
+  AutomationRunV1,
+  AutomationStatusFilter,
+  ChargebackDetailV1,
+  ChargebackPageV1,
+  ChargebackTabV1,
   ConflictV1,
+  CostFiguresV1,
+  CostsV1,
   CurrentApiKey,
   CustomerPageV1,
   ForwardView,
@@ -29,7 +42,10 @@ import {
   ReturnStatusFilter,
   Role,
   ScopeMissingV1,
+  SheetListV1,
+  SheetV1,
   Supplier,
+  SupplierStatementsV1,
   Ticket,
   TicketComment,
   TicketDetailV1,
@@ -43,7 +59,7 @@ import {
 
 /*
  * The MCP server's tools (M19.3): what an agent with an API key may read, in the public API's shapes, and the order
- * commands (M7), forwarding (M8), returns (M9) and tickets (M11) as `/v1` has them. The same key, the same scopes, the same request log; inviting, removing and
+ * commands (M7), forwarding (M8), returns (M9) and tickets (M11) as `/v1` has them, and the chargebacks to read (M13). The same key, the same scopes, the same request log; inviting, removing and
  * changing roles stay with people.
  */
 
@@ -111,6 +127,24 @@ const IdempotencyKey = Schema.optional(Schema.String).annotate({
 })
 const WriteFailure = Schema.Union([ScopeMissingV1, NotFoundV1, ConflictV1, ValidationFailedV1, IdempotencyKeyReusedV1])
 
+/**
+ * What an agent's call answers where the workspace asks first (M15 step 6, ADR-0027): nothing happened yet; a person
+ * files the proposal, with their own permissions, or sets it aside. An agent key's writes go through the workspace's
+ * autonomy rules; any other key acts as before.
+ */
+export const AgentProposalV1 = Schema.Struct({
+  object: Schema.Literal("agent_proposal"),
+  proposal_id: Schema.String,
+  agent_action_id: Schema.String,
+  reason: Schema.NullOr(Schema.String).annotate({
+    description: "Why it asks: `policy` (set to Eerst vragen), `locked`, `limit`, `budget` or `disabled`."
+  }),
+  message: Schema.String
+}).annotate({ identifier: "AgentProposal" })
+
+/** A write an agent's key makes under the autonomy rules: the result, or the proposal it became. */
+const Governed = <S extends Schema.Top>(success: S) => Schema.Union([success, AgentProposalV1])
+
 export const GetOrder = Tool.make("get_order", {
   description:
     "One order with its lines, shipping address, the team's internal note and its refunds. Needs orders.read.",
@@ -129,8 +163,8 @@ export const TagOrder = Tool.make("tag_order", {
     remove: Schema.optional(Schema.Array(Schema.String)),
     idempotency_key: IdempotencyKey
   }),
-  success: Order,
-  failure: WriteFailure,
+  success: Governed(Order),
+  failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
@@ -138,8 +172,8 @@ export const SetOrderNote = Tool.make("set_order_note", {
   description:
     "Sets the team's internal note on the order; an empty body clears it. Never sent to Shopify or a supplier. Needs orders.write.",
   parameters: Schema.Struct({ order_id: OrderId, body: Schema.String, idempotency_key: IdempotencyKey }),
-  success: OrderDetailV1,
-  failure: WriteFailure,
+  success: Governed(OrderDetailV1),
+  failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
@@ -170,8 +204,8 @@ export const CancelOrder = Tool.make("cancel_order", {
     notify_customer: Schema.Boolean,
     idempotency_key: IdempotencyKey
   }),
-  success: Order,
-  failure: WriteFailure,
+  success: Governed(Order),
+  failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Destructive, true)
 
@@ -184,8 +218,9 @@ export const RefundOrder = Tool.make("refund_order", {
     note: Schema.optional(Schema.String),
     idempotency_key: IdempotencyKey
   }),
-  success: Refund,
+  success: Governed(Refund),
   failure: Schema.Union([
+    ActionNotAllowedV1,
     ScopeMissingV1,
     NotFoundV1,
     ConflictV1,
@@ -213,6 +248,15 @@ export const ListSuppliers = Tool.make("list_suppliers", {
   dependencies: asKey()
 }).annotate(Tool.Readonly, true)
 
+export const ListSupplierStatements = Tool.make("list_supplier_statements", {
+  description:
+    "A supplier's monthly statements, newest first: what the brand owes it per month (shipped lines at cost, less its returns that were refunded), in minor units of the workspace currency, and whether each is open (running month), processing (closed, to be paid) or paid. Find supplier ids with list_suppliers. Needs suppliers.read.",
+  parameters: Schema.Struct({ supplier_id: Schema.String }),
+  success: SupplierStatementsV1,
+  failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
 export const ListForwarding = Tool.make("list_forwarding", {
   description:
     "The forwarding queue: each leg is one paid order's lines for one supplier. view to_forward (waiting to be sent), awaiting (sent, waiting for the supplier) or forward_error (failed, with the reason); without a view, every open leg. Needs orders.read.",
@@ -230,8 +274,8 @@ export const ForwardOrders = Tool.make("forward_orders", {
     note: Schema.optional(Schema.String).annotate({ description: "A note for the suppliers." }),
     idempotency_key: IdempotencyKey
   }),
-  success: Schema.Struct({ data: Schema.Array(Leg) }),
-  failure: WriteFailure,
+  success: Governed(Schema.Struct({ data: Schema.Array(Leg) })),
+  failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Destructive, true)
 
@@ -247,6 +291,35 @@ export const RerouteLeg = Tool.make("reroute_leg", {
 const ReturnId = Schema.String.annotate({ description: "The return's id (ret_…), as list_returns gives it." })
 const ResolutionKind = Schema.Literals(["refund", "exchange", "gift_card", "replacement", "discount"])
 const ReturnMoveFailure = WriteFailure
+
+export const GetAnalyticsOverview = Tool.make("get_analytics_overview", {
+  description:
+    "Analyse: month a against month b (YYYY-MM), both cut to the shorter one's days (a month under way runs to today), in six figures: counted revenue (minor units in the workspace's currency, each day at its exchange rate), paid orders, on time (% of orders delivered), refunded (% of orders placed with a refund since), disputes (not kept yet: available false) and hours to done for tickets. Each figure says which rows it sums and how many. Needs analytics.read.",
+  parameters: Schema.Struct({
+    a: Schema.String.annotate({ description: "The month read, YYYY-MM." }),
+    b: Schema.String.annotate({ description: "The month it is compared with, YYYY-MM." })
+  }),
+  success: AnalyticsOverviewV1,
+  failure: Schema.Union([ScopeMissingV1, InvalidRequestV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const ListSheets = Tool.make("list_sheets", {
+  description:
+    "Rekenbladen: the sheets of the member who made this key (their own and those shared with them), newest change first, with whether each reads Insyte's figures (linked). Needs data.read.",
+  success: SheetListV1,
+  failure: ScopeMissingV1,
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const GetSheet = Tool.make("get_sheet", {
+  description:
+    "One sheet with every tab as typed: cells by address (A1…L40) with the value or formula written, formats and column widths. Formulas are not evaluated here; INSYTE(\"metric\"; \"month\") reads a figure when the sheet is opened. Needs data.read.",
+  parameters: Schema.Struct({ sheet_id: Schema.String.annotate({ description: "The sheet's id (sh_…)." }) }),
+  success: SheetV1,
+  failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
 
 export const ListQueue = Tool.make("list_queue", {
   description:
@@ -273,10 +346,35 @@ export const FileProposal = Tool.make("file_proposal", {
   description:
     "Files an open plate: the command it carries runs as this key (approve_return needs returns.write and returns.approve; a quality check needs quality.approve; notify_delayed_order mails the shopper the words in after and needs orders.write; create_supplier_ticket needs support.write). A plate in execution_failed is tried again. Read the plate first and file only what the person you act for would; refused with a conflict when it is no longer open (closed) or its record moved on (stale).",
   parameters: Schema.Struct({ proposal_id: ProposalId, idempotency_key: IdempotencyKey }),
-  success: ProposalV1,
-  failure: WriteFailure,
+  success: Governed(ProposalV1),
+  failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
+
+const ChargebackId = Schema.String.annotate({
+  description: "The chargeback's id (cb_…), as list_chargebacks gives it."
+})
+
+export const ListChargebacks = Tool.make("list_chargebacks", {
+  description:
+    "Chargebacks, nearest evidence deadline first, with each tab's count and the workspace's record (won out of decided, what the won cases kept): tab action_required (open or waiting for evidence), submitted, won or lost; provider stripe, klarna or paypal. Needs chargebacks.read.",
+  parameters: Schema.Struct({
+    tab: Schema.optional(ChargebackTabV1),
+    provider: Schema.optional(Schema.Literals(["stripe", "klarna", "paypal"]))
+  }),
+  success: ChargebackPageV1,
+  failure: ScopeMissingV1,
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const GetChargeback = Tool.make("get_chargeback", {
+  description:
+    "One chargeback with its evidence pack, in its order, and its timeline (opened, evidence added or removed, reminders, the outcome). Needs chargebacks.read.",
+  parameters: Schema.Struct({ chargeback_id: ChargebackId }),
+  success: ChargebackDetailV1,
+  failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
 
 export const ListReturns = Tool.make("list_returns", {
   description:
@@ -322,8 +420,8 @@ export const ApproveReturn = Tool.make("approve_return", {
     keep_item: Schema.optional(Schema.Boolean),
     idempotency_key: IdempotencyKey
   }),
-  success: Return,
-  failure: ReturnMoveFailure,
+  success: Governed(Return),
+  failure: Schema.Union([...ReturnMoveFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
@@ -354,8 +452,8 @@ export const SendReturnLabel = Tool.make("send_return_label", {
   description:
     "Asks for a return label for a return waiting for its parcel, from the carrier its return address names; the label is made a few seconds later and costs the store the carrier's price, so confirm with the person first. Refused where no carrier is set up or the return has no address to make one with. Needs returns.write.",
   parameters: Schema.Struct({ return_id: ReturnId, idempotency_key: IdempotencyKey }),
-  success: Return,
-  failure: ReturnMoveFailure,
+  success: Governed(Return),
+  failure: Schema.Union([...ReturnMoveFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true).annotate(Tool.Destructive, true)
 
@@ -388,8 +486,9 @@ export const ResolveReturn = Tool.make("resolve_return", {
   description:
     "Settles a return that is ready, with one of its allowed resolutions (get_return). A refund is IRREVERSIBLE: money goes back through the order's payments; confirm it with the person first and pass an idempotency_key. Needs returns.write, and refunds.write within the key's limit for a refund.",
   parameters: Schema.Struct({ return_id: ReturnId, resolution: ResolutionKind, idempotency_key: IdempotencyKey }),
-  success: Return,
+  success: Governed(Return),
   failure: Schema.Union([
+    ActionNotAllowedV1,
     ScopeMissingV1,
     NotFoundV1,
     ConflictV1,
@@ -399,6 +498,50 @@ export const ResolveReturn = Tool.make("resolve_return", {
   ]),
   dependencies: asKey()
 }).annotate(Tool.Destructive, true)
+
+export const ListAutomations = Tool.make("list_automations", {
+  description:
+    "The workspace's flows, newest first, with each status's count (draft, active, paused); by default every one. Needs automations.read.",
+  parameters: Schema.Struct({ status: Schema.optional(AutomationStatusFilter) }),
+  success: AutomationPageV1,
+  failure: ScopeMissingV1,
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const GetAutomation = Tool.make("get_automation", {
+  description:
+    "One flow: its draft and live steps, its published versions, and what is wrong with the draft per step. Needs automations.read.",
+  parameters: Schema.Struct({
+    automation_id: Schema.String.annotate({ description: "The flow's id (auto_…), as list_automations gives it." })
+  }),
+  success: AutomationDetailV1,
+  failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+const AutomationId = Schema.String.annotate({ description: "The flow's id (auto_…), as list_automations gives it." })
+
+export const ListAutomationRuns = Tool.make("list_automation_runs", {
+  description:
+    "One flow's runs, newest first: each with its status (running, waiting, succeeded, failed, stopped, skipped), why, the order it ran for and the version it ran on. Needs automations.read.",
+  parameters: Schema.Struct({
+    automation_id: AutomationId,
+    status: Schema.optional(AutomationRunStatusFilter),
+    cursor: Schema.optional(Schema.String)
+  }),
+  success: AutomationRunPageV1,
+  failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const TriggerAutomation = Tool.make("trigger_automation", {
+  description:
+    "Runs a flow's live version for one order now, as its trigger would; its steps act as the flow's own service account, so they may create tickets, label the customer or notify the team. Answers the run as it started. Needs automations.write.",
+  parameters: Schema.Struct({ automation_id: AutomationId, order_id: OrderId, idempotency_key: IdempotencyKey }),
+  success: AutomationRunV1,
+  failure: WriteFailure,
+  dependencies: asKey()
+})
 
 const TicketId = Schema.String.annotate({ description: "The ticket's id (tkt_…), as list_tickets gives it." })
 const MemberId = Schema.String.annotate({ description: "A teammate's member id (mem_…), as list_members gives it." })
@@ -435,8 +578,8 @@ export const CreateTicket = Tool.make("create_ticket", {
     customer_id: Schema.optional(Schema.String),
     idempotency_key: IdempotencyKey
   }),
-  success: Ticket,
-  failure: WriteFailure,
+  success: Governed(Ticket),
+  failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
@@ -452,16 +595,16 @@ export const UpdateTicket = Tool.make("update_ticket", {
     labels: Schema.optional(Schema.Array(Schema.String)),
     idempotency_key: IdempotencyKey
   }),
-  success: Ticket,
-  failure: WriteFailure,
+  success: Governed(Ticket),
+  failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
 export const SetTicketStatus = Tool.make("set_ticket_status", {
   description: "Moves a ticket to intake, in_progress, awaiting_reply or done. Needs support.write.",
   parameters: Schema.Struct({ ticket_id: TicketId, status: TicketStatusV1, idempotency_key: IdempotencyKey }),
-  success: Ticket,
-  failure: WriteFailure,
+  success: Governed(Ticket),
+  failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
@@ -473,8 +616,8 @@ export const AssignTicket = Tool.make("assign_ticket", {
     unassign: Schema.optional(Schema.Boolean),
     idempotency_key: IdempotencyKey
   }),
-  success: Ticket,
-  failure: WriteFailure,
+  success: Governed(Ticket),
+  failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
@@ -487,10 +630,32 @@ export const CommentOnTicket = Tool.make("comment_on_ticket", {
     mentions: Schema.optional(Schema.Array(MemberId)),
     idempotency_key: IdempotencyKey
   }),
-  success: TicketComment,
-  failure: WriteFailure,
+  success: Governed(TicketComment),
+  failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
+
+const MonthParam = Schema.String.check(Schema.isPattern(/^\d{4}-(0[1-9]|1[0-2])$/)).annotate({
+  description: "A calendar month, YYYY-MM."
+})
+
+export const GetCosts = Tool.make("get_costs", {
+  description:
+    "Kosten: the workspace's cost lines (a share of revenue, an amount per order, a fixed amount per month, ad spend) with what each costs per month, and each month's figures: counted revenue, orders, ad spend, other costs, net profit, margin and ROAS. Amounts are minor units in the workspace's currency. Without from and to, the five months up to the current one (which is still running); at most 36 months. Needs analytics.read.",
+  parameters: Schema.Struct({ from: Schema.optional(MonthParam), to: Schema.optional(MonthParam) }),
+  success: CostsV1,
+  failure: Schema.Union([ScopeMissingV1, InvalidRequestV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const GetCostFigures = Tool.make("get_cost_figures", {
+  description:
+    "Only the month figures (revenue, orders, ad spend, other costs, net profit, margin, ROAS) for the months named, comma-separated (2026-04,2026-05), up to 36. Needs analytics.read.",
+  parameters: Schema.Struct({ months: Schema.String }),
+  success: CostFiguresV1,
+  failure: Schema.Union([ScopeMissingV1, InvalidRequestV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
 
 export const InsyteTools = Toolkit.make(
   Whoami,
@@ -507,9 +672,13 @@ export const InsyteTools = Toolkit.make(
   RefundOrder,
   GetOrderTracking,
   ListSuppliers,
+  ListSupplierStatements,
   ListForwarding,
   ForwardOrders,
   RerouteLeg,
+  GetAnalyticsOverview,
+  ListSheets,
+  GetSheet,
   ListQueue,
   GetProposal,
   FileProposal,
@@ -529,5 +698,13 @@ export const InsyteTools = Toolkit.make(
   UpdateTicket,
   SetTicketStatus,
   AssignTicket,
-  CommentOnTicket
+  CommentOnTicket,
+  ListAutomations,
+  GetAutomation,
+  ListAutomationRuns,
+  TriggerAutomation,
+  ListChargebacks,
+  GetChargeback,
+  GetCosts,
+  GetCostFigures
 )

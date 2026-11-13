@@ -65,6 +65,10 @@ const graduated = [
   "app/products/",
   "app/customers/",
   "app/suppliers/",
+  "app/supplier/statements-screen.tsx",
+  "app/supplier/statement-screen.tsx",
+  "app/supplier/statements-source.tsx",
+  // Not `statements-demo.tsx`: the design app's own invoice, a document made in the browser with its own colours.
   "app/returns/",
   "app/quality/",
   "app/dashboard/",
@@ -72,15 +76,53 @@ const graduated = [
   "app/settings/notifications-screen.tsx",
   "app/settings/notifications-source.tsx",
   "app/settings/notifications-demo-source.tsx",
+  "app/settings/depth/log-screen.tsx",
+  "app/settings/depth/trash-screen.tsx",
+  "app/settings/log-source.tsx",
+  "app/settings/log-demo-source.tsx",
+  "app/settings/trash-source.tsx",
+  "app/settings/trash-demo-source.tsx",
   "app/lib/home/day.ts",
   "app/lib/home/kinds.ts",
+  "app/analytics/",
+  "app/sheets/",
   "app/chats/",
-  "app/inbox/"
+  "app/inbox/",
+  "app/chargebacks/",
+  "app/automations/",
+  "app/costs/",
+  "app/settings/depth/",
+  "app/settings/webhooks-screen.tsx",
+  "app/settings/webhooks-page.tsx",
+  "app/developer/webhook-dialog.tsx",
+  "app/developer/delivery-drawer.tsx",
+  "app/developer/webhooks-source.tsx",
+  "app/developer/webhooks-demo-source.tsx",
+  "app/lib/webhooks-core.ts",
+  "app/courses/",
+  "app/lib/courses.ts",
+  "app/stores/courses-store.ts",
+  "app/marketplace/",
+  "app/settings/apps-screen.tsx",
+  "app/live/",
+  "app/ai/autonomy-screen.tsx",
+  "app/ai/autonomy-source.tsx",
+  "app/ai/autonomy-demo-source.tsx"
 ]
+
+/**
+ * Inside a graduated directory but not yet edited for the backend: E-mail en domein waits for the sending domain
+ * (20.1c); the Marketplace's modal and its brand logos are drawn as ported (M17 step 3 changed only what they read).
+ */
+const notYet = new Set([
+  "app/settings/depth/email-domain-screen.tsx",
+  "app/marketplace/marketplace-modal.tsx",
+  "app/marketplace/brand-logos.tsx"
+])
 
 const ported = (name: string): boolean =>
   portedPaths.some((prefix) => name.startsWith(prefix)) &&
-  !graduated.some((prefix) => name.startsWith(prefix))
+  (notYet.has(name) || !graduated.some((prefix) => name.startsWith(prefix)))
 
 const files = sources(src).filter(([name]) => !ported(name))
 

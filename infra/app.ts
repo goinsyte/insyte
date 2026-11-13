@@ -218,7 +218,7 @@ export default Alchemy.Stack(
       env: {
         HYPERDRIVE: hyperdrive,
         FILES: files,
-        // Browser Rendering (M8.5): packing slips as PDF.
+        // Browser Rendering (M8.5): packing slips as PDF, and an evidence pack's documents (M13 step 4).
         BROWSER: Cloudflare.Browser("BROWSER"),
         EVENTS: events,
         INGEST: ingest,
@@ -228,6 +228,8 @@ export default Alchemy.Stack(
         ROOMS: Cloudflare.DurableObject("Rooms", { className: "RoomDurableObject" }),
         // The gate per external account (M6.3), hosted by this Worker (`ConnectionGateObject`): token and bucket.
         CONNECTION_GATE: Cloudflare.DurableObject("ConnectionGate", { className: "ConnectionGateObject" }),
+        // The live rooms (M14 step 3), hosted by this Worker (`LiveRoomDurableObject`): visitors in memory only.
+        LIVE: Cloudflare.DurableObject("Live", { className: "LiveRoomDurableObject" }),
         // A store's first import (M6.3), hosted by this Worker (`ShopifyBackfillWorkflow`); one per stage.
         SHOPIFY_BACKFILL: Cloudflare.Workflow("ShopifyBackfill", {
           className: "ShopifyBackfillWorkflow",
@@ -257,6 +259,26 @@ export default Alchemy.Stack(
         RETURN_LABEL: Cloudflare.Workflow("ReturnLabel", {
           className: "ReturnLabelWorkflow",
           workflowName: `insyte-return-label-${stage}`
+        }),
+        // A case's evidence pack (M13 step 4), hosted by this Worker (`EvidencePackWorkflow`); one per stage.
+        EVIDENCE_PACK: Cloudflare.Workflow("EvidencePack", {
+          className: "EvidencePackWorkflow",
+          workflowName: `insyte-evidence-pack-${stage}`
+        }),
+        // A flow's run (M12 step 3), hosted by this Worker (`AutomationRunWorkflow`); one per stage.
+        AUTOMATION_RUN: Cloudflare.Workflow("AutomationRun", {
+          className: "AutomationRunWorkflow",
+          workflowName: `insyte-automation-run-${stage}`
+        }),
+        // A webhook delivery's attempts (M19.4), hosted by this Worker (`WebhookDeliveryWorkflow`); one per stage.
+        WEBHOOK_DELIVERY: Cloudflare.Workflow("WebhookDelivery", {
+          className: "WebhookDeliveryWorkflow",
+          workflowName: `insyte-webhook-delivery-${stage}`
+        }),
+        // The supplier statements' monthly close (M13 step 6), hosted by this Worker (`MonthlyCloseWorkflow`); one per stage.
+        MONTHLY_CLOSE: Cloudflare.Workflow("MonthlyClose", {
+          className: "MonthlyCloseWorkflow",
+          workflowName: `insyte-monthly-close-${stage}`
         }),
         ENVIRONMENT: environment,
         // Where `Main.ts` serves `/v1` and nothing else.

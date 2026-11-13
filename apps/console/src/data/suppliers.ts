@@ -1,4 +1,5 @@
 import { Forbidden, NotFound, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
+import { StatementDetail, StatementList } from "@insyte/modules/suppliers/domain/Statements"
 import { SupplierDetail, SupplierList } from "@insyte/modules/suppliers/domain/Suppliers"
 import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
@@ -32,6 +33,34 @@ export const supplierAtom = Atom.family((id: string) =>
   )
 )
 
+/*
+ * A supplier's statements (M13 step 6): its months, and one month line by line. A cost price changed on a product
+ * changes the running month, so they name `PRODUCTS` too; the monthly close says `supplier_statement` on the socket.
+ */
+export const statementsAtom = Atom.family((supplierId: string) =>
+  Atom.serializable(
+    ConsoleClient.query("Suppliers.statements", { supplierId }, { reactivityKeys: [...SUPPLIERS, ...PRODUCTS] }),
+    {
+      key: `statements:${supplierId}`,
+      schema: AsyncResult.Schema({ success: StatementList, error: Schema.Union([NotFound, errors]) }),
+      skipInitialRun: true
+    }
+  )
+)
+
+/** One month of a supplier's, by `<supplierId>/<YYYY-MM>`. */
+export const statementAtom = Atom.family((key: string) => {
+  const [supplierId = "", month = ""] = key.split("/")
+  return Atom.serializable(
+    ConsoleClient.query("Suppliers.statement", { supplierId, month }, { reactivityKeys: [...SUPPLIERS, ...PRODUCTS] }),
+    {
+      key: `statement:${key}`,
+      schema: AsyncResult.Schema({ success: StatementDetail, error: Schema.Union([NotFound, errors]) }),
+      skipInitialRun: true
+    }
+  )
+})
+
 export const supplierWrites = {
   create: ConsoleClient.mutation("Suppliers.create"),
   update: ConsoleClient.mutation("Suppliers.update"),
@@ -40,5 +69,6 @@ export const supplierWrites = {
   connectApi: ConsoleClient.mutation("Suppliers.connectApi"),
   disconnectApi: ConsoleClient.mutation("Suppliers.disconnectApi"),
   testConnection: ConsoleClient.mutation("Suppliers.testConnection"),
+  markStatementPaid: ConsoleClient.mutation("Suppliers.markStatementPaid"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const

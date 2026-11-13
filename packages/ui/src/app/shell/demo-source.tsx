@@ -15,7 +15,7 @@ import { recommendations, usesAi } from "../automations/library";
 import { AutomationsPanelExtras } from "../automations/panel-extras";
 import { useWorkflows } from "../automations/workflow-store";
 import { useActiveStore } from "../hooks/use-active-store";
-import { useMarketplaceState } from "../hooks/use-marketplace-state";
+import { useDemoMarketplace } from "../marketplace/marketplace-demo-source";
 import { useNavPrefs } from "../hooks/use-nav-prefs";
 import { usePersonaSelection } from "../hooks/use-persona";
 import { useSupplierOrders } from "../hooks/use-supplier-orders";
@@ -99,7 +99,7 @@ export function DemoShellSource({ children }: { children: ReactNode }) {
 		currentRole: useCurrentRole(),
 		workflows,
 		supplierOrders: useSupplierOrders(),
-		marketplace: useMarketplaceState(),
+		marketplace: useDemoMarketplace(),
 		navPrefs: useNavPrefs(),
 		extensions,
 		heardNotes: useHeardNotes(persona.persona),

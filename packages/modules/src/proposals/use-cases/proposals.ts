@@ -1,5 +1,6 @@
 import { Db } from "@insyte/database/Db"
 import { Conflict, type Forbidden, NotFound } from "@insyte/domain/Errors"
+import { mintId } from "@insyte/domain/Ids"
 import { canRole } from "@insyte/domain/Permissions"
 import type { AreaId } from "@insyte/domain/Permissions"
 import { CurrentPrincipal, type PrincipalKind } from "@insyte/domain/Principal"
@@ -19,7 +20,7 @@ import {
   wordOf
 } from "../domain/Proposals.ts"
 import { ProposalLinks } from "../Links.ts"
-import { draftFor, insertRevision } from "./proposer.ts"
+import { type Draft, draftFor, insertRevision } from "./proposer.ts"
 
 /*
  * A plate's life (M10.2; domain.md §12.7): read, filed, set aside, drawn again, and the undo of filing or setting aside.
@@ -118,8 +119,8 @@ const DECIDABLE = ["open", "execution_failed"]
 const visible = Effect.fn("Proposals.visible")(function*(sql: SqlClient.SqlClient) {
   const { role } = yield* CurrentPrincipal
   const plain = { ...role, stores: role.stores === "all" ? ("all" as const) : [...role.stores] }
-  const areas = (["returns", "products", "orders", "settings"] as ReadonlyArray<AreaId>).filter((a) =>
-    canRole(plain, a, 1)
+  const areas = (["returns", "products", "orders", "settings", "support", "suppliers"] as ReadonlyArray<AreaId>).filter(
+    (a) => canRole(plain, a, 1)
   )
   const stores = role.stores === "all" ? sql`true` : sql`(p.store_id is null or p.store_id = any(${[...role.stores]}))`
   return sql.and([sql`p.area = any(${areas})`, stores])
@@ -349,4 +350,26 @@ export const settleSent = Effect.fn("Proposals.settleSent")(function*(
       and action->>'_tag' = ${subject.action}
     returning queue_item_id`
   return error === null ? [] : rows.flatMap((r) => (r.queueItemId === null ? [] : [r.queueItemId]))
+})
+
+/**
+ * What an agent asked first (M15 step 6): a proposal of origin `agent`, with no queue row, for a person to file. One
+ * open proposal per touchpoint (`dedupeKey`): asked again while one is open, the open one answers. Answers its id.
+ */
+export const proposeIn = Effect.fn("Proposals.proposeIn")(function*(sql: SqlClient.SqlClient, draft: Draft) {
+  const id = mintId("prp")
+  const inserted = yield* sql<{ id: string }>`
+    insert into proposals (id, workspace_id, store_id, origin, queue_item_id, area, subject_type, subject_id, number,
+                           action, dedupe_key, expires_at)
+    values (${id}, app_workspace_id(), ${draft.storeId}, 'agent', null, ${draft.area}, ${draft.subjectType},
+            ${draft.subjectId}, ${draft.number}, ${JSON.stringify(draft.action)}::jsonb, ${draft.dedupeKey},
+            ${draft.expiresAt})
+    on conflict do nothing returning id`
+  if (inserted.length === 0) {
+    const [open] = yield* sql<{ id: string }>`
+      select id from proposals where dedupe_key = ${draft.dedupeKey} and state = 'open'`
+    return open!.id
+  }
+  yield* insertRevision(sql, id, 1, draft)
+  return id
 })

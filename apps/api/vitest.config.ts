@@ -32,6 +32,7 @@ export default defineConfig({
           TRACKING_ADAPTER: "recorded",
           FX_ADAPTER: "recorded",
           LABELS_ADAPTER: "recorded",
+          WEBHOOK_ADAPTER: "recorded",
           DOCUMENTS_ADAPTER: "html",
           SYNC_PAGE_LINES: "4"
         }
