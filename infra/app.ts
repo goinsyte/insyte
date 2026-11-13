@@ -3,6 +3,7 @@ import * as Neon from "@alchemy.run/neon"
 import * as Alchemy from "alchemy"
 import { Config, Effect, Layer, Option, Redacted } from "effect"
 import { SENTRY_LOGS, SENTRY_TRACES } from "./shared.ts"
+import { COMPATIBILITY_DATE, WORKERS } from "./workers.ts"
 
 /** An unset GitHub secret arrives as an empty string: that is no secret. */
 const set = (r: Redacted.Redacted<string>) => Redacted.value(r) !== ""
@@ -16,8 +17,6 @@ const set = (r: Redacted.Redacted<string>) => Redacted.value(r) !== ""
  * insyte_app, the API Worker behind it and the console in front. Queues, R2, KV, further Durable Objects and Workflows join with the step that
  * first uses them.
  */
-
-const COMPATIBILITY_DATE = "2026-10-26"
 
 /** The account's workers.dev subdomain: each stage's console lives at insyte-console-<stage>.<this> until the cut-over. */
 const WORKERS_SUBDOMAIN = "ishak-73d.workers.dev"
@@ -208,8 +207,8 @@ export default Alchemy.Stack(
 
     const api = yield* Cloudflare.Worker("Api", {
       name: `insyte-api-${stage}`,
-      main: "../apps/api/src/Main.ts",
-      compatibility: { date: COMPATIBILITY_DATE, flags: ["nodejs_compat", "enable_request_signal"] },
+      // Entry and compatibility in `workers.ts`, which the startup check bundles from too.
+      ...WORKERS.api,
       placement: { region: "aws:eu-central-1" },
       ...(environment === "preview" ? {} : { crons: [environment === "production" ? "* * * * *" : "*/15 * * * *"] }),
       // The public API and the MCP server (M19.2, M19.3) on the Worker's own hostname; the rest only through the console.

@@ -117,6 +117,7 @@
     "boundaries": "bun scripts/boundaries.ts",
     "bindings:check": "bun scripts/bindings-check.ts",
     "bundle:check": "bun scripts/bundle-check.ts",
+    "startup:check": "bun scripts/startup-check.ts",
     "licences": "bun scripts/licences.ts",
     "auth:schema": "bun scripts/auth-schema.ts",
     "auth:check": "bun scripts/auth-schema.ts --check"
