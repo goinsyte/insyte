@@ -1,7 +1,8 @@
+import { fill as fillRates } from "@insyte/modules/fx/Fx"
 import { receive } from "@insyte/modules/inbox/use-cases/inbound"
 import { isReplyAddress, receiveReply } from "@insyte/modules/notifications/use-cases/replies"
 import { env, tracing } from "cloudflare:workers"
-import { ManagedRuntime } from "effect"
+import { Effect, ManagedRuntime } from "effect"
 import { HttpRouter } from "effect/http"
 import { adSpendSweep } from "./platform/AdSpend.ts"
 import { AppLayer, BackgroundLayer } from "./platform/AppLayer.ts"
@@ -101,7 +102,8 @@ export default {
    * daily facts (M10.4, at 02:00 UTC their nightly pass), the members' daily digests (M11.5) and the webhook
    * deliveries past 30 days (M19.4); on the hour, the chargeback deadline reminders (M13 step 3); at 03:00 UTC the
    * Prullenbak's sweep (M17) and, on the 1st, the supplier statements' monthly close (M13 step 6); at 04:00 UTC the
-   * day's ad spend from every connected ad account (M13 step 5). */
+   * day's ad spend from every connected ad account (M13 step 5); at 02:00 UTC the ECB's reference rates into
+   * `fx_rates` (§0.4). */
   scheduled(controller, _env, ctx) {
     ctx.waitUntil(background.runPromise(withRequestDb(sweep())).finally(() => Telemetry.flush()))
     ctx.waitUntil(background.runPromise(withRequestDb(notifySweep())).finally(() => Telemetry.flush()))
@@ -110,6 +112,8 @@ export default {
     if (at.getUTCMinutes() % 15 === 0) {
       const nightly = at.getUTCHours() === 2 && at.getUTCMinutes() === 0
       ctx.waitUntil(background.runPromise(withRequestDb(factsSweep(nightly))).finally(() => Telemetry.flush()))
+      // The rates the conversions read (§0.4): the ECB's last 90 days, so a night it missed fills in on the next.
+      if (nightly) ctx.waitUntil(background.runPromise(withRequestDb(ratesFill)).finally(() => Telemetry.flush()))
       ctx.waitUntil(syncRuntime.runPromise(reconcile).finally(() => Telemetry.flush()))
       ctx.waitUntil(syncRuntime.runPromise(trackingSweep).finally(() => Telemetry.flush()))
       // Start's queue (M10.1): what no event says, a stock-out or a review coming due.
@@ -137,6 +141,12 @@ export default {
     }
   }
 } satisfies ExportedHandler<Env, EventsMessage | IngestMessage>
+
+/** The nightly rates fill; the ECB unreachable is logged, and tomorrow's turn writes the days again. */
+const ratesFill = fillRates.pipe(
+  Effect.catchTag("RatesError", (e) => Effect.logWarning("fx: the ECB's rates were not read", e.reason)),
+  Effect.orDie
+)
 
 /**
  * On the Worker's own public hostname only the public API, the MCP server and the webhooks answer (M19.2, M19.3,

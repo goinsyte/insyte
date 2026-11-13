@@ -1,4 +1,5 @@
 import { type APIRequestContext, expect, type Page, test as base } from "@playwright/test"
+import { admit, previewRequest } from "./access.ts"
 
 /*
  * Kosten's journey (step 15.5): a new admin's workspace starts with no costs; a fixed line is added with an amount per
@@ -8,6 +9,16 @@ import { type APIRequestContext, expect, type Page, test as base } from "@playwr
  */
 
 const test = base.extend<{ page: Page }>({
+  // On a preview, Access lets the context through on the preview's origin; no other origin gets the token.
+  context: async ({ context, baseURL }, use) => {
+    await admit(context, baseURL)
+    await use(context)
+  },
+  request: async ({ playwright, baseURL }, use) => {
+    const request = await previewRequest(playwright, baseURL)
+    await use(request)
+    await request.dispose()
+  },
   page: async ({ page }, use) => {
     const errors: Array<string> = []
     page.on("pageerror", (e) => errors.push(`${String(e)} @ ${page.url()}`))

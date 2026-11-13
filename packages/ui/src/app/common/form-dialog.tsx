@@ -12,6 +12,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "../../components/dropdown-menu";
+import { isValidElement } from "react";
 import { ChevronDown } from "../../icons";
 import { cn } from "../lib/utils";
 
@@ -79,6 +80,13 @@ export function FormDialog({
  * Inputs themselves stay white per "Inputs do NOT change fill on mesh".
  */
 
+/** A control that names itself as a group, as a radiogroup does; `Segmented` says so with `namesItself`. */
+function namesItself(node: React.ReactNode): boolean {
+	if (!isValidElement(node)) return false;
+	const props = node.props as { role?: unknown };
+	return props.role === "radiogroup" || (node.type as { namesItself?: unknown }).namesItself === true;
+}
+
 export function Field({
 	label,
 	hint,
@@ -88,9 +96,12 @@ export function Field({
 	hint?: string;
 	children: React.ReactNode;
 }) {
+	/* A <label> labels the first button inside it, so around a radiogroup it gave the first radio the label's text on
+	   top of its own ("Soort Soort"). The group carries its own name; the field around it is the same box, unlabelled. */
+	const Box = namesItself(children) ? "div" : "label";
 	return (
 		// biome-ignore lint/a11y/noLabelWithoutControl: label wraps the field control passed via children
-		<label className="flex flex-col gap-1.5">
+		<Box className="flex flex-col gap-1.5">
 			<span
 				className="font-medium text-sm leading-none tracking-[-0.05px]"
 				style={{ color: "var(--field-label, var(--ink-3))" }}
@@ -106,7 +117,7 @@ export function Field({
 					{hint}
 				</span>
 			) : null}
-		</label>
+		</Box>
 	);
 }
 

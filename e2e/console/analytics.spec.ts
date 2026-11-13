@@ -1,4 +1,5 @@
 import { type APIRequestContext, expect, type Page, test as base } from "@playwright/test"
+import { admit, onPreview, previewRequest } from "./access.ts"
 
 /*
  * Analyse's journey (step 16.2): a new admin's workspace has no orders, so the page says there is nothing to read yet;
@@ -8,6 +9,16 @@ import { type APIRequestContext, expect, type Page, test as base } from "@playwr
  */
 
 const test = base.extend<{ page: Page }>({
+  // On a preview, Access lets the context through on the preview's origin; no other origin gets the token.
+  context: async ({ context, baseURL }, use) => {
+    await admit(context, baseURL)
+    await use(context)
+  },
+  request: async ({ playwright, baseURL }, use) => {
+    const request = await previewRequest(playwright, baseURL)
+    await use(request)
+    await request.dispose()
+  },
   page: async ({ page }, use) => {
     const errors: Array<string> = []
     page.on("pageerror", (e) => errors.push(`${String(e)} @ ${page.url()}`))
@@ -58,7 +69,7 @@ test("@analytics a new admin's Analyse is empty, then reads the store's figures 
   await expect(page.getByText("Nog niets om te lezen.")).toBeVisible()
 
   // The recorded store, imported: its five orders are what the footnote counts.
-  expect((await page.request.post("/api/__dev/stores/seed")).ok()).toBe(true)
+  expect((await page.request.post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
   await page.reload()
   await hydrated(page)
   await expect(page.getByRole("heading", { name: "Analyse", level: 1 })).toBeVisible()

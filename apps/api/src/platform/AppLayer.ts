@@ -50,6 +50,7 @@ import { ConnectionGateLive } from "./ConnectionGate.ts"
 import { DocumentsChoice, FileStoreR2 } from "./Documents.ts"
 import { EvidencePacksLive } from "./EvidencePacks.ts"
 import { ForwardSendsLive, SupplierApiChoice } from "./Forwarding.ts"
+import { RatesChoice } from "./Fx.ts"
 import { HumanCheck } from "./HumanCheck.ts"
 import { HyperdriveConnect } from "./Hyperdrive.ts"
 import { IngestQueueLive } from "./IngestQueue.ts"
@@ -181,6 +182,8 @@ export const AppLayer = Transports.pipe(
       SupplierApiChoice,
       // …and AfterShip, for its webhooks (M8.4).
       TrackingChoice,
+      // …and the ECB's reference rates, for the dev route that fills `fx_rates` (§0.4).
+      RatesChoice,
       // …and Sendcloud, for whether return labels can be asked for (M9.2).
       LabelsChoice,
       // …and the files bucket, for downloads (M8.5).
@@ -255,7 +258,9 @@ export const BackgroundLayer = Layer.mergeAll(
   // Ad spend from Meta and Google Ads (M13 step 5): not configured until Insyte has their app keys.
   AdSpendLive,
   // A committed fact's webhook deliveries, each started on its own run (M19.4).
-  WebhookRunsLive
+  WebhookRunsLive,
+  // The ECB's reference rates, into `fx_rates` on the cron's nightly turn (§0.4).
+  RatesChoice
 ).pipe(
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),

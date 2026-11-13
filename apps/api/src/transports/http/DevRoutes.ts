@@ -6,6 +6,7 @@ import { RECORDED_BULK } from "@insyte/integrations-shopify/RecordedBulk"
 import { remindWorkspace } from "@insyte/modules/chargebacks/Chargebacks"
 import { syncAdSpend } from "@insyte/modules/costs/Costs"
 import { drainWorkspace, markRecentWorkspace, rebuildWorkspace } from "@insyte/modules/facts/Facts"
+import { fill as fillRates } from "@insyte/modules/fx/Fx"
 import { receive } from "@insyte/modules/inbox/use-cases/inbound"
 import { isReplyAddress, receiveReply } from "@insyte/modules/notifications/use-cases/replies"
 import { refreshWorkspace } from "@insyte/modules/queue/Queue"
@@ -694,6 +695,36 @@ const FactsRebuild = HttpRouter.add(
 )
 
 /**
+ * `POST /api/__dev/fx/fill`: the ECB's rates into `fx_rates` now, as the cron's nightly turn does (the recorded twin's,
+ * in the worker tests); `GET /api/__dev/fx`: what `fx_rates` holds. Refused in production.
+ */
+const FxFill = HttpRouter.add(
+  "POST",
+  "/api/__dev/fx/fill",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    return HttpServerResponse.jsonUnsafe({ written: yield* fillRates })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+const FxOf = HttpRouter.add(
+  "GET",
+  "/api/__dev/fx",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const db = yield* Db
+    const rates = yield* db.unscopedForCron((sql) =>
+      sql`select day::text as day, base, quote, rate::text as rate from fx_rates order by day, base, quote`
+    )
+    return HttpServerResponse.jsonUnsafe({ rates })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+/**
  * `POST /api/__dev/mail/inbound` `{ to, raw }`: a raw RFC 822 mail delivered to a forwarding address, as Cloudflare Email
  * Routing hands it to the Worker's `email()` handler (M11 step 1), down the same path, an answer to a notification mail
  * included (`{ reply }`, M11 step 13.5). For the worker tests, the
@@ -897,6 +928,8 @@ export const DevRoutes = Layer.mergeAll(
   FactsOf,
   FactsDrain,
   FactsRebuild,
+  FxFill,
+  FxOf,
   StoreSeed,
   TrackingSweep,
   StatementsClose,

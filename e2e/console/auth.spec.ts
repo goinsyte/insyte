@@ -1,5 +1,6 @@
 import { type APIRequestContext, expect, type Page, test as base } from "@playwright/test"
 import { createHmac } from "node:crypto"
+import { admit, newContext, onPreview, previewRequest } from "./access.ts"
 
 /*
  * Step 1's journey (15, "Done when"): register → the mail → verify → onboarding; signing in before verifying and with
@@ -8,6 +9,16 @@ import { createHmac } from "node:crypto"
  */
 
 const test = base.extend<{ page: Page }>({
+  // On a preview, Access lets the context through on the preview's origin; no other origin gets the token.
+  context: async ({ context, baseURL }, use) => {
+    await admit(context, baseURL)
+    await use(context)
+  },
+  request: async ({ playwright, baseURL }, use) => {
+    const request = await previewRequest(playwright, baseURL)
+    await use(request)
+    await request.dispose()
+  },
   page: async ({ page }, use) => {
     const errors: Array<string> = []
     const logged: Array<string> = []
@@ -205,12 +216,15 @@ test("@auth an account with two-factor on is asked for the code after the passwo
 
   // Enrolment's screen is the security settings page (M3); here the signed-in browser enrols through the API.
   const origin = new URL(page.url()).origin
-  const enabled = await page.request.post("/api/auth/two-factor/enable", { data: { password }, headers: { origin } })
+  const enabled = await page.request.post("/api/auth/two-factor/enable", {
+    data: { password },
+    ...onPreview({ origin })
+  })
   expect(enabled.status()).toBe(200)
   const { totpURI } = await enabled.json() as { totpURI: string }
   const confirmed = await page.request.post("/api/auth/two-factor/verify-totp", {
     data: { code: totp(totpURI) },
-    headers: { origin }
+    ...onPreview({ origin })
   })
   expect(confirmed.status()).toBe(200)
 
@@ -259,7 +273,7 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   await expect(page.getByRole("heading", { name: "Koppel Shopify." })).toBeVisible()
 
   // The store, connected and imported, as Shopify's way back would leave it.
-  expect((await page.request.post("/api/__dev/stores/seed")).ok()).toBe(true)
+  expect((await page.request.post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
   await page.goto("/onboarding?connected=shopify")
   await hydrated(page)
   await expect(page.getByRole("heading", { name: "Alles wordt opgehaald." })).toBeVisible()
@@ -412,9 +426,9 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await expect(page.getByRole("heading", { name: "Geef je werkruimte een naam." })).toBeVisible()
 
   // Another browser: sign in, and the landing is the same step.
-  // A new context gets none of the project's options by itself: the base URL, and on a preview the Access headers.
-  const { baseURL, extraHTTPHeaders } = test.info().project.use
-  const other = await browser.newContext({ baseURL, ...(extraHTTPHeaders === undefined ? {} : { extraHTTPHeaders }) })
+  // A new context gets none of the project's options by itself: the base URL, and on a preview the admission.
+  const { baseURL } = test.info().project.use
+  const other = await newContext(browser, baseURL)
   const elsewhere = await other.newPage()
   await elsewhere.goto("/login")
   await hydrated(elsewhere)
@@ -495,7 +509,7 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   // @team (step 4.4): the colleague opens the mail in a browser of their own, makes an account on the landing (no
   // confirmation mail: the link proved the address), goes through the steps and lands in the workspace.
   const landing = await mailLink(request, colleague, "team.invite")
-  const theirs = await browser.newContext({ baseURL, ...(extraHTTPHeaders === undefined ? {} : { extraHTTPHeaders }) })
+  const theirs = await newContext(browser, baseURL)
   const invitee = await theirs.newPage()
   await invitee.goto(landing)
   await hydrated(invitee)

@@ -15,8 +15,18 @@ import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
  * server has them and says why.
  */
 
+/*
+ * Undo that came too late, in a ticket's words: nothing of a ticket goes to Shopify. The window has passed, or the
+ * teammates it assigned were already told.
+ */
+const LATE = "Te laat om ongedaan te maken"
+
 const COPY: RefusalCopy = {
   gone: "Dat ticket bestaat niet meer",
+  conflicts: {
+    expired: [LATE, "De tijd om dit terug te draaien is voorbij. Pas het ticket zelf weer aan."],
+    already_sent: [LATE, "Je collega heeft de melding van de toewijzing al gekregen. Pas het ticket zelf weer aan."]
+  },
   invalid: {
     title: "Een titel is verplicht.",
     until: "Kies een moment in de toekomst.",
