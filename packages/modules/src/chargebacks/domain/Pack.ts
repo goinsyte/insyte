@@ -257,7 +257,7 @@ const shipmentRows = (s: Shipment, tz: string) =>
     ["Bezorgd", s.deliveredAt === null ? null : moment(s.deliveredAt, tz)]
   ])
 
-const body = (kind: DocumentKind, f: CaseFacts): string => {
+const body = (kind: DocumentKind, f: CaseFacts, narrative: string | null): string => {
   const tz = f.timezone
   switch (kind) {
     case "tracking":
@@ -335,9 +335,13 @@ const body = (kind: DocumentKind, f: CaseFacts): string => {
           ["Geopend", day(f.openedAt, tz)],
           ["Deadline", day(f.deadlineAt, tz)]
         ])
-      }<h2>Toelichting</h2>${narrativeOf(f).split("\n\n").map((p) => `<p>${esc(p)}</p>`).join("")}`
+      }<h2>Toelichting</h2>${(narrative ?? narrativeOf(f)).split("\n\n").map((p) => `<p>${esc(p)}</p>`).join("")}`
   }
 }
 
-/** One document of the pack as a whole HTML page, ready to render. */
-export const documentHtml = (kind: DocumentKind, f: CaseFacts) => page(f, kind, body(kind, f))
+/**
+ * One document of the pack as a whole HTML page, ready to render. The account is the pack's own (`narrative_text`):
+ * Insyte AI's where it wrote one, else the facts' sentences.
+ */
+export const documentHtml = (kind: DocumentKind, f: CaseFacts, narrative: string | null = null) =>
+  page(f, kind, body(kind, f, narrative))

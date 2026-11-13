@@ -1,0 +1,15 @@
+{
+  "name": "@insyte/integrations-anthropic",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "catalog:",
+    "@insyte/modules": "workspace:*",
+    "effect": "catalog:"
+  }
+}

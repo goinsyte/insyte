@@ -16,6 +16,7 @@
     "@insyte/integrations-klaviyo": "workspace:*",
     "@insyte/integrations-slack": "workspace:*",
     "@insyte/integrations-aftership": "workspace:*",
+    "@insyte/integrations-anthropic": "workspace:*",
     "@insyte/integrations-ecb": "workspace:*",
     "@insyte/integrations-sendcloud": "workspace:*",
     "@insyte/integrations-supplier-api": "workspace:*",

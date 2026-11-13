@@ -188,6 +188,35 @@ export default Alchemy.Stack(
       : {}
 
     /*
+     * Insyte AI (M15 step 1, ADR-0015): Claude through the account's AI Gateway, which is made by hand per stage in the
+     * dashboard with payload logging off. The Anthropic key (a secret) and the gateway's name (a variable) in the
+     * GitHub environment; the gateway's token too where it is an authenticated one. With none of them a stage deploys
+     * with Insyte AI off: no model is called and the console says it is not switched on yet. Previews never call a
+     * model. No stage deploys with only some of them: a stage meant to have a model that silently had none would look
+     * switched off by mistake.
+     */
+    const anthropicKey = Option.filter(yield* Config.Redacted("ANTHROPIC_API_KEY").pipe(Config.option), set)
+    const gatewayId = yield* Config.String("AI_GATEWAY_ID").pipe(Config.withDefault(""))
+    const gatewayToken = Option.filter(yield* Config.Redacted("AI_GATEWAY_TOKEN").pipe(Config.option), set)
+    const accountId = yield* Config.String("CLOUDFLARE_ACCOUNT_ID").pipe(Config.withDefault(""))
+    const ai = environment !== "preview" && Option.isSome(anthropicKey) && gatewayId !== "" && accountId !== ""
+      ? {
+        ANTHROPIC_API_KEY: anthropicKey.value,
+        AI_GATEWAY_ID: gatewayId,
+        AI_ACCOUNT_ID: accountId,
+        ...(Option.isSome(gatewayToken) ? { AI_GATEWAY_TOKEN: gatewayToken.value } : {})
+      }
+      : {}
+    const someAi = Option.isSome(anthropicKey) || gatewayId !== "" || Option.isSome(gatewayToken)
+    if (environment !== "preview" && someAi && Object.keys(ai).length === 0) {
+      return yield* Effect.die(
+        new Error(
+          `Insyte AI is half set up on ${stage}: ANTHROPIC_API_KEY, AI_GATEWAY_ID and CLOUDFLARE_ACCOUNT_ID go together`
+        )
+      )
+    }
+
+    /*
      * Mail (02 §5.1): previews always capture (the browser tests read the links back); staging and production send
      * through Resend once their environment says `MAIL_ADAPTER=resend` and has the key (the domain must be verified in
      * Resend first), and capture until then.
@@ -297,6 +326,7 @@ export default Alchemy.Stack(
       ...slack,
       ...aftership,
       ...sendcloud,
+      ...ai,
       ...mail,
       // An unset GitHub variable arrives empty, not missing: empty means the default.
       MAIL_FROM: (yield* Config.String("MAIL_FROM").pipe(Config.withDefault(""))) ||
