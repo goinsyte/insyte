@@ -119,7 +119,9 @@ export const TENANT_TABLES = [
   "course_progress",
   "course_questions",
   "app_installs",
-  "app_feedback"
+  "app_feedback",
+  // Live (M14 step 3): a store's Web Pixel and the hash of its ingest key.
+  "store_pixels"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

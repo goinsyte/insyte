@@ -8,8 +8,11 @@
    * them exist here, because impeccable is used from the user-level install rather than vendored, and
    * knip reports an ignore matching nothing as a configuration hint — which is how those stale
    * entries were found. Add one only when a directory it names actually appears.
+   *
+   * And the Shopify app's extensions (the Live Web Pixel): their own packages, built and deployed by Shopify's CLI
+   * (`shopify app deploy --path shopify`), not by this workspace.
    */
-  "ignore": ["repos/**"],
+  "ignore": ["repos/**", "shopify/extensions/**"],
   "ignoreDependencies": [
     // The Workers built-in modules (`cloudflare:workers`, `cloudflare:test`), not an npm package.
     "cloudflare",
@@ -100,6 +103,7 @@
         "!src/app/courses/**",
         "!src/app/lib/courses.ts",
         "!src/app/stores/courses-store.ts",
+        "!src/app/live/**",
       ],
     },
     "apps/console": {

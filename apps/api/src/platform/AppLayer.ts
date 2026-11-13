@@ -5,6 +5,7 @@ import { PostHogAnalytics } from "@insyte/integrations-posthog/PostHog"
 import { ResendMailer } from "@insyte/integrations-resend/ResendMailer"
 import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
 import { CoursesService } from "@insyte/modules/courses/Courses"
+import { LiveService } from "@insyte/modules/live/Live"
 import { QualityLinkService } from "@insyte/modules/quality/Quality"
 import { PortalService } from "@insyte/modules/returns/Portal"
 import type { Mailer } from "@insyte/modules/shared/domain/Mailer"
@@ -20,6 +21,7 @@ import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { EvidenceRoutes } from "../transports/http/EvidenceRoutes.ts"
 import { FileRoutes } from "../transports/http/FileRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
+import { PixelRoutes } from "../transports/http/PixelRoutes.ts"
 import { PortalRoutes } from "../transports/http/PortalRoutes.ts"
 import { QualityMediaRoutes } from "../transports/http/QualityMediaRoutes.ts"
 import { RealtimeRoutes } from "../transports/http/RealtimeRoutes.ts"
@@ -55,6 +57,7 @@ import { InvitationLinksLive } from "./InvitationLinks.ts"
 import { KeyHasherLive } from "./KeyHasher.ts"
 import { KlaviyoChoice, MarketingSyncsLive } from "./Klaviyo.ts"
 import { LabelsChoice, ReturnLabelsLive } from "./Labels.ts"
+import { LiveRoomsLive } from "./LiveRooms.ts"
 import { MailerCapture } from "./Mail.ts"
 import { NoteRepliesLive, SlackChoice, WebPushChoice } from "./Notify.ts"
 import { ObservabilityLive } from "./Observability.ts"
@@ -91,6 +94,7 @@ const Transports = Layer.mergeAll(
   QualityMediaRoutes,
   EvidenceRoutes,
   CourseMediaRoutes,
+  PixelRoutes,
   PublicApiRoutes,
   McpRoutes,
   RequestContext,
@@ -144,7 +148,9 @@ export const AppLayer = Transports.pipe(
       PortalService.layer,
       QualityLinkService.layer,
       ChargebacksService.layer,
-      CoursesService.layer
+      CoursesService.layer,
+      // …and the Web Pixel's ingest (M14 step 3).
+      LiveService.layer
     )
   ),
   Layer.provideMerge(WithDbLive),
@@ -185,6 +191,8 @@ export const AppLayer = Transports.pipe(
       AnalysesLive,
       // …and a flow's runs: "Opnieuw", stopping one, the answer to "Goedkeuring vragen" (M12 step 5).
       AutomationRunsLive,
+      // …and the live rooms (M14 step 3).
+      LiveRoomsLive,
       // …and where one slice's need meets another's use case.
       SliceLinks,
       // …and a webhook delivery's run, for a test send and a redelivery (M19.4).

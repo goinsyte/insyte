@@ -228,6 +228,8 @@ export default Alchemy.Stack(
         ROOMS: Cloudflare.DurableObject("Rooms", { className: "RoomDurableObject" }),
         // The gate per external account (M6.3), hosted by this Worker (`ConnectionGateObject`): token and bucket.
         CONNECTION_GATE: Cloudflare.DurableObject("ConnectionGate", { className: "ConnectionGateObject" }),
+        // The live rooms (M14 step 3), hosted by this Worker (`LiveRoomDurableObject`): visitors in memory only.
+        LIVE: Cloudflare.DurableObject("Live", { className: "LiveRoomDurableObject" }),
         // A store's first import (M6.3), hosted by this Worker (`ShopifyBackfillWorkflow`); one per stage.
         SHOPIFY_BACKFILL: Cloudflare.Workflow("ShopifyBackfill", {
           className: "ShopifyBackfillWorkflow",

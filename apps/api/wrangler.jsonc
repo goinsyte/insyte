@@ -42,6 +42,8 @@
       { "name": "ROOMS", "class_name": "RoomDurableObject" },
       // The gate per external account (M6.3): token refresh single-flight, the vendor's bucket.
       { "name": "CONNECTION_GATE", "class_name": "ConnectionGateObject" },
+      // The live rooms (M14 step 3): one per workspace, storefront visitors in memory, nothing stored.
+      { "name": "LIVE", "class_name": "LiveRoomDurableObject" },
     ],
   },
   // A store's first import (M6.3): durable steps, resumed where they stopped.
@@ -68,6 +70,7 @@
     { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] },
     { "tag": "v2", "new_sqlite_classes": ["RoomDurableObject"] },
     { "tag": "v3", "new_sqlite_classes": ["ConnectionGateObject"] },
+    { "tag": "v4", "new_sqlite_classes": ["LiveRoomDurableObject"] },
   ],
   // Files (M8.5): packing slips now, uploads later. Browser Rendering makes the slips' PDFs (not in the worker tests,
   // which store the HTML: `DOCUMENTS_ADAPTER=html`).

@@ -11,6 +11,7 @@ import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
 import { HomeRpcs } from "@insyte/api/rpc/HomeRpcs"
+import { LiveRpcs } from "@insyte/api/rpc/LiveRpcs"
 import { MarketingRpcs } from "@insyte/api/rpc/MarketingRpcs"
 import { MarketplaceRpcs } from "@insyte/api/rpc/MarketplaceRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
@@ -501,7 +502,14 @@ const PAYLOADS: Record<string, unknown> = {
   "Marketplace.uninstall": { appId: "ext_zapier" },
   "Marketplace.setScopes": { appId: "ext_zapier", revoked: [] },
   "Marketplace.open": { appId: "ext_zapier" },
-  "Marketplace.feedback": { category: "other", message: " " }
+  "Marketplace.feedback": { category: "other", message: " " },
+  // Live (M14 step 3): the room at Analyse Bekijken; a store's pixel at Instellingen, installed at Beheren (a store
+  // that does not exist, so nothing is installed).
+  "Live.snapshot": undefined,
+  "Live.subscribe": { tab: "authz-tab-0001" },
+  "Live.unsubscribe": { tab: "authz-tab-0001" },
+  "Live.pixels": undefined,
+  "Live.installPixel": { storeId: "store_none" }
 }
 
 const manifest = [
@@ -538,7 +546,8 @@ const manifest = [
   ...AuditRpcs.requests.keys(),
   ...TrashRpcs.requests.keys(),
   ...SettingsDepthRpcs.requests.keys(),
-  ...MarketplaceRpcs.requests.keys()
+  ...MarketplaceRpcs.requests.keys(),
+  ...LiveRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {
