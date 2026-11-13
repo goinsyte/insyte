@@ -1,5 +1,5 @@
 import { type AiModel, ModelUnavailable } from "@insyte/modules/ai/domain/Ai"
-import { Effect } from "effect"
+import { Data, Effect } from "effect"
 import type { LanguageModel } from "effect/ai"
 import type * as Live from "./AiLive.ts"
 
@@ -12,6 +12,9 @@ import type * as Live from "./AiLive.ts"
 
 type Live = typeof Live
 
+/** `AiLive.ts` did not load. */
+class AiLoadFailed extends Data.TaggedError("AiLoadFailed")<{ readonly cause: unknown }> {}
+
 let loading: Promise<Live> | undefined
 
 const load = Effect.tryPromise({
@@ -20,7 +23,7 @@ const load = Effect.tryPromise({
     loading = undefined
     throw error
   })),
-  catch: (cause) => cause
+  catch: (cause) => new AiLoadFailed({ cause })
 })
 
 const unavailable = (what: string) => (cause: unknown) =>
