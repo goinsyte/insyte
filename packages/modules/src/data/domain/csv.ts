@@ -90,6 +90,10 @@ function* records(
   const n = text.length
   let i = 0
   let line = 1
+  // A tab is padding before a quote unless it is the separator.
+  const isPad = separator === "\t" ?
+    (ch: string | undefined) => ch === " " :
+    (ch: string | undefined) => ch === " " || ch === "\t"
   // The end of an unquoted stretch from `from`: the next separator or line end.
   const endOf = (from: number) => {
     let m = from
@@ -106,7 +110,7 @@ function* records(
     for (;;) {
       // Spaces before an opening quote belong to no cell; before anything else they are the cell's own.
       let j = i
-      while (j < n && (text[j] === " " || (text[j] === "\t" && separator !== "\t"))) j++
+      while (j < n && isPad(text[j])) j++
       let value: string
       if (j < n && text[j] === "\"") {
         const opened = line

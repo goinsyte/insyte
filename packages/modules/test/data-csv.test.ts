@@ -111,12 +111,14 @@ describe("reading a CSV", () => {
   }, 60_000)
 })
 
+/** One value written as a CSV cell, without the line end. */
+const minus = (value: string) => new TextDecoder().decode(csvBytes([[value]])).replace(/\r\n$/, "")
+
 describe("writing a CSV", () => {
   it("keeps a cell a spreadsheet would run as a formula as text, and a negative number as it is", () => {
     const text = new TextDecoder().decode(csvBytes([["=HYPERLINK(\"x\")", "+31 6", "@sum", "-12,50", "-x"]]))
     expect(text).toBe("\"'=HYPERLINK(\"\"x\"\")\";'+31 6;'@sum;-12,50;'-x\r\n")
     // A leading minus is a number only when the whole value is one.
-    const minus = (value: string) => new TextDecoder().decode(csvBytes([[value]])).replace(/\r\n$/, "")
     expect(minus("-1+1+cmd|' /C calc'!A0")).toBe("'-1+1+cmd|' /C calc'!A0")
     expect(minus("-1+HYPERLINK(\"https://x.test\")")).toBe("\"'-1+HYPERLINK(\"\"https://x.test\"\")\"")
     expect(minus("-2,5e3")).toBe("'-2,5e3")
