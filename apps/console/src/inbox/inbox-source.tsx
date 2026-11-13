@@ -9,6 +9,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
+import { useInboxDrafts } from "../ai/drafts.tsx"
 import { frameAtom } from "../data/frame.ts"
 import { INBOX, inboxWrites, mailboxesAtom, threadAtom } from "../data/inbox.ts"
 import { ticketOptionsAtom } from "../data/tickets.ts"
@@ -20,8 +21,8 @@ import { entryOf, mailboxOf, threadOf, timeOf } from "./thread-of.ts"
  * The inbox screen's source in the console (M11 step 2): `Threads.list` as the design's threads, `Mailboxes.list` as
  * its mailbox bands, `Threads.get` for the letter, the team from the frame, and the server's commands, each shown in
  * the list at once. What the server does not do yet is left out, not made up: the chat channels and the customer agent
- * (M15), Insyte's drafts (M15), Gmail and Outlook (M11 step 1b), attachments (the file store). A mailbox is connected
- * here, in the console's own dialog, by forwarding.
+ * (M15), Gmail and Outlook (M11 step 1b), attachments (the file store). Insyte's drafts are Insyte AI's
+ * (`../ai/drafts.tsx`). A mailbox is connected here, in the console's own dialog, by forwarding.
  */
 
 function value<A>(result: AsyncResult.AsyncResult<A, unknown>): A | undefined {
@@ -131,6 +132,7 @@ export function useConsoleInboxSource(
     () => ({ onCompose }: { onCompose: () => void }) => <ConsoleEmpty onCompose={onCompose} onConnect={connect} />,
     [connect]
   )
+  const drafts = useInboxDrafts()
 
   return {
     threads,
@@ -144,7 +146,8 @@ export function useConsoleInboxSource(
     gate,
     time: timeOf,
     connect: { onClick: connect },
-    Empty
+    Empty,
+    drafts
   }
 }
 

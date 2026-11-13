@@ -180,6 +180,14 @@ export const OutboxEvent = Schema.Union([
     memberIds: Schema.Array(Schema.String),
     detail: Schema.String
   }),
+  // A ticket was made or retitled (M15 step 2): Insyte AI reads its topic, after the event's transaction, where a model
+  // is set up; the keyword rules' topic stands until then.
+  Schema.Struct({
+    type: Schema.Literal("ticket.topic_requested"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    ticketId: Schema.String
+  }),
   // A ticket comment named teammates with `@` (M11 step 3): each of them hears of it.
   Schema.Struct({
     type: Schema.Literal("ticket.mentioned"),

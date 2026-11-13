@@ -10,8 +10,9 @@ import { AiBudgets, BudgetInvalid, type BudgetRestore, BudgetsSaved, type SetBud
 /*
  * Limieten (M15 step 6; domain.md §9.6): what Insyte AI may cost a month, for the workspace and per person, in whole
  * euros. Read by the whole team, changed with `ai.autonomy`; one save has one undo. What was used is the month's model
- * calls, which are recorded from M15 step 1 on: until then every use is zero and `metered` says so, never a guess. A
- * workspace limit of nothing already makes every agent action ask first (`autonomy_decide`).
+ * calls (`model_calls`, M15 step 1) in euros, each at its day's rate (`ai_month_used`): the workspace's, each person's,
+ * and the background's (calls without a person). A workspace limit reached makes every agent action ask first
+ * (`autonomy_decide`), and refuses every model call until the month turns.
  */
 
 export const RESTORE = "ai_budgets.restore"
@@ -22,6 +23,9 @@ const monthOf = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1
 
 const euros = (minor: string | number | null) => (minor === null ? null : Math.round(Number(minor) / 100))
 
+/** Euro micros as euros, to the cent. */
+const spent = (micros: string | number | null | undefined) => Math.round(Number(micros ?? 0) / 10_000) / 100
+
 const read = (sql: SqlClient.SqlClient) =>
   Effect.gen(function*() {
     const rows = yield* sql<{ memberId: string | null; limitMinor: string | null }>`
@@ -30,12 +34,20 @@ const read = (sql: SqlClient.SqlClient) =>
       select id from members where deactivated_at is null and removed_at is null order by joined_at, id`
     const byMember = new Map(rows.filter((r) => r.memberId !== null).map((r) => [r.memberId!, euros(r.limitMinor)]))
     const workspace = rows.find((r) => r.memberId === null)
+    const [total] = yield* sql<{ used: string }>`select ai_month_used(null) as used`
+    const use = yield* sql<{ memberId: string; used: string }>`
+      select id as member_id, ai_month_used(id) as used from members
+      where id in (select distinct member_id from model_calls
+                   where member_id is not null and created_at >= now() - interval '32 days')`
+    const usedBy = new Map(use.map((u) => [u.memberId, spent(u.used)]))
+    const all = spent(total?.used)
+    const byPeople = [...usedBy.values()].reduce((a, b) => a + b, 0)
     return new AiBudgets({
       month: monthOf(new Date()),
-      workspace: { limit: euros(workspace?.limitMinor ?? null), used: 0 },
-      background: 0,
-      people: people.map((p) => ({ memberId: p.id, limit: byMember.get(p.id) ?? null, used: 0 })),
-      metered: false
+      workspace: { limit: euros(workspace?.limitMinor ?? null), used: all },
+      background: Math.max(0, Math.round((all - byPeople) * 100) / 100),
+      people: people.map((p) => ({ memberId: p.id, limit: byMember.get(p.id) ?? null, used: usedBy.get(p.id) ?? 0 })),
+      metered: true
     })
   })
 

@@ -9,12 +9,14 @@ import { createFileRoute } from "@tanstack/react-router"
 import { Effect, Option } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { useConsoleAutonomySource } from "../agent/autonomy-source.ts"
+import { useAiEnabled } from "../ai/drafts.tsx"
 import { autonomyAtom, budgetsAtom } from "../data/agent.ts"
 
 /**
  * Instellingen → Insyte AI → Zelfstandigheid (M15 step 6): the reference's page over `Autonomy.get`, in the settings
  * sheet. Read by the whole team, changed with `ai.autonomy`; the loader reads the rules and the month's budget on the
- * server. A read that failed says so and offers to try again.
+ * server. A read that failed says so and offers to try again. Where Insyte AI is not switched on for the stage, the page
+ * says so above the rules, which can be set beforehand.
  */
 export const Route = createFileRoute("/_frame/settings/ai/autonomy")({
   validateSearch: (s: Record<string, unknown>): AutonomySearch => (typeof s["actie"] === "string"
@@ -73,10 +75,22 @@ function AutonomyRoute() {
 
 function Loaded({ policy, budgets }: { policy: AutonomyPolicy; budgets: AiBudgets | undefined }) {
   const source = useConsoleAutonomySource(policy, budgets)
+  const enabled = useAiEnabled()
   return (
     <div className="flex min-h-full flex-col bg-paper text-ink">
       <AutonomySourceProvider value={source}>
         <SettingsSheet title="Zelfstandigheid" icon={Shield}>
+          {enabled === false
+            ? (
+              <div role="status" className="field mb-6 flex flex-col gap-1 rounded-md px-4 py-3">
+                <p className="font-medium text-base text-ink">Insyte AI is nog niet ingeschakeld</p>
+                <p className="text-sm text-ink-2">
+                  Insyte schrijft nog geen concepten, samenvattingen of onderwerpen. Je kunt de regels hieronder alvast
+                  instellen; ze gelden zodra Insyte AI aanstaat.
+                </p>
+              </div>
+            )
+            : null}
           <AutonomyPage />
         </SettingsSheet>
       </AutonomySourceProvider>

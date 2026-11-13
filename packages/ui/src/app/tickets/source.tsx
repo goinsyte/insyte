@@ -127,10 +127,21 @@ export interface TicketsSource {
   Closing?: ComponentType<{ empty: boolean }> | undefined
   /** The agents' rows in a ticket ("Wat Insyte hier deed"); absent where there are no agents yet. */
   agents?: { Rows: ComponentType<{ id: string }> } | undefined
-  /** "Samenvatten" and "Antwoord voorstellen (AI)"; absent until drafts arrive. */
-  drafts?: boolean | undefined
+  /**
+   * "Samenvatten" and "Antwoord voorstellen (AI)"; absent where there is no Insyte AI. `true` is the design's own
+   * texts, written from the ticket on the screen (the reference app); the host's are Insyte AI's.
+   */
+  drafts?: true | TicketDrafts | undefined
   /** "Klant informeren"; absent until a mailbox can send it. */
   notifyCustomer?: boolean | undefined
+}
+
+/** Insyte AI on a ticket (M15 step 2): a person reads what it wrote, and keeps it or not. */
+export interface TicketDrafts {
+  /** "Samenvatten": Insyte's summary in the activity, as its line; `false` when it did not come (the host said why). */
+  summarize: (ticketId: string) => Promise<boolean>
+  /** "Antwoord voorstellen (AI)": a reply for the composer; `undefined` when none came (the host said why). */
+  suggestReply: (ticketId: string) => Promise<string | undefined>
 }
 
 const Context = createContext<TicketsSource | null>(null)

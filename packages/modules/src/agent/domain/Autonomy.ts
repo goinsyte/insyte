@@ -91,7 +91,7 @@ export class AiBudgets extends Schema.Class<AiBudgets>("agent/AiBudgets")({
   /** Spent by the background agent and the customer agent (calls without a person). */
   background: Schema.Finite,
   people: Schema.Array(PersonBudget),
-  /** Whether model calls are recorded here yet (M15 step 1); until then every use is zero. */
+  /** Whether model calls are recorded (M15 step 1 on): the uses are the month's calls, not zeros. */
   metered: Schema.Boolean
 }) {}
 

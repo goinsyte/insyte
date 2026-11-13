@@ -11,15 +11,20 @@ import { ROUTES } from "./relay/registry.ts"
  * The outbox relay (M1.4). A use case's committed events are kicked onto the `EVENTS` queue (`RelayLive`); the minute
  * cron sweeps anything a kick missed (`sweep`); the queue's consumer delivers each event to every sink exactly once
  * (`deliver`): the event row is locked in its workspace's scope, each sink's run is recorded in `outbox_sinks` before it
- * runs, and the row is marked relayed. Delivered twice, the second pass finds it relayed and does nothing.
+ * runs, and the row is marked relayed. Delivered twice, the second pass finds it relayed and does nothing. What must not
+ * hold the event's transaction open (a webhook delivery's run, a model call) runs after it, once.
  *
  * This is the core: the kick, the claim and the sweep. The sinks are subscribers, one file per slice in
  * `relay/subscribers/`, listed in `relay/registry.ts` in the order they run (ADR-0041).
  */
 
-export interface EventsMessage {
-  readonly outboxIds: ReadonlyArray<string>
-}
+/**
+ * What goes onto `EVENTS`: committed events to deliver, or a ticket to classify (M15 step 2), which the consumer runs
+ * beside the deliveries, never in front of them (`transports/jobs/Queue.ts`).
+ */
+export type EventsMessage =
+  | { readonly outboxIds: ReadonlyArray<string> }
+  | { readonly classifyTicket: { readonly workspaceId: string; readonly ticketId: string } }
 
 /**
  * The kick: after commit, onto the queue, in `waitUntil` so the response does not wait for it. Events that wait out an
@@ -55,6 +60,7 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
   const owners = yield* db.unscopedForCron((sql) =>
     sql<{ id: string; workspaceId: string }>`select id, workspace_id from outbox_workspaces(${[...outboxIds]})`
   )
+  const early: Array<{ readonly id: string; readonly seconds: number }> = []
   for (const { id, workspaceId } of owners) {
     const relayed = yield* db.scopedFor((sql) =>
       Effect.gen(function*() {
@@ -91,11 +97,29 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId }))
     if (relayed === undefined) continue
     if ("early" in relayed) {
-      const delaySeconds = Math.min(relayed.early, MAX_DELAY_SECONDS)
-      yield* Effect.promise(() => env.EVENTS.send({ outboxIds: [id] } satisfies EventsMessage, { delaySeconds }))
+      early.push({ id, seconds: relayed.early })
       continue
     }
     if (isWebhookSource(relayed.event)) yield* startWebhookRuns(id, relayed.event)
+    // A ticket's topic by Insyte AI (M15 step 2): its own message on the queue, so a model call that takes seconds
+    // holds up no other event. Sent once, when the event is relayed; the rules' topic stands until it is done.
+    if (relayed.event.type === "ticket.topic_requested") {
+      const message: EventsMessage = { classifyTicket: { workspaceId, ticketId: relayed.event.ticketId } }
+      yield* Effect.tryPromise(() => env.EVENTS.send(message)).pipe(
+        Effect.catchCause((cause) => Effect.logWarning("a ticket's topic was not asked for", { cause }))
+      )
+    }
+  }
+  // Once the whole batch has gone through: a batch that fails later is retried, and would send these again each time.
+  // A hundred messages per `sendBatch`, the Queues limit.
+  for (let at = 0; at < early.length; at += 100) {
+    const chunk = early.slice(at, at + 100)
+    yield* Effect.promise(() =>
+      env.EVENTS.sendBatch(chunk.map(({ id, seconds }) => ({
+        body: { outboxIds: [id] } satisfies EventsMessage,
+        delaySeconds: Math.min(seconds, MAX_DELAY_SECONDS)
+      })))
+    )
   }
 })
 

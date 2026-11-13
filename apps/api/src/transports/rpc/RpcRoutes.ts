@@ -58,6 +58,7 @@ import { CostsHandlers } from "./handlers/costs.ts"
 import { CoursesHandlers } from "./handlers/courses.ts"
 import { DataHandlers } from "./handlers/data.ts"
 import { DeveloperHandlers } from "./handlers/developer.ts"
+import { DraftsHandlers } from "./handlers/drafts.ts"
 import { FirstAnalysisHandlers } from "./handlers/first-analysis.ts"
 import { ForwardingHandlers } from "./handlers/forwarding.ts"
 import { HomeHandlers } from "./handlers/home.ts"
@@ -136,6 +137,9 @@ export const RpcContext = Layer.mergeAll(
   AgentHandlers.pipe(
     Layer.provide(Layer.mergeAll(AutonomyService.layer, AiBudgetService.layer, AgentLogService.layer))
   ),
+  // Insyte AI's drafts and summaries (M15 step 2): the slice and `effect/ai` load with the first AI call
+  // (`platform/Ai.ts`), never with this layer, so no other RPC waits on them or fails with them (ADR-0041 §3).
+  DraftsHandlers,
   ChatsHandlers.pipe(Layer.provide(Layer.mergeAll(ChatsService.layer, UndoService.layer))),
   SheetsHandlers.pipe(Layer.provide(SheetsService.layer)),
   DataHandlers.pipe(Layer.provide(DataService.layer)),
