@@ -240,6 +240,28 @@ const sentence = (note: ServerNote): Sentence => {
         to: "/suppliers"
       }
     }
+    case "data.export": {
+      // The member's export is written, or could not be (M14 step 5); the row opens Exporteren with its download.
+      const rows = Number(data["rows"] ?? 0)
+      return data["state"] === "failed"
+        ? {
+          title: "Je export is mislukt:",
+          record: String(data["fileName"] ?? ""),
+          detail: "Probeer het opnieuw.",
+          tone: "amber",
+          source: "insyte",
+          to: "/data",
+          search: { view: "export" }
+        }
+        : {
+          title: "Je export staat klaar:",
+          record: String(data["fileName"] ?? ""),
+          detail: `${rows.toLocaleString("nl-NL")} ${rows === 1 ? "rij" : "rijen"} · zeven dagen te downloaden`,
+          source: "insyte",
+          to: "/data",
+          search: { view: "export" }
+        }
+    }
     default:
       return { title: "heeft iets voor je", to: "/notifications" }
   }

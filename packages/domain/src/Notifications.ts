@@ -47,7 +47,8 @@ export const NOTIFICATION_KINDS = [
   { key: "insyte.draft", primary: false, defaults: ch(true, false, false, false) },
   { key: "insyte.report", primary: false, defaults: ch(true, true, false, false) },
   { key: "insyte.action", primary: true, defaults: ch(true, false, false, false) },
-  { key: "insyte.budget", primary: true, defaults: ch(true, true, false, false) }
+  { key: "insyte.budget", primary: true, defaults: ch(true, true, false, false) },
+  { key: "data.export", primary: false, defaults: ch(true, false, false, false) }
 ] as const satisfies ReadonlyArray<NotificationKind>
 
 export type NotificationKey = (typeof NOTIFICATION_KINDS)[number]["key"]

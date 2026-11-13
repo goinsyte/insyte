@@ -8,6 +8,7 @@ import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
 import { CostsRpcs } from "@insyte/api/rpc/CostsRpcs"
 import { CoursesRpcs } from "@insyte/api/rpc/CoursesRpcs"
+import { DataRpcs } from "@insyte/api/rpc/DataRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
@@ -550,7 +551,20 @@ const PAYLOADS: Record<string, unknown> = {
   "AgentLog.get": { id: "aga_none" },
   "AgentLog.undo": { id: "aga_none" },
   "AgentLog.redo": { id: "aga_none" },
-  "AgentLog.compensate": { id: "aga_none" }
+  "AgentLog.compensate": { id: "aga_none" },
+  // The Data hub (M14 step 5): Bekijken reads, Importeren (level 2) brings files in and out, an export needs
+  // Exporteren (`data.export`); an import that does not exist answers `ImportNotFound`, after the check.
+  "Data.overview": undefined,
+  "Data.imports.list": undefined,
+  "Data.imports.upload": { fileId: "fil_none" },
+  "Data.imports.preview": { importId: "imp_none" },
+  "Data.imports.rows": { importId: "imp_none" },
+  "Data.imports.commit": { importId: "imp_none" },
+  "Data.imports.remove": { importId: "imp_none" },
+  "Data.imports.restore": { importId: "imp_none" },
+  "Data.export": { source: { import: "imp_none" }, columns: ["0"] },
+  "Data.exports.list": {},
+  "Data.exports.get": { exportId: "exp_none" }
 }
 
 const manifest = [
@@ -590,7 +604,8 @@ const manifest = [
   ...SettingsDepthRpcs.requests.keys(),
   ...MarketplaceRpcs.requests.keys(),
   ...LiveRpcs.requests.keys(),
-  ...AgentRpcs.requests.keys()
+  ...AgentRpcs.requests.keys(),
+  ...DataRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

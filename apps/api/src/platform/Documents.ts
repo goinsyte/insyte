@@ -1,4 +1,4 @@
-import { DocumentNotMade, Documents, FileStore } from "@insyte/modules/shared/domain/Documents"
+import { DocumentNotMade, Documents, FileParts, FileStore } from "@insyte/modules/shared/domain/Documents"
 import { env } from "cloudflare:workers"
 import { Config, Effect, Layer } from "effect"
 
@@ -52,5 +52,34 @@ export const FileStoreR2 = Layer.succeed(FileStore)(FileStore.of({
         bytes: new Uint8Array(await object.arrayBuffer()),
         mime: object.httpMetadata?.contentType ?? "application/octet-stream"
       }
+    })
+}))
+
+/**
+ * An export's parts into one file (M14 step 5): streamed through a fixed-length stream, part after part, so the Worker
+ * never holds more than one; the bucket learns the length up front, as R2 needs for a stream. The parts go after.
+ */
+export const FilePartsR2 = Layer.succeed(FileParts)(FileParts.of({
+  join: (key, parts, mime) =>
+    Effect.tryPromise({
+      try: async () => {
+        const heads = await Promise.all(parts.map((p) => env.FILES.head(p)))
+        const missing = heads.findIndex((h) => h === null)
+        if (missing !== -1) throw new Error(`part ${parts[missing]} is missing`)
+        const size = heads.reduce((n, h) => n + (h?.size ?? 0), 0)
+        const { readable, writable } = new FixedLengthStream(size)
+        const pump = (async () => {
+          for (const part of parts) {
+            const object = await env.FILES.get(part)
+            if (object === null) throw new Error(`part ${part} is missing`)
+            await object.body.pipeTo(writable, { preventClose: true })
+          }
+          await writable.close()
+        })()
+        await Promise.all([env.FILES.put(key, readable, { httpMetadata: { contentType: mime } }), pump])
+        if (parts.length > 0) await env.FILES.delete([...parts]).catch(() => undefined)
+        return { sizeBytes: size }
+      },
+      catch: (cause) => new DocumentNotMade({ reason: `r2: ${String(cause)}` })
     })
 }))

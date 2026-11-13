@@ -25,6 +25,18 @@ export class FileStore extends Context.Service<FileStore, {
 }>()("shared/FileStore") {}
 
 /**
+ * A file written in parts (an export, M14 step 5): each part is an object of its own, and `join` streams them into one
+ * file at `key`, in order, without holding more than one part at a time; the parts are then removed. Its size back.
+ */
+export class FileParts extends Context.Service<FileParts, {
+  readonly join: (
+    key: string,
+    parts: ReadonlyArray<string>,
+    mime: string
+  ) => Effect.Effect<{ readonly sizeBytes: number }, DocumentNotMade>
+}>()("shared/FileParts") {}
+
+/**
  * A file's name as typed, without control characters, quotes, backslashes or a lone half of a character, so no header
  * it goes into (`content-disposition`) can break.
  */

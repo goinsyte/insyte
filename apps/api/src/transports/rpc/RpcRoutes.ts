@@ -10,6 +10,7 @@ import { ChatsService } from "@insyte/modules/chats/Chats"
 import { CostsService } from "@insyte/modules/costs/Costs"
 import { CoursesService } from "@insyte/modules/courses/Courses"
 import { CustomersService } from "@insyte/modules/customers/Customers"
+import { DataService } from "@insyte/modules/data/Data"
 import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
 import { Webhooks } from "@insyte/modules/developer/Webhooks"
 import { FirstAnalysisService } from "@insyte/modules/first-analysis/FirstAnalysis"
@@ -55,6 +56,7 @@ import { ChatsHandlers } from "./handlers/chats.ts"
 import { CommerceHandlers } from "./handlers/commerce.ts"
 import { CostsHandlers } from "./handlers/costs.ts"
 import { CoursesHandlers } from "./handlers/courses.ts"
+import { DataHandlers } from "./handlers/data.ts"
 import { DeveloperHandlers } from "./handlers/developer.ts"
 import { FirstAnalysisHandlers } from "./handlers/first-analysis.ts"
 import { ForwardingHandlers } from "./handlers/forwarding.ts"
@@ -136,6 +138,7 @@ export const RpcContext = Layer.mergeAll(
   ),
   ChatsHandlers.pipe(Layer.provide(Layer.mergeAll(ChatsService.layer, UndoService.layer))),
   SheetsHandlers.pipe(Layer.provide(SheetsService.layer)),
+  DataHandlers.pipe(Layer.provide(DataService.layer)),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
   WorkspacesHandlers.pipe(Layer.provide(WorkspaceSettings.layer)),
   CostsHandlers.pipe(Layer.provide(CostsService.layer)),
