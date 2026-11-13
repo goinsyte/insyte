@@ -56,6 +56,7 @@ export function CommandPalette({
 		inboxThreads.map((t) => ({ id: t.id, subject: t.subject, from: t.participants[0]?.name ?? "" }));
 	// The workspace's own chat messages are not the frame's to hold: only a host's search finds them.
 	const messageHits = found?.messages ?? [];
+	const chargebackHits = found?.chargebacks ?? chargebacks;
 	// The host has matched its hits already, on more than the row shows (a description, a mail's text): they stay listed.
 	const keywords = found === null ? undefined : [query];
 
@@ -173,8 +174,8 @@ export function CommandPalette({
 							))}
 						</CommandGroup>
 						<CommandGroup heading="Chargebacks">
-							{chargebacks.map((c) => (
-								<CommandItem key={c.id} value={`${c.case_number} ${c.customer_name}`} onSelect={() => go("/chargebacks/$chargebackId", { chargebackId: c.id })}>
+							{chargebackHits.map((c) => (
+								<CommandItem key={c.id} value={`${c.case_number} ${c.customer_name}`} keywords={keywords} onSelect={() => go("/chargebacks/$chargebackId", { chargebackId: c.id })}>
 									<CornerDownLeft className="size-4" />
 									<span className="tabular-nums">{c.case_number}</span>
 									<span className="truncate text-ink-3">{c.customer_name}</span>

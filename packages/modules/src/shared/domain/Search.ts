@@ -6,7 +6,15 @@ import { Schema } from "effect"
  * chat message, whose words around the match are what it is found by.
  */
 
-export const SearchKind = Schema.Literals(["order", "product", "customer", "ticket", "thread", "message"])
+export const SearchKind = Schema.Literals([
+  "order",
+  "product",
+  "customer",
+  "ticket",
+  "thread",
+  "message",
+  "chargeback"
+])
 export type SearchKind = typeof SearchKind.Type
 
 export class SearchHit extends Schema.Class<SearchHit>("shared/SearchHit")({

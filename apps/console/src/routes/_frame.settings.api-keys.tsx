@@ -11,6 +11,7 @@ import { Effect, Option } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { endpointsAtom, keysAtom } from "../data/developer.ts"
 import { rolesAtom } from "../data/roles.ts"
+import { webhooksAtom } from "../data/webhooks.ts"
 import { useConsoleDeveloperSource } from "../team/developer-source.ts"
 
 /**
@@ -24,11 +25,13 @@ export const Route = createFileRoute("/_frame/settings/api-keys")({
     context.registry.mount(keysAtom)
     context.registry.mount(rolesAtom)
     context.registry.mount(endpointsAtom)
+    context.registry.mount(webhooksAtom)
     await Effect.runPromise(
       Effect.all([
         Effect.ignore(AtomRegistry.getResult(context.registry, keysAtom)),
         Effect.ignore(AtomRegistry.getResult(context.registry, rolesAtom)),
-        Effect.ignore(AtomRegistry.getResult(context.registry, endpointsAtom))
+        Effect.ignore(AtomRegistry.getResult(context.registry, endpointsAtom)),
+        Effect.ignore(AtomRegistry.getResult(context.registry, webhooksAtom))
       ], { concurrency: "unbounded" })
     )
   },
@@ -62,7 +65,17 @@ function Loaded(
     endpoints: { readonly mcp: string | null }
   }
 ) {
-  const source = useConsoleDeveloperSource(keys, roles, endpoints)
+  // The webhooks card: its endpoints and how many fail, once they are in.
+  const hooks = Option.getOrUndefined(AsyncResult.value(useAtomValue(webhooksAtom)))
+  const source = useConsoleDeveloperSource(
+    keys,
+    roles,
+    endpoints,
+    hooks === undefined ? undefined : {
+      count: hooks.length,
+      failing: hooks.filter((w) => w.state === "failing" || w.state === "disabled").length
+    }
+  )
   return (
     <div className="flex min-h-full flex-col bg-paper text-ink">
       <DeveloperSourceProvider value={source}>

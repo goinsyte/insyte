@@ -1,4 +1,4 @@
-import { draftFromTemplate } from "../automations/library"
+import { draftFromTemplate } from "../automations/demo-source"
 import { workflowStore } from "../automations/workflow-store"
 import type { ProposalKind } from "../lib/analytics/engine"
 import { TEMPLATES } from "../lib/automation-templates"

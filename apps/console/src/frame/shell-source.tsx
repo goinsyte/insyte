@@ -1,6 +1,7 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { Frame } from "@insyte/api/rpc/ShellRpcs"
 import type { AreaId, Level, RoleDef, SpecialId } from "@insyte/domain/Permissions"
+import type { ChargebackList } from "@insyte/modules/chargebacks/domain/Chargebacks"
 import type { ChatList } from "@insyte/modules/chats/domain/Chats"
 import type { MailboxView } from "@insyte/modules/inbox/domain/Inbox"
 import type { SheetList } from "@insyte/modules/sheets/domain/Sheets"
@@ -20,7 +21,9 @@ import { useNavigate, useRouterState } from "@tanstack/react-router"
 import { Option } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { type ReactNode, useMemo, useRef, useState } from "react"
+import { chargebackOf } from "../chargebacks/chargeback-of.ts"
 import { conversationOf } from "../chats/chat-of.tsx"
+import { chargebacksAtom } from "../data/chargebacks.ts"
 import { chatsAtom } from "../data/chats.ts"
 import { FRAME, frameWrites, inboxAtom, notePrefsAtom, NOTES, presenceAtom, VIEWS, viewsAtom } from "../data/frame.ts"
 import { inboxCountsAtom, mailboxesAtom } from "../data/inbox.ts"
@@ -59,6 +62,8 @@ const PANEL_DEFAULTS: PanelPrefs = {
 type PinsPrefs = Pick<PinsState, "pinned" | "favourites" | "reportDismissed">
 const PINS_DEFAULTS: PinsPrefs = { pinned: [], favourites: [], reportDismissed: null }
 
+const SHORTCUT_DEFAULTS = { keys: {} as Record<string, string>, gotoOn: true }
+
 const NO_ROWS = [] as const
 
 const roleOf = (frame: Frame): RoleDef & { viewing: boolean } => ({
@@ -86,11 +91,12 @@ const NOT_YET: Record<string, string> = {
 
 const NO_COUNTS = Atom.make(AsyncResult.initial<Readonly<Record<string, number>>, never>())
 const NO_CHATS = Atom.make(AsyncResult.initial<ChatList, never>())
+const NO_CHARGEBACKS = Atom.make(AsyncResult.initial<ChargebackList, never>())
 const NO_MAILBOXES = Atom.make(AsyncResult.initial<ReadonlyArray<MailboxView>, never>())
 const NO_SHEETS = Atom.make(AsyncResult.initial<SheetList, never>())
 
 /** What the console makes from the panel's button and the top bar's + menu. */
-const MADE_HERE = new Set(["return", "ticket", "channel", "thread", "sheet"])
+const MADE_HERE = new Set(["return", "ticket", "channel", "thread", "evidence", "automation", "sheet"])
 
 export function ConsoleShellSource({ frame, children }: { frame: Frame; children: ReactNode }) {
   const navigate = useNavigate()
@@ -104,6 +110,10 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   // The chats panel lists the conversations and their unread counts, on the chats page only (M11 step 4).
   const onChats = useRouterState({ select: (s) => s.location.pathname.startsWith("/chats") })
   const chats = value(useAtomValue(onChats ? chatsAtom : NO_CHATS))
+  // The chargebacks panel counts its tabs from the cases the list shows, on the chargebacks pages only (M13).
+  const onChargebacks = useRouterState({ select: (s) => s.location.pathname.startsWith("/chargebacks") })
+  const chargebackList = value(useAtomValue(onChargebacks ? chargebacksAtom : NO_CHARGEBACKS))
+  const chargebacks = useMemo(() => chargebackList?.rows.map(chargebackOf) ?? [], [chargebackList])
   const conversations = useMemo<Array<Conversation>>(() => chats?.conversations.map(conversationOf) ?? [], [chats])
   const chatPins = useMemo(() => chats?.conversations.filter((c) => c.pinned).map((c) => c.id) ?? [], [chats])
   // The inbox panel counts each folder and mailbox from the server, and lists the mailboxes, on the inbox page only
@@ -157,10 +167,9 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   const [nav, setNav] = usePrefSection(frame, "rail", NAV_DEFAULTS)
   const [panel, setPanel] = usePrefSection(frame, "panel", PANEL_DEFAULTS)
   const [pins, setPins] = usePrefSection(frame, "pins", PINS_DEFAULTS)
-  const [shortcuts] = usePrefSection(frame, "shortcuts", {
-    keys: {} as Record<string, string>,
-    gotoOn: true
-  })
+  const [shortcuts, setShortcuts] = usePrefSection(frame, "shortcuts", SHORTCUT_DEFAULTS)
+  const shortcutsRef = useRef(shortcuts)
+  shortcutsRef.current = shortcuts
   const navRef = useRef(nav)
   navRef.current = nav
   const [active, setActive] = useState<Record<string, string | null>>({})
@@ -252,7 +261,21 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     },
     home: { widgets: [], engine: "grid", add: () => {}, remove: () => {}, setEngine: () => {} },
     nav: navState,
-    settingsDepth: shortcuts,
+    // Sneltoetsen (M17 step 20.1b): the member's own, in `Prefs.shortcuts`; each change answers its local undo.
+    settingsDepth: {
+      ...shortcuts,
+      setKey: (id, key) => {
+        const before = shortcutsRef.current
+        setShortcuts({ ...before, keys: { ...before.keys, [id]: key } })
+        return () => setShortcuts({ ...shortcutsRef.current, keys: before.keys })
+      },
+      resetKeys: () => {
+        const before = shortcutsRef.current
+        setShortcuts({ ...before, keys: {} })
+        return () => setShortcuts({ ...shortcutsRef.current, keys: before.keys })
+      },
+      setGotoOn: (gotoOn) => setShortcuts({ ...shortcutsRef.current, gotoOn })
+    },
     access: { viewAs: null, setViewAs: () => {} },
     autonomy: { budget: { limit: null, used: 0 } },
     ask: { start: () => void navigate({ to: "/ask" as never }) },
@@ -279,7 +302,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     workspace: {
       tickets: [],
       orders: [],
-      chargebacks: [],
+      chargebacks,
       queue: [],
       members,
       integrations: [],
@@ -326,13 +349,13 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     // ADR-0028: the design's demo counts dropped, the server's in their place.
     useRecordSearch: useConsoleRecordSearch,
     // A return is started from its page (M9.1), a ticket written on the board (M11), a channel in Chats (M11 step 4), a
-    // mail in the inbox (M11 step 2); the rest is not made here yet.
+    // mail in the inbox (M11 step 2), a chargeback by hand on its list (M13); the rest is not made here yet.
     unavailable: (kind) => MADE_HERE.has(kind) ? null : NOT_YET[kind] ?? "Dit kan hier nog niet",
     panelFor: (pathname) => {
       const cfg = panelForPath(pathname)
       if (cfg === null) return null
-      // Only a return, a ticket, a channel and a mail are made from the console yet: any other button is off, and says so
-      // as its page does.
+      // Only a return, a ticket, a channel, a mail, a chargeback and an automation are made from the console yet: any
+      // other button is off, and says so as its page does.
       const panel = cfg.cta === undefined
         ? cfg
         : MADE_HERE.has(cfg.cta.create ?? "")

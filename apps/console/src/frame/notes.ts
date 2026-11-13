@@ -26,6 +26,29 @@ interface Sentence {
   readonly quote?: boolean
 }
 
+/** A chargeback's reasons as the case names them. */
+const REASON: Record<string, string> = {
+  unauthorized: "Niet-geautoriseerde transactie",
+  not_received: "Niet ontvangen",
+  wrong_item: "Verkeerd artikel verzonden",
+  not_as_described: "Product niet zoals beschreven",
+  refund_requested: "Terugbetaling aangevraagd",
+  service: "Service niet naar tevredenheid",
+  payment_dispute: "Betalingsgeschil"
+}
+
+/** How long is left, as each deadline reminder says it. */
+const DEADLINE: Record<string, string> = {
+  "5d": "Nog vijf dagen om bewijs in te dienen.",
+  "2d": "Nog twee dagen om bewijs in te dienen.",
+  "6h": "Nog zes uur om bewijs in te dienen, anders vervalt het geschil in het voordeel van de klant."
+}
+
+const disputed = (data: Record<string, unknown>) =>
+  new Intl.NumberFormat("nl-NL", { style: "currency", currency: String(data["currency"] ?? "") || "EUR" }).format(
+    Number(data["amountMinor"] ?? 0) / 100
+  )
+
 const sentence = (note: ServerNote): Sentence => {
   const data = (note.data ?? {}) as Record<string, unknown>
   switch (note.kind) {
@@ -109,6 +132,18 @@ const sentence = (note: ServerNote): Sentence => {
         reason: "mention",
         quote: true
       }
+    case "automation.alert":
+    case "automation.failed":
+      // A run of a flow (M12 step 3): its "Team waarschuwen", or that it failed; the row opens the flow's runs.
+      return {
+        title: note.kind === "automation.alert" ? "vraagt je aandacht in" : "kon een run niet afmaken in",
+        record: String(data["name"] ?? ""),
+        detail: String(data["detail"] ?? ""),
+        source: "automation",
+        to: `/automations/${note.subjectId ?? ""}`,
+        search: { tab: "runs" },
+        person: "Automatisering"
+      }
     case "supplier.message": {
       // A supplier's answer to a quality check, through its link (M9.4), as the design writes it.
       const photos = Number(data["photos"] ?? 0)
@@ -128,6 +163,41 @@ const sentence = (note: ServerNote): Sentence => {
         org: String(data["supplier"] ?? "")
       }
     }
+    case "chargeback.new": {
+      // A chargeback at or above the threshold (M13 step 3), as the design writes it; one a teammate opened by hand
+      // follows their name.
+      const reason = REASON[String(data["reasonCode"] ?? "")]
+      return {
+        title: note.actor?.kind === "member" ? "opende een chargeback:" : "Nieuwe chargeback boven je drempel:",
+        record: String(data["caseNumber"] ?? ""),
+        detail: `${String(data["customer"] ?? "")} betwist ${disputed(data)}${
+          reason === undefined ? "" : ` · ${reason}`
+        }`,
+        source: "chargeback",
+        to: `/chargebacks/${note.subjectId ?? ""}`
+      }
+    }
+    case "chargeback.deadline":
+      // Five days, two days or six hours before a case's deadline (M13 step 3).
+      return {
+        title: "Bewijsdeadline nadert voor",
+        record: String(data["caseNumber"] ?? ""),
+        detail: DEADLINE[String(data["offset"] ?? "")] ?? DEADLINE["2d"]!,
+        tone: "amber",
+        source: "chargeback",
+        to: `/chargebacks/${note.subjectId ?? ""}`
+      }
+    case "integration.disconnected":
+      // A webhook endpoint Insyte switched off after five failed attempts in a row (M19.4).
+      return {
+        title: "Insyte heeft een webhook-endpoint uitgezet:",
+        record: String(data["url"] ?? ""),
+        detail: "Na 5 mislukte leveringen op rij. Er gaan geen events meer heen tot je het weer aanzet.",
+        tone: "amber",
+        source: "integration",
+        to: "/settings/webhooks",
+        search: { endpoint: note.subjectId ?? "" }
+      }
     default:
       return { title: "heeft iets voor je", to: "/notifications" }
   }
