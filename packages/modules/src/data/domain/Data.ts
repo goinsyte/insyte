@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { ExportFailure } from "../../shared/domain/Exports.ts"
 import { FilterGroup } from "../../shared/domain/Filter.ts"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
 
@@ -12,6 +13,8 @@ import { UndoTicket } from "../../shared/domain/Undo.ts"
 export const MAX_IMPORT_BYTES = 10 * 1024 * 1024
 export const MAX_IMPORT_ROWS = 50_000
 export const MAX_IMPORT_COLUMNS = 100
+/** The longest cell the hub keeps: Excel's own limit, so a file Excel wrote always fits. */
+export const MAX_IMPORT_CELL_CHARS = 32_767
 /** The rows a preview shows. */
 export const PREVIEW_ROWS = 8
 
@@ -34,8 +37,20 @@ export class DataOverview extends Schema.Class<DataOverview>("data/DataOverview"
 export const ImportState = Schema.Literals(["uploaded", "parsing", "parsed", "failed", "done"])
 export type ImportState = typeof ImportState.Type
 
-/** Why a file could not be read: not text, no rows under its header, more rows than the hub keeps, a broken line. */
-export const ImportError = Schema.Literals(["not_csv", "empty", "too_large", "parse_failed"])
+/**
+ * Why a file could not be read: not text, no rows under its header, more rows than the hub keeps, a row wider than its
+ * columns, a cell longer than it keeps, a quote that never closes (`parse_failed`), or the jobs Worker gave up on it
+ * (`unreadable`). Where a line applies, `errorLine` says which.
+ */
+export const ImportError = Schema.Literals([
+  "not_csv",
+  "empty",
+  "too_large",
+  "too_wide",
+  "cell_too_long",
+  "parse_failed",
+  "unreadable"
+])
 export type ImportError = typeof ImportError.Type
 
 export class ImportFile extends Schema.Class<ImportFile>("data/ImportFile")({
@@ -47,7 +62,7 @@ export class ImportFile extends Schema.Class<ImportFile>("data/ImportFile")({
   columnCount: Schema.Int,
   state: ImportState,
   error: Schema.NullOr(ImportError),
-  /** The line a `parse_failed` file broke on, from 1. */
+  /** The line a refused file broke on, from 1 (a quote opened, a row too wide or too many, a cell too long). */
   errorLine: Schema.NullOr(Schema.Int),
   createdAt: Schema.Finite,
   createdBy: Schema.String,
@@ -145,6 +160,8 @@ export class ExportRow extends Schema.Class<ExportRow>("data/ExportRow")({
   rowsTotal: Schema.NullOr(Schema.Int),
   /** Where the file downloads (`/api/files/:id`) while it is ready, for the member who asked. */
   fileUrl: Schema.NullOr(Schema.String),
+  /** Why a failed export failed: more rows than one export writes (`EXPORT_MAX_ROWS`), or anything else. */
+  failure: Schema.NullOr(ExportFailure),
   requestedBy: Schema.String,
   createdAt: Schema.Finite,
   finishedAt: Schema.NullOr(Schema.Finite),

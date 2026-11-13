@@ -168,7 +168,10 @@ export const rows = Effect.fn("Data.imports.rows")(function*(input: ImportRowsIn
   )
 })
 
-/** "N rijen importeren": the read file is in Tabel and Exporteren; the token takes it out again. */
+/**
+ * "N rijen importeren": the read file is in Tabel and Exporteren; the token undoes exactly that, the file back to
+ * `parsed` (waiting to be imported), not removed.
+ */
 export const commit = Effect.fn("Data.imports.commit")(function*(input: ImportIdInput) {
   yield* Policy.require("data", 2)
   const db = yield* Db
@@ -178,7 +181,7 @@ export const commit = Effect.fn("Data.imports.commit")(function*(input: ImportId
       if (record.state !== "parsed") return yield* new ImportNotReady({ id: record.id, state: record.state })
       yield* sql`update imports set state = 'done', committed_at = now() where id = ${record.id}`
       yield* audit(sql, "data.import", record.id, { rows: record.rowCount, fileName: record.fileName })
-      const undo = yield* Undo.issue(sql, { command: RESTORE, compensation: { id: record.id, removed: true } })
+      const undo = yield* Undo.issue(sql, { command: RESTORE, compensation: { id: record.id, to: "parsed" } })
       return new ImportChange({ import: importOf(yield* importRecord(sql, record.id)), undo })
     })
   )
@@ -203,7 +206,7 @@ export const remove = Effect.fn("Data.imports.remove")(function*(input: ImportId
       }
       yield* sql`update imports set deleted_at = now() where id = ${record.id}`
       yield* audit(sql, "data.import_remove", record.id, { fileName: record.fileName })
-      const undo = yield* Undo.issue(sql, { command: RESTORE, compensation: { id: record.id, removed: false } })
+      const undo = yield* Undo.issue(sql, { command: RESTORE, compensation: { id: record.id, to: "restored" } })
       return { change: new ImportChange({ import: importOf(record), undo }), keys: [] }
     })
   )
@@ -220,22 +223,76 @@ export const restore = Effect.fn("Data.imports.restore")(function*(input: Import
       const record = yield* importRecord(sql, input.importId, { lock: true, removed: true })
       yield* sql`update imports set deleted_at = null where id = ${record.id}`
       yield* audit(sql, "data.import_restore", record.id)
-      const undo = yield* Undo.issue(sql, { command: RESTORE, compensation: { id: record.id, removed: true } })
+      const undo = yield* Undo.issue(sql, { command: RESTORE, compensation: { id: record.id, to: "removed" } })
       return new ImportChange({ import: importOf(yield* importRecord(sql, record.id)), undo })
     })
   )
 })
 
-const Snapshot = Schema.Struct({ id: Schema.String, removed: Schema.Boolean })
+/** What an undo puts the import back to: waiting to be imported, removed, or back in Tabel. */
+const Snapshot = Schema.Struct({ id: Schema.String, to: Schema.Literals(["parsed", "removed", "restored"]) })
 const decodeSnapshot = Schema.decodeUnknownEffect(Snapshot)
 
-/** `Shared.undo` for `data.restore`: the import removed again, or put back, as it was before the command. */
+/**
+ * `Shared.undo` for `data.restore`: the import as it was before the command. An import is only changed if it is still
+ * as the command left it, and only a change is audited, so an undo that finds nothing to do leaves no line.
+ */
 export const restoreSnapshot = Effect.fn("Data.imports.restoreSnapshot")(
   function*(sql: SqlClient.SqlClient, compensation: unknown) {
     const snapshot = yield* decodeSnapshot(compensation).pipe(Effect.orDie)
     yield* Policy.require("data", 2)
-    yield* sql`update imports set deleted_at = ${snapshot.removed ? sql`coalesce(deleted_at, now())` : sql`null`}
-               where id = ${snapshot.id}`
-    yield* audit(sql, snapshot.removed ? "data.import_remove" : "data.import_restore", snapshot.id)
+    const changed = snapshot.to === "parsed"
+      ? yield* sql<{ id: string }>`
+          update imports set state = 'parsed', committed_at = null
+          where id = ${snapshot.id} and state = 'done' and deleted_at is null returning id`
+      : snapshot.to === "removed"
+      ? yield* sql<{ id: string }>`
+          update imports set deleted_at = now() where id = ${snapshot.id} and deleted_at is null returning id`
+      : yield* sql<{ id: string }>`
+          update imports set deleted_at = null where id = ${snapshot.id} and deleted_at is not null returning id`
+    if (changed.length === 0) return
+    yield* audit(
+      sql,
+      snapshot.to === "parsed"
+        ? "data.import_undo"
+        : snapshot.to === "removed"
+        ? "data.import_remove"
+        : "data.import_restore",
+      snapshot.id
+    )
   }
 )
+
+/** How long a removed import is kept for its undo, and a file never imported for the member to come back to. */
+const PURGE_REMOVED_HOURS = 1
+const PURGE_UNIMPORTED_DAYS = 7
+
+/**
+ * The nightly purge (M14 step 5), as `system` in one workspace: imports removed more than an hour ago (well past their
+ * undo), and files uploaded but never imported within seven days (still waiting, failed, or never made an import), go
+ * for good: their rows, their row and their file, in the database and then in the bucket. Up to 200 a night.
+ */
+export const purgeIn = Effect.fn("Data.imports.purge")(function*() {
+  const db = yield* Db
+  const keys = yield* db.scopedFor((sql) =>
+    Effect.gen(function*() {
+      const gone = yield* sql<{ id: string; fileId: string }>`
+        delete from imports where id in (
+          select id from imports
+          where (deleted_at is not null and deleted_at < now() - make_interval(hours => ${PURGE_REMOVED_HOURS}))
+             or (state <> 'done' and created_at < now() - make_interval(days => ${PURGE_UNIMPORTED_DAYS}))
+          limit 200)
+        returning id, file_id`
+      const fileIds = gone.map((g) => g.fileId)
+      const files = yield* sql<{ r2Key: string }>`
+        update files set deleted_at = now()
+        where kind = 'import_csv' and deleted_at is null
+          and (${fileIds.length === 0 ? sql`false` : sql`id in ${sql.in(fileIds)}`}
+               or (owner_id is null and created_at < now() - make_interval(days => ${PURGE_UNIMPORTED_DAYS})))
+        returning r2_key`
+      return files.map((f) => f.r2Key)
+    })
+  )
+  yield* Effect.flatMap(Effect.service(FileStore), (f) => f.remove(keys))
+  return keys.length
+})

@@ -17,7 +17,12 @@ export const ImportV1 = Schema.Struct({
     description:
       "`done` once a member imported it; `parsed` while it waits for that; `failed` when it could not be read."
   }),
-  error: Schema.NullOr(Schema.Literals(["not_csv", "empty", "too_large", "parse_failed"])),
+  error: Schema.NullOr(
+    Schema.Literals(["not_csv", "empty", "too_large", "too_wide", "cell_too_long", "parse_failed", "unreadable"])
+  ).annotate({
+    description: "Why it could not be read: not text, no rows, over 50,000 rows, a row over 100 columns, a cell over "
+      + "32,767 characters, a quote that never closes, or the read gave up."
+  }),
   created_by: Schema.String,
   created_at: Schema.String,
   committed_at: Schema.NullOr(Schema.String)
@@ -35,6 +40,9 @@ export const ExportV1 = Schema.Struct({
   state: Schema.Literals(["queued", "running", "ready", "failed", "expired"]),
   rows_written: Schema.Int,
   rows_total: Schema.NullOr(Schema.Int),
+  failure: Schema.NullOr(Schema.Literals(["too_many_rows", "failed"])).annotate({
+    description: "Why a `failed` export failed: `too_many_rows` when it would hold more than 1,000,000 rows."
+  }),
   requested_by: Schema.String,
   created_at: Schema.String,
   finished_at: Schema.NullOr(Schema.String),

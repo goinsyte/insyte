@@ -1,5 +1,5 @@
 import { CurrentWorkspace } from "@insyte/domain/Principal"
-import { importSource, ordersSource } from "@insyte/modules/data/Data"
+import { importSource, ordersSource, purgeImports } from "@insyte/modules/data/Data"
 import { ImportParses } from "@insyte/modules/data/domain/Ports"
 import { ExportRuns, type ExportSource, ExportSources } from "@insyte/modules/shared/domain/Exports"
 import { dueWorkspaces, expireIn } from "@insyte/modules/shared/use-cases/Exports"
@@ -45,13 +45,18 @@ export const ImportParsesLive = Layer.succeed(ImportParses)(ImportParses.of({
 }))
 
 /**
- * The exports past their seven days (M14 step 5), once a day at 03:00 UTC: in each workspace holding one, the files
- * gone from the bucket and the rows `expired`. A workspace with more than one turn's worth keeps the rest for the next.
+ * The Data hub's nightly sweep (M14 step 5), at 03:00 UTC, in each workspace with something for it: exports past their
+ * seven days emptied and expired, exports stuck for a day failed, folders a refused delete left behind emptied
+ * (`Exports.expireIn`); removed imports and files never imported purged (`Data.purgeImports`). One workspace that fails
+ * is logged and left for the next night; the others go on.
  */
 export const exportSweep = Effect.fn("Exports.sweep")(
   function*() {
     for (const workspaceId of yield* dueWorkspaces) {
-      yield* expireIn().pipe(Effect.provideService(CurrentWorkspace, { id: workspaceId }))
+      yield* Effect.all([expireIn(), purgeImports()], { discard: true }).pipe(
+        Effect.provideService(CurrentWorkspace, { id: workspaceId }),
+        Effect.catchCause((cause) => Effect.logWarning("the data sweep failed in a workspace", { workspaceId, cause }))
+      )
     }
   },
   Effect.orDie

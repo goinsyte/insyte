@@ -57,6 +57,8 @@ const BackgroundLayer = onInfra(Layer.mergeAll(
   AutomationRunsLive,
   // A return label's PDF goes with the shopper's mail (M9.3).
   FileStoreR2,
+  // The nightly sweep empties an export's folder in the bucket (M14 step 5).
+  FilePartsR2,
   // Notes by push and in Slack, its token sealed; an answer to a notification mail as a comment (M11 step 13.5).
   WebPushChoice,
   SlackChoice,

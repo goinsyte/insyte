@@ -407,8 +407,10 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
       }
       case "export.finished": {
         // An export's file is ready, or could not be written (M14 step 5): the member who asked, and only they.
-        const [row] = yield* sql<{ fileName: string; rows: number; fileId: string | null; expiresAt: Date | null }>`
-          select coalesce(f.name, e.file_name) as file_name, e.rows_written as rows, e.file_id, e.expires_at
+        const [row] = yield* sql<
+          { fileName: string; rows: number; fileId: string | null; expiresAt: Date | null; error: string | null }
+        >`
+          select coalesce(f.name, e.file_name) as file_name, e.rows_written as rows, e.file_id, e.expires_at, e.error
           from exports e left join files f on f.id = e.file_id where e.id = ${event.exportId}`
         if (row === undefined) return undefined
         const recipients = yield* sql<{ id: string }>`
@@ -425,6 +427,8 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             fileName: row.fileName,
             rows: row.rows,
             fileId: event.state === "ready" ? row.fileId : null,
+            // Too many rows is the one reason the member can act on: narrow the list.
+            reason: event.state === "failed" && row.error === "too_many_rows" ? "too_many_rows" : null,
             expiresAt: row.expiresAt === null ? null : row.expiresAt.toISOString()
           }
         }

@@ -1,6 +1,6 @@
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
-import { parse, type ParseOutcome } from "@insyte/modules/data/Data"
+import { markUnreadable, parse, type ParseOutcome } from "@insyte/modules/data/Data"
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers"
 import { Cause, Effect, Exit } from "effect"
 import { syncRuntime as runtime } from "../platform/Ingest.ts"
@@ -12,7 +12,8 @@ import { roomOf } from "../platform/Room.ts"
  * An uploaded CSV read into rows (M14 step 5), one run per import: one durable step that reads the file and writes its
  * rows in batches, the workspace's tabs told how far it got (`job.progress{ import_parse }`) and, once it is over,
  * that the import changed. A step that fails (the bucket away, the database busy) is tried again from the start of
- * the rows.
+ * the rows; when every try failed, the import is `failed` as `unreadable` rather than left `uploaded`. What the tabs
+ * hear is best effort: a room that does not answer never fails the read.
  */
 
 export interface ImportParseParams {
@@ -29,12 +30,19 @@ export class ImportParseWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Impo
   override async run(event: Readonly<WorkflowEvent<ImportParseParams>>, step: WorkflowStep) {
     const { workspaceId, importId } = event.payload
     const room = roomOf(workspaceId)
+    const say = (frame: Parameters<typeof room.broadcast>[0]) => room.broadcast(frame).catch(() => undefined)
     const told = (done: number, total: number) =>
-      Effect.promise(() => room.broadcast({ v: 1, type: "job.progress", kind: "import_parse", importId, done, total }))
-    const outcome: ParseOutcome = await step.do("parse", RETRY, () => run(workspaceId, parse(importId, told)))
+      Effect.promise(() => say({ v: 1, type: "job.progress", kind: "import_parse", importId, done, total }))
+    let outcome: ParseOutcome
+    try {
+      outcome = await step.do("parse", RETRY, () => run(workspaceId, parse(importId, told)))
+    } catch {
+      const marked = await step.do("unreadable", RETRY, () => run(workspaceId, markUnreadable(importId)))
+      outcome = marked ? { state: "failed", error: "unreadable" } : { state: "skipped" }
+    }
     if (outcome.state !== "skipped") {
       const rows = outcome.state === "parsed" ? outcome.rows : 0
-      await room.broadcast({
+      await say({
         v: 1,
         type: "job.progress",
         kind: "import_parse",
@@ -43,7 +51,7 @@ export class ImportParseWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Impo
         total: rows,
         state: outcome.state
       })
-      await room.broadcast({ v: 1, type: "records.changed", kind: "import", ids: [importId] })
+      await say({ v: 1, type: "records.changed", kind: "import", ids: [importId] })
     }
     return { outcome: outcome.state }
   }

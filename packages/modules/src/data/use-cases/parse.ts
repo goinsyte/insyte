@@ -1,18 +1,24 @@
 import { Db } from "@insyte/database/Db"
 import { Effect } from "effect"
 import { FileStore } from "../../shared/domain/Documents.ts"
-import { parseCsv } from "../domain/csv.ts"
-import { MAX_IMPORT_COLUMNS, MAX_IMPORT_ROWS } from "../domain/Data.ts"
+import { readCsv } from "../domain/csv.ts"
+import { MAX_IMPORT_CELL_CHARS, MAX_IMPORT_COLUMNS, MAX_IMPORT_ROWS } from "../domain/Data.ts"
 
 /*
  * Reading an uploaded CSV (M14 step 5), the `ImportParseWorkflow`'s step, as `system` in the import's workspace: the
  * file from the bucket, parsed in the hub's dialect (`domain/csv.ts`), its rows into `import_rows` in batches, the
  * header and the count on the import, now `parsed` for its preview; or `failed` with why. A retried step starts the
  * rows over, so a read never doubles a row. `told` hears each batch (`job.progress{ import_parse }`).
+ *
+ * The file is checked against every limit before a row is written, and its rows are then written a batch at a time
+ * from the text (`readCsv`), so the step holds the file and one batch, never every cell: within the limits it stays far
+ * below the isolate's 128 MB. A step the Workflow gives up on marks the import `unreadable` (`markUnreadable`).
  */
 
 /** Rows per insert. */
 const BATCH = 2000
+
+const LIMITS = { maxRows: MAX_IMPORT_ROWS, maxColumns: MAX_IMPORT_COLUMNS, maxCellChars: MAX_IMPORT_CELL_CHARS }
 
 export type ParseOutcome =
   | { readonly state: "parsed"; readonly rows: number }
@@ -35,28 +41,53 @@ export const parse = Effect.fn("Data.imports.parse")(function*(
       }
       yield* sql`update imports set state = 'parsing' where id = ${importId}`
       const stored = record.r2Key === null ? undefined : yield* files.get(record.r2Key)
-      const parsed = stored === undefined
-        ? ({ ok: false, error: "not_csv" } as const)
-        : parseCsv(stored.bytes, { maxRows: MAX_IMPORT_ROWS, maxColumns: MAX_IMPORT_COLUMNS })
-      if (!parsed.ok) {
-        yield* sql`update imports set state = 'failed', error = ${parsed.error},
-                     error_line = ${parsed.error === "parse_failed" ? parsed.line ?? null : null}, parsed_at = now()
+      const read = stored === undefined ? ({ ok: false, error: "not_csv" } as const) : readCsv(stored.bytes, LIMITS)
+      if (!read.ok) {
+        yield* sql`update imports set state = 'failed', error = ${read.error}, error_line = ${read.line ?? null},
+                     parsed_at = now()
                    where id = ${importId}`
-        return { state: "failed", error: parsed.error } satisfies ParseOutcome as ParseOutcome
+        return { state: "failed", error: read.error } satisfies ParseOutcome as ParseOutcome
       }
       yield* sql`delete from import_rows where import_id = ${importId}`
-      const total = parsed.rows.length
-      for (let start = 0; start < total; start += BATCH) {
-        const batch = parsed.rows.slice(start, start + BATCH).map((cells, i) => ({ n: start + i + 1, cells }))
-        yield* sql`insert into import_rows (workspace_id, import_id, n, cells)
-                   select app_workspace_id(), ${importId}, (x ->> 'n')::int,
-                          array(select t.e from jsonb_array_elements_text(x -> 'cells') with ordinality t(e, o) order by t.o)
-                   from jsonb_array_elements(${JSON.stringify(batch)}::jsonb) x`
-        yield* told(Math.min(total, start + BATCH), total)
+      const total = read.rowCount
+      const insert = (batch: ReadonlyArray<{ readonly n: number; readonly cells: ReadonlyArray<string> }>) =>
+        sql`insert into import_rows (workspace_id, import_id, n, cells)
+            select app_workspace_id(), ${importId}, (x ->> 'n')::int,
+                   array(select t.e from jsonb_array_elements_text(x -> 'cells') with ordinality t(e, o) order by t.o)
+            from jsonb_array_elements(${JSON.stringify(batch)}::jsonb) x`
+      let batch: Array<{ readonly n: number; readonly cells: ReadonlyArray<string> }> = []
+      let n = 0
+      for (const cells of read.rows()) {
+        n++
+        batch.push({ n, cells })
+        if (batch.length === BATCH) {
+          yield* insert(batch)
+          batch = []
+          yield* told(n, total)
+        }
       }
-      yield* sql`update imports set state = 'parsed', header = ${[...parsed.header]}::text[], row_count = ${total},
+      if (batch.length > 0) {
+        yield* insert(batch)
+        yield* told(n, total)
+      }
+      yield* sql`update imports set state = 'parsed', header = ${[...read.header]}::text[], row_count = ${n},
                    parsed_at = now() where id = ${importId}`
-      return { state: "parsed", rows: total } satisfies ParseOutcome as ParseOutcome
+      return { state: "parsed", rows: n } satisfies ParseOutcome as ParseOutcome
     })
   )
+})
+
+/**
+ * The `ImportParseWorkflow` gave up on the file (every retry of its step failed: the bucket away, the isolate out of
+ * memory): the import is `failed` as `unreadable`, so the member sees why and can upload it again, instead of a file
+ * that stays `uploaded`. One already read or failed is left as it is.
+ */
+export const markUnreadable = Effect.fn("Data.imports.markUnreadable")(function*(importId: string) {
+  const db = yield* Db
+  const [row] = yield* db.scopedFor((sql) =>
+    sql<{ id: string }>`
+      update imports set state = 'failed', error = 'unreadable', error_line = null, parsed_at = now()
+      where id = ${importId} and state in ('uploaded', 'parsing') returning id`
+  )
+  return row !== undefined
 })

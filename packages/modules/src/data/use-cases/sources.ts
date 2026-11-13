@@ -13,7 +13,7 @@ import { type OrderColumn } from "../domain/Data.ts"
  */
 
 const PAGE_ROWS = 2000
-const CSV = { mime: "text/csv;charset=utf-8", extension: "csv" } as const
+const CSV = { mime: "text/csv;charset=utf-8", extension: "csv", pageRows: PAGE_ROWS } as const
 
 /** What the orders list filters on (the same whitelist as `Orders.list`, kept here: a slice reads its own copy). */
 export const ORDER_FILTER: Whitelist = {
@@ -43,6 +43,8 @@ interface OrderLine {
   readonly lineCount: number
   readonly trackingNumber: string | null
   readonly placedAt: Date
+  /** `placed_at` as the database writes it, to the microsecond: the page's cursor, compared as it is. */
+  readonly placedKey: string
 }
 
 const STATUS: Record<string, string> = {
@@ -106,45 +108,56 @@ const columnsOf = (job: ExportJob) =>
       ? Effect.succeed(ORDER_EXPORT[c as OrderColumn])
       : Effect.fail(new ExportRefused({ reason: `unknown column ${c}` })))
 
-const keyOf = (cursor: string | null) => {
+/**
+ * The orders page's cursor: the last row's `placed_at` as Postgres wrote it (to the microsecond, so two orders in one
+ * millisecond are never skipped or written twice) and its id, compared as `(placed_at, id)` in the database.
+ */
+export const cursorOf = (row: { readonly placedKey: string; readonly id: string }) => `${row.placedKey}|${row.id}`
+
+export const keyOf = (cursor: string | null) => {
   if (cursor === null) return undefined
-  const at = cursor.indexOf("|")
-  return { placedAt: new Date(Number(cursor.slice(0, at))), id: cursor.slice(at + 1) }
+  const at = cursor.lastIndexOf("|")
+  return { placedAt: cursor.slice(0, at), id: cursor.slice(at + 1) }
 }
 
-export const ordersSource: ExportSource = {
+/** Bestellingen as an export source, `pageRows` to a page (a test pages by two to cross many page ends). */
+export const ordersSourceOf = (pageRows: number): ExportSource => ({
   name: "orders",
   plan: (sql, job) =>
     Effect.gen(function*() {
       yield* columnsOf(job)
       const where = yield* ordersWhere(sql, job)
       const [row] = yield* sql<{ n: number }>`select count(*)::int as n from orders o where ${where}`
-      return { ...CSV, total: row?.n ?? 0 }
+      return { ...CSV, pageRows, total: row?.n ?? 0 }
     }).pipe(Effect.catchTag("SqlError", Effect.die)),
   page: (sql, job, cursor) =>
     Effect.gen(function*() {
       const columns = yield* columnsOf(job)
       const where = yield* ordersWhere(sql, job)
       const key = keyOf(cursor)
-      const after = key === undefined ? sql`true` : sql`(o.placed_at, o.id) < (${key.placedAt}, ${key.id})`
+      const after = key === undefined
+        ? sql`true`
+        : sql`(o.placed_at, o.id) < (${key.placedAt}::timestamptz, ${key.id})`
       const rows = yield* sql<OrderLine>`
         select o.id, o.number, o.customer_name, o.customer_email, o.total_minor, o.currency, o.status,
-               o.payment_status, o.fulfillment_status, o.placed_at,
+               o.payment_status, o.fulfillment_status, o.placed_at, o.placed_at::text as placed_key,
                (select count(*) from order_lines l where l.order_id = o.id)::int as line_count,
                (select f.tracking_number from fulfilments f where f.order_id = o.id and f.tracking_number is not null
                   order by f.shipped_at desc nulls last limit 1) as tracking_number
         from orders o where ${where} and ${after}
-        order by o.placed_at desc, o.id desc limit ${PAGE_ROWS}`
+        order by o.placed_at desc, o.id desc limit ${pageRows}`
       const last = rows.at(-1)
       return {
         bytes: csvBytes(rows.map((o) => columns.map((c) => c.read(o))), {
           header: cursor === null ? columns.map((c) => c.label) : undefined
         }),
         rows: rows.length,
-        next: rows.length === PAGE_ROWS && last !== undefined ? `${last.placedAt.getTime()}|${last.id}` : null
+        next: rows.length === pageRows && last !== undefined ? cursorOf(last) : null
       }
     }).pipe(Effect.catchTag("SqlError", Effect.die))
-}
+})
+
+export const ordersSource = ordersSourceOf(PAGE_ROWS)
 
 const importOf = Effect.fn("Data.exportImport")(function*(sql: SqlClient.SqlClient, job: ExportJob) {
   const [row] = yield* sql<{ header: ReadonlyArray<string>; rowCount: number }>`

@@ -247,7 +247,9 @@ const sentence = (note: ServerNote): Sentence => {
         ? {
           title: "Je export is mislukt:",
           record: String(data["fileName"] ?? ""),
-          detail: "Probeer het opnieuw.",
+          detail: data["reason"] === "too_many_rows"
+            ? "Meer dan 1.000.000 rijen. Verfijn het filter en probeer het opnieuw."
+            : "Probeer het opnieuw.",
           tone: "amber",
           source: "insyte",
           to: "/data",

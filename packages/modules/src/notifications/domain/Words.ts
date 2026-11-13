@@ -244,7 +244,9 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
       return data["state"] === "failed"
         ? {
           title: "Je export is mislukt",
-          detail: "Probeer het opnieuw. Lukt het weer niet, laat het ons weten.",
+          detail: data["reason"] === "too_many_rows"
+            ? "Er zijn meer dan 1.000.000 rijen. Verfijn het filter en probeer het opnieuw."
+            : "Probeer het opnieuw. Lukt het weer niet, laat het ons weten.",
           record: text(data["fileName"]) || undefined,
           actionLabel: "Exporteren openen",
           path: `/data${query({ view: "export" })}`

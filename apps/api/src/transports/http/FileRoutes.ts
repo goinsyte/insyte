@@ -106,10 +106,12 @@ export const FileRoutes = HttpRouter.add(
       Effect.catchTag("Forbidden", () => Effect.void)
     )
     if (file === undefined) return notFound
-    const stored = yield* Effect.flatMap(Effect.service(FileStore), (s) => s.get(file.r2Key))
+    // Streamed from the bucket with its length, never held: an export can be tens of megabytes.
+    const stored = yield* Effect.flatMap(Effect.service(FileStore), (s) => s.open(file.r2Key))
     if (stored === undefined) return notFound
-    return HttpServerResponse.uint8Array(stored.bytes, {
+    return HttpServerResponse.raw(stored.body, {
       contentType: stored.mime,
+      contentLength: stored.size,
       headers: {
         "content-disposition": disposition(file.name, file.ownerType === "export" ? "attachment" : "inline"),
         "cache-control": "private, no-store",

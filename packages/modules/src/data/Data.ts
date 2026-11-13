@@ -101,8 +101,11 @@ export class DataService extends Context.Service<DataService, {
 /** `Shared.undo` for `data.restore`. */
 export const restore = Imports.restoreSnapshot
 
-/** The `ImportParseWorkflow`'s step, as `system` in the import's workspace. */
-export { parse, type ParseOutcome } from "./use-cases/parse.ts"
+/** The nightly purge of removed imports and files never imported, as `system` in one workspace. */
+export const purgeImports = Imports.purgeIn
+
+/** The `ImportParseWorkflow`'s step, as `system` in the import's workspace, and what it does when it gives up. */
+export { markUnreadable, parse, type ParseOutcome } from "./use-cases/parse.ts"
 
 /** The hub's export sources, for the `ExportWorkflow`'s registry. */
-export { importSource, ordersSource } from "./use-cases/sources.ts"
+export { importSource, ordersSource, ordersSourceOf } from "./use-cases/sources.ts"

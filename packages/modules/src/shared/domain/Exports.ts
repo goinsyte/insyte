@@ -16,6 +16,16 @@ import type { SqlClient } from "effect/sql"
 /** How long an export's file can be downloaded. */
 export const EXPORT_DAYS = 7
 
+/**
+ * The most rows one export writes. An export whose plan says more is refused before its first page, as
+ * `too_many_rows`, rather than failing after a million rows; the Workflow's page count is held to it too.
+ */
+export const EXPORT_MAX_ROWS = 1_000_000
+
+/** Why a failed export failed, as the member is told: too many rows (narrow the list), or anything else. */
+export const ExportFailure = Schema.Literals(["too_many_rows", "failed"])
+export type ExportFailure = typeof ExportFailure.Type
+
 export const ExportFormat = Schema.Literals(["csv", "xlsx", "zip"])
 export type ExportFormat = typeof ExportFormat.Type
 
@@ -29,7 +39,10 @@ export interface ExportJob {
   readonly columns: ReadonlyArray<string>
   /** The list's filter (a `FilterGroup`), as the source's request schema took it. */
   readonly filter: unknown
-  /** The requester's stores when they asked; `null` for every store. */
+  /**
+   * The requester's stores when they asked (their `storeScope`: the role's stores narrowed by the member's own); `null`
+   * for every store.
+   */
   readonly storeScope: ReadonlyArray<string> | null
   readonly format: ExportFormat
   readonly requestedBy: string
@@ -40,9 +53,17 @@ export interface ExportPlan {
   readonly mime: string
   /** The file name's extension, without the dot. */
   readonly extension: string
-  /** The rows it will write, for the progress; `null` when it cannot say. */
+  /** The rows it will write, for the progress and the `EXPORT_MAX_ROWS` check; `null` when it cannot say. */
   readonly total: number | null
+  /** The rows on a full page, so the Workflow knows how many pages `EXPORT_MAX_ROWS` is. */
+  readonly pageRows: number
 }
+
+/** A plan over `EXPORT_MAX_ROWS`: refused before its first page. */
+export const tooManyRows = (plan: ExportPlan) => plan.total !== null && plan.total > EXPORT_MAX_ROWS
+
+/** The pages the Workflow lets a plan run to: `EXPORT_MAX_ROWS` in full pages, and one more for a last short one. */
+export const maxPagesOf = (plan: ExportPlan) => Math.ceil(EXPORT_MAX_ROWS / Math.max(1, plan.pageRows)) + 1
 
 /** One page of the file: its bytes, how many rows they hold, and where the next starts (`null` after the last). */
 export interface ExportPage {
@@ -80,12 +101,15 @@ export class ExportRuns extends Context.Service<ExportRuns, {
   readonly start: (input: { readonly workspaceId: string; readonly exportId: string }) => Effect.Effect<void>
 }>()("shared/ExportRuns") {}
 
-/** A CSV cell the way Dutch Excel reads it: `;`-separated, quoted when it holds `;`, a quote or a line end. */
 /**
- * A text that a spreadsheet would run as a formula (`=`, `+`, `@`, or `-` before anything but a number) starts with
- * `'`, so a customer's name cannot become one in the member's Excel (OWASP "CSV injection").
+ * A text that a spreadsheet would run as a formula starts with `'`, so a customer's name cannot become one in the
+ * member's Excel (OWASP "CSV injection"): anything starting with `=`, `+`, `@`, a tab or a line end, and anything
+ * starting with `-` unless the whole value is a number (`-12,50` stays a number; `-1+1+cmd|...` does not).
  */
-const inert = (value: string) => (/^[=+@\t\r]|^-(?![\d.,])/.test(value) ? `'${value}` : value)
+const inert = (value: string) =>
+  /^[=+@\t\r\n]/.test(value) || (value.startsWith("-") && !/^-\d+([.,]\d+)?$/.test(value)) ? `'${value}` : value
+
+/** A CSV cell the way Dutch Excel reads it: `;`-separated, quoted when it holds `;`, a quote or a line end. */
 
 const cell = (raw: string) => {
   const value = inert(raw)

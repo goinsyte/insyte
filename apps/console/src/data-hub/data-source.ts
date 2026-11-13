@@ -66,10 +66,14 @@ const READ_ERROR: Record<string, (file: ImportFile) => string> = {
   not_csv: () => "Dit is geen tekstbestand. Sla het op als CSV (UTF-8) en probeer het opnieuw.",
   empty: (f) => `${f.fileName} heeft geen rijen om te importeren.`,
   too_large: () => "Een CSV kan hoogstens 50.000 rijen hebben.",
+  too_wide: (f) => `Regel ${f.errorLine ?? "?"} heeft meer dan 100 kolommen. Een CSV kan er hoogstens 100 hebben.`,
+  cell_too_long: (f) =>
+    `Een cel op regel ${f.errorLine ?? "?"} is langer dan 32.767 tekens. Kort die in en probeer het opnieuw.`,
   parse_failed: (f) =>
     `Op regel ${
       f.errorLine ?? "?"
-    } opent een aanhalingsteken dat nergens sluit. Controleer het bestand en probeer het opnieuw.`
+    } opent een aanhalingsteken dat nergens sluit. Controleer het bestand en probeer het opnieuw.`,
+  unreadable: () => "Insyte kon dit bestand niet lezen. Upload het opnieuw."
 }
 
 const COPY: RefusalCopy = {
@@ -223,7 +227,11 @@ export function useConsoleDataSource(input: {
       })
     } else if (row.state === "failed") {
       awaited.current = null
-      toast.error("De export is mislukt", { description: "Probeer het opnieuw." })
+      toast.error("De export is mislukt", {
+        description: row.failure === "too_many_rows"
+          ? "Er zijn meer dan 1.000.000 rijen. Verfijn het filter en probeer het opnieuw."
+          : "Probeer het opnieuw."
+      })
     }
   }, [exportRows])
 

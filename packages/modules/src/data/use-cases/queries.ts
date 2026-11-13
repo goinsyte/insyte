@@ -65,10 +65,11 @@ export interface ExportRecord {
   readonly createdAt: Date
   readonly finishedAt: Date | null
   readonly expiresAt: Date | null
+  readonly error: string | null
 }
 
 export const EXPORT_SELECT = `e.id, e.source, e.source_ref, e.file_name, e.state, e.rows_written, e.rows_total,
-  e.file_id, f.name as file_full, e.requested_by, e.created_at, e.finished_at, e.expires_at`
+  e.file_id, f.name as file_full, e.requested_by, e.created_at, e.finished_at, e.expires_at, e.error`
 
 /** An export as the console shows it; its link only for the member who asked, while it lasts. */
 export const exportOf = (r: ExportRecord, me: string) =>
@@ -81,6 +82,7 @@ export const exportOf = (r: ExportRecord, me: string) =>
     rowsWritten: r.rowsWritten,
     rowsTotal: r.rowsTotal,
     fileUrl: r.state === "ready" && r.fileId !== null && r.requestedBy === me ? `/api/files/${r.fileId}` : null,
+    failure: r.state !== "failed" ? null : r.error === "too_many_rows" ? "too_many_rows" : "failed",
     requestedBy: r.requestedBy,
     createdAt: r.createdAt.getTime(),
     finishedAt: r.finishedAt === null ? null : r.finishedAt.getTime(),

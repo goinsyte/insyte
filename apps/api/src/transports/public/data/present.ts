@@ -26,6 +26,7 @@ export const exportV1 = (r: ExportRow) => ({
   state: r.state,
   rows_written: r.rowsWritten,
   rows_total: r.rowsTotal,
+  failure: r.failure,
   requested_by: r.requestedBy,
   created_at: new Date(r.createdAt).toISOString(),
   finished_at: iso(r.finishedAt),

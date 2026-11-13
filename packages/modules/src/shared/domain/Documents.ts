@@ -20,20 +20,30 @@ export class Documents extends Context.Service<Documents, {
 export class FileStore extends Context.Service<FileStore, {
   readonly put: (key: string, bytes: Uint8Array, mime: string) => Effect.Effect<void, DocumentNotMade>
   readonly get: (key: string) => Effect.Effect<{ readonly bytes: Uint8Array; readonly mime: string } | undefined>
+  /** The object as a stream with its size, for a download that should not hold the whole file. */
+  readonly open: (key: string) => Effect.Effect<
+    { readonly body: ReadableStream<Uint8Array>; readonly size: number; readonly mime: string } | undefined
+  >
   /** Gone for good, as far as the bucket can say: a key that is not there is no failure. */
   readonly remove: (keys: ReadonlyArray<string>) => Effect.Effect<void>
 }>()("shared/FileStore") {}
 
 /**
  * A file written in parts (an export, M14 step 5): each part is an object of its own, and `join` streams them into one
- * file at `key`, in order, without holding more than one part at a time; the parts are then removed. Its size back.
+ * file at `key`, in order, without holding more than one part at a time. A `join` tried again finds the file already
+ * there at the parts' total size and leaves it, so it is safe to retry; the parts stay until `clear` takes them.
  */
 export class FileParts extends Context.Service<FileParts, {
   readonly join: (
     key: string,
-    parts: ReadonlyArray<string>,
+    parts: ReadonlyArray<{ readonly key: string; readonly size: number }>,
     mime: string
   ) => Effect.Effect<{ readonly sizeBytes: number }, DocumentNotMade>
+  /**
+   * Every object under `prefix` gone, and how many. Unlike `FileStore.remove`, a delete the bucket refuses is a failure,
+   * so the step or the sweep that asked tries again rather than leaving a file behind.
+   */
+  readonly clear: (prefix: string) => Effect.Effect<number, DocumentNotMade>
 }>()("shared/FileParts") {}
 
 /**
