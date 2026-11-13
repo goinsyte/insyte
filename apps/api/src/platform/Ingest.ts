@@ -6,7 +6,7 @@ import { reconcileStore } from "@insyte/modules/stores/use-cases/reconcile"
 import { apply } from "@insyte/modules/stores/use-cases/webhooks"
 import { sweep } from "@insyte/modules/tracking/use-cases/tracking"
 import { Cause, Effect, Exit, ManagedRuntime } from "effect"
-import { SyncLayer } from "./AppLayer.ts"
+import { SyncLayer } from "./BackgroundLayer.ts"
 import { Telemetry } from "./Observability.ts"
 import { withRequestDb } from "./RequestDb.ts"
 

@@ -1,7 +1,7 @@
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { dueWorkspaces, sweepWorkspace } from "@insyte/modules/trash/use-cases/trash"
 import { Effect } from "effect"
-import { TrashKindsLive } from "./SliceLinks.ts"
+import { TrashKindsLive } from "./links/TrashKinds.ts"
 
 /*
  * The Prullenbak's daily sweep (M17 step 20.1a; domain.md §16.1): in each workspace holding an item past its 30 days,

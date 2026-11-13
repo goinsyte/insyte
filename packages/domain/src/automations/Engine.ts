@@ -42,8 +42,10 @@ export const startedBy = (event: { readonly type: string } & Record<string, unkn
   }
 }
 
+const TRIGGERS = ["order.delayed", "refund.requested", "order.updated"] as const
+
 /** The event types `startedBy` reads, so the relay asks only for those. */
-export const TRIGGER_EVENTS: ReadonlySet<string> = new Set(["order.delayed", "refund.requested", "order.updated"])
+export const TRIGGER_EVENTS: ReadonlySet<typeof TRIGGERS[number]> = new Set(TRIGGERS)
 
 /** `{{order.number}}` and friends filled in; a field the record does not have becomes empty. */
 export const fill = (text: string, context: RunContext): string =>
