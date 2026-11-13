@@ -3,6 +3,7 @@ import type { Frame } from "@insyte/api/rpc/ShellRpcs"
 import type { AreaId, Level, RoleDef, SpecialId } from "@insyte/domain/Permissions"
 import type { ChargebackList } from "@insyte/modules/chargebacks/domain/Chargebacks"
 import type { ChatList } from "@insyte/modules/chats/domain/Chats"
+import type { CourseCatalogue } from "@insyte/modules/courses/domain/Courses"
 import type { MailboxView } from "@insyte/modules/inbox/domain/Inbox"
 import type { SheetList } from "@insyte/modules/sheets/domain/Sheets"
 import { GateRoleProvider } from "@insyte/ui/app/access/gate-role"
@@ -13,6 +14,7 @@ import { DEFAULT_PREFS, type Note, type NotifyPrefs } from "@insyte/ui/app/lib/n
 import { withServerCounts } from "@insyte/ui/app/lib/panel-counts"
 import type { Conversation, Member } from "@insyte/ui/app/lib/types/domain"
 import { type PanelMailbox, type ShellSource, ShellSourceProvider } from "@insyte/ui/app/shell/source"
+import { useMarketplaceModalStore } from "@insyte/ui/app/stores/marketplace-modal-store"
 import type { NavState } from "@insyte/ui/app/stores/nav-store"
 import type { PanelState } from "@insyte/ui/app/stores/panel-store"
 import type { PinsState, Shortcut } from "@insyte/ui/app/stores/pins-store"
@@ -23,12 +25,15 @@ import { AsyncResult, Atom } from "effect/reactivity"
 import { type ReactNode, useMemo, useRef, useState } from "react"
 import { chargebackOf } from "../chargebacks/chargeback-of.ts"
 import { conversationOf } from "../chats/chat-of.tsx"
+import { courseOf, questionOf } from "../courses/courses-source.tsx"
 import { chargebacksAtom } from "../data/chargebacks.ts"
 import { chatsAtom } from "../data/chats.ts"
+import { coursesAtom } from "../data/courses.ts"
 import { FRAME, frameWrites, inboxAtom, notePrefsAtom, NOTES, presenceAtom, VIEWS, viewsAtom } from "../data/frame.ts"
 import { inboxCountsAtom, mailboxesAtom } from "../data/inbox.ts"
 import { sheetsAtom } from "../data/sheets.ts"
 import { ticketCountsAtom } from "../data/tickets.ts"
+import { useConsoleMarketplace } from "../marketplace/marketplace-source.tsx"
 import { notifyPrefsOf } from "../notifications/settings-source.ts"
 import { ConsoleInvite } from "./invite.tsx"
 import { toNote } from "./notes.ts"
@@ -92,6 +97,7 @@ const NOT_YET: Record<string, string> = {
 const NO_COUNTS = Atom.make(AsyncResult.initial<Readonly<Record<string, number>>, never>())
 const NO_CHATS = Atom.make(AsyncResult.initial<ChatList, never>())
 const NO_CHARGEBACKS = Atom.make(AsyncResult.initial<ChargebackList, never>())
+const NO_COURSES = Atom.make(AsyncResult.initial<CourseCatalogue, never>())
 const NO_MAILBOXES = Atom.make(AsyncResult.initial<ReadonlyArray<MailboxView>, never>())
 const NO_SHEETS = Atom.make(AsyncResult.initial<SheetList, never>())
 
@@ -114,6 +120,13 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   const onChargebacks = useRouterState({ select: (s) => s.location.pathname.startsWith("/chargebacks") })
   const chargebackList = value(useAtomValue(onChargebacks ? chargebacksAtom : NO_CHARGEBACKS))
   const chargebacks = useMemo(() => chargebackList?.rows.map(chargebackOf) ?? [], [chargebackList])
+  // The courses panel counts the drafts, the archive and the open questions, on the courses pages only (M17 step 4).
+  const onCourses = useRouterState({ select: (s) => s.location.pathname.startsWith("/courses") })
+  const catalogue = value(useAtomValue(onCourses ? coursesAtom : NO_COURSES))
+  const panelCourses = useMemo(() => ({
+    courses: catalogue?.courses.map(courseOf) ?? [],
+    questions: catalogue?.questions.map(questionOf) ?? []
+  }), [catalogue])
   const conversations = useMemo<Array<Conversation>>(() => chats?.conversations.map(conversationOf) ?? [], [chats])
   const chatPins = useMemo(() => chats?.conversations.filter((c) => c.pinned).map((c) => c.id) ?? [], [chats])
   // The inbox panel counts each folder and mailbox from the server, and lists the mailboxes, on the inbox page only
@@ -152,6 +165,9 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     [sheetList]
   )
   const areaCounts = ticketCounts ?? inboxCounts
+  // The Marketplace (M17 step 3): read while its modal is open or Instellingen → Apps shows.
+  const marketplace = useConsoleMarketplace()
+  const openMarketplace = useMarketplaceModalStore((s) => s.openModal)
   const write = {
     setRead: useAtomSet(frameWrites.setRead, { mode: "promiseExit" }),
     recordVisit: useAtomSet(frameWrites.recordVisit, { mode: "promiseExit" }),
@@ -279,7 +295,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     access: { viewAs: null, setViewAs: () => {} },
     autonomy: { budget: { limit: null, used: 0 } },
     ask: { start: () => void navigate({ to: "/ask" as never }) },
-    marketplaceModal: { openModal: () => void navigate({ to: "/settings/apps" as never }) },
+    marketplaceModal: { openModal: openMarketplace },
     team: {
       workspaces: [{
         id: frame.workspace.id,
@@ -310,7 +326,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     },
     returns: { records: [] },
     sheets,
-    courses: { courses: [], questions: [] },
+    courses: panelCourses,
     chat: { pinned: chatPins, created: [] },
     settings: { roles: [roleOf(frame)] },
     loading: { pace: "live", setPace: () => {} },
@@ -320,23 +336,14 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     currentRole: roleOf(frame),
     workflows: {},
     supplierOrders: NO_ROWS,
-    // No marketplace yet (M17): nothing installed.
-    marketplace: {
-      records: {},
-      installedIds: [],
-      isInstalled: () => false,
-      getRecord: () => undefined,
-      install: () => {},
-      uninstall: () => {},
-      markOpened: () => {}
-    } as unknown as ShellSource["marketplace"],
+    marketplace: marketplace.source,
     navPrefs: navPrefsOf(navState),
     extensions: NO_ROWS,
     heardNotes: notes.filter((n) => prefs.events[n.event]?.app !== false),
     inbox: { threads: [], mailboxes: onInbox ? panelMailboxes ?? [] : undefined },
     agentEntries: NO_ROWS,
     queueRows: NO_ROWS,
-    // Customize waits for Start's board, an app's detail for the marketplace (M17), connecting a store for Shopify (M6).
+    // Customize waits for Start's board, an app's detail from the rail for its pins (M17), connecting a store for Shopify (M6).
     slots: {
       Customize: null,
       AppDetail: null,
@@ -391,7 +398,10 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   // refuses what the role may not do.
   return (
     <ShellSourceProvider value={source}>
-      <GateRoleProvider value={gateRole}>{children}</GateRoleProvider>
+      <GateRoleProvider value={gateRole}>
+        {children}
+        {marketplace.overlay}
+      </GateRoleProvider>
     </ShellSourceProvider>
   )
 }

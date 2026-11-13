@@ -105,6 +105,10 @@
     "!packages/ui/src/app/automations/**",
     // Graduated (08 §3): Kosten, wired to Costs.* in M13 (step 15.5).
     "!packages/ui/src/app/costs/**",
+    // Graduated (08 §3): Cursussen, wired to Courses.* in M17 (step 20.4).
+    "!packages/ui/src/app/courses/**",
+    "!packages/ui/src/app/lib/courses.ts",
+    "!packages/ui/src/app/stores/courses-store.ts",
     // Graduated (08 §3): wired to the API, so held to this repo's rules.
     "!packages/ui/src/app/auth/login-screen.tsx",
     "!packages/ui/src/app/onboarding/shared-steps.tsx",

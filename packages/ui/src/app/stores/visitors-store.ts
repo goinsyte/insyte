@@ -10,7 +10,10 @@ import { useLive } from "./live-store";
  * and buys. Nothing is stored; a visitor exists while the page is open, as on the real thing.
  */
 
-export type Stage = "browsing" | "cart" | "checkout" | "bought";
+import type { Stage } from "../live/live-source";
+
+export type { Stage } from "../live/live-source";
+export { STAGE_LABEL } from "../live/live-source";
 export type Source = "Meta ads" | "Google" | "Klaviyo" | "Instagram" | "Direct";
 
 export type Visitor = {
@@ -31,7 +34,6 @@ export type Visitor = {
 
 export type LiveEvent = { id: string; at: number; kind: "arrive" | Stage | "leave"; visitor: Visitor; amount?: number; order?: string };
 
-export const STAGE_LABEL: Record<Stage, string> = { browsing: "Kijkt rond", cart: "In mandje", checkout: "Rekent af", bought: "Gekocht" };
 
 const CITIES: ReadonlyArray<readonly [string, string, number, number, number]> = [
 	["Amsterdam", "Nederland", 4.9, 52.37, 9],

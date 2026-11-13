@@ -4,6 +4,8 @@ import { PwnedPasswords } from "@insyte/integrations-better-auth/PwnedPasswords"
 import { PostHogAnalytics } from "@insyte/integrations-posthog/PostHog"
 import { ResendMailer } from "@insyte/integrations-resend/ResendMailer"
 import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
+import { CoursesService } from "@insyte/modules/courses/Courses"
+import { LiveService } from "@insyte/modules/live/Live"
 import { QualityLinkService } from "@insyte/modules/quality/Quality"
 import { PortalService } from "@insyte/modules/returns/Portal"
 import type { Mailer } from "@insyte/modules/shared/domain/Mailer"
@@ -14,10 +16,12 @@ import { Config, Effect, Layer, Option, Scheduler } from "effect"
 import { FetchHttpClient, type HttpClient, HttpServer } from "effect/http"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
 import { ConnectRoutes, KlaviyoConnectRoutes, SlackConnectRoutes } from "../transports/http/ConnectRoutes.ts"
+import { CourseMediaRoutes } from "../transports/http/CourseMediaRoutes.ts"
 import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { EvidenceRoutes } from "../transports/http/EvidenceRoutes.ts"
 import { FileRoutes } from "../transports/http/FileRoutes.ts"
 import { NotFound } from "../transports/http/NotFound.ts"
+import { PixelRoutes } from "../transports/http/PixelRoutes.ts"
 import { PortalRoutes } from "../transports/http/PortalRoutes.ts"
 import { QualityMediaRoutes } from "../transports/http/QualityMediaRoutes.ts"
 import { RealtimeRoutes } from "../transports/http/RealtimeRoutes.ts"
@@ -53,6 +57,7 @@ import { InvitationLinksLive } from "./InvitationLinks.ts"
 import { KeyHasherLive } from "./KeyHasher.ts"
 import { KlaviyoChoice, MarketingSyncsLive } from "./Klaviyo.ts"
 import { LabelsChoice, ReturnLabelsLive } from "./Labels.ts"
+import { LiveRoomsLive } from "./LiveRooms.ts"
 import { MailerCapture } from "./Mail.ts"
 import { NoteRepliesLive, SlackChoice, WebPushChoice } from "./Notify.ts"
 import { ObservabilityLive } from "./Observability.ts"
@@ -62,7 +67,7 @@ import { RelayLive } from "./Relay.ts"
 import { SealerLive } from "./Seal.ts"
 import { ShopifyAdminChoice, ShopifyGraphqlChoice } from "./Shopify.ts"
 import { ShopifyWritesLive } from "./ShopifyWrites.ts"
-import { SliceLinks } from "./SliceLinks.ts"
+import { AppKeysLive, SliceLinks } from "./SliceLinks.ts"
 import { TrackingChoice } from "./Tracking.ts"
 import { WebhookRunsLive, WebhookSenderChoice } from "./Webhooks.ts"
 
@@ -88,6 +93,8 @@ const Transports = Layer.mergeAll(
   PortalRoutes,
   QualityMediaRoutes,
   EvidenceRoutes,
+  CourseMediaRoutes,
+  PixelRoutes,
   PublicApiRoutes,
   McpRoutes,
   RequestContext,
@@ -129,7 +136,8 @@ const PwnedPasswordsLive = Layer.unwrap(
 
 export const AppLayer = Transports.pipe(
   // The RPC handlers; the public API's and the MCP server's way in, and what a key reads (M19.2, M19.3).
-  // …and the returns portal's and the quality link's, for their upload routes (M9.3, M9.4).
+  // …and the returns portal's and the quality link's, for their upload routes (M9.3, M9.4); courses' for theirs and
+  // the file route (M17).
   // …and the chargebacks', for a case's evidence (M13 step 4).
   Layer.provideMerge(
     Layer.mergeAll(
@@ -139,7 +147,10 @@ export const AppLayer = Transports.pipe(
       StoresService.layer,
       PortalService.layer,
       QualityLinkService.layer,
-      ChargebacksService.layer
+      ChargebacksService.layer,
+      CoursesService.layer,
+      // …and the Web Pixel's ingest (M14 step 3).
+      LiveService.layer
     )
   ),
   Layer.provideMerge(WithDbLive),
@@ -180,10 +191,14 @@ export const AppLayer = Transports.pipe(
       AnalysesLive,
       // …and a flow's runs: "Opnieuw", stopping one, the answer to "Goedkeuring vragen" (M12 step 5).
       AutomationRunsLive,
+      // …and the live rooms (M14 step 3).
+      LiveRoomsLive,
       // …and where one slice's need meets another's use case.
       SliceLinks,
       // …and a webhook delivery's run, for a test send and a redelivery (M19.4).
-      WebhookRunsLive
+      WebhookRunsLive,
+      // …and the Marketplace's recipe apps' keys, under the same hasher (M17).
+      AppKeysLive.pipe(Layer.provide(KeyHasherLive))
     )
   ),
   // better-auth, built per request by the auth routes and the session check, over the app's hooks.

@@ -55,6 +55,9 @@ import settingsDepth from "./migrations/0061_settings_depth.ts"
 import evidencePacks from "./migrations/0062_evidence_packs.ts"
 import webhooks from "./migrations/0063_webhooks.ts"
 import ticketFacts from "./migrations/0064_ticket_facts.ts"
+import courses from "./migrations/0065_courses.ts"
+import marketplace from "./migrations/0066_marketplace.ts"
+import live from "./migrations/0067_live.ts"
 import sheets from "./migrations/0068_sheets.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
@@ -121,5 +124,8 @@ export const Migrations = {
   "0062_evidence_packs": evidencePacks,
   "0063_webhooks": webhooks,
   "0064_ticket_facts": ticketFacts,
+  "0065_courses": courses,
+  "0066_marketplace": marketplace,
+  "0067_live": live,
   "0068_sheets": sheets
 }

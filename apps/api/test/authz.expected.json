@@ -1238,6 +1238,153 @@
     "finance": "deny",
     "view": "allow"
   },
+  "Courses.list": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "CourseChapters.add": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "CourseChapters.rename": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "CourseChapters.addModule": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "CourseChapters.renameModule": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "CourseChapters.reorder": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Courses.create": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Courses.save": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Courses.publish": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Courses.setStatus": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Courses.duplicate": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Courses.remove": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Courses.restore": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Courses.reorder": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Courses.remind": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "CourseProgress.step": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "CourseProgress.finish": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "CourseProgress.retake": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "CourseProgress.reset": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "CourseQuestions.ask": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "CourseQuestions.answer": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
   "Threads.list": {
     "owner": "allow",
     "admin": "allow",
@@ -1447,111 +1594,6 @@
     "service": "deny",
     "finance": "allow",
     "view": "allow"
-  },
-  "Analytics.figures": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "deny",
-    "finance": "allow",
-    "view": "allow"
-  },
-  "Sheets.list": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "deny",
-    "finance": "allow",
-    "view": "allow"
-  },
-  "Sheets.counts": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "deny",
-    "finance": "allow",
-    "view": "allow"
-  },
-  "Sheets.folders": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "deny",
-    "finance": "allow",
-    "view": "allow"
-  },
-  "Sheets.get": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "deny",
-    "finance": "allow",
-    "view": "allow"
-  },
-  "Sheets.create": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "deny",
-    "finance": "allow",
-    "view": "allow"
-  },
-  "Sheets.saveTabs": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "deny",
-    "finance": "allow",
-    "view": "allow"
-  },
-  "Sheets.update": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "deny",
-    "finance": "allow",
-    "view": "allow"
-  },
-  "Sheets.share": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "deny",
-    "finance": "allow",
-    "view": "allow"
-  },
-  "Sheets.duplicate": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "deny",
-    "finance": "allow",
-    "view": "allow"
-  },
-  "Sheets.remove": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "deny",
-    "finance": "allow",
-    "view": "allow"
-  },
-  "Sheets.restore": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "deny",
-    "finance": "allow",
-    "view": "allow"
-  },
-  "Sheets.markOpened": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "deny",
-    "finance": "allow",
-    "view": "allow"
-  },
-  "Sheets.createFolder": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "deny",
-    "finance": "allow",
-    "view": "allow"
-  },
-  "Sheets.export": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "deny",
-    "finance": "allow",
-    "view": "deny"
   },
   "Notifications.list": {
     "owner": "allow",
@@ -2097,6 +2139,209 @@
     "admin": "allow",
     "service": "deny",
     "finance": "deny",
+    "view": "deny"
+  },
+  "Marketplace.catalog": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Marketplace.installs": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Marketplace.get": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Marketplace.recommended": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Marketplace.open": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Marketplace.feedback": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Marketplace.install": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Marketplace.uninstall": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Marketplace.setScopes": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Live.snapshot": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Live.subscribe": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Live.unsubscribe": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Live.pixels": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Live.installPixel": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Analytics.figures": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Sheets.list": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Sheets.counts": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Sheets.folders": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Sheets.get": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Sheets.create": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Sheets.saveTabs": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Sheets.update": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Sheets.share": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Sheets.duplicate": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Sheets.remove": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Sheets.restore": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Sheets.markOpened": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Sheets.createFolder": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Sheets.export": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
     "view": "deny"
   }
 }

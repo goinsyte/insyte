@@ -6,11 +6,14 @@ import { ChargebacksRpcs } from "@insyte/api/rpc/ChargebacksRpcs"
 import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
 import { CostsRpcs } from "@insyte/api/rpc/CostsRpcs"
+import { CoursesRpcs } from "@insyte/api/rpc/CoursesRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
 import { HomeRpcs } from "@insyte/api/rpc/HomeRpcs"
+import { LiveRpcs } from "@insyte/api/rpc/LiveRpcs"
 import { MarketingRpcs } from "@insyte/api/rpc/MarketingRpcs"
+import { MarketplaceRpcs } from "@insyte/api/rpc/MarketplaceRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
 import { NotificationsRpcs } from "@insyte/api/rpc/NotificationsRpcs"
 import { ProposalsRpcs } from "@insyte/api/rpc/ProposalsRpcs"
@@ -50,6 +53,21 @@ const ROLES: ReadonlyArray<Role> = ["owner", "admin", "service", "finance", "vie
 const table = expected as Record<string, Record<Role, "allow" | "deny">>
 
 const NONE = { id: "inv_00000000000000000000000000" }
+const COURSE = {
+  title: "Authz",
+  description: "",
+  chapterId: "cch_none",
+  moduleId: "cmd_none",
+  blocks: [],
+  order: "free",
+  audience: { kind: "all" },
+  suppliers: { kind: "none" },
+  deadline: "",
+  badge: "star",
+  passMark: 80,
+  questions: true
+}
+
 const PAYLOADS: Record<string, unknown> = {
   "Team.get": undefined,
   "Invitations.send": { rows: [{ email: "geen-adres", roleId: "view", stores: "all" }] },
@@ -423,6 +441,29 @@ const PAYLOADS: Record<string, unknown> = {
   "Notifications.slackChannels": undefined,
   "Notifications.beginSlackConnect": { returnPath: "/settings/notifications" },
   "Notifications.disconnectSlack": undefined,
+  // Courses (M17 step 4): authoring at Cursussen · Bewerken, deleting and wiping progress at Beheren; reading the
+  // catalogue and taking a course need no level (a course that is not open is CourseNotOpen, past no gate).
+  "Courses.list": undefined,
+  "CourseChapters.add": { title: "Authz" },
+  "CourseChapters.rename": { id: "cch_none", title: "Authz" },
+  "CourseChapters.addModule": { chapterId: "cch_none", title: "Authz" },
+  "CourseChapters.renameModule": { id: "cmd_none", title: "Authz" },
+  "CourseChapters.reorder": { ids: ["cch_none"] },
+  "Courses.create": { title: "Authz", chapterId: "cch_none", moduleId: "cmd_none" },
+  "Courses.save": { id: "crs_none", course: COURSE },
+  "Courses.publish": { id: "crs_none", course: COURSE },
+  "Courses.setStatus": { ids: ["crs_none"], status: "archived" },
+  "Courses.duplicate": { id: "crs_none" },
+  "Courses.remove": { ids: ["crs_none"] },
+  "Courses.restore": { ids: ["crs_none"] },
+  "Courses.reorder": { moduleId: "cmd_none", ids: ["crs_none"] },
+  "Courses.remind": { courseId: "crs_none", memberId: "mem_none" },
+  "CourseProgress.step": { courseId: "crs_none", blockId: "blk_none" },
+  "CourseProgress.finish": { courseId: "crs_none" },
+  "CourseProgress.retake": { courseId: "crs_none" },
+  "CourseProgress.reset": { courseId: "crs_none", memberId: "mem_none" },
+  "CourseQuestions.ask": { courseId: "crs_none", text: "Waarom?" },
+  "CourseQuestions.answer": { id: "cqs_none", text: "Daarom." },
   // The person's own sessions (M3.3): every role reads and ends its own; an unknown one is NotFound, past no gate.
   "Session.me": undefined,
   "Session.listSessions": undefined,
@@ -468,7 +509,25 @@ const PAYLOADS: Record<string, unknown> = {
   "Trash.list": undefined,
   "Trash.restore": { ids: ["tkt_none"] },
   "Trash.purge": { ids: ["tkt_none"] },
-  "Trash.empty": undefined
+  "Trash.empty": undefined,
+  // The Marketplace (M17 step 3): browsing, opening and feedback are every member's; installing, uninstalling and
+  // scopes are Koppelingen at Bewerken. A Binnenkort app and an app not installed are refused after the gate.
+  "Marketplace.catalog": undefined,
+  "Marketplace.installs": undefined,
+  "Marketplace.get": { appId: "ext_none" },
+  "Marketplace.recommended": undefined,
+  "Marketplace.install": { appId: "ext_yotpo" },
+  "Marketplace.uninstall": { appId: "ext_zapier" },
+  "Marketplace.setScopes": { appId: "ext_zapier", revoked: [] },
+  "Marketplace.open": { appId: "ext_zapier" },
+  "Marketplace.feedback": { category: "other", message: " " },
+  // Live (M14 step 3): the room at Analyse Bekijken; a store's pixel at Instellingen, installed at Beheren (a store
+  // that does not exist, so nothing is installed).
+  "Live.snapshot": undefined,
+  "Live.subscribe": { tab: "authz-tab-0001" },
+  "Live.unsubscribe": { tab: "authz-tab-0001" },
+  "Live.pixels": undefined,
+  "Live.installPixel": { storeId: "store_none" }
 }
 
 const manifest = [
@@ -496,6 +555,7 @@ const manifest = [
   ...ProposalsRpcs.requests.keys(),
   ...WorkspacesRpcs.requests.keys(),
   ...ChatsRpcs.requests.keys(),
+  ...CoursesRpcs.requests.keys(),
   ...SheetsRpcs.requests.keys(),
   ...NotificationsRpcs.requests.keys(),
   ...SessionRpcs.requests.keys(),
@@ -504,7 +564,9 @@ const manifest = [
   ...CostsRpcs.requests.keys(),
   ...AuditRpcs.requests.keys(),
   ...TrashRpcs.requests.keys(),
-  ...SettingsDepthRpcs.requests.keys()
+  ...SettingsDepthRpcs.requests.keys(),
+  ...MarketplaceRpcs.requests.keys(),
+  ...LiveRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

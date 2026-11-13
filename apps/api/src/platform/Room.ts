@@ -14,6 +14,8 @@ import { DurableObject, env } from "cloudflare:workers"
 interface Attachment {
   readonly memberId: string
   readonly joinedAt: number
+  /** The tab's own id, which `Live.subscribe` names (M14 step 3); absent on a socket that named none. */
+  readonly tab?: string
 }
 
 /** A workspace's room: where its members' tabs are, and where its frames go. */
@@ -21,6 +23,7 @@ export const roomOf = (workspaceId: string) => env.ROOMS.getByName(`ws:${workspa
 
 /** The headers the API Worker sets on the upgrade it forwards; nothing else can reach the room. */
 export const ROOM_MEMBER = "x-insyte-room-member"
+export const ROOM_TAB = "x-insyte-room-tab"
 
 export class RoomDurableObject extends DurableObject<Cloudflare.Env> {
   constructor(ctx: DurableObjectState, bindings: Cloudflare.Env) {
@@ -37,7 +40,10 @@ export class RoomDurableObject extends DurableObject<Cloudflare.Env> {
     const [client, server] = [pair[0], pair[1]]
     const wasHere = this.present().some((p) => p.memberId === memberId)
     this.ctx.acceptWebSocket(server)
-    server.serializeAttachment({ memberId, joinedAt: Date.now() } satisfies Attachment)
+    const tab = request.headers.get(ROOM_TAB)
+    server.serializeAttachment(
+      { memberId, joinedAt: Date.now(), ...(tab === null ? {} : { tab }) } satisfies Attachment
+    )
     server.send(JSON.stringify({ v: 1, type: "hello", presence: this.present() }))
     if (!wasHere) this.send({ v: 1, type: "presence", presence: this.present() }, server)
     return new Response(null, { status: 101, webSocket: client })
@@ -53,6 +59,24 @@ export class RoomDurableObject extends DurableObject<Cloudflare.Env> {
     const text = JSON.stringify(frame)
     for (const ws of this.ctx.getWebSockets()) {
       if ((ws.deserializeAttachment() as Attachment).memberId !== memberId) continue
+      try {
+        ws.send(text)
+      } catch {
+        // Closing as we send: nothing to tell it.
+      }
+    }
+  }
+
+  /**
+   * Sends a frame to the named tabs only, each still its member's: the live room's `live.visitors`, to the tabs that
+   * hold a lease (M14 step 3).
+   */
+  sendToTabs(tabs: ReadonlyArray<{ readonly tab: string; readonly memberId: string }>, frame: unknown): void {
+    const wanted = new Map(tabs.map((t) => [t.tab, t.memberId]))
+    const text = JSON.stringify(frame)
+    for (const ws of this.ctx.getWebSockets()) {
+      const { tab, memberId } = ws.deserializeAttachment() as Attachment
+      if (tab === undefined || wanted.get(tab) !== memberId) continue
       try {
         ws.send(text)
       } catch {
