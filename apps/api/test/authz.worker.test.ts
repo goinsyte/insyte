@@ -39,7 +39,7 @@ import { WorkspacesRpcs } from "@insyte/api/rpc/WorkspacesRpcs"
 import { recordedPixelSettings } from "@insyte/integrations-shopify/ShopifyRecorded"
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
-import { Exit } from "effect"
+import { Exit, Redacted } from "effect"
 import { beforeAll, describe, expect, it } from "vitest"
 import expected from "./authz.expected.json" with { type: "json" }
 import { failure, join, ok, pastUndo, person, relay, run } from "./journeys.ts"
@@ -773,12 +773,35 @@ const socketFor = async (cookie: string, tab: string) => {
 
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam" }).format(new Date())
 
+const ADDRESS = {
+  country: "NL",
+  label: "Nederland",
+  address: "Northwind Retouren, Distributieweg 12, 3045 AB Rotterdam",
+  carrier: "PostNL" as const,
+  name: "Northwind Retouren",
+  line1: "Distributieweg 12",
+  postcode: "3045 AB",
+  city: "Rotterdam"
+}
+
+/** A supplier's webhook signature (`t=…,v1=…`), as the supplier signs it. */
+const sign = async (secret: string, body: string) => {
+  const encoder = new TextEncoder()
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [
+    "sign"
+  ])
+  const t = Math.floor(Date.now() / 1000)
+  const mac = await crypto.subtle.sign("HMAC", key, encoder.encode(`${t}.${body}`))
+  return `t=${t},v1=${[...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("")}`
+}
+
 describe("the store fence on every surface", () => {
   // Every read that narrows to stores takes the principal's `storeScope`, never the role's stores alone. Two admins,
   // whose role reaches every store: one invited for another store only (`held`) sees none of this store's rows on
-  // Start, in the queue, on a plate, in Live's frames, in Insyte's log or in a record's file; one invited for every
-  // store (`whole`) sees what the owner sees. A key reaches what its role and its own stores both name, and nobody
-  // makes a key that reaches past their own stores.
+  // Start, in the queue, on a plate, in Live's frames, in Insyte's log, in a record's file, in their notifications, on
+  // a supplier's statement or in the store list; one invited for every store (`whole`) sees what the owner sees. A key
+  // reaches what its role and its own stores both name, and nobody makes a key, an invitation, a link or a role that
+  // reaches past their own stores, or touches one that does.
   let store: Awaited<ReturnType<typeof importedStore>>
   let held = ""
   let whole = ""
@@ -997,6 +1020,246 @@ describe("the store fence on every surface", () => {
     expect((await fetched(store.cookie)).status).toBe(200)
     expect((await fetched(whole)).status).toBe(200)
     expect((await fetched(held)).status).toBe(404)
+  })
+
+  it("fences keys by both their stores and their role's, and keeps keys past the member's stores from them", async () => {
+    // A role for this store only, held by a key for every store, reaches it; a key for another store does not.
+    const role = ok(await rpc("Roles.create", { label: `Hier ${run}`, from: "view" }, store.cookie)).id
+    const base = ok(await rpc("Roles.list", undefined, store.cookie)).roles.find((r) => r.id === role)!
+    ok(
+      await rpc("Roles.update", {
+        id: role,
+        levels: base.levels,
+        specials: base.specials,
+        refundLimit: base.refundLimit,
+        stores: [store.storeId]
+      }, store.cookie)
+    )
+    const made = async (access: unknown, stores: "all" | Array<string>) =>
+      ok(
+        await rpc("ApiKeys.create", {
+          label: "Winkelhek",
+          access: access as never,
+          stores,
+          expiresInDays: 30,
+          ips: [],
+          agent: false
+        }, store.cookie)
+      )
+    const queued = async (token: string) =>
+      ((await v1(token, "/queue?tab=all")).body.data as Array<{ subject_id: string }>).map((r) => r.subject_id)
+    const here = await made({ kind: "role", roleId: role }, "all")
+    expect(await queued(here.secret)).toContain(returnId)
+    expect(await queued((await made({ kind: "role", roleId: "view" }, ["sto_elsewhere"])).secret)).not.toContain(
+      returnId
+    )
+    const orders = async (token: string) => (await v1(token, "/orders")).body.data as Array<unknown>
+    expect(await orders((await made({ kind: "custom", scopes: { orders: 1 } }, [store.storeId])).secret)).toHaveLength(
+      5
+    )
+    expect(await orders((await made({ kind: "custom", scopes: { orders: 1 } }, ["sto_elsewhere"])).secret)).toEqual([])
+
+    // The owner's key for every store is not the held member's to list, rotate, change or revoke.
+    const id = here.key.id
+    const listed = async (cookie: string) => ok(await rpc("ApiKeys.list", undefined, cookie)).map((k) => k.id)
+    expect(await listed(whole)).toContain(id)
+    expect(await listed(held)).not.toContain(id)
+    const gone = { _tag: "NotFound" }
+    expect(failure(await rpc("ApiKeys.rotate", { id, graceMs: 0 }, held))).toMatchObject(gone)
+    expect(failure(await rpc("ApiKeys.update", { id, label: "Overgenomen" }, held))).toMatchObject(gone)
+    expect(failure(await rpc("ApiKeys.activity", { id }, held))).toMatchObject(gone)
+    expect(failure(await rpc("ApiKeys.revoke", { id }, held))).toMatchObject(gone)
+    expect(await queued(here.secret)).toContain(returnId)
+  })
+
+  it("lets the held member bring in, move or open the way for nobody who reaches past their stores", async () => {
+    const forbidden = { _tag: "Invalid", fields: { stores: "forbidden" } }
+    const wide = `authz-${run}-fence-wide@invited.test`
+    const narrow = `authz-${run}-fence-narrow@invited.test`
+    for (const stores of ["all" as const, [store.storeId]]) {
+      expect(failure(await rpc("Invitations.send", { rows: [{ email: wide, roleId: "view", stores }] }, held)))
+        .toMatchObject({ _tag: "Invalid", fields: { "rows.0.stores": "forbidden" } })
+    }
+    ok(await rpc("Invitations.send", { rows: [{ email: narrow, roleId: "view", stores: ["sto_elsewhere"] }] }, held))
+    const sent = ok(
+      await rpc("Invitations.send", { rows: [{ email: wide, roleId: "view", stores: "all" }] }, store.cookie)
+    )
+    const invitation = sent.invitations.find((i) => i.email === wide)!
+
+    // The wide invitation and the link are shown, but no way in through them.
+    const team = ok(await rpc("Team.get", undefined, held))
+    expect(team.invitations.find((i) => i.email === wide)!.url).toBeNull()
+    expect(team.invitations.find((i) => i.email === narrow)!.url).not.toBeNull()
+    expect(team.link.url).toBeNull()
+    expect(ok(await rpc("Team.get", undefined, whole)).invitations.find((i) => i.email === wide)!.url).not.toBeNull()
+    expect(failure(await rpc("Invitations.setRole", { id: invitation.id, roleId: "service" }, held)))
+      .toMatchObject(forbidden)
+    const wholeId = ok(await sessionMe(whole)).principals[0]!.id
+    expect(failure(await rpc("Members.setRole", { id: wholeId, roleId: "service" }, held))).toMatchObject(forbidden)
+    const linkRefused = { _tag: "Invalid", fields: { roleId: "forbidden" } }
+    expect(failure(await rpc("InviteLink.set", { enabled: true }, held))).toMatchObject(linkRefused)
+    expect(failure(await rpc("InviteLink.regenerate", undefined, held))).toMatchObject(linkRefused)
+
+    // A role they make is held to their stores; one reaching further is not theirs to change, reset or empty.
+    const copy = ok(await rpc("Roles.create", { label: `Kopie ${run}`, from: "admin" }, held))
+    const mine = copy.roles.roles.find((r) => r.id === copy.id)!
+    expect(mine.stores).toEqual(["sto_elsewhere"])
+    const draft = (id: string, stores: "all" | Array<string>) => ({
+      id,
+      levels: mine.levels,
+      specials: mine.specials,
+      refundLimit: mine.refundLimit,
+      stores
+    })
+    expect(failure(await rpc("Roles.update", draft(copy.id, "all"), held))).toMatchObject(forbidden)
+    ok(await rpc("Roles.update", draft(copy.id, ["sto_elsewhere"]), held))
+    expect(failure(await rpc("Roles.update", draft("admin", ["sto_elsewhere"]), held))).toMatchObject(forbidden)
+    expect(failure(await rpc("Roles.reset", { id: "admin" }, held))).toMatchObject(forbidden)
+    expect(failure(await rpc("Roles.remove", { id: copy.id, to: "view" }, held))).toMatchObject(forbidden)
+
+    // What names no store stays theirs: the workspace's roles on Start's feed.
+    const feed = ok(await rpc("Home.activity", { limit: 200 }, held)).rows
+    expect(feed.some((r) => r.subjectType === "role")).toBe(true)
+  })
+
+  it("keeps a ticket's assignment and Insyte's plate on it to who reaches its store; a ticket of no store is everyone's", async () => {
+    const order = ok(await rpc("Orders.list", { limit: 50 }, store.cookie)).rows.find((o) => o.number === "#1004")!
+    const ticket = ok(
+      await rpc("Tickets.create", { title: "Pakket kwijt", related: { type: "order", id: order.id } }, store.cookie)
+    ).tickets[0]!.id
+    const loose = ok(await rpc("Tickets.create", { title: "Algemene vraag" }, store.cookie)).tickets[0]!.id
+    for (const cookie of [held, whole]) {
+      const memberId = ok(await sessionMe(cookie)).principals[0]!.id
+      ok(await rpc("Tickets.assign", { id: ticket, memberId }, store.cookie))
+    }
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    const assigned = async (cookie: string) =>
+      ok(await rpc("Notifications.list", { tab: "inbox", cursor: null }, cookie)).items.filter((n) =>
+        n.kind === "ticket.assigned" && n.subjectId === ticket
+      )
+    expect(await assigned(whole)).toHaveLength(1)
+    expect(await assigned(held)).toEqual([])
+
+    // An agent's call names the ticket only: its plate is the ticket's store's all the same.
+    const agent = ok(
+      await rpc("ApiKeys.create", {
+        label: "Claude tickets",
+        access: { kind: "role", roleId: "service" } as never,
+        stores: "all",
+        expiresInDays: 30,
+        ips: [],
+        agent: true
+      }, store.cookie)
+    ).secret
+    const ask = async (id: string) => {
+      const asked = await tool(agent, "set_ticket_status", { ticket_id: id, status: "in_progress" })
+      expect(asked.body).toMatchObject({ object: "agent_proposal" })
+      return asked.body.proposal_id as string
+    }
+    const plate = await ask(ticket)
+    expect(ok(await rpc("Proposals.get", { id: plate }, whole)).id).toBe(plate)
+    expect(failure(await rpc("Proposals.get", { id: plate }, held))).toMatchObject({ _tag: "NotFound" })
+    const open = await ask(loose)
+    expect(ok(await rpc("Proposals.get", { id: open }, held)).id).toBe(open)
+  })
+
+  it("serves a return's label and a quality photo only to who reaches their store", async () => {
+    const settings = ok(await rpc("Returns.settings", undefined, store.cookie))
+    ok(await rpc("Returns.setSettings", { ...settings, addresses: [ADDRESS] }, store.cookie))
+    ok(await rpc("Returns.approve", { ids: [returnId] }, store.cookie))
+    await using labels = await introspectWorkflow(env.RETURN_LABEL)
+    ok(await rpc("Returns.sendLabel", { ids: [returnId] }, store.cookie))
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    const [instance] = await labels.get()
+    await instance!.waitForStatus("complete")
+    const label = ok(await rpc("Returns.get", { id: returnId }, store.cookie)).record.label!.fileId!
+    const fetched = (file: string, cookie: string) => call(`http://api.test/api/files/${file}`, { headers: { cookie } })
+    expect((await fetched(label, whole)).status).toBe(200)
+    expect((await fetched(label, held)).status).toBe(404)
+
+    const linen = ok(await rpc("Products.list", {}, store.cookie)).rows.find((p) => p.title === "Linnen overhemd")!
+    const { checkId } = ok(
+      await rpc("Quality.request", {
+        productId: linen.id,
+        kind: "batch",
+        variants: ["M"],
+        deliverables: ["photos"],
+        dueAt: Date.now() + 4 * 86_400_000,
+        note: "Foto's van de nieuwe batch"
+      }, store.cookie)
+    )
+    const { path } = ok(await rpc("Quality.link", { id: checkId! }, store.cookie))
+    const token = decodeURIComponent(new URL(path, "http://console").searchParams.get("k")!)
+    const uploaded = await call("http://api.test/api/quality/media", {
+      method: "PUT",
+      headers: { "content-type": "image/png", "x-check-token": token, "x-file-name": encodeURIComponent("naad.png") },
+      body: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
+    })
+    const { id: photo } = await uploaded.json() as { id: string }
+    ok(await rpc("QualityLink.submit", { token, fileIds: [photo], by: "Marco" }))
+    expect((await fetched(photo, whole)).status).toBe(200)
+    expect((await fetched(photo, held)).status).toBe(404)
+    await relay(store.workspace)
+    const answered = async (cookie: string) =>
+      ok(await rpc("Notifications.list", { tab: "inbox", cursor: null }, cookie)).items.filter((n) =>
+        n.subjectId === checkId
+      )
+    expect((await answered(whole)).length).toBeGreaterThan(0)
+    expect(await answered(held)).toEqual([])
+  })
+
+  it("keeps a supplier's statement of this store's lines, and its PDF, from the held member", async () => {
+    // #1001's leg (forwarded above) ships, by Atelier Noord's own word, at 18,00 a piece.
+    const atelier = ok(await rpc("Suppliers.list", {}, store.cookie)).rows.find((r) => r.name === "Atelier Noord")!
+    const leg = ok(await rpc("Forwarding.list", { view: "awaiting" }, store.cookie)).rows[0]!
+    const { secret } = ok(
+      await rpc("Suppliers.connectApi", { id: atelier.id, url: "https://echo.supplier.example/orders" }, store.cookie)
+    )
+    const body = JSON.stringify({ type: "order.shipped", leg_id: leg.id, carrier: "PostNL", tracking_number: "3SFNC1" })
+    const shipped = await call(`http://api.public.test/hooks/supplier/${atelier.id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "insyte-signature": await sign(Redacted.value(secret), body) },
+      body
+    })
+    expect(shipped.status).toBe(200)
+    ok(await rpc("Products.edit", { id: leg.lines[0]!.productId!, costMinor: 1800 }, store.cookie))
+    const rows = async (cookie: string) =>
+      ok(await rpc("Suppliers.statements", { supplierId: atelier.id }, cookie)).rows
+    expect(await rows(whole)).toHaveLength(1)
+    expect(await rows(held)).toEqual([])
+
+    const now = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam", year: "numeric", month: "2-digit" })
+      .format(new Date())
+    const closed = await call(`http://api.test/api/__dev/statements/close?workspace=${store.workspace}&month=${now}`, {
+      method: "POST"
+    })
+    expect(closed.status).toBe(200)
+    const [statement] = await rows(whole)
+    expect(statement).toMatchObject({ status: "processing", shippedLines: 1 })
+    expect(await rows(held)).toEqual([])
+    expect(failure(await rpc("Suppliers.statement", { supplierId: atelier.id, month: now }, held)))
+      .toMatchObject({ _tag: "NotFound" })
+    expect(failure(await rpc("Suppliers.markStatementPaid", { id: statement!.id! }, held)))
+      .toMatchObject({ _tag: "NotFound" })
+    const pdf = (cookie: string) =>
+      call(`http://api.test/api/files/${statement!.invoiceFileId}`, { headers: { cookie } })
+    expect((await pdf(whole)).status).toBe(200)
+    expect((await pdf(held)).status).toBe(404)
+  })
+
+  it("keeps the store itself, and its shipping counts, from the held member", async () => {
+    const ids = async (cookie: string) => ok(await rpc("Stores.list", undefined, cookie)).map((s) => s.id)
+    expect(await ids(whole)).toContain(store.storeId)
+    expect(await ids(held)).toEqual([])
+    ok(await rpc("Stores.syncStatus", { id: store.storeId }, whole))
+    expect(failure(await rpc("Stores.syncStatus", { id: store.storeId }, held))).toMatchObject({ _tag: "NotFound" })
+    expect(failure(await rpc("Stores.disconnect", { id: store.storeId }, held))).toMatchObject({ _tag: "NotFound" })
+    const counted = async (cookie: string) =>
+      Object.values(ok(await rpc("Shipping.statusCounts", undefined, cookie))).reduce((n, c) => n + c, 0)
+    expect(await counted(whole)).toBeGreaterThan(0)
+    expect(await counted(held)).toBe(0)
   })
 
   it("keeps a lost store's red row off Start for the held member", async () => {
