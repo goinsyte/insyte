@@ -4,6 +4,7 @@ import { restore as restoreChargebacks } from "@insyte/modules/chargebacks/Charg
 import { ActionFailed, ChatCommands } from "@insyte/modules/chats/Links"
 import { restore as restoreChats } from "@insyte/modules/chats/use-cases/commands"
 import { restore as restoreCosts } from "@insyte/modules/costs/use-cases/commands"
+import { restore as restoreCourses } from "@insyte/modules/courses/Courses"
 import { KlaviyoSyncs } from "@insyte/modules/customers/domain/Ports"
 import { restore as restoreCustomers } from "@insyte/modules/customers/use-cases/commands"
 import { restore as restoreWebhooks } from "@insyte/modules/developer/use-cases/webhooks"
@@ -104,6 +105,7 @@ const compensations: Record<string, Compensation> = {
   "settings.restore": restoreSettings,
   "retention.restore": restoreErasing,
   "webhooks.restore": restoreWebhooks,
+  "courses.restore": restoreCourses,
   // A filed plate's Undo spends the command's own token and runs that command's compensation from this same table.
   "proposals.restore": (sql, compensation) =>
     restoreProposal(sql, compensation, {

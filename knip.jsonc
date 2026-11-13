@@ -97,6 +97,9 @@
         "!src/app/automations/**",
         "!src/app/costs/**",
         "!src/app/settings/depth/**",
+        "!src/app/courses/**",
+        "!src/app/lib/courses.ts",
+        "!src/app/stores/courses-store.ts",
       ],
     },
     "apps/console": {

@@ -8,6 +8,7 @@ import { CHARGEBACKS } from "./chargebacks.ts"
 import { CHAT_PAGES, chatKey, CHATS, type Typing, TYPING_MS, typingAtom } from "./chats.ts"
 import { ConsoleClient } from "./client.ts"
 import { COSTS } from "./costs.ts"
+import { COURSES } from "./courses.ts"
 import { CUSTOMERS } from "./customers.ts"
 import { KEYS } from "./developer.ts"
 import { FIRST_ANALYSIS } from "./first-analysis.ts"
@@ -34,10 +35,10 @@ import { WORKSPACE } from "./workspace.ts"
 
 /** What each kind of change refetches. A kind joins with the screen that shows it. */
 const REFETCH: Record<string, ReadonlyArray<string>> = {
-  member: [...TEAM, ...ROLES],
+  member: [...TEAM, ...ROLES, ...COURSES],
   invitation: TEAM,
   invite_link: TEAM,
-  role: [...ROLES, ...TEAM],
+  role: [...ROLES, ...TEAM, ...COURSES],
   access_request: [...ACCESS, ...ACCESS_LIST],
   api_key: KEYS,
   // An endpoint changed, or an attempt to it came back (M19.4).
@@ -59,6 +60,9 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   // Start's queue (M10.1): its refresh says when it changed. A plate is drawn on its row (M10.2).
   queue_item: QUEUE,
   proposal: QUEUE,
+  // Cursussen (M17 step 4): a course authored, published or taken; a question asked or answered.
+  course: COURSES,
+  course_question: COURSES,
   // The workspace's own settings (M3.1); its name is in the frame's store selector.
   workspace: [...WORKSPACE, ...FRAME],
   // Kosten (M13 step 5): a line or a month changed.

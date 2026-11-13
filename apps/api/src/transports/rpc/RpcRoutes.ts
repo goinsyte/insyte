@@ -7,6 +7,7 @@ import { RunsService } from "@insyte/modules/automations/Runs"
 import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
 import { ChatsService } from "@insyte/modules/chats/Chats"
 import { CostsService } from "@insyte/modules/costs/Costs"
+import { CoursesService } from "@insyte/modules/courses/Courses"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
 import { Webhooks } from "@insyte/modules/developer/Webhooks"
@@ -48,6 +49,7 @@ import { ChargebacksHandlers } from "./handlers/chargebacks.ts"
 import { ChatsHandlers } from "./handlers/chats.ts"
 import { CommerceHandlers } from "./handlers/commerce.ts"
 import { CostsHandlers } from "./handlers/costs.ts"
+import { CoursesHandlers } from "./handlers/courses.ts"
 import { DeveloperHandlers } from "./handlers/developer.ts"
 import { FirstAnalysisHandlers } from "./handlers/first-analysis.ts"
 import { ForwardingHandlers } from "./handlers/forwarding.ts"
@@ -128,6 +130,7 @@ export const RpcContext = Layer.mergeAll(
   AuditHandlers.pipe(Layer.provide(AuditService.layer)),
   TrashHandlers.pipe(Layer.provide(TrashService.layer)),
   SettingsDepthHandlers.pipe(Layer.provide(SettingsDepth.layer)),
+  CoursesHandlers.pipe(Layer.provide(CoursesService.layer)),
   ShellHandlers.pipe(
     Layer.provide(
       Layer.mergeAll(

@@ -198,6 +198,34 @@ const sentence = (note: ServerNote): Sentence => {
         to: "/settings/webhooks",
         search: { endpoint: note.subjectId ?? "" }
       }
+    case "course.assigned":
+      // A course for the member (M17 step 4): published for them, or a teammate reminds them; the row opens it.
+      return {
+        title: data["reminder"] === true ? "herinnert je aan de cursus" : "zette een cursus voor je klaar:",
+        record: String(data["title"] ?? ""),
+        ...(typeof data["deadline"] === "string" && data["deadline"] !== ""
+          ? { detail: `Deadline ${String(data["deadline"])}` }
+          : {}),
+        to: `/courses/learn/${note.subjectId ?? ""}`,
+        reason: "assign"
+      }
+    case "course.question":
+      return {
+        title: "stelt een vraag bij",
+        record: String(data["title"] ?? ""),
+        detail: String(data["comment"] ?? ""),
+        to: "/courses",
+        search: { view: "questions" },
+        quote: true
+      }
+    case "course.answered":
+      return {
+        title: "beantwoordde je vraag bij",
+        record: String(data["title"] ?? ""),
+        detail: String(data["comment"] ?? ""),
+        to: `/courses/learn/${note.subjectId ?? ""}`,
+        quote: true
+      }
     default:
       return { title: "heeft iets voor je", to: "/notifications" }
   }

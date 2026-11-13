@@ -112,7 +112,12 @@ export const TENANT_TABLES = [
   "retention_runs",
   "webhook_endpoints",
   "webhook_deliveries",
-  "fact_tickets_day"
+  "fact_tickets_day",
+  "course_chapters",
+  "course_modules",
+  "courses",
+  "course_progress",
+  "course_questions"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

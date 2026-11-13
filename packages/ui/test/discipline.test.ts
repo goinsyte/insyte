@@ -93,7 +93,10 @@ const graduated = [
   "app/developer/delivery-drawer.tsx",
   "app/developer/webhooks-source.tsx",
   "app/developer/webhooks-demo-source.tsx",
-  "app/lib/webhooks-core.ts"
+  "app/lib/webhooks-core.ts",
+  "app/courses/",
+  "app/lib/courses.ts",
+  "app/stores/courses-store.ts"
 ]
 
 /**

@@ -183,6 +183,32 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
         actionLabel: "Endpoint bekijken",
         path: `/settings/webhooks${query({ endpoint: id })}`
       }
+    case "course.assigned":
+      return {
+        title: data["reminder"] === true
+          ? `${who} herinnert je aan de cursus “${text(data["title"])}”`
+          : `${who} zette de cursus “${text(data["title"])}” voor je klaar`,
+        detail: text(data["deadline"]) === "" ? undefined : `Graag af voor ${text(data["deadline"])}.`,
+        record: text(data["title"]) || undefined,
+        actionLabel: "Cursus openen",
+        path: `/courses/learn/${id}`
+      }
+    case "course.question":
+      return {
+        title: `${who} stelt een vraag bij de cursus “${text(data["title"])}”`,
+        quote: text(data["comment"]) || undefined,
+        record: text(data["title"]) || undefined,
+        actionLabel: "Vraag beantwoorden",
+        path: `/courses${query({ view: "questions" })}`
+      }
+    case "course.answered":
+      return {
+        title: `${who} beantwoordde je vraag bij de cursus “${text(data["title"])}”`,
+        quote: text(data["comment"]) || undefined,
+        record: text(data["title"]) || undefined,
+        actionLabel: "Cursus openen",
+        path: `/courses/learn/${id}`
+      }
     default:
       return { title: "Er is een nieuwe melding voor je", actionLabel: "Meldingen openen", path: "/notifications" }
   }

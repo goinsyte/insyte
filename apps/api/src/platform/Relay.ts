@@ -458,7 +458,10 @@ const NOTIFIED = new Set<OutboxEvent["type"]>([
   "chargeback.opened",
   "chargeback.deadline_near",
   "automation.notify",
-  "webhook.disabled"
+  "webhook.disabled",
+  "course.assigned",
+  "course.question",
+  "course.answered"
 ])
 
 const SINKS: ReadonlyArray<Sink> = [
