@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react"
 import { Field, FormDialog, TextAreaField } from "../common/form-dialog"
-import type { SupplierOrderRow } from "../hooks/use-supplier-orders"
-import { ME_SUPPLIER, PROBLEM_LABEL, type ProblemKind } from "../lib/supplier-work"
-import { undoable } from "../lib/undo"
+import { PROBLEM_LABEL, type ProblemKind } from "../lib/supplier-work"
 import { cn } from "../lib/utils"
-import { useWorkspace } from "../stores/workspace-store"
+import { type SupplierOrderRow, useSupplierPortal } from "./source"
 
 /**
  * Telling the brand something is wrong before the customer finds out: what it is, a line about it,
- * and — when it is only late — the new hand-off date. Northwind gets a ticket with all of it and the
+ * and — when it is only late — the new hand-off date. The brand gets a ticket with all of it and the
  * order is marked Vertraagd on their side.
  */
 const KINDS: ProblemKind[] = ["stock", "delay", "address", "damaged", "other"]
@@ -16,9 +14,7 @@ const KINDS: ProblemKind[] = ["stock", "delay", "address", "damaged", "other"]
 export function ProblemDialog(
   { row, open, onOpenChange }: { row: SupplierOrderRow | null; open: boolean; onOpenChange: (v: boolean) => void }
 ) {
-  const report = useWorkspace((s) => s.reportSupplierProblem)
-  const snapshot = useWorkspace((s) => s.supplierSnapshot)
-  const restore = useWorkspace((s) => s.restoreSupplier)
+  const { brand, report } = useSupplierPortal()
   const [kind, setKind] = useState<ProblemKind>("delay")
   const [note, setNote] = useState("")
   const [date, setDate] = useState("")
@@ -37,20 +33,16 @@ export function ProblemDialog(
       open={open && row !== null}
       onOpenChange={onOpenChange}
       title={`Probleem melden bij ${row?.number ?? ""}`}
-      description="Northwind krijgt hier een ticket van en ziet de bestelling als vertraagd."
-      primaryLabel="Melden aan Northwind"
+      description={`${brand} krijgt hier een ticket van en ziet de bestelling als vertraagd.`}
+      primaryLabel={`Melden aan ${brand}`}
       disabled={note.trim() === "" || (needsDate && date === "")}
       width={480}
       onSubmit={() => {
         if (!row) return
-        const before = snapshot()
-        report(ME_SUPPLIER.id, ME_SUPPLIER.name, row.id, {
-          kind,
-          note: note.trim(),
-          newDate: needsDate && date ? new Date(`${date}T17:00:00`).toISOString() : undefined
-        })
         onOpenChange(false)
-        undoable(`Probleem gemeld bij ${row.number}`, () => restore(before))
+        report(row, { kind, note: note.trim(), ...(needsDate && date ? { newDate: date } : {}) }, {
+          message: `Probleem gemeld bij ${row.number}`
+        })
       }}
     >
       <Field label="Wat is er">

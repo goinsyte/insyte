@@ -1,38 +1,19 @@
 import { getRouteApi, useNavigate } from "@tanstack/react-router"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useMemo } from "react"
-import { suppliers } from "../../data-source"
 import { Download } from "../../icons"
 import { EmptyState } from "../common/empty-state"
 import { PageHeader } from "../common/page-header"
-import { useProducts } from "../hooks/use-operator-data"
-import { useSupplierOrders } from "../hooks/use-supplier-orders"
 import { exportCsv } from "../lib/bulk"
-import { stockOf, unitsOf } from "../lib/catalog"
-import { DEFAULT_LEAD_DAYS, INDICATOR_LABEL } from "../lib/supplier-products"
-import { ME_SUPPLIER } from "../lib/supplier-work"
+import { INDICATOR_LABEL } from "../lib/supplier-products"
 import { cn } from "../lib/utils"
 import { ProductThumb } from "../product/product-thumb"
-import { type StockIndicator, useSupplier } from "../stores/supplier-store"
-import { useWorkspace } from "../stores/workspace-store"
 import { DataTable, type RowAction } from "../table/data-table"
-import { VIEWS } from "./products-search"
+import type { VIEWS } from "./products-search"
+import { type SupplierProductRow as Row, useSupplierPortal } from "./source"
 
 const Route = getRouteApi("/_supplier/supplier/products/")
 type View = (typeof VIEWS)[number]
-
-type Row = {
-  id: string
-  title: string
-  image: string | undefined
-  variants: number
-  units: number
-  stock: ReturnType<typeof stockOf>
-  lead: number
-  mode: StockIndicator
-  open: number
-  media: number
-}
 
 const TITLE: Record<View, string> = { all: "Producten", low: "Lage voorraad", out: "Uitverkocht" }
 const STOCK: Record<Row["stock"], { label: string; tone: string }> = {
@@ -42,39 +23,17 @@ const STOCK: Record<Row["stock"], { label: string; tone: string }> = {
 }
 
 /*
- * What the supplier makes for Northwind: stock per product, the lead time it promises, how it
+ * What the supplier makes for the brand: stock per product, the lead time it promises, how it
  * reports stock and what it uploaded. No shelf prices — those are the brand's.
  */
 export function SupplierProducts() {
   const navigate = useNavigate()
   const view: View = Route.useSearch().view ?? "all"
-  const { data: products } = useProducts()
-  const edits = useWorkspace((s) => s.productEdits)
-  const media = useWorkspace((s) => s.productMedia)
-  const indicators = useSupplier((s) => s.indicators)
-  const orders = useSupplierOrders()
-  const fallback = suppliers.find((s) => s.id === ME_SUPPLIER.id)?.stock_indicator ?? "live"
-
-  const rows = useMemo<Row[]>(
-    () =>
-      products
-        .filter((p) => p.supplier_id === ME_SUPPLIER.id && p.status !== "archived")
-        .map((p) => ({
-          id: p.id,
-          title: p.title,
-          image: p.images[0],
-          variants: p.variants.length,
-          units: unitsOf(p),
-          stock: stockOf(p),
-          lead: edits[p.id]?.leadDays ?? DEFAULT_LEAD_DAYS,
-          mode: indicators[p.id] ?? fallback,
-          open: orders.filter((r) =>
-            (r.status === "to_accept" || r.status === "to_ship") && r.lines.some((l) => l.product_id === p.id)
-          ).length,
-          media: media[p.id]?.length ?? 0
-        }))
-        .filter((r) => (view === "low" ? r.stock === "low" : view === "out" ? r.stock === "out" : true)),
-    [products, edits, media, indicators, orders, fallback, view]
+  const { brand, useProducts } = useSupplierPortal()
+  const all = useProducts()
+  const rows = useMemo(
+    () => all.filter((r) => (view === "low" ? r.stock === "low" : view === "out" ? r.stock === "out" : true)),
+    [all, view]
   )
 
   const columns = useMemo<Array<ColumnDef<Row, unknown>>>(
@@ -155,7 +114,7 @@ export function SupplierProducts() {
       <PageHeader
         title={TITLE[view]}
         crumbs={view === "all" ? [] : [{ label: "Producten", to: "/supplier/products" }]}
-        meta={`${rows.length} ${rows.length === 1 ? "product" : "producten"} voor Northwind`}
+        meta={`${rows.length} ${rows.length === 1 ? "product" : "producten"} voor ${brand}`}
       />
       <div className="min-w-0 px-5 pb-6">
         <DataTable
@@ -173,7 +132,7 @@ export function SupplierProducts() {
               kind="products"
               title={view === "all" ? "Nog geen producten." : "Niets in deze lijst."}
               body={view === "all"
-                ? "Northwind wijst je producten toe; ze verschijnen hier zodra dat gebeurt."
+                ? `${brand} wijst je producten toe; ze verschijnen hier zodra dat gebeurt.`
                 : "Van alles wat je levert is genoeg op voorraad."}
             />
           }

@@ -2,16 +2,12 @@ import { getRouteApi, Link } from "@tanstack/react-router"
 import { useState } from "react"
 import { AlertTriangle, Check, FileText, MessagesSquare, Package, Truck } from "../../icons"
 import { PageHeader } from "../common/page-header"
-import { useSupplierOrders } from "../hooks/use-supplier-orders"
-import { formatCurrency } from "../lib/format"
 import { countryFlag, countryName } from "../lib/format-flag"
-import { ME_SUPPLIER, PROBLEM_LABEL } from "../lib/supplier-work"
-import { undoable } from "../lib/undo"
+import { PROBLEM_LABEL } from "../lib/supplier-work"
 import { cn } from "../lib/utils"
-import { useWorkspace } from "../stores/workspace-store"
-import { downloadPackingSlips } from "./packing-slip"
 import { ProblemDialog } from "./problem-dialog"
 import { ShipDialog } from "./ship-dialog"
+import { useSupplierPortal } from "./source"
 import { SupplierStatusChip } from "./status"
 
 const Route = getRouteApi("/_supplier/supplier/orders/$orderId")
@@ -27,33 +23,32 @@ const short = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short",
 
 /*
  * One order, from the supplier's side: its own lines and what they are worth to it, the address
- * the parcel goes to (and nothing else about the customer), when Northwind expects it handed over,
+ * the parcel goes to (and nothing else about the customer), when the brand expects it handed over,
  * the parcels already sent and what happened. The actions are the supplier's only: accept, ship,
- * packing slip, report a problem, talk to Northwind about it.
+ * packing slip, report a problem, talk to the brand about it.
  */
 export function SupplierOrder() {
   const { id } = Route.useLoaderData()
-  const row = useSupplierOrders().find((r) => r.id === id)
-  const accept = useWorkspace((s) => s.acceptSupplierOrders)
-  const snapshot = useWorkspace((s) => s.supplierSnapshot)
-  const restore = useWorkspace((s) => s.restoreSupplier)
+  const { brand, money, useOrder, accept, packingSlips, parts } = useSupplierPortal()
+  const order = useOrder(id)
   const [shipping, setShipping] = useState(false)
   const [problem, setProblem] = useState(false)
-  if (!row) return null
-  const a = row.order.shipping_address
+  if (!order) return null
+  const row = order.row
+  const a = order.shipTo
   const open = row.status === "to_accept" || row.status === "to_ship" || row.status === "problem"
 
   const events = [
-    { at: row.order.created_at, label: "Bestelling geplaatst bij Northwind", tone: "ink" },
-    ...(row.work?.accepted_at ? [{ at: row.work.accepted_at, label: "Door jou geaccepteerd", tone: "ink" }] : []),
-    ...(row.work?.problem
+    { at: order.placedAt, label: `Bestelling geplaatst bij ${brand}`, tone: "ink" },
+    ...(order.acceptedAt ? [{ at: order.acceptedAt, label: "Door jou geaccepteerd", tone: "ink" }] : []),
+    ...(order.problem
       ? [{
-        at: row.work.problem.at,
-        label: `Probleem gemeld: ${PROBLEM_LABEL[row.work.problem.kind].toLowerCase()}`,
+        at: order.problem.at,
+        label: `Probleem gemeld: ${PROBLEM_LABEL[order.problem.kind].toLowerCase()}`,
         tone: "amber"
       }]
       : []),
-    ...(row.work?.parcels ?? []).map((p) => ({
+    ...order.parcels.map((p) => ({
       at: p.at,
       label: `Verzonden met ${p.carrier} · ${p.tracking}`,
       tone: "green"
@@ -70,7 +65,7 @@ export function SupplierOrder() {
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => downloadPackingSlips([row], "Northwind Clothing Co.")}
+              onClick={() => packingSlips([row])}
               className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-mist px-3 font-medium text-ink text-sm hover:bg-ink/8"
             >
               <FileText className="size-3.5" strokeWidth={1.75} />
@@ -93,9 +88,7 @@ export function SupplierOrder() {
                 <button
                   type="button"
                   onClick={() => {
-                    const before = snapshot()
-                    accept(ME_SUPPLIER.id, [row.id])
-                    undoable(`${row.number} geaccepteerd`, () => restore(before))
+                    accept([row], { message: `${row.number} geaccepteerd` })
                   }}
                   className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-mesh-ink text-sm shadow-primary hover:bg-abyss-2"
                 >
@@ -121,14 +114,14 @@ export function SupplierOrder() {
 
       <div className="grid gap-8 px-5 pt-2 pb-10 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="flex min-w-0 flex-col gap-8">
-          {row.work?.problem ?
+          {order.problem ?
             (
               <p className="flex items-start gap-2.5 rounded-lg bg-signal-amber-bg px-4 py-3 text-ink text-sm">
                 <AlertTriangle className="mt-0.5 size-4 shrink-0 text-signal-amber" strokeWidth={1.75} />
                 <span>
-                  <span className="font-medium">{PROBLEM_LABEL[row.work.problem.kind]}.</span> {row.work.problem.note}
+                  <span className="font-medium">{PROBLEM_LABEL[order.problem.kind]}.</span> {order.problem.note} {brand}
                   {" "}
-                  Northwind heeft er een ticket van en ziet de bestelling als vertraagd.
+                  heeft er een ticket van en ziet de bestelling als vertraagd.
                 </span>
               </p>
             ) :
@@ -150,8 +143,8 @@ export function SupplierOrder() {
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate font-medium text-base text-ink">{l.title}</span>
                     <span className="text-ink-3 text-sm">
-                      {l.variant_title ? `${l.variant_title} · ` : ""}
-                      {l.variant_id}
+                      {l.variantTitle ? `${l.variantTitle} · ` : ""}
+                      {l.sku}
                     </span>
                   </span>
                   <span className="font-medium text-base text-ink tabular-nums">{l.quantity}×</span>
@@ -159,8 +152,10 @@ export function SupplierOrder() {
               ))}
             </ul>
             <p className="flex justify-between text-ink-2 text-sm">
-              <span>Wat Northwind je hiervoor betaalt</span>
-              <span className="font-medium text-ink tabular-nums">{formatCurrency(row.amount)}</span>
+              <span>Wat {brand} je hiervoor betaalt</span>
+              <span className="font-medium text-ink tabular-nums">
+                {row.costMissing && row.amount === 0 ? "—" : money(row.amount)}
+              </span>
             </p>
           </section>
 
@@ -168,13 +163,13 @@ export function SupplierOrder() {
             <h2 id="parcels-title" className="font-medium text-ink text-lg">
               Pakketten
             </h2>
-            {(row.work?.parcels ?? []).length === 0 ?
+            {order.parcels.length === 0 ?
               (
                 <p className="text-ink-3 text-sm">
                   {row.status === "shipped"
                     ? `Verzonden${
-                      row.order.tracking_number
-                        ? ` met ${row.order.carrier ?? "de vervoerder"} · ${row.order.tracking_number}`
+                      order.shippedAs?.tracking
+                        ? ` met ${order.shippedAs.carrier ?? "de vervoerder"} · ${order.shippedAs.tracking}`
                         : ""
                     }.`
                     : "Nog niets verzonden."}
@@ -182,7 +177,7 @@ export function SupplierOrder() {
               ) :
               (
                 <ul className="flex flex-col gap-1">
-                  {row.work!.parcels.map((p) => (
+                  {order.parcels.map((p) => (
                     <li key={p.id} className="flex items-center gap-3 rounded-lg bg-mist px-3 py-2.5 text-sm">
                       <Truck className="size-4 shrink-0 text-ink-3" strokeWidth={1.75} />
                       <span className="font-medium text-ink">{p.carrier}</span>
@@ -243,10 +238,10 @@ export function SupplierOrder() {
           <section className="flex flex-col gap-1.5">
             <h2 className="font-medium text-ink-3 text-sm">Verzendadres</h2>
             <address className="text-base text-ink not-italic leading-relaxed">
-              {row.order.customer_name}
+              {a.name}
               <br />
-              {a?.line1}
-              {a?.line2 ?
+              {a.line1}
+              {a.line2 ?
                 (
                   <>
                     <br />
@@ -255,28 +250,32 @@ export function SupplierOrder() {
                 ) :
                 null}
               <br />
-              {a?.postal_code} {a?.city}
+              {a.postcode} {a.city}
               <br />
-              {countryFlag(a?.country ?? "")} {countryName(a?.country ?? "")}
+              {countryFlag(a.country)} {countryName(a.country)}
             </address>
-            <p className="text-ink-3 text-xs">E-mail en telefoon van de klant blijven bij Northwind.</p>
+            <p className="text-ink-3 text-xs">E-mail en telefoon van de klant blijven bij {brand}.</p>
           </section>
-          {row.order.notes ?
+          {order.note ?
             (
               <section className="flex flex-col gap-1.5">
-                <h2 className="font-medium text-ink-3 text-sm">Notitie van Northwind</h2>
-                <p className="text-base text-ink">{row.order.notes}</p>
+                <h2 className="font-medium text-ink-3 text-sm">Notitie van {brand}</h2>
+                <p className="text-base text-ink">{order.note}</p>
               </section>
             ) :
             null}
-          <Link
-            to="/supplier/chats"
-            search={{ ref: row.number } as never}
-            className="flex h-9 items-center gap-2 self-start rounded-md px-3 font-medium text-arc-ink text-sm hover:bg-arc-tint"
-          >
-            <MessagesSquare className="size-4" strokeWidth={1.75} />
-            Northwind iets vragen over {row.number}
-          </Link>
+          {parts.chat ?
+            (
+              <Link
+                to="/supplier/chats"
+                search={{ ref: row.number } as never}
+                className="flex h-9 items-center gap-2 self-start rounded-md px-3 font-medium text-arc-ink text-sm hover:bg-arc-tint"
+              >
+                <MessagesSquare className="size-4" strokeWidth={1.75} />
+                {brand} iets vragen over {row.number}
+              </Link>
+            ) :
+            null}
         </aside>
       </div>
 

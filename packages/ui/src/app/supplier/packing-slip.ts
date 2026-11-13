@@ -1,26 +1,26 @@
-import type { SupplierOrderRow } from "../hooks/use-supplier-orders"
 import { countryName } from "../lib/format-flag"
+import type { PackingSlip } from "./source"
 
 /**
  * A packing slip, as a file the supplier prints: the brand's name, where it goes, what is in the
  * box. No prices — a packing slip travels with the parcel and the customer reads it.
  */
-export function downloadPackingSlips(rows: ReadonlyArray<SupplierOrderRow>, brand: string) {
+export function downloadPackingSlips(rows: ReadonlyArray<PackingSlip>, brand: string) {
   const esc = (s: string) =>
     s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" })[c] ?? c)
-  const page = (r: SupplierOrderRow) => {
-    const a = r.order.shipping_address
+  const page = (r: PackingSlip) => {
+    const a = r.shipTo
     const lines = r.lines
       .map((l) =>
         `<tr><td>${l.quantity}×</td><td>${esc(l.title)}${
-          l.variant_title ? ` · ${esc(l.variant_title)}` : ""
-        }</td><td class="sku">${esc(l.variant_id)}</td></tr>`
+          l.variantTitle ? ` · ${esc(l.variantTitle)}` : ""
+        }</td><td class="sku">${esc(l.sku)}</td></tr>`
       )
       .join("")
     return `<section><header><h1>${esc(brand)}</h1><p>Pakbon · ${esc(r.number)}</p></header>
-<div class="to"><strong>${esc(r.order.customer_name)}</strong><br>${esc(a?.line1 ?? "")}<br>${
-      esc(a?.postal_code ?? "")
-    } ${esc(a?.city ?? "")}<br>${esc(countryName(a?.country ?? ""))}</div>
+<div class="to"><strong>${esc(a.name)}</strong><br>${esc(a.line1)}<br>${esc(a.postcode)} ${esc(a.city)}<br>${
+      esc(countryName(a.country))
+    }</div>
 <table><thead><tr><th>Aantal</th><th>Artikel</th><th>SKU</th></tr></thead><tbody>${lines}</tbody></table>
 <footer>Vragen over je bestelling? Antwoord op de bevestigingsmail van ${esc(brand)}.</footer></section>`
   }

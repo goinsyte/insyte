@@ -4,22 +4,14 @@ import { useMemo, useState } from "react"
 import { AlertTriangle, Check, Download, FileText, Truck } from "../../icons"
 import { EmptyState } from "../common/empty-state"
 import { PageHeader } from "../common/page-header"
-import {
-  inSupplierView,
-  type SupplierOrderRow,
-  type SupplierView,
-  useSupplierOrders
-} from "../hooks/use-supplier-orders"
 import { counted, exportCsv } from "../lib/bulk"
-import { formatCurrency } from "../lib/format"
 import { countryFlag, countryName } from "../lib/format-flag"
-import { ME_SUPPLIER, STATUS_LABEL } from "../lib/supplier-work"
-import { undoable } from "../lib/undo"
-import { useWorkspace } from "../stores/workspace-store"
+import { inSupplierView, type SupplierView } from "../lib/supplier-views"
+import { STATUS_LABEL } from "../lib/supplier-work"
 import { DataTable, type Facet, facetFilter, type RowAction } from "../table/data-table"
-import { downloadPackingSlips } from "./packing-slip"
 import { ProblemDialog } from "./problem-dialog"
 import { ShipDialog } from "./ship-dialog"
+import { type SupplierOrderRow, useSupplierPortal } from "./source"
 import { DueCell, SupplierStatusChip } from "./status"
 
 const Route = getRouteApi("/_supplier/supplier/orders/")
@@ -45,19 +37,17 @@ const FACETS: ReadonlyArray<Facet> = [
 ]
 
 /*
- * The supplier's orders: only its own lines, what Northwind pays for them, and where they go. The
+ * The supplier's orders: only its own lines, what the brand pays for them, and where they go. The
  * list is cut by the area panel (to accept, to ship, late, problem, shipped) and worked in bulk:
- * accept, ship with tracking, packing slips, a problem reported. Northwind sees every change.
+ * accept, ship with tracking, packing slips, a problem reported. The brand sees every change.
  */
 export function SupplierOrders() {
   const navigate = useNavigate()
   const view: SupplierView = Route.useSearch().view ?? "to_ship"
-  const all = useSupplierOrders()
+  const { brand, money, useOrders, accept, packingSlips } = useSupplierPortal()
+  const all = useOrders()
   const rows = useMemo(() => all.filter((r) => inSupplierView(r, view)), [all, view])
-  const accept = useWorkspace((s) => s.acceptSupplierOrders)
-  const snapshot = useWorkspace((s) => s.supplierSnapshot)
-  const restore = useWorkspace((s) => s.restoreSupplier)
-  const [shipping, setShipping] = useState<SupplierOrderRow[] | null>(null)
+  const [shipping, setShipping] = useState<ReadonlyArray<SupplierOrderRow> | null>(null)
   const [problem, setProblem] = useState<SupplierOrderRow | null>(null)
 
   const standing = useMemo(() => {
@@ -92,7 +82,7 @@ export function SupplierOrders() {
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="truncate text-ink-2">
                 {first?.quantity}× {first?.title}
-                {first?.variant_title ? ` · ${first.variant_title}` : ""}
+                {first?.variantTitle ? ` · ${first.variantTitle}` : ""}
               </span>
               {more.length > 0
                 ? <span className="shrink-0 rounded-sm bg-ink/6 px-1 text-ink-3 text-xs">+{more.length}</span>
@@ -125,10 +115,14 @@ export function SupplierOrders() {
         accessorKey: "amount",
         header: "Jouw bedrag",
         size: 110,
-        cell: (c) => <span className="tabular-nums">{formatCurrency(c.row.original.amount)}</span>
+        cell: (c) => (
+          <span className="tabular-nums">
+            {c.row.original.costMissing && c.row.original.amount === 0 ? "—" : money(c.row.original.amount)}
+          </span>
+        )
       }
     ],
-    []
+    [money]
   )
 
   const actions = useMemo<ReadonlyArray<RowAction<SupplierOrderRow>>>(
@@ -141,9 +135,7 @@ export function SupplierOrders() {
         shortcut: "a",
         applies: (r) => r.status === "to_accept",
         run: (rs) => {
-          const before = snapshot()
-          accept(ME_SUPPLIER.id, rs.map((r) => r.id))
-          undoable(`${counted(rs.length, "bestelling", "bestellingen")} geaccepteerd`, () => restore(before))
+          accept(rs, { message: `${counted(rs.length, "bestelling", "bestellingen")} geaccepteerd` })
         }
       },
       {
@@ -162,7 +154,7 @@ export function SupplierOrders() {
         bar: true,
         shortcut: "p",
         applies: (r) => r.status !== "closed",
-        run: (rs) => downloadPackingSlips(rs, "Northwind Clothing Co.")
+        run: (rs) => packingSlips(rs)
       },
       {
         id: "problem",
@@ -189,7 +181,7 @@ export function SupplierOrders() {
                 r.handoff.toISOString().slice(0, 10),
                 l.title,
                 String(l.quantity),
-                l.variant_title ?? "",
+                l.variantTitle ?? "",
                 r.city,
                 r.country,
                 STATUS_LABEL[r.status]
@@ -198,7 +190,7 @@ export function SupplierOrders() {
           )
       }
     ],
-    [accept, snapshot, restore]
+    [accept, packingSlips]
   )
 
   return (
@@ -231,8 +223,8 @@ export function SupplierOrders() {
                 ? "Geen problemen gemeld."
                 : "Hier staat niets."}
               body={view === "to_accept"
-                ? "Nieuwe bestellingen van Northwind verschijnen hier zodra ze betaald zijn."
-                : "Alles wat Northwind je stuurt, staat onder Alle bestellingen."}
+                ? `Nieuwe bestellingen van ${brand} verschijnen hier zodra ze betaald zijn.`
+                : `Alles wat ${brand} je stuurt, staat onder Alle bestellingen.`}
             />
           }
         />

@@ -107,7 +107,19 @@ const graduated = [
   "app/live/",
   "app/ai/autonomy-screen.tsx",
   "app/ai/autonomy-source.tsx",
-  "app/ai/autonomy-demo-source.tsx"
+  "app/ai/autonomy-demo-source.tsx",
+  // The supplier portal (M16 step 2): its screens read `supplier/source.tsx`. The dashboard (the plate's
+  // `rounded-2xl`, as drawn) and the packing slip (a print page with its own colours) stay as ported here.
+  "app/supplier/orders-screen.tsx",
+  "app/supplier/order-screen.tsx",
+  "app/supplier/products-screen.tsx",
+  "app/supplier/product-screen.tsx",
+  "app/supplier/ship-dialog.tsx",
+  "app/supplier/problem-dialog.tsx",
+  "app/supplier/status.tsx",
+  "app/supplier/source.tsx",
+  "app/supplier/demo-source.tsx",
+  "app/hooks/use-supplier-orders.ts"
 ]
 
 /**

@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState } from "react"
 import { Field, FormDialog, TextAreaField, TextField } from "../common/form-dialog"
-import type { SupplierOrderRow } from "../hooks/use-supplier-orders"
-import { CARRIERS, ME_SUPPLIER } from "../lib/supplier-work"
-import { undoable } from "../lib/undo"
+import { CARRIERS } from "../lib/supplier-work"
 import { cn } from "../lib/utils"
-import { useWorkspace } from "../stores/workspace-store"
+import { type SupplierOrderRow, useSupplierPortal } from "./source"
 
 /**
  * Marking orders shipped: a carrier and a tracking number for each, typed in or pasted from the
@@ -12,11 +10,13 @@ import { useWorkspace } from "../stores/workspace-store"
  * and the status the moment it is saved, and Undo takes all of it back.
  */
 export function ShipDialog(
-  { rows, open, onOpenChange }: { rows: SupplierOrderRow[]; open: boolean; onOpenChange: (v: boolean) => void }
+  { rows, open, onOpenChange }: {
+    rows: ReadonlyArray<SupplierOrderRow>
+    open: boolean
+    onOpenChange: (v: boolean) => void
+  }
 ) {
-  const ship = useWorkspace((s) => s.shipSupplierParcel)
-  const snapshot = useWorkspace((s) => s.supplierSnapshot)
-  const restore = useWorkspace((s) => s.restoreSupplier)
+  const { brand, ship } = useSupplierPortal()
   const [carrier, setCarrier] = useState<string>("PostNL")
   const [tracking, setTracking] = useState<Record<string, string>>({})
   const [paste, setPaste] = useState("")
@@ -48,29 +48,20 @@ export function ShipDialog(
       open={open}
       onOpenChange={onOpenChange}
       title={rows.length === 1 ? `${rows[0]?.number} verzenden` : `${rows.length} bestellingen verzenden`}
-      description="Northwind ziet de track & trace meteen bij de bestelling, en de klant krijgt hem doorgestuurd."
+      description={`${brand} ziet de track & trace meteen bij de bestelling, en de klant krijgt hem doorgestuurd.`}
       primaryLabel={ready.length === rows.length
         ? "Markeren als verzonden"
         : `${ready.length} van ${rows.length} markeren als verzonden`}
       disabled={ready.length === 0}
       width={rows.length > 1 ? 560 : 440}
       onSubmit={() => {
-        const before = snapshot()
-        for (const r of ready) {
-          ship(ME_SUPPLIER.id, r.id, {
-            carrier,
-            tracking: tracking[r.id]!.trim(),
-            lines: r.lines.map((l) => l.id)
-          })
-        }
         onOpenChange(false)
-        undoable(
-          ready.length === 1
+        ship(ready.map((r) => ({ row: r, tracking: tracking[r.id]!.trim() })), carrier, {
+          message: ready.length === 1
             ? `${ready[0]!.number} gemarkeerd als verzonden`
             : `${ready.length} bestellingen gemarkeerd als verzonden`,
-          () => restore(before),
-          `${carrier}`
-        )
+          description: carrier
+        })
       }}
     >
       <Field label="Vervoerder">
