@@ -66,6 +66,7 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
   "access.requested": none,
   "access.decided": none,
   "webhook.disabled": none,
+  "connection.incident": none,
 
   "store.synced": none,
   "store.connected": (id, event) => ({

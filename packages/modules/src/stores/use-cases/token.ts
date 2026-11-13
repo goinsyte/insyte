@@ -53,16 +53,22 @@ export const accessToken = Effect.fn("Stores.accessToken")(function*(connectionI
   )
   if (Option.isNone(fresh)) return yield* refused(connectionId)
   const tokens = fresh.value
+  const refreshExpiresAt = tokens.refreshExpiresAt?.toISOString() ?? current.refreshExpiresAt
   const sealed = yield* sealer.seal(JSON.stringify({
     accessToken: Redacted.value(tokens.accessToken),
     refreshToken: tokens.refreshToken === null ? current.refreshToken : Redacted.value(tokens.refreshToken),
     expiresAt: tokens.expiresAt?.toISOString() ?? null,
-    refreshExpiresAt: tokens.refreshExpiresAt?.toISOString() ?? current.refreshExpiresAt
+    refreshExpiresAt
   }))
   yield* db.scopedFor((sql) =>
-    sql`update connection_credentials set sealed = ${sealed.sealed}, kid = ${sealed.kid},
-          token_expires_at = ${tokens.expiresAt}, refreshed_at = now()
-        where connection_id = ${connectionId}`
+    Effect.gen(function*() {
+      yield* sql`update connection_credentials set sealed = ${sealed.sealed}, kid = ${sealed.kid},
+            token_expires_at = ${tokens.expiresAt}, refreshed_at = now()
+          where connection_id = ${connectionId}`
+      // When the grant lapses is no secret: the health check warns a week ahead (M17 step 6).
+      yield* sql`update connections set health = health || ${JSON.stringify({ refreshExpiresAt })}::jsonb
+                 where id = ${connectionId}`
+    })
   )
   const until = tokens.expiresAt === null ? null : tokens.expiresAt.getTime() - MARGIN_MS
   return { token: tokens.accessToken, until } satisfies CurrentToken

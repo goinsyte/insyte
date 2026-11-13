@@ -352,6 +352,19 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     endpointId: Schema.String
   }),
+  // The health check opened an incident on a store's connection (M17 step 6, PLAN 49): the person on call hears of it
+  // once, with what Insyte already tried, in the words Winkels shows (`stores/domain/Health.ts`).
+  Schema.Struct({
+    type: Schema.Literal("connection.incident"),
+    workspaceId: Schema.String,
+    incidentId: Schema.String,
+    memberId: Schema.String,
+    storeId: Schema.String,
+    storeName: Schema.String,
+    kind: Schema.String,
+    finding: Schema.String,
+    tried: Schema.Array(Schema.String)
+  }),
   // A sheet was saved, renamed, moved, shared or put back (M14 step 4): the realtime sink tells the tabs of the members
   // who can open it (`to`) to read it again. Its version tells an open editor whether it already has it.
   Schema.Struct({

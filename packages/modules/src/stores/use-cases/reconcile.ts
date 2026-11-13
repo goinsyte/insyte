@@ -10,7 +10,9 @@ import { applyBatch } from "./mirror.ts"
  * changed in Shopify since the watermark, written through the same mapper as the backfill. It repairs the deliveries
  * Shopify gave up on (eight tries over four hours) and anything a webhook missed. The watermark moves to the newest
  * change seen; a minute's overlap reads a boundary twice, which the upserts make harmless. A sweep reads a few pages
- * per resource and leaves the rest for the next one.
+ * per resource and leaves the rest for the next one; while a webhook gap is open on the store (sync health, M17 step 6)
+ * it reads more, so the gap the check rewound it to fills in within a few sweeps. It also answers what the health check
+ * needs of it: how close Shopify's bucket came to empty.
  */
 
 const RESOURCES: ReadonlyArray<{ readonly kind: MirrorKind; readonly resource: string; readonly field: string }> = [
@@ -20,6 +22,8 @@ const RESOURCES: ReadonlyArray<{ readonly kind: MirrorKind; readonly resource: s
 ]
 
 const PAGES_PER_SWEEP = 5
+/** While webhooks are not coming, the sweep is the store's only feed: it reads this many pages per resource. */
+const PAGES_IN_GAP = 20
 const OVERLAP_MS = 60_000
 
 interface Page {
@@ -27,16 +31,34 @@ interface Page {
   readonly edges: ReadonlyArray<{ readonly node: { readonly updatedAt?: string } }>
 }
 
-/** Reconciles one store; answers how many objects it read. */
+/** What one store's sweep did: how many objects it read, and the lowest share of the bucket Shopify said was left. */
+export interface Reconciled {
+  readonly read: number
+  readonly headroom: number | null
+}
+
+/** Reconciles one store; `null` when it is not one to read (not connected, or not imported yet). */
 export const reconcileStore = Effect.fn("Stores.reconcile")(function*(storeId: string) {
   const db = yield* Db
   const graphql = yield* ShopifyGraphql
   const [store] = yield* db.scopedFor((sql) =>
-    sql<{ connectionId: string; shop: string; currency: string | null; lastSyncedAt: Date | null; status: string }>`
-      select connection_id, shop_domain as shop, currency, last_synced_at, status from stores where id = ${storeId}`
+    sql<{
+      connectionId: string
+      shop: string
+      currency: string | null
+      lastSyncedAt: Date | null
+      status: string
+      gap: boolean
+    }>`
+      select s.connection_id, s.shop_domain as shop, s.currency, s.last_synced_at, s.status,
+             exists (select 1 from connection_incidents i where i.connection_id = s.connection_id
+                     and i.kind = 'webhook_gap' and i.resolved_at is null) as gap
+      from stores s where s.id = ${storeId}`
   )
-  if (store === undefined || store.status !== "connected" || store.lastSyncedAt === null) return 0
+  if (store === undefined || store.status !== "connected" || store.lastSyncedAt === null) return null
+  const pages = store.gap ? PAGES_IN_GAP : PAGES_PER_SWEEP
   let read = 0
+  let headroom: number | null = null
   for (const { kind, resource, field } of RESOURCES) {
     const [cursor] = yield* db.scopedFor((sql) =>
       sql<{ watermarkAt: Date | null }>`
@@ -45,8 +67,8 @@ export const reconcileStore = Effect.fn("Stores.reconcile")(function*(storeId: s
     const since = new Date((cursor?.watermarkAt ?? store.lastSyncedAt).getTime() - OVERLAP_MS)
     let after: string | null = null
     let newest = since
-    for (let page = 0; page < PAGES_PER_SWEEP; page++) {
-      const { data } = yield* throughGate(
+    for (let page = 0; page < pages; page++) {
+      const { data, throttle } = yield* throughGate(
         store,
         50,
         (token) =>
@@ -55,6 +77,10 @@ export const reconcileStore = Effect.fn("Stores.reconcile")(function*(storeId: s
             after
           })
       )
+      if (throttle !== null && throttle.maximumAvailable > 0) {
+        const left = throttle.currentlyAvailable / throttle.maximumAvailable
+        headroom = headroom === null ? left : Math.min(headroom, left)
+      }
       const answer = (data as Record<string, Page | undefined> | null)?.[field]
       if (answer === undefined) break
       const batch = emptyBatch()
@@ -68,10 +94,18 @@ export const reconcileStore = Effect.fn("Stores.reconcile")(function*(storeId: s
       if (!answer.pageInfo.hasNextPage || answer.pageInfo.endCursor === null) break
       after = answer.pageInfo.endCursor
     }
+    // The last resource read through is the connection's sync (sync health's "gesynchroniseerd"), in the same
+    // statement: a sweep that went through clears the failures counted against it.
     yield* db.scopedFor((sql) =>
-      sql`update sync_cursors set watermark_at = greatest(coalesce(watermark_at, ${since}), ${newest})
-          where connection_id = ${store.connectionId} and resource = ${resource}`
+      resource === RESOURCES.at(-1)!.resource
+        ? sql`with moved as (
+                update sync_cursors set watermark_at = greatest(coalesce(watermark_at, ${since}), ${newest})
+                where connection_id = ${store.connectionId} and resource = ${resource} returning 1)
+              update connections set last_synced_at = now(), health = health - 'failures'
+              where id = ${store.connectionId}`
+        : sql`update sync_cursors set watermark_at = greatest(coalesce(watermark_at, ${since}), ${newest})
+              where connection_id = ${store.connectionId} and resource = ${resource}`
     )
   }
-  return read
+  return { read, headroom } satisfies Reconciled as Reconciled | null
 })

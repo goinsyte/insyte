@@ -6,7 +6,7 @@ import { roomOf } from "../../Room.ts"
 import { subscriber } from "../Subscriber.ts"
 
 /** The record kinds whose change may open, update or close a queue row on Start (M10.1). */
-const QUEUED = new Set(["order", "return", "quality_check", "store", "product", "chargeback"])
+const QUEUED = new Set(["order", "return", "quality_check", "store", "product", "chargeback", "connection"])
 
 /** The queue sink (M10.1): the workspace's queue brought in line, and its open tabs told when it changed. */
 const queue = Effect.fn("Relay.queue")(

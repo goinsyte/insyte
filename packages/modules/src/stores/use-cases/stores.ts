@@ -89,6 +89,9 @@ export const disconnect = Effect.fn("Stores.disconnect")(function*(id: string) {
       yield* sql`update stores set status = 'disconnected', disconnected_at = now() where id = ${id}`
       yield* sql`update connections set status = 'disconnected' where id = ${store.connectionId}`
       yield* sql`delete from connection_credentials where connection_id = ${store.connectionId}`
+      // A store let go is not an unhealthy one: what was open about its connection ends with it.
+      yield* sql`update connection_incidents set resolved_at = now()
+                 where connection_id = ${store.connectionId} and resolved_at is null`
       yield* Audit.write(sql, principal.workspaceId, { kind: "member", id: principal.id }, {
         action: "store.disconnected",
         subjectType: "store",

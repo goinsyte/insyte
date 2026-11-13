@@ -177,6 +177,8 @@ const applyTopic = Effect.fn("Stores.webhooks.topic")(
                        where id = ${store.id} and status <> 'disconnected'`
             yield* sql`update connections set status = 'revoked' where id = ${store.connectionId}`
             yield* sql`delete from connection_credentials where connection_id = ${store.connectionId}`
+            yield* sql`update connection_incidents set resolved_at = now()
+                       where connection_id = ${store.connectionId} and resolved_at is null`
           })
         )
         return yield* (yield* ConnectionGate).forget(store.connectionId)

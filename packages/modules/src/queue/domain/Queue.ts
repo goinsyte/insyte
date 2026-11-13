@@ -13,7 +13,8 @@ export const QueueKind = Schema.Literals([
   "quality_review",
   "stock_out",
   "store_disconnected",
-  "chargeback_deadline"
+  "chargeback_deadline",
+  "connection_incident"
 ])
 export type QueueKind = typeof QueueKind.Type
 export const Signal = Schema.Literals(["red", "amber", "green", "idle"])

@@ -345,6 +345,30 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
           data: { url: endpoint.url }
         }
       }
+      case "connection.incident": {
+        // The health check opened an incident (M17 step 6): the person on call hears it once, with what Insyte
+        // already tried. Access that is going or gone is "Koppeling verbroken"; the rest Insyte is handling.
+        const [member] = yield* sql<{ id: string }>`
+          select id from members where id = ${event.memberId} and deactivated_at is null and removed_at is null`
+        if (member === undefined) return undefined
+        const access = event.kind === "token_expired" || event.kind === "token_expiring" ||
+          event.kind === "scope_missing"
+        return {
+          kind: access ? "integration.disconnected" : "integration.sync",
+          recipients: [member.id],
+          direct: [member.id],
+          subjectType: "connection_incident",
+          subjectId: event.incidentId,
+          actor: null,
+          data: {
+            storeId: event.storeId,
+            store: event.storeName,
+            incident: event.kind,
+            finding: event.finding,
+            tried: [...event.tried]
+          }
+        }
+      }
       case "course.assigned": {
         // A course published for teammates, or one reminded of it (M17 step 4): who still has it to do hears of it.
         const [course] = yield* sql<{ title: string; deadline: string | null }>`

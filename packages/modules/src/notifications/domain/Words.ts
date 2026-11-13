@@ -1,3 +1,4 @@
+import { triedSummary } from "../../stores/domain/Health.ts"
 /*
  * A note's words outside the app (M11 step 13.5): the mail's subject and lead, the record it is about and where its
  * button leads, in Dutch, as the console writes the same note in the bell (`apps/console/src/frame/notes.ts`). The
@@ -70,6 +71,23 @@ export const dayName = (day: string) =>
 /** Minor units in a currency, as the console writes money. */
 export const money = (minor: number, currency: string) =>
   new Intl.NumberFormat("nl-NL", { style: "currency", currency }).format(minor / 100)
+
+/**
+ * A connection incident (M17 step 6): what is wrong with the store, and what Insyte already tried, as the health check
+ * wrote them (`stores/domain/Health.ts`); the button leads to Winkels.
+ */
+const incidentWords = (data: Record<string, unknown>): NoteWords => {
+  const tried = Array.isArray(data["tried"]) ? data["tried"].map(text).filter((t) => t !== "") : []
+  return {
+    title: `De koppeling met ${text(data["store"]) || "je winkel"} vraagt aandacht`,
+    detail: [text(data["finding"]), triedSummary(tried)]
+      .filter((t) => t !== "")
+      .join(" "),
+    record: text(data["store"]) || undefined,
+    actionLabel: "Winkels bekijken",
+    path: `/settings/stores${query({ store: text(data["storeId"]) })}`
+  }
+}
 
 export const wordsOf = (note: NoteFacts): NoteWords => {
   const { data } = note
@@ -192,7 +210,10 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
         path: `/chargebacks/${id}`
       }
     }
+    case "integration.sync":
     case "integration.disconnected":
+      if (note.subjectType === "connection_incident") return incidentWords(data)
+      if (note.kind === "integration.sync") break
       // A webhook endpoint Insyte switched off (M19.4).
       return {
         title: "Insyte heeft een webhook-endpoint uitgezet",
@@ -238,7 +259,6 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
         path: "/suppliers"
       }
     }
-    default:
-      return { title: "Er is een nieuwe melding voor je", actionLabel: "Meldingen openen", path: "/notifications" }
   }
+  return { title: "Er is een nieuwe melding voor je", actionLabel: "Meldingen openen", path: "/notifications" }
 }
