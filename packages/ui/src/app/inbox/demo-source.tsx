@@ -14,6 +14,7 @@ import { useWorkspace } from "../stores/workspace-store"
 import { AgentBanner } from "./agent-banner"
 import { ChannelHeader, ChatLetter } from "./channel-parts"
 import {
+  type InboxDrafts,
   type InboxMailbox,
   type InboxSource,
   InboxSourceProvider,
@@ -244,7 +245,18 @@ function DemoEmpty({ onCompose }: { onCompose: () => void }) {
 
 const CHANNELS: NonNullable<InboxSource["channels"]> = { Header: ChannelHeader, Letter: DemoChatLetter }
 
-const drafts = (t: InboxThread) => draftsFor(byId(t.id))
+/** The design's drafts, written on the screen: the same three texts for a thread, at once. */
+const drafts: InboxDrafts = {
+  useDraft: (t) => {
+    if (t === null) return undefined
+    const texts = draftsFor(byId(t.id))
+    return {
+      reply: texts.reply,
+      rewrite: (style) => Promise.resolve(texts[style]),
+      use: () => {}
+    }
+  }
+}
 
 /** The inbox screen over the design app's stores. */
 export function DemoInboxSource({ children }: { children: ReactNode }) {

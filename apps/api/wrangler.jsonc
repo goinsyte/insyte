@@ -121,5 +121,7 @@
     "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
     // The beta gate is shut locally too; the reserved test domain is admitted, so the tests can register.
     "BETA_ALLOWED_DOMAINS": "example.com",
+    // Insyte AI's fake here, whatever keys `.dev.vars` holds (`bun run dev:vars --ai` writes `AI_ADAPTER=anthropic`).
+    "AI_ADAPTER": "fake",
   },
 }

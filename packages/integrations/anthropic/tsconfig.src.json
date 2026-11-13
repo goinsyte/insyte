@@ -1,0 +1,13 @@
+{
+  // Claude through Cloudflare AI Gateway for the API Worker (M15 step 1), behind effect/ai's LanguageModel, and the fake.
+  // The Anthropic SDK over `fetch`, which Workers and Node both provide.
+  "extends": "../../../tsconfig.base.json",
+  "include": ["src/**/*.ts"],
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo",
+    "lib": ["ES2023", "DOM"],
+    "types": []
+  }
+}
