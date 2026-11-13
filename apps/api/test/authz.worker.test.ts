@@ -36,6 +36,7 @@ import { TicketsRpcs } from "@insyte/api/rpc/TicketsRpcs"
 import { TrackingRpcs } from "@insyte/api/rpc/TrackingRpcs"
 import { TrashRpcs } from "@insyte/api/rpc/TrashRpcs"
 import { WorkspacesRpcs } from "@insyte/api/rpc/WorkspacesRpcs"
+import { recordedPixelSettings } from "@insyte/integrations-shopify/ShopifyRecorded"
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { Exit } from "effect"
@@ -701,4 +702,312 @@ describe("a member held to some stores", () => {
     expect(listed.status).toBe(200)
     expect((await listed.json() as { data: Array<unknown> }).data).toEqual([])
   }, 240_000)
+})
+
+const PUBLIC = "http://api.public.test"
+const MCP_VERSION = "2026-07-28"
+let mcpId = 0
+
+/** A `/v1` read as a key: the status and the body. */
+const v1 = async (token: string, path: string) => {
+  const response = await call(`${PUBLIC}/v1${path}`, { headers: { authorization: `Bearer ${token}` } })
+  // eslint-disable-next-line typescript/no-explicit-any
+  return { status: response.status, body: await response.json() as any }
+}
+
+/** One MCP tool call as a key: whether it is an error, and the tool's answer. */
+const tool = async (token: string, name: string, args: Record<string, unknown>) => {
+  const response = await call(`${PUBLIC}/mcp`, {
+    method: "POST",
+    headers: {
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+      "MCP-Protocol-Version": MCP_VERSION,
+      "Mcp-Method": "tools/call",
+      "Mcp-Name": name,
+      authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: ++mcpId,
+      method: "tools/call",
+      params: {
+        name,
+        arguments: args,
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": MCP_VERSION,
+          "io.modelcontextprotocol/clientCapabilities": {},
+          "io.modelcontextprotocol/clientInfo": { name: "insyte-test", version: "1.0.0" }
+        }
+      }
+    })
+  })
+  const text = await response.text()
+  // eslint-disable-next-line typescript/no-explicit-any
+  const message: any = response.headers.get("content-type")?.includes("text/event-stream")
+    ? text.split("\n").filter((l) => l.startsWith("data:")).map((l) => JSON.parse(l.slice(5))).find((m) => "id" in m)
+    : JSON.parse(text)
+  // eslint-disable-next-line typescript/no-explicit-any
+  return { isError: message.result.isError as boolean, body: JSON.parse(message.result.content[0].text) as any }
+}
+
+/** Asks until `read` answers something, for up to five seconds (a relay's own kick may still be delivering). */
+const eventually = async <A>(read: () => Promise<A | undefined>): Promise<A> => {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const found = await read()
+    if (found !== undefined) return found
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error("never came")
+}
+
+const socketFor = async (cookie: string, tab: string) => {
+  const response = await call(`http://api.test/api/realtime?tab=${tab}`, { headers: { upgrade: "websocket", cookie } })
+  expect(response.status).toBe(101)
+  const socket = response.webSocket!
+  const frames: Array<{ type: string; [field: string]: unknown }> = []
+  socket.addEventListener("message", (e) => frames.push(JSON.parse(String(e.data))))
+  socket.accept()
+  return { socket, frames }
+}
+
+const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam" }).format(new Date())
+
+describe("the store fence on every surface", () => {
+  // Every read that narrows to stores takes the principal's `storeScope`, never the role's stores alone. Two admins,
+  // whose role reaches every store: one invited for another store only (`held`) sees none of this store's rows on
+  // Start, in the queue, on a plate, in Live's frames, in Insyte's log or in a record's file; one invited for every
+  // store (`whole`) sees what the owner sees. A key reaches what its role and its own stores both name, and nobody
+  // makes a key that reaches past their own stores.
+  let store: Awaited<ReturnType<typeof importedStore>>
+  let held = ""
+  let whole = ""
+  let returnId = ""
+
+  const queueRow = async (cookie: string) =>
+    ok(await rpc("Queue.list", { tab: "all" }, cookie)).rows.find((r) => r.subjectId === returnId)
+
+  beforeAll(async () => {
+    store = await importedStore("authz-fence")
+    const heldEmail = `authz-${run}-fence-held@invited.test`
+    const wholeEmail = `authz-${run}-fence-whole@invited.test`
+    ok(
+      await rpc("Invitations.send", {
+        rows: [
+          { email: heldEmail, roleId: "admin", stores: ["sto_elsewhere"] },
+          { email: wholeEmail, roleId: "admin", stores: "all" }
+        ]
+      }, store.cookie)
+    )
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    held = await join(heldEmail)
+    whole = await join(wholeEmail)
+
+    // A return in review (the twin's orders were delivered on 7 October; 60 days keeps #1002 inside the policy): a
+    // queue row and a plate in this store.
+    const settings = ok(await rpc("Returns.settings", undefined, store.cookie))
+    ok(await rpc("Returns.setSettings", { ...settings, returnDays: 60 }, store.cookie))
+    const order = ok(await rpc("Orders.list", { limit: 50 }, store.cookie)).rows.find((o) => o.number === "#1002")!
+    const line = ok(await rpc("Orders.get", { id: order.id }, store.cookie)).lines[0]!
+    returnId = ok(
+      await rpc("Returns.start", {
+        orderId: order.id,
+        lines: [{ lineId: line.id, qty: 1 }],
+        reasonId: "too_small",
+        requested: "refund"
+      }, store.cookie)
+    ).returns[0]!.id
+    await relay(store.workspace)
+  }, 240_000)
+
+  it("keeps the queue's row and its plate from a member held to another store, over RPC", async () => {
+    const owners = await eventually(async () => {
+      const row = await queueRow(store.cookie)
+      return row?.proposal === null ? undefined : row
+    })
+    const plate = owners.proposal!.id
+    expect((await queueRow(whole))?.proposal?.id).toBe(plate)
+    expect(ok(await rpc("Proposals.get", { id: plate }, whole)).id).toBe(plate)
+
+    expect(await queueRow(held)).toBeUndefined()
+    expect(ok(await rpc("Queue.list", { tab: "drawn" }, held)).rows.map((r) => r.id)).not.toContain(owners.id)
+    expect(failure(await rpc("Proposals.get", { id: plate }, held))).toMatchObject({ _tag: "NotFound" })
+    expect(failure(await rpc("Proposals.file", { id: plate }, held))).toMatchObject({ _tag: "NotFound" })
+    expect(failure(await rpc("Queue.markSeen", { id: owners.id }, held))).toMatchObject({ _tag: "NotFound" })
+  })
+
+  it("keeps Start's agenda and feed to the member's stores", async () => {
+    const agenda = async (cookie: string) =>
+      ok(await rpc("Home.agenda", { from: today(), span: "week" }, cookie)).rows.filter((r) => r.kind === "queue")
+    const owners = await agenda(store.cookie)
+    expect(owners.length).toBeGreaterThan(0)
+    expect((await agenda(whole)).map((r) => r.id)).toEqual(owners.map((r) => r.id))
+    expect(await agenda(held)).toEqual([])
+
+    const placed = async (cookie: string) =>
+      ok(await rpc("Home.activity", { source: "order", limit: 200 }, cookie)).rows.filter((r) =>
+        r.action === "order.placed"
+      )
+    expect(await placed(store.cookie)).toHaveLength(5)
+    expect(await placed(whole)).toHaveLength(5)
+    expect(await placed(held)).toEqual([])
+    const theirs = ok(await rpc("Home.activity", { limit: 200 }, held)).rows
+    expect(theirs.some((r) => r.subjectId === returnId || r.subjectType === "order")).toBe(false)
+  })
+
+  it("keeps a queue row and a plate from a key whose role or stores reach elsewhere, over /v1 and MCP", async () => {
+    const plate = (await queueRow(store.cookie))!.proposal!.id
+    // A role that reaches another store only, held by a key for every store: the role narrows the key.
+    const role = ok(await rpc("Roles.create", { label: `Elders ${run}`, from: "view" }, store.cookie)).id
+    const base = ok(await rpc("Roles.list", undefined, store.cookie)).roles.find((r) => r.id === role)!
+    ok(
+      await rpc("Roles.update", {
+        id: role,
+        levels: base.levels,
+        specials: base.specials,
+        refundLimit: base.refundLimit,
+        stores: ["sto_elsewhere"]
+      }, store.cookie)
+    )
+    const keyFor = async (access: { kind: "role"; roleId: string }, stores: "all" | Array<string>, cookie: string) =>
+      ok(
+        await rpc("ApiKeys.create", {
+          label: "Winkelhek",
+          access: access as never,
+          stores,
+          expiresInDays: 30,
+          ips: [],
+          agent: false
+        }, cookie)
+      ).secret
+    const every = await keyFor({ kind: "role", roleId: "view" }, "all", store.cookie)
+    const elsewhere = await keyFor({ kind: "role", roleId: role }, "all", store.cookie)
+
+    const listed = async (token: string) =>
+      ((await v1(token, "/queue?tab=all")).body.data as Array<{ subject_id: string }>).map((r) => r.subject_id)
+    expect(await listed(every)).toContain(returnId)
+    expect(await listed(elsewhere)).not.toContain(returnId)
+    expect((await v1(every, `/proposals/${plate}`)).status).toBe(200)
+    expect((await v1(elsewhere, `/proposals/${plate}`)).status).toBe(404)
+
+    const mcpListed = async (token: string) => {
+      const answer = await tool(token, "list_queue", { tab: "all" })
+      expect(answer.isError).toBe(false)
+      return (answer.body.data as Array<{ subject_id: string }>).map((r) => r.subject_id)
+    }
+    expect(await mcpListed(every)).toContain(returnId)
+    expect(await mcpListed(elsewhere)).not.toContain(returnId)
+    expect((await tool(every, "get_proposal", { proposal_id: plate })).isError).toBe(false)
+    expect((await tool(elsewhere, "get_proposal", { proposal_id: plate })).isError).toBe(true)
+
+    // Nobody makes a key past their own stores: the held member's for every store is refused, theirs is not.
+    const asHeld = (stores: "all" | Array<string>) =>
+      rpc("ApiKeys.create", {
+        label: "Te ruim",
+        access: { kind: "role", roleId: "view" } as never,
+        stores,
+        expiresInDays: 30,
+        ips: [],
+        agent: false
+      }, held)
+    expect(failure(await asHeld("all"))).toMatchObject({ _tag: "Invalid", fields: { stores: "forbidden" } })
+    expect(failure(await asHeld([store.storeId]))).toMatchObject({ _tag: "Invalid", fields: { stores: "forbidden" } })
+    const theirs = ok(await asHeld(["sto_elsewhere"])).secret
+    expect(await listed(theirs)).not.toContain(returnId)
+    expect(await listed(await keyFor({ kind: "role", roleId: "view" }, "all", whole))).toContain(returnId)
+  })
+
+  it("sends Live's frames only to the tabs whose member reaches the store", async () => {
+    ok(await rpc("Live.installPixel", { storeId: store.storeId }, store.cookie))
+    const { ingestKey } = JSON.parse(recordedPixelSettings.get(store.shop)!) as { ingestKey: string }
+    const tabs = {
+      whole: await socketFor(whole, `tab-fence-whole-${run}`),
+      held: await socketFor(held, `tab-fence-held-${run}`)
+    }
+    for (const t of Object.values(tabs)) {
+      for (let i = 0; i < 60 && !t.frames.some((f) => f.type === "hello"); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+    }
+    ok(await rpc("Live.subscribe", { tab: `tab-fence-whole-${run}` }, whole))
+    ok(await rpc("Live.subscribe", { tab: `tab-fence-held-${run}` }, held))
+    const posted = await call(`https://api.public.test/api/public/pixel/${store.storeId}`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({
+        key: ingestKey,
+        type: "page_viewed",
+        clientId: "client-fence-1",
+        page: "Regenjassen – Winkel",
+        source: { utmSource: "facebook", utmMedium: "paid_social" },
+        device: "mobiel",
+        returning: false
+      })
+    })
+    expect(posted.status).toBe(204)
+    await eventually(async () => tabs.whole.frames.find((f) => f.type === "live.visitors"))
+    await new Promise((resolve) => setTimeout(resolve, 800))
+    expect(tabs.held.frames.some((f) => f.type === "live.visitors")).toBe(false)
+    expect(ok(await rpc("Live.snapshot", undefined, held)).stores).toEqual([])
+    for (const t of Object.values(tabs)) t.socket.close(1000, "done")
+  })
+
+  it("keeps Insyte's log of an order in this store from the held member", async () => {
+    const policy = ok(await rpc("Autonomy.get", {}, store.cookie))
+    ok(await rpc("Autonomy.set", { levels: { AddNote: "auto" }, baseVersion: policy.version }, store.cookie))
+    const agent = ok(
+      await rpc("ApiKeys.create", {
+        label: "Claude",
+        access: { kind: "role", roleId: "service" } as never,
+        stores: "all",
+        expiresInDays: 30,
+        ips: [],
+        agent: true
+      }, store.cookie)
+    ).secret
+    const order = ok(await rpc("Orders.list", { limit: 50 }, store.cookie)).rows.find((o) => o.number === "#1003")!
+    expect((await tool(agent, "set_order_note", { order_id: order.id, body: "Bel de klant" })).isError).toBe(false)
+
+    const noted = async (cookie: string) =>
+      ok(await rpc("AgentLog.list", { action: "AddNote" }, cookie)).rows.filter((r) => r.subject?.id === order.id)
+    const [row] = await noted(store.cookie)
+    expect(row).toBeDefined()
+    expect((await noted(whole)).map((r) => r.id)).toEqual([row!.id])
+    expect(await noted(held)).toEqual([])
+    expect(ok(await rpc("AgentLog.counts", undefined, held)).total).toBe(0)
+    expect(failure(await rpc("AgentLog.get", { id: row!.id }, held))).toMatchObject({ _tag: "NotFound" })
+    expect(ok(await rpc("AgentLog.get", { id: row!.id }, whole)).id).toBe(row!.id)
+  })
+
+  it("serves a leg's packing slip only to who reaches its store", async () => {
+    // #1001 is paid and unfulfilled: one leg, to Atelier Noord, which gets an address so the slip is written.
+    const leg = ok(await rpc("Forwarding.list", { view: "to_forward" }, store.cookie)).rows[0]!
+    const atelier = ok(await rpc("Suppliers.list", {}, store.cookie)).rows.find((r) => r.name === "Atelier Noord")!
+    const address = `authz-atelier-${run}@supplier.example`
+    ok(await rpc("Suppliers.update", { id: atelier.id, contactEmail: address, forwardEmail: address }, store.cookie))
+    await using sends = await introspectWorkflow(env.FORWARD_SEND)
+    ok(await rpc("Forwarding.forward", { ids: [leg.id] }, store.cookie))
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    const [instance] = await sends.get()
+    await instance!.waitForStatus("complete")
+    const slip = ok(await rpc("Forwarding.list", { view: "awaiting" }, store.cookie)).rows[0]!.slipFileId!
+    const fetched = (cookie: string) => call(`http://api.test/api/files/${slip}`, { headers: { cookie } })
+    expect((await fetched(store.cookie)).status).toBe(200)
+    expect((await fetched(whole)).status).toBe(200)
+    expect((await fetched(held)).status).toBe(404)
+  })
+
+  it("keeps a lost store's red row off Start for the held member", async () => {
+    ok(await rpc("Stores.disconnect", { id: store.storeId }, store.cookie))
+    await call(`http://api.test/api/__dev/queue/refresh?workspace=${store.workspace}`, { method: "POST" })
+    const lost = async (cookie: string) =>
+      ok(await rpc("Home.work", undefined, cookie)).rows.filter((r) => r.kind === "queue")
+    expect((await lost(store.cookie)).length).toBeGreaterThan(0)
+    expect((await lost(whole)).length).toBeGreaterThan(0)
+    expect(await lost(held)).toEqual([])
+    expect(ok(await rpc("Home.brief", undefined, whole)).needsYou).toBeGreaterThan(0)
+    expect(ok(await rpc("Home.brief", undefined, held)).needsYou).toBe(0)
+  })
 })
