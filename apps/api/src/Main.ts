@@ -1,18 +1,16 @@
-import { env, tracing } from "cloudflare:workers"
+import { env } from "cloudflare:workers"
 import { HttpRouter } from "effect/http"
 import { AppLayer } from "./platform/AppLayer.ts"
 import type { Env } from "./platform/Env.ts"
 import { Telemetry } from "./platform/Observability.ts"
+import { continueTrace } from "./platform/Tracing.ts"
+import { isPublicPath } from "./transports/public/Paths.ts"
 
 /*
- * The API Worker, `insyte-api` (ADR-0041): the HTTP app and inbound mail. The queue consumers, the cron, the Workflows,
- * the realtime rooms and the connection gate run in the jobs Worker (`Jobs.ts`), reached through cross-script bindings.
+ * The API Worker, `insyte-api` (ADR-0041): the HTTP app and inbound mail. The queue consumers, the cron, the Workflows
+ * and every Durable Object run in the jobs Worker (`Jobs.ts`), reached through cross-script bindings;
+ * the public API and the MCP server in the public Worker (`Public.ts`), which this one hands `/v1` and `/mcp`.
  */
-
-// The Durable Object classes this Worker hosts; infra and `wrangler.jsonc` bind them by these names.
-export { RateLimiter } from "./platform/RateLimiter.ts"
-// The live room per workspace (M14 step 3): storefront visitors in memory.
-export { LiveRoomDurableObject } from "./platform/LiveRoom.ts"
 
 /** Module scope: the layer is built once per isolate, and building it does no request-time I/O. */
 const web = HttpRouter.toWebHandler(AppLayer)
@@ -20,6 +18,8 @@ const web = HttpRouter.toWebHandler(AppLayer)
 export default {
   async fetch(request, _env, ctx) {
     if (!servedHere(request)) return Response.json({ error: { code: "not_found" } }, { status: 404 })
+    // The public API and the MCP server: the public Worker's, on this Worker's hostname (ADR-0041 step 5).
+    if (isPublicPath(new URL(request.url).pathname)) return env.PUBLIC.fetch(request)
     const response = await web.handler(continueTrace(request))
     ctx.waitUntil(Telemetry.flush()) // spans leave after the response is out (17 §1)
     return response
@@ -41,24 +41,4 @@ const servedHere = (request: Request): boolean => {
   return url.pathname === "/mcp" || url.pathname === "/v1" || url.pathname.startsWith("/v1/") ||
     url.pathname === "/hooks/shopify" || url.pathname === "/hooks/aftership" ||
     url.pathname.startsWith("/hooks/supplier/") || url.pathname.startsWith("/api/public/pixel/")
-}
-
-/**
- * Which trace a request joins. Effect reads `traceparent` itself; this only decides which one it sees (17 §1). A
- * request that brings one (the console, through Sentry's SDK) continues it, and Cloudflare's root span gets
- * `insyte.trace_id` so its platform spans can be found. One without (webhooks, the public API, MCP) is parented on
- * Cloudflare's own span, so Effect's spans and Cloudflare's land in one trace.
- */
-const continueTrace = (request: Request): Request => {
-  const root = tracing.getActiveSpan()
-  const incoming = request.headers.get("traceparent")
-  if (incoming !== null) {
-    root?.setAttribute("insyte.trace_id", incoming.split("-")[1] ?? "")
-    return request
-  }
-  const own = root?.spanContext()
-  if (own === undefined || /^0+$/.test(own.traceId)) return request // observability off: all zeros
-  const headers = new Headers(request.headers)
-  headers.set("traceparent", `00-${own.traceId}-${own.spanId}-01`)
-  return new Request(request, { headers })
 }

@@ -3,7 +3,8 @@
  * the startup check (`scripts/startup-check.ts`, through `bundle.ts`) bundles from them, so the check measures the
  * script that ships. A path is relative to this folder, where alchemy runs.
  *
- * ADR-0041: `api` serves HTTP, `jobs` runs the queue consumers, the cron and the Workflows; `insyte-public` joins later.
+ * ADR-0041: `api` serves HTTP, `jobs` runs the queue consumers, the cron and the Workflows,
+ * `public` serves the public API and the MCP server.
  */
 
 export const COMPATIBILITY_DATE = "2026-10-26"
@@ -22,6 +23,10 @@ export const WORKERS = {
   jobs: {
     main: "../apps/api/src/Jobs.ts",
     compatibility: { date: COMPATIBILITY_DATE, flags: ["nodejs_compat"] }
+  },
+  public: {
+    main: "../apps/api/src/Public.ts",
+    compatibility: { date: COMPATIBILITY_DATE, flags: ["nodejs_compat", "enable_request_signal"] }
   }
 } as const satisfies Record<string, WorkerSource>
 

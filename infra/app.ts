@@ -6,6 +6,28 @@ import { Config, Effect, Layer, Option, Redacted } from "effect"
 import { SENTRY_LOGS, SENTRY_TRACES } from "./shared.ts"
 import { COMPATIBILITY_DATE, WORKERS } from "./workers.ts"
 
+/**
+ * A Durable Object of the jobs Worker, which hosts them all (ADR-0041): `host` is its script for a cross-script
+ * binding, or undefined where it is hosted.
+ */
+const object = (name: string, className: string, host?: Input<string>) =>
+  Cloudflare.DurableObject(
+    name,
+    host === undefined ? { className, transferredFrom: "Api" } : { className, scriptName: host }
+  )
+
+/** The Durable Objects, by binding name (`object` above). */
+const objects = (host?: Input<string>) => ({
+  // The edge guards' counters (M2.3): one instance per IP or hashed address, SQLite-backed.
+  RATE_LIMITER: object("RateLimiter", "RateLimiter", host),
+  // The realtime rooms (M5.1): sockets and presence only.
+  ROOMS: object("Rooms", "RoomDurableObject", host),
+  // The gate per external account (M6.3): token and bucket, in memory.
+  CONNECTION_GATE: object("ConnectionGate", "ConnectionGateObject", host),
+  // The live rooms (M14 step 3): storefront visitors in memory only.
+  LIVE: object("Live", "LiveRoomDurableObject", host)
+})
+
 /** An unset GitHub secret arrives as an empty string: that is no secret. */
 const set = (r: Redacted.Redacted<string>) => Redacted.value(r) !== ""
 
@@ -240,7 +262,7 @@ export default Alchemy.Stack(
       MONTHLY_CLOSE: workflow("MonthlyClose", "MonthlyCloseWorkflow", "monthly-close", host)
     })
 
-    /** What both Workers read: the database, files, the relay's queue, and the configuration the slices share. */
+    /** What every Worker reads: the database, files, the relay's queue, and the configuration the slices share. */
     const shared = {
       HYPERDRIVE: hyperdrive,
       FILES: files,
@@ -278,8 +300,10 @@ export default Alchemy.Stack(
     }
 
     /*
-     * The jobs Worker (ADR-0041): the queue consumers, the cron and the Workflows, and the Durable Objects they publish
-     * into. It serves no request, so it has no hostname. It deploys before the API, which binds to its classes.
+     * The jobs Worker (ADR-0041): the queue consumers, the cron and the Workflows, and every Durable Object. It serves
+     * no request, so it has no hostname. Bindings run one way, to it: the API and the public Worker bind its classes
+     * cross-script, so it deploys first. `transferredFrom` moved each class here from the API with its namespace (step
+     * 4: the rooms and the gate; step 5: the live rooms and the rate limiter); it is inert once moved and on a new stage.
      */
     const jobs = yield* Cloudflare.Worker("Jobs", {
       name: `insyte-jobs-${stage}`,
@@ -292,15 +316,28 @@ export default Alchemy.Stack(
       env: {
         ...shared,
         ...workflows(),
-        // The realtime rooms (M5.1): sockets and presence only. Moved here from the API (ADR-0041 step 4), whose
-        // realtime route reaches them cross-script; `transferredFrom` is inert once moved and on a new stage.
-        ROOMS: Cloudflare.DurableObject("Rooms", { className: "RoomDurableObject", transferredFrom: "Api" }),
-        // The gate per external account (M6.3): token and bucket, in memory. Moved the same way.
-        CONNECTION_GATE: Cloudflare.DurableObject("ConnectionGate", {
-          className: "ConnectionGateObject",
-          transferredFrom: "Api"
-        }),
+        ...objects(),
         OTEL_SERVICE_NAME: "insyte-jobs"
+      }
+    })
+
+    /*
+     * The public Worker (ADR-0041 step 5): the public API and the MCP server. No hostname of its own: the API hands it
+     * `/v1` and `/mcp` over the service binding below, on the API's hostname. It hosts nothing.
+     */
+    const publicApi = yield* Cloudflare.Worker("Public", {
+      name: `insyte-public-${stage}`,
+      ...WORKERS.public,
+      placement: { region: "aws:eu-central-1" },
+      workersDev: false,
+      observability: OBSERVABILITY,
+      env: {
+        ...shared,
+        ...workflows(jobs.workerName),
+        ...objects(jobs.workerName),
+        INGEST: ingest,
+        PUBLIC_API_HOST: `insyte-api-${stage}.${WORKERS_SUBDOMAIN}`,
+        OTEL_SERVICE_NAME: "insyte-public"
       }
     })
 
@@ -315,17 +352,11 @@ export default Alchemy.Stack(
         ...shared,
         // Its Workflows and Durable Objects are the jobs Worker's.
         ...workflows(jobs.workerName),
-        ROOMS: Cloudflare.DurableObject("Rooms", { className: "RoomDurableObject", scriptName: jobs.workerName }),
-        CONNECTION_GATE: Cloudflare.DurableObject("ConnectionGate", {
-          className: "ConnectionGateObject",
-          scriptName: jobs.workerName
-        }),
+        ...objects(jobs.workerName),
+        // `/v1` and `/mcp`, handed on (`Main.ts`).
+        PUBLIC: publicApi,
         // Shopify's webhooks (M6.3): the receiver puts a delivery's id here.
         INGEST: ingest,
-        // The edge guards' counters (M2.3), hosted by this Worker (`RateLimiter` in Main.ts); SQLite-backed.
-        RATE_LIMITER: Cloudflare.DurableObject("RateLimiter", { className: "RateLimiter" }),
-        // The live rooms (M14 step 3), hosted by this Worker (`LiveRoomDurableObject`): visitors in memory only.
-        LIVE: Cloudflare.DurableObject("Live", { className: "LiveRoomDurableObject" }),
         // Where `Main.ts` serves `/v1` and nothing else.
         PUBLIC_API_HOST: `insyte-api-${stage}.${WORKERS_SUBDOMAIN}`,
         OTEL_SERVICE_NAME: "insyte-api",
@@ -390,6 +421,12 @@ export default Alchemy.Stack(
       policies: [{ decision: "bypass", include: ["everyone"] }]
     })
 
-    return { console: console.url.as<string>(), api: api.workerName, jobs: jobs.workerName, branch: branch?.branchId }
+    return {
+      console: console.url.as<string>(),
+      api: api.workerName,
+      jobs: jobs.workerName,
+      public: publicApi.workerName,
+      branch: branch?.branchId
+    }
   })
 )
