@@ -1,4 +1,5 @@
 import { AccessRpcs } from "./rpc/AccessRpcs.ts"
+import { AgentRpcs } from "./rpc/AgentRpcs.ts"
 import { AnalyticsRpcs } from "./rpc/AnalyticsRpcs.ts"
 import { AuditRpcs } from "./rpc/AuditRpcs.ts"
 import { AutomationsRpcs } from "./rpc/AutomationsRpcs.ts"
@@ -86,3 +87,4 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(MarketplaceRpcs)
   .merge(LiveRpcs)
   .merge(SheetsRpcs)
+  .merge(AgentRpcs)

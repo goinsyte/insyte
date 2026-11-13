@@ -3,6 +3,7 @@ import { Effect, Option, Schedule, Schema } from "effect"
 import { Reactivity } from "effect/reactivity"
 import { Socket } from "effect/socket"
 import { ACCESS } from "./access.ts"
+import { AGENT_LOG, AI_BUDGETS, AUTONOMY } from "./agent.ts"
 import { ANALYTICS } from "./analytics.ts"
 import { CHARGEBACKS } from "./chargebacks.ts"
 import { CHAT_PAGES, chatKey, CHATS, type Typing, TYPING_MS, typingAtom } from "./chats.ts"
@@ -67,6 +68,10 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   // Start's queue (M10.1): its refresh says when it changed. A plate is drawn on its row (M10.2).
   queue_item: QUEUE,
   proposal: QUEUE,
+  // Insyte AI (M15 step 6): the rules, the budgets and what agents did.
+  autonomy_policy: AUTONOMY,
+  ai_budget: [...AI_BUDGETS, ...AUTONOMY],
+  agent_action: AGENT_LOG,
   // Cursussen (M17 step 4): a course authored, published or taken; a question asked or answered.
   course: COURSES,
   course_question: COURSES,

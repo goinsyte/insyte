@@ -104,7 +104,10 @@ const graduated = [
   "app/stores/courses-store.ts",
   "app/marketplace/",
   "app/settings/apps-screen.tsx",
-  "app/live/"
+  "app/live/",
+  "app/ai/autonomy-screen.tsx",
+  "app/ai/autonomy-source.tsx",
+  "app/ai/autonomy-demo-source.tsx"
 ]
 
 /**

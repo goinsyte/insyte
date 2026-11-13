@@ -128,7 +128,13 @@ export const TENANT_TABLES = [
   "sheet_shares",
   "sheet_member_state",
   "supplier_statements",
-  "supplier_statement_lines"
+  "supplier_statement_lines",
+  "agents",
+  "autonomy_policies",
+  "autonomy_policy_versions",
+  "agent_actions",
+  "agent_touchpoints",
+  "ai_budgets"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

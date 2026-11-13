@@ -195,8 +195,8 @@ export const AppLayer = Transports.pipe(
       AutomationRunsLive,
       // …and the live rooms (M14 step 3).
       LiveRoomsLive,
-      // …and where one slice's need meets another's use case.
-      SliceLinks,
+      // …and where one slice's need meets another's use case (a filed plate's return label is Sendcloud's).
+      SliceLinks.pipe(Layer.provide(LabelsChoice)),
       // …and a webhook delivery's run, for a test send and a redelivery (M19.4).
       WebhookRunsLive,
       // …and the Marketplace's recipe apps' keys, under the same hasher (M17).
@@ -286,7 +286,7 @@ export const SyncLayer = Layer.mergeAll(
   DocumentsChoice,
   FileStoreR2,
   // Where one slice's need meets another's use case: the mirror's followers, a write-back's read again.
-  SliceLinks,
+  SliceLinks.pipe(Layer.provide(LabelsChoice)),
   // A webhook delivery's attempt (M19.4): the endpoint, over fetch.
   WebhookSenderChoice
 )

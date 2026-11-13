@@ -62,6 +62,11 @@ export const ValidationFailedV1 = envelope("ValidationFailedV1", 400, {
 })
 /** More than the key may refund on one order; `limit_minor` is its limit. */
 export const RefundOverLimitV1 = envelope("RefundOverLimitV1", 422, { limit_minor: Schema.Int })
+/**
+ * An agent's call the workspace's autonomy rules do not allow (M15 step 6, ADR-0027): the action is set to Nooit, or
+ * is outside the catalogue; `reason` says which (`policy`, `unknown`). Nothing happened.
+ */
+export const ActionNotAllowedV1 = envelope("ActionNotAllowedV1", 403, { action: Schema.String, reason: Schema.String })
 /** The `Idempotency-Key` was first used for a different request. */
 export const IdempotencyKeyReusedV1 = envelope("IdempotencyKeyReusedV1", 422, {})
 
@@ -71,6 +76,7 @@ export type ConflictV1 = typeof ConflictV1.Type
 export type ValidationFailedV1 = typeof ValidationFailedV1.Type
 export type RefundOverLimitV1 = typeof RefundOverLimitV1.Type
 export type IdempotencyKeyReusedV1 = typeof IdempotencyKeyReusedV1.Type
+export type ActionNotAllowedV1 = typeof ActionNotAllowedV1.Type
 export type InvalidRequestV1 = typeof InvalidRequestV1.Type
 
 /* ── what a key is ──────────────────────────────────────────────────────────────────────────────── */
@@ -904,12 +910,24 @@ export const ProposalV1 = Schema.Struct({
       "approve_return",
       "approve_quality_check",
       "notify_delayed_order",
-      "create_supplier_ticket"
+      "create_supplier_ticket",
+      "cancel_order",
+      "refund_order",
+      "resolve_return",
+      "forward_orders",
+      "send_return_label",
+      "tag_order",
+      "set_order_note",
+      "create_ticket",
+      "update_ticket",
+      "set_ticket_status",
+      "assign_ticket",
+      "comment_on_ticket"
     ]),
     subject_id: Schema.String
   }).annotate({
     description:
-      "What filing runs, as the key's own call would: approving the return or the check, mailing the shopper of a delayed order the words in `after`, or opening a reorder ticket for a sold-out product."
+      "What filing runs, as the key's own call would: approving the return or the check, mailing the shopper of a delayed order the words in `after`, or opening a reorder ticket for a sold-out product. A plate an agent asked for (its autonomy is Eerst vragen) carries the tool it called, by that tool's name."
   }),
   revision: Schema.Int,
   heading: Schema.String,

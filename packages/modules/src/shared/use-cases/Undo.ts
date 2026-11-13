@@ -2,7 +2,7 @@ import { Conflict, NotFound } from "@insyte/domain/Errors"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
-import { UNDO_SECONDS, type UndoTicket } from "../domain/Undo.ts"
+import { IssuedUndo, UNDO_SECONDS, type UndoTicket } from "../domain/Undo.ts"
 
 /*
  * The undo tokens (ADR-0023; `undo_tokens`): `issue` on the command's transaction, with the compensation and the
@@ -40,9 +40,11 @@ export const issue = Effect.fn("Undo.issue")(function*(
   const principal = yield* CurrentPrincipal
   const token = mint()
   const until = Date.now() + (input.seconds ?? UNDO_SECONDS) * 1000
+  const hash = yield* hashOf(token)
+  ;(yield* IssuedUndo)?.add({ hash, command: input.command })
   yield* sql`insert into undo_tokens (token_hash, workspace_id, principal_id, command, compensation, outbox_ids,
                                       expires_at)
-             values (decode(${yield* hashOf(token)}, 'hex'), ${principal.workspaceId}, ${principal.id},
+             values (decode(${hash}, 'hex'), ${principal.workspaceId}, ${principal.id},
                      ${input.command}, ${JSON.stringify(input.compensation)}::jsonb, ${[
     ...(input.outboxIds ?? [])
   ]}::text[],
@@ -66,14 +68,18 @@ export const redeem = Effect.fn("Undo.redeem")(function*(sql: SqlClient.SqlClien
  * minutes, which hold a ticket command's eight seconds). That window governs, so this token's own lapse does not refuse
  * it, and what it held back and already went (a teammate told they were assigned) stays told; what has not gone yet is
  * still cancelled.
+ *
+ * `owner`: whose token it is, where that is not the caller: a person taking back from the agent log what an agent did
+ * (M15 step 6), whose right to was checked by the log first.
  */
 export const redeemByHash = Effect.fn("Undo.redeemByHash")(function*(
   sql: SqlClient.SqlClient,
   hash: string,
-  options?: { readonly outer?: boolean }
+  options?: { readonly outer?: boolean; readonly owner?: string }
 ) {
   const outer = options?.outer === true
   const principal = yield* CurrentPrincipal
+  const owner = options?.owner ?? principal.id
   const [row] = yield* sql<{
     command: string
     compensation: unknown
@@ -83,7 +89,7 @@ export const redeemByHash = Effect.fn("Undo.redeemByHash")(function*(
   }>`
     select command, compensation, outbox_ids, used_at is not null as used, expires_at < now() as lapsed
     from undo_tokens
-    where token_hash = decode(${hash}, 'hex') and principal_id = ${principal.id}
+    where token_hash = decode(${hash}, 'hex') and principal_id = ${owner}
     for update`
   if (row === undefined) return yield* new NotFound({ entity: "undo", id: "token" })
   if (row.used) return yield* new Conflict({ entity: "undo", reason: "used" })

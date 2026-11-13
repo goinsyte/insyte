@@ -1,4 +1,5 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { AgentRpcs } from "@insyte/api/rpc/AgentRpcs"
 import { AnalyticsRpcs } from "@insyte/api/rpc/AnalyticsRpcs"
 import { AuditRpcs } from "@insyte/api/rpc/AuditRpcs"
 import { AutomationsRpcs } from "@insyte/api/rpc/AutomationsRpcs"
@@ -530,7 +531,20 @@ const PAYLOADS: Record<string, unknown> = {
   "Live.subscribe": { tab: "authz-tab-0001" },
   "Live.unsubscribe": { tab: "authz-tab-0001" },
   "Live.pixels": undefined,
-  "Live.installPixel": { storeId: "store_none" }
+  "Live.installPixel": { storeId: "store_none" },
+  // Insyte AI (M15 step 6): read by every member; a save on a version that is not current is refused as stale (or,
+  // for budgets, a person not in the team), and taking back an action that does not exist is `NotFound`.
+  "Autonomy.get": {},
+  "Autonomy.set": { levels: {}, baseVersion: -1 },
+  "Autonomy.resetDefaults": { baseVersion: -1 },
+  "AiBudget.get": undefined,
+  "AiBudget.setMany": { entries: [{ scope: "mem_none", limit: 10 }] },
+  "AgentLog.list": {},
+  "AgentLog.counts": undefined,
+  "AgentLog.get": { id: "aga_none" },
+  "AgentLog.undo": { id: "aga_none" },
+  "AgentLog.redo": { id: "aga_none" },
+  "AgentLog.compensate": { id: "aga_none" }
 }
 
 const manifest = [
@@ -569,7 +583,8 @@ const manifest = [
   ...TrashRpcs.requests.keys(),
   ...SettingsDepthRpcs.requests.keys(),
   ...MarketplaceRpcs.requests.keys(),
-  ...LiveRpcs.requests.keys()
+  ...LiveRpcs.requests.keys(),
+  ...AgentRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {
