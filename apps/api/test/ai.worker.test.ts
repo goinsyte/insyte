@@ -2,6 +2,7 @@ import { AiModel } from "@insyte/modules/ai/domain/Ai"
 import { ConfigProvider, Context, Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import { services } from "../src/platform/AiLive.ts"
+import { aiMode } from "../src/platform/AiSettings.ts"
 import { failure, join, ok, pastUndo, person, relay, run } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc, sessionMe } from "./support.ts"
@@ -21,9 +22,9 @@ const aiOf = async (workspace: string) =>
     openReservations: number
   }
 
-const callsOf = async (workspace: string, subjectId: string, purpose?: string) =>
+const callsOf = async (workspace: string, subjectId: string, only?: string) =>
   (await aiOf(workspace)).calls
-    .filter((c) => c.subjectId === subjectId && (purpose === undefined || c.purpose === purpose))
+    .filter((c) => c.subjectId === subjectId && (only === undefined || c.purpose === only))
     .map(({ purpose, prompt, provider, outcome }) => ({ purpose, prompt, provider, outcome }))
 
 const until = async <A>(read: () => Promise<A>, done: (a: A) => boolean) => {
@@ -126,6 +127,10 @@ describe("Insyte AI drafts", () => {
     ok(await rpc("AiBudget.setMany", { entries: [{ scope: "workspace", limit: null }] }, owner))
   })
 
+  it("says Insyte AI is switched on where the stage has a model", async () => {
+    expect(ok(await rpc("Drafts.status", undefined, owner))).toEqual({ enabled: true })
+  })
+
   it("says the knowledge base has nothing to write from yet", async () => {
     expect(ok(await rpc("Drafts.knowledgeAnswer", {}, owner))).toEqual({ _tag: "Nothing", reason: "no_knowledge" })
   })
@@ -218,15 +223,18 @@ describe("a draft outside the person's stores", () => {
   }, 120_000)
 })
 
-describe("the stage's model", () => {
-  const modelOf = (vars: Record<string, string>) =>
-    Effect.runPromise(
-      services.pipe(
-        Effect.map((context) => Context.get(context, AiModel)),
-        Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(vars)))
-      )
-    )
+const modeOf = (vars: Record<string, string>) =>
+  Effect.runPromise(aiMode.pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(vars)))))
 
+const modelOf = (vars: Record<string, string>) =>
+  Effect.runPromise(
+    services.pipe(
+      Effect.map((context) => Context.get(context, AiModel)),
+      Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(vars)))
+    )
+  )
+
+describe("the stage's model", () => {
   it("is the fake only where it is asked for, Claude with all its settings, and none otherwise", async () => {
     expect(await modelOf({ AI_ADAPTER: "fake", ANTHROPIC_API_KEY: "sk-real" })).toMatchObject({
       provider: "fake",
@@ -237,5 +245,14 @@ describe("the stage's model", () => {
     expect(
       await modelOf({ ANTHROPIC_API_KEY: "sk-test", AI_GATEWAY_ID: "insyte", AI_ACCOUNT_ID: "acc" })
     ).toMatchObject({ provider: "anthropic", ready: true })
+  })
+
+  it("is off, as `Drafts.status` says, wherever `services` has no model", async () => {
+    expect(await modeOf({})).toBe("off")
+    expect(await modeOf({ AI_GATEWAY_ID: "insyte", AI_ACCOUNT_ID: "acc" })).toBe("off")
+    expect(await modeOf({ ANTHROPIC_API_KEY: "", AI_GATEWAY_ID: "insyte", AI_ACCOUNT_ID: "acc" })).toBe("off")
+    expect(await modeOf({ AI_ADAPTER: "fake" })).toBe("fake")
+    expect(await modeOf({ ANTHROPIC_API_KEY: "sk-test", AI_GATEWAY_ID: "insyte", AI_ACCOUNT_ID: "acc" }))
+      .toBe("anthropic")
   })
 })

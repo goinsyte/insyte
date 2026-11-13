@@ -1,15 +1,17 @@
 import { DraftsRpcs } from "@insyte/api/rpc/DraftsRpcs"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
-import { AiRateLimited } from "@insyte/modules/ai/domain/Ai"
+import { AiRateLimited, AiStatus } from "@insyte/modules/ai/domain/Ai"
 import { Effect } from "effect"
 import { withAi } from "../../../platform/Ai.ts"
+import { aiMode } from "../../../platform/AiSettings.ts"
 import { RateLimits } from "../../../platform/RateLimits.ts"
 
 /*
  * Insyte AI's drafts (M15 step 2). The slice and `effect/ai` load with the first of these calls (`withAi`), not with
  * the RPC layer: no other RPC waits on them or fails with them. A call that asks the model is limited per person and
  * per workspace (the `RateLimiter` Durable Object, fixed windows of a minute), on top of the month's budget: a tab
- * left open on a busy inbox cannot spend a month in an afternoon.
+ * left open on a busy inbox cannot spend a month in an afternoon. `Drafts.status` reads only the stage's settings: the
+ * console asks it before it offers anything, and it loads nothing.
  */
 
 /** Model calls a minute: one person's, and the whole workspace's. */
@@ -30,6 +32,11 @@ export const DraftsHandlers = DraftsRpcs.toLayer(Effect.gen(function*() {
     }
   })
   return DraftsRpcs.of({
+    "Drafts.status": () =>
+      aiMode.pipe(
+        Effect.map((mode) => new AiStatus({ enabled: mode !== "off" })),
+        Effect.orDie
+      ),
     "Drafts.reply": (input) =>
       Effect.andThen(limited, withAi((ai) => Effect.flatMap(ai.drafts, (d) => d.reply(input)))),
     "Drafts.use": ({ id }) => withAi((ai) => Effect.flatMap(ai.drafts, (d) => d.use(id))),

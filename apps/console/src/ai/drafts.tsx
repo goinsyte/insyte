@@ -6,7 +6,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { useEffect, useMemo, useRef } from "react"
 import { toast } from "sonner"
-import { DRAFTS, draftWrites, latestDraftAtom } from "../data/drafts.ts"
+import { aiStatusAtom, DRAFTS, draftWrites, latestDraftAtom } from "../data/drafts.ts"
 import { TICKETS } from "../data/tickets.ts"
 import { failureOf, sayRefusal } from "../frame/refusals.ts"
 
@@ -14,10 +14,24 @@ import { failureOf, sayRefusal } from "../frame/refusals.ts"
  * Insyte AI in the console's inbox and tickets (M15 step 2; ADR-0027): Insyte writes, a person reads, edits and sends.
  * A thread the customer wrote last gets its draft when it is opened, once; Warmer and Korter rewrite it; "Concept
  * gebruiken" counts it taken. A spent budget and a model that did not answer are said here, in Dutch; the screen keeps
- * what it had.
+ * what it had. On a stage where Insyte AI is not switched on (`Drafts.status`), nothing is asked of the server: the
+ * inbox shows no draft card, and the ticket's AI actions say that it is not switched on yet.
  */
 
 const NO_DRAFT = Atom.make(AsyncResult.initial<never, never>())
+
+/** Insyte AI is not switched on for this stage: said as a state, not an error. */
+const sayNotEnabled = () =>
+  void toast.message("Insyte AI is nog niet ingeschakeld", {
+    description:
+      "Concepten en samenvattingen komen er zodra Insyte AI is ingeschakeld. Schrijf het antwoord tot dan zelf."
+  })
+
+/** Whether Insyte AI is switched on; `undefined` while that is being read. */
+export function useAiEnabled(): boolean | undefined {
+  const status = Option.getOrUndefined(AsyncResult.value(useAtomValue(aiStatusAtom)))
+  return status?.enabled
+}
 
 /** Why Insyte wrote nothing, said once. */
 const sayAiRefusal = (error: unknown) => {
@@ -38,11 +52,10 @@ const sayAiRefusal = (error: unknown) => {
         } seconden weer. Probeer het dan nog eens.`
       })
     case "ModelUnavailable":
+      if (tagged["reason"] === "unconfigured") return sayNotEnabled()
       return void toast.error("Concept niet beschikbaar", {
         description: tagged["reason"] === "refused"
           ? "Insyte schrijft hier geen tekst voor. Schrijf het antwoord zelf."
-          : tagged["reason"] === "unconfigured"
-          ? "Insyte AI is hier nog niet ingesteld. Schrijf het antwoord zelf."
           : tagged["reason"] === "busy"
           ? "Insyte schrijft dit concept al. Het staat zo klaar."
           : "Insyte kon nu geen tekst schrijven. Probeer het zo nog eens of schrijf het zelf."
@@ -58,7 +71,8 @@ export function useInboxDrafts(): InboxDrafts {
 }
 
 function useThreadDraft(t: InboxThread | null): ThreadDraft | undefined {
-  const latest = useAtomValue(t === null ? NO_DRAFT : latestDraftAtom(`thread:${t.id}`))
+  const enabled = useAiEnabled()
+  const latest = useAtomValue(t === null || enabled !== true ? NO_DRAFT : latestDraftAtom(`thread:${t.id}`))
   const reply = useAtomSet(draftWrites.reply, { mode: "promiseExit" })
   const use = useAtomSet(draftWrites.use, { mode: "promiseExit" })
   const asked = useRef(new Set<string>())
@@ -109,10 +123,15 @@ function useThreadDraft(t: InboxThread | null): ThreadDraft | undefined {
 
 /** Samenvatten and Antwoord voorstellen (AI) on a ticket, over `Drafts.*`. */
 export function useTicketDrafts(): TicketDrafts {
+  const enabled = useAiEnabled()
   const reply = useAtomSet(draftWrites.reply, { mode: "promiseExit" })
   const summarize = useAtomSet(draftWrites.summarizeTicket, { mode: "promiseExit" })
   return useMemo(() => ({
     summarize: async (ticketId) => {
+      if (enabled === false) {
+        sayNotEnabled()
+        return false
+      }
       const exit = await summarize({ payload: { ticketId }, reactivityKeys: [...TICKETS, ...DRAFTS] })
       if (Exit.isFailure(exit)) {
         sayAiRefusal(failureOf(exit))
@@ -121,9 +140,10 @@ export function useTicketDrafts(): TicketDrafts {
       return true
     },
     suggestReply: async (ticketId) => {
+      if (enabled === false) return void sayNotEnabled()
       const exit = await reply({ payload: { subject: { type: "ticket", id: ticketId } }, reactivityKeys: [...DRAFTS] })
       if (Exit.isFailure(exit)) return void sayAiRefusal(failureOf(exit))
       return exit.value.text
     }
-  }), [reply, summarize])
+  }), [enabled, reply, summarize])
 }

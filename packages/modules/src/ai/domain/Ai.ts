@@ -159,6 +159,14 @@ export const TicketIdInput = Schema.Struct({ ticketId: Schema.String })
 export const ThreadIdInput = Schema.Struct({ threadId: Schema.String })
 
 /** The thread's or the ticket's latest reply draft, when it is still about the last thing the customer wrote. */
+/**
+ * Whether Insyte AI is switched on for this stage: a model is set up (or the local fake asked for by name). Off, the
+ * console says so where drafts and summaries would be, and no call is made.
+ */
+export class AiStatus extends Schema.Class<AiStatus>("ai/AiStatus")({
+  enabled: Schema.Boolean
+}) {}
+
 export class LatestDraft extends Schema.Class<LatestDraft>("ai/LatestDraft")({
   draft: Schema.NullOr(Draft),
   /** Whether a new one may be asked for here: the role may, there is something to answer, and a model is ready. */

@@ -190,9 +190,10 @@ export default Alchemy.Stack(
     /*
      * Insyte AI (M15 step 1, ADR-0015): Claude through the account's AI Gateway, which is made by hand per stage in the
      * dashboard with payload logging off. The Anthropic key (a secret) and the gateway's name (a variable) in the
-     * GitHub environment; the gateway's token too where it is an authenticated one. Without the key and the gateway a
-     * stage has no model and offers no drafts. Previews never call a model. Production does not deploy without them,
-     * and no stage deploys with only some of them: a stage that silently had no model would look broken.
+     * GitHub environment; the gateway's token too where it is an authenticated one. With none of them a stage deploys
+     * with Insyte AI off: no model is called and the console says it is not switched on yet. Previews never call a
+     * model. No stage deploys with only some of them: a stage meant to have a model that silently had none would look
+     * switched off by mistake.
      */
     const anthropicKey = Option.filter(yield* Config.Redacted("ANTHROPIC_API_KEY").pipe(Config.option), set)
     const gatewayId = yield* Config.String("AI_GATEWAY_ID").pipe(Config.withDefault(""))
@@ -206,17 +207,12 @@ export default Alchemy.Stack(
         ...(Option.isSome(gatewayToken) ? { AI_GATEWAY_TOKEN: gatewayToken.value } : {})
       }
       : {}
-    const someAi = Option.isSome(anthropicKey) || gatewayId !== ""
+    const someAi = Option.isSome(anthropicKey) || gatewayId !== "" || Option.isSome(gatewayToken)
     if (environment !== "preview" && someAi && Object.keys(ai).length === 0) {
       return yield* Effect.die(
         new Error(
           `Insyte AI is half set up on ${stage}: ANTHROPIC_API_KEY, AI_GATEWAY_ID and CLOUDFLARE_ACCOUNT_ID go together`
         )
-      )
-    }
-    if (environment === "production" && Object.keys(ai).length === 0) {
-      return yield* Effect.die(
-        new Error("Insyte AI is not set up for production: set ANTHROPIC_API_KEY and AI_GATEWAY_ID in its environment")
       )
     }
 

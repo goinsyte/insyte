@@ -18,6 +18,9 @@ export const latestDraftAtom = Atom.family((key: string) => {
   })
 })
 
+/** Whether Insyte AI is switched on for this stage; it changes only with a deploy. */
+export const aiStatusAtom = ConsoleClient.query("Drafts.status", undefined).pipe(Atom.keepAlive)
+
 export const draftWrites = {
   reply: ConsoleClient.mutation("Drafts.reply"),
   use: ConsoleClient.mutation("Drafts.use"),
