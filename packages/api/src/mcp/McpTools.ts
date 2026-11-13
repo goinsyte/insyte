@@ -3,6 +3,7 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import {
+  AnalyticsOverviewV1,
   AutomationDetailV1,
   AutomationPageV1,
   AutomationRunPageV1,
@@ -258,6 +259,18 @@ export const RerouteLeg = Tool.make("reroute_leg", {
 const ReturnId = Schema.String.annotate({ description: "The return's id (ret_…), as list_returns gives it." })
 const ResolutionKind = Schema.Literals(["refund", "exchange", "gift_card", "replacement", "discount"])
 const ReturnMoveFailure = WriteFailure
+
+export const GetAnalyticsOverview = Tool.make("get_analytics_overview", {
+  description:
+    "Analyse: month a against month b (YYYY-MM), both cut to the shorter one's days (a month under way runs to today), in six figures: counted revenue (minor units in the workspace's currency, each day at its exchange rate), paid orders, on time (% of orders delivered), refunded (% of orders placed with a refund since), disputes (not kept yet: available false) and hours to done for tickets. Each figure says which rows it sums and how many. Needs analytics.read.",
+  parameters: Schema.Struct({
+    a: Schema.String.annotate({ description: "The month read, YYYY-MM." }),
+    b: Schema.String.annotate({ description: "The month it is compared with, YYYY-MM." })
+  }),
+  success: AnalyticsOverviewV1,
+  failure: Schema.Union([ScopeMissingV1, InvalidRequestV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
 
 export const ListQueue = Tool.make("list_queue", {
   description:
@@ -612,6 +625,7 @@ export const InsyteTools = Toolkit.make(
   ListForwarding,
   ForwardOrders,
   RerouteLeg,
+  GetAnalyticsOverview,
   ListQueue,
   GetProposal,
   FileProposal,

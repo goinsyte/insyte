@@ -54,6 +54,7 @@ import trash from "./migrations/0060_trash.ts"
 import settingsDepth from "./migrations/0061_settings_depth.ts"
 import evidencePacks from "./migrations/0062_evidence_packs.ts"
 import webhooks from "./migrations/0063_webhooks.ts"
+import ticketFacts from "./migrations/0064_ticket_facts.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
 /**
@@ -117,5 +118,6 @@ export const Migrations = {
   "0060_trash": trash,
   "0061_settings_depth": settingsDepth,
   "0062_evidence_packs": evidencePacks,
-  "0063_webhooks": webhooks
+  "0063_webhooks": webhooks,
+  "0064_ticket_facts": ticketFacts
 }

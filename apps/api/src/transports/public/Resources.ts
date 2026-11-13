@@ -14,6 +14,8 @@ import { Conflict, type Forbidden } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
 import { isSpecial, type Permission, scopesOf } from "@insyte/domain/Permissions"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
+import { AnalyticsService } from "@insyte/modules/analytics/Analytics"
+import type { AnalyticsOverview } from "@insyte/modules/analytics/domain/Analytics"
 import { AutomationsService } from "@insyte/modules/automations/Automations"
 import type { AutomationRow, AutomationStatus } from "@insyte/modules/automations/domain/Automations"
 import type { RunDetail, RunRow, RunStatus } from "@insyte/modules/automations/domain/Runs"
@@ -511,6 +513,33 @@ const badQuery = (field: string, message: string) =>
 
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
 
+/** Analyse's overview in the public shape. */
+const overviewV1 = (o: AnalyticsOverview) => {
+  const span = (x: AnalyticsOverview["A"]) => ({
+    month: x.month,
+    from: x.from,
+    to: x.to,
+    days: x.days,
+    in_progress: x.inProgress
+  })
+  return {
+    currency: o.currency,
+    a: span(o.A),
+    b: span(o.B),
+    figures: o.figures.map((f) => ({
+      id: f.id,
+      a: f.a,
+      b: f.b,
+      available: f.available,
+      basis: { rows: f.basis.rows, by: f.basis.by, a_count: f.basis.a, b_count: f.basis.b }
+    })),
+    orders_total: o.basis.orders,
+    tickets_total: o.basis.tickets,
+    first_order_day: o.basis.since,
+    unconverted: o.unconverted
+  }
+}
+
 const make = Effect.gen(function*() {
   const members = yield* Members
   const roles = yield* RolesService
@@ -529,6 +558,7 @@ const make = Effect.gen(function*() {
   const proposals = yield* ProposalsService
   const chargebacks = yield* ChargebacksService
   const costs = yield* CostsService
+  const analytics = yield* AnalyticsService
   return {
     chargebacks: (query: {
       readonly tab?: ChargebackTab | undefined
@@ -599,6 +629,23 @@ const make = Effect.gen(function*() {
         Effect.catchTag("Forbidden", scopeMissing)
       )
     },
+    analyticsOverview: (a: string, b: string) =>
+      analytics.overview({ a, b }).pipe(
+        Effect.map(overviewV1),
+        Effect.catchTags({
+          Forbidden: scopeMissing,
+          Invalid: () =>
+            Effect.flatMap(CurrentApiKey, (key) =>
+              Effect.fail<InvalidRequestV1>({
+                error: {
+                  code: "InvalidRequestV1",
+                  message: "Both months must have begun.",
+                  request_id: key.requestId,
+                  field: "a"
+                }
+              }))
+        })
+      ),
     queue: (tab?: "needs_you" | "drawn" | "all") =>
       queue.list(tab === undefined ? {} : { tab }).pipe(
         Effect.map((list) => ({
@@ -1229,6 +1276,7 @@ export class Resources extends Context.Service<Resources, Effect.Success<typeof 
         TicketsService.layer,
         AutomationsService.layer,
         RunsService.layer,
+        AnalyticsService.layer,
         QueueService.layer,
         ProposalsService.layer,
         ChargebacksService.layer,

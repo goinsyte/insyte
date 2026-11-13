@@ -1,4 +1,5 @@
 import { AccessRpcs } from "./rpc/AccessRpcs.ts"
+import { AnalyticsRpcs } from "./rpc/AnalyticsRpcs.ts"
 import { AuditRpcs } from "./rpc/AuditRpcs.ts"
 import { AutomationsRpcs } from "./rpc/AutomationsRpcs.ts"
 import { ChargebacksRpcs } from "./rpc/ChargebacksRpcs.ts"
@@ -67,6 +68,7 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(QualityLinkRpcs)
   .merge(QueueRpcs)
   .merge(HomeRpcs)
+  .merge(AnalyticsRpcs)
   .merge(ProposalsRpcs)
   .merge(WorkspacesRpcs)
   .merge(ChatsRpcs)

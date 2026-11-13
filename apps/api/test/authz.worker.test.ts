@@ -1,4 +1,5 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { AnalyticsRpcs } from "@insyte/api/rpc/AnalyticsRpcs"
 import { AuditRpcs } from "@insyte/api/rpc/AuditRpcs"
 import { AutomationsRpcs } from "@insyte/api/rpc/AutomationsRpcs"
 import { ChargebacksRpcs } from "@insyte/api/rpc/ChargebacksRpcs"
@@ -312,6 +313,13 @@ const PAYLOADS: Record<string, unknown> = {
   "Home.work": {},
   "Home.agenda": { from: "2026-11-11", span: "week" },
   "Home.activity": {},
+  // Analyse (M14 step 2): Analyse · Bekijken; the service role has none. A month far back reads zeros.
+  "Analytics.periods": undefined,
+  "Analytics.overview": { a: "2026-01", b: "2025-12" },
+  "Analytics.charts": { a: "2026-01", b: "2025-12" },
+  "Analytics.findings": { a: "2026-01", b: "2025-12" },
+  "Analytics.explain": { a: "2026-01", b: "2025-12", key: { _tag: "paid_orders" } },
+  "Analytics.records": { explainKey: { a: "2026-01", b: "2025-12", key: { _tag: "paid_orders" } } },
   "Proposals.get": { id: "prp_none" },
   "Proposals.file": { id: "prp_none" },
   "Proposals.discard": { id: "prp_none" },
@@ -466,6 +474,7 @@ const manifest = [
   ...QualityRpcs.requests.keys(),
   ...QueueRpcs.requests.keys(),
   ...HomeRpcs.requests.keys(),
+  ...AnalyticsRpcs.requests.keys(),
   ...ProposalsRpcs.requests.keys(),
   ...WorkspacesRpcs.requests.keys(),
   ...ChatsRpcs.requests.keys(),

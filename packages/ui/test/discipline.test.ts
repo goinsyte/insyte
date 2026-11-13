@@ -80,6 +80,7 @@ const graduated = [
   "app/settings/trash-demo-source.tsx",
   "app/lib/home/day.ts",
   "app/lib/home/kinds.ts",
+  "app/analytics/",
   "app/chats/",
   "app/inbox/",
   "app/chargebacks/",

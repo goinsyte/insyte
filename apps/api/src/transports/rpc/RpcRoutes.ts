@@ -1,5 +1,6 @@
 import { ConsoleRpcs, RPC_PATH } from "@insyte/api/ConsoleRpcs"
 import { Access } from "@insyte/modules/access/Access"
+import { AnalyticsService } from "@insyte/modules/analytics/Analytics"
 import { AuditService } from "@insyte/modules/audit/Audit"
 import { AutomationsService } from "@insyte/modules/automations/Automations"
 import { RunsService } from "@insyte/modules/automations/Runs"
@@ -40,6 +41,7 @@ import { WorkspaceSettings } from "@insyte/modules/workspaces/WorkspaceSettings"
 import { Layer } from "effect"
 import { RpcSerialization } from "effect/rpc"
 import { AccessHandlers } from "./handlers/access.ts"
+import { AnalyticsHandlers } from "./handlers/analytics.ts"
 import { AuditHandlers } from "./handlers/audit.ts"
 import { AutomationsHandlers } from "./handlers/automations.ts"
 import { ChargebacksHandlers } from "./handlers/chargebacks.ts"
@@ -117,6 +119,7 @@ export const RpcContext = Layer.mergeAll(
   ThreadsHandlers.pipe(Layer.provide(InboxService.layer)),
   QueueHandlers.pipe(Layer.provide(QueueService.layer)),
   HomeHandlers.pipe(Layer.provide(HomeService.layer)),
+  AnalyticsHandlers.pipe(Layer.provide(AnalyticsService.layer)),
   ProposalsHandlers.pipe(Layer.provide(ProposalsService.layer)),
   ChatsHandlers.pipe(Layer.provide(Layer.mergeAll(ChatsService.layer, UndoService.layer))),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),

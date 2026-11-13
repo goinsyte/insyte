@@ -64,7 +64,6 @@
     "packages/ui/src/app/affiliate/",
     "packages/ui/src/app/affiliates/",
     "packages/ui/src/app/ai/",
-    "packages/ui/src/app/analytics/",
     "packages/ui/src/app/app.css",
     "packages/ui/src/app/ask/",
     "packages/ui/src/app/auth/invitation-screen.tsx",

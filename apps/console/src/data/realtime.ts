@@ -3,6 +3,7 @@ import { Effect, Option, Schedule, Schema } from "effect"
 import { Reactivity } from "effect/reactivity"
 import { Socket } from "effect/socket"
 import { ACCESS } from "./access.ts"
+import { ANALYTICS } from "./analytics.ts"
 import { CHARGEBACKS } from "./chargebacks.ts"
 import { CHAT_PAGES, chatKey, CHATS, type Typing, TYPING_MS, typingAtom } from "./chats.ts"
 import { ConsoleClient } from "./client.ts"
@@ -69,6 +70,8 @@ for (const kind of ["order", "store"]) REFETCH[kind] = [...(REFETCH[kind] ?? [])
 for (const kind of ["order", "ticket", "return", "product", "store", "member", "queue_item", "chargeback"]) {
   REFETCH[kind] = [...(REFETCH[kind] ?? []), ...HOME]
 }
+// Analyse (M14 step 2) sums orders and tickets, inside the role's stores.
+for (const kind of ["order", "ticket", "store"]) REFETCH[kind] = [...(REFETCH[kind] ?? []), ...ANALYTICS]
 const EVERYTHING = [...new Set([...Object.values(REFETCH).flat(), ...CHATS, ...CHAT_PAGES])]
 
 const decodeFrame = Schema.decodeUnknownOption(Schema.fromJsonString(Frame))

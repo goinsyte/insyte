@@ -91,6 +91,8 @@
     // Graduated (08 §3): the day's kinds and the demo's day, split for Mijn werk, Agenda and Activiteit (12.3b).
     "!packages/ui/src/app/lib/home/day.ts",
     "!packages/ui/src/app/lib/home/kinds.ts",
+    // Graduated (08 §3): Analyse, wired to Analytics.* in M14 (step 16.2).
+    "!packages/ui/src/app/analytics/**",
     // Graduated (08 §3): Chats, wired to Chats.* in M11 (step 13.4b).
     "!packages/ui/src/app/chats/**",
     // Graduated (08 §3): the Inbox, wired to Threads.* and Mailboxes.* in M11 (step 13.2b).
