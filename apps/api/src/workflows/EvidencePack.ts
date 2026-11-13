@@ -4,6 +4,7 @@ import { failPack, finishPack, gatherDocument, planPack } from "@insyte/modules/
 import type { DocumentKind } from "@insyte/modules/chargebacks/domain/Pack"
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers"
 import { Cause, Effect, Exit } from "effect"
+import { withAi } from "../platform/Ai.ts"
 import { syncRuntime as runtime } from "../platform/Ingest.ts"
 import { Telemetry } from "../platform/Observability.ts"
 import { withRequestDb } from "../platform/RequestDb.ts"
@@ -49,13 +50,7 @@ export class EvidencePackWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Evi
       await step.do(
         "narrative",
         { retries: { limit: 0, delay: "1 second" }, timeout: "2 minutes" },
-        () =>
-          run(
-            workspaceId,
-            Effect.promise(() => import("@insyte/modules/ai/Ai")).pipe(
-              Effect.flatMap((ai) => ai.writeNarrative(chargebackId, runId))
-            )
-          ).catch(() => "kept" as const)
+        () => run(workspaceId, withAi((ai) => ai.writeNarrative(chargebackId, runId))).catch(() => "kept" as const)
       )
       for (const [i, kind] of kinds.entries()) {
         await step.do(`document:${kind}`, RETRY, () => run(workspaceId, gatherDocument(chargebackId, runId, kind)))

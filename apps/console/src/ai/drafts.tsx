@@ -31,10 +31,20 @@ const sayAiRefusal = (error: unknown) => {
             tagged["limit"]
           } voor de werkruimte is bereikt. Een beheerder kan hem verhogen bij Limieten.`
       })
+    case "AiRateLimited":
+      return void toast.error("Even te veel tegelijk", {
+        description: `Insyte schrijft over ${
+          Math.max(1, Number(tagged["retryAfterSeconds"]) || 1)
+        } seconden weer. Probeer het dan nog eens.`
+      })
     case "ModelUnavailable":
       return void toast.error("Concept niet beschikbaar", {
         description: tagged["reason"] === "refused"
           ? "Insyte schrijft hier geen tekst voor. Schrijf het antwoord zelf."
+          : tagged["reason"] === "unconfigured"
+          ? "Insyte AI is hier nog niet ingesteld. Schrijf het antwoord zelf."
+          : tagged["reason"] === "busy"
+          ? "Insyte schrijft dit concept al. Het staat zo klaar."
           : "Insyte kon nu geen tekst schrijven. Probeer het zo nog eens of schrijf het zelf."
       })
     default:
@@ -56,17 +66,19 @@ function useThreadDraft(t: InboxThread | null): ThreadDraft | undefined {
     | { readonly draft: Draft | null; readonly canDraft: boolean }
     | undefined
 
-  // A thread the customer wrote last and Insyte has no draft for yet: one is asked for, once per thread and visit.
+  // A thread the customer wrote last and Insyte has no draft for yet: one is asked for, once per thread and visit. The
+  // server writes one per last message however many tabs ask, and waits a while after a failed one.
   const id = t?.id
   const missing = current !== undefined && current.draft === null && current.canDraft
   useEffect(() => {
     if (id === undefined || !missing || asked.current.has(id)) return
     asked.current.add(id)
     void reply({ payload: { subject: { type: "thread", id } }, reactivityKeys: [...DRAFTS] }).then((exit) => {
-      // A spent budget or a model away leaves the card out; the person writes the answer themselves.
+      // A spent budget, a full minute or a model away leaves the card out; the person writes the answer themselves.
       if (Exit.isFailure(exit)) {
         const error = failureOf(exit) as { _tag?: string }
-        if (error._tag !== "BudgetExceeded" && error._tag !== "ModelUnavailable") sayAiRefusal(error)
+        const quiet = ["BudgetExceeded", "AiRateLimited", "ModelUnavailable"]
+        if (!quiet.includes(error._tag ?? "")) sayAiRefusal(error)
       }
     })
   }, [id, missing, reply])

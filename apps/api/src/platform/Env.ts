@@ -71,8 +71,10 @@ declare global {
       readonly SLACK_ADAPTER?: string
       /**
        * Insyte AI (M15 step 1): Claude through the stage's AI Gateway (account, gateway, the Anthropic key, the
-       * gateway's token where it is authenticated). Without the first three, the fake answers.
+       * gateway's token where it is authenticated). Without the first three there is no model. `AI_ADAPTER=fake`
+       * (local runs and the worker tests) answers with the fake whatever keys are set.
        */
+      readonly AI_ADAPTER?: string
       readonly ANTHROPIC_API_KEY?: string
       readonly AI_GATEWAY_ID?: string
       readonly AI_ACCOUNT_ID?: string

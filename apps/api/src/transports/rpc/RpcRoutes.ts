@@ -43,7 +43,7 @@ import { TrashService } from "@insyte/modules/trash/Trash"
 import { UndoService } from "@insyte/modules/undo/Undo"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { WorkspaceSettings } from "@insyte/modules/workspaces/WorkspaceSettings"
-import { Effect, Layer } from "effect"
+import { Layer } from "effect"
 import { RpcSerialization } from "effect/rpc"
 import { AccessHandlers } from "./handlers/access.ts"
 import { AgentHandlers } from "./handlers/agent.ts"
@@ -56,6 +56,7 @@ import { CommerceHandlers } from "./handlers/commerce.ts"
 import { CostsHandlers } from "./handlers/costs.ts"
 import { CoursesHandlers } from "./handlers/courses.ts"
 import { DeveloperHandlers } from "./handlers/developer.ts"
+import { DraftsHandlers } from "./handlers/drafts.ts"
 import { FirstAnalysisHandlers } from "./handlers/first-analysis.ts"
 import { ForwardingHandlers } from "./handlers/forwarding.ts"
 import { HomeHandlers } from "./handlers/home.ts"
@@ -134,9 +135,9 @@ export const RpcContext = Layer.mergeAll(
   AgentHandlers.pipe(
     Layer.provide(Layer.mergeAll(AutonomyService.layer, AiBudgetService.layer, AgentLogService.layer))
   ),
-  // Insyte AI's drafts and summaries (M15 step 2), over the stage's model (`platform/AiLive.ts`): imported when the
-  // layer is built, not when the Worker starts, so `effect/ai` is no part of its startup (ADR-0041 §3).
-  Layer.unwrap(Effect.promise(() => import("./handlers/drafts.ts")).pipe(Effect.map((drafts) => drafts.DraftsLive))),
+  // Insyte AI's drafts and summaries (M15 step 2): the slice and `effect/ai` load with the first AI call
+  // (`platform/Ai.ts`), never with this layer, so no other RPC waits on them or fails with them (ADR-0041 §3).
+  DraftsHandlers,
   ChatsHandlers.pipe(Layer.provide(Layer.mergeAll(ChatsService.layer, UndoService.layer))),
   SheetsHandlers.pipe(Layer.provide(SheetsService.layer)),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),

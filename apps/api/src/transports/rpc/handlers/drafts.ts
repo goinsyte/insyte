@@ -1,19 +1,43 @@
 import { DraftsRpcs } from "@insyte/api/rpc/DraftsRpcs"
-import { DraftsService } from "@insyte/modules/ai/Ai"
-import { Effect, Layer } from "effect"
-import { AiChoice } from "../../../platform/AiLive.ts"
+import { CurrentPrincipal } from "@insyte/domain/Principal"
+import { AiRateLimited } from "@insyte/modules/ai/domain/Ai"
+import { Effect } from "effect"
+import { withAi } from "../../../platform/Ai.ts"
+import { RateLimits } from "../../../platform/RateLimits.ts"
 
-const DraftsHandlers = DraftsRpcs.toLayer(Effect.gen(function*() {
-  const drafts = yield* DraftsService
+/*
+ * Insyte AI's drafts (M15 step 2). The slice and `effect/ai` load with the first of these calls (`withAi`), not with
+ * the RPC layer: no other RPC waits on them or fails with them. A call that asks the model is limited per person and
+ * per workspace (the `RateLimiter` Durable Object, fixed windows of a minute), on top of the month's budget: a tab
+ * left open on a busy inbox cannot spend a month in an afternoon.
+ */
+
+/** Model calls a minute: one person's, and the whole workspace's. */
+const AI_CALLS_PER_MINUTE = { member: 20, workspace: 60 } as const
+
+export const DraftsHandlers = DraftsRpcs.toLayer(Effect.gen(function*() {
+  const limits = yield* RateLimits
+  const limited = Effect.gen(function*() {
+    const p = yield* CurrentPrincipal
+    for (
+      const [key, limit] of [
+        [`ai:${p.workspaceId}:${p.id}`, AI_CALLS_PER_MINUTE.member],
+        [`ai:${p.workspaceId}`, AI_CALLS_PER_MINUTE.workspace]
+      ] as const
+    ) {
+      const taken = yield* limits.take(key, "model_calls", limit, 60)
+      if (!taken.ok) return yield* new AiRateLimited({ retryAfterSeconds: taken.retryAfterSeconds })
+    }
+  })
   return DraftsRpcs.of({
-    "Drafts.reply": (input) => drafts.reply(input),
-    "Drafts.use": ({ id }) => drafts.use(id),
-    "Drafts.forSubject": ({ subject }) => drafts.forSubject(subject),
-    "Drafts.summarizeTicket": ({ ticketId }) => drafts.summarizeTicket(ticketId),
-    "Drafts.summarizeThread": ({ threadId }) => drafts.summarizeThread(threadId),
-    "Drafts.knowledgeAnswer": () => drafts.knowledgeAnswer
+    "Drafts.reply": (input) =>
+      Effect.andThen(limited, withAi((ai) => Effect.flatMap(ai.drafts, (d) => d.reply(input)))),
+    "Drafts.use": ({ id }) => withAi((ai) => Effect.flatMap(ai.drafts, (d) => d.use(id))),
+    "Drafts.forSubject": ({ subject }) => withAi((ai) => Effect.flatMap(ai.drafts, (d) => d.forSubject(subject))),
+    "Drafts.summarizeTicket": ({ ticketId }) =>
+      Effect.andThen(limited, withAi((ai) => Effect.flatMap(ai.drafts, (d) => d.summarizeTicket(ticketId)))),
+    "Drafts.summarizeThread": ({ threadId }) =>
+      Effect.andThen(limited, withAi((ai) => Effect.flatMap(ai.drafts, (d) => d.summarizeThread(threadId)))),
+    "Drafts.knowledgeAnswer": () => withAi((ai) => Effect.flatMap(ai.drafts, (d) => d.knowledgeAnswer))
   })
 }))
-
-/** The handlers over the service and the stage's model; `RpcRoutes.ts` imports this module when its layer is built. */
-export const DraftsLive = DraftsHandlers.pipe(Layer.provide(DraftsService.layer), Layer.provide(AiChoice))

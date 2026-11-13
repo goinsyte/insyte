@@ -28,10 +28,13 @@ const background = (subject: { readonly type: string; readonly id: string }) => 
 const kept = (what: string) => (error: BudgetExceeded | ModelUnavailable) =>
   Effect.as(Effect.logInfo(`${what}: the rules' answer stands`, { reason: error._tag }), undefined)
 
-/** A ticket's topic by the model, where one is set up; the keyword rules' stays otherwise. */
+/**
+ * A ticket's topic by the model, where one is set up; the keyword rules' stays otherwise. On the fake (tests, local
+ * runs) the call is made and metered, and its answer, the rules' own, changes nothing.
+ */
 export const classifyTicket = Effect.fn("Ai.classifyTicket")(function*(ticketId: string) {
   const model = yield* AiModel
-  if (model.provider === "fake") return "skipped" as const
+  if (!model.ready) return "skipped" as const
   const db = yield* Db
   const inTx: InTx<CurrentWorkspace> = db.scopedFor
   const [t] = yield* inTx((sql) =>
@@ -42,7 +45,7 @@ export const classifyTicket = Effect.fn("Ai.classifyTicket")(function*(ticketId:
   const called = yield* call(inTx, background({ type: "ticket", id: ticketId }), topicPrompt, t).pipe(
     Effect.catchTags({ BudgetExceeded: kept("ticket topic"), ModelUnavailable: kept("ticket topic") })
   )
-  if (called === undefined) return "kept" as const
+  if (called === undefined || model.provider === "fake") return "kept" as const
   // Only while the ticket still says what was classified: a newer title is classified by its own event.
   yield* inTx((sql) =>
     sql`update tickets set topic = ${called.value.topic}, topic_source = 'model'
@@ -66,7 +69,8 @@ const redacted = (f: CaseFacts): CaseFacts => ({
  */
 export const writeNarrative = Effect.fn("Ai.writeNarrative")(function*(chargebackId: string, runId: string) {
   const model = yield* AiModel
-  if (model.provider === "fake") return "skipped" as const
+  // The fake's account is the facts' own sentences: the pack has them already.
+  if (!model.ready || model.provider === "fake") return "skipped" as const
   const db = yield* Db
   const inTx: InTx<CurrentWorkspace> = db.scopedFor
   const input = yield* inTx((sql: SqlClient.SqlClient) =>
