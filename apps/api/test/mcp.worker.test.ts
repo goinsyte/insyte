@@ -91,6 +91,7 @@ describe("the MCP server", () => {
       "get_analytics_overview",
       "get_automation",
       "get_chargeback",
+      "get_connection_health",
       "get_cost_figures",
       "get_costs",
       "get_order",

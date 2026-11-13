@@ -3,6 +3,7 @@ import { AnalyticsTools } from "./tools/AnalyticsTools.ts"
 import { AutomationsTools } from "./tools/AutomationsTools.ts"
 import { ChargebacksTools } from "./tools/ChargebacksTools.ts"
 import { CommerceTools } from "./tools/CommerceTools.ts"
+import { ConnectionsTools } from "./tools/ConnectionsTools.ts"
 import { CostsTools } from "./tools/CostsTools.ts"
 import { ForwardingTools } from "./tools/ForwardingTools.ts"
 import { KeyTools } from "./tools/KeyTools.ts"
@@ -37,5 +38,6 @@ export const InsyteTools = Toolkit.merge(
   TicketsTools,
   AutomationsTools,
   ChargebacksTools,
-  CostsTools
+  CostsTools,
+  ConnectionsTools
 )

@@ -5,6 +5,7 @@ import { AnalyticsMcp } from "./analytics/mcp.ts"
 import { AutomationsMcp } from "./automations/mcp.ts"
 import { ChargebacksMcp } from "./chargebacks/mcp.ts"
 import { CommerceMcp } from "./commerce/mcp.ts"
+import { ConnectionsMcp } from "./connections/mcp.ts"
 import { CostsMcp } from "./costs/mcp.ts"
 import { ForwardingMcp } from "./forwarding/mcp.ts"
 import { KeyMcp } from "./key/mcp.ts"
@@ -40,7 +41,8 @@ const Tools = McpServer.toolkit(InsyteTools).pipe(
       TicketsMcp,
       AutomationsMcp,
       ChargebacksMcp,
-      CostsMcp
+      CostsMcp,
+      ConnectionsMcp
     )
   )
 )

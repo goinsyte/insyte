@@ -5,6 +5,7 @@ import { AnalyticsHttp } from "./analytics/http.ts"
 import { AutomationsHttp } from "./automations/http.ts"
 import { ChargebacksHttp } from "./chargebacks/http.ts"
 import { CommerceHttp } from "./commerce/http.ts"
+import { ConnectionsHttp } from "./connections/http.ts"
 import { CostsHttp } from "./costs/http.ts"
 import { ForwardingHttp } from "./forwarding/http.ts"
 import { ApiKeyAuthLive } from "./http/KeyAuth.ts"
@@ -46,7 +47,8 @@ export const PublicApiLive = Layer.mergeAll(
       QueueHttp,
       ProposalsHttp,
       ChargebacksHttp,
-      CostsHttp
+      CostsHttp,
+      ConnectionsHttp
     )
   ),
   Layer.provide(ApiKeyAuthLive)
