@@ -53,7 +53,8 @@ const FIELDS: Record<string, string> = {
   too_long: "Kies een kortere naam.",
   format: "Een van de adressen is geen IP-adres of bereik.",
   owner: "Een sleutel kan niet de rol Eigenaar krijgen.",
-  unknown_role: "Die rol bestaat niet meer."
+  unknown_role: "Die rol bestaat niet meer.",
+  forbidden: "Je kunt niet bij al die winkels. Kies alleen winkels waar je zelf bij kunt."
 }
 
 const refused = (error: unknown) => {

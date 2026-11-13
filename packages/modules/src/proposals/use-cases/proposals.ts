@@ -8,6 +8,7 @@ import { Effect, Schema } from "effect"
 import type { SqlClient, SqlError } from "effect/sql"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
+import { inScopeOrNone } from "../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import {
   ProposalAction,
@@ -115,14 +116,14 @@ export const viewOf = (r: Row): ProposalView => {
 /** A plate that is the operator's to decide: open, or filed and failed (it offers "Opnieuw proberen"). */
 const DECIDABLE = ["open", "execution_failed"]
 
-/** What the role may open: the record's area at Bekijken, in its stores. */
+/** What the principal may open: the record's area at Bekijken, in the stores it reaches (`storeScope`). */
 const visible = Effect.fn("Proposals.visible")(function*(sql: SqlClient.SqlClient) {
   const { role } = yield* CurrentPrincipal
   const plain = { ...role, stores: role.stores === "all" ? ("all" as const) : [...role.stores] }
   const areas = (["returns", "products", "orders", "settings", "support", "suppliers"] as ReadonlyArray<AreaId>).filter(
     (a) => canRole(plain, a, 1)
   )
-  const stores = role.stores === "all" ? sql`true` : sql`(p.store_id is null or p.store_id = any(${[...role.stores]}))`
+  const stores = yield* inScopeOrNone(sql, "p.store_id")
   return sql.and([sql`p.area = any(${areas})`, stores])
 })
 

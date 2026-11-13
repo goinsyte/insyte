@@ -8,7 +8,7 @@ import { Relay } from "../../shared/domain/Outbox.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import { INVITATION_DAYS, InvitationLinks, UNDO_SECONDS } from "../domain/Ports.ts"
 import { SeatLimitReached } from "../domain/Team.ts"
-import { cancelMail, grantable, mailLater } from "./invite.ts"
+import { beyondReach, cancelMail, grantable, mailLater } from "./invite.ts"
 import { readTeam, seatsIn } from "./team.ts"
 
 /*
@@ -142,9 +142,12 @@ export const setRole = Effect.fn("Invitations.setRole")(function*(id: string, ro
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       if (!(yield* grantable(sql)).has(roleId)) return yield* new Invalid({ fields: { roleId: "unknown" } })
-      const [before] = yield* sql<{ roleId: string }>`
-        select role_id from invitations where id = ${id} and ${OPEN(sql)} for update`
+      const [before] = yield* sql<{ roleId: string; stores: "all" | ReadonlyArray<string> | null }>`
+        select role_id, stores from invitations where id = ${id} and ${OPEN(sql)} for update`
       if (before === undefined) return yield* new NotFound({ entity: "invitation", id })
+      if (yield* beyondReach(sql, roleId, before.stores ?? "all")) {
+        return yield* new Invalid({ fields: { stores: "forbidden" } })
+      }
       yield* sql`update invitations set role_id = ${roleId} where id = ${id}`
       yield* audit(sql, "member.invitation_role_changed", id, { role: [before.roleId, roleId] })
       return yield* readTeam(sql)

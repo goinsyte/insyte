@@ -6,7 +6,7 @@ import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import { SeatLimitReached } from "../domain/Team.ts"
-import { grantable } from "./invite.ts"
+import { beyondReach, grantable } from "./invite.ts"
 import { readTeam, seatsIn } from "./team.ts"
 
 /*
@@ -19,8 +19,10 @@ import { readTeam, seatsIn } from "./team.ts"
 const target = (sql: SqlClient.SqlClient, id: string) =>
   Effect.gen(function*() {
     const principal = yield* CurrentPrincipal
-    const [row] = yield* sql<{ roleId: string; deactivated: boolean; removed: boolean }>`
-      select role_id, deactivated_at is not null as deactivated, removed_at is not null as removed
+    const [row] = yield* sql<
+      { roleId: string; stores: "all" | ReadonlyArray<string>; deactivated: boolean; removed: boolean }
+    >`
+      select role_id, stores, deactivated_at is not null as deactivated, removed_at is not null as removed
       from members where id = ${id} for update`
     if (row === undefined) return yield* new NotFound({ entity: "member", id })
     if (row.roleId === "owner") return yield* new Conflict({ entity: "member", reason: "owner" })
@@ -42,6 +44,7 @@ export const setRole = Effect.fn("Members.setRole")(function*(id: string, roleId
     Effect.gen(function*() {
       if (!(yield* grantable(sql)).has(roleId)) return yield* new Invalid({ fields: { roleId: "unknown" } })
       const before = yield* target(sql, id)
+      if (yield* beyondReach(sql, roleId, before.stores)) return yield* new Invalid({ fields: { stores: "forbidden" } })
       yield* sql`update members set role_id = ${roleId} where id = ${id}`
       yield* audit(sql, "member.role_changed", id, { role: [before.roleId, roleId] })
       return yield* readTeam(sql)

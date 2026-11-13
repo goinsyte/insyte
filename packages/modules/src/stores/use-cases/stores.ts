@@ -5,13 +5,14 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import { ConnectionGate } from "../domain/Ports.ts"
 import { type StoreStatus, StoreView, SyncStatus } from "../domain/Stores.ts"
 
 /*
  * Instellingen → Winkels (M6.2): the workspace's stores, read at `settings` Bekijken; disconnecting one is Beheren.
  * Disconnecting keeps the store's records (Shopify's `shop/redact` purges them 48 hours after an uninstall, M6.3) and
- * forgets its tokens at once.
+ * forgets its tokens at once. Someone held to some stores (`storeScope`) sees and touches only those.
  */
 
 interface Row {
@@ -28,8 +29,9 @@ interface Row {
 
 export const readStores = (sql: SqlClient.SqlClient) =>
   Effect.map(
-    sql<Row>`select id, name, shop_domain, status, currency, country, timezone, connected_at, last_synced_at
-             from stores order by status = 'disconnected', created_at`,
+    Effect.flatMap(inScope(sql, "id"), (mine) =>
+      sql<Row>`select id, name, shop_domain, status, currency, country, timezone, connected_at, last_synced_at
+               from stores where ${mine} order by status = 'disconnected', created_at`),
     (rows) =>
       rows.map((r) =>
         new StoreView({
@@ -52,8 +54,9 @@ export const syncStatus = Effect.fn("Stores.syncStatus")(function*(id: string) {
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
+      const mine = yield* inScope(sql, "id")
       const [store] = yield* sql<{ status: StoreStatus; lastSyncedAt: Date | null; connectionId: string }>`
-        select status, last_synced_at, connection_id from stores where id = ${id}`
+        select status, last_synced_at, connection_id from stores where id = ${id} and ${mine}`
       if (store === undefined) return yield* new NotFound({ entity: "store", id })
       const cursors = yield* sql<{ resource: "products" | "customers" | "orders"; phase: string | null }>`
         select resource, backfill_state ->> 'phase' as phase from sync_cursors
@@ -83,8 +86,9 @@ export const disconnect = Effect.fn("Stores.disconnect")(function*(id: string) {
   const db = yield* Db
   const result = yield* db.scoped((sql) =>
     Effect.gen(function*() {
+      const mine = yield* inScope(sql, "id")
       const [store] = yield* sql<{ connectionId: string }>`
-        select connection_id from stores where id = ${id} and status <> 'disconnected' for update`
+        select connection_id from stores where id = ${id} and status <> 'disconnected' and ${mine} for update`
       if (store === undefined) return yield* new NotFound({ entity: "store", id })
       yield* sql`update stores set status = 'disconnected', disconnected_at = now() where id = ${id}`
       yield* sql`update connections set status = 'disconnected' where id = ${store.connectionId}`

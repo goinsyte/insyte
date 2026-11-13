@@ -5,6 +5,7 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import { seatsOf } from "../../shared/domain/Billing.ts"
+import { narrowStores, withinScope } from "../../shared/domain/Stores.ts"
 import { InvitationLinks } from "../domain/Ports.ts"
 import { InviteLink, PendingInvitation, Seats, type StoreAccess, Team, TeamMember, TeamRole } from "../domain/Team.ts"
 
@@ -100,6 +101,10 @@ export const readTeam = Effect.fn("Members.readTeam")(function*(sql: SqlClient.S
     select id, label, kind, levels, specials, refund_limit_minor, stores from roles
     order by id <> 'owner', kind <> 'system', created_at, id`
   const now = Date.now()
+  // Someone held to some stores is shown no way in for anyone who would reach further than they do.
+  const rolesStores = new Map(roles.map((r) => [r.id, r.stores]))
+  const opens = (roleId: string, stores: StoreAccess) =>
+    mayInvite && withinScope(narrowStores(rolesStores.get(roleId) ?? "all", stores), principal.storeScope)
   return new Team({
     me: principal.id,
     members: members.map((m) =>
@@ -120,7 +125,7 @@ export const readTeam = Effect.fn("Members.readTeam")(function*(sql: SqlClient.S
       invitations,
       (i) =>
         Effect.map(
-          mayInvite ? links.invitation(i.id, i.round) : Effect.succeed(null),
+          opens(i.roleId, i.stores ?? "all") ? links.invitation(i.id, i.round) : Effect.succeed(null),
           (minted) =>
             new PendingInvitation({
               id: i.id,
@@ -151,8 +156,8 @@ export const readTeam = Effect.fn("Members.readTeam")(function*(sql: SqlClient.S
       : yield* Effect.map(links.shareable(principal.workspaceId, link.round), (minted) =>
         new InviteLink({
           enabled: link.enabled,
-          token: mayInvite ? minted.token : null,
-          url: mayInvite ? minted.url : null,
+          token: opens(link.roleId, "all") ? minted.token : null,
+          url: opens(link.roleId, "all") ? minted.url : null,
           roleId: link.roleId,
           days: link.days,
           createdAt: link.createdAt.getTime(),
