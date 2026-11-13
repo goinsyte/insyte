@@ -4,7 +4,9 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import { Relay } from "../../shared/domain/Outbox.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { ConnectionGate } from "../domain/Ports.ts"
 import { type StoreStatus, StoreView, SyncStatus } from "../domain/Stores.ts"
 
@@ -97,9 +99,17 @@ export const disconnect = Effect.fn("Stores.disconnect")(function*(id: string) {
         subjectType: "store",
         subjectId: id
       })
-      return { connectionId: store.connectionId, stores: yield* readStores(sql) }
+      // The health line and Winkels read again (sync health, M17 step 6).
+      const outboxId = yield* Outbox.write(sql, principal.workspaceId, {
+        type: "records.changed",
+        workspaceId: principal.workspaceId,
+        kind: "connection",
+        ids: [store.connectionId]
+      })
+      return { connectionId: store.connectionId, stores: yield* readStores(sql), outboxId }
     })
   )
+  yield* (yield* Relay).kick([result.outboxId])
   // The gate holds the token in memory until it lapses: it lets go now, so nothing reads the store again.
   yield* (yield* ConnectionGate).forget(result.connectionId)
   return result.stores

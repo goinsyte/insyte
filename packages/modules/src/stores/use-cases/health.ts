@@ -10,27 +10,31 @@ import {
   assess,
   BROKEN,
   ConnectionHealth,
+  EXPIRY_WARN_MS,
+  FAILURES_BEFORE_INCIDENT,
   findingSentence,
+  GAP_MS,
   HealthLine,
   HealthView,
   Incident,
   type IncidentFacts,
   type IncidentKind,
   IncidentKind as Kinds,
-  needsWrite,
-  type Observed,
-  type OpenIncident,
+  NOTIFY_COOLDOWN_MS,
+  RATE_SWEEPS,
+  STALE_MS,
   stateOf,
-  type Sweep,
+  SYNC_SCOPES,
   type Tried,
   triedSentence
 } from "../domain/Health.ts"
 
 /*
- * Sync health (M17 step 6, PLAN 49). The check runs after the reconcile sweep: one query reads every store's connection
- * across workspaces (`observeAll`), and only a workspace with something to write (`needsWrite`) gets a transaction of
- * its own, which reads its connections again, decides with `assess`, and writes what changed. Opening a webhook gap rewinds the store's sweep to where the webhooks stopped, so the next
- * sweeps read the gap again (with more pages while it is open, `reconcile.ts`). An incident nobody has heard of yet is
+ * Sync health (M17 step 6, PLAN 49). The check runs every 15 minutes beside the reconcile sweep, never after it: the
+ * sweep writes what it saw on each connection (`reconcile.ts`), and the check reads that, so a sweep that runs long
+ * cannot keep an incident from opening, resolving or being told. `health_due` names the workspaces with something to
+ * look at (ids only, decided in SQL); each gets a transaction of its own, which locks its connections against a
+ * disconnect or an uninstall, decides with `assess`, and writes what changed. An incident nobody has heard of yet is
  * told to the person on call: whoever connected the store, else the owner. Reading the health is `data` Bekijken ("de
  * synchronisatie zien") or `integrations` Bekijken; the shell's line is every member's, inside the role's stores.
  */
@@ -44,13 +48,13 @@ interface Row {
   readonly storeName: string
   readonly storeStatus: string
   readonly importedAt: Date | null
+  readonly connectedAt: Date | null
+  readonly lastOrderHookAt: Date | null
   readonly connectionId: string
   readonly connectionStatus: string
   readonly scopes: ReadonlyArray<string>
   readonly health: Record<string, unknown>
-  readonly connectedBy: string | null
-  readonly lastDeliveryAt: Date | null
-  readonly watermarkAt: Date | null
+  readonly lastSweptAt: Date | null
 }
 
 interface OpenRow {
@@ -66,6 +70,11 @@ interface OpenRow {
 const time = (value: unknown) => {
   const at = typeof value === "string" ? Date.parse(value) : typeof value === "number" ? value : Number.NaN
   return Number.isFinite(at) ? at : null
+}
+
+const count = (value: unknown) => {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
 }
 
 /** A step as stored: the backfill's give-up writes one without a time, which is the incident's own. */
@@ -100,178 +109,157 @@ const onCall = (sql: SqlClient.SqlClient, connectedBy: string | null) =>
   )
 
 /**
- * One workspace's check (the transaction's workspace, as `system`), with what this sweep saw of each store it read.
- * Answers the outbox rows to kick.
+ * One workspace's check (the transaction's workspace, as `system`). Answers how many outbox rows it wrote. Two checks
+ * of one workspace never overlap (an advisory lock), and its connections are locked while it decides, so a disconnect
+ * or an uninstall waits for it or goes first, never in between.
  */
-export const checkWorkspace = Effect.fn("Stores.health.check")(
-  function*(sweeps: ReadonlyMap<string, Sweep>, now = Date.now()) {
-    const db = yield* Db
-    const outboxIds = yield* db.scopedFor((sql) =>
-      Effect.gen(function*() {
-        const rows = yield* sql<Row>`
-          select s.id as store_id, s.name as store_name, s.status as store_status, s.last_synced_at as imported_at,
-                 c.id as connection_id, c.status as connection_status, c.scopes, c.health, c.connected_by,
-                 (select max(e.received_at) from inbound_events e
-                  where e.store_id = s.id and e.topic like 'orders/%') as last_delivery_at,
-                 (select k.watermark_at from sync_cursors k
-                  where k.connection_id = c.id and k.resource = 'orders') as watermark_at
-          from stores s join connections c on c.id = s.connection_id
-          where c.provider = 'shopify'`
-        const open = yield* sql<OpenRow>`
-          select id, connection_id, kind, opened_at, facts, tried, notified_member_id from connection_incidents
-          where resolved_at is null`
-        const [workspace] = yield* sql<{ id: string }>`select app_workspace_id() as id`
-        const workspaceId = workspace!.id
+export const checkWorkspace = Effect.fn("Stores.health.check")(function*(now = Date.now()) {
+  const db = yield* Db
+  const outboxIds = yield* db.scopedFor((sql) =>
+    Effect.gen(function*() {
+      yield* sql`select pg_advisory_xact_lock(hashtext('sync-health:' || app_workspace_id()))`
+      const rows = yield* sql<Row & { connectedBy: string | null }>`
+        select s.id as store_id, s.name as store_name, s.status as store_status, s.last_synced_at as imported_at,
+               s.connected_at, s.last_order_hook_at, c.id as connection_id, c.status as connection_status, c.scopes,
+               c.health, c.connected_by, c.last_synced_at as last_swept_at
+        from stores s join connections c on c.id = s.connection_id
+        where c.provider = 'shopify'
+        order by c.id
+        for update of c`
+      const open = yield* sql<OpenRow>`
+        select id, connection_id, kind, opened_at, facts, tried, notified_member_id from connection_incidents
+        where resolved_at is null`
+      const [workspace] = yield* sql<{ id: string }>`select app_workspace_id() as id`
+      const workspaceId = workspace!.id
 
-        // A sweep that failed counts against the connection (a sweep that went through cleared it, `reconcile.ts`).
-        const failures = new Map<string, number>()
-        for (const r of rows) {
-          if (sweeps.get(r.storeId)?.ok !== false) continue
-          const n = (Number(r.health["failures"]) || 0) + 1
-          failures.set(r.connectionId, n)
-          yield* sql`update connections set health = jsonb_set(health, '{failures}', ${n}::text::jsonb),
-                       last_error_at = now()
-                     where id = ${r.connectionId}`
-        }
-
-        let changed = false
-        const told: Array<string> = []
-        for (const r of rows) {
-          const mine = open.filter((i) => i.connectionId === r.connectionId)
-          const verdicts = assess(
-            {
-              connectionStatus: r.connectionStatus,
-              storeStatus: r.storeStatus,
-              scopes: r.scopes,
-              refreshExpiresAt: time(r.health["refreshExpiresAt"]),
-              lastOrderDeliveryAt: r.lastDeliveryAt?.getTime() ?? null,
-              ordersWatermarkAt: r.watermarkAt?.getTime() ?? null,
-              importedAt: r.importedAt?.getTime() ?? null,
-              failures: failures.get(r.connectionId) ?? (Number(r.health["failures"]) || 0)
-            },
-            sweeps.get(r.storeId),
-            new Map(mine.map((i) => [i.kind, i.openedAt.getTime()])),
-            now
-          )
-          for (const kind of Kinds.literals) {
-            const verdict = verdicts[kind]
-            const held = mine.find((i) => i.kind === kind)
-            if (verdict === "unknown") continue
-            if (verdict === "ended") {
-              if (held === undefined) continue
-              yield* sql`update connection_incidents set resolved_at = now() where id = ${held.id}`
-              changed = true
-              continue
-            }
-            if (held === undefined) {
-              yield* sql`
-                insert into connection_incidents (id, workspace_id, connection_id, kind, facts, tried)
-                values (${mintId("inc")}, app_workspace_id(), ${r.connectionId}, ${kind},
-                        ${JSON.stringify(verdict.facts)}::jsonb, ${JSON.stringify(verdict.tried)}::jsonb)
-                on conflict (connection_id, kind) where resolved_at is null do nothing`
-              changed = true
-              // The gap read again: every resource's sweep starts over from where the webhooks stopped.
-              if (kind === "webhook_gap" && verdict.facts.since !== undefined) {
-                const since = new Date(verdict.facts.since)
-                yield* sql`update sync_cursors set watermark_at = least(coalesce(watermark_at, ${since}), ${since})
-                           where connection_id = ${r.connectionId}
-                             and resource in ('orders', 'products', 'customers')`
-              }
-              continue
-            }
-            if (verdict.again.length === 0 && same(held.facts, verdict.facts)) continue
-            const tried = [...triedOf(held.tried, held.openedAt.getTime()), ...verdict.again]
-            const kept = tried.length > TRIED_KEPT ? [tried[0]!, ...tried.slice(-(TRIED_KEPT - 1))] : tried
-            yield* sql`update connection_incidents set facts = ${JSON.stringify(verdict.facts)}::jsonb,
-                         tried = ${JSON.stringify(kept)}::jsonb
-                       where id = ${held.id}`
+      let changed = false
+      for (const r of rows) {
+        const mine = open.filter((i) => i.connectionId === r.connectionId)
+        const verdicts = assess(
+          {
+            connectionStatus: r.connectionStatus,
+            storeStatus: r.storeStatus,
+            scopes: r.scopes,
+            refreshExpiresAt: time(r.health["refreshExpiresAt"]),
+            lastOrderDeliveryAt: r.lastOrderHookAt?.getTime() ?? null,
+            ordersWatermarkAt: time(r.health["ordersWatermarkAt"]),
+            importedAt: r.importedAt?.getTime() ?? null,
+            connectedAt: r.connectedAt?.getTime() ?? null,
+            lastSweptAt: r.lastSweptAt?.getTime() ?? null,
+            throttledAt: time(r.health["throttledAt"]),
+            failures: count(r.health["failures"]),
+            failure: typeof r.health["failure"] === "string" ? r.health["failure"] : null,
+            lowSweeps: count(r.health["lowSweeps"]),
+            calmSweeps: count(r.health["calmSweeps"]),
+            headroom: typeof r.health["headroom"] === "number" ? r.health["headroom"] : null
+          },
+          mine.map((i) => ({ kind: i.kind, openedAt: i.openedAt.getTime(), facts: i.facts })),
+          now
+        )
+        for (const kind of Kinds.literals) {
+          const verdict = verdicts[kind]
+          const held = mine.find((i) => i.kind === kind)
+          if (verdict === "unknown") continue
+          if (verdict === "ended") {
+            if (held === undefined) continue
+            yield* sql`update connection_incidents set resolved_at = now() where id = ${held.id}`
             changed = true
+            continue
           }
-        }
-
-        // Whoever is on call hears of every incident nobody has heard of yet, the backfill's give-up included.
-        const untold = yield* sql<
-          OpenRow & { readonly storeId: string; readonly storeName: string; connectedBy: string | null }
-        >`
-          select i.id, i.connection_id, i.kind, i.opened_at, i.facts, i.tried, s.id as store_id,
-                 s.name as store_name, c.connected_by
-          from connection_incidents i join connections c on c.id = i.connection_id
-          join stores s on s.connection_id = c.id and s.status <> 'disconnected'
-          where i.resolved_at is null and i.notified_member_id is null`
-        for (const i of untold) {
-          const memberId = yield* onCall(sql, i.connectedBy)
-          if (memberId === null) continue
-          yield* sql`update connection_incidents set notified_member_id = ${memberId} where id = ${i.id}`
-          told.push(
-            yield* Outbox.write(sql, workspaceId, {
-              type: "connection.incident",
-              workspaceId,
-              incidentId: i.id,
-              memberId,
-              storeId: i.storeId,
-              storeName: i.storeName,
-              kind: i.kind,
-              finding: findingSentence(i.kind, i.facts, now),
-              tried: triedOf(i.tried, i.openedAt.getTime()).map(triedSentence)
-            })
-          )
+          if (held === undefined) {
+            const inserted = yield* sql`
+              insert into connection_incidents (id, workspace_id, connection_id, kind, facts, tried)
+              values (${mintId("inc")}, app_workspace_id(), ${r.connectionId}, ${kind},
+                      ${JSON.stringify(verdict.facts)}::jsonb, ${JSON.stringify(verdict.tried)}::jsonb)
+              on conflict (connection_id, kind) where resolved_at is null do nothing
+              returning id`
+            if (inserted.length > 0) changed = true
+            continue
+          }
+          if (verdict.again.length === 0 && same(held.facts, verdict.facts)) continue
+          const tried = [...triedOf(held.tried, held.openedAt.getTime()), ...verdict.again]
+          const kept = tried.length > TRIED_KEPT ? [tried[0]!, ...tried.slice(-(TRIED_KEPT - 1))] : tried
+          yield* sql`update connection_incidents set facts = ${JSON.stringify(verdict.facts)}::jsonb,
+                       tried = ${JSON.stringify(kept)}::jsonb
+                     where id = ${held.id}`
           changed = true
         }
-        if (!changed) return told
-        const ids = [...new Set(rows.map((r) => r.connectionId))]
-        return [
-          ...told,
-          yield* Outbox.write(sql, workspaceId, { type: "records.changed", workspaceId, kind: "connection", ids })
-        ]
-      })
-    )
-    if (outboxIds.length > 0) yield* (yield* Relay).kick(outboxIds)
-    return outboxIds.length
-  }
-)
+      }
 
-interface Observation {
-  readonly workspaceId: string
-  readonly storeId: string
-  readonly storeStatus: string
-  readonly importedAt: Date | null
-  readonly connectionId: string
-  readonly connectionStatus: string
-  readonly scopes: ReadonlyArray<string>
-  readonly health: Record<string, unknown>
-  readonly lastDeliveryAt: Date | null
-  readonly watermarkAt: Date | null
-  readonly incidents: ReadonlyArray<OpenIncident>
-}
+      // Whoever is on call hears of every incident nobody has heard of yet, the backfill's give-up included; a kind
+      // they heard of on the same connection within the cool-down is marked heard without telling them again.
+      const untold = yield* sql<
+        OpenRow & {
+          readonly storeId: string
+          readonly storeName: string
+          readonly connectedBy: string | null
+          readonly heardBy: string | null
+        }
+      >`
+        select i.id, i.connection_id, i.kind, i.opened_at, i.facts, i.tried, s.id as store_id,
+               s.name as store_name, c.connected_by,
+               (select p.notified_member_id from connection_incidents p
+                where p.connection_id = i.connection_id and p.kind = i.kind and p.id <> i.id
+                  and p.notified_member_id is not null
+                  and coalesce(p.resolved_at, now()) > now() - make_interval(secs => ${NOTIFY_COOLDOWN_MS / 1000})
+                order by p.opened_at desc limit 1) as heard_by
+        from connection_incidents i join connections c on c.id = i.connection_id
+        join stores s on s.connection_id = c.id and s.status <> 'disconnected'
+        where i.resolved_at is null and i.notified_member_id is null`
+      const told: Array<string> = []
+      for (const i of untold) {
+        const memberId = i.heardBy ?? (yield* onCall(sql, i.connectedBy))
+        if (memberId === null) continue
+        // Only the check that sets it tells: a second one finds it set and says nothing.
+        const claimed = yield* sql`
+          update connection_incidents set notified_member_id = ${memberId}
+          where id = ${i.id} and notified_member_id is null
+          returning id`
+        if (claimed.length === 0) continue
+        changed = true
+        if (i.heardBy !== null) continue
+        told.push(
+          yield* Outbox.write(sql, workspaceId, {
+            type: "connection.incident",
+            workspaceId,
+            incidentId: i.id,
+            memberId,
+            storeId: i.storeId,
+            storeName: i.storeName,
+            kind: i.kind,
+            finding: findingSentence(i.kind, i.facts, now),
+            tried: triedOf(i.tried, i.openedAt.getTime()).map((t) => triedSentence(t, now))
+          })
+        )
+      }
+      if (!changed) return told
+      const ids = [...new Set(rows.map((r) => r.connectionId))]
+      return [
+        ...told,
+        yield* Outbox.write(sql, workspaceId, { type: "records.changed", workspaceId, kind: "connection", ids })
+      ]
+    })
+  )
+  if (outboxIds.length > 0) yield* (yield* Relay).kick(outboxIds)
+  return outboxIds.length
+})
 
 /**
- * The workspaces whose check has something to write, given what the sweep saw of each store (by workspace, then
- * store): one routing query over every store's connection, decided in memory.
+ * The workspaces the check has to look at: any with an incident open, a sweep failing or near the rate limit, a grant
+ * lapsing or gone, a scope missing, a store unread for an hour, or webhooks behind the sweep. Ids only (`health_due`),
+ * over the thresholds of `Health.ts`.
  */
-export const workspacesToCheck = Effect.fn("Stores.health.observe")(
-  function*(sweeps: ReadonlyMap<string, ReadonlyMap<string, Sweep>>, now = Date.now()) {
-    const db = yield* Db
-    const rows = yield* db.routing((sql) => sql<Observation>`select * from health_observations()`)
-    const due = new Set<string>()
-    for (const r of rows) {
-      if (due.has(r.workspaceId)) continue
-      const sweep = sweeps.get(r.workspaceId)?.get(r.storeId)
-      const failures = Number(r.health["failures"]) || 0
-      const observed: Observed = {
-        connectionStatus: r.connectionStatus,
-        storeStatus: r.storeStatus,
-        scopes: r.scopes,
-        refreshExpiresAt: time(r.health["refreshExpiresAt"]),
-        lastOrderDeliveryAt: r.lastDeliveryAt?.getTime() ?? null,
-        ordersWatermarkAt: r.watermarkAt?.getTime() ?? null,
-        importedAt: r.importedAt?.getTime() ?? null,
-        failures: sweep?.ok === false ? failures + 1 : failures
-      }
-      if (needsWrite(observed, sweep, r.incidents, now)) due.add(r.workspaceId)
-    }
-    return [...due]
-  }
-)
+export const dueWorkspaces = Effect.fn("Stores.health.due")(function*() {
+  const db = yield* Db
+  const ms = (n: number) => `${n / 1000} seconds`
+  const rows = yield* db.unscopedForCron((sql) =>
+    sql<{ workspaceId: string }>`
+      select workspace_id from health_due(${ms(GAP_MS)}::interval, ${ms(STALE_MS)}::interval,
+                                          ${ms(EXPIRY_WARN_MS)}::interval, ${FAILURES_BEFORE_INCIDENT},
+                                          ${RATE_SWEEPS}, ${[...SYNC_SCOPES]}::text[])`
+  )
+  return rows.map((r) => r.workspaceId)
+})
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Reading it
@@ -302,9 +290,7 @@ const storesIn = (sql: SqlClient.SqlClient) =>
     const scope = yield* inScope(sql, "s.id")
     return yield* sql<StoreRow>`
       select s.id as store_id, s.name as store_name, s.shop_domain, s.status as store_status, c.id as connection_id,
-             greatest(c.last_synced_at, s.last_synced_at) as last_synced_at,
-             (select max(e.received_at) from inbound_events e
-              where e.store_id = s.id and e.topic like 'orders/%') as last_delivery_at
+             greatest(c.last_synced_at, s.last_synced_at) as last_synced_at, s.last_order_hook_at as last_delivery_at
       from stores s join connections c on c.id = s.connection_id
       where s.status <> 'disconnected' and ${scope}
       order by s.created_at`

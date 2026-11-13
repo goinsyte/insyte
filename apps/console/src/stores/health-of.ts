@@ -43,7 +43,7 @@ const incidentOf = (i: ConnectionHealth["incidents"][number], now: number): Stor
   tone: BROKEN.has(i.kind) ? "danger" : "warning",
   finding: findingSentence(i.kind, i.facts, now),
   next: handlingSentence(i.kind) ?? remedySentence(i.kind),
-  tried: i.tried.map((t) => ({ at: when(t.at, now), text: triedSentence(t) })),
+  tried: i.tried.map((t) => ({ at: when(t.at, now), text: triedSentence(t, now) })),
   since: `Sinds ${when(i.openedAt, now)}`,
   told: i.notified === null ? null : `Gemeld aan ${i.notified}`,
   resolved: i.resolvedAt === null ?

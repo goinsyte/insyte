@@ -7,6 +7,14 @@ import { quietUntil } from "../domain/Quiet.ts"
 import { plan as planDelivery } from "./deliveries.ts"
 import { connectionOf } from "./slack.ts"
 
+/** The incidents only the operator can mend (`stores/domain/Health.ts`: `BROKEN`, and the grant about to lapse). */
+const URGENT_INCIDENTS: ReadonlySet<string> = new Set([
+  "token_expired",
+  "token_expiring",
+  "scope_missing",
+  "sync_failed"
+])
+
 /*
  * The relay's notifications sink (M5.2): a domain event → one row per member who should hear of it, in the event's
  * workspace as `system`. Who hears what:
@@ -347,14 +355,14 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
       }
       case "connection.incident": {
         // The health check opened an incident (M17 step 6): the person on call hears it once, with what Insyte
-        // already tried. Access that is going or gone is "Koppeling verbroken"; the rest Insyte is handling.
+        // already tried. What the operator must mend (access going or gone, a sync that stopped) is "Koppeling
+        // verbroken", in Primair and by mail; what Insyte is handling (a webhook gap, the rate limit) is in-app.
         const [member] = yield* sql<{ id: string }>`
           select id from members where id = ${event.memberId} and deactivated_at is null and removed_at is null`
         if (member === undefined) return undefined
-        const access = event.kind === "token_expired" || event.kind === "token_expiring" ||
-          event.kind === "scope_missing"
+        const urgent = URGENT_INCIDENTS.has(event.kind)
         return {
-          kind: access ? "integration.disconnected" : "integration.sync",
+          kind: urgent ? "integration.disconnected" : "integration.sync",
           recipients: [member.id],
           direct: [member.id],
           subjectType: "connection_incident",

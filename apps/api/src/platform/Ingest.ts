@@ -2,9 +2,8 @@ import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { sweepParcels } from "@insyte/modules/returns/use-cases/parcels"
-import type { Sweep } from "@insyte/modules/stores/domain/Health"
-import { checkWorkspace, workspacesToCheck } from "@insyte/modules/stores/use-cases/health"
-import { reconcileStore } from "@insyte/modules/stores/use-cases/reconcile"
+import { checkWorkspace, dueWorkspaces } from "@insyte/modules/stores/use-cases/health"
+import { sweepStore } from "@insyte/modules/stores/use-cases/reconcile"
 import { apply } from "@insyte/modules/stores/use-cases/webhooks"
 import { sweep } from "@insyte/modules/tracking/use-cases/tracking"
 import { Cause, Effect, Exit, ManagedRuntime } from "effect"
@@ -16,9 +15,13 @@ import { withRequestDb } from "./RequestDb.ts"
  * The webhooks' consumer and the reconcile sweep (M6.3), on the sync runtime (Shopify's GraphQL, the gate). A delivery
  * that fails goes back to the queue: after `ShopifyThrottled` exactly when the bucket allows, else in thirty seconds;
  * its retries spent, it lands in the dead letters with its row still unprocessed. The sweep runs every fifteen
- * minutes from the minute cron, one store at a time, each in its own workspace; one store's failure is logged and the
- * rest go on. After it, the health check (M17 step 6), over what the sweep just saw of each store: no Shopify call, one
- * query across workspaces, and a transaction only for a workspace with something to write.
+ * minutes from the minute cron, one store at a time, each in its own workspace, the store whose connection waited
+ * longest first; one store's failure is logged and counted on its connection, and the rest go on. It stops starting
+ * stores after `SWEEP_BUDGET_MS`, inside the cron's fifteen minutes, and the next run starts where this one stopped.
+ *
+ * The health check (M17 step 6) runs beside it, from the same cron, never after it: it reads what the sweeps wrote on
+ * each connection, makes no Shopify call, asks one query across workspaces which have something to look at, and opens
+ * a transaction only for those.
  */
 
 export type { IngestMessage } from "./IngestQueue.ts"
@@ -70,50 +73,40 @@ export const trackingSweep = sweep().pipe(
   Effect.withSpan("Tracking.sweepAll")
 )
 
+/** A sweep stops starting stores after this long: the cron's limit is fifteen minutes, and the next sweep comes then. */
+const SWEEP_BUDGET_MS = 10 * 60_000
+/** Extra pages of orders one sweep reads, over all the stores with a webhook gap: a wide outage cannot stall it. */
+const GAP_PAGES_PER_SWEEP = 200
+/** The health check stops starting workspaces after this long; the rest are looked at in fifteen minutes. */
+const CHECK_BUDGET_MS = 5 * 60_000
+
 export const reconcile = Effect.gen(function*() {
   const db = yield* Db
   const stores = yield* db.routing((sql) =>
     sql<{ workspaceId: string; storeId: string }>`select workspace_id, store_id from stores_to_reconcile()`
   )
-  const sweeps = new Map<string, Map<string, Sweep>>()
-  const seen = (workspaceId: string) => {
-    const of = sweeps.get(workspaceId) ?? new Map<string, Sweep>()
-    sweeps.set(workspaceId, of)
-    return of
-  }
+  const started = Date.now()
+  let gapPages = GAP_PAGES_PER_SWEEP
+  let swept = 0
   for (const { workspaceId, storeId } of stores) {
-    const exit = yield* Effect.exit(inWorkspace(workspaceId, reconcileStore(storeId)))
-    if (Exit.isSuccess(exit)) {
-      if (exit.value !== null) {
-        seen(workspaceId).set(storeId, { ok: true, headroom: exit.value.headroom, throttled: false, reason: null })
-      }
-      continue
-    }
-    yield* Effect.logWarning("reconcile failed for a store", { storeId, cause: exit.cause })
-    const failure = Cause.findErrorOption(exit.cause)
-    const tag = failure._tag === "Some" ? (failure.value as { _tag?: string })._tag : undefined
-    // A refused token is the connection's own status (`token_expired`, or gone), which the check reads: not a sync
-    // failure to count.
-    if (tag === "TokenRefused") continue
-    // Shopify asking for patience is the rate limit, not a failure: the rest is read next sweep.
-    seen(workspaceId).set(
-      storeId,
-      tag === "ShopifyThrottled"
-        ? { ok: true, headroom: 0, throttled: true, reason: null }
-        : { ok: false, headroom: null, throttled: false, reason: tag ?? "defect" }
-    )
+    if (Date.now() - started > SWEEP_BUDGET_MS) break
+    swept++
+    gapPages -= yield* inWorkspace(workspaceId, sweepStore(storeId, gapPages))
   }
-  yield* healthCheck(sweeps)
+  yield* Effect.annotateCurrentSpan({ stores: stores.length, swept, gapPagesLeft: gapPages })
 }).pipe(withRequestDb, Effect.withSpan("Stores.reconcileAll"))
 
-/** The workspaces with something to write, each checked with what the sweep saw of its stores; one's failure is logged. */
-const healthCheck = (sweeps: ReadonlyMap<string, ReadonlyMap<string, Sweep>>) =>
-  Effect.gen(function*() {
-    const due = yield* workspacesToCheck(sweeps)
-    yield* Effect.annotateCurrentSpan({ workspaces: due.length })
-    for (const workspaceId of due) {
-      yield* inWorkspace(workspaceId, checkWorkspace(sweeps.get(workspaceId) ?? new Map())).pipe(
-        Effect.catchCause((cause) => Effect.logWarning("health check failed for a workspace", { workspaceId, cause }))
-      )
-    }
-  }).pipe(Effect.withSpan("Stores.healthAll"))
+/** The health check: the workspaces with something to look at, each in its own transaction; one's failure is logged. */
+export const healthCheck = Effect.gen(function*() {
+  const due = yield* dueWorkspaces()
+  const started = Date.now()
+  let checked = 0
+  for (const workspaceId of due) {
+    if (Date.now() - started > CHECK_BUDGET_MS) break
+    checked++
+    yield* inWorkspace(workspaceId, checkWorkspace()).pipe(
+      Effect.catchCause((cause) => Effect.logWarning("health check failed for a workspace", { workspaceId, cause }))
+    )
+  }
+  yield* Effect.annotateCurrentSpan({ due: due.length, checked })
+}).pipe(withRequestDb, Effect.withSpan("Stores.healthAll"))
