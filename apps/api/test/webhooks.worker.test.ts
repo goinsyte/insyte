@@ -1,7 +1,7 @@
 import { createExecutionContext, createScheduledController, waitOnExecutionContext } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
-import worker from "../src/Main.ts"
+import worker from "../src/Local.ts"
 import { ok, run } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"

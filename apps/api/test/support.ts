@@ -4,7 +4,7 @@ import { env } from "cloudflare:workers"
 import { Effect, type Exit, Layer } from "effect"
 import { FetchHttpClient } from "effect/http"
 import { RpcClient, RpcSerialization } from "effect/rpc"
-import worker from "../src/Main.ts"
+import worker from "../src/Local.ts"
 
 /** One request through the Worker's own `fetch`, waiting for its `waitUntil` work (the span flush) too. */
 export const call = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {

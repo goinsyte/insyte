@@ -2,10 +2,12 @@
   "$schema": "../../node_modules/wrangler/config-schema.json",
   /*
    * The API Worker for local development and the worker tests. No `env` blocks: preview, staging and production are
-   * declared once in infra (alchemy stages, M0.6), not as copies of this file.
+   * declared once in infra (alchemy stages, M0.6), not as copies of this file. Deployed, it is two Workers, the API
+   * (`src/Main.ts`) and the jobs Worker (`src/Jobs.ts`, ADR-0041); here they run as one (`src/Local.ts`), so every
+   * binding, Durable Object and Workflow below is local.
    */
   "name": "insyte-api",
-  "main": "src/Main.ts",
+  "main": "src/Local.ts",
   "compatibility_date": "2026-10-26",
   // `enable_request_signal`: a client that goes away aborts `request.signal`, and `toWebHandler` interrupts the fiber.
   "compatibility_flags": ["nodejs_compat", "enable_request_signal"],

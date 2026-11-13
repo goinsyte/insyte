@@ -1,7 +1,7 @@
 import { createExecutionContext, createMessageBatch, getQueueResult } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { Cause, Exit } from "effect"
-import worker from "../src/Main.ts"
+import worker from "../src/Local.ts"
 import type { EventsMessage } from "../src/platform/Relay.ts"
 import { call, onboarding, rpc } from "./support.ts"
 

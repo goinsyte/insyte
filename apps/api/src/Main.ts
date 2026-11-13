@@ -2,32 +2,17 @@ import { env, tracing } from "cloudflare:workers"
 import { HttpRouter } from "effect/http"
 import { AppLayer } from "./platform/AppLayer.ts"
 import type { Env } from "./platform/Env.ts"
-import type { IngestMessage } from "./platform/Ingest.ts"
 import { Telemetry } from "./platform/Observability.ts"
-import type { EventsMessage } from "./platform/Relay.ts"
-import { email } from "./transports/email/Email.ts"
-import { scheduled } from "./transports/jobs/Cron.ts"
-import { queue } from "./transports/jobs/Queue.ts"
+
+/*
+ * The API Worker, `insyte-api` (ADR-0041): the HTTP app and inbound mail. The queue consumers, the cron, the Workflows,
+ * the realtime rooms and the connection gate run in the jobs Worker (`Jobs.ts`), reached through cross-script bindings.
+ */
 
 // The Durable Object classes this Worker hosts; infra and `wrangler.jsonc` bind them by these names.
 export { RateLimiter } from "./platform/RateLimiter.ts"
-export { RoomDurableObject } from "./platform/Room.ts"
 // The live room per workspace (M14 step 3): storefront visitors in memory.
 export { LiveRoomDurableObject } from "./platform/LiveRoom.ts"
-// The gate per external account (M6.3), and the store backfill's Workflow.
-export { ConnectionGateObject } from "./platform/ConnectionGate.ts"
-export { ShopifyBackfillWorkflow } from "./workflows/ShopifyBackfill.ts"
-// A store's first analysis (M6.5).
-export { EvidencePackWorkflow } from "./workflows/EvidencePack.ts"
-export { FirstAnalysisWorkflow } from "./workflows/FirstAnalysis.ts"
-export { ForwardSendWorkflow } from "./workflows/ForwardSend.ts"
-export { MarketingSyncWorkflow } from "./workflows/MarketingSync.ts"
-export { MonthlyCloseWorkflow } from "./workflows/MonthlyClose.ts"
-export { ReturnLabelWorkflow } from "./workflows/ReturnLabel.ts"
-// A flow's run (M12 step 3).
-export { AutomationRunWorkflow } from "./workflows/AutomationRun.ts"
-export { ShopifyWriteWorkflow } from "./workflows/ShopifyWrite.ts"
-export { WebhookDeliveryWorkflow } from "./workflows/WebhookDelivery.ts"
 
 /** Module scope: the layer is built once per isolate, and building it does no request-time I/O. */
 const web = HttpRouter.toWebHandler(AppLayer)
@@ -39,10 +24,10 @@ export default {
     ctx.waitUntil(Telemetry.flush()) // spans leave after the response is out (17 §1)
     return response
   },
-  queue,
-  email,
-  scheduled
-} satisfies ExportedHandler<Env, EventsMessage | IngestMessage>
+  // A support mail (M11 step 1): its handler and the background layer load on the first one, not at startup.
+  email: (message, bindings, ctx) =>
+    import("./transports/email/Email.ts").then(({ email }) => email(message, bindings, ctx))
+} satisfies ExportedHandler<Env>
 
 /**
  * On the Worker's own public hostname only the public API, the MCP server and the webhooks answer (M19.2, M19.3,
