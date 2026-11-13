@@ -103,6 +103,8 @@ export function TicketModal({
 	const [editingTitle, setEditingTitle] = useState(false);
 	const [editingDescription, setEditingDescription] = useState(false);
 	const [watching, setWatching] = useState(false);
+	// Insyte AI writing a summary or a reply: once at a time.
+	const [writing, setWriting] = useState<"summary" | "reply" | null>(null);
 	const navigate = useNavigate();
 
 	useEffect(() => {
@@ -203,7 +205,15 @@ export function TicketModal({
 	}
 
 	function summarize() {
-		if (!draft) return;
+		if (!draft || writing !== null) return;
+		const drafts = source.drafts;
+		if (drafts === undefined) return;
+		if (drafts !== true) {
+			// Insyte AI's summary lands in the activity as its line; the ticket's activity refetches.
+			setWriting("summary");
+			void drafts.summarize(draft.id).finally(() => setWriting(null));
+			return;
+		}
 		const named = draft.assignee_ids.map((id) => person(id)?.name).filter(Boolean);
 		log(
 			`Samenvatting · ${draft.title}. ${STATUS[draft.status].label}, prioriteit ${PRIORITY[draft.priority].label.toLowerCase()}${
@@ -213,7 +223,19 @@ export function TicketModal({
 	}
 
 	function suggestReply() {
-		if (!draft) return;
+		if (!draft || writing !== null) return;
+		const drafts = source.drafts;
+		if (drafts === undefined) return;
+		if (drafts !== true) {
+			setWriting("reply");
+			void drafts
+				.suggestReply(draft.id)
+				.then((text) => {
+					if (text !== undefined) setNewComment(text);
+				})
+				.finally(() => setWriting(null));
+			return;
+		}
 		setNewComment(
 			`Hoi, bedankt voor je geduld met ${draft.related_entity?.label ?? draft.number}. We hebben het aan onze kant bekeken en dit is de stand van zaken: ${draft.description.replace(/\.$/, "")}. We laten weer van ons horen zodra er iets verandert, en uiterlijk morgen.`,
 		);
