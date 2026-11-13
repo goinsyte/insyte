@@ -6,6 +6,7 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import { Relay } from "../../shared/domain/Outbox.ts"
+import { narrowStores, type StoreAccess, withinScope } from "../../shared/domain/Stores.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { INVITATION_DAYS, InvitationLinks, UNDO_SECONDS } from "../domain/Ports.ts"
@@ -23,6 +24,18 @@ export const EMAIL = /^[^\s@,;]+@[^\s@,;]+\.[a-z]{2,}$/i
 /** The roles an invitation may grant: any of the workspace's, but never the owner's (that is a transfer). */
 export const grantable = (sql: SqlClient.SqlClient) =>
   Effect.map(sql<{ id: string }>`select id from roles where id <> 'owner'`, (rows) => new Set(rows.map((r) => r.id)))
+
+/**
+ * Whether someone at `roleId` with these stores of their own would reach past the principal's stores (`storeScope`).
+ * A person held to some stores never brings in, or moves, anyone who reaches further than they do.
+ */
+export const beyondReach = (sql: SqlClient.SqlClient, roleId: string, stores: StoreAccess) =>
+  Effect.gen(function*() {
+    const { storeScope } = yield* CurrentPrincipal
+    if (storeScope === null) return false
+    const [role] = yield* sql<{ stores: StoreAccess }>`select stores from roles where id = ${roleId}`
+    return role !== undefined && !withinScope(narrowStores(role.stores, stores), storeScope)
+  })
 
 /** Writes `member.invited` for this round, held back by the undo window; answers the outbox id. */
 export const mailLater = (sql: SqlClient.SqlClient, invitationId: string, round: number) =>
@@ -67,6 +80,9 @@ export const send = Effect.fn("Invitations.send")(function*(rows: ReadonlyArray<
       // Each row is checked on its own, so the console can say which address and why.
       const fields: Record<string, string> = {}
       const seen = new Set<string>()
+      for (const [at, row] of rows.entries()) {
+        if (yield* beyondReach(sql, row.roleId, row.stores)) fields[`rows.${at}.stores`] = "forbidden"
+      }
       const wanted = rows.map((row, at) => {
         const email = row.email.trim().toLowerCase()
         if (!EMAIL.test(email)) fields[`rows.${at}.email`] = "format"

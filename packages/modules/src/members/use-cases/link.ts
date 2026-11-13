@@ -7,7 +7,7 @@ import type { SqlClient } from "effect/sql"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import { InvitationLinks } from "../domain/Ports.ts"
 import type { SetLink } from "../domain/Team.ts"
-import { grantable } from "./invite.ts"
+import { beyondReach, grantable } from "./invite.ts"
 import { readTeam } from "./team.ts"
 
 /*
@@ -47,6 +47,11 @@ export const set = Effect.fn("InviteLink.set")(function*(patch: SetLink) {
         return yield* new Invalid({ fields: { roleId: "unknown" } })
       }
       yield* ensure(sql)
+      // Whoever joins through the link gets its role in every store: someone held to some stores cannot open it.
+      const [now] = yield* sql<{ enabled: boolean; roleId: string }>`select enabled, role_id from invite_links`
+      if ((patch.enabled ?? now!.enabled) && (yield* beyondReach(sql, patch.roleId ?? now!.roleId, "all"))) {
+        return yield* new Invalid({ fields: { roleId: "forbidden" } })
+      }
       yield* sql`update invite_links set
                    enabled = coalesce(${patch.enabled ?? null}, enabled),
                    role_id = coalesce(${patch.roleId ?? null}, role_id),
@@ -67,7 +72,10 @@ export const regenerate = Effect.fn("InviteLink.regenerate")(function*() {
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       yield* ensure(sql)
-      const [row] = yield* sql<{ round: number }>`select round from invite_links for update`
+      const [row] = yield* sql<{ round: number; roleId: string }>`select round, role_id from invite_links for update`
+      if (yield* beyondReach(sql, row?.roleId ?? "view", "all")) {
+        return yield* new Invalid({ fields: { roleId: "forbidden" } })
+      }
       const round = (row?.round ?? 0) + 1
       const { tokenHash } = yield* links.shareable(principal.workspaceId, round)
       yield* sql`update invite_links set

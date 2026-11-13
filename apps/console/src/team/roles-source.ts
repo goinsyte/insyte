@@ -38,6 +38,10 @@ const LABEL_REASONS: Record<string, string> = {
   too_long: "Kies een kortere naam."
 }
 
+const STORE_REASONS: Record<string, string> = {
+  forbidden: "Die rol reikt verder dan jouw winkels. Je kunt alleen rollen binnen je eigen winkels aanpassen."
+}
+
 /** The server's refusal, said once. */
 const refused = (error: unknown) => {
   const tagged = error as { _tag?: string; [field: string]: unknown }
@@ -48,7 +52,10 @@ const refused = (error: unknown) => {
       })
     case "Invalid": {
       const fields = tagged["fields"] as Record<string, string>
-      return void toast.error(LABEL_REASONS[fields["label"] ?? ""] ?? "Dat kan zo niet worden opgeslagen.")
+      return void toast.error(
+        LABEL_REASONS[fields["label"] ?? ""] ?? STORE_REASONS[fields["stores"] ?? ""] ??
+          "Dat kan zo niet worden opgeslagen."
+      )
     }
     case "Conflict":
       return void toast.error("Dat kan bij deze rol niet", {
