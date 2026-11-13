@@ -1,5 +1,6 @@
 import { Layer, ManagedRuntime } from "effect"
 import { AdSpendLive } from "./AdSpend.ts"
+import { AiChoice } from "./Ai.ts"
 import { AutomationRunsLive } from "./AutomationRuns.ts"
 import { BackfillsLive } from "./Backfills.ts"
 import { ConnectionGateLive } from "./ConnectionGate.ts"
@@ -65,7 +66,9 @@ const BackgroundLayer = onInfra(Layer.mergeAll(
   // The ECB's reference rates, into `fx_rates` on the cron's nightly turn (§0.4).
   RatesChoice,
   // The sending domains' daily re-check (M17 step 20.1c).
-  SendingDomainsChoice
+  SendingDomainsChoice,
+  // A new ticket's topic by Insyte AI, after the relay's transaction (M15 step 2).
+  AiChoice
 ))
 
 /**
@@ -91,7 +94,9 @@ export const SyncLayer = onInfra(Layer.mergeAll(
   // Where one slice's need meets another's use case: the mirror's followers, a write-back's read again.
   SliceLinks.pipe(Layer.provide(LabelsChoice)),
   // A webhook delivery's attempt (M19.4): the endpoint, over fetch.
-  WebhookSenderChoice
+  WebhookSenderChoice,
+  // An evidence pack's account by Insyte AI (M15 step 2).
+  AiChoice
 ))
 
 /** The queue consumer's, the cron's and the inbound mail's runtime: built once per isolate, on first use. */

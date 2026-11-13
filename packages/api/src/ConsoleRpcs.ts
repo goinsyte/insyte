@@ -9,6 +9,7 @@ import { CommerceRpcs } from "./rpc/CommerceRpcs.ts"
 import { CostsRpcs } from "./rpc/CostsRpcs.ts"
 import { CoursesRpcs } from "./rpc/CoursesRpcs.ts"
 import { DeveloperRpcs } from "./rpc/DeveloperRpcs.ts"
+import { DraftsRpcs } from "./rpc/DraftsRpcs.ts"
 import { FirstAnalysisRpcs } from "./rpc/FirstAnalysisRpcs.ts"
 import { ForwardingRpcs } from "./rpc/ForwardingRpcs.ts"
 import { HomeRpcs } from "./rpc/HomeRpcs.ts"
@@ -88,3 +89,4 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(LiveRpcs)
   .merge(SheetsRpcs)
   .merge(AgentRpcs)
+  .merge(DraftsRpcs)

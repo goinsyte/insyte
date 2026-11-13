@@ -11,7 +11,8 @@ import { ROUTES } from "./relay/registry.ts"
  * The outbox relay (M1.4). A use case's committed events are kicked onto the `EVENTS` queue (`RelayLive`); the minute
  * cron sweeps anything a kick missed (`sweep`); the queue's consumer delivers each event to every sink exactly once
  * (`deliver`): the event row is locked in its workspace's scope, each sink's run is recorded in `outbox_sinks` before it
- * runs, and the row is marked relayed. Delivered twice, the second pass finds it relayed and does nothing.
+ * runs, and the row is marked relayed. Delivered twice, the second pass finds it relayed and does nothing. What must not
+ * hold the event's transaction open (a webhook delivery's run, a model call) runs after it, once.
  *
  * This is the core: the kick, the claim and the sweep. The sinks are subscribers, one file per slice in
  * `relay/subscribers/`, listed in `relay/registry.ts` in the order they run (ADR-0041).
@@ -81,6 +82,17 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
       })
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId }))
     if (relayed !== undefined && isWebhookSource(relayed)) yield* startWebhookRuns(id, relayed)
+    // A ticket's topic by Insyte AI (M15 step 2), outside the event's transaction: a model call may take seconds, and
+    // the rules' topic stands if it fails. Delivered once with the event; a retried delivery finds it relayed.
+    if (relayed?.type === "ticket.topic_requested") {
+      const ticketId = relayed.ticketId
+      // Imported here, not at startup: `effect/ai` is no part of the Worker's start (ADR-0041 §3).
+      yield* Effect.promise(() => import("@insyte/modules/ai/Ai")).pipe(
+        Effect.flatMap((ai) => ai.classifyTicket(ticketId)),
+        Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId }),
+        Effect.catchCause((cause) => Effect.logWarning("a ticket's topic was not classified", { cause }))
+      )
+    }
   }
 })
 

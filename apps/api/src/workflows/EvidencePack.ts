@@ -10,11 +10,11 @@ import { withRequestDb } from "../platform/RequestDb.ts"
 import { roomOf } from "../platform/Room.ts"
 
 /*
- * A case's evidence pack (M13 step 4), one run per ask: which documents the case's facts can carry, then each document
- * on a durable step of its own (read, rendered by Browser Rendering, kept in R2, put in the pack), then the pack ready.
- * A step that fails (the browser busy, the bucket away) is tried again; when it gives up, the pack is marked failed and
- * can be asked for again. After every step the workspace's tabs hear how far it got (`job.progress`) and refetch the
- * case.
+ * A case's evidence pack (M13 step 4), one run per ask: which documents the case's facts can carry, its account (Insyte
+ * AI's where a model is set up, M15 step 2), then each document on a durable step of its own (read, rendered by Browser
+ * Rendering, kept in R2, put in the pack), then the pack ready. A step that fails (the browser busy, the bucket away) is
+ * tried again; when it gives up, the pack is marked failed and can be asked for again. After every step the
+ * workspace's tabs hear how far it got (`job.progress`) and refetch the case.
  */
 
 export interface EvidencePackParams {
@@ -44,6 +44,19 @@ export class EvidencePackWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Evi
       )
       if (kinds.length === 0) return { outcome: "skipped" as const }
       await told(0, kinds.length)
+      // The account by Insyte AI where a model is set up (M15 step 2); the facts' sentences stand otherwise, and when
+      // the model fails or writes a figure the facts do not have. Tried once: the pack never waits on a model.
+      await step.do(
+        "narrative",
+        { retries: { limit: 0, delay: "1 second" }, timeout: "2 minutes" },
+        () =>
+          run(
+            workspaceId,
+            Effect.promise(() => import("@insyte/modules/ai/Ai")).pipe(
+              Effect.flatMap((ai) => ai.writeNarrative(chargebackId, runId))
+            )
+          ).catch(() => "kept" as const)
+      )
       for (const [i, kind] of kinds.entries()) {
         await step.do(`document:${kind}`, RETRY, () => run(workspaceId, gatherDocument(chargebackId, runId, kind)))
         await told(i + 1, kinds.length)

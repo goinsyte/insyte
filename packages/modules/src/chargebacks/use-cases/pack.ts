@@ -350,6 +350,9 @@ const current = (sql: SqlClient.SqlClient, chargebackId: string, runId: string) 
     (rows) => rows.length > 0
   )
 
+/** Whether this run still gathers the case's pack (a newer ask takes it over). */
+export const isCurrentRun = current
+
 const refOf = (runId: string, kind: DocumentKind) => `${runId}:${kind}`
 
 /**
@@ -416,7 +419,15 @@ export const gatherDocument = Effect.fn("Chargebacks.gatherDocument")(function*(
       const facts = yield* factsOf(sql, chargebackId)
       if (facts === undefined) return undefined
       const [ws] = yield* sql<{ id: string }>`select app_workspace_id() as id`
-      return { workspaceId: ws!.id, html: documentHtml(kind, facts), stem: fileStem(kind, facts) }
+      const [pack] = kind === "narrative"
+        ? yield* sql<{ narrativeText: string | null }>`
+            select narrative_text from evidence_packs where chargeback_id = ${chargebackId}`
+        : []
+      return {
+        workspaceId: ws!.id,
+        html: documentHtml(kind, facts, pack?.narrativeText ?? null),
+        stem: fileStem(kind, facts)
+      }
     })
   )
   if (plan === undefined) return "skipped" as const

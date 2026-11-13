@@ -138,6 +138,7 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
   // Tickets, chats, courses, the inbox's queued mail and sheets: not product events.
   "ticket.assigned": none,
   "ticket.mentioned": none,
+  "ticket.topic_requested": none,
   "chat.posted": none,
   "chat.mentioned": none,
   "course.assigned": none,
