@@ -38,6 +38,7 @@ interface Row {
   readonly open: number
   readonly delayed: number
   readonly shipped: number
+  readonly portal: SupplierRow["portal"]
   readonly createdAt: Date
 }
 
@@ -71,6 +72,7 @@ const toRow = (r: Row) =>
       shipped: r.shipped,
       onTime: r.shipped + r.delayed === 0 ? null : r.shipped / (r.shipped + r.delayed)
     },
+    portal: r.portal,
     createdAt: r.createdAt.getTime()
   })
 
@@ -90,7 +92,14 @@ export const rowsWhere = Effect.fn("Suppliers.rowsWhere")(function*(
            (select count(*) from product_supply ps join products p on p.id = ps.product_id
             where ps.supplier_id = s.id and ps.is_primary and ${products})::int as products,
            coalesce(f.open, 0)::int as open, coalesce(f.delayed, 0)::int as delayed,
-           coalesce(f.shipped, 0)::int as shipped
+           coalesce(f.shipped, 0)::int as shipped,
+           case when exists (select 1 from supplier_contacts c where c.supplier_id = s.id and c.revoked_at is null)
+                  then 'active'
+                when exists (select 1 from invitations iv
+                             where iv.supplier_id = s.id and iv.kind = 'supplier_portal' and iv.accepted_at is null
+                               and iv.revoked_at is null and iv.declined_at is null and iv.expires_at > now())
+                  then 'invited'
+                else 'none' end as portal
     from suppliers s
     left join supplier_integrations i on i.supplier_id = s.id
     left join lateral (

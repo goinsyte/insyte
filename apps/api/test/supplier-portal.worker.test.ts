@@ -31,6 +31,13 @@ describe("the supplier portal", () => {
     await relay(store.workspace)
     const [send] = await sends.get()
     await send!.waitForStatus("complete")
+    // The leg's work, made as it went, is said to the supplier's portal: an open tab refetches its orders.
+    expect(
+      (await outboxOf(store.workspace)).filter((e) => e.event === "partner.changed").map((e) => e.payload)
+    ).toEqual([
+      expect.objectContaining({ supplierId: atelier.id, kind: "supplier_orders", ids: [leg.orderId] })
+    ])
+    expect(atelier.portal).toBe("none")
 
     // The brand invites the supplier's person, to orders and stock; they take no seat.
     const person = `noord-${run}@supplier.example`
@@ -46,6 +53,7 @@ describe("the supplier portal", () => {
         rows: [{ supplierId: atelier.id, email: person, name: "Noor", scopes: ["stock"] }]
       }, store.cookie)
     )
+    expect((await supplierNamed(store.cookie, "Atelier Noord")).portal).toBe("invited")
     await pastUndo(store.workspace)
     await relay(store.workspace)
     const mail = (await mailsTo(person))[0]!
@@ -61,6 +69,7 @@ describe("the supplier portal", () => {
     })
     const cookie = cookiesOf(await post("/api/auth/sign-in/email", { email: person, password }))
     expect(ok(await rpc("Landing.accept", ref, cookie))).toMatchObject({ landing: "/supplier/dashboard" })
+    expect((await supplierNamed(store.cookie, "Atelier Noord")).portal).toBe("active")
     const me = ok(await sessionMe(cookie))
     expect(me.landing).toBe("/supplier/dashboard")
     expect(me.activePrincipal).toMatchObject({ kind: "supplier_contact", partnerName: "Atelier Noord" })

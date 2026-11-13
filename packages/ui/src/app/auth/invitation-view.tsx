@@ -111,7 +111,7 @@ function brandLine(inv: Landing, state: string) {
       lead: "Lever aan",
       accent: inv.workspace,
       body:
-        "Je ziet alleen de bestellingen met jullie producten en wat Northwind daarvoor betaalt. Nooit de gegevens van hun klanten."
+        `Je ziet alleen de bestellingen met jullie producten en wat ${inv.workspace} daarvoor betaalt. Nooit de gegevens van hun klanten.`
     }
   }
   if (state === "affiliate") {
@@ -539,7 +539,7 @@ function AccountState({
 
   function submit() {
     if (!name.trim()) {
-      return setError(supplier ? "Vul je naam in, zo weet Northwind met wie ze praten." : "Vul je naam in.")
+      return setError(supplier ? `Vul je naam in, zo weet ${inv.workspace} met wie ze praten.` : "Vul je naam in.")
     }
     if (link && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email.trim())) return setError("Vul een geldig e-mailadres in.")
     if (password.length < 8) return setError("Kies een wachtwoord van minimaal 8 tekens.")

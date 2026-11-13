@@ -129,7 +129,10 @@ export function SupplierDashboard() {
               body={`Nieuwe bestellingen van ${brand} komen hier binnen.`}
               action={{ label: "Producten bekijken", onClick: () => void navigate({ to: "/supplier/products" }) }}
               secondary={parts.settings
-                ? { label: "API koppelen", onClick: () => void navigate({ to: "/supplier/settings/api-connection" }) }
+                ? {
+                  label: "API koppelen",
+                  onClick: () => void navigate({ to: "/supplier/settings/api-connection" as never })
+                }
                 : undefined}
               starts={[
                 ...(parts.settings
@@ -284,7 +287,7 @@ export function SupplierDashboard() {
                           Van {brand}
                         </h2>
                         <Link
-                          to="/supplier/chats"
+                          to={"/supplier/chats" as never}
                           className="group flex flex-col gap-1.5 rounded-xl bg-mist p-4 transition-colors hover:bg-ink/6"
                         >
                           <span className="flex items-center gap-2 text-ink-3 text-xs">

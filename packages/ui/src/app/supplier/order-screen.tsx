@@ -143,8 +143,7 @@ export function SupplierOrder() {
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate font-medium text-base text-ink">{l.title}</span>
                     <span className="text-ink-3 text-sm">
-                      {l.variantTitle ? `${l.variantTitle} · ` : ""}
-                      {l.sku}
+                      {[l.variantTitle, l.sku].filter(Boolean).join(" · ")}
                     </span>
                   </span>
                   <span className="font-medium text-base text-ink tabular-nums">{l.quantity}×</span>
@@ -267,7 +266,7 @@ export function SupplierOrder() {
           {parts.chat ?
             (
               <Link
-                to="/supplier/chats"
+                to={"/supplier/chats" as never}
                 search={{ ref: row.number } as never}
                 className="flex h-9 items-center gap-2 self-start rounded-md px-3 font-medium text-arc-ink text-sm hover:bg-arc-tint"
               >
