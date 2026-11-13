@@ -18,6 +18,7 @@ import {
   WithSecret
 } from "../domain/ApiKey.ts"
 import { KeyHasher } from "../domain/Ports.ts"
+import { reachOf } from "./deliveries.ts"
 
 /*
  * Instellingen → API-sleutels (M19.1). Seeing the keys is `integrations` at Bekijken; making, rotating and revoking them
@@ -173,6 +174,11 @@ export const createOn = Effect.fn("ApiKeys.createOn")(function*(sql: SqlClient.S
   const principal = yield* CurrentPrincipal
   const hasher = yield* KeyHasher
   const access = yield* checkAccess(sql, input.access)
+  // A key reaches no store beyond its maker's (`storeScope`): "all" is for someone who reaches every store.
+  const reach = reachOf(principal)
+  if (reach !== "all" && (input.stores === "all" || input.stores.some((s) => !reach.includes(s)))) {
+    return yield* new Invalid({ fields: { stores: "forbidden" } })
+  }
   const id = mintId("key")
   const token = mintToken()
   const hash = yield* hasher.hash(token.secret)
