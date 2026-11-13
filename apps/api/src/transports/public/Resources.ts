@@ -1,14 +1,14 @@
-import {
-  type ConflictV1,
-  CurrentApiKey,
-  type IdempotencyKeyReusedV1,
-  type InvalidRequestV1,
-  type ListQuery,
-  type NotFoundV1,
-  type RefundOverLimitV1,
-  type ScopeMissingV1,
-  type ValidationFailedV1
-} from "@insyte/api/http/PublicApi"
+import type {
+  ConflictV1,
+  IdempotencyKeyReusedV1,
+  InvalidRequestV1,
+  NotFoundV1,
+  RefundOverLimitV1,
+  ScopeMissingV1,
+  ValidationFailedV1
+} from "@insyte/api/http/Errors"
+import type { ListQuery } from "@insyte/api/http/Paging"
+import { CurrentApiKey } from "@insyte/api/http/Security"
 import { type Flow, triggerOf } from "@insyte/domain/automations/Graph"
 import { Conflict, type Forbidden } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"

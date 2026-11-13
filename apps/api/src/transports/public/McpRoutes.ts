@@ -1,4 +1,4 @@
-import { CurrentApiKey } from "@insyte/api/http/PublicApi"
+import { CurrentApiKey } from "@insyte/api/http/Security"
 import { InsyteTools } from "@insyte/api/mcp/McpTools"
 import type { Db } from "@insyte/database/Db"
 import type { AgentActionId } from "@insyte/domain/AgentActions"

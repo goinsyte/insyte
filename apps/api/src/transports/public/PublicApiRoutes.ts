@@ -1,4 +1,5 @@
-import { ApiKeyAuth, PublicApi } from "@insyte/api/http/PublicApi"
+import { PublicApi } from "@insyte/api/http/PublicApi"
+import { ApiKeyAuth } from "@insyte/api/http/Security"
 import { Effect, Layer, Redacted } from "effect"
 import { HttpApiBuilder, HttpApiScalar } from "effect/http-api"
 import { KeyDoor, refusal } from "./KeyDoor.ts"
