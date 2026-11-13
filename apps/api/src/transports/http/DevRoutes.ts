@@ -3,7 +3,10 @@ import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
 import { RECORDED_BULK } from "@insyte/integrations-shopify/RecordedBulk"
+import { remindWorkspace } from "@insyte/modules/chargebacks/Chargebacks"
+import { syncAdSpend } from "@insyte/modules/costs/Costs"
 import { drainWorkspace, markRecentWorkspace, rebuildWorkspace } from "@insyte/modules/facts/Facts"
+import { fill as fillRates } from "@insyte/modules/fx/Fx"
 import { receive } from "@insyte/modules/inbox/use-cases/inbound"
 import { isReplyAddress, receiveReply } from "@insyte/modules/notifications/use-cases/replies"
 import { refreshWorkspace } from "@insyte/modules/queue/Queue"
@@ -12,10 +15,13 @@ import { dueWorkspaces } from "@insyte/modules/settings/use-cases/retention"
 import { recheck } from "@insyte/modules/settings/use-cases/sending-domain"
 import { addLine, emptyBatch, type MirrorBatch, parseJsonl } from "@insyte/modules/stores/domain/Mirror"
 import { applyBatch } from "@insyte/modules/stores/use-cases/mirror"
+import { closeWorkspace } from "@insyte/modules/suppliers/use-cases/statements"
 import { sweepWorkspace } from "@insyte/modules/tracking/use-cases/tracking"
+import { sweepWorkspace as sweepTrash } from "@insyte/modules/trash/use-cases/trash"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect, Layer, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
+import { AdSpendLive } from "../../platform/AdSpend.ts"
 import { AppInfo } from "../../platform/Bindings.ts"
 import { parseMail } from "../../platform/InboundMail.ts"
 import { capturedSenders, refusedReferences, refusedSenderDomains } from "../../platform/Mail.ts"
@@ -23,6 +29,7 @@ import { digestWorkspace, notifyWorkspace } from "../../platform/Relay.ts"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 import { retentionWorkspace } from "../../platform/Retention.ts"
 import { userFrom } from "../../platform/Sessions.ts"
+import { TrashKindsLive } from "../../platform/SliceLinks.ts"
 
 /**
  * `GET /api/__dev/mail?to=<address>`: the mails the capture adapter "sent" to one address, newest first. For the
@@ -244,8 +251,8 @@ const OutboxDue = HttpRouter.add(
 
 /**
  * `POST /api/__dev/undo/age?workspace=<id>&seconds=<n>`: the workspace's undo windows as if `n` seconds had passed, so
- * a test can stand between a toast's eight seconds and a chat card's five minutes without sleeping. Refused in
- * production.
+ * a test can stand between a toast's eight seconds and a chat card's five minutes without sleeping; the agent log's
+ * windows age with them. Refused in production.
  */
 const UndoAge = HttpRouter.add(
   "POST",
@@ -263,7 +270,15 @@ const UndoAge = HttpRouter.add(
         update undo_tokens set expires_at = expires_at - make_interval(secs => ${
         Number.isFinite(seconds) ? seconds : 0
       })
-        where used_at is null returning command`
+        where used_at is null returning command`.pipe(
+        // An agent's action in the log keeps its own five minutes (M15 step 6).
+        Effect.tap(() =>
+          sql`update agent_actions set undo_until = undo_until - make_interval(secs => ${
+            Number.isFinite(seconds) ? seconds : 0
+          })
+              where undo_until is not null`
+        )
+      )
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
     return HttpServerResponse.jsonUnsafe({ aged: aged.length })
   }).pipe(withRequestDb)
@@ -457,6 +472,32 @@ const TrackingSweep = HttpRouter.add(
 )
 
 /**
+ * `POST /api/__dev/statements/close?workspace=<id>&month=YYYY-MM`: one workspace's monthly close of the supplier
+ * statements (M13 step 6), as `MonthlyCloseWorkflow`'s step does, for the worker tests and a preview. Unlike the cron it
+ * closes a month still running (what a test just shipped is this month's). Refused in production.
+ */
+const StatementsClose = HttpRouter.add(
+  "POST",
+  "/api/__dev/statements/close",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const query = new URL(request.url, "http://local").searchParams
+    const month = query.get("month") ?? ""
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "invalid" } }, { status: 400 })
+    }
+    const outcome = yield* closeWorkspace(month, { early: true }).pipe(
+      Effect.provideService(CurrentWorkspace, { id: (query.get("workspace") ?? "") as WorkspaceId }),
+      Effect.orDie
+    )
+    return HttpServerResponse.jsonUnsafe(outcome)
+  }).pipe(withRequestDb)
+)
+
+/**
  * `POST /api/__dev/queue/refresh?workspace=<id>`: the workspace's queue on Start brought in line now, as the 15-minute
  * sweep does (M10.1), for the worker tests (a stock-out has no event of its own). Refused in production.
  */
@@ -471,6 +512,25 @@ const QueueRefresh = HttpRouter.add(
     const changed = yield* refreshWorkspace(workspace as WorkspaceId).pipe(Effect.orDie)
     return HttpServerResponse.jsonUnsafe({ changed })
   }).pipe(withRequestDb)
+)
+
+/**
+ * `POST /api/__dev/chargebacks/remind?workspace=<id>&at=<iso>`: one workspace's turn of the hourly deadline reminders
+ * (M13 step 3) as if it were `at` (now when absent); answers the outbox rows it wrote. Refused in production.
+ */
+const ChargebackRemind = HttpRouter.add(
+  "POST",
+  "/api/__dev/chargebacks/remind",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = (yield* workspaceParam) as WorkspaceId
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const at = new URL(request.url, "http://local").searchParams.get("at")
+    const outboxIds = yield* remindWorkspace(workspace, at === null ? undefined : new Date(at))
+    return HttpServerResponse.jsonUnsafe({ outboxIds })
+  }).pipe(Effect.orDie, withRequestDb)
 )
 
 /**
@@ -661,6 +721,36 @@ const FactsRebuild = HttpRouter.add(
 )
 
 /**
+ * `POST /api/__dev/fx/fill`: the ECB's rates into `fx_rates` now, as the cron's nightly turn does (the recorded twin's,
+ * in the worker tests); `GET /api/__dev/fx`: what `fx_rates` holds. Refused in production.
+ */
+const FxFill = HttpRouter.add(
+  "POST",
+  "/api/__dev/fx/fill",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    return HttpServerResponse.jsonUnsafe({ written: yield* fillRates })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+const FxOf = HttpRouter.add(
+  "GET",
+  "/api/__dev/fx",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const db = yield* Db
+    const rates = yield* db.unscopedForCron((sql) =>
+      sql`select day::text as day, base, quote, rate::text as rate from fx_rates order by day, base, quote`
+    )
+    return HttpServerResponse.jsonUnsafe({ rates })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+/**
  * `POST /api/__dev/mail/inbound` `{ to, raw }`: a raw RFC 822 mail delivered to a forwarding address, as Cloudflare Email
  * Routing hands it to the Worker's `email()` handler (M11 step 1), down the same path, an answer to a notification mail
  * included (`{ reply }`, M11 step 13.5). For the worker tests, the
@@ -691,6 +781,114 @@ const InboundMail = HttpRouter.add(
     }
     return HttpServerResponse.jsonUnsafe(stored)
   }).pipe(withRequestDb)
+)
+
+/**
+ * `GET /api/__dev/automations/runs?workspace=<id>`: one workspace's flow runs with their steps, and the flows' service
+ * accounts, read in that workspace's scope. For the engine's worker tests until the Runs tab reads them (M12 step 5).
+ * Refused in production.
+ */
+const AutomationRunsOf = HttpRouter.add(
+  "GET",
+  "/api/__dev/automations/runs",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const db = yield* Db
+    const found = yield* db.scopedFor((sql) =>
+      Effect.all({
+        runs: sql`
+          select id, automation_id, version, service_account_id, trigger_variant, record_id, status, reason
+          from automation_runs order by started_at, id`,
+        steps: sql`
+          select run_id, node_id, attempt, variant, status, output, explanation
+          from automation_run_steps order by started_at, node_id`,
+        accounts: sql`
+          select id, automation_id, label, scopes, version, disabled_at is not null as disabled
+          from service_accounts order by created_at`
+      })
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe(found)
+  }).pipe(withRequestDb)
+)
+
+/**
+ * `POST /api/__dev/costs/ad-account?workspace=<id>` `{ provider, status, spend: [{ day, spendMinor, currency? }] }`: an
+ * ad account as a connection would leave it, with the spend it reported, for the costs' worker tests (M13 step 5): no
+ * Meta or Google Ads account can be connected yet. `POST /api/__dev/costs/sync`: the daily ad spend sync now. Refused
+ * in production.
+ */
+const CostsAdAccount = HttpRouter.add(
+  "POST",
+  "/api/__dev/costs/ad-account",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = { id: (yield* workspaceParam) as WorkspaceId }
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const body = (yield* request.json) as {
+      readonly provider: "meta" | "google_ads"
+      readonly status?: string
+      readonly spend?: ReadonlyArray<{ readonly day: string; readonly spendMinor: number; readonly currency?: string }>
+    }
+    const db = yield* Db
+    const id = mintId("con")
+    yield* db.scopedFor((sql) =>
+      Effect.gen(function*() {
+        yield* sql`insert into connections (id, workspace_id, provider, account_ref, status)
+                   values (${id}, ${workspace.id}, ${body.provider}, ${`act_${id}`}, ${body.status ?? "connected"})`
+        for (const s of body.spend ?? []) {
+          yield* sql`insert into ad_spend_day (workspace_id, connection_id, provider, account_ref, day, spend_minor,
+                                               currency)
+                     values (${workspace.id}, ${id}, ${body.provider}, ${`act_${id}`}, ${s.day}::date, ${s.spendMinor},
+                             ${s.currency ?? "EUR"})`
+        }
+      })
+    ).pipe(Effect.provideService(CurrentWorkspace, workspace))
+    return HttpServerResponse.jsonUnsafe({ connectionId: id })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+const CostsSync = HttpRouter.add(
+  "POST",
+  "/api/__dev/costs/sync",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    return HttpServerResponse.jsonUnsafe({ written: yield* syncAdSpend() })
+  }).pipe(Effect.provide(AdSpendLive), withRequestDb)
+)
+
+/**
+ * `POST /api/__dev/trash/sweep?workspace=<id>&age=<days>`: the workspace's trashed tickets as if deleted `age` days
+ * earlier, then the Prullenbak's daily sweep for that workspace (M17 step 20.1a), so the 30 days need not be waited
+ * out. Refused in production.
+ */
+const TrashSweep = HttpRouter.add(
+  "POST",
+  "/api/__dev/trash/sweep",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = (yield* workspaceParam) as WorkspaceId
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const age = Number(new URL(request.url, "http://local").searchParams.get("age") ?? "0")
+    const db = yield* Db
+    yield* db.scopedFor((sql) =>
+      sql`update tickets set deleted_at = deleted_at - make_interval(days => ${Number.isFinite(age) ? age : 0})
+          where deleted_at is not null`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace }))
+    const purged = yield* sweepTrash().pipe(
+      Effect.provideService(CurrentWorkspace, { id: workspace }),
+      Effect.provide(TrashKindsLive)
+    )
+    return HttpServerResponse.jsonUnsafe({ purged })
+  }).pipe(Effect.orDie, withRequestDb)
 )
 
 /**
@@ -781,6 +979,9 @@ const RetentionDue = HttpRouter.add(
 )
 
 export const DevRoutes = Layer.mergeAll(
+  CostsAdAccount,
+  CostsSync,
+  TrashSweep,
   SendingDomainAge,
   SendingDomainRecheck,
   RetentionAge,
@@ -791,9 +992,13 @@ export const DevRoutes = Layer.mergeAll(
   FactsOf,
   FactsDrain,
   FactsRebuild,
+  FxFill,
+  FxOf,
   StoreSeed,
   TrackingSweep,
+  StatementsClose,
   QueueRefresh,
+  ChargebackRemind,
   NotifySweep,
   NotifyDeliveries,
   StoreConnection,
@@ -803,6 +1008,7 @@ export const DevRoutes = Layer.mergeAll(
   MailRefuseSender,
   AuthEventsOf,
   OutboxOf,
+  AutomationRunsOf,
   UndoOf,
   UndoAge,
   OutboxDue,

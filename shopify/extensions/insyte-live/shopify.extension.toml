@@ -1,0 +1,36 @@
+# Live's Web Pixel (M14 step 3): the storefront's page views, product views, add-to-carts and checkouts, posted to the
+# Insyte API so /live shows who is on the store. Deployed with the app (`shopify app deploy --path shopify`); installed
+# per store from Instellingen → Winkels, which sets the three settings below through `webPixelCreate`.
+api_version = "2026-10"
+type = "web_pixel_extension"
+name = "insyte-live"
+# The strict sandbox: the pixel sees Shopify's standard events only, never the page itself.
+runtime_context = "strict"
+
+# Loaded only for visitors who allowed analytics (Shopify's Customer Privacy API).
+[customer_privacy]
+analytics = true
+marketing = false
+preferences = false
+sale_of_data = "disabled"
+
+[settings]
+type = "object"
+
+[settings.fields.storeId]
+name = "Winkel"
+description = "De Insyte-id van deze winkel."
+type = "single_line_text_field"
+validations = [{ name = "min", value = "1" }]
+
+[settings.fields.ingestKey]
+name = "Sleutel"
+description = "De sleutel waarmee de pixel bij Insyte binnenkomt; Insyte bewaart alleen een hash."
+type = "single_line_text_field"
+validations = [{ name = "min", value = "16" }]
+
+[settings.fields.endpoint]
+name = "Adres"
+description = "Waar de pixel naartoe stuurt."
+type = "single_line_text_field"
+validations = [{ name = "min", value = "8" }]

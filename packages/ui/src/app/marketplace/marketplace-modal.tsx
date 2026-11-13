@@ -19,10 +19,10 @@ import {
 	X,
 } from "../../icons";
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
 import { InsyteMark, InsyteWordmark } from "../../brand/mark";
-import { useMarketplaceState } from "../hooks/use-marketplace-state";
-import { extensions as seedExtensions } from "../../data-source";
+import { useMarketplaceState } from "../shell/state";
+import { SoonChip } from "../common/soon-chip";
+import { Skeleton } from "../../components/skeleton";
 import type { Extension } from "../lib/types/domain";
 import { cn } from "../lib/utils";
 import { useMarketplaceModalStore } from "../stores/marketplace-modal-store";
@@ -131,7 +131,9 @@ const CATEGORY_THEME: Record<
 export function MarketplaceModal() {
 	const open = useMarketplaceModalStore((s) => s.open);
 	const closeModal = useMarketplaceModalStore((s) => s.closeModal);
-	const { isInstalled, install, uninstall } = useMarketplaceState();
+	const market = useMarketplaceState();
+	const { isInstalled, install, uninstall, soon } = market;
+	const seedExtensions = market.apps;
 	const [collection, setCollection] = useState<CollectionId>("all");
 	const [query, setQuery] = useState("");
 	const [detail, setDetail] = useState<Extension | null>(null);
@@ -148,7 +150,7 @@ export function MarketplaceModal() {
 			"new",
 			seedExtensions.filter((e) => BADGE_FOR[e.id] === "new").length,
 		);
-		map.set("recommended", 4);
+		map.set("recommended", market.recommended.length);
 		for (const cat of CATEGORIES_ORDER) {
 			const count = seedExtensions.filter(
 				(e) => CATEGORY_FOR[e.id] === cat,
@@ -156,7 +158,7 @@ export function MarketplaceModal() {
 			if (count > 0) map.set(cat, count);
 		}
 		return map;
-	}, []);
+	}, [seedExtensions, market.recommended]);
 
 	const filtered = useMemo(() => {
 		const q = query.trim().toLowerCase();
@@ -167,12 +169,7 @@ export function MarketplaceModal() {
 			if (collection === "editors") return EDITORS_CHOICE_IDS.includes(ext.id);
 			if (collection === "new") return BADGE_FOR[ext.id] === "new";
 			if (collection === "recommended")
-				return [
-					"ext_klaviyo",
-					"ext_gorgias",
-					"ext_zapier",
-					"ext_loop",
-				].includes(ext.id);
+				return market.recommended.includes(ext.id);
 			return CATEGORY_FOR[ext.id] === collection;
 		};
 		return seedExtensions.filter((e) => {
@@ -182,34 +179,33 @@ export function MarketplaceModal() {
 				e.name.toLowerCase().includes(q) || e.tagline.toLowerCase().includes(q)
 			);
 		});
-	}, [collection, query]);
+	}, [collection, query, seedExtensions, market.recommended]);
 
 	const featuredApps = useMemo(
 		() =>
 			FEATURED_IDS.map((id) => seedExtensions.find((e) => e.id === id)).filter(
 				Boolean,
 			) as Extension[],
-		[],
+		[seedExtensions],
 	);
 	const trendingApps = useMemo(
 		() =>
 			TRENDING_IDS.map((id) => seedExtensions.find((e) => e.id === id)).filter(
 				Boolean,
 			) as Extension[],
-		[],
+		[seedExtensions],
 	);
 	const heroApp = featuredApps[0];
 
 	const showCollections = collection === "all" && !query.trim();
 
+	// What came of it (a toast, a provider's approval page, a key shown once) is the host's to say.
 	function handleInstall(ext: Extension) {
-		install(ext.id);
-		toast.success(`${ext.name} geïnstalleerd`);
+		install(ext);
 	}
 
 	function handleUninstall(ext: Extension) {
-		uninstall(ext.id);
-		toast(`${ext.name} verwijderd`);
+		uninstall(ext);
 	}
 
 	return (
@@ -318,17 +314,38 @@ export function MarketplaceModal() {
 						{/* Main scrollable content */}
 						<div className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-paper">
 							<div className="flex flex-col gap-8 px-8 py-7">
-								{showCollections && heroApp ? (
+								{market.status === "loading" ? <CatalogSkeleton /> : null}
+								{market.status === "error" ? (
+									<div className="hatch rounded-xl bg-glacier/40 px-10 py-16 text-center">
+										<p className="font-medium text-base text-ink">
+											De Marketplace kon niet worden geladen
+										</p>
+										<p className="mt-1 text-base text-ink-3">
+											Er ging iets mis bij het ophalen. Probeer het zo opnieuw.
+										</p>
+										{market.retry ? (
+											<button
+												type="button"
+												onClick={market.retry}
+												className="mt-4 inline-flex h-8 items-center rounded-md bg-paper px-3 font-medium text-base text-ink hover:bg-mist"
+											>
+												Opnieuw proberen
+											</button>
+										) : null}
+									</div>
+								) : null}
+								{market.status !== "ready" ? null : showCollections && heroApp ? (
 									<HeroFeatured
 										ext={heroApp}
 										installed={isInstalled(heroApp.id)}
+										soon={soon(heroApp.id)}
 										onInstall={() => handleInstall(heroApp)}
 										onUninstall={() => handleUninstall(heroApp)}
 										onOpenDetails={() => setDetail(heroApp)}
 									/>
 								) : null}
 
-								{showCollections ? (
+								{market.status !== "ready" ? null : showCollections ? (
 									<>
 										<Section
 											title="Uitgelicht"
@@ -340,6 +357,7 @@ export function MarketplaceModal() {
 														key={ext.id}
 														ext={ext}
 														installed={isInstalled(ext.id)}
+														soon={soon(ext.id)}
 														onOpenDetails={() => setDetail(ext)}
 														onInstall={() => handleInstall(ext)}
 														onUninstall={() => handleUninstall(ext)}
@@ -359,6 +377,7 @@ export function MarketplaceModal() {
 														rank={i + 1}
 														ext={ext}
 														installed={isInstalled(ext.id)}
+														soon={soon(ext.id)}
 														onOpenDetails={() => setDetail(ext)}
 														onInstall={() => handleInstall(ext)}
 													/>
@@ -407,6 +426,7 @@ export function MarketplaceModal() {
 														key={ext.id}
 														ext={ext}
 														installed={isInstalled(ext.id)}
+														soon={soon(ext.id)}
 														onOpenDetails={() => setDetail(ext)}
 														onInstall={() => handleInstall(ext)}
 														onUninstall={() => handleUninstall(ext)}
@@ -445,12 +465,14 @@ export function MarketplaceModal() {
 function HeroFeatured({
 	ext,
 	installed,
+	soon,
 	onInstall,
 	onUninstall,
 	onOpenDetails,
 }: {
 	ext: Extension;
 	installed: boolean;
+	soon: boolean;
 	onInstall: () => void;
 	onUninstall: () => void;
 	onOpenDetails: () => void;
@@ -489,7 +511,9 @@ function HeroFeatured({
 					{ext.tagline}
 				</p>
 				<div className="mt-1 flex items-center gap-2.5">
-					{installed ? (
+					{soon ? (
+						<SoonChip dark />
+					) : installed ? (
 						<button
 							type="button"
 							onClick={onUninstall}
@@ -533,12 +557,14 @@ function HeroFeatured({
 function AppCard({
 	ext,
 	installed,
+	soon,
 	onOpenDetails,
 	onInstall,
 	onUninstall,
 }: {
 	ext: Extension;
 	installed: boolean;
+	soon: boolean;
 	onOpenDetails: () => void;
 	onInstall: () => void;
 	onUninstall: () => void;
@@ -606,7 +632,9 @@ function AppCard({
 						</span>
 					</div>
 				</div>
-				{installed ? (
+				{soon ? (
+					<SoonChip />
+				) : installed ? (
 					<button
 						type="button"
 						onClick={onUninstall}
@@ -643,12 +671,14 @@ function TrendingPill({
 	ext,
 	rank,
 	installed,
+	soon,
 	onOpenDetails,
 	onInstall,
 }: {
 	ext: Extension;
 	rank: number;
 	installed: boolean;
+	soon: boolean;
 	onOpenDetails: () => void;
 	onInstall: () => void;
 }) {
@@ -681,7 +711,9 @@ function TrendingPill({
 					<Download className="size-3" strokeWidth={1.75} />
 					<span>{formatInstalls(ext.install_count)}</span>
 				</div>
-				{installed ? (
+				{soon ? (
+					<SoonChip />
+				) : installed ? (
 					<span className="inline-flex items-center gap-1 font-medium text-xs text-signal-green">
 						<CheckCircle2 className="size-3" strokeWidth={2} />
 						Geïnstalleerd
@@ -896,6 +928,20 @@ function CollectionRow({
 				</span>
 			) : null}
 		</button>
+	);
+}
+
+/* The catalogue while the console reads it: the hero and a grid of cards, in their own shapes. */
+function CatalogSkeleton() {
+	return (
+		<div className="flex flex-col gap-8" aria-busy="true" aria-label="Marketplace laden">
+			<Skeleton className="h-[200px] rounded-xl" />
+			<div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+				{Array.from({ length: 6 }, (_, i) => (
+					<Skeleton key={i} className="h-[148px] rounded-xl" />
+				))}
+			</div>
+		</div>
 	);
 }
 

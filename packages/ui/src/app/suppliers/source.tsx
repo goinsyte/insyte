@@ -85,6 +85,8 @@ export interface SuppliersSource {
   chatOf: (row: SupplierRow) => string | undefined
   /** Opens that chat. */
   openChat?: ((chatId: string) => void) | undefined
+  /** Where the brand reads what it owes them, month by month (M13 step 6); absent, the dialog has no such section. */
+  statementsOf?: ((row: SupplierRow) => string) | undefined
   /** The portal's section in the dialog and its invite dialog; absent, the portal parts are left out. */
   portal?:
     | {

@@ -36,6 +36,9 @@ export const DocumentsChoice = Layer.unwrap(
 )
 
 export const FileStoreR2 = Layer.succeed(FileStore)(FileStore.of({
+  // Best effort: an object the bucket keeps after a failed delete holds nothing a files row still points at.
+  remove: (keys) =>
+    keys.length === 0 ? Effect.void : Effect.promise(() => env.FILES.delete([...keys]).catch(() => undefined)),
   put: (key, bytes, mime) =>
     Effect.tryPromise({
       try: () => env.FILES.put(key, bytes, { httpMetadata: { contentType: mime } }),

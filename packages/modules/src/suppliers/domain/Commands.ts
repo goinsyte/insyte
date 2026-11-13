@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
+import { StatementRestore } from "./Statements.ts"
 import { ForwardChannel, StockMode, SupplierRow } from "./Suppliers.ts"
 
 /*
@@ -68,7 +69,10 @@ export type Fields = typeof Fields.Type
 
 const Supply = Schema.Struct({ productId: Schema.String, isPrimary: Schema.Boolean, leadDays: Schema.Int })
 
-/** For `Shared.undo`: fields as they were, a new supplier taken away, pauses as they were, products given back. */
+/**
+ * For `Shared.undo`: fields as they were, a new supplier taken away, pauses as they were, products given back, a
+ * statement's payment as it was (M13 step 6).
+ */
 export const SuppliersRestore = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("fields"), id: Schema.String, fields: Fields }),
   Schema.Struct({ kind: Schema.Literal("created"), id: Schema.String }),
@@ -82,6 +86,7 @@ export const SuppliersRestore = Schema.Union([
     /** Each product's primary supplier before, `null` where it had none. */
     products: Schema.Array(Schema.Struct({ productId: Schema.String, was: Schema.NullOr(Schema.String) }))
   }),
-  Schema.Struct({ kind: Schema.Literal("removed"), id: Schema.String, supply: Schema.Array(Supply) })
+  Schema.Struct({ kind: Schema.Literal("removed"), id: Schema.String, supply: Schema.Array(Supply) }),
+  StatementRestore
 ])
 export type SuppliersRestore = typeof SuppliersRestore.Type

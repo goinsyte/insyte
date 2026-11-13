@@ -1,11 +1,20 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { AgentRpcs } from "@insyte/api/rpc/AgentRpcs"
+import { AnalyticsRpcs } from "@insyte/api/rpc/AnalyticsRpcs"
+import { AuditRpcs } from "@insyte/api/rpc/AuditRpcs"
+import { AutomationsRpcs } from "@insyte/api/rpc/AutomationsRpcs"
+import { ChargebacksRpcs } from "@insyte/api/rpc/ChargebacksRpcs"
 import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
+import { CostsRpcs } from "@insyte/api/rpc/CostsRpcs"
+import { CoursesRpcs } from "@insyte/api/rpc/CoursesRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
 import { HomeRpcs } from "@insyte/api/rpc/HomeRpcs"
+import { LiveRpcs } from "@insyte/api/rpc/LiveRpcs"
 import { MarketingRpcs } from "@insyte/api/rpc/MarketingRpcs"
+import { MarketplaceRpcs } from "@insyte/api/rpc/MarketplaceRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
 import { NotificationsRpcs } from "@insyte/api/rpc/NotificationsRpcs"
 import { ProposalsRpcs } from "@insyte/api/rpc/ProposalsRpcs"
@@ -13,15 +22,18 @@ import { QualityRpcs } from "@insyte/api/rpc/QualityRpcs"
 import { QueueRpcs } from "@insyte/api/rpc/QueueRpcs"
 import { ReturnsRpcs } from "@insyte/api/rpc/ReturnsRpcs"
 import { RolesRpcs } from "@insyte/api/rpc/RolesRpcs"
+import { RunsRpcs } from "@insyte/api/rpc/RunsRpcs"
 import { SessionRpcs } from "@insyte/api/rpc/SessionRpcs"
 import { SettingsDepthRpcs } from "@insyte/api/rpc/SettingsDepthRpcs"
 import { SharedRpcs } from "@insyte/api/rpc/SharedRpcs"
+import { SheetsRpcs } from "@insyte/api/rpc/SheetsRpcs"
 import { ShellRpcs } from "@insyte/api/rpc/ShellRpcs"
 import { StoresRpcs } from "@insyte/api/rpc/StoresRpcs"
 import { SuppliersRpcs } from "@insyte/api/rpc/SuppliersRpcs"
 import { ThreadsRpcs } from "@insyte/api/rpc/ThreadsRpcs"
 import { TicketsRpcs } from "@insyte/api/rpc/TicketsRpcs"
 import { TrackingRpcs } from "@insyte/api/rpc/TrackingRpcs"
+import { TrashRpcs } from "@insyte/api/rpc/TrashRpcs"
 import { WorkspacesRpcs } from "@insyte/api/rpc/WorkspacesRpcs"
 import { Exit } from "effect"
 import { beforeAll, describe, expect, it } from "vitest"
@@ -42,6 +54,21 @@ const ROLES: ReadonlyArray<Role> = ["owner", "admin", "service", "finance", "vie
 const table = expected as Record<string, Record<Role, "allow" | "deny">>
 
 const NONE = { id: "inv_00000000000000000000000000" }
+const COURSE = {
+  title: "Authz",
+  description: "",
+  chapterId: "cch_none",
+  moduleId: "cmd_none",
+  blocks: [],
+  order: "free",
+  audience: { kind: "all" },
+  suppliers: { kind: "none" },
+  deadline: "",
+  badge: "star",
+  passMark: 80,
+  questions: true
+}
+
 const PAYLOADS: Record<string, unknown> = {
   "Team.get": undefined,
   "Invitations.send": { rows: [{ email: "geen-adres", roleId: "view", stores: "all" }] },
@@ -87,6 +114,37 @@ const PAYLOADS: Record<string, unknown> = {
   "ApiKeys.revoke": { id: "key_none" },
   "ApiKeys.restore": { id: "key_none" },
   "ApiKeys.endpoints": undefined,
+  // Records that do not exist, or a URL refused after the permission check: nothing is made or sent.
+  "Webhooks.list": undefined,
+  "Webhooks.deliveries": { endpointId: "whe_none" },
+  "Webhooks.delivery": { id: "whd_none" },
+  "Webhooks.create": {
+    url: "http://plain.example.com/hook",
+    description: "",
+    events: ["order.cancelled"],
+    apiVersion: "2026-10-01",
+    stores: "all",
+    headers: [],
+    retry: 5,
+    active: true
+  },
+  "Webhooks.update": {
+    id: "whe_none",
+    url: "https://hooks.example.com/x",
+    description: "",
+    events: ["order.cancelled"],
+    apiVersion: "2026-10-01",
+    stores: "all",
+    headers: [],
+    retry: 5,
+    active: true
+  },
+  "Webhooks.setActive": { id: "whe_none", active: false },
+  "Webhooks.remove": { id: "whe_none" },
+  "Webhooks.revealSecret": { id: "whe_none" },
+  "Webhooks.rotateSecret": { id: "whe_none" },
+  "Webhooks.sendTest": { id: "whe_none", event: "order.cancelled" },
+  "Webhooks.redeliver": { id: "whd_none" },
   "Stores.list": undefined,
   "Stores.syncStatus": { id: "sto_none" },
   "Stores.beginConnect": { shopDomain: "missing-shop", returnPath: "/" },
@@ -145,6 +203,9 @@ const PAYLOADS: Record<string, unknown> = {
   "Suppliers.connectApi": { id: "sup_none", url: "https://echo.supplier.example" },
   "Suppliers.disconnectApi": { id: "sup_none" },
   "Suppliers.testConnection": { id: "sup_none" },
+  "Suppliers.statements": { supplierId: "sup_none" },
+  "Suppliers.statement": { supplierId: "sup_none", month: "2026-01" },
+  "Suppliers.markStatementPaid": { id: "sst_none" },
   "Forwarding.list": { view: "to_forward" },
   "Forwarding.forOrder": { orderId: "ord_none" },
   "Forwarding.forward": { ids: ["fwd_none"] },
@@ -190,6 +251,29 @@ const PAYLOADS: Record<string, unknown> = {
     portal: { on: false, handle: "x", intro: "", done: "" }
   },
   "Orders.tracking": { orderId: "ord_none" },
+  // Automations (M12 step 1): Bekijken reads, Bewerken drafts, Beheren pauses and removes; publishing is its own right.
+  "Automations.list": {},
+  "Automations.get": { id: "auto_none" },
+  "Automations.versions": { id: "auto_none" },
+  "Automations.fields": { triggerVariant: "trigger.order_placed" },
+  "Automations.recommended": undefined,
+  "Automations.create": { templateId: "tpl_none" },
+  "Automations.saveDraft": { id: "auto_none", nodes: [] },
+  "Automations.duplicate": { id: "auto_none" },
+  "Automations.remove": { id: "auto_none" },
+  "Automations.restore": { id: "auto_none" },
+  "Automations.publish": { id: "auto_none", note: "" },
+  "Automations.setStatus": { id: "auto_none", status: "paused" },
+  "Automations.updateSettings": { id: "auto_none" },
+  "Automations.test": { id: "auto_none" },
+  "Runs.list": {},
+  "Runs.get": { id: "run_none" },
+  "Runs.stats": { automationId: "auto_none", days: 30 },
+  "Runs.records": { automationId: "auto_none" },
+  "Runs.rerun": { id: "run_none" },
+  "Runs.cancel": { id: "run_none" },
+  "Runs.approve": { id: "run_none", stepId: "n1" },
+  "Runs.decline": { id: "run_none", stepId: "n1" },
   "Tickets.list": {},
   "Tickets.get": { id: "tkt_none" },
   "Tickets.options": undefined,
@@ -252,6 +336,30 @@ const PAYLOADS: Record<string, unknown> = {
   "Home.work": {},
   "Home.agenda": { from: "2026-11-11", span: "week" },
   "Home.activity": {},
+  // Analyse (M14 step 2): Analyse · Bekijken; the service role has none. A month far back reads zeros.
+  "Analytics.periods": undefined,
+  "Analytics.overview": { a: "2026-01", b: "2025-12" },
+  "Analytics.charts": { a: "2026-01", b: "2025-12" },
+  "Analytics.findings": { a: "2026-01", b: "2025-12" },
+  "Analytics.explain": { a: "2026-01", b: "2025-12", key: { _tag: "paid_orders" } },
+  "Analytics.records": { explainKey: { a: "2026-01", b: "2025-12", key: { _tag: "paid_orders" } } },
+  // Rekenbladen (M14 step 4): Data · Bekijken; the service role has none. Ids that do not exist, so nothing changes;
+  // the export also needs Data · Exporteren, which Alleen lezen lacks.
+  "Analytics.figures": { requests: [{ metric: "omzet", month: "2026-01" }] },
+  "Sheets.list": {},
+  "Sheets.counts": undefined,
+  "Sheets.folders": undefined,
+  "Sheets.get": { id: "sh_none" },
+  "Sheets.create": { template: "blank", folderId: "fld_none" },
+  "Sheets.saveTabs": { id: "sh_none", baseVersion: 1, tabs: [{ id: "tab_1", name: "Blad1", cells: {}, widths: {} }] },
+  "Sheets.update": { ids: ["sh_none"], pinned: true },
+  "Sheets.share": { id: "sh_none", memberId: "mem_none", on: true },
+  "Sheets.duplicate": { id: "sh_none" },
+  "Sheets.remove": { ids: ["sh_none"] },
+  "Sheets.restore": { ids: ["sh_none"] },
+  "Sheets.markOpened": { id: "sh_none" },
+  "Sheets.createFolder": { name: "" },
+  "Sheets.export": { id: "sh_none", format: "csv" },
   "Proposals.get": { id: "prp_none" },
   "Proposals.file": { id: "prp_none" },
   "Proposals.discard": { id: "prp_none" },
@@ -343,6 +451,29 @@ const PAYLOADS: Record<string, unknown> = {
   "Notifications.slackChannels": undefined,
   "Notifications.beginSlackConnect": { returnPath: "/settings/notifications" },
   "Notifications.disconnectSlack": undefined,
+  // Courses (M17 step 4): authoring at Cursussen · Bewerken, deleting and wiping progress at Beheren; reading the
+  // catalogue and taking a course need no level (a course that is not open is CourseNotOpen, past no gate).
+  "Courses.list": undefined,
+  "CourseChapters.add": { title: "Authz" },
+  "CourseChapters.rename": { id: "cch_none", title: "Authz" },
+  "CourseChapters.addModule": { chapterId: "cch_none", title: "Authz" },
+  "CourseChapters.renameModule": { id: "cmd_none", title: "Authz" },
+  "CourseChapters.reorder": { ids: ["cch_none"] },
+  "Courses.create": { title: "Authz", chapterId: "cch_none", moduleId: "cmd_none" },
+  "Courses.save": { id: "crs_none", course: COURSE },
+  "Courses.publish": { id: "crs_none", course: COURSE },
+  "Courses.setStatus": { ids: ["crs_none"], status: "archived" },
+  "Courses.duplicate": { id: "crs_none" },
+  "Courses.remove": { ids: ["crs_none"] },
+  "Courses.restore": { ids: ["crs_none"] },
+  "Courses.reorder": { moduleId: "cmd_none", ids: ["crs_none"] },
+  "Courses.remind": { courseId: "crs_none", memberId: "mem_none" },
+  "CourseProgress.step": { courseId: "crs_none", blockId: "blk_none" },
+  "CourseProgress.finish": { courseId: "crs_none" },
+  "CourseProgress.retake": { courseId: "crs_none" },
+  "CourseProgress.reset": { courseId: "crs_none", memberId: "mem_none" },
+  "CourseQuestions.ask": { courseId: "crs_none", text: "Waarom?" },
+  "CourseQuestions.answer": { id: "cqs_none", text: "Daarom." },
   // The person's own sessions (M3.3): every role reads and ends its own; an unknown one is NotFound, past no gate.
   "Session.me": undefined,
   "Session.listSessions": undefined,
@@ -350,7 +481,76 @@ const PAYLOADS: Record<string, unknown> = {
   // The frame and the one search (M5, M11 step 6): every member; a kind or area the role cannot open answers nothing.
   "Shell.frame": { path: "/inbox" },
   "Nav.counts": { area: "tickets" },
-  "Search.records": { q: "zeeland", kinds: ["order", "customer", "product", "ticket", "thread", "message"] }
+  "Search.records": {
+    q: "zeeland",
+    kinds: ["order", "customer", "product", "ticket", "thread", "message", "chargeback"]
+  },
+  // Chargebacks (M13): Bekijken reads, Bewerken changes a case, Beheren accepts. Unknown cases, and a case opened by hand
+  // without a customer, are refused past the permission check, so nothing is made.
+  "Chargebacks.list": {},
+  "Chargebacks.get": { id: "cb_none" },
+  "Chargebacks.stats": undefined,
+  "Chargebacks.nextCaseNumber": undefined,
+  "Chargebacks.createManual": {
+    provider: "stripe",
+    customer: { name: " " },
+    amountMinor: 1000,
+    reasonCode: "not_received"
+  },
+  "Chargebacks.setNote": { id: "cb_none", note: "Iets" },
+  "Chargebacks.accept": { ids: ["cb_none"] },
+  "Chargebacks.addEvidence": { chargebackId: "cb_none", fileIds: ["fil_none"] },
+  "Chargebacks.removeEvidence": { chargebackId: "cb_none", itemId: "evi_none" },
+  "Chargebacks.reorderEvidence": { chargebackId: "cb_none", itemIds: ["evi_none"] },
+  "Chargebacks.assemblePack": { ids: ["cb_none"] },
+  // Kosten (M13 step 5): Analyse · Bekijken to read, `costs.write` to change; a blank name or a line that is not there.
+  "Costs.list": {},
+  "Costs.figures": { months: ["2026-01"] },
+  "Costs.create": { name: "   ", kind: "fixed" },
+  "Costs.update": { id: "cost_none", name: "Iets", kind: "fixed" },
+  "Costs.setAmount": { lineId: "cost_none", month: "2026-01", amountMinor: 100 },
+  "Costs.readFromSource": { id: "cost_none" },
+  "Costs.remove": { id: "cost_none" },
+  // The Logboek and the Prullenbak (M17 step 20.1a): reading the log at Instellingen · Bekijken, its CSV also with
+  // Exporteren; the trash at Bewerken. The ids are in no trash, so nothing is put back or purged; the trash is empty.
+  "Audit.list": { category: "settings" },
+  "Audit.facets": undefined,
+  "Audit.export": { category: "settings" },
+  "Trash.list": undefined,
+  "Trash.restore": { ids: ["tkt_none"] },
+  "Trash.purge": { ids: ["tkt_none"] },
+  "Trash.empty": undefined,
+  // The Marketplace (M17 step 3): browsing, opening and feedback are every member's; installing, uninstalling and
+  // scopes are Koppelingen at Bewerken. A Binnenkort app and an app not installed are refused after the gate.
+  "Marketplace.catalog": undefined,
+  "Marketplace.installs": undefined,
+  "Marketplace.get": { appId: "ext_none" },
+  "Marketplace.recommended": undefined,
+  "Marketplace.install": { appId: "ext_yotpo" },
+  "Marketplace.uninstall": { appId: "ext_zapier" },
+  "Marketplace.setScopes": { appId: "ext_zapier", revoked: [] },
+  "Marketplace.open": { appId: "ext_zapier" },
+  "Marketplace.feedback": { category: "other", message: " " },
+  // Live (M14 step 3): the room at Analyse Bekijken; a store's pixel at Instellingen, installed at Beheren (a store
+  // that does not exist, so nothing is installed).
+  "Live.snapshot": undefined,
+  "Live.subscribe": { tab: "authz-tab-0001" },
+  "Live.unsubscribe": { tab: "authz-tab-0001" },
+  "Live.pixels": undefined,
+  "Live.installPixel": { storeId: "store_none" },
+  // Insyte AI (M15 step 6): read by every member; a save on a version that is not current is refused as stale (or,
+  // for budgets, a person not in the team), and taking back an action that does not exist is `NotFound`.
+  "Autonomy.get": {},
+  "Autonomy.set": { levels: {}, baseVersion: -1 },
+  "Autonomy.resetDefaults": { baseVersion: -1 },
+  "AiBudget.get": undefined,
+  "AiBudget.setMany": { entries: [{ scope: "mem_none", limit: 10 }] },
+  "AgentLog.list": {},
+  "AgentLog.counts": undefined,
+  "AgentLog.get": { id: "aga_none" },
+  "AgentLog.undo": { id: "aga_none" },
+  "AgentLog.redo": { id: "aga_none" },
+  "AgentLog.compensate": { id: "aga_none" }
 }
 
 const manifest = [
@@ -368,17 +568,29 @@ const manifest = [
   ...TrackingRpcs.requests.keys(),
   ...ReturnsRpcs.requests.keys(),
   ...TicketsRpcs.requests.keys(),
+  ...AutomationsRpcs.requests.keys(),
+  ...RunsRpcs.requests.keys(),
   ...ThreadsRpcs.requests.keys(),
   ...QualityRpcs.requests.keys(),
   ...QueueRpcs.requests.keys(),
   ...HomeRpcs.requests.keys(),
+  ...AnalyticsRpcs.requests.keys(),
   ...ProposalsRpcs.requests.keys(),
   ...WorkspacesRpcs.requests.keys(),
   ...ChatsRpcs.requests.keys(),
+  ...CoursesRpcs.requests.keys(),
+  ...SheetsRpcs.requests.keys(),
   ...NotificationsRpcs.requests.keys(),
   ...SessionRpcs.requests.keys(),
   ...ShellRpcs.requests.keys(),
-  ...SettingsDepthRpcs.requests.keys()
+  ...ChargebacksRpcs.requests.keys(),
+  ...CostsRpcs.requests.keys(),
+  ...AuditRpcs.requests.keys(),
+  ...TrashRpcs.requests.keys(),
+  ...SettingsDepthRpcs.requests.keys(),
+  ...MarketplaceRpcs.requests.keys(),
+  ...LiveRpcs.requests.keys(),
+  ...AgentRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

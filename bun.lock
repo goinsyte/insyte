@@ -37,6 +37,7 @@
         "@insyte/domain": "workspace:*",
         "@insyte/integrations-aftership": "workspace:*",
         "@insyte/integrations-better-auth": "workspace:*",
+        "@insyte/integrations-ecb": "workspace:*",
         "@insyte/integrations-klaviyo": "workspace:*",
         "@insyte/integrations-posthog": "workspace:*",
         "@insyte/integrations-resend": "workspace:*",
@@ -193,6 +194,14 @@
         "effect": "catalog:",
         "kysely": "catalog:",
         "zod": "catalog:",
+      },
+    },
+    "packages/integrations/ecb": {
+      "name": "@insyte/integrations-ecb",
+      "version": "0.0.0",
+      "dependencies": {
+        "@insyte/modules": "workspace:*",
+        "effect": "catalog:",
       },
     },
     "packages/integrations/klaviyo": {
@@ -710,6 +719,8 @@
     "@insyte/integrations-aftership": ["@insyte/integrations-aftership@workspace:packages/integrations/aftership"],
 
     "@insyte/integrations-better-auth": ["@insyte/integrations-better-auth@workspace:packages/integrations/better-auth"],
+
+    "@insyte/integrations-ecb": ["@insyte/integrations-ecb@workspace:packages/integrations/ecb"],
 
     "@insyte/integrations-klaviyo": ["@insyte/integrations-klaviyo@workspace:packages/integrations/klaviyo"],
 

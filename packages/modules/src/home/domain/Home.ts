@@ -3,8 +3,8 @@ import { Schema } from "effect"
 /*
  * Start's figures (M10.3; widgets/02 Part A, §0): the hero's counts, the pulse band, and the board's widgets in one
  * batched read. Every figure names the rows it sums over, from the live tables until the facts tables land (12.4). A
- * figure the role may not read is left out, never zeroed; a widget whose source milestone has not landed (chargebacks
- * M13, automations M12, AI M15, chats) is not built here, and the console says so on its card. Money is in minor units
+ * figure the role may not read is left out, never zeroed; a widget whose source milestone has not landed (automations
+ * M12, AI M15, chats) is not built here, and the console says so on its card. Money is in minor units
  * of the workspace currency (`workspaces.currency`); an order in another currency is converted at the `fx_rates` row
  * of its placed day, and one without a rate is left out and counted in `unconverted`. Days are the store's own
  * (`stores.timezone`, else the workspace's), so a sum over stores adds each store's days.
@@ -52,7 +52,7 @@ export class HomeBrief extends Schema.Class<HomeBrief>("home/HomeBrief")({
   delayed: Schema.NullOr(Schema.Int),
   /** Open tickets of high priority; `null` without Klantenservice. */
   urgent: Schema.NullOr(Schema.Int),
-  /** Chargebacks waiting on evidence: `null` until M13 (and without Chargebacks). */
+  /** Chargebacks waiting on evidence (open or waiting for it); `null` without Chargebacks. */
   evidence: Schema.NullOr(Schema.Int),
   /** The first day: no orders and nothing open in the queue. Start is then the first-run page. */
   firstDay: Schema.Boolean
@@ -208,9 +208,28 @@ export const CountriesWidget = Schema.Struct({
   rows: Schema.Array(Schema.Struct({ country: Schema.NullOr(Schema.String), orders: Schema.Int }))
 })
 
+export const ChargebacksWidget = Schema.Struct({
+  /** Cases open or waiting for evidence. */
+  open: Schema.Int,
+  /** What those cases dispute, in the workspace currency (a case in a currency without a rate is left out). */
+  atStakeMinor: Schema.Int,
+  won: Schema.Int,
+  /** Won or lost. */
+  decided: Schema.Int,
+  submitted: Schema.Int,
+  /** The open case whose deadline is nearest. */
+  nearest: Schema.NullOr(Schema.Struct({
+    id: Schema.String,
+    caseNumber: Schema.String,
+    customerName: Schema.String,
+    deadlineAt: Schema.Finite
+  }))
+})
+
 export const WidgetPayloads = Schema.Struct({
   revenue: Schema.optionalKey(RevenueWidget),
   orders: Schema.optionalKey(OrdersWidget),
+  chargebacks: Schema.optionalKey(ChargebacksWidget),
   suppliers: Schema.optionalKey(SuppliersWidget),
   tickets: Schema.optionalKey(TicketsWidget),
   mytickets: Schema.optionalKey(MyTicketsWidget),

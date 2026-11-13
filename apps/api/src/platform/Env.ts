@@ -1,11 +1,16 @@
+import type { AutomationRunParams } from "../workflows/AutomationRun.ts"
+import type { EvidencePackParams } from "../workflows/EvidencePack.ts"
 import type { AnalysisParams } from "../workflows/FirstAnalysis.ts"
 import type { ForwardSendParams } from "../workflows/ForwardSend.ts"
 import type { MarketingSyncParams } from "../workflows/MarketingSync.ts"
+import type { MonthlyCloseParams } from "../workflows/MonthlyClose.ts"
 import type { ReturnLabelParams } from "../workflows/ReturnLabel.ts"
 import type { BackfillParams } from "../workflows/ShopifyBackfill.ts"
 import type { ShopifyWriteParams } from "../workflows/ShopifyWrite.ts"
+import type { WebhookDeliveryParams } from "../workflows/WebhookDelivery.ts"
 import type { ConnectionGateObject } from "./ConnectionGate.ts"
 import type { IngestMessage } from "./IngestQueue.ts"
+import type { LiveRoomDurableObject } from "./LiveRoom.ts"
 import type { RateLimiter } from "./RateLimiter.ts"
 import type { EventsMessage } from "./Relay.ts"
 import type { RoomDurableObject } from "./Room.ts"
@@ -25,6 +30,8 @@ declare global {
       readonly ROOMS: DurableObjectNamespace<RoomDurableObject>
       /** The gate per external account (M6.3): its token, its bucket; by connection id (`ConnectionGate.ts`). */
       readonly CONNECTION_GATE: DurableObjectNamespace<ConnectionGateObject>
+      /** The live rooms (M14 step 3): one per workspace, `ws:<workspace>`; storefront visitors in memory only. */
+      readonly LIVE: DurableObjectNamespace<LiveRoomDurableObject>
       /** A store's first import (M6.3): one instance per connect (`ShopifyBackfillWorkflow`). */
       readonly SHOPIFY_BACKFILL: Workflow<BackfillParams>
       /** A store's first analysis (M6.5): one instance per analysis (`FirstAnalysisWorkflow`). */
@@ -37,6 +44,16 @@ declare global {
       readonly FORWARD_SEND: Workflow<ForwardSendParams>
       /** A return's label from the carrier (M9.2): one instance per outbox event (`ReturnLabelWorkflow`). */
       readonly RETURN_LABEL: Workflow<ReturnLabelParams>
+      /** A case's evidence pack (M13 step 4): one instance per run (`EvidencePackWorkflow`). */
+      readonly EVIDENCE_PACK: Workflow<EvidencePackParams>
+      /** A flow's run (M12 step 3): one instance per run (`AutomationRunWorkflow`). */
+      readonly AUTOMATION_RUN: Workflow<AutomationRunParams>
+      /** A webhook delivery's attempts (M19.4): one instance per delivery (`WebhookDeliveryWorkflow`). */
+      readonly WEBHOOK_DELIVERY: Workflow<WebhookDeliveryParams>
+      /** `recorded` in the worker tests: no endpoint is called, the URL decides the answer. */
+      readonly WEBHOOK_ADAPTER?: string
+      /** The supplier statements' monthly close (M13 step 6): one instance per month (`MonthlyCloseWorkflow`). */
+      readonly MONTHLY_CLOSE: Workflow<MonthlyCloseParams>
       /** The Klaviyo OAuth app (M7.5); without both, Klaviyo cannot be connected. `recorded` in the worker tests. */
       readonly KLAVIYO_CLIENT_ID?: string
       readonly KLAVIYO_CLIENT_SECRET?: string
@@ -57,7 +74,7 @@ declare global {
       readonly SYNC_PAGE_LINES?: string
       /** Files (M8.5): packing slips now, uploads later, one bucket per stage. */
       readonly FILES: R2Bucket
-      /** Browser Rendering (M8.5): packing slips as PDF. */
+      /** Browser Rendering (M8.5): packing slips as PDF, and an evidence pack's documents (M13 step 4). */
       readonly BROWSER: BrowserRun
       /** `html` in the worker tests, which have no browser: the slip is stored as its HTML. */
       readonly DOCUMENTS_ADAPTER?: string

@@ -37,7 +37,8 @@ export const AREA_IDS = [
   "settings",
   "team",
   "billing",
-  "integrations"
+  "integrations",
+  "courses"
 ] as const
 export type AreaId = (typeof AREA_IDS)[number]
 
@@ -214,6 +215,19 @@ export const AREAS: ReadonlyArray<Area> = [
       3: "API-sleutels aanmaken, roteren en intrekken"
     },
     api: false
+  },
+  {
+    // M17 (README §4 #10): authoring borrowed Team · Bewerken in the design. Taking a course needs no level; the
+    // catalogue, the team's progress and the questions are Bekijken. No surface for keys yet (step 20 adds none).
+    id: "courses",
+    label: "Cursussen",
+    levels: [0, 1, 2, 3],
+    can: {
+      1: "alle cursussen, de voortgang van het team en de vragen zien",
+      2: "cursussen maken, bewerken en publiceren en vragen beantwoorden",
+      3: "cursussen beheren, ook verwijderen en iemands voortgang wissen"
+    },
+    api: false
   }
 ]
 
@@ -229,7 +243,8 @@ export const SPECIAL_IDS = [
   "ai.autonomy",
   "returns.approve",
   "quality.approve",
-  "products.phase"
+  "products.phase",
+  "costs.write"
 ] as const
 export type SpecialId = (typeof SPECIAL_IDS)[number]
 
@@ -301,6 +316,12 @@ export const SPECIALS: ReadonlyArray<Special> = [
     label: "Zelfstandigheid van Insyte instellen",
     detail: "Bepalen wat de Insyte-agent zelf mag doen, wat hij eerst vraagt, en het AI-budget.",
     needs: { area: "settings", level: 3 }
+  },
+  {
+    id: "costs.write",
+    label: "Kosten bewerken",
+    detail: "Kostenposten toevoegen, wijzigen en verwijderen, en bedragen per maand typen.",
+    needs: { area: "analytics", level: 1 }
   }
 ]
 
@@ -393,7 +414,8 @@ export const SYSTEM_DEFAULTS: Record<string, RoleDef> = {
         chargebacks: 2,
         suppliers: 1,
         automations: 1,
-        team: 1
+        team: 1,
+        courses: 1
       },
       ["refunds.write", "disputes.write", "returns.approve"],
       100
@@ -416,9 +438,10 @@ export const SYSTEM_DEFAULTS: Record<string, RoleDef> = {
         analytics: 1,
         data: 1,
         billing: 3,
-        team: 1
+        team: 1,
+        courses: 1
       },
-      ["refunds.write", "disputes.write", "data.export", "billing.invoices"]
+      ["refunds.write", "disputes.write", "data.export", "billing.invoices", "costs.write"]
     )
   },
   view: {
@@ -440,7 +463,8 @@ export const SYSTEM_DEFAULTS: Record<string, RoleDef> = {
       data: 1,
       settings: 1,
       team: 1,
-      integrations: 1
+      integrations: 1,
+      courses: 1
     })
   }
 }
@@ -484,7 +508,12 @@ const ROUTE_AREAS: ReadonlyArray<readonly [string, AreaId, Level]> = [
   ["/chargebacks", "chargebacks", 1],
   ["/automations", "automations", 1],
   ["/analytics", "analytics", 1],
+  ["/costs", "analytics", 1],
+  // Live shows revenue today and the store's visitors (M14 step 3).
+  ["/live", "analytics", 1],
   ["/data", "data", 1],
+  // Rekenbladen are Data's (M14): one's own sheets need Bekijken; a figure inside also needs Analyse.
+  ["/sheets", "data", 1],
   ["/affiliates", "affiliates", 1],
   ["/settings/team", "team", 1],
   ["/settings/roles", "team", 1],
@@ -494,6 +523,8 @@ const ROUTE_AREAS: ReadonlyArray<readonly [string, AreaId, Level]> = [
   ["/settings/api-keys", "integrations", 1],
   ["/settings/webhooks", "integrations", 1],
   ["/settings/agents", "integrations", 1],
+  ["/settings/log", "settings", 1],
+  ["/settings/trash", "settings", 2],
   ["/settings/profile", "settings", 1],
   ["/settings/stores", "settings", 1],
   ["/settings/ai/knowledge", "settings", 1],

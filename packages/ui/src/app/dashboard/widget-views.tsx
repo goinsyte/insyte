@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { type ReactNode, useMemo, useState } from "react"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
-import { AlertTriangle, Box, MessagesSquare, Plus, Truck, X } from "../../icons"
+import { AlertTriangle, Box, Clock, MessagesSquare, Plus, Truck, X } from "../../icons"
 import { Glyph } from "../common/glyph"
 import { formatCurrency, initials } from "../lib/format"
 import { personStyle } from "../lib/person-color"
@@ -472,6 +472,70 @@ export function StockView({ rows }: { rows: ReadonlyArray<LowStockRow> }) {
         </li>
       ))}
     </ul>
+  )
+}
+
+/** `deadlineAt` in epoch milliseconds. */
+export type NearestCase = { id: string; caseNumber: string; customerName: string; deadlineAt: number }
+
+/**
+ * The cases waiting on evidence: how many, what they put at stake, how the decided ones went, how many are with the
+ * provider, and the one whose deadline comes first.
+ */
+export function ChargebacksView({
+  open,
+  atStake,
+  currency,
+  won,
+  decided,
+  submitted,
+  nearest
+}: {
+  open: number
+  atStake: number
+  currency: Currency
+  won: number
+  decided: number
+  submitted: number
+  nearest: NearestCase | null
+}) {
+  const daysLeft = nearest ? Math.max(0, Math.ceil((nearest.deadlineAt - Date.now()) / 86_400_000)) : null
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-2 gap-1.5">
+        <Stat label="Bewijs nodig" value={String(open)} />
+        <Stat label="Op het spel" value={formatCurrency(atStake, currency)} />
+        <Stat label="Gewonnen" value={decided === 0 ? "—" : `${won} van ${decided}`} />
+        <Stat label="Ingediend" value={String(submitted)} />
+      </div>
+      {nearest ?
+        (
+          <Link
+            to={"/chargebacks/$chargebackId" as string}
+            params={{ chargebackId: nearest.id } as never}
+            className="glyph-host flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-ink-2 transition-colors hover:bg-ink/4 hover:text-ink"
+          >
+            <Glyph draw={false} icon={Clock} size={14} className="text-ink-3" />
+            <span className="min-w-0 flex-1 truncate">
+              Eerstvolgende: <span className="font-medium text-ink">{nearest.caseNumber}</span>, {nearest.customerName}
+            </span>
+            <span className="shrink-0 font-medium text-ink tabular-nums">
+              {daysLeft === 0 ? "vandaag" : `${daysLeft}d`}
+            </span>
+          </Link>
+        ) :
+        <p className="px-2 text-sm text-ink-3">Er wacht geen zaak op bewijs.</p>}
+    </div>
+  )
+}
+
+/** A figure on a band: a quiet label over the number. */
+export function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5 rounded-md bg-band px-2.5 py-2">
+      <span className="text-xs text-ink-3">{label}</span>
+      <span className="font-medium text-lg text-ink tabular-nums">{value}</span>
+    </div>
   )
 }
 

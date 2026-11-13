@@ -88,12 +88,21 @@ describe("the MCP server", () => {
       "create_ticket",
       "file_proposal",
       "forward_orders",
+      "get_analytics_overview",
+      "get_automation",
+      "get_chargeback",
+      "get_cost_figures",
+      "get_costs",
       "get_order",
       "get_order_tracking",
       "get_proposal",
       "get_return",
+      "get_sheet",
       "get_ticket",
       "inspect_return",
+      "list_automation_runs",
+      "list_automations",
+      "list_chargebacks",
       "list_customers",
       "list_forwarding",
       "list_members",
@@ -102,6 +111,8 @@ describe("the MCP server", () => {
       "list_queue",
       "list_returns",
       "list_roles",
+      "list_sheets",
+      "list_supplier_statements",
       "list_suppliers",
       "list_tickets",
       "receive_return",
@@ -114,6 +125,7 @@ describe("the MCP server", () => {
       "set_ticket_status",
       "start_return",
       "tag_order",
+      "trigger_automation",
       "update_shipping_address",
       "update_ticket",
       "whoami"
@@ -131,13 +143,24 @@ describe("the MCP server", () => {
         "get_order",
         "get_order_tracking",
         "list_suppliers",
+        "list_supplier_statements",
         "list_forwarding",
         "list_returns",
         "get_return",
         "list_tickets",
         "get_ticket",
         "list_queue",
-        "get_proposal"
+        "get_proposal",
+        "list_chargebacks",
+        "get_chargeback",
+        "list_automations",
+        "get_automation",
+        "list_automation_runs",
+        "get_costs",
+        "get_cost_figures",
+        "get_analytics_overview",
+        "list_sheets",
+        "get_sheet"
       ]
     ) {
       expect(hints[read]?.["readOnlyHint"]).toBe(true)
@@ -168,6 +191,41 @@ describe("the MCP server", () => {
     const refused = await mcp(narrow, "tools/call", { name: "list_members", arguments: {} })
     expect(refused.message.result.isError).toBe(true)
     expect(JSON.stringify(refused.message.result.content)).toContain("team.read")
+  })
+
+  it("reads Analyse's six figures with analytics.read, and refuses them without it (M14 step 2)", async () => {
+    const overview = await mcp(agent.secret, "tools/call", {
+      name: "get_analytics_overview",
+      arguments: { a: "2026-02", b: "2026-01" }
+    })
+    expect(overview.message.result.isError).toBe(false)
+    expect(content(overview.message).figures.map((f: { id: string }) => f.id)).toEqual([
+      "revenue",
+      "paid_orders",
+      "on_time",
+      "refund_rate",
+      "disputes",
+      "resolve_hours"
+    ])
+    const refused = await mcp(narrow, "tools/call", {
+      name: "get_analytics_overview",
+      arguments: { a: "2026-02", b: "2026-01" }
+    })
+    expect(refused.message.result.isError).toBe(true)
+    expect(JSON.stringify(refused.message.result.content)).toContain("analytics.read")
+  })
+
+  it("lists the key's member's sheets and opens one (M14 step 4)", async () => {
+    ok(await rpc("Sheets.create", { template: "ads" }, owner.cookie))
+    const listed = await mcp(agent.secret, "tools/call", { name: "list_sheets", arguments: {} })
+    expect(listed.message.result.isError).toBe(false)
+    const [first] = content(listed.message).data as Array<{ id: string; title: string; linked: boolean }>
+    expect(first).toMatchObject({ linked: true })
+    const one = await mcp(agent.secret, "tools/call", { name: "get_sheet", arguments: { sheet_id: first!.id } })
+    expect(content(one.message)).toMatchObject({ id: first!.id, version: 1 })
+    const refused = await mcp(narrow, "tools/call", { name: "list_sheets", arguments: {} })
+    expect(refused.message.result.isError).toBe(true)
+    expect(JSON.stringify(refused.message.result.content)).toContain("data.read")
   })
 
   it("turns away a request without a valid key with a 401 before any JSON-RPC", async () => {

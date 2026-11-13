@@ -1,3 +1,4 @@
+import { LiveEvent, LiveVisitor } from "@insyte/modules/live/domain/Live"
 import { Schema } from "effect"
 
 /*
@@ -62,6 +63,16 @@ export const JobProgress = Schema.Struct({
 })
 export type JobProgress = typeof JobProgress.Type
 
+/** A case's evidence pack moved on (M13 step 4): `done` of `total` documents in. The case's page refetches it. */
+export const EvidencePackProgress = Schema.Struct({
+  v: Schema.Literal(1),
+  type: Schema.Literal("job.progress"),
+  kind: Schema.Literal("evidence_pack"),
+  chargebackId: Schema.String,
+  done: Schema.Int,
+  total: Schema.Int
+})
+
 /**
  * A chat message posted, or changed (edited, taken back, pinned, reacted to, its card decided) (M11.4): the tabs refetch
  * that conversation and the panel's counts. Ids only, as every frame: a channel's go to the room, a DM's to its two.
@@ -82,13 +93,42 @@ export const ChatTyping = Schema.Struct({
   principalId: Schema.String
 })
 
+/**
+ * Who is on the store now (M14 step 3), from the workspace's live room, at most every 500 ms, to the tabs that hold a
+ * `Live.subscribe` lease. ADR-0013's one exception: it carries content, anonymised visitor sessions (a hashed id, a
+ * city and country, a page title, a source), never personal data and never stored.
+ */
+export const LiveVisitors = Schema.Struct({
+  v: Schema.Literal(1),
+  type: Schema.Literal("live.visitors"),
+  upserts: Schema.Array(LiveVisitor),
+  removed: Schema.Array(Schema.String),
+  events: Schema.Array(LiveEvent)
+})
+export type LiveVisitors = typeof LiveVisitors.Type
+
+/**
+ * A sheet changed (M14 step 4): sent to the members who can open it. An open editor at an older version reads it again;
+ * the list refetches. Ids and the version only.
+ */
+export const SheetChanged = Schema.Struct({
+  v: Schema.Literal(1),
+  type: Schema.Literal("sheet.changed"),
+  sheetId: Schema.String,
+  version: Schema.Int,
+  by: Schema.String
+})
+
 export const Frame = Schema.Union([
   Hello,
   PresenceFrame,
   RecordsChanged,
   NotesChanged,
   JobProgress,
+  EvidencePackProgress,
   ChatMessage,
-  ChatTyping
+  ChatTyping,
+  LiveVisitors,
+  SheetChanged
 ])
 export type Frame = typeof Frame.Type
