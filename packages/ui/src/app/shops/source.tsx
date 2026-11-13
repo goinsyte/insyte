@@ -14,6 +14,8 @@ export interface StoreRow {
 	/** Empty until the shop's facts are in. */
 	currency: string;
 	status: "connected" | "connecting" | "disconnected";
+	/** Whether the store has the Live pixel (`/live`); absent where the host has no pixel. */
+	livePixel?: "none" | "installed" | undefined;
 }
 
 export interface StoresSource {
@@ -25,6 +27,11 @@ export interface StoresSource {
 	disconnect: (id: string) => Promise<boolean>;
 	/** Undo of a disconnect; absent where a disconnected store can only be connected again through Shopify. */
 	restore?: ((id: string) => void) | undefined;
+	/**
+	 * Installs or repairs the store's Live pixel, so `/live` sees its visitors; absent where the host has no pixel.
+	 * Resolves once it took; a refusal is said by the host.
+	 */
+	installPixel?: ((id: string) => Promise<boolean>) | undefined;
 	/** The connect dialog, as the host connects a store. */
 	Connect: ComponentType<ConnectStoreProps>;
 }

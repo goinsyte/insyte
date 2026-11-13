@@ -3,7 +3,19 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import {
+  AnalyticsOverviewV1,
+  AutomationDetailV1,
+  AutomationPageV1,
+  AutomationRunPageV1,
+  AutomationRunStatusFilter,
+  AutomationRunV1,
+  AutomationStatusFilter,
+  ChargebackDetailV1,
+  ChargebackPageV1,
+  ChargebackTabV1,
   ConflictV1,
+  CostFiguresV1,
+  CostsV1,
   CurrentApiKey,
   CustomerPageV1,
   ForwardView,
@@ -29,6 +41,8 @@ import {
   ReturnStatusFilter,
   Role,
   ScopeMissingV1,
+  SheetListV1,
+  SheetV1,
   Supplier,
   SupplierStatementsV1,
   Ticket,
@@ -44,7 +58,7 @@ import {
 
 /*
  * The MCP server's tools (M19.3): what an agent with an API key may read, in the public API's shapes, and the order
- * commands (M7), forwarding (M8), returns (M9) and tickets (M11) as `/v1` has them. The same key, the same scopes, the same request log; inviting, removing and
+ * commands (M7), forwarding (M8), returns (M9) and tickets (M11) as `/v1` has them, and the chargebacks to read (M13). The same key, the same scopes, the same request log; inviting, removing and
  * changing roles stay with people.
  */
 
@@ -258,6 +272,35 @@ const ReturnId = Schema.String.annotate({ description: "The return's id (ret_…
 const ResolutionKind = Schema.Literals(["refund", "exchange", "gift_card", "replacement", "discount"])
 const ReturnMoveFailure = WriteFailure
 
+export const GetAnalyticsOverview = Tool.make("get_analytics_overview", {
+  description:
+    "Analyse: month a against month b (YYYY-MM), both cut to the shorter one's days (a month under way runs to today), in six figures: counted revenue (minor units in the workspace's currency, each day at its exchange rate), paid orders, on time (% of orders delivered), refunded (% of orders placed with a refund since), disputes (not kept yet: available false) and hours to done for tickets. Each figure says which rows it sums and how many. Needs analytics.read.",
+  parameters: Schema.Struct({
+    a: Schema.String.annotate({ description: "The month read, YYYY-MM." }),
+    b: Schema.String.annotate({ description: "The month it is compared with, YYYY-MM." })
+  }),
+  success: AnalyticsOverviewV1,
+  failure: Schema.Union([ScopeMissingV1, InvalidRequestV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const ListSheets = Tool.make("list_sheets", {
+  description:
+    "Rekenbladen: the sheets of the member who made this key (their own and those shared with them), newest change first, with whether each reads Insyte's figures (linked). Needs data.read.",
+  success: SheetListV1,
+  failure: ScopeMissingV1,
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const GetSheet = Tool.make("get_sheet", {
+  description:
+    "One sheet with every tab as typed: cells by address (A1…L40) with the value or formula written, formats and column widths. Formulas are not evaluated here; INSYTE(\"metric\"; \"month\") reads a figure when the sheet is opened. Needs data.read.",
+  parameters: Schema.Struct({ sheet_id: Schema.String.annotate({ description: "The sheet's id (sh_…)." }) }),
+  success: SheetV1,
+  failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
 export const ListQueue = Tool.make("list_queue", {
   description:
     "What needs the team on Start, ranked by how soon: delayed orders, returns waiting for review, quality checks sent in, sold-out variants, stores without their link. tab needs_you (default: red or amber), drawn, or all (with what was seen in the last day).",
@@ -287,6 +330,31 @@ export const FileProposal = Tool.make("file_proposal", {
   failure: WriteFailure,
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
+
+const ChargebackId = Schema.String.annotate({
+  description: "The chargeback's id (cb_…), as list_chargebacks gives it."
+})
+
+export const ListChargebacks = Tool.make("list_chargebacks", {
+  description:
+    "Chargebacks, nearest evidence deadline first, with each tab's count and the workspace's record (won out of decided, what the won cases kept): tab action_required (open or waiting for evidence), submitted, won or lost; provider stripe, klarna or paypal. Needs chargebacks.read.",
+  parameters: Schema.Struct({
+    tab: Schema.optional(ChargebackTabV1),
+    provider: Schema.optional(Schema.Literals(["stripe", "klarna", "paypal"]))
+  }),
+  success: ChargebackPageV1,
+  failure: ScopeMissingV1,
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const GetChargeback = Tool.make("get_chargeback", {
+  description:
+    "One chargeback with its evidence pack, in its order, and its timeline (opened, evidence added or removed, reminders, the outcome). Needs chargebacks.read.",
+  parameters: Schema.Struct({ chargeback_id: ChargebackId }),
+  success: ChargebackDetailV1,
+  failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
 
 export const ListReturns = Tool.make("list_returns", {
   description:
@@ -410,6 +478,50 @@ export const ResolveReturn = Tool.make("resolve_return", {
   dependencies: asKey()
 }).annotate(Tool.Destructive, true)
 
+export const ListAutomations = Tool.make("list_automations", {
+  description:
+    "The workspace's flows, newest first, with each status's count (draft, active, paused); by default every one. Needs automations.read.",
+  parameters: Schema.Struct({ status: Schema.optional(AutomationStatusFilter) }),
+  success: AutomationPageV1,
+  failure: ScopeMissingV1,
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const GetAutomation = Tool.make("get_automation", {
+  description:
+    "One flow: its draft and live steps, its published versions, and what is wrong with the draft per step. Needs automations.read.",
+  parameters: Schema.Struct({
+    automation_id: Schema.String.annotate({ description: "The flow's id (auto_…), as list_automations gives it." })
+  }),
+  success: AutomationDetailV1,
+  failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+const AutomationId = Schema.String.annotate({ description: "The flow's id (auto_…), as list_automations gives it." })
+
+export const ListAutomationRuns = Tool.make("list_automation_runs", {
+  description:
+    "One flow's runs, newest first: each with its status (running, waiting, succeeded, failed, stopped, skipped), why, the order it ran for and the version it ran on. Needs automations.read.",
+  parameters: Schema.Struct({
+    automation_id: AutomationId,
+    status: Schema.optional(AutomationRunStatusFilter),
+    cursor: Schema.optional(Schema.String)
+  }),
+  success: AutomationRunPageV1,
+  failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const TriggerAutomation = Tool.make("trigger_automation", {
+  description:
+    "Runs a flow's live version for one order now, as its trigger would; its steps act as the flow's own service account, so they may create tickets, label the customer or notify the team. Answers the run as it started. Needs automations.write.",
+  parameters: Schema.Struct({ automation_id: AutomationId, order_id: OrderId, idempotency_key: IdempotencyKey }),
+  success: AutomationRunV1,
+  failure: WriteFailure,
+  dependencies: asKey()
+})
+
 const TicketId = Schema.String.annotate({ description: "The ticket's id (tkt_…), as list_tickets gives it." })
 const MemberId = Schema.String.annotate({ description: "A teammate's member id (mem_…), as list_members gives it." })
 
@@ -502,6 +614,28 @@ export const CommentOnTicket = Tool.make("comment_on_ticket", {
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
+const MonthParam = Schema.String.check(Schema.isPattern(/^\d{4}-(0[1-9]|1[0-2])$/)).annotate({
+  description: "A calendar month, YYYY-MM."
+})
+
+export const GetCosts = Tool.make("get_costs", {
+  description:
+    "Kosten: the workspace's cost lines (a share of revenue, an amount per order, a fixed amount per month, ad spend) with what each costs per month, and each month's figures: counted revenue, orders, ad spend, other costs, net profit, margin and ROAS. Amounts are minor units in the workspace's currency. Without from and to, the five months up to the current one (which is still running); at most 36 months. Needs analytics.read.",
+  parameters: Schema.Struct({ from: Schema.optional(MonthParam), to: Schema.optional(MonthParam) }),
+  success: CostsV1,
+  failure: Schema.Union([ScopeMissingV1, InvalidRequestV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
+export const GetCostFigures = Tool.make("get_cost_figures", {
+  description:
+    "Only the month figures (revenue, orders, ad spend, other costs, net profit, margin, ROAS) for the months named, comma-separated (2026-04,2026-05), up to 36. Needs analytics.read.",
+  parameters: Schema.Struct({ months: Schema.String }),
+  success: CostFiguresV1,
+  failure: Schema.Union([ScopeMissingV1, InvalidRequestV1]),
+  dependencies: asKey()
+}).annotate(Tool.Readonly, true)
+
 export const InsyteTools = Toolkit.make(
   Whoami,
   ListMembers,
@@ -521,6 +655,9 @@ export const InsyteTools = Toolkit.make(
   ListForwarding,
   ForwardOrders,
   RerouteLeg,
+  GetAnalyticsOverview,
+  ListSheets,
+  GetSheet,
   ListQueue,
   GetProposal,
   FileProposal,
@@ -540,5 +677,13 @@ export const InsyteTools = Toolkit.make(
   UpdateTicket,
   SetTicketStatus,
   AssignTicket,
-  CommentOnTicket
+  CommentOnTicket,
+  ListAutomations,
+  GetAutomation,
+  ListAutomationRuns,
+  TriggerAutomation,
+  ListChargebacks,
+  GetChargeback,
+  GetCosts,
+  GetCostFigures
 )

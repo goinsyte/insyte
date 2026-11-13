@@ -62,6 +62,19 @@ const refresh = (workspace: string) =>
 const rowFor = async (cookie: string, subjectId: string) =>
   ok(await rpc("Queue.list", { tab: "all" }, cookie)).rows.find((r) => r.subjectId === subjectId)
 
+/**
+ * The row once it is drawn: the Worker's own kick may still be delivering the event that draws it when `relay` returns
+ * (it holds the row, so `relay` skips it), so the first read can come too early. Gives up after five seconds.
+ */
+const drawnRowFor = async (cookie: string, subjectId: string) => {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const row = await rowFor(cookie, subjectId)
+    if (row !== undefined) return row
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  return undefined
+}
+
 describe("plates and proposals", () => {
   it("draws a return's plate, files it as the person with Undo, and refuses a role that may not approve", async () => {
     const store = await importedStore("pp-life")
@@ -243,7 +256,7 @@ describe("plates that send or open something (12.2b)", () => {
     await call(`http://api.test/api/__dev/tracking/sweep?workspace=${store.workspace}`, { method: "POST" })
     await relay(store.workspace)
 
-    const row = (await rowFor(store.cookie, order.id))!
+    const row = (await drawnRowFor(store.cookie, order.id))!
     expect(row).toMatchObject({ kind: "order_delayed", state: "open" })
     // The recorded shop's shoppers are `klant{n}@example.com`; the plate names the one it mails.
     const email = /Mail aan (\S+):/.exec(row.proposal?.plate.after.value ?? "")?.[1] ?? ""

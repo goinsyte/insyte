@@ -1,6 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ShippingPage } from "@insyte/ui/app/settings/depth/shipping-screen";
+import { DemoSettingsDepthSource } from "@insyte/ui/app/settings/depth/demo-source";
 
 export const Route = createFileRoute("/_admin/settings/shipping")({
-	component: ShippingPage,
+	component: () => (
+		<DemoSettingsDepthSource>
+			<ShippingPage />
+		</DemoSettingsDepthSource>
+	),
 });

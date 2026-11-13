@@ -1,6 +1,7 @@
 import { Frame, ShellRpcs } from "@insyte/api/rpc/ShellRpcs"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
+import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
 import { ChatsService } from "@insyte/modules/chats/Chats"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import { InboxService } from "@insyte/modules/inbox/Inbox"
@@ -67,6 +68,7 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
   const tickets = yield* TicketsService
   const inbox = yield* InboxService
   const chats = yield* ChatsService
+  const chargebacks = yield* ChargebacksService
   // Each kind through its own slice, which answers nothing where the role may not look (support level, stores, a DM).
   const SEARCHES = {
     order: (q: string, limit: number) => orders.search(q, limit),
@@ -74,9 +76,10 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
     customer: (q: string, limit: number) => customers.search(q, limit),
     ticket: (q: string, limit: number) => tickets.search(q, limit),
     thread: (q: string, limit: number) => inbox.search(q, limit),
-    message: (q: string, limit: number) => chats.search(q, limit)
+    message: (q: string, limit: number) => chats.search(q, limit),
+    chargeback: (q: string, limit: number) => chargebacks.search(q, limit)
   } as const
-  const EVERY: ReadonlyArray<SearchKind> = ["order", "customer", "product", "ticket", "thread", "message"]
+  const EVERY: ReadonlyArray<SearchKind> = ["order", "customer", "product", "ticket", "thread", "message", "chargeback"]
 
   const countsFor = (area: string) => {
     if (area === "tickets") {

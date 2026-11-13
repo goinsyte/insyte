@@ -1,12 +1,10 @@
-import { Link } from "@tanstack/react-router"
 import { type ReactNode, useMemo } from "react"
 import { lastActionById, presenceById } from "../../data-source"
 import { automations } from "../../data-source"
 import { products } from "../../data-source"
-import { Clock, Workflow } from "../../icons"
+import { Workflow } from "../../icons"
 import { Glyph } from "../common/glyph"
 import { isAssignedTo, ME } from "../lib/assignees"
-import { formatCurrency } from "../lib/format"
 import { convert } from "../lib/money"
 import { supplierName } from "../lib/order-supplier"
 import { revenueWindow } from "../lib/revenue"
@@ -31,6 +29,7 @@ import { setupTasks, Struck, type Task, TickBox } from "./setup-checklist"
 import { WIDGET_DEFS, type WidgetMeta } from "./widget-defs"
 
 import {
+  ChargebacksView,
   type Column,
   COLUMNS,
   MyTicketsView,
@@ -40,6 +39,7 @@ import {
   SetupView,
   type Stage,
   STAGES,
+  Stat,
   StockView,
   SuppliersView,
   TeamView,
@@ -185,42 +185,29 @@ function OrdersWidget() {
 function ChargebacksWidget() {
   const cases = useWorkspace((s) => s.chargebacks)
   const open = cases.filter((c) => c.status === "open" || c.status === "awaiting_evidence")
-  const won = cases.filter((c) => c.status === "won")
+  const won = cases.filter((c) => c.status === "won").length
   const lost = cases.filter((c) => c.status === "lost").length
   const submitted = cases.filter((c) => c.status === "submitted").length
-  const decided = won.length + lost
   const currency = useHome((s) => s.currency)
   const atStake = open.reduce((s, c) => s + convert(c.amount, c.currency, currency), 0)
   const nearest = [...open].toSorted((a, b) => Date.parse(a.deadline_at) - Date.parse(b.deadline_at))[0]
-  const daysLeft = nearest ? Math.max(0, Math.ceil((Date.parse(nearest.deadline_at) - Date.now()) / DAY)) : null
-
   return (
-    <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-2 gap-1.5">
-        <Stat label="Bewijs nodig" value={String(open.length)} />
-        <Stat label="Op het spel" value={formatCurrency(atStake, currency)} />
-        <Stat label="Gewonnen" value={decided === 0 ? "—" : `${won.length} van ${decided}`} />
-        <Stat label="Ingediend" value={String(submitted)} />
-      </div>
-      {nearest ?
-        (
-          <Link
-            to={"/chargebacks/$chargebackId" as string}
-            params={{ chargebackId: nearest.id } as never}
-            className="glyph-host flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-ink-2 transition-colors hover:bg-ink/4 hover:text-ink"
-          >
-            <Glyph draw={false} icon={Clock} size={14} className="text-ink-3" />
-            <span className="min-w-0 flex-1 truncate">
-              Eerstvolgende: <span className="font-medium text-ink">{nearest.case_number}</span>,{" "}
-              {nearest.customer_name}
-            </span>
-            <span className="shrink-0 font-medium text-ink tabular-nums">
-              {daysLeft === 0 ? "vandaag" : `${daysLeft}d`}
-            </span>
-          </Link>
-        ) :
-        <p className="px-2 text-sm text-ink-3">Er wacht geen zaak op bewijs.</p>}
-    </div>
+    <ChargebacksView
+      open={open.length}
+      atStake={atStake}
+      currency={currency}
+      won={won}
+      decided={won + lost}
+      submitted={submitted}
+      nearest={nearest
+        ? {
+          id: nearest.id,
+          caseNumber: nearest.case_number,
+          customerName: nearest.customer_name,
+          deadlineAt: Date.parse(nearest.deadline_at)
+        }
+        : null}
+    />
   )
 }
 
@@ -310,15 +297,6 @@ function AutomationsWidget() {
           </li>
         ))}
       </ul>
-    </div>
-  )
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-0.5 rounded-md bg-band px-2.5 py-2">
-      <span className="text-xs text-ink-3">{label}</span>
-      <span className="font-medium text-lg text-ink tabular-nums">{value}</span>
     </div>
   )
 }

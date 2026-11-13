@@ -96,10 +96,24 @@
     // Graduated (08 §3): the day's kinds and the demo's day, split for Mijn werk, Agenda and Activiteit (12.3b).
     "!packages/ui/src/app/lib/home/day.ts",
     "!packages/ui/src/app/lib/home/kinds.ts",
+    // Graduated (08 §3): Analyse, wired to Analytics.* in M14 (step 16.2).
+    "!packages/ui/src/app/analytics/**",
+    // Graduated (08 §3): Rekenbladen, wired to Sheets.* and Analytics.figures in M14 (step 16.4).
+    "!packages/ui/src/app/sheets/**",
     // Graduated (08 §3): Chats, wired to Chats.* in M11 (step 13.4b).
     "!packages/ui/src/app/chats/**",
     // Graduated (08 §3): the Inbox, wired to Threads.* and Mailboxes.* in M11 (step 13.2b).
     "!packages/ui/src/app/inbox/**",
+    // Graduated (08 §3): Chargebacks, wired to Chargebacks.* in M13 (steps 15.3 and 15.4).
+    "!packages/ui/src/app/chargebacks/**",
+    // Graduated (08 §3): Automatiseringen, wired to Automations.* in M12 (step 14.1b).
+    "!packages/ui/src/app/automations/**",
+    // Graduated (08 §3): Kosten, wired to Costs.* in M13 (step 15.5).
+    "!packages/ui/src/app/costs/**",
+    // Graduated (08 §3): Cursussen, wired to Courses.* in M17 (step 20.4).
+    "!packages/ui/src/app/courses/**",
+    "!packages/ui/src/app/lib/courses.ts",
+    "!packages/ui/src/app/stores/courses-store.ts",
     // Graduated (08 §3): wired to the API, so held to this repo's rules.
     "!packages/ui/src/app/auth/login-screen.tsx",
     "!packages/ui/src/app/onboarding/shared-steps.tsx",
@@ -112,7 +126,20 @@
     // Graduated (08 §3): Beveiliging, wired to Session.* and Workspaces.getSecurity in M3.3.
     "!packages/ui/src/app/settings/security-screen.tsx",
     "!packages/ui/src/app/settings/security-source.tsx",
-    "!packages/ui/src/app/settings/security-demo-source.tsx"
+    "!packages/ui/src/app/settings/security-demo-source.tsx",
+    // Graduated (08 §3): Verzending, Sjablonen, Huisstijl, Btw, Gegevens en privacy and Sneltoetsen, wired to
+    // WorkspaceSettings.* and Retention.* in M17 (step 20.1b); Logboek and Prullenbak graduated in 20.1a. E-mail en
+    // domein (20.1c) follows.
+    "!packages/ui/src/app/settings/depth/**",
+    "packages/ui/src/app/settings/depth/email-domain-screen.tsx",
+    // Graduated (08 §3): Instellingen → Webhooks, wired to Webhooks.* in step 19a (M19.4).
+    "!packages/ui/src/app/settings/webhooks-screen.tsx",
+    "!packages/ui/src/app/settings/webhooks-page.tsx",
+    "!packages/ui/src/app/developer/webhook-dialog.tsx",
+    "!packages/ui/src/app/developer/delivery-drawer.tsx",
+    "!packages/ui/src/app/developer/webhooks-source.tsx",
+    "!packages/ui/src/app/developer/webhooks-demo-source.tsx",
+    "!packages/ui/src/app/lib/webhooks-core.ts"
   ],
   "rules": {
     "no-console": "warn",

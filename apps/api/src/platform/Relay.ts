@@ -1,6 +1,18 @@
 import { Db } from "@insyte/database/Db"
+import { TRIGGER_EVENTS } from "@insyte/domain/automations/Engine"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
+import { AutomationRuns } from "@insyte/modules/automations/domain/Ports"
+import { startRuns } from "@insyte/modules/automations/use-cases/engine"
+import { EvidencePacks } from "@insyte/modules/chargebacks/domain/Ports"
+import type { WebhookRuns } from "@insyte/modules/developer/domain/Ports"
+import {
+  expire as expireDeliveries,
+  fanOut as webhookFanOut,
+  isWebhookSource,
+  rearm as rearmDeliveries,
+  startFor as startWebhookRuns
+} from "@insyte/modules/developer/use-cases/deliveries"
 import {
   drainIn,
   drainWorkspace,
@@ -69,10 +81,13 @@ type SinkServices =
   | MarketingSyncs
   | ForwardSends
   | ReturnLabels
+  | EvidencePacks
+  | AutomationRuns
   | FileStore
   | WebPush
   | Slack
   | Sealer
+  | WebhookRuns
 
 /** What a sink does with an event, in the event's workspace; `undefined` when the event is not its business. */
 interface Sink {
@@ -120,6 +135,7 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
       }
     case "access.requested":
     case "access.decided":
+    case "webhook.disabled":
       // Notifications are their business (M5); the product events do not count them.
       return undefined
     case "store.synced":
@@ -165,6 +181,11 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
     case "return.requested":
     case "return.label_requested":
     case "quality_check.submitted":
+    // A chargeback's note to the team (M13 step 3) is the notifications' business.
+    case "chargeback.opened":
+    case "chargeback.deadline_near":
+    // Gathering a pack is Insyte's work, not a person's moment.
+    case "chargeback.pack_requested":
     // The monthly close (M13 step 6) is Insyte's, not a person's moment.
     case "statements.closed":
     // The delay mail is counted as the filing that put it in line.
@@ -178,6 +199,18 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
         distinctId: event.userId,
         groups: { workspace: event.workspaceId },
         properties: { action: event.action }
+      }
+    // A run's note to a teammate (M12 step 3) is the notifications' business.
+    case "automation.notify":
+      return undefined
+    // Publishing a flow (M12 step 1): the moment an operator hands work to Insyte, by its trigger and size.
+    case "automation.published":
+      return {
+        outboxId: id,
+        event: "automation_published",
+        distinctId: event.userId,
+        groups: { workspace: event.workspaceId },
+        properties: { version: event.version, trigger: event.trigger, steps: event.steps }
       }
     // Handling an order in Insyte is an activation moment (M7): counted by what was done and to how many.
     case "order.updated":
@@ -309,6 +342,14 @@ const chat = (event: Extract<OutboxEvent, { type: "chat.posted" }>) =>
     else await Promise.all(event.to.map((memberId) => room.sendTo(memberId, frame)))
   }).pipe(Effect.withSpan("Relay.chat"))
 
+/** The sheets sink (M14 step 4): a changed sheet's version to the tabs of each member who can open it. */
+const sheets = (event: Extract<OutboxEvent, { type: "sheet.changed" }>) =>
+  Effect.promise(async () => {
+    const room = roomOf(event.workspaceId)
+    const frame = { v: 1, type: "sheet.changed", sheetId: event.sheetId, version: event.version, by: event.by }
+    await Promise.all(event.to.map((memberId) => room.sendTo(memberId, frame)))
+  }).pipe(Effect.withSpan("Relay.sheets"))
+
 /**
  * The notifications sink (M5.2): rows for whoever should hear of the event, then each one's tabs their count; what
  * goes out by e-mail goes now, on this transaction (M11 step 13.5).
@@ -328,7 +369,7 @@ const notifications = Effect.fn("Relay.notifications")(
 )
 
 /** The record kinds whose change may open, update or close a queue row on Start (M10.1). */
-const QUEUED = new Set(["order", "return", "quality_check", "store", "product"])
+const QUEUED = new Set(["order", "return", "quality_check", "store", "product", "chargeback"])
 
 /** The queue sink (M10.1): the workspace's queue brought in line, and its open tabs told when it changed. */
 const queue = Effect.fn("Relay.queue")(
@@ -424,6 +465,13 @@ const NOTIFIED = new Set<OutboxEvent["type"]>([
   "ticket.mentioned",
   "chat.mentioned",
   "quality_check.submitted",
+  "chargeback.opened",
+  "chargeback.deadline_near",
+  "automation.notify",
+  "webhook.disabled",
+  "course.assigned",
+  "course.question",
+  "course.answered",
   "statements.closed"
 ])
 
@@ -439,6 +487,10 @@ const SINKS: ReadonlyArray<Sink> = [
   {
     name: "chat",
     run: (_id, event) => event.type === "chat.posted" ? chat(event) : undefined
+  },
+  {
+    name: "sheets",
+    run: (_id, event) => event.type === "sheet.changed" ? sheets(event) : undefined
   },
   {
     name: "queue",
@@ -525,6 +577,40 @@ const SINKS: ReadonlyArray<Sink> = [
         : undefined
   },
   {
+    // A trigger's event (M12 step 3): a run per active flow and record, each its own Workflow, named by the run.
+    name: "automations",
+    run: (id, event, sql) =>
+      TRIGGER_EVENTS.has(event.type)
+        ? Effect.gen(function*() {
+          const runs = yield* startRuns(sql, id, event).pipe(Effect.orDie)
+          const starter = yield* AutomationRuns
+          for (const runId of runs) yield* starter.start({ workspaceId: event.workspaceId, runId })
+        })
+        : undefined
+  },
+  {
+    // Evidence packs asked for (M13 step 4): one Workflow per case, named by its run.
+    name: "chargebacks",
+    run: (_id, event) =>
+      event.type === "chargeback.pack_requested"
+        ? Effect.forEach(
+          event.packs,
+          (p) =>
+            Effect.flatMap(
+              Effect.service(EvidencePacks),
+              (packs) => packs.start({ workspaceId: event.workspaceId, chargebackId: p.chargebackId, runId: p.runId })
+            ),
+          { discard: true }
+        )
+        : undefined
+  },
+  {
+    // The public events a fact is (M19.4): a delivery per subscribed endpoint; `deliver` starts their runs after commit.
+    name: "webhooks",
+    run: (id, event, sql) =>
+      isWebhookSource(event) ? webhookFanOut(sql, id, event).pipe(Effect.asVoid, Effect.orDie) : undefined
+  },
+  {
     name: "posthog",
     run: (id, event) => {
       const product = productEventOf(id, event)
@@ -537,14 +623,17 @@ const SINKS: ReadonlyArray<Sink> = [
 
 const decodeEvent = Schema.decodeUnknownEffect(Schema.toType(Schema.Struct({ type: Schema.String })))
 
-/** Delivers these events, each in its workspace's scope, each sink once. */
+/**
+ * Delivers these events, each in its workspace's scope, each sink once; then, outside the event's transaction, the
+ * runs of the webhook deliveries it made (a run that started inside it could look for a row not yet committed).
+ */
 export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyArray<string>) {
   const db = yield* Db
   const owners = yield* db.unscopedForCron((sql) =>
     sql<{ id: string; workspaceId: string }>`select id, workspace_id from outbox_workspaces(${[...outboxIds]})`
   )
   for (const { id, workspaceId } of owners) {
-    yield* db.scopedFor((sql) =>
+    const relayed = yield* db.scopedFor((sql) =>
       Effect.gen(function*() {
         const [row] = yield* sql<
           {
@@ -559,7 +648,7 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
                  coalesce(not_before, created_at) > now() as early
           from outbox where id = ${id} for update skip locked`
         // Relayed already, undone, or still inside its undo window (the sweep brings it when it is due).
-        if (row === undefined || row.relayedAt !== null || row.cancelled || row.early) return
+        if (row === undefined || row.relayedAt !== null || row.cancelled || row.early) return undefined
         yield* decodeEvent({ type: row.event })
         const event = { type: row.event, ...row.payload } as OutboxEvent
         for (const sink of SINKS) {
@@ -570,10 +659,22 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
           if (claimed.length > 0) yield* run
         }
         yield* sql`update outbox set relayed_at = now(), attempts = attempts + 1 where id = ${id}`
+        return event
       })
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId }))
+    if (relayed !== undefined && isWebhookSource(relayed)) yield* startWebhookRuns(id, relayed)
   }
 })
+
+/** Every minute: webhook deliveries whose run never started or died, re-armed (M19.4); `at` is the cron's time. */
+export const webhooksRearm = Effect.fn("Relay.webhooksRearm")(function*(at: Date) {
+  return yield* rearmDeliveries(at)
+}, Effect.orDie)
+
+/** Every 15 minutes: webhook deliveries past their 30 days, in every workspace (M19.4). */
+export const webhooksSweep = Effect.fn("Relay.webhooksSweep")(function*() {
+  return yield* expireDeliveries()
+}, Effect.orDie)
 
 /** The minute cron's sweep: every due event a kick missed, back onto the queue in batches. */
 export const sweep = Effect.fn("Relay.sweep")(function*() {
