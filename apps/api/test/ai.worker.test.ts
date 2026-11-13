@@ -221,6 +221,36 @@ describe("a draft outside the person's stores", () => {
       .toMatchObject({ _tag: "NotFound" })
     expect(ok(await rpc("Drafts.use", { id: draft.id }, store.cookie)).usedAt).not.toBeNull()
   }, 120_000)
+
+  // The member's own stores narrow a role that reaches every store (`principal.storeScope`): an admin invited for
+  // another store reads, takes and asks for no draft of this one's tickets, and the model reads none of its orders.
+  it("is not theirs when they are held to another store below a role that reaches every store", async () => {
+    const store = await importedStore("ai-held")
+    const email = `ai-${run}-held@invited.test`
+    ok(await rpc("Invitations.send", { rows: [{ email, roleId: "admin", stores: ["sto_elsewhere"] }] }, store.cookie))
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    const held = await join(email)
+
+    const [order] = ok(await rpc("Orders.list", { limit: 5 }, store.cookie)).rows
+    const id = ok(
+      await rpc("Tickets.create", {
+        title: "Waar blijft mijn pakket",
+        description: "",
+        related: { type: "order", id: order!.id }
+      }, store.cookie)
+    ).tickets[0]!.id
+    const draft = ok(await rpc("Drafts.reply", { subject: { type: "ticket", id } }, store.cookie))
+
+    expect(failure(await rpc("Drafts.use", { id: draft.id }, held))).toMatchObject({ _tag: "NotFound" })
+    expect(failure(await rpc("Drafts.forSubject", { subject: { type: "ticket", id } }, held)))
+      .toMatchObject({ _tag: "NotFound" })
+    expect(failure(await rpc("Drafts.reply", { subject: { type: "ticket", id } }, held)))
+      .toMatchObject({ _tag: "NotFound" })
+    expect(failure(await rpc("Drafts.summarizeTicket", { ticketId: id }, held))).toMatchObject({ _tag: "NotFound" })
+    expect(await callsOf(store.workspace, id)).toHaveLength(1)
+    expect(ok(await rpc("Drafts.use", { id: draft.id }, store.cookie)).usedAt).not.toBeNull()
+  }, 120_000)
 })
 
 const modeOf = (vars: Record<string, string>) =>

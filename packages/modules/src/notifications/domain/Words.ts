@@ -238,6 +238,29 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
         path: "/suppliers"
       }
     }
+    case "data.export": {
+      // The member's export is written, or could not be (M14 step 5); the file downloads for seven days.
+      const rows = Number(data["rows"] ?? 0)
+      return data["state"] === "failed"
+        ? {
+          title: "Je export is mislukt",
+          detail: data["reason"] === "too_many_rows"
+            ? "Er zijn meer dan 1.000.000 rijen. Verfijn het filter en probeer het opnieuw."
+            : "Probeer het opnieuw. Lukt het weer niet, laat het ons weten.",
+          record: text(data["fileName"]) || undefined,
+          actionLabel: "Exporteren openen",
+          path: `/data${query({ view: "export" })}`
+        }
+        : {
+          title: "Je export staat klaar",
+          detail: `${rows.toLocaleString("nl-NL")} ${
+            rows === 1 ? "rij" : "rijen"
+          }. De download blijft zeven dagen staan.`,
+          record: text(data["fileName"]) || undefined,
+          actionLabel: "Export downloaden",
+          path: `/data${query({ view: "export" })}`
+        }
+    }
     default:
       return { title: "Er is een nieuwe melding voor je", actionLabel: "Meldingen openen", path: "/notifications" }
   }

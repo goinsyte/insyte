@@ -41,6 +41,7 @@ export const NOTIFICATION_KINDS = [
   { key: "course.assigned", primary: true, defaults: ch(true, true, false, false) },
   { key: "course.question", primary: true, defaults: ch(true, false, false, false) },
   { key: "course.answered", primary: false, defaults: ch(true, false, false, false) },
+  { key: "data.export", primary: false, defaults: ch(true, false, false, false) },
   { key: "integration.disconnected", primary: true, defaults: ch(true, true, false, false) },
   { key: "integration.sync", primary: false, defaults: ch(true, false, false, false) },
   { key: "insyte.proposal", primary: true, defaults: ch(true, false, true, false) },

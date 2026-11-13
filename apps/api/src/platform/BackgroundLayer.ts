@@ -3,8 +3,9 @@ import { AdSpendLive } from "./AdSpend.ts"
 import { AutomationRunsLive } from "./AutomationRuns.ts"
 import { BackfillsLive } from "./Backfills.ts"
 import { ConnectionGateLive } from "./ConnectionGate.ts"
-import { DocumentsChoice, FileStoreR2 } from "./Documents.ts"
+import { DocumentsChoice, FilePartsR2, FileStoreR2 } from "./Documents.ts"
 import { EvidencePacksLive } from "./EvidencePacks.ts"
+import { ExportRunsLive, ImportParsesLive } from "./Exports.ts"
 import { ForwardSendsLive, SupplierApiChoice } from "./Forwarding.ts"
 import { RatesChoice } from "./Fx.ts"
 import { MailerLive, onInfra, ProductAnalyticsLive } from "./InfraLayer.ts"
@@ -49,10 +50,15 @@ const BackgroundLayer = onInfra(Layer.mergeAll(
   ReturnLabelsLive,
   // A case's evidence pack is gathered by its Workflow (M13 step 4).
   EvidencePacksLive,
+  // An uploaded CSV is read, and an export written, by their Workflows (M14 step 5).
+  ImportParsesLive,
+  ExportRunsLive,
   // A trigger's event starts a flow's run (M12 step 3).
   AutomationRunsLive,
   // A return label's PDF goes with the shopper's mail (M9.3).
   FileStoreR2,
+  // The nightly sweep empties an export's folder in the bucket (M14 step 5).
+  FilePartsR2,
   // Notes by push and in Slack, its token sealed; an answer to a notification mail as a comment (M11 step 13.5).
   WebPushChoice,
   SlackChoice,
@@ -88,6 +94,8 @@ export const SyncLayer = onInfra(Layer.mergeAll(
   // A forward's packing slip (M8.5): rendered and kept.
   DocumentsChoice,
   FileStoreR2,
+  // An export's parts joined into its file (M14 step 5).
+  FilePartsR2,
   // Where one slice's need meets another's use case: the mirror's followers, a write-back's read again.
   SliceLinks.pipe(Layer.provide(LabelsChoice)),
   // A webhook delivery's attempt (M19.4): the endpoint, over fetch.

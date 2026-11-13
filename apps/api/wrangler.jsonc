@@ -69,6 +69,10 @@
     { "binding": "WEBHOOK_DELIVERY", "name": "insyte-webhook-delivery", "class_name": "WebhookDeliveryWorkflow" },
     // The supplier statements' monthly close (M13 step 6), from the cron on the 1st.
     { "binding": "MONTHLY_CLOSE", "name": "insyte-monthly-close", "class_name": "MonthlyCloseWorkflow" },
+    // An uploaded CSV read into rows (M14 step 5), one run per import.
+    { "binding": "IMPORT_PARSE", "name": "insyte-import-parse", "class_name": "ImportParseWorkflow" },
+    // An export written, page by page, whatever its source (M14 step 5).
+    { "binding": "EXPORT", "name": "insyte-export", "class_name": "ExportWorkflow" },
   ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] },

@@ -5,6 +5,7 @@ import { AuthEventsOf } from "./auth.ts"
 import { AutomationRunsOf } from "./automations.ts"
 import { ChargebackRemind } from "./chargebacks.ts"
 import { CostsRoutes } from "./costs.ts"
+import { DataRoutes } from "./data.ts"
 import { FactsRoutes } from "./facts.ts"
 import { FxRoutes } from "./fx.ts"
 import { InvitationLapse } from "./invitations.ts"
@@ -27,6 +28,7 @@ import { UndoRoutes } from "./undo.ts"
  */
 const Routes = Layer.mergeAll(
   CostsRoutes,
+  DataRoutes,
   TrashSweep,
   SendingDomainRoutes,
   RetentionRoutes,
