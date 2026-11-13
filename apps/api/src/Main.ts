@@ -11,17 +11,11 @@ import type { Env } from "./platform/Env.ts"
 import { parseMail } from "./platform/InboundMail.ts"
 import { ingest, type IngestMessage, reconcile, syncRuntime, trackingSweep } from "./platform/Ingest.ts"
 import { Telemetry } from "./platform/Observability.ts"
-import {
-  deliver,
-  digestSweep,
-  type EventsMessage,
-  factsSweep,
-  notifySweep,
-  queueSweep,
-  sweep,
-  webhooksRearm,
-  webhooksSweep
-} from "./platform/Relay.ts"
+import { deliver, type EventsMessage, sweep } from "./platform/Relay.ts"
+import { factsSweep } from "./platform/relay/subscribers/facts.ts"
+import { digestSweep, notifySweep } from "./platform/relay/subscribers/notifications.ts"
+import { queueSweep } from "./platform/relay/subscribers/queue.ts"
+import { webhooksRearm, webhooksSweep } from "./platform/relay/subscribers/webhooks.ts"
 import { withRequestDb } from "./platform/RequestDb.ts"
 import { retentionSweep } from "./platform/Retention.ts"
 import { sendingDomainSweep } from "./platform/SendingDomains.ts"
