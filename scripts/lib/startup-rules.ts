@@ -7,23 +7,34 @@
  * new CI value plus the same headroom. Raising it needs a reason in the pull request, and the 1 s limit is the
  * ceiling: the deploy is what fails, not this check.
  *
- * How a budget is set: `startup:check` in CI (ci.yml's `build` job, GitHub's ubuntu-24.04 runners), the fastest of
- * seven runs, over a few CI runs of the same commit. The budget is the highest of those plus about 10 %: the runs on
- * one runner agree within a few milliseconds, the margin is for a runner with another CPU. The log names the CPU.
- * An M-series Mac measures about 0.65x the CI value, so a local run is only a direction.
+ * Each budget is per CPU, because GitHub's ubuntu-24.04 runners come with different ones and the same script starts
+ * about 35 % faster on an EPYC 9V74 than on an EPYC 7763. Runs on one runner agree within a few milliseconds, so the
+ * fastest of seven is a stable number for that CPU. A budget is the highest value seen on that CPU in CI (ci.yml's
+ * `build` job), over a few runs of the same commit, plus about 10 %. On a CPU with no budget (a laptop, a new runner
+ * type) the highest budget applies and the log says so; add the CPU when CI meets it. An M-series Mac measures about
+ * 0.65x an EPYC 7763, so a local run is only a direction.
  */
 
 export interface StartupBudget {
-  /** The fastest run's active CPU time (V8 samples minus idle, garbage collection included), in milliseconds. */
-  readonly budgetMs: number
+  /**
+   * The fastest run's active CPU time (V8 samples minus idle, garbage collection included), in milliseconds, per CPU
+   * model as `os.cpus()` names it (matched as a substring).
+   */
+  readonly budgetMs: Readonly<Record<string, number>>
   /** The wrangler config whose bindings and vars the profiled script gets; the bundle itself comes from infra. */
   readonly wranglerConfig: string
 }
 
 export const STARTUP_BUDGETS = {
-  // Set at 112892868 (PR #135): 439, 441 and 437 ms in three CI runs (AMD EPYC 7763), about 285 ms on an M1 Pro.
-  api: { budgetMs: 480, wranglerConfig: "apps/api/wrangler.jsonc" }
+  // Set at 112892868 (PR #135). EPYC 7763: 439, 441, 437 ms; EPYC 9V74: 324 ms. An M1 Pro: about 285 ms.
+  api: { budgetMs: { "AMD EPYC 7763": 480, "AMD EPYC 9V74": 360 }, wranglerConfig: "apps/api/wrangler.jsonc" }
 } as const satisfies Record<string, StartupBudget>
+
+/** The budget for this CPU, or the highest one when the CPU has none (`cpu` is then undefined). */
+export const budgetFor = (budget: StartupBudget, model: string): { readonly cpu?: string; readonly ms: number } => {
+  const cpu = Object.keys(budget.budgetMs).find((key) => model.includes(key))
+  return cpu === undefined ? { ms: Math.max(...Object.values(budget.budgetMs)) } : { cpu, ms: budget.budgetMs[cpu]! }
+}
 
 /** The part of a V8 `.cpuprofile` this check reads. */
 export interface CpuProfile {

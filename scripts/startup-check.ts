@@ -15,7 +15,7 @@ import { cpus } from "node:os"
 import { join, resolve } from "node:path"
 import { bundleWorker } from "../infra/bundle.ts"
 import { parseJsonc } from "./lib/jsonc.ts"
-import { activeMs, checkStartup, type CpuProfile, median, STARTUP_BUDGETS } from "./lib/startup-rules.ts"
+import { activeMs, budgetFor, checkStartup, type CpuProfile, median, STARTUP_BUDGETS } from "./lib/startup-rules.ts"
 
 const RUNS = Number(process.env["STARTUP_RUNS"] ?? 7)
 const WRANGLER = resolve("apps/api/node_modules/.bin/wrangler")
@@ -83,18 +83,21 @@ const measure = async (worker: Worker) => {
 }
 
 mkdirSync(OUT, { recursive: true })
-// Runners differ in CPU, and so do their numbers: the log says which one measured.
-console.log(`startup:check: on ${cpus()[0]?.model ?? "an unknown CPU"} (${cpus().length} cores)`)
+// Runners differ in CPU, and so do their numbers and budgets: the log says which one measured.
+const model = cpus()[0]?.model ?? "an unknown CPU"
+console.log(`startup:check: on ${model} (${cpus().length} cores)`)
 const errors: Array<string> = []
 for (const worker of workers) {
   const runs = await measure(worker)
-  const { budgetMs } = STARTUP_BUDGETS[worker]
+  const budget = budgetFor(STARTUP_BUDGETS[worker], model)
   console.log(
     `startup:check: ${worker}: fastest ${Math.min(...runs).toFixed(0)} ms, median ${
       median(runs).toFixed(0)
-    } ms of CPU (${RUNS} runs: ${runs.map((r) => r.toFixed(0)).join(", ")}); budget ${budgetMs} ms`
+    } ms of CPU (${RUNS} runs: ${runs.map((r) => r.toFixed(0)).join(", ")}); budget ${budget.ms} ms${
+      budget.cpu === undefined ? " (no budget for this CPU: the highest applies)" : ` on ${budget.cpu}`
+    }`
   )
-  errors.push(...checkStartup(worker, runs, budgetMs))
+  errors.push(...checkStartup(worker, runs, budget.ms))
 }
 // On stdout like the measurements above, so a CI log shows them in order.
 if (errors.length > 0) {

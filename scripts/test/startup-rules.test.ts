@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { activeMs, checkStartup, median } from "../lib/startup-rules.ts"
+import { activeMs, budgetFor, checkStartup, median } from "../lib/startup-rules.ts"
 
 describe("startup:check", () => {
   it("counts every sample but idle, garbage collection included", () => {
@@ -25,5 +25,11 @@ describe("startup:check", () => {
   it("takes the median of an odd and an even count", () => {
     expect(median([3, 1, 2])).toBe(2)
     expect(median([4, 1, 3, 2])).toBe(2.5)
+  })
+
+  it("takes the CPU's own budget, and the highest for a CPU with none", () => {
+    const budget = { budgetMs: { "AMD EPYC 7763": 480, "AMD EPYC 9V74": 360 }, wranglerConfig: "wrangler.jsonc" }
+    expect(budgetFor(budget, "AMD EPYC 9V74 80-Core Processor")).toEqual({ cpu: "AMD EPYC 9V74", ms: 360 })
+    expect(budgetFor(budget, "Apple M1 Pro")).toEqual({ ms: 480 })
   })
 })
