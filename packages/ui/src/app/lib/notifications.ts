@@ -2,6 +2,7 @@ import {
 	AtSign,
 	Box,
 	CornerDownLeft,
+	Database,
 	type IconComponent,
 	Plug,
 	RotateCcw,
@@ -111,10 +112,11 @@ export type EventKey =
 	| "insyte.report"
 	| "insyte.action"
 	| "insyte.budget"
+	| "data.export"
 	| "partner.work"
 	| "partner.money";
 
-export type EventGroup = "Bestellingen" | "Retouren" | "Klantenservice" | "Chargebacks" | "Leveranciers" | "Automatiseringen" | "Team" | "Koppelingen" | "Insyte";
+export type EventGroup = "Bestellingen" | "Retouren" | "Klantenservice" | "Chargebacks" | "Leveranciers" | "Automatiseringen" | "Team" | "Data" | "Koppelingen" | "Insyte";
 
 export type EventDef = {
 	key: EventKey;
@@ -158,6 +160,7 @@ export const EVENTS: ReadonlyArray<EventDef> = [
 	{ key: "course.assigned", group: "Team", label: "Cursus voor jou", detail: "Een cursus staat voor je klaar, of iemand herinnert je eraan.", primary: true, defaults: ch(true, true, false, false) },
 	{ key: "course.question", group: "Team", label: "Vraag bij een cursus", detail: "Iemand stelt een vraag bij een cursus die jij maakte.", primary: true, defaults: ch(true, false, false, false) },
 	{ key: "course.answered", group: "Team", label: "Antwoord op je vraag", detail: "Je vraag bij een cursus is beantwoord.", primary: false, defaults: ch(true, false, false, false) },
+	{ key: "data.export", group: "Data", label: "Export klaar", detail: "Het bestand dat je liet maken staat klaar om te downloaden, zeven dagen lang.", primary: false, defaults: ch(true, false, false, false) },
 	{ key: "integration.disconnected", group: "Koppelingen", label: "Koppeling verbroken", detail: "Een dienst geeft Insyte geen toegang meer.", primary: true, defaults: ch(true, true, false, false) },
 	{ key: "integration.sync", group: "Koppelingen", label: "Synchronisatie met fouten", detail: "Een sync is klaar, maar sloeg records over.", primary: false, defaults: ch(true, false, false, false) },
 	{ key: "insyte.proposal", group: "Insyte", label: "Voorstel klaar", detail: "Insyte heeft iets getekend dat jij kunt uitvoeren of negeren.", primary: true, defaults: ch(true, false, true, false) },
@@ -182,6 +185,7 @@ export const EVENT_GROUPS: ReadonlyArray<{ group: EventGroup; icon: IconComponen
 	{ group: "Leveranciers", icon: Truck },
 	{ group: "Automatiseringen", icon: Workflow },
 	{ group: "Team", icon: Users },
+	{ group: "Data", icon: Database },
 	{ group: "Koppelingen", icon: Plug },
 	{ group: "Insyte", icon: Sparkle },
 ];

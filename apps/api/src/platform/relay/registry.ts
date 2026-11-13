@@ -6,6 +6,7 @@ import { Analytics } from "./subscribers/analytics.ts"
 import { Automations } from "./subscribers/automations.ts"
 import { Chargebacks } from "./subscribers/chargebacks.ts"
 import { Chat } from "./subscribers/chats.ts"
+import { Data } from "./subscribers/data.ts"
 import { Facts } from "./subscribers/facts.ts"
 import { Forwarding } from "./subscribers/forwarding.ts"
 import { Support } from "./subscribers/inbox.ts"
@@ -44,6 +45,7 @@ const SUBSCRIBERS = [
   Automations,
   Chargebacks,
   Webhooks,
+  Data,
   Analytics
 ] as const
 

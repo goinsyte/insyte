@@ -8,6 +8,7 @@ import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
 import { CostsRpcs } from "@insyte/api/rpc/CostsRpcs"
 import { CoursesRpcs } from "@insyte/api/rpc/CoursesRpcs"
+import { DataRpcs } from "@insyte/api/rpc/DataRpcs"
 import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
@@ -35,11 +36,14 @@ import { TicketsRpcs } from "@insyte/api/rpc/TicketsRpcs"
 import { TrackingRpcs } from "@insyte/api/rpc/TrackingRpcs"
 import { TrashRpcs } from "@insyte/api/rpc/TrashRpcs"
 import { WorkspacesRpcs } from "@insyte/api/rpc/WorkspacesRpcs"
+import { introspectWorkflow } from "cloudflare:test"
+import { env } from "cloudflare:workers"
 import { Exit } from "effect"
 import { beforeAll, describe, expect, it } from "vitest"
 import expected from "./authz.expected.json" with { type: "json" }
-import { join, ok, pastUndo, person, relay, run } from "./journeys.ts"
-import { rpc, sessionMe } from "./support.ts"
+import { failure, join, ok, pastUndo, person, relay, run } from "./journeys.ts"
+import { importedStore } from "./shops.ts"
+import { call, rpc, sessionMe } from "./support.ts"
 
 /*
  * The authorisation matrix (07 §3.4, step 5.4): every team, invitation, access, roles and API-key RPC as each of the five system
@@ -550,7 +554,20 @@ const PAYLOADS: Record<string, unknown> = {
   "AgentLog.get": { id: "aga_none" },
   "AgentLog.undo": { id: "aga_none" },
   "AgentLog.redo": { id: "aga_none" },
-  "AgentLog.compensate": { id: "aga_none" }
+  "AgentLog.compensate": { id: "aga_none" },
+  // The Data hub (M14 step 5): Bekijken reads, Importeren (level 2) brings files in and out, an export needs
+  // Exporteren (`data.export`); an import that does not exist answers `ImportNotFound`, after the check.
+  "Data.overview": undefined,
+  "Data.imports.list": undefined,
+  "Data.imports.upload": { fileId: "fil_none" },
+  "Data.imports.preview": { importId: "imp_none" },
+  "Data.imports.rows": { importId: "imp_none" },
+  "Data.imports.commit": { importId: "imp_none" },
+  "Data.imports.remove": { importId: "imp_none" },
+  "Data.imports.restore": { importId: "imp_none" },
+  "Data.export": { source: { import: "imp_none" }, columns: ["0"] },
+  "Data.exports.list": {},
+  "Data.exports.get": { exportId: "exp_none" }
 }
 
 const manifest = [
@@ -590,7 +607,8 @@ const manifest = [
   ...SettingsDepthRpcs.requests.keys(),
   ...MarketplaceRpcs.requests.keys(),
   ...LiveRpcs.requests.keys(),
-  ...AgentRpcs.requests.keys()
+  ...AgentRpcs.requests.keys(),
+  ...DataRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {
@@ -627,4 +645,60 @@ describe("the authorisation matrix", () => {
       expect(forbidden ? "deny" : "allow").toBe(table[name]![role])
     })
   }
+})
+
+describe("a member held to some stores", () => {
+  // The fence is the principal's `storeScope`: the role's stores narrowed by the member's own. An admin role reaches
+  // every store; a member invited for another store only reaches none of this one's orders, in the list, in the hub's
+  // counts and in an export, and does not see an export of every store.
+  it("reads and exports none of another store's orders", async () => {
+    const store = await importedStore("authz-stores")
+    const email = `authz-${run}-held@invited.test`
+    ok(await rpc("Invitations.send", { rows: [{ email, roleId: "admin", stores: ["sto_elsewhere"] }] }, store.cookie))
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    const held = await join(email)
+
+    expect(ok(await rpc("Orders.list", { limit: 50 }, store.cookie)).rows.length).toBeGreaterThan(0)
+    expect(ok(await rpc("Orders.list", { limit: 50 }, held)).rows).toEqual([])
+    expect(ok(await rpc("Data.overview", undefined, held)).orders).toBe(0)
+
+    const exportFor = async (cookie: string) => {
+      await using runs = await introspectWorkflow(env.EXPORT)
+      const asked = ok(await rpc("Data.export", { source: "orders", columns: ["number"] }, cookie))
+      await relay(store.workspace)
+      const [instance] = await runs.get()
+      await instance!.waitForStatus("complete")
+      return ok(await rpc("Data.exports.get", { exportId: asked.id }, cookie))
+    }
+    const theirs = await exportFor(held)
+    expect(theirs).toMatchObject({ state: "ready", rowsWritten: 0 })
+    const text = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(
+      await (await call(`http://api.test${theirs.fileUrl}`, { headers: { cookie: held } })).arrayBuffer()
+    )
+    expect(text).toBe("\uFEFFBestelling\r\n")
+
+    // The owner's export of every store is not even listed to them.
+    const owners = await exportFor(store.cookie)
+    expect(owners.rowsWritten).toBeGreaterThan(0)
+    expect(failure(await rpc("Data.exports.get", { exportId: owners.id }, held))).toMatchObject({
+      _tag: "ExportNotFound"
+    })
+    expect(ok(await rpc("Data.exports.list", { mine: false }, held)).rows.map((r) => r.id)).toEqual([theirs.id])
+
+    // A key held to this store sees neither: one export is every store's, the other another store's.
+    const token = ok(
+      await rpc("ApiKeys.create", {
+        label: "Eén winkel",
+        access: { kind: "role", roleId: "view" } as never,
+        stores: [store.storeId],
+        expiresInDays: 30,
+        ips: [],
+        agent: false
+      }, store.cookie)
+    ).secret
+    const listed = await call("http://api.public.test/v1/exports", { headers: { authorization: `Bearer ${token}` } })
+    expect(listed.status).toBe(200)
+    expect((await listed.json() as { data: Array<unknown> }).data).toEqual([])
+  }, 240_000)
 })

@@ -2,6 +2,7 @@ import { Layer } from "effect"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
 import { ConnectRoutes, KlaviyoConnectRoutes, SlackConnectRoutes } from "../transports/http/ConnectRoutes.ts"
 import { CourseMediaRoutes } from "../transports/http/CourseMediaRoutes.ts"
+import { DataImportRoutes } from "../transports/http/DataImportRoutes.ts"
 import { DevRoutes } from "../transports/http/DevRoutes.ts"
 import { EvidenceRoutes } from "../transports/http/EvidenceRoutes.ts"
 import { FileRoutes } from "../transports/http/FileRoutes.ts"
@@ -46,6 +47,7 @@ const Transports = Layer.mergeAll(
   QualityMediaRoutes,
   EvidenceRoutes,
   CourseMediaRoutes,
+  DataImportRoutes,
   PixelRoutes,
   RequestContext,
   NotFound

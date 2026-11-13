@@ -1,7 +1,9 @@
 import type { AutomationRunParams } from "../workflows/AutomationRun.ts"
 import type { EvidencePackParams } from "../workflows/EvidencePack.ts"
+import type { ExportParams } from "../workflows/Export.ts"
 import type { AnalysisParams } from "../workflows/FirstAnalysis.ts"
 import type { ForwardSendParams } from "../workflows/ForwardSend.ts"
+import type { ImportParseParams } from "../workflows/ImportParse.ts"
 import type { MarketingSyncParams } from "../workflows/MarketingSync.ts"
 import type { MonthlyCloseParams } from "../workflows/MonthlyClose.ts"
 import type { ReturnLabelParams } from "../workflows/ReturnLabel.ts"
@@ -55,6 +57,10 @@ declare global {
       readonly WEBHOOK_ADAPTER?: string
       /** The supplier statements' monthly close (M13 step 6): one instance per month (`MonthlyCloseWorkflow`). */
       readonly MONTHLY_CLOSE: Workflow<MonthlyCloseParams>
+      /** An uploaded CSV read into rows (M14 step 5): one instance per import (`ImportParseWorkflow`). */
+      readonly IMPORT_PARSE: Workflow<ImportParseParams>
+      /** An export written, whatever its source (M14 step 5): one instance per export (`ExportWorkflow`). */
+      readonly EXPORT: Workflow<ExportParams>
       /** The Klaviyo OAuth app (M7.5); without both, Klaviyo cannot be connected. `recorded` in the worker tests. */
       readonly KLAVIYO_CLIENT_ID?: string
       readonly KLAVIYO_CLIENT_SECRET?: string
