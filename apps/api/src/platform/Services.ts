@@ -2,6 +2,7 @@ import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
 import { PwnedPasswords } from "@insyte/integrations-better-auth/PwnedPasswords"
 import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
 import { CoursesService } from "@insyte/modules/courses/Courses"
+import { DataService } from "@insyte/modules/data/Data"
 import { LiveService } from "@insyte/modules/live/Live"
 import { QualityLinkService } from "@insyte/modules/quality/Quality"
 import { PortalService } from "@insyte/modules/returns/Portal"
@@ -75,7 +76,9 @@ const Entries = Layer.mergeAll(
   ChargebacksService.layer,
   CoursesService.layer,
   // …and the Web Pixel's ingest (M14 step 3).
-  LiveService.layer
+  LiveService.layer,
+  // …and the Data hub's, for a CSV's upload (M14 step 5).
+  DataService.layer
 )
 
 /** What both the API's and the public Worker's routes stand on: the slices' adapters, mail, limits, the database. */

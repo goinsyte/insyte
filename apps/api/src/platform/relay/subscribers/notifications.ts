@@ -47,7 +47,8 @@ const NOTIFIED = [
   "course.answered",
   "statements.closed",
   "supplier.problem_reported",
-  "supplier.shipment_refused"
+  "supplier.shipment_refused",
+  "export.finished"
 ] as const satisfies ReadonlyArray<EventType>
 
 /** The workspaces whose notes wait to go out: quiet hours over, or a mail to try again. */

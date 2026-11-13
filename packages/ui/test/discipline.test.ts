@@ -91,6 +91,7 @@ const graduated = [
   "app/chargebacks/",
   "app/automations/",
   "app/costs/",
+  "app/data/",
   "app/settings/depth/",
   "app/settings/webhooks-screen.tsx",
   "app/settings/webhooks-page.tsx",

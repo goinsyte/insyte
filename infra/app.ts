@@ -259,7 +259,11 @@ export default Alchemy.Stack(
       // A webhook delivery's attempts (M19.4).
       WEBHOOK_DELIVERY: workflow("WebhookDelivery", "WebhookDeliveryWorkflow", "webhook-delivery", host),
       // The supplier statements' monthly close (M13 step 6).
-      MONTHLY_CLOSE: workflow("MonthlyClose", "MonthlyCloseWorkflow", "monthly-close", host)
+      MONTHLY_CLOSE: workflow("MonthlyClose", "MonthlyCloseWorkflow", "monthly-close", host),
+      // An uploaded CSV read into rows (M14 step 5).
+      IMPORT_PARSE: workflow("ImportParse", "ImportParseWorkflow", "import-parse", host),
+      // An export written, whatever its source (M14 step 5).
+      EXPORT: workflow("Export", "ExportWorkflow", "export", host)
     })
 
     /** What every Worker reads: the database, files, the relay's queue, and the configuration the slices share. */

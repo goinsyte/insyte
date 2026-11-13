@@ -135,7 +135,11 @@ export const TENANT_TABLES = [
   "agent_actions",
   "agent_touchpoints",
   "ai_budgets",
-  "sending_domains"
+  "sending_domains",
+  // The Data hub (M14 step 5): CSV imports and their rows, and the files asked for.
+  "imports",
+  "import_rows",
+  "exports"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

@@ -11,6 +11,7 @@ import { ConsoleClient } from "./client.ts"
 import { COSTS } from "./costs.ts"
 import { COURSES } from "./courses.ts"
 import { CUSTOMERS } from "./customers.ts"
+import { DATA } from "./data.ts"
 import { KEYS } from "./developer.ts"
 import { FIRST_ANALYSIS } from "./first-analysis.ts"
 import { FRAME, NOTES, presenceAtom } from "./frame.ts"
@@ -80,7 +81,9 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   // The workspace's own settings (M3.1); its name is in the frame's store selector.
   workspace: [...WORKSPACE, ...FRAME],
   // Kosten (M13 step 5): a line or a month changed.
-  cost_line: COSTS
+  cost_line: COSTS,
+  // The Data hub (M14 step 5): an uploaded file read on the jobs Worker.
+  import: DATA
 }
 // Kosten works its shares and per-order amounts out from revenue and orders (M13 step 5).
 for (const kind of ["order", "store"]) REFETCH[kind] = [...(REFETCH[kind] ?? []), ...COSTS]
@@ -88,6 +91,8 @@ for (const kind of ["order", "store"]) REFETCH[kind] = [...(REFETCH[kind] ?? [])
 for (const kind of ["order", "ticket", "return", "product", "store", "member", "queue_item", "chargeback"]) {
   REFETCH[kind] = [...(REFETCH[kind] ?? []), ...HOME]
 }
+// The Data hub's counts (M14 step 5) read the orders and the stores.
+for (const kind of ["order", "store"]) REFETCH[kind] = [...(REFETCH[kind] ?? []), ...DATA]
 // Analyse (M14 step 2) sums orders and tickets, inside the role's stores.
 for (const kind of ["order", "ticket", "store"]) REFETCH[kind] = [...(REFETCH[kind] ?? []), ...ANALYTICS]
 const EVERYTHING = [...new Set([...Object.values(REFETCH).flat(), ...CHATS, ...CHAT_PAGES, ...SHEETS])]
@@ -137,6 +142,12 @@ const connection = (reconnected: boolean, heard: Heard) =>
         // A store's import moved on: its counts, and the store itself once it is in.
         if (frame.value.type === "job.progress" && frame.value.kind === "store_backfill") {
           for (const key of frame.value.label === "done" ? [...STORE_SYNC, ...STORES] : STORE_SYNC) keys.add(key)
+        }
+        // An uploaded CSV being read, or an export being written (M14 step 5): the hub's files and its exports.
+        if (
+          frame.value.type === "job.progress" && (frame.value.kind === "import_parse" || frame.value.kind === "export")
+        ) {
+          for (const key of DATA) keys.add(key)
         }
         // A case's evidence pack moved on (M13 step 4): the case, its "Verzamelen · n van m".
         if (frame.value.type === "job.progress" && frame.value.kind === "evidence_pack") {

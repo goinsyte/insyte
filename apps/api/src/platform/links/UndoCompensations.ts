@@ -5,6 +5,7 @@ import { restore as restoreChats } from "@insyte/modules/chats/use-cases/command
 import { restore as restoreCosts } from "@insyte/modules/costs/use-cases/commands"
 import { restore as restoreCourses } from "@insyte/modules/courses/Courses"
 import { restore as restoreCustomers } from "@insyte/modules/customers/use-cases/commands"
+import { restore as restoreData } from "@insyte/modules/data/Data"
 import { restore as restoreWebhooks } from "@insyte/modules/developer/use-cases/webhooks"
 import { restore as restoreForwarding } from "@insyte/modules/forwarding/use-cases/commands"
 import { ThreadTickets } from "@insyte/modules/inbox/domain/Ports"
@@ -56,6 +57,7 @@ export const compensations: Record<string, Compensation> = {
   "retention.restore": restoreErasing,
   "webhooks.restore": restoreWebhooks,
   "sheets.restore": restoreSheets,
+  "data.restore": restoreData,
   "courses.restore": restoreCourses,
   "marketplace.restore": (sql, compensation) =>
     restoreApp(sql, compensation).pipe(Effect.provideService(AppKeys, undoKeys)),

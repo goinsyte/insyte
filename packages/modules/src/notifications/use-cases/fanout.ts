@@ -28,7 +28,8 @@ import { connectionOf } from "./slack.ts"
  * - `course.assigned`: who a course was published for, or reminded of it, hears of it while it is live and they have
  *   not passed it;
  * - `course.question` / `course.answered`: a course's maker hears of a question on it; the asker of the answer.
- * - `statements.closed`: whoever may mark supplier statements paid hears the month's are ready.
+ * - `statements.closed`: whoever may mark supplier statements paid hears the month's are ready;
+ * - `export.finished`: the member who asked for an export hears its file is ready (with its link), or that it failed;
  * - `supplier.problem_reported` / `supplier.shipment_refused`: whoever handles orders hears a supplier reported a problem
  *   in its portal (with the ticket it opened), or that Shopify refused a parcel it marked shipped (M16 step 2).
  *
@@ -403,6 +404,34 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             title: q.title,
             questionId: event.questionId,
             comment: (event.type === "course.question" ? q.text : q.answer ?? "").slice(0, 280)
+          }
+        }
+      }
+      case "export.finished": {
+        // An export's file is ready, or could not be written (M14 step 5): the member who asked, and only they.
+        const [row] = yield* sql<
+          { fileName: string; rows: number; fileId: string | null; expiresAt: Date | null; error: string | null }
+        >`
+          select coalesce(f.name, e.file_name) as file_name, e.rows_written as rows, e.file_id, e.expires_at, e.error
+          from exports e left join files f on f.id = e.file_id where e.id = ${event.exportId}`
+        if (row === undefined) return undefined
+        const recipients = yield* sql<{ id: string }>`
+          select id from members where id = ${event.userId} and deactivated_at is null and removed_at is null`
+        return {
+          kind: "data.export",
+          recipients: recipients.map((r) => r.id),
+          direct: recipients.map((r) => r.id),
+          subjectType: "export",
+          subjectId: event.exportId,
+          actor: null,
+          data: {
+            state: event.state,
+            fileName: row.fileName,
+            rows: row.rows,
+            fileId: event.state === "ready" ? row.fileId : null,
+            // Too many rows is the one reason the member can act on: narrow the list.
+            reason: event.state === "failed" && row.error === "too_many_rows" ? "too_many_rows" : null,
+            expiresAt: row.expiresAt === null ? null : row.expiresAt.toISOString()
           }
         }
       }
