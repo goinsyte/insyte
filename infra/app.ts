@@ -372,19 +372,20 @@ export default Alchemy.Stack(
       }
     })
 
-    // The relay's events and Shopify's deliveries are consumed by the jobs Worker; their dead letters stay put.
+    // The relay's events and Shopify's deliveries are consumed by the jobs Worker; their dead letters stay put. A batch
+    // that throws comes back after 30 s, not at once: its retries are not spent on the same moment's outage.
     yield* Cloudflare.Queues.Consumer("EventsConsumer", {
       queueId: events.queueId,
       scriptName: jobs.workerName,
       deadLetterQueue: deadEvents.queueName,
-      settings: { batchSize: 10, maxWaitTimeMs: 1000, maxRetries: 5 }
+      settings: { batchSize: 10, maxWaitTimeMs: 1000, maxRetries: 5, retryDelay: 30 }
     })
 
     yield* Cloudflare.Queues.Consumer("IngestConsumer", {
       queueId: ingest.queueId,
       scriptName: jobs.workerName,
       deadLetterQueue: deadIngest.queueName,
-      settings: { batchSize: 10, maxWaitTimeMs: 1000, maxRetries: 8 }
+      settings: { batchSize: 10, maxWaitTimeMs: 1000, maxRetries: 8, retryDelay: 30 }
     })
 
     // CI's smoke test gets past Access with a service token (CF_ACCESS_CLIENT_ID / _SECRET in each environment).

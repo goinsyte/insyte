@@ -1,5 +1,6 @@
-import { beforeAll, describe, expect, it } from "vitest"
-import { failure, join, ok, pastUndo, person, productEventsOf, relay, run } from "./journeys.ts"
+import { env } from "cloudflare:workers"
+import { beforeAll, describe, expect, it, vi } from "vitest"
+import { consume, failure, join, ok, outboxOf, pastUndo, person, productEventsOf, relay, run } from "./journeys.ts"
 import { call, rpc, sessionMe } from "./support.ts"
 
 /*
@@ -167,6 +168,17 @@ describe("automations", () => {
     expect(back.liveNodes).toEqual(nodes)
     expect(back.versions.map((v) => v.version)).toEqual([3, 2, 1])
     expect(back.versions[0]!.note).toBe("Terug naar versie 1")
+
+    // Delivered inside its window, the event is acked and goes back onto the queue for the time it has left: dropped,
+    // it would wait for the cron's sweep, and previews run no cron.
+    const early = (await outboxOf(workspace)).filter((e) =>
+      e.event === "automation.published" && !e.due && !e.cancelled
+    )
+    expect(early).toHaveLength(1)
+    const send = vi.spyOn(env.EVENTS, "send")
+    expect((await consume(early.map((e) => e.id))).ackAll).toBe(true)
+    expect(send).toHaveBeenCalledWith({ outboxIds: [early[0]!.id] }, { delaySeconds: expect.any(Number) })
+    send.mockRestore()
 
     // The first publication's event leaves once the window has passed; the undone one's never does.
     await pastUndo(workspace)
