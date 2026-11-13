@@ -7,9 +7,10 @@
  * new CI value plus the same headroom. Raising it needs a reason in the pull request, and the 1 s limit is the
  * ceiling: the deploy is what fails, not this check.
  *
- * How the numbers were set: `startup:check` on GitHub's ubuntu-24.04 runners, the fastest of seven runs, over several
- * CI runs of the same commit (the pull request that added the check). The budget is the highest of those values plus
- * about 15 % for the runners' noise. On an M-series Mac the same bundle takes about 0.8x the CI value.
+ * How a budget is set: `startup:check` in CI (ci.yml's `build` job, GitHub's ubuntu-24.04 runners), the fastest of
+ * seven runs, over a few CI runs of the same commit. The budget is the highest of those plus about 10 %: the runs on
+ * one runner agree within a few milliseconds, the margin is for a runner with another CPU. The log names the CPU.
+ * An M-series Mac measures about 0.65x the CI value, so a local run is only a direction.
  */
 
 export interface StartupBudget {
@@ -20,8 +21,8 @@ export interface StartupBudget {
 }
 
 export const STARTUP_BUDGETS = {
-  // CI: 219, 226, 224 ms (fastest of seven, three runs). Mac: about 190 ms.
-  api: { budgetMs: 260, wranglerConfig: "apps/api/wrangler.jsonc" }
+  // Set at 112892868 (PR #135): 439, 441 and 437 ms in three CI runs (AMD EPYC 7763), about 285 ms on an M1 Pro.
+  api: { budgetMs: 480, wranglerConfig: "apps/api/wrangler.jsonc" }
 } as const satisfies Record<string, StartupBudget>
 
 /** The part of a V8 `.cpuprofile` this check reads. */
