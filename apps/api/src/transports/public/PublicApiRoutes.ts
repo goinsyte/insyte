@@ -104,6 +104,7 @@ const ForwardingLive = HttpApiBuilder.group(
       (act) =>
         handlers
           .handle("suppliers", () => act.suppliers)
+          .handle("statements", ({ params }) => act.supplierStatements(params.id))
           .handle("legs", ({ query }) => act.legs(query.view))
           .handle(
             "forward",
@@ -125,6 +126,19 @@ const AnalyticsLive = HttpApiBuilder.group(
     Effect.map(
       Effect.service(Resources),
       (act) => handlers.handle("overview", ({ query }) => act.analyticsOverview(query.a, query.b))
+    )
+)
+
+const SheetsLive = HttpApiBuilder.group(
+  PublicApi,
+  "sheets",
+  (handlers) =>
+    Effect.map(
+      Effect.service(Resources),
+      (act) =>
+        handlers
+          .handle("list", () => act.sheets)
+          .handle("get", ({ params }) => act.sheet(params.id))
     )
 )
 
@@ -329,6 +343,7 @@ export const PublicApiRoutes = Layer.mergeAll(
       TicketsLive,
       AutomationsLive,
       AnalyticsLive,
+      SheetsLive,
       QueueLive,
       ProposalsLive,
       ChargebacksLive,

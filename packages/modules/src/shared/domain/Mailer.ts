@@ -175,6 +175,13 @@ export interface Mail {
   readonly support?: SupportFacts | undefined
   /** The name the mail is sent in (a store's, to its shopper); absent, Insyte's own. */
   readonly sender?: string | undefined
+  /**
+   * The address it goes from, on the brand's own verified domain (`use-cases/Senders.ts`, E-mail en domein); absent,
+   * Insyte's sending address.
+   */
+  readonly from?: string | undefined
+  /** Where an answer goes (E-mail en domein's "Antwoorden naar"), where the kind has no reply address of its own. */
+  readonly replyTo?: string | undefined
   /** What makes two mails of one kind to one address different (a leg's id), for the sender's idempotency. */
   readonly reference?: string | undefined
   /** Files sent with it (a packing slip, M8.5). */
@@ -183,7 +190,12 @@ export interface Mail {
 
 export class MailNotSent extends Schema.TaggedError<MailNotSent>()("MailNotSent", {
   kind: MailKind,
-  reason: Schema.String
+  reason: Schema.String,
+  /**
+   * The mail named the brand's own address (`Mail.from`) and the provider refused that sender: its domain is not
+   * verified (any more). `use-cases/Senders.ts` sends it again from Insyte's address.
+   */
+  senderRefused: Schema.optional(Schema.Boolean)
 }) {}
 
 export class Mailer extends Context.Service<Mailer, {

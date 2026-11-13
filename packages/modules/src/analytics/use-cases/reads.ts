@@ -107,6 +107,8 @@ export interface OrdersCell {
   readonly units: number
   /** Counted revenue in the workspace's currency. */
   readonly revenue: number
+  /** What was refunded since on these orders (partial refunds too), by the day they were placed, converted. */
+  readonly refunded: number
   /** Store-day cells left out of `revenue` for want of a rate. */
   readonly unconverted: number
 }
@@ -128,13 +130,14 @@ export const ordersBy = Effect.fn("Analytics.ordersBy")(function*(
       refunds: number
       units: number
       revenue: string
+      refunded: string
       unconverted: number
     }
   >`
     with d as (
       select ${sql.literal(group)}, sum(f.orders)::bigint as orders, sum(f.counted_orders)::bigint as counted,
              sum(f.refunds)::bigint as refunds, sum(f.units)::bigint as units,
-             sum(f.counted_revenue_minor) as revenue
+             sum(f.counted_revenue_minor) as revenue, sum(f.refunded_minor) as refunded
       from fact_orders_day f
       where f.day between ${span.from}::date and ${span.to}::date and ${scope}
       group by ${sql.literal(group)}
@@ -143,6 +146,7 @@ export const ordersBy = Effect.fn("Analytics.ordersBy")(function*(
            sum(d.orders)::int as orders, sum(d.counted)::int as counted, sum(d.refunds)::int as refunds,
            sum(d.units)::int as units,
            coalesce(sum(round(d.revenue * fx.rate)) filter (where fx.rate is not null), 0)::text as revenue,
+           coalesce(sum(round(d.refunded * fx.rate)) filter (where fx.rate is not null), 0)::text as refunded,
            count(*) filter (where fx.rate is null and d.revenue <> 0)::int as unconverted
     from d ${sql.literal(FX("d.day", "d.currency"))}
     ${sql.literal(dims.length === 0 ? "" : `group by ${dims.map((_, i) => String(i + 1)).join(", ")}`)}`
@@ -153,6 +157,7 @@ export const ordersBy = Effect.fn("Analytics.ordersBy")(function*(
     refunds: Number(r.refunds),
     units: Number(r.units),
     revenue: Number(r.revenue),
+    refunded: Number(r.refunded),
     unconverted: Number(r.unconverted)
   }))
 })

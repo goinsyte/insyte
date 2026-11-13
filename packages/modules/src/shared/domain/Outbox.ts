@@ -220,6 +220,33 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     checkIds: Schema.Array(Schema.String)
   }),
+  // A course for teammates (M17 step 4): published to its audience, or "Herinneren" to one person who has not finished.
+  // Told once the undo window has passed, if the course is still live and they still have it to do. `by` is the
+  // principal.
+  Schema.Struct({
+    type: Schema.Literal("course.assigned"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    courseId: Schema.String,
+    memberIds: Schema.Array(Schema.String),
+    reminder: Schema.Boolean,
+    by: Schema.String
+  }),
+  // A question asked on a course (M17 step 4): its maker hears of it; an answer reaches the asker.
+  Schema.Struct({
+    type: Schema.Literal("course.question"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    questionId: Schema.String,
+    by: Schema.String
+  }),
+  Schema.Struct({
+    type: Schema.Literal("course.answered"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    questionId: Schema.String,
+    by: Schema.String
+  }),
   // Return labels asked for (M9.2): made at the carrier once the undo window has passed.
   Schema.Struct({
     type: Schema.Literal("return.label_requested"),
@@ -324,6 +351,24 @@ export const OutboxEvent = Schema.Union([
     workspaceId: Schema.String,
     userId: Schema.String,
     endpointId: Schema.String
+  }),
+  // A sheet was saved, renamed, moved, shared or put back (M14 step 4): the realtime sink tells the tabs of the members
+  // who can open it (`to`) to read it again. Its version tells an open editor whether it already has it.
+  Schema.Struct({
+    type: Schema.Literal("sheet.changed"),
+    workspaceId: Schema.String,
+    sheetId: Schema.String,
+    version: Schema.Int,
+    by: Schema.String,
+    to: Schema.Array(Schema.String)
+  }),
+  // A month's supplier statements closed (M13 step 6): whoever pays them hears they are ready. `userId` is `system`.
+  Schema.Struct({
+    type: Schema.Literal("statements.closed"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    month: Schema.String,
+    statementIds: Schema.Array(Schema.String)
   }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.

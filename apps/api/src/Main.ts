@@ -1,7 +1,8 @@
+import { fill as fillRates } from "@insyte/modules/fx/Fx"
 import { receive } from "@insyte/modules/inbox/use-cases/inbound"
 import { isReplyAddress, receiveReply } from "@insyte/modules/notifications/use-cases/replies"
 import { env, tracing } from "cloudflare:workers"
-import { ManagedRuntime } from "effect"
+import { Effect, ManagedRuntime } from "effect"
 import { HttpRouter } from "effect/http"
 import { adSpendSweep } from "./platform/AdSpend.ts"
 import { AppLayer, BackgroundLayer } from "./platform/AppLayer.ts"
@@ -23,11 +24,15 @@ import {
 } from "./platform/Relay.ts"
 import { withRequestDb } from "./platform/RequestDb.ts"
 import { retentionSweep } from "./platform/Retention.ts"
+import { sendingDomainSweep } from "./platform/SendingDomains.ts"
 import { trashSweep } from "./platform/TrashSweep.ts"
+import { startMonthlyClose } from "./workflows/MonthlyClose.ts"
 
 // The Durable Object classes this Worker hosts; infra and `wrangler.jsonc` bind them by these names.
 export { RateLimiter } from "./platform/RateLimiter.ts"
 export { RoomDurableObject } from "./platform/Room.ts"
+// The live room per workspace (M14 step 3): storefront visitors in memory.
+export { LiveRoomDurableObject } from "./platform/LiveRoom.ts"
 // The gate per external account (M6.3), and the store backfill's Workflow.
 export { ConnectionGateObject } from "./platform/ConnectionGate.ts"
 export { ShopifyBackfillWorkflow } from "./workflows/ShopifyBackfill.ts"
@@ -36,6 +41,7 @@ export { EvidencePackWorkflow } from "./workflows/EvidencePack.ts"
 export { FirstAnalysisWorkflow } from "./workflows/FirstAnalysis.ts"
 export { ForwardSendWorkflow } from "./workflows/ForwardSend.ts"
 export { MarketingSyncWorkflow } from "./workflows/MarketingSync.ts"
+export { MonthlyCloseWorkflow } from "./workflows/MonthlyClose.ts"
 export { ReturnLabelWorkflow } from "./workflows/ReturnLabel.ts"
 // A flow's run (M12 step 3).
 export { AutomationRunWorkflow } from "./workflows/AutomationRun.ts"
@@ -96,7 +102,9 @@ export default {
    * (M19.4); every fifteenth, the stores' reconcile (M6.3), the tracking sweep (M8.4), Start's queue (M10.1), the
    * daily facts (M10.4, at 02:00 UTC their nightly pass), the members' daily digests (M11.5) and the webhook
    * deliveries past 30 days (M19.4); on the hour, the chargeback deadline reminders (M13 step 3); at 03:00 UTC the
-   * Prullenbak's sweep (M17); at 04:00 UTC the day's ad spend from every connected ad account (M13 step 5). */
+   * Prullenbak's sweep (M17) and, on the 1st, the supplier statements' monthly close (M13 step 6); at 04:00 UTC the
+   * day's ad spend from every connected ad account (M13 step 5) and the sending domains' re-check (20.1c); at 02:00 UTC the ECB's reference rates into
+   * `fx_rates` (§0.4). */
   scheduled(controller, _env, ctx) {
     ctx.waitUntil(background.runPromise(withRequestDb(sweep())).finally(() => Telemetry.flush()))
     ctx.waitUntil(background.runPromise(withRequestDb(notifySweep())).finally(() => Telemetry.flush()))
@@ -105,6 +113,8 @@ export default {
     if (at.getUTCMinutes() % 15 === 0) {
       const nightly = at.getUTCHours() === 2 && at.getUTCMinutes() === 0
       ctx.waitUntil(background.runPromise(withRequestDb(factsSweep(nightly))).finally(() => Telemetry.flush()))
+      // The rates the conversions read (§0.4): the ECB's last 90 days, so a night it missed fills in on the next.
+      if (nightly) ctx.waitUntil(background.runPromise(withRequestDb(ratesFill)).finally(() => Telemetry.flush()))
       ctx.waitUntil(syncRuntime.runPromise(reconcile).finally(() => Telemetry.flush()))
       ctx.waitUntil(syncRuntime.runPromise(trackingSweep).finally(() => Telemetry.flush()))
       // Start's queue (M10.1): what no event says, a stock-out or a review coming due.
@@ -125,13 +135,28 @@ export default {
       ctx.waitUntil(background.runPromise(withRequestDb(retentionSweep(at))).finally(() => Telemetry.flush()))
       // Webhook deliveries older than 30 days (M19.4).
       ctx.waitUntil(background.runPromise(withRequestDb(webhooksSweep())).finally(() => Telemetry.flush()))
+      // The supplier statements' monthly close (M13 step 6), `0 3 1 * *`: inside this cron, as an account has few.
+      if (at.getUTCDate() === 1 && at.getUTCHours() === 3 && at.getUTCMinutes() === 0) {
+        ctx.waitUntil(startMonthlyClose(at))
+      }
+      // The sending domains' daily re-check, at 04:00 UTC (M17 step 20.1c).
+      if (at.getUTCHours() === 4 && at.getUTCMinutes() === 0) {
+        ctx.waitUntil(background.runPromise(withRequestDb(sendingDomainSweep())).finally(() => Telemetry.flush()))
+      }
     }
   }
 } satisfies ExportedHandler<Env, EventsMessage | IngestMessage>
 
+/** The nightly rates fill; the ECB unreachable is logged, and tomorrow's turn writes the days again. */
+const ratesFill = fillRates.pipe(
+  Effect.catchTag("RatesError", (e) => Effect.logWarning("fx: the ECB's rates were not read", e.reason)),
+  Effect.orDie
+)
+
 /**
  * On the Worker's own public hostname only the public API, the MCP server and the webhooks answer (M19.2, M19.3,
- * M6.3, M8.3, M8.4): `/v1`, `/mcp`, `/hooks/shopify`, `/hooks/aftership` and `/hooks/supplier/:id`. Everything else (auth, the RPC, the dev routes) is reached through the console's service binding, on the
+ * M6.3, M8.3, M8.4): `/v1`, `/mcp`, `/hooks/shopify`, `/hooks/aftership` and `/hooks/supplier/:id`; and the
+ * storefront's Web Pixel, `/api/public/pixel/:storeId` (M14 step 3). Everything else (auth, the RPC, the dev routes) is reached through the console's service binding, on the
  * console's origin.
  */
 const servedHere = (request: Request): boolean => {
@@ -139,7 +164,7 @@ const servedHere = (request: Request): boolean => {
   if (env.PUBLIC_API_HOST === undefined || url.host !== env.PUBLIC_API_HOST) return true
   return url.pathname === "/mcp" || url.pathname === "/v1" || url.pathname.startsWith("/v1/") ||
     url.pathname === "/hooks/shopify" || url.pathname === "/hooks/aftership" ||
-    url.pathname.startsWith("/hooks/supplier/")
+    url.pathname.startsWith("/hooks/supplier/") || url.pathname.startsWith("/api/public/pixel/")
 }
 
 /**

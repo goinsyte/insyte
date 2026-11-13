@@ -10,7 +10,7 @@ import {
   DialogTitle
 } from "../../components/dialog"
 import { Switch } from "../../components/switch"
-import { Edit3, Mail, MessagesSquare, Pause, Play, Plus, Truck } from "../../icons"
+import { Edit3, FileText, Mail, MessagesSquare, Pause, Play, Plus, Truck } from "../../icons"
 import { Blocked } from "../access/blocked"
 import { TextField } from "../common/form-dialog"
 import { PageHeader } from "../common/page-header"
@@ -382,6 +382,25 @@ function SupplierDialog(
                 null}
 
               <ForwardPrefsSection row={row} />
+
+              {source.statementsOf ?
+                (
+                  <section className="flex flex-col gap-2">
+                    <h3 className="font-medium text-ink-3 text-xs">Afrekeningen</h3>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-ink-2 text-sm">Per maand, regel voor regel, met een factuur.</p>
+                      <Link
+                        to={source.statementsOf(row)}
+                        onClick={onClose}
+                        className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-ink-2 text-sm transition-colors hover:bg-ink/6 hover:text-ink"
+                      >
+                        <FileText className="size-3.5" strokeWidth={1.75} />
+                        Afrekeningen bekijken
+                      </Link>
+                    </div>
+                  </section>
+                ) :
+                null}
 
               {source.portal
                 ? (

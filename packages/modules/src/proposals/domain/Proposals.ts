@@ -13,8 +13,15 @@ import { UndoTicket } from "../../shared/domain/Undo.ts"
  * button elsewhere. The delay mail and the supplier ticket carry the words the plate showed, so filing sends or opens
  * exactly what was drawn: the mail waits out the undo window before it leaves (ADR-0023).
  */
+/*
+ * What an agent asked first (M15 step 6, origin `agent`): the catalogue action it wanted, as the command a person's
+ * button runs, with the agent's arguments. Filing runs it as the person, with their permissions; the irreversible ones
+ * (cancelling, refunding, forwarding, settling with money, a label bought) confirm first in the console.
+ */
+const Opt = <S extends Schema.Top>(s: S) => Schema.optional(s)
+
 export const ProposalAction = Schema.Union([
-  Schema.TaggedStruct("ApproveReturn", { returnId: Schema.String }),
+  Schema.TaggedStruct("ApproveReturn", { returnId: Schema.String, keepItem: Opt(Schema.Boolean) }),
   Schema.TaggedStruct("ApproveQualityCheck", { checkId: Schema.String }),
   Schema.TaggedStruct("NotifyDelayedOrder", {
     orderId: Schema.String,
@@ -27,6 +34,46 @@ export const ProposalAction = Schema.Union([
     productId: Schema.String,
     title: Schema.String,
     description: Schema.String
+  }),
+  Schema.TaggedStruct("CancelOrder", { orderId: Schema.String, restock: Schema.Boolean, notify: Schema.Boolean }),
+  Schema.TaggedStruct("RefundOrder", {
+    orderId: Schema.String,
+    amountMinor: Schema.Int,
+    note: Schema.NullOr(Schema.String)
+  }),
+  Schema.TaggedStruct("ResolveReturn", { returnId: Schema.String, resolution: Schema.String }),
+  Schema.TaggedStruct("ForwardOrder", { legIds: Schema.Array(Schema.String), note: Schema.NullOr(Schema.String) }),
+  Schema.TaggedStruct("SendReturnLabel", { returnId: Schema.String }),
+  Schema.TaggedStruct("TagOrder", {
+    orderId: Schema.String,
+    add: Schema.Array(Schema.String),
+    remove: Schema.Array(Schema.String)
+  }),
+  Schema.TaggedStruct("SetOrderNote", { orderId: Schema.String, body: Schema.String }),
+  Schema.TaggedStruct("CreateTicket", {
+    title: Schema.String,
+    description: Opt(Schema.String),
+    status: Opt(Schema.String),
+    priority: Opt(Schema.String),
+    assigneeIds: Opt(Schema.Array(Schema.String)),
+    labels: Opt(Schema.Array(Schema.String)),
+    dueAt: Opt(Schema.NullOr(Schema.Finite)),
+    related: Opt(Schema.Struct({ type: Schema.Literals(["order", "customer"]), id: Schema.String }))
+  }),
+  Schema.TaggedStruct("UpdateTicket", {
+    ticketId: Schema.String,
+    title: Opt(Schema.String),
+    description: Opt(Schema.String),
+    priority: Opt(Schema.String),
+    dueAt: Opt(Schema.NullOr(Schema.Finite)),
+    labels: Opt(Schema.Array(Schema.String))
+  }),
+  Schema.TaggedStruct("SetTicketStatus", { ticketId: Schema.String, status: Schema.String }),
+  Schema.TaggedStruct("AssignTicket", { ticketId: Schema.String, memberId: Schema.String, on: Schema.Boolean }),
+  Schema.TaggedStruct("CommentTicket", {
+    ticketId: Schema.String,
+    body: Schema.String,
+    mentions: Schema.Array(Schema.String)
   })
 ])
 export type ProposalAction = typeof ProposalAction.Type

@@ -1,0 +1,14 @@
+{
+  "name": "@insyte/integrations-ecb",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@insyte/modules": "workspace:*",
+    "effect": "catalog:"
+  }
+}

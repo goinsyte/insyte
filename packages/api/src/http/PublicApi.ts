@@ -62,6 +62,11 @@ export const ValidationFailedV1 = envelope("ValidationFailedV1", 400, {
 })
 /** More than the key may refund on one order; `limit_minor` is its limit. */
 export const RefundOverLimitV1 = envelope("RefundOverLimitV1", 422, { limit_minor: Schema.Int })
+/**
+ * An agent's call the workspace's autonomy rules do not allow (M15 step 6, ADR-0027): the action is set to Nooit, or
+ * is outside the catalogue; `reason` says which (`policy`, `unknown`). Nothing happened.
+ */
+export const ActionNotAllowedV1 = envelope("ActionNotAllowedV1", 403, { action: Schema.String, reason: Schema.String })
 /** The `Idempotency-Key` was first used for a different request. */
 export const IdempotencyKeyReusedV1 = envelope("IdempotencyKeyReusedV1", 422, {})
 
@@ -71,6 +76,7 @@ export type ConflictV1 = typeof ConflictV1.Type
 export type ValidationFailedV1 = typeof ValidationFailedV1.Type
 export type RefundOverLimitV1 = typeof RefundOverLimitV1.Type
 export type IdempotencyKeyReusedV1 = typeof IdempotencyKeyReusedV1.Type
+export type ActionNotAllowedV1 = typeof ActionNotAllowedV1.Type
 export type InvalidRequestV1 = typeof InvalidRequestV1.Type
 
 /* ── what a key is ──────────────────────────────────────────────────────────────────────────────── */
@@ -451,6 +457,29 @@ export const Supplier = Schema.Struct({
   stats: Schema.Struct({ products: Schema.Int, open: Schema.Int, delayed: Schema.Int })
 }).annotate({ identifier: "Supplier" })
 
+/** A supplier's statement for one month (M13 step 6): what the brand owes it, in the workspace's currency. */
+export const SupplierStatement = Schema.Struct({
+  id: Schema.NullOr(Schema.String).annotate({ description: "Null for the running month, which is not closed yet." }),
+  month: Schema.String.annotate({ description: "YYYY-MM." }),
+  status: Schema.String.annotate({ description: "open (running month), processing (closed, to be paid) or paid." }),
+  currency: Schema.String,
+  shipped_minor: Schema.Int,
+  corrections_minor: Schema.Int.annotate({ description: "Supplier-fault returns refunded; zero or negative." }),
+  total_minor: Schema.Int,
+  shipped_lines: Schema.Int,
+  missing_lines: Schema.Int.annotate({ description: "Lines that count nothing: no cost price or no exchange rate." }),
+  pay_day: Schema.String,
+  closed_at: Schema.NullOr(Schema.String),
+  paid_at: Schema.NullOr(Schema.String),
+  paid_reference: Schema.NullOr(Schema.String)
+}).annotate({ identifier: "SupplierStatement" })
+
+export const SupplierStatementsV1 = Schema.Struct({
+  supplier: Party,
+  data: Schema.Array(SupplierStatement),
+  summary: Schema.Struct({ currency: Schema.String, paid_ytd_minor: Schema.Int, pay_day: Schema.Int })
+})
+
 export const ForwardView = Schema.Literals(["to_forward", "awaiting", "forward_error"])
 
 export class ForwardingGroup extends HttpApiGroup.make("forwarding")
@@ -461,6 +490,14 @@ export class ForwardingGroup extends HttpApiGroup.make("forwarding")
     }).annotate(
       OpenApi.Description,
       "The workspace's suppliers and how each takes its orders. Needs `suppliers.read`."
+    ),
+    HttpApiEndpoint.get("statements", "/suppliers/:id/statements", {
+      params: ById,
+      success: SupplierStatementsV1,
+      error: [ScopeMissingV1, NotFoundV1]
+    }).annotate(
+      OpenApi.Description,
+      "A supplier's monthly statements, newest first: the lines it shipped at their cost price less its returns refunded, and whether each is paid; the running month first while it has lines. Needs `suppliers.read`."
     ),
     HttpApiEndpoint.get("legs", "/forwarding", {
       query: Schema.Struct({ view: Schema.optional(ForwardView) }),
@@ -873,12 +910,24 @@ export const ProposalV1 = Schema.Struct({
       "approve_return",
       "approve_quality_check",
       "notify_delayed_order",
-      "create_supplier_ticket"
+      "create_supplier_ticket",
+      "cancel_order",
+      "refund_order",
+      "resolve_return",
+      "forward_orders",
+      "send_return_label",
+      "tag_order",
+      "set_order_note",
+      "create_ticket",
+      "update_ticket",
+      "set_ticket_status",
+      "assign_ticket",
+      "comment_on_ticket"
     ]),
     subject_id: Schema.String
   }).annotate({
     description:
-      "What filing runs, as the key's own call would: approving the return or the check, mailing the shopper of a delayed order the words in `after`, or opening a reorder ticket for a sold-out product."
+      "What filing runs, as the key's own call would: approving the return or the check, mailing the shopper of a delayed order the words in `after`, or opening a reorder ticket for a sold-out product. A plate an agent asked for (its autonomy is Eerst vragen) carries the tool it called, by that tool's name."
   }),
   revision: Schema.Int,
   heading: Schema.String,
@@ -974,6 +1023,66 @@ export class AnalyticsGroup extends HttpApiGroup.make("analytics")
     )
   )
   .annotate(OpenApi.Title, "Analytics")
+{}
+
+const SheetCellV1 = Schema.Struct({
+  v: Schema.String.annotate({ description: "The cell as typed: a value, or a formula starting with `=`." }),
+  fmt: Schema.optional(Schema.Literals(["general", "money", "percent", "number", "integer"])),
+  bold: Schema.optional(Schema.Boolean),
+  align: Schema.optional(Schema.Literals(["left", "center", "right"]))
+})
+
+const SheetTabV1 = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  cells: Schema.Record(Schema.String, SheetCellV1).annotate({ description: "Address (`A1`…`L40`) → cell." }),
+  widths: Schema.Record(Schema.String, Schema.Int).annotate({ description: "Column (`A`…`L`) → width in pixels." })
+})
+
+export const SheetSummaryV1 = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  folder_id: Schema.NullOr(Schema.String),
+  owner_id: Schema.String.annotate({ description: "The member who made it." }),
+  shared_with: Schema.Array(Schema.String).annotate({ description: "The members it is shared with." }),
+  pinned: Schema.Boolean,
+  archived: Schema.Boolean,
+  linked: Schema.Boolean.annotate({ description: "Whether any cell reads one of Insyte's figures (INSYTE())." }),
+  created_at: Schema.String,
+  updated_at: Schema.String
+}).annotate({ identifier: "SheetSummary" })
+
+export const SheetListV1 = Schema.Struct({ data: Schema.Array(SheetSummaryV1) }).annotate({ identifier: "SheetList" })
+
+export const SheetV1 = Schema.Struct({
+  ...SheetSummaryV1.fields,
+  folder_name: Schema.NullOr(Schema.String),
+  version: Schema.Int.annotate({ description: "The version the tabs are at; every save of the tabs raises it." }),
+  tabs: Schema.Array(SheetTabV1).annotate({
+    description:
+      "Every tab as typed. Nothing computed is kept: a formula is the text the member wrote, and an INSYTE() figure is read when the sheet is opened."
+  })
+}).annotate({ identifier: "Sheet" })
+
+export class SheetsGroup extends HttpApiGroup.make("sheets")
+  .add(
+    HttpApiEndpoint.get("list", "/sheets", {
+      success: SheetListV1,
+      error: [ScopeMissingV1]
+    }).annotate(
+      OpenApi.Description,
+      "Rekenbladen: the sheets of the member who made the key (their own and those shared with them), newest change first, archived ones included. Needs `data.read`."
+    ),
+    HttpApiEndpoint.get("get", "/sheets/:id", {
+      params: ById,
+      success: SheetV1,
+      error: [ScopeMissingV1, NotFoundV1]
+    }).annotate(
+      OpenApi.Description,
+      "One sheet with every tab as typed (cells, formats, column widths). Needs `data.read`; a sheet the key's member cannot open is not found."
+    )
+  )
+  .annotate(OpenApi.Title, "Sheets")
 {}
 
 export class QueueGroup extends HttpApiGroup.make("queue")
@@ -1407,6 +1516,7 @@ export class PublicApi extends HttpApi.make("insyte")
     TicketsGroup,
     AutomationsGroup,
     AnalyticsGroup,
+    SheetsGroup,
     QueueGroup,
     ProposalsGroup,
     ChargebacksGroup,

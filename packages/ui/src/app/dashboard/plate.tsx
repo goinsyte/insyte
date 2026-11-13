@@ -40,6 +40,7 @@ export function PlateView({
 }) {
   const still = useReducedMotion()
   const decided = phase !== "drawn"
+  const stamp = plate.filed ?? "Uitgevoerd"
   const time = new Intl.DateTimeFormat("nl-NL", { hour: "2-digit", minute: "2-digit" }).format(new Date())
 
   return (
@@ -128,7 +129,7 @@ export function PlateView({
                 transition={{ type: "spring", stiffness: 640, damping: 22, mass: 0.7 }}
                 role="status"
               >
-                <span className="font-medium text-xl leading-none">Uitgevoerd</span>
+                <span className="font-medium text-xl leading-none">{stamp}</span>
                 <span className="mt-1 text-xs text-mesh-ink-2 tabular-nums">
                   {plate.number} · {time}
                 </span>
@@ -165,7 +166,7 @@ export function PlateView({
       <div className="flex shrink-0 items-center justify-between gap-3 bg-mesh-ink/8 px-6 py-3 text-base text-mesh-ink-3">
         <span>
           Voorstel <span className="text-mesh-ink tabular-nums">{plate.number}</span> ·{" "}
-          {phase === "filed" ? "uitgevoerd" : phase === "discarded" ? "genegeerd" : plate.state} ·{" "}
+          {phase === "filed" ? stamp.toLowerCase() : phase === "discarded" ? "genegeerd" : plate.state} ·{" "}
           <span className="tabular-nums">{plate.confidence}</span>
         </span>
         <span className="hidden shrink-0 text-xs xl:inline">J K om te bladeren</span>

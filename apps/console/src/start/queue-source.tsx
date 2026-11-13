@@ -49,7 +49,9 @@ const plateOf = (p: ProposalView): Plate => ({
   witness: p.plate.witness,
   state: p.state === "execution_failed" ? "niet gelukt" : "getekend, niet uitgevoerd",
   confidence: `zekerheid ${p.plate.confidenceWord.toLowerCase()}`,
-  fileLabel: p.plate.fileLabel
+  fileLabel: p.plate.fileLabel,
+  // A mail waits out the undo window before it leaves (12.2b): until then it is on its way, not done.
+  filed: p.action._tag === "NotifyDelayedOrder" ? "Wordt verstuurd…" : undefined
 })
 
 const entryOf = (r: QueueRow, now: number): QueueEntry => ({

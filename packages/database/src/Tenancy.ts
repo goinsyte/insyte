@@ -112,7 +112,30 @@ export const TENANT_TABLES = [
   "retention_runs",
   "webhook_endpoints",
   "webhook_deliveries",
-  "fact_tickets_day"
+  "fact_tickets_day",
+  "course_chapters",
+  "course_modules",
+  "courses",
+  "course_progress",
+  "course_questions",
+  "app_installs",
+  "app_feedback",
+  // Live (M14 step 3): a store's Web Pixel and the hash of its ingest key.
+  "store_pixels",
+  "sheet_folders",
+  "sheets",
+  "sheet_tabs",
+  "sheet_shares",
+  "sheet_member_state",
+  "supplier_statements",
+  "supplier_statement_lines",
+  "agents",
+  "autonomy_policies",
+  "autonomy_policy_versions",
+  "agent_actions",
+  "agent_touchpoints",
+  "ai_budgets",
+  "sending_domains"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

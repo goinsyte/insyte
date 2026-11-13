@@ -27,10 +27,13 @@ import type { ReturnsState } from "../stores/returns-store";
 import type { SettingsDepthState } from "../stores/settings-depth-store";
 import type { SettingsState } from "../stores/settings-store";
 import type { SheetsState } from "../stores/sheets-store";
+
+/** The Rekenbladen panel's counts: every view's and each folder's, the archive left out of all but its own. */
+export type SheetPanelCounts = { all: number; pinned: number; shared: number; archive: number; folders: Record<string, number> };
 import type { TeamState, useSeats as SeatsHook } from "../stores/team-store";
 import type { ViewsState } from "../stores/views-store";
 import type { WorkspaceState } from "../stores/workspace-store";
-import type { useMarketplaceState as MarketplaceStateHook } from "../hooks/use-marketplace-state";
+import type { MarketplaceSource } from "../marketplace/marketplace-source";
 import type { useNavPrefs as NavPrefsHook } from "../hooks/use-nav-prefs";
 import type { CreateKind } from "../stores/create-intent";
 
@@ -77,7 +80,8 @@ export interface ShellSource {
 	>;
 	workspace: Pick<WorkspaceState, "tickets" | "orders" | "chargebacks" | "queue" | "members" | "integrations" | "createdCustomers">;
 	returns: Pick<ReturnsState, "records">;
-	sheets: Pick<SheetsState, "sheets" | "folders">;
+	/** `counts`, where the host reads its sheets elsewhere (the console's `Sheets.list`), is what the panel shows. */
+	sheets: Pick<SheetsState, "sheets" | "folders"> & { counts?: SheetPanelCounts };
 	courses: Pick<CoursesState, "courses" | "questions">;
 	chat: Pick<ChatState, "pinned" | "created">;
 	settings: Pick<SettingsState, "roles">;
@@ -89,7 +93,7 @@ export interface ShellSource {
 	currentRole: ReturnType<typeof CurrentRoleHook>;
 	workflows: Record<string, WorkflowState>;
 	supplierOrders: ReadonlyArray<SupplierOrderRow>;
-	marketplace: ReturnType<typeof MarketplaceStateHook>;
+	marketplace: MarketplaceSource;
 	navPrefs: ReturnType<typeof NavPrefsHook>;
 	extensions: ReadonlyArray<Extension>;
 	/** The persona's notifications, minus what their settings keep out of the app. */

@@ -68,9 +68,3 @@ export function statementsFor(supplierId: string): Statement[] {
 		.filter((s) => s.lines.length > 0)
 		.reverse();
 }
-
-export const STATEMENT_STATUS: Record<Statement["status"], { label: string; tone: "success" | "info" | "warning" }> = {
-	paid: { label: "Betaald", tone: "success" },
-	processing: { label: "Wordt verwerkt", tone: "info" },
-	open: { label: "Lopend", tone: "warning" },
-};

@@ -6,13 +6,16 @@ import { RECORDED_BULK } from "@insyte/integrations-shopify/RecordedBulk"
 import { remindWorkspace } from "@insyte/modules/chargebacks/Chargebacks"
 import { syncAdSpend } from "@insyte/modules/costs/Costs"
 import { drainWorkspace, markRecentWorkspace, rebuildWorkspace } from "@insyte/modules/facts/Facts"
+import { fill as fillRates } from "@insyte/modules/fx/Fx"
 import { receive } from "@insyte/modules/inbox/use-cases/inbound"
 import { isReplyAddress, receiveReply } from "@insyte/modules/notifications/use-cases/replies"
 import { refreshWorkspace } from "@insyte/modules/queue/Queue"
 import { registerParcels } from "@insyte/modules/returns/use-cases/parcels"
 import { dueWorkspaces } from "@insyte/modules/settings/use-cases/retention"
+import { recheck } from "@insyte/modules/settings/use-cases/sending-domain"
 import { addLine, emptyBatch, type MirrorBatch, parseJsonl } from "@insyte/modules/stores/domain/Mirror"
 import { applyBatch } from "@insyte/modules/stores/use-cases/mirror"
+import { closeWorkspace } from "@insyte/modules/suppliers/use-cases/statements"
 import { sweepWorkspace } from "@insyte/modules/tracking/use-cases/tracking"
 import { sweepWorkspace as sweepTrash } from "@insyte/modules/trash/use-cases/trash"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
@@ -21,7 +24,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { AdSpendLive } from "../../platform/AdSpend.ts"
 import { AppInfo } from "../../platform/Bindings.ts"
 import { parseMail } from "../../platform/InboundMail.ts"
-import { refusedReferences } from "../../platform/Mail.ts"
+import { capturedSenders, refusedReferences, refusedSenderDomains } from "../../platform/Mail.ts"
 import { digestWorkspace, notifyWorkspace } from "../../platform/Relay.ts"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 import { retentionWorkspace } from "../../platform/Retention.ts"
@@ -61,7 +64,10 @@ const CapturedMail = HttpRouter.add(
         where to_address = ${to} and (${reference}::text is null or reference = ${reference})
         order by sent_at desc, id desc limit 20`
     )
-    return HttpServerResponse.jsonUnsafe({ mails })
+    // The sender each record's newest mail went with (E-mail en domein), which the table does not keep.
+    return HttpServerResponse.jsonUnsafe({
+      mails: mails.map((m) => ({ ...m, ...(m.reference === null ? {} : capturedSenders.get(m.reference)) }))
+    })
   }).pipe(withRequestDb)
 )
 
@@ -84,6 +90,28 @@ const MailRefuse = HttpRouter.add(
     if (reference !== "" && query.get("off") === "1") refusedReferences.delete(reference)
     else if (reference !== "") refusedReferences.add(reference)
     return HttpServerResponse.jsonUnsafe({ refused: [...refusedReferences] })
+  })
+)
+
+/**
+ * `POST /api/__dev/mail/refuse-sender?domain=<name>`: the capture adapter refuses mail from that sending domain from now
+ * on, as Resend does one that is not verified (any more), so the brand's mail falling back to Insyte's address can be
+ * tried (E-mail en domein, M17 step 20.1c); `&off=1` takes it back. Refused in production.
+ */
+const MailRefuseSender = HttpRouter.add(
+  "POST",
+  "/api/__dev/mail/refuse-sender",
+  Effect.gen(function*() {
+    const { environment } = yield* AppInfo
+    if (environment === "production") {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const query = new URL(request.url, "http://local").searchParams
+    const domain = (query.get("domain") ?? "").toLowerCase()
+    if (domain !== "" && query.get("off") === "1") refusedSenderDomains.delete(domain)
+    else if (domain !== "") refusedSenderDomains.add(domain)
+    return HttpServerResponse.jsonUnsafe({ refused: [...refusedSenderDomains] })
   })
 )
 
@@ -223,8 +251,8 @@ const OutboxDue = HttpRouter.add(
 
 /**
  * `POST /api/__dev/undo/age?workspace=<id>&seconds=<n>`: the workspace's undo windows as if `n` seconds had passed, so
- * a test can stand between a toast's eight seconds and a chat card's five minutes without sleeping. Refused in
- * production.
+ * a test can stand between a toast's eight seconds and a chat card's five minutes without sleeping; the agent log's
+ * windows age with them. Refused in production.
  */
 const UndoAge = HttpRouter.add(
   "POST",
@@ -242,7 +270,15 @@ const UndoAge = HttpRouter.add(
         update undo_tokens set expires_at = expires_at - make_interval(secs => ${
         Number.isFinite(seconds) ? seconds : 0
       })
-        where used_at is null returning command`
+        where used_at is null returning command`.pipe(
+        // An agent's action in the log keeps its own five minutes (M15 step 6).
+        Effect.tap(() =>
+          sql`update agent_actions set undo_until = undo_until - make_interval(secs => ${
+            Number.isFinite(seconds) ? seconds : 0
+          })
+              where undo_until is not null`
+        )
+      )
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
     return HttpServerResponse.jsonUnsafe({ aged: aged.length })
   }).pipe(withRequestDb)
@@ -432,6 +468,32 @@ const TrackingSweep = HttpRouter.add(
       Effect.orDie
     )
     return HttpServerResponse.jsonUnsafe({ swept: true })
+  }).pipe(withRequestDb)
+)
+
+/**
+ * `POST /api/__dev/statements/close?workspace=<id>&month=YYYY-MM`: one workspace's monthly close of the supplier
+ * statements (M13 step 6), as `MonthlyCloseWorkflow`'s step does, for the worker tests and a preview. Unlike the cron it
+ * closes a month still running (what a test just shipped is this month's). Refused in production.
+ */
+const StatementsClose = HttpRouter.add(
+  "POST",
+  "/api/__dev/statements/close",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const query = new URL(request.url, "http://local").searchParams
+    const month = query.get("month") ?? ""
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "invalid" } }, { status: 400 })
+    }
+    const outcome = yield* closeWorkspace(month, { early: true }).pipe(
+      Effect.provideService(CurrentWorkspace, { id: (query.get("workspace") ?? "") as WorkspaceId }),
+      Effect.orDie
+    )
+    return HttpServerResponse.jsonUnsafe(outcome)
   }).pipe(withRequestDb)
 )
 
@@ -659,6 +721,36 @@ const FactsRebuild = HttpRouter.add(
 )
 
 /**
+ * `POST /api/__dev/fx/fill`: the ECB's rates into `fx_rates` now, as the cron's nightly turn does (the recorded twin's,
+ * in the worker tests); `GET /api/__dev/fx`: what `fx_rates` holds. Refused in production.
+ */
+const FxFill = HttpRouter.add(
+  "POST",
+  "/api/__dev/fx/fill",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    return HttpServerResponse.jsonUnsafe({ written: yield* fillRates })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+const FxOf = HttpRouter.add(
+  "GET",
+  "/api/__dev/fx",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const db = yield* Db
+    const rates = yield* db.unscopedForCron((sql) =>
+      sql`select day::text as day, base, quote, rate::text as rate from fx_rates order by day, base, quote`
+    )
+    return HttpServerResponse.jsonUnsafe({ rates })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+/**
  * `POST /api/__dev/mail/inbound` `{ to, raw }`: a raw RFC 822 mail delivered to a forwarding address, as Cloudflare Email
  * Routing hands it to the Worker's `email()` handler (M11 step 1), down the same path, an answer to a notification mail
  * included (`{ reply }`, M11 step 13.5). For the worker tests, the
@@ -805,6 +897,42 @@ const TrashSweep = HttpRouter.add(
  * ?workspace=<id>` runs the workspace's nightly erase now; `GET /api/__dev/retention/due?at=<iso>` lists the
  * workspaces the sweep would erase at that time.
  */
+/**
+ * E-mail en domein's worker tests (M17 step 20.1c), refused in production: `POST /api/__dev/sending-domain/age
+ * ?workspace=<id>&days=<n>` puts the workspace's claim that many days back; `POST /api/__dev/sending-domain/recheck
+ * ?workspace=<id>` runs its daily re-check now.
+ */
+const SendingDomainAge = HttpRouter.add(
+  "POST",
+  "/api/__dev/sending-domain/age",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = (yield* workspaceParam) as WorkspaceId
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const days = Number(new URL(request.url, "http://local").searchParams.get("days") ?? "0")
+    const db = yield* Db
+    yield* db.scopedFor((sql) =>
+      sql`update sending_domains set claimed_at = claimed_at - make_interval(days => ${days})`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace }))
+    return HttpServerResponse.jsonUnsafe({ aged: true })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+const SendingDomainRecheck = HttpRouter.add(
+  "POST",
+  "/api/__dev/sending-domain/recheck",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = (yield* workspaceParam) as WorkspaceId
+    const outcome = yield* recheck().pipe(Effect.provideService(CurrentWorkspace, { id: workspace }))
+    return HttpServerResponse.jsonUnsafe({ outcome })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
 const RetentionAge = HttpRouter.add(
   "POST",
   "/api/__dev/retention/age",
@@ -854,6 +982,8 @@ export const DevRoutes = Layer.mergeAll(
   CostsAdAccount,
   CostsSync,
   TrashSweep,
+  SendingDomainAge,
+  SendingDomainRecheck,
   RetentionAge,
   RetentionErase,
   RetentionDue,
@@ -862,8 +992,11 @@ export const DevRoutes = Layer.mergeAll(
   FactsOf,
   FactsDrain,
   FactsRebuild,
+  FxFill,
+  FxOf,
   StoreSeed,
   TrackingSweep,
+  StatementsClose,
   QueueRefresh,
   ChargebackRemind,
   NotifySweep,
@@ -872,6 +1005,7 @@ export const DevRoutes = Layer.mergeAll(
   StoreMirror,
   CapturedMail,
   MailRefuse,
+  MailRefuseSender,
   AuthEventsOf,
   OutboxOf,
   AutomationRunsOf,

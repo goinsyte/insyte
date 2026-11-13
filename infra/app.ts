@@ -228,6 +228,8 @@ export default Alchemy.Stack(
         ROOMS: Cloudflare.DurableObject("Rooms", { className: "RoomDurableObject" }),
         // The gate per external account (M6.3), hosted by this Worker (`ConnectionGateObject`): token and bucket.
         CONNECTION_GATE: Cloudflare.DurableObject("ConnectionGate", { className: "ConnectionGateObject" }),
+        // The live rooms (M14 step 3), hosted by this Worker (`LiveRoomDurableObject`): visitors in memory only.
+        LIVE: Cloudflare.DurableObject("Live", { className: "LiveRoomDurableObject" }),
         // A store's first import (M6.3), hosted by this Worker (`ShopifyBackfillWorkflow`); one per stage.
         SHOPIFY_BACKFILL: Cloudflare.Workflow("ShopifyBackfill", {
           className: "ShopifyBackfillWorkflow",
@@ -272,6 +274,11 @@ export default Alchemy.Stack(
         WEBHOOK_DELIVERY: Cloudflare.Workflow("WebhookDelivery", {
           className: "WebhookDeliveryWorkflow",
           workflowName: `insyte-webhook-delivery-${stage}`
+        }),
+        // The supplier statements' monthly close (M13 step 6), hosted by this Worker (`MonthlyCloseWorkflow`); one per stage.
+        MONTHLY_CLOSE: Cloudflare.Workflow("MonthlyClose", {
+          className: "MonthlyCloseWorkflow",
+          workflowName: `insyte-monthly-close-${stage}`
         }),
         ENVIRONMENT: environment,
         // Where `Main.ts` serves `/v1` and nothing else.

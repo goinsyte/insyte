@@ -1,4 +1,5 @@
 import { AccessRpcs } from "./rpc/AccessRpcs.ts"
+import { AgentRpcs } from "./rpc/AgentRpcs.ts"
 import { AnalyticsRpcs } from "./rpc/AnalyticsRpcs.ts"
 import { AuditRpcs } from "./rpc/AuditRpcs.ts"
 import { AutomationsRpcs } from "./rpc/AutomationsRpcs.ts"
@@ -6,12 +7,15 @@ import { ChargebacksRpcs } from "./rpc/ChargebacksRpcs.ts"
 import { ChatsRpcs } from "./rpc/ChatsRpcs.ts"
 import { CommerceRpcs } from "./rpc/CommerceRpcs.ts"
 import { CostsRpcs } from "./rpc/CostsRpcs.ts"
+import { CoursesRpcs } from "./rpc/CoursesRpcs.ts"
 import { DeveloperRpcs } from "./rpc/DeveloperRpcs.ts"
 import { FirstAnalysisRpcs } from "./rpc/FirstAnalysisRpcs.ts"
 import { ForwardingRpcs } from "./rpc/ForwardingRpcs.ts"
 import { HomeRpcs } from "./rpc/HomeRpcs.ts"
 import { InvitationRpcs, LandingRpcs } from "./rpc/LandingRpcs.ts"
+import { LiveRpcs } from "./rpc/LiveRpcs.ts"
 import { MarketingRpcs } from "./rpc/MarketingRpcs.ts"
+import { MarketplaceRpcs } from "./rpc/MarketplaceRpcs.ts"
 import { MembersRpcs } from "./rpc/MembersRpcs.ts"
 import { NotificationsRpcs } from "./rpc/NotificationsRpcs.ts"
 import { OnboardingRpcs } from "./rpc/OnboardingRpcs.ts"
@@ -26,6 +30,7 @@ import { RunsRpcs } from "./rpc/RunsRpcs.ts"
 import { SessionRpcs } from "./rpc/SessionRpcs.ts"
 import { SettingsDepthRpcs } from "./rpc/SettingsDepthRpcs.ts"
 import { SharedRpcs } from "./rpc/SharedRpcs.ts"
+import { SheetsRpcs } from "./rpc/SheetsRpcs.ts"
 import { ShellRpcs } from "./rpc/ShellRpcs.ts"
 import { StoresRpcs } from "./rpc/StoresRpcs.ts"
 import { SuppliersRpcs } from "./rpc/SuppliersRpcs.ts"
@@ -78,3 +83,8 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(AuditRpcs)
   .merge(TrashRpcs)
   .merge(SettingsDepthRpcs)
+  .merge(CoursesRpcs)
+  .merge(MarketplaceRpcs)
+  .merge(LiveRpcs)
+  .merge(SheetsRpcs)
+  .merge(AgentRpcs)

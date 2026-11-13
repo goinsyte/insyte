@@ -1,0 +1,35 @@
+{
+  "object": "domain",
+  "id": "4dd369bc-aa82-4ff3-97de-514ae3000ee0",
+  "name": "example.com",
+  "status": "verified",
+  "created_at": "2026-03-28 17:12:02.059593+00",
+  "region": "eu-west-1",
+  "records": [
+    {
+      "record": "DKIM",
+      "name": "resend._domainkey",
+      "value": "p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCexample",
+      "type": "TXT",
+      "status": "verified",
+      "ttl": "Auto"
+    },
+    {
+      "record": "SPF",
+      "name": "send",
+      "type": "MX",
+      "ttl": "Auto",
+      "status": "verified",
+      "value": "feedback-smtp.eu-west-1.amazonses.com",
+      "priority": 10
+    },
+    {
+      "record": "SPF",
+      "name": "send",
+      "value": "v=spf1 include:amazonses.com ~all",
+      "type": "TXT",
+      "ttl": "Auto",
+      "status": "verified"
+    }
+  ]
+}

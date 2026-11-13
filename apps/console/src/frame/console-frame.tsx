@@ -1,5 +1,6 @@
 import type { Frame as FrameData } from "@insyte/api/rpc/ShellRpcs"
 import { useCommandPalette } from "@insyte/ui/app/hooks/use-command-palette"
+import { MarketplaceModal } from "@insyte/ui/app/marketplace/marketplace-modal"
 import { CommandPalette } from "@insyte/ui/app/shell/command-palette"
 import { Frame } from "@insyte/ui/app/shell/frame"
 import { useGoToKeys } from "@insyte/ui/app/shell/goto-keys"
@@ -13,8 +14,8 @@ import { ConsoleShellSource } from "./shell-source.tsx"
 
 /**
  * The console's frame (step 7.4c, M5): the design's `Frame` over the server's `ShellSource`, with what the console opens
- * from it: the palette and the shell's dialogs. Ask Insyte and the marketplace lead to their pages; Manage to Team
- * (people) or Apps. The realtime socket stays open while it shows.
+ * from it: the palette, the shell's dialogs and the Marketplace (M17 step 3). Ask Insyte leads to its page; Manage to
+ * Team (people) or Apps. The realtime socket stays open while it shows.
  */
 export function ConsoleFrame({ frame }: { frame: FrameData }) {
   return (
@@ -50,6 +51,7 @@ function Inside() {
       </Frame>
       <CommandPalette open={palette.open} onOpenChange={palette.setOpen} persona="admin" onAskInsyte={ask} />
       <ShellDialogs />
+      <MarketplaceModal />
       <LiveUpdates />
     </>
   )

@@ -285,3 +285,56 @@ export class AnalyticsFindings extends Schema.Class<AnalyticsFindings>("analytic
   /** Heaviest first. */
   findings: Schema.Array(Finding)
 }) {}
+
+/*
+ * INSYTE() (M14 step 4; widgets/02 "How an INSYTE() figure is computed"): a sheet's figure lookups in one batch. A
+ * request is the metric and the month as the cell wrote them (`2026-04`, `april`, nothing for the month under way);
+ * the answer says which month that is and the figure, read over the whole calendar month (the month under way up to
+ * today) inside the reader's stores, the same counted rows Analyse sums. A figure the reader's role may not see, one
+ * whose rows Insyte does not keep yet (costs, chargebacks, the marketing channel), a month without figures and a
+ * metric Insyte does not know each answer with their reason rather than a number.
+ */
+
+export const FigureRequest = Schema.Struct({
+  metric: Schema.String.check(Schema.isMaxLength(60)),
+  month: Schema.optional(Schema.String.check(Schema.isMaxLength(40)))
+})
+export type FigureRequest = typeof FigureRequest.Type
+
+export const FiguresInput = Schema.Struct({
+  requests: Schema.Array(FigureRequest).check(Schema.isMaxLength(500))
+})
+export type FiguresInput = typeof FiguresInput.Type
+
+/** Why a figure has no number: the console says it in a sentence. */
+export const FigureRefusal = Schema.Literals(["unknown_metric", "no_month", "forbidden", "unavailable", "no_ads"])
+export type FigureRefusal = typeof FigureRefusal.Type
+
+/** What a figure waits for, when it is `unavailable`. */
+export const FigureWaitsFor = Schema.Literals(["costs", "chargebacks", "channels"])
+export type FigureWaitsFor = typeof FigureWaitsFor.Type
+
+export const FigureAnswer = Schema.Struct({
+  metric: Schema.String,
+  month: Schema.optional(Schema.String),
+  /** The calendar month the request names; null where it names none. */
+  resolved: Schema.NullOr(Month),
+  /** Money in major units of `currency`, a margin as a fraction, a count as itself; null with a refusal. */
+  value: Schema.NullOr(Schema.Finite),
+  error: Schema.NullOr(FigureRefusal),
+  waitsFor: Schema.NullOr(FigureWaitsFor),
+  /** How many orders stand behind it. */
+  rows: Schema.Int
+})
+export type FigureAnswer = typeof FigureAnswer.Type
+
+export class AnalyticsFigures extends Schema.Class<AnalyticsFigures>("analytics/Figures")({
+  currency: Schema.String,
+  /** The month under way. */
+  current: Month,
+  /** The months there are figures for, from the first order's to the current one, oldest first. */
+  months: Schema.Array(Month),
+  computedAt: Schema.Finite,
+  /** One per request, in the order asked. */
+  figures: Schema.Array(FigureAnswer)
+}) {}

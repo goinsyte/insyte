@@ -29,6 +29,8 @@ interface KeyRow {
   readonly expiresAt: Date | null
   readonly revokedAt: Date | null
   readonly ips: ReadonlyArray<string>
+  /** An agent's key: it acts as an `agent` principal, inside the workspace's autonomy rules (ADR-0027). */
+  readonly agent: boolean
 }
 
 interface RoleRow {
@@ -109,7 +111,8 @@ export const authenticate = Effect.fn("ApiKeys.authenticate")(function*(token: s
     Effect.gen(function*() {
       const [key] = yield* sql<KeyRow>`
         select id, label, lookup, previous_lookup, encode(secret_hash, 'hex') as hash,
-               encode(previous_hash, 'hex') as previous_hash, grace_until, access, stores, expires_at, revoked_at, ips
+               encode(previous_hash, 'hex') as previous_hash, grace_until, access, stores, expires_at, revoked_at, ips,
+               agent
         from api_keys where id = ${route.keyId}`
       if (key === undefined) return yield* new KeyRefused({ reason: "unknown" })
       const current = key.lookup === lookup
@@ -135,7 +138,7 @@ export const authenticate = Effect.fn("ApiKeys.authenticate")(function*(token: s
       yield* sql`update api_keys set last_used_at = now() where id = ${key.id}`
       const [workspace] = yield* sql<{ name: string }>`select name from workspaces where id = ${route.workspaceId}`
       const principal: Principal = {
-        kind: "api_key",
+        kind: key.agent ? "agent" : "api_key",
         id: key.id,
         userId: null,
         workspaceId: route.workspaceId,
