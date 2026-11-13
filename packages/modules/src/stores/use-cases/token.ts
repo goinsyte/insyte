@@ -27,6 +27,12 @@ export interface CurrentToken {
   readonly until: number | null
 }
 
+/**
+ * Whether Shopify's answer to a refresh means the grant is gone: a 4xx (revoked, or the refresh token lapsed), but not
+ * a 429, which is too many requests at once and passes.
+ */
+export const grantGone = (status: number) => status >= 400 && status < 500 && status !== 429
+
 export const accessToken = Effect.fn("Stores.accessToken")(function*(connectionId: string) {
   const db = yield* Db
   const sealer = yield* Sealer
@@ -48,8 +54,9 @@ export const accessToken = Effect.fn("Stores.accessToken")(function*(connectionI
   const shopify = yield* ShopifyAdmin
   const fresh = yield* shopify.refresh(row.shop, Redacted.make(current.refreshToken)).pipe(
     Effect.asSome,
-    // 4xx: the grant is gone (revoked, or the refresh token lapsed). Anything else is Shopify's moment: the step retries.
-    Effect.catchTag("ShopifyRefused", (e) => e.status >= 400 && e.status < 500 ? Effect.succeedNone : Effect.die(e))
+    // The grant gone (`grantGone`): refused for good. Anything else is Shopify's moment, a 429 among them: the step
+    // retries, and the grant stays.
+    Effect.catchTag("ShopifyRefused", (e) => grantGone(e.status) ? Effect.succeedNone : Effect.die(e))
   )
   if (Option.isNone(fresh)) return yield* refused(connectionId)
   const tokens = fresh.value
