@@ -14,6 +14,7 @@ import { rpc } from "./support.ts"
 const ALL = [
   "revenue",
   "orders",
+  "chargebacks",
   "suppliers",
   "tickets",
   "mytickets",
@@ -84,7 +85,7 @@ describe("Start's figures", () => {
     expect(breakdown.rates).toEqual([])
 
     const brief = ok(await rpc("Home.brief", undefined, store.cookie))
-    expect(brief).toMatchObject({ evidence: null, firstDay: false, urgent: 0 })
+    expect(brief).toMatchObject({ evidence: 0, firstDay: false, urgent: 0 })
     expect(brief.delayed).toEqual(expect.any(Number))
 
     // Klantenservice holds no Analyse: no money figures, no breakdown.
@@ -116,5 +117,13 @@ describe("Start's figures", () => {
     expect(home.pulse.revenue).toEqual({ value: 0, previous: 0, spark: Array(14).fill(0) })
     expect(home.widgets.live).toEqual({ today: { count: 0, sumMinor: 0 }, recent: [] })
     expect(home.widgets.stock).toEqual({ rows: [] })
+    expect(home.widgets.chargebacks).toEqual({
+      open: 0,
+      atStakeMinor: 0,
+      won: 0,
+      decided: 0,
+      submitted: 0,
+      nearest: null
+    })
   })
 })

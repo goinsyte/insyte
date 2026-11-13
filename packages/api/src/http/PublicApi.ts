@@ -899,7 +899,14 @@ export const ProposalV1 = Schema.Struct({
 
 export const QueueItemV1 = Schema.Struct({
   id: Schema.String,
-  kind: Schema.Literals(["order_delayed", "return_review", "quality_review", "stock_out", "store_disconnected"]),
+  kind: Schema.Literals([
+    "order_delayed",
+    "return_review",
+    "quality_review",
+    "stock_out",
+    "store_disconnected",
+    "chargeback_deadline"
+  ]),
   subject_type: Schema.String,
   subject_id: Schema.String,
   store: Schema.NullOr(Schema.String),
@@ -955,6 +962,312 @@ export class ProposalsGroup extends HttpApiGroup.make("proposals")
     )
   )
   .annotate(OpenApi.Title, "Proposals")
+{}
+
+/** A flow (M12 step 1): its definition, as the builder holds it. */
+export const AutomationStepV1 = Schema.Struct({
+  id: Schema.String,
+  step: Schema.String.annotate({ description: "The step's kind, as `trigger.order_shipped` or `action.send_email`." }),
+  config: Schema.Record(Schema.String, Schema.Unknown),
+  branches: Schema.optional(
+    Schema.Struct({
+      yes: Schema.Array(
+        Schema.Struct({ id: Schema.String, step: Schema.String, config: Schema.Record(Schema.String, Schema.Unknown) })
+      ),
+      no: Schema.Array(
+        Schema.Struct({ id: Schema.String, step: Schema.String, config: Schema.Record(Schema.String, Schema.Unknown) })
+      )
+    })
+  ).annotate({ description: "A yes/no split's two lanes, which merge back into the line after it." })
+})
+
+export const AutomationV1 = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  description: Schema.String,
+  status: Schema.String.annotate({ description: "draft (never published), active or paused." }),
+  live_version: Schema.Int.annotate({ description: "The published version that runs; 0 for a draft." }),
+  trigger: Schema.NullOr(Schema.String).annotate({ description: "The draft's trigger step, if it has one." }),
+  unpublished_changes: Schema.Boolean,
+  owner: Schema.NullOr(Schema.Struct({ id: Schema.String, name: Schema.String })),
+  runs_total: Schema.Int,
+  saved_at: Schema.String,
+  created_at: Schema.String
+})
+
+export const AutomationPageV1 = Schema.Struct({
+  data: Schema.Array(AutomationV1),
+  counts: Schema.Struct({ all: Schema.Int, active: Schema.Int, paused: Schema.Int, draft: Schema.Int })
+})
+
+export const AutomationDetailV1 = Schema.Struct({
+  ...AutomationV1.fields,
+  draft: Schema.Array(AutomationStepV1),
+  live: Schema.NullOr(Schema.Array(AutomationStepV1)),
+  versions: Schema.Array(
+    Schema.Struct({
+      version: Schema.Int,
+      note: Schema.String,
+      published_at: Schema.String,
+      published_by: Schema.NullOr(Schema.Struct({ id: Schema.String, name: Schema.String }))
+    })
+  ),
+  issues: Schema.Array(
+    Schema.Struct({
+      step_id: Schema.NullOr(Schema.String),
+      code: Schema.String,
+      field: Schema.NullOr(Schema.String),
+      severity: Schema.String.annotate({ description: "error stops publishing; warning does not." }),
+      message: Schema.String
+    })
+  )
+})
+
+export const AutomationStatusFilter = Schema.Literals(["draft", "active", "paused"])
+
+/** A flow's run (M12 step 5): one trigger event for one record, on the version that was live when it started. */
+export const AutomationRunV1 = Schema.Struct({
+  id: Schema.String,
+  automation_id: Schema.String,
+  version: Schema.Int,
+  status: Schema.String.annotate({ description: "running, waiting, succeeded, failed, stopped or skipped." }),
+  reason: Schema.NullOr(Schema.String).annotate({ description: "Why it failed, stopped or was skipped." }),
+  trigger: Schema.String,
+  manual: Schema.Boolean.annotate({ description: "Started by hand (again, or through this API)." }),
+  record: Schema.NullOr(Schema.Struct({ type: Schema.String, id: Schema.String, number: Schema.String })),
+  started_at: Schema.String,
+  finished_at: Schema.NullOr(Schema.String),
+  steps: Schema.Array(
+    Schema.Struct({
+      step_id: Schema.String,
+      step: Schema.String,
+      lane: Schema.NullOr(Schema.String),
+      status: Schema.String.annotate({ description: "ok, error, skipped, waiting, pending or stopped." }),
+      explanation: Schema.NullOr(Schema.String)
+    })
+  ).annotate({ description: "Each step of the run's version and what it did; empty in a list." })
+})
+
+export const AutomationRunPageV1 = Schema.Struct({
+  data: Schema.Array(AutomationRunV1),
+  next_cursor: Schema.NullOr(Schema.String)
+})
+
+export const AutomationRunStatusFilter = Schema.Literals([
+  "running",
+  "waiting",
+  "succeeded",
+  "failed",
+  "stopped",
+  "skipped"
+])
+
+export class AutomationsGroup extends HttpApiGroup.make("automations")
+  .add(
+    HttpApiEndpoint.get("automations", "/automations", {
+      query: Schema.Struct({ status: Schema.optional(AutomationStatusFilter) }),
+      success: AutomationPageV1,
+      error: [ScopeMissingV1]
+    }).annotate(
+      OpenApi.Description,
+      "The workspace's flows, newest first, with each status's count. Needs `automations.read`."
+    ),
+    HttpApiEndpoint.get("automation", "/automations/:id", {
+      params: ById,
+      success: AutomationDetailV1,
+      error: [ScopeMissingV1, NotFoundV1]
+    }).annotate(
+      OpenApi.Description,
+      "One flow: its draft and live steps, its published versions, and what is wrong with the draft per step. Needs `automations.read`."
+    ),
+    HttpApiEndpoint.get("runs", "/automations/:id/runs", {
+      params: ById,
+      query: Schema.Struct({
+        status: Schema.optional(AutomationRunStatusFilter),
+        limit: Schema.optional(Schema.FiniteFromString),
+        cursor: Schema.optional(Schema.String)
+      }),
+      success: AutomationRunPageV1,
+      error: [ScopeMissingV1, NotFoundV1]
+    }).annotate(
+      OpenApi.Description,
+      "The flow's runs, newest first, in pages of up to 200. Needs `automations.read`."
+    ),
+    HttpApiEndpoint.post("startRun", "/automations/:id/runs", {
+      params: ById,
+      headers: Writes,
+      payload: Schema.Struct({ order_id: Schema.String }),
+      success: AutomationRunV1,
+      error: WriteErrors
+    }).annotate(
+      OpenApi.Description,
+      "Runs the flow's live version for one order now, as its trigger would, and answers the run as it started; its steps act as the flow's own service account. Refused for a flow never published (`409`, `not_published`); a paused flow's run is written `skipped`. Needs `automations.write`."
+    )
+  )
+  .annotate(OpenApi.Title, "Automations")
+{}
+
+/** A chargeback (M13): a payment the shopper disputed at Stripe, Klarna or PayPal, or a case opened by hand. */
+export const Chargeback = Schema.Struct({
+  id: Schema.String,
+  case_number: Schema.String,
+  provider: Schema.Literals(["stripe", "klarna", "paypal"]),
+  from_provider: Schema.Boolean.annotate({
+    description: "The case came in through a payment connection; false for one opened by hand in Insyte."
+  }),
+  status: Schema.Literals(["open", "awaiting_evidence", "submitted", "won", "lost"]),
+  reason: Schema.String.annotate({
+    description: "item_not_received, not_as_described, unauthorized, duplicate or other."
+  }),
+  reason_code: Schema.String.annotate({ description: "The reason as the provider or the team named it." }),
+  amount: Schema.Struct({ amount_minor: Schema.Int, currency: Schema.String }),
+  customer: Schema.Struct({ id: Schema.NullOr(Schema.String), name: Schema.String }),
+  order: Schema.NullOr(Schema.Struct({ id: Schema.String, number: Schema.NullOr(Schema.String) })),
+  store_id: Schema.NullOr(Schema.String),
+  deadline_at: Schema.String.annotate({ description: "When the evidence must be in at the provider." }),
+  opened_at: Schema.String,
+  submitted_at: Schema.NullOr(Schema.String),
+  outcome_at: Schema.NullOr(Schema.String),
+  note: Schema.String,
+  evidence_count: Schema.Int
+}).annotate({ identifier: "Chargeback" })
+
+export const ChargebackStatsV1 = Schema.Struct({
+  open: Schema.Int,
+  won: Schema.Int,
+  decided: Schema.Int,
+  won_pct: Schema.Int.annotate({ description: "Won out of decided, in whole percent." }),
+  recovered: Schema.Struct({ amount_minor: Schema.Int, currency: Schema.String })
+})
+
+export const ChargebackPageV1 = Schema.Struct({
+  data: Schema.Array(Chargeback),
+  counts: Schema.Struct({
+    all: Schema.Int,
+    action_required: Schema.Int,
+    submitted: Schema.Int,
+    won: Schema.Int,
+    lost: Schema.Int
+  }),
+  stats: ChargebackStatsV1
+}).annotate({ identifier: "ChargebackPage" })
+
+export const ChargebackDetailV1 = Schema.Struct({
+  ...Chargeback.fields,
+  evidence: Schema.Array(Schema.Struct({
+    id: Schema.String,
+    kind: Schema.String,
+    source: Schema.Literals(["insyte", "upload"]),
+    name: Schema.String,
+    size_bytes: Schema.Int,
+    file_id: Schema.NullOr(Schema.String),
+    added_at: Schema.String
+  })).annotate({ description: "The pack, in its order." }),
+  timeline: Schema.Array(Schema.Struct({
+    id: Schema.String,
+    at: Schema.String,
+    kind: Schema.String,
+    actor: Schema.Struct({ kind: Schema.String, name: Schema.String }),
+    data: Schema.Record(Schema.String, Schema.Unknown)
+  })).annotate({ description: "Oldest first." })
+}).annotate({ identifier: "ChargebackDetail" })
+
+export const ChargebackTabV1 = Schema.Literals(["action_required", "submitted", "won", "lost"])
+
+export class ChargebacksGroup extends HttpApiGroup.make("chargebacks")
+  .add(
+    HttpApiEndpoint.get("chargebacks", "/chargebacks", {
+      query: Schema.Struct({
+        tab: Schema.optional(ChargebackTabV1),
+        provider: Schema.optional(Schema.Literals(["stripe", "klarna", "paypal"]))
+      }),
+      success: ChargebackPageV1,
+      error: [ScopeMissingV1]
+    }).annotate(
+      OpenApi.Description,
+      "Chargebacks, nearest deadline first, up to 500: action_required (open or waiting for evidence), submitted, won or lost; with each tab's count and the workspace's record. Needs `chargebacks.read`."
+    ),
+    HttpApiEndpoint.get("chargeback", "/chargebacks/:id", {
+      params: ById,
+      success: ChargebackDetailV1,
+      error: [ScopeMissingV1, NotFoundV1]
+    }).annotate(
+      OpenApi.Description,
+      "One chargeback with its evidence pack and its timeline. Needs `chargebacks.read`."
+    )
+  )
+  .annotate(OpenApi.Title, "Chargebacks")
+{}
+
+const MonthV1 = Schema.String.check(Schema.isPattern(/^\d{4}-(0[1-9]|1[0-2])$/)).annotate({
+  description: "A calendar month, YYYY-MM, in store time."
+})
+
+export const MonthFiguresV1 = Schema.Struct({
+  month: Schema.String,
+  revenue_minor: Schema.Int.annotate({ description: "Counted revenue (paid, not cancelled or refunded)." }),
+  orders: Schema.Int.annotate({ description: "Counted orders." }),
+  ads_minor: Schema.Int,
+  other_minor: Schema.Int,
+  costs_minor: Schema.Int,
+  net_minor: Schema.Int,
+  margin: Schema.Finite.annotate({ description: "net / revenue, 0 without revenue." }),
+  roas: Schema.Finite.annotate({ description: "revenue / ad spend, 0 without ad spend." })
+}).annotate({ identifier: "MonthFigures" })
+
+export const CostLineV1 = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  kind: Schema.Literals(["fixed", "per_order", "percent", "ads"]),
+  rate: Schema.NullOr(Schema.Finite).annotate({ description: "percent: the share of revenue, 0 to 100." }),
+  rate_minor: Schema.NullOr(Schema.Int).annotate({ description: "per_order: the amount per counted order." }),
+  source: Schema.Literals(["manual", "meta", "google_ads"]),
+  reads_from_source: Schema.Boolean.annotate({
+    description: "An ad line whose account is connected: its untyped months are what the account reports."
+  }),
+  months: Schema.Array(Schema.Struct({
+    month: Schema.String,
+    amount_minor: Schema.Int,
+    typed: Schema.Boolean,
+    source: Schema.Literals(["typed", "account", "rule", "none"])
+  }))
+}).annotate({ identifier: "CostLine" })
+
+export const CostsV1 = Schema.Struct({
+  currency: Schema.String.annotate({ description: "The workspace's currency, every amount's (minor units)." }),
+  months: Schema.Array(Schema.String),
+  current: Schema.String.annotate({ description: "The month in progress." }),
+  lines: Schema.Array(CostLineV1),
+  figures: Schema.Array(MonthFiguresV1)
+}).annotate({ identifier: "Costs" })
+
+export const CostFiguresV1 = Schema.Struct({
+  currency: Schema.String,
+  data: Schema.Array(MonthFiguresV1)
+}).annotate({ identifier: "CostFigures" })
+
+export class CostsGroup extends HttpApiGroup.make("costs")
+  .add(
+    HttpApiEndpoint.get("costs", "/costs", {
+      query: Schema.Struct({ from: Schema.optional(MonthV1), to: Schema.optional(MonthV1) }),
+      success: CostsV1,
+      error: [ScopeMissingV1, InvalidRequestV1]
+    }).annotate(
+      OpenApi.Description,
+      "Kosten: every cost line with what it costs in each month of the range (by default the five months up to the current one, at most 36), and each month's figures from revenue to net profit. Revenue is the counted orders' in the key's stores. Needs `analytics.read`."
+    ),
+    HttpApiEndpoint.get("figures", "/costs/figures", {
+      query: Schema.Struct({
+        months: Schema.String.annotate({ description: "Comma-separated months, YYYY-MM, up to 36." })
+      }),
+      success: CostFiguresV1,
+      error: [ScopeMissingV1, InvalidRequestV1]
+    }).annotate(
+      OpenApi.Description,
+      "The month figures alone: revenue, orders, ad spend, other costs, net profit, margin and ROAS. Needs `analytics.read`."
+    )
+  )
+  .annotate(OpenApi.Title, "Costs")
 {}
 
 /* ── outbound webhooks ───────────────────────────────────────────────────────────────────────────── */
@@ -1044,8 +1357,11 @@ export class PublicApi extends HttpApi.make("insyte")
     ForwardingGroup,
     ReturnsGroup,
     TicketsGroup,
+    AutomationsGroup,
     QueueGroup,
-    ProposalsGroup
+    ProposalsGroup,
+    ChargebacksGroup,
+    CostsGroup
   )
   .middleware(ApiKeyAuth)
   .prefix("/v1")
