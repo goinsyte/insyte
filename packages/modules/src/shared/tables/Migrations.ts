@@ -63,6 +63,7 @@ import supplierStatements from "./migrations/0069_statements.ts"
 import autonomy from "./migrations/0070_autonomy.ts"
 import sendingDomains from "./migrations/0072_sending_domains.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
+import supplierPortal from "./migrations/contract/0075_supplier_portal.ts"
 
 /**
  * Every migration, by its permanent key, in the order they were written (06; 15). A new migration is a new file and a
@@ -133,5 +134,6 @@ export const Migrations = {
   "0068_sheets": sheets,
   "0069_statements": supplierStatements,
   "0070_autonomy": autonomy,
-  "0072_sending_domains": sendingDomains
+  "0072_sending_domains": sendingDomains,
+  "0075_supplier_portal": supplierPortal
 }

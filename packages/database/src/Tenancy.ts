@@ -153,3 +153,28 @@ export const tenantTable = (table: TenantTable, options: { readonly membersOnly?
     ? [`create policy ${table}_members on ${table} as restrictive for all using (app_is_member_side())`]
     : [])
 ]
+
+/**
+ * A members-only table opened to a supplier contact (06 §5 family S, domain.md §18.1): its restrictive policy names
+ * the member side or a supplier contact's own rows (`own`, a predicate over the table's columns and `app_partner_id()`).
+ * One restrictive policy says "a partner principal sees only its projection", so a missing `app.partner_id` yields
+ * nothing. `replaces` drops the members-only policy it widens (a contract migration, then).
+ */
+export const supplierProjection = (
+  table: TenantTable,
+  own: string,
+  options: { readonly replaces?: boolean } = {}
+): Array<string> => [
+  ...(options.replaces === false ? [] : [`drop policy ${table}_members on ${table}`]),
+  `create policy ${table}_side on ${table} as restrictive for all using (
+     app_is_member_side()
+     or (app_principal_kind() = 'supplier_contact' and app_partner_id() is not null and (${own})))`
+]
+
+/**
+ * A workspace table no partner principal reads at all: the team's, its settings, its stores. The workspace policy
+ * already holds it to the workspace; this keeps a supplier contact or an affiliate inside it out.
+ */
+export const partnerBlind = (table: TenantTable | "workspaces"): string =>
+  `create policy ${table}_no_partner on ${table} as restrictive for all
+     using (app_principal_kind() is null or app_principal_kind() not in ('supplier_contact', 'affiliate'))`
