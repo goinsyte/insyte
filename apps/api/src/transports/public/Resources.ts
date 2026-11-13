@@ -9,10 +9,21 @@ import {
   type ScopeMissingV1,
   type ValidationFailedV1
 } from "@insyte/api/http/PublicApi"
+import { type Flow, triggerOf } from "@insyte/domain/automations/Graph"
 import { Conflict, type Forbidden } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
 import { isSpecial, type Permission, scopesOf } from "@insyte/domain/Permissions"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
+import { AnalyticsService } from "@insyte/modules/analytics/Analytics"
+import type { AnalyticsOverview } from "@insyte/modules/analytics/domain/Analytics"
+import { AutomationsService } from "@insyte/modules/automations/Automations"
+import type { AutomationRow, AutomationStatus } from "@insyte/modules/automations/domain/Automations"
+import type { RunDetail, RunRow, RunStatus } from "@insyte/modules/automations/domain/Runs"
+import { RunsService } from "@insyte/modules/automations/Runs"
+import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
+import type { ChargebackRow, ChargebackStats, ChargebackTab } from "@insyte/modules/chargebacks/domain/Chargebacks"
+import { CostsService } from "@insyte/modules/costs/Costs"
+import type { CostLine, MonthFigures } from "@insyte/modules/costs/domain/Costs"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import type { LegRow } from "@insyte/modules/forwarding/domain/Forwarding"
 import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
@@ -98,7 +109,14 @@ export const keyOf = (header: string | undefined) =>
 const fail = <Code extends string, Extra extends Record<string, unknown>>(code: Code, message: string, extra: Extra) =>
   Effect.flatMap(CurrentApiKey, (key) => Effect.fail({ error: { code, message, request_id: key.requestId, ...extra } }))
 
-const ENTITY: Record<string, string> = { return: "return", ticket: "ticket", customer: "customer", member: "member" }
+const ENTITY: Record<string, string> = {
+  return: "return",
+  ticket: "ticket",
+  customer: "customer",
+  member: "member",
+  automation: "automation",
+  run: "run"
+}
 const notFound = (e?: { readonly entity?: string }) =>
   fail("NotFoundV1" as const, `No such ${ENTITY[e?.entity ?? ""] ?? "order"} in this key's stores.`, {})
 const conflict = (reason: string) => fail("ConflictV1" as const, `Not possible now: ${reason}.`, { reason })
@@ -384,6 +402,144 @@ const proposalV1 = (p: ProposalView) => ({
   execution_error: p.executionError
 })
 
+const chargebackV1 = (c: ChargebackRow) => ({
+  id: c.id,
+  case_number: c.caseNumber,
+  provider: c.provider,
+  from_provider: c.fromProvider,
+  status: c.status,
+  reason: c.reason,
+  reason_code: c.reasonCode,
+  amount: { amount_minor: c.amountMinor, currency: c.currency },
+  customer: { id: c.customerId, name: c.customerName },
+  order: c.orderId === null ? null : { id: c.orderId, number: c.orderNumber },
+  store_id: c.storeId,
+  deadline_at: iso(c.deadlineAt)!,
+  opened_at: iso(c.openedAt)!,
+  submitted_at: iso(c.submittedAt),
+  outcome_at: iso(c.outcomeAt),
+  note: c.note,
+  evidence_count: c.evidenceCount
+})
+
+const chargebackStatsV1 = (s: ChargebackStats) => ({
+  open: s.open,
+  won: s.won,
+  decided: s.decided,
+  won_pct: s.wonPct,
+  recovered: { amount_minor: s.recoveredMinor, currency: s.currency }
+})
+
+const automationV1 = (a: AutomationRow) => ({
+  id: a.id,
+  name: a.name,
+  description: a.description,
+  status: a.status,
+  live_version: a.liveVersion,
+  trigger: triggerOf(a.nodes)?.variantId ?? null,
+  unpublished_changes: a.dirty,
+  owner: a.owner,
+  runs_total: a.runsTotal,
+  saved_at: new Date(a.savedAt).toISOString(),
+  created_at: new Date(a.createdAt).toISOString()
+})
+
+const lane = (n: { readonly id: string; readonly variantId: string; readonly config: Record<string, unknown> }) => ({
+  id: n.id,
+  step: n.variantId,
+  config: n.config
+})
+
+const stepsV1 = (nodes: Flow) =>
+  nodes.map((n) => ({
+    ...lane(n),
+    ...(n.branches === undefined ? {} : { branches: { yes: n.branches.yes.map(lane), no: n.branches.no.map(lane) } })
+  }))
+
+/** A run in the public shape; its steps only where one run is read. */
+const runV1 = (r: RunRow, steps: RunDetail["steps"] = []) => ({
+  id: r.id,
+  automation_id: r.automationId,
+  version: r.version,
+  status: r.status,
+  reason: r.reason,
+  trigger: r.triggerVariant,
+  manual: r.manual,
+  record: r.record === null ? null : { type: r.record.kind, id: r.record.id, number: r.record.number },
+  started_at: new Date(r.startedAt).toISOString(),
+  finished_at: iso(r.finishedAt),
+  steps: steps.map((s) => ({
+    step_id: s.nodeId,
+    step: s.variantId,
+    lane: s.lane,
+    status: s.status,
+    explanation: s.explanation
+  }))
+})
+
+/** A month's figures in the public shape. */
+const figuresV1 = (f: MonthFigures) => ({
+  month: f.month,
+  revenue_minor: f.revenueMinor,
+  orders: f.orders,
+  ads_minor: f.adsMinor,
+  other_minor: f.otherMinor,
+  costs_minor: f.costsMinor,
+  net_minor: f.netMinor,
+  margin: f.margin,
+  roas: f.roas
+})
+
+const costLineV1 = (l: CostLine, months: ReadonlyArray<string>) => ({
+  id: l.id,
+  name: l.name,
+  kind: l.kind,
+  rate: l.rate,
+  rate_minor: l.rateMinor,
+  source: l.source,
+  reads_from_source: l.readsFromSource,
+  months: months.map((m) => {
+    const c = l.cells[m]
+    return { month: m, amount_minor: c?.amountMinor ?? 0, typed: c?.typed ?? false, source: c?.source ?? "none" }
+  })
+})
+
+/** A query parameter the use case refused, in the V1 envelope. */
+const badQuery = (field: string, message: string) =>
+  Effect.flatMap(CurrentApiKey, (key) =>
+    Effect.fail<InvalidRequestV1>({
+      error: { code: "InvalidRequestV1", message, request_id: key.requestId, field }
+    }))
+
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
+
+/** Analyse's overview in the public shape. */
+const overviewV1 = (o: AnalyticsOverview) => {
+  const span = (x: AnalyticsOverview["A"]) => ({
+    month: x.month,
+    from: x.from,
+    to: x.to,
+    days: x.days,
+    in_progress: x.inProgress
+  })
+  return {
+    currency: o.currency,
+    a: span(o.A),
+    b: span(o.B),
+    figures: o.figures.map((f) => ({
+      id: f.id,
+      a: f.a,
+      b: f.b,
+      available: f.available,
+      basis: { rows: f.basis.rows, by: f.basis.by, a_count: f.basis.a, b_count: f.basis.b }
+    })),
+    orders_total: o.basis.orders,
+    tickets_total: o.basis.tickets,
+    first_order_day: o.basis.since,
+    unconverted: o.unconverted
+  }
+}
+
 const make = Effect.gen(function*() {
   const members = yield* Members
   const roles = yield* RolesService
@@ -395,10 +551,101 @@ const make = Effect.gen(function*() {
   const tracking = yield* TrackingService
   const returns = yield* ReturnsService
   const tickets = yield* TicketsService
+  const automations = yield* AutomationsService
+  const runs = yield* RunsService
   const ticketOne = (id: string) => Effect.map(tickets.get(id), (d) => ticketV1(d.ticket))
   const queue = yield* QueueService
   const proposals = yield* ProposalsService
+  const chargebacks = yield* ChargebacksService
+  const costs = yield* CostsService
+  const analytics = yield* AnalyticsService
   return {
+    chargebacks: (query: {
+      readonly tab?: ChargebackTab | undefined
+      readonly provider?: ChargebackRow["provider"] | undefined
+    }) =>
+      chargebacks.list({
+        limit: 500,
+        ...(query.tab === undefined ? {} : { tab: query.tab }),
+        ...(query.provider === undefined ? {} : { provider: query.provider })
+      }).pipe(
+        Effect.map((list) => ({
+          data: list.rows.map(chargebackV1),
+          counts: {
+            all: list.counts.all,
+            action_required: list.counts.actionRequired,
+            submitted: list.counts.submitted,
+            won: list.counts.won,
+            lost: list.counts.lost
+          },
+          stats: chargebackStatsV1(list.stats)
+        })),
+        Effect.catchTag("Forbidden", scopeMissing)
+      ),
+    chargeback: (id: string) =>
+      chargebacks.get(id).pipe(
+        Effect.map((d) => ({
+          ...chargebackV1(d.chargeback),
+          evidence: d.evidence.map((e) => ({
+            id: e.id,
+            kind: e.kind,
+            source: e.source,
+            name: e.name,
+            size_bytes: e.sizeBytes,
+            file_id: e.fileId,
+            added_at: iso(e.addedAt)!
+          })),
+          timeline: d.timeline.map((t) => ({
+            id: t.id,
+            at: iso(t.at)!,
+            kind: t.kind,
+            actor: { kind: t.actor.kind, name: t.actor.name },
+            data: t.data
+          }))
+        })),
+        Effect.catchTags({ Forbidden: scopeMissing, NotFound: notFound })
+      ),
+    costs: (from?: string, to?: string) =>
+      costs.list({ ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }) }).pipe(
+        Effect.map((list) => ({
+          currency: list.currency,
+          months: list.months,
+          current: list.current,
+          lines: list.lines.map((l) => costLineV1(l, list.months)),
+          figures: list.figures.map(figuresV1)
+        })),
+        Effect.catchTags({
+          Forbidden: scopeMissing,
+          Invalid: () => badQuery("from", "The range runs from `from` to `to`, at most 36 months.")
+        })
+      ),
+    costFigures: (months: string) => {
+      const list = [...new Set(months.split(",").map((m) => m.trim()).filter((m) => m !== ""))]
+      if (list.length === 0 || list.length > 36 || list.some((m) => !MONTH.test(m))) {
+        return badQuery("months", "Name one to 36 months, YYYY-MM, separated by commas.")
+      }
+      return costs.figures({ months: list }).pipe(
+        Effect.map((f) => ({ currency: f.currency, data: f.figures.map(figuresV1) })),
+        Effect.catchTag("Forbidden", scopeMissing)
+      )
+    },
+    analyticsOverview: (a: string, b: string) =>
+      analytics.overview({ a, b }).pipe(
+        Effect.map(overviewV1),
+        Effect.catchTags({
+          Forbidden: scopeMissing,
+          Invalid: () =>
+            Effect.flatMap(CurrentApiKey, (key) =>
+              Effect.fail<InvalidRequestV1>({
+                error: {
+                  code: "InvalidRequestV1",
+                  message: "Both months must have begun.",
+                  request_id: key.requestId,
+                  field: "a"
+                }
+              }))
+        })
+      ),
     queue: (tab?: "needs_you" | "drawn" | "all") =>
       queue.list(tab === undefined ? {} : { tab }).pipe(
         Effect.map((list) => ({
@@ -713,6 +960,57 @@ const make = Effect.gen(function*() {
         })),
         Effect.catchTag("Forbidden", scopeMissing)
       ),
+    automations: (status?: AutomationStatus) =>
+      automations.list(status === undefined ? {} : { status }).pipe(
+        Effect.map((list) => ({ data: list.rows.map(automationV1), counts: list.counts })),
+        Effect.catchTag("Forbidden", scopeMissing)
+      ),
+    runs: (
+      id: string,
+      query: {
+        readonly status?: RunStatus | undefined
+        readonly limit?: number | undefined
+        readonly cursor?: string | undefined
+      }
+    ) =>
+      Effect.gen(function*() {
+        yield* automations.get(id)
+        const list = yield* runs.list({
+          automationId: id,
+          ...(query.status === undefined ? {} : { status: query.status }),
+          ...(query.limit === undefined ? {} : { limit: Math.min(200, Math.max(1, Math.floor(query.limit))) }),
+          ...(query.cursor === undefined ? {} : { cursor: query.cursor })
+        })
+        return { data: list.rows.map((r) => runV1(r)), next_cursor: list.next }
+      }).pipe(Effect.catchTags({ Forbidden: scopeMissing, NotFound: notFound })),
+    startRun: (id: string, body: { readonly order_id: string }, key?: string) =>
+      Idempotency.once(
+        key,
+        ["automation.run", id, body.order_id],
+        Effect.map(runs.start({ automationId: id, recordId: body.order_id }), (d) => runV1(d.run, d.steps))
+      ).pipe(Effect.catch(writeV1)),
+    automation: (id: string) =>
+      automations.get(id).pipe(
+        Effect.map((d) => ({
+          ...automationV1(d.automation),
+          draft: stepsV1(d.automation.nodes),
+          live: d.liveNodes === null ? null : stepsV1(d.liveNodes),
+          versions: d.versions.map((v) => ({
+            version: v.version,
+            note: v.note,
+            published_at: new Date(v.at).toISOString(),
+            published_by: v.by
+          })),
+          issues: d.issues.map((i) => ({
+            step_id: i.nodeId,
+            code: i.code,
+            field: i.field ?? null,
+            severity: i.severity,
+            message: i.message
+          }))
+        })),
+        Effect.catchTags({ Forbidden: scopeMissing, NotFound: notFound })
+      ),
     ticket: (id: string) =>
       tickets.get(id).pipe(
         Effect.map((d) => ({ ...ticketV1(d.ticket), comments: d.comments.map(commentV1) })),
@@ -976,8 +1274,13 @@ export class Resources extends Context.Service<Resources, Effect.Success<typeof 
         TrackingService.layer,
         ReturnsService.layer,
         TicketsService.layer,
+        AutomationsService.layer,
+        RunsService.layer,
+        AnalyticsService.layer,
         QueueService.layer,
-        ProposalsService.layer
+        ProposalsService.layer,
+        ChargebacksService.layer,
+        CostsService.layer
       )
     )
   )

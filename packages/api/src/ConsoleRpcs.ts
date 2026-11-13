@@ -1,6 +1,11 @@
 import { AccessRpcs } from "./rpc/AccessRpcs.ts"
+import { AnalyticsRpcs } from "./rpc/AnalyticsRpcs.ts"
+import { AuditRpcs } from "./rpc/AuditRpcs.ts"
+import { AutomationsRpcs } from "./rpc/AutomationsRpcs.ts"
+import { ChargebacksRpcs } from "./rpc/ChargebacksRpcs.ts"
 import { ChatsRpcs } from "./rpc/ChatsRpcs.ts"
 import { CommerceRpcs } from "./rpc/CommerceRpcs.ts"
+import { CostsRpcs } from "./rpc/CostsRpcs.ts"
 import { CoursesRpcs } from "./rpc/CoursesRpcs.ts"
 import { DeveloperRpcs } from "./rpc/DeveloperRpcs.ts"
 import { FirstAnalysisRpcs } from "./rpc/FirstAnalysisRpcs.ts"
@@ -18,7 +23,9 @@ import { QualityLinkRpcs, QualityRpcs } from "./rpc/QualityRpcs.ts"
 import { QueueRpcs } from "./rpc/QueueRpcs.ts"
 import { ReturnsRpcs } from "./rpc/ReturnsRpcs.ts"
 import { RolesRpcs } from "./rpc/RolesRpcs.ts"
+import { RunsRpcs } from "./rpc/RunsRpcs.ts"
 import { SessionRpcs } from "./rpc/SessionRpcs.ts"
+import { SettingsDepthRpcs } from "./rpc/SettingsDepthRpcs.ts"
 import { SharedRpcs } from "./rpc/SharedRpcs.ts"
 import { ShellRpcs } from "./rpc/ShellRpcs.ts"
 import { StoresRpcs } from "./rpc/StoresRpcs.ts"
@@ -27,6 +34,7 @@ import { SystemRpcs } from "./rpc/SystemRpcs.ts"
 import { ThreadsRpcs } from "./rpc/ThreadsRpcs.ts"
 import { TicketsRpcs } from "./rpc/TicketsRpcs.ts"
 import { TrackingRpcs } from "./rpc/TrackingRpcs.ts"
+import { TrashRpcs } from "./rpc/TrashRpcs.ts"
 import { WorkspacesRpcs } from "./rpc/WorkspacesRpcs.ts"
 
 /** Where the console calls every RPC. The client and the server name the same path. */
@@ -55,12 +63,20 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(ReturnsRpcs)
   .merge(PortalRpcs)
   .merge(TicketsRpcs)
+  .merge(ChargebacksRpcs)
   .merge(ThreadsRpcs)
   .merge(QualityRpcs)
   .merge(QualityLinkRpcs)
   .merge(QueueRpcs)
   .merge(HomeRpcs)
+  .merge(AnalyticsRpcs)
   .merge(ProposalsRpcs)
   .merge(WorkspacesRpcs)
   .merge(ChatsRpcs)
+  .merge(AutomationsRpcs)
+  .merge(RunsRpcs)
+  .merge(CostsRpcs)
+  .merge(AuditRpcs)
+  .merge(TrashRpcs)
+  .merge(SettingsDepthRpcs)
   .merge(CoursesRpcs)

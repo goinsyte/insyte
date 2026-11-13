@@ -111,7 +111,17 @@ const isManual = Schema.is(ManualSetupTask)
 const canOpen = (task: { readonly id: SetupTaskId }) => task.id === "team"
 
 /** The cards whose "Openen" has its screen in the console. */
-const OPENS = new Set(["orders", "tickets", "mytickets", "stock", "returns", "bestsellers", "suppliers", "team"])
+const OPENS = new Set([
+  "orders",
+  "chargebacks",
+  "tickets",
+  "mytickets",
+  "stock",
+  "returns",
+  "bestsellers",
+  "suppliers",
+  "team"
+])
 
 function Start() {
   const navigate = Route.useNavigate()
@@ -149,6 +159,7 @@ function Start() {
     <HeroView
       name={frame.me.name}
       needsYou={panel.needsYou}
+      evidence={brief?.evidence ?? 0}
       delayed={brief?.delayed ?? queue.delayed}
       urgent={brief?.urgent ?? 0}
       firstDay={brief?.firstDay ?? false}

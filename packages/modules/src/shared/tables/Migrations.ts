@@ -46,6 +46,15 @@ import notify from "./migrations/0052_notify.ts"
 import authSessionCountry from "./migrations/0053_auth_session_country.ts"
 import sessionEvents from "./migrations/0054_session_events.ts"
 import push from "./migrations/0055_push.ts"
+import automations from "./migrations/0056_automations.ts"
+import automationEngine from "./migrations/0057_automation_engine.ts"
+import disputes from "./migrations/0058_disputes.ts"
+import costs from "./migrations/0059_costs.ts"
+import trash from "./migrations/0060_trash.ts"
+import settingsDepth from "./migrations/0061_settings_depth.ts"
+import evidencePacks from "./migrations/0062_evidence_packs.ts"
+import webhooks from "./migrations/0063_webhooks.ts"
+import ticketFacts from "./migrations/0064_ticket_facts.ts"
 import courses from "./migrations/0065_courses.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 
@@ -103,5 +112,14 @@ export const Migrations = {
   "0053_auth_session_country": authSessionCountry,
   "0054_session_events": sessionEvents,
   "0055_push": push,
+  "0056_automations": automations,
+  "0057_automation_engine": automationEngine,
+  "0058_disputes": disputes,
+  "0059_costs": costs,
+  "0060_trash": trash,
+  "0061_settings_depth": settingsDepth,
+  "0062_evidence_packs": evidencePacks,
+  "0063_webhooks": webhooks,
+  "0064_ticket_facts": ticketFacts,
   "0065_courses": courses
 }

@@ -110,7 +110,8 @@ function useKeyActivity(
 export function useConsoleDeveloperSource(
   keys: ReadonlyArray<ApiKeyView>,
   roles: Roles,
-  endpoints: { readonly mcp: string | null }
+  endpoints: { readonly mcp: string | null },
+  webhooks?: { readonly count: number; readonly failing: number }
 ): DeveloperSource {
   const write = {
     create: useAtomSet(keyWrites.create, { mode: "promiseExit" }),
@@ -139,6 +140,7 @@ export function useConsoleDeveloperSource(
     },
     me: roles.me,
     mcpUrl: endpoints.mcp ?? "",
+    ...(webhooks === undefined ? {} : { webhooks: { count: webhooks.count, failing: webhooks.failing } }),
     personName: (id) => people.find((p) => p.id === id)?.name ?? "Iemand uit het team",
     useActivity: useKeyActivity,
     create: async (input) => {
