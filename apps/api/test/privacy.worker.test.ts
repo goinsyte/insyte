@@ -254,9 +254,60 @@ describe("Je gegevens", () => {
       })
     })
     expect(delivered.status).toBe(200)
+    // Insyte AI's draft for their ticket (0074), which names them.
+    const draft = ok(await rpc("Drafts.reply", { subject: { type: "ticket", id: ticket.id } }, store.cookie))
+    expect(draft.text).toContain(shopper.name)
+    // A CSV brought into the Data hub with them in it (0073), and an export of the orders that holds them.
+    const csv = new TextEncoder().encode(
+      `Naam;E-mail\r\n${shopper.name};${email}\r\nIemand anders;ander@voorbeeld.test\r\n`
+    )
+    const uploaded = await call("http://api.test/api/data/imports", {
+      method: "PUT",
+      headers: {
+        cookie: store.cookie,
+        "content-type": "text/csv",
+        "content-length": String(csv.byteLength),
+        "x-file-name": "klanten.csv"
+      },
+      body: csv
+    })
+    expect(uploaded.status).toBe(201)
+    const { fileId: csvFile } = await uploaded.json() as { fileId: string }
+    {
+      await using parses = await introspectWorkflow(env.IMPORT_PARSE)
+      expect(ok(await rpc("Data.imports.upload", { fileId: csvFile }, store.cookie)).state).toBe("uploaded")
+      await relay(store.workspace)
+      const [parse] = await parses.get()
+      await parse!.waitForStatus("complete")
+    }
+    const imports = `${store.workspace}/imports/${csvFile}.csv`
+    expect(await env.FILES.head(imports)).not.toBeNull()
+    let ordersExport = ""
+    {
+      await using runs = await introspectWorkflow(env.EXPORT)
+      ordersExport = ok(await rpc("Data.export", { source: "orders", columns: ["number", "customer"] }, store.cookie))
+        .id
+      await relay(store.workspace)
+      const [instance] = await runs.get()
+      await instance!.waitForStatus("complete")
+    }
+    const exported = ok(await rpc("Data.exports.get", { exportId: ordersExport }, store.cookie))
+    expect(exported.state).toBe("ready")
+    const fileOf = async () => (await call(`http://api.test${exported.fileUrl}`, { headers: { cookie: store.cookie } }))
+    expect((await fileOf()).status).toBe(200)
     await pastUndo(store.workspace)
     await relay(store.workspace)
     expect((await census(store.workspace, email)).found.length).toBeGreaterThan(3)
+
+    // Asked again, the package holds the draft and the imported row as well.
+    const again = await made(
+      store.workspace,
+      async () => ok(await rpc("Privacy.requestAccess", { email }, store.cookie))
+    )
+    const second = ok(await rpc("Privacy.requests", undefined, store.cookie)).shoppers.find((r) => r.id === again.id)!
+    const more = await entriesOf((await download(second.fileId!, store.cookie)).bytes)
+    expect(rowsOf(more, "drafts").map((d) => d["id"])).toContain(draft.id)
+    expect(rowsOf(more, "import_rows").map((r) => r["cells"])).toEqual([[shopper.name, email]])
 
     const erased = ok(await rpc("Privacy.requestErasure", { email }, store.cookie))
     const after = ok(await rpc("Privacy.requests", undefined, store.cookie)).shoppers
@@ -265,6 +316,10 @@ describe("Je gegevens", () => {
     expect(after.find((r) => r.id === id)).toMatchObject({ fileId: null })
     expect(after.find((r) => r.id === id)!.subject).not.toBe(email)
     expect((await download(asked.fileId!, store.cookie)).status).toBe(404)
+    expect((await download(second.fileId!, store.cookie)).status).toBe(404)
+    // The CSV as uploaded is gone from the bucket, and the export that held them can no longer be downloaded.
+    expect(await env.FILES.head(imports)).toBeNull()
+    expect((await fileOf()).status).toBe(404)
     // Gone from Klanten; their orders stay, without their name and address.
     expect(failure(await rpc("Customers.get", { id: shopper.id }, store.cookie))).toMatchObject({ _tag: "NotFound" })
     expect(failure(await rpc("Privacy.requestAccess", { email }, store.cookie))).toMatchObject({

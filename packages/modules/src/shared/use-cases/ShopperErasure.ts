@@ -11,7 +11,10 @@ import type { SqlClient } from "effect/sql"
  * shopper events, chargebacks and their evidence, tickets and comments, mail threads and messages, earlier requests
  * about them and their packages), the files that hold them marked deleted (the caller removes them from the bucket
  * after the commit), then every text left in the workspace, the log and the chat included, scrubbed of their
- * address, name and phone (`scrub_workspace`, 0076). An address or name a customer of a store the erasure does not
+ * address, name and phone (`scrub_workspace`, 0076). That last pass reaches the Data hub's imported rows (0073) and
+ * Insyte AI's drafts and calls (0074) too; what they keep in the bucket goes here: a CSV whose rows name them loses
+ * the file as uploaded, and a Data hub export that may hold them (any the erasure's stores reach) is taken away, a
+ * ready one's file at once (the nightly sweep empties its folder), one still being written stopped. An address or name a customer of a store the erasure does not
  * reach also has is not scrubbed: that shopper is not the asker's to erase. Amounts, dates and statuses stay.
  *
  * Not here: a supplier's quality-check media (photos of goods, the supplier's), and webhook bodies as received
@@ -210,6 +213,25 @@ export const eraseShopper = (sql: SqlClient.SqlClient, seeds: ShopperSeeds) =>
       select id from files where owner_type = 'gdpr_request' and owner_id = any(${requestIds}::text[]) and deleted_at is null`
     fileIds.push(...packages.map((f) => f.id))
     yield* sql`update gdpr_requests set files_removed_at = now() where id = any(${requestIds}::text[])`
+
+    // The Data hub (0073): an uploaded CSV that names them, and the exports that may hold them.
+    const imported = yield* sql<{ id: string }>`
+      select f.id from files f
+      where f.owner_type = 'import' and f.deleted_at is null
+        and f.id in (select i.file_id from imports i
+                     where exists (select 1 from import_rows r, unnest(r.cells) c
+                                   where r.import_id = i.id and c ~* any(${patterns}::text[])))`
+    fileIds.push(...imported.map((f) => f.id))
+    const exported = yield* sql<{ fileId: string | null }>`
+      update exports set expires_at = now()
+      where state = 'ready' and expires_at > now()
+        and (${stores}::text[] is null or store_scope is null or store_scope && ${stores}::text[] or source = 'import')
+      returning file_id`
+    fileIds.push(...exported.flatMap((e) => (e.fileId === null ? [] : [e.fileId])))
+    yield* sql`update exports set state = 'failed', error = 'erased', finished_at = now()
+               where state in ('queued', 'running')
+                 and (${stores}::text[] is null or store_scope is null or store_scope && ${stores}::text[]
+                      or source = 'import')`
 
     const removed = yield* sql<{ key: string }>`
       update files set deleted_at = now(), name = '[verwijderd]'

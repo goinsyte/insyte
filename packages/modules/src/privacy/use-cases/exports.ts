@@ -198,6 +198,23 @@ const SHOPPER_PARTS: ReadonlyArray<readonly [string, string]> = [
     "chargebacks",
     `select to_jsonb(t)::text as row from chargebacks t where t.customer_id = any($1::text[])
        or t.order_id in ${BY_ORDER}`
+  ],
+  // What Insyte AI wrote about them (0074): a reply or summary for their thread, ticket or case.
+  [
+    "drafts",
+    `select to_jsonb(t)::text as row from drafts t
+      where (t.subject_type = 'thread' and t.subject_id in ${BY_THREAD})
+         or (t.subject_type = 'ticket' and t.subject_id in ${BY_TICKET})
+         or (t.subject_type = 'chargeback' and t.subject_id in
+               (select c.id from chargebacks c where c.customer_id = any($1::text[]) or c.order_id in ${BY_ORDER}))`
+  ],
+  // A row of an imported CSV (0073) with their address in a cell. Imports are the workspace's, not a store's: only for
+  // an asker who reaches every store, as the threads by address.
+  [
+    "import_rows",
+    `select to_jsonb(t)::text as row from import_rows t
+      where $1::text[] is not null and $2::text is not null and $3::text[] is null
+        and exists (select 1 from unnest(t.cells) c where lower(trim(c)) = $2)`
   ]
 ]
 
