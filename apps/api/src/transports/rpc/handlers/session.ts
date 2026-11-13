@@ -1,7 +1,7 @@
 import { SessionRpcs } from "@insyte/api/rpc/SessionRpcs"
 import { CurrentUser, type PrincipalSummary, SessionMe } from "@insyte/domain/Session"
-import { countryOf } from "@insyte/integrations-better-auth/Auth"
 import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
+import { countryOf } from "@insyte/integrations-better-auth/Country"
 import { ActiveSessions } from "@insyte/modules/sessions/ActiveSessions"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect } from "effect"

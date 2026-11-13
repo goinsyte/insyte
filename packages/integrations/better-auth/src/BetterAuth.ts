@@ -1,7 +1,7 @@
 import { Db } from "@insyte/database/Db"
 import { Mailer } from "@insyte/modules/shared/domain/Mailer"
 import { Config, Context, Effect, Layer, Option, Redacted } from "effect"
-import { type Auth, makeAuth } from "./Auth.ts"
+import type { Auth } from "./Auth.ts"
 import type { AuthEvent } from "./Events.ts"
 import { PwnedPasswords } from "./PwnedPasswords.ts"
 
@@ -9,6 +9,9 @@ import { PwnedPasswords } from "./PwnedPasswords.ts"
  * better-auth as a service (12 §3): the configuration read once, at layer build, and an instance per request over that
  * request's connection, because a socket cannot outlive the request that opened it on Workers. `authOptions` and
  * `makeAuth` stay plain functions: `scripts/auth-schema.ts` reads the same options without a runtime.
+ *
+ * `Auth.ts`, and with it better-auth, Kysely and zod, is imported on the first request that needs it, not when the
+ * Worker starts: loading them was a tenth of the API Worker's startup CPU, which Cloudflare limits.
  *
  * What better-auth needs from Insyte it takes from its context: the `Mailer` port, `PwnedPasswords`, and `AuthHooks`,
  * the app's half of the beta gate and the security log, which live with the app's tables.
@@ -58,6 +61,7 @@ export class BetterAuth extends Context.Service<BetterAuth, {
       const hooks = yield* AuthHooks
 
       const forRequest = Effect.gen(function*() {
+        const { makeAuth } = yield* Effect.promise(() => import("./Auth.ts"))
         const db = yield* Db
         // better-auth calls back with promises; each runs in this request's fiber context, on its connection.
         const context = yield* Effect.context<never>()
