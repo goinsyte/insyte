@@ -6,6 +6,7 @@ import { deadlineSweep } from "../../platform/Deadlines.ts"
 import type { Env } from "../../platform/Env.ts"
 import { reconcile, syncRuntime, trackingSweep } from "../../platform/Ingest.ts"
 import { Telemetry } from "../../platform/Observability.ts"
+import { privacyExportSweep } from "../../platform/PrivacySweep.ts"
 import { sweep } from "../../platform/Relay.ts"
 import { factsSweep } from "../../platform/relay/subscribers/facts.ts"
 import { digestSweep, notifySweep } from "../../platform/relay/subscribers/notifications.ts"
@@ -50,6 +51,10 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = (controller, _env
     }
     if (at.getUTCHours() === 4 && at.getUTCMinutes() === 0) {
       ctx.waitUntil(background.runPromise(withRequestDb(adSpendSweep())).finally(() => Telemetry.flush()))
+    }
+    // The scheduled workspace exports that are due, once a day at 05:00 UTC (M17 step 5).
+    if (at.getUTCHours() === 5 && at.getUTCMinutes() === 0) {
+      ctx.waitUntil(background.runPromise(withRequestDb(privacyExportSweep())).finally(() => Telemetry.flush()))
     }
     // The nightly erase of what is past its retention, at 03:00 in each workspace's timezone (M17 step 20.1b).
     ctx.waitUntil(background.runPromise(withRequestDb(retentionSweep(at))).finally(() => Telemetry.flush()))

@@ -13,6 +13,7 @@ import { Marketing } from "./subscribers/marketing.ts"
 import { InvitationMail } from "./subscribers/members.ts"
 import { Notifications } from "./subscribers/notifications.ts"
 import { DelayMail } from "./subscribers/orders.ts"
+import { Privacy } from "./subscribers/privacy.ts"
 import { Queue } from "./subscribers/queue.ts"
 import { Realtime } from "./subscribers/realtime.ts"
 import { ReturnLabelRequests, ReturnMails } from "./subscribers/returns.ts"
@@ -43,6 +44,7 @@ const SUBSCRIBERS = [
   ReturnLabelRequests,
   Automations,
   Chargebacks,
+  Privacy,
   Webhooks,
   Analytics
 ] as const

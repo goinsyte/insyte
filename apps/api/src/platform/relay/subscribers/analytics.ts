@@ -110,6 +110,21 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
   "chargeback.deadline_near": none,
   // Gathering a pack is Insyte's work, not a person's moment.
   "chargeback.pack_requested": none,
+  // Je gegevens (M17 step 5): asking for an export by hand is a product event; Insyte's own schedule and the rest are not.
+  "privacy.export_requested": (id, event) =>
+    event.userId === "system" ? undefined : {
+      outboxId: id,
+      event: "data_export_requested",
+      distinctId: event.userId,
+      groups: { workspace: event.workspaceId }
+    },
+  "privacy.export_ready": none,
+  "privacy.deletion_requested": (id, event) => ({
+    outboxId: id,
+    event: "workspace_deletion_requested",
+    distinctId: event.userId,
+    groups: { workspace: event.workspaceId }
+  }),
   // The monthly close (M13 step 6) is Insyte's, not a person's moment.
   "statements.closed": none,
   // The delay mail is counted as the filing that put it in line.

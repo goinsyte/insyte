@@ -12,6 +12,7 @@ import { InvitationLinksLive } from "./InvitationLinks.ts"
 import { KlaviyoChoice, MarketingSyncsLive } from "./Klaviyo.ts"
 import { LabelsChoice, ReturnLabelsLive } from "./Labels.ts"
 import { NoteRepliesLive, SlackChoice, WebPushChoice } from "./Notify.ts"
+import { PrivacyRunsLive } from "./PrivacyRuns.ts"
 import { RelayLive } from "./Relay.ts"
 import { SealerLive } from "./Seal.ts"
 import { SendingDomainsChoice } from "./SendingDomains.ts"
@@ -49,6 +50,8 @@ const BackgroundLayer = onInfra(Layer.mergeAll(
   ReturnLabelsLive,
   // A case's evidence pack is gathered by its Workflow (M13 step 4).
   EvidencePacksLive,
+  // An export, a shopper's package and a deletion's wait each run in their own Workflow (M17 step 5).
+  PrivacyRunsLive,
   // A trigger's event starts a flow's run (M12 step 3).
   AutomationRunsLive,
   // A return label's PDF goes with the shopper's mail (M9.3).

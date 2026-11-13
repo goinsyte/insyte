@@ -4,10 +4,12 @@ import type { AnalysisParams } from "../workflows/FirstAnalysis.ts"
 import type { ForwardSendParams } from "../workflows/ForwardSend.ts"
 import type { MarketingSyncParams } from "../workflows/MarketingSync.ts"
 import type { MonthlyCloseParams } from "../workflows/MonthlyClose.ts"
+import type { PrivacyExportParams } from "../workflows/PrivacyExport.ts"
 import type { ReturnLabelParams } from "../workflows/ReturnLabel.ts"
 import type { BackfillParams } from "../workflows/ShopifyBackfill.ts"
 import type { ShopifyWriteParams } from "../workflows/ShopifyWrite.ts"
 import type { WebhookDeliveryParams } from "../workflows/WebhookDelivery.ts"
+import type { WorkspaceLifecycleParams } from "../workflows/WorkspaceLifecycle.ts"
 import type { ConnectionGateObject } from "./ConnectionGate.ts"
 import type { IngestMessage } from "./IngestQueue.ts"
 import type { LiveRoomDurableObject } from "./LiveRoom.ts"
@@ -55,6 +57,10 @@ declare global {
       readonly WEBHOOK_ADAPTER?: string
       /** The supplier statements' monthly close (M13 step 6): one instance per month (`MonthlyCloseWorkflow`). */
       readonly MONTHLY_CLOSE: Workflow<MonthlyCloseParams>
+      /** A workspace export or a shopper's access package (M17 step 5): one instance per request. */
+      readonly PRIVACY_EXPORT: Workflow<PrivacyExportParams>
+      /** A workspace's deletion (M17 step 5): the waiting period, then the purge; one instance per request. */
+      readonly WORKSPACE_LIFECYCLE: Workflow<WorkspaceLifecycleParams>
       /** The Klaviyo OAuth app (M7.5); without both, Klaviyo cannot be connected. `recorded` in the worker tests. */
       readonly KLAVIYO_CLIENT_ID?: string
       readonly KLAVIYO_CLIENT_SECRET?: string

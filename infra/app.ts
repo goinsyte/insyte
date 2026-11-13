@@ -259,7 +259,11 @@ export default Alchemy.Stack(
       // A webhook delivery's attempts (M19.4).
       WEBHOOK_DELIVERY: workflow("WebhookDelivery", "WebhookDeliveryWorkflow", "webhook-delivery", host),
       // The supplier statements' monthly close (M13 step 6).
-      MONTHLY_CLOSE: workflow("MonthlyClose", "MonthlyCloseWorkflow", "monthly-close", host)
+      MONTHLY_CLOSE: workflow("MonthlyClose", "MonthlyCloseWorkflow", "monthly-close", host),
+      // A workspace export or a shopper's access package (M17 step 5).
+      PRIVACY_EXPORT: workflow("PrivacyExport", "PrivacyExportWorkflow", "privacy-export", host),
+      // A workspace's deletion after its waiting period (M17 step 5).
+      WORKSPACE_LIFECYCLE: workflow("WorkspaceLifecycle", "WorkspaceLifecycleWorkflow", "workspace-lifecycle", host)
     })
 
     /** What every Worker reads: the database, files, the relay's queue, and the configuration the slices share. */
