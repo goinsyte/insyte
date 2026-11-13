@@ -344,6 +344,26 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     packs: Schema.Array(Schema.Struct({ chargebackId: Schema.String, runId: Schema.String }))
   }),
+  // Je gegevens (M17 step 5): an export or a shopper's access package asked for, one run per request; a deletion
+  // asked for, its run waiting out the period; an export made, its asker (or the owner, for a scheduled one) told.
+  Schema.Struct({
+    type: Schema.Literal("privacy.export_requested"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    requestId: Schema.String
+  }),
+  Schema.Struct({
+    type: Schema.Literal("privacy.deletion_requested"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    requestId: Schema.String
+  }),
+  Schema.Struct({
+    type: Schema.Literal("privacy.export_ready"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    requestId: Schema.String
+  }),
   // Insyte switched a webhook endpoint off after five failed attempts in a row (M19.4): whoever manages the
   // integrations hears of it. `userId` is `system`.
   Schema.Struct({
