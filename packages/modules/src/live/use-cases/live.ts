@@ -8,10 +8,11 @@ import { LiveSnapshot, type LiveTab, type PixelState } from "../domain/Live.ts"
 import { LiveRooms } from "../domain/Ports.ts"
 
 /*
- * `/live` (M14 step 3), at Analyse Bekijken: the room's visitors and events, narrowed to the role's stores, beside what
- * the orders say (the sales of the last hour, the count of the last ten minutes, revenue today). Revenue is Start's:
- * counted orders, each converted at its day's `fx_rates` row into the workspace currency, "today" in each store's own
- * timezone. A tab takes the room's frames with a lease it renews while the page is open and not paused.
+ * `/live` (M14 step 3), at Analyse Bekijken: the room's visitors and events, narrowed to the principal's stores
+ * (`storeScope`: the role's narrowed by the member's own), beside what the orders say (the sales of the last hour, the
+ * count of the last ten minutes, revenue today). Revenue is Start's: counted orders, each converted at its day's
+ * `fx_rates` row into the workspace currency, "today" in each store's own timezone. A tab takes the room's frames with
+ * a lease it renews while the page is open and not paused.
  */
 
 /** How long a subscription holds without a renewal; the console renews at half of it. */
@@ -108,7 +109,8 @@ export const subscribe = Effect.fn("Live.subscribe")(function*(input: LiveTab) {
     workspaceId: principal.workspaceId,
     tab: input.tab,
     memberId: principal.id,
-    stores: principal.role.stores === "all" ? "all" : [...principal.role.stores],
+    // The room filters each tab's frames by these: the member's fence, not the role's alone.
+    stores: principal.storeScope === null ? "all" : [...principal.storeScope],
     seconds: LEASE_SECONDS
   })
   return { leaseSeconds: LEASE_SECONDS }

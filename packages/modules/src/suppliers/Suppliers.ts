@@ -53,7 +53,7 @@ export class SuppliersService extends Context.Service<SuppliersService, {
   readonly statement: (input: typeof StatementInput.Type) => Effect.Effect<StatementDetail, Forbidden | NotFound, R>
   readonly markStatementPaid: (
     input: typeof MarkPaidInput.Type
-  ) => Effect.Effect<StatementChange, Forbidden | NotFound, R>
+  ) => Effect.Effect<StatementChange, Forbidden | Invalid | NotFound, R>
 }>()("modules/SuppliersService") {
   static readonly layer = Layer.succeed(SuppliersService, {
     list: (input) => Suppliers.list(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),

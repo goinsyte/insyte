@@ -15,7 +15,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient, SqlError } from "effect/sql"
-import type { StoreAccess } from "../../shared/domain/Stores.ts"
+import { narrowStores, type StoreAccess, withinScope } from "../../shared/domain/Stores.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import { Created, RoleHolders, Roles, RoleView, type UpdateRole } from "../domain/Roles.ts"
 
@@ -23,7 +23,8 @@ import { Created, RoleHolders, Roles, RoleView, type UpdateRole } from "../domai
  * Rollen on the server (M3.2). Reading the roles is `team` at Bekijken; changing them is Beheren. The owner's role is
  * never changed. Every change goes through the catalogue (`makePermissions`: each area clamped to the levels it has,
  * every special named), bumps the role's version so sessions holding it read it again, and is audited. A deleted custom
- * role moves its holders to another first and stays as a row for its undo, which moves exactly them back.
+ * role moves its holders to another first and stays as a row for its undo, which moves exactly them back. Someone held
+ * to some stores (`storeScope`) only touches roles inside those stores, and never makes one that reaches further.
  */
 
 interface RoleRow {
@@ -118,11 +119,21 @@ const ensureFree = (sql: SqlClient.SqlClient, label: string, except: string | nu
     (rows) => rows.length > 0 ? Effect.fail(new Invalid({ fields: { label: "taken" } })) : Effect.void
   )
 
+/** Refused when these stores reach past the principal's own (`storeScope`). */
+const ensureReach = (...stores: ReadonlyArray<StoreAccess>) =>
+  Effect.flatMap(
+    Effect.service(CurrentPrincipal),
+    (p) =>
+      stores.every((s) => withinScope(s, p.storeScope))
+        ? Effect.void
+        : Effect.fail(new Invalid({ fields: { stores: "forbidden" } }))
+  )
+
 /** The role, locked for the change, if it is one this change may touch. */
 const target = (sql: SqlClient.SqlClient, id: string) =>
   Effect.gen(function*() {
-    const [row] = yield* sql<{ kind: string }>`
-      select kind from roles where id = ${id} and deleted_at is null for update`
+    const [row] = yield* sql<{ kind: string; stores: StoreAccess }>`
+      select kind, stores from roles where id = ${id} and deleted_at is null for update`
     if (row === undefined) return yield* new NotFound({ entity: "role", id })
     if (id === "owner") return yield* new Conflict({ entity: "role", reason: "owner" })
     return row
@@ -148,13 +159,15 @@ export const create = Effect.fn("Roles.create")(
         if (input.from !== null && from === undefined) return yield* new NotFound({ entity: "role", id: input.from })
         yield* ensureFree(sql, label, null)
         const blank = makePermissions({})
+        // A copy keeps its stores, narrowed to the maker's own when they are held to some.
+        const stores = narrowStores(from?.stores ?? "all", principal.storeScope ?? "all")
         const id = mintId("rol")
         yield* sql`insert into roles (id, workspace_id, label, kind, based_on, levels, specials, refund_limit_minor, stores)
                  values (${id}, ${principal.workspaceId}, ${label}, 'custom',
                          ${from !== undefined && from.id !== "owner" ? from.id : null},
                          ${JSON.stringify(from?.levels ?? blank.levels)}::jsonb,
                          ${JSON.stringify(from?.specials ?? blank.specials)}::jsonb,
-                         ${from?.refundLimitMinor ?? null}, ${JSON.stringify(from?.stores ?? "all")}::jsonb)`.pipe(
+                         ${from?.refundLimitMinor ?? null}, ${JSON.stringify(stores)}::jsonb)`.pipe(
           Effect.catchIf(isLabelTaken, () => Effect.fail(new Invalid({ fields: { label: "taken" } })))
         )
         yield* audit(sql, "role.created", id, { label, from: input.from })
@@ -169,7 +182,8 @@ export const update = Effect.fn("Roles.update")(function*(input: UpdateRole) {
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      yield* target(sql, input.id)
+      const role = yield* target(sql, input.id)
+      yield* ensureReach(role.stores, input.stores)
       const p = normalise(input)
       yield* sql`update roles set levels = ${p.levels}::jsonb, specials = ${p.specials}::jsonb,
                    refund_limit_minor = ${p.refundLimitMinor}, stores = ${p.stores}::jsonb, version = version + 1
@@ -209,6 +223,7 @@ export const reset = Effect.fn("Roles.reset")(function*(id: string) {
       if (role.kind !== "system" || defaults === undefined) {
         return yield* new Conflict({ entity: "role", reason: "custom" })
       }
+      yield* ensureReach(role.stores, defaults.stores)
       const p = normalise({ ...defaults, specials: defaults.specials, stores: defaults.stores })
       yield* sql`update roles set levels = ${p.levels}::jsonb, specials = ${p.specials}::jsonb,
                    refund_limit_minor = ${p.refundLimitMinor}, stores = ${p.stores}::jsonb, version = version + 1
@@ -228,8 +243,10 @@ export const remove = Effect.fn("Roles.remove")(function*(id: string, to: string
       const role = yield* target(sql, id)
       if (role.kind !== "custom") return yield* new Conflict({ entity: "role", reason: "system" })
       if (to === id || to === "owner") return yield* new Invalid({ fields: { to: "invalid" } })
-      const [dest] = yield* sql<{ id: string }>`select id from roles where id = ${to} and deleted_at is null`
+      const [dest] = yield* sql<{ id: string; stores: StoreAccess }>`
+        select id, stores from roles where id = ${to} and deleted_at is null`
       if (dest === undefined) return yield* new NotFound({ entity: "role", id: to })
+      yield* ensureReach(role.stores, dest.stores)
       const members = yield* sql<{ id: string }>`update members set role_id = ${to} where role_id = ${id} returning id`
       const invitations = yield* sql<{ id: string }>`
         update invitations set role_id = ${to}
@@ -256,10 +273,14 @@ export const restore = Effect.fn("Roles.restore")(function*(id: string) {
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const [row] = yield* sql<
-        { moved: { to: string; members: Array<string>; invitations: Array<string>; link: boolean } | null }
+        {
+          moved: { to: string; members: Array<string>; invitations: Array<string>; link: boolean } | null
+          stores: StoreAccess
+        }
       >`
-        select moved from roles where id = ${id} and kind = 'custom' and deleted_at is not null for update`
+        select moved, stores from roles where id = ${id} and kind = 'custom' and deleted_at is not null for update`
       if (row === undefined) return yield* new NotFound({ entity: "role", id })
+      yield* ensureReach(row.stores)
       yield* sql`update roles set deleted_at = null, moved = null where id = ${id}`
       const moved = row.moved
       if (moved !== null) {

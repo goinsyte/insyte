@@ -71,7 +71,7 @@ const SELECT = (sql: SqlClient.SqlClient) =>
     join automations a on a.id = r.automation_id
     left join orders o on r.record_kind = 'order' and o.id = r.record_id`
 
-/** The role's stores: a run about an order outside them is not shown. */
+/** The principal's stores (`storeScope`): a run about an order outside them is not shown. */
 const visible = (sql: SqlClient.SqlClient) =>
   Effect.map(inScope(sql, "o.store_id"), (scope) => sql`(o.id is null or ${scope})`)
 

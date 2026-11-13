@@ -21,11 +21,11 @@ export class RolesService extends Context.Service<RolesService, {
   readonly create: (
     input: { label: string; from: string | null }
   ) => Effect.Effect<Created, Forbidden | Invalid | NotFound, R>
-  readonly update: (input: UpdateRole) => Effect.Effect<Roles, Forbidden | NotFound | Conflict, R>
+  readonly update: (input: UpdateRole) => Effect.Effect<Roles, Forbidden | Invalid | NotFound | Conflict, R>
   readonly rename: (id: string, label: string) => Effect.Effect<Roles, Forbidden | Invalid | NotFound | Conflict, R>
-  readonly reset: (id: string) => Effect.Effect<Roles, Forbidden | NotFound | Conflict, R>
+  readonly reset: (id: string) => Effect.Effect<Roles, Forbidden | Invalid | NotFound | Conflict, R>
   readonly remove: (id: string, to: string) => Effect.Effect<Roles, Forbidden | Invalid | NotFound | Conflict, R>
-  readonly restore: (id: string) => Effect.Effect<Roles, Forbidden | NotFound, R>
+  readonly restore: (id: string) => Effect.Effect<Roles, Forbidden | Invalid | NotFound, R>
 }>()("modules/Roles") {
   // A database that does not answer is a defect, as everywhere.
   static readonly layer = Layer.sync(RolesService, () => {

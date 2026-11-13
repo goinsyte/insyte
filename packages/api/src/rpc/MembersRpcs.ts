@@ -71,7 +71,7 @@ export class MembersRpcs extends RpcGroup.make(
     error: Schema.Union([Forbidden, NotFound, Conflict, SeatLimitReached])
   }),
   Rpc.make("InviteLink.set", { payload: SetLink, success: Team, error: Schema.Union([Forbidden, Invalid]) }),
-  Rpc.make("InviteLink.regenerate", { success: Team, error: Forbidden }),
+  Rpc.make("InviteLink.regenerate", { success: Team, error: Schema.Union([Forbidden, Invalid]) }),
   Rpc.make("InviteLink.undoRegenerate", { success: Team, error: Schema.Union([Forbidden, Conflict]) })
 )
   // Innermost first: `Member` needs the person (`Authenticated`) and the connection (`WithDb`) around it.
