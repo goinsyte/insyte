@@ -69,6 +69,8 @@ jobs:
       # Built to prove it builds; the marketing Worker has no deploy target yet.
       - run: bun run --filter @insyte/marketing build
       - run: bun run --filter @insyte/console build
+      # The API Worker's startup CPU, bundled as alchemy deploys it, under its budget (ADR-0041; scripts/lib/startup-rules.ts).
+      - run: bun run startup:check
       - uses: actions/upload-artifact@v4
         with:
           name: design-dist
