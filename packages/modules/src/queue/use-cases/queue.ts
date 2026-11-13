@@ -22,7 +22,7 @@ import {
 /*
  * The queue on Start (M10.1). Not a rule per event: the refresh works out, from the records as they are, which
  * conditions hold (an order delayed, a return in review, a quality check sent in, a variant sold out, a store without
- * its link) and keeps one unresolved row per condition by its `dedupe_key`: a new condition opens a row, a held one is
+ * its link, a chargeback waiting for evidence) and keeps one unresolved row per condition by its `dedupe_key`: a new condition opens a row, a held one is
  * brought up to date (title, signal, value, due), an ended one resolves. Seen stays seen while the condition holds;
  * when it ends and comes back, it is a new row. Every member may open Start; the rows narrow to the areas and stores the
  * role may open, and the counts with them.
@@ -164,6 +164,33 @@ const desired = Effect.fn("Queue.desired")(function*(sql: SqlClient.SqlClient) {
       valueMinor: null,
       currency: null,
       dueAt: null
+    })
+  }
+  // A chargeback that needs evidence (M13 step 3), red when its deadline is hours away.
+  const disputes = yield* sql<{
+    id: string
+    caseNumber: string
+    storeId: string | null
+    customerName: string
+    amountMinor: string
+    currency: string
+    deadlineAt: Date
+  }>`
+    select id, case_number, store_id, customer_name, amount_minor, currency, deadline_at from chargebacks
+    where status in ('open', 'awaiting_evidence')`
+  for (const c of disputes) {
+    out.push({
+      kind: "chargeback_deadline",
+      area: "chargebacks",
+      subjectType: "chargeback",
+      subjectId: c.id,
+      storeId: c.storeId,
+      dedupeKey: `chargeback_deadline:${c.id}`,
+      signal: signalOf(c.deadlineAt, "green"),
+      title: `Chargeback ${c.caseNumber} wacht op bewijs${c.customerName ? ` · ${c.customerName}` : ""}`,
+      valueMinor: Number(c.amountMinor),
+      currency: c.currency.trim(),
+      dueAt: c.deadlineAt
     })
   }
   return out

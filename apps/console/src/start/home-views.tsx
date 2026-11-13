@@ -150,13 +150,14 @@ export function ConsoleWork(
   )
 }
 
-/** The screens an empty view's first steps may link to; automations and integrations have none in the console yet. */
+/** The screens an empty view's first steps may link to; integrations have none in the console yet. */
 const CONSOLE_HAS: ReadonlySet<string> = new Set([
   "/suppliers",
   "/settings/stores",
   "/settings/team",
   "/tickets",
-  "/inbox"
+  "/inbox",
+  "/automations"
 ])
 
 /** The Monday of the week a day is in, as the agenda's week view starts it. */

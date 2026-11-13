@@ -30,7 +30,7 @@ import type { SheetsState } from "../stores/sheets-store";
 import type { TeamState, useSeats as SeatsHook } from "../stores/team-store";
 import type { ViewsState } from "../stores/views-store";
 import type { WorkspaceState } from "../stores/workspace-store";
-import type { useMarketplaceState as MarketplaceStateHook } from "../hooks/use-marketplace-state";
+import type { MarketplaceSource } from "../marketplace/marketplace-source";
 import type { useNavPrefs as NavPrefsHook } from "../hooks/use-nav-prefs";
 import type { CreateKind } from "../stores/create-intent";
 
@@ -58,7 +58,7 @@ export interface ShellSource {
 	notifications: Pick<NotificationsState, "notes" | "prefs" | "setRead" | "wake">;
 	home: Pick<HomeState, "widgets" | "engine" | "add" | "remove" | "setEngine">;
 	nav: NavState & NavActions;
-	settingsDepth: Pick<SettingsDepthState, "keys" | "gotoOn">;
+	settingsDepth: Pick<SettingsDepthState, "keys" | "gotoOn" | "setKey" | "resetKeys" | "setGotoOn">;
 	access: Pick<AccessState, "viewAs" | "setViewAs">;
 	autonomy: Pick<AutonomyState, "budget">;
 	ask: Pick<AskState, "start">;
@@ -89,7 +89,7 @@ export interface ShellSource {
 	currentRole: ReturnType<typeof CurrentRoleHook>;
 	workflows: Record<string, WorkflowState>;
 	supplierOrders: ReadonlyArray<SupplierOrderRow>;
-	marketplace: ReturnType<typeof MarketplaceStateHook>;
+	marketplace: MarketplaceSource;
 	navPrefs: ReturnType<typeof NavPrefsHook>;
 	extensions: ReadonlyArray<Extension>;
 	/** The persona's notifications, minus what their settings keep out of the app. */
@@ -162,6 +162,8 @@ export type RecordHits = {
 	threads: ReadonlyArray<{ id: string; subject: string; from: string }>;
 	/** Chat messages: the words around the match, where they were said (and by whom), and the address that opens them. */
 	messages: ReadonlyArray<{ id: string; text: string; where: string; href: string }>;
+	/** Chargebacks: the case number and the customer. */
+	chargebacks: ReadonlyArray<{ id: string; case_number: string; customer_name: string }>;
 };
 
 const ShellSourceContext = createContext<ShellSource | null>(null);

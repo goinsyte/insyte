@@ -63,6 +63,16 @@ export const JobProgress = Schema.Struct({
 })
 export type JobProgress = typeof JobProgress.Type
 
+/** A case's evidence pack moved on (M13 step 4): `done` of `total` documents in. The case's page refetches it. */
+export const EvidencePackProgress = Schema.Struct({
+  v: Schema.Literal(1),
+  type: Schema.Literal("job.progress"),
+  kind: Schema.Literal("evidence_pack"),
+  chargebackId: Schema.String,
+  done: Schema.Int,
+  total: Schema.Int
+})
+
 /**
  * A chat message posted, or changed (edited, taken back, pinned, reacted to, its card decided) (M11.4): the tabs refetch
  * that conversation and the panel's counts. Ids only, as every frame: a channel's go to the room, a DM's to its two.
@@ -103,6 +113,7 @@ export const Frame = Schema.Union([
   RecordsChanged,
   NotesChanged,
   JobProgress,
+  EvidencePackProgress,
   ChatMessage,
   ChatTyping,
   LiveVisitors
