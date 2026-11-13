@@ -5,6 +5,7 @@ import { CurrentUser } from "@insyte/domain/Session"
 import { caseScope } from "@insyte/modules/chargebacks/use-cases/chargebacks"
 import { CoursesService } from "@insyte/modules/courses/Courses"
 import { cleanFileName, FileStore } from "@insyte/modules/shared/domain/Documents"
+import { inScope } from "@insyte/modules/shared/use-cases/StoreScope"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
@@ -29,6 +30,13 @@ const disposition = (name: string, as: "inline" | "attachment" = "inline") => {
   const ascii = clean.replace(/[^\x20-\x7e]/g, "_") || "bestand"
   const encoded = encodeURIComponent(clean).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
   return `${as}; filename="${ascii}"; filename*=UTF-8''${encoded}`
+}
+
+/** Where a file's record keeps its store, as `x`: a slip's leg, a label's return, a quality photo's product. */
+const STORE_OF: Partial<Record<string, string>> = {
+  forwarding_item: "forwarding_items x",
+  return: "returns x",
+  quality_check: "(select q.id, p.store_id from quality_checks q join products p on p.id = q.product_id) x"
 }
 
 const notFound = HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
@@ -96,6 +104,18 @@ export const FileRoutes = HttpRouter.add(
           Effect.flatMap(
             caseScope(sql),
             (scope) => sql`select 1 from chargebacks c where c.id = ${row.ownerId} and ${scope}`
+          )
+        )
+        if (held === undefined) return undefined
+      }
+      // A slip, a label or a quality photo is as fenced as its record: one in a store outside the principal's
+      // (`storeScope`) is not found.
+      const from = STORE_OF[row.ownerType]
+      if (from !== undefined) {
+        const [held] = yield* db.scoped((sql) =>
+          Effect.flatMap(
+            inScope(sql, "x.store_id"),
+            (scope) => sql`select 1 from ${sql.literal(from)} where x.id = ${row.ownerId} and ${scope}`
           )
         )
         if (held === undefined) return undefined
