@@ -1,4 +1,4 @@
-import { DocumentNotMade, Documents, FileStore } from "@insyte/modules/shared/domain/Documents"
+import { DocumentNotMade, Documents, FileParts, FileStore } from "@insyte/modules/shared/domain/Documents"
 import { env } from "cloudflare:workers"
 import { Config, Effect, Layer } from "effect"
 
@@ -81,5 +81,68 @@ export const FileStoreR2 = Layer.succeed(FileStore)(FileStore.of({
         bytes: new Uint8Array(await object.arrayBuffer()),
         mime: object.httpMetadata?.contentType ?? "application/octet-stream"
       }
+    }),
+  open: (key) =>
+    Effect.promise(async () => {
+      const object = await env.FILES.get(key)
+      if (object === null) return undefined
+      return {
+        body: object.body,
+        size: object.size,
+        mime: object.httpMetadata?.contentType ?? "application/octet-stream"
+      }
+    })
+}))
+
+/**
+ * An export's parts into one file (M14 step 5): streamed through a fixed-length stream, part after part, so the Worker
+ * never holds more than one; the bucket learns the length up front, as R2 needs for a stream. A file already at `key`
+ * with the parts' total size is the same join done before, and is kept. One `get` per part and one `put`: at the
+ * Workflow's 500 pages, about a thousand subrequests, inside a Workflow's 10,000.
+ */
+export const FilePartsR2 = Layer.succeed(FileParts)(FileParts.of({
+  join: (key, parts, mime) =>
+    Effect.tryPromise({
+      try: async () => {
+        const size = parts.reduce((n, p) => n + p.size, 0)
+        const there = await env.FILES.head(key)
+        if (there !== null && there.size === size) return { sizeBytes: size }
+        const { readable, writable } = new FixedLengthStream(size)
+        const pump = (async () => {
+          for (const part of parts) {
+            const object = await env.FILES.get(part.key)
+            if (object === null || object.size !== part.size) throw new Error(`part ${part.key} is missing`)
+            await object.body.pipeTo(writable, { preventClose: true })
+          }
+          await writable.close()
+        })()
+        const put = env.FILES.put(key, readable, { httpMetadata: { contentType: mime } })
+        // A part that is missing aborts the stream, so the put fails too and no short file is kept.
+        await Promise.all([
+          put,
+          pump.catch(async (cause) => {
+            await writable.abort(cause).catch(() => undefined)
+            throw cause
+          })
+        ])
+        return { sizeBytes: size }
+      },
+      catch: (cause) => new DocumentNotMade({ reason: `r2: ${String(cause)}` })
+    }),
+  clear: (prefix) =>
+    Effect.tryPromise({
+      try: async () => {
+        let removed = 0
+        let cursor: string | undefined
+        do {
+          const page = await env.FILES.list({ prefix, ...(cursor === undefined ? {} : { cursor }) })
+          const keys = page.objects.map((o) => o.key)
+          if (keys.length > 0) await env.FILES.delete(keys)
+          removed += keys.length
+          cursor = page.truncated ? page.cursor : undefined
+        } while (cursor !== undefined)
+        return removed
+      },
+      catch: (cause) => new DocumentNotMade({ reason: `r2: ${String(cause)}` })
     })
 }))

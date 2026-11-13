@@ -77,6 +77,10 @@
       "name": "insyte-workspace-lifecycle",
       "class_name": "WorkspaceLifecycleWorkflow",
     },
+    // An uploaded CSV read into rows (M14 step 5), one run per import.
+    { "binding": "IMPORT_PARSE", "name": "insyte-import-parse", "class_name": "ImportParseWorkflow" },
+    // An export written, page by page, whatever its source (M14 step 5).
+    { "binding": "EXPORT", "name": "insyte-export", "class_name": "ExportWorkflow" },
   ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] },
@@ -125,5 +129,7 @@
     "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
     // The beta gate is shut locally too; the reserved test domain is admitted, so the tests can register.
     "BETA_ALLOWED_DOMAINS": "example.com",
+    // Insyte AI's fake here, whatever keys `.dev.vars` holds (`bun run dev:vars --ai` writes `AI_ADAPTER=anthropic`).
+    "AI_ADAPTER": "fake",
   },
 }

@@ -4,6 +4,7 @@ import { AutomationsGroup } from "./groups/AutomationsGroup.ts"
 import { ChargebacksGroup } from "./groups/ChargebacksGroup.ts"
 import { CommerceGroup } from "./groups/CommerceGroup.ts"
 import { CostsGroup } from "./groups/CostsGroup.ts"
+import { DataGroup } from "./groups/DataGroup.ts"
 import { ForwardingGroup } from "./groups/ForwardingGroup.ts"
 import { KeyGroup } from "./groups/KeyGroup.ts"
 import { OrdersGroup } from "./groups/OrdersGroup.ts"
@@ -42,7 +43,8 @@ export class PublicApi extends HttpApi.make("insyte")
     QueueGroup,
     ProposalsGroup,
     ChargebacksGroup,
-    CostsGroup
+    CostsGroup,
+    DataGroup
   )
   .middleware(ApiKeyAuth)
   .prefix("/v1")

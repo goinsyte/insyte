@@ -34,6 +34,8 @@ export default defineConfig({
           LABELS_ADAPTER: "recorded",
           WEBHOOK_ADAPTER: "recorded",
           SENDING_DOMAINS_ADAPTER: "recorded",
+          // Insyte AI's fake: the tests never call a model, whatever `.dev.vars` holds.
+          AI_ADAPTER: "fake",
           DOCUMENTS_ADAPTER: "html",
           SYNC_PAGE_LINES: "4",
           PRIVACY_EXPORT_PAGE_ROWS: "3"

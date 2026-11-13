@@ -4,6 +4,7 @@ import { adSpendSweep } from "../../platform/AdSpend.ts"
 import { BackgroundRuntime as background } from "../../platform/BackgroundLayer.ts"
 import { deadlineSweep } from "../../platform/Deadlines.ts"
 import type { Env } from "../../platform/Env.ts"
+import { exportSweep } from "../../platform/Exports.ts"
 import { reconcile, syncRuntime, trackingSweep } from "../../platform/Ingest.ts"
 import { Telemetry } from "../../platform/Observability.ts"
 import { privacyExportSweep } from "../../platform/PrivacySweep.ts"
@@ -23,7 +24,7 @@ import { startMonthlyClose } from "../../workflows/MonthlyClose.ts"
  * (M19.4); every fifteenth, the stores' reconcile (M6.3), the tracking sweep (M8.4), Start's queue (M10.1), the
  * daily facts (M10.4, at 02:00 UTC their nightly pass), the members' daily digests (M11.5) and the webhook
  * deliveries past 30 days (M19.4); on the hour, the chargeback deadline reminders (M13 step 3); at 03:00 UTC the
- * Prullenbak's sweep (M17) and, on the 1st, the supplier statements' monthly close (M13 step 6); at 04:00 UTC the
+ * Prullenbak's sweep (M17), the lapsed exports (M14 step 5) and, on the 1st, the supplier statements' monthly close (M13 step 6); at 04:00 UTC the
  * day's ad spend from every connected ad account (M13 step 5) and the sending domains' re-check (20.1c); at 02:00 UTC the ECB's reference rates into
  * `fx_rates` (§0.4). */
 export const scheduled: ExportedHandlerScheduledHandler<Env> = (controller, _env, ctx) => {
@@ -48,6 +49,8 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = (controller, _env
     // The Prullenbak's items past their 30 days, once a day at 03:00 UTC (M17 step 20.1a).
     if (at.getUTCHours() === 3 && at.getUTCMinutes() === 0) {
       ctx.waitUntil(background.runPromise(withRequestDb(trashSweep())).finally(() => Telemetry.flush()))
+      // The Data hub's exports past their seven days (M14 step 5).
+      ctx.waitUntil(background.runPromise(withRequestDb(exportSweep())).finally(() => Telemetry.flush()))
     }
     if (at.getUTCHours() === 4 && at.getUTCMinutes() === 0) {
       ctx.waitUntil(background.runPromise(withRequestDb(adSpendSweep())).finally(() => Telemetry.flush()))

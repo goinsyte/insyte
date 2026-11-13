@@ -127,6 +127,10 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
   }),
   // The monthly close (M13 step 6) is Insyte's, not a person's moment.
   "statements.closed": none,
+  // The Data hub (M14 step 5): an import read and an export written are Insyte's work; asking is audited.
+  "import.uploaded": none,
+  "export.requested": none,
+  "export.finished": none,
   // The delay mail is counted as the filing that put it in line.
   "order.delay_mail": none,
   // Filing a plate (M10.2): the mechanism the product rests on, counted by the command it carried.
@@ -153,6 +157,7 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
   // Tickets, chats, courses, the inbox's queued mail and sheets: not product events.
   "ticket.assigned": none,
   "ticket.mentioned": none,
+  "ticket.topic_requested": none,
   "chat.posted": none,
   "chat.mentioned": none,
   "course.assigned": none,

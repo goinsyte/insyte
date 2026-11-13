@@ -73,6 +73,29 @@ export const EvidencePackProgress = Schema.Struct({
   total: Schema.Int
 })
 
+/** An uploaded CSV is being read (M14 step 5): `done` of `total` rows in. The hub's import view refetches it. */
+export const ImportParseProgress = Schema.Struct({
+  v: Schema.Literal(1),
+  type: Schema.Literal("job.progress"),
+  kind: Schema.Literal("import_parse"),
+  importId: Schema.String,
+  done: Schema.Int,
+  total: Schema.Int,
+  /** Set once the read is over: the import's state now. */
+  state: Schema.optional(Schema.Literals(["parsed", "failed"]))
+})
+
+/** An export is being written (M14 step 5): `done` of `total` rows (`null` when unknown), or its file ready or failed. */
+export const ExportProgress = Schema.Struct({
+  v: Schema.Literal(1),
+  type: Schema.Literal("job.progress"),
+  kind: Schema.Literal("export"),
+  exportId: Schema.String,
+  done: Schema.Int,
+  total: Schema.NullOr(Schema.Int),
+  state: Schema.Literals(["running", "ready", "failed"])
+})
+
 /**
  * A chat message posted, or changed (edited, taken back, pinned, reacted to, its card decided) (M11.4): the tabs refetch
  * that conversation and the panel's counts. Ids only, as every frame: a channel's go to the room, a DM's to its two.
@@ -126,6 +149,8 @@ export const Frame = Schema.Union([
   NotesChanged,
   JobProgress,
   EvidencePackProgress,
+  ImportParseProgress,
+  ExportProgress,
   ChatMessage,
   ChatTyping,
   LiveVisitors,

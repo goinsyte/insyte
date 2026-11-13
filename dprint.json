@@ -57,7 +57,7 @@
     /*
      * Listed entry by entry rather than as the directory, because dprint cannot un-exclude a file inside an excluded
      * directory. What is missing has graduated (08 §3): edited for the backend, so formatted like code written here
-     * (`auth/login-screen.tsx`, `onboarding/shared-steps.tsx`, `onboarding/admin-steps.tsx`, `lib/form-errors.ts`, `lib/returns.ts`, `lib/quality.ts`, `dashboard/`, `stores/home-store.ts`, `lib/home/day.ts`, `lib/home/kinds.ts`, `settings/workspace-source.tsx`, `settings/workspace-demo-source.tsx`, `settings/form.tsx`, `settings/profile-screen.tsx`, `settings/regional-screen.tsx`, `settings/security-screen.tsx`, `settings/depth/log-screen.tsx`, `settings/depth/trash-screen.tsx`, `chats/`, `inbox/`, `chargebacks/`, `automations/`, `costs/`, `settings/depth/`, the webhooks screen, `developer/webhook-dialog.tsx`, `developer/delivery-drawer.tsx`, `developer/webhooks-source.tsx`, `developer/webhooks-demo-source.tsx`, `lib/webhooks-core.ts`, `settings/webhooks-page.tsx`, `courses/`, `lib/courses.ts`, `stores/courses-store.ts`, `marketplace/` but `marketplace-modal.tsx` and `brand-logos.tsx`, `settings/apps-screen.tsx`, `live/`, `ai/autonomy-screen.tsx`, `ai/autonomy-source.tsx`, `ai/autonomy-demo-source.tsx`; `lib/auth-client.ts` and `lib/errors.ts` are
+     * (`auth/login-screen.tsx`, `onboarding/shared-steps.tsx`, `onboarding/admin-steps.tsx`, `lib/form-errors.ts`, `lib/returns.ts`, `lib/quality.ts`, `dashboard/`, `stores/home-store.ts`, `lib/home/day.ts`, `lib/home/kinds.ts`, `settings/workspace-source.tsx`, `settings/workspace-demo-source.tsx`, `settings/form.tsx`, `settings/profile-screen.tsx`, `settings/regional-screen.tsx`, `settings/security-screen.tsx`, `settings/depth/log-screen.tsx`, `settings/depth/trash-screen.tsx`, `chats/`, `inbox/`, `chargebacks/`, `automations/`, `costs/`, `settings/depth/`, the webhooks screen, `developer/webhook-dialog.tsx`, `developer/delivery-drawer.tsx`, `developer/webhooks-source.tsx`, `developer/webhooks-demo-source.tsx`, `lib/webhooks-core.ts`, `settings/webhooks-page.tsx`, `courses/`, `lib/courses.ts`, `stores/courses-store.ts`, `marketplace/` but `marketplace-modal.tsx` and `brand-logos.tsx`, `settings/apps-screen.tsx`, `live/`, `ai/autonomy-screen.tsx`, `ai/autonomy-source.tsx`, `ai/autonomy-demo-source.tsx`, `data/`; `lib/auth-client.ts` and `lib/errors.ts` are
      * written here). The list only shrinks.
      */
     "packages/ui/src/app/access/",
@@ -76,7 +76,6 @@
     "packages/ui/src/app/auth/invitation-screen.tsx",
     "packages/ui/src/app/auth/invite-shell.tsx",
     "packages/ui/src/app/common/",
-    "packages/ui/src/app/data/",
     "packages/ui/src/app/developer/bits.tsx",
     "packages/ui/src/app/developer/demo-source.tsx",
     "packages/ui/src/app/developer/key-detail.tsx",

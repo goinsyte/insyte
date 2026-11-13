@@ -7,8 +7,9 @@
  * new CI value plus the same headroom. Raising it needs a reason in the pull request, and the 1 s limit is the
  * ceiling: the deploy is what fails, not this check.
  *
- * Each budget is per CPU, because GitHub's ubuntu-24.04 runners come with different ones and the same script starts
- * about 35 % faster on an EPYC 9V74 than on an EPYC 7763. Runs on one runner agree within a few milliseconds, so the
+ * Each budget is per CPU, because GitHub's ubuntu-24.04 runners come with different ones, and the same script starts
+ * at different speeds on them: an EPYC 9V74 measured 0.74x an EPYC 7763 once (PR #135) and 0.90–0.97x later (staging,
+ * 2026-11-13), so a CPU's budget is measured on that CPU, never scaled from another's. Runs on one runner agree within a few milliseconds, so the
  * fastest of seven is a stable number for that CPU. A budget is the highest value seen on that CPU in CI (ci.yml's
  * `build` job), over a few runs of the same commit, plus about 10 %. On a CPU with no budget (a laptop, a new runner
  * type) the highest budget applies and the log says so; add the CPU when CI meets it. An M-series Mac measures about
@@ -26,16 +27,27 @@ export interface StartupBudget {
 }
 
 export const STARTUP_BUDGETS = {
-  // Lowered at PR #140, with the public API and MCP out (ADR-0041 step 5). EPYC 7763: 293 ms; EPYC 9V74 scaled as
-  // before (about 0.74). An M1 Pro: about 169 ms. Was 480 / 360 (PR #135: 439 ms on an EPYC 7763).
-  api: { budgetMs: { "AMD EPYC 7763": 320, "AMD EPYC 9V74": 240 }, wranglerConfig: "apps/api/wrangler.jsonc" },
+  // Lowered at PR #140, with the public API and MCP out (ADR-0041 step 5). EPYC 7763: 293 ms. EPYC 9V74 measured on
+  // staging at dd04a38a6: 276 ms (its earlier 240 was scaled, not measured). Xeon 6975P-C: 193 ms (PR #141). An M1 Pro:
+  // about 169 ms. Was 480 / 360 (PR #135: 439 ms on an EPYC 7763).
+  api: {
+    budgetMs: { "AMD EPYC 7763": 320, "AMD EPYC 9V74": 305, "Intel(R) Xeon(R) 6975P-C": 215 },
+    wranglerConfig: "apps/api/wrangler.jsonc"
+  },
   // The jobs Worker (ADR-0041 step 4), set at PR #139 (EPYC 7763: 180 ms). Raised at PR #140: it now also hosts
-  // `LiveRoom` and `RateLimiter`, 188 ms on an EPYC 7763; EPYC 9V74 not yet measured, scaled as the API's is (about
-  // 0.74). An M1 Pro: about 108 ms. Its bindings file is the local Worker's, a superset of its own.
-  jobs: { budgetMs: { "AMD EPYC 7763": 210, "AMD EPYC 9V74": 155 }, wranglerConfig: "apps/api/wrangler.jsonc" },
-  // The public Worker (ADR-0041 step 5), set at PR #140. EPYC 7763: 382 ms; EPYC 9V74 scaled (about 0.74). An M1 Pro:
-  // about 192 ms. Every slice's public group and MCP tools build at startup, so this is the one to watch as slices land.
-  public: { budgetMs: { "AMD EPYC 7763": 420, "AMD EPYC 9V74": 310 }, wranglerConfig: "apps/api/wrangler.jsonc" }
+  // `LiveRoom` and `RateLimiter`, 188 ms on an EPYC 7763. EPYC 9V74 measured on staging at dd04a38a6: 182 ms. Xeon
+  // 6975P-C: 131 ms (PR #141). An M1 Pro: about 108 ms. Its bindings file is the local Worker's, a superset of its own.
+  jobs: {
+    budgetMs: { "AMD EPYC 7763": 210, "AMD EPYC 9V74": 200, "Intel(R) Xeon(R) 6975P-C": 145 },
+    wranglerConfig: "apps/api/wrangler.jsonc"
+  },
+  // The public Worker (ADR-0041 step 5), set at PR #140. EPYC 7763: 382 ms. EPYC 9V74 measured on staging at
+  // dd04a38a6: 344 ms. Xeon 6975P-C: 240 ms (PR #141). An M1 Pro: about 192 ms. Every slice's public group and MCP
+  // tools build at startup, so this is the one to watch as slices land.
+  public: {
+    budgetMs: { "AMD EPYC 7763": 420, "AMD EPYC 9V74": 380, "Intel(R) Xeon(R) 6975P-C": 265 },
+    wranglerConfig: "apps/api/wrangler.jsonc"
+  }
 } as const satisfies Record<string, StartupBudget>
 
 /** The budget for this CPU, or the highest one when the CPU has none (`cpu` is then undefined). */

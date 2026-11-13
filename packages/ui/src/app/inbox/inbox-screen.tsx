@@ -245,7 +245,7 @@ export function InboxPage() {
   ].filter((g) => g.threads.length > 0)
   const activeMailbox = mailboxes.find((m) => m.id === active?.mailbox)
   const offline = activeMailbox !== undefined && !activeMailbox.status.live
-  const drafts = active === null ? undefined : source.drafts?.(active)
+  const drafts = source.drafts?.useDraft(active)
   const ChannelHeader = source.channels?.Header
   const ChannelLetter = source.channels?.Letter
 
@@ -295,17 +295,21 @@ export function InboxPage() {
   }
 
   function useDraft() {
-    if (!drafts) return
+    if (!drafts?.reply) return
     setDraft(drafts.reply)
     setShowSuggestion(false)
+    drafts.use()
     toast("Concept van Insyte in je antwoord gezet")
   }
 
   function rewriteDraft(style: "warmer" | "shorter") {
-    if (!drafts) return
-    setDraft(drafts[style])
-    setShowSuggestion(false)
-    toast.success(style === "warmer" ? "Herschreven · warmer" : "Herschreven · korter")
+    if (!drafts?.reply) return
+    void drafts.rewrite(style).then((text) => {
+      if (text === undefined) return
+      setDraft(text)
+      setShowSuggestion(false)
+      toast.success(style === "warmer" ? "Herschreven · warmer" : "Herschreven · korter")
+    })
   }
 
   function sendReply() {
@@ -706,7 +710,7 @@ export function InboxPage() {
                   <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8">
                     <LetterBody thread={active} source={source} />
 
-                    {showSuggestion && drafts ?
+                    {showSuggestion && drafts?.reply ?
                       (
                         <div className="mt-8 flex max-w-[60ch] flex-col gap-3">
                           {/* Insyte speaks on the dark ground, here as everywhere else. */}

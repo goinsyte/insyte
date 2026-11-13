@@ -85,7 +85,9 @@ export const store = Effect.fn("Inbox.store")(function*(
     mailbox.address.toLowerCase(),
     ...(mailbox.forwardingAddress === null ? [] : [mailbox.forwardingAddress])
   ])
-  const sentAt = mail.date ?? new Date()
+  // The sender's `Date:`, never later than now: a mail dated in the future would sort above every reply to it.
+  const now = new Date()
+  const sentAt = mail.date === null || mail.date > now ? now : mail.date
   const messageId = mintId("eml")
   let threadId = joined?.threadId
   let participants: Array<{ name: string; email: string; team: boolean }> = []

@@ -1,7 +1,9 @@
 import type { AutomationRunParams } from "../workflows/AutomationRun.ts"
 import type { EvidencePackParams } from "../workflows/EvidencePack.ts"
+import type { ExportParams } from "../workflows/Export.ts"
 import type { AnalysisParams } from "../workflows/FirstAnalysis.ts"
 import type { ForwardSendParams } from "../workflows/ForwardSend.ts"
+import type { ImportParseParams } from "../workflows/ImportParse.ts"
 import type { MarketingSyncParams } from "../workflows/MarketingSync.ts"
 import type { MonthlyCloseParams } from "../workflows/MonthlyClose.ts"
 import type { PrivacyExportParams } from "../workflows/PrivacyExport.ts"
@@ -61,6 +63,10 @@ declare global {
       readonly PRIVACY_EXPORT: Workflow<PrivacyExportParams>
       /** A workspace's deletion (M17 step 5): the waiting period, then the purge; one instance per request. */
       readonly WORKSPACE_LIFECYCLE: Workflow<WorkspaceLifecycleParams>
+      /** An uploaded CSV read into rows (M14 step 5): one instance per import (`ImportParseWorkflow`). */
+      readonly IMPORT_PARSE: Workflow<ImportParseParams>
+      /** An export written, whatever its source (M14 step 5): one instance per export (`ExportWorkflow`). */
+      readonly EXPORT: Workflow<ExportParams>
       /** The Klaviyo OAuth app (M7.5); without both, Klaviyo cannot be connected. `recorded` in the worker tests. */
       readonly KLAVIYO_CLIENT_ID?: string
       readonly KLAVIYO_CLIENT_SECRET?: string
@@ -75,6 +81,16 @@ declare global {
       readonly SLACK_CLIENT_ID?: string
       readonly SLACK_CLIENT_SECRET?: string
       readonly SLACK_ADAPTER?: string
+      /**
+       * Insyte AI (M15 step 1): Claude through the stage's AI Gateway (account, gateway, the Anthropic key, the
+       * gateway's token where it is authenticated). Without the first three there is no model. `AI_ADAPTER=fake`
+       * (local runs and the worker tests) answers with the fake whatever keys are set.
+       */
+      readonly AI_ADAPTER?: string
+      readonly ANTHROPIC_API_KEY?: string
+      readonly AI_GATEWAY_ID?: string
+      readonly AI_ACCOUNT_ID?: string
+      readonly AI_GATEWAY_TOKEN?: string
       /** Shopify's webhooks (M6.3): received deliveries' ids, applied by the jobs Worker's `queue` handler. */
       readonly INGEST: Queue<IngestMessage>
       /** Lines per backfill page, 2000 by default; the worker tests read small pages. */

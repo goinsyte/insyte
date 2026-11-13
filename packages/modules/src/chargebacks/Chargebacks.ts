@@ -138,3 +138,6 @@ export const restore = Commands.restore
 
 /** The `EvidencePackWorkflow`'s steps, as `system` in the case's workspace. */
 export { failPack, finishPack, gatherDocument, planPack } from "./use-cases/pack.ts"
+
+/** A case's facts as its documents read them, and whether its pack is being gathered by this run (M15 step 2). */
+export { factsOf, isCurrentRun } from "./use-cases/pack.ts"
