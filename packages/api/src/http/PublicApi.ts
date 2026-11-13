@@ -1,5 +1,11 @@
 import type { Db } from "@insyte/database/Db"
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
+import {
+  LIVE_WEBHOOK_EVENTS,
+  WEBHOOK_AUTO_DISABLE_AFTER,
+  WEBHOOK_EVENT_GROUPS,
+  WEBHOOK_SIGNATURE_TOLERANCE_SECONDS
+} from "@insyte/domain/Webhooks"
 import { Context, Schema } from "effect"
 import {
   HttpApi,
@@ -451,6 +457,29 @@ export const Supplier = Schema.Struct({
   stats: Schema.Struct({ products: Schema.Int, open: Schema.Int, delayed: Schema.Int })
 }).annotate({ identifier: "Supplier" })
 
+/** A supplier's statement for one month (M13 step 6): what the brand owes it, in the workspace's currency. */
+export const SupplierStatement = Schema.Struct({
+  id: Schema.NullOr(Schema.String).annotate({ description: "Null for the running month, which is not closed yet." }),
+  month: Schema.String.annotate({ description: "YYYY-MM." }),
+  status: Schema.String.annotate({ description: "open (running month), processing (closed, to be paid) or paid." }),
+  currency: Schema.String,
+  shipped_minor: Schema.Int,
+  corrections_minor: Schema.Int.annotate({ description: "Supplier-fault returns refunded; zero or negative." }),
+  total_minor: Schema.Int,
+  shipped_lines: Schema.Int,
+  missing_lines: Schema.Int.annotate({ description: "Lines that count nothing: no cost price or no exchange rate." }),
+  pay_day: Schema.String,
+  closed_at: Schema.NullOr(Schema.String),
+  paid_at: Schema.NullOr(Schema.String),
+  paid_reference: Schema.NullOr(Schema.String)
+}).annotate({ identifier: "SupplierStatement" })
+
+export const SupplierStatementsV1 = Schema.Struct({
+  supplier: Party,
+  data: Schema.Array(SupplierStatement),
+  summary: Schema.Struct({ currency: Schema.String, paid_ytd_minor: Schema.Int, pay_day: Schema.Int })
+})
+
 export const ForwardView = Schema.Literals(["to_forward", "awaiting", "forward_error"])
 
 export class ForwardingGroup extends HttpApiGroup.make("forwarding")
@@ -461,6 +490,14 @@ export class ForwardingGroup extends HttpApiGroup.make("forwarding")
     }).annotate(
       OpenApi.Description,
       "The workspace's suppliers and how each takes its orders. Needs `suppliers.read`."
+    ),
+    HttpApiEndpoint.get("statements", "/suppliers/:id/statements", {
+      params: ById,
+      success: SupplierStatementsV1,
+      error: [ScopeMissingV1, NotFoundV1]
+    }).annotate(
+      OpenApi.Description,
+      "A supplier's monthly statements, newest first: the lines it shipped at their cost price less its returns refunded, and whether each is paid; the running month first while it has lines. Needs `suppliers.read`."
     ),
     HttpApiEndpoint.get("legs", "/forwarding", {
       query: Schema.Struct({ view: Schema.optional(ForwardView) }),
@@ -911,7 +948,14 @@ export const ProposalV1 = Schema.Struct({
 
 export const QueueItemV1 = Schema.Struct({
   id: Schema.String,
-  kind: Schema.Literals(["order_delayed", "return_review", "quality_review", "stock_out", "store_disconnected"]),
+  kind: Schema.Literals([
+    "order_delayed",
+    "return_review",
+    "quality_review",
+    "stock_out",
+    "store_disconnected",
+    "chargeback_deadline"
+  ]),
   subject_type: Schema.String,
   subject_id: Schema.String,
   store: Schema.NullOr(Schema.String),
@@ -932,6 +976,114 @@ export const QueuePageV1 = Schema.Struct({
 }).annotate({ identifier: "QueuePage" })
 
 export const QueueTabV1 = Schema.Literals(["needs_you", "drawn", "all"])
+
+const AnalyticsMonthV1 = Schema.String.check(Schema.isPattern(/^\d{4}-(0[1-9]|1[0-2])$/)).annotate({
+  description: "A calendar month, YYYY-MM."
+})
+
+const AnalyticsSpanV1 = Schema.Struct({
+  month: Schema.String,
+  from: Schema.String.annotate({ description: "The first day read, YYYY-MM-DD." }),
+  to: Schema.String.annotate({ description: "The last day read: both months are cut to the shorter one's days." }),
+  days: Schema.Int,
+  in_progress: Schema.Boolean
+})
+
+export const AnalyticsOverviewV1 = Schema.Struct({
+  currency: Schema.String.annotate({ description: "The workspace's currency, every amount's (minor units)." }),
+  a: AnalyticsSpanV1,
+  b: AnalyticsSpanV1,
+  figures: Schema.Array(Schema.Struct({
+    id: Schema.Literals(["revenue", "paid_orders", "on_time", "refund_rate", "disputes", "resolve_hours"]),
+    a: Schema.NullOr(Schema.Finite),
+    b: Schema.NullOr(Schema.Finite),
+    available: Schema.Boolean.annotate({ description: "False where the rows are not kept yet (disputes)." }),
+    basis: Schema.Struct({
+      rows: Schema.Literals(["orders", "deliveries", "tickets", "disputes"]),
+      by: Schema.Literals(["placed", "delivered", "created", "opened"]),
+      a_count: Schema.Int,
+      b_count: Schema.Int
+    }).annotate({ description: "Which rows the figure sums, by which day, and how many stand behind each month." })
+  })),
+  orders_total: Schema.Int,
+  tickets_total: Schema.Int,
+  first_order_day: Schema.NullOr(Schema.String),
+  unconverted: Schema.Int.annotate({ description: "Store-days left out of the money for want of an exchange rate." })
+}).annotate({ identifier: "AnalyticsOverview" })
+
+export class AnalyticsGroup extends HttpApiGroup.make("analytics")
+  .add(
+    HttpApiEndpoint.get("overview", "/analytics/overview", {
+      query: Schema.Struct({ a: AnalyticsMonthV1, b: AnalyticsMonthV1 }),
+      success: AnalyticsOverviewV1,
+      error: [ScopeMissingV1, InvalidRequestV1]
+    }).annotate(
+      OpenApi.Description,
+      "Analyse: month `a` against month `b`, both cut to the shorter one's days (a month under way runs to today), in six figures: counted revenue (minor units, each day at its exchange rate), paid orders, on time (% of orders delivered, by the day delivered), refunded (% of orders placed with a refund since), disputes (not kept yet) and hours to done (tickets by the day they came in). Inside the key's stores. Needs `analytics.read`."
+    )
+  )
+  .annotate(OpenApi.Title, "Analytics")
+{}
+
+const SheetCellV1 = Schema.Struct({
+  v: Schema.String.annotate({ description: "The cell as typed: a value, or a formula starting with `=`." }),
+  fmt: Schema.optional(Schema.Literals(["general", "money", "percent", "number", "integer"])),
+  bold: Schema.optional(Schema.Boolean),
+  align: Schema.optional(Schema.Literals(["left", "center", "right"]))
+})
+
+const SheetTabV1 = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  cells: Schema.Record(Schema.String, SheetCellV1).annotate({ description: "Address (`A1`…`L40`) → cell." }),
+  widths: Schema.Record(Schema.String, Schema.Int).annotate({ description: "Column (`A`…`L`) → width in pixels." })
+})
+
+export const SheetSummaryV1 = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  folder_id: Schema.NullOr(Schema.String),
+  owner_id: Schema.String.annotate({ description: "The member who made it." }),
+  shared_with: Schema.Array(Schema.String).annotate({ description: "The members it is shared with." }),
+  pinned: Schema.Boolean,
+  archived: Schema.Boolean,
+  linked: Schema.Boolean.annotate({ description: "Whether any cell reads one of Insyte's figures (INSYTE())." }),
+  created_at: Schema.String,
+  updated_at: Schema.String
+}).annotate({ identifier: "SheetSummary" })
+
+export const SheetListV1 = Schema.Struct({ data: Schema.Array(SheetSummaryV1) }).annotate({ identifier: "SheetList" })
+
+export const SheetV1 = Schema.Struct({
+  ...SheetSummaryV1.fields,
+  folder_name: Schema.NullOr(Schema.String),
+  version: Schema.Int.annotate({ description: "The version the tabs are at; every save of the tabs raises it." }),
+  tabs: Schema.Array(SheetTabV1).annotate({
+    description:
+      "Every tab as typed. Nothing computed is kept: a formula is the text the member wrote, and an INSYTE() figure is read when the sheet is opened."
+  })
+}).annotate({ identifier: "Sheet" })
+
+export class SheetsGroup extends HttpApiGroup.make("sheets")
+  .add(
+    HttpApiEndpoint.get("list", "/sheets", {
+      success: SheetListV1,
+      error: [ScopeMissingV1]
+    }).annotate(
+      OpenApi.Description,
+      "Rekenbladen: the sheets of the member who made the key (their own and those shared with them), newest change first, archived ones included. Needs `data.read`."
+    ),
+    HttpApiEndpoint.get("get", "/sheets/:id", {
+      params: ById,
+      success: SheetV1,
+      error: [ScopeMissingV1, NotFoundV1]
+    }).annotate(
+      OpenApi.Description,
+      "One sheet with every tab as typed (cells, formats, column widths). Needs `data.read`; a sheet the key's member cannot open is not found."
+    )
+  )
+  .annotate(OpenApi.Title, "Sheets")
+{}
 
 export class QueueGroup extends HttpApiGroup.make("queue")
   .add(
@@ -969,6 +1121,390 @@ export class ProposalsGroup extends HttpApiGroup.make("proposals")
   .annotate(OpenApi.Title, "Proposals")
 {}
 
+/** A flow (M12 step 1): its definition, as the builder holds it. */
+export const AutomationStepV1 = Schema.Struct({
+  id: Schema.String,
+  step: Schema.String.annotate({ description: "The step's kind, as `trigger.order_shipped` or `action.send_email`." }),
+  config: Schema.Record(Schema.String, Schema.Unknown),
+  branches: Schema.optional(
+    Schema.Struct({
+      yes: Schema.Array(
+        Schema.Struct({ id: Schema.String, step: Schema.String, config: Schema.Record(Schema.String, Schema.Unknown) })
+      ),
+      no: Schema.Array(
+        Schema.Struct({ id: Schema.String, step: Schema.String, config: Schema.Record(Schema.String, Schema.Unknown) })
+      )
+    })
+  ).annotate({ description: "A yes/no split's two lanes, which merge back into the line after it." })
+})
+
+export const AutomationV1 = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  description: Schema.String,
+  status: Schema.String.annotate({ description: "draft (never published), active or paused." }),
+  live_version: Schema.Int.annotate({ description: "The published version that runs; 0 for a draft." }),
+  trigger: Schema.NullOr(Schema.String).annotate({ description: "The draft's trigger step, if it has one." }),
+  unpublished_changes: Schema.Boolean,
+  owner: Schema.NullOr(Schema.Struct({ id: Schema.String, name: Schema.String })),
+  runs_total: Schema.Int,
+  saved_at: Schema.String,
+  created_at: Schema.String
+})
+
+export const AutomationPageV1 = Schema.Struct({
+  data: Schema.Array(AutomationV1),
+  counts: Schema.Struct({ all: Schema.Int, active: Schema.Int, paused: Schema.Int, draft: Schema.Int })
+})
+
+export const AutomationDetailV1 = Schema.Struct({
+  ...AutomationV1.fields,
+  draft: Schema.Array(AutomationStepV1),
+  live: Schema.NullOr(Schema.Array(AutomationStepV1)),
+  versions: Schema.Array(
+    Schema.Struct({
+      version: Schema.Int,
+      note: Schema.String,
+      published_at: Schema.String,
+      published_by: Schema.NullOr(Schema.Struct({ id: Schema.String, name: Schema.String }))
+    })
+  ),
+  issues: Schema.Array(
+    Schema.Struct({
+      step_id: Schema.NullOr(Schema.String),
+      code: Schema.String,
+      field: Schema.NullOr(Schema.String),
+      severity: Schema.String.annotate({ description: "error stops publishing; warning does not." }),
+      message: Schema.String
+    })
+  )
+})
+
+export const AutomationStatusFilter = Schema.Literals(["draft", "active", "paused"])
+
+/** A flow's run (M12 step 5): one trigger event for one record, on the version that was live when it started. */
+export const AutomationRunV1 = Schema.Struct({
+  id: Schema.String,
+  automation_id: Schema.String,
+  version: Schema.Int,
+  status: Schema.String.annotate({ description: "running, waiting, succeeded, failed, stopped or skipped." }),
+  reason: Schema.NullOr(Schema.String).annotate({ description: "Why it failed, stopped or was skipped." }),
+  trigger: Schema.String,
+  manual: Schema.Boolean.annotate({ description: "Started by hand (again, or through this API)." }),
+  record: Schema.NullOr(Schema.Struct({ type: Schema.String, id: Schema.String, number: Schema.String })),
+  started_at: Schema.String,
+  finished_at: Schema.NullOr(Schema.String),
+  steps: Schema.Array(
+    Schema.Struct({
+      step_id: Schema.String,
+      step: Schema.String,
+      lane: Schema.NullOr(Schema.String),
+      status: Schema.String.annotate({ description: "ok, error, skipped, waiting, pending or stopped." }),
+      explanation: Schema.NullOr(Schema.String)
+    })
+  ).annotate({ description: "Each step of the run's version and what it did; empty in a list." })
+})
+
+export const AutomationRunPageV1 = Schema.Struct({
+  data: Schema.Array(AutomationRunV1),
+  next_cursor: Schema.NullOr(Schema.String)
+})
+
+export const AutomationRunStatusFilter = Schema.Literals([
+  "running",
+  "waiting",
+  "succeeded",
+  "failed",
+  "stopped",
+  "skipped"
+])
+
+export class AutomationsGroup extends HttpApiGroup.make("automations")
+  .add(
+    HttpApiEndpoint.get("automations", "/automations", {
+      query: Schema.Struct({ status: Schema.optional(AutomationStatusFilter) }),
+      success: AutomationPageV1,
+      error: [ScopeMissingV1]
+    }).annotate(
+      OpenApi.Description,
+      "The workspace's flows, newest first, with each status's count. Needs `automations.read`."
+    ),
+    HttpApiEndpoint.get("automation", "/automations/:id", {
+      params: ById,
+      success: AutomationDetailV1,
+      error: [ScopeMissingV1, NotFoundV1]
+    }).annotate(
+      OpenApi.Description,
+      "One flow: its draft and live steps, its published versions, and what is wrong with the draft per step. Needs `automations.read`."
+    ),
+    HttpApiEndpoint.get("runs", "/automations/:id/runs", {
+      params: ById,
+      query: Schema.Struct({
+        status: Schema.optional(AutomationRunStatusFilter),
+        limit: Schema.optional(Schema.FiniteFromString),
+        cursor: Schema.optional(Schema.String)
+      }),
+      success: AutomationRunPageV1,
+      error: [ScopeMissingV1, NotFoundV1]
+    }).annotate(
+      OpenApi.Description,
+      "The flow's runs, newest first, in pages of up to 200. Needs `automations.read`."
+    ),
+    HttpApiEndpoint.post("startRun", "/automations/:id/runs", {
+      params: ById,
+      headers: Writes,
+      payload: Schema.Struct({ order_id: Schema.String }),
+      success: AutomationRunV1,
+      error: WriteErrors
+    }).annotate(
+      OpenApi.Description,
+      "Runs the flow's live version for one order now, as its trigger would, and answers the run as it started; its steps act as the flow's own service account. Refused for a flow never published (`409`, `not_published`); a paused flow's run is written `skipped`. Needs `automations.write`."
+    )
+  )
+  .annotate(OpenApi.Title, "Automations")
+{}
+
+/** A chargeback (M13): a payment the shopper disputed at Stripe, Klarna or PayPal, or a case opened by hand. */
+export const Chargeback = Schema.Struct({
+  id: Schema.String,
+  case_number: Schema.String,
+  provider: Schema.Literals(["stripe", "klarna", "paypal"]),
+  from_provider: Schema.Boolean.annotate({
+    description: "The case came in through a payment connection; false for one opened by hand in Insyte."
+  }),
+  status: Schema.Literals(["open", "awaiting_evidence", "submitted", "won", "lost"]),
+  reason: Schema.String.annotate({
+    description: "item_not_received, not_as_described, unauthorized, duplicate or other."
+  }),
+  reason_code: Schema.String.annotate({ description: "The reason as the provider or the team named it." }),
+  amount: Schema.Struct({ amount_minor: Schema.Int, currency: Schema.String }),
+  customer: Schema.Struct({ id: Schema.NullOr(Schema.String), name: Schema.String }),
+  order: Schema.NullOr(Schema.Struct({ id: Schema.String, number: Schema.NullOr(Schema.String) })),
+  store_id: Schema.NullOr(Schema.String),
+  deadline_at: Schema.String.annotate({ description: "When the evidence must be in at the provider." }),
+  opened_at: Schema.String,
+  submitted_at: Schema.NullOr(Schema.String),
+  outcome_at: Schema.NullOr(Schema.String),
+  note: Schema.String,
+  evidence_count: Schema.Int
+}).annotate({ identifier: "Chargeback" })
+
+export const ChargebackStatsV1 = Schema.Struct({
+  open: Schema.Int,
+  won: Schema.Int,
+  decided: Schema.Int,
+  won_pct: Schema.Int.annotate({ description: "Won out of decided, in whole percent." }),
+  recovered: Schema.Struct({ amount_minor: Schema.Int, currency: Schema.String })
+})
+
+export const ChargebackPageV1 = Schema.Struct({
+  data: Schema.Array(Chargeback),
+  counts: Schema.Struct({
+    all: Schema.Int,
+    action_required: Schema.Int,
+    submitted: Schema.Int,
+    won: Schema.Int,
+    lost: Schema.Int
+  }),
+  stats: ChargebackStatsV1
+}).annotate({ identifier: "ChargebackPage" })
+
+export const ChargebackDetailV1 = Schema.Struct({
+  ...Chargeback.fields,
+  evidence: Schema.Array(Schema.Struct({
+    id: Schema.String,
+    kind: Schema.String,
+    source: Schema.Literals(["insyte", "upload"]),
+    name: Schema.String,
+    size_bytes: Schema.Int,
+    file_id: Schema.NullOr(Schema.String),
+    added_at: Schema.String
+  })).annotate({ description: "The pack, in its order." }),
+  timeline: Schema.Array(Schema.Struct({
+    id: Schema.String,
+    at: Schema.String,
+    kind: Schema.String,
+    actor: Schema.Struct({ kind: Schema.String, name: Schema.String }),
+    data: Schema.Record(Schema.String, Schema.Unknown)
+  })).annotate({ description: "Oldest first." })
+}).annotate({ identifier: "ChargebackDetail" })
+
+export const ChargebackTabV1 = Schema.Literals(["action_required", "submitted", "won", "lost"])
+
+export class ChargebacksGroup extends HttpApiGroup.make("chargebacks")
+  .add(
+    HttpApiEndpoint.get("chargebacks", "/chargebacks", {
+      query: Schema.Struct({
+        tab: Schema.optional(ChargebackTabV1),
+        provider: Schema.optional(Schema.Literals(["stripe", "klarna", "paypal"]))
+      }),
+      success: ChargebackPageV1,
+      error: [ScopeMissingV1]
+    }).annotate(
+      OpenApi.Description,
+      "Chargebacks, nearest deadline first, up to 500: action_required (open or waiting for evidence), submitted, won or lost; with each tab's count and the workspace's record. Needs `chargebacks.read`."
+    ),
+    HttpApiEndpoint.get("chargeback", "/chargebacks/:id", {
+      params: ById,
+      success: ChargebackDetailV1,
+      error: [ScopeMissingV1, NotFoundV1]
+    }).annotate(
+      OpenApi.Description,
+      "One chargeback with its evidence pack and its timeline. Needs `chargebacks.read`."
+    )
+  )
+  .annotate(OpenApi.Title, "Chargebacks")
+{}
+
+const MonthV1 = Schema.String.check(Schema.isPattern(/^\d{4}-(0[1-9]|1[0-2])$/)).annotate({
+  description: "A calendar month, YYYY-MM, in store time."
+})
+
+export const MonthFiguresV1 = Schema.Struct({
+  month: Schema.String,
+  revenue_minor: Schema.Int.annotate({ description: "Counted revenue (paid, not cancelled or refunded)." }),
+  orders: Schema.Int.annotate({ description: "Counted orders." }),
+  ads_minor: Schema.Int,
+  other_minor: Schema.Int,
+  costs_minor: Schema.Int,
+  net_minor: Schema.Int,
+  margin: Schema.Finite.annotate({ description: "net / revenue, 0 without revenue." }),
+  roas: Schema.Finite.annotate({ description: "revenue / ad spend, 0 without ad spend." })
+}).annotate({ identifier: "MonthFigures" })
+
+export const CostLineV1 = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  kind: Schema.Literals(["fixed", "per_order", "percent", "ads"]),
+  rate: Schema.NullOr(Schema.Finite).annotate({ description: "percent: the share of revenue, 0 to 100." }),
+  rate_minor: Schema.NullOr(Schema.Int).annotate({ description: "per_order: the amount per counted order." }),
+  source: Schema.Literals(["manual", "meta", "google_ads"]),
+  reads_from_source: Schema.Boolean.annotate({
+    description: "An ad line whose account is connected: its untyped months are what the account reports."
+  }),
+  months: Schema.Array(Schema.Struct({
+    month: Schema.String,
+    amount_minor: Schema.Int,
+    typed: Schema.Boolean,
+    source: Schema.Literals(["typed", "account", "rule", "none"])
+  }))
+}).annotate({ identifier: "CostLine" })
+
+export const CostsV1 = Schema.Struct({
+  currency: Schema.String.annotate({ description: "The workspace's currency, every amount's (minor units)." }),
+  months: Schema.Array(Schema.String),
+  current: Schema.String.annotate({ description: "The month in progress." }),
+  lines: Schema.Array(CostLineV1),
+  figures: Schema.Array(MonthFiguresV1)
+}).annotate({ identifier: "Costs" })
+
+export const CostFiguresV1 = Schema.Struct({
+  currency: Schema.String,
+  data: Schema.Array(MonthFiguresV1)
+}).annotate({ identifier: "CostFigures" })
+
+export class CostsGroup extends HttpApiGroup.make("costs")
+  .add(
+    HttpApiEndpoint.get("costs", "/costs", {
+      query: Schema.Struct({ from: Schema.optional(MonthV1), to: Schema.optional(MonthV1) }),
+      success: CostsV1,
+      error: [ScopeMissingV1, InvalidRequestV1]
+    }).annotate(
+      OpenApi.Description,
+      "Kosten: every cost line with what it costs in each month of the range (by default the five months up to the current one, at most 36), and each month's figures from revenue to net profit. Revenue is the counted orders' in the key's stores. Needs `analytics.read`."
+    ),
+    HttpApiEndpoint.get("figures", "/costs/figures", {
+      query: Schema.Struct({
+        months: Schema.String.annotate({ description: "Comma-separated months, YYYY-MM, up to 36." })
+      }),
+      success: CostFiguresV1,
+      error: [ScopeMissingV1, InvalidRequestV1]
+    }).annotate(
+      OpenApi.Description,
+      "The month figures alone: revenue, orders, ad spend, other costs, net profit, margin and ROAS. Needs `analytics.read`."
+    )
+  )
+  .annotate(OpenApi.Title, "Costs")
+{}
+
+/* ── outbound webhooks ───────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Outbound webhooks (M19.4, api.md §7) are managed in the console, not through a key; the document describes what an
+ * endpoint receives, so a receiver can be written against it: the envelope, the headers, the signature, and the
+ * catalogue (`@insyte/domain/Webhooks`), each event marked when Insyte sends it today.
+ */
+const LIVE = new Set(LIVE_WEBHOOK_EVENTS)
+
+export const WEBHOOKS_DESCRIPTION = [
+  "## Webhooks",
+  "",
+  "Endpoints are added in Instellingen → Webhooks. Insyte POSTs one JSON envelope per event: " +
+  "`{ id, type, api_version, created_at, workspace_id, store_id, data }`, `data` being the record in the endpoint's " +
+  "API version. A test send has `\"test\": true` and an empty `data`.",
+  "",
+  "Headers: `Insyte-Event` (the type), `Insyte-Delivery` (this delivery), `Insyte-Api-Version`, and " +
+  "`Insyte-Signature: t=<unix>,v1=<hex>`, where `v1` is `hex(hmac_sha256(secret, t + \".\" + raw_body))`. During a " +
+  "secret rotation two `v1` values are sent for 24 hours; accept either. Refuse a `t` older than " +
+  `${WEBHOOK_SIGNATURE_TOLERANCE_SECONDS} seconds (replays), and compare in constant time.`,
+  "",
+  "Answer with a 2xx within 10 seconds. Anything else, a redirect or a time-out is a failure and is tried again on the " +
+  "endpoint's policy (1 m, 10 m, 1 h, 3 h, 6 h, 12 h, 24 h, 72 h). After " +
+  `${WEBHOOK_AUTO_DISABLE_AFTER} failed attempts in a row Insyte switches the endpoint off. ` +
+  "Order is not guaranteed and an event may arrive twice: order by `created_at`, dedupe on `id`.",
+  "",
+  "Before each attempt Insyte resolves the endpoint's name and refuses one that points at a private or internal " +
+  "address. That check is defence in depth, not a guarantee against a name that answers differently a moment later " +
+  "(DNS rebinding): authenticate every request by its signature, never by where it came from.",
+  "",
+  "| Group | Events (✓ sent today) |",
+  "| --- | --- |",
+  ...WEBHOOK_EVENT_GROUPS.map((g) =>
+    `| ${g.group} | ${g.events.map((e) => `\`${e.id}\`${LIVE.has(e.id) ? " ✓" : ""}`).join(", ")} |`
+  )
+].join("\n")
+
+/** The catalogue as OpenAPI 3.1 `webhooks`: one POST per event, its body the envelope. */
+const webhooksSection = (spec: Record<string, unknown>): Record<string, unknown> => ({
+  ...spec,
+  webhooks: Object.fromEntries(WEBHOOK_EVENT_GROUPS.flatMap((g) =>
+    g.events.map((e) => [e.id, {
+      post: {
+        summary: e.id,
+        description: LIVE.has(e.id) ? "Sent today." : "Listed; sent once its slice records the fact.",
+        tags: ["Webhooks"],
+        parameters: [
+          { name: "Insyte-Signature", in: "header", required: true, schema: { type: "string" } },
+          { name: "Insyte-Event", in: "header", required: true, schema: { type: "string" } },
+          { name: "Insyte-Delivery", in: "header", required: true, schema: { type: "string" } },
+          { name: "Insyte-Api-Version", in: "header", required: true, schema: { type: "string" } }
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["id", "type", "api_version", "created_at", "workspace_id", "store_id", "data"],
+                properties: {
+                  id: { type: "string" },
+                  type: { type: "string", const: e.id },
+                  api_version: { type: "string" },
+                  created_at: { type: "string", format: "date-time" },
+                  workspace_id: { type: "string" },
+                  store_id: { type: ["string", "null"] },
+                  test: { type: "boolean" },
+                  data: { type: "object" }
+                }
+              }
+            }
+          }
+        },
+        responses: { "200": { description: "Any 2xx within 10 seconds." } }
+      }
+    }])
+  ))
+})
+
 export class PublicApi extends HttpApi.make("insyte")
   .add(
     KeyGroup,
@@ -978,11 +1514,18 @@ export class PublicApi extends HttpApi.make("insyte")
     ForwardingGroup,
     ReturnsGroup,
     TicketsGroup,
+    AutomationsGroup,
+    AnalyticsGroup,
+    SheetsGroup,
     QueueGroup,
-    ProposalsGroup
+    ProposalsGroup,
+    ChargebacksGroup,
+    CostsGroup
   )
   .middleware(ApiKeyAuth)
   .prefix("/v1")
   .annotate(OpenApi.Title, "Insyte API")
   .annotate(OpenApi.Version, "1")
+  .annotate(OpenApi.Description, WEBHOOKS_DESCRIPTION)
+  .annotate(OpenApi.Transform, webhooksSection)
 {}

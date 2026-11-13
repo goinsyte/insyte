@@ -36,8 +36,24 @@ export const checkMigrations = (
     }
   })
 
+  // The migrator applies only keys numbered above the highest one a database has recorded: a key numbered at or below
+  // it is skipped without a word. So numbers rise through the manifest, and a new key is numbered above every merged one.
+  const numberOf = (key: string) => Number(key.slice(0, 4))
+  head.forEach((m, i) => {
+    const before = head[i - 1]
+    if (before !== undefined && numberOf(m.key) <= numberOf(before.key)) {
+      errors.push(`${m.key} comes after ${before.key}: numbers rise through the manifest`)
+    }
+  })
+  const highestMerged = Math.max(0, ...base.map((b) => numberOf(b.key)))
   const added = head.filter((m) => !base.some((b) => b.key === m.key))
   for (const m of added) {
+    if (numberOf(m.key) <= highestMerged) {
+      errors.push(
+        `${m.key} is numbered at or below ${String(highestMerged).padStart(4, "0")}, already merged: a database that ` +
+          `has it would skip this one; renumber it above`
+      )
+    }
     const isContract = m.path.split("/").includes("contract")
     if (!isContract) {
       for (const pattern of DESTRUCTIVE) {

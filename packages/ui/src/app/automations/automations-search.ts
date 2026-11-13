@@ -1,6 +1,5 @@
 /* The search params of `automations-screen.tsx`'s route, apart from the screen so the route tree can read them without loading it (ADR-0026). Moved verbatim. */
 
-
 /* ─────────────────────────────────────────────────────────────────────
    Automations — the last screen still speaking the generated dialect.
 
@@ -15,4 +14,4 @@
    are: the same `DataTable`, the same facets, the same density.
    ───────────────────────────────────────────────────────────────────── */
 
-export const VIEWS = ["drafts", "ai", "history", "templates", "recommended"] as const;
+export const VIEWS = ["drafts", "ai", "history", "templates", "recommended"] as const

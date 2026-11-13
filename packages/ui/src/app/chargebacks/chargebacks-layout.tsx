@@ -1,6 +1,6 @@
-import { Outlet, useRouterState } from "@tanstack/react-router";
-import { useOpenedAsModal } from "../common/detail-shell";
-import { ChargebacksPage } from "./chargebacks-screen";
+import { Outlet, useRouterState } from "@tanstack/react-router"
+import { useOpenedAsModal } from "../common/detail-shell"
+import { ChargebacksPage } from "./chargebacks-screen"
 
 /**
  * The list lives here rather than in `index.tsx`, so that opening a record does not unmount it.
@@ -11,14 +11,14 @@ import { ChargebacksPage } from "./chargebacks-screen";
  * returns null.
  */
 export function ChargebacksLayout() {
-	const asModal = useOpenedAsModal();
-	const atIndex = useRouterState({
-		select: (s) => s.location.pathname.replace(/\/$/, "") === "/chargebacks",
-	});
-	return (
-		<>
-			{atIndex || asModal ? <ChargebacksPage /> : null}
-			<Outlet />
-		</>
-	);
+  const asModal = useOpenedAsModal()
+  const atIndex = useRouterState({
+    select: (s) => s.location.pathname.replace(/\/$/, "") === "/chargebacks"
+  })
+  return (
+    <>
+      {atIndex || asModal ? <ChargebacksPage /> : null}
+      <Outlet />
+    </>
+  )
 }

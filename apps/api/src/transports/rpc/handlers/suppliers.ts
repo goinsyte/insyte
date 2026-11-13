@@ -14,6 +14,9 @@ export const SuppliersHandlers = SuppliersRpcs.toLayer(Effect.gen(function*() {
     "Suppliers.remove": ({ id }) => suppliers.remove(id),
     "Suppliers.connectApi": (input) => suppliers.connectApi(input),
     "Suppliers.disconnectApi": ({ id }) => suppliers.disconnectApi(id),
-    "Suppliers.testConnection": ({ id }) => suppliers.testConnection(id)
+    "Suppliers.testConnection": ({ id }) => suppliers.testConnection(id),
+    "Suppliers.statements": (input) => suppliers.statements(input),
+    "Suppliers.statement": (input) => suppliers.statement(input),
+    "Suppliers.markStatementPaid": (input) => suppliers.markStatementPaid(input)
   })
 }))

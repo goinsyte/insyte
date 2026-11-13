@@ -19,7 +19,16 @@ import { connectionOf } from "./slack.ts"
  * - `ticket.assigned`: who was put on a ticket hears of it, once the undo window has passed and if still on it;
  * - `ticket.mentioned`: who a ticket comment names with `@` hears of it;
  * - `chat.mentioned`: who a chat message names with `@` hears of it, if they are in it and did not mute it;
- * - `quality_check.submitted`: who asked for the check, and whoever handles products, hear the supplier answered.
+ * - `quality_check.submitted`: who asked for the check, and whoever handles products, hear the supplier answered;
+ * - `chargeback.opened`, `chargeback.deadline_near`: whoever may see chargebacks hears of a new case at or above the
+ *   workspace's threshold, and that a case's deadline is coming (M13 step 3), within the stores they may see;
+ * - `automation.notify`: who a run's "Team waarschuwen" names, or who watches a flow whose run failed (M12 step 3).
+ * - `webhook.disabled`: the owner and whoever may change the integrations (Bewerken) hear Insyte switched an endpoint
+ *   off.
+ * - `course.assigned`: who a course was published for, or reminded of it, hears of it while it is live and they have
+ *   not passed it;
+ * - `course.question` / `course.answered`: a course's maker hears of a question on it; the asker of the answer.
+ * - `statements.closed`: whoever may mark supplier statements paid hears the month's are ready.
  *
  * A member deactivated or removed hears nothing. Who has "Alleen als het mij betreft" on for the kind hears only of
  * what concerns them directly (they were put on it, named in it, asked for it or sent the invitation). The in-app switch
@@ -175,6 +184,25 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
           }
         }
       }
+      case "automation.notify": {
+        // A run (M12 step 3): its flow by name; who may not see automations hears nothing.
+        const [flow] = yield* sql<{ name: string }>`select name from automations where id = ${event.automationId}`
+        if (flow === undefined) return undefined
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.id in ${sql.in([...event.memberIds, ""])} and m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'automations')::int, 0) >= 1)`
+        const named = recipients.map((r) => r.id)
+        return {
+          kind: event.kind === "alert" ? "automation.alert" : "automation.failed",
+          recipients: named,
+          direct: named,
+          subjectType: "automation",
+          subjectId: event.automationId,
+          actor: null,
+          data: { name: flow.name, runId: event.runId, detail: event.detail.slice(0, 280) }
+        }
+      }
       case "chat.mentioned": {
         // A chat message named teammates (M11 step 4): who reads chats and is in the conversation (a DM's two, or a
         // channel's readers) hears of it, unless they muted it; the conversation is the subject.
@@ -245,6 +273,161 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             video: check.video
           },
           direct: [check.requestedBy]
+        }
+      }
+      case "chargeback.opened":
+      case "chargeback.deadline_near": {
+        // A chargeback (M13 step 3): who may see chargebacks hears a new one at or above the workspace's threshold
+        // ("Vanaf €100"), and that an open case's deadline is coming; the one who opened it by hand hears nothing of
+        // their own. A case taken back, or closed since, says nothing. A role or member fenced to stores hears only of
+        // its own stores' cases, as `caseScope` shows them.
+        const [c] = yield* sql<{
+          caseNumber: string
+          provider: string
+          customerName: string
+          amountMinor: string
+          currency: string
+          reasonCode: string
+          status: string
+          deadlineAt: Date
+          storeId: string | null
+          threshold: string | null
+        }>`
+          select c.case_number, c.store_id, c.provider, c.customer_name, c.amount_minor, c.currency, c.reason_code, c.status,
+                 c.deadline_at, (w.alerts ->> 'dispute_amount_minor') as threshold
+          from chargebacks c join workspaces w on w.id = c.workspace_id where c.id = ${event.chargebackId}`
+        if (c === undefined) return undefined
+        if (event.type === "chargeback.deadline_near" && c.status !== "open" && c.status !== "awaiting_evidence") {
+          return undefined
+        }
+        if (event.type === "chargeback.opened" && Number(c.amountMinor) < Number(c.threshold ?? 0)) return undefined
+        const by = event.type === "chargeback.opened" ? event.by : null
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'chargebacks')::int, 0) >= 1)
+            and (${c.storeId}::text is null
+              or ((r.stores = '"all"'::jsonb or r.stores @> jsonb_build_array(${c.storeId}::text))
+                and (m.stores = '"all"'::jsonb or m.stores @> jsonb_build_array(${c.storeId}::text))))`
+        return {
+          kind: event.type === "chargeback.opened" ? "chargeback.new" : "chargeback.deadline",
+          recipients: recipients.map((r) => r.id).filter((r) => r !== by),
+          subjectType: "chargeback",
+          subjectId: event.chargebackId,
+          actor: by,
+          data: {
+            caseNumber: c.caseNumber,
+            provider: c.provider,
+            customer: c.customerName,
+            amountMinor: Number(c.amountMinor),
+            currency: c.currency.trim(),
+            reasonCode: c.reasonCode,
+            deadlineAt: c.deadlineAt.getTime(),
+            ...(event.type === "chargeback.deadline_near" ? { offset: event.offset } : {})
+          }
+        }
+      }
+      case "webhook.disabled": {
+        // Insyte switched a webhook endpoint off after five failed attempts in a row (M19.4).
+        const [endpoint] = yield* sql<{ url: string }>`
+          select url from webhook_endpoints where id = ${event.endpointId} and deleted_at is null`
+        if (endpoint === undefined) return undefined
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'integrations')::int, 0) >= 2)`
+        return {
+          kind: "integration.disconnected",
+          recipients: recipients.map((r) => r.id),
+          subjectType: "webhook_endpoint",
+          subjectId: event.endpointId,
+          actor: null,
+          data: { url: endpoint.url }
+        }
+      }
+      case "course.assigned": {
+        // A course published for teammates, or one reminded of it (M17 step 4): who still has it to do hears of it.
+        const [course] = yield* sql<{ title: string; deadline: string | null }>`
+          select title, to_char(deadline, 'YYYY-MM-DD') as deadline from courses
+          where id = ${event.courseId} and status = 'live' and deleted_at is null`
+        if (course === undefined) return undefined
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m
+          where m.id in ${sql.in([...event.memberIds, ""])} and m.deactivated_at is null and m.removed_at is null
+            and not exists (select 1 from course_progress p join courses c on c.id = p.course_id
+                            where p.course_id = ${event.courseId} and p.principal_kind = 'member'
+                              and p.principal_id = m.id and p.finished_at is not null
+                              and coalesce(p.score, 100) >= c.pass_mark)`
+        const named = recipients.map((r) => r.id).filter((r) => r !== event.by)
+        return {
+          kind: "course.assigned",
+          recipients: named,
+          direct: named,
+          subjectType: "course",
+          subjectId: event.courseId,
+          actor: event.by,
+          data: { title: course.title, deadline: course.deadline, reminder: event.reminder }
+        }
+      }
+      case "course.question":
+      case "course.answered": {
+        // A question on a course (M17 step 4): its maker hears it; the answer goes back to who asked.
+        const [q] = yield* sql<{
+          courseId: string
+          title: string
+          createdBy: string
+          askerKind: string
+          askerId: string
+          text: string
+          answer: string | null
+        }>`
+          select q.course_id, c.title, c.created_by, q.asker_kind, q.asker_id, q.text, q.answer
+          from course_questions q join courses c on c.id = q.course_id
+          where q.id = ${event.questionId} and c.deleted_at is null`
+        if (q === undefined) return undefined
+        if (event.type === "course.answered" && (q.answer === null || q.askerKind !== "member")) return undefined
+        const to = event.type === "course.question" ? q.createdBy : q.askerId
+        const recipients = yield* sql<{ id: string }>`
+          select id from members where id = ${to} and deactivated_at is null and removed_at is null`
+        const named = recipients.map((r) => r.id).filter((r) => r !== event.by)
+        return {
+          kind: event.type,
+          recipients: named,
+          direct: named,
+          subjectType: "course",
+          subjectId: q.courseId,
+          actor: event.by,
+          data: {
+            title: q.title,
+            questionId: event.questionId,
+            comment: (event.type === "course.question" ? q.text : q.answer ?? "").slice(0, 280)
+          }
+        }
+      }
+      case "statements.closed": {
+        // The month's supplier statements are closed (M13 step 6): whoever may mark them paid hears they are ready.
+        const [sum] = yield* sql<{ count: number; totalMinor: string; currency: string; payDay: string }>`
+          select count(*)::int as count, coalesce(sum(total_minor), 0) as total_minor,
+                 trim(min(currency)) as currency, to_char(min(pay_day), 'YYYY-MM-DD') as pay_day
+          from supplier_statements where id in ${sql.in([...event.statementIds, ""])}`
+        if (sum === undefined || sum.count === 0) return undefined
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'suppliers')::int, 0) >= 3)`
+        return {
+          kind: "supplier.statement",
+          recipients: recipients.map((r) => r.id),
+          subjectType: "supplier_statement",
+          subjectId: event.statementIds[0] ?? "",
+          actor: null,
+          data: {
+            month: event.month,
+            count: sum.count,
+            totalMinor: Number(sum.totalMinor),
+            currency: sum.currency,
+            payDay: sum.payDay
+          }
         }
       }
       default:

@@ -18,6 +18,7 @@ import {
   SuppliersRestore,
   type UpdateInput
 } from "../domain/Commands.ts"
+import { restorePaid } from "./statements.ts"
 import { rowsOf } from "./suppliers.ts"
 
 /*
@@ -259,7 +260,7 @@ const decodeRestore = Schema.decodeUnknownEffect(SuppliersRestore)
 /** `Shared.undo`'s compensation for every supplier command. */
 export const restore = Effect.fn("Suppliers.restore")(function*(sql: SqlClient.SqlClient, compensation: unknown) {
   const undo = yield* decodeRestore(compensation).pipe(Effect.orDie)
-  yield* Policy.require("suppliers", undo.kind === "removed" ? 3 : 2)
+  yield* Policy.require("suppliers", undo.kind === "removed" || undo.kind === "statement_paid" ? 3 : 2)
   const principal = yield* CurrentPrincipal
   switch (undo.kind) {
     case "fields":
@@ -296,5 +297,7 @@ export const restore = Effect.fn("Suppliers.restore")(function*(sql: SqlClient.S
       }
       yield* audit(sql, "supplier.restored", undo.id)
       return
+    case "statement_paid":
+      return yield* restorePaid(sql, undo)
   }
 })

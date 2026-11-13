@@ -4,15 +4,30 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { restoreAutonomy, restoreBudgets } from "@insyte/modules/agent/Agent"
 import type { AgentEffect } from "@insyte/modules/agent/domain/AgentLog"
 import { AgentLinks } from "@insyte/modules/agent/Links"
+import { figuresIn } from "@insyte/modules/analytics/use-cases/figures"
+import { restore as restoreAutomations } from "@insyte/modules/automations/use-cases/commands"
+import { restore as restoreChargebacks } from "@insyte/modules/chargebacks/Chargebacks"
 import { ActionFailed, ChatCommands } from "@insyte/modules/chats/Links"
 import { restore as restoreChats } from "@insyte/modules/chats/use-cases/commands"
+import { restore as restoreCosts } from "@insyte/modules/costs/use-cases/commands"
+import { restore as restoreCourses } from "@insyte/modules/courses/Courses"
 import { KlaviyoSyncs } from "@insyte/modules/customers/domain/Ports"
 import { restore as restoreCustomers } from "@insyte/modules/customers/use-cases/commands"
+import { KeyHasher } from "@insyte/modules/developer/domain/Ports"
+import {
+  createOn as createKeyOn,
+  rescopeOn,
+  restoreOn as restoreKeyOn,
+  revokeOn
+} from "@insyte/modules/developer/use-cases/keys"
+import { restore as restoreWebhooks } from "@insyte/modules/developer/use-cases/webhooks"
 import { forward as forwardLegs, restore as restoreForwarding } from "@insyte/modules/forwarding/use-cases/commands"
 import { ensureLegs } from "@insyte/modules/forwarding/use-cases/legs"
 import { ThreadTickets } from "@insyte/modules/inbox/domain/Ports"
 import { restore as restoreInbox } from "@insyte/modules/inbox/use-cases/commands"
 import { lastSyncOf, restore as restoreMarketing } from "@insyte/modules/marketing/use-cases/klaviyo"
+import { AppKeys, type KeyGrant } from "@insyte/modules/marketplace/domain/Ports"
+import { rescope as rescopeApp, restore as restoreApp } from "@insyte/modules/marketplace/use-cases/marketplace"
 import { restore as restoreNotifications } from "@insyte/modules/notifications/use-cases/prefs"
 import {
   cancel as cancelOrders,
@@ -40,7 +55,11 @@ import {
 import { shopifyReturn } from "@insyte/modules/returns/use-cases/mirror"
 import { parcelUpdated } from "@insyte/modules/returns/use-cases/parcels"
 import { linkReplacements } from "@insyte/modules/returns/use-cases/shopify"
+import { restoreErasing } from "@insyte/modules/settings/use-cases/retention"
+import { restore as restoreSettings } from "@insyte/modules/settings/use-cases/sections"
 import type { UndoTicket } from "@insyte/modules/shared/domain/Undo"
+import { SheetFigures } from "@insyte/modules/sheets/domain/Ports"
+import { restore as restoreSheets } from "@insyte/modules/sheets/use-cases/commands"
 import { MirrorFollowers } from "@insyte/modules/stores/domain/Ports"
 import { StoreMirror } from "@insyte/modules/stores/Mirror"
 import { ShopifyReturns } from "@insyte/modules/stores/ShopifyReturns"
@@ -53,6 +72,8 @@ import {
   assign as assignTicket,
   create as createTicket,
   fromThread,
+  purgeIn as purgeTickets,
+  putBack as putBackTickets,
   removeFromThread,
   restore as restoreTickets,
   setAside,
@@ -64,6 +85,7 @@ import { comment as commentTicket } from "@insyte/modules/tickets/use-cases/comm
 import { numberOf } from "@insyte/modules/tickets/use-cases/tickets"
 import { ReturnParcels } from "@insyte/modules/tracking/Parcels"
 import { ensureDeliveries } from "@insyte/modules/tracking/use-cases/tracking"
+import { TrashKinds } from "@insyte/modules/trash/TrashKinds"
 import { type Compensation, UndoCompensations } from "@insyte/modules/undo/domain/Ports"
 import { Effect, Layer } from "effect"
 import type { SqlError } from "effect/sql"
@@ -85,6 +107,9 @@ import type { SqlError } from "effect/sql"
  *   AfterShip       → a return's parcel, for the returns slice (M9.2)
  *   the inbox       → a ticket made from a thread, and taken away again (M11 step 2)
  *   a chat command  → an order's note or cancellation, a ticket made, assigned or moved (M11.4), and its undo
+ *   the Prullenbak  → each kind's own put-back and purge (M17 step 20.1a)
+ *   the Marketplace → a recipe app's API key, made, revoked, put back and narrowed by the developer slice (M17)
+ *   a sheet export  → the INSYTE() figures from analytics, on the export's transaction (M14 step 4)
  */
 
 const MirrorFollowersLive = Layer.succeed(MirrorFollowers, {
@@ -101,6 +126,45 @@ const threadTickets = ThreadTickets.of({ make: fromThread, remove: removeFromThr
 
 const ThreadTicketsLive = Layer.succeed(ThreadTickets, threadTickets)
 
+/** What the Marketplace grants a recipe app's key, as the developer slice keeps it (clamped per area there too). */
+const accessOf = (grant: KeyGrant) => ({ kind: "custom" as const, scopes: { ...grant.scopes } })
+
+/** What an app's key does without making one: revoked, put back and narrowed, on the Marketplace's transaction. */
+const keysKept = {
+  revoke: (sql: Parameters<typeof revokeOn>[0], keyId: string) => revokeOn(sql, keyId),
+  restore: (sql: Parameters<typeof restoreKeyOn>[0], keyId: string, revokedAt: Date) =>
+    restoreKeyOn(sql, keyId, revokedAt),
+  rescope: (sql: Parameters<typeof rescopeOn>[0], keyId: string, grant: KeyGrant) =>
+    rescopeOn(sql, keyId, accessOf(grant), grant.stores === "all" ? "all" : [...grant.stores])
+}
+
+/** An undo puts a key back or narrows it; it never makes one. */
+const undoKeys = AppKeys.of({ ...keysKept, create: () => Effect.die(new Error("an undo makes no API key")) })
+
+/**
+ * The Marketplace's recipe apps' keys (M17), with the hasher a new key's secret is stored under. Composed beside the
+ * hasher in the app layer, not in `SliceLinks`, which the background layers share without one.
+ */
+export const AppKeysLive = Layer.effect(
+  AppKeys,
+  Effect.map(Effect.service(KeyHasher), (hasher) =>
+    AppKeys.of({
+      ...keysKept,
+      create: (sql, input) =>
+        createKeyOn(sql, {
+          label: input.label,
+          access: accessOf(input.grant),
+          stores: input.grant.stores === "all" ? "all" : [...input.grant.stores],
+          expiresInDays: input.expiresInDays,
+          ips: [],
+          agent: false
+        }).pipe(
+          Effect.provideService(KeyHasher, hasher),
+          Effect.map((made) => ({ keyId: made.key.id, secret: made.secret, prefix: made.key.prefix }))
+        )
+    }))
+)
+
 const compensations: Record<string, Compensation> = {
   "orders.restore": restoreOrders,
   "products.restore": restoreProducts,
@@ -110,11 +174,23 @@ const compensations: Record<string, Compensation> = {
   "forwarding.restore": restoreForwarding,
   "returns.restore": restoreReturns,
   "tickets.restore": restoreTickets,
+  "automations.restore": restoreAutomations,
+  "chargebacks.restore": restoreChargebacks,
   "inbox.restore": (sql, compensation) =>
     restoreInbox(sql, compensation).pipe(Effect.provideService(ThreadTickets, threadTickets)),
   "quality.restore": restoreQuality,
   "queue.restore": restoreQueue,
   "notifications.restore": restoreNotifications,
+  "costs.restore": restoreCosts,
+  "settings.restore": restoreSettings,
+  "retention.restore": restoreErasing,
+  "webhooks.restore": restoreWebhooks,
+  "sheets.restore": restoreSheets,
+  "courses.restore": restoreCourses,
+  "marketplace.restore": (sql, compensation) =>
+    restoreApp(sql, compensation).pipe(Effect.provideService(AppKeys, undoKeys)),
+  "marketplace.rescope": (sql, compensation) =>
+    rescopeApp(sql, compensation).pipe(Effect.provideService(AppKeys, undoKeys)),
   // A filed plate's Undo spends the command's own token and runs that command's compensation from this same table.
   "proposals.restore": (sql, compensation) =>
     restoreProposal(sql, compensation, {
@@ -138,6 +214,10 @@ const compensations: Record<string, Compensation> = {
 }
 
 const UndoCompensationsLive = Layer.succeed(UndoCompensations, compensations)
+
+const SheetFiguresLive = Layer.succeed(SheetFigures, {
+  read: (sql, requests) => figuresIn(sql, requests)
+})
 
 const refunder = Refunder.of({
   refund: (sql, input) =>
@@ -392,6 +472,14 @@ const ChatCommandsLive = Layer.succeed(ChatCommands, {
   }
 })
 
+/** The Prullenbak's kinds, also for the daily sweep (`TrashSweep.ts`). */
+export const TrashKindsLive = Layer.succeed(TrashKinds, {
+  ticket: {
+    restore: (ids) => Effect.map(putBackTickets({ ids }), (change) => (change.undo === null ? [] : [change.undo])),
+    purge: purgeTickets
+  }
+})
+
 const RefunderLive = Layer.succeed(Refunder, refunder)
 
 const KlaviyoSyncsLive = Layer.succeed(KlaviyoSyncs, { lastSyncOf })
@@ -413,7 +501,9 @@ export const SliceLinks = StoreMirror.layer.pipe(
       KlaviyoSyncsLive,
       ReturnParcelsLive,
       ShopifyReturnsLive,
-      ThreadTicketsLive
+      ThreadTicketsLive,
+      TrashKindsLive,
+      SheetFiguresLive
     )
   )
 )

@@ -154,7 +154,6 @@ export function ApiKeysPage() {
 			</SettingCard>
 
 			{source.webhooks ? <SettingCard title="Webhooks" icon={Webhook}>
-				{/* Only the reference has a webhooks page yet; the console leaves `source.webhooks` out. */}
 				<Link to={"/settings/webhooks" as never} className="group/item flex items-center gap-3 rounded-xl bg-paper px-3.5 py-3 transition-colors hover:bg-ink/3">
 					<span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-arc-tint text-arc-ink">
 						<Webhook className="size-4" strokeWidth={1.75} />

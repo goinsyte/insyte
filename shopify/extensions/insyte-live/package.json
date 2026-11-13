@@ -1,0 +1,10 @@
+{
+  "name": "insyte-live",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Live's Web Pixel extension, built and deployed by the Shopify CLI with the app (not a workspace package).",
+  "main": "src/index.js",
+  "dependencies": {
+    "@shopify/web-pixels-extension": "^2.10.0"
+  }
+}

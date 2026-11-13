@@ -119,6 +119,7 @@ export function useConsoleSuppliersSource(list: SupplierList): SuppliersSource {
       disconnect: (row) => void commands.disconnectApi(row)
     },
     chatOf: () => undefined,
+    statementsOf: (row) => `/suppliers/${row.id}/statements`,
     canCreate: edit,
     save: (input, row) => void commands.save(input, row),
     inputOf: (row) => {

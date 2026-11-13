@@ -569,3 +569,27 @@ export const restore = Effect.fn("Tickets.restore")(function*(sql: SqlClient.Sql
     yield* audit(sql, "ticket.restored", t.id)
   }
 })
+
+/**
+ * Out of the Prullenbak for good (M17 step 20.1a): the trashed tickets among `ids`, with their assignees, watchers,
+ * labels and comments; a thread made into one keeps its mail and loses the link. On the caller's transaction, as
+ * `actor` (a person's "Definitief verwijderen", or the daily sweep after 30 days), one audit line each. Irreversible.
+ */
+export const purgeIn = Effect.fn("Tickets.purge")(function*(
+  sql: SqlClient.SqlClient,
+  workspaceId: string,
+  ids: ReadonlyArray<string>,
+  actor: Audit.Actor
+) {
+  if (ids.length === 0) return
+  const gone = yield* sql<{ id: string; number: string }>`
+    delete from tickets where id in ${sql.in([...new Set(ids)])} and deleted_at is not null returning id, number`
+  for (const t of gone) {
+    yield* Audit.write(sql, workspaceId, actor, {
+      action: "ticket.purged",
+      subjectType: "ticket",
+      subjectId: t.id,
+      diff: { number: Number(t.number) }
+    })
+  }
+})

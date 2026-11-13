@@ -1,5 +1,6 @@
 import {
 	BadgePercent,
+	BookOpen,
 	Box,
 	ChartLine,
 	CornerDownLeft,
@@ -61,6 +62,7 @@ const ICONS: Record<AreaId, IconComponent> = {
 	team: UserCog,
 	billing: CreditCard,
 	integrations: Plug,
+	courses: BookOpen,
 };
 
 export const AREAS: ReadonlyArray<Area> = CATALOGUE.map((a) => ({ ...a, icon: ICONS[a.id] }));
