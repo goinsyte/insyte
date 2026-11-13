@@ -151,7 +151,14 @@ export type DataEndpoint = { id: string; url: string; events: number; rate: numb
 
 export type DataKey = { id: string; label: string; prefix: string; lastUsedAt?: string | undefined }
 
+/** Whether the role may do a thing, and what it misses when not. */
+export type DataGate = { ok: boolean; reason: string }
+
 export interface DataSource {
+  /** Data · Importeren (level 2): bringing a file in, and taking one out. */
+  canImport: DataGate
+  /** Data · Exporteren (`data.export`). */
+  canExport: DataGate
   counts: DataCounts
   /** Tabel's orders: every one the host holds, newest first. */
   orders: ReadonlyArray<Order>

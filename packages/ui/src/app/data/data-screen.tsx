@@ -16,7 +16,7 @@ import {
   Webhook,
   Zap
 } from "../../icons"
-import { Gate } from "../access/gate"
+import { Blocked } from "../access/blocked"
 import { ChipGroup } from "../common/form-dialog"
 import { formatCurrency, formatDateTime, formatRelative } from "../lib/format"
 import type { Order } from "../lib/types/domain"
@@ -28,6 +28,7 @@ import { DataTable } from "../table/data-table"
 import type { VIEWS } from "./data-search"
 import {
   type DataExport,
+  type DataGate,
   type DataImport,
   EXPORT_COLUMNS,
   FULFILMENT_LABEL,
@@ -38,6 +39,10 @@ import {
 } from "./data-source"
 
 type View = (typeof VIEWS)[number]
+
+/** A control the role may not use: there, disabled, saying what is missing (as `access/gate.tsx` does). */
+const Gate = ({ gate, children }: { gate: DataGate; children: React.ReactElement }) =>
+  gate.ok ? children : <Blocked reason={gate.reason}>{children}</Blocked>
 
 const COPY: Record<View | "overview", { title: string; body: string }> = {
   overview: {
@@ -409,7 +414,7 @@ function PreviewTable({
 }
 
 function ImportView() {
-  const { imports, pending, take, sample, cancel, commit, remove } = useDataSource()
+  const { imports, pending, take, sample, cancel, commit, remove, canImport } = useDataSource()
   const input = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
 
@@ -471,34 +476,36 @@ function ImportView() {
           </div>
         ) :
         (
-          <button
-            type="button"
-            onClick={() => input.current?.click()}
-            onDragOver={(e) => {
-              e.preventDefault()
-              setOver(true)
-            }}
-            onDragLeave={() => setOver(false)}
-            onDrop={(e) => {
-              e.preventDefault()
-              setOver(false)
-              pick(e.dataTransfer.files[0])
-            }}
-            className={cn(
-              "hatch flex flex-col items-center justify-center gap-3 rounded-xl px-10 py-16 text-center transition-colors",
-              over ? "bg-arc-tint" : "bg-paper hover:bg-mist"
-            )}
-          >
-            <span className="flex size-12 items-center justify-center rounded-xl bg-mist">
-              <Upload className="size-6 text-ink-2" strokeWidth={1.75} />
-            </span>
-            <span className="font-medium text-base text-ink">
-              Sleep een CSV hierheen of klik om er een te kiezen
-            </span>
-            <span className="max-w-[420px] text-base text-ink-3 leading-[1.6]">
-              De eerste rij wordt gelezen als kolomnamen.
-            </span>
-          </button>
+          <Gate gate={canImport}>
+            <button
+              type="button"
+              onClick={() => input.current?.click()}
+              onDragOver={(e) => {
+                e.preventDefault()
+                setOver(true)
+              }}
+              onDragLeave={() => setOver(false)}
+              onDrop={(e) => {
+                e.preventDefault()
+                setOver(false)
+                pick(e.dataTransfer.files[0])
+              }}
+              className={cn(
+                "hatch flex flex-col items-center justify-center gap-3 rounded-xl px-10 py-16 text-center transition-colors",
+                over ? "bg-arc-tint" : "bg-paper hover:bg-mist"
+              )}
+            >
+              <span className="flex size-12 items-center justify-center rounded-xl bg-mist">
+                <Upload className="size-6 text-ink-2" strokeWidth={1.75} />
+              </span>
+              <span className="font-medium text-base text-ink">
+                Sleep een CSV hierheen of klik om er een te kiezen
+              </span>
+              <span className="max-w-[420px] text-base text-ink-3 leading-[1.6]">
+                De eerste rij wordt gelezen als kolomnamen.
+              </span>
+            </button>
+          </Gate>
         )}
       <input
         ref={input}
@@ -540,7 +547,7 @@ function ImportView() {
                       >
                         Openen in Tabel
                       </Link>
-                      <Gate perm="data" arg={2}>
+                      <Gate gate={canImport}>
                         <button
                           type="button"
                           onClick={() => remove(b)}
@@ -567,7 +574,7 @@ const toggle = <T extends string>(list: ReadonlyArray<T>, id: T) =>
   list.includes(id) ? list.filter((x) => x !== id) : [...list, id]
 
 function ExportView() {
-  const { orders, imports, counts, useImportRows, exportFile, exporting, exports } = useDataSource()
+  const { orders, imports, counts, useImportRows, exportFile, exporting, exports, canExport } = useDataSource()
   const [source, setSource] = useState("orders")
   const file = imports.find((b) => b.id === source)
   const fileRows = useImportRows(file?.id ?? null)
@@ -643,7 +650,7 @@ function ExportView() {
         <span className="text-base text-ink-2 tabular-nums">
           {count.toLocaleString("nl-NL")} rijen · {header.length} kolommen
         </span>
-        <Gate perm="data.export">
+        <Gate gate={canExport}>
           <button
             type="button"
             disabled={header.length === 0 || count === 0 || exporting}

@@ -3,6 +3,7 @@ import { toast } from "sonner"
 import { exportCsv } from "../lib/bulk"
 import { endpointState, health } from "../lib/developer"
 import { undoable } from "../lib/undo"
+import { useGate } from "../stores/access-store"
 import { useDeveloper } from "../stores/developer-store"
 import { parseCsv, useImports } from "../stores/import-store"
 import { useWorkspace } from "../stores/workspace-store"
@@ -38,6 +39,8 @@ export function DemoDataSource({ children }: { children: ReactNode }) {
   const endpoints = useDeveloper((s) => s.webhooks)
   const deliveries = useDeveloper((s) => s.deliveries)
   const [read, setRead] = useState<Read | null>(null)
+  const canImport = useGate("data", 2)
+  const canExport = useGate("data.export")
   const imports = useMemo(
     () => batches.map((b) => ({ id: b.id, fileName: b.fileName, header: b.header, rowCount: b.rows.length, at: b.at })),
     [batches]
@@ -62,6 +65,8 @@ export function DemoDataSource({ children }: { children: ReactNode }) {
   }
 
   const source: DataSource = {
+    canImport,
+    canExport,
     counts: {
       orders: orders.length,
       importedRows: batches.reduce((n, b) => n + b.rows.length, 0),

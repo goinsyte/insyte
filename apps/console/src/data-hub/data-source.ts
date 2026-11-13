@@ -20,7 +20,7 @@ import { AsyncResult } from "effect/reactivity"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { DATA, dataWrites, importRowsAtom, NO_ROWS } from "../data/data.ts"
-import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
+import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
 import { orderOf } from "../orders/orders-source.ts"
 
 /*
@@ -150,6 +150,8 @@ export function useConsoleDataSource(input: {
     request: useAtomSet(dataWrites.request, { mode: "promiseExit" }),
     undo: useAtomSet(dataWrites.undo, { mode: "promiseExit" })
   }
+  const canImport = useGate("data", 2)
+  const canExport = useGate("data.export")
   const [reading, setReading] = useState<Reading | null>(null)
   const [read, setRead] = useState<{ file: ImportFile; firstRows: ReadonlyArray<ReadonlyArray<string>> } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -324,6 +326,8 @@ export function useConsoleDataSource(input: {
   }, [input.stores, input.overview])
 
   return {
+    canImport,
+    canExport,
     counts: {
       orders: input.overview.orders,
       importedRows: input.overview.importedRows,
