@@ -388,7 +388,9 @@ export const activity = Effect.fn("Home.activity")(function*(input: ActivityInpu
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const stores = yield* inScopeOrNone(sql, "f.store_id")
+      const { storeScope } = yield* CurrentPrincipal
       // Every change the role may see, and every order the store placed, over the last 90 days, with its record named.
+      // A change to a store's record that is gone since names no store: someone held to some stores does not see it.
       const feed = sql`(
         select f.*, ${sql.literal(sourceCase)} as source,
                f.actor_kind || ':' || f.actor_id as actor_key
@@ -396,8 +398,12 @@ export const activity = Effect.fn("Home.activity")(function*(input: ActivityInpu
           select a.id, a.at, a.actor_kind, a.actor_id, a.action, a.subject_type, a.subject_id, a.diff,
                  null::bigint as amount_minor, null::text as currency, null::text as customer,
                  coalesce(o.number, r.number, '#' || t.number::text, p.title, qp.title, s.name, nullif(c.name, '')) as label,
-                 coalesce(o.store_id, r.store_id, t.store_id, p.store_id, qp.store_id, c.store_id) as store_id,
-                 coalesce(u.name, sa.name, sv.label) as actor_name
+                 coalesce(o.store_id, r.store_id, t.store_id, p.store_id, qp.store_id, c.store_id,
+                          case when a.subject_type = 'store' then a.subject_id end) as store_id,
+                 coalesce(u.name, sa.name, sv.label) as actor_name,
+                 a.subject_type in ('order', 'return', 'ticket', 'product', 'quality_check', 'customer')
+                   and coalesce(o.store_id, r.store_id, t.store_id, p.store_id, qp.store_id, c.store_id) is null
+                   as orphan
           from audit_events a
           left join orders o on a.subject_type = 'order' and o.id = a.subject_id
           left join returns r on a.subject_type = 'return' and r.id = a.subject_id
@@ -415,11 +421,11 @@ export const activity = Effect.fn("Home.activity")(function*(input: ActivityInpu
             and a.subject_type = any(${types}) and a.action <> all(${QUIET})
           union all
           select 'placed_' || o.id, o.placed_at, 'shop', o.store_id, 'order.placed', 'order', o.id, '{}'::jsonb,
-                 o.total_minor, o.currency, nullif(o.customer_name, ''), o.number, o.store_id, st.name
+                 o.total_minor, o.currency, nullif(o.customer_name, ''), o.number, o.store_id, st.name, false
           from orders o join stores st on st.id = o.store_id
           where ${can("orders")} and not o.is_draft and o.placed_at > now() - make_interval(days => ${ACTIVITY_DAYS})
         ) f
-        where ${stores})`
+        where ${stores} and (${storeScope === null}::boolean or not f.orphan))`
       const who = input.who === undefined ? sql`true` : sql`x.actor_key = ${input.who}`
       const source = input.source === undefined ? sql`true` : sql`x.source = ${input.source}`
       const after = parseCursor(input.cursor)
