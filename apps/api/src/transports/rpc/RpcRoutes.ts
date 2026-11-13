@@ -16,6 +16,7 @@ import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
 import { HomeService } from "@insyte/modules/home/Home"
 import { InboxService } from "@insyte/modules/inbox/Inbox"
 import { MarketingService } from "@insyte/modules/marketing/Marketing"
+import { MarketplaceService } from "@insyte/modules/marketplace/Marketplace"
 import { Landing } from "@insyte/modules/members/Landing"
 import { Members } from "@insyte/modules/members/Members"
 import { NotificationsService } from "@insyte/modules/notifications/NotificationsService"
@@ -56,6 +57,7 @@ import { ForwardingHandlers } from "./handlers/forwarding.ts"
 import { HomeHandlers } from "./handlers/home.ts"
 import { LandingHandlers } from "./handlers/landing.ts"
 import { MarketingHandlers } from "./handlers/marketing.ts"
+import { MarketplaceHandlers } from "./handlers/marketplace.ts"
 import { MembersHandlers } from "./handlers/members.ts"
 import { NotificationsHandlers } from "./handlers/notifications.ts"
 import { OnboardingHandlers } from "./handlers/onboarding.ts"
@@ -131,6 +133,7 @@ export const RpcContext = Layer.mergeAll(
   TrashHandlers.pipe(Layer.provide(TrashService.layer)),
   SettingsDepthHandlers.pipe(Layer.provide(SettingsDepth.layer)),
   CoursesHandlers.pipe(Layer.provide(CoursesService.layer)),
+  MarketplaceHandlers.pipe(Layer.provide(MarketplaceService.layer)),
   ShellHandlers.pipe(
     Layer.provide(
       Layer.mergeAll(

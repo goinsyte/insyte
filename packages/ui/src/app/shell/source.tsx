@@ -30,7 +30,7 @@ import type { SheetsState } from "../stores/sheets-store";
 import type { TeamState, useSeats as SeatsHook } from "../stores/team-store";
 import type { ViewsState } from "../stores/views-store";
 import type { WorkspaceState } from "../stores/workspace-store";
-import type { useMarketplaceState as MarketplaceStateHook } from "../hooks/use-marketplace-state";
+import type { MarketplaceSource } from "../marketplace/marketplace-source";
 import type { useNavPrefs as NavPrefsHook } from "../hooks/use-nav-prefs";
 import type { CreateKind } from "../stores/create-intent";
 
@@ -89,7 +89,7 @@ export interface ShellSource {
 	currentRole: ReturnType<typeof CurrentRoleHook>;
 	workflows: Record<string, WorkflowState>;
 	supplierOrders: ReadonlyArray<SupplierOrderRow>;
-	marketplace: ReturnType<typeof MarketplaceStateHook>;
+	marketplace: MarketplaceSource;
 	navPrefs: ReturnType<typeof NavPrefsHook>;
 	extensions: ReadonlyArray<Extension>;
 	/** The persona's notifications, minus what their settings keep out of the app. */

@@ -64,7 +64,7 @@ import { RelayLive } from "./Relay.ts"
 import { SealerLive } from "./Seal.ts"
 import { ShopifyAdminChoice, ShopifyGraphqlChoice } from "./Shopify.ts"
 import { ShopifyWritesLive } from "./ShopifyWrites.ts"
-import { SliceLinks } from "./SliceLinks.ts"
+import { AppKeysLive, SliceLinks } from "./SliceLinks.ts"
 import { TrackingChoice } from "./Tracking.ts"
 import { WebhookRunsLive, WebhookSenderChoice } from "./Webhooks.ts"
 
@@ -188,7 +188,9 @@ export const AppLayer = Transports.pipe(
       // …and where one slice's need meets another's use case.
       SliceLinks,
       // …and a webhook delivery's run, for a test send and a redelivery (M19.4).
-      WebhookRunsLive
+      WebhookRunsLive,
+      // …and the Marketplace's recipe apps' keys, under the same hasher (M17).
+      AppKeysLive.pipe(Layer.provide(KeyHasherLive))
     )
   ),
   // better-auth, built per request by the auth routes and the session check, over the app's hooks.

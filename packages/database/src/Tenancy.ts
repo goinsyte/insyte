@@ -117,7 +117,9 @@ export const TENANT_TABLES = [
   "course_modules",
   "courses",
   "course_progress",
-  "course_questions"
+  "course_questions",
+  "app_installs",
+  "app_feedback"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

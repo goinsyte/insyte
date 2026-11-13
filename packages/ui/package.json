@@ -10,6 +10,8 @@
     "./app/chats/commands": "./src/app/chats/commands.ts",
     "./app/chats/records": "./src/app/chats/records.ts",
     "./app/hooks/*": "./src/app/hooks/*.ts",
+    "./app/marketplace/app-catalog": "./src/app/marketplace/app-catalog.ts",
+    "./app/marketplace/marketplace-source": "./src/app/marketplace/marketplace-source.ts",
     "./app/stores/*": "./src/app/stores/*.ts",
     "./app/automations/flow-edits": "./src/app/automations/flow-edits.ts",
     "./app/automations/node-types": "./src/app/automations/node-types.ts",

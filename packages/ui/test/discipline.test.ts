@@ -96,16 +96,21 @@ const graduated = [
   "app/lib/webhooks-core.ts",
   "app/courses/",
   "app/lib/courses.ts",
-  "app/stores/courses-store.ts"
+  "app/stores/courses-store.ts",
+  "app/marketplace/",
+  "app/settings/apps-screen.tsx"
 ]
 
 /**
  * Inside a graduated directory but not yet edited for the backend: the queue panel waits for the proposals branches,
- * E-mail en domein for the sending domain (20.1c).
+ * E-mail en domein for the sending domain (20.1c); the Marketplace's modal and its brand logos are drawn as ported
+ * (M17 step 3 changed only what they read).
  */
 const notYet = new Set([
   "app/dashboard/queue-panel.tsx",
-  "app/settings/depth/email-domain-screen.tsx"
+  "app/settings/depth/email-domain-screen.tsx",
+  "app/marketplace/marketplace-modal.tsx",
+  "app/marketplace/brand-logos.tsx"
 ])
 
 const ported = (name: string): boolean =>
