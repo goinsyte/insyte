@@ -229,7 +229,8 @@ export const SPECIAL_IDS = [
   "ai.autonomy",
   "returns.approve",
   "quality.approve",
-  "products.phase"
+  "products.phase",
+  "costs.write"
 ] as const
 export type SpecialId = (typeof SPECIAL_IDS)[number]
 
@@ -301,6 +302,12 @@ export const SPECIALS: ReadonlyArray<Special> = [
     label: "Zelfstandigheid van Insyte instellen",
     detail: "Bepalen wat de Insyte-agent zelf mag doen, wat hij eerst vraagt, en het AI-budget.",
     needs: { area: "settings", level: 3 }
+  },
+  {
+    id: "costs.write",
+    label: "Kosten bewerken",
+    detail: "Kostenposten toevoegen, wijzigen en verwijderen, en bedragen per maand typen.",
+    needs: { area: "analytics", level: 1 }
   }
 ]
 
@@ -418,7 +425,7 @@ export const SYSTEM_DEFAULTS: Record<string, RoleDef> = {
         billing: 3,
         team: 1
       },
-      ["refunds.write", "disputes.write", "data.export", "billing.invoices"]
+      ["refunds.write", "disputes.write", "data.export", "billing.invoices", "costs.write"]
     )
   },
   view: {
@@ -484,6 +491,7 @@ const ROUTE_AREAS: ReadonlyArray<readonly [string, AreaId, Level]> = [
   ["/chargebacks", "chargebacks", 1],
   ["/automations", "automations", 1],
   ["/analytics", "analytics", 1],
+  ["/costs", "analytics", 1],
   ["/data", "data", 1],
   ["/affiliates", "affiliates", 1],
   ["/settings/team", "team", 1],
@@ -494,6 +502,8 @@ const ROUTE_AREAS: ReadonlyArray<readonly [string, AreaId, Level]> = [
   ["/settings/api-keys", "integrations", 1],
   ["/settings/webhooks", "integrations", 1],
   ["/settings/agents", "integrations", 1],
+  ["/settings/log", "settings", 1],
+  ["/settings/trash", "settings", 2],
   ["/settings/profile", "settings", 1],
   ["/settings/stores", "settings", 1],
   ["/settings/ai/knowledge", "settings", 1],

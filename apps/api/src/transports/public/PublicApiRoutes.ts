@@ -135,6 +135,19 @@ const QueueLive = HttpApiBuilder.group(
     Effect.map(Effect.service(Resources), (act) => handlers.handle("queue", ({ query }) => act.queue(query.tab)))
 )
 
+const CostsLive = HttpApiBuilder.group(
+  PublicApi,
+  "costs",
+  (handlers) =>
+    Effect.map(
+      Effect.service(Resources),
+      (act) =>
+        handlers
+          .handle("costs", ({ query }) => act.costs(query.from, query.to))
+          .handle("figures", ({ query }) => act.costFigures(query.months))
+    )
+)
+
 const ProposalsLive = HttpApiBuilder.group(
   PublicApi,
   "proposals",
@@ -149,6 +162,19 @@ const ProposalsLive = HttpApiBuilder.group(
             ({ params, headers }) =>
               Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.fileProposal(params.id, key))
           )
+    )
+)
+
+const ChargebacksLive = HttpApiBuilder.group(
+  PublicApi,
+  "chargebacks",
+  (handlers) =>
+    Effect.map(
+      Effect.service(Resources),
+      (act) =>
+        handlers
+          .handle("chargebacks", ({ query }) => act.chargebacks(query))
+          .handle("chargeback", ({ params }) => act.chargeback(params.id))
     )
 )
 
@@ -213,6 +239,25 @@ const ReturnsLive = HttpApiBuilder.group(
             "resolve",
             ({ params, payload, headers }) =>
               Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.resolveReturn(params.id, payload, key))
+          )
+    )
+)
+
+const AutomationsLive = HttpApiBuilder.group(
+  PublicApi,
+  "automations",
+  (handlers) =>
+    Effect.map(
+      Effect.service(Resources),
+      (act) =>
+        handlers
+          .handle("automations", ({ query }) => act.automations(query.status))
+          .handle("automation", ({ params }) => act.automation(params.id))
+          .handle("runs", ({ params, query }) => act.runs(params.id, query))
+          .handle(
+            "startRun",
+            ({ params, payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.startRun(params.id, payload, key))
           )
     )
 )
@@ -282,9 +327,12 @@ export const PublicApiRoutes = Layer.mergeAll(
       ForwardingLive,
       ReturnsLive,
       TicketsLive,
+      AutomationsLive,
       AnalyticsLive,
       QueueLive,
-      ProposalsLive
+      ProposalsLive,
+      ChargebacksLive,
+      CostsLive
     )
   ),
   Layer.provide(ApiKeyAuthLive)

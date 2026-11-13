@@ -1,8 +1,12 @@
 import { CurrentPrincipal } from "@insyte/domain/Principal"
+import { restore as restoreAutomations } from "@insyte/modules/automations/use-cases/commands"
+import { restore as restoreChargebacks } from "@insyte/modules/chargebacks/Chargebacks"
 import { ActionFailed, ChatCommands } from "@insyte/modules/chats/Links"
 import { restore as restoreChats } from "@insyte/modules/chats/use-cases/commands"
+import { restore as restoreCosts } from "@insyte/modules/costs/use-cases/commands"
 import { KlaviyoSyncs } from "@insyte/modules/customers/domain/Ports"
 import { restore as restoreCustomers } from "@insyte/modules/customers/use-cases/commands"
+import { restore as restoreWebhooks } from "@insyte/modules/developer/use-cases/webhooks"
 import { restore as restoreForwarding } from "@insyte/modules/forwarding/use-cases/commands"
 import { ensureLegs } from "@insyte/modules/forwarding/use-cases/legs"
 import { ThreadTickets } from "@insyte/modules/inbox/domain/Ports"
@@ -23,6 +27,8 @@ import { approve as approveReturns, restore as restoreReturns } from "@insyte/mo
 import { shopifyReturn } from "@insyte/modules/returns/use-cases/mirror"
 import { parcelUpdated } from "@insyte/modules/returns/use-cases/parcels"
 import { linkReplacements } from "@insyte/modules/returns/use-cases/shopify"
+import { restoreErasing } from "@insyte/modules/settings/use-cases/retention"
+import { restore as restoreSettings } from "@insyte/modules/settings/use-cases/sections"
 import { MirrorFollowers } from "@insyte/modules/stores/domain/Ports"
 import { StoreMirror } from "@insyte/modules/stores/Mirror"
 import { ShopifyReturns } from "@insyte/modules/stores/ShopifyReturns"
@@ -31,6 +37,8 @@ import {
   assign as assignTicket,
   create as createTicket,
   fromThread,
+  purgeIn as purgeTickets,
+  putBack as putBackTickets,
   removeFromThread,
   restore as restoreTickets,
   setStatus as setTicketStatus
@@ -38,6 +46,7 @@ import {
 import { numberOf } from "@insyte/modules/tickets/use-cases/tickets"
 import { ReturnParcels } from "@insyte/modules/tracking/Parcels"
 import { ensureDeliveries } from "@insyte/modules/tracking/use-cases/tracking"
+import { TrashKinds } from "@insyte/modules/trash/TrashKinds"
 import { type Compensation, UndoCompensations } from "@insyte/modules/undo/domain/Ports"
 import { Effect, Layer } from "effect"
 
@@ -58,6 +67,7 @@ import { Effect, Layer } from "effect"
  *   AfterShip       → a return's parcel, for the returns slice (M9.2)
  *   the inbox       → a ticket made from a thread, and taken away again (M11 step 2)
  *   a chat command  → an order's note or cancellation, a ticket made, assigned or moved (M11.4), and its undo
+ *   the Prullenbak  → each kind's own put-back and purge (M17 step 20.1a)
  */
 
 const MirrorFollowersLive = Layer.succeed(MirrorFollowers, {
@@ -83,11 +93,17 @@ const compensations: Record<string, Compensation> = {
   "forwarding.restore": restoreForwarding,
   "returns.restore": restoreReturns,
   "tickets.restore": restoreTickets,
+  "automations.restore": restoreAutomations,
+  "chargebacks.restore": restoreChargebacks,
   "inbox.restore": (sql, compensation) =>
     restoreInbox(sql, compensation).pipe(Effect.provideService(ThreadTickets, threadTickets)),
   "quality.restore": restoreQuality,
   "queue.restore": restoreQueue,
   "notifications.restore": restoreNotifications,
+  "costs.restore": restoreCosts,
+  "settings.restore": restoreSettings,
+  "retention.restore": restoreErasing,
+  "webhooks.restore": restoreWebhooks,
   // A filed plate's Undo spends the command's own token and runs that command's compensation from this same table.
   "proposals.restore": (sql, compensation) =>
     restoreProposal(sql, compensation, {
@@ -199,6 +215,14 @@ const ChatCommandsLive = Layer.succeed(ChatCommands, {
   }
 })
 
+/** The Prullenbak's kinds, also for the daily sweep (`TrashSweep.ts`). */
+export const TrashKindsLive = Layer.succeed(TrashKinds, {
+  ticket: {
+    restore: (ids) => Effect.map(putBackTickets({ ids }), (change) => (change.undo === null ? [] : [change.undo])),
+    purge: purgeTickets
+  }
+})
+
 const RefunderLive = Layer.succeed(Refunder, {
   refund: (sql, input) =>
     Effect.map(
@@ -225,7 +249,8 @@ export const SliceLinks = StoreMirror.layer.pipe(
       KlaviyoSyncsLive,
       ReturnParcelsLive,
       ShopifyReturnsLive,
-      ThreadTicketsLive
+      ThreadTicketsLive,
+      TrashKindsLive
     )
   )
 )

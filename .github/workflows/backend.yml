@@ -123,6 +123,10 @@ jobs:
         working-directory: infra
       - run: bunx alchemy deploy app.ts --stage "$STAGE" --yes --no-input
         working-directory: infra
+      # Throwaway: every run starts from preview-base, so a migration numbered below one this branch applied earlier
+      # (it landed on staging later) still applies. Only `pr-<n>` branches whose parent is preview-base are reset.
+      - name: reset the preview's branch to preview-base
+        run: bun scripts/neon-branch-reset.ts "$STAGE"
       - name: migrate the preview's branch
         run: bun run db:migrate --env preview --host "$(bun scripts/neon-branch-host.ts "$STAGE")"
         env:

@@ -3,7 +3,9 @@ import { isReplyAddress, receiveReply } from "@insyte/modules/notifications/use-
 import { env, tracing } from "cloudflare:workers"
 import { ManagedRuntime } from "effect"
 import { HttpRouter } from "effect/http"
+import { adSpendSweep } from "./platform/AdSpend.ts"
 import { AppLayer, BackgroundLayer } from "./platform/AppLayer.ts"
+import { deadlineSweep } from "./platform/Deadlines.ts"
 import type { Env } from "./platform/Env.ts"
 import { parseMail } from "./platform/InboundMail.ts"
 import { ingest, type IngestMessage, reconcile, syncRuntime, trackingSweep } from "./platform/Ingest.ts"
@@ -15,9 +17,13 @@ import {
   factsSweep,
   notifySweep,
   queueSweep,
-  sweep
+  sweep,
+  webhooksRearm,
+  webhooksSweep
 } from "./platform/Relay.ts"
 import { withRequestDb } from "./platform/RequestDb.ts"
+import { retentionSweep } from "./platform/Retention.ts"
+import { trashSweep } from "./platform/TrashSweep.ts"
 
 // The Durable Object classes this Worker hosts; infra and `wrangler.jsonc` bind them by these names.
 export { RateLimiter } from "./platform/RateLimiter.ts"
@@ -26,11 +32,15 @@ export { RoomDurableObject } from "./platform/Room.ts"
 export { ConnectionGateObject } from "./platform/ConnectionGate.ts"
 export { ShopifyBackfillWorkflow } from "./workflows/ShopifyBackfill.ts"
 // A store's first analysis (M6.5).
+export { EvidencePackWorkflow } from "./workflows/EvidencePack.ts"
 export { FirstAnalysisWorkflow } from "./workflows/FirstAnalysis.ts"
 export { ForwardSendWorkflow } from "./workflows/ForwardSend.ts"
 export { MarketingSyncWorkflow } from "./workflows/MarketingSync.ts"
 export { ReturnLabelWorkflow } from "./workflows/ReturnLabel.ts"
+// A flow's run (M12 step 3).
+export { AutomationRunWorkflow } from "./workflows/AutomationRun.ts"
 export { ShopifyWriteWorkflow } from "./workflows/ShopifyWrite.ts"
+export { WebhookDeliveryWorkflow } from "./workflows/WebhookDelivery.ts"
 
 /** Module scope: the layer is built once per isolate, and building it does no request-time I/O. */
 const web = HttpRouter.toWebHandler(AppLayer)
@@ -81,13 +91,17 @@ export default {
     }
   },
 
-  /** Every minute (on staging every fifteenth, `infra/app.ts`): the relay's sweep for events a kick missed and the
-   * notes quiet hours or a failed try held back (M11.5); every fifteenth, the stores' reconcile (M6.3), the tracking sweep (M8.4), Start's queue (M10.1), the
-   * daily facts (M10.4, at 02:00 UTC their nightly pass) and the members' daily digests (M11.5). */
+  /** Every minute (on staging every fifteenth, `infra/app.ts`): the relay's sweep for events a kick missed, the
+   * notes quiet hours or a failed try held back (M11.5) and the webhook deliveries whose run never started or died
+   * (M19.4); every fifteenth, the stores' reconcile (M6.3), the tracking sweep (M8.4), Start's queue (M10.1), the
+   * daily facts (M10.4, at 02:00 UTC their nightly pass), the members' daily digests (M11.5) and the webhook
+   * deliveries past 30 days (M19.4); on the hour, the chargeback deadline reminders (M13 step 3); at 03:00 UTC the
+   * Prullenbak's sweep (M17); at 04:00 UTC the day's ad spend from every connected ad account (M13 step 5). */
   scheduled(controller, _env, ctx) {
     ctx.waitUntil(background.runPromise(withRequestDb(sweep())).finally(() => Telemetry.flush()))
     ctx.waitUntil(background.runPromise(withRequestDb(notifySweep())).finally(() => Telemetry.flush()))
     const at = new Date(controller.scheduledTime)
+    ctx.waitUntil(background.runPromise(withRequestDb(webhooksRearm(at))).finally(() => Telemetry.flush()))
     if (at.getUTCMinutes() % 15 === 0) {
       const nightly = at.getUTCHours() === 2 && at.getUTCMinutes() === 0
       ctx.waitUntil(background.runPromise(withRequestDb(factsSweep(nightly))).finally(() => Telemetry.flush()))
@@ -96,6 +110,21 @@ export default {
       // Start's queue (M10.1): what no event says, a stock-out or a review coming due.
       ctx.waitUntil(background.runPromise(withRequestDb(queueSweep())).finally(() => Telemetry.flush()))
       ctx.waitUntil(background.runPromise(withRequestDb(digestSweep(at))).finally(() => Telemetry.flush()))
+      // On the hour: the chargeback deadline reminders that have come (M13 step 3).
+      if (at.getUTCMinutes() === 0) {
+        ctx.waitUntil(background.runPromise(withRequestDb(deadlineSweep(at))).finally(() => Telemetry.flush()))
+      }
+      // The Prullenbak's items past their 30 days, once a day at 03:00 UTC (M17 step 20.1a).
+      if (at.getUTCHours() === 3 && at.getUTCMinutes() === 0) {
+        ctx.waitUntil(background.runPromise(withRequestDb(trashSweep())).finally(() => Telemetry.flush()))
+      }
+      if (at.getUTCHours() === 4 && at.getUTCMinutes() === 0) {
+        ctx.waitUntil(background.runPromise(withRequestDb(adSpendSweep())).finally(() => Telemetry.flush()))
+      }
+      // The nightly erase of what is past its retention, at 03:00 in each workspace's timezone (M17 step 20.1b).
+      ctx.waitUntil(background.runPromise(withRequestDb(retentionSweep(at))).finally(() => Telemetry.flush()))
+      // Webhook deliveries older than 30 days (M19.4).
+      ctx.waitUntil(background.runPromise(withRequestDb(webhooksSweep())).finally(() => Telemetry.flush()))
     }
   }
 } satisfies ExportedHandler<Env, EventsMessage | IngestMessage>
