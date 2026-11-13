@@ -61,6 +61,8 @@
     { "binding": "EVIDENCE_PACK", "name": "insyte-evidence-pack", "class_name": "EvidencePackWorkflow" },
     // A flow's run (M12 step 3): its pinned version, step by step.
     { "binding": "AUTOMATION_RUN", "name": "insyte-automation-run", "class_name": "AutomationRunWorkflow" },
+    // A webhook delivery's attempts (M19.4): one per delivery, sleeping out the retry schedule.
+    { "binding": "WEBHOOK_DELIVERY", "name": "insyte-webhook-delivery", "class_name": "WebhookDeliveryWorkflow" },
   ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] },

@@ -23,6 +23,8 @@ import { connectionOf } from "./slack.ts"
  * - `chargeback.opened`, `chargeback.deadline_near`: whoever may see chargebacks hears of a new case at or above the
  *   workspace's threshold, and that a case's deadline is coming (M13 step 3), within the stores they may see;
  * - `automation.notify`: who a run's "Team waarschuwen" names, or who watches a flow whose run failed (M12 step 3).
+ * - `webhook.disabled`: the owner and whoever may change the integrations (Bewerken) hear Insyte switched an endpoint
+ *   off.
  *
  * A member deactivated or removed hears nothing. Who has "Alleen als het mij betreft" on for the kind hears only of
  * what concerns them directly (they were put on it, named in it, asked for it or sent the invitation). The in-app switch
@@ -319,6 +321,24 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             deadlineAt: c.deadlineAt.getTime(),
             ...(event.type === "chargeback.deadline_near" ? { offset: event.offset } : {})
           }
+        }
+      }
+      case "webhook.disabled": {
+        // Insyte switched a webhook endpoint off after five failed attempts in a row (M19.4).
+        const [endpoint] = yield* sql<{ url: string }>`
+          select url from webhook_endpoints where id = ${event.endpointId} and deleted_at is null`
+        if (endpoint === undefined) return undefined
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'integrations')::int, 0) >= 2)`
+        return {
+          kind: "integration.disconnected",
+          recipients: recipients.map((r) => r.id),
+          subjectType: "webhook_endpoint",
+          subjectId: event.endpointId,
+          actor: null,
+          data: { url: endpoint.url }
         }
       }
       default:

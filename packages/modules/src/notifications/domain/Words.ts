@@ -174,6 +174,15 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
         path: `/chargebacks/${id}`
       }
     }
+    case "integration.disconnected":
+      // A webhook endpoint Insyte switched off (M19.4).
+      return {
+        title: "Insyte heeft een webhook-endpoint uitgezet",
+        detail: "Na 5 mislukte leveringen op rij. Er gaan geen events meer heen tot je het weer aanzet.",
+        record: text(data["url"]) || undefined,
+        actionLabel: "Endpoint bekijken",
+        path: `/settings/webhooks${query({ endpoint: id })}`
+      }
     default:
       return { title: "Er is een nieuwe melding voor je", actionLabel: "Meldingen openen", path: "/notifications" }
   }

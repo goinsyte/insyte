@@ -64,6 +64,7 @@ import { ShopifyAdminChoice, ShopifyGraphqlChoice } from "./Shopify.ts"
 import { ShopifyWritesLive } from "./ShopifyWrites.ts"
 import { SliceLinks } from "./SliceLinks.ts"
 import { TrackingChoice } from "./Tracking.ts"
+import { WebhookRunsLive, WebhookSenderChoice } from "./Webhooks.ts"
 
 /*
  * The composition root (16 §5): every implementation is chosen here, and the layer is built once per isolate. Nothing
@@ -180,7 +181,9 @@ export const AppLayer = Transports.pipe(
       // …and a flow's runs: "Opnieuw", stopping one, the answer to "Goedkeuring vragen" (M12 step 5).
       AutomationRunsLive,
       // …and where one slice's need meets another's use case.
-      SliceLinks
+      SliceLinks,
+      // …and a webhook delivery's run, for a test send and a redelivery (M19.4).
+      WebhookRunsLive
     )
   ),
   // better-auth, built per request by the auth routes and the session check, over the app's hooks.
@@ -233,7 +236,9 @@ export const BackgroundLayer = Layer.mergeAll(
   SealerLive,
   NoteRepliesLive,
   // Ad spend from Meta and Google Ads (M13 step 5): not configured until Insyte has their app keys.
-  AdSpendLive
+  AdSpendLive,
+  // A committed fact's webhook deliveries, each started on its own run (M19.4).
+  WebhookRunsLive
 ).pipe(
   Layer.provideMerge(HyperdriveConnect),
   Layer.provideMerge(ObservabilityLive),
@@ -264,7 +269,9 @@ export const SyncLayer = Layer.mergeAll(
   DocumentsChoice,
   FileStoreR2,
   // Where one slice's need meets another's use case: the mirror's followers, a write-back's read again.
-  SliceLinks
+  SliceLinks,
+  // A webhook delivery's attempt (M19.4): the endpoint, over fetch.
+  WebhookSenderChoice
 )
   .pipe(
     Layer.provideMerge(HyperdriveConnect),

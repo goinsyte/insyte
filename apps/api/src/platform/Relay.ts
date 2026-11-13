@@ -5,6 +5,14 @@ import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { AutomationRuns } from "@insyte/modules/automations/domain/Ports"
 import { startRuns } from "@insyte/modules/automations/use-cases/engine"
 import { EvidencePacks } from "@insyte/modules/chargebacks/domain/Ports"
+import type { WebhookRuns } from "@insyte/modules/developer/domain/Ports"
+import {
+  expire as expireDeliveries,
+  fanOut as webhookFanOut,
+  isWebhookSource,
+  rearm as rearmDeliveries,
+  startFor as startWebhookRuns
+} from "@insyte/modules/developer/use-cases/deliveries"
 import {
   drainIn,
   drainWorkspace,
@@ -79,6 +87,7 @@ type SinkServices =
   | WebPush
   | Slack
   | Sealer
+  | WebhookRuns
 
 /** What a sink does with an event, in the event's workspace; `undefined` when the event is not its business. */
 interface Sink {
@@ -126,6 +135,7 @@ const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefine
       }
     case "access.requested":
     case "access.decided":
+    case "webhook.disabled":
       // Notifications are their business (M5); the product events do not count them.
       return undefined
     case "store.synced":
@@ -447,7 +457,8 @@ const NOTIFIED = new Set<OutboxEvent["type"]>([
   "quality_check.submitted",
   "chargeback.opened",
   "chargeback.deadline_near",
-  "automation.notify"
+  "automation.notify",
+  "webhook.disabled"
 ])
 
 const SINKS: ReadonlyArray<Sink> = [
@@ -576,6 +587,12 @@ const SINKS: ReadonlyArray<Sink> = [
         : undefined
   },
   {
+    // The public events a fact is (M19.4): a delivery per subscribed endpoint; `deliver` starts their runs after commit.
+    name: "webhooks",
+    run: (id, event, sql) =>
+      isWebhookSource(event) ? webhookFanOut(sql, id, event).pipe(Effect.asVoid, Effect.orDie) : undefined
+  },
+  {
     name: "posthog",
     run: (id, event) => {
       const product = productEventOf(id, event)
@@ -588,14 +605,17 @@ const SINKS: ReadonlyArray<Sink> = [
 
 const decodeEvent = Schema.decodeUnknownEffect(Schema.toType(Schema.Struct({ type: Schema.String })))
 
-/** Delivers these events, each in its workspace's scope, each sink once. */
+/**
+ * Delivers these events, each in its workspace's scope, each sink once; then, outside the event's transaction, the
+ * runs of the webhook deliveries it made (a run that started inside it could look for a row not yet committed).
+ */
 export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyArray<string>) {
   const db = yield* Db
   const owners = yield* db.unscopedForCron((sql) =>
     sql<{ id: string; workspaceId: string }>`select id, workspace_id from outbox_workspaces(${[...outboxIds]})`
   )
   for (const { id, workspaceId } of owners) {
-    yield* db.scopedFor((sql) =>
+    const relayed = yield* db.scopedFor((sql) =>
       Effect.gen(function*() {
         const [row] = yield* sql<
           {
@@ -610,7 +630,7 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
                  coalesce(not_before, created_at) > now() as early
           from outbox where id = ${id} for update skip locked`
         // Relayed already, undone, or still inside its undo window (the sweep brings it when it is due).
-        if (row === undefined || row.relayedAt !== null || row.cancelled || row.early) return
+        if (row === undefined || row.relayedAt !== null || row.cancelled || row.early) return undefined
         yield* decodeEvent({ type: row.event })
         const event = { type: row.event, ...row.payload } as OutboxEvent
         for (const sink of SINKS) {
@@ -621,10 +641,22 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
           if (claimed.length > 0) yield* run
         }
         yield* sql`update outbox set relayed_at = now(), attempts = attempts + 1 where id = ${id}`
+        return event
       })
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId }))
+    if (relayed !== undefined && isWebhookSource(relayed)) yield* startWebhookRuns(id, relayed)
   }
 })
+
+/** Every minute: webhook deliveries whose run never started or died, re-armed (M19.4); `at` is the cron's time. */
+export const webhooksRearm = Effect.fn("Relay.webhooksRearm")(function*(at: Date) {
+  return yield* rearmDeliveries(at)
+}, Effect.orDie)
+
+/** Every 15 minutes: webhook deliveries past their 30 days, in every workspace (M19.4). */
+export const webhooksSweep = Effect.fn("Relay.webhooksSweep")(function*() {
+  return yield* expireDeliveries()
+}, Effect.orDie)
 
 /** The minute cron's sweep: every due event a kick missed, back onto the queue in batches. */
 export const sweep = Effect.fn("Relay.sweep")(function*() {

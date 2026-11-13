@@ -8,6 +8,7 @@ import { ChatsService } from "@insyte/modules/chats/Chats"
 import { CostsService } from "@insyte/modules/costs/Costs"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import { ApiKeys } from "@insyte/modules/developer/ApiKeys"
+import { Webhooks } from "@insyte/modules/developer/Webhooks"
 import { FirstAnalysisService } from "@insyte/modules/first-analysis/FirstAnalysis"
 import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
 import { HomeService } from "@insyte/modules/home/Home"
@@ -94,7 +95,7 @@ export const RpcContext = Layer.mergeAll(
   LandingHandlers.pipe(Layer.provide(Landing.layer)),
   AccessHandlers.pipe(Layer.provide(Access.layer)),
   RolesHandlers.pipe(Layer.provide(RolesService.layer)),
-  DeveloperHandlers.pipe(Layer.provide(ApiKeys.layer)),
+  DeveloperHandlers.pipe(Layer.provide(Layer.mergeAll(ApiKeys.layer, Webhooks.layer))),
   PrefsHandlers.pipe(Layer.provide(PrefsService.layer)),
   NotificationsHandlers.pipe(Layer.provide(NotificationsService.layer)),
   StoresHandlers.pipe(Layer.provide(StoresService.layer)),

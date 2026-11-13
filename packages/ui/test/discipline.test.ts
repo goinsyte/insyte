@@ -85,7 +85,14 @@ const graduated = [
   "app/chargebacks/",
   "app/automations/",
   "app/costs/",
-  "app/settings/depth/"
+  "app/settings/depth/",
+  "app/settings/webhooks-screen.tsx",
+  "app/settings/webhooks-page.tsx",
+  "app/developer/webhook-dialog.tsx",
+  "app/developer/delivery-drawer.tsx",
+  "app/developer/webhooks-source.tsx",
+  "app/developer/webhooks-demo-source.tsx",
+  "app/lib/webhooks-core.ts"
 ]
 
 /**

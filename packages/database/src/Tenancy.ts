@@ -109,7 +109,9 @@ export const TENANT_TABLES = [
   "cost_line_amounts",
   "ad_spend_day",
   "workspace_settings",
-  "retention_runs"
+  "retention_runs",
+  "webhook_endpoints",
+  "webhook_deliveries"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

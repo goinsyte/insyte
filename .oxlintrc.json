@@ -118,7 +118,15 @@
     // WorkspaceSettings.* and Retention.* in M17 (step 20.1b); Logboek and Prullenbak graduated in 20.1a. E-mail en
     // domein (20.1c) follows.
     "!packages/ui/src/app/settings/depth/**",
-    "packages/ui/src/app/settings/depth/email-domain-screen.tsx"
+    "packages/ui/src/app/settings/depth/email-domain-screen.tsx",
+    // Graduated (08 §3): Instellingen → Webhooks, wired to Webhooks.* in step 19a (M19.4).
+    "!packages/ui/src/app/settings/webhooks-screen.tsx",
+    "!packages/ui/src/app/settings/webhooks-page.tsx",
+    "!packages/ui/src/app/developer/webhook-dialog.tsx",
+    "!packages/ui/src/app/developer/delivery-drawer.tsx",
+    "!packages/ui/src/app/developer/webhooks-source.tsx",
+    "!packages/ui/src/app/developer/webhooks-demo-source.tsx",
+    "!packages/ui/src/app/lib/webhooks-core.ts"
   ],
   "rules": {
     "no-console": "warn",
