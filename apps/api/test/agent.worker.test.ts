@@ -202,7 +202,7 @@ describe("autonomy and the agent log", () => {
 
   it("keeps the AI budgets per month, refusing a person not in the team", async () => {
     const budgets = ok(await rpc("AiBudget.get", undefined, owner.cookie))
-    expect(budgets).toMatchObject({ metered: false, workspace: { limit: null, used: 0 } })
+    expect(budgets).toMatchObject({ metered: true, workspace: { limit: null, used: 0 } })
     const saved = ok(await rpc("AiBudget.setMany", { entries: [{ scope: "workspace", limit: 50 }] }, owner.cookie))
     expect(saved.budgets.workspace.limit).toBe(50)
     expect(failure(await rpc("AiBudget.setMany", { entries: [{ scope: "mem_none", limit: 5 }] }, owner.cookie)))
