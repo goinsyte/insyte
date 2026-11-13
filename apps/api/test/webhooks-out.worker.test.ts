@@ -7,7 +7,7 @@ import {
 } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
-import worker from "../src/Main.ts"
+import worker from "../src/Local.ts"
 import { failure, join, ok, pastUndo, person, relay, run } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { rpc } from "./support.ts"

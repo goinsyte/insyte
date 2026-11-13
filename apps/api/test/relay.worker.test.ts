@@ -8,7 +8,7 @@ import {
 import { env } from "cloudflare:workers"
 import { Exit } from "effect"
 import { describe, expect, it } from "vitest"
-import worker from "../src/Main.ts"
+import worker from "../src/Local.ts"
 import type { EventsMessage } from "../src/platform/Relay.ts"
 import { call, onboarding, sessionMe } from "./support.ts"
 

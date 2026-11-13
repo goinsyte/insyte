@@ -1,6 +1,7 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
 import * as Neon from "@alchemy.run/neon"
 import * as Alchemy from "alchemy"
+import type { Input } from "alchemy/Input"
 import { Config, Effect, Layer, Option, Redacted } from "effect"
 import { SENTRY_LOGS, SENTRY_TRACES } from "./shared.ts"
 import { COMPATIBILITY_DATE, WORKERS } from "./workers.ts"
@@ -205,128 +206,148 @@ export default Alchemy.Stack(
       jurisdiction: "eu"
     })
 
-    const api = yield* Cloudflare.Worker("Api", {
-      name: `insyte-api-${stage}`,
+    /*
+     * The Workflows (ADR-0011), all hosted by the jobs Worker; one per stage. `host` is the jobs Worker's script for a
+     * cross-script binding (the API's), or undefined where it is hosted. A Workflow keeps its name, and so its
+     * instances, when its host changes: alchemy updates it in place (ADR-0041 step 4 moved them from the API).
+     */
+    const workflow = (name: string, className: string, workflowName: string, host?: Input<string>) =>
+      Cloudflare.Workflow(name, {
+        className,
+        workflowName: `insyte-${workflowName}-${stage}`,
+        ...(host === undefined ? {} : { scriptName: host })
+      })
+    const workflows = (host?: Input<string>) => ({
+      // A store's first import (M6.3).
+      SHOPIFY_BACKFILL: workflow("ShopifyBackfill", "ShopifyBackfillWorkflow", "shopify-backfill", host),
+      // A store's first analysis (M6.5).
+      FIRST_ANALYSIS: workflow("FirstAnalysis", "FirstAnalysisWorkflow", "first-analysis", host),
+      // An order change to Shopify (M7.1).
+      SHOPIFY_WRITE: workflow("ShopifyWrite", "ShopifyWriteWorkflow", "shopify-write", host),
+      // A marketing sync's send to Klaviyo (M7.5).
+      MARKETING_SYNC: workflow("MarketingSync", "MarketingSyncWorkflow", "marketing-sync", host),
+      // A forward's delivery to its suppliers (M8.2).
+      FORWARD_SEND: workflow("ForwardSend", "ForwardSendWorkflow", "forward-send", host),
+      // A return's label from the carrier (M9.2).
+      RETURN_LABEL: workflow("ReturnLabel", "ReturnLabelWorkflow", "return-label", host),
+      // A case's evidence pack (M13 step 4).
+      EVIDENCE_PACK: workflow("EvidencePack", "EvidencePackWorkflow", "evidence-pack", host),
+      // A flow's run (M12 step 3).
+      AUTOMATION_RUN: workflow("AutomationRun", "AutomationRunWorkflow", "automation-run", host),
+      // A webhook delivery's attempts (M19.4).
+      WEBHOOK_DELIVERY: workflow("WebhookDelivery", "WebhookDeliveryWorkflow", "webhook-delivery", host),
+      // The supplier statements' monthly close (M13 step 6).
+      MONTHLY_CLOSE: workflow("MonthlyClose", "MonthlyCloseWorkflow", "monthly-close", host)
+    })
+
+    /** What both Workers read: the database, files, the relay's queue, and the configuration the slices share. */
+    const shared = {
+      HYPERDRIVE: hyperdrive,
+      FILES: files,
+      // Browser Rendering (M8.5): packing slips as PDF, and an evidence pack's documents (M13 step 4).
+      BROWSER: Cloudflare.Browser("BROWSER"),
+      // The relay's kick (M1.4): whoever commits an event puts its id here.
+      EVENTS: events,
+      ENVIRONMENT: environment,
+      // better-auth: cookies, links in mail and the CSRF check name the console's origin (18 §2).
+      CONSOLE_ORIGIN: `https://${consoleHost}`,
+      BETTER_AUTH_SECRET: Config.Redacted("BETTER_AUTH_SECRET"),
+      VERSION: yield* Config.String("GITHUB_SHA").pipe(Config.withDefault("dev")),
+      LOG_LEVEL: environment === "preview" ? "Debug" : "Info",
+      // Spans to Sentry over OTLP (17 §7). The header carries the project's public key; bound as a secret anyway.
+      OTEL_TRACES_EXPORTER: yield* Config.String("OTEL_TRACES_EXPORTER").pipe(Config.withDefault("none")),
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: yield* Config.String("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT").pipe(
+        Config.withDefault("")
+      ),
+      OTEL_EXPORTER_OTLP_HEADERS: Config.Redacted("OTEL_EXPORTER_OTLP_HEADERS"),
+      OTEL_BSP_SCHEDULE_DELAY: yield* Config.String("OTEL_BSP_SCHEDULE_DELAY").pipe(Config.withDefault("3600000")),
+      // Invite-only (M2.2): beside `beta_allowlist`, the reserved test domain is admitted off production, for the tests.
+      BETA_ALLOWED_DOMAINS: environment === "production" ? "" : "example.com",
+      ...google,
+      ...seal,
+      ...shopify,
+      ...klaviyo,
+      ...vapid,
+      ...slack,
+      ...aftership,
+      ...sendcloud,
+      ...mail,
+      // An unset GitHub variable arrives empty, not missing: empty means the default.
+      MAIL_FROM: (yield* Config.String("MAIL_FROM").pipe(Config.withDefault(""))) ||
+        "Insyte <noreply@mail.goinsyte.com>"
+    }
+
+    /*
+     * The jobs Worker (ADR-0041): the queue consumers, the cron and the Workflows, and the Durable Objects they publish
+     * into. It serves no request, so it has no hostname. It deploys before the API, which binds to its classes.
+     */
+    const jobs = yield* Cloudflare.Worker("Jobs", {
+      name: `insyte-jobs-${stage}`,
       // Entry and compatibility in `workers.ts`, which the startup check bundles from too.
-      ...WORKERS.api,
+      ...WORKERS.jobs,
       placement: { region: "aws:eu-central-1" },
       ...(environment === "preview" ? {} : { crons: [environment === "production" ? "* * * * *" : "*/15 * * * *"] }),
+      workersDev: false,
+      observability: OBSERVABILITY,
+      env: {
+        ...shared,
+        ...workflows(),
+        // The realtime rooms (M5.1): sockets and presence only. Moved here from the API (ADR-0041 step 4), whose
+        // realtime route reaches them cross-script; `transferredFrom` is inert once moved and on a new stage.
+        ROOMS: Cloudflare.DurableObject("Rooms", { className: "RoomDurableObject", transferredFrom: "Api" }),
+        // The gate per external account (M6.3): token and bucket, in memory. Moved the same way.
+        CONNECTION_GATE: Cloudflare.DurableObject("ConnectionGate", {
+          className: "ConnectionGateObject",
+          transferredFrom: "Api"
+        }),
+        OTEL_SERVICE_NAME: "insyte-jobs"
+      }
+    })
+
+    const api = yield* Cloudflare.Worker("Api", {
+      name: `insyte-api-${stage}`,
+      ...WORKERS.api,
+      placement: { region: "aws:eu-central-1" },
       // The public API and the MCP server (M19.2, M19.3) on the Worker's own hostname; the rest only through the console.
       workersDev: true,
       observability: OBSERVABILITY,
       env: {
-        HYPERDRIVE: hyperdrive,
-        FILES: files,
-        // Browser Rendering (M8.5): packing slips as PDF, and an evidence pack's documents (M13 step 4).
-        BROWSER: Cloudflare.Browser("BROWSER"),
-        EVENTS: events,
+        ...shared,
+        // Its Workflows and Durable Objects are the jobs Worker's.
+        ...workflows(jobs.workerName),
+        ROOMS: Cloudflare.DurableObject("Rooms", { className: "RoomDurableObject", scriptName: jobs.workerName }),
+        CONNECTION_GATE: Cloudflare.DurableObject("ConnectionGate", {
+          className: "ConnectionGateObject",
+          scriptName: jobs.workerName
+        }),
+        // Shopify's webhooks (M6.3): the receiver puts a delivery's id here.
         INGEST: ingest,
         // The edge guards' counters (M2.3), hosted by this Worker (`RateLimiter` in Main.ts); SQLite-backed.
         RATE_LIMITER: Cloudflare.DurableObject("RateLimiter", { className: "RateLimiter" }),
-        // The realtime rooms (M5.1), hosted by this Worker (`RoomDurableObject` in Main.ts): sockets and presence only.
-        ROOMS: Cloudflare.DurableObject("Rooms", { className: "RoomDurableObject" }),
-        // The gate per external account (M6.3), hosted by this Worker (`ConnectionGateObject`): token and bucket.
-        CONNECTION_GATE: Cloudflare.DurableObject("ConnectionGate", { className: "ConnectionGateObject" }),
         // The live rooms (M14 step 3), hosted by this Worker (`LiveRoomDurableObject`): visitors in memory only.
         LIVE: Cloudflare.DurableObject("Live", { className: "LiveRoomDurableObject" }),
-        // A store's first import (M6.3), hosted by this Worker (`ShopifyBackfillWorkflow`); one per stage.
-        SHOPIFY_BACKFILL: Cloudflare.Workflow("ShopifyBackfill", {
-          className: "ShopifyBackfillWorkflow",
-          workflowName: `insyte-shopify-backfill-${stage}`
-        }),
-        // A store's first analysis (M6.5), hosted by this Worker (`FirstAnalysisWorkflow`); one per stage.
-        FIRST_ANALYSIS: Cloudflare.Workflow("FirstAnalysis", {
-          className: "FirstAnalysisWorkflow",
-          workflowName: `insyte-first-analysis-${stage}`
-        }),
-        // An order change to Shopify (M7.1), hosted by this Worker (`ShopifyWriteWorkflow`); one per stage.
-        SHOPIFY_WRITE: Cloudflare.Workflow("ShopifyWrite", {
-          className: "ShopifyWriteWorkflow",
-          workflowName: `insyte-shopify-write-${stage}`
-        }),
-        // A marketing sync's send to Klaviyo (M7.5), hosted by this Worker (`MarketingSyncWorkflow`); one per stage.
-        MARKETING_SYNC: Cloudflare.Workflow("MarketingSync", {
-          className: "MarketingSyncWorkflow",
-          workflowName: `insyte-marketing-sync-${stage}`
-        }),
-        // A forward's delivery to its suppliers (M8.2), hosted by this Worker (`ForwardSendWorkflow`); one per stage.
-        FORWARD_SEND: Cloudflare.Workflow("ForwardSend", {
-          className: "ForwardSendWorkflow",
-          workflowName: `insyte-forward-send-${stage}`
-        }),
-        // A return's label from the carrier (M9.2), hosted by this Worker (`ReturnLabelWorkflow`); one per stage.
-        RETURN_LABEL: Cloudflare.Workflow("ReturnLabel", {
-          className: "ReturnLabelWorkflow",
-          workflowName: `insyte-return-label-${stage}`
-        }),
-        // A case's evidence pack (M13 step 4), hosted by this Worker (`EvidencePackWorkflow`); one per stage.
-        EVIDENCE_PACK: Cloudflare.Workflow("EvidencePack", {
-          className: "EvidencePackWorkflow",
-          workflowName: `insyte-evidence-pack-${stage}`
-        }),
-        // A flow's run (M12 step 3), hosted by this Worker (`AutomationRunWorkflow`); one per stage.
-        AUTOMATION_RUN: Cloudflare.Workflow("AutomationRun", {
-          className: "AutomationRunWorkflow",
-          workflowName: `insyte-automation-run-${stage}`
-        }),
-        // A webhook delivery's attempts (M19.4), hosted by this Worker (`WebhookDeliveryWorkflow`); one per stage.
-        WEBHOOK_DELIVERY: Cloudflare.Workflow("WebhookDelivery", {
-          className: "WebhookDeliveryWorkflow",
-          workflowName: `insyte-webhook-delivery-${stage}`
-        }),
-        // The supplier statements' monthly close (M13 step 6), hosted by this Worker (`MonthlyCloseWorkflow`); one per stage.
-        MONTHLY_CLOSE: Cloudflare.Workflow("MonthlyClose", {
-          className: "MonthlyCloseWorkflow",
-          workflowName: `insyte-monthly-close-${stage}`
-        }),
-        ENVIRONMENT: environment,
         // Where `Main.ts` serves `/v1` and nothing else.
         PUBLIC_API_HOST: `insyte-api-${stage}.${WORKERS_SUBDOMAIN}`,
-        // better-auth: cookies, links in mail and the CSRF check name the console's origin (18 §2).
-        CONSOLE_ORIGIN: `https://${consoleHost}`,
-        BETTER_AUTH_SECRET: Config.Redacted("BETTER_AUTH_SECRET"),
-        VERSION: yield* Config.String("GITHUB_SHA").pipe(Config.withDefault("dev")),
-        LOG_LEVEL: environment === "preview" ? "Debug" : "Info",
         OTEL_SERVICE_NAME: "insyte-api",
-        // Spans to Sentry over OTLP (17 §7). The header carries the project's public key; bound as a secret anyway.
-        OTEL_TRACES_EXPORTER: yield* Config.String("OTEL_TRACES_EXPORTER").pipe(Config.withDefault("none")),
-        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: yield* Config.String("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT").pipe(
-          Config.withDefault("")
-        ),
-        OTEL_EXPORTER_OTLP_HEADERS: Config.Redacted("OTEL_EXPORTER_OTLP_HEADERS"),
-        OTEL_BSP_SCHEDULE_DELAY: yield* Config.String("OTEL_BSP_SCHEDULE_DELAY").pipe(Config.withDefault("3600000")),
         SENTRY_DSN: yield* Config.String("SENTRY_DSN").pipe(Config.withDefault("")),
         TURNSTILE_SITE_KEY: widget?.sitekey ?? "1x00000000000000000000AA",
         TURNSTILE_SECRET_KEY: widget?.secret ?? Redacted.make("1x0000000000000000000000000000000AA"),
-        // Invite-only (M2.2): beside `beta_allowlist`, the reserved test domain is admitted off production, for the tests.
-        BETA_ALLOWED_DOMAINS: environment === "production" ? "" : "example.com",
         // Previews sit behind Access, and their browser tests all come from one CI runner: no limits per IP there.
-        IP_LIMITS: environment === "preview" ? "off" : "on",
-        ...google,
-        ...seal,
-        ...shopify,
-        ...klaviyo,
-        ...vapid,
-        ...slack,
-        ...aftership,
-        ...sendcloud,
-        ...mail,
-        // An unset GitHub variable arrives empty, not missing: empty means the default.
-        MAIL_FROM: (yield* Config.String("MAIL_FROM").pipe(Config.withDefault(""))) ||
-          "Insyte <noreply@mail.goinsyte.com>"
+        IP_LIMITS: environment === "preview" ? "off" : "on"
       }
     })
 
+    // The relay's events and Shopify's deliveries are consumed by the jobs Worker; their dead letters stay put.
     yield* Cloudflare.Queues.Consumer("EventsConsumer", {
       queueId: events.queueId,
-      scriptName: api.workerName,
+      scriptName: jobs.workerName,
       deadLetterQueue: deadEvents.queueName,
       settings: { batchSize: 10, maxWaitTimeMs: 1000, maxRetries: 5 }
     })
 
     yield* Cloudflare.Queues.Consumer("IngestConsumer", {
       queueId: ingest.queueId,
-      scriptName: api.workerName,
+      scriptName: jobs.workerName,
       deadLetterQueue: deadIngest.queueName,
       settings: { batchSize: 10, maxWaitTimeMs: 1000, maxRetries: 8 }
     })
@@ -369,6 +390,6 @@ export default Alchemy.Stack(
       policies: [{ decision: "bypass", include: ["everyone"] }]
     })
 
-    return { console: console.url.as<string>(), api: api.workerName, branch: branch?.branchId }
+    return { console: console.url.as<string>(), api: api.workerName, jobs: jobs.workerName, branch: branch?.branchId }
   })
 )

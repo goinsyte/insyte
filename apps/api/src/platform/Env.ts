@@ -17,7 +17,8 @@ import type { RoomDurableObject } from "./Room.ts"
 
 /*
  * What `env` holds (02 §5.1). Merged into `Cloudflare.Env`, which types `env` from `cloudflare:workers`. Bindings join
- * with the step that first uses them, with the name infra gives them.
+ * with the step that first uses them, with the name infra gives them. One interface for both Workers (ADR-0041): each
+ * deployed Worker is given the part it reads (`infra/app.ts`), and the local Worker (`Local.ts`) all of it.
  */
 declare global {
   namespace Cloudflare {
@@ -68,7 +69,7 @@ declare global {
       readonly SLACK_CLIENT_ID?: string
       readonly SLACK_CLIENT_SECRET?: string
       readonly SLACK_ADAPTER?: string
-      /** Shopify's webhooks (M6.3): received deliveries' ids, applied by this Worker's `queue` handler. */
+      /** Shopify's webhooks (M6.3): received deliveries' ids, applied by the jobs Worker's `queue` handler. */
       readonly INGEST: Queue<IngestMessage>
       /** Lines per backfill page, 2000 by default; the worker tests read small pages. */
       readonly SYNC_PAGE_LINES?: string
@@ -78,7 +79,7 @@ declare global {
       readonly BROWSER: BrowserRun
       /** `html` in the worker tests, which have no browser: the slip is stored as its HTML. */
       readonly DOCUMENTS_ADAPTER?: string
-      /** The outbox relay's queue (M1.4): committed events' ids, consumed by this Worker's `queue` handler. */
+      /** The outbox relay's queue (M1.4): committed events' ids, consumed by the jobs Worker's `queue` handler. */
       readonly EVENTS: Queue<EventsMessage>
       readonly ENVIRONMENT: "local" | "preview" | "staging" | "production"
       /**
