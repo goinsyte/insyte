@@ -166,7 +166,14 @@ const VALUES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   weekStart: { mon: "Maandag", sun: "Zondag", sat: "Zaterdag" }
 }
 
-const euros = new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR", maximumFractionDigits: 0 })
+/**
+ * Made on first use: the first `Intl` formatter an isolate makes loads its locale's data, and at module scope that
+ * counted against the API Worker's startup limit.
+ */
+let euroFormat: Intl.NumberFormat | undefined
+const euros = (amount: number): string =>
+  (euroFormat ??= new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }))
+    .format(amount)
 
 /** A value as the page shows it: a word for a code, a unit for a number, "—" for nothing. */
 const said = (field: string | null, value: unknown): string => {
@@ -174,7 +181,7 @@ const said = (field: string | null, value: unknown): string => {
   if (typeof value === "boolean") return value ? "Aan" : "Uit"
   if (field === "retention" && typeof value === "number") return `${value} dagen`
   if (field === "delayHours" && typeof value === "number") return `${value} uur`
-  if (field === "disputeAmountMinor" && typeof value === "number") return euros.format(value / 100)
+  if (field === "disputeAmountMinor" && typeof value === "number") return euros(value / 100)
   if (typeof value === "string") return (field === null ? undefined : VALUES[field]?.[value]) ?? value
   if (typeof value === "number") return String(value)
   return JSON.stringify(value)
