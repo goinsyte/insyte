@@ -7,10 +7,12 @@ import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import {
+  AiModel,
   Draft,
   type DraftSubject,
   type KnowledgeAnswer,
   LatestDraft,
+  ModelUnavailable,
   type ReplyInput,
   ThreadSummary,
   TicketSummary
@@ -26,7 +28,14 @@ import { threadFacts, ticketFacts, ticketSummaryFacts } from "./context.ts"
  * taken, for the counts). A ticket's summary goes into its activity as Insyte's line; a thread's is kept as a draft.
  *
  * Each model call runs outside a transaction (`inTx` opens one per step), so a slow model never holds a connection.
+ *
+ * A thread's first draft is written once for the customer's last message, whoever asks and however many tabs ask: the
+ * one there is is answered again, a second ask while the first is out is `busy` (`ai_reservations`' key), and for a
+ * short while after the model failed on it Insyte does not ask again (`COOL_DOWN`).
  */
+
+/** After a failed first draft, how long a thread waits before Insyte asks the model again. */
+const COOL_DOWN_SECONDS = 120
 
 type Row = {
   id: string
@@ -80,6 +89,25 @@ const ticketInScope = Effect.fn("Ai.ticketInScope")(function*(sql: SqlClient.Sql
   if (t === undefined) return yield* new NotFound({ entity: "ticket", id: ticketId })
 })
 
+/** The thread, if it is there: the inbox is the workspace's, no store narrows it. */
+const threadThere = Effect.fn("Ai.threadThere")(function*(sql: SqlClient.SqlClient, threadId: string) {
+  const [t] = yield* sql`select 1 from email_threads where id = ${threadId} and deleted_at is null`
+  if (t === undefined) return yield* new NotFound({ entity: "thread", id: threadId })
+})
+
+/** The subject, if the principal reaches it. */
+const subjectInScope = (sql: SqlClient.SqlClient, subject: DraftSubject) =>
+  subject.type === "thread" ? threadThere(sql, subject.id) : ticketInScope(sql, subject.id)
+
+/** The thread's last inbound message, by when Insyte received it (a sender's `Date:` can say anything). */
+const lastInbound = (sql: SqlClient.SqlClient, threadId: string) =>
+  Effect.map(
+    sql<{ id: string; createdAt: Date }>`
+      select id, created_at from email_messages where thread_id = ${threadId} and direction = 'inbound'
+      order by created_at desc, id desc limit 1`,
+    ([m]) => m
+  )
+
 const subjectFacts = (sql: SqlClient.SqlClient, subject: DraftSubject) =>
   subject.type === "thread"
     ? Effect.map(threadFacts(sql, subject.id), (f) => f.context)
@@ -121,20 +149,47 @@ export const reply = Effect.fn("Ai.reply")(function*(inTx: InTx<CurrentPrincipal
     // A rewrite names its tone and the draft it rewrites, both or neither.
     return yield* new Invalid({ fields: { parentDraftId: "required" } })
   }
-  const { context, previous } = yield* inTx((sql) =>
+  const first = input.subject.type === "thread" && input.parentDraftId === undefined
+  const { context, previous, existing, dedupeKey } = yield* inTx((sql) =>
     Effect.gen(function*() {
       const facts = yield* subjectFacts(sql, input.subject)
-      if (input.parentDraftId === undefined) return { context: facts, previous: null }
+      if (first) {
+        // A thread's first draft for its last message: the one there is, or one call for it.
+        const inbound = yield* lastInbound(sql, input.subject.id)
+        const [had] = inbound === undefined ? [] : yield* sql<Row>`
+          ${select(sql)}
+          where d.subject_type = 'thread' and d.subject_id = ${input.subject.id} and d.kind = 'reply'
+            and d.tone is null and d.created_at >= ${inbound.createdAt}
+          order by d.created_at desc limit 1`
+        if (had !== undefined) return { context: facts, previous: null, existing: draftOf(had), dedupeKey: undefined }
+        const [failed] = yield* sql`
+          select 1 from model_calls
+          where subject_type = 'thread' and subject_id = ${input.subject.id} and prompt_id = ${replyPrompt.id}
+            and outcome <> 'ok' and created_at > now() - make_interval(secs => ${COOL_DOWN_SECONDS})
+          limit 1`
+        if (failed !== undefined) return yield* new ModelUnavailable({ reason: "failed" })
+        return {
+          context: facts,
+          previous: null,
+          existing: undefined,
+          dedupeKey: `reply:thread:${input.subject.id}:${inbound?.id ?? "none"}`
+        }
+      }
+      if (input.parentDraftId === undefined) {
+        return { context: facts, previous: null, existing: undefined, dedupeKey: undefined }
+      }
       const [parent] = yield* sql<{ text: string }>`
         select text from drafts where id = ${input.parentDraftId} and kind = 'reply'
           and subject_type = ${input.subject.type} and subject_id = ${input.subject.id}`
       if (parent === undefined) return yield* new NotFound({ entity: "draft", id: input.parentDraftId })
-      return { context: facts, previous: parent.text }
+      return { context: facts, previous: parent.text, existing: undefined, dedupeKey: undefined }
     })
   )
+  if (existing !== undefined) return existing
   const rewrite = input.tone === undefined || previous === null ? null : { tone: input.tone, previous }
   const called = yield* call(inTx, callerFor(input.subject), replyPrompt, { ...context, rewrite }, {
-    guard: (o) => o.text.trim() !== ""
+    guard: (o) => o.text.trim() !== "",
+    dedupeKey
   })
   return yield* inTx((sql) =>
     insert(sql, {
@@ -153,6 +208,15 @@ export const reply = Effect.fn("Ai.reply")(function*(inTx: InTx<CurrentPrincipal
 /** The draft went into the composer ("Gebruiken"): counted as taken. Taking it twice is taking it once. */
 export const use = Effect.fn("Ai.use")(function*(sql: SqlClient.SqlClient, id: string) {
   yield* Policy.require("support", 2)
+  // Only a draft about something the principal reaches: a ticket in another store is not theirs to take.
+  const [subject] = yield* sql<{ subjectType: string; subjectId: string }>`
+    select subject_type, subject_id from drafts where id = ${id}`
+  if (subject === undefined || (subject.subjectType !== "thread" && subject.subjectType !== "ticket")) {
+    return yield* new NotFound({ entity: "draft", id })
+  }
+  yield* subjectInScope(sql, { type: subject.subjectType, id: subject.subjectId }).pipe(
+    Effect.catchTag("NotFound", () => Effect.fail(new NotFound({ entity: "draft", id })))
+  )
   const rows = yield* sql<Row>`
     with used as (update drafts set used_at = coalesce(used_at, now()) where id = ${id} returning id)
     ${select(sql)} where d.id in (select id from used)`
@@ -163,22 +227,25 @@ export const use = Effect.fn("Ai.use")(function*(sql: SqlClient.SqlClient, id: s
 
 /**
  * The thread's or ticket's latest reply draft, while it still answers the customer's last message, and whether the
- * principal may ask for one: not on a thread the team answered last. The inbox asks for a draft when there is none and
- * it may.
+ * principal may ask for one: not on a thread the team answered last, and not where the stage has no model. The inbox
+ * asks for a draft when there is none and it may. "Last" is by when Insyte received or sent the mail, not by the
+ * sender's `Date:`: a mail dated next year must not make every opening ask again.
  */
 export const latest = Effect.fn("Ai.latest")(function*(sql: SqlClient.SqlClient, subject: DraftSubject) {
   yield* Policy.require("support", 1)
   const { role } = yield* CurrentPrincipal
-  const may = canRole({ ...role, stores: role.stores === "all" ? "all" : [...role.stores] }, "support", 2)
+  const model = yield* AiModel
+  const may = model.ready &&
+    canRole({ ...role, stores: role.stores === "all" ? "all" : [...role.stores] }, "support", 2)
   let since: Date | null = null
   let answered = false
   if (subject.type === "thread") {
     const [t] = yield* sql<{ lastInbound: Date | null; lastDirection: string | null }>`
-      select (select max(sent_at) from email_messages m where m.thread_id = t.id and m.direction = 'inbound')
+      select (select max(created_at) from email_messages m where m.thread_id = t.id and m.direction = 'inbound')
                as last_inbound,
              (select direction from email_messages m where m.thread_id = t.id
-              and (m.direction = 'inbound' or m.send_state is distinct from 'failed')
-              order by sent_at desc limit 1) as last_direction
+              and (m.direction = 'inbound' or m.send_state is distinct from 'failed') and m.kind <> 'forward'
+              order by created_at desc, id desc limit 1) as last_direction
       from email_threads t where t.id = ${subject.id} and t.deleted_at is null`
     if (t === undefined) return yield* new NotFound({ entity: "thread", id: subject.id })
     if (t.lastInbound === null) return new LatestDraft({ draft: null, canDraft: false })
@@ -226,7 +293,7 @@ export const summarizeThread = Effect.fn("Ai.summarizeThread")(
   function*(inTx: InTx<CurrentPrincipal>, threadId: string) {
     yield* Policy.require("support", 1)
     const callerFor = yield* callerOf
-    const facts = yield* inTx((sql) => threadFacts(sql, threadId))
+    const facts = yield* inTx((sql) => threadFacts(sql, threadId, true))
     const subject = { type: "thread", id: threadId } as const
     const called = yield* call(inTx, callerFor(subject), threadSummaryPrompt, {
       subject: facts.context.subject,

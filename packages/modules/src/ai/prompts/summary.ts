@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { dataBlock } from "../domain/Guards.ts"
-import { DATA_RULE, definePrompt, FIGURE_RULE, VOICE } from "./Prompt.ts"
+import { DATA_RULE, definePrompt, FIGURE_RULE, MAX_TOKENS, VOICE } from "./Prompt.ts"
 
 /*
  * Summaries (M15 step 2; widgets/04 the ticket's "Samenvatten"): for the team, not the customer. A ticket's lands in
@@ -43,14 +43,15 @@ only. Return only the summary in the "text" field.`
 
 export const ticketSummaryPrompt = definePrompt<TicketSummaryContext, typeof Output.Type>({
   id: "ticket_summary",
-  version: "1.0.0",
+  version: "1.1.0",
   purpose: "summarize",
   effort: "low",
-  maxTokens: 800,
+  maxTokens: MAX_TOKENS,
   system: SYSTEM,
   render: (c) =>
     [
-      `Ticket #${c.number}: ${c.title}`,
+      `Ticket #${c.number}:`,
+      dataBlock("titel", c.title),
       `Status: ${c.status}. Prioriteit: ${c.priority}.`,
       `Toegewezen aan: ${c.assignees.length === 0 ? "niemand" : c.assignees.join(", ")}`,
       c.related === null ? "" : `Gaat over: ${c.related}`,
@@ -73,14 +74,14 @@ export const ticketSummaryPrompt = definePrompt<TicketSummaryContext, typeof Out
 
 export const threadSummaryPrompt = definePrompt<ThreadSummaryContext, typeof Output.Type>({
   id: "thread_summary",
-  version: "1.0.0",
+  version: "1.1.0",
   purpose: "summarize",
   effort: "low",
-  maxTokens: 800,
+  maxTokens: MAX_TOKENS,
   system: SYSTEM,
   render: (c) =>
     [
-      `Onderwerp: ${c.subject}`,
+      dataBlock("onderwerp", c.subject),
       `Berichten: ${c.messages.length}`,
       ...c.messages.map((m) => dataBlock(m.from === "klant" ? "klantbericht" : "teambericht", `${m.on}\n${m.text}`))
     ].join("\n\n"),

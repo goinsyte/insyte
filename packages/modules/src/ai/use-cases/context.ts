@@ -1,13 +1,18 @@
 import { NotFound } from "@insyte/domain/Errors"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import { firstName } from "../domain/Guards.ts"
 import type { ReplyContext, ReplyMessage, ReplyOrder } from "../prompts/reply.ts"
 
 /*
  * What a prompt reads of a record (ai.md §6.4): the thread or the ticket, the customer's first name, the facts of
- * their few latest orders. Never their address, phone, email or payment details, and nothing of another customer.
- * Long mail is cut: a reply answers the last messages, not the whole history.
+ * their few latest orders in the stores the principal reaches. Never their address, phone, email or payment details,
+ * and nothing of another customer. Long mail is cut: a reply answers the last messages, not the whole history.
+ *
+ * A reply is written for the customer, so it reads only what the customer may read: their mail and the team's replies
+ * to it, never a forward (the team's mail to a supplier or a colleague) or a ticket's description. Mail is in the order
+ * Insyte received it (`created_at`); its `Date:` header is the sender's to set.
  */
 
 const MESSAGES = 8
@@ -52,6 +57,7 @@ const ordersOf = Effect.fn("Ai.ordersOf")(function*(
   tz: string
 ) {
   if (ids.orderId === null && ids.customerId === null) return [] as ReadonlyArray<ReplyOrder>
+  const scope = yield* inScope(sql, "o.store_id")
   const rows = yield* sql<{
     number: string
     status: string
@@ -64,7 +70,7 @@ const ordersOf = Effect.fn("Ai.ordersOf")(function*(
     from orders o
     left join lateral (select carrier, tracking_number, delivered_at from fulfilments
                        where order_id = o.id order by shipped_at desc nulls last limit 1) f on true
-    where not o.is_draft and (o.id = ${ids.orderId} or o.customer_id = ${ids.customerId})
+    where not o.is_draft and (o.id = ${ids.orderId} or o.customer_id = ${ids.customerId}) and ${scope}
     order by (o.id = ${ids.orderId}) desc nulls last, o.placed_at desc limit 3`
   const day = dayIn(tz)
   return rows.map((r): ReplyOrder => ({
@@ -85,21 +91,26 @@ const brandOf = (sql: SqlClient.SqlClient, customerId: string | null, workspace:
 
 export interface ThreadFacts {
   readonly context: Omit<ReplyContext, "rewrite">
-  /** The last inbound message's time: a draft older than it answers an earlier question. */
+  /** When the last inbound message arrived: a draft older than it answers an earlier question. */
   readonly lastInboundAt: number | null
 }
 
-/** A thread as a reply reads it. */
-export const threadFacts = Effect.fn("Ai.threadFacts")(function*(sql: SqlClient.SqlClient, threadId: string) {
+/** A thread as a reply reads it; its summary reads the team's forwards too (`forwards`). */
+export const threadFacts = Effect.fn("Ai.threadFacts")(function*(
+  sql: SqlClient.SqlClient,
+  threadId: string,
+  forwards = false
+) {
   const [t] = yield* sql<{ subject: string; customerId: string | null; ticketId: string | null }>`
     select subject, customer_id, ticket_id from email_threads where id = ${threadId} and deleted_at is null`
   if (t === undefined) return yield* new NotFound({ entity: "thread", id: threadId })
   const { tz, workspace } = yield* timezone(sql)
   const day = dayIn(tz)
-  const rows = yield* sql<{ direction: string; fromName: string; bodyText: string; sentAt: Date }>`
-    select direction, from_name, body_text, sent_at from email_messages
+  const rows = yield* sql<{ direction: string; fromName: string; bodyText: string; sentAt: Date; createdAt: Date }>`
+    select direction, from_name, body_text, sent_at, created_at from email_messages
     where thread_id = ${threadId} and (direction = 'inbound' or send_state is distinct from 'failed')
-    order by sent_at desc limit ${MESSAGES}`
+      and (${forwards} or kind <> 'forward')
+    order by created_at desc limit ${MESSAGES}`
   const messages = oldestFirst(rows).map((m): ReplyMessage => ({
     from: m.direction === "inbound" ? "klant" : "team",
     on: day(m.sentAt) ?? "",
@@ -116,26 +127,27 @@ export const threadFacts = Effect.fn("Ai.threadFacts")(function*(sql: SqlClient.
       firstName: firstName(name),
       subject: t.subject,
       messages,
-      orders: yield* ordersOf(sql, { orderId: null, customerId: t.customerId }, tz),
-      note: null
+      orders: yield* ordersOf(sql, { orderId: null, customerId: t.customerId }, tz)
     },
-    lastInboundAt: inbound === undefined ? null : inbound.sentAt.getTime()
+    lastInboundAt: inbound === undefined ? null : inbound.createdAt.getTime()
   } satisfies ThreadFacts
 })
 
-/** A ticket as a reply reads it: its description, the customer, the order it is about; the team's notes stay out. */
+/**
+ * A ticket as a reply reads it: its title, the customer, the order it is about, and the mail with the customer on
+ * it. Its description and the team's notes are the team's own and stay out.
+ */
 export const ticketFacts = Effect.fn("Ai.ticketFacts")(function*(sql: SqlClient.SqlClient, ticketId: string) {
   const [t] = yield* sql<{
     number: string
     title: string
-    description: string
     status: string
     priority: string
     orderId: string | null
     customerId: string | null
     orderCustomer: string | null
   }>`
-    select t.number, t.title, t.description, t.status, t.priority, t.order_id,
+    select t.number, t.title, t.status, t.priority, t.order_id,
            coalesce(t.customer_id, o.customer_id) as customer_id, o.customer_name as order_customer
     from tickets t left join orders o on o.id = t.order_id
     where t.id = ${ticketId} and t.deleted_at is null`
@@ -147,8 +159,9 @@ export const ticketFacts = Effect.fn("Ai.ticketFacts")(function*(sql: SqlClient.
   const mail = yield* sql<{ direction: string; bodyText: string; sentAt: Date }>`
     select m.direction, m.body_text, m.sent_at from email_messages m
     join email_threads th on th.id = m.thread_id
-    where th.ticket_id = ${ticketId} and th.deleted_at is null
-    order by m.sent_at desc limit ${MESSAGES}`
+    where th.ticket_id = ${ticketId} and th.deleted_at is null and m.kind <> 'forward'
+      and (m.direction = 'inbound' or m.send_state is distinct from 'failed')
+    order by m.created_at desc limit ${MESSAGES}`
   return {
     via: "ticket",
     brand: yield* brandOf(sql, t.customerId, workspace),
@@ -159,8 +172,7 @@ export const ticketFacts = Effect.fn("Ai.ticketFacts")(function*(sql: SqlClient.
       on: day(m.sentAt) ?? "",
       text: cut(m.bodyText)
     })),
-    orders: yield* ordersOf(sql, { orderId: t.orderId, customerId: t.customerId }, tz),
-    note: t.description === "" ? null : cut(t.description)
+    orders: yield* ordersOf(sql, { orderId: t.orderId, customerId: t.customerId }, tz)
   } satisfies Omit<ReplyContext, "rewrite">
 })
 

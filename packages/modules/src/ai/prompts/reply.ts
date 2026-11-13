@@ -1,11 +1,15 @@
 import { Schema } from "effect"
 import { dataBlock } from "../domain/Guards.ts"
-import { DATA_RULE, definePrompt, FIGURE_RULE, VOICE } from "./Prompt.ts"
+import { DATA_RULE, definePrompt, FIGURE_RULE, MAX_TOKENS, VOICE } from "./Prompt.ts"
 
 /*
  * A reply draft (M15 step 2; widgets/04 inbox draft card and the ticket's "Antwoord voorstellen"): the thread or the
  * ticket, the customer's first name, and the facts of their recent orders, nothing else about them (ai.md §6.4).
  * Warmer and Korter rewrite the draft before it, with the same facts.
+ *
+ * What the customer reads is written only from what the customer may read: their own messages, the team's replies to
+ * them and their orders. A ticket's description and the team's forwards are the team's own words and stay out (the
+ * summaries read them). Everything that came from outside, the subject and the name too, is inside a data block.
  */
 
 export interface ReplyOrder {
@@ -32,8 +36,6 @@ export interface ReplyContext {
   readonly subject: string
   readonly messages: ReadonlyArray<ReplyMessage>
   readonly orders: ReadonlyArray<ReplyOrder>
-  /** A ticket's own description: the team's words about it. */
-  readonly note: string | null
   /** A rewrite: the draft before it and how to change it. */
   readonly rewrite: { readonly tone: "warmer" | "korter"; readonly previous: string } | null
 }
@@ -83,10 +85,10 @@ const fake = (c: ReplyContext): { text: string } => {
 
 export const replyPrompt = definePrompt<ReplyContext, typeof Output.Type>({
   id: "reply_draft",
-  version: "1.0.0",
+  version: "1.1.0",
   purpose: "draft",
   effort: "low",
-  maxTokens: 2000,
+  maxTokens: MAX_TOKENS,
   system: `You draft customer-service replies for a Dutch webshop's team. A person on the team reads every draft,
 edits it if needed and sends it themselves; you never send anything.
 
@@ -103,9 +105,8 @@ never guess. Do not mention that you are an AI. Return only the reply text in th
   render: (c) =>
     [
       `Winkel: ${c.brand}`,
-      `Voornaam klant: ${c.firstName === "" ? "(onbekend)" : c.firstName}`,
-      `Onderwerp: ${c.subject}`,
-      c.note === null ? "" : dataBlock("ticketnotitie", c.note),
+      c.firstName === "" ? "Voornaam klant: (onbekend)" : dataBlock("voornaam_klant", c.firstName),
+      dataBlock("onderwerp", c.subject),
       c.orders.length === 0 ? "Bestellingen: geen gevonden." : `Bestellingen:\n${c.orders.map(orderLine).join("\n")}`,
       ...c.messages.map((m) => dataBlock(m.from === "klant" ? "klantbericht" : "teambericht", `${m.on}\n${m.text}`)),
       c.rewrite === null ? "" : dataBlock("vorig_concept", c.rewrite.previous),
