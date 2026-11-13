@@ -11,6 +11,7 @@
  */
 import { spawnSync } from "node:child_process"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { cpus } from "node:os"
 import { join, resolve } from "node:path"
 import { bundleWorker } from "../infra/bundle.ts"
 import { parseJsonc } from "./lib/jsonc.ts"
@@ -82,6 +83,8 @@ const measure = async (worker: Worker) => {
 }
 
 mkdirSync(OUT, { recursive: true })
+// Runners differ in CPU, and so do their numbers: the log says which one measured.
+console.log(`startup:check: on ${cpus()[0]?.model ?? "an unknown CPU"} (${cpus().length} cores)`)
 const errors: Array<string> = []
 for (const worker of workers) {
   const runs = await measure(worker)
@@ -93,9 +96,10 @@ for (const worker of workers) {
   )
   errors.push(...checkStartup(worker, runs, budgetMs))
 }
+// On stdout like the measurements above, so a CI log shows them in order.
 if (errors.length > 0) {
-  console.error("\nstartup:check failed:")
-  for (const e of errors) console.error(`  ${e}`)
-  console.error("\nThe budget only goes down: make startup cheaper (ADR-0041), do not raise the budget.\n")
+  console.log("\nstartup:check failed:")
+  for (const e of errors) console.log(`  ${e}`)
+  console.log("\nThe budget only goes down: make startup cheaper (ADR-0041), do not raise the budget.\n")
   process.exit(1)
 }
