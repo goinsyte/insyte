@@ -6,6 +6,7 @@ import { LiveService } from "@insyte/modules/live/Live"
 import { QualityLinkService } from "@insyte/modules/quality/Quality"
 import { PortalService } from "@insyte/modules/returns/Portal"
 import { StoresService } from "@insyte/modules/stores/Stores"
+import { SupplierPortalService } from "@insyte/modules/supplier-portal/SupplierPortal"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Config, Effect, Layer } from "effect"
 import { FetchHttpClient, type HttpClient, HttpServer } from "effect/http"
@@ -13,6 +14,7 @@ import { KeyDoor } from "../transports/public/KeyDoor.ts"
 import { AuthenticatedLive } from "../transports/rpc/AuthenticatedLive.ts"
 import { MemberLive } from "../transports/rpc/MemberLive.ts"
 import { ShopperLive } from "../transports/rpc/ShopperLive.ts"
+import { SupplierContactLive } from "../transports/rpc/SupplierContactLive.ts"
 import { ViewerLive } from "../transports/rpc/ViewerLive.ts"
 import { WithDbLive } from "../transports/rpc/WithDbLive.ts"
 import { AnalysesLive } from "./Analyses.ts"
@@ -152,6 +154,7 @@ export const onServices = <A, E, R>(routes: Layer.Layer<A, E, R>) =>
     // …the signed-in person if any, and where a returns portal call came from (M9.3).
     Layer.provideMerge(Layer.mergeAll(ViewerLive, ShopperLive)),
     Layer.provideMerge(MemberLive.pipe(Layer.provide(Workspaces.layer))),
+    Layer.provideMerge(SupplierContactLive.pipe(Layer.provide(SupplierPortalService.layer))),
     // better-auth, built per request by the auth routes and the session check, over the app's hooks.
     Layer.provideMerge(BetterAuth.layer),
     Layer.provideMerge(AuthHooksLive),

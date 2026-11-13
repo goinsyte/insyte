@@ -22,6 +22,7 @@ import { restore as restoreReturns } from "@insyte/modules/returns/use-cases/com
 import { restoreErasing } from "@insyte/modules/settings/use-cases/retention"
 import { restore as restoreSettings } from "@insyte/modules/settings/use-cases/sections"
 import { restore as restoreSheets } from "@insyte/modules/sheets/use-cases/commands"
+import { restore as restoreSupplierPortal } from "@insyte/modules/supplier-portal/SupplierPortal"
 import { restore as restoreSuppliers } from "@insyte/modules/suppliers/use-cases/commands"
 import { restore as restoreTickets } from "@insyte/modules/tickets/use-cases/commands"
 import { type Compensation, UndoCompensations } from "@insyte/modules/undo/domain/Ports"
@@ -39,6 +40,7 @@ export const compensations: Record<string, Compensation> = {
   "customers.restore": restoreCustomers,
   "marketing.restore": restoreMarketing,
   "suppliers.restore": restoreSuppliers,
+  "supplier_portal.restore": restoreSupplierPortal,
   "forwarding.restore": restoreForwarding,
   "returns.restore": restoreReturns,
   "tickets.restore": restoreTickets,

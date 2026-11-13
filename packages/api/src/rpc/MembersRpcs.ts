@@ -5,9 +5,11 @@ import {
   MemberRef,
   SeatLimitReached,
   SendInvitations,
+  SendSupplierInvitations,
   SetInvitationRole,
   SetLink,
   SetMemberRole,
+  SupplierInvitationsSent,
   Team
 } from "@insyte/modules/members/domain/Team"
 import { Schema } from "effect"
@@ -27,6 +29,12 @@ export class MembersRpcs extends RpcGroup.make(
     payload: SendInvitations,
     success: Team,
     error: Schema.Union([Forbidden, Invalid, SeatLimitReached])
+  }),
+  // A supplier's person to its portal (M16 step 2): `suppliers` at Beheren; no seat.
+  Rpc.make("Invitations.sendSupplier", {
+    payload: SendSupplierInvitations,
+    success: SupplierInvitationsSent,
+    error: Schema.Union([Forbidden, Invalid])
   }),
   Rpc.make("Invitations.revoke", { payload: InvitationRefs, success: Team, error: Forbidden }),
   Rpc.make("Invitations.restore", {

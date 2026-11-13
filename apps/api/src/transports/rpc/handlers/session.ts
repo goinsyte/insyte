@@ -3,6 +3,7 @@ import { CurrentUser, type PrincipalSummary, SessionMe } from "@insyte/domain/Se
 import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
 import { countryOf } from "@insyte/integrations-better-auth/Country"
 import { ActiveSessions } from "@insyte/modules/sessions/ActiveSessions"
+import { SupplierPortalService } from "@insyte/modules/supplier-portal/SupplierPortal"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect } from "effect"
 import { currentSessionId } from "../../../platform/Sessions.ts"
@@ -12,6 +13,7 @@ const webHeaders = (headers: unknown) => new Headers(headers as Record<string, s
 
 export const SessionHandlers = SessionRpcs.toLayer(Effect.gen(function*() {
   const workspaces = yield* Workspaces
+  const portal = yield* SupplierPortalService
   const sessions = yield* ActiveSessions
   const betterAuth = yield* BetterAuth
   const current = (headers: Headers) => currentSessionId(headers).pipe(Effect.provideService(BetterAuth, betterAuth))
@@ -19,13 +21,26 @@ export const SessionHandlers = SessionRpcs.toLayer(Effect.gen(function*() {
     "Session.me": Effect.fn("Session.me")(function*() {
       const user = yield* CurrentUser
       const memberships = yield* workspaces.memberships
-      const principals = memberships.map((m): PrincipalSummary => ({
-        kind: "member",
-        id: m.memberId,
-        workspaceId: m.workspaceId,
-        workspaceName: m.workspaceName,
-        roleLabel: m.principal.role.label
-      }))
+      const contacts = yield* portal.held
+      // Members first: a person who is both a member and a supplier's contact lands in the console; the portal is
+      // theirs at /supplier (`Session.switchPrincipal` will choose between them).
+      const principals = [
+        ...memberships.map((m): PrincipalSummary => ({
+          kind: "member",
+          id: m.memberId,
+          workspaceId: m.workspaceId,
+          workspaceName: m.workspaceName,
+          roleLabel: m.principal.role.label
+        })),
+        ...contacts.map((c): PrincipalSummary => ({
+          kind: "supplier_contact",
+          id: c.contact.contactId,
+          workspaceId: c.principal.workspaceId,
+          workspaceName: c.contact.workspaceName,
+          roleLabel: c.principal.role.label,
+          partnerName: c.contact.supplierName
+        }))
+      ]
       // Start once the active workspace finished onboarding, or at once for whoever joined it; until then the founder
       // goes on with onboarding (which resumes where they were).
       const active = memberships[0]
@@ -34,7 +49,11 @@ export const SessionHandlers = SessionRpcs.toLayer(Effect.gen(function*() {
         user,
         principals,
         activePrincipal: principals[0] ?? null,
-        landing: onboarded ? "/dashboard" : "/onboarding"
+        landing: active === undefined && contacts.length > 0
+          ? "/supplier/dashboard"
+          : onboarded
+          ? "/dashboard"
+          : "/onboarding"
       })
     }),
     "Session.listSessions": Effect.fn("Session.listSessions")(function*(_, { headers }) {

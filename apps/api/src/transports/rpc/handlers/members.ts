@@ -7,6 +7,7 @@ export const MembersHandlers = MembersRpcs.toLayer(Effect.gen(function*() {
   return MembersRpcs.of({
     "Team.get": () => members.get,
     "Invitations.send": ({ rows }) => members.send(rows),
+    "Invitations.sendSupplier": ({ rows }) => members.sendSupplier(rows),
     "Invitations.revoke": ({ ids }) => members.revoke(ids),
     "Invitations.restore": ({ id }) => members.restore(id),
     "Invitations.resend": ({ id }) => members.resend(id),

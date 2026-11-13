@@ -13,6 +13,13 @@
     "finance": "deny",
     "view": "deny"
   },
+  "Invitations.sendSupplier": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
   "Invitations.revoke": {
     "owner": "allow",
     "admin": "allow",

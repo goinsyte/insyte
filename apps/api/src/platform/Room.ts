@@ -21,6 +21,10 @@ interface Attachment {
 /** A workspace's room: where its members' tabs are, and where its frames go. */
 export const roomOf = (workspaceId: string) => env.ROOMS.getByName(`ws:${workspaceId}`)
 
+/** A supplier's room in one workspace (M16): its contacts' portal tabs, where its own frames go and nothing else. */
+export const supplierRoomOf = (workspaceId: string, supplierId: string) =>
+  env.ROOMS.getByName(`sup:${workspaceId}:${supplierId}`)
+
 /** The headers the API Worker sets on the upgrade it forwards; nothing else can reach the room. */
 export const ROOM_MEMBER = "x-insyte-room-member"
 export const ROOM_TAB = "x-insyte-room-tab"

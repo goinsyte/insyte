@@ -72,6 +72,7 @@ const COURSE = {
 const PAYLOADS: Record<string, unknown> = {
   "Team.get": undefined,
   "Invitations.send": { rows: [{ email: "geen-adres", roleId: "view", stores: "all" }] },
+  "Invitations.sendSupplier": { rows: [{ supplierId: "sup_none", email: "geen-adres", scopes: [] }] },
   "Invitations.revoke": { ids: [NONE.id] },
   "Invitations.restore": NONE,
   "Invitations.resend": NONE,

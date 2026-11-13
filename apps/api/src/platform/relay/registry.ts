@@ -19,6 +19,7 @@ import { ReturnLabelRequests, ReturnMails } from "./subscribers/returns.ts"
 import { Sheets } from "./subscribers/sheets.ts"
 import { Shopify } from "./subscribers/shopify.ts"
 import { Backfill } from "./subscribers/stores.ts"
+import { SupplierPortal } from "./subscribers/supplier-portal.ts"
 import { Webhooks } from "./subscribers/webhooks.ts"
 
 /*
@@ -26,6 +27,7 @@ import { Webhooks } from "./subscribers/webhooks.ts"
  * line here. The three parts of the mail sink share its name: each hears its own events.
  */
 const SUBSCRIBERS = [
+  SupplierPortal,
   Notifications,
   Realtime,
   Chat,
