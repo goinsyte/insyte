@@ -104,6 +104,8 @@
     ],
   },
   "triggers": { "crons": ["* * * * *"] },
+  // The public Worker (ADR-0041 step 5): here this Worker itself, as `src/Local.ts` serves `/v1` and `/mcp` in-process.
+  "services": [{ "binding": "PUBLIC", "service": "insyte-api" }],
   "vars": {
     "ENVIRONMENT": "local",
     "CONSOLE_ORIGIN": "http://localhost:4300",

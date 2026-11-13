@@ -87,6 +87,11 @@ declare global {
        * no request carries but a test's.
        */
       readonly PUBLIC_API_HOST?: string
+      /**
+       * The public Worker (ADR-0041 step 5), which the API Worker hands `/v1` and `/mcp`. Locally the Worker itself:
+       * `Local.ts` routes those paths to the public handler, so it is never called there.
+       */
+      readonly PUBLIC: Fetcher
       /** The Shopify app (M6.2): its client id (a var) and secret; without both, stores can only be connected later. */
       readonly SHOPIFY_CLIENT_ID?: string
       readonly SHOPIFY_CLIENT_SECRET?: string
