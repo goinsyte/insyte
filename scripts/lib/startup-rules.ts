@@ -28,8 +28,9 @@ export interface StartupBudget {
 export const STARTUP_BUDGETS = {
   // Set at 112892868 (PR #135). EPYC 7763: 439, 441, 437 ms; EPYC 9V74: 324 ms. An M1 Pro: about 285 ms.
   api: { budgetMs: { "AMD EPYC 7763": 480, "AMD EPYC 9V74": 360 }, wranglerConfig: "apps/api/wrangler.jsonc" },
-  // The jobs Worker (ADR-0041 step 4): the same bindings file, as its bindings are a subset of the local Worker's.
-  jobs: { budgetMs: { "AMD EPYC 7763": 480, "AMD EPYC 9V74": 360 }, wranglerConfig: "apps/api/wrangler.jsonc" }
+  // The jobs Worker (ADR-0041 step 4), set at PR #139. EPYC 7763: 180 ms; EPYC 9V74 not yet measured, scaled as the
+  // API's is (about 0.74). An M1 Pro: about 112 ms. Its bindings file is the local Worker's, a superset of its own.
+  jobs: { budgetMs: { "AMD EPYC 7763": 200, "AMD EPYC 9V74": 150 }, wranglerConfig: "apps/api/wrangler.jsonc" }
 } as const satisfies Record<string, StartupBudget>
 
 /** The budget for this CPU, or the highest one when the CPU has none (`cpu` is then undefined). */
