@@ -3,7 +3,7 @@ import { type AreaId, canRole } from "@insyte/domain/Permissions"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Array as Arr, Effect, Order } from "effect"
 import type { SqlClient } from "effect/sql"
-import { inScope } from "../../shared/use-cases/StoreScope.ts"
+import { inScope, inScopeOrNone } from "../../shared/use-cases/StoreScope.ts"
 import {
   ACTIVITY_LIMIT,
   type ActivityInput,
@@ -18,8 +18,9 @@ import {
 } from "../domain/Lists.ts"
 
 /*
- * Mijn werk, the agenda and the activity feed (M10.3b), from the live tables. Each source narrows to the areas and
- * stores the role may open; one it may not read adds nothing. Days are the workspace's (`workspaces.timezone`).
+ * Mijn werk, the agenda and the activity feed (M10.3b), from the live tables. Each source narrows to the areas the
+ * role may open and the stores the principal reaches (`storeScope`); one it may not read adds nothing. Days are the
+ * workspace's (`workspaces.timezone`).
  */
 
 /** Whether the role holds `area` at `level` or more. */
@@ -29,14 +30,11 @@ const holds = Effect.fn("Home.holds")(function*() {
   return (area: AreaId, level: 1 | 2 | 3 = 1) => canRole(plain, area, level)
 })
 
-/** The queue's areas the role may open, and its stores, as conditions on `q`. */
+/** The queue's areas the role may open, and the principal's stores (`storeScope`), as conditions on `q`. */
 const queueScope = Effect.fn("Home.queueScope")(function*(sql: SqlClient.SqlClient) {
   const can = yield* holds()
-  const { role } = yield* CurrentPrincipal
   const areas = (["orders", "returns", "products", "settings", "chargebacks"] as const).filter((a) => can(a))
-  const stores = role.stores === "all"
-    ? sql`true`
-    : sql`(q.store_id is null or q.store_id = any(${[...role.stores]}))`
+  const stores = yield* inScopeOrNone(sql, "q.store_id")
   return sql`q.area = any(${areas}) and ${stores}`
 })
 
@@ -377,7 +375,6 @@ const parseCursor = (cursor: string | undefined) => {
 
 export const activity = Effect.fn("Home.activity")(function*(input: ActivityInput) {
   const can = yield* holds()
-  const { role } = yield* CurrentPrincipal
   const db = yield* Db
   const limit = input.limit ?? ACTIVITY_LIMIT
   const types = Object.entries(SUBJECTS).filter(([, s]) => can(s.area)).map(([t]) => t)
@@ -390,9 +387,7 @@ export const activity = Effect.fn("Home.activity")(function*(input: ActivityInpu
     else 'team' end`
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      const stores = role.stores === "all"
-        ? sql`true`
-        : sql`(f.store_id is null or f.store_id = any(${[...role.stores]}))`
+      const stores = yield* inScopeOrNone(sql, "f.store_id")
       // Every change the role may see, and every order the store placed, over the last 90 days, with its record named.
       const feed = sql`(
         select f.*, ${sql.literal(sourceCase)} as source,

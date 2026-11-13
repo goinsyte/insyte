@@ -21,3 +21,14 @@ export const inScope = Effect.fn("StoreScope.inScope")(
     return sql.and(parts)
   }
 )
+
+/**
+ * As `inScope`, and a row of no store too: a queue row, a plate or a feed line that names no store is everyone's who
+ * may open its area.
+ */
+export const inScopeOrNone = Effect.fn("StoreScope.inScopeOrNone")(
+  function*(sql: SqlClient.SqlClient, column: string) {
+    const scope = yield* inScope(sql, column)
+    return sql`(${sql.literal(column)} is null or ${scope})`
+  }
+)
