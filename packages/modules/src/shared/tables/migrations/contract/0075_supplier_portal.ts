@@ -1,4 +1,4 @@
-import { partnerBlind, supplierProjection } from "@insyte/database/Tenancy"
+import { partnerBlind, partnerClosed, supplierProjection } from "@insyte/database/Tenancy"
 import { statements } from "../../statements.ts"
 
 /**
@@ -47,6 +47,10 @@ export default statements(
     "exists (select 1 from supplier_work w where w.order_id = orders.id and w.supplier_id = app_partner_id())"
   ),
   supplierProjection("order_lines", OWN_LINE("order_lines")),
+  // …but never read directly: the customer's address book, the internal note and the money are on these rows. The
+  // supplier views read them as their owner (below), so the projection above holds only those reads.
+  partnerClosed("orders"),
+  partnerClosed("order_lines"),
   supplierProjection("products", OWN_PRODUCT("products.id")),
   supplierProjection("variants", OWN_PRODUCT("variants.product_id")),
   supplierProjection(
@@ -99,8 +103,10 @@ export default statements(
   partnerBlind("notification_settings"),
   partnerBlind("notification_deliveries"),
   partnerBlind("digests"),
-  // The views the supplier use cases read (06 §6): only the supplier's own, whoever else asks sees nothing.
-  `create view supplier_orders_v with (security_invoker = true) as
+  // The views the supplier use cases read (06 §6): only the supplier's own, whoever else asks sees nothing. The order
+  // views run as their owner (not a superuser, no BYPASSRLS, so every other policy still holds) because the tables they
+  // read are closed to partners; each filters to the calling supplier contact itself, so a member reads nothing here.
+  `create view supplier_orders_v with (security_invoker = false) as
      select o.id, o.workspace_id, o.number, o.status as order_status, o.placed_at, o.currency,
             o.customer_name,
             jsonb_build_object(
@@ -114,16 +120,19 @@ export default statements(
             w.problem_new_date, w.problem_reported_at, w.problem_resolved_at, w.shipped_at, w.carrier,
             w.tracking_number, w.tracking_url
      from orders o join supplier_work w on w.order_id = o.id
-     where w.supplier_id = app_partner_id()
+     where app_principal_kind() = 'supplier_contact' and w.supplier_id = app_partner_id()
+       and o.workspace_id = app_workspace_id() and w.workspace_id = app_workspace_id()
        and exists (select 1 from forwarding_items f
                    where f.order_id = o.id and f.supplier_id = w.supplier_id and f.state <> 'cancelled')`,
-  `create view supplier_lines_v with (security_invoker = true) as
-     select l.id, l.workspace_id, l.order_id, f.supplier_id, l.product_id, l.variant_id, l.sku, l.title,
+  `create view supplier_lines_v with (security_invoker = false) as
+     select l.id, l.workspace_id, l.order_id, f.supplier_id, l.shopify_id, l.product_id, l.variant_id, l.sku, l.title,
             l.variant_title, l.quantity, p.cost_minor as unit_cost_minor, p.images[1] as image
      from order_lines l
      join forwarding_items f on f.order_id = l.order_id and l.id = any(f.line_ids) and f.state <> 'cancelled'
      left join products p on p.id = l.product_id
-     where f.supplier_id = app_partner_id()`,
+     where app_principal_kind() = 'supplier_contact' and f.supplier_id = app_partner_id()
+       and l.workspace_id = app_workspace_id() and f.workspace_id = app_workspace_id()
+       and exists (select 1 from supplier_work w where w.order_id = l.order_id and w.supplier_id = f.supplier_id)`,
   `create view supplier_products_v with (security_invoker = true) as
      select p.id, p.workspace_id, p.title, p.status, p.images, ps.supplier_id, ps.lead_days, ps.stock_reporting,
             ps.is_primary
@@ -133,7 +142,7 @@ export default statements(
   "create policy supplier_contacts_routing on supplier_contacts as permissive for select to insyte_owner using (true)",
   `create function partner_workspace() returns table (id text, name text, logo_file_id text, timezone text,
                                                       currency text)
-     language plpgsql security definer set search_path = public as $$
+     language plpgsql security definer set search_path = public, pg_temp as $$
      declare prior text := current_setting('app.principal_kind', true);
      begin
        if prior is null or prior not in ('supplier_contact', 'affiliate') or app_partner_id() is null then
@@ -151,7 +160,7 @@ export default statements(
   `create function supplier_principals() returns table (contact_id text, workspace_id text, workspace_name text,
                                                         supplier_id text, supplier_name text, contact_name text,
                                                         role text, scopes text[], joined_at timestamptz)
-     language plpgsql security definer set search_path = public as $$
+     language plpgsql security definer set search_path = public, pg_temp as $$
      declare prior text := current_setting('app.principal_kind', true);
              who text := nullif(current_setting('app.user_id', true), '');
      begin
@@ -172,7 +181,7 @@ export default statements(
   // The order's own status follows every leg, not just the supplier's own (which is all it can see): read as system,
   // for an order the calling supplier works on, after its leg moved.
   `create function supplier_order_settle(p_order text) returns void
-     language plpgsql security definer set search_path = public as $$
+     language plpgsql security definer set search_path = public, pg_temp as $$
      declare prior text := current_setting('app.principal_kind', true);
              partner text := nullif(current_setting('app.partner_id', true), '');
      begin
@@ -193,7 +202,7 @@ export default statements(
   // table and hold no contact yet, so the join is checked and made here. Only an open invitation of the person's own
   // address; the supplier's first contact is its owner. Answers the contact, or null when there is nothing to accept.
   `create function supplier_contact_join(p_invitation text, p_id text) returns text
-     language plpgsql security definer set search_path = public as $$
+     language plpgsql security definer set search_path = public, pg_temp as $$
      declare prior text := current_setting('app.principal_kind', true);
              who text := nullif(current_setting('app.user_id', true), '');
              ws text := nullif(current_setting('app.workspace_id', true), '');
@@ -230,5 +239,8 @@ export default statements(
   "revoke all on function supplier_contact_join(text, text) from public",
   "grant execute on function supplier_contact_join(text, text) to insyte_app",
   "revoke all on function supplier_order_settle(text) from public",
-  "grant execute on function supplier_order_settle(text) to insyte_app"
+  "grant execute on function supplier_order_settle(text) to insyte_app",
+  // The views to the app only; the order views' owner reads what the closed tables hold for them.
+  "revoke all on supplier_orders_v, supplier_lines_v, supplier_products_v, partner_workspace_v from public",
+  "grant select on supplier_orders_v, supplier_lines_v, supplier_products_v, partner_workspace_v to insyte_app"
 )

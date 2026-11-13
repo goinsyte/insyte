@@ -135,9 +135,9 @@ export const ship = Effect.fn("SupplierPortal.orders.ship")(function*(input: Shi
                      updated_at = now()
                    where order_id = ${item.orderId} and supplier_id = ${contact.supplierId}`
         yield* settle(sql, item.orderId)
-        // The view hides Shopify's ids for nothing: they are the supplier's own lines.
+        // Shopify's ids of the supplier's own lines, through its view (`order_lines` is closed to it).
         const lines = yield* sql<{ shopifyId: string }>`
-          select shopify_id from order_lines where id in ${sql.in([...lineIds])}`
+          select shopify_id from supplier_lines_v where id in ${sql.in([...lineIds])}`
         held.push(
           yield* Outbox.write(sql, principal.workspaceId, {
             type: "order.updated",

@@ -59,6 +59,23 @@ const contactOf = (id: string, supplierId: string, userId: UserId): Principal =>
   },
   storeScope: []
 })
+const memberPrincipal: Principal = {
+  kind: "member",
+  id: ids.member,
+  userId: ids.owner,
+  workspaceId: ws,
+  partnerId: null,
+  role: {
+    id: "owner",
+    label: "Eigenaar",
+    version: 1,
+    levels: LEVELS,
+    specials: SPECIALS,
+    refundLimit: null,
+    stores: "all"
+  },
+  storeScope: null
+}
 const asA = Effect.provideService(CurrentPrincipal, contactOf(ids.contactA, ids.supA, ids.userA))
 const asB = Effect.provideService(CurrentPrincipal, contactOf(ids.contactB, ids.supB, ids.userB))
 
@@ -83,6 +100,8 @@ const fixture = Effect.gen(function*() {
       yield* sql`insert into connections (id, workspace_id, provider, account_ref) values (${conn}, ${ws}, 'shopify', ${`p-${runId}`})`
       yield* sql`insert into stores (id, workspace_id, connection_id, shop_domain, name)
                  values (${ids.store}, ${ws}, ${conn}, ${`p-${runId}.myshopify.com`}, 'Winkel')`
+      yield* sql`insert into customers (id, workspace_id, store_id, shopify_id, email, external_updated_at)
+                 values (${mintId("cus")}, ${ws}, ${ids.store}, ${`c-${runId}`}, 'klant@example.com', now())`
       for (const [id, name] of [[ids.supA, "Leverancier A"], [ids.supB, "Leverancier B"]] as const) {
         yield* sql`insert into suppliers (id, workspace_id, name, created_by) values (${id}, ${ws}, ${name}, ${ids.member})`
       }
@@ -145,6 +164,7 @@ const PROJECTED = new Set([
   "files",
   "undo_tokens",
   // Its own audit lines go in; it reads none back (member side only), and the outbox frames it writes are its own.
+  // `orders` and `order_lines` are projected but closed to direct reads: the closed-tables test counts them.
   "audit_events",
   "outbox"
 ])
@@ -159,8 +179,8 @@ describe("partners", () => {
       Effect.flatMap(Effect.service(Db), (db) =>
         db.scopedPartner((sql) =>
           Effect.all({
-            orders: sql<{ id: string }>`select id from orders order by id`,
-            lines: sql<{ id: string }>`select id from order_lines order by id`,
+            orders: sql<{ id: string }>`select id from supplier_orders_v order by id`,
+            lines: sql<{ id: string }>`select id from supplier_lines_v order by id`,
             suppliers: sql<{ id: string }>`select id from suppliers`,
             products: sql<{ id: string }>`select id from products`,
             work: sql<{ supplierId: string }>`select supplier_id as "supplierId" from supplier_work`,
@@ -186,7 +206,7 @@ describe("partners", () => {
         db.scopedPartner((sql) =>
           Effect.all({
             orders: sql<{ id: string }>`select id from supplier_orders_v order by id`,
-            lines: sql<{ id: string }>`select id from order_lines`
+            lines: sql<{ id: string }>`select id from supplier_lines_v`
           })
         )).pipe(asB)
     )
@@ -235,6 +255,44 @@ describe("partners", () => {
       ).pipe(asA)
     )
     expect(workspace).toEqual({ id: ws, name: "Merk" })
+  })
+
+  it("closes the tables that hold the customer, the internal note and the money to a contact reading them directly", async () => {
+    for (const as of [asA, asB]) {
+      const seen = await run(
+        Effect.flatMap(Effect.service(Db), (db) =>
+          db.scopedPartner((sql) =>
+            Effect.all({
+              orders: sql<{ n: number }>`select count(*)::int as n from orders`,
+              lines: sql<{ n: number }>`select count(*)::int as n from order_lines`,
+              customers: sql<{ n: number }>`select count(*)::int as n from customers`,
+              byName: sql<{ n: number }>`select count(*)::int as n from orders where id = ${ids.order}`
+            })
+          )).pipe(as)
+      )
+      expect([seen.orders[0]!.n, seen.lines[0]!.n, seen.customers[0]!.n, seen.byName[0]!.n]).toEqual([0, 0, 0, 0])
+    }
+  })
+
+  it("leaves a member's reads as they were, and shows a member nothing through the supplier views", async () => {
+    const seen = await run(
+      Effect.flatMap(Effect.service(Db), (db) =>
+        db.scoped((sql) =>
+          Effect.all({
+            orders: sql<{ n: number }>`select count(*)::int as n from orders`,
+            lines: sql<{ n: number }>`select count(*)::int as n from order_lines`,
+            customers: sql<{ n: number }>`select count(*)::int as n from customers`,
+            email: sql<{ e: string }>`select customer_email as e from orders where id = ${ids.order}`,
+            viewOrders: sql<{ n: number }>`select count(*)::int as n from supplier_orders_v`,
+            viewLines: sql<{ n: number }>`select count(*)::int as n from supplier_lines_v`
+          })
+        )).pipe(Effect.provideService(CurrentPrincipal, memberPrincipal))
+    )
+    expect(seen.orders[0]!.n).toBe(2)
+    expect(seen.lines[0]!.n).toBe(2)
+    expect(seen.customers[0]!.n).toBe(1)
+    expect(seen.email[0]!.e).toBe("klant@example.com")
+    expect([seen.viewOrders[0]!.n, seen.viewLines[0]!.n]).toEqual([0, 0])
   })
 
   it("lets a contact change its own work but not the other supplier's", async () => {

@@ -178,3 +178,13 @@ export const supplierProjection = (
 export const partnerBlind = (table: TenantTable | "workspaces"): string =>
   `create policy ${table}_no_partner on ${table} as restrictive for all
      using (app_principal_kind() is null or app_principal_kind() not in ('supplier_contact', 'affiliate'))`
+
+/**
+ * A table whose rows carry what a partner never reads (the customer's email and phone, the internal note, totals and
+ * shelf prices; M16 decision 6): closed to a partner principal connected as the app, whatever its projection says.
+ * The supplier views read it as their owner, each filtering to the calling partner and naming only the columns it may
+ * see; the projection still holds those reads to the partner's own rows.
+ */
+export const partnerClosed = (table: TenantTable): string =>
+  `create policy ${table}_partner_closed on ${table} as restrictive for all to insyte_app
+     using (app_principal_kind() is null or app_principal_kind() not in ('supplier_contact', 'affiliate'))`
