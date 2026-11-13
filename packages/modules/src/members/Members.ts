@@ -5,9 +5,18 @@ import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
 import { Relay } from "../shared/domain/Outbox.ts"
 import { InvitationLinks } from "./domain/Ports.ts"
-import type { InviteRow, SeatLimitReached, SetLink, Team, Teammate } from "./domain/Team.ts"
+import type {
+  InviteRow,
+  SeatLimitReached,
+  SetLink,
+  SupplierInvitationsSent,
+  SupplierInviteRow,
+  Team,
+  Teammate
+} from "./domain/Team.ts"
 import { directory } from "./use-cases/directory.ts"
 import * as Invitations from "./use-cases/invitations.ts"
+import { sendSupplier } from "./use-cases/invite-supplier.ts"
 import { send } from "./use-cases/invite.ts"
 import * as Link from "./use-cases/link.ts"
 import * as People from "./use-cases/members.ts"
@@ -27,6 +36,9 @@ export class Members extends Context.Service<Members, {
   readonly send: (
     rows: ReadonlyArray<InviteRow>
   ) => Effect.Effect<Team, Forbidden | Invalid | SeatLimitReached, Db | CurrentPrincipal>
+  readonly sendSupplier: (
+    rows: ReadonlyArray<SupplierInviteRow>
+  ) => Effect.Effect<typeof SupplierInvitationsSent.Type, Forbidden | Invalid, Db | CurrentPrincipal>
   readonly revoke: (ids: ReadonlyArray<string>) => Effect.Effect<Team, Forbidden, Db | CurrentPrincipal>
   readonly restore: (
     id: string
@@ -67,6 +79,7 @@ export class Members extends Context.Service<Members, {
         get: run(get()),
         directory: run(directory()),
         send: (rows) => run(send(rows)),
+        sendSupplier: (rows) => run(sendSupplier(rows)),
         revoke: (ids) => run(Invitations.revoke(ids)),
         restore: (id) => run(Invitations.restore(id)),
         resend: (id) => run(Invitations.resend(id)),

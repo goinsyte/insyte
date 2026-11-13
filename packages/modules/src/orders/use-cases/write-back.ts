@@ -3,6 +3,7 @@ import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { WriteOutcome } from "../../shared/domain/ShopifyWrites.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { isAnswer, mutate } from "../../stores/domain/Gate.ts"
 import { fromMinor, gidId, gidOf, toMinor } from "../../stores/domain/Mirror.ts"
 import { ConnectionGate } from "../../stores/domain/Ports.ts"
@@ -114,7 +115,8 @@ const send = Effect.fn("Orders.writeBack.send")(function*(
       if (byOrder.length === 0) return []
       const fulfillment = {
         lineItemsByFulfillmentOrder: byOrder,
-        notifyCustomer: false,
+        // The supplier portal's parcel mails the customer the tracking (M16); an operator's does not.
+        notifyCustomer: write.notify ?? false,
         ...(write.tracking === undefined ? {} : { trackingInfo: write.tracking })
       }
       return (yield* mutate(target, FULFILLMENT_CREATE, { fulfillment }, "fulfillmentCreate")).errors
@@ -281,7 +283,19 @@ export const writeBack = Effect.fn("Orders.writeBack")(function*(write: OrderWri
       subjectType: "order",
       subjectId: orderId,
       diff: { change: write.type === "order.cancelled" ? "cancel" : write.change, reason: answer.slice(0, 300) }
-    })
+    }).pipe(
+      // A parcel the supplier marked shipped in its portal (M16): its contacts and the brand hear it did not go.
+      Effect.andThen(
+        write.type === "order.updated" && write.change === "fulfil" && write.supplierId !== undefined
+          ? Outbox.write(sql, workspace.id, {
+            type: "supplier.shipment_refused",
+            workspaceId: workspace.id,
+            orderId,
+            supplierId: write.supplierId
+          })
+          : Effect.void
+      )
+    )
   )
   return outcome("refused", answer)
 })

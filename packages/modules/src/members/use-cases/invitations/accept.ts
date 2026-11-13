@@ -34,6 +34,27 @@ export const accept = Effect.fn("Landing.accept")(function*(ref: LandingRef) {
         return yield* new NotAcceptable({ state: landing.state })
       }
 
+      // A supplier's person (M16): they become its contact, through `supplier_contact_join` (0075), and land in its portal.
+      if (!found.link && landing.supplier != null) {
+        const [joined] = yield* sql<{ contactId: string | null }>`
+          select supplier_contact_join(${ref.id}, ${mintId("sct")}) as contact_id`
+        if (joined?.contactId == null) return yield* new NotAcceptable({ state: "missing" })
+        yield* Audit.write(sql, found.workspaceId, { kind: "supplier_contact", id: joined.contactId }, {
+          action: "supplier.contact_joined",
+          subjectType: "supplier_contact",
+          subjectId: joined.contactId,
+          diff: { via: "invitation" }
+        })
+        return {
+          result: new Accepted({
+            workspaceId: found.workspaceId,
+            workspace: landing.workspace ?? "",
+            landing: "/supplier/dashboard"
+          }),
+          outboxIds: []
+        }
+      }
+
       const invitation = found.link
         ? undefined
         : (yield* sql<{ roleId: string; stores: unknown; invitedBy: string }>`
