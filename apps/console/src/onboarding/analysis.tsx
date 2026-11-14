@@ -99,15 +99,27 @@ export function useConsoleAnalysis(step: "analysis" | "offline" | "ready" | "oth
       })
       if (Exit.isFailure(exit)) throw new Error("Dit kon niet worden opgeslagen. Probeer het opnieuw.")
     },
-    /** "Afronden": the offline plan into Zelfstandigheid (Nooit stays as it is); throws a sentence. */
-    agreeOffline: async (window: OfflineWindow, levels: Partial<Record<AgentActionId, AutonomyLevel>>) => {
+    /**
+     * "Afronden": the offline plan into Zelfstandigheid (Nooit stays as it is), made on the policy version the step
+     * showed; throws a sentence. Without an analysis to keep it with (the store went, or the step has closed) the
+     * plan is left out and the step goes on: the levels are set on Zelfstandigheid later.
+     */
+    agreeOffline: async (
+      window: OfflineWindow,
+      levels: Partial<Record<AgentActionId, AutonomyLevel>>,
+      baseVersion: number
+    ) => {
       const kept = Object.fromEntries(
         Object.entries(levels).flatMap(([id, level]) => (level === "auto" || level === "ask" ? [[id, level]] : []))
       )
-      const exit = await agree({ payload: { window, levels: kept }, reactivityKeys: [...FIRST_ANALYSIS, ...AUTONOMY] })
+      const exit = await agree({
+        payload: { window, levels: kept, baseVersion },
+        reactivityKeys: [...FIRST_ANALYSIS, ...AUTONOMY]
+      })
       if (Exit.isSuccess(exit)) return
       const failure = Cause.findErrorOption(exit.cause)
       const tag = failure._tag === "Some" ? failure.value._tag : undefined
+      if (tag === "AnalysisNotReady" || tag === "OfflineClosed") return
       throw new Error(
         tag === "AutonomyStale"
           ? "Iemand heeft Zelfstandigheid net aangepast. Probeer het opnieuw."
