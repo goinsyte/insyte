@@ -9,13 +9,14 @@ import { useMemo } from "react"
 import { endpointsAtom } from "../data/developer.ts"
 import { supplierAtom } from "../data/suppliers.ts"
 import { useGate } from "../frame/refusals.ts"
+import { ConsolePortalInviteDialog, ConsolePortalSection } from "./portal-access.tsx"
 import { supplierOf } from "./supplier-of.ts"
 import { useSupplierCommands } from "./supplier-writes.ts"
 
 /*
  * The suppliers page's source in the console (M8.1): `Suppliers.list`'s rows as the design's, the dialog's products and
- * late orders from `Suppliers.get`. What the server does not hold yet is left out, not made up: the quality columns
- * (M9), the portal (M16), the products' stock (until inventory per location is mirrored), restocking (tickets, M11) and
+ * late orders from `Suppliers.get`, the portal's section and invite over the supplier's access (M16). What the server
+ * does not hold yet is left out, not made up: the quality columns (M9), the products' stock (until inventory per location is mirrored), restocking (tickets, M11) and
  * a shared chat (M11), so "Bericht aan" is a mail.
  */
 
@@ -25,10 +26,12 @@ const rowOf = (s: ServerRow): SupplierRow => ({
   id: s.id,
   name: s.name,
   paused: s.pausedAt !== null,
-  portal: "none"
+  portal: s.portal
 })
 
-const HIDDEN = ["complaints", "checks", "portal"] as const
+const HIDDEN = ["complaints", "checks"] as const
+
+const PORTAL = { Section: ConsolePortalSection, InviteDialog: ConsolePortalInviteDialog }
 
 const standing = (rows: ReadonlyArray<SupplierRow>) => {
   const late = rows.reduce((n, r) => n + r.delayed, 0)
@@ -67,6 +70,8 @@ const Empty = ({ onCreate }: { onCreate?: (() => void) | undefined }) => (
 export function useConsoleSuppliersSource(list: SupplierList): SuppliersSource {
   const commands = useSupplierCommands()
   const edit = useGate("suppliers", 2)
+  // Inviting to the portal and taking access away is Beheren, as the server holds it.
+  const manage = useGate("suppliers", 3)
   const rows = useMemo(() => list.rows.map(rowOf), [list])
   const byId = useMemo(() => new Map(list.rows.map((r) => [r.id, r])), [list])
   // Where a supplier's API reports back: the API's own public host (the API keys page names it too).
@@ -120,6 +125,7 @@ export function useConsoleSuppliersSource(list: SupplierList): SuppliersSource {
     },
     chatOf: () => undefined,
     statementsOf: (row) => `/suppliers/${row.id}/statements`,
+    ...(manage.ok ? { portal: PORTAL } : {}),
     canCreate: edit,
     save: (input, row) => void commands.save(input, row),
     inputOf: (row) => {

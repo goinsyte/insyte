@@ -227,6 +227,28 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
         actionLabel: "Cursus openen",
         path: `/courses/learn/${id}`
       }
+    case "supplier.delay": {
+      // From a supplier's portal (M16 step 2): a problem it reported, or a parcel Shopify refused.
+      const number = text(data["number"])
+      const supplier = text(data["supplier"]) || "De leverancier"
+      if (data["what"] === "refused") {
+        return {
+          title: `Verzending van ${number} kon niet worden doorgezet naar Shopify`,
+          detail: `${supplier} markeerde het pakket als verzonden; Shopify weigerde de fulfilment.`,
+          record: supplier,
+          actionLabel: "Bestelling openen",
+          path: `/orders/${id}`
+        }
+      }
+      return {
+        title: `${text(data["by"]) || supplier} meldt een probleem met ${number}`,
+        quote: text(data["note"]) || undefined,
+        detail: text(data["newDate"]) === "" ? undefined : `Nieuwe datum: ${text(data["newDate"])}`,
+        record: supplier,
+        actionLabel: "Bestelling openen",
+        path: `/orders/${id}`
+      }
+    }
     case "supplier.statement": {
       const count = Number(data["count"] ?? 0)
       return {

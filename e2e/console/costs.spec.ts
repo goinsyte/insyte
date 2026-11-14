@@ -1,4 +1,4 @@
-import { type APIRequestContext, expect, type Page, test as base } from "@playwright/test"
+import { type APIRequestContext, expect, type Page, type Route, test as base } from "@playwright/test"
 import { admit, previewRequest } from "./access.ts"
 
 /*
@@ -37,6 +37,12 @@ async function mailLink(request: APIRequestContext, to: string, kind: string): P
   }, { message: `a ${kind} mail to ${to}` }).toBeTruthy()
   const url = new URL(link!)
   return `${url.pathname}${url.search}`
+}
+
+/** An RPC answered late, as on a busy preview; Access's own route still adds its headers (`fallback`). */
+const slow = async (route: Route) => {
+  await new Promise((resolve) => setTimeout(resolve, 1500))
+  await route.fallback()
 }
 
 const hydrated = (page: Page) => expect(page.locator("html[data-hydrated]")).toHaveCount(1)
@@ -82,10 +88,19 @@ test("@costs a new admin adds costs, types a month, removes a line and takes it 
   const cells = page.getByRole("textbox", { name: /^Shopify-abonnement, / })
   await expect(cells).toHaveCount(5)
   await expect(cells.first()).toHaveValue(/39/)
+  // As on a busy preview: a slow frame and a slow answer, so Enter leaves the field before its focus frame and the
+  // save lands after it. The field must not reopen with the amount from before the save.
+  await page.evaluate(() => {
+    const frame = window.requestAnimationFrame.bind(window)
+    window.requestAnimationFrame = (run) => window.setTimeout(() => frame(run), 300)
+  })
+  await page.route("**/api/rpc/**", slow)
   await cells.last().fill("49")
   await cells.last().press("Enter")
   await expect(page.getByText(/^Shopify-abonnement, \w+: /)).toBeVisible()
   await expect(cells.last()).toHaveValue(/49/)
+  await expect(cells.last()).not.toBeFocused()
+  await page.unroute("**/api/rpc/**", slow)
 
   // A share of revenue is worked out, not typed.
   await page.getByRole("button", { name: "Kostenpost", exact: true }).click()

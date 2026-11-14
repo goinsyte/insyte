@@ -26,8 +26,7 @@ import {
 import { toast } from "sonner";
 import { personStyle } from "../lib/person-color";
 import { initials } from "../lib/format";
-import { PERSONA_CHROME } from "../lib/persona-chrome";
-import { useActiveStore, useAutonomy, usePersonaSelection, useShellData } from "./state";
+import { useActiveStore, useAutonomy, usePersonaChrome, usePersonaSelection, useShellData } from "./state";
 
 const MENU_ICON = {
 	profile: UserCog,
@@ -82,6 +81,7 @@ export function AvatarMenuContent({
 	includeStores?: boolean;
 }) {
 	const { persona } = usePersonaSelection();
+	const chrome = usePersonaChrome(persona);
 	const admin = persona === "admin";
 	const user = useShellData().currentUserByPersona[persona];
 	const { active, stores, setActive } = useActiveStore();
@@ -114,9 +114,9 @@ export function AvatarMenuContent({
 
 			<div className="px-1 pt-1 pb-1">
 				<div className="px-2 pt-1 pb-1 font-medium text-xs text-ink-2 leading-none tracking-[-0.05px]">
-					{admin ? active?.name : PERSONA_CHROME[persona].partner?.name}
+					{admin ? active?.name : chrome.partner?.name}
 				</div>
-				{PERSONA_CHROME[persona].menu.map((m) => {
+				{chrome.menu.map((m) => {
 					const Icon = MENU_ICON[m.icon];
 					return (
 						<DropdownMenuItem key={m.to} asChild>

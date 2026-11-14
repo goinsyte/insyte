@@ -29,7 +29,9 @@ import { connectionOf } from "./slack.ts"
  *   not passed it;
  * - `course.question` / `course.answered`: a course's maker hears of a question on it; the asker of the answer.
  * - `statements.closed`: whoever may mark supplier statements paid hears the month's are ready;
- * - `export.finished`: the member who asked for an export hears its file is ready (with its link), or that it failed.
+ * - `export.finished`: the member who asked for an export hears its file is ready (with its link), or that it failed;
+ * - `supplier.problem_reported` / `supplier.shipment_refused`: whoever handles orders hears a supplier reported a problem
+ *   in its portal (with the ticket it opened), or that Shopify refused a parcel it marked shipped (M16 step 2).
  *
  * A member deactivated or removed hears nothing. Who has "Alleen als het mij betreft" on for the kind hears only of
  * what concerns them directly (they were put on it, named in it, asked for it or sent the invitation). The in-app switch
@@ -474,6 +476,55 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             currency: sum.currency,
             payDay: sum.payDay
           }
+        }
+      }
+      case "supplier.problem_reported":
+      case "supplier.shipment_refused": {
+        // From a supplier's portal (M16 step 2): whoever handles orders in the order's store hears of it; the order is
+        // the subject.
+        const [work] = yield* sql<{
+          number: string
+          supplier: string
+          kind: string | null
+          note: string | null
+          newDate: string | null
+          ticketNumber: number | null
+          ticketId: string | null
+          storeId: string
+        }>`
+          select o.number, o.store_id, s.name as supplier, w.problem_kind as kind, w.problem_note as note,
+                 to_char(w.problem_new_date, 'YYYY-MM-DD') as new_date, t.number::int as ticket_number,
+                 w.problem_ticket_id as ticket_id
+          from supplier_work w join orders o on o.id = w.order_id join suppliers s on s.id = w.supplier_id
+          left join tickets t on t.id = w.problem_ticket_id
+          where w.order_id = ${event.orderId} and w.supplier_id = ${event.supplierId}`
+        if (work === undefined) return undefined
+        const [contact] = event.type === "supplier.problem_reported"
+          ? yield* sql<{ name: string }>`select name from supplier_contacts where id = ${event.contactId}`
+          : []
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'orders')::int, 0) >= 2) and ${reaching(sql, work.storeId)}`
+        return {
+          kind: "supplier.delay",
+          recipients: recipients.map((r) => r.id),
+          subjectType: "order",
+          subjectId: event.orderId,
+          actor: null,
+          data: event.type === "supplier.shipment_refused"
+            ? { what: "refused", number: work.number, supplier: work.supplier }
+            : {
+              what: "problem",
+              number: work.number,
+              supplier: work.supplier,
+              by: contact?.name ?? null,
+              problem: work.kind,
+              note: work.note,
+              newDate: work.newDate,
+              ticketId: work.ticketId,
+              ticketNumber: work.ticketNumber
+            }
         }
       }
       default:

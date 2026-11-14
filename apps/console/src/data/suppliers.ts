@@ -61,6 +61,22 @@ export const statementAtom = Atom.family((key: string) => {
   )
 })
 
+/*
+ * A supplier's portal (M16): who signs in and who is invited, read when its dialog opens. An invitation or a revoke
+ * names `SUPPLIERS`, so the list's portal column follows; a contact joining says `supplier` on the socket.
+ */
+export const supplierAccessAtom = Atom.family((supplierId: string) =>
+  ConsoleClient.query("Invitations.supplierAccess", { supplierId }, { reactivityKeys: SUPPLIERS })
+)
+
+export const portalAccessWrites = {
+  send: ConsoleClient.mutation("Invitations.sendSupplier"),
+  revoke: ConsoleClient.mutation("Invitations.revokeSupplier"),
+  restore: ConsoleClient.mutation("Invitations.restoreSupplier"),
+  revokeContact: ConsoleClient.mutation("Invitations.revokeContact"),
+  restoreContact: ConsoleClient.mutation("Invitations.restoreContact")
+} as const
+
 export const supplierWrites = {
   create: ConsoleClient.mutation("Suppliers.create"),
   update: ConsoleClient.mutation("Suppliers.update"),

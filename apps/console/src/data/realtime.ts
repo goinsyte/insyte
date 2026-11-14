@@ -63,6 +63,8 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   chargeback: CHARGEBACKS,
   // A month closed, or its file made (M13 step 6).
   supplier_statement: SUPPLIERS,
+  // A supplier changed, its portal invitation or contact among it (M16): the list's portal column and its dialog.
+  supplier: SUPPLIERS,
   // The inbox (M11 step 2): a thread read, changed, sent or arrived; a mailbox connected.
   thread: INBOX,
   mailbox: INBOX,

@@ -21,6 +21,10 @@ interface Attachment {
 /** A workspace's room: where its members' tabs are, and where its frames go. */
 export const roomOf = (workspaceId: string) => env.ROOMS.getByName(`ws:${workspaceId}`)
 
+/** A supplier's room in one workspace (M16): its contacts' portal tabs, where its own frames go and nothing else. */
+export const supplierRoomOf = (workspaceId: string, supplierId: string) =>
+  env.ROOMS.getByName(`sup:${workspaceId}:${supplierId}`)
+
 /** The headers the API Worker sets on the upgrade it forwards; nothing else can reach the room. */
 export const ROOM_MEMBER = "x-insyte-room-member"
 export const ROOM_TAB = "x-insyte-room-tab"
@@ -81,6 +85,19 @@ export class RoomDurableObject extends DurableObject<Cloudflare.Env> {
         ws.send(text)
       } catch {
         // Closing as we send: nothing to tell it.
+      }
+    }
+  }
+
+  /** Closes one member's sockets: a supplier contact whose access was revoked (M16). The others hear them leave. */
+  closeMember(memberId: string): void {
+    for (const ws of this.ctx.getWebSockets()) {
+      if ((ws.deserializeAttachment() as Attachment).memberId !== memberId) continue
+      this.leave(ws)
+      try {
+        ws.close(4403, "revoked")
+      } catch {
+        // Already closing.
       }
     }
   }

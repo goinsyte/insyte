@@ -57,7 +57,7 @@
     /*
      * Listed entry by entry rather than as the directory, because dprint cannot un-exclude a file inside an excluded
      * directory. What is missing has graduated (08 §3): edited for the backend, so formatted like code written here
-     * (`auth/login-screen.tsx`, `onboarding/shared-steps.tsx`, `onboarding/admin-steps.tsx`, `lib/form-errors.ts`, `lib/returns.ts`, `lib/quality.ts`, `dashboard/`, `stores/home-store.ts`, `lib/home/day.ts`, `lib/home/kinds.ts`, `settings/workspace-source.tsx`, `settings/workspace-demo-source.tsx`, `settings/form.tsx`, `settings/profile-screen.tsx`, `settings/regional-screen.tsx`, `settings/security-screen.tsx`, `settings/depth/log-screen.tsx`, `settings/depth/trash-screen.tsx`, `chats/`, `inbox/`, `chargebacks/`, `automations/`, `costs/`, `settings/depth/`, the webhooks screen, `developer/webhook-dialog.tsx`, `developer/delivery-drawer.tsx`, `developer/webhooks-source.tsx`, `developer/webhooks-demo-source.tsx`, `lib/webhooks-core.ts`, `settings/webhooks-page.tsx`, `courses/`, `lib/courses.ts`, `stores/courses-store.ts`, `marketplace/` but `marketplace-modal.tsx` and `brand-logos.tsx`, `settings/apps-screen.tsx`, `live/`, `ai/autonomy-screen.tsx`, `ai/autonomy-source.tsx`, `ai/autonomy-demo-source.tsx`, `data/`; `lib/auth-client.ts` and `lib/errors.ts` are
+     * (`auth/login-screen.tsx`, `onboarding/shared-steps.tsx`, `onboarding/admin-steps.tsx`, `lib/form-errors.ts`, `lib/returns.ts`, `lib/quality.ts`, `dashboard/`, `stores/home-store.ts`, `lib/home/day.ts`, `lib/home/kinds.ts`, `settings/workspace-source.tsx`, `settings/workspace-demo-source.tsx`, `settings/form.tsx`, `settings/profile-screen.tsx`, `settings/regional-screen.tsx`, `settings/security-screen.tsx`, `settings/depth/log-screen.tsx`, `settings/depth/trash-screen.tsx`, `chats/`, `inbox/`, `chargebacks/`, `automations/`, `costs/`, `settings/depth/`, the webhooks screen, `developer/webhook-dialog.tsx`, `developer/delivery-drawer.tsx`, `developer/webhooks-source.tsx`, `developer/webhooks-demo-source.tsx`, `lib/webhooks-core.ts`, `settings/webhooks-page.tsx`, `courses/`, `lib/courses.ts`, `stores/courses-store.ts`, `marketplace/` but `marketplace-modal.tsx` and `brand-logos.tsx`, `settings/apps-screen.tsx`, `live/`, `ai/autonomy-screen.tsx`, `ai/autonomy-source.tsx`, `ai/autonomy-demo-source.tsx`, `data/`, the supplier portal's order, product and dashboard screens with their dialogs, `hooks/use-supplier-orders.ts`; `lib/auth-client.ts` and `lib/errors.ts` are
      * written here). The list only shrinks.
      */
     "packages/ui/src/app/access/",
@@ -83,7 +83,17 @@
     "packages/ui/src/app/developer/made-by.tsx",
     "packages/ui/src/app/developer/source.tsx",
     "packages/ui/src/app/filters/",
-    "packages/ui/src/app/hooks/",
+    "packages/ui/src/app/hooks/use-active-store.ts",
+    "packages/ui/src/app/hooks/use-command-palette.ts",
+    "packages/ui/src/app/hooks/use-count-up.ts",
+    "packages/ui/src/app/hooks/use-hydrated.ts",
+    "packages/ui/src/app/hooks/use-marketplace-state.ts",
+    "packages/ui/src/app/hooks/use-nav-prefs.ts",
+    "packages/ui/src/app/hooks/use-now.ts",
+    "packages/ui/src/app/hooks/use-operator-data.ts",
+    "packages/ui/src/app/hooks/use-persona.ts",
+    "packages/ui/src/app/hooks/use-shopify-status.ts",
+    "packages/ui/src/app/hooks/use-theme.ts",
     "packages/ui/src/app/lib/agent-log.ts",
     "packages/ui/src/app/lib/analytics/",
     "packages/ui/src/app/lib/api.ts",
@@ -205,23 +215,14 @@
     "packages/ui/src/app/stores/visitors-store.ts",
     "packages/ui/src/app/stores/workspace-store.ts",
     "packages/ui/src/app/supplier/chats-screen.tsx",
-    "packages/ui/src/app/supplier/dashboard-screen.tsx",
     "packages/ui/src/app/supplier/notifications-screen.tsx",
     "packages/ui/src/app/supplier/notifications-search.ts",
-    "packages/ui/src/app/supplier/order-screen.tsx",
-    "packages/ui/src/app/supplier/orders-screen.tsx",
     "packages/ui/src/app/supplier/orders-search.ts",
-    "packages/ui/src/app/supplier/packing-slip.ts",
-    "packages/ui/src/app/supplier/problem-dialog.tsx",
-    "packages/ui/src/app/supplier/product-screen.tsx",
-    "packages/ui/src/app/supplier/products-screen.tsx",
     "packages/ui/src/app/supplier/products-search.ts",
     "packages/ui/src/app/supplier/settings-api-connection-screen.tsx",
     "packages/ui/src/app/supplier/settings-layout.tsx",
     "packages/ui/src/app/supplier/settings-notifications-screen.tsx",
     "packages/ui/src/app/supplier/settings-profile-screen.tsx",
-    "packages/ui/src/app/supplier/ship-dialog.tsx",
-    "packages/ui/src/app/supplier/status.tsx",
     "packages/ui/src/app/table/",
     "packages/ui/src/app/team/",
     "packages/ui/src/app/tickets/",

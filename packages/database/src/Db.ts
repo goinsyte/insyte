@@ -18,6 +18,12 @@ export interface DbService {
   /** As the request's principal. */
   readonly scoped: InTransaction<CurrentPrincipal>
   /**
+   * As the request's partner principal (a supplier contact; an affiliate with its programme, M16): `scoped` with
+   * `app.partner_id` set, so the supplier and affiliate policies show its own projection. A principal that is no partner
+   * is a defect here: the partner use cases are reached only through their own middleware.
+   */
+  readonly scopedPartner: InTransaction<CurrentPrincipal>
+  /**
    * As the signed-in person, before any workspace: only `app.user_id` is set, so the user-scoped tables
    * (`onboarding_progress`, `auth_events`) show their own rows and every tenant table shows nothing.
    */
@@ -74,6 +80,20 @@ export const makeDb = (connection: Effect.Effect<SqlClient.SqlClient, SqlError.S
           partnerId: p.partnerId,
           userId: p.userId
         }, f)),
+    scopedPartner: (f) =>
+      Effect.flatMap(
+        Effect.service(CurrentPrincipal),
+        (p) =>
+          (p.kind !== "supplier_contact" && p.kind !== "affiliate") || p.partnerId === null
+            ? Effect.die(new Error(`scopedPartner needs a partner principal, not ${p.kind}`))
+            : inContext({
+              workspaceId: p.workspaceId,
+              principalId: p.id,
+              kind: p.kind,
+              partnerId: p.partnerId,
+              userId: p.userId
+            }, f)
+      ),
     forUser: (f) =>
       Effect.flatMap(
         Effect.service(CurrentUser),

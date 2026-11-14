@@ -3,7 +3,7 @@ import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect, Option, Redacted, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
-import { Relay } from "../../shared/domain/Outbox.ts"
+import { PendingEvents, Relay } from "../../shared/domain/Outbox.ts"
 import { Sealer } from "../../shared/domain/Sealer.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
@@ -17,21 +17,42 @@ import * as Outbox from "../../shared/use-cases/Outbox.ts"
  */
 
 /** The supplier's work for these legs, made when they reach it: the deadline is the order's time plus the longest
- * lead time of the leg's lines (the supplier's default where it has none for a product), at its 17:00. */
+ * lead time of the leg's lines (the supplier's default where it has none for a product), at its 17:00. Each supplier
+ * with new work hears it in its portal (`partner.changed`, M16): an open tab refetches its orders. */
 export const ensureWork = (sql: SqlClient.SqlClient, legIds: ReadonlyArray<string>) =>
-  legIds.length === 0 ? Effect.void : Effect.asVoid(sql`
-    insert into supplier_work (workspace_id, order_id, supplier_id, handoff_by)
-    select f.workspace_id, f.order_id, f.supplier_id,
-           ((date_trunc('day', o.placed_at at time zone s.timezone)
-             + make_interval(days => coalesce(
-                 (select max(ps.lead_days) from order_lines l
-                  join product_supply ps on ps.product_id = l.product_id and ps.supplier_id = f.supplier_id
-                  where l.id = any(f.line_ids)),
-                 s.default_lead_days))
-             + interval '17 hours') at time zone s.timezone)
-    from forwarding_items f join orders o on o.id = f.order_id join suppliers s on s.id = f.supplier_id
-    where f.id in ${sql.in([...legIds])} and f.supplier_id is not null
-    on conflict (order_id, supplier_id) do nothing`)
+  legIds.length === 0 ? Effect.void : Effect.gen(function*() {
+    const made = yield* sql<{ workspaceId: string; supplierId: string; orderId: string }>`
+      insert into supplier_work (workspace_id, order_id, supplier_id, handoff_by)
+      select f.workspace_id, f.order_id, f.supplier_id,
+             ((date_trunc('day', o.placed_at at time zone s.timezone)
+               + make_interval(days => coalesce(
+                   (select max(ps.lead_days) from order_lines l
+                    join product_supply ps on ps.product_id = l.product_id and ps.supplier_id = f.supplier_id
+                    where l.id = any(f.line_ids)),
+                   s.default_lead_days))
+               + interval '17 hours') at time zone s.timezone)
+      from forwarding_items f join orders o on o.id = f.order_id join suppliers s on s.id = f.supplier_id
+      where f.id in ${sql.in([...legIds])} and f.supplier_id is not null
+      on conflict (order_id, supplier_id) do nothing
+      returning workspace_id, supplier_id, order_id`
+    const bySupplier = new Map<string, { workspaceId: string; orderIds: Array<string> }>()
+    for (const w of made) {
+      const entry = bySupplier.get(w.supplierId) ?? { workspaceId: w.workspaceId, orderIds: [] }
+      entry.orderIds.push(w.orderId)
+      bySupplier.set(w.supplierId, entry)
+    }
+    const pending = yield* PendingEvents
+    for (const [supplierId, { workspaceId, orderIds }] of bySupplier) {
+      const id = yield* Outbox.write(sql, workspaceId, {
+        type: "partner.changed",
+        workspaceId,
+        supplierId,
+        kind: "supplier_orders",
+        ids: orderIds
+      })
+      pending?.add(id)
+    }
+  })
 
 /** What a supplier's API sends. */
 export const SupplierEvent = Schema.Union([
