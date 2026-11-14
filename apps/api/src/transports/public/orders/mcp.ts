@@ -63,9 +63,9 @@ export const OrdersMcp = OrdersTools.toLayer(Effect.gen(function*() {
       notForAgents("flag_order_delayed", kicking(read.delayOrder(order_id, idempotency_key))),
     clear_order_delay: ({ order_id, idempotency_key }) =>
       notForAgents("clear_order_delay", kicking(read.clearOrderDelay(order_id, idempotency_key))),
-    // No agent action names a shopper's mail yet: an agent's key is refused, any other sends it as the key may.
+    // No agent action names a shopper's mail yet: `/v1`'s own refuses an agent's key, so both refuse it the same way.
     email_order_customer: ({ order_id, idempotency_key, ...body }) =>
-      notForAgents("email_order_customer", kicking(read.emailCustomer(order_id, body, idempotency_key))),
+      kicking(read.emailCustomer(order_id, body, idempotency_key)),
     cancel_order: ({ order_id, idempotency_key, ...body }) =>
       governed(
         "cancel_order",

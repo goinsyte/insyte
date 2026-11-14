@@ -11,6 +11,12 @@ import { SqlClient } from "effect/sql"
 export const refusedReferences = new Set<string>()
 
 /**
+ * The records whose mails find the provider busy, as Resend's 429 (`POST /api/__dev/mail/refuse?busy=1`): so a mail
+ * tried again later can be seen. Only this isolate's, and never in production.
+ */
+export const busyReferences = new Set<string>()
+
+/**
  * The sending domains whose `from` the capture adapter refuses as Resend does a domain that is not verified
  * (`POST /api/__dev/mail/refuse-sender`): so a brand's mail falling back to Insyte's address can be seen. Only this
  * isolate's, and never in production.
@@ -43,6 +49,10 @@ export const MailerCapture = Layer.effect(
       send: (mail) =>
         mail.reference !== undefined && refusedReferences.has(mail.reference)
           ? Effect.fail(new MailNotSent({ kind: mail.kind, reason: "het adres weigert de mail" }))
+          : mail.reference !== undefined && busyReferences.has(mail.reference)
+          ? Effect.fail(
+            new MailNotSent({ kind: mail.kind, reason: "resend 429: rate_limit_exceeded", retryable: true })
+          )
           : senderRefused(mail)
           ? Effect.fail(
             new MailNotSent({

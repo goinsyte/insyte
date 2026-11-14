@@ -253,12 +253,21 @@ describe("ResendMailer", () => {
     expect(seen[0]?.headers["idempotency-key"]).not.toBe(seen[1]?.headers["idempotency-key"])
   })
 
-  it("turns a refusal, a missing link and missing facts into MailNotSent, and sends nothing for the last two", async () => {
+  it("turns a refusal, a busy provider, a missing link and missing facts into MailNotSent, and sends nothing for the last two", async () => {
     const refused = await sendWith(
       fakeResend(() => Promise.resolve(Response.json({ message: "nope" }, { status: 422 }))),
       { kind: "auth.reset", to: "eva@example.com", url }
     )
     expect(Exit.isFailure(refused) && JSON.stringify(refused.cause)).toContain("MailNotSent")
+    // A refusal is final; Resend busy (429) or out (5xx) is worth trying again later.
+    expect(Exit.isFailure(refused) && JSON.stringify(refused.cause)).not.toContain("retryable")
+    for (const status of [429, 500, 503]) {
+      const busy = await sendWith(
+        fakeResend(() => Promise.resolve(Response.json({ message: "later" }, { status }))),
+        { kind: "auth.reset", to: "eva@example.com", url }
+      )
+      expect(Exit.isFailure(busy) && JSON.stringify(busy.cause)).toContain("\"retryable\":true")
+    }
     const seen: Array<Seen> = []
     const http = fakeResend(() => Promise.resolve(Response.json({ id: "re_5" })), seen)
     const noLink = await sendWith(http, { kind: "auth.verify", to: "eva@example.com" })

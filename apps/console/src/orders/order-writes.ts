@@ -73,14 +73,15 @@ const orderRefused = (error: unknown) => sayRefusal(error, COPY)
 
 /** Insyte's markers as the design's orders carry them: set by Insyte, never as a label. */
 const AT_RISK = "at_risk"
-const MARKERS: ReadonlySet<string> = new Set([AT_RISK, "tracking_sent"])
+const MARKERS: ReadonlySet<string> = new Set([AT_RISK, "tracking_sent", "tracking_failed"])
 
 /** Why orders of a selection got no track-and-trace update, in a toast's words. */
 const SKIPPED: Record<TrackingSkip, readonly [one: string, many: string]> = {
   already_told: ["kreeg dit track & trace-nummer al", "kregen dit track & trace-nummer al"],
   no_email: ["heeft geen e-mailadres", "hebben geen e-mailadres"],
   no_tracking: ["heeft nog geen track & trace", "hebben nog geen track & trace"],
-  closed: ["is gesloten", "zijn gesloten"]
+  closed: ["is gesloten", "zijn gesloten"],
+  delivered: ["is al bezorgd", "zijn al bezorgd"]
 }
 
 const skippedText = (skipped: TrackingSent["skipped"]) => {
@@ -156,7 +157,7 @@ export function useOrderCommands() {
     /** The order's tags as the screen wants them: what is new is added, what is gone is taken off. */
     setTags: async (order: Order, tags: ReadonlyArray<string>, message: string) => {
       // "Vertraagd" (`at_risk`) is the order's delay, not a label: it changes through flagDelayed and clearDelay. The
-      // same goes for "Track & trace verstuurd", which the track-and-trace mail sets.
+      // same goes for "Track & trace verstuurd" and "Track & trace niet verstuurd", which the track-and-trace mail sets.
       const add = tags.filter((t) => !order.tags.includes(t) && !MARKERS.has(t))
       const remove = order.tags.filter((t) => !tags.includes(t) && !MARKERS.has(t))
       if (add.length === 0 && remove.length === 0) return

@@ -17,6 +17,15 @@ const orderNumbered = async (cookie: string, number: string) =>
 
 const mailEvents = async (workspace: string) => (await outboxOf(workspace)).filter((e) => e.event === "order.mail")
 
+/** The one order mail still waiting to go. */
+const pendingMail = (events: Awaited<ReturnType<typeof mailEvents>>) => {
+  const waiting = events.filter((e) => e.relayedAt === null && !e.cancelled)
+  expect(waiting).toHaveLength(1)
+  return (waiting[0]!.payload as { mailId: string }).mailId
+}
+
+const dev = (path: string) => call(`http://api.test/api/__dev/mail/${path}`, { method: "POST" })
+
 const key = async (cookie: string, label: string, stores: "all" | Array<string>, agent: boolean) =>
   ok(
     await rpc("ApiKeys.create", {
@@ -103,6 +112,16 @@ describe("mail the shopper", () => {
       .toMatchObject({ _tag: "CustomerMailRefused", reason: "no_email" })
     expect(failure(await rpc("Orders.emailCustomer", { orderId: "ord_none", subject: "Hoi", body: "x" }, store.cookie)))
       .toMatchObject({ _tag: "NotFound" })
+    // A subject is one header line: no line break smuggled into it.
+    expect(
+      failure(
+        await rpc(
+          "Orders.emailCustomer",
+          { orderId: open.id, subject: "Hoi\r\nBcc: x@y.test", body: "x" },
+          store.cookie
+        )
+      )
+    ).toMatchObject({ _tag: "Invalid", fields: { subject: "invalid" } })
 
     // Put in line with an undo; Undo calls it off, so nothing leaves.
     const first = ok(
@@ -193,6 +212,12 @@ describe("mail the shopper", () => {
     })
     expect(refused.isError).toBe(true)
     expect(refused.body).toMatchObject({ error: { code: "ActionNotAllowedV1", action: "email_order_customer" } })
+    // Over `/v1` the same: an agent's key does not mail a shopper.
+    const byAgent = await v1(agent, `v1-agent-${run}`)
+    expect(byAgent.status).toBe(403)
+    expect(await byAgent.json()).toMatchObject({
+      error: { code: "ActionNotAllowedV1", action: "email_order_customer", reason: "unknown" }
+    })
   })
 
   it("sends track and trace once per parcel, says why the rest were left out, with one undo", async () => {
@@ -203,15 +228,26 @@ describe("mail the shopper", () => {
 
     // Undone first: nothing leaves, and the order no longer shows it as sent.
     const tried = ok(await rpc("Orders.sendTrackingUpdate", { ids }, store.cookie))
-    expect(tried.orders.map((o) => o.number).toSorted()).toEqual(["#1002", "#1003"])
+    expect(tried.orders.map((o) => o.number)).toEqual(["#1003"])
     expect(tried.orders.every((o) => o.trackingSentAt !== null)).toBe(true)
     expect(Object.fromEntries(tried.skipped.map((s) => [rows.find((o) => o.id === s.id)!.number, s.reason]))).toEqual({
       "#1001": "no_tracking",
+      "#1002": "delivered",
       "#1004": "closed",
       "#1005": "closed"
     })
     ok(await rpc("Shared.undo", { token: tried.undo!.token }, store.cookie))
     expect((await orderNumbered(store.cookie, "#1003")).trackingSentAt).toBeNull()
+
+    // Refused for good: the order shows it was not sent, and a second press tries it afresh.
+    ok(await rpc("Orders.sendTrackingUpdate", { ids: [by("#1003").id] }, store.cookie))
+    const bounced = pendingMail(await mailEvents(store.workspace))
+    await dev(`refuse?reference=${bounced}`)
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    await dev(`refuse?reference=${bounced}&off=1`)
+    expect(await orderNumbered(store.cookie, "#1003")).toMatchObject({ trackingSentAt: null })
+    expect((await orderNumbered(store.cookie, "#1003")).trackingFailedAt).not.toBeNull()
 
     // Sent for good: a second press tells no one twice.
     const sent = ok(await rpc("Orders.sendTrackingUpdate", { ids: [by("#1003").id] }, store.cookie))
@@ -221,14 +257,23 @@ describe("mail the shopper", () => {
       skipped: [{ id: by("#1003").id, reason: "already_told" }],
       undo: null
     })
+    // The provider busy (429): the mail stays in line, and goes on a later try, once.
+    const mailId = pendingMail(await mailEvents(store.workspace))
+    await dev(`refuse?reference=${mailId}&busy=1`)
     await pastUndo(store.workspace)
     await relay(store.workspace)
-    const live = (await mailEvents(store.workspace)).filter((e) => !e.cancelled)
-    expect(live).toHaveLength(1)
-    const mailId = (live[0]!.payload as { mailId: string }).mailId
-    const mails = await mailsAbout(by("#1003").customerEmail!, mailId)
+    const to = by("#1003").customerEmail!
+    expect(await mailsAbout(to, mailId)).toEqual([])
+    const retry = (await mailEvents(store.workspace)).filter((e) => e.relayedAt === null && !e.cancelled)
+    expect(retry.map((e) => e.payload)).toEqual([expect.objectContaining({ mailId, attempt: 2 })])
+    expect(retry[0]!.due).toBe(false)
+    await dev(`refuse?reference=${mailId}&busy=1&off=1`)
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    const mails = await mailsAbout(to, mailId)
     expect(mails).toHaveLength(1)
     expect(mails[0]).toMatchObject({ kind: "order.message" })
+    expect(await orderNumbered(store.cookie, "#1003")).toMatchObject({ trackingFailedAt: null })
     expect((await orderNumbered(store.cookie, "#1003")).trackingSentAt).not.toBeNull()
 
     // A member held to another store does not find the orders.
@@ -309,6 +354,24 @@ describe("mail the shopper", () => {
     const gone = ok(await rpc("Threads.get", { id: own.threadId }, store.cookie))
     expect(gone.messages[0]).toMatchObject({ sendState: "sent" })
     expect(gone.messages[0]?.bodyText).toContain("Hij is onderweg.")
+
+    // Next time in the shopper's thread, not in a newer one with the supplier; the caller's id sends it once.
+    const supplier = ok(
+      await rpc("Threads.compose", {
+        to: `levering-${run}@leverancier.test`,
+        subject: "Pakket #1003",
+        body: "Wanneer gaat het weg?"
+      }, store.cookie)
+    )
+    ok(await rpc("Threads.linkTicket", { threadId: supplier.thread.id, ticketId: ticket.id }, store.cookie))
+    const mailId = mintId("eml")
+    const next = ok(await rpc("Tickets.emailCustomer", { id: ticket.id, mailId }, store.cookie))
+    expect(next).toMatchObject({ threadId: own.threadId, to: order.customerEmail })
+    expect(next.undo).not.toBeNull()
+    const twice = ok(await rpc("Tickets.emailCustomer", { id: ticket.id, mailId }, store.cookie))
+    expect(twice).toMatchObject({ threadId: own.threadId, to: order.customerEmail, undo: null })
+    const shopperThread = ok(await rpc("Threads.get", { id: own.threadId }, store.cookie))
+    expect(shopperThread.messages.filter((m) => m.id === mailId)).toHaveLength(1)
 
     // A member held to another store does not find a ticket of this one.
     const fenced = await fencedMember(store, "ticket")

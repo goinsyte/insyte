@@ -1,4 +1,5 @@
 import { useAtomSet } from "@effect/atom-react"
+import { mintId } from "@insyte/domain/Ids"
 import type { TicketChange } from "@insyte/modules/tickets/domain/Tickets"
 import type { Ticket } from "@insyte/ui/app/lib/types/domain"
 import { undoable } from "@insyte/ui/app/lib/undo"
@@ -106,7 +107,8 @@ export function useNotifyCustomer(): (ticket: Ticket) => Promise<boolean> {
   const send = useAtomSet(ticketWrites.emailCustomer, { mode: "promiseExit" })
   const undo = useAtomSet(ticketWrites.undo, { mode: "promiseExit" })
   return async (ticket) => {
-    const exit = await send({ payload: { id: ticket.id }, ...keys })
+    // Its own id, so a request that is sent twice (a retry on a bad connection) mails the shopper once.
+    const exit = await send({ payload: { id: ticket.id, mailId: mintId("eml") }, ...keys })
     if (Exit.isFailure(exit)) {
       mailRefused(failureOf(exit))
       return false

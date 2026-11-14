@@ -214,7 +214,9 @@ export class MailNotSent extends Schema.TaggedError<MailNotSent>()("MailNotSent"
    * The mail named the brand's own address (`Mail.from`) and the provider refused that sender: its domain is not
    * verified (any more). `use-cases/Senders.ts` sends it again from Insyte's address.
    */
-  senderRefused: Schema.optional(Schema.Boolean)
+  senderRefused: Schema.optional(Schema.Boolean),
+  /** The provider was busy or out (429, 5xx, unreachable): the same mail may go if it is tried again later. */
+  retryable: Schema.optional(Schema.Boolean)
 }) {}
 
 export class Mailer extends Context.Service<Mailer, {

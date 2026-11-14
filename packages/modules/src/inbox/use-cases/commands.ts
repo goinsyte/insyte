@@ -376,11 +376,13 @@ const queueMessage = Effect.fn("Threads.queueMessage")(function*(
     readonly text: string
     readonly inReplyTo: string | null
     readonly references: ReadonlyArray<string>
+    /** The caller's own id for it (a ticket's "Klant informeren"), so asking twice finds the one already in line. */
+    readonly id?: string | undefined
   }
 ) {
   const principal = yield* CurrentPrincipal
   const domain = yield* mailDomain
-  const id = mintId("eml")
+  const id = input.id ?? mintId("eml")
   yield* sql`
     insert into email_messages (id, workspace_id, thread_id, rfc822_message_id, in_reply_to, "references", direction,
                                 kind, from_name, from_address, "to", subject, body_text, sent_by, send_state)
@@ -413,6 +415,8 @@ const queued = (sql: SqlClient.SqlClient, threadId: string, messageId: string, u
 export interface Queued {
   readonly threadId: string
   readonly messageId: string
+  /** Who it goes to. */
+  readonly to: string
   readonly outboxId: string
   readonly compensation: InboxRestore
 }
@@ -421,7 +425,10 @@ export interface Queued {
  * A reply in `threadId` on the caller's transaction (the caller checked the seat), without an undo token of its own: a
  * ticket's "Klant informeren" holds one token for the mail and the ticket together.
  */
-export const replyOn = Effect.fn("Threads.replyOn")(function*(sql: SqlClient.SqlClient, input: typeof ReplyInput.Type) {
+export const replyOn = Effect.fn("Threads.replyOn")(function*(
+  sql: SqlClient.SqlClient,
+  input: typeof ReplyInput.Type & { readonly messageId?: string | undefined }
+) {
   const [l] = yield* lock(sql, [input.threadId])
   const mailbox = yield* mailboxFor(sql, l!.mailboxId)
   const [last] = yield* sql<{ name: string; email: string; rfc822: string; references: ReadonlyArray<string> }>`
@@ -442,13 +449,14 @@ export const replyOn = Effect.fn("Threads.replyOn")(function*(sql: SqlClient.Sql
     text,
     // Kept bare, as the inbound ones are; the sink puts the brackets on.
     inReplyTo: last === undefined ? null : last.rfc822,
-    references: last === undefined ? [] : [...last.references.map(bare), last.rfc822].slice(-20)
+    references: last === undefined ? [] : [...last.references.map(bare), last.rfc822].slice(-20),
+    id: input.messageId
   })
   yield* sql`update email_threads set last_message_at = now(), last_message_preview = ${previewOf(input.body)},
                    unread = false where id = ${l!.id}`
   yield* audit(sql, "thread.replied", l!.id, { messageId: id })
   const compensation: InboxRestore = { kind: "unsent", messageId: id, thread: before(l!), removeThread: false }
-  return { threadId: l!.id, messageId: id, outboxId: held, compensation } satisfies Queued
+  return { threadId: l!.id, messageId: id, to: to.email.toLowerCase(), outboxId: held, compensation } satisfies Queued
 })
 
 /** One undo token for a message just put in line, and the thread as the screen shows it. */
@@ -518,7 +526,7 @@ export const forward = Effect.fn("Threads.forward")(function*(input: typeof Forw
  */
 export const composeOn = Effect.fn("Threads.composeOn")(function*(
   sql: SqlClient.SqlClient,
-  input: typeof ComposeInput.Type & { readonly ticketId?: string | undefined }
+  input: typeof ComposeInput.Type & { readonly ticketId?: string | undefined; readonly messageId?: string | undefined }
 ) {
   const principal = yield* CurrentPrincipal
   const [chosen] = input.mailboxId !== undefined
@@ -553,12 +561,13 @@ export const composeOn = Effect.fn("Threads.composeOn")(function*(
     subject: input.subject.trim(),
     text: withSignature(input.body, mailbox.signature),
     inReplyTo: null,
-    references: []
+    references: [],
+    id: input.messageId
   })
   yield* audit(sql, "thread.composed", threadId, { messageId: id })
   const [l] = yield* lock(sql, [threadId])
   const compensation: InboxRestore = { kind: "unsent", messageId: id, thread: before(l!), removeThread: true }
-  return { threadId, messageId: id, outboxId: held, compensation } satisfies Queued
+  return { threadId, messageId: id, to: to.email, outboxId: held, compensation } satisfies Queued
 })
 
 /** "Nieuwe e-mail": a thread of its own, at the top, with the writer on it. */

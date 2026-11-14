@@ -1,5 +1,6 @@
 import { type ComponentType, createContext, useContext } from "react"
 import type { ForwardVia } from "../lib/forwarding"
+import type { ServedDraft } from "../lib/forwarding-mail"
 import type { QueueRow } from "../lib/queue-row"
 import type { OrderLineItem } from "../lib/types/domain"
 import type { Facet } from "../table/data-table"
@@ -12,8 +13,7 @@ import type { Facet } from "../table/data-table"
 
 export type TeamGate = { ok: boolean; reason: string }
 
-/** A mail to a shopper as the host drafted it. */
-export type MailDraft = { to: string | null; subject: string; body: string }
+export type { MailDraft, ServedDraft } from "../lib/forwarding-mail"
 
 export interface ForwardingSource {
   /** The clock the waiting times read; the host ticks it every second while a send waits out its window. */
@@ -38,13 +38,14 @@ export interface ForwardingSource {
   cancelOrder: (row: QueueRow) => void
   /**
    * "Klant mailen"; absent, the button is left out. `useDraft` is the host's own draft for the row's shopper, with the
-   * address it goes to (`null`: none to mail); absent, or while it loads, the dialog drafts it as the design does.
+   * address it goes to (`null`: none to mail); the dialog sends only once it is in. Absent, the dialog drafts it as
+   * the design does.
    */
   mail?:
     | {
       gate: TeamGate
       send: (row: QueueRow, subject: string, body: string) => void
-      useDraft?: ((row: QueueRow | null) => MailDraft | undefined) | undefined
+      useDraft?: ((row: QueueRow | null) => ServedDraft) | undefined
     }
     | undefined
   /** The agent's ForwardOrder plate above Te versturen, and its log row; absent, neither shows. */

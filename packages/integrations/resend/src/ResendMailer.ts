@@ -51,6 +51,10 @@ export const plainHtml = (text: string) =>
 export const refusesSender = (reason: string) =>
   /^resend 403\b/.test(reason) && /\bdomain\b.*\bnot verified\b/i.test(reason)
 
+/** Resend was busy (429) or out (5xx, unreachable): the mail may go when it is tried again with its idempotency key. */
+export const retriesLater = (reason: string) =>
+  /^resend (429|5\d\d)\b/.test(reason) || /^resend unreachable\b/.test(reason)
+
 const missing = (mail: Mail, what: string) => new MailNotSent({ kind: mail.kind, reason: `${mail.kind} needs ${what}` })
 
 const link = (mail: Mail) => mail.url === undefined ? Effect.fail(missing(mail, "a link")) : Effect.succeed(mail.url)
@@ -167,7 +171,8 @@ export const ResendMailer = Layer.effect(
             new MailNotSent({
               kind: mail.kind,
               reason: error.reason,
-              ...(mail.from !== undefined && refusesSender(error.reason) ? { senderRefused: true } : {})
+              ...(mail.from !== undefined && refusesSender(error.reason) ? { senderRefused: true } : {}),
+              ...(retriesLater(error.reason) ? { retryable: true } : {})
             })
           )
         )

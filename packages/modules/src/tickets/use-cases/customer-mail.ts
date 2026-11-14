@@ -25,10 +25,11 @@ import { rowsOf } from "./tickets.ts"
 /*
  * "Klant informeren" (M11; widgets/04 §A), at Klantenservice · Bewerken inside the role's stores. The shopper is the
  * ticket's customer, else its order's, each read inside the member's own stores. The mail goes from the team's mailbox
- * (`TicketMail`, the inbox): in the thread the ticket came from, else in a new thread linked to the ticket, so the
- * answer lands in the inbox beside it. On the same transaction the ticket waits on that answer (`awaiting_reply`) and
- * its activity keeps the line the design writes. The mail waits out the undo window; one undo (`tickets.mailed`) takes
- * the mail, the status and the line back together.
+ * (`TicketMail`, the inbox): in the ticket's thread with the shopper, else in a new thread linked to the ticket (a
+ * thread with a supplier is not the shopper's), so the answer lands in the inbox beside it. The caller's `mailId` makes
+ * asking twice send once. On the same transaction the ticket waits on that answer (`awaiting_reply`) and its activity
+ * keeps the line the design writes. The mail waits out the undo window; one undo (`tickets.mailed`) takes the mail, the
+ * status and the line back together.
  */
 
 export const MAILED = "tickets.mailed"
@@ -42,6 +43,20 @@ export const emailCustomer = Effect.fn("Tickets.emailCustomer")(function*(input:
   const { answer, outboxId } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const [l] = yield* lock(sql, [input.id])
+      // Asked again with the same mail (a retry, a second click): the one already in line answers, nothing more goes.
+      if (input.mailId !== undefined) {
+        const [was] = yield* sql<{ threadId: string; to: string }>`
+          select m.thread_id, coalesce(m."to" -> 0 ->> 'email', '') as to from email_messages m
+          join email_threads e on e.id = m.thread_id
+          where m.id = ${input.mailId} and e.ticket_id = ${l!.id}`
+        if (was !== undefined) {
+          const [row] = yield* rowsOf(sql, [l!.id])
+          return {
+            answer: new CustomerEmailed({ ticket: row!, threadId: was.threadId, to: was.to, undo: null }),
+            outboxId: null
+          }
+        }
+      }
       const orders = yield* inScope(sql, "o.store_id")
       const customers = yield* inScope(sql, "c.store_id")
       const [who] = yield* sql<{
@@ -50,19 +65,27 @@ export const emailCustomer = Effect.fn("Tickets.emailCustomer")(function*(input:
         orderEmail: string | null
         orderName: string | null
         orderNumber: string | null
-        threadId: string | null
       }>`
         select nullif(btrim(c.email), '') as customer_email, nullif(btrim(c.name), '') as customer_name,
                nullif(btrim(o.customer_email), '') as order_email, nullif(btrim(o.customer_name), '') as order_name,
-               o.number as order_number,
-               (select e.id from email_threads e where e.ticket_id = t.id and e.deleted_at is null and e.spam_at is null
-                order by e.last_message_at desc limit 1) as thread_id
+               o.number as order_number
         from tickets t
         left join customers c on c.id = t.customer_id and c.deleted_at is null and ${customers}
         left join orders o on o.id = t.order_id and ${orders}
         where t.id = ${l!.id}`
       const to = who?.customerEmail ?? who?.orderEmail ?? null
       if (to === null) return yield* new NoCustomerAddress({ ticketId: l!.id })
+      // The ticket's thread with the shopper: one whose other side (who wrote last, else whoever on it is not the team,
+      // as a reply addresses it) is the shopper. A thread with a supplier is not one; then a new thread is.
+      const [thread] = yield* sql<{ id: string }>`
+        select e.id from email_threads e
+        where e.ticket_id = ${l!.id} and e.deleted_at is null and e.spam_at is null
+          and lower(coalesce(
+                (select m.from_address from email_messages m where m.thread_id = e.id and m.direction = 'inbound'
+                 order by m.sent_at desc limit 1),
+                (select p ->> 'email' from jsonb_array_elements(e.participants) p
+                 where not coalesce((p ->> 'team')::boolean, false) limit 1))) = ${to.toLowerCase()}
+        order by e.last_message_at desc limit 1`
       const words = statusText({
         customer: who?.customerName ?? who?.orderName ?? null,
         about: who?.orderNumber ?? null
@@ -70,10 +93,11 @@ export const emailCustomer = Effect.fn("Tickets.emailCustomer")(function*(input:
       const own = input.body?.trim() ?? ""
       const sent = yield* mail.send(sql, {
         ticketId: l!.id,
-        threadId: who?.threadId ?? null,
+        threadId: thread?.id ?? null,
         to: to.toLowerCase(),
         subject: words.subject,
-        body: own === "" ? words.body : own
+        body: own === "" ? words.body : own,
+        messageId: input.mailId
       })
       if (l!.status !== "awaiting_reply") {
         yield* sql`update tickets set status = 'awaiting_reply', resolved_at = null where id = ${l!.id}`
@@ -98,12 +122,12 @@ export const emailCustomer = Effect.fn("Tickets.emailCustomer")(function*(input:
       })
       const [row] = yield* rowsOf(sql, [l!.id])
       return {
-        answer: new CustomerEmailed({ ticket: row!, threadId: sent.threadId, to: to.toLowerCase(), undo }),
+        answer: new CustomerEmailed({ ticket: row!, threadId: sent.threadId, to: sent.to, undo }),
         outboxId: sent.outboxId
       }
     })
   )
-  yield* relay.kick([outboxId], { afterSeconds: UNDO_SECONDS })
+  if (outboxId !== null) yield* relay.kick([outboxId], { afterSeconds: UNDO_SECONDS })
   return answer
 })
 

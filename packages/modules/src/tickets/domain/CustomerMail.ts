@@ -15,7 +15,9 @@ import { TicketRow } from "./Tickets.ts"
 export const EmailCustomerInput = Schema.Struct({
   id: Schema.String,
   /** The words; absent, Insyte's short "stand van zaken" from the ticket (`statusText`). */
-  body: Schema.optional(Schema.String.check(Schema.isMaxLength(10_000)))
+  body: Schema.optional(Schema.String.check(Schema.isMaxLength(10_000))),
+  /** The caller's id for the mail (`mintId("eml")`): asked again with it, the mail already in line answers. */
+  mailId: Schema.optional(Schema.String.check(Schema.isPattern(/^eml_[0-9a-hjkmnp-tv-z]{26}$/)))
 })
 export type EmailCustomerInput = typeof EmailCustomerInput.Type
 
@@ -57,7 +59,7 @@ export type MailedRestore = typeof MailedRestore.Type
 
 /**
  * The inbox, for a ticket's mail (architecture.md: never its use-cases/; implemented in `apps/api/src/platform/links`):
- * a reply in the thread the ticket came from, or a new thread linked to the ticket, put in line on the ticket's
+ * a reply in the ticket's thread with the shopper, or a new thread linked to the ticket, put in line on the ticket's
  * transaction without an undo of its own. `compensation` is the inbox's way back, run by the ticket's undo.
  *
  * @effect-expect-leaking CurrentPrincipal
@@ -65,13 +67,15 @@ export type MailedRestore = typeof MailedRestore.Type
 export class TicketMail extends Context.Service<TicketMail, {
   readonly send: (sql: SqlClient.SqlClient, input: {
     readonly ticketId: string
-    /** The thread the ticket was made from, or null for a new one. */
+    /** The ticket's thread with the shopper, or null for a new one. */
     readonly threadId: string | null
     readonly to: string
     readonly subject: string
     readonly body: string
+    /** The caller's id for the message. */
+    readonly messageId?: string | undefined
   }) => Effect.Effect<
-    { readonly threadId: string; readonly outboxId: string; readonly compensation: unknown },
+    { readonly threadId: string; readonly to: string; readonly outboxId: string; readonly compensation: unknown },
     NoMailbox | MailboxDisconnected | NotFound | Invalid | SqlError.SqlError,
     CurrentPrincipal
   >

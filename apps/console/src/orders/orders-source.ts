@@ -12,17 +12,19 @@ import { useOrderCommands } from "./order-writes.ts"
  * the Winkel facet and the suppliers of the orders' forwarding legs for the Leverancier facet and column (M8.2). The
  * selection bar labels, marks fulfilled, and marks or clears a delay through the order commands (M7.1), each with one
  * Undo for the selection, and copies and exports. A delayed order (`delayedAt`) carries the design's `at_risk` marker,
- * so it shows as Vertraagd; an order whose parcel the shopper was told of (`trackingSentAt`) carries `tracking_sent`.
- * "Track & trace-update sturen" mails each selected order's shopper its newest parcel, once per tracking number. Bulk
- * cancelling waits for the selection bar's confirm (cancelling cannot be undone); "Nieuwe
- * bestelling" is greyed out with why until draft orders. A row opens its order over the list.
+ * so it shows as Vertraagd; an order whose parcel the shopper was told of (`trackingSentAt`) carries `tracking_sent`,
+ * one whose track-and-trace mail did not go (`trackingFailedAt`) `tracking_failed`. "Track & trace-update sturen" mails
+ * each selected order's shopper its newest parcel, once per tracking number. Bulk cancelling waits for the selection
+ * bar's confirm (cancelling cannot be undone); "Nieuwe bestelling" is greyed out with why until draft orders. A row
+ * opens its order over the list.
  */
 
 const iso = (ms: number) => new Date(ms).toISOString()
 
 const AT_RISK = "at_risk"
 const TRACKING_SENT = "tracking_sent"
-const MARKERS: ReadonlySet<string> = new Set([AT_RISK, TRACKING_SENT])
+const TRACKING_FAILED = "tracking_failed"
+const MARKERS: ReadonlySet<string> = new Set([AT_RISK, TRACKING_SENT, TRACKING_FAILED])
 
 /** The order's suppliers as its Leverancier column shows them: by name, more than one joined. */
 const SUPPLIER_JOIN = ", "
@@ -50,7 +52,8 @@ export const orderOf = (o: OrderRow): Order => ({
   tags: [
     ...o.tags.filter((t) => !MARKERS.has(t)),
     ...(o.delayedAt === null ? [] : [AT_RISK]),
-    ...(o.trackingSentAt === null ? [] : [TRACKING_SENT])
+    ...(o.trackingSentAt === null ? [] : [TRACKING_SENT]),
+    ...(o.trackingFailedAt === null ? [] : [TRACKING_FAILED])
   ],
   created_at: iso(o.placedAt),
   updated_at: iso(o.updatedAt)
@@ -111,7 +114,7 @@ const actionsOf = (commands: ReturnType<typeof useOrderCommands>): OrdersSource[
     label: "Track & trace-update sturen",
     icon: Send,
     group: "Klanten",
-    applies: (o) => o.tracking_number !== undefined && !isClosed(o),
+    applies: (o) => o.tracking_number !== undefined && !isClosed(o) && o.status !== "delivered",
     run: (rows) => void commands.sendTrackingUpdate(rows)
   },
   {

@@ -11,7 +11,7 @@ import { at, ForwardingList, ProcessingTrackerView, type TrackerTrack } from "@i
 import {
   type ForwardingSource,
   ForwardingSourceProvider,
-  type MailDraft
+  type ServedDraft
 } from "@insyte/ui/app/orders/forwarding-source"
 import { Option } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
@@ -84,9 +84,12 @@ const valueOf = <A, E>(result: AsyncResult.AsyncResult<A, E>) => Option.getOrUnd
 
 const NO_DRAFT = Atom.make(AsyncResult.initial<CustomerDraft, never>())
 
-/** Insyte's draft for the row's shopper, once it is in; until then the dialog drafts it as the design does. */
-const useDraft = (row: QueueRow | null): MailDraft | undefined =>
-  valueOf(useAtomValue(row === null ? NO_DRAFT : customerDraftAtom(row.key)))
+/** Insyte's draft for the row's shopper: the dialog sends only once it is in, never a placeholder. */
+const useDraft = (row: QueueRow | null): ServedDraft => {
+  const result = useAtomValue(row === null ? NO_DRAFT : customerDraftAtom(row.key))
+  if (AsyncResult.isFailure(result)) return "failed"
+  return valueOf(result) ?? "loading"
+}
 
 /** Supplier names from the legs, and from the suppliers the role may see (who else could take a leg). */
 function useSuppliers(legs: ReadonlyArray<ServerLeg>) {

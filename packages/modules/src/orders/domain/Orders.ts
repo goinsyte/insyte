@@ -51,6 +51,8 @@ export class OrderRow extends Schema.Class<OrderRow>("orders/OrderRow")({
   delayedAt: Schema.NullOr(Schema.Finite),
   /** When the shopper was last sent track and trace from Insyte (or it waits out its undo window); null for never (M7). */
   trackingSentAt: Schema.NullOr(Schema.Finite),
+  /** When the last track-and-trace mail did not go, with none sent or in line since; null otherwise (M7 9.1). */
+  trackingFailedAt: Schema.NullOr(Schema.Finite),
   /** The suppliers its forwarding legs went or go to, by name (M8.2); none before it is paid or for its own stock. */
   suppliers: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),
   placedAt: Schema.Finite,

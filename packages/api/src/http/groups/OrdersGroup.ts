@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/http-api"
-import { NotFoundV1, RefundOverLimitV1, ScopeMissingV1 } from "../Errors.ts"
+import { ActionNotAllowedV1, NotFoundV1, RefundOverLimitV1, ScopeMissingV1 } from "../Errors.ts"
 import { ById, WriteErrors, Writes } from "../Requests.ts"
 import { Money, Order } from "./CommerceGroup.ts"
 
@@ -166,10 +166,10 @@ export class OrdersGroup extends HttpApiGroup.make("orders")
         body: Schema.String.check(Schema.isMaxLength(10_000))
       }),
       success: OrderMailV1,
-      error: WriteErrors
+      error: [...WriteErrors, ActionNotAllowedV1]
     }).annotate(
       OpenApi.Description,
-      "Mails the order's shopper in the store's name, with these words (paragraphs split on blank lines). It goes a few seconds later, from the brand's own domain where one is verified; an answer goes to the store's reply address or its support mailbox. Send an `Idempotency-Key`: the same key sends once. `409 no_email` when the order has no address. Needs `support.write` and `orders.read`."
+      "Mails the order's shopper in the store's name, with these words (paragraphs split on blank lines). It goes a few seconds later, from the brand's own domain where one is verified; an answer goes to the store's reply address or its support mailbox. Send an `Idempotency-Key`: the same key sends once. `409 no_email` when the order has no address; `403 ActionNotAllowedV1` for an agent's key. Needs `support.write` and `orders.read`."
     ),
     HttpApiEndpoint.post("refund", "/orders/:id/refunds", {
       params: ById,

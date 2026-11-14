@@ -19,6 +19,7 @@ import {
   MailsRestore,
   type OrderMail,
   paragraphsOf,
+  refusedFields,
   TrackingSent,
   type TrackingSkip,
   trackingText
@@ -37,12 +38,18 @@ import { cancelMails } from "./delay-mail.ts"
  *   asking twice send once.
  * - `sendTrackingUpdate`: "Track & trace-update sturen", bulk at Bestellingen · Bewerken. Each order's newest parcel is
  *   told once per tracking number: a selection sent twice tells no one twice, a new parcel is told again. What is left
- *   out says why (closed, no parcel, no address, told already); one undo for the selection.
+ *   out says why (closed, delivered, no parcel, no address, told already); one undo for the selection.
  */
 
 const RESTORE = "orders.unsend"
 
 const MAX_SELECTION = 500
+
+/** How many of a bulk's mails go each second once its undo window has passed: Resend's default rate. */
+const PER_SECOND = 2
+
+/** A bulk's mails kicked onto the queue this many at a time. */
+const KICK_EVERY = 10
 
 interface MailRow {
   readonly id: string
@@ -99,16 +106,10 @@ const queue = Effect.fn("Orders.queueMail")(function*(sql: SqlClient.SqlClient, 
 export const emailCustomer = Effect.fn("Orders.emailCustomer")(function*(input: EmailCustomerInput) {
   yield* Policy.require("support", 2)
   yield* Policy.require("orders", 1)
+  const refused = refusedFields(input.subject, input.body)
+  if (Object.keys(refused).length > 0) return yield* new Invalid({ fields: refused })
   const subject = input.subject.trim()
   const paragraphs = paragraphsOf(input.body)
-  if (subject === "" || paragraphs.length === 0) {
-    return yield* new Invalid({
-      fields: {
-        ...(subject === "" ? { subject: "required" } : {}),
-        ...(paragraphs.length === 0 ? { body: "required" } : {})
-      }
-    })
-  }
   const relay = yield* Relay
   const db = yield* Db
   const { answer, outboxId } = yield* db.scoped((sql) =>
@@ -172,7 +173,8 @@ export const sendTrackingUpdate = Effect.fn("Orders.sendTrackingUpdate")(functio
   if (ids.length === 0 || ids.length > MAX_SELECTION) return yield* new Invalid({ fields: { ids: "size" } })
   const relay = yield* Relay
   const db = yield* Db
-  const { answer, outboxIds } = yield* db.scoped((sql) =>
+  const principal = yield* CurrentPrincipal
+  const { answer, kicks } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const scope = yield* inScope(sql, "o.store_id")
       const wanted = [...new Set(ids)]
@@ -191,13 +193,20 @@ export const sendTrackingUpdate = Effect.fn("Orders.sendTrackingUpdate")(functio
       const found = new Set(rows.map((r) => r.id))
       const missing = wanted.find((id) => !found.has(id))
       if (missing !== undefined) return yield* new NotFound({ entity: "order", id: missing })
-      const skipped: Array<{ id: string; reason: typeof TrackingSkip.Type }> = []
-      const told: Array<string> = []
-      const mails: Array<string> = []
-      const held: Array<string> = []
+      const skipped: Array<{ id: string; reason: TrackingSkip }> = []
+      const wanting: Array<{
+        id: string
+        order_id: string
+        ref: string
+        to_address: string
+        subject: string
+        paragraphs: ReadonlyArray<string>
+      }> = []
       for (const o of rows) {
         const reason = o.status === "cancelled" || o.status === "refunded"
           ? "closed"
+          : o.status === "delivered"
+          ? "delivered"
           : o.tracking === null
           ? "no_tracking"
           : o.email === null
@@ -209,37 +218,68 @@ export const sendTrackingUpdate = Effect.fn("Orders.sendTrackingUpdate")(functio
           skipped.push({ id: o.id, reason })
           continue
         }
-        const id = mintId("oml")
         const text = trackingText({ shop: o.shop, customer: o.customer, number: o.number, carrier: o.carrier })
-        const outboxId = yield* queue(sql, {
-          id,
-          orderId: o.id,
-          kind: "tracking",
-          ref: o.tracking,
-          to: o.email!,
+        wanting.push({
+          id: mintId("oml"),
+          order_id: o.id,
+          ref: o.tracking!,
+          to_address: o.email!,
           subject: text.subject,
           paragraphs: text.paragraphs
         })
-        if (outboxId === undefined) {
-          skipped.push({ id: o.id, reason: "already_told" })
-          continue
-        }
-        told.push(o.id)
-        mails.push(id)
-        held.push(outboxId)
+      }
+      // In a handful of statements, not a few per order: the transaction holds every selected order's lock.
+      const made = wanting.length === 0 ? [] : yield* sql<{ id: string; orderId: string }>`
+        insert into order_mails (id, workspace_id, order_id, kind, ref, to_address, subject, paragraphs, created_by)
+        select r.id, app_workspace_id(), r.order_id, 'tracking', r.ref, r.to_address, r.subject,
+               array(select jsonb_array_elements_text(r.paragraphs)), ${principal.id}
+        from jsonb_to_recordset(${JSON.stringify(wanting)}::jsonb)
+          as r(id text, order_id text, ref text, to_address text, subject text, paragraphs jsonb)
+        on conflict do nothing returning id, order_id`
+      const kept = new Set(made.map((m) => m.orderId))
+      for (const w of wanting) if (!kept.has(w.order_id)) skipped.push({ id: w.order_id, reason: "already_told" })
+      const mails = wanting.filter((w) => kept.has(w.order_id))
+      yield* Audit.writeMany(
+        sql,
+        principal.workspaceId,
+        { kind: principal.kind, id: principal.id },
+        mails.map((m) => ({
+          action: "order.tracking_mail_scheduled",
+          subjectType: "order",
+          subjectId: m.order_id,
+          diff: { mail: m.id }
+        }))
+      )
+      // Last, so the undo window starts now and not when the transaction did: a long one would otherwise send while
+      // the toast still offers Undo. The mails go `PER_SECOND` a second after it, so the provider is not flooded.
+      const events = mails.map((m, i) => ({
+        id: mintId("obx"),
+        payload: { workspaceId: principal.workspaceId, userId: principal.userId ?? principal.id, mailId: m.id },
+        after: UNDO_SECONDS + Math.floor(i / PER_SECOND)
+      }))
+      if (events.length > 0) {
+        yield* sql`insert into outbox (id, workspace_id, event, payload, not_before)
+                   select r.id, ${principal.workspaceId}, 'order.mail', r.payload,
+                          clock_timestamp() + make_interval(secs => r.after)
+                   from jsonb_to_recordset(${JSON.stringify(events)}::jsonb) as r(id text, payload jsonb, after int)`
       }
       const undo = mails.length === 0 ? null : yield* Undo.issue(sql, {
         command: RESTORE,
-        compensation: { mails } satisfies MailsRestore,
-        outboxIds: held
+        compensation: { mails: mails.map((m) => m.id) } satisfies MailsRestore,
+        outboxIds: events.map((e) => e.id)
       })
+      const told = mails.map((m) => m.order_id)
       return {
         answer: new TrackingSent({ orders: told.length === 0 ? [] : yield* rowsOf(sql, told), skipped, undo }),
-        outboxIds: held
+        kicks: events
       }
     })
   )
-  if (outboxIds.length > 0) yield* relay.kick(outboxIds, { afterSeconds: UNDO_SECONDS })
+  // One kick per few seconds of the spread, each when its last mail is due; one that comes early waits on the queue.
+  for (let at = 0; at < kicks.length; at += KICK_EVERY) {
+    const chunk = kicks.slice(at, at + KICK_EVERY)
+    yield* relay.kick(chunk.map((e) => e.id), { afterSeconds: chunk[chunk.length - 1]!.after })
+  }
   return answer
 })
 
@@ -277,16 +317,22 @@ export const restoreMails = Effect.fn("Orders.restoreMails")(
 export type CustomerMailOutcome =
   | { readonly outcome: "sent"; readonly orderId: string }
   | { readonly outcome: "failed"; readonly orderId: string; readonly error: string }
+  | { readonly outcome: "retry"; readonly outboxId: string; readonly afterSeconds: number }
   | { readonly outcome: "skipped" }
+
+/** How often a mail is tried while the provider is busy or out, and how long before the first try again. */
+const MAX_ATTEMPTS = 5
+const FIRST_RETRY_SECONDS = 60
 
 /**
  * The relay's mail sink, inside the order's workspace as `system`: the mail sent as it was put in line, if it still is,
  * in the store's name. An answer goes to E-mail en domein's "Antwoorden naar", else to the workspace's default mailbox,
- * so it lands in the inbox. A mail that does not go is kept as failed with why, and audited; it is not tried again by
- * itself.
+ * so it lands in the inbox. The provider busy or out (429, 5xx): the mail stays in line and is tried again later, one,
+ * two, four, eight minutes on, with the same idempotency key, so it goes once. A mail that is refused, or still does not
+ * go after `MAX_ATTEMPTS`, is kept as failed with why, and audited; the order says so.
  */
 export const sendCustomerMail = Effect.fn("Orders.sendCustomerMail")(
-  function*(sql: SqlClient.SqlClient, mailId: string) {
+  function*(sql: SqlClient.SqlClient, mailId: string, attempt = 1) {
     const [m] = yield* sql<{
       workspaceId: string
       orderId: string
@@ -324,19 +370,33 @@ export const sendCustomerMail = Effect.fn("Orders.sendCustomerMail")(
           ? {}
           : { tracking: { carrier: parcel?.carrier ?? null, number: m.ref, url: safeUrl(parcel?.url ?? null) } })
       }
-    }).pipe(Effect.as(null), Effect.catchTag("MailNotSent", (e) => Effect.succeed(e.reason)))
+    }).pipe(Effect.as(null), Effect.catchTag("MailNotSent", (e) => Effect.succeed(e)))
     const system = { kind: "system", id: "insyte" } as const
+    if (sent?.retryable === true && attempt < MAX_ATTEMPTS) {
+      const afterSeconds = FIRST_RETRY_SECONDS * 2 ** (attempt - 1)
+      yield* sql`update order_mails set error = ${sent.reason} where id = ${mailId}`
+      const outboxId = yield* Outbox.write(sql, m.workspaceId, {
+        type: "order.mail",
+        workspaceId: m.workspaceId,
+        userId: "system",
+        mailId,
+        attempt: attempt + 1
+      }, { afterSeconds })
+      yield* Effect.logWarning("a shopper's mail is tried again later", { mailId, attempt, reason: sent.reason })
+      return { outcome: "retry", outboxId, afterSeconds } as CustomerMailOutcome
+    }
     if (sent !== null) {
-      yield* sql`update order_mails set state = 'failed', error = ${sent} where id = ${mailId}`
+      const error = sent.reason
+      yield* sql`update order_mails set state = 'failed', error = ${error} where id = ${mailId}`
       yield* Audit.write(sql, m.workspaceId, system, {
         action: "order.customer_mail_failed",
         subjectType: "order",
         subjectId: m.orderId,
-        diff: { mail: mailId, error: sent }
+        diff: { mail: mailId, error, attempts: attempt }
       })
-      return { outcome: "failed", orderId: m.orderId, error: sent } as CustomerMailOutcome
+      return { outcome: "failed", orderId: m.orderId, error } as CustomerMailOutcome
     }
-    yield* sql`update order_mails set state = 'sent', sent_at = now() where id = ${mailId}`
+    yield* sql`update order_mails set state = 'sent', sent_at = now(), error = null where id = ${mailId}`
     yield* Audit.write(sql, m.workspaceId, system, {
       action: m.kind === "tracking" ? "order.tracking_mailed" : "order.customer_mailed",
       subjectType: "order",

@@ -30,7 +30,7 @@ import {
 	UserPlus,
 	X,
 } from "../../icons";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { MentionField, MentionText, mentionsIn } from "./mention-field";
 import { type ActivityLine, type Said, type TicketPatch, useTicketsSource } from "./source";
@@ -98,6 +98,7 @@ export function TicketModal({
 	const person = (id: string) => people.find((p) => p.id === id);
 
 	const [draft, setDraft] = useState<Ticket | null>(null);
+	const notifying = useRef(false);
 	const [comments, setComments] = useState<ActivityLine[]>([]);
 	const [newComment, setNewComment] = useState("");
 	const [editingTitle, setEditingTitle] = useState(false);
@@ -244,8 +245,14 @@ export function TicketModal({
 	async function notifyCustomer() {
 		const send = source.notifyCustomer;
 		if (typeof send === "function") {
-			// The host mails the shopper and moves the ticket itself; the modal shows what it did once it went.
-			if (!draft || !(await send(draft))) return;
+			// The host mails the shopper and moves the ticket itself; the modal shows what it did once it went. A second
+			// click while the first is on its way sends nothing more.
+			if (!draft || notifying.current) return;
+			notifying.current = true;
+			const went = await send(draft).finally(() => {
+				notifying.current = false;
+			});
+			if (!went) return;
 			setDraft((d) => (d ? { ...d, status: "awaiting_reply" } : d));
 			log("Klant gemaild met de laatste stand van zaken. Wacht op antwoord.");
 			return;

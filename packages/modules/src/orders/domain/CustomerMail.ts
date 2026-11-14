@@ -45,7 +45,7 @@ export class CustomerMailQueued extends Schema.Class<CustomerMailQueued>("orders
 }) {}
 
 /** Why an order of a selection got no track-and-trace update. */
-export const TrackingSkip = Schema.Literals(["closed", "no_tracking", "no_email", "already_told"])
+export const TrackingSkip = Schema.Literals(["closed", "delivered", "no_tracking", "no_email", "already_told"])
 export type TrackingSkip = typeof TrackingSkip.Type
 
 /** What "Track & trace-update sturen" did: the orders told (as the list shows them), those left out and why, one undo. */
@@ -64,6 +64,30 @@ export class CustomerMailRefused extends Schema.TaggedError<CustomerMailRefused>
 /** The mails a command put in line, for `Shared.undo`: called off before they leave. */
 export const MailsRestore = Schema.Struct({ mails: Schema.Array(Schema.String) })
 export type MailsRestore = typeof MailsRestore.Type
+
+const SUBJECT_MAX = 255
+const BODY_MAX = 10_000
+
+/** A character a subject line cannot carry: a control character (a line break would split the header). */
+const isControl = (c: string) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127
+
+/**
+ * What is wrong with the team's words, by field, as `Invalid` says it; empty when nothing is. Checked in the use case,
+ * since not every caller decodes `EmailCustomerInput` first (an MCP tool's arguments are plain strings).
+ */
+export const refusedFields = (subject: string, body: string): Record<string, string> => {
+  const s = subject.trim()
+  return {
+    ...(s === ""
+      ? { subject: "required" }
+      : s.length > SUBJECT_MAX
+      ? { subject: "too_long" }
+      : [...s].some(isControl)
+      ? { subject: "invalid" }
+      : {}),
+    ...(body.length > BODY_MAX ? { body: "too_long" } : paragraphsOf(body).length === 0 ? { body: "required" } : {})
+  }
+}
 
 /** The team's words as paragraphs: split on blank lines, each trimmed, none empty. */
 export const paragraphsOf = (body: string): ReadonlyArray<string> =>
