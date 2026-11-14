@@ -75,6 +75,7 @@ interface Startable {
   readonly storeScope: Array<string> | null
   readonly rateLimit: number
   readonly refunds: boolean
+  readonly mails: boolean
   readonly accountId: string | null
   readonly triggerConfigJson: string | null
   readonly firstPublished: Date
@@ -86,14 +87,26 @@ export const HOURLY_CEILING = 500
 /** A flow with "Terugbetalen" in its live version runs at most this many times an hour, whatever its setting says. */
 export const REFUND_HOURLY = 30
 
-/** The runs an hour a flow may start: its setting ("Geen limiet" is the ceiling), and less when it refunds. */
-export const hourlyLimitOf = (setting: number, refunds: boolean) => {
+/**
+ * A flow with "E-mail versturen" in its live version runs at most this many times an hour, whatever its setting says:
+ * each run mails a real shopper, so a burst of events does not become a burst of mail.
+ */
+export const MAIL_HOURLY = 100
+
+/**
+ * The runs an hour a flow may start: its setting ("Geen limiet" is the ceiling), and less when it refunds or mails
+ * shoppers.
+ */
+export const hourlyLimitOf = (setting: number, refunds: boolean, mails = false) => {
   const set = setting > 0 ? setting : HOURLY_CEILING
-  return refunds ? Math.min(set, REFUND_HOURLY) : set
+  return Math.min(set, refunds ? REFUND_HOURLY : set, mails ? MAIL_HOURLY : set)
 }
 
 /** Whether a version's steps (`v.nodes`, lanes included) refund. */
 export const REFUNDS_SQL = `coalesce(jsonb_path_exists(v.nodes, '$.**.variantId ? (@ == "action.refund")'), false)`
+
+/** Whether a version's steps (`v.nodes`, lanes included) mail the shopper. */
+export const MAILS_SQL = `coalesce(jsonb_path_exists(v.nodes, '$.**.variantId ? (@ == "action.send_email")'), false)`
 
 /** At most this many runs one stock event starts for one flow; a flow hears a variant again after `STOCK_COOLDOWN`. */
 const STOCK_MAX = 25
@@ -105,9 +118,8 @@ const triggerConfigOf = (flow: Startable): Record<string, unknown> =>
 const startable = (sql: SqlClient.SqlClient, trigger: string) =>
   sql<Startable>`
     select a.id, a.workspace_id, a.live_version, a.store_scope, coalesce(s.rate_limit_per_hour, 0) as rate_limit,
-           ${
-    sql.literal(REFUNDS_SQL)
-  } as refunds, sa.id as account_id, (v.nodes -> 0 -> 'config')::text as trigger_config_json,
+           ${sql.literal(REFUNDS_SQL)} as refunds, ${sql.literal(MAILS_SQL)} as mails, sa.id as account_id,
+           (v.nodes -> 0 -> 'config')::text as trigger_config_json,
            (select min(f.published_at) from automation_versions f where f.automation_id = a.id) as first_published
     from automations a
     left join automation_settings s on s.automation_id = a.id
@@ -160,7 +172,7 @@ const startOne = Effect.fn("Automations.startOne")(function*(
   const [hour] = yield* sql<{ n: number }>`
     select count(*)::int as n from automation_runs
     where automation_id = ${flow.id} and status <> 'skipped' and started_at > now() - interval '1 hour'`
-  const limit = hourlyLimitOf(flow.rateLimit, flow.refunds)
+  const limit = hourlyLimitOf(flow.rateLimit, flow.refunds, flow.mails)
   const reason = flow.accountId === null
     ? "De flow heeft geen actief serviceaccount."
     : (hour?.n ?? 0) >= limit

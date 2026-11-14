@@ -161,7 +161,15 @@ export const TEMPLATES: ReadonlyArray<Template> = [
         config: { records: "orders_open", days: 5 }
       },
       { variantId: "action.check_eta", summary: "Leverdatum herberekenen" },
-      { variantId: "action.send_email", summary: "Levertijd-update met de nieuwe leverdatum" }
+      {
+        variantId: "action.send_email",
+        summary: "Levertijd-update met de nieuwe leverdatum",
+        config: {
+          subject: "Je bestelling {{order.number}} is onderweg",
+          body:
+            "Hoi {{customer.first_name}},\n\nJe bestelling {{order.number}} is onderweg. We verwachten hem op {{order.expected_delivery}} bij je.\n\nHeb je een vraag, neem dan contact met ons op en noem je bestelnummer."
+        }
+      }
     ]
   }
 ]

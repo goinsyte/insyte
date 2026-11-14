@@ -166,7 +166,8 @@ describe("how the engine meets each step", () => {
     expect(handlingOf("delay.wait_no_reply")).toBe("wait_no_reply")
     expect(handlingOf("action.require_approval")).toBe("approval")
     expect(handlingOf("action.create_ticket")).toBe("action")
-    expect(handlingOf("action.send_email")).toBe("unsupported")
+    expect(handlingOf("action.send_email")).toBe("action")
+    expect(handlingOf("action.split_fulfillment")).toBe("unsupported")
     expect(handlingOf("nope")).toBe("unsupported")
   })
 

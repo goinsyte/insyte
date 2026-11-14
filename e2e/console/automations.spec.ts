@@ -6,7 +6,7 @@ import { admit, onPreview, previewRequest } from "./access.ts"
  * the template, sets the day to the one its oldest open order reaches, tests it on an order (nothing kept or sent),
  * and publishes it. The clock is moved on to that day at 9:00 (`/api/__dev/automations/schedule`, the hourly tick
  * the cron makes): the flow runs, "Leverdatum herberekenen" says when the order should come, and "E-mail versturen"
- * says it cannot run yet. Start's "Automatiseringen" card counts it. One person per run, as in `auth.spec.ts`.
+ * puts the shopper's mail in line. Start's "Automatiseringen" card counts it. One person per run, as in `auth.spec.ts`.
  */
 
 const test = base.extend<{ page: Page }>({
@@ -108,7 +108,7 @@ test("@automations a new admin builds the day-5 update from the template, tests,
   expect(tick.ok()).toBe(true)
   expect(((await tick.json()) as { runs: Array<string> }).runs.length).toBeGreaterThan(0)
 
-  // The run, in Runs: its ETA worked out, and the mail step not run yet.
+  // The run, in Runs: its ETA worked out, and the shopper's mail in line.
   await page.getByText("Runs", { exact: true }).click()
   await expect.poll(async () => {
     await page.reload()

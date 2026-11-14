@@ -70,6 +70,8 @@ export type IssueCode =
   | "connection_missing"
   | "too_many_steps"
   | "one_refund"
+  | "mail_needs_order"
+  | "mail_to_customer"
 
 export interface Issue {
   /** The step it is about; `null` for the flow as a whole. */
@@ -149,6 +151,43 @@ const fieldIssues = (node: FlowNode | LaneNode, step: Step, fields: ReadonlySet<
           message: `{{${unknown}}} bestaat niet bij deze trigger.`
         })
       }
+    }
+  }
+  return out
+}
+
+/** The address "E-mail versturen" may go to: the shopper of the run's order, as the trigger's record names them. */
+export const SHOPPER = "{{customer.email}}"
+
+/**
+ * "E-mail versturen" mails the shopper of the run's order (`Orders.emailCustomer`), so only a trigger whose record is
+ * an order can carry it, only to that shopper, and with a subject and words to send: a mail thread may be spam, and a
+ * dispute or a stock alert has no shopper to tell.
+ */
+const mailIssues = (node: FlowNode | LaneNode, trigger: FlowNode | undefined): ReadonlyArray<Issue> => {
+  const out: Array<Issue> = []
+  const text = (key: string) => (typeof node.config[key] === "string" ? (node.config[key] as string).trim() : "")
+  if (trigger !== undefined && STEPS_BY_ID[trigger.variantId]?.record !== "order") {
+    out.push({
+      nodeId: node.id,
+      code: "mail_needs_order",
+      severity: "error",
+      message: "Een flow mailt alleen de klant van een bestelling. Kies een trigger over een bestelling."
+    })
+  }
+  const to = text("to")
+  if (to !== "" && to !== SHOPPER) {
+    out.push({
+      nodeId: node.id,
+      code: "mail_to_customer",
+      field: "to",
+      severity: "error",
+      message: `Een flow mailt alleen de klant van de bestelling. Zet Aan op ${SHOPPER}.`
+    })
+  }
+  for (const [key, label] of [["subject", "Onderwerp"], ["body", "Bericht"]] as const) {
+    if (text(key) === "") {
+      out.push({ nodeId: node.id, code: "missing_field", field: key, severity: "error", message: `${label} is leeg.` })
     }
   }
   return out
@@ -251,6 +290,7 @@ export const validate = (nodes: Flow, ctx: ValidateContext = {}): ReadonlyArray<
       })
     }
     issues.push(...fieldIssues(node, step, fields))
+    if (step.id === "action.send_email") issues.push(...mailIssues(node, trigger))
     if (step.scope !== undefined && off.has(step.scope)) {
       issues.push({
         nodeId: node.id,

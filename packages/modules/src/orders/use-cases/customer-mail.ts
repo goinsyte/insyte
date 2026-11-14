@@ -312,6 +312,9 @@ export const restoreMails = Effect.fn("Orders.restoreMails")(
   }
 )
 
+/** Why a flow's mail was called off before it went. */
+const FLOW_CLOSED = "de bestelling is intussen geannuleerd of terugbetaald"
+
 /** What the sink did with one mail. */
 export type CustomerMailOutcome =
   | { readonly outcome: "sent"; readonly orderId: string }
@@ -339,13 +342,29 @@ export const sendCustomerMail = Effect.fn("Orders.sendCustomerMail")(
       paragraphs: ReadonlyArray<string>
       number: string
       shop: string
+      closedForFlow: boolean
     }>`
     select m.workspace_id, m.order_id, m.kind, m.ref, m.to_address as address, m.subject, m.paragraphs, o.number,
-           coalesce(nullif(s.name, ''), w.name) as shop
+           coalesce(nullif(s.name, ''), w.name) as shop,
+           m.created_by like 'sa\\_%' and (o.status = 'cancelled' or (o.status = 'refunded' and not exists (
+             select 1 from refunds r where r.order_id = o.id and r.created_by = m.created_by and r.status <> 'failed')))
+             as closed_for_flow
     from order_mails m join orders o on o.id = m.order_id join stores s on s.id = o.store_id
     join workspaces w on w.id = m.workspace_id
     where m.id = ${mailId} and m.state = 'scheduled' and m.kind in ('tracking', 'message') for update of m`
     if (m === undefined) return { outcome: "skipped" } as CustomerMailOutcome
+    // A flow's mail (its account is `sa_…`) to an order cancelled, or refunded other than by that flow, since it was
+    // put in line: nobody looked at it, so it is called off rather than sent, and audited.
+    if (m.closedForFlow) {
+      yield* sql`update order_mails set state = 'cancelled', error = ${FLOW_CLOSED} where id = ${mailId}`
+      yield* Audit.write(sql, m.workspaceId, { kind: "system", id: "insyte" }, {
+        action: "order.customer_mail_cancelled",
+        subjectType: "order",
+        subjectId: m.orderId,
+        diff: { mail: mailId, reason: "order_closed" }
+      })
+      return { outcome: "failed", orderId: m.orderId, error: FLOW_CLOSED } as CustomerMailOutcome
+    }
     const [parcel] = m.ref === null ? [] : yield* sql<{ carrier: string | null; url: string | null }>`
     select carrier, nullif(btrim(tracking_url), '') as url from fulfilments
     where order_id = ${m.orderId} and tracking_number = ${m.ref} order by shipped_at desc nulls last limit 1`

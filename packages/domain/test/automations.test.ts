@@ -105,8 +105,22 @@ describe("validate", () => {
     const flow = [node("trigger.inventory_low"), node("action.send_email")]
     expect(validate(flow)).toMatchObject([
       { code: "unresolved_reference", field: "to", message: "{{customer.email}} bestaat niet bij deze trigger." },
-      { code: "unresolved_reference", field: "body" }
+      { code: "unresolved_reference", field: "body" },
+      { code: "mail_needs_order" }
     ])
+  })
+
+  it("lets E-mail versturen mail only the shopper of an order, with a subject and words", () => {
+    expect(codes([node("trigger.order_shipped"), node("action.send_email")])).toEqual([])
+    expect(codes([node("trigger.schedule"), node("action.send_email")])).toEqual([])
+    expect(codes([node("trigger.chargeback"), node("action.send_email")])).toEqual(["n:mail_needs_order"])
+    expect(codes([node("trigger.email_received"), node("action.send_email")])).toEqual(["n:mail_needs_order"])
+    expect(codes([node("trigger.order_placed"), node("action.send_email", { to: "team@voorbeeld.nl" })])).toEqual([
+      "n:mail_to_customer"
+    ])
+    expect(
+      codes([node("trigger.order_placed"), node("action.send_email", { subject: " ", body: "" })])
+    ).toEqual(["n:missing_field", "n:missing_field"])
   })
 
   it("keeps lanes on the main line and not empty", () => {

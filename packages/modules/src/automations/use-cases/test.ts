@@ -259,6 +259,20 @@ const wouldDo = Effect.fn("Automations.wouldDo")(function*(
         ? { status: "error" as const, explanation: `${closed.map((s) => s.name).join(", ")} heeft nog geen kanaal.` }
         : { status: "ok" as const, explanation: `Zou ${found.map((s) => s.name).join(", ")} een bericht sturen.` }
     }
+    case "action.send_email": {
+      const [o] = yield* sql<{ email: string | null; status: string }>`
+        select nullif(btrim(customer_email), '') as email, status from orders where id = ${sample.id}`
+      if (o?.email == null) {
+        return { status: "skipped" as const, explanation: "Deze bestelling heeft geen e-mailadres van de klant." }
+      }
+      if (o.status === "cancelled") {
+        return {
+          status: "skipped" as const,
+          explanation: "Deze bestelling is geannuleerd; de klant wordt niet gemaild."
+        }
+      }
+      return { status: "ok" as const, explanation: `Zou ${o.email} mailen: “${text("subject")}”.` }
+    }
     case "action.refund": {
       const amount = text("amount")
       return {

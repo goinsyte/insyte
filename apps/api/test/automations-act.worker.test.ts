@@ -14,7 +14,9 @@ import { call, rpc } from "./support.ts"
  * money moves: flows together refund at most € 100 an order, however many steps, runs or flows ask, and never more than
  * the flow's owner, its version's publisher or the run's starter may refund themselves, nor in a store one of them
  * cannot reach, also when two flows refund one order at once. "Op een vast moment" starts a run per order that
- * reached its day, once. An agent's key never starts a run, over MCP or `/v1`.
+ * reached its day, once. "E-mail versturen" mails the shopper of the run's order once, as the account, only from a
+ * flow whose trigger is about an order, and a mail whose order was cancelled before it left is called off. An agent's
+ * key never starts a run, over MCP or `/v1`.
  */
 
 // A response body, read loosely as a client would.
@@ -332,6 +334,76 @@ describe("automations that act", () => {
     activity = ok(await rpc("Home.activity", { source: "integration" }, store.cookie))
     expect(activity.rows.filter((r) => r.action === "order.refunded")).toHaveLength(1)
   }, 300_000)
+
+  it("mails the shopper of the run's order once, as the flow's account, and not one cancelled meanwhile", async () => {
+    const store = await importedStore("act-mail")
+    const flow = async (name: string, nodes: ReadonlyArray<Json>) => {
+      const { automation } = ok(await rpc("Automations.create", { name }, store.cookie))
+      const id = automation!.automation.id
+      ok(await rpc("Automations.saveDraft", { id, name, nodes: nodes as Json }, store.cookie))
+      return { id, published: await rpc("Automations.publish", { id, note: "" }, store.cookie) }
+    }
+    const subject = `Je bestelling {{order.number}} · ${run}`
+    const mail = step("m", "action.send_email", {
+      subject,
+      body: "Hoi {{customer.first_name}},\n\nHet duurt wat langer."
+    })
+    // Only an order's shopper: a dispute's flow, or one to another address, does not publish.
+    const disputed = await flow("Geschil → mail", [step("t", "trigger.chargeback"), mail])
+    expect(failure(disputed.published)).toMatchObject({ _tag: "InvalidFlow", issues: [{ code: "mail_needs_order" }] })
+    const elsewhere = await flow("Mail naar het team", [
+      step("t", "trigger.shipping_delay"),
+      { ...mail, config: { ...mail.config, to: "team@winkel.example" } }
+    ])
+    expect(failure(elsewhere.published)).toMatchObject({ _tag: "InvalidFlow", issues: [{ code: "mail_to_customer" }] })
+    const mailing = await flow("Vertraagd → klant mailen", [step("t", "trigger.shipping_delay"), mail])
+    ok(mailing.published)
+
+    const orders = ok(await rpc("Orders.list", { limit: 50 }, store.cookie)).rows
+    const numbered = (n: string) => orders.find((o) => o.number === n)!
+    // #1005 was cancelled in Shopify already; #1001 is cancelled here while its mail waits out the undo window.
+    const [told, cancelled, closed] = [numbered("#1002"), numbered("#1001"), numbered("#1005")]
+    const key = await keyOf(store.cookie, "Mail", false)
+    await using workflows = await introspectWorkflow(env.AUTOMATION_RUN)
+    const started = await Promise.all([told, cancelled, closed].map(async (o) => {
+      const response = await startBy(key, mailing.id, o.id)
+      expect(response.status).toBe(200)
+      return (await response.json() as Json).id as string
+    }))
+    for (const instance of await workflows.get()) await instance.waitForStatus("complete")
+    const [toldRun, cancelledRun, closedRun] = await Promise.all(
+      started.map((id) => until(() => rpc("Runs.get", { id }, store.cookie).then(ok), (d) => d.run.finishedAt !== null))
+    )
+    const said = (d: Json) => d.steps.find((x: Json) => x.nodeId === "m")
+    const to = told.customerEmail!
+    expect(toldRun!.run.status).toBe("succeeded")
+    expect(said(toldRun).explanation).toBe(
+      `Mail “Je bestelling #1002 · ${run}” aan ${to} ingepland; hij gaat over enkele seconden weg.`
+    )
+    expect(cancelledRun!.run.status).toBe("succeeded")
+    expect(closedRun!.run.status).toBe("succeeded")
+    expect(said(closedRun)).toMatchObject({
+      status: "skipped",
+      explanation: "De bestelling is geannuleerd; de klant is niet gemaild."
+    })
+
+    // Cancelled before its window passed: the flow's mail is called off, as nobody looked at it; the other goes once.
+    ok(await rpc("Orders.cancel", { ids: [cancelled.id], restock: true, notify: false }, store.cookie))
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    const captured = async (address: string) =>
+      ((await (await call(`http://api.test/api/__dev/mail?to=${encodeURIComponent(address)}`)).json()) as {
+        mails: Array<{ kind: string; subject: string | null; bodyText: string | null }>
+      }).mails.filter((m) => m.subject?.endsWith(` · ${run}`) === true)
+    const sent = await captured(to)
+    expect(sent).toMatchObject([{ kind: "order.message", subject: `Je bestelling #1002 · ${run}` }])
+    expect((await captured(cancelled.customerEmail!)).filter((m) => m.subject?.includes("#1001"))).toEqual([])
+    const activity = ok(await rpc("Home.activity", { source: "integration" }, store.cookie))
+    expect(activity.rows.filter((r) => r.action === "order.customer_mail_scheduled")).toMatchObject([
+      { actorKind: "service_account", actorName: "Workflow: Vertraagd → klant mailen" },
+      { actorKind: "service_account" }
+    ])
+  }, 240_000)
 
   it("starts a scheduled flow once per order that reached its day", async () => {
     const store = await importedStore("act-schedule")
