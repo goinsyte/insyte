@@ -4,15 +4,16 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import type { StoreAccess } from "../../shared/domain/Stores.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import { SeatLimitReached } from "../domain/Team.ts"
 import { beyondReach, grantable } from "./invite.ts"
 import { readTeam, seatsIn } from "./team.ts"
 
 /*
- * What the member table does with a person (M3.3), each with its undo: the role, deactivate ↔ reactivate, remove ↔
- * restore. Managing the team is `team` at Beheren. Nobody changes the owner here (that is a transfer, with its own
- * confirmation) or deactivates or removes themselves.
+ * What the member table does with a person (M3.3), each with its undo: the role, the stores, deactivate ↔
+ * reactivate, remove ↔ restore. Managing the team is `team` at Beheren. Nobody changes the owner here (that is a
+ * transfer, with its own confirmation) or deactivates or removes themselves.
  */
 
 /** The member, locked for the change, if it may be changed by this principal. */
@@ -47,6 +48,35 @@ export const setRole = Effect.fn("Members.setRole")(function*(id: string, roleId
       if (yield* beyondReach(sql, roleId, before.stores)) return yield* new Invalid({ fields: { stores: "forbidden" } })
       yield* sql`update members set role_id = ${roleId} where id = ${id}`
       yield* audit(sql, "member.role_changed", id, { role: [before.roleId, roleId] })
+      return yield* readTeam(sql)
+    })
+  )
+})
+
+/**
+ * The member's own stores, which narrow their role's (06 §3.2); the undo is the same call with the stores before.
+ * Someone held to some stores only touches a member inside them, and leaves them inside: a change that starts or ends
+ * past the caller's `storeScope` is refused as `stores: "forbidden"`, as an invitation's is. The member's next request
+ * reads the new fence, since the principal is read per call (`MemberLive`).
+ */
+export const setStores = Effect.fn("Members.setStores")(function*(id: string, stores: StoreAccess) {
+  yield* Policy.require("team", 3)
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const next: StoreAccess = stores === "all" ? "all" : [...new Set(stores)]
+      if (next !== "all" && next.length === 0) return yield* new Invalid({ fields: { stores: "empty" } })
+      const before = yield* target(sql, id)
+      if ((yield* beyondReach(sql, before.roleId, before.stores)) || (yield* beyondReach(sql, before.roleId, next))) {
+        return yield* new Invalid({ fields: { stores: "forbidden" } })
+      }
+      if (next !== "all") {
+        const known = yield* sql<{ id: string }>`select id from stores where id in ${sql.in([...next])}`
+        if (known.length < next.length) return yield* new Invalid({ fields: { stores: "unknown" } })
+      }
+      if (JSON.stringify(before.stores) === JSON.stringify(next)) return yield* readTeam(sql)
+      yield* sql`update members set stores = ${JSON.stringify(next)}::jsonb where id = ${id}`
+      yield* audit(sql, "member.stores_changed", id, { stores: [before.stores, next] })
       return yield* readTeam(sql)
     })
   )

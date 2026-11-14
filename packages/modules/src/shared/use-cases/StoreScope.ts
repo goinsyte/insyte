@@ -1,6 +1,7 @@
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import { StoreChoice } from "../domain/Stores.ts"
 
 /*
  * A principal's stores (domain.md §2.4): a role, a member or a key may reach some stores only. Every list over
@@ -32,3 +33,13 @@ export const inScopeOrNone = Effect.fn("StoreScope.inScopeOrNone")(
     return sql`(${sql.literal(column)} is null or ${scope})`
   }
 )
+
+/**
+ * The stores the principal reaches, as a store picker names them (the team's and the roles'), a disconnected one last:
+ * nobody is offered a store they cannot open themselves.
+ */
+export const storeChoices = Effect.fn("StoreScope.storeChoices")(function*(sql: SqlClient.SqlClient) {
+  const rows = yield* sql<{ id: string; name: string }>`
+    select id, name from stores where ${yield* inScope(sql, "id")} order by status = 'disconnected', created_at, id`
+  return rows.map((r) => new StoreChoice(r))
+})

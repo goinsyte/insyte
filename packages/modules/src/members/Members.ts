@@ -4,6 +4,7 @@ import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
 import { Relay } from "../shared/domain/Outbox.ts"
+import type { StoreAccess } from "../shared/domain/Stores.ts"
 import { InvitationLinks } from "./domain/Ports.ts"
 import type {
   InviteRow,
@@ -69,6 +70,11 @@ export class Members extends Context.Service<Members, {
     id: string,
     roleId: string
   ) => Effect.Effect<Team, Forbidden | Invalid | NotFound | Conflict, Db | CurrentPrincipal>
+  /** The member's own stores, inside the caller's (`storeScope`); the undo is the same call with the stores before. */
+  readonly setMemberStores: (
+    id: string,
+    stores: StoreAccess
+  ) => Effect.Effect<Team, Forbidden | Invalid | NotFound | Conflict, Db | CurrentPrincipal>
   readonly setDeactivated: (
     id: string,
     deactivated: boolean
@@ -107,6 +113,7 @@ export class Members extends Context.Service<Members, {
         undoResend: (id) => run(Invitations.undoResend(id)),
         setInvitationRole: (id, roleId) => run(Invitations.setRole(id, roleId)),
         setMemberRole: (id, roleId) => run(People.setRole(id, roleId)),
+        setMemberStores: (id, stores) => run(People.setStores(id, stores)),
         setDeactivated: (id, deactivated) => run(People.setDeactivated(id, deactivated)),
         remove: (id) => run(People.remove(id)),
         restoreMember: (id) => run(People.restore(id)),

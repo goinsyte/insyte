@@ -9,6 +9,7 @@ import {
   SetInvitationRole,
   SetLink,
   SetMemberRole,
+  SetMemberStores,
   SupplierAccess,
   SupplierAccessChanged,
   SupplierInvitationsSent,
@@ -76,6 +77,12 @@ export class MembersRpcs extends RpcGroup.make(
   }),
   Rpc.make("Members.setRole", {
     payload: SetMemberRole,
+    success: Team,
+    error: Schema.Union([Forbidden, Invalid, NotFound, Conflict])
+  }),
+  // A member's own stores (M3.3, M6): never past the caller's own; people only (`team` is Bekijken for a key).
+  Rpc.make("Members.setStores", {
+    payload: SetMemberStores,
     success: Team,
     error: Schema.Union([Forbidden, Invalid, NotFound, Conflict])
   }),

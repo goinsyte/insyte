@@ -7,7 +7,7 @@ import { Schema } from "effect"
  */
 
 export { StoreAccess } from "../../shared/domain/Stores.ts"
-import { StoreAccess } from "../../shared/domain/Stores.ts"
+import { StoreAccess, StoreChoice } from "../../shared/domain/Stores.ts"
 
 export class TeamMember extends Schema.Class<TeamMember>("members/TeamMember")({
   id: Schema.String,
@@ -84,7 +84,11 @@ export class Team extends Schema.Class<Team>("members/Team")({
   seats: Seats,
   link: InviteLink,
   /** Every role of the workspace, the owner's first. */
-  roles: Schema.Array(TeamRole)
+  roles: Schema.Array(TeamRole),
+  /** The signed-in person's fence (`storeScope`): `null` is every store. */
+  storeScope: Schema.NullOr(Schema.Array(Schema.String)),
+  /** The stores the signed-in person reaches, for the store pickers; a disconnected one last. */
+  stores: Schema.Array(StoreChoice)
 }) {}
 
 /* ── writes ────────────────────────────────────────────────────────────────────────────────────── */
@@ -147,6 +151,8 @@ export const InvitationRefs = Schema.Struct({ ids: Schema.Array(Schema.String) }
 export const SetInvitationRole = Schema.Struct({ id: Schema.String, roleId: Schema.String })
 export const MemberRef = Schema.Struct({ id: Schema.String })
 export const SetMemberRole = Schema.Struct({ id: Schema.String, roleId: Schema.String })
+/** A member's own stores, which narrow their role's: every store, or these (at least one). */
+export const SetMemberStores = Schema.Struct({ id: Schema.String, stores: StoreAccess })
 export const SetLink = Schema.Struct({
   enabled: Schema.optional(Schema.Boolean),
   roleId: Schema.optional(Schema.String),
