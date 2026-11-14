@@ -1,5 +1,5 @@
 import { Db } from "@insyte/database/Db"
-import { NotFound } from "@insyte/domain/Errors"
+import { Invalid, NotFound } from "@insyte/domain/Errors"
 import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
@@ -38,6 +38,10 @@ import {
  *   so what arrives after a close lands in the next statement and a closed month is never reopened.
  *
  * Reading is Leveranciers at Bekijken, marking paid at Beheren (api.md §2.7). The close runs as `system`.
+ *
+ * A statement is the supplier's, across the workspace's stores. Someone held to some stores (`storeScope`) reads only
+ * their stores' lines of it, with totals over those lines; a month with none of theirs is not there for them, and its
+ * PDF (every line) only when every line is theirs. Marking a month paid that holds other stores' lines is not theirs.
  */
 
 const RESTORE = "suppliers.restore"
@@ -61,8 +65,16 @@ interface Move {
   readonly returnLineId: string | null
 }
 
-/** What is to be booked for these suppliers (all, for `null`) up to the end of `month`, in the workspace's timezone. */
-const moves = (sql: SqlClient.SqlClient, month: string, supplierIds: ReadonlyArray<string> | null) =>
+/**
+ * What is to be booked for these suppliers (all, for `null`) up to the end of `month`, in the workspace's timezone; with
+ * `stores`, only their orders' (a reader's `storeScope`, never the close's).
+ */
+const moves = (
+  sql: SqlClient.SqlClient,
+  month: string,
+  supplierIds: ReadonlyArray<string> | null,
+  stores: ReadonlyArray<string> | null = null
+) =>
   sql<Move>`
     with w as (
       select currency, timezone,
@@ -79,6 +91,7 @@ const moves = (sql: SqlClient.SqlClient, month: string, supplierIds: ReadonlyArr
       left join supplier_work wk on wk.order_id = f.order_id and wk.supplier_id = f.supplier_id
       where f.state <> 'cancelled' and f.supplier_id is not null
         and (${supplierIds === null}::boolean or f.supplier_id = any(${[...(supplierIds ?? [])]}::text[]))
+        and (${stores === null}::boolean or o.store_id = any(${[...(stores ?? [])]}::text[]))
     ),
     m as (
       select 'shipped' as kind, g.supplier_id, g.order_id, l.id as order_line_id, g.number, g.cost_currency,
@@ -142,7 +155,7 @@ const lineOf = (m: Move, id: string): StatementLine => {
   }
 }
 
-const totals = (lines: ReadonlyArray<StatementLine>) => {
+const totals = (lines: ReadonlyArray<Pick<StatementLine, "kind" | "totalMinor" | "missing">>) => {
   const shipped = lines.filter((l) => l.kind === "shipped")
   const shippedMinor = shipped.reduce((n, l) => n + l.totalMinor, 0)
   const correctionsMinor = lines.filter((l) => l.kind === "correction").reduce((n, l) => n + l.totalMinor, 0)
@@ -229,9 +242,15 @@ const supplierOf = (sql: SqlClient.SqlClient, id: string) =>
     ([s]) => (s === undefined ? Effect.fail(new NotFound({ entity: "supplier", id })) : Effect.succeed(s))
   )
 
-/** The running month as it stands: what its close would book now. */
-const running = (sql: SqlClient.SqlClient, supplier: { id: string; name: string }, month: string, currency: string) =>
-  Effect.map(moves(sql, month, [supplier.id]), (found) => {
+/** The running month as it stands: what its close would book now (of these stores' orders, with `stores`). */
+const running = (
+  sql: SqlClient.SqlClient,
+  supplier: { id: string; name: string },
+  month: string,
+  currency: string,
+  stores: ReadonlyArray<string> | null
+) =>
+  Effect.map(moves(sql, month, [supplier.id], stores), (found) => {
     const lines = found.map((m, i) => lineOf(m, `open-${i}`))
     return {
       lines,
@@ -252,18 +271,56 @@ const running = (sql: SqlClient.SqlClient, supplier: { id: string; name: string 
     }
   })
 
+/** Whether a stored line's order lies in `stores`: a line of no order (or a gone one) is not anyone's store's. */
+const lineIn = (sql: SqlClient.SqlClient, stores: ReadonlyArray<string>) =>
+  sql`coalesce((select o.store_id = any(${[...stores]}::text[]) from orders o where o.id = l.order_id), false)`
+
+/**
+ * Closed statements as someone held to `stores` reads them: totals over their lines only, the PDF only when every line
+ * is theirs, and a month without a line of theirs left out. Everyone else reads them as they are.
+ */
+const heldTo = (sql: SqlClient.SqlClient, rows: ReadonlyArray<StatementRow>, stores: ReadonlyArray<string> | null) =>
+  Effect.gen(function*() {
+    if (stores === null || rows.length === 0) return rows
+    const lines = yield* sql<
+      {
+        statementId: string
+        kind: StatementLine["kind"]
+        totalMinor: string
+        missing: StatementLine["missing"]
+        mine: boolean
+      }
+    >`
+      select l.statement_id, l.kind, l.total_minor, l.missing, ${lineIn(sql, stores)} as mine
+      from supplier_statement_lines l where l.statement_id = any(${rows.map((r) => r.id!)}::text[])`
+    return rows.flatMap((row) => {
+      const of = lines.filter((l) => l.statementId === row.id)
+      const mine = of.filter((l) => l.mine).map((l) => ({
+        kind: l.kind,
+        totalMinor: Number(l.totalMinor),
+        missing: l.missing
+      }))
+      if (mine.length === 0) return []
+      if (mine.length === of.length) return [row]
+      const sum = totals(mine)
+      return [new StatementRow({ ...row, ...sum, invoiceFileId: null })]
+    })
+  })
+
 /** `Suppliers.statements`: a supplier's statements, newest first, with the running month while it has lines. */
 export const list = Effect.fn("Suppliers.statements")(function*(input: typeof StatementsInput.Type) {
   yield* Policy.require("suppliers", 1)
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
+      const { storeScope } = yield* CurrentPrincipal
       const supplier = yield* supplierOf(sql, input.supplierId)
       const now = yield* here(sql)
-      const stored = yield* storedWhere(sql, sql.and([sql`s.supplier_id = ${supplier.id}`]))
-      const open = stored.some((s) => s.month === now.month)
+      const closed = yield* storedWhere(sql, sql.and([sql`s.supplier_id = ${supplier.id}`]))
+      const stored = yield* heldTo(sql, closed, storeScope)
+      const open = closed.some((s) => s.month === now.month)
         ? undefined
-        : (yield* running(sql, supplier, now.month, now.currency)).row
+        : (yield* running(sql, supplier, now.month, now.currency, storeScope)).row
       const paidYtdMinor = stored
         .filter((s) =>
           s.status === "paid" && s.paidAt !== null && new Date(s.paidAt).getUTCFullYear() === Number(now.year)
@@ -294,13 +351,15 @@ interface StoredLine {
   readonly returnId: string | null
 }
 
-const linesOf = (sql: SqlClient.SqlClient, statementId: string) =>
+/** A statement's lines; with `stores`, only those of their orders. */
+const linesOf = (sql: SqlClient.SqlClient, statementId: string, stores: ReadonlyArray<string> | null = null) =>
   Effect.map(
     sql<StoredLine>`
-      select id, kind, order_id, order_line_id, order_number, to_char(day, 'YYYY-MM-DD') as day, title, qty,
-             unit_cost_minor, total_minor, missing, reason, return_id
-      from supplier_statement_lines where statement_id = ${statementId}
-      order by day, order_number, kind desc, id`,
+      select l.id, l.kind, l.order_id, l.order_line_id, l.order_number, to_char(l.day, 'YYYY-MM-DD') as day, l.title,
+             l.qty, l.unit_cost_minor, l.total_minor, l.missing, l.reason, l.return_id
+      from supplier_statement_lines l
+      where l.statement_id = ${statementId} and ${stores === null ? sql`true` : lineIn(sql, stores)}
+      order by l.day, l.order_number, l.kind desc, l.id`,
     (rows) =>
       rows.map((l): StatementLine => ({
         ...l,
@@ -315,17 +374,22 @@ export const get = Effect.fn("Suppliers.statement")(function*(input: typeof Stat
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
+      const { storeScope } = yield* CurrentPrincipal
       const supplier = yield* supplierOf(sql, input.supplierId)
-      const [stored] = yield* storedWhere(
+      const closed = yield* storedWhere(
         sql,
         sql.and([sql`s.supplier_id = ${supplier.id}`, sql`s.month = ${input.month}`])
       )
-      if (stored !== undefined) {
-        return new StatementDetail({ statement: stored, lines: yield* linesOf(sql, stored.id!) })
+      if (closed.length > 0) {
+        const [stored] = yield* heldTo(sql, closed, storeScope)
+        if (stored === undefined) {
+          return yield* new NotFound({ entity: "supplier_statement", id: `${supplier.id}:${input.month}` })
+        }
+        return new StatementDetail({ statement: stored, lines: yield* linesOf(sql, stored.id!, storeScope) })
       }
       const now = yield* here(sql)
       if (input.month === now.month) {
-        const { lines, row } = yield* running(sql, supplier, now.month, now.currency)
+        const { lines, row } = yield* running(sql, supplier, now.month, now.currency, storeScope)
         if (row !== undefined) return new StatementDetail({ statement: row, lines })
       }
       return yield* new NotFound({ entity: "supplier_statement", id: `${supplier.id}:${input.month}` })
@@ -347,6 +411,13 @@ export const markPaid = Effect.fn("Suppliers.markStatementPaid")(function*(input
         paidReference: string | null
       }>`select status, paid_at, paid_by, paid_reference from supplier_statements where id = ${input.id} for update`
       if (was === undefined) return yield* new NotFound({ entity: "supplier_statement", id: input.id })
+      if (principal.storeScope !== null) {
+        const lines = yield* sql<{ mine: boolean }>`
+          select ${lineIn(sql, principal.storeScope)} as mine from supplier_statement_lines l
+          where l.statement_id = ${input.id}`
+        if (!lines.some((l) => l.mine)) return yield* new NotFound({ entity: "supplier_statement", id: input.id })
+        if (!lines.every((l) => l.mine)) return yield* new Invalid({ fields: { stores: "forbidden" } })
+      }
       const paid = input.paid ?? true
       const reference = input.reference?.trim() || null
       const read = Effect.map(storedWhere(sql, sql.and([sql`s.id = ${input.id}`])), ([row]) => row!)

@@ -11,9 +11,9 @@ import { roomOf } from "./Room.ts"
  * timer.
  *
  * Frames are batched: at most one `live.visitors` every 500 ms, sent through the workspace's realtime room to the tabs
- * that hold a lease, each narrowed to the stores its member's role may see. While someone watches, a sweep every five
- * seconds takes away the visitors who have gone. The room's sessions are capped (`Sessions.ts`), and so is a frame: at
- * most `VISITORS_SHOWN` upserts, the rest in the next.
+ * that hold a lease, each narrowed to the stores its member reaches (`storeScope`). While someone watches, a sweep
+ * every five seconds takes away the visitors who have gone. The room's sessions are capped (`Sessions.ts`), and so is a
+ * frame: at most `VISITORS_SHOWN` upserts, the rest in the next.
  *
  * Plain Durable Object RPC, no Effect, as the other objects: the Worker reaches it through `LiveRooms.ts`.
  */

@@ -39,7 +39,7 @@ export const Endpoints = Schema.Struct({ api: Schema.NullOr(Schema.String), mcp:
  */
 export class DeveloperRpcs extends RpcGroup.make(
   Rpc.make("ApiKeys.list", { success: Schema.Array(ApiKeyView), error: Forbidden }),
-  Rpc.make("ApiKeys.activity", { payload: KeyRef, success: KeyActivity, error: Forbidden }),
+  Rpc.make("ApiKeys.activity", { payload: KeyRef, success: KeyActivity, error: Schema.Union([Forbidden, NotFound]) }),
   Rpc.make("ApiKeys.create", {
     payload: CreateKey,
     success: WithSecret,

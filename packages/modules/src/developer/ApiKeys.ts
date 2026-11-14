@@ -20,7 +20,7 @@ type List = ReadonlyArray<ApiKeyView>
  */
 export class ApiKeys extends Context.Service<ApiKeys, {
   readonly list: Effect.Effect<List, Forbidden, R>
-  readonly activity: (id: string) => Effect.Effect<KeyActivity, Forbidden, R>
+  readonly activity: (id: string) => Effect.Effect<KeyActivity, Forbidden | NotFound, R>
   readonly create: (input: CreateKey) => Effect.Effect<WithSecret, Forbidden | Invalid | NotFound, R>
   readonly update: (input: UpdateKey) => Effect.Effect<List, Forbidden | Invalid | NotFound, R>
   readonly rotate: (id: string, graceMs: number) => Effect.Effect<WithSecret, Forbidden | NotFound | Conflict, R>

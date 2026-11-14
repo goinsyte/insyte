@@ -3,7 +3,7 @@ import { type AreaId, canRole } from "@insyte/domain/Permissions"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Array as Arr, Effect, Order } from "effect"
 import type { SqlClient } from "effect/sql"
-import { inScope } from "../../shared/use-cases/StoreScope.ts"
+import { inScope, inScopeOrNone } from "../../shared/use-cases/StoreScope.ts"
 import {
   ACTIVITY_LIMIT,
   type ActivityInput,
@@ -18,8 +18,9 @@ import {
 } from "../domain/Lists.ts"
 
 /*
- * Mijn werk, the agenda and the activity feed (M10.3b), from the live tables. Each source narrows to the areas and
- * stores the role may open; one it may not read adds nothing. Days are the workspace's (`workspaces.timezone`).
+ * Mijn werk, the agenda and the activity feed (M10.3b), from the live tables. Each source narrows to the areas the
+ * role may open and the stores the principal reaches (`storeScope`); one it may not read adds nothing. Days are the
+ * workspace's (`workspaces.timezone`).
  */
 
 /** Whether the role holds `area` at `level` or more. */
@@ -29,14 +30,11 @@ const holds = Effect.fn("Home.holds")(function*() {
   return (area: AreaId, level: 1 | 2 | 3 = 1) => canRole(plain, area, level)
 })
 
-/** The queue's areas the role may open, and its stores, as conditions on `q`. */
+/** The queue's areas the role may open, and the principal's stores (`storeScope`), as conditions on `q`. */
 const queueScope = Effect.fn("Home.queueScope")(function*(sql: SqlClient.SqlClient) {
   const can = yield* holds()
-  const { role } = yield* CurrentPrincipal
   const areas = (["orders", "returns", "products", "settings", "chargebacks"] as const).filter((a) => can(a))
-  const stores = role.stores === "all"
-    ? sql`true`
-    : sql`(q.store_id is null or q.store_id = any(${[...role.stores]}))`
+  const stores = yield* inScopeOrNone(sql, "q.store_id")
   return sql`q.area = any(${areas}) and ${stores}`
 })
 
@@ -377,7 +375,6 @@ const parseCursor = (cursor: string | undefined) => {
 
 export const activity = Effect.fn("Home.activity")(function*(input: ActivityInput) {
   const can = yield* holds()
-  const { role } = yield* CurrentPrincipal
   const db = yield* Db
   const limit = input.limit ?? ACTIVITY_LIMIT
   const types = Object.entries(SUBJECTS).filter(([, s]) => can(s.area)).map(([t]) => t)
@@ -390,10 +387,10 @@ export const activity = Effect.fn("Home.activity")(function*(input: ActivityInpu
     else 'team' end`
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      const stores = role.stores === "all"
-        ? sql`true`
-        : sql`(f.store_id is null or f.store_id = any(${[...role.stores]}))`
+      const stores = yield* inScopeOrNone(sql, "f.store_id")
+      const { storeScope } = yield* CurrentPrincipal
       // Every change the role may see, and every order the store placed, over the last 90 days, with its record named.
+      // A change to a store's record that is gone since names no store: someone held to some stores does not see it.
       const feed = sql`(
         select f.*, ${sql.literal(sourceCase)} as source,
                f.actor_kind || ':' || f.actor_id as actor_key
@@ -401,8 +398,12 @@ export const activity = Effect.fn("Home.activity")(function*(input: ActivityInpu
           select a.id, a.at, a.actor_kind, a.actor_id, a.action, a.subject_type, a.subject_id, a.diff,
                  null::bigint as amount_minor, null::text as currency, null::text as customer,
                  coalesce(o.number, r.number, '#' || t.number::text, p.title, qp.title, s.name, nullif(c.name, '')) as label,
-                 coalesce(o.store_id, r.store_id, t.store_id, p.store_id, qp.store_id, c.store_id) as store_id,
-                 coalesce(u.name, sa.name, sv.label) as actor_name
+                 coalesce(o.store_id, r.store_id, t.store_id, p.store_id, qp.store_id, c.store_id,
+                          case when a.subject_type = 'store' then a.subject_id end) as store_id,
+                 coalesce(u.name, sa.name, sv.label) as actor_name,
+                 a.subject_type in ('order', 'return', 'ticket', 'product', 'quality_check', 'customer')
+                   and coalesce(o.store_id, r.store_id, t.store_id, p.store_id, qp.store_id, c.store_id) is null
+                   as orphan
           from audit_events a
           left join orders o on a.subject_type = 'order' and o.id = a.subject_id
           left join returns r on a.subject_type = 'return' and r.id = a.subject_id
@@ -420,11 +421,11 @@ export const activity = Effect.fn("Home.activity")(function*(input: ActivityInpu
             and a.subject_type = any(${types}) and a.action <> all(${QUIET})
           union all
           select 'placed_' || o.id, o.placed_at, 'shop', o.store_id, 'order.placed', 'order', o.id, '{}'::jsonb,
-                 o.total_minor, o.currency, nullif(o.customer_name, ''), o.number, o.store_id, st.name
+                 o.total_minor, o.currency, nullif(o.customer_name, ''), o.number, o.store_id, st.name, false
           from orders o join stores st on st.id = o.store_id
           where ${can("orders")} and not o.is_draft and o.placed_at > now() - make_interval(days => ${ACTIVITY_DAYS})
         ) f
-        where ${stores})`
+        where ${stores} and (${storeScope === null}::boolean or not f.orphan))`
       const who = input.who === undefined ? sql`true` : sql`x.actor_key = ${input.who}`
       const source = input.source === undefined ? sql`true` : sql`x.source = ${input.source}`
       const after = parseCursor(input.cursor)

@@ -5,6 +5,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import { FileStore } from "../../shared/domain/Documents.ts"
+import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import {
   LINK_KEYS,
   LINK_VARIABLES,
@@ -25,19 +26,22 @@ import {
  * Orders in each carrier status now (widgets/05 §7.1): each order shipped in the last 30 days by its newest parcel,
  * AfterShip's word once it has one and Shopify's until then, and the orders at a supplier that are not shipped yet.
  * Insyte does not tell "onderweg naar het land", "bij de lokale vervoerder", "klaar om op te halen" and "bezorging
- * mislukt" apart from the statuses around them yet (AfterShip's subtags); those count none.
+ * mislukt" apart from the statuses around them yet (AfterShip's subtags); those count none. Someone held to some stores
+ * (`storeScope`) counts only their orders.
  */
 export const statusCounts = Effect.fn("Shipping.statusCounts")(function*() {
   yield* Policy.require("settings", 1)
   const db = yield* Db
   const rows = yield* db.scoped((sql) =>
-    sql<{ status: string; n: number }>`
+    Effect.flatMap(inScope(sql, "o.store_id"), (mine) =>
+      sql<{ status: string; n: number }>`
       with parcels as (
         select distinct on (f.order_id) f.order_id, d.status as tracked, f.tracking_status as shopify
         from fulfilments f
         join orders o on o.id = f.order_id
         left join deliveries d on d.fulfilment_id = f.id
         where o.cancelled_at is null and coalesce(f.shipped_at, o.shipped_at, o.placed_at) > now() - interval '30 days'
+          and ${mine}
         order by f.order_id, f.shipped_at desc nulls last, f.id desc
       ), worded as (
         select case coalesce(nullif(tracked, 'pending'), shopify)
@@ -52,10 +56,10 @@ export const statusCounts = Effect.fn("Shipping.statusCounts")(function*() {
         from parcels
         union all
         select 'supplier' from orders o
-        where o.status = 'at_supplier' and o.cancelled_at is null
+        where o.status = 'at_supplier' and o.cancelled_at is null and ${mine}
           and not exists (select 1 from fulfilments f where f.order_id = o.id)
       )
-      select status, count(*)::int as n from worded group by status`
+      select status, count(*)::int as n from worded group by status`)
   )
   const counts: Record<string, number> = Object.fromEntries(SHIP_STATUS_IDS.map((id) => [id, 0]))
   for (const r of rows) counts[r.status] = r.n

@@ -29,20 +29,24 @@ export class RolesRpcs extends RpcGroup.make(
   Rpc.make("Roles.update", {
     payload: UpdateRole,
     success: Roles,
-    error: Schema.Union([Forbidden, NotFound, Conflict])
+    error: Schema.Union([Forbidden, Invalid, NotFound, Conflict])
   }),
   Rpc.make("Roles.rename", {
     payload: RenameRole,
     success: Roles,
     error: Schema.Union([Forbidden, Invalid, NotFound, Conflict])
   }),
-  Rpc.make("Roles.reset", { payload: RoleRef, success: Roles, error: Schema.Union([Forbidden, NotFound, Conflict]) }),
+  Rpc.make("Roles.reset", {
+    payload: RoleRef,
+    success: Roles,
+    error: Schema.Union([Forbidden, Invalid, NotFound, Conflict])
+  }),
   Rpc.make("Roles.remove", {
     payload: RemoveRole,
     success: Roles,
     error: Schema.Union([Forbidden, Invalid, NotFound, Conflict])
   }),
-  Rpc.make("Roles.restore", { payload: RoleRef, success: Roles, error: Schema.Union([Forbidden, NotFound]) })
+  Rpc.make("Roles.restore", { payload: RoleRef, success: Roles, error: Schema.Union([Forbidden, Invalid, NotFound]) })
 )
   // Innermost first: `Member` needs the person (`Authenticated`) and the connection (`WithDb`) around it.
   .middleware(Member)
