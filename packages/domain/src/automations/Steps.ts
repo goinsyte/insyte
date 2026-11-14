@@ -62,7 +62,12 @@ const trig = (
   label: string,
   description: string,
   record: RecordKind,
-  o: { readonly brand?: string; readonly soon?: boolean } = {}
+  o: {
+    readonly brand?: string
+    readonly soon?: boolean
+    readonly defaults?: Readonly<Record<string, unknown>>
+    readonly fields?: ReadonlyArray<StepField>
+  } = {}
 ): Step => ({
   id,
   kind: "trigger",
@@ -72,8 +77,8 @@ const trig = (
   record,
   ...(o.brand === undefined ? {} : { brand: o.brand }),
   ...(o.soon === true ? { soon: true } : {}),
-  defaultConfig: {},
-  fields: []
+  defaultConfig: o.defaults ?? {},
+  fields: o.fields ?? []
 })
 
 interface ActionOpts {
@@ -121,12 +126,44 @@ export const STEPS: ReadonlyArray<Step> = [
   trig("trigger.shipping_delay", "Bestelling vertraagd", "Levering later dan verwacht", "order"),
   trig("trigger.refund_requested", "Terugbetaling aangevraagd", "Klant vraagt een terugbetaling", "order"),
   trig("trigger.customer_reply", "Antwoord van klant", "Antwoord in een open gesprek", "conversation"),
-  trig("trigger.email_received", "E-mail ontvangen", "Inkomende e-mail komt overeen", "conversation"),
+  trig("trigger.email_received", "E-mail ontvangen", "Inkomende e-mail komt overeen", "conversation", {
+    fields: [{ key: "contains", label: "Onderwerp of bericht bevat", type: "text", placeholder: "retour" }]
+  }),
   // No review provider is connected anywhere yet (M12's decision): "Binnenkort" until one is.
   trig("trigger.review_received", "Nieuwe review", "Review geplaatst in de winkel", "conversation", { soon: true }),
   trig("trigger.chargeback", "Chargeback ontvangen", "Geschil geopend bij de bank", "chargeback"),
-  trig("trigger.inventory_low", "Lage voorraad", "SKU onder de drempel", "product"),
-  trig("trigger.schedule", "Op een vast moment", "Elke dag, week of maand", "customers"),
+  trig("trigger.inventory_low", "Lage voorraad", "SKU onder de drempel", "product", {
+    defaults: { threshold: 10 },
+    fields: [{ key: "threshold", label: "Drempel (stuks)", type: "number", max: 100_000 }]
+  }),
+  // A run per order the moment picks: one that has been on its way that many days, or a customer's last order when
+  // they have not ordered since. Its record is that order, so its fields are an order's and its customer's.
+  trig("trigger.schedule", "Op een vast moment", "Elke dag, week of maand", "order", {
+    defaults: { every: "day", hour: 9, records: "orders_open", days: 5 },
+    fields: [
+      {
+        key: "every",
+        label: "Hoe vaak",
+        type: "select",
+        options: [
+          { value: "day", label: "Elke dag" },
+          { value: "week", label: "Elke maandag" },
+          { value: "month", label: "De 1e van de maand" }
+        ]
+      },
+      { key: "hour", label: "Om (uur)", type: "number", max: 23 },
+      {
+        key: "records",
+        label: "Voor",
+        type: "select",
+        options: [
+          { value: "orders_open", label: "Bestellingen die zoveel dagen onderweg zijn" },
+          { value: "customers_idle", label: "Klanten die zoveel dagen niet bestelden" }
+        ]
+      },
+      { key: "days", label: "Dagen", type: "number", max: 365 }
+    ]
+  }),
   trig("trigger.webhook", "Inkomende webhook", "Algemene webhook-ontvanger", "payload"),
 
   /* ── Insyte's own actions ───────────────────────────────────────────────────────────────── */

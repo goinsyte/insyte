@@ -9,7 +9,8 @@ import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import { TestResult, TestStep } from "../domain/Runs.ts"
-import { decide, membersNamed, notYet, orderContext } from "./engine.ts"
+import { ETA_BASIS, etaOf, orderContext } from "./context.ts"
+import { decide, membersNamed, notYet } from "./engine.ts"
 import { connectedBrands, rowOf1, settingsOf } from "./read.ts"
 
 /*
@@ -206,7 +207,7 @@ const wouldDo = Effect.fn("Automations.wouldDo")(function*(
   sql: SqlClient.SqlClient,
   n: Step,
   text: (key: string) => string,
-  sample: { readonly customerId: string | null }
+  sample: { readonly id: string; readonly customerId: string | null }
 ) {
   switch (n.variantId) {
     case "action.create_ticket": {
@@ -235,6 +236,61 @@ const wouldDo = Effect.fn("Automations.wouldDo")(function*(
     }
     case "action.track_event":
       return { status: "ok" as const, explanation: `Zou “${text("event") || "automation.fired"}” vastleggen.` }
+    case "action.notify_supplier": {
+      const names = text("supplier").split(/\s*,\s*/).filter((n) => n !== "")
+      if (names.length === 0) {
+        return {
+          status: "skipped" as const,
+          explanation: "Deze bestelling heeft nog geen leverancier om te berichten."
+        }
+      }
+      const found = yield* sql<{ name: string; channel: boolean }>`
+        select s.name, exists (select 1 from conversations c where c.supplier_id = s.id and c.kind = 'supplier_channel'
+                                 and c.archived_at is null) as channel
+        from suppliers s where s.deleted_at is null and lower(s.name) in ${sql.in(names.map((n) => n.toLowerCase()))}`
+      const missing = names.filter((n) => !found.some((s) => s.name.toLowerCase() === n.toLowerCase()))
+      if (missing.length > 0) {
+        return { status: "error" as const, explanation: `Er is geen leverancier “${missing.join("”, “")}”.` }
+      }
+      const closed = found.filter((s) => !s.channel)
+      return closed.length > 0
+        ? { status: "error" as const, explanation: `${closed.map((s) => s.name).join(", ")} heeft nog geen kanaal.` }
+        : { status: "ok" as const, explanation: `Zou ${found.map((s) => s.name).join(", ")} een bericht sturen.` }
+    }
+    case "action.refund": {
+      const amount = text("amount")
+      return {
+        status: "ok" as const,
+        explanation: `Zou ${
+          amount === "" || amount.toLowerCase() === "volledig" ? "het openstaande bedrag" : `€ ${amount}`
+        } terugbetalen, binnen de limiet van de flow.`
+      }
+    }
+    case "action.assign_supplier":
+      return {
+        status: "ok" as const,
+        explanation: `Zou het doorsturen van deze bestelling naar ${text("supplier")} zetten.`
+      }
+    case "action.update_tracking":
+      return { status: "ok" as const, explanation: "Zou track & trace opnieuw ophalen bij de vervoerder." }
+    case "action.check_eta": {
+      const eta = yield* etaOf(sql, sample.id)
+      if (eta === undefined) return { status: "skipped" as const, explanation: "Deze bestelling is geannuleerd." }
+      const day = eta.at.toLocaleDateString("nl-NL", { day: "numeric", month: "long", timeZone: "Europe/Amsterdam" })
+      return {
+        status: "ok" as const,
+        explanation: eta.basis === "delivered" ? `Bezorgd op ${day}.` : `Verwacht op ${day}, ${ETA_BASIS[eta.basis]}.`
+      }
+    }
+    case "action.ai_compose":
+      return {
+        status: "ok" as const,
+        explanation: "Zou met Insyte AI een antwoord opstellen; versturen doet iemand zelf."
+      }
+    case "action.ai_summarize":
+      return { status: "ok" as const, explanation: "Zou met Insyte AI een samenvatting maken." }
+    case "action.ai_classify":
+      return { status: "ok" as const, explanation: "Zou met Insyte AI het onderwerp van het ticket bepalen." }
     default:
       return { status: "skipped" as const, explanation: notYet(n.variantId, []) }
   }

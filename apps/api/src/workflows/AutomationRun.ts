@@ -3,11 +3,11 @@ import type { FlowNode, LaneNode } from "@insyte/domain/automations/Graph"
 import { STEPS_BY_ID } from "@insyte/domain/automations/Steps"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
+import { inputOf } from "@insyte/modules/automations/use-cases/context"
 import {
   actOnce,
   decide,
   finishRun,
-  inputOf,
   loadRun,
   notYet,
   recordStep,
@@ -21,6 +21,7 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type Workflo
 import { NonRetryableError } from "cloudflare:workflows"
 import { Cause, Effect, Exit, Layer } from "effect"
 import { syncRuntime as runtime } from "../platform/Ingest.ts"
+import { AutomationActionsLive } from "../platform/links/AutomationActions.ts"
 import { Telemetry } from "../platform/Observability.ts"
 import { withRequestDb } from "../platform/RequestDb.ts"
 
@@ -259,7 +260,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
 }
 
 /** What an action reaches: the slices it carries out its step through. */
-const Slices = Layer.mergeAll(TicketsService.layer, CustomersService.layer)
+const Slices = Layer.mergeAll(TicketsService.layer, CustomersService.layer, AutomationActionsLive)
 
 const program = <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unknown>) =>
   withRequestDb(effect).pipe(

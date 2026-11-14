@@ -11,41 +11,156 @@ import { STEPS_BY_ID } from "./Steps.ts"
 /** A run's record as its steps read it: `order.number`, `customer.email`, … as text. */
 export type RunContext = Readonly<Record<string, string>>
 
+/** What a run is about, as `automation_runs.record_kind` says: an order, a chargeback, a variant or a mail thread. */
+export type RunRecordKind = "order" | "chargeback" | "product" | "thread"
+
 /** The triggers an outbox event starts, and the records each run is about. */
 export interface Started {
   readonly trigger: string
-  readonly recordKind: "order"
+  readonly recordKind: RunRecordKind
   readonly recordIds: ReadonlyArray<string>
   readonly summary: string
+  /** "Lage voorraad": each variant's stock before and after, so each flow checks its own threshold (`crosses`). */
+  readonly levels?: Readonly<Record<string, { readonly before: number; readonly after: number }>>
 }
 
-/** What starts a trigger today. The rest wait for their source: Shopify's own events (M6), mail (M11), M13's disputes. */
-export const startedBy = (event: { readonly type: string } & Record<string, unknown>): Started | undefined => {
-  const orderIds = Array.isArray(event["orderIds"]) ? (event["orderIds"] as ReadonlyArray<string>) : []
+const ids = (event: Record<string, unknown>, key: string): ReadonlyArray<string> =>
+  Array.isArray(event[key]) ? (event[key] as ReadonlyArray<string>) : []
+
+const order = (trigger: string, recordIds: ReadonlyArray<string>, summary: string): Started => ({
+  trigger,
+  recordKind: "order",
+  recordIds,
+  summary
+})
+
+/**
+ * What starts a trigger (M12 step 3; widgets/05 §1.1). An event a flow's own service account caused starts nothing
+ * (its `userId` is the account's `sa_…` id): a refund a flow made does not start "Terugbetaling aangevraagd" again, so
+ * no flow sets off another, or itself, in a loop.
+ */
+export const startedBy = (event: { readonly type: string } & Record<string, unknown>): ReadonlyArray<Started> => {
+  if (typeof event["userId"] === "string" && event["userId"].startsWith("sa_")) return []
   switch (event.type) {
     case "order.delayed":
-      return { trigger: "trigger.shipping_delay", recordKind: "order", recordIds: orderIds, summary: "vertraagd" }
+      return [order("trigger.shipping_delay", ids(event, "orderIds"), "vertraagd")]
     case "refund.requested":
-      return {
-        trigger: "trigger.refund_requested",
-        recordKind: "order",
-        recordIds: orderIds,
-        summary: "terugbetaling aangevraagd"
-      }
+      return [order("trigger.refund_requested", ids(event, "orderIds"), "terugbetaling aangevraagd")]
     case "order.updated":
       // Fulfilled in Insyte: the order is on its way.
-      return event["change"] === "fulfil"
-        ? { trigger: "trigger.order_shipped", recordKind: "order", recordIds: orderIds, summary: "verzonden" }
-        : undefined
+      return event["change"] === "fulfil" ? [order("trigger.order_shipped", ids(event, "orderIds"), "verzonden")] : []
+    case "order.fulfilled":
+      // Fulfilled in Shopify, or by an app there.
+      return [order("trigger.order_shipped", ids(event, "orderIds"), "verzonden")]
+    case "order.placed":
+      return [order("trigger.order_placed", ids(event, "orderIds"), "geplaatst")]
+    case "chargeback.opened":
+      return typeof event["chargebackId"] === "string"
+        ? [{
+          trigger: "trigger.chargeback",
+          recordKind: "chargeback",
+          recordIds: [event["chargebackId"]],
+          summary: "chargeback geopend"
+        }]
+        : []
+    case "thread.received": {
+      const threadId = typeof event["threadId"] === "string" ? [event["threadId"]] : []
+      const mail: Started = {
+        trigger: "trigger.email_received",
+        recordKind: "thread",
+        recordIds: threadId,
+        summary: "e-mail ontvangen"
+      }
+      return event["reply"] === true
+        ? [mail, { ...mail, trigger: "trigger.customer_reply", summary: "antwoord van de klant" }]
+        : [mail]
+    }
+    case "inventory.dropped": {
+      const levels = Array.isArray(event["levels"])
+        ? (event["levels"] as ReadonlyArray<{ variantId: string; before: number; after: number }>)
+        : []
+      return [{
+        trigger: "trigger.inventory_low",
+        recordKind: "product",
+        recordIds: levels.map((l) => l.variantId),
+        summary: "voorraad laag",
+        levels: Object.fromEntries(levels.map((l) => [l.variantId, { before: l.before, after: l.after }]))
+      }]
+    }
     default:
-      return undefined
+      return []
   }
 }
 
-const TRIGGERS = ["order.delayed", "refund.requested", "order.updated"] as const
+const TRIGGERS = [
+  "order.delayed",
+  "refund.requested",
+  "order.updated",
+  "order.fulfilled",
+  "order.placed",
+  "chargeback.opened",
+  "thread.received",
+  "inventory.dropped"
+] as const
 
 /** The event types `startedBy` reads, so the relay asks only for those. */
 export const TRIGGER_EVENTS: ReadonlySet<typeof TRIGGERS[number]> = new Set(TRIGGERS)
+
+/** "Lage voorraad"'s threshold when the flow names none. */
+export const DEFAULT_THRESHOLD = 10
+
+/** Whether a stock change passes the flow's threshold: it was above, and is at or under it now. */
+export const crosses = (
+  config: Readonly<Record<string, unknown>>,
+  level: { readonly before: number; readonly after: number }
+): boolean => {
+  const n = Number(config["threshold"])
+  const threshold = Number.isFinite(n) && n >= 0 ? n : DEFAULT_THRESHOLD
+  return level.before > threshold && level.after <= threshold
+}
+
+/** "E-mail ontvangen" with "bevat": the subject or the message holds the text, case aside; without one, every mail. */
+export const mailMatches = (
+  config: Readonly<Record<string, unknown>>,
+  mail: { readonly subject: string; readonly body: string }
+) => {
+  const want = String(config["contains"] ?? "").trim().toLowerCase()
+  return want === "" || `${mail.subject}\n${mail.body}`.toLowerCase().includes(want)
+}
+
+/* ── "Op een vast moment" (M12 step 3) ─────────────────────────────────────────────────────── */
+
+export interface Schedule {
+  readonly every: "day" | "week" | "month"
+  readonly hour: number
+  readonly records: "orders_open" | "customers_idle"
+  readonly days: number
+}
+
+/** A schedule trigger's settings, each to its default when missing or out of range. */
+export const scheduleOf = (config: Readonly<Record<string, unknown>>): Schedule => {
+  const int = (key: string, fallback: number, max: number) => {
+    const n = Number(config[key])
+    return Number.isInteger(n) && n >= 0 && n <= max ? n : fallback
+  }
+  const every = config["every"] === "week" || config["every"] === "month" ? config["every"] : "day"
+  return {
+    every,
+    hour: int("hour", 9, 23),
+    records: config["records"] === "customers_idle" ? "customers_idle" : "orders_open",
+    days: Math.max(1, int("days", 5, 365))
+  }
+}
+
+/** Whether the schedule is due at this local hour: its hour, on its day (Monday, or the 1st). */
+export const scheduleDue = (
+  s: Schedule,
+  local: { readonly hour: number; readonly weekday: number; readonly day: number }
+): boolean =>
+  local.hour === s.hour && (s.every === "day" || (s.every === "week" ? local.weekday === 1 : local.day === 1))
+
+/** How far back a tick looks for records that came due: its own period and a day, so a missed tick is made good. */
+export const lookbackDays = (s: Schedule): number => (s.every === "day" ? 2 : s.every === "week" ? 8 : 32)
 
 /** `{{order.number}}` and friends filled in; a field the record does not have becomes empty. */
 export const fill = (text: string, context: RunContext): string =>
@@ -122,7 +237,15 @@ export const RUNNABLE: ReadonlySet<string> = new Set([
   "action.create_ticket",
   "action.tag_customer",
   "action.alert_team",
-  "action.track_event"
+  "action.track_event",
+  "action.notify_supplier",
+  "action.refund",
+  "action.assign_supplier",
+  "action.update_tracking",
+  "action.check_eta",
+  "action.ai_compose",
+  "action.ai_classify",
+  "action.ai_summarize"
 ])
 
 export const handlingOf = (variantId: string): Handling => {

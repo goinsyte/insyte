@@ -1,6 +1,10 @@
 import { Db } from "@insyte/database/Db"
 import { mintId } from "@insyte/domain/Ids"
+import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect } from "effect"
+import type { SqlClient } from "effect/sql"
+import { PendingEvents } from "../../shared/domain/Outbox.ts"
+import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import type { MirrorBatch } from "../domain/Mirror.ts"
 import { MirrorFollowers } from "../domain/Ports.ts"
 
@@ -40,6 +44,38 @@ const latestLevels = (
 ) => [...new Map(rows.map((r) => [`${r.inventory_item_id}:${r.location_id}`, r])).values()]
 
 /**
+ * What a live sync tells the rest (M12 step 3): orders new to the mirror and placed in the last day (`order.placed`),
+ * and orders Shopify now says are fulfilled that it did not before (`order.fulfilled`). A store's first import and a
+ * backfill tell nothing: their orders are history, and no flow should run for each of them.
+ */
+const orderEvents = Effect.fn("Sync.orderEvents")(function*(
+  sql: SqlClient.SqlClient,
+  before: ReadonlyArray<{ readonly shopifyId: string; readonly fulfillmentStatus: string | null }>,
+  written: ReadonlyArray<
+    {
+      readonly id: string
+      readonly shopifyId: string
+      readonly fulfillmentStatus: string | null
+      readonly fresh: boolean
+    }
+  >
+) {
+  const was = new Map(before.map((b) => [b.shopifyId, b.fulfillmentStatus]))
+  const placed = written.filter((o) => !was.has(o.shopifyId) && o.fresh).map((o) => o.id)
+  const fulfilled = written.filter((o) =>
+    was.has(o.shopifyId) && o.fulfillmentStatus === "fulfilled" && was.get(o.shopifyId) !== "fulfilled"
+  ).map((o) => o.id)
+  const workspaceId = (yield* CurrentWorkspace).id
+  const pending = yield* PendingEvents
+  if (placed.length > 0) {
+    pending?.add(yield* Outbox.write(sql, workspaceId, { type: "order.placed", workspaceId, orderIds: placed }))
+  }
+  if (fulfilled.length > 0) {
+    pending?.add(yield* Outbox.write(sql, workspaceId, { type: "order.fulfilled", workspaceId, orderIds: fulfilled }))
+  }
+})
+
+/**
  * `live` is false for a store's first import: its forwarding legs are made, but nothing is forwarded on its own (a
  * supplier's "forward on payment" is for orders paid from now on, M8.2).
  */
@@ -49,6 +85,7 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
   options: { readonly live?: boolean } = {}
 ) {
   const db = yield* Db
+  const live = options.live ?? true
   return yield* db.scopedFor((sql) =>
     Effect.gen(function*() {
       const products = batch.products.length === 0 ? [] : yield* sql`
@@ -164,7 +201,18 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
         where excluded.external_updated_at >= customers.external_updated_at
         returning 1`
 
-      const orders = batch.orders.length === 0 ? [] : yield* sql`
+      // What Shopify said of these orders before this page, for the events a live sync writes (below).
+      const before = live && batch.orders.length > 0
+        ? yield* sql<{ shopifyId: string; fulfillmentStatus: string | null }>`
+          select shopify_id, fulfillment_status from orders
+          where store_id = ${storeId} and shopify_id in ${sql.in(batch.orders.map((o) => o.shopify_id))}`
+        : []
+      const orders = batch.orders.length === 0 ? [] : yield* sql<{
+        id: string
+        shopifyId: string
+        fulfillmentStatus: string | null
+        fresh: boolean
+      }>`
         insert into orders (id, workspace_id, store_id, shopify_id, number, customer_id, customer_shopify_id,
                             customer_name, customer_email, status, payment_status, fulfillment_status, total_minor,
                             subtotal_minor, shipping_minor, tax_minor, discounts_minor, currency, payment_gateway,
@@ -201,7 +249,8 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
           paid_at = excluded.paid_at, shipped_at = excluded.shipped_at, cancelled_at = excluded.cancelled_at,
           refunded_at = excluded.refunded_at, external_updated_at = excluded.external_updated_at, raw = excluded.raw
         where excluded.external_updated_at >= orders.external_updated_at
-        returning 1`
+        returning id, shopify_id, fulfillment_status, placed_at > now() - interval '1 day' as fresh`
+      if (live) yield* orderEvents(sql, before, orders)
 
       const lines = batch.lines.length === 0 ? [] : yield* sql`
         insert into order_lines (id, workspace_id, store_id, order_id, shopify_id, product_id, variant_id,
@@ -254,7 +303,7 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
         ...batch.orders.map((o) => o.shopify_id),
         ...batch.lines.map((l) => l.order_shopify_id),
         ...batch.fulfilments.map((f) => f.order_shopify_id)
-      ], options.live ?? true)
+      ], live)
 
       // Tracking (M8.4): a delivery for each new parcel with a tracking number.
       yield* followers.fulfilmentsWritten(sql, storeId, batch.fulfilments.map((f) => f.shopify_id))

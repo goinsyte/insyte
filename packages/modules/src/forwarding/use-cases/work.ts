@@ -7,6 +7,7 @@ import { PendingEvents, Relay } from "../../shared/domain/Outbox.ts"
 import { Sealer } from "../../shared/domain/Sealer.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
+import { dropped, levelsOf } from "../../shared/use-cases/StockDrop.ts"
 
 /*
  * Supplier work (M8.3; domain.md §12.2) and what a supplier's own API tells Insyte (`POST /hooks/supplier/:id`, signed
@@ -167,6 +168,12 @@ const apply = (
 ) =>
   Effect.gen(function*() {
     if (event.type === "stock.updated") {
+      // A count that went down may start a "Lage voorraad" flow (`StockDrop`).
+      const matched = event.items.length === 0 ? [] : yield* sql<{ id: string }>`
+        select v.id from variants v
+        join product_supply ps on ps.product_id = v.product_id and ps.supplier_id = ${supplierId} and ps.is_primary
+        where v.sku in ${sql.in(event.items.map((i) => i.sku))}`
+      const before = yield* levelsOf(sql, matched.map((v) => v.id), "supplier")
       const rows = yield* sql<{ variantId: string }>`
         insert into inventory_levels (workspace_id, variant_id, location_id, available, source, reported_by, reported_at)
         select ${workspaceId}, v.id, 'supplier', r.available, 'supplier', ${`supplier:${supplierId}`}, now()
@@ -176,6 +183,7 @@ const apply = (
         on conflict (variant_id, location_id, source) do update set available = excluded.available,
           reported_by = excluded.reported_by, reported_at = excluded.reported_at
         returning variant_id`
+      yield* dropped(sql, workspaceId, before, "supplier")
       return { answer: answer(200, { ok: true, updated: rows.length }), outboxId: null }
     }
     const found = yield* lockLeg(sql, supplierId, event.leg_id)

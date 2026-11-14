@@ -6,6 +6,7 @@ import type { SqlClient } from "effect/sql"
 import { FileStore } from "../../shared/domain/Documents.ts"
 import { PendingEvents, Relay } from "../../shared/domain/Outbox.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { type Address, ATTACHMENT_MAX_BYTES, type InboundMail } from "../domain/Inbox.ts"
 
 /*
@@ -144,7 +145,16 @@ export const store = Effect.fn("Inbox.store")(function*(
       unread = true, has_inbound = true, has_attachments = has_attachments or ${kept > 0},
       archived_at = null, snoozed_until = null
     where id = ${threadId}`
-  yield* sql`update mailboxes set last_synced_at = now() where id = ${mailbox.id}`
+  yield* sql`update mailboxes set last_synced_at = now() where id = ${mailbox.id}` // Automations hear of it (M12 step 3): "E-mail ontvangen", and "Antwoord van klant" when it answers an open thread.
+  ;(yield* PendingEvents)?.add(
+    yield* Outbox.write(sql, workspaceId, {
+      type: "thread.received",
+      workspaceId,
+      threadId,
+      messageId,
+      reply: joined !== undefined
+    })
+  )
   yield* Audit.write(sql, workspaceId, { kind: "system", id: "system" }, {
     action: "thread.received",
     subjectType: "thread",
