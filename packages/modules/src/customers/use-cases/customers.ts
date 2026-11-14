@@ -3,6 +3,7 @@ import { NotFound } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import type { OrderRow } from "../../orders/domain/Orders.ts"
 import type { ListInput } from "../../shared/domain/Filter.ts"
 import { likePattern, SearchHit } from "../../shared/domain/Search.ts"
 import { compileFilter, decodeCursor, encodeCursor, type Whitelist } from "../../shared/tables/FilterSql.ts"
@@ -153,9 +154,19 @@ export const get = Effect.fn("Customers.get")(function*(id: string) {
         where c.id = ${id} and c.deleted_at is null and ${scope}`
       if (row === undefined) return yield* new NotFound({ entity: "customer", id })
       const orders = yield* sql<
-        { id: string; number: string; status: string; totalMinor: string; currency: string; placedAt: Date }
+        {
+          id: string
+          number: string
+          status: string
+          paymentStatus: OrderRow["paymentStatus"]
+          fulfillmentStatus: OrderRow["fulfillmentStatus"]
+          totalMinor: string
+          currency: string
+          placedAt: Date
+        }
       >`
-        select id, number, status, total_minor, currency, placed_at from orders where customer_id = ${id}
+        select id, number, status, payment_status, fulfillment_status, total_minor, currency, placed_at from orders
+        where customer_id = ${id}
         order by placed_at desc limit 50`
       const klaviyo = yield* (yield* KlaviyoSyncs).lastSyncOf(sql, id)
       const absorbed = yield* sql<{ email: string | null }>`

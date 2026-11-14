@@ -216,7 +216,10 @@ export const list = Effect.fn("Returns.list")(function*(input: typeof ListInput.
     Effect.gen(function*() {
       const where = sql.and([
         input.orderId === undefined ? sql`true` : sql`r.order_id = ${input.orderId}`,
-        input.customerId === undefined ? sql`true` : sql`r.customer_id = ${input.customerId}`
+        input.customerId === undefined ? sql`true` : sql`r.customer_id = ${input.customerId}`,
+        input.productId === undefined ? sql`true` : sql`exists (
+          select 1 from return_lines rl join order_lines ol on ol.id = rl.order_line_id
+          where rl.return_id = r.id and ol.product_id = ${input.productId})`
       ])
       return new ReturnList({
         rows: yield* rowsWhere(sql, where, input.limit ?? 500),

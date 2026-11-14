@@ -5,9 +5,10 @@ import { formatCurrency } from "@insyte/ui/app/lib/format"
 import type { Currency, Product } from "@insyte/ui/app/lib/types/domain"
 import type { ProductRow, ProductsSource } from "@insyte/ui/app/products/source"
 import type { Facet } from "@insyte/ui/app/table/data-table"
-import { Archive, BadgePercent, Check, Copy, Download, Edit3 } from "@insyte/ui/icons"
+import { Archive, BadgePercent, Check, Copy, Download, Edit3, Truck } from "@insyte/ui/icons"
 import { useMemo } from "react"
 import { useProductCommands } from "./product-writes.ts"
+import { useRestock } from "./restock.ts"
 
 /*
  * The products list's source in the console: `Products.list`'s rows as the design's products (M6.4), with Insyte's own
@@ -19,7 +20,8 @@ import { useProductCommands } from "./product-writes.ts"
  * is assigned, the delivery time until an order arrived, the rating (no reviews source), the margin until any product
  * has a cost. The category is Shopify's product type. "Nieuw product" waits for `Products.create`.
  * The Aandacht flags are the server's (`Products.list`'s `attention`), drawn as the panel's badges count them and as a
- * cut pages them (`products/use-cases/attention.ts`).
+ * cut pages them (`products/use-cases/attention.ts`). "Bijbestelling aanvragen" files a restock ticket per product
+ * that runs low (`restock.ts`) where the role may open tickets.
  */
 
 const STOCK_FACET: Facet = {
@@ -53,7 +55,22 @@ export const productOf = (p: ServerRow): Product => ({
   created_at: new Date(p.updatedAt).toISOString()
 })
 
-const actionsOf = (commands: ReturnType<typeof useProductCommands>): ProductsSource["actions"] => (openMargins) => [
+const actionsOf = (
+  commands: ReturnType<typeof useProductCommands>,
+  restock: ReturnType<typeof useRestock>
+): ProductsSource["actions"] =>
+(openMargins) => [
+  ...(restock === undefined ? [] : [{
+    id: "restock",
+    needs: { perm: "support" as const, arg: 2 as const },
+    label: "Bijbestelling aanvragen",
+    icon: Truck,
+    group: "Leveranciers",
+    shortcut: "r",
+    bar: true,
+    applies: (p: ProductRow) => p.stock === "low" || p.stock === "out",
+    run: (rows: ReadonlyArray<ProductRow>) => void restock(rows.map((p) => p.id))
+  }]),
   {
     id: "margins",
     needs: { perm: "products", arg: 2 },
@@ -147,6 +164,7 @@ export function useConsoleProductsSource(page: ProductPage, open: (product: Prod
   const products = useMemo(() => page.rows.map(productOf), [page.rows])
   const server = useMemo(() => new Map(page.rows.map((p) => [p.id, p])), [page.rows])
   const commands = useProductCommands()
+  const restock = useRestock()
   const costed = page.rows.some((p) => p.costMinor !== null)
   const supplied = page.rows.some((p) => p.supplierId !== null)
   const stocked = page.rows.some((p) => p.stock !== null)
@@ -186,7 +204,7 @@ export function useConsoleProductsSource(page: ProductPage, open: (product: Prod
     attentionOf: (p) => server.get(p.id)?.attention ?? QUIET,
     facets,
     hidden,
-    actions: actionsOf(commands),
+    actions: actionsOf(commands, restock),
     canCreate: { ok: false, reason: "Producten toevoegen kan hier nog niet" },
     currencyOf: (p) => p.currency,
     categories: false,

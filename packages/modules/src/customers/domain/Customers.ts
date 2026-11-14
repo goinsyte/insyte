@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { FulfillmentStatus, PaymentStatus } from "../../orders/domain/Orders.ts"
 
 /*
  * Klanten (M6.4; domain.md §4.2): the mirror's customers, their order count and value as Shopify keeps them, with the
@@ -26,6 +27,8 @@ export const CustomerOrder = Schema.Struct({
   id: Schema.String,
   number: Schema.String,
   status: Schema.String,
+  paymentStatus: PaymentStatus,
+  fulfillmentStatus: FulfillmentStatus,
   totalMinor: Schema.Int,
   currency: Schema.String,
   placedAt: Schema.Finite
