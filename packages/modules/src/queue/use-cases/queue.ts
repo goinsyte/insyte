@@ -39,8 +39,26 @@ import {
 export const RESTORE = "queue.restore"
 const HOUR_MS = 3_600_000
 const DECIDED_DAYS = 1
+/** Why a leg did not go, as the row says it (the forwarding queue's own words, `lib/forwarding.ts`). */
+const FORWARD_ERROR: Record<string, string> = {
+  stock: "leverancier meldt uitverkocht",
+  address: "adres onvolledig",
+  no_supplier: "geen leverancier gekoppeld",
+  rejected: "leverancier weigert de bestelling",
+  send_failed: "versturen naar de leverancier mislukt",
+  supplier_paused: "leverancier gepauzeerd"
+}
+
 /** The kinds a plate is drawn for (M10.2). */
-const PLATED: ReadonlySet<string> = new Set(["return_review", "quality_review", "order_delayed", "stock_out"])
+const PLATED: ReadonlySet<string> = new Set([
+  "return_review",
+  "quality_review",
+  "order_delayed",
+  "stock_out",
+  "chargeback_deadline",
+  "chargeback_opened",
+  "store_disconnected"
+])
 
 interface Desired {
   readonly kind: QueueKind
@@ -198,28 +216,68 @@ const desired = Effect.fn("Queue.desired")(function*(sql: SqlClient.SqlClient) {
       dueAt: null
     })
   }
-  // A chargeback that needs evidence (M13 step 3), red when its deadline is hours away.
+  // An order leg the supplier could not be sent, or refused (M8): red, the order waits on it.
+  const failed = yield* sql<{
+    id: string
+    orderId: string
+    number: string
+    storeId: string
+    customerName: string
+    totalMinor: string
+    currency: string
+    supplier: string | null
+    errorKind: string | null
+  }>`
+    select f.id, f.order_id, o.number, f.store_id, o.customer_name, o.total_minor, o.currency, s.name as supplier,
+           f.error_kind
+    from forwarding_items f join orders o on o.id = f.order_id left join suppliers s on s.id = f.supplier_id
+    where f.state = 'error'`
+  for (const f of failed) {
+    out.push({
+      kind: "forwarding_failed",
+      area: "orders",
+      subjectType: "order",
+      subjectId: f.orderId,
+      storeId: f.storeId,
+      dedupeKey: `forwarding_failed:${f.id}`,
+      signal: "red",
+      title: `Bestelling ${f.number} niet doorgestuurd${f.supplier === null ? "" : ` naar ${f.supplier}`} · ${
+        FORWARD_ERROR[f.errorKind ?? ""] ?? "doorsturen mislukt"
+      }`,
+      valueMinor: Number(f.totalMinor),
+      currency: f.currency,
+      dueAt: null
+    })
+  }
+  // A chargeback (M13 step 3): one the provider opened and nobody has started on yet, or one waiting for its evidence;
+  // red when its deadline is hours away.
   const disputes = yield* sql<{
     id: string
     caseNumber: string
+    status: string
     storeId: string | null
     customerName: string
     amountMinor: string
     currency: string
     deadlineAt: Date
   }>`
-    select id, case_number, store_id, customer_name, amount_minor, currency, deadline_at from chargebacks
+    select id, case_number, status, store_id, customer_name, amount_minor, currency, deadline_at from chargebacks
     where status in ('open', 'awaiting_evidence')`
   for (const c of disputes) {
+    const opened = c.status === "open"
+    // A new case wants a look whatever its deadline: never green.
+    const signal = signalOf(c.deadlineAt, "green")
     out.push({
-      kind: "chargeback_deadline",
+      kind: opened ? "chargeback_opened" : "chargeback_deadline",
       area: "chargebacks",
       subjectType: "chargeback",
       subjectId: c.id,
       storeId: c.storeId,
-      dedupeKey: `chargeback_deadline:${c.id}`,
-      signal: signalOf(c.deadlineAt, "green"),
-      title: `Chargeback ${c.caseNumber} wacht op bewijs${c.customerName ? ` · ${c.customerName}` : ""}`,
+      dedupeKey: `${opened ? "chargeback_opened" : "chargeback_deadline"}:${c.id}`,
+      signal: opened && signal === "green" ? "amber" : signal,
+      title: `${opened ? "Nieuwe chargeback" : "Chargeback"} ${c.caseNumber}${opened ? "" : " wacht op bewijs"}${
+        c.customerName ? ` · ${c.customerName}` : ""
+      }`,
       valueMinor: Number(c.amountMinor),
       currency: c.currency.trim(),
       dueAt: c.deadlineAt
@@ -268,9 +326,9 @@ export const refresh = Effect.fn("Queue.refresh")(function*(sql: SqlClient.SqlCl
                where id in ${sql.in(ended)}`
     changed = true
   }
-  // The plates (M10.2): drawn for the live rows the proposer knows, superseded where their row or rule ended. Only a
-  // return or a quality check carries one, and rows resolve only here: a workspace with neither, where nothing ended,
-  // has no plate to draw or set aside, and the sweep skips the queries for it.
+  // The plates (M10.2): drawn for the live rows the proposer knows, superseded where their row or rule ended. Only the
+  // kinds in `PLATED` carry one, and rows resolve only here: a workspace with none, where nothing ended, has no plate
+  // to draw or set aside, and the sweep skips the queries for it.
   if (ended.length === 0 && !want.some((w) => PLATED.has(w.kind))) return changed
   const drawable = yield* sql<{ id: string; kind: string; subjectId: string; dedupeKey: string }>`
     select id, kind, subject_id, dedupe_key from queue_items where resolved_at is null`

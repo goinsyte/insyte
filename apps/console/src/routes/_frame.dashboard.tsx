@@ -6,7 +6,7 @@ import { HomeBoard } from "@insyte/ui/app/dashboard/home-board"
 import { PulseBand } from "@insyte/ui/app/dashboard/pulse-band"
 import { QueueCard } from "@insyte/ui/app/dashboard/queue-card"
 import { useQueuePanel } from "@insyte/ui/app/dashboard/queue-panel"
-import { SetupChecklist, SetupPlate, type SetupTaskId, setupTasks } from "@insyte/ui/app/dashboard/setup-checklist"
+import { SetupChecklist, SetupPlate, type SetupTaskId } from "@insyte/ui/app/dashboard/setup-checklist"
 import {
   AddCardMenu,
   CustomizeButton,
@@ -46,6 +46,7 @@ import {
   useConsoleWork
 } from "../start/home-views.tsx"
 import { useConsoleQueue } from "../start/queue-source.tsx"
+import { consoleSetupTasks, useCanOpenTask } from "../start/setup-tasks.tsx"
 
 /**
  * Where sign-in lands when there is no `redirect` (the screen's default), and the console's first client gate (M2.4):
@@ -107,15 +108,15 @@ const VIEWS: ReadonlyArray<HomeView> = ["overzicht", "werk", "agenda", "activite
 /** Only the operator can say they did these; the rest tick themselves when the workspace has them. */
 const isManual = Schema.is(ManualSetupTask)
 
-/** The tasks whose screen the console has; the rest wait for theirs. */
-const canOpen = (task: { readonly id: SetupTaskId }) => task.id === "team"
-
 /** The cards whose "Openen" has its screen in the console. */
 const OPENS = new Set([
   "orders",
+  "revenue",
+  "countries",
   "chargebacks",
   "tickets",
   "mytickets",
+  "chats",
   "stock",
   "returns",
   "bestsellers",
@@ -205,7 +206,8 @@ function FirstDay(
   }
 ) {
   const complete = useAtomSet(completeTaskAtom, { mode: "promiseExit" })
-  const tasks = setupTasks((id) => checklist.done.includes(id))
+  const tasks = consoleSetupTasks((id) => checklist.done.includes(id))
+  const canOpen = useCanOpenTask()
   const toggle = (id: SetupTaskId) => {
     if (!isManual(id)) return
     void complete({ payload: { task: id, done: !checklist.done.includes(id) }, reactivityKeys: START })

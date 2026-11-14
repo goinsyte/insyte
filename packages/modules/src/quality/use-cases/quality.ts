@@ -196,8 +196,8 @@ export const list = Effect.fn("Quality.list")(function*(productId: string) {
 })
 
 /**
- * `Quality.stats`: the products list's Aandacht cuts, the product page's Retouren block and the suppliers' quality
- * columns. Per product, or summed per supplier: what its products (primary) sold and got back, and the checks asked of
+ * `Quality.stats`: the product page's Retouren block and the suppliers' quality columns (the products list's Aandacht
+ * flags and cuts are `Products.list`'s, from `products/use-cases/attention.ts`). Per product, or summed per supplier: what its products (primary) sold and got back, and the checks asked of
  * it: those judged in the last 90 days, and those still running whenever they were asked. Only the role's stores
  * count; a product or supplier with nothing to say has no row.
  */
@@ -208,14 +208,7 @@ export const stats = Effect.fn("Quality.stats")(function*(input: typeof StatsInp
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const scope = yield* inScope(sql, "p.store_id")
-      const one = sql.and([
-        input.productId === undefined ? sql`true` : sql`p.id = ${input.productId}`,
-        input.productIds === undefined
-          ? sql`true`
-          : input.productIds.length === 0
-          ? sql`false`
-          : sql`p.id in ${sql.in([...input.productIds])}`
-      ])
+      const one = input.productId === undefined ? sql`true` : sql`p.id = ${input.productId}`
       const [settings] = yield* sql<{ thresholdPct: string }>`select threshold_pct from quality_settings`
       const rows = yield* sql<StatsRow>`
         with mine as (

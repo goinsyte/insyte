@@ -88,6 +88,18 @@ export const PulseFigures = Schema.Struct({
     deliveredBefore: Schema.Int,
     onTimeBefore: Schema.Int,
     spark: Schema.Array(Schema.NullOr(Schema.Finite))
+  })),
+  /**
+   * "Eerste reactie": tickets that came in during the window and were answered, and the minutes from coming in to the
+   * first mail the team sent on them (a thread linked to the ticket); the spark is the mean hours per bucket, `null`
+   * where none were answered. Needs Klantenservice.
+   */
+  reply: Schema.optionalKey(Schema.Struct({
+    replied: Schema.Int,
+    minutes: Schema.Int,
+    repliedBefore: Schema.Int,
+    minutesBefore: Schema.Int,
+    spark: Schema.Array(Schema.NullOr(Schema.Finite))
   }))
 })
 export type PulseFigures = typeof PulseFigures.Type

@@ -7,7 +7,8 @@ import { call, rpc, sessionMe } from "./support.ts"
  * thread (through the dev route, down the `email()` handler's path), its answers join it, the same mail twice is one
  * message; the team replies, forwards and writes, each sent once its undo window has passed and not at all when undone;
  * folders and counts follow archive, spam, the Prullenbak, a snooze and an assignment; a thread becomes a ticket and
- * Undo takes it away again. Gmail and Outlook are not available yet, and a read-only role reads but does not send.
+ * Undo takes it away again, and its first answer counts in Start's "Eerste reactie". Gmail and Outlook are not
+ * available yet, and a read-only role reads but does not send.
  */
 
 const DOMAIN = "in.goinsyte.com"
@@ -302,6 +303,17 @@ describe("the inbox", () => {
     expect(ok(await rpc("Threads.list", { folder: "linked" }, people.owner)).rows.map((r) => r.id)).toEqual([
       thread!.id
     ])
+
+    // Answered on its thread once it is a ticket: Start's "Eerste reactie" counts it, from the ticket to the mail sent.
+    const before = ok(await rpc("Home.widgets", { ids: [], range: 7 }, people.owner)).pulse.reply
+    expect(before).toMatchObject({ replied: 0, minutes: 0 })
+    ok(await rpc("Threads.reply", { threadId: thread!.id, body: "We kijken ernaar." }, people.owner))
+    await pastUndo(workspace)
+    await relay(workspace)
+    const after = ok(await rpc("Home.widgets", { ids: [], range: 7 }, people.owner)).pulse.reply
+    expect(after).toMatchObject({ replied: 1, repliedBefore: 0 })
+    expect(after!.minutes).toBeGreaterThanOrEqual(0)
+    expect(after!.spark.filter((h) => h !== null)).toHaveLength(1)
   })
 
   it("keeps a mail's attachments and its HTML, and reads a mail that is HTML only", async () => {

@@ -23,6 +23,7 @@ import type {
   ResolveInput,
   Returnable,
   ReturnChange,
+  ReturnCounts,
   ReturnDetail,
   ReturnList,
   ReturnSettingsDoc,
@@ -44,6 +45,8 @@ type W = R | Relay
  */
 export class ReturnsService extends Context.Service<ReturnsService, {
   readonly list: (input: typeof ListInput.Type) => Effect.Effect<ReturnList, Forbidden, R>
+  /** The area panel's counts, for the frame: the list's own. */
+  readonly counts: Effect.Effect<typeof ReturnCounts.Type, Forbidden, R>
   readonly get: (id: string) => Effect.Effect<ReturnDetail, Forbidden | NotFound, R>
   readonly returnable: (orderId: string) => Effect.Effect<Returnable, Forbidden | NotFound, R>
   readonly start: (
@@ -107,6 +110,7 @@ export class ReturnsService extends Context.Service<ReturnsService, {
             Effect.provideService(Labels, labels),
             Effect.catchIf(SqlError.isSqlError, Effect.die)
           ),
+        counts: Returns.panelCounts().pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         get: (id) =>
           Returns.get(id).pipe(Effect.provideService(Labels, labels), Effect.catchIf(SqlError.isSqlError, Effect.die)),
         returnable: (orderId) => Returns.returnable(orderId).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),

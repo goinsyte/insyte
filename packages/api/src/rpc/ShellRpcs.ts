@@ -11,9 +11,9 @@ import { Member } from "./Member.ts"
 import { WithDb } from "./WithDb.ts"
 
 /*
- * The signed-in frame (M5.3): one round trip for its first paint, the route tree's root loader. ADR-0028: the frame
- * renders with real counts or none, never a made-up number; a count the server does not keep yet is absent, and the
- * panel hides its badge.
+ * The signed-in frame (M5.3): one round trip for its first paint, the route tree's root loader. ADR-0028: the panel
+ * renders with real counts or none, never a made-up number; they come from `Nav.counts`, read for the area that shows
+ * (so the frame carries none), and a count the server does not keep yet is absent, and the panel hides its badge.
  */
 
 /** A count per panel item (by its path); absent when the area is not counted yet. */
@@ -32,7 +32,6 @@ export class Frame extends Schema.Class<Frame>("shell/Frame")({
   prefs: Prefs,
   notes: NoteCounts,
   teammates: Schema.Array(Teammate),
-  counts: NavCounts,
   /** Proposals ready to review (M15); `null` until Insyte drafts them, so the top bar shows no button. */
   proposals: Schema.NullOr(Schema.Int),
   /** Every store connection's state in one line (M17 step 6): what the shell says about the sync. */
@@ -40,7 +39,7 @@ export class Frame extends Schema.Class<Frame>("shell/Frame")({
 }) {}
 
 export class ShellRpcs extends RpcGroup.make(
-  Rpc.make("Shell.frame", { payload: Schema.Struct({ path: Schema.String }), success: Frame }),
+  Rpc.make("Shell.frame", { success: Frame }),
   // The shell's health line on its own, read again when a connection changes (`records.changed connection`).
   Rpc.make("Shell.health", { success: HealthLine }),
   Rpc.make("Nav.counts", { payload: Schema.Struct({ area: Schema.String }), success: NavCounts }),

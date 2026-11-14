@@ -109,8 +109,6 @@ export class QualityChange extends Schema.Class<QualityChange>("quality/QualityC
 export const StatsInput = Schema.Struct({
   /** One product's figures. */
   productId: Schema.optional(Schema.String),
-  /** These products' figures (a list's page). */
-  productIds: Schema.optional(Schema.Array(Schema.String).check(Schema.isMaxLength(500))),
   /** Summed per supplier. */
   bySupplier: Schema.optional(Schema.Boolean)
 })

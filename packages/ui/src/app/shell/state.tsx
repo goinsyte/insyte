@@ -62,6 +62,7 @@ export const usePersonaChrome = (persona: Persona): PersonaChrome => {
 	return { ...chrome, partner: { ...chrome.partner, name: partner.name }, menu: partner.menu };
 };
 export const usePanelFor = () => useShellSource().panelFor;
+export const useServerCounts = () => useShellSource().serverCounts === true;
 export const useRecordSearch = (query: string) => useShellSource().useRecordSearch(query);
 export const useCreateUnavailable = () => useShellSource().unavailable;
 const everyPage = () => true;

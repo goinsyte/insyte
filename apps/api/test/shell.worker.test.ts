@@ -19,18 +19,17 @@ describe("the frame", () => {
     await relay(workspace)
     ok(await rpc("Prefs.patch", { section: "rail", value: { hidden: ["/chats"] }, baseVersion: 0 }, owner.cookie))
 
-    const frame = ok(await rpc("Shell.frame", { path: "/settings/team" }, owner.cookie))
+    const frame = ok(await rpc("Shell.frame", undefined, owner.cookie))
     expect(frame.workspace).toEqual({ id: workspace, name: "Kader B.V." })
     expect(frame.me).toMatchObject({ email: owner.email })
     expect(frame.role).toMatchObject({ id: "owner" })
     expect(frame.prefs.sections["rail"]).toEqual({ value: { hidden: ["/chats"] }, version: 1 })
     expect(frame.notes).toMatchObject({ unread: 1 })
     expect(frame.teammates.map((t) => t.roleLabel).toSorted()).toEqual(["Eigenaar", "Klantenservice"])
-    expect(frame.counts).toEqual({})
     expect(frame.proposals).toBeNull()
 
     // The colleague sees the same faces, without Team's details.
-    const theirs = ok(await rpc("Shell.frame", { path: "/dashboard" }, colleague))
+    const theirs = ok(await rpc("Shell.frame", undefined, colleague))
     expect(theirs.teammates).toEqual(frame.teammates)
     expect(theirs.role).toMatchObject({ id: "service" })
     // Orders are counted (M6.4): a workspace without a store has none of any kind, which is a count, not a guess.
