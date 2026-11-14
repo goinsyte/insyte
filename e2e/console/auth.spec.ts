@@ -345,6 +345,8 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   await page.getByRole("row", { name: /Linnen overhemd/ }).click()
   const item = page.getByRole("dialog")
   await expect(item.getByText("LIN-L")).toBeVisible()
+  // Its stock, from the import's count per location: 24 of the M and 38 of the L.
+  await expect(item.getByText(/^62 op voorraad/)).toBeVisible()
   // Its photographs, featured first, each asked for at the size it is shown.
   await expect(item.getByRole("button", { name: /^Foto \d van 3 bekijken$/ })).toHaveCount(3)
   await expect(item.getByRole("link", { name: "Openen in Shopify" })).toHaveAttribute(
