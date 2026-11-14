@@ -3,23 +3,13 @@ import type { FlowNode, LaneNode } from "@insyte/domain/automations/Graph"
 import { STEPS_BY_ID } from "@insyte/domain/automations/Steps"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
-import { inputOf } from "@insyte/modules/automations/use-cases/context"
-import {
-  actOnce,
-  decide,
-  finishRun,
-  loadRun,
-  notYet,
-  recordStep,
-  repliedSince,
-  type RunPlan,
-  StepFailed
-} from "@insyte/modules/automations/use-cases/engine"
+import type { recordStep, RunPlan } from "@insyte/modules/automations/use-cases/engine"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import { TicketsService } from "@insyte/modules/tickets/Tickets"
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers"
 import { NonRetryableError } from "cloudflare:workflows"
 import { Cause, Effect, Exit, Layer } from "effect"
+import { engine, runContext, withEngine } from "../platform/AutomationEngine.ts"
 import { syncRuntime as runtime } from "../platform/Ingest.ts"
 import { AutomationActionsLive } from "../platform/links/AutomationActions.ts"
 import { Telemetry } from "../platform/Observability.ts"
@@ -78,7 +68,11 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
     try {
       loaded = await step.do("load", QUICK, () => planOf(workspaceId, runId))
     } catch {
-      await step.do("finish", QUICK, () => exec(finishRun(runId, "failed", "De run kon niet worden gelezen.")))
+      await step.do(
+        "finish",
+        QUICK,
+        () => exec(withEngine((e) => e.finishRun(runId, "failed", "De run kon niet worden gelezen.")))
+      )
       return { outcome: "failed" as const }
     }
     const plan = JSON.parse(loaded) as RunPlan | null
@@ -88,7 +82,12 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
       node: Node,
       attempt: number,
       fields: Omit<Parameters<typeof recordStep>[0], "runId" | "runAt" | "nodeId" | "variant">
-    ) => exec(recordStep({ runId, runAt: plan.runAt, nodeId: node.id, variant: node.variantId, attempt, ...fields }))
+    ) =>
+      exec(
+        withEngine((e) =>
+          e.recordStep({ runId, runAt: plan.runAt, nodeId: node.id, variant: node.variantId, attempt, ...fields })
+        )
+      )
 
     const walk = async (nodes: ReadonlyArray<Node>): Promise<End | undefined> => {
       for (const node of nodes) {
@@ -105,7 +104,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
           await step.do(`${node.id}:1`, QUICK, async (ctx) => {
             await record(node, ctx.attempt, {
               status: "succeeded",
-              input: inputOf(plan.context),
+              input: (await runContext()).inputOf(plan.context),
               output: { summary: plan.context["trigger.summary"] ?? "" }
             })
           })
@@ -113,7 +112,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
         }
         case "condition": {
           const passed = await step.do(`${node.id}:1`, QUICK, async (ctx) => {
-            const ok = decide(node.variantId, config, plan.context)
+            const ok = (await engine()).decide(node.variantId, config, plan.context)
             await record(node, ctx.attempt, {
               status: ok ? "succeeded" : "stopped",
               output: { passed: ok },
@@ -125,7 +124,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
         }
         case "branch": {
           const yes = await step.do(`${node.id}:1`, QUICK, async (ctx) => {
-            const ok = decide(node.variantId, config, plan.context)
+            const ok = (await engine()).decide(node.variantId, config, plan.context)
             await record(node, ctx.attempt, { status: "succeeded", output: { lane: ok ? "yes" : "no" } })
             return ok
           })
@@ -150,7 +149,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
           })
           await step.sleep(`${node.id}:sleep`, `${hours} hours`)
           const replied = await step.do(`${node.id}:1`, QUICK, async (ctx) => {
-            const answered = await exec(repliedSince(plan))
+            const answered = await exec(withEngine((e) => e.repliedSince(plan)))
             await record(node, ctx.attempt, {
               status: answered ? "stopped" : "succeeded",
               input: { hours },
@@ -224,6 +223,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
                 return null
               }
               const failure = Cause.squash(exit.cause)
+              const { StepFailed } = await engine()
               const failed = failure instanceof StepFailed
                 ? failure
                 : new StepFailed({ explanation: "De stap lukte niet; Insyte probeert het opnieuw.", terminal: false })
@@ -246,7 +246,10 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
         }
         case "unsupported": {
           await step.do(`${node.id}:1`, QUICK, async (ctx) => {
-            await record(node, ctx.attempt, { status: "skipped", explanation: notYet(node.variantId, plan.connected) })
+            await record(node, ctx.attempt, {
+              status: "skipped",
+              explanation: (await engine()).notYet(node.variantId, plan.connected)
+            })
           })
           return undefined
         }
@@ -254,7 +257,11 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
     }
 
     const end = await walk(plan.nodes)
-    await step.do("finish", QUICK, () => exec(finishRun(runId, end?.status ?? "succeeded", end?.reason ?? null)))
+    await step.do(
+      "finish",
+      QUICK,
+      () => exec(withEngine((e) => e.finishRun(runId, end?.status ?? "succeeded", end?.reason ?? null)))
+    )
     return { outcome: end?.status ?? ("succeeded" as const) }
   }
 }
@@ -275,11 +282,11 @@ const runExit = <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unkno
 
 /** The run's plan as text (it crosses a step), or `"null"` when there is nothing left to do. */
 export const planOf = (workspaceId: string, runId: string) =>
-  run(workspaceId, Effect.map(loadRun(runId), (p) => JSON.stringify(p)))
+  run(workspaceId, withEngine((e) => Effect.map(e.loadRun(runId), (p) => JSON.stringify(p))))
 
 /** One action step's attempt, as the Workflow makes it; a retried attempt finds the first one's row and does not act. */
 export const actionStep = (workspaceId: string, plan: RunPlan, node: Node, attempt: number) =>
-  runExit(workspaceId, actOnce(plan, node, attempt))
+  runExit(workspaceId, withEngine((e) => e.actOnce(plan, node, attempt)))
 
 /** One step's effect in the workspace, over a connection of its own. */
 const run = async <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unknown>): Promise<A> => {

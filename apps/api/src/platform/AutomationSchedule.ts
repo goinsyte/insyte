@@ -1,9 +1,9 @@
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { AutomationRuns } from "@insyte/modules/automations/domain/Ports"
-import { startScheduled } from "@insyte/modules/automations/use-cases/engine"
 import { sweepWorkspaces } from "@insyte/modules/facts/Facts"
 import { Effect } from "effect"
+import { withEngine } from "./AutomationEngine.ts"
 
 /*
  * Every hour (M12 step 3): "Op een vast moment". In each workspace with a store, its scheduled flows due at this hour in
@@ -13,7 +13,7 @@ import { Effect } from "effect"
 export const scheduleSweep = Effect.fn("Automations.scheduleSweep")(function*(at: Date) {
   const starter = yield* AutomationRuns
   for (const workspaceId of yield* sweepWorkspaces(true)) {
-    yield* startScheduled(at).pipe(
+    yield* withEngine((e) => e.startScheduled(at)).pipe(
       Effect.flatMap((runs) =>
         Effect.forEach(runs, (runId) => starter.start({ workspaceId, runId }), { discard: true })
       ),
