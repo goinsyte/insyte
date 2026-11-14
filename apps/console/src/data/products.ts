@@ -1,10 +1,12 @@
 import { Forbidden, NotFound, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
-import { ProductDetail, ProductPage } from "@insyte/modules/products/domain/Products"
+import { ProductDetail, type ProductListInput, ProductPage } from "@insyte/modules/products/domain/Products"
 import { CursorInvalid, FilterFieldUnknown } from "@insyte/modules/shared/domain/Filter"
 import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
 import { ConsoleClient } from "./client.ts"
+import { QUALITY } from "./quality.ts"
+import { RETURNS } from "./returns.ts"
 
 /*
  * Producten (M6.4): the catalogue, primed by the route's loader and carried in the document; up to 200 by title, as
@@ -13,23 +15,41 @@ import { ConsoleClient } from "./client.ts"
 
 export const PRODUCTS = ["products"] as const
 
+const PAGE = AsyncResult.Schema({
+  success: ProductPage,
+  error: Schema.Union([
+    Forbidden,
+    FilterFieldUnknown,
+    CursorInvalid,
+    NoWorkspace,
+    Unauthenticated,
+    RpcClientError.RpcClientError
+  ])
+})
+
 export const productsAtom = Atom.serializable(
   ConsoleClient.query("Products.list", { limit: 200 }, { reactivityKeys: PRODUCTS }),
-  {
-    key: "products",
-    schema: AsyncResult.Schema({
-      success: ProductPage,
-      error: Schema.Union([
-        Forbidden,
-        FilterFieldUnknown,
-        CursorInvalid,
-        NoWorkspace,
-        Unauthenticated,
-        RpcClientError.RpcClientError
-      ])
+  { key: "products", schema: PAGE, skipInitialRun: true }
+)
+
+/** The panel's Aandacht cuts, by their link's `status`, as `Products.list` takes them. */
+export const ATTENTION_CUTS = {
+  attention_returns: "returns",
+  attention_complaints: "complaints",
+  attention_checks: "checks"
+} as const satisfies Record<string, NonNullable<ProductListInput["attention"]>>
+
+/**
+ * One Aandacht cut, paged on the server as the panel counts it (`Products.list`'s `attention`), so the list shows what
+ * the badge counts. A return or a quality check moves it, as it moves the badge.
+ */
+export const attentionProductsAtom = Atom.family((cut: NonNullable<ProductListInput["attention"]>) =>
+  Atom.serializable(
+    ConsoleClient.query("Products.list", { limit: 200, attention: cut }, {
+      reactivityKeys: [...PRODUCTS, ...RETURNS, ...QUALITY]
     }),
-    skipInitialRun: true
-  }
+    { key: `products:${cut}`, schema: PAGE, skipInitialRun: true }
+  )
 )
 
 /**

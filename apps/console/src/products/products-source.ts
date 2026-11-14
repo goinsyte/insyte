@@ -18,6 +18,8 @@ import { useProductCommands } from "./product-writes.ts"
  * What the server does not hold yet is hidden, not made up: stock until Shopify reported any, the supplier until one
  * is assigned, the delivery time until an order arrived, the rating (no reviews source), the margin until any product
  * has a cost. The category is Shopify's product type. "Nieuw product" waits for `Products.create`.
+ * The Aandacht flags are the server's (`Products.list`'s `attention`), drawn as the panel's badges count them and as a
+ * cut pages them (`products/use-cases/attention.ts`).
  */
 
 const STOCK_FACET: Facet = {
@@ -181,7 +183,7 @@ export function useConsoleProductsSource(page: ProductPage, open: (product: Prod
       }
     },
     standing: standingOf(stocked, costed, (id) => Math.max(0, server.get(id)?.available ?? 0)),
-    attentionOf: () => QUIET,
+    attentionOf: (p) => server.get(p.id)?.attention ?? QUIET,
     facets,
     hidden,
     actions: actionsOf(commands),

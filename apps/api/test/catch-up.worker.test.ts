@@ -214,6 +214,21 @@ describe("the panel's counts", () => {
       "/products?status=attention_returns": 1,
       "/products?status=attention_complaints": 1
     })
+    // Each cut pages on the server what its badge counts, and every row of the list carries the same flags.
+    const shirt = line.productId
+    for (const attention of ["returns", "complaints"] as const) {
+      const cut = ok(await rpc("Products.list", { attention }, store.cookie))
+      expect(cut.rows.map((p) => p.id), attention).toEqual([shirt])
+      expect(cut.counts.total, attention).toBe(1)
+    }
+    expect(ok(await rpc("Products.list", { attention: "checks" }, store.cookie)).rows).toEqual([])
+    const flagged = ok(await rpc("Products.list", {}, store.cookie)).rows
+    expect(flagged.find((p) => p.id === shirt)?.attention).toEqual({
+      returnHigh: true,
+      complaints: 1,
+      checkRunning: false
+    })
+    expect(flagged.filter((p) => p.attention?.returnHigh === true)).toHaveLength(1)
 
     await cases(store.workspace, {
       insert: [{ caseNumber: `CC-${run}`, storeId: store.storeId, status: "awaiting_evidence" }]

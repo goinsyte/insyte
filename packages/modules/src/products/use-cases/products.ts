@@ -3,7 +3,6 @@ import { NotFound } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
-import type { ListInput } from "../../shared/domain/Filter.ts"
 import { likePattern, SearchHit } from "../../shared/domain/Search.ts"
 import { compileFilter, decodeCursor, encodeCursor, type Whitelist } from "../../shared/tables/FilterSql.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
@@ -14,11 +13,12 @@ import {
   LowStockRow,
   type ProductCounts,
   ProductDetail,
+  type ProductListInput,
   ProductPage,
   ProductRow,
   type StockLevel
 } from "../domain/Products.ts"
-import { ATTENTION, attentionSets } from "./attention.ts"
+import { ATTENTION, attentionOf, attentionSets } from "./attention.ts"
 
 /*
  * `Products.list` and `Products.get` (M6.4): at `products` Bekijken, inside the role's stores. By title, keyset on
@@ -169,7 +169,7 @@ const searchOf = (sql: SqlClient.SqlClient, q: string | undefined) => {
               or exists (select 1 from variants v where v.product_id = p.id and v.sku ilike ${pattern}))`
 }
 
-export const list = Effect.fn("Products.list")(function*(input: ListInput) {
+export const list = Effect.fn("Products.list")(function*(input: ProductListInput) {
   yield* Policy.require("products", 1)
   const db = yield* Db
   const limit = input.limit ?? 50
@@ -179,22 +179,33 @@ export const list = Effect.fn("Products.list")(function*(input: ListInput) {
       const scope = yield* inScope(sql, "p.store_id", input.storeId)
       const filter = yield* compileFilter(sql, input.filter, PRODUCT_FIELDS)
       const search = searchOf(sql, input.q)
+      // One Aandacht cut, as the panel counts it: the statement starts with the cuts' sets, and keeps only its own.
+      const cut = input.attention === undefined ? undefined : ATTENTION[input.attention]
+      const sets = cut === undefined ? sql`` : yield* attentionSets(sql)
+      const attention = cut === undefined ? sql`true` : sql.literal(cut)
       const page = after === undefined
         ? sql`true`
         : sql`(lower(p.title), p.id) > (${String(after[0])}, ${String(after[1])})`
       const rows = yield* sql<Row>`
+        ${sets}
         select ${sql.literal(SELECT)} from products p join stores s on s.id = p.store_id
-        where ${scope} and ${filter} and ${search} and ${page}
+        where ${scope} and ${filter} and ${search} and ${attention} and ${page}
         order by lower(p.title), p.id limit ${limit + 1}`
       const [total] = yield* sql<{ n: number }>`
-        select count(*)::int as n from products p where ${scope} and ${filter} and ${search}`
+        ${sets}
+        select count(*)::int as n from products p where ${scope} and ${filter} and ${search} and ${attention}`
       const facets = yield* sql<{ status: string; n: number }>`
         select p.status, count(*)::int as n from products p where ${scope} and ${search} group by p.status`
       const shown = rows.slice(0, limit)
       const last = shown.at(-1)
       const delivery = yield* deliveryDays(sql, shown.map((r) => r.id))
+      const flags = yield* attentionOf(sql, shown.map((r) => r.id))
       return new ProductPage({
-        rows: shown.map((r) => toRow(r, delivery)),
+        rows: shown.map((r) => {
+          const row = toRow(r, delivery)
+          const a = flags.get(r.id)
+          return a === undefined ? row : new ProductRow({ ...row, attention: a })
+        }),
         nextCursor: rows.length > limit && last !== undefined
           ? encodeCursor([last.title.toLowerCase(), last.id])
           : null,
@@ -215,13 +226,13 @@ export const counts = Effect.fn("Products.panelCounts")(function*() {
     Effect.gen(function*() {
       const scope = yield* inScope(sql, "p.store_id")
       const [row] = yield* sql<ProductCounts>`
-        ${attentionSets(sql)}
+        ${yield* attentionSets(sql)}
         select count(*) filter (where p.status = 'active')::int as active,
                count(*) filter (where p.status = 'draft')::int as draft,
                count(*) filter (where p.status = 'archived')::int as archived,
-               count(*) filter (where ${sql.literal(ATTENTION.attention_returns)})::int as attention_returns,
-               count(*) filter (where ${sql.literal(ATTENTION.attention_complaints)})::int as attention_complaints,
-               count(*) filter (where ${sql.literal(ATTENTION.attention_checks)})::int as attention_checks
+               count(*) filter (where ${sql.literal(ATTENTION.returns)})::int as attention_returns,
+               count(*) filter (where ${sql.literal(ATTENTION.complaints)})::int as attention_complaints,
+               count(*) filter (where ${sql.literal(ATTENTION.checks)})::int as attention_checks
         from products p where ${scope}`
       return row ??
         { active: 0, draft: 0, archived: 0, attentionReturns: 0, attentionComplaints: 0, attentionChecks: 0 }
