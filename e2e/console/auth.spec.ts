@@ -470,7 +470,7 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await expect(page).toHaveURL(/\/dashboard$/)
 
   // @team (step 4.3): Start opens Team, where the founder is alone on the trial's seats.
-  await page.getByRole("link", { name: "Openen" }).first().click()
+  await page.getByRole("listitem").filter({ hasText: "Een collega uitnodigen" }).getByRole("link").click()
   await expect(page).toHaveURL(/\/settings\/team$/)
   await expect(page.getByText("1 teamlid · 0 uitnodigingen open · 5 vrij")).toBeVisible()
   await expect(page.getByText(email)).toBeVisible()
