@@ -5,6 +5,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
+import { levelOf, LOW_STOCK, VARIANT_UNITS } from "../../products/domain/Products.ts"
 import { PendingEvents, Relay } from "../../shared/domain/Outbox.ts"
 import { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
@@ -18,6 +19,8 @@ import {
   type CreateInput,
   MemberNotActive,
   type ReorderInput,
+  RestockChange,
+  type RestockInput,
   type SetStatusInput,
   type SnoozeInput,
   TicketChange,
@@ -203,7 +206,9 @@ export interface Origin {
 const make = Effect.fn("Tickets.make")(function*(
   sql: SqlClient.SqlClient,
   input: typeof CreateInput.Type,
-  origin?: Origin
+  origin?: Origin,
+  /** The store of the record it is about, where that is not an order or a customer (a product). */
+  storeId?: string
 ) {
   const principal = yield* CurrentPrincipal
   const title = input.title.trim()
@@ -213,7 +218,7 @@ const make = Effect.fn("Tickets.make")(function*(
   let related: { orderId: string | null; customerId: string | null; storeId: string | null } = {
     orderId: null,
     customerId: null,
-    storeId: null
+    storeId: storeId ?? null
   }
   if (input.related !== undefined) {
     const table = input.related.type === "order" ? "orders" : "customers"
@@ -287,6 +292,30 @@ export const fromThread = Effect.fn("Tickets.fromThread")(function*(
   return { id: made.id, number: Number(row!.number) }
 })
 
+/**
+ * A ticket with the supplier from a rejected quality check (the quality slice's `QualityTickets`), on the verdict's
+ * transaction: `make`, high and labelled Kwaliteit and Leverancier, in the product's store so only who reaches that
+ * store sees it. No one is assigned, so no one is told.
+ */
+export const fromCheck = Effect.fn("Tickets.fromCheck")(function*(
+  sql: SqlClient.SqlClient,
+  input: { readonly title: string; readonly description: string; readonly storeId: string }
+) {
+  const made = yield* make(
+    sql,
+    {
+      title: input.title,
+      description: input.description.slice(0, 20_000),
+      priority: "high",
+      labels: ["Kwaliteit", "Leverancier"]
+    },
+    undefined,
+    input.storeId
+  ).pipe(Effect.catchTags({ Invalid: Effect.die, MemberNotActive: Effect.die, NotFound: Effect.die }))
+  const [row] = yield* sql<{ number: number }>`select number from tickets where id = ${made.id}`
+  return { id: made.id, number: Number(row!.number) }
+})
+
 /** The ticket `fromThread` made, taken away again (the inbox's Undo). */
 export const removeFromThread = Effect.fn("Tickets.removeFromThread")(function*(
   sql: SqlClient.SqlClient,
@@ -294,6 +323,104 @@ export const removeFromThread = Effect.fn("Tickets.removeFromThread")(function*(
 ) {
   yield* sql`delete from tickets where id = ${ticketId}`
   yield* audit(sql, "ticket.removed", ticketId)
+})
+
+/** The open ticket filed with this key, where there is one: a second filing waits for the first's transaction. */
+const openOnce = Effect.fn("Tickets.openOnce")(function*(sql: SqlClient.SqlClient, once: string) {
+  yield* sql`select pg_advisory_xact_lock(hashtextextended('ticket.once:' || app_workspace_id() || ':' || ${once}, 0))`
+  const [open] = yield* sql<{ id: string }>`
+    select id from tickets where source = 'insyte' and source_ref = ${once} and status <> 'done'
+      and deleted_at is null and archived_at is null and spam_at is null
+    order by created_at desc limit 1`
+  return open?.id
+})
+
+const fmt = (n: number) => n.toLocaleString("nl-NL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+
+/**
+ * "Bijbestelling aanvragen" (the products list, the supplier's dialog, the low-stock plate): per product, inside the
+ * role's stores, a ticket awaiting its supplier's reply in the product's store, so only who reaches that store reads
+ * it. Its words come from the product's stock and its last 30 days' pace. One open ticket per product
+ * (`restock:<product>`): one asked for before stands, with nothing to undo; the new ones share one Undo.
+ */
+export const restock = Effect.fn("Tickets.restock")(function*(input: typeof RestockInput.Type) {
+  yield* Policy.require("support", 2)
+  const db = yield* Db
+  const ids = [...new Set(input.productIds)]
+  const { change, outboxIds } = yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const scope = yield* inScope(sql, "p.store_id")
+      const products = yield* sql<{
+        id: string
+        storeId: string
+        title: string
+        supplier: string | null
+        available: number | null
+        lowest: number | null
+        sold30: number
+      }>`
+        select p.id, p.store_id, p.title,
+               (select s.name from product_supply ps join suppliers s on s.id = ps.supplier_id
+                 where ps.product_id = p.id and ps.is_primary) as supplier,
+               (select sum(u.units) from (${sql.literal(VARIANT_UNITS)}) u)::int as available,
+               (select min(u.units) from (${sql.literal(VARIANT_UNITS)}) u)::int as lowest,
+               (select coalesce(sum(l.quantity), 0) from order_lines l join orders o on o.id = l.order_id
+                 where l.product_id = p.id and o.placed_at > now() - interval '30 days'
+                   and o.status <> 'cancelled')::int as sold30
+        from products p where p.id in ${sql.in(ids)} and ${scope}`
+      const missing = ids.find((id) => !products.some((p) => p.id === id))
+      if (missing !== undefined) return yield* new NotFound({ entity: "product", id: missing })
+      const made: Array<string> = []
+      const shown: Array<string> = []
+      const outbox: Array<string> = []
+      let already = 0
+      for (const p of products) {
+        const once = `restock:${p.id}`
+        const open = yield* openOnce(sql, once)
+        if (open !== undefined) {
+          already += 1
+          shown.push(open)
+          continue
+        }
+        const supplier = p.supplier ?? "de leverancier"
+        const units = p.available === null ? null : Math.max(0, p.available)
+        const level = levelOf(p.available, p.lowest, LOW_STOCK)
+        const stock = units === null
+          ? `${p.title} is bijna op`
+          : units === 0
+          ? `${p.title} is uitverkocht`
+          : `Van ${p.title} zijn nog ${units} stuks over`
+        const pace = p.sold30 > 0 ? ` (${fmt(p.sold30 / 30)} verkocht per dag)` : ""
+        const ticket = yield* make(
+          sql,
+          {
+            title: `${p.title} bijbestellen bij ${supplier}`.slice(0, 200),
+            description: `${stock}${pace}. Vraag ${supplier} wanneer er nieuwe voorraad komt.`,
+            priority: units === 0 || level === "out" ? "high" : "medium",
+            status: "awaiting_reply",
+            labels: ["Leverancier"]
+          },
+          { source: "insyte", sourceRef: once },
+          p.storeId
+        ).pipe(
+          // None can happen here: the title is never empty, no one is assigned, and no record is named.
+          Effect.catchTags({ Invalid: Effect.die, MemberNotActive: Effect.die, NotFound: Effect.die })
+        )
+        made.push(ticket.id)
+        shown.push(ticket.id)
+        outbox.push(...ticket.outboxIds)
+      }
+      const undo = made.length === 0
+        ? null
+        : yield* Undo.issue(sql, { command: RESTORE, compensation: { kind: "created", ids: made }, outboxIds: outbox })
+      return {
+        change: new RestockChange({ tickets: yield* rowsOf(sql, shown), undo, already }),
+        outboxIds: outbox
+      }
+    })
+  )
+  yield* kick(outboxIds)
+  return change
 })
 
 /** "Ticket aanmaken" (NewTicketDialog), by hand: `#n`, at the top of the board; `insyte` for one a filed plate opens. */
@@ -304,13 +431,8 @@ export const create = Effect.fn("Tickets.create")(function*(input: typeof Create
   const { change, outboxIds } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
       if (once !== undefined) {
-        // One open ticket per key: a second filing waits for the first's transaction, then finds its ticket.
-        yield* sql`select pg_advisory_xact_lock(hashtextextended('ticket.once:' || app_workspace_id() || ':' || ${once}, 0))`
-        const [open] = yield* sql<{ id: string }>`
-          select id from tickets where source = 'insyte' and source_ref = ${once} and status <> 'done'
-            and deleted_at is null and archived_at is null and spam_at is null
-          order by created_at desc limit 1`
-        if (open !== undefined) return { change: yield* answer(sql, [open.id], null), outboxIds: [] }
+        const open = yield* openOnce(sql, once)
+        if (open !== undefined) return { change: yield* answer(sql, [open], null), outboxIds: [] }
       }
       const made = yield* make(sql, fields, once === undefined ? origin : { source: "insyte", sourceRef: once })
       return {

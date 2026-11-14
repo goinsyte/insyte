@@ -125,6 +125,26 @@ describe("quality", () => {
     expect(back.phase).toBe("active")
     expect(back.checks[0]).toMatchObject({ status: "submitted", verdict: null })
 
+    // Rejected with a ticket with the supplier: high, labelled, on the board; Undo takes it away with the verdict.
+    const ticketed = ok(
+      await rpc("Quality.reject", { id, note: "Kleur wijkt af", watch: false, ticket: true }, store.cookie)
+    )
+    expect(ticketed.ticket).toMatchObject({ number: expect.any(Number) })
+    const board = async () => ok(await rpc("Tickets.list", { view: "all" }, store.cookie)).rows
+    expect((await board()).find((t) => t.id === ticketed.ticket!.id)).toMatchObject({
+      title: "Linnen overhemd: controle afgekeurd bij Atelier Noord",
+      description: "Kleur wijkt af",
+      priority: "high",
+      labels: expect.arrayContaining(["Kwaliteit", "Leverancier"])
+    })
+    const figures = ok(await rpc("Quality.stats", { productId: linen.id }, store.cookie))
+    expect(figures.rows).toEqual([expect.objectContaining({ id: linen.id, running: 0, judged: 1, passed: 0 })])
+    const bySupplier = ok(await rpc("Quality.stats", { bySupplier: true }, store.cookie)).rows
+    expect(bySupplier.find((r) => r.id === linen.supplierId)).toMatchObject({ judged: 1, passed: 0 })
+    await undo(store.cookie, ticketed.undo?.token)
+    expect((await board()).some((t) => t.id === ticketed.ticket!.id)).toBe(false)
+    expect(ok(await rpc("Quality.list", { productId: linen.id }, store.cookie)).checks[0]!.status).toBe("submitted")
+
     ok(await rpc("Quality.approve", { id }, store.cookie))
     const approved = ok(await rpc("Quality.list", { productId: linen.id }, store.cookie)).checks[0]!
     expect(approved.status).toBe("approved")
@@ -161,9 +181,18 @@ describe("quality", () => {
       expect.objectContaining({ returnId: started.id, text: "De naad laat los", customer: "Klant 2" })
     ])
     expect(rated.sold90).toBeGreaterThanOrEqual(0)
+    // The figures the list's Aandacht and the product's Retouren read: the return, a complaint, recent.
+    const [figure] = ok(await rpc("Quality.stats", { productId: linen.id }, store.cookie)).rows
+    expect(figure).toMatchObject({ id: linen.id, returned: 1, complaints: 1, recentComplaints: 1, running: 0 })
+    const returns = ok(await rpc("Returns.list", { productId: linen.id }, store.cookie)).rows
+    expect(returns.map((r) => r.id)).toEqual([started.id])
+    const bag = await productNamed(store.cookie, "Canvas tas")
+    expect(ok(await rpc("Returns.list", { productId: bag.id }, store.cookie)).rows).toEqual([])
 
-    // A rejected return is no complaint.
+    // A rejected return is no complaint, and nothing came back.
     ok(await rpc("Returns.reject", { ids: [started.id], reason: "Gedragen" }, store.cookie))
     expect(ok(await rpc("Quality.list", { productId: linen.id }, store.cookie)).complaints).toEqual([])
+    const after = ok(await rpc("Quality.stats", { productId: linen.id }, store.cookie)).rows[0]
+    expect([after?.returned ?? 0, after?.complaints ?? 0]).toEqual([0, 0])
   })
 })

@@ -19,6 +19,8 @@ import type {
   ListInput,
   MemberNotActive,
   ReorderInput,
+  RestockChange,
+  RestockInput,
   SetStatusInput,
   SnoozeInput,
   TicketChange,
@@ -55,6 +57,7 @@ export class TicketsService extends Context.Service<TicketsService, {
   readonly create: (
     input: typeof CreateInput.Type
   ) => Effect.Effect<TicketChange, Forbidden | NotFound | Invalid | MemberNotActive, R>
+  readonly restock: (input: typeof RestockInput.Type) => Effect.Effect<RestockChange, Forbidden | NotFound, R>
   readonly duplicate: (id: string) => Effect.Effect<TicketChange, Forbidden | NotFound | Invalid | MemberNotActive, R>
   readonly update: (input: typeof UpdateInput.Type) => Effect.Effect<TicketChange, Forbidden | NotFound | Invalid, R>
   readonly setStatus: (input: typeof SetStatusInput.Type) => Effect.Effect<TicketChange, Forbidden | NotFound, R>
@@ -101,6 +104,7 @@ export class TicketsService extends Context.Service<TicketsService, {
         search: (q, limit) => run(Tickets.search(q, limit)),
         options: run(Tickets.options()),
         create: (input) => run(Commands.create(input)),
+        restock: (input) => run(Commands.restock(input)),
         duplicate: (id) => run(Commands.duplicate(id)),
         update: (input) => run(Commands.update(input)),
         setStatus: (input) => run(Commands.setStatus(input)),

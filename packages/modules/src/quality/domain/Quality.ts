@@ -86,14 +86,52 @@ export const RejectInput = Schema.Struct({
   /** What the supplier reads and acts on. */
   note: NonEmpty(2000),
   /** Put the product under watch in the same move. */
-  watch: Schema.Boolean
+  watch: Schema.Boolean,
+  /** Open a ticket with the supplier in the same move (Klantenservice · Bewerken); the verdict's Undo takes it away. */
+  ticket: Schema.optional(Schema.Boolean)
 })
 
 export const SetPhaseInput = Schema.Struct({ productId: Schema.String, phase: Phase })
 
 export class QualityChange extends Schema.Class<QualityChange>("quality/QualityChange")({
   checkId: Schema.NullOr(Schema.String),
-  undo: Schema.NullOr(UndoTicket)
+  undo: Schema.NullOr(UndoTicket),
+  /** The ticket a rejection opened with the supplier, where it opened one. */
+  ticket: Schema.optional(Schema.Struct({ id: Schema.String, number: Schema.Int }))
+}) {}
+
+/**
+ * `Quality.stats`: per product, or per supplier over its products (primary), in the last 90 days: units sold and
+ * returned (rejected returns aside), the complaints among them and those of the last 30 days, and the checks judged
+ * and passed in those 90 days; the checks still running whenever they were asked. Only products or suppliers with any
+ * of these have a row.
+ */
+export const StatsInput = Schema.Struct({
+  /** One product's figures. */
+  productId: Schema.optional(Schema.String),
+  /** These products' figures (a list's page). */
+  productIds: Schema.optional(Schema.Array(Schema.String).check(Schema.isMaxLength(500))),
+  /** Summed per supplier. */
+  bySupplier: Schema.optional(Schema.Boolean)
+})
+
+export const StatsRow = Schema.Struct({
+  /** The product's id, or the supplier's. */
+  id: Schema.String,
+  sold: Schema.Int,
+  returned: Schema.Int,
+  complaints: Schema.Int,
+  recentComplaints: Schema.Int,
+  running: Schema.Int,
+  passed: Schema.Int,
+  judged: Schema.Int
+})
+export type StatsRow = typeof StatsRow.Type
+
+export class QualityStats extends Schema.Class<QualityStats>("quality/QualityStats")({
+  /** The complaint rate above which a product wants watching, as a fraction. */
+  threshold: Schema.Finite,
+  rows: Schema.Array(StatsRow)
 }) {}
 
 /** The link the supplier answers through until the partner portal (M16): copied by the team, later mailed. */
@@ -108,7 +146,9 @@ export const QualityRestore = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("judged"),
     id: Schema.String,
-    phase: Schema.NullOr(Schema.Struct({ productId: Schema.String, phase: Schema.NullOr(Phase) }))
+    phase: Schema.NullOr(Schema.Struct({ productId: Schema.String, phase: Schema.NullOr(Phase) })),
+    /** The ticket the rejection opened. */
+    ticketId: Schema.optional(Schema.String)
   }),
   Schema.Struct({ kind: Schema.Literal("phase"), productId: Schema.String, phase: Schema.NullOr(Phase) })
 ])

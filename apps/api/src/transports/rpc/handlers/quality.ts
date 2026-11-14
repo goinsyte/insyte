@@ -10,6 +10,7 @@ export const QualityHandlers = Layer.mergeAll(
     const quality = yield* QualityService
     return QualityRpcs.of({
       "Quality.list": ({ productId }) => quality.list(productId),
+      "Quality.stats": (input) => quality.stats(input),
       "Quality.request": (input) => quality.request(input),
       "Quality.approve": ({ id }) => quality.approve(id),
       "Quality.reject": (input) => quality.reject(input),
