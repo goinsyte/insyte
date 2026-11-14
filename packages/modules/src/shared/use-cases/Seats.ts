@@ -1,12 +1,13 @@
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
-import { seatsOf } from "../domain/Billing.ts"
+import { holdingPlan, isPlanId, PLAN_SEATS, type PlanId, standingOf, TRIAL_SEATS } from "../domain/Billing.ts"
 
 /*
  * The workspace's seats, on the caller's transaction inside it (M3.4, M13 step 1): the plan's own seats plus those bought
  * beyond it (`subscriptions.extra_seats`, as Stripe last said), against active people plus open invitations that have
  * not lapsed. A paid plan and its bought seats count only while the subscription is paid for (active, or in Stripe's
- * grace while a payment is retried); after that the workspace's own plan does. Deactivated people free their seat. The team page, inviting, accepting and billing all count with this.
+ * grace while a payment is retried); once it no longer is, Starter's seats do (`standingOf`), and on a trial the picked
+ * plan's. Deactivated people free their seat. The team page, inviting, accepting and billing all count with this.
  */
 
 export interface SeatCount {
@@ -21,16 +22,26 @@ export interface SeatCount {
 }
 
 export const seatCount = Effect.fn("Seats.count")(function*(sql: SqlClient.SqlClient) {
-  const [row] = yield* sql<{ plan: string; extra: number; active: number; pending: number }>`
-    select case when s.status in ('active', 'trialing', 'past_due') then coalesce(s.plan, w.plan) else w.plan end as plan,
-           case when s.status in ('active', 'trialing', 'past_due') then s.extra_seats else 0 end::int as extra,
+  const [row] = yield* sql<{
+    workspacePlan: string
+    status: string | null
+    plan: string | null
+    extra: number | null
+    startedAt: Date | null
+    active: number
+    pending: number
+  }>`
+    select w.plan as workspace_plan, s.status, s.plan, s.extra_seats as extra, s.started_at,
            (select count(*)::int from members where removed_at is null and deactivated_at is null) as active,
            (select count(*)::int from invitations
               where accepted_at is null and revoked_at is null and declined_at is null and expires_at > now()) as pending
     from workspaces w
     left join subscriptions s on s.workspace_id = w.id`
-  const included = seatsOf(row?.plan ?? "trial")
-  const extra = row?.extra ?? 0
+  const standing = standingOf(row?.status, row?.startedAt)
+  const paidPlan: PlanId | null = row?.plan !== null && row?.plan !== undefined && isPlanId(row.plan) ? row.plan : null
+  const holds = holdingPlan(standing, paidPlan, row?.workspacePlan ?? "trial")
+  const included = holds === null ? TRIAL_SEATS : PLAN_SEATS[holds]
+  const extra = standing === "paid" ? (row?.extra ?? 0) : 0
   const total = included + extra
   const active = row?.active ?? 0
   const pending = row?.pending ?? 0

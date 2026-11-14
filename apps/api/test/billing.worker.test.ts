@@ -99,6 +99,13 @@ const invoiceEvent = (id: string, workspace: string, created: number, status: "p
   }
 })
 
+/** Stripe's Checkout page a change answered with. */
+const page = (exit: Awaited<ReturnType<typeof rpc<"Billing.changePlan">>>) => {
+  const value = ok(exit)
+  expect(value._tag).toBe("checkout")
+  return value._tag === "checkout" ? value.url : ""
+}
+
 const now = () => Math.floor(Date.now() / 1000)
 
 const founder = async (tag: string) => {
@@ -279,7 +286,8 @@ describe("billing", () => {
       .toBe(200)
     expect(ok(await rpc("Billing.get", undefined, owner.cookie)).seats.extra).toBe(3)
 
-    // Another subscription at the same customer, while this one still bills: not taken over.
+    // Another subscription at the same customer, while this one still bills: not taken over, but shown, since the
+    // workspace may be paying twice.
     const other = `sub_other_${ws}`
     expect(
       (await stripe(subscriptionEvent(`evt_${ws}_other`, ws, now() + 150, { status: "active", seats: 1, sub: other })))
@@ -287,10 +295,12 @@ describe("billing", () => {
     ).toBe(200)
     expect(ok(await rpc("Billing.get", undefined, owner.cookie))).toMatchObject({
       status: "active",
+      secondSubscription: true,
       seats: { extra: 3 }
     })
 
-    // The one that billed ends: its plan and bought seats go, the workspace is back on the trial's seats.
+    // The one that billed ends: its plan and bought seats go, and the workspace has Starter's limits until it pays
+    // again.
     expect(
       (await stripe(
         subscriptionEvent(`evt_${ws}_deleted`, ws, now() + 200, {
@@ -300,8 +310,11 @@ describe("billing", () => {
         })
       )).status
     ).toBe(200)
-    expect(ok(await rpc("Billing.get", undefined, owner.cookie)).status).toBe("canceled")
-    expect(ok(await rpc("Team.get", undefined, owner.cookie)).seats).toMatchObject({ extra: 0, total: 5 })
+    const lapsed = ok(await rpc("Billing.get", undefined, owner.cookie))
+    expect(lapsed).toMatchObject({ status: "canceled", seats: { included: 3, extra: 0, total: 3 } })
+    expect(lapsed.usage.stores.max).toBe(1)
+    expect(lapsed.usage.aiReplies.max).toBe(1_000)
+    expect(ok(await rpc("Team.get", undefined, owner.cookie)).seats).toMatchObject({ extra: 0, total: 3 })
 
     // The next change finds the other subscription at Stripe and changes it: no second first payment, and the paid
     // start is not counted again.
@@ -309,11 +322,116 @@ describe("billing", () => {
     expect(scaled._tag === "changed" && scaled.overview).toMatchObject({
       status: "active",
       plan: "scale",
+      secondSubscription: false,
       seats: { extra: 1 }
     })
     expect(ok(await rpc("Billing.invoices", {}, owner.cookie)).rows).toHaveLength(invoicesBefore)
     await relay(ws)
     expect((await productEventsOf(ws)).filter((e) => e.event === "subscription_started")).toHaveLength(1)
+  })
+
+  it("holds Starter's limits while a subscription is not paid for, and the paid plan's again once it is", async () => {
+    const owner = await founder("unpaid")
+    ok(await rpc("Billing.changePlan", { plan: "scale", cycle: "monthly" }, owner.cookie))
+    const ws = owner.workspace
+    const event = (id: string, at: number, status: string) =>
+      stripe(subscriptionEvent(`evt_${ws}_${id}`, ws, now() + at, { status, seats: 2, plan: "scale" }))
+    expect((await event("seats", 10, "active")).status).toBe(200)
+    expect(ok(await rpc("Billing.get", undefined, owner.cookie)).seats).toMatchObject({ included: 12, extra: 2 })
+
+    for (const [at, status] of [[20, "unpaid"], [21, "paused"]] as const) {
+      expect((await event(status, at, status)).status).toBe(200)
+      const held = ok(await rpc("Billing.get", undefined, owner.cookie))
+      expect(held).toMatchObject({ status, seats: { included: 3, extra: 0, total: 3 } })
+      expect(held.usage.stores.max).toBe(1)
+      expect(ok(await rpc("Team.get", undefined, owner.cookie)).seats.total).toBe(3)
+    }
+
+    expect((await event("paid", 30, "active")).status).toBe(200)
+    expect(ok(await rpc("Billing.get", undefined, owner.cookie)).seats).toMatchObject({ included: 12, extra: 2 })
+  })
+
+  it("keeps one payable Checkout page per workspace: reused, expired, claimed once, and waited on once paid", async () => {
+    const owner = await person("billing-page", "Betaalpagina [betaalpagina] B.V.")
+    ok(await onboarding.advance({ step: "plan", plan: "growth", cycle: "monthly" }, owner.cookie))
+    const ws = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
+    const open = async () =>
+      ((await (await call(`http://api.test/api/__dev/billing/checkouts?workspace=${ws}`)).json()) as {
+        checkouts: Array<{ id: string; status: string; key: string }>
+      }).checkouts.filter((p) => p.status === "open")
+
+    // The first payment is on Stripe's page; the same change again is the same page.
+    const growth = page(await rpc("Billing.changePlan", { plan: "growth", cycle: "monthly" }, owner.cookie))
+    expect(page(await rpc("Billing.changePlan", { plan: "growth", cycle: "monthly" }, owner.cookie))).toBe(growth)
+    expect(await open()).toHaveLength(1)
+
+    // Another change: the open page is expired first, so only the new one can be paid.
+    const scale = page(await rpc("Billing.changePlan", { plan: "scale", cycle: "monthly" }, owner.cookie))
+    expect(scale).not.toBe(growth)
+    expect((await open()).map((p) => p.key)).toEqual(["scale-monthly-0"])
+
+    // Two tabs at once, for two plans: however they interleave, one page is left to pay.
+    await Promise.all([
+      rpc("Billing.changePlan", { plan: "starter", cycle: "monthly" }, owner.cookie),
+      rpc("Billing.changePlan", { plan: "growth", cycle: "annual" }, owner.cookie)
+    ])
+    const [current] = await open()
+    expect(await open()).toHaveLength(1)
+
+    // An ended subscription's late webhook does not let go of the page.
+    expect(
+      (await stripe(
+        subscriptionEvent(`evt_${ws}_old_end`, ws, now() + 5, {
+          status: "canceled",
+          seats: 0,
+          sub: `sub_long_gone_${ws}`,
+          type: "customer.subscription.deleted"
+        })
+      )).status
+    ).toBe(200)
+    const [plan, cycle] = current!.key.split("-") as ["starter" | "growth", "monthly" | "annual"]
+    expect(page(await rpc("Billing.changePlan", { plan, cycle }, owner.cookie))).toBe(
+      `https://checkout.stripe.test/${current!.id}`
+    )
+
+    // Paid on the page, its subscription not heard of yet: the next change waits for it, with no second page.
+    const sub = `sub_page_${ws}`
+    expect(
+      (await stripe({
+        id: `evt_${ws}_paid_page`,
+        object: "event",
+        type: "checkout.session.completed",
+        created: now() + 6,
+        data: {
+          object: {
+            id: current!.id,
+            object: "checkout.session",
+            mode: "subscription",
+            customer: `cus_fake_${ws}`,
+            subscription: sub,
+            client_reference_id: ws
+          }
+        }
+      })).status
+    ).toBe(200)
+    expect(failure(await rpc("Billing.changePlan", { plan: "scale", cycle: "monthly" }, owner.cookie)))
+      .toMatchObject({ _tag: "CheckoutPending" })
+    expect(await open()).toHaveLength(0)
+
+    // Its subscription arrives: the workspace is subscribed, and the next change is a change.
+    expect(
+      (await stripe(
+        subscriptionEvent(`evt_${ws}_page_sub`, ws, now() + 7, {
+          status: "active",
+          seats: 0,
+          plan,
+          sub,
+          type: "customer.subscription.created"
+        })
+      )).status
+    ).toBe(200)
+    expect(ok(await rpc("Billing.get", undefined, owner.cookie)).status).toBe("active")
+    expect(ok(await rpc("Billing.changePlan", { plan: "scale", cycle }, owner.cookie))._tag).toBe("changed")
   })
 
   it("starts the subscription when Stripe's Checkout completes, whatever order its events arrive in", async () => {

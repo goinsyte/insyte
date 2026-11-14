@@ -201,6 +201,117 @@ describe("a change at Stripe", () => {
     expect(keys[3]).toBe("insyte-checkout-ws_1-growth-monthly-0-first")
   })
 
+  it("changes the period only once it is paid, and keeps what an earlier request with the key made", async () => {
+    const yearly = [price("growth", "year", 299_000), price("seat", "year", 19_000)].map((p) => ({
+      plan: p.metadata.insyte_plan as never,
+      cycle: "annual" as const,
+      priceId: p.id,
+      unitAmountMinor: p.unit_amount,
+      currency: "eur"
+    }))
+    const current = subscriptionOf(SUBSCRIPTION)!
+    const target = { plan: "growth" as const, cycle: "annual" as const, extraSeats: 2 }
+    const sent: Array<{ method: string; body: string }> = []
+    let answer: (method: string) => Response = () => Response.json(SUBSCRIPTION)
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      const method = init.method ?? "GET"
+      sent.push({ method, body: typeof init.body === "string" ? init.body : "" })
+      return answer(method)
+    })
+    const stripe = makeStripe({ secretKey: "sk_test_made_up", webhookSecret: null })
+    const change = () =>
+      Effect.runPromise(Effect.result(stripe.update({ current, target, prices: yearly, prorationDate: 1 })))
+
+    // Another period: Stripe's pending update, which takes no metadata.
+    expect((await change())._tag).toBe("Success")
+    const params = new URLSearchParams(sent.find((r) => r.method === "POST")!.body)
+    expect(params.get("payment_behavior")).toBe("pending_if_incomplete")
+    expect(params.get("metadata[insyte_workspace]")).toBeNull()
+
+    // Its payment did not go through: the subscription is as it was, and the caller says so.
+    answer = () => Response.json({ ...SUBSCRIPTION, pending_update: { expires_at: 1_800_000_000 } })
+    expect(await change()).toMatchObject({ _tag: "Failure", failure: { reason: "payment_failed" } })
+
+    // The key was sent before with other parameters: what Stripe kept is read and answered.
+    sent.length = 0
+    answer = (method) =>
+      method === "POST"
+        ? Response.json({ error: { type: "idempotency_error", message: "Keys for idempotent requests" } }, {
+          status: 400
+        })
+        : Response.json(SUBSCRIPTION)
+    expect(await change()).toMatchObject({ _tag: "Success", success: { subscriptionId: "sub_1" } })
+    expect(sent.map((r) => r.method)).toEqual(["GET", "POST", "GET"])
+  })
+
+  it("previews what is charged, never below zero, and the credit left over", async () => {
+    vi.stubGlobal("fetch", async (url: string) =>
+      Response.json(
+        url.includes("/v1/invoices/create_preview")
+          ? {
+            object: "invoice",
+            currency: "eur",
+            total: -12_000,
+            amount_due: 0,
+            ending_balance: -12_000,
+            period_end: 1_800_000_000,
+            lines: { data: [{ amount: -12_000, parent: { subscription_item_details: { proration: true } } }] }
+          }
+          : SUBSCRIPTION
+      ))
+    const stripe = makeStripe({ secretKey: "sk_test_made_up", webhookSecret: null })
+    const preview = await Effect.runPromise(stripe.preview({
+      current: subscriptionOf(SUBSCRIPTION)!,
+      target: { plan: "growth", cycle: "monthly", extraSeats: 0 },
+      prices: [price("growth", "month", 29_900)].map((p) => ({
+        plan: "growth" as const,
+        cycle: "monthly" as const,
+        priceId: p.id,
+        unitAmountMinor: p.unit_amount,
+        currency: "eur"
+      })),
+      prorationDate: 1_799_000_000
+    }))
+    expect(preview).toMatchObject({ nextInvoiceMinor: 0, prorationMinor: -12_000, creditMinor: 12_000 })
+  })
+
+  it("opens Checkout for half an hour, and says when the customer is gone", async () => {
+    const bodies: Array<string> = []
+    let gone = false
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      bodies.push(typeof init.body === "string" ? init.body : "")
+      return gone
+        ? Response.json({
+          error: { type: "invalid_request_error", code: "resource_missing", param: "customer" }
+        }, { status: 400 })
+        : Response.json({ id: "cs_1", object: "checkout.session", url: "https://checkout.stripe.test/cs_1" })
+    })
+    const stripe = makeStripe({ secretKey: "sk_test_made_up", webhookSecret: null })
+    const open = () =>
+      Effect.runPromise(Effect.result(stripe.checkout({
+        customerId: "cus_1",
+        workspaceId: "ws_1",
+        target: { plan: "growth", cycle: "monthly", extraSeats: 0 },
+        prices: [{
+          plan: "growth",
+          cycle: "monthly",
+          priceId: "price_growth_month",
+          unitAmountMinor: 29_900,
+          currency: "eur"
+        }],
+        successUrl: "https://app.example.test/settings/billing?betaald=1",
+        cancelUrl: "https://app.example.test/settings/billing",
+        idempotencyKey: "insyte-checkout-ws_1-nonce"
+      })))
+    const before = Math.floor(Date.now() / 1000)
+    expect((await open())._tag).toBe("Success")
+    const expires = Number(new URLSearchParams(bodies[0]).get("expires_at"))
+    expect(expires - before).toBeGreaterThanOrEqual(30 * 60)
+    expect(expires - before).toBeLessThanOrEqual(32 * 60)
+    gone = true
+    expect(await open()).toMatchObject({ _tag: "Failure", failure: { reason: "no_customer" } })
+  })
+
   it("is unavailable, not a defect, when Stripe does not answer or refuses", async () => {
     vi.stubGlobal("fetch", async () => Response.json({ error: { type: "invalid_request_error" } }, { status: 400 }))
     const refused = await Effect.runPromise(

@@ -56,6 +56,11 @@ export class BillingOverview extends Schema.Class<BillingOverview>("billing/Bill
   /** When the paid period ends: the renewal, or the end when `cancelAt` is set. */
   currentPeriodEnd: Schema.NullOr(Schema.Finite),
   cancelAt: Schema.NullOr(Schema.Finite),
+  /**
+   * Stripe bills the workspace's customer for a second subscription beside this one: it may be paying twice, for a
+   * person to sort out in Stripe (Insyte cancels and refunds nothing itself).
+   */
+  secondSubscription: Schema.Boolean,
   card: Schema.NullOr(Card),
   seats: Schema.Struct({
     /** The plan's own seats. */
@@ -120,6 +125,8 @@ export class BillingPreview extends Schema.Class<BillingPreview>("billing/Billin
   nextInvoiceMinor: Schema.Int,
   nextInvoiceAt: Schema.NullOr(Schema.Finite),
   immediate: Schema.Boolean,
+  /** Credit left on the customer's balance after the change, for later invoices (a smaller plan, say); 0 for none. */
+  creditMinor: Schema.Int,
   prorationDate: Schema.Int
 }) {}
 
@@ -176,9 +183,12 @@ export const InvoiceUrlInput = Schema.Struct({ id: Schema.String })
 export const BillingLink = Schema.Struct({ url: Schema.String })
 export type BillingLink = typeof BillingLink.Type
 
-/** Stripe cannot be asked: not set up on this stage, or it did not answer. Nothing was changed. */
+/**
+ * Stripe cannot be asked, or would not: not set up on this stage, it did not answer, it refused, there is no price,
+ * the change's payment did not go through (the subscription is as it was), or the Stripe customer is gone.
+ */
 export class BillingUnavailable extends Schema.TaggedError<BillingUnavailable>()("BillingUnavailable", {
-  reason: Schema.Literals(["not_configured", "unreachable", "refused", "no_price"])
+  reason: Schema.Literals(["not_configured", "unreachable", "refused", "no_price", "payment_failed", "no_customer"])
 }) {}
 
 /** A change that needs a subscription there is not (seats given up, a cancel, the portal before the first payment). */

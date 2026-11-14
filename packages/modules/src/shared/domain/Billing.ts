@@ -38,3 +38,36 @@ export const TRIAL_STORES = PLAN_STORES.scale
 export const TRIAL_AI_REPLIES = PLAN_AI_REPLIES.scale
 
 export const isPlanId = (plan: string): plan is PlanId => plan in PLAN_SEATS
+
+/**
+ * The statuses that hold a paid plan's seats, stores and answers: paying, or in Stripe's grace while a payment is
+ * retried.
+ */
+const ENTITLED_STATUSES: ReadonlySet<string> = new Set(["active", "trialing", "past_due"])
+
+/** After a paid subscription is no longer paid for: Starter's limits, until a plan is paid for again. */
+export const LAPSED_PLAN: PlanId = "starter"
+
+/**
+ * Where a workspace stands for its limits: `paid` while its subscription is paid for; `lapsed` once one was and no
+ * longer is (ended, unpaid, paused); otherwise `trial`, on what the workspace picked (a first payment not made yet holds
+ * nothing more).
+ */
+export type Standing = "paid" | "lapsed" | "trial"
+
+export const standingOf = (status: string | null | undefined, startedAt: Date | null | undefined): Standing => {
+  if (status !== null && status !== undefined && ENTITLED_STATUSES.has(status)) return "paid"
+  if (startedAt !== null && startedAt !== undefined) return "lapsed"
+  return status === "canceled" || status === "unpaid" || status === "paused" ? "lapsed" : "trial"
+}
+
+/**
+ * The plan whose limits hold: the paid plan while it is paid for, Starter's once lapsed, the picked plan on a trial;
+ * `null` on a trial before a plan is picked (the trial's own limits).
+ */
+export const holdingPlan = (standing: Standing, paidPlan: PlanId | null, workspacePlan: string): PlanId | null => {
+  const picked = isPlanId(workspacePlan) ? workspacePlan : null
+  if (standing === "paid") return paidPlan ?? picked
+  if (standing === "lapsed") return LAPSED_PLAN
+  return picked
+}

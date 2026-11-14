@@ -61,6 +61,8 @@ export interface Proration {
   readonly nextInvoiceAt: Date | null
   /** Another billing period: Stripe starts it now and invoices `nextInvoiceMinor` at once. */
   readonly immediate: boolean
+  /** What is left on the customer's balance for later invoices, where the change credits more than it costs. */
+  readonly creditMinor: number
 }
 
 /** A Checkout page Insyte opened, as Stripe has it now. */
@@ -89,15 +91,20 @@ export class BillingProvider extends Context.Service<BillingProvider, {
   /** Whether this stage bills at all. */
   readonly configured: boolean
   readonly prices: Effect.Effect<ReadonlyArray<PlanPrice>, BillingUnavailable>
-  /** Insyte's customer at Stripe for a workspace, made once (the workspace id is the idempotency key). */
+  /**
+   * Insyte's customer at Stripe for a workspace, made once (the workspace and its details are the idempotency key), or
+   * made again in place of one Stripe no longer has (`replaces`).
+   */
   readonly createCustomer: (input: {
     readonly workspaceId: string
     readonly name: string
     readonly email: string | null
+    readonly replaces?: string
   }) => Effect.Effect<{ readonly customerId: string }, BillingUnavailable>
   /**
-   * The first payment: Stripe's Checkout page (`redirect`), or, where no page is needed (the fake), the subscription at
-   * once (`subscribed`) with its first invoice.
+   * The first payment: Stripe's Checkout page (`redirect`, open for about half an hour), or, where no page is needed
+   * (the fake), the subscription at once (`subscribed`) with its first invoice. A customer Stripe no longer has is
+   * `BillingUnavailable` `no_customer`.
    */
   readonly checkout: (input: {
     readonly customerId: string
@@ -131,7 +138,10 @@ export class BillingProvider extends Context.Service<BillingProvider, {
     readonly prices: ReadonlyArray<PlanPrice>
     readonly prorationDate: number
   }) => Effect.Effect<Proration, BillingUnavailable>
-  /** The change itself, prorated as previewed; answers the subscription after it. */
+  /**
+   * The change itself, prorated as previewed; answers the subscription after it. A change of period is charged at once
+   * and applied only if that payment goes through (`payment_failed` otherwise, the subscription as it was).
+   */
   readonly update: (input: {
     readonly current: SubscriptionSnapshot
     readonly target: Target

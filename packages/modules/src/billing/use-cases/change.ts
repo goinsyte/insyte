@@ -30,6 +30,7 @@ import {
   connectedStores,
   currentTarget,
   isLive,
+  MAX_EXTRA_SEATS,
   overview,
   seatsOfTarget,
   snapshotOf,
@@ -51,9 +52,6 @@ const consoleOrigin = Config.String("CONSOLE_ORIGIN").pipe(Config.withDefault(""
 
 /** How old a preview may be when its change comes in: older, and the change is refused, to be previewed again. */
 const PRORATION_WINDOW_S = 60 * 60
-
-/** The most extra seats one subscription holds (`subscriptions.extra_seats`). */
-const MAX_EXTRA_SEATS = 500
 
 const provider = Effect.gen(function*() {
   const p = yield* BillingProvider
@@ -162,6 +160,7 @@ export const previewChange = Effect.fn("Billing.previewChange")(function*(change
       nextInvoiceMinor: amount,
       nextInvoiceAt: null,
       immediate: true,
+      creditMinor: 0,
       prorationDate
     })
   }
@@ -175,6 +174,7 @@ export const previewChange = Effect.fn("Billing.previewChange")(function*(change
     nextInvoiceMinor: proration.nextInvoiceMinor,
     nextInvoiceAt: proration.nextInvoiceAt?.getTime() ?? null,
     immediate: proration.immediate,
+    creditMinor: proration.creditMinor,
     prorationDate
   })
 })
@@ -225,42 +225,100 @@ const customerOf = Effect.fn("Billing.customer")(function*(state: Loaded) {
 const keyOf = (t: Target) => `${t.plan}-${t.cycle}-${t.extraSeats}`
 
 /**
- * The first payment's page. One page per workspace and change: the open one is reused for the same change and closed
- * before another is opened, and one already paid waits for its subscription, so no workspace pays twice.
+ * The customer made again where Stripe no longer has the one on the row: only while no subscription bills, the row
+ * then points at the new one.
+ */
+const customerAgain = Effect.fn("Billing.customerAgain")(function*(state: Loaded, gone: string) {
+  const principal = yield* CurrentPrincipal
+  const p = yield* provider
+  const { customerId } = yield* p.createCustomer({
+    workspaceId: principal.workspaceId,
+    name: state.workspace.legalEntity || state.workspace.name,
+    email: state.workspace.billingEmail,
+    replaces: gone
+  })
+  yield* Effect.logWarning("stripe customer made again", { replaces: gone })
+  yield* (yield* Db).scoped((sql) =>
+    sql`update subscriptions set stripe_customer_id = ${customerId}
+        where stripe_customer_id = ${gone}
+          and (status is null or status not in ('trialing', 'active', 'past_due', 'unpaid', 'incomplete', 'paused'))`
+  )
+  return customerId
+})
+
+/**
+ * The first payment's page. One page per workspace: the open one is reused for the same change and expired before
+ * another is opened; one already paid waits for its subscription while that bills or is still on its way. The slot is
+ * claimed on the row before Stripe is asked (a compare-and-set on the page and the attempt that holds it), and a page
+ * opened by a tab that lost the slot meanwhile is expired, so no workspace ever has two pages it can pay. Each attempt's
+ * nonce is its idempotency key.
  */
 const openCheckout = Effect.fn("Billing.openCheckout")(
   function*(state: Loaded, target: Target, prices: ReadonlyArray<PlanPrice>) {
     const principal = yield* CurrentPrincipal
     const p = yield* provider
     const db = yield* Db
-    const previous = state.row?.checkoutSessionId ?? null
-    if (previous !== null) {
-      const session = yield* p.checkoutSession(previous)
-      if (session?.status === "complete") return yield* new CheckoutPending()
-      if (session?.status === "open") {
-        if (state.row?.checkoutKey === keyOf(target) && session.url !== null) {
-          return { _tag: "redirect" as const, url: session.url, sessionId: previous }
-        }
-        yield* p.expireCheckout(previous)
-      }
-    }
-    const customerId = yield* customerOf(state)
+    const made = yield* customerOf(state)
+    const key = keyOf(target)
     const origin = yield* consoleOrigin
-    const paid = yield* p.checkout({
-      customerId,
-      workspaceId: principal.workspaceId,
-      target,
-      prices,
-      successUrl: `${origin}/settings/billing?betaald=1`,
-      cancelUrl: `${origin}/settings/billing`,
-      idempotencyKey: `insyte-checkout-${principal.workspaceId}-${keyOf(target)}-${previous ?? "first"}`
-    })
-    if (paid._tag === "redirect") {
-      yield* db.scoped((sql) =>
-        sql`update subscriptions set checkout_session_id = ${paid.sessionId}, checkout_key = ${keyOf(target)}`
+    const open = (customerId: string, idempotencyKey: string) =>
+      p.checkout({
+        customerId,
+        workspaceId: principal.workspaceId,
+        target,
+        prices,
+        successUrl: `${origin}/settings/billing?betaald=1`,
+        cancelUrl: `${origin}/settings/billing`,
+        idempotencyKey
+      })
+    // Twice at most: a second round only where another tab moved the slot between this one's read and its claim.
+    for (let round = 0; round < 2; round++) {
+      const row = yield* db.scoped(subscriptionRow)
+      const previous = row?.checkoutSessionId ?? null
+      if (previous !== null) {
+        const session = yield* p.checkoutSession(previous)
+        if (session?.status === "complete") {
+          const subscription = session.subscriptionId === null
+            ? undefined
+            : yield* p.subscription(session.subscriptionId)
+          if (subscription === undefined || isLive(subscription)) return yield* new CheckoutPending()
+        }
+        if (session?.status === "open") {
+          if (row?.checkoutKey === key && session.url !== null) {
+            return { _tag: "redirect" as const, url: session.url, sessionId: previous }
+          }
+          yield* p.expireCheckout(previous)
+        }
+      }
+      const nonce = crypto.randomUUID()
+      const claimed = yield* db.scoped((sql) =>
+        sql`update subscriptions set checkout_session_id = null, checkout_key = ${key}, checkout_nonce = ${nonce}
+            where checkout_session_id is not distinct from ${previous}
+              and checkout_nonce is not distinct from ${row?.checkoutNonce ?? null}
+            returning 1`
       )
+      if (claimed.length === 0) continue
+      const customerId = row?.stripeCustomerId ?? made
+      const idempotencyKey = `insyte-checkout-${principal.workspaceId}-${nonce}`
+      const paid = yield* open(customerId, idempotencyKey).pipe(
+        Effect.catchIf((e) => e.reason === "no_customer", () =>
+          customerAgain(state, customerId).pipe(
+            Effect.flatMap((again) => open(again, `${idempotencyKey}-again`))
+          ))
+      )
+      if (paid._tag === "redirect") {
+        const kept = yield* db.scoped((sql) =>
+          sql`update subscriptions set checkout_session_id = ${paid.sessionId} where checkout_nonce = ${nonce} returning 1`
+        )
+        if (kept.length === 0) {
+          // Another tab claimed the slot meanwhile: this page goes, so only that one can be paid.
+          yield* p.expireCheckout(paid.sessionId)
+          return yield* new CheckoutPending()
+        }
+      }
+      return paid
     }
-    return paid
+    return yield* new CheckoutPending()
   }
 )
 

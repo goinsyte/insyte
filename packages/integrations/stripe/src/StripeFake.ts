@@ -15,7 +15,9 @@ import { eventOf, pricesFor } from "./Wire.ts"
  * (`BILLING_ADAPTER=fake`). It keeps what Stripe would in the isolate: the subscriptions and invoices it made, changed
  * as Insyte changes them, and as a verified webhook says Stripe changed them (a test's delivery is how "Stripe" moves
  * on its own), so the webhook's read-again finds them. The first payment needs no page: it is paid at once with a test
- * card. Its prices are test fixtures, not Insyte's pricing (which is Stripe's, and still to be decided). Webhooks are
+ * card, except for a customer whose name holds `[betaalpagina]` (as Stripe's test cards are told apart by their
+ * numbers): that one gets a Checkout page, open until it is expired or a signed `checkout.session.completed` says it was
+ * paid, so the tests can walk the page's paths. Its prices are test fixtures, not Insyte's pricing (which is Stripe's, and still to be decided). Webhooks are
  * verified with Stripe's SDK against the stage's signing secret like the real ones, so a test signs its deliveries with
  * a made-up secret.
  */
@@ -73,6 +75,27 @@ const prorate = (prices: ReadonlyArray<PlanPrice>, current: SubscriptionSnapshot
 const subscriptions = new Map<string, { s: SubscriptionSnapshot; at: number; created: number }>()
 const invoices = new Map<string, { i: InvoiceSnapshot; at: number }>()
 
+/** The customers that pay on a page, and the pages: by id, and by the idempotency key that opened them. */
+const PAGE = "[betaalpagina]"
+const pageCustomers = new Set<string>()
+interface Page {
+  readonly id: string
+  readonly workspaceId: string
+  readonly target: Target
+  status: "open" | "complete" | "expired"
+  subscriptionId: string | null
+}
+const pages = new Map<string, Page>()
+const pageByKey = new Map<string, string>()
+
+/** A workspace's Checkout pages, oldest first, as the dev route shows them to the tests. */
+export const fakeCheckouts = (workspaceId: string) =>
+  [...pages.values()].filter((p) => p.workspaceId === workspaceId).map((p) => ({
+    id: p.id,
+    status: p.status,
+    key: `${p.target.plan}-${p.target.cycle}-${p.target.extraSeats}`
+  }))
+
 const keep = (s: SubscriptionSnapshot, at = Date.now()) => {
   const was = subscriptions.get(s.subscriptionId)
   subscriptions.set(s.subscriptionId, { s, at, created: was?.created ?? at })
@@ -101,14 +124,39 @@ export interface FakeConfig {
 
 type Provider = typeof BillingProvider.Service
 
+/** A paid page, as a verified `checkout.session.completed` says. */
+const paid = (body: unknown) => {
+  const object = body as { type?: unknown; data?: { object?: { id?: unknown; subscription?: unknown } } }
+  if (object.type !== "checkout.session.completed") return
+  const page = typeof object.data?.object?.id === "string" ? pages.get(object.data.object.id) : undefined
+  if (page === undefined) return
+  page.status = "complete"
+  page.subscriptionId = typeof object.data?.object?.subscription === "string" ? object.data.object.subscription : null
+}
+
 export const makeFake = (config: FakeConfig): Provider => ({
   configured: true,
   prices: Effect.succeed(FAKE_PRICES),
-  createCustomer: ({ workspaceId }) => Effect.succeed({ customerId: `cus_fake_${workspaceId}` }),
-  checkout: ({ customerId, workspaceId, target, prices }) =>
+  createCustomer: ({ workspaceId, name, replaces }) =>
+    Effect.sync(() => {
+      const customerId = replaces === undefined ? `cus_fake_${workspaceId}` : `${replaces}_again`
+      if (name.includes(PAGE)) pageCustomers.add(customerId)
+      return { customerId }
+    }),
+  checkout: ({ customerId, workspaceId, target, prices, idempotencyKey }) =>
     Effect.gen(function*() {
       const total = totalOf(prices, target)
       if (total === undefined) return yield* noPrice()
+      if (pageCustomers.has(customerId)) {
+        // The same key again is the same page, as Stripe's idempotency answers it.
+        const known = pageByKey.get(idempotencyKey)
+        const id = known ?? `cs_fake_${pages.size + 1}`
+        if (known === undefined) {
+          pages.set(id, { id, workspaceId, target, status: "open", subscriptionId: null })
+          pageByKey.set(idempotencyKey, id)
+        }
+        return { _tag: "redirect" as const, url: `https://checkout.stripe.test/${id}`, sessionId: id }
+      }
       const now = new Date()
       const subscription: SubscriptionSnapshot = {
         customerId,
@@ -138,9 +186,20 @@ export const makeFake = (config: FakeConfig): Provider => ({
       invoices.set(invoice.id, { i: invoice, at: now.getTime() })
       return { _tag: "subscribed" as const, subscription, invoice }
     }),
-  // A Checkout page is never opened: the first payment is made at once.
-  checkoutSession: () => Effect.succeed(undefined),
-  expireCheckout: () => Effect.void,
+  checkoutSession: (id) =>
+    Effect.sync(() => {
+      const page = pages.get(id)
+      return page === undefined ? undefined : {
+        status: page.status,
+        url: page.status === "open" ? `https://checkout.stripe.test/${id}` : null,
+        subscriptionId: page.subscriptionId
+      }
+    }),
+  expireCheckout: (id) =>
+    Effect.sync(() => {
+      const page = pages.get(id)
+      if (page?.status === "open") page.status = "expired"
+    }),
   activeSubscription: (customerId) =>
     Effect.sync(() =>
       [...subscriptions.values()]
@@ -157,12 +216,15 @@ export const makeFake = (config: FakeConfig): Provider => ({
     if (p === undefined) return Effect.fail(noPrice())
     // Another interval: a new period starts now and is invoiced at once, less what is left of this one.
     const immediate = target.cycle !== (current.cycle ?? "monthly")
+    // Never below zero: what is credited beyond it stays on the balance, as Stripe's `amount_due` and balance do.
+    const due = immediate ? p.proration : p.after + p.proration
     return Effect.succeed({
       currency: current.currency,
       prorationMinor: p.proration,
-      nextInvoiceMinor: immediate ? p.proration : p.after + p.proration,
+      nextInvoiceMinor: Math.max(0, due),
       nextInvoiceAt: immediate ? new Date(prorationDate * 1000) : current.currentPeriodEnd,
-      immediate
+      immediate,
+      creditMinor: Math.max(0, -due)
     })
   },
   update: ({ current, target, prices }) => {
@@ -196,6 +258,7 @@ export const makeFake = (config: FakeConfig): Provider => ({
     Effect.sync(() => {
       const event = eventOf(body)
       learn(event)
+      paid(body)
       return event
     })
 })

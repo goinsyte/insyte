@@ -28,18 +28,28 @@ type Raw = Record<string, unknown>
 /** What the SDK threw, kept as it was until it is read below. */
 class StripeFailure extends Data.TaggedError("StripeFailure")<{ readonly error: unknown }> {}
 
-/** Stripe's own errors, by what they mean for the caller: it did not answer (try again), or it said no. */
-const reasonOf = (error: unknown): "unreachable" | "refused" => {
-  const e = error as { type?: string; statusCode?: number }
+/**
+ * Stripe's own errors, by what they mean for the caller: it did not answer (try again), the customer Insyte made is
+ * gone (made again), or it said no.
+ */
+const reasonOf = (error: unknown): "unreachable" | "refused" | "no_customer" => {
+  const e = error as { type?: string; statusCode?: number; code?: string; param?: string }
   if (e.type === "StripeConnectionError" || e.type === "StripeAPIError" || e.type === "StripeRateLimitError") {
     return "unreachable"
   }
+  if (e.code === "resource_missing" && e.param === "customer") return "no_customer"
   if (typeof e.statusCode === "number") return e.statusCode === 429 || e.statusCode >= 500 ? "unreachable" : "refused"
   // Not Stripe's: the SDK did not load, or the network failed before Stripe said anything.
   return "unreachable"
 }
 
 const isMissing = (failure: StripeFailure) => (failure.error as { statusCode?: number }).statusCode === 404
+
+/** The same idempotency key was sent before with other parameters: that earlier request is what Stripe kept. */
+const isReplayed = (failure: StripeFailure) => (failure.error as { type?: string }).type === "StripeIdempotencyError"
+
+/** How long a Checkout page stays payable: Stripe's shortest is 30 minutes from its creation, so a minute more. */
+const CHECKOUT_FOR_S = 31 * 60
 
 const describe = (error: unknown) => {
   const e = error as { type?: string; code?: string; statusCode?: number }
@@ -88,6 +98,14 @@ const read = (sub: unknown) => {
   return s === undefined ? Effect.fail(new BillingUnavailable({ reason: "refused" })) : Effect.succeed(s)
 }
 
+/** What the SDK threw, said once and read as the caller needs it. */
+const unavailable = (path: string) => <A, R>(effect: Effect.Effect<A, StripeFailure, R>) =>
+  effect.pipe(
+    Effect.tapError((failure) => Effect.logWarning("stripe refused", { path, ...describe(failure.error) })),
+    Effect.mapError((failure) => new BillingUnavailable({ reason: reasonOf(failure.error) })),
+    Effect.withSpan("Stripe.call", { attributes: { path } })
+  )
+
 export const makeStripe = (config: StripeConfig): Provider => {
   let client: Promise<StripeSdk> | undefined
   const stripe = () => (client ??= loadSdk().then((Stripe) =>
@@ -102,21 +120,15 @@ export const makeStripe = (config: StripeConfig): Provider => {
     throw error
   }))
 
+  const attempt = <A>(f: (s: StripeSdk) => Promise<A>): Effect.Effect<A, StripeFailure> =>
+    Effect.tryPromise({ try: async () => f(await stripe()), catch: (error) => new StripeFailure({ error }) })
+
   const call = <A>(path: string, f: (s: StripeSdk) => Promise<A>): Effect.Effect<A, BillingUnavailable> =>
-    Effect.tryPromise({ try: async () => f(await stripe()), catch: (error) => new StripeFailure({ error }) }).pipe(
-      Effect.tapError((failure) => Effect.logWarning("stripe refused", { path, ...describe(failure.error) })),
-      Effect.mapError((failure) => new BillingUnavailable({ reason: reasonOf(failure.error) })),
-      Effect.withSpan("Stripe.call", { attributes: { path } })
-    )
+    attempt(f).pipe(unavailable(path))
 
   /** A read of one object, or `undefined` where Stripe has no such object. */
   const find = <A>(path: string, f: (s: StripeSdk) => Promise<A>): Effect.Effect<A | undefined, BillingUnavailable> =>
-    Effect.tryPromise({ try: async () => f(await stripe()), catch: (error) => new StripeFailure({ error }) }).pipe(
-      Effect.catchIf(isMissing, () => Effect.succeed(undefined)),
-      Effect.tapError((failure) => Effect.logWarning("stripe refused", { path, ...describe(failure.error) })),
-      Effect.mapError((failure) => new BillingUnavailable({ reason: reasonOf(failure.error) })),
-      Effect.withSpan("Stripe.call", { attributes: { path } })
-    )
+    attempt(f).pipe(Effect.catchIf(isMissing, () => Effect.succeed(undefined)), unavailable(path))
 
   let cached: { readonly at: number; readonly prices: ReadonlyArray<PlanPrice> } | undefined
 
@@ -140,8 +152,8 @@ export const makeStripe = (config: StripeConfig): Provider => {
   return {
     configured: true,
     prices,
-    createCustomer: ({ workspaceId, name, email }) =>
-      Effect.promise(() => digest(`${name}\n${email ?? ""}`)).pipe(
+    createCustomer: ({ workspaceId, name, email, replaces }) =>
+      Effect.promise(() => digest(`${name}\n${email ?? ""}\n${replaces ?? ""}`)).pipe(
         Effect.flatMap((hash) =>
           call("customers.create", (s) =>
             s.customers.create({
@@ -171,7 +183,8 @@ export const makeStripe = (config: StripeConfig): Provider => {
               { price: base.priceId, quantity: 1 },
               ...(target.extraSeats > 0 ? [{ price: seat!.priceId, quantity: target.extraSeats }] : [])
             ],
-            subscription_data: { metadata: { insyte_workspace: workspaceId } }
+            subscription_data: { metadata: { insyte_workspace: workspaceId } },
+            expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_FOR_S
           }, { idempotencyKey }))
         if (session.url === null) return yield* new BillingUnavailable({ reason: "refused" })
         return { _tag: "redirect" as const, url: session.url, sessionId: session.id }
@@ -227,29 +240,52 @@ export const makeStripe = (config: StripeConfig): Provider => {
         // Another interval starts a new period now, invoiced at once; otherwise the change waits for the next invoice.
         const immediate = target.cycle !== (current.cycle ?? "monthly")
         const next = immediate ? prorationDate : Number(invoice.next_payment_attempt ?? invoice.period_end)
+        // What is charged is `amount_due` (never below zero); a credit beyond it stays on the customer's balance.
+        const balance = invoice.ending_balance ?? invoice.total
         return {
           currency: invoice.currency,
           prorationMinor: proration,
-          nextInvoiceMinor: invoice.total,
+          nextInvoiceMinor: invoice.amount_due,
           nextInvoiceAt: Number.isFinite(next) && next > 0 ? new Date(next * 1000) : null,
-          immediate
+          immediate,
+          creditMinor: balance < 0 ? -balance : 0
         }
       }),
     update: ({ current, target, prices: all, prorationDate }) =>
       Effect.gen(function*() {
         const sub = yield* subscription(current.subscriptionId)
         const items = yield* itemsFor(sub as unknown as Raw, target, all)
-        const updated = yield* call("subscriptions.update", (s) =>
+        // Another period is charged now: applied only once that payment goes through (Stripe's pending updates), which
+        // take only items, proration and `expand`, so the metadata waits for a change within the period.
+        const immediate = target.cycle !== (current.cycle ?? "monthly")
+        const updated = yield* attempt((s) =>
           s.subscriptions.update(current.subscriptionId, {
             items,
             proration_behavior: "create_prorations",
             proration_date: prorationDate,
-            ...(current.workspaceId === null ? {} : { metadata: { insyte_workspace: current.workspaceId } }),
+            ...(immediate
+              ? { payment_behavior: "pending_if_incomplete" as const }
+              : current.workspaceId === null
+              ? {}
+              : { metadata: { insyte_workspace: current.workspaceId } }),
             expand: ["default_payment_method"]
           }, {
             idempotencyKey:
               `insyte-change-${current.subscriptionId}-${target.plan}-${target.cycle}-${target.extraSeats}-${prorationDate}`
-          }))
+          })
+        ).pipe(
+          // Sent before with other parameters: what that request made is the subscription as it is now.
+          Effect.catchIf(isReplayed, (failure) =>
+            Effect.logWarning("stripe change replayed", describe(failure.error)).pipe(
+              Effect.andThen(attempt((s) =>
+                s.subscriptions.retrieve(current.subscriptionId, { expand: ["default_payment_method"] })
+              ))
+            )),
+          unavailable("subscriptions.update")
+        )
+        if (updated.pending_update !== null && updated.pending_update !== undefined) {
+          return yield* new BillingUnavailable({ reason: "payment_failed" })
+        }
         return yield* read(updated)
       }),
     setCancelAtPeriodEnd: ({ current, cancel }) =>

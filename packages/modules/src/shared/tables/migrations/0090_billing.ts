@@ -12,8 +12,10 @@ import { statements } from "../statements.ts"
  *   the newest Stripe event applied, so an older one that arrives late does not roll the row back. `started_by` is
  *   the person whose first paid action made the row, and `started_at` when the subscription first paid, so the product
  *   event is counted once. `checkout_session_id` is the Checkout page opened for the first payment, with the change it
- *   was opened for (`checkout_key`): opened again for the same change it is reused, for another it is expired first, so
- *   no workspace pays twice.
+ *   was opened for (`checkout_key`) and the attempt that claimed it (`checkout_nonce`, Stripe's idempotency key for that
+ *   page): opened again for the same change it is reused, for another it is expired first, and two tabs cannot both
+ *   claim it, so no workspace has two pages it can pay. `second_subscription_id` is another subscription Stripe bills
+ *   the same customer for while this one bills too: shown on the page until it ends, never cancelled by Insyte.
  * - `invoices`: Stripe's invoices for the workspace, by Stripe's id, newest first. Links are Stripe's hosted page and
  *   PDF; amounts are minor units in the invoice's currency.
  * - `billing_route(customer, workspace)`: a webhook's workspace, read before any workspace is in scope: by the
@@ -44,6 +46,8 @@ export default statements(
      started_at             timestamptz,
      checkout_session_id    text,
      checkout_key           text,
+     checkout_nonce         text,
+     second_subscription_id text,
      event_at               timestamptz,
      created_at             timestamptz not null default now(),
      updated_at             timestamptz not null default now(),

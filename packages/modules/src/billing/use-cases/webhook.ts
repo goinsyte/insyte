@@ -3,6 +3,7 @@ import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect, Option, Schema } from "effect"
 import { Relay } from "../../shared/domain/Outbox.ts"
+import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { BillingProvider, type StripeEvent, type SubscriptionSnapshot } from "../domain/Ports.ts"
 import { writeInvoice, writeSubscription } from "./state.ts"
@@ -15,7 +16,8 @@ import { writeInvoice, writeSubscription } from "./state.ts"
  * and one that failed to apply is not recorded and is applied when Stripe retries. The subscription and the invoice are
  * read again from Stripe where it knows them (the event may be old by the time it arrives); otherwise the event's own
  * copy is applied unless a newer event already was, and a settled invoice never goes back to open. An event for another
- * subscription at the same customer does not replace one that still bills. A change is told as `billing.changed`; seats follow `subscriptions.extra_seats`.
+ * subscription at the same customer does not replace one that still bills; one that bills too is logged as an error and
+ * written to the workspace's audit log (`billing.second_subscription`), once per event, for a person to sort out. A change is told as `billing.changed`; seats follow `subscriptions.extra_seats`.
  */
 
 export interface Delivery {
@@ -101,9 +103,34 @@ export const receive = Effect.fn("Billing.webhooks.receive")(function*(delivery:
       }
       if (subscription === undefined) return []
       const [before] = yield* sql<{ startedBy: string | null }>`select started_by from subscriptions`
-      const { written, started } = yield* writeSubscription(sql, route.workspaceId, subscription.s, subscription.at)
+      const { written, started, conflict } = yield* writeSubscription(
+        sql,
+        route.workspaceId,
+        subscription.s,
+        subscription.at
+      )
+      if (conflict) {
+        // A second subscription that bills at the same customer: the workspace may be paying twice. Not cancelled or
+        // refunded here (that is a person's call in Stripe), but recorded where the workspace's audit log shows it.
+        yield* Effect.logError("stripe second subscription at one customer", {
+          type: event.type,
+          subscription: subscription.s.subscriptionId,
+          status: subscription.s.status
+        })
+        yield* Audit.write(sql, route.workspaceId, { kind: "system", id: "stripe" }, {
+          action: "billing.second_subscription",
+          subjectType: "billing",
+          subjectId: route.workspaceId,
+          diff: {
+            subscription: subscription.s.subscriptionId,
+            status: subscription.s.status,
+            plan: subscription.s.plan
+          }
+        })
+        return []
+      }
       if (!written) {
-        // An older event, or another subscription at the same customer while the row's still bills: kept as it is.
+        // An older event than the one already applied: kept as it is.
         yield* Effect.logInfo("stripe subscription event not applied", {
           type: event.type,
           subscription: subscription.s.subscriptionId
