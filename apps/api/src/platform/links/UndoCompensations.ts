@@ -15,6 +15,7 @@ import { AppKeys } from "@insyte/modules/marketplace/domain/Ports"
 import { rescope as rescopeApp, restore as restoreApp } from "@insyte/modules/marketplace/use-cases/marketplace"
 import { restore as restoreNotifications } from "@insyte/modules/notifications/use-cases/prefs"
 import { restore as restoreOrders } from "@insyte/modules/orders/use-cases/commands"
+import { restoreMails as unsendOrderMails } from "@insyte/modules/orders/use-cases/customer-mail"
 import { restore as restoreProducts } from "@insyte/modules/products/use-cases/commands"
 import { restore as restoreProposal } from "@insyte/modules/proposals/Proposals"
 import { QualityTickets } from "@insyte/modules/quality/domain/Ports"
@@ -26,12 +27,15 @@ import { restore as restoreSettings } from "@insyte/modules/settings/use-cases/s
 import { restore as restoreSheets } from "@insyte/modules/sheets/use-cases/commands"
 import { restore as restoreSupplierPortal } from "@insyte/modules/supplier-portal/SupplierPortal"
 import { restore as restoreSuppliers } from "@insyte/modules/suppliers/use-cases/commands"
+import { TicketMail } from "@insyte/modules/tickets/domain/CustomerMail"
 import { restore as restoreTickets } from "@insyte/modules/tickets/use-cases/commands"
+import { restoreMailed as restoreTicketMail } from "@insyte/modules/tickets/use-cases/customer-mail"
 import { type Compensation, UndoCompensations } from "@insyte/modules/undo/domain/Ports"
 import { Effect, Layer } from "effect"
 import { undoKeys } from "./AppKeys.ts"
 import { qualityTickets } from "./QualityTickets.ts"
 import { threadTickets } from "./ThreadTickets.ts"
+import { ticketMail } from "./TicketMail.ts"
 
 /**
  * Undo → each reversible command's compensation, by the name its token carries (ADR-0023); a filed plate's undo runs
@@ -39,6 +43,7 @@ import { threadTickets } from "./ThreadTickets.ts"
  */
 export const compensations: Record<string, Compensation> = {
   "orders.restore": restoreOrders,
+  "orders.unsend": unsendOrderMails,
   "products.restore": restoreProducts,
   "customers.restore": restoreCustomers,
   "marketing.restore": restoreMarketing,
@@ -47,6 +52,8 @@ export const compensations: Record<string, Compensation> = {
   "forwarding.restore": restoreForwarding,
   "returns.restore": restoreReturns,
   "tickets.restore": restoreTickets,
+  "tickets.mailed": (sql, compensation) =>
+    restoreTicketMail(sql, compensation).pipe(Effect.provideService(TicketMail, ticketMail)),
   "automations.restore": restoreAutomations,
   "chargebacks.restore": restoreChargebacks,
   "inbox.restore": (sql, compensation) =>

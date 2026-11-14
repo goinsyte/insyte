@@ -7,6 +7,7 @@
 const SYSTEM: Record<string, string> = {
 	at_risk: "Vertraagd",
 	tracking_sent: "Track & trace verstuurd",
+	tracking_failed: "Track & trace niet verstuurd",
 	draft: "Concept",
 };
 

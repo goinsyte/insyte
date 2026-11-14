@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import {
+  ActionNotAllowedV1,
   ConflictV1,
   IdempotencyKeyReusedV1,
   InvalidRequestV1,
@@ -21,7 +22,9 @@ export const Writes = {
   })
 }
 export const ById = { id: Schema.String }
+/** What a write can refuse; `ActionNotAllowedV1` (`use_mcp`) is an agent's key, which writes over MCP only. */
 export const WriteErrors = [
+  ActionNotAllowedV1,
   ScopeMissingV1,
   NotFoundV1,
   ConflictV1,

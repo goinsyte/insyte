@@ -5,7 +5,7 @@ import { TrackingService } from "@insyte/modules/tracking/Tracking"
 import { Context, Effect, Layer } from "effect"
 import { orderV1 } from "../commerce/present.ts"
 import { notFound, refundV1, scopeMissing, writeV1 } from "../shared/errors.ts"
-import { refundIdOf } from "../shared/refunds.ts"
+import { keyedId, refundIdOf } from "../shared/refunds.ts"
 import { orderDetailV1, refundRowV1, trackingV1 } from "./present.ts"
 
 /*
@@ -94,6 +94,34 @@ const make = Effect.gen(function*() {
         ["clear_delay", id],
         Effect.flatMap(orders.clearDelay([id]), () => Effect.map(orders.get(id), (d) => orderV1(d.order)))
       ).pipe(Effect.catch(writeV1)),
+    // The mail's id is the key's, so a retry after the key's answer was let go still sends once. (An agent's key never
+    // gets here over `/v1`: the key door sends its writes to MCP, whose tool refuses it.)
+    emailCustomer: (id: string, body: { readonly subject: string; readonly body: string }, key?: string) =>
+      Effect.gen(function*() {
+        const principal = yield* CurrentPrincipal
+        const mailId = yield* keyedId("oml", key, principal.id)
+        return yield* Idempotency.once(
+          key,
+          ["email", id, body],
+          Effect.map(
+            orders.emailCustomer({ orderId: id, subject: body.subject, body: body.body, id: mailId }),
+            ({ mail }) => ({
+              id: mail.id,
+              order_id: mail.orderId,
+              kind: mail.kind,
+              state: mail.state,
+              to: mail.to,
+              subject: mail.subject
+            })
+          )
+        ).pipe(
+          Effect.catchTag(
+            "CustomerMailRefused",
+            () => Effect.fail({ _tag: "Conflict", entity: "order", reason: "no_email" } as const)
+          ),
+          Effect.catch(writeV1)
+        )
+      }),
     refundOrder: (
       id: string,
       body: { readonly amount_minor: number; readonly note?: string | undefined },

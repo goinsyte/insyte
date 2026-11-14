@@ -376,11 +376,13 @@ const queueMessage = Effect.fn("Threads.queueMessage")(function*(
     readonly text: string
     readonly inReplyTo: string | null
     readonly references: ReadonlyArray<string>
+    /** The caller's own id for it (a ticket's "Klant informeren"), so asking twice finds the one already in line. */
+    readonly id?: string | undefined
   }
 ) {
   const principal = yield* CurrentPrincipal
   const domain = yield* mailDomain
-  const id = mintId("eml")
+  const id = input.id ?? mintId("eml")
   yield* sql`
     insert into email_messages (id, workspace_id, thread_id, rfc822_message_id, in_reply_to, "references", direction,
                                 kind, from_name, from_address, "to", subject, body_text, sent_by, send_state)
@@ -409,46 +411,67 @@ const queued = (sql: SqlClient.SqlClient, threadId: string, messageId: string, u
     return new MessageQueued({ thread: thread!, message, undo })
   })
 
+/** What a message put in line on the caller's transaction answers: its thread, its outbox event, and its way back. */
+export interface Queued {
+  readonly threadId: string
+  readonly messageId: string
+  /** Who it goes to. */
+  readonly to: string
+  readonly outboxId: string
+  readonly compensation: InboxRestore
+}
+
+/**
+ * A reply in `threadId` on the caller's transaction (the caller checked the seat), without an undo token of its own: a
+ * ticket's "Klant informeren" holds one token for the mail and the ticket together.
+ */
+export const replyOn = Effect.fn("Threads.replyOn")(function*(
+  sql: SqlClient.SqlClient,
+  input: typeof ReplyInput.Type & { readonly messageId?: string | undefined }
+) {
+  const [l] = yield* lock(sql, [input.threadId])
+  const mailbox = yield* mailboxFor(sql, l!.mailboxId)
+  const [last] = yield* sql<{ name: string; email: string; rfc822: string; references: ReadonlyArray<string> }>`
+        select from_name as name, from_address as email, rfc822_message_id as rfc822, "references"
+        from email_messages where thread_id = ${l!.id} order by sent_at desc, created_at desc limit 1`
+  const [lastInbound] = yield* sql<{ name: string; email: string }>`
+        select from_name as name, from_address as email from email_messages
+        where thread_id = ${l!.id} and direction = 'inbound' order by sent_at desc limit 1`
+  const to = otherSide(l!, lastInbound)
+  if (to === undefined) return yield* new Invalid({ fields: { to: "none" } })
+  const text = withSignature(input.body, mailbox.signature)
+  const { id, outboxId: held } = yield* queueMessage(sql, {
+    threadId: l!.id,
+    mailbox,
+    kind: "reply",
+    to,
+    subject: reSubject(l!.subject, "Re"),
+    text,
+    // Kept bare, as the inbound ones are; the sink puts the brackets on.
+    inReplyTo: last === undefined ? null : last.rfc822,
+    references: last === undefined ? [] : [...last.references.map(bare), last.rfc822].slice(-20),
+    id: input.messageId
+  })
+  yield* sql`update email_threads set last_message_at = now(), last_message_preview = ${previewOf(input.body)},
+                   unread = false where id = ${l!.id}`
+  yield* audit(sql, "thread.replied", l!.id, { messageId: id })
+  const compensation: InboxRestore = { kind: "unsent", messageId: id, thread: before(l!), removeThread: false }
+  return { threadId: l!.id, messageId: id, to: to.email.toLowerCase(), outboxId: held, compensation } satisfies Queued
+})
+
+/** One undo token for a message just put in line, and the thread as the screen shows it. */
+const settled = (sql: SqlClient.SqlClient, q: Queued) =>
+  Effect.gen(function*() {
+    const undo = yield* Undo.issue(sql, { command: RESTORE, compensation: q.compensation, outboxIds: [q.outboxId] })
+    return { change: yield* queued(sql, q.threadId, q.messageId, undo), outboxId: q.outboxId }
+  })
+
 /** "Antwoord versturen": to who wrote last, in their thread, from the mailbox it came in at. */
 export const reply = Effect.fn("Threads.reply")(function*(input: typeof ReplyInput.Type) {
   yield* Policy.require("support", 2)
   if (input.body.trim() === "") return yield* new Invalid({ fields: { body: "required" } })
   const db = yield* Db
-  const { change, outboxId } = yield* db.scoped((sql) =>
-    Effect.gen(function*() {
-      const [l] = yield* lock(sql, [input.threadId])
-      const mailbox = yield* mailboxFor(sql, l!.mailboxId)
-      const [last] = yield* sql<{ name: string; email: string; rfc822: string; references: ReadonlyArray<string> }>`
-        select from_name as name, from_address as email, rfc822_message_id as rfc822, "references"
-        from email_messages where thread_id = ${l!.id} order by sent_at desc, created_at desc limit 1`
-      const [lastInbound] = yield* sql<{ name: string; email: string }>`
-        select from_name as name, from_address as email from email_messages
-        where thread_id = ${l!.id} and direction = 'inbound' order by sent_at desc limit 1`
-      const to = otherSide(l!, lastInbound)
-      if (to === undefined) return yield* new Invalid({ fields: { to: "none" } })
-      const text = withSignature(input.body, mailbox.signature)
-      const { id, outboxId: held } = yield* queueMessage(sql, {
-        threadId: l!.id,
-        mailbox,
-        kind: "reply",
-        to,
-        subject: reSubject(l!.subject, "Re"),
-        text,
-        // Kept bare, as the inbound ones are; the sink puts the brackets on.
-        inReplyTo: last === undefined ? null : last.rfc822,
-        references: last === undefined ? [] : [...last.references.map(bare), last.rfc822].slice(-20)
-      })
-      yield* sql`update email_threads set last_message_at = now(), last_message_preview = ${previewOf(input.body)},
-                   unread = false where id = ${l!.id}`
-      yield* audit(sql, "thread.replied", l!.id, { messageId: id })
-      const undo = yield* Undo.issue(sql, {
-        command: RESTORE,
-        compensation: { kind: "unsent", messageId: id, thread: before(l!), removeThread: false } satisfies InboxRestore,
-        outboxIds: [held]
-      })
-      return { change: yield* queued(sql, l!.id, id, undo), outboxId: held }
-    })
-  )
+  const { change, outboxId } = yield* db.scoped((sql) => Effect.flatMap(replyOn(sql, input), (q) => settled(sql, q)))
   yield* kick(outboxId)
   return change
 })
@@ -497,59 +520,63 @@ export const forward = Effect.fn("Threads.forward")(function*(input: typeof Forw
   return change
 })
 
+/**
+ * A new thread with its first message on the caller's transaction (the caller checked the seat), without an undo token
+ * of its own; `ticketId` links the thread to the ticket it was written from.
+ */
+export const composeOn = Effect.fn("Threads.composeOn")(function*(
+  sql: SqlClient.SqlClient,
+  input: typeof ComposeInput.Type & { readonly ticketId?: string | undefined; readonly messageId?: string | undefined }
+) {
+  const principal = yield* CurrentPrincipal
+  const [chosen] = input.mailboxId !== undefined
+    ? [{ id: input.mailboxId }]
+    : yield* sql<{ id: string }>`select id from mailboxes where status = 'connected'
+                                     order by is_default desc, created_at limit 1`
+  if (chosen === undefined) return yield* new NoMailbox()
+  const mailbox = yield* mailboxFor(sql, chosen.id)
+  const to = { name: "", email: input.to.trim().toLowerCase() }
+  const threadId = mintId("thr")
+  const [customer] = yield* sql<{ id: string }>`
+        select id from customers where lower(email) = ${to.email} and deleted_at is null and merged_into is null
+        order by last_order_at desc nulls last limit 1`
+  const participants = mergeParticipants(
+    [],
+    [{ name: mailbox.label, email: mailbox.address }, to],
+    new Set([
+      mailbox.address.toLowerCase()
+    ])
+  )
+  yield* sql`
+        insert into email_threads (id, workspace_id, mailbox_id, subject, participants, last_message_at,
+                                   last_message_preview, unread, assignee_id, customer_id, ticket_id)
+        values (${threadId}, ${principal.workspaceId}, ${mailbox.id}, ${input.subject.trim().slice(0, 998)},
+                ${JSON.stringify(participants)}::jsonb, now(), ${previewOf(input.body)}, false, ${principal.id},
+                ${customer?.id ?? null}, ${input.ticketId ?? null})`
+  const { id, outboxId: held } = yield* queueMessage(sql, {
+    threadId,
+    mailbox,
+    kind: "message",
+    to,
+    subject: input.subject.trim(),
+    text: withSignature(input.body, mailbox.signature),
+    inReplyTo: null,
+    references: [],
+    id: input.messageId
+  })
+  yield* audit(sql, "thread.composed", threadId, { messageId: id })
+  const [l] = yield* lock(sql, [threadId])
+  const compensation: InboxRestore = { kind: "unsent", messageId: id, thread: before(l!), removeThread: true }
+  return { threadId, messageId: id, to: to.email, outboxId: held, compensation } satisfies Queued
+})
+
 /** "Nieuwe e-mail": a thread of its own, at the top, with the writer on it. */
 export const compose = Effect.fn("Threads.compose")(function*(input: typeof ComposeInput.Type) {
   yield* Policy.require("support", 2)
   if (input.body.trim() === "") return yield* new Invalid({ fields: { body: "required" } })
   if (input.subject.trim() === "") return yield* new Invalid({ fields: { subject: "required" } })
-  const principal = yield* CurrentPrincipal
   const db = yield* Db
-  const { change, outboxId } = yield* db.scoped((sql) =>
-    Effect.gen(function*() {
-      const [chosen] = input.mailboxId !== undefined
-        ? [{ id: input.mailboxId }]
-        : yield* sql<{ id: string }>`select id from mailboxes where status = 'connected'
-                                     order by is_default desc, created_at limit 1`
-      if (chosen === undefined) return yield* new NoMailbox()
-      const mailbox = yield* mailboxFor(sql, chosen.id)
-      const to = { name: "", email: input.to.trim().toLowerCase() }
-      const threadId = mintId("thr")
-      const [customer] = yield* sql<{ id: string }>`
-        select id from customers where lower(email) = ${to.email} and deleted_at is null and merged_into is null
-        order by last_order_at desc nulls last limit 1`
-      const participants = mergeParticipants(
-        [],
-        [{ name: mailbox.label, email: mailbox.address }, to],
-        new Set([
-          mailbox.address.toLowerCase()
-        ])
-      )
-      yield* sql`
-        insert into email_threads (id, workspace_id, mailbox_id, subject, participants, last_message_at,
-                                   last_message_preview, unread, assignee_id, customer_id)
-        values (${threadId}, ${principal.workspaceId}, ${mailbox.id}, ${input.subject.trim().slice(0, 998)},
-                ${JSON.stringify(participants)}::jsonb, now(), ${previewOf(input.body)}, false, ${principal.id},
-                ${customer?.id ?? null})`
-      const { id, outboxId: held } = yield* queueMessage(sql, {
-        threadId,
-        mailbox,
-        kind: "message",
-        to,
-        subject: input.subject.trim(),
-        text: withSignature(input.body, mailbox.signature),
-        inReplyTo: null,
-        references: []
-      })
-      yield* audit(sql, "thread.composed", threadId, { messageId: id })
-      const [l] = yield* lock(sql, [threadId])
-      const undo = yield* Undo.issue(sql, {
-        command: RESTORE,
-        compensation: { kind: "unsent", messageId: id, thread: before(l!), removeThread: true } satisfies InboxRestore,
-        outboxIds: [held]
-      })
-      return { change: yield* queued(sql, threadId, id, undo), outboxId: held }
-    })
-  )
+  const { change, outboxId } = yield* db.scoped((sql) => Effect.flatMap(composeOn(sql, input), (q) => settled(sql, q)))
   yield* kick(outboxId)
   return change
 })

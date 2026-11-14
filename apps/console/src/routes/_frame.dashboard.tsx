@@ -120,7 +120,8 @@ const OPENS = new Set([
   "returns",
   "bestsellers",
   "suppliers",
-  "team"
+  "team",
+  "mentions"
 ])
 
 function Start() {

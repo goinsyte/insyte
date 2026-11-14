@@ -76,6 +76,7 @@ const graduated = [
   "app/settings/notifications-screen.tsx",
   "app/settings/notifications-source.tsx",
   "app/settings/notifications-demo-source.tsx",
+  "app/notifications/",
   "app/settings/depth/log-screen.tsx",
   "app/settings/depth/trash-screen.tsx",
   "app/settings/log-source.tsx",

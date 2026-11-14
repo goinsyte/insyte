@@ -339,8 +339,8 @@ const sentence = (note: ServerNote): Sentence => {
       }
     }
     default:
-      // Start, until there is a page of all notifications (`/notifications` is not built yet).
-      return { title: "heeft iets voor je", to: "/dashboard" }
+      // A kind without a sentence of its own yet: the notifications page, where it is read in full.
+      return { title: "heeft iets voor je", to: "/notifications" }
   }
 }
 

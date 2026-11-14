@@ -7,7 +7,7 @@ import type { TeamGate } from "../orders/source"
  * What the tickets screens read and do, from whoever hosts them (as `returns/source.tsx` is for the returns screens):
  * the design app from its workspace store, the console from `Tickets.*` (M11 step 3). The markup is the design's; what
  * the host cannot do yet is absent and left out (the agents' rows, Samenvatten and Antwoord voorstellen until drafts,
- * Klant informeren until mailboxes), never made up. Times are ISO strings, as `lib/types/domain.ts` has them.
+ * Klant informeren without a mailbox), never made up. Times are ISO strings, as `lib/types/domain.ts` has them.
  */
 
 export type { TeamGate }
@@ -132,8 +132,11 @@ export interface TicketsSource {
    * texts, written from the ticket on the screen (the reference app); the host's are Insyte AI's.
    */
   drafts?: true | TicketDrafts | undefined
-  /** "Klant informeren"; absent until a mailbox can send it. */
-  notifyCustomer?: boolean | undefined
+  /**
+   * "Klant informeren"; absent until a mailbox can send it. `true`: the screen marks the ticket Wacht op antwoord and
+   * says so. A function sends it itself, says what it did, and answers whether it went.
+   */
+  notifyCustomer?: true | ((ticket: Ticket) => Promise<boolean>) | undefined
 }
 
 /** Insyte AI on a ticket (M15 step 2): a person reads what it wrote, and keeps it or not. */

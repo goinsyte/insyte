@@ -29,7 +29,17 @@ import { courseOf, questionOf } from "../courses/courses-source.tsx"
 import { chargebacksAtom } from "../data/chargebacks.ts"
 import { chatsAtom } from "../data/chats.ts"
 import { coursesAtom } from "../data/courses.ts"
-import { FRAME, frameWrites, inboxAtom, notePrefsAtom, NOTES, presenceAtom, VIEWS, viewsAtom } from "../data/frame.ts"
+import {
+  FRAME,
+  frameWrites,
+  inboxAtom,
+  laterAtom,
+  notePrefsAtom,
+  NOTES,
+  presenceAtom,
+  VIEWS,
+  viewsAtom
+} from "../data/frame.ts"
 import { inboxCountsAtom, mailboxesAtom } from "../data/inbox.ts"
 import { sheetsAtom } from "../data/sheets.ts"
 import { healthLineAtom } from "../data/stores.ts"
@@ -42,6 +52,7 @@ import { toNote } from "./notes.ts"
 import { useHasPage } from "./pages.ts"
 import { usePrefSection } from "./prefs.ts"
 import { useConsoleRecordSearch } from "./record-search.ts"
+import { useWake } from "./wake.ts"
 
 /*
  * The frame in the console (step 7.4c, M5): the design's parts over the server. What the member set is their
@@ -111,6 +122,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   const navigate = useNavigate()
   const presence = useAtomValue(presenceAtom)
   const inbox = value(useAtomValue(inboxAtom))
+  const later = value(useAtomValue(laterAtom))
   const notePrefs = value(useAtomValue(notePrefsAtom))
   const views = value(useAtomValue(viewsAtom))
   // The tickets panel counts each view from the server, on the tickets pages only.
@@ -198,7 +210,12 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   const [active, setActive] = useState<Record<string, string | null>>({})
   const [draft, setDraft] = useState<Record<string, never>>({})
 
-  const notes: ReadonlyArray<Note> = useMemo(() => (inbox?.items ?? []).map(toNote), [inbox])
+  // The inbox and what is set aside: the panel counts Later, and a note whose time comes is back (`wake`).
+  const notes: ReadonlyArray<Note> = useMemo(() => [...inbox?.items ?? [], ...later?.items ?? []].map(toNote), [
+    inbox,
+    later
+  ])
+  const wake = useWake(notes)
   // The member's settings as the bell and the inbox read them (M11 step 13.5); the design's defaults until they are in.
   const prefs: NotifyPrefs = useMemo(() => notePrefs === undefined ? DEFAULT_PREFS : notifyPrefsOf(notePrefs), [
     notePrefs
@@ -280,7 +297,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
       notes: [...notes],
       prefs,
       setRead: (ids, read) => void write.setRead({ payload: { ids: [...ids], read }, reactivityKeys: NOTES }),
-      wake: () => {}
+      wake
     },
     home: { widgets: [], engine: "grid", add: () => {}, remove: () => {}, setEngine: () => {} },
     nav: navState,

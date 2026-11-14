@@ -51,3 +51,8 @@ export const forwardingWrites = {
   cancel: ConsoleClient.mutation("Forwarding.cancel"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const
+
+/** "Klant mailen" (M8 10.2a): Insyte's draft for one leg's shopper, read when its dialog opens. */
+export const customerDraftAtom = Atom.family((legId: string) =>
+  ConsoleClient.query("Forwarding.customerDraft", { id: legId }, { reactivityKeys: [...FORWARDING, ...ORDERS] })
+)
