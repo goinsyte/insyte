@@ -173,7 +173,9 @@ export type PrepareInput = typeof PrepareInput.Type
 export const AgreeOfflineInput = Schema.Struct({
   window: OfflineWindow,
   /** By catalogue id; only the offline step's actions, never a locked one at `auto`. */
-  levels: Schema.Record(Schema.String, OfflineLevel)
+  levels: Schema.Record(Schema.String, OfflineLevel),
+  /** The autonomy policy's version the step showed: a save made since refuses the plan (`AutonomyStale`). */
+  baseVersion: Schema.Int
 })
 export type AgreeOfflineInput = typeof AgreeOfflineInput.Type
 
@@ -185,3 +187,6 @@ export class OfflineAgreed extends Schema.Class<OfflineAgreed>("firstAnalysis/Of
 
 /** The analysis has not finished reading: there is nothing to prepare from yet. */
 export class AnalysisNotReady extends Schema.TaggedError<AnalysisNotReady>()("AnalysisNotReady", {}) {}
+
+/** The person's onboarding is not on the offline step: the plan is agreed there only, later on Zelfstandigheid. */
+export class OfflineClosed extends Schema.TaggedError<OfflineClosed>()("OfflineClosed", {}) {}

@@ -53,6 +53,9 @@ export const promisesIn = (html: string, source: DeliveryPromise["source"]): Arr
 }
 
 /** The longest delivery the store promises anywhere, or nothing. */
+/** Calendar days a promise allows at most: working days stretch over weekends. */
+export const allowedDays = (p: DeliveryPromise) => (p.working ? (p.max * 7) / 5 : p.max)
+
 export const longestPromise = (facts: SetupFacts): DeliveryPromise | undefined =>
   facts.promises.reduce<DeliveryPromise | undefined>((a, p) => (a === undefined || p.max > a.max ? p : a), undefined)
 
@@ -151,8 +154,8 @@ const SHEET_COUNTRIES = 20
 const decimal = (n: number) => n.toFixed(1).replace(".", ",")
 
 /**
- * The sheet "Levertijd per land" as its first analysis leaves it: per country what the store promises next to the
- * median it really took and how many parcels that median stands on, the difference a formula. The countries with
+ * The sheet "Levertijd per land" as its first analysis leaves it: per country what the store promises (in calendar
+ * days, a promise in working days stretched over the weekends) next to the median it really took and how many parcels that median stands on, the difference a formula. The countries with
  * parcels first, then those the store ships to without any yet; never a figure Insyte did not count.
  */
 export const deliverySheet = (
@@ -161,28 +164,29 @@ export const deliverySheet = (
   tabId: string
 ): Tab => {
   const promise = longestPromise(facts)
-  const promisedDays = promise === undefined ? null : String(promise.max)
+  // In calendar days, as the median is: the difference never subtracts working days from calendar days.
+  const promisedDays = promise === undefined ? null : decimal(allowedDays(promise))
   const counted = [...(facts.countries ?? [])].sort((a, b) => b.delivered - a.delivered).slice(0, SHEET_COUNTRIES)
   const seen = new Set(counted.map((c) => c.country))
   const waiting = (facts.shipsTo ?? []).filter((c) => !seen.has(c)).slice(0, SHEET_COUNTRIES - counted.length)
   const rows: Spec = [
     [
       "Land",
-      promise?.working ? "Belofte (werkdagen)" : "Belofte (dagen)",
+      promise?.working ? `Belofte (dagen, ${promise.max} werkdagen)` : "Belofte (dagen)",
       "Werkelijk (mediaan)",
       "Verschil",
       "Zendingen"
     ],
     ...counted.map((c, i) => [
       countryName(c.country),
-      promisedDays === null ? null : [promisedDays, "integer"] as const,
+      promisedDays === null ? null : [promisedDays, "number"] as const,
       [decimal(c.days), "number"] as const,
       promisedDays === null ? null : [`=C${i + 2}-B${i + 2}`, "number"] as const,
       [String(c.delivered), "integer"] as const
     ]),
     ...waiting.map((c) => [
       countryName(c),
-      promisedDays === null ? null : [promisedDays, "integer"] as const,
+      promisedDays === null ? null : [promisedDays, "number"] as const,
       null,
       null,
       ["0", "integer"] as const

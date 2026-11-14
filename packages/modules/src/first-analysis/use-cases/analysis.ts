@@ -10,7 +10,7 @@ import * as Audit from "../../shared/use-cases/Audit.ts"
 import { throughGate } from "../../stores/domain/Gate.ts"
 import { ShopifyGraphql } from "../../stores/domain/Ports.ts"
 import { topicOf } from "../../tickets/domain/Rules.ts"
-import { findingOf, WINDOW_DAYS } from "../domain/Finding.ts"
+import { findingOf, mailFactsOf, WINDOW_DAYS } from "../domain/Finding.ts"
 import {
   type AgreeOfflineInput,
   AnalysisNotReady,
@@ -18,8 +18,8 @@ import {
   type DeliveryPromise,
   type Finding,
   FirstAnalysisView,
-  type MailFacts,
   OfflineAgreed,
+  OfflineClosed,
   type OfflinePlan,
   type PrepareInput,
   type Read,
@@ -83,13 +83,18 @@ interface Row {
 
 const decodeFacts = Schema.decodeUnknownOption(SetupFacts)
 
-/** The workspace's imported store, the one the analysis reads. */
+/**
+ * The workspace's imported store, the one the analysis reads; none for a person held to other stores (their
+ * `storeScope`, domain.md §2.4): they see no analysis of a store they cannot open, and start or prepare none.
+ */
 const storeOf = (sql: SqlClient.SqlClient) =>
-  Effect.map(
-    sql<{ id: string }>`select id from stores where status <> 'disconnected' and last_synced_at is not null
-                        order by created_at desc limit 1`,
-    (rows) => rows[0]?.id
-  )
+  Effect.gen(function*() {
+    const { storeScope } = yield* CurrentPrincipal
+    const [row] = yield* sql<{ id: string }>`
+      select id from stores where status <> 'disconnected' and last_synced_at is not null
+      order by created_at desc limit 1`
+    return row === undefined || (storeScope !== null && !storeScope.includes(row.id)) ? undefined : row.id
+  })
 
 const mirrorCounts = (sql: SqlClient.SqlClient, storeId: string) =>
   Effect.map(
@@ -119,17 +124,19 @@ const NO_TITLES = titlesOf(NO_FACTS)
 
 const factsOf = (setup: unknown): SetupFacts => Option.getOrElse(decodeFacts(setup), () => NO_FACTS)
 
-const regions = (() => {
-  try {
-    return new Intl.DisplayNames(["nl"], { type: "region" })
-  } catch {
-    return undefined
-  }
-})()
+/** Made on first use, not at startup. */
+let regions: Intl.DisplayNames | null | undefined
 
 /** A country code in Dutch ("US" → "Verenigde Staten"); the code itself where the runtime does not know it. */
 export const countryName = (code: string): string => {
   try {
+    if (regions === undefined) {
+      try {
+        regions = new Intl.DisplayNames(["nl"], { type: "region" })
+      } catch {
+        regions = null
+      }
+    }
     return regions?.of(code.toUpperCase()) ?? code
   } catch {
     return code
@@ -218,9 +225,12 @@ const settled = (sql: SqlClient.SqlClient) =>
 /** What the first analysis writes on the draft it prepares: read before it is switched on. */
 const DRAFT_NOTE = "Klaargezet door de eerste analyse. Zet hem aan wanneer je de mail hebt gelezen."
 
+/** The library template the delivery update is made from. */
+const ETA_TEMPLATE = "tpl_eta_update"
+
 /** The library's delivery update, sent on the store's own day. */
 const deliveryUpdate = (day: number) => {
-  const template = TEMPLATES_BY_ID["tpl_eta_update"]!
+  const template = TEMPLATES_BY_ID[ETA_TEMPLATE]!
   return nodesOfTemplate(template, () => mintId("node")).map((n) =>
     n.variantId === "trigger.schedule"
       ? {
@@ -259,6 +269,7 @@ export const prepare = Effect.fn("FirstAnalysis.prepare")(function*(input: Prepa
       let sheetId = row.made.sheetId ?? null
       if (input.ids.includes("automation") && automationId === null) {
         automationId = yield* orPending(makers.automation({
+          template: ETA_TEMPLATE,
           name: titles.automation.title,
           description: DRAFT_NOTE,
           nodes: deliveryUpdate(updateDay(facts))
@@ -293,7 +304,9 @@ export const prepare = Effect.fn("FirstAnalysis.prepare")(function*(input: Prepa
  * "Afronden" on the offline step: the levels into the autonomy policy as one new version (audited, with its undo, as
  * any save on Zelfstandigheid), and the plan kept with the hours its window implies for the customer agent. Only the
  * step's own actions, forwarding only when someone else ships, and a locked action never at Zelf doen
- * (`AutonomyLocked`). Needs the `ai.autonomy` special.
+ * (`AutonomyLocked`). Made on the policy version the step showed (`AutonomyStale` when someone saved since), and only
+ * while the person's onboarding is on that step (`OfflineClosed`): later the levels change on Zelfstandigheid. Needs
+ * the `ai.autonomy` special.
  */
 export const agreeOffline = Effect.fn("FirstAnalysis.agreeOffline")(function*(input: AgreeOfflineInput) {
   yield* Policy.requireAction("ai.autonomy")
@@ -302,13 +315,17 @@ export const agreeOffline = Effect.fn("FirstAnalysis.agreeOffline")(function*(in
   const db = yield* Db
   const undo = yield* db.scoped((sql) =>
     Effect.gen(function*() {
+      const [step] = yield* sql<{ open: boolean }>`
+        select exists (select 1 from onboarding_progress where workspace_id = ${principal.workspaceId}
+                         and step = 'offline' and completed_at is null) as open`
+      if (step?.open !== true) return yield* new OfflineClosed()
       const row = yield* settled(sql)
       if (row === undefined) return yield* new AnalysisNotReady()
       const { levels, unknown } = offlineLevelsOf(input.levels, row.answers)
       if (unknown.length > 0) {
         return yield* new Invalid({ fields: Object.fromEntries(unknown.map((id) => [`levels.${id}`, "unknown"])) })
       }
-      const saved = yield* makers.autonomy(sql, levels)
+      const saved = yield* makers.autonomy(sql, levels, input.baseVersion)
       const plan: OfflinePlan = {
         window: input.window,
         levels,
@@ -396,12 +413,22 @@ export const readOrders = Effect.fn("FirstAnalysis.readOrders")(function*(ctx: A
 const MAIL_CAP = 5000
 /** How much of a mail's text the rules read: the question is near the top. */
 const MAIL_TEXT = 2000
+/** How long before a mail its sender's order may be placed to be the one the mail asks about. */
+const TIE_DAYS = 60
+/** How long an order without a delivery date counts as still on its way. */
+const OPEN_DAYS = 30
+/** Senders that are a system, never a customer. */
+const SYSTEM_SENDER = "^(no-?reply|do-?not-?reply|mailer-daemon|postmaster|bounces?)([+.-].*)?@"
 
 /**
- * The inbox over the window (M15 step 5): every customer conversation with a mail in, its first mail classified by
- * the tickets' topic rules, and each one about where an order is tied to its sender's latest order of this store
- * placed before it, so Insyte can say whether it came before the parcel was there. Only counts are kept; no mail's
- * words leave this step. A reading without the inbox (no mailbox at its start) records nothing here.
+ * The inbox over the window (M15 step 5): every conversation of this store's customers with a mail in. A customer is
+ * a sender who ordered here or is its customer, never the team's own mailbox or a system sender; not by domain, as a
+ * team on a public mail provider shares it with its customers. Its first mail is classified by the tickets' topic
+ * rules, and each one about where an order is tied to its sender's latest order of this store placed up to two months
+ * before it, so Insyte can say whether it came before the parcel was there. Cut at the cap, the window is what the
+ * kept mail spans. Only counts are kept; no mail's words leave this step. A reading without the
+ * inbox (no mailbox at its start) records nothing here; one that fails records `null`, and the analysis goes on
+ * without a finding.
  */
 export const readMail = Effect.fn("FirstAnalysis.readMail")(function*(ctx: AnalysisContext) {
   const db = yield* Db
@@ -419,8 +446,15 @@ export const readMail = Effect.fn("FirstAnalysis.readMail")(function*(ctx: Analy
         from email_threads t
         join lateral (select from_address, sent_at, subject, body_text from email_messages
                       where thread_id = t.id and direction = 'inbound' order by sent_at limit 1) m on true
-        where t.deleted_at is null and t.spam_at is null
+        where t.deleted_at is null and t.spam_at is null and t.has_inbound
+          and t.last_message_at > now() - make_interval(days => ${WINDOW_DAYS})
           and m.sent_at > now() - make_interval(days => ${WINDOW_DAYS})
+          and lower(m.from_address) !~ ${SYSTEM_SENDER}
+          and lower(m.from_address) not in (select lower(address) from mailboxes)
+          and (exists (select 1 from orders o where o.workspace_id = app_workspace_id()
+                         and lower(o.customer_email) = lower(m.from_address) and o.store_id = ${ctx.storeId})
+               or exists (select 1 from customers c where c.workspace_id = app_workspace_id()
+                            and lower(c.email) = lower(m.from_address) and c.store_id = ${ctx.storeId}))
         order by m.sent_at desc
         limit ${MAIL_CAP}`
       const status = firsts.filter((m) => topicOf(m.subject, m.text) === "where_is_my_order")
@@ -430,28 +464,28 @@ export const readMail = Effect.fn("FirstAnalysis.readMail")(function*(ctx: Analy
           from unnest(${status.map((m) => m.email)}::text[], ${status.map((m) => m.at.toISOString())}::timestamptz[])
             as x(email, at)
           left join lateral (select id, placed_at from orders
-                             where store_id = ${ctx.storeId} and lower(customer_email) = x.email
-                               and placed_at <= x.at
+                             where workspace_id = app_workspace_id() and lower(customer_email) = x.email
+                               and store_id = ${ctx.storeId} and placed_at <= x.at
+                               and placed_at > x.at - make_interval(days => ${TIE_DAYS})
                              order by placed_at desc limit 1) o on true
           left join lateral (select min(delivered_at) as delivered_at from fulfilments where order_id = o.id) f on true
         ), early as (
+          -- Before the parcel was there: delivered after the mail, or not yet delivered and still on its way.
           select floor(extract(epoch from at - placed_at) / 86400)::int as day from asked
-          where placed_at is not null and (delivered_at is null or delivered_at > at)
+          where placed_at is not null
+            and (delivered_at > at
+                 or (delivered_at is null and at - placed_at <= make_interval(days => ${OPEN_DAYS})))
         )
         select (select count(*) from asked where placed_at is not null)::int as linked,
                (select count(*) from early)::int as early,
                (select percentile_disc(0.25) within group (order by day) from early) as day_low,
                (select percentile_disc(0.75) within group (order by day) from early) as day_high`
-      return {
-        window: WINDOW_DAYS,
-        mails: firsts.length,
-        status: status.length,
-        linked: tied?.linked ?? 0,
-        early: tied?.early ?? 0,
-        dayLow: tied?.dayLow ?? 0,
-        dayHigh: tied?.dayHigh ?? 0
-      } satisfies MailFacts
+      return mailFactsOf(firsts, status.length, tied, MAIL_CAP, Date.now())
     })
+  ).pipe(
+    Effect.catchCause((cause) =>
+      Effect.as(Effect.logWarning("first analysis: the inbox could not be read", { cause }), null)
+    )
   )
   yield* record(ctx, "mail", { mail })
 })

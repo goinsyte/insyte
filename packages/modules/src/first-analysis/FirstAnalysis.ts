@@ -9,6 +9,7 @@ import type {
   AnalysisNotReady,
   FirstAnalysisView,
   OfflineAgreed,
+  OfflineClosed,
   PrepareInput
 } from "./domain/FirstAnalysis.ts"
 import { Analyses } from "./domain/Ports.ts"
@@ -32,7 +33,7 @@ export class FirstAnalysisService extends Context.Service<FirstAnalysisService, 
     input: AgreeOfflineInput
   ) => Effect.Effect<
     OfflineAgreed,
-    Forbidden | Invalid | AnalysisNotReady | AutonomyLocked | AutonomyStale,
+    Forbidden | Invalid | AnalysisNotReady | OfflineClosed | AutonomyLocked | AutonomyStale,
     R
   >
 }>()("modules/FirstAnalysisService") {

@@ -1,9 +1,9 @@
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
-import { failure, ok, person, run } from "./journeys.ts"
-import { importedStore } from "./shops.ts"
-import { call, rpc, sessionMe } from "./support.ts"
+import { failure, join, ok, pastUndo, person, relay, run } from "./journeys.ts"
+import { anotherStore, importedStore } from "./shops.ts"
+import { call, onboarding, rpc, sessionMe } from "./support.ts"
 
 /*
  * A store's first analysis (step 8.5, M6.5), against Shopify's recorded twin: started after the import, the Workflow
@@ -92,28 +92,37 @@ describe("a store's first analysis", () => {
       1
     )
 
-    // The offline plan: refused for a locked action at Zelf doen, and for what the step does not list.
-    expect(
-      failure(
-        await rpc("FirstAnalysis.agreeOffline", { window: "late", levels: { RefundOrder: "auto" } }, store.cookie)
-      )
-    ).toMatchObject({ _tag: "AutonomyLocked", id: "RefundOrder" })
-    expect(
-      failure(await rpc("FirstAnalysis.agreeOffline", { window: "late", levels: { AddNote: "auto" } }, store.cookie))
-    ).toMatchObject({ _tag: "Invalid" })
+    // The offline plan is agreed on the offline step only: before it, refused.
+    const start = ok(await rpc("Autonomy.get", {}, store.cookie))
+    const plan = (levels: Record<string, "auto" | "ask">, baseVersion: number) =>
+      rpc("FirstAnalysis.agreeOffline", { window: "late", levels, baseVersion }, store.cookie)
+    expect(failure(await plan({ SendReply: "auto" }, start.version))).toMatchObject({ _tag: "OfflineClosed" })
+    ok(await onboarding.advance({ step: "plan", plan: "growth", cycle: "monthly" }, store.cookie))
+    ok(await onboarding.advance({ step: "store", choice: "connected" }, store.cookie))
+    ok(await onboarding.advance({ step: "sync" }, store.cookie))
+    expect(ok(await onboarding.advance({ step: "analysis" }, store.cookie)).step).toBe("offline")
+
+    // Refused for a locked action at Zelf doen, and for what the step does not list.
+    expect(failure(await plan({ RefundOrder: "auto" }, start.version))).toMatchObject({
+      _tag: "AutonomyLocked",
+      id: "RefundOrder"
+    })
+    expect(failure(await plan({ AddNote: "auto" }, start.version))).toMatchObject({ _tag: "Invalid" })
+
+    // Someone saves Zelfstandigheid while the step is open: the plan made on what it showed is refused, not laid over.
+    ok(await rpc("Autonomy.set", { levels: { AddNote: "auto" }, baseVersion: start.version }, store.cookie))
+    const levels = {
+      ForwardOrder: "auto",
+      ApplyLabel: "auto",
+      SendReply: "auto",
+      ApproveReturn: "ask",
+      RefundOrder: "ask"
+    } as const
+    expect(failure(await plan(levels, start.version))).toMatchObject({ _tag: "AutonomyStale" })
     const before = ok(await rpc("Autonomy.get", {}, store.cookie))
-    const agreed = ok(
-      await rpc("FirstAnalysis.agreeOffline", {
-        window: "late",
-        levels: {
-          ForwardOrder: "auto",
-          ApplyLabel: "auto",
-          SendReply: "auto",
-          ApproveReturn: "ask",
-          RefundOrder: "ask"
-        }
-      }, store.cookie)
-    )
+    expect(before.levels.AddNote).toBe("auto")
+
+    const agreed = ok(await plan(levels, before.version))
     expect(agreed.analysis.offline).toMatchObject({
       window: "late",
       levels: { ForwardOrder: "auto", SendReply: "auto", RefundOrder: "ask" },
@@ -126,7 +135,8 @@ describe("a store's first analysis", () => {
       ForwardOrder: "auto",
       ApplyLabel: "auto",
       SendReply: "auto",
-      RefundOrder: "ask"
+      RefundOrder: "ask",
+      AddNote: "auto"
     })
     expect(after.history[0]!.changes.map((c) => c.id).toSorted()).toEqual(["ApplyLabel", "ForwardOrder", "SendReply"])
 
@@ -135,6 +145,56 @@ describe("a store's first analysis", () => {
     const undone = ok(await rpc("Autonomy.get", {}, store.cookie))
     expect(undone.version).toBe(before.version + 2)
     expect(undone.levels).toEqual(before.levels)
+  })
+
+  it("drops forwarding from the plan of a store that ships itself", async () => {
+    const store = await importedStore("analysis-self")
+    await using workflows = await introspectWorkflow(env.FIRST_ANALYSIS)
+    ok(await rpc("FirstAnalysis.start", undefined, store.cookie))
+    const [instance] = await workflows.get()
+    await instance!.waitForStatus("complete")
+    ok(await rpc("FirstAnalysis.prepare", { ids: [], answers: { fulfilment: "self", reply: "ask" } }, store.cookie))
+    ok(await onboarding.advance({ step: "plan", plan: "growth", cycle: "monthly" }, store.cookie))
+    ok(await onboarding.advance({ step: "store", choice: "connected" }, store.cookie))
+    ok(await onboarding.advance({ step: "sync" }, store.cookie))
+    ok(await onboarding.advance({ step: "analysis" }, store.cookie))
+    const policy = ok(await rpc("Autonomy.get", {}, store.cookie))
+    const agreed = ok(
+      await rpc("FirstAnalysis.agreeOffline", {
+        window: "evening",
+        levels: { ForwardOrder: "auto", ApplyLabel: "auto" },
+        baseVersion: policy.version
+      }, store.cookie)
+    )
+    expect(agreed.analysis.offline!.levels).toEqual({ ApplyLabel: "auto" })
+    expect(ok(await rpc("Autonomy.get", {}, store.cookie)).levels.ForwardOrder).toBe(policy.levels.ForwardOrder)
+  })
+
+  it("shows no analysis to someone held to another store, and lets them prepare none", async () => {
+    const a = await importedStore("analysis-fence")
+    // The newest store is the one the analysis reads: B.
+    const b = (await anotherStore(a, "analysis-fence-b")).storeId
+    await using workflows = await introspectWorkflow(env.FIRST_ANALYSIS)
+    ok(await rpc("FirstAnalysis.start", undefined, a.cookie))
+    const [instance] = await workflows.get()
+    await instance!.waitForStatus("complete")
+    expect(ok(await rpc("FirstAnalysis.get", undefined, a.cookie)).state).toBe("early")
+
+    const email = `analysis-${run}-fence@invited.test`
+    ok(await rpc("Invitations.send", { rows: [{ email, roleId: "admin", stores: [a.storeId] }] }, a.cookie))
+    await pastUndo(a.workspace)
+    await relay(a.workspace)
+    const held = await join(email)
+    expect(b).not.toBe(a.storeId)
+    const theirs = ok(await rpc("FirstAnalysis.get", undefined, held))
+    expect(theirs).toMatchObject({ state: "none", finding: null, predictions: [], watch: [] })
+    expect(theirs.store).toEqual({ products: 0, customers: 0, orders: 0, days: 0, mails: 0 })
+    expect(
+      failure(
+        await rpc("FirstAnalysis.prepare", { ids: ["automation"], answers: { fulfilment: "one", reply: "ask" } }, held)
+      )
+    ).toMatchObject({ _tag: "AnalysisNotReady" })
+    expect(ok(await rpc("FirstAnalysis.start", undefined, held)).state).toBe("none")
   })
 
   it("says nothing it could not read for a store Shopify does not answer for", async () => {
@@ -213,17 +273,24 @@ describe("a store's first analysis", () => {
     })
     expect(written.status).toBe(200)
 
-    // Forty conversations: thirty ask where their order is, ten ask something else.
-    for (let i = 0; i < 40; i++) {
+    // Forty conversations of the store's customers: thirty ask where their order is, ten ask something else. Three
+    // more are no customer's: a system sender, someone who never ordered here, and the team's own mailbox.
+    const senders = [
+      ...Array.from({ length: 40 }, (_, i) => email(i)),
+      "noreply@meldingen.voorbeeld.nl",
+      `vreemde-${run}@elders.nl`,
+      "support@analysis-mail.nl"
+    ]
+    for (const [i, sender] of senders.entries()) {
       const raw = [
-        `From: <${email(i)}>`,
+        `From: <${sender}>`,
         "To: <support@analysis-mail.nl>",
-        `Subject: ${i < 30 ? "Waar is mijn bestelling?" : "Vraag over de maat"}`,
+        `Subject: ${i < 30 || i >= 40 ? "Waar is mijn bestelling?" : "Vraag over de maat"}`,
         `Message-ID: <fa-${i}-${run}@voorbeeld.nl>`,
         "Content-Type: text/plain; charset=utf-8",
         "MIME-Version: 1.0",
         "",
-        i < 30 ? "Hoi, mijn pakket is nog niet binnen." : "Valt deze jas klein?"
+        i < 30 || i >= 40 ? "Hoi, mijn pakket is nog niet binnen." : "Valt deze jas klein?"
       ].join("\r\n")
       const delivered = await call("http://api.test/api/__dev/mail/inbound", {
         method: "POST",
@@ -246,13 +313,15 @@ describe("a store's first analysis", () => {
     expect(view.state).toBe("found")
     expect(view.store.mails).toBe(40)
     expect(view.predictions).toEqual([])
+    // Nothing is delivered yet: an order counts as still on its way for a month, so the five placed 31 to 34 days
+    // before their mail do not count as asked early (25 of 30, ~25 of the 30 status mails spared).
     expect(view.finding).toMatchObject({
       headline: "Meer dan de helft van je klantmail is “waar is mijn bestelling?”.",
       evidence: [
         { figure: "30 van 40", basis: "Inbox, laatste 90 dagen" },
-        { figure: "100%", basis: "Moment van de mail naast de bezorgdatum" }
+        { figure: "83%", basis: "Moment van de mail naast de bezorgdatum" }
       ],
-      effect: { figure: "~30 mails minder per kwartaal" }
+      effect: { figure: "~25 mails minder per kwartaal" }
     })
   })
 

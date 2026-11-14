@@ -1,5 +1,5 @@
 import type { CountryDelivery, DeliveryPromise, Finding, MailFacts, SetupFacts } from "./FirstAnalysis.ts"
-import { historyOf, longestPromise, updateDay } from "./Rules.ts"
+import { allowedDays, historyOf, longestPromise, updateDay } from "./Rules.ts"
 
 /*
  * The finding path (M15 step 5; PLAN 45): with enough history and the team's mail in Insyte, the one problem worth
@@ -24,26 +24,61 @@ const nl = (n: number) => n.toLocaleString("nl-NL")
 const pct = (part: number, whole: number) => Math.round((part / whole) * 100)
 const oneDecimal = (n: number) => n.toLocaleString("nl-NL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 
+const DAY_MS = 86_400_000
+
+/**
+ * What the inbox read keeps: counts only, never a sender, a subject or a word of a mail. Cut at the cap, the window is
+ * the days the kept mail spans (newest first), so the figures never stand on more days than were read.
+ */
+export const mailFactsOf = (
+  firsts: ReadonlyArray<{ readonly at: Date }>,
+  status: number,
+  tied: {
+    readonly linked: number
+    readonly early: number
+    readonly dayLow: number | null
+    readonly dayHigh: number | null
+  } | undefined,
+  cap: number,
+  now: number
+): MailFacts => {
+  const oldest = firsts.at(-1)?.at
+  const window = firsts.length < cap || oldest === undefined
+    ? WINDOW_DAYS
+    : Math.min(WINDOW_DAYS, Math.max(1, Math.ceil((now - oldest.getTime()) / DAY_MS)))
+  return {
+    window,
+    mails: firsts.length,
+    status,
+    linked: tied?.linked ?? 0,
+    early: tied?.early ?? 0,
+    dayLow: tied?.dayLow ?? 0,
+    dayHigh: tied?.dayHigh ?? 0
+  }
+}
+
 /** The share as a Dutch reader says it, never more than it is. */
 const shareWords = (share: number) =>
-  share >= 0.5
+  share > 0.5
     ? "Meer dan de helft van je klantmail"
+    : share === 0.5
+    ? "De helft van je klantmail"
     : share > 0.37
     ? "Ruim een derde van je klantmail"
-    : share >= 0.3
+    : share >= 1 / 3
     ? "Een derde van je klantmail"
+    : share >= 0.3
+    ? "Bijna een derde van je klantmail"
     : share > 0.27
     ? "Ruim een kwart van je klantmail"
     : "Een kwart van je klantmail"
 
-/** A count as a round estimate: to 5 below a hundred, to 10 below a thousand, to 50 above. */
+/** A count as a round estimate: whole below ten, to 5 below a hundred, to 10 below a thousand, to 50 above; never 0. */
 const roundish = (n: number) => {
+  if (n < 10) return Math.max(1, Math.round(n))
   const step = n < 100 ? 5 : n < 1000 ? 10 : 50
-  return Math.max(step, Math.round(n / step) * step)
+  return Math.round(n / step) * step
 }
-
-/** Calendar days a promise allows at most: working days stretch over weekends. */
-const allowedDays = (p: DeliveryPromise) => (p.working ? (p.max * 7) / 5 : p.max)
 
 const promiseWords = (p: DeliveryPromise) => {
   const span = p.min === p.max ? `${p.max}` : `${p.min} tot ${p.max}`
@@ -112,7 +147,7 @@ export const findingOf = (facts: SetupFacts, countryName: (code: string) => stri
       }: de meeste van deze mails vragen niets anders.`
     },
     effect: {
-      figure: `~${nl(spared)} mails minder per kwartaal`,
+      figure: `~${nl(spared)} ${spared === 1 ? "mail" : "mails"} minder per kwartaal`,
       basis: `${earlyPct}% van ${nl(mail.status)}, als die klanten de update op tijd krijgen`
     }
   }

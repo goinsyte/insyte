@@ -197,7 +197,7 @@ const PAYLOADS: Record<string, unknown> = {
   "FirstAnalysis.get": undefined,
   "FirstAnalysis.start": undefined,
   "FirstAnalysis.prepare": { ids: ["agent"], answers: { fulfilment: "one", reply: "ask" } },
-  "FirstAnalysis.agreeOffline": { window: "evening", levels: {} },
+  "FirstAnalysis.agreeOffline": { window: "evening", levels: {}, baseVersion: 0 },
   // A token nobody holds: `NotFound` for every role; the compensation's own permission is the command's.
   "Shared.undo": { token: "und_none" },
   // No Klaviyo in this workspace: `Conflict` for every role that may; connecting needs the app (the twin has it).

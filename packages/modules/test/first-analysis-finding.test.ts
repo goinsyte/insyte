@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { findingOf, slowestCountry } from "../src/first-analysis/domain/Finding.ts"
+import { findingOf, mailFactsOf, slowestCountry, WINDOW_DAYS } from "../src/first-analysis/domain/Finding.ts"
 import type { SetupFacts } from "../src/first-analysis/domain/FirstAnalysis.ts"
 import { hoursFor, offlineActionsFor, offlineLevelsOf } from "../src/first-analysis/domain/Offline.ts"
 import { deliverySheet, readsFor, updateDay } from "../src/first-analysis/domain/Rules.ts"
@@ -35,7 +35,7 @@ describe("the first analysis's finding", () => {
   it("names the status mail, the slow country and when the mail comes, each with its basis", () => {
     const finding = findingOf(SETTLED, name)
     expect(finding).toEqual({
-      headline: "Een derde van je klantmail is “waar is mijn bestelling?”.",
+      headline: "Bijna een derde van je klantmail is “waar is mijn bestelling?”.",
       evidence: [
         {
           figure: "412 van 1.288",
@@ -89,8 +89,53 @@ describe("the first analysis's finding", () => {
       findingOf({ ...SETTLED, mail: { ...SETTLED.mail!, mails: 100, status } }, name)?.headline
     expect(headline(25)).toBe("Een kwart van je klantmail is “waar is mijn bestelling?”.")
     expect(headline(29)).toBe("Ruim een kwart van je klantmail is “waar is mijn bestelling?”.")
+    expect(headline(30)).toBe("Bijna een derde van je klantmail is “waar is mijn bestelling?”.")
+    expect(headline(34)).toBe("Een derde van je klantmail is “waar is mijn bestelling?”.")
     expect(headline(45)).toBe("Ruim een derde van je klantmail is “waar is mijn bestelling?”.")
+    expect(headline(50)).toBe("De helft van je klantmail is “waar is mijn bestelling?”.")
     expect(headline(60)).toBe("Meer dan de helft van je klantmail is “waar is mijn bestelling?”.")
+  })
+
+  it("rounds a small effect to what it is, never up to five", () => {
+    const small = findingOf(
+      { ...SETTLED, mail: { window: 90, mails: 40, status: 10, linked: 10, early: 1, dayLow: 4, dayHigh: 4 } },
+      name
+    )
+    expect(small?.effect.figure).toBe("~1 mail minder per kwartaal")
+    const few = findingOf(
+      { ...SETTLED, mail: { window: 90, mails: 40, status: 12, linked: 10, early: 6, dayLow: 4, dayHigh: 6 } },
+      name
+    )
+    expect(few?.effect.figure).toBe("~7 mails minder per kwartaal")
+  })
+})
+
+describe("the first analysis's inbox read", () => {
+  const at = (daysAgo: number) => new Date(NOW - daysAgo * 86_400_000)
+  const NOW = Date.UTC(2026, 10, 14, 12)
+
+  it("keeps counts only: no sender, subject or text of a mail", () => {
+    const firsts = [{ at: at(1), email: "klant@voorbeeld.nl", subject: "Waar is mijn pakket?", text: "Hoi" }]
+    const facts = mailFactsOf(firsts, 1, { linked: 1, early: 1, dayLow: 3, dayHigh: 3 }, 5000, NOW)
+    expect(Object.keys(facts).toSorted()).toEqual(
+      ["dayHigh", "dayLow", "early", "linked", "mails", "status", "window"]
+    )
+    expect(Object.values(facts).every((v) => Number.isInteger(v))).toBe(true)
+    expect(JSON.stringify(facts)).not.toMatch(/klant|pakket|Hoi/)
+  })
+
+  it("reads the window as the days the kept mail spans when the cap cuts it", () => {
+    const three = [at(1), at(10), at(20.5)].map((d) => ({ at: d }))
+    expect(mailFactsOf(three, 0, undefined, 5000, NOW).window).toBe(WINDOW_DAYS)
+    expect(mailFactsOf(three, 0, undefined, 3, NOW)).toEqual({
+      window: 21,
+      mails: 3,
+      status: 0,
+      linked: 0,
+      early: 0,
+      dayLow: 0,
+      dayHigh: 0
+    })
   })
 })
 
@@ -99,13 +144,26 @@ describe("the first analysis's sheet", () => {
     const tab = deliverySheet({ ...SETTLED, shipsTo: ["NL", "US", "BE"] }, name, "tab_1")
     expect(tab.name).toBe("Per land")
     expect(tab.cells["A2"]?.v).toBe("Nederland")
-    expect(tab.cells["B2"]).toEqual({ v: "7", fmt: "integer" })
+    expect(tab.cells["A1"]?.v).toBe("Land")
+    expect(tab.cells["B1"]?.v).toBe("Belofte (dagen)")
+    expect(tab.cells["B2"]).toEqual({ v: "7,0", fmt: "number" })
     expect(tab.cells["C2"]).toEqual({ v: "4,2", fmt: "number" })
     expect(tab.cells["D2"]).toEqual({ v: "=C2-B2", fmt: "number" })
     expect(tab.cells["E2"]).toEqual({ v: "1106", fmt: "integer" })
     expect(tab.cells["A5"]?.v).toBe("BE")
     expect(tab.cells["C5"]).toBeUndefined()
     expect(tab.cells["E5"]).toEqual({ v: "0", fmt: "integer" })
+  })
+
+  it("puts a promise in working days in calendar days, as the median is", () => {
+    const tab = deliverySheet(
+      { ...SETTLED, promises: [{ min: 5, max: 7, working: true, source: "policy" }] },
+      name,
+      "tab_1"
+    )
+    expect(tab.cells["B1"]?.v).toBe("Belofte (dagen, 7 werkdagen)")
+    expect(tab.cells["B2"]).toEqual({ v: "9,8", fmt: "number" })
+    expect(tab.cells["D2"]).toEqual({ v: "=C2-B2", fmt: "number" })
   })
 
   it("has no promise column values when the store promises nothing", () => {
