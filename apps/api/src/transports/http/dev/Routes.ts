@@ -1,6 +1,6 @@
 import { Effect, Layer, Scope } from "effect"
 import { HttpRouter } from "effect/http"
-import { AiCallsOf } from "./ai.ts"
+import { AiRoutes } from "./ai.ts"
 import { AuthEventsOf } from "./auth.ts"
 import { AutomationRunsOf } from "./automations.ts"
 import { ChargebackRemind } from "./chargebacks.ts"
@@ -47,7 +47,7 @@ const Routes = Layer.mergeAll(
   UndoRoutes,
   InvitationLapse,
   ProposalLapse,
-  AiCallsOf
+  AiRoutes
 )
 
 /**

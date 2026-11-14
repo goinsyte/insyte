@@ -437,6 +437,18 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     state: Schema.Literals(["ready", "failed"])
   }),
+  // A model call carried an AI budget past its warning (80%) or its limit this month (M15 step 1): whoever may set the
+  // limits hears it, and for a person's budget that person too. `memberId` is the budget's person, `null` the workspace's.
+  Schema.Struct({
+    type: Schema.Literal("ai.budget_crossed"),
+    workspaceId: Schema.String,
+    budgetId: Schema.String,
+    memberId: Schema.NullOr(Schema.String),
+    level: Schema.Literals(["warn", "reached"]),
+    /** The month's use and the limit, in euro cents and whole euros, as they were at the call. */
+    usedCents: Schema.Int,
+    limit: Schema.Int
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

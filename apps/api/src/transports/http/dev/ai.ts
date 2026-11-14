@@ -1,8 +1,8 @@
 import { Db } from "@insyte/database/Db"
-import { type WorkspaceId } from "@insyte/domain/Ids"
+import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
-import { Effect } from "effect"
-import { HttpRouter, HttpServerResponse } from "effect/http"
+import { Effect, Layer } from "effect"
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { withRequestDb } from "../../../platform/RequestDb.ts"
 import { notInProduction, workspaceParam } from "./shared.ts"
 
@@ -12,7 +12,7 @@ import { notInProduction, workspaceParam } from "./shared.ts"
  * And how many reservations are still open (`ai_reservations` not settled). For the tests that check every call is
  * metered. Refused in production.
  */
-export const AiCallsOf = HttpRouter.add(
+const AiCallsOf = HttpRouter.add(
   "GET",
   "/api/__dev/ai/calls",
   Effect.gen(function*() {
@@ -45,3 +45,33 @@ export const AiCallsOf = HttpRouter.add(
     return HttpServerResponse.jsonUnsafe({ calls, openReservations: open })
   }).pipe(withRequestDb)
 )
+
+/**
+ * `POST /api/__dev/ai/spent?workspace=<id>` `{ memberId, cents }`: a call already billed this month, worth that many euro
+ * cents at today's rate, against a person's budget (`memberId`) or the background's (`null`). The fake model bills
+ * nothing, so the budget warnings' tests spend this way first. Refused in production.
+ */
+const AiSpent = HttpRouter.add(
+  "POST",
+  "/api/__dev/ai/spent",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = { id: (yield* workspaceParam) as WorkspaceId }
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const body = (yield* request.json) as { readonly memberId: string | null; readonly cents: number }
+    const db = yield* Db
+    yield* db.scopedFor((sql) =>
+      sql`insert into model_calls (id, workspace_id, member_id, principal_kind, purpose, prompt_id, prompt_version,
+                                   provider, model, cost_micros, outcome)
+          values (${mintId("mcl")}, ${workspace.id}, ${body.memberId}, 'member', 'draft', 'reply_draft', 'dev', 'fake',
+                  'fake', round(${body.cents} * 10000 / coalesce((select f.rate from fx_rates f
+                                                                   where f.base = 'USD' and f.quote = 'EUR'
+                                                                   order by f.day desc limit 1), 1)), 'ok')`
+    ).pipe(Effect.provideService(CurrentWorkspace, workspace))
+    return HttpServerResponse.jsonUnsafe({ ok: true })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+export const AiRoutes = Layer.mergeAll(AiCallsOf, AiSpent)

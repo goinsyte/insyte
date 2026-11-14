@@ -286,3 +286,77 @@ describe("the stage's model", () => {
       .toBe("anthropic")
   })
 })
+
+const spend = (workspace: string, memberId: string | null, cents: number) =>
+  call(`http://api.test/api/__dev/ai/spent?workspace=${workspace}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ memberId, cents })
+  })
+
+const budgetNotes = async (cookie: string) =>
+  ok(await rpc("Notifications.list", { tab: "inbox", cursor: null }, cookie)).items
+    .filter((n) => n.kind === "insyte.budget")
+    .map((n) => ({ subjectType: n.subjectType, data: n.data }))
+
+describe("the AI budget's warnings", () => {
+  // A person's budget at 80%, then spent: they and the owner hear each once; the workspace's at 80% reaches only who may
+  // set the limits, not a teammate without `ai.autonomy`.
+  it(
+    "says a person's 80% and their limit to them and the owner, once each, and the workspace's to the owner",
+    async () => {
+      const owner = await person("ai-warn", "Budget B.V.")
+      const workspace = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
+      const email = `ai-${run}-warned@invited.test`
+      ok(await rpc("Invitations.send", { rows: [{ email, roleId: "service", stores: "all" }] }, owner.cookie))
+      await pastUndo(workspace)
+      await relay(workspace)
+      const member = await join(email)
+      const memberId = ok(await sessionMe(member)).principals[0]!.id
+      ok(
+        await rpc("AiBudget.setMany", {
+          entries: [{ scope: "workspace", limit: 100 }, { scope: memberId, limit: 10 }]
+        }, owner.cookie)
+      )
+      const ticket = ok(await rpc("Tickets.create", { title: "Waar blijft mijn pakket", description: "" }, member))
+        .tickets[0]!.id
+      const draft = () => rpc("Drafts.reply", { subject: { type: "ticket", id: ticket } }, member)
+
+      await spend(workspace, memberId, 790)
+      ok(await draft())
+      await relay(workspace)
+      expect(await budgetNotes(member)).toEqual([])
+
+      await spend(workspace, memberId, 20)
+      ok(await draft())
+      ok(await draft())
+      await relay(workspace)
+      const warned = {
+        subjectType: "ai_budget",
+        data: expect.objectContaining({ level: "warn", scope: "member", memberId, usedCents: 810, limit: 10 })
+      }
+      expect(await budgetNotes(member)).toEqual([warned])
+      expect(await budgetNotes(owner.cookie)).toEqual([warned])
+
+      await spend(workspace, memberId, 190)
+      expect(failure(await draft())).toMatchObject({ _tag: "BudgetExceeded", scope: "member" })
+      expect(failure(await draft())).toMatchObject({ _tag: "BudgetExceeded", scope: "member" })
+      await relay(workspace)
+      const reached = { subjectType: "ai_budget", data: expect.objectContaining({ level: "reached", scope: "member" }) }
+      expect(await budgetNotes(member)).toEqual([reached, warned])
+      expect(await budgetNotes(owner.cookie)).toEqual([reached, warned])
+
+      // The workspace's own limit: € 10 of € 12 used, at the owner's next call.
+      ok(await rpc("AiBudget.setMany", { entries: [{ scope: "workspace", limit: 12 }] }, owner.cookie))
+      ok(await rpc("Drafts.reply", { subject: { type: "ticket", id: ticket } }, owner.cookie))
+      await relay(workspace)
+      const ours = await budgetNotes(owner.cookie)
+      expect(ours[0]).toEqual({
+        subjectType: "ai_budget",
+        data: expect.objectContaining({ level: "warn", scope: "workspace", memberId: null, limit: 12 })
+      })
+      expect(await budgetNotes(member)).toHaveLength(2)
+    },
+    120_000
+  )
+})

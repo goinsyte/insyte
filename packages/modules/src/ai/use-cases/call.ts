@@ -2,6 +2,8 @@ import { mintId } from "@insyte/domain/Ids"
 import { Cause, Effect, Exit, Option } from "effect"
 import { AiError, LanguageModel, Prompt } from "effect/ai"
 import type { SqlClient, SqlError } from "effect/sql"
+import { PendingEvents } from "../../shared/domain/Outbox.ts"
+import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import {
   AiModel,
   BudgetExceeded,
@@ -120,6 +122,69 @@ export const reserve = Effect.fn("Ai.reserve")(function*(
   return id
 })
 
+/**
+ * The budgets a settled call carried past their warning (`warn_at_pct`, 80% unless set) or their limit this month
+ * (M15 step 1): each marked (`warned_at`, `reached_at`) and said once a month, as an `ai.budget_crossed` event the
+ * notifications sink turns into `insyte.budget`. A call that jumps past both says only that the limit is reached. A
+ * reservation keeps a settled call inside its limit, so the limit is mostly reached when a call is refused for it
+ * (`refused`, the budget that refused it): that budget is spent for this month's calls. A mark from an earlier month
+ * counts as none; a new limit clears both (`AiBudget.setMany`). Under the workspace's budget lock, so two calls at once
+ * say it once.
+ */
+export const noteCrossings = Effect.fn("Ai.noteCrossings")(
+  function*(sql: SqlClient.SqlClient, memberId: string | null, refused: "workspace" | "member" | null = null) {
+    yield* sql`select pg_advisory_xact_lock(hashtextextended('ai_budget:' || app_workspace_id(), 0))`
+    const crossed = yield* sql<{
+      id: string
+      memberId: string | null
+      workspaceId: string
+      reached: boolean
+      used: string
+      limitMinor: string
+    }>`
+    with month as (
+      select (date_trunc('month', now() at time zone coalesce(w.timezone, 'Europe/Amsterdam'))
+              at time zone coalesce(w.timezone, 'Europe/Amsterdam')) as start
+      from workspaces w where w.id = app_workspace_id()
+    ),
+    b as (
+      select b.id, b.member_id, b.monthly_limit_minor, ai_month_used(b.member_id) as used,
+             b.monthly_limit_minor::numeric * 10000 as limit_micros, b.warn_at_pct,
+             coalesce(b.warned_at >= month.start, false) as warned,
+             coalesce(b.reached_at >= month.start, false) as was_reached
+      from ai_budgets b cross join month
+      where b.monthly_limit_minor > 0 and (b.member_id is null or b.member_id = ${memberId})
+    ),
+    hit as (
+      select b.*,
+             (b.used >= b.limit_micros
+               or (b.member_id is null and coalesce(${refused}::text, '') = 'workspace')
+               or (b.member_id is not null and coalesce(${refused}::text, '') = 'member')) as at_limit,
+             b.used * 100 >= b.limit_micros * b.warn_at_pct as at_warn
+      from b
+    )
+    update ai_budgets a
+    set warned_at = case when hit.at_warn and not hit.warned then now() else a.warned_at end,
+        reached_at = case when hit.at_limit and not hit.was_reached then now() else a.reached_at end
+    from hit
+    where a.id = hit.id and ((hit.at_warn and not hit.warned) or (hit.at_limit and not hit.was_reached))
+    returning a.id, a.member_id, a.workspace_id, (hit.at_limit and not hit.was_reached) as reached, hit.used::text as used,
+              hit.monthly_limit_minor::text as limit_minor`
+    for (const c of crossed) {
+      const id = yield* Outbox.write(sql, c.workspaceId, {
+        type: "ai.budget_crossed",
+        workspaceId: c.workspaceId,
+        budgetId: c.id,
+        memberId: c.memberId,
+        level: c.reached ? "reached" : "warn",
+        usedCents: Math.round(Number(c.used) / 10_000),
+        limit: Math.round(Number(c.limitMinor) / 100)
+      })
+      ;(yield* PendingEvents)?.add(id)
+    }
+  }
+)
+
 const outcomeOf = (error: AiError.AiError) =>
   error.reason._tag === "ContentPolicyError" ? "refused" as const : "error" as const
 
@@ -204,6 +269,13 @@ export const call = <I, O, X>(
       const worst = worstCase(prompt, prompt.render(input))
       const reservation = yield* inTx((sql) =>
         reserve(sql, caller, prompt.id, costOf(model.price, worst), options.dedupeKey)
+      ).pipe(
+        // A budget that refuses the call is spent for this month: whoever sets the limits hears it, once.
+        Effect.tapError((error) =>
+          error instanceof BudgetExceeded
+            ? Effect.ignore(inTx((sql) => noteCrossings(sql, caller.memberId, error.scope)))
+            : Effect.void
+        )
       )
       const seen = meter()
       const { exit, latencyMs } = yield* generate(prompt, input, seen, restore)
@@ -238,6 +310,7 @@ export const call = <I, O, X>(
                       ${caller.subject?.type ?? null}, ${caller.subject?.id ?? null}, ${caller.test ?? false})`
           yield* sql`update ai_reservations set settled_at = now(), model_call_id = ${callId}
                      where id = ${reservation}`
+          yield* noteCrossings(sql, caller.memberId)
         })
       )
       if (Exit.isFailure(exit) || blocked) {

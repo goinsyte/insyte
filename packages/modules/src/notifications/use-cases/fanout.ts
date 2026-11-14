@@ -32,6 +32,8 @@ import { connectionOf } from "./slack.ts"
  * - `export.finished`: the member who asked for an export hears its file is ready (with its link), or that it failed;
  * - `supplier.problem_reported` / `supplier.shipment_refused`: whoever handles orders hears a supplier reported a problem
  *   in its portal (with the ticket it opened), or that Shopify refused a parcel it marked shipped (M16 step 2).
+ * - `ai.budget_crossed`: an AI budget at its warning or its limit; the workspace's to whoever may set the limits, a
+ *   person's to that person and the owner (M15 step 1).
  *
  * A member deactivated or removed hears nothing. Who has "Alleen als het mij betreft" on for the kind hears only of
  * what concerns them directly (they were put on it, named in it, asked for it or sent the invitation). The in-app switch
@@ -525,6 +527,42 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
               ticketId: work.ticketId,
               ticketNumber: work.ticketNumber
             }
+        }
+      }
+      case "ai.budget_crossed": {
+        // An AI budget at its warning or its limit (M15 step 1): whoever may set the limits (`ai.autonomy`) hears of
+        // the workspace's; a person's budget, that person and the owner. A budget gone or changed since says nothing.
+        const [budget] = yield* sql<{ memberId: string | null; limitMinor: string | null; name: string | null }>`
+          select b.member_id, b.monthly_limit_minor as limit_minor, coalesce(nullif(u.name, ''), 'Iemand') as name
+          from ai_budgets b left join members m on m.id = b.member_id left join auth."user" u on u.id = m.user_id
+          where b.id = ${event.budgetId}`
+        if (budget === undefined || budget.limitMinor === null) return undefined
+        if (Math.round(Number(budget.limitMinor) / 100) !== event.limit) return undefined
+        const person = event.memberId
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or ${
+          person === null
+            ? sql`(coalesce((r.specials ->> 'ai.autonomy')::boolean, false)
+                   and coalesce((r.levels ->> 'settings')::int, 0) >= 3)`
+            : sql`m.id = ${person}`
+        })`
+        return {
+          kind: "insyte.budget",
+          recipients: recipients.map((r) => r.id),
+          direct: person === null ? [] : [person],
+          subjectType: "ai_budget",
+          subjectId: event.budgetId,
+          actor: null,
+          data: {
+            level: event.level,
+            scope: person === null ? "workspace" : "member",
+            memberId: person,
+            name: person === null ? null : budget.name,
+            usedCents: event.usedCents,
+            limit: event.limit
+          }
         }
       }
       default:
