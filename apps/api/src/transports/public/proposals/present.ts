@@ -14,6 +14,10 @@ const actionV1 = (a: ProposalView["action"]) => {
       return { kind: "notify_delayed_order" as const, subject_id: a.orderId }
     case "CreateSupplierTicket":
       return { kind: "create_supplier_ticket" as const, subject_id: a.productId }
+    case "AssembleEvidencePack":
+      return { kind: "assemble_evidence_pack" as const, subject_id: a.chargebackId }
+    case "ReconnectStore":
+      return { kind: "reconnect_store" as const, subject_id: a.storeId }
     case "CancelOrder":
       return { kind: "cancel_order" as const, subject_id: a.orderId }
     case "RefundOrder":

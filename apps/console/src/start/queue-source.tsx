@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { QUEUE, queueAtom, queueWrites } from "../data/queue.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
+import { useBeginConnect } from "../stores/stores-source.tsx"
 
 /*
  * Start's queue in the console (M10.1, M10.2), over `Queue.list`: the design's rows, with their figures written here
@@ -51,7 +52,11 @@ const plateOf = (p: ProposalView): Plate => ({
   confidence: `zekerheid ${p.plate.confidenceWord.toLowerCase()}`,
   fileLabel: p.plate.fileLabel,
   // A mail waits out the undo window before it leaves (12.2b): until then it is on its way, not done.
-  filed: p.action._tag === "NotifyDelayedOrder" ? "Wordt verstuurd…" : undefined
+  filed: p.action._tag === "NotifyDelayedOrder"
+    ? "Wordt verstuurd…"
+    : p.action._tag === "ReconnectStore"
+    ? "Naar Shopify…"
+    : undefined
 })
 
 const entryOf = (r: QueueRow, now: number): QueueEntry => ({
@@ -90,6 +95,10 @@ export function useConsoleQueue(now: number) {
   const file = useAtomSet(queueWrites.file, { mode: "promiseExit" })
   const redraw = useAtomSet(queueWrites.redraw, { mode: "promiseExit" })
   const undo = useAtomSet(queueWrites.undo, { mode: "promiseExit" })
+  // A store's reconnect plate, filed, sends the person to Shopify to approve the app again, and back to Start.
+  const begin = useBeginConnect("/dashboard")
+  const reconnect = useRef(begin)
+  reconnect.current = begin
   const byId = useMemo(() => new Map(list?.rows.map((r) => [r.id, r]) ?? []), [list])
   // The row just decided, as it stood with its stamp, and where it stood, until the settle window has passed.
   const [held, setHeld] = useState<{ entry: QueueEntry; at: number } | null>(null)
@@ -131,6 +140,7 @@ export function useConsoleQueue(now: number) {
             release()
             return sayRefusal(failureOf(exit), PLATE)
           }
+          if (proposal.action._tag === "ReconnectStore") return reconnect.current(proposal.action.shopDomain)
           const ticket = exit.value.undo
           // A mail waits out the undo window before it leaves: the toast says it is on its way, not sent.
           const message = exit.value.proposal.state === "filed" ? "Gaat zo de deur uit" : "Uitgevoerd zoals getekend"

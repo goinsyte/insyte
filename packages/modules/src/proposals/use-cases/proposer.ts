@@ -20,6 +20,10 @@ import type { Evidence, ProposalAction } from "../domain/Proposals.ts"
  *                                  confidence from whether there is a new day, and whose
  *   a variant sold out           → CreateSupplierTicket, a ticket to reorder from the product's supplier (Insyte does
  *                                  not order itself yet); confidence from whether there is a supplier taking orders
+ *   a chargeback needing evidence → AssembleEvidencePack, Insyte gathering the pack, when none is ready or being
+ *                                  gathered; confidence from whether the case names its order (what the pack is made of)
+ *   a store without its link     → ReconnectStore, the person sent to Shopify to approve the app again; confidence from
+ *                                  whether the store was connected before (a reconnect keeps its records)
  */
 
 /** One plate as the rule draws it, before it is a record. */
@@ -488,6 +492,137 @@ export const drawReorder = (s: SoldOutFacts, timeZone: string): Draft => {
   }
 }
 
+/* ── chargebacks ──────────────────────────────────────────────────────────────────────────────────────────── */
+
+interface CaseFacts {
+  readonly id: string
+  readonly caseNumber: string
+  readonly status: string
+  readonly storeId: string | null
+  readonly storeName: string
+  readonly customerName: string
+  readonly amountMinor: string
+  readonly currency: string
+  readonly deadlineAt: Date
+  readonly orderId: string | null
+  readonly orderNumber: string | null
+  readonly items: number
+  readonly packState: string | null
+  readonly packFresh: boolean
+}
+
+const caseFacts = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) =>
+  ids.length === 0 ? Effect.succeed([] as ReadonlyArray<CaseFacts>) : sql<CaseFacts>`
+    select c.id, c.case_number, c.status, c.store_id, coalesce(s.name, w.name) as store_name, c.customer_name,
+           c.amount_minor, c.currency, c.deadline_at, c.order_id, o.number as order_number,
+           (select count(*) from evidence_items e
+              where e.chargeback_id = c.id and e.removed_at is null and e.included)::int as items,
+           p.state as pack_state, coalesce(p.started_at > now() - interval '15 minutes', false) as pack_fresh
+    from chargebacks c join workspaces w on w.id = c.workspace_id left join stores s on s.id = c.store_id
+    left join orders o on o.id = c.order_id left join evidence_packs p on p.chargeback_id = c.id
+    where c.id in ${sql.in([...ids])}`
+
+/**
+ * A chargeback that needs evidence, with no pack ready or being gathered → AssembleEvidencePack, Insyte gathering what
+ * the case rests on (the order, its parcels, the mails, the policy). The plate lapses with the deadline. How sure:
+ * whether the case names its order, which is what most of the pack is made of.
+ */
+export const drawEvidence = (c: CaseFacts, timeZone: string): Draft | null => {
+  if (c.status !== "open" && c.status !== "awaiting_evidence") return null
+  if (c.packState === "ready" || c.packState === "submitted" || (c.packState === "assembling" && c.packFresh)) {
+    return null
+  }
+  const amount = money(Number(c.amountMinor), c.currency.trim())
+  const { confidence, basis } = c.orderNumber === null
+    ? { confidence: 0.6, basis: "geen bestelling aan de zaak gekoppeld" }
+    : { confidence: 0.9, basis: `bestelling ${c.orderNumber} is aan de zaak gekoppeld` }
+  const held = c.items === 0 ? "nog geen bewijs" : `${c.items} ${c.items === 1 ? "stuk" : "stukken"} bewijs`
+  return {
+    number: c.caseNumber,
+    storeId: c.storeId,
+    area: "chargebacks",
+    subjectType: "chargeback",
+    subjectId: c.id,
+    action: { _tag: "AssembleEvidencePack", chargebackId: c.id },
+    dedupeKey: `evidence_pack:${c.id}`,
+    expiresAt: c.deadlineAt,
+    heading: `Bewijspakket voor ${c.caseNumber} klaarzetten`,
+    body: `Chargeback ${c.caseNumber} van ${c.customerName} (${amount}) moet uiterlijk ${
+      when(c.deadlineAt, timeZone)
+    } beantwoord zijn. Getekend: Insyte verzamelt het bewijs${
+      c.orderNumber === null ? "" : ` bij bestelling ${c.orderNumber}`
+    } en zet het pakket klaar. Je bekijkt het en dient het zelf in.`,
+    dimension: `deadline ${when(c.deadlineAt, timeZone)}`,
+    before: { label: AS_IS, value: `Wacht op bewijs · ${held} · ${amount}` },
+    after: { label: AS_DRAWN, value: "Bewijspakket verzameld door Insyte, klaar om na te kijken" },
+    change: CHANGE,
+    witness: c.storeName,
+    confidence,
+    confidenceBasis: basis,
+    fileLabel: "Pakket laten verzamelen",
+    why: `De zaak wacht op bewijs en er is nog geen pakket klaar. ${basis.charAt(0).toUpperCase() + basis.slice(1)}.`,
+    evidence: [
+      { kind: "chargeback", ref: c.id, summary: `${c.caseNumber}, ${c.customerName}, ${amount}` },
+      ...(c.orderId === null || c.orderNumber === null
+        ? []
+        : [{ kind: "order", ref: c.orderId, summary: c.orderNumber }])
+    ]
+  }
+}
+
+/* ── stores ───────────────────────────────────────────────────────────────────────────────────────────────── */
+
+interface StoreFacts {
+  readonly id: string
+  readonly name: string
+  readonly shopDomain: string
+  readonly status: string
+  readonly disconnectedAt: Date | null
+  readonly orders: number
+}
+
+const storeFacts = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) =>
+  ids.length === 0 ? Effect.succeed([] as ReadonlyArray<StoreFacts>) : sql<StoreFacts>`
+    select s.id, s.name, s.shop_domain, s.status, s.disconnected_at,
+           (select count(*) from orders o where o.store_id = s.id)::int as orders
+    from stores s where s.id in ${sql.in([...ids])}`
+
+/**
+ * A store that lost its link → ReconnectStore: the person approves the app at Shopify again, and the store keeps its id
+ * and its records. How sure: whether Insyte already holds the store's orders (a reconnect, not a first connect).
+ */
+export const drawReconnect = (s: StoreFacts, timeZone: string): Draft | null => {
+  if (s.status !== "disconnected" && s.status !== "action_required") return null
+  const { confidence, basis } = s.orders > 0
+    ? { confidence: 0.9, basis: "Insyte heeft de bestellingen van de winkel al; opnieuw koppelen houdt ze" }
+    : { confidence: 0.75, basis: "de winkel heeft nog geen bestellingen in Insyte" }
+  const since = s.disconnectedAt === null ? null : when(s.disconnectedAt, timeZone)
+  return {
+    number: s.name,
+    storeId: s.id,
+    area: "settings",
+    subjectType: "store",
+    subjectId: s.id,
+    action: { _tag: "ReconnectStore", storeId: s.id, shopDomain: s.shopDomain },
+    dedupeKey: `reconnect:${s.id}`,
+    expiresAt: null,
+    heading: `${s.name} opnieuw koppelen`,
+    body: `${s.name} is ${
+      since === null ? "niet meer gekoppeld" : `sinds ${since} niet meer gekoppeld`
+    }: bestellingen, voorraad en klanten komen niet binnen. Getekend: je gaat naar Shopify en keurt Insyte opnieuw goed voor ${s.shopDomain}. Daarna loopt de winkel weer bij.`,
+    dimension: since === null ? "niet gekoppeld" : `niet gekoppeld sinds ${since}`,
+    before: { label: AS_IS, value: `Niet gekoppeld · ${s.shopDomain}` },
+    after: { label: AS_DRAWN, value: "Gekoppeld, de winkel loopt bij" },
+    change: CHANGE,
+    witness: s.name,
+    confidence,
+    confidenceBasis: basis,
+    fileLabel: "Opnieuw koppelen bij Shopify",
+    why: `De winkel heeft zijn koppeling verloren. ${basis.charAt(0).toUpperCase() + basis.slice(1)}.`,
+    evidence: [{ kind: "store", ref: s.id, summary: `${s.name}, ${s.shopDomain}` }]
+  }
+}
+
 /* ── drawing ──────────────────────────────────────────────────────────────────────────────────────────────────── */
 
 export const timeZoneOf = (sql: SqlClient.SqlClient) =>
@@ -516,6 +651,14 @@ export const draftFor = Effect.fn("Proposals.draftFor")(
       const [s] = yield* soldOutFacts(sql, [variantOf(dedupeKey)])
       return s === undefined ? null : drawReorder(s, tz)
     }
+    if (subjectType === "chargeback") {
+      const [c] = yield* caseFacts(sql, [subjectId])
+      return c === undefined ? null : drawEvidence(c, tz)
+    }
+    if (subjectType === "store") {
+      const [s] = yield* storeFacts(sql, [subjectId])
+      return s === undefined ? null : drawReconnect(s, tz)
+    }
     return null
   }
 )
@@ -534,7 +677,15 @@ export const insertRevision = (sql: SqlClient.SqlClient, proposalId: string, rev
 const STANDING = ["open", "filed", "executed", "execution_failed", "discarded", "expired"]
 
 /** The queue kinds a plate is drawn for, and the record each one's drawing reads. */
-const DRAWN_FOR: ReadonlySet<string> = new Set(["return_review", "quality_review", "order_delayed", "stock_out"])
+const DRAWN_FOR: ReadonlySet<string> = new Set([
+  "return_review",
+  "quality_review",
+  "order_delayed",
+  "stock_out",
+  "chargeback_deadline",
+  "chargeback_opened",
+  "store_disconnected"
+])
 
 /**
  * The plates brought in line with the queue's live rows, on the queue's refresh transaction: a row the rule holds for
@@ -575,6 +726,12 @@ export const drawIn = Effect.fn("Proposals.drawIn")(function*(sql: SqlClient.Sql
   for (const s of yield* soldOutFacts(sql, [...soldOut.keys()])) {
     drafts.set(soldOut.get(s.variantId)!, drawReorder(s, tz))
   }
+  const cases = new Map(
+    [...of("chargeback_deadline"), ...of("chargeback_opened")].map((r) => [r.subjectId, r.queueItemId])
+  )
+  for (const c of yield* caseFacts(sql, [...cases.keys()])) drafts.set(cases.get(c.id)!, drawEvidence(c, tz))
+  const unlinked = bySubject("store_disconnected", (r) => r.subjectId)
+  for (const s of yield* storeFacts(sql, [...unlinked.keys()])) drafts.set(unlinked.get(s.id)!, drawReconnect(s, tz))
   const standing = yield* sql<{ id: string; queueItemId: string; state: string }>`
     select id, queue_item_id, state from proposals
     where queue_item_id = any(${drawable.map((r) => r.queueItemId)}::text[])
