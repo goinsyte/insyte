@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { BaseVersion } from "../../agent/domain/Autonomy.ts"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
 
 /*
@@ -175,7 +176,7 @@ export const AgreeOfflineInput = Schema.Struct({
   /** By catalogue id; only the offline step's actions, never a locked one at `auto`. */
   levels: Schema.Record(Schema.String, OfflineLevel),
   /** The autonomy policy's version the step showed: a save made since refuses the plan (`AutonomyStale`). */
-  baseVersion: Schema.Int
+  baseVersion: BaseVersion
 })
 export type AgreeOfflineInput = typeof AgreeOfflineInput.Type
 

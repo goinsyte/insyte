@@ -21,6 +21,7 @@ import {
   AutonomySaved,
   AutonomyStale,
   type Decision,
+  FIRST_POLICY_VERSION,
   type PolicyVersion,
   type SetAutonomyInput
 } from "../domain/Autonomy.ts"
@@ -49,7 +50,7 @@ const current = (sql: SqlClient.SqlClient, lock: boolean) =>
     lock
       ? sql<Row>`select version, levels, limits from autonomy_policies for update`
       : sql<Row>`select version, levels, limits from autonomy_policies`,
-    ([row]) => row ?? { version: 1, levels: {}, limits: {} }
+    ([row]) => row ?? { version: FIRST_POLICY_VERSION, levels: {}, limits: {} }
   )
 
 const history = (sql: SqlClient.SqlClient, limit: number) =>
@@ -106,9 +107,11 @@ const write = Effect.fn("Autonomy.write")(function*(
   const changes = diffOf(before, levels)
   if (changes.length === 0 && JSON.stringify(limitsOf(was.limits)) === JSON.stringify(limits)) return null
   const version = was.version + 1
-  // The workspace began at the default: that is version 1, kept once so the history starts somewhere.
+  // The workspace began at the default: that is the first version, kept once so the history starts somewhere.
   yield* sql`insert into autonomy_policy_versions (workspace_id, version, levels, limits, diff, changed_by)
-             values (app_workspace_id(), 1, ${JSON.stringify(DEFAULT_LEVELS)}::jsonb, '{}'::jsonb, '[]'::jsonb, null)
+             values (app_workspace_id(), ${FIRST_POLICY_VERSION}, ${
+    JSON.stringify(DEFAULT_LEVELS)
+  }::jsonb, '{}'::jsonb, '[]'::jsonb, null)
              on conflict do nothing`
   yield* sql`insert into autonomy_policy_versions (workspace_id, version, levels, limits, diff, changed_by)
              values (app_workspace_id(), ${version}, ${JSON.stringify(levels)}::jsonb, ${JSON.stringify(limits)}::jsonb,

@@ -1,4 +1,5 @@
 import { AGENT_ACTIONS } from "@insyte/domain/AgentActions"
+import { FIRST_POLICY_VERSION } from "@insyte/modules/agent/domain/Autonomy"
 import { Exit } from "effect"
 import { describe, expect, it } from "vitest"
 import { ageUndo, failure, ok, person } from "./journeys.ts"
@@ -77,10 +78,24 @@ describe("autonomy and the agent log", () => {
     ticket = ok(await rpc("Tickets.create", { title: "Pakket kwijt" }, owner.cookie)).tickets[0]!.id
 
     const policy = ok(await rpc("Autonomy.get", {}, owner.cookie))
-    expect(policy.version).toBe(1)
+    expect(policy.version).toBe(FIRST_POLICY_VERSION)
     expect(Object.keys(policy.levels).toSorted()).toEqual(AGENT_ACTIONS.map((a) => a.id).toSorted())
     expect(Object.values(policy.levels).every((l) => l === "ask")).toBe(true)
   }, 120_000)
+
+  it("answers a policy never saved at the first version, and takes the first save made on that version", async () => {
+    // No row yet: every read says the first version, and a save on it (the offline step's plan, say) is the next.
+    const fresh = await person("agent-fresh", "Agent Vers B.V.")
+    const read = ok(await rpc("Autonomy.get", {}, fresh.cookie))
+    expect(read.version).toBe(FIRST_POLICY_VERSION)
+    expect(read.history).toEqual([])
+    expect(ok(await rpc("Autonomy.get", {}, fresh.cookie)).version).toBe(FIRST_POLICY_VERSION)
+    const saved = ok(
+      await rpc("Autonomy.set", { levels: { AddNote: "auto" }, baseVersion: FIRST_POLICY_VERSION }, fresh.cookie)
+    )
+    expect(saved.policy.version).toBe(FIRST_POLICY_VERSION + 1)
+    expect(saved.policy.history.map((h) => h.version)).toEqual([FIRST_POLICY_VERSION + 1, FIRST_POLICY_VERSION])
+  })
 
   it("turns an agent's call into a proposal while the action asks first, and a person files it", async () => {
     const asked = await tool(agent, "set_ticket_status", { ticket_id: ticket, status: "in_progress" })
