@@ -6,7 +6,7 @@ import type { TeamGate } from "./source"
  * What one order's detail reads and does, from whoever hosts it (as `source.tsx` is for the list): the design app from
  * its demo workspace, the console from `Orders.get` (M6.4). The record's markup is the design's; its facts, and what
  * the order may become, are the host's (the console's commands since M7.1). Where a part is absent the screen leaves it
- * out: the console has no supplier until M8 and no returns or agent rows yet.
+ * out: the console has no agent rows yet.
  */
 
 /** One step of the order's history, newest last; the screen gives each kind its icon. */

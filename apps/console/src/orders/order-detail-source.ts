@@ -7,10 +7,12 @@ import { orderOf } from "./orders-source.ts"
 /*
  * One order's source in the console: `Orders.get` as the design's record (M6.4), and its commands (M7.1): Acties,
  * Bewerken and the labels, each behind Bestellingen · Bewerken; Terugbetalen (M7.2) behind the role's refund right and
- * limit, for what is left on the order. What the
- * console does not know yet is left out rather than made up: the supplier and the "Bij leverancier" step (M8), the
- * forwarding tracker and the agents' rows. Retour starten (M9.1) is behind Retouren · Bewerken. The timeline says when each step happened, from Shopify's own
- * timestamps. The internal note is the team's (`order_notes`); the shopper's note from the checkout is shown apart.
+ * limit, for what is left on the order. Retour starten (M9.1) is behind Retouren · Bewerken. The timeline says when
+ * each step happened, from Shopify's own timestamps, the forwarding legs and the supplier's work (the "Bij leverancier"
+ * step, M8.2–8.3) and what AfterShip last said of each parcel (M8.4: only the latest checkpoint is kept, not every
+ * scan). The supplier line names the order's suppliers; Insyte's advice on a delayed order drafts the design's ticket to
+ * the supplier. The internal note is the team's (`order_notes`); the shopper's note from the checkout is shown apart.
+ * The agents' rows are left out until they exist.
  */
 
 /* `formatLong`'s format, kept here because the screen module is the relaxed program's (`tsconfig.strict.json`). */
@@ -49,6 +51,47 @@ const addressOf = (a: OrderDetail["shippingAddress"]): Address | undefined =>
     country: a.country ?? ""
   }
 
+/** "Bij leverancier", one step per supplier: how far its work has come, in the supplier's own dates. */
+const supplierSteps = (d: OrderDetail): Array<TimelineStep> =>
+  d.supplierWork.map((w) => {
+    const base = { kind: "supplier" as const, label: "Bij leverancier" }
+    if (w.shippedAt !== null) return { ...base, done: true, detail: `Verzonden door ${w.name} · ${long(w.shippedAt)}` }
+    if (w.late && w.handoffBy !== null) {
+      return { ...base, done: w.acceptedAt !== null, detail: `${w.name} · overdracht was ${long(w.handoffBy)}` }
+    }
+    if (w.acceptedAt !== null) {
+      return { ...base, done: true, detail: `Geaccepteerd door ${w.name} · ${long(w.acceptedAt)}` }
+    }
+    if (w.forwardedAt !== null) {
+      return { ...base, done: true, detail: `Doorgestuurd naar ${w.name} · ${long(w.forwardedAt)}` }
+    }
+    return { ...base, done: false, detail: `Nog door te sturen naar ${w.name}` }
+  })
+
+/** What AfterShip last said of each parcel still on its way: the latest checkpoint, or the carrier's exception. */
+const parcelSteps = (d: OrderDetail): Array<TimelineStep> =>
+  d.fulfilments.flatMap((f) => {
+    const p = f.delivery
+    if (p === null || p.status === "delivered" || p.status === "pending") return []
+    const said = p.status === "exception" ? p.exception ?? p.checkpoint : p.checkpoint
+    if (said === null && p.lastEventAt === null) return []
+    const expected = p.estimatedDelivery === null || p.status === "exception"
+      ? null
+      : `verwacht ${long(p.estimatedDelivery)}`
+    return [{
+      kind: "shipped" as const,
+      done: true,
+      label: p.status === "exception"
+        ? "Probleem bij de vervoerder"
+        : p.status === "out_for_delivery"
+        ? "Onderweg voor bezorging"
+        : "Onderweg",
+      detail: [said, p.lastEventAt === null ? null : long(p.lastEventAt), expected]
+        .filter((t): t is string => t !== null && t !== "")
+        .join(" · ")
+    }]
+  })
+
 function timelineOf(d: OrderDetail, method: string): Array<TimelineStep> {
   const o = d.order
   const placed: TimelineStep = { kind: "placed", done: true, label: "Bestelling geplaatst", detail: long(o.placedAt) }
@@ -69,19 +112,26 @@ function timelineOf(d: OrderDetail, method: string): Array<TimelineStep> {
   }
   const shippedAt = d.shippedAt ?? d.fulfilments.find((f) => f.shippedAt !== null)?.shippedAt ?? null
   const delivered = d.fulfilments.find((f) => f.deliveredAt !== null)?.deliveredAt ?? null
-  return [placed, paid, {
-    kind: "shipped",
-    done: o.status === "shipped" || o.status === "delivered",
-    label: "Verzonden",
-    detail: o.trackingNumber === null
-      ? shippedAt === null ? "Opgehaald door vervoerder" : long(shippedAt)
-      : `${o.carrier ?? "Vervoerder"} · ${o.trackingNumber}`
-  }, {
-    kind: "delivered",
-    done: o.status === "delivered",
-    label: "Bezorgd",
-    detail: o.status === "delivered" ? delivered === null ? "Bevestigd" : long(delivered) : "In afwachting"
-  }]
+  return [
+    placed,
+    paid,
+    ...supplierSteps(d),
+    {
+      kind: "shipped",
+      done: o.status === "shipped" || o.status === "delivered",
+      label: "Verzonden",
+      detail: o.trackingNumber === null
+        ? shippedAt === null ? "Opgehaald door vervoerder" : long(shippedAt)
+        : `${o.carrier ?? "Vervoerder"} · ${o.trackingNumber}`
+    },
+    ...parcelSteps(d),
+    {
+      kind: "delivered",
+      done: o.status === "delivered",
+      label: "Bezorgd",
+      detail: o.status === "delivered" ? delivered === null ? "Bevestigd" : long(delivered) : "In afwachting"
+    }
+  ]
 }
 
 const NO_TAGS: ReadonlyArray<string> = []
@@ -106,8 +156,10 @@ export function consoleOrderDetail(d: OrderDetail): OrderDetailSource {
   }
   const method = methodOf(d)
   const phone = d.shippingAddress?.phone ?? null
+  const suppliers = d.order.suppliers.map((s) => s.name).join(", ")
   return {
     order,
+    ...(suppliers === "" ? {} : { supplier: suppliers }),
     customer: d.customer === null ? undefined : {
       orders_count: d.customer.ordersCount,
       lifetime_value: d.customer.lifetimeValueMinor / 100,
@@ -156,8 +208,8 @@ export function useConsoleOrderDetail(d: OrderDetail): OrderDetailSource {
       cancel: () => void commands.cancel(order),
       saveNote: (note) => void commands.saveNote(order, note),
       saveShipping: (address) => void commands.saveShipping(order, address),
-      // The supplier's advice shows only where there is a supplier (M8).
-      draftSupplierMessage: () => undefined
+      // Insyte's advice on a delayed order, where it has a supplier: the design's ticket, drafted for the team.
+      draftSupplierMessage: (supplier) => void commands.draftSupplierMessage(order, supplier)
     }
   }
 }

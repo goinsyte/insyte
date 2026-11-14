@@ -67,10 +67,29 @@ const sentence = (note: ServerNote): Sentence => {
         : { title: "wees je verzoek om meer rechten af", detail: perm, to: "/settings/team" }
     }
     case "order.late": {
-      // A stuck parcel (M8.4): a carrier exception, or no movement for days.
+      // A stuck parcel (M8.4): a carrier exception, or no movement past the threshold; or a supplier past its
+      // hand-off (M8.3), worded as the design's late order.
+      const hours = typeof data["hours"] === "number" ? data["hours"] : undefined
+      if (data["reason"] === "supplier_late") {
+        const supplier = typeof data["supplier"] === "string" ? data["supplier"] : ""
+        return {
+          title: hours === undefined ? "Staat nog zonder verzending:" : `Staat ${hours} uur zonder verzending:`,
+          record: String(data["number"] ?? ""),
+          detail: supplier === ""
+            ? "De leverancier heeft hem niet op tijd overgedragen."
+            : `Bij ${supplier}. De afgesproken overdracht is voorbij.`,
+          tone: "amber",
+          source: "order",
+          to: `/orders/${note.subjectId ?? ""}`
+        }
+      }
       const exception = data["reason"] === "exception"
       return {
-        title: exception ? "De vervoerder meldt een probleem met" : "Het pakket beweegt al drie dagen niet:",
+        title: exception
+          ? "De vervoerder meldt een probleem met"
+          : hours === undefined
+          ? "Het pakket beweegt al drie dagen niet:"
+          : `Het pakket beweegt al ${hours} uur niet:`,
         record: String(data["number"] ?? ""),
         detail: typeof data["note"] === "string" && data["note"] !== ""
           ? data["note"]
