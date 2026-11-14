@@ -62,13 +62,17 @@ export class MembersRpcs extends RpcGroup.make(
   Rpc.make("Invitations.restore", {
     payload: InvitationRef,
     success: Team,
-    error: Schema.Union([Forbidden, NotFound, Conflict, SeatLimitReached])
+    error: Schema.Union([Forbidden, Invalid, NotFound, Conflict, SeatLimitReached])
   }),
-  Rpc.make("Invitations.resend", { payload: InvitationRef, success: Team, error: Schema.Union([Forbidden, NotFound]) }),
+  Rpc.make("Invitations.resend", {
+    payload: InvitationRef,
+    success: Team,
+    error: Schema.Union([Forbidden, Invalid, NotFound])
+  }),
   Rpc.make("Invitations.undoResend", {
     payload: InvitationRef,
     success: Team,
-    error: Schema.Union([Forbidden, Conflict])
+    error: Schema.Union([Forbidden, Invalid, Conflict])
   }),
   Rpc.make("Invitations.setRole", {
     payload: SetInvitationRole,
@@ -86,29 +90,30 @@ export class MembersRpcs extends RpcGroup.make(
     success: Team,
     error: Schema.Union([Forbidden, Invalid, NotFound, Conflict])
   }),
+  // Someone held to some stores deactivates, removes or brings back nobody who reaches past them (`Invalid`).
   Rpc.make("Members.deactivate", {
     payload: MemberRef,
     success: Team,
-    error: Schema.Union([Forbidden, NotFound, Conflict, SeatLimitReached])
+    error: Schema.Union([Forbidden, Invalid, NotFound, Conflict, SeatLimitReached])
   }),
   Rpc.make("Members.reactivate", {
     payload: MemberRef,
     success: Team,
-    error: Schema.Union([Forbidden, NotFound, Conflict, SeatLimitReached])
+    error: Schema.Union([Forbidden, Invalid, NotFound, Conflict, SeatLimitReached])
   }),
   Rpc.make("Members.remove", {
     payload: MemberRef,
     success: Team,
-    error: Schema.Union([Forbidden, NotFound, Conflict])
+    error: Schema.Union([Forbidden, Invalid, NotFound, Conflict])
   }),
   Rpc.make("Members.restore", {
     payload: MemberRef,
     success: Team,
-    error: Schema.Union([Forbidden, NotFound, Conflict, SeatLimitReached])
+    error: Schema.Union([Forbidden, Invalid, NotFound, Conflict, SeatLimitReached])
   }),
   Rpc.make("InviteLink.set", { payload: SetLink, success: Team, error: Schema.Union([Forbidden, Invalid]) }),
   Rpc.make("InviteLink.regenerate", { success: Team, error: Schema.Union([Forbidden, Invalid]) }),
-  Rpc.make("InviteLink.undoRegenerate", { success: Team, error: Schema.Union([Forbidden, Conflict]) })
+  Rpc.make("InviteLink.undoRegenerate", { success: Team, error: Schema.Union([Forbidden, Invalid, Conflict]) })
 )
   // Innermost first: `Member` needs the person (`Authenticated`) and the connection (`WithDb`) around it.
   .middleware(Member)

@@ -16,7 +16,11 @@ import { readTeam, seatsIn } from "./team.ts"
  * transfer, with its own confirmation) or deactivates or removes themselves.
  */
 
-/** The member, locked for the change, if it may be changed by this principal. */
+/**
+ * The member, locked for the change, if it may be changed by this principal. Someone held to some stores
+ * (`storeScope`) changes nobody who reaches past them: not their role, stores or place in the team, in either
+ * direction, so a member the owner deactivated or removed is not brought back by them either.
+ */
 const target = (sql: SqlClient.SqlClient, id: string) =>
   Effect.gen(function*() {
     const principal = yield* CurrentPrincipal
@@ -28,6 +32,7 @@ const target = (sql: SqlClient.SqlClient, id: string) =>
     if (row === undefined) return yield* new NotFound({ entity: "member", id })
     if (row.roleId === "owner") return yield* new Conflict({ entity: "member", reason: "owner" })
     if (id === principal.id) return yield* new Conflict({ entity: "member", reason: "self" })
+    if (yield* beyondReach(sql, row.roleId, row.stores)) return yield* new Invalid({ fields: { stores: "forbidden" } })
     return row
   })
 
@@ -56,7 +61,8 @@ export const setRole = Effect.fn("Members.setRole")(function*(id: string, roleId
 /**
  * The member's own stores, which narrow their role's (06 §3.2); the undo is the same call with the stores before.
  * Someone held to some stores only touches a member inside them, and leaves them inside: a change that starts or ends
- * past the caller's `storeScope` is refused as `stores: "forbidden"`, as an invitation's is. The member's next request
+ * past the caller's `storeScope`, or names a store past it, is refused as `stores: "forbidden"`, as an invitation's
+ * is. A store the workspace lacks is `unknown`, asked only of stores the caller reaches. The member's next request
  * reads the new fence, since the principal is read per call (`MemberLive`).
  */
 export const setStores = Effect.fn("Members.setStores")(function*(id: string, stores: StoreAccess) {
@@ -64,10 +70,14 @@ export const setStores = Effect.fn("Members.setStores")(function*(id: string, st
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
+      const { storeScope } = yield* CurrentPrincipal
       const next: StoreAccess = stores === "all" ? "all" : [...new Set(stores)]
       if (next !== "all" && next.length === 0) return yield* new Invalid({ fields: { stores: "empty" } })
       const before = yield* target(sql, id)
-      if ((yield* beyondReach(sql, before.roleId, before.stores)) || (yield* beyondReach(sql, before.roleId, next))) {
+      // The list itself stays inside the caller's stores, not only what it makes with the role today: a store past
+      // them would become real the day the role widens. "Every store" is theirs to give when the role keeps it inside.
+      const named = next === "all" || storeScope === null || next.every((s) => storeScope.includes(s))
+      if (!named || (yield* beyondReach(sql, before.roleId, next))) {
         return yield* new Invalid({ fields: { stores: "forbidden" } })
       }
       if (next !== "all") {
