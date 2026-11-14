@@ -289,6 +289,10 @@ export default Alchemy.Stack(
       WEBHOOK_DELIVERY: workflow("WebhookDelivery", "WebhookDeliveryWorkflow", "webhook-delivery", host),
       // The supplier statements' monthly close (M13 step 6).
       MONTHLY_CLOSE: workflow("MonthlyClose", "MonthlyCloseWorkflow", "monthly-close", host),
+      // A workspace export or a shopper's access package (M17 step 5).
+      PRIVACY_EXPORT: workflow("PrivacyExport", "PrivacyExportWorkflow", "privacy-export", host),
+      // A workspace's deletion after its waiting period (M17 step 5).
+      WORKSPACE_LIFECYCLE: workflow("WorkspaceLifecycle", "WorkspaceLifecycleWorkflow", "workspace-lifecycle", host),
       // An uploaded CSV read into rows (M14 step 5).
       IMPORT_PARSE: workflow("ImportParse", "ImportParseWorkflow", "import-parse", host),
       // An export written, whatever its source (M14 step 5).

@@ -46,6 +46,14 @@ describe("changesOf", () => {
   })
 })
 
+describe("Je gegevens", () => {
+  it("reads the automatic export's schedule as its words, on Je gegevens", () => {
+    const row = { section: "data", action: "workspace.export_schedule_updated", diff: { from: "off", to: "weekly" } }
+    expect(changesOf(row)).toEqual([{ field: "Automatisch exporteren", before: "Uit", after: "Elke week" }])
+    expect(pageOf("data", row.action)).toEqual({ id: "data", label: "Je gegevens", path: "/settings/data" })
+  })
+})
+
 describe("pages", () => {
   it("puts settings.retention on Gegevens en privacy, the older retention on Account", () => {
     expect(pageOf("retention", "settings.retention.days").id).toBe("privacy")

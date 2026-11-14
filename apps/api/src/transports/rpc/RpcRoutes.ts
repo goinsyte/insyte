@@ -26,6 +26,7 @@ import { NotificationsService } from "@insyte/modules/notifications/Notification
 import { Onboarding } from "@insyte/modules/onboarding/Onboarding"
 import { OrdersService } from "@insyte/modules/orders/Orders"
 import { PrefsService } from "@insyte/modules/prefs/PrefsService"
+import { PrivacyService } from "@insyte/modules/privacy/Privacy"
 import { ProductsService } from "@insyte/modules/products/Products"
 import { ProposalsService } from "@insyte/modules/proposals/Proposals"
 import { QualityLinkService, QualityService } from "@insyte/modules/quality/Quality"
@@ -72,6 +73,7 @@ import { NotificationsHandlers } from "./handlers/notifications.ts"
 import { OnboardingHandlers } from "./handlers/onboarding.ts"
 import { PortalHandlers } from "./handlers/portal.ts"
 import { PrefsHandlers } from "./handlers/prefs.ts"
+import { PrivacyHandlers } from "./handlers/privacy.ts"
 import { ProposalsHandlers } from "./handlers/proposals.ts"
 import { QualityHandlers } from "./handlers/quality.ts"
 import { QueueHandlers } from "./handlers/queue.ts"
@@ -151,6 +153,7 @@ export const RpcContext = Layer.mergeAll(
   CostsHandlers.pipe(Layer.provide(CostsService.layer)),
   AuditHandlers.pipe(Layer.provide(AuditService.layer)),
   TrashHandlers.pipe(Layer.provide(TrashService.layer)),
+  PrivacyHandlers.pipe(Layer.provide(PrivacyService.layer)),
   SettingsDepthHandlers.pipe(Layer.provide(SettingsDepth.layer)),
   CoursesHandlers.pipe(Layer.provide(CoursesService.layer)),
   MarketplaceHandlers.pipe(Layer.provide(MarketplaceService.layer)),

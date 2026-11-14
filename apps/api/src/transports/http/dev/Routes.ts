@@ -12,6 +12,7 @@ import { InvitationLapse } from "./invitations.ts"
 import { MailRoutes } from "./mail.ts"
 import { NotifyRoutes } from "./notifications.ts"
 import { OutboxRoutes } from "./outbox.ts"
+import { PrivacyRoutes } from "./privacy.ts"
 import { ProposalLapse } from "./proposals.ts"
 import { QueueRefresh } from "./queue.ts"
 import { RetentionRoutes } from "./retention.ts"
@@ -47,6 +48,7 @@ const Routes = Layer.mergeAll(
   UndoRoutes,
   InvitationLapse,
   ProposalLapse,
+  PrivacyRoutes,
   AiCallsOf
 )
 

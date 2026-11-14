@@ -133,6 +133,21 @@ export const ShopifyAdminLive = Layer.effect(
             .join("&")
           return same(yield* hmacHex(secret, message), given)
         }),
+      uninstall: (shop, accessToken) =>
+        raw.execute(
+          HttpClientRequest.delete(`https://${shop}/admin/api_permissions/current.json`).pipe(
+            HttpClientRequest.setHeader("x-shopify-access-token", Redacted.value(accessToken))
+          )
+        ).pipe(
+          Effect.timeout("15 seconds"),
+          Effect.mapError((error) => refused(0, `uninstall failed: ${error._tag}`)),
+          // Already gone (401, 404) is what was asked for.
+          Effect.flatMap((response) =>
+            response.status < 300 || response.status === 401 || response.status === 404
+              ? Effect.void
+              : Effect.fail(refused(response.status, "uninstall refused"))
+          )
+        ),
       exists: (shop) =>
         raw.execute(HttpClientRequest.get(`https://${shop}/admin/oauth/authorize?client_id=${id}`)).pipe(
           Effect.map((response) => response.status !== 404),
