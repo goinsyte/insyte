@@ -9,6 +9,15 @@ import { UndoTicket } from "../../shared/domain/Undo.ts"
  * (`AutonomyLocked`). Errors carry tags and fields; the console says them in Dutch.
  */
 
+/**
+ * The version a workspace's policy is at before anyone saved it (no row yet): the default it began with. The server
+ * answers it for a policy never saved and every save makes the next, so no version a save names is ever below it.
+ */
+export const FIRST_POLICY_VERSION = 1
+
+/** The version a save is made on: one the server answered, never below the first. */
+export const BaseVersion = Schema.Int.check(Schema.isGreaterThanOrEqualTo(FIRST_POLICY_VERSION))
+
 export const ActionId = Schema.Literals(AGENT_ACTION_IDS)
 export const Level = Schema.Literals(AUTONOMY_LEVELS)
 
@@ -43,11 +52,11 @@ export const SetAutonomyInput = Schema.Struct({
   levels: Schema.Record(Schema.String, Level),
   /** The limits to keep, whole; left out, they stay as they are. */
   limits: Schema.optional(Schema.Record(Schema.String, Limit)),
-  baseVersion: Schema.Int
+  baseVersion: BaseVersion
 })
 export type SetAutonomyInput = typeof SetAutonomyInput.Type
 
-export const ResetAutonomyInput = Schema.Struct({ baseVersion: Schema.Int })
+export const ResetAutonomyInput = Schema.Struct({ baseVersion: BaseVersion })
 
 export const HistoryInput = Schema.Struct({ limit: Schema.optional(Schema.Int) })
 

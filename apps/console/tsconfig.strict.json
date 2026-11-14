@@ -3,10 +3,10 @@
    * The console's own logic at the repo's full strictness: the Worker, the auth client, the data layer, observability.
    * The routes are left to `tsconfig.json`, because a route imports a screen and a screen is checked under the
    * importing program's options (see there). A file here that starts importing a screen fails this program, which is
-   * the point: logic stays out of the screens' relaxed program.
+   * the point: logic stays out of the screens' relaxed program. The tests of that logic (`test/`) are checked here too.
    */
   "extends": "./tsconfig.json",
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "test/**/*.ts"],
   "exclude": ["src/routeTree.gen.ts", "src/router.tsx", "src/routes/**"],
   "compilerOptions": {
     "tsBuildInfoFile": ".tsbuildinfo/console-strict.tsbuildinfo",

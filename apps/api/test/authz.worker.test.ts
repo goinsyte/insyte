@@ -199,7 +199,7 @@ const PAYLOADS: Record<string, unknown> = {
   "FirstAnalysis.get": undefined,
   "FirstAnalysis.start": undefined,
   "FirstAnalysis.prepare": { ids: ["agent"], answers: { fulfilment: "one", reply: "ask" } },
-  "FirstAnalysis.agreeOffline": { window: "evening", levels: {}, baseVersion: 0 },
+  "FirstAnalysis.agreeOffline": { window: "evening", levels: {}, baseVersion: 999_999 },
   // A token nobody holds: `NotFound` for every role; the compensation's own permission is the command's.
   "Shared.undo": { token: "und_none" },
   // No Klaviyo in this workspace: `Conflict` for every role that may; connecting needs the app (the twin has it).
@@ -568,8 +568,9 @@ const PAYLOADS: Record<string, unknown> = {
   // Insyte AI (M15 step 6): read by every member; a save on a version that is not current is refused as stale (or,
   // for budgets, a person not in the team), and taking back an action that does not exist is `NotFound`.
   "Autonomy.get": {},
-  "Autonomy.set": { levels: {}, baseVersion: -1 },
-  "Autonomy.resetDefaults": { baseVersion: -1 },
+  // A version far past any saved: refused as stale where allowed, so the run writes nothing.
+  "Autonomy.set": { levels: {}, baseVersion: 999_999 },
+  "Autonomy.resetDefaults": { baseVersion: 999_999 },
   "AiBudget.get": undefined,
   "AiBudget.setMany": { entries: [{ scope: "mem_none", limit: 10 }] },
   "AgentLog.list": {},
