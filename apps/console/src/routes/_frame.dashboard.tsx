@@ -251,9 +251,9 @@ function Board(
     void navigate({ search: (s) => ({ ...s, view: v === "overzicht" ? undefined : v }) })
   }
   const board = useConsoleBoard(frame)
-  const { data, refresh } = useHomeWidgets(board.range, board.ids)
+  const { data, shown, refresh } = useHomeWidgets(board.range, board.ids)
   const refreshBrief = useAtomRefresh(briefAtom)
-  const slots = useHomeSlots({ frame, data, range: board.range, queue, checklist })
+  const slots = useHomeSlots({ frame, data, shown, range: board.range, queue, checklist })
   const currency = (data?.currency ?? "EUR") as Currency
   const figures = data === undefined ? undefined : pulseFigures(data.pulse, board.range, currency)
   const source = {

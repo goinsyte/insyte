@@ -191,6 +191,11 @@ export function useConsoleBoard(frame: Frame) {
   const board = useMemo(() => boardOf(saved), [saved])
   const current = useRef(board)
   const applying = useRef(false)
+  // The cards the read is for: the board as drawn, at once, not a beat later when it is saved, so an added card's
+  // read starts with it.
+  const [ids, setIds] = useState(() => idsOf(board))
+  const showIds = (next: ReadonlyArray<WidgetId>) =>
+    setIds((was) => (was.join(",") === next.join(",") ? was : [...next]))
 
   // The saved board into the design's store; the board's engines only draw once mounted, so nothing flashes.
   useLayoutEffect(() => {
@@ -198,6 +203,7 @@ export function useConsoleBoard(frame: Frame) {
     applying.current = true
     useHome.setState({ widgets: board.widgets, grid: board.grid, engine: board.engine })
     applying.current = false
+    showIds(idsOf(board))
   }, [board])
 
   useEffect(() => {
@@ -208,6 +214,7 @@ export function useConsoleBoard(frame: Frame) {
       const next = { ...current.current, widgets: s.widgets, grid: s.grid, engine: s.engine }
       if (same(next, current.current)) return
       current.current = next
+      showIds(idsOf(next))
       clearTimeout(timer)
       timer = setTimeout(() => save(current.current), 600)
     })
@@ -221,31 +228,59 @@ export function useConsoleBoard(frame: Frame) {
     current.current = { ...current.current, range }
     save(current.current)
   }
-  return { range: board.range, setRange, ids: idsOf(board), defaults: CONSOLE_LAYOUT }
+  return { range: board.range, setRange, ids, defaults: CONSOLE_LAYOUT }
 }
 
 /* ── the read ─────────────────────────────────────────────────────────────────────────────────────── */
 
+/** How often a failed read of the board is asked again on its own (after 2, 4 and 8 seconds). */
+const READ_RETRIES = 3
+
+/** What the board shows of its read: the cards it was asked for, and whether the read for the board as it is failed. */
+export interface WidgetsShown {
+  /** The cards the shown read was asked for: a card added since waits for its own read. */
+  readonly asked: ReadonlySet<WidgetId>
+  /** The read for the board as it is now failed: a card it does not cover says so instead of waiting. */
+  readonly failed: boolean
+}
+
 /**
  * `Home.widgets` for the board's cards and window. A changed board is a new read; until it is in, the last one stays
- * on screen, so adding a card does not blank the others.
+ * on screen, so adding a card does not blank the others, and the added card waits in its bones (the last read was
+ * not asked for it: it is no answer that the role may not read it).
  */
 export function useHomeWidgets(range: BoardRange, ids: ReadonlyArray<WidgetId>) {
   const key = widgetsKey(range, ids)
   const result = useAtomValue(widgetsAtom(key))
   const refresh = useAtomRefresh(widgetsAtom(key))
   const value = Option.getOrUndefined(AsyncResult.value(result))
-  const last = useRef<{ value: HomeWidgets; at: number } | undefined>(undefined)
+  const last = useRef<{ value: HomeWidgets; ids: ReadonlyArray<WidgetId>; at: number } | undefined>(undefined)
   const [at, setAt] = useState(() => Date.now())
   useEffect(() => {
     if (value !== undefined) {
-      last.current = { value, at: Date.now() }
+      last.current = { value, ids, at: Date.now() }
       setAt(Date.now())
     }
+    // `ids` is the key's: a new value is always the read for the ids it was keyed by.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
+  // A read that failed (a deploy, a dropped connection) is asked again a few times, a little later each time.
+  const failed = AsyncResult.isFailure(result) && !result.waiting
+  const tries = useRef({ key, count: 0 })
+  if (tries.current.key !== key) tries.current = { key, count: 0 }
+  useEffect(() => {
+    if (!failed || tries.current.count >= READ_RETRIES) return
+    const timer = setTimeout(() => {
+      tries.current.count += 1
+      refresh()
+    }, 2000 * 2 ** tries.current.count)
+    return () => clearTimeout(timer)
+  }, [failed, refresh])
   const shown = value ?? last.current?.value
+  const asked = new Set<WidgetId>(value !== undefined ? ids : (last.current?.ids ?? []))
   return {
     data: shown,
+    shown: { asked, failed } satisfies WidgetsShown,
     refresh: { refreshedAt: at, refreshing: result.waiting, refresh }
   }
 }
@@ -490,9 +525,11 @@ function TodoCard() {
  * team and the recents, the queue's panel, the person's to-dos, and the setup checklist.
  */
 export function useHomeSlots(
-  { frame, data, range, queue, checklist }: {
+  { frame, data, shown, range, queue, checklist }: {
     frame: Frame
     data: HomeWidgets | undefined
+    /** What the shown read covers; without it, every card is taken as asked for. */
+    shown?: WidgetsShown
     range: BoardRange
     queue: ReactNode
     checklist: StartChecklist | undefined
@@ -503,12 +540,17 @@ export function useHomeSlots(
   const currency = (data?.currency ?? "EUR") as Currency
   const w = data?.widgets
 
-  /** The read's card: its bones until the read is in, a quiet line when the role may not read it. */
+  /**
+   * The read's card: its bones until a read asked for it is in, a quiet line when the role may not read it (the read
+   * asked for it and left it out), or when the read for it failed.
+   */
   const read = <K extends keyof NonNullable<typeof w>>(
     id: K,
     draw: (v: NonNullable<NonNullable<typeof w>[K]>) => ReactNode
   ) => {
-    if (data === undefined) return <WidgetBones rows={3} />
+    const asked = shown === undefined || shown.asked.has(id as WidgetId)
+    if (!asked && shown?.failed === true) return <Quiet>Deze kaart kon niet worden geladen.</Quiet>
+    if (data === undefined || !asked) return <WidgetBones rows={3} />
     const v = w?.[id]
     return v === undefined
       ? <Quiet>Je rol kan dit niet inzien.</Quiet>
