@@ -89,3 +89,23 @@ export const governed = <A, E, R, E2, R2>(
   })
 
 export const token = (): AgentEffect => ({ kind: "token" })
+
+/**
+ * A write tool no agent action names yet (the autonomy catalogue has no entry for it): an agent's key is refused, as an
+ * action outside what an agent may do, until the catalogue has one; any other key runs it as before.
+ */
+export const notForAgents = <A, E, R>(tool: string, run: Effect.Effect<A, E, R>) =>
+  Effect.gen(function*() {
+    const principal = yield* CurrentPrincipal
+    if (principal.kind !== "agent") return yield* run
+    const apiKey = yield* CurrentApiKey
+    return yield* Effect.fail({
+      error: {
+        code: "ActionNotAllowedV1" as const,
+        message: "This action is outside what an agent may do in Insyte.",
+        request_id: apiKey.requestId,
+        action: tool,
+        reason: "unknown"
+      }
+    })
+  })

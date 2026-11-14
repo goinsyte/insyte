@@ -146,7 +146,7 @@ export class OrdersGroup extends HttpApiGroup.make("orders")
       error: WriteErrors
     }).annotate(
       OpenApi.Description,
-      "Takes the delay off the order. Insyte does not raise it again until something new happens: the parcel moves and stops again, or the supplier misses a later hand-off. Needs `orders.write`."
+      "Takes the delay off the order. Insyte does not raise it again until something new happens: the carrier reports the parcel again and it then stands still or goes wrong, or the supplier misses a later hand-off. A delay marked by hand and cleared within its few seconds sends no `order.delayed`. Needs `orders.write`."
     ),
     HttpApiEndpoint.post("refund", "/orders/:id/refunds", {
       params: ById,

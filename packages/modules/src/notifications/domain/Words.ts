@@ -115,12 +115,12 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
         // As the design's late order: how long it has waited, at which supplier.
         const supplier = text(data["supplier"])
         return {
-          title: hours === undefined
+          title: hours === undefined || hours < 1
             ? `Bestelling ${number} is nog niet verzonden`
-            : `Bestelling ${number} staat ${hours} uur zonder verzending`,
+            : `Bestelling ${number} is ${hours} uur over de overdracht`,
           detail: supplier === ""
             ? "De leverancier heeft hem niet op tijd overgedragen."
-            : `Bij ${supplier}. De afgesproken overdracht is voorbij.`,
+            : `Bij ${supplier}. De afgesproken overdracht is voorbij en hij is nog niet verzonden.`,
           record: `Bestelling ${number}`,
           actionLabel: "Bestelling openen",
           path: `/orders/${id}`

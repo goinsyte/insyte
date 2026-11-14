@@ -67,19 +67,19 @@ export const UpdateShippingAddress = Tool.make("update_shipping_address", {
 
 export const FlagOrderDelayed = Tool.make("flag_order_delayed", {
   description:
-    "Marks the order delayed (Insyte's at_risk marker); automations and webhooks hear order.delayed a few seconds later. The shopper is not mailed. Refused for an order closed or delivered. Needs orders.write.",
+    "Marks the order delayed (Insyte's at_risk marker); automations and webhooks hear order.delayed a few seconds later. The shopper is not mailed. Refused for an order closed or delivered, and for an agent's key. Needs orders.write.",
   parameters: Schema.Struct({ order_id: OrderId, idempotency_key: IdempotencyKey }),
   success: Order,
-  failure: WriteFailure,
+  failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
 export const ClearOrderDelay = Tool.make("clear_order_delay", {
   description:
-    "Takes the delay off the order; Insyte raises it again only when something new happens (the parcel stops again, the supplier misses a later hand-off). Needs orders.write.",
+    "Takes the delay off the order; Insyte raises it again only when something new happens (the carrier reports the parcel again and it stops or goes wrong, or the supplier misses a later hand-off). Refused for an agent's key. Needs orders.write.",
   parameters: Schema.Struct({ order_id: OrderId, idempotency_key: IdempotencyKey }),
   success: Order,
-  failure: WriteFailure,
+  failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 

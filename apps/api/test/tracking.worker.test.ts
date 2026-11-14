@@ -47,18 +47,19 @@ describe("tracking", () => {
     expect((await tracking(moving.id)).parcels).toMatchObject([{ trackingNumber: "3S301", status: "in_transit" }])
 
     // Registered and read: in transit, but nothing since 5 October, so #1003 is late and the team hears it.
+    ok(await rpc("Workspaces.setAlerts", { delayHours: 24, disputeAmountMinor: 25_000 }, store.cookie))
     expect((await sweep(store.workspace)).status).toBe(200)
     const late = await tracking(moving.id)
     expect(late.parcels[0]).toMatchObject({ status: "in_transit", checkpoint: "Gesorteerd" })
     expect(late.delayedAt).not.toBeNull()
     expect((await tracking(delivered.id)).delayedAt).toBeNull()
     const delays = (await outboxOf(store.workspace)).filter((e) => e.event === "order.delayed")
-    // At the workspace's own threshold (Instellingen · Meldingen, 48 hours unless changed).
-    expect(delays.map((e) => e.payload)).toMatchObject([{ orderIds: [moving.id], reason: "no_movement", hours: 48 }])
+    // At the workspace's own threshold (Instellingen · Meldingen, 48 hours unless changed; here 24).
+    expect(delays.map((e) => e.payload)).toMatchObject([{ orderIds: [moving.id], reason: "no_movement", hours: 24 }])
     // Once: a second sweep does not tell it again.
     await sweep(store.workspace)
     expect((await outboxOf(store.workspace)).filter((e) => e.event === "order.delayed")).toHaveLength(1)
-    // Cleared by the operator: not raised again until the parcel has stood still that long since.
+    // Cleared by the operator: not raised again until the carrier reports the parcel again and it then stands still.
     ok(await rpc("Orders.clearDelay", { ids: [moving.id] }, store.cookie))
     await sweep(store.workspace)
     expect((await outboxOf(store.workspace)).filter((e) => e.event === "order.delayed")).toHaveLength(1)

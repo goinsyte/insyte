@@ -117,6 +117,15 @@ const recordsOf = (sql: SqlClient.SqlClient, kind: Source["kind"], ids: Readonly
 const inStores = (stores: StoreAccess, storeId: string | null) =>
   stores === "all" || storeId === null || stores.includes(storeId)
 
+/**
+ * The record as the event sends it: an `order.delayed` also says why (`delay_reason`: `exception`, `no_movement`,
+ * `supplier_late` or `manual`).
+ */
+const dataOf = (event: OutboxEvent, data: string) =>
+  event.type === "order.delayed"
+    ? JSON.stringify({ ...(JSON.parse(data) as Record<string, unknown>), delay_reason: event.reason })
+    : data
+
 /** The envelope (api.md §7), as text: what is stored is what is signed and sent. */
 const envelope = (fields: {
   readonly id: string
@@ -187,7 +196,7 @@ export const fanOut = Effect.fn("Webhooks.fanOut")(function*(
         createdAt,
         workspaceId: event.workspaceId,
         storeId: record.storeId,
-        data: record.data
+        data: dataOf(event, record.data)
       })
       planned.push({
         id: yield* Effect.promise(() => derivedId("whd", eventId, endpoint.id)),

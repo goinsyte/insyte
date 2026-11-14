@@ -16,7 +16,8 @@ import { ReturnParcels } from "../Parcels.ts"
  * parcel that has not moved for three days. AfterShip's webhook and the poll land in `ingest`: a parcel delivered,
  * and every parcel of its order delivered, delivers the order (Insyte's word stands against Shopify's older `shipped`);
  * a carrier exception, or no movement for the workspace's `alerts.delay_hours`, delays the order once and tells the team
- * (`order.delayed`, `order.late`). A delay the operator cleared stays cleared until the parcel moves again.
+ * (`order.delayed`, `order.late`). A delay the operator cleared stays cleared until the carrier reports the parcel again
+ * (a `last_event_at` after the clear): it must move, and then stop or go wrong, to be raised again.
  */
 
 const POLL_HOURS = 4
@@ -142,7 +143,7 @@ export const sweepWorkspace = Effect.fn("Tracking.sweepWorkspace")(function*() {
   }
   // A registered parcel on its way that has not moved for the workspace's threshold: late, whatever AfterShip says.
   // Without AfterShip there is no movement to measure, so nothing is called late for want of news. A delay the
-  // operator cleared counts from the clearing: the parcel must stand still that long again.
+  // operator cleared stays cleared until the carrier reports the parcel again and it then stands still that long.
   if (!tracking.configured) return
   yield* db.scopedFor((sql) =>
     Effect.gen(function*() {
@@ -152,7 +153,7 @@ export const sweepWorkspace = Effect.fn("Tracking.sweepWorkspace")(function*() {
         where d.aftership_id is not null and d.status in ('pending', 'in_transit', 'out_for_delivery')
           and o.delayed_at is null
           and coalesce(d.last_event_at, d.registered_at) < now() - make_interval(hours => ${hours})
-          and ${notClearedAfter(sql, "o.id", `now() - make_interval(hours => ${Math.trunc(hours)})`)}`
+          and ${notClearedAfter(sql, "o.id", "coalesce(d.last_event_at, d.registered_at)")}`
       for (const s of still) yield* markDelayed(sql, { orderId: s.orderId, reason: "no_movement", note: null, hours })
     })
   )

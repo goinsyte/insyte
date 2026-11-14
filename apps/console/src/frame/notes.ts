@@ -74,11 +74,13 @@ const sentence = (note: ServerNote): Sentence => {
       if (data["reason"] === "supplier_late") {
         const supplier = typeof data["supplier"] === "string" ? data["supplier"] : ""
         return {
-          title: hours === undefined ? "Staat nog zonder verzending:" : `Staat ${hours} uur zonder verzending:`,
+          title: hours === undefined || hours < 1
+            ? "Nog niet verzonden na de overdracht:"
+            : `Staat ${hours} uur over de overdracht:`,
           record: String(data["number"] ?? ""),
           detail: supplier === ""
             ? "De leverancier heeft hem niet op tijd overgedragen."
-            : `Bij ${supplier}. De afgesproken overdracht is voorbij.`,
+            : `Bij ${supplier}. De afgesproken overdracht is voorbij en hij is nog niet verzonden.`,
           tone: "amber",
           source: "order",
           to: `/orders/${note.subjectId ?? ""}`

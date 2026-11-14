@@ -139,7 +139,7 @@ export const OutboxEvent = Schema.Union([
     orderIds: Schema.Array(Schema.String),
     reason: Schema.Literals(["exception", "no_movement", "supplier_late", "manual"]),
     note: Schema.NullOr(Schema.String),
-    /** `no_movement`: the threshold it passed; `supplier_late`: how long the order has waited. */
+    /** `no_movement`: the threshold it passed; `supplier_late`: the hours past the hand-off. */
     hours: Schema.optional(Schema.Int),
     /** `supplier_late`: the supplier that has not handed it over. */
     supplier: Schema.optional(Schema.String)

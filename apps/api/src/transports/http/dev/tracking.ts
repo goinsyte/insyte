@@ -4,7 +4,7 @@ import { supplierLate } from "@insyte/modules/orders/use-cases/delays"
 import { registerParcels } from "@insyte/modules/returns/use-cases/parcels"
 import { sweepWorkspace } from "@insyte/modules/tracking/use-cases/tracking"
 import { Effect, Layer } from "effect"
-import { HttpRouter, HttpServerResponse } from "effect/http"
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { withRequestDb } from "../../../platform/RequestDb.ts"
 import { notInProduction, workspaceParam } from "./shared.ts"
 
@@ -31,8 +31,8 @@ const Sweep = HttpRouter.add(
 )
 
 /**
- * `POST /api/__dev/orders/supplier-late?workspace=…`: one workspace's turn of the hourly supplier check (M8.3); answers
- * the outbox rows it wrote. Refused in production.
+ * `POST /api/__dev/orders/supplier-late?workspace=…&at=<iso>`: one workspace's turn of the hourly supplier check (M8.3)
+ * as if it were `at` (now when absent); answers the outbox rows it wrote. Refused in production.
  */
 const SupplierLate = HttpRouter.add(
   "POST",
@@ -42,7 +42,9 @@ const SupplierLate = HttpRouter.add(
       return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
     }
     const workspace = yield* workspaceParam
-    const outboxIds = yield* supplierLate().pipe(
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const at = new URL(request.url, "http://local").searchParams.get("at")
+    const outboxIds = yield* supplierLate(at === null ? undefined : new Date(at)).pipe(
       Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }),
       Effect.orDie
     )

@@ -8,7 +8,8 @@ import * as Outbox from "./Outbox.ts"
  * The tracking sweep and the hourly supplier check both mark it here, once per order: `orders.delayed_at` and the
  * outbox `order.delayed`, whose notifications sink tells whoever handles orders in the order's store and whose
  * automations trigger runs (M12). An operator's "Vertraging wissen" (`Orders.clearDelay`) is kept in the audit log; a
- * detector honours it until something new happens (the parcel moves again, the supplier names a later date).
+ * detector honours it until something new happens (the carrier reports the parcel again, the supplier misses a later
+ * date).
  */
 
 /** The audit action `Orders.clearDelay` writes, which the detectors read back. */
