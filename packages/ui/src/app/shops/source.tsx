@@ -1,5 +1,8 @@
 import { type ComponentType, createContext, useContext } from "react";
+import type { StoreHealth } from "../lib/types/sync-health";
 import type { ConnectStoreProps } from "./connect-store-flow";
+
+export type { StoreHealth, StoreIncident } from "../lib/types/sync-health";
 
 /**
  * What Instellingen → Winkels reads and does, from whoever hosts it (as `developer/source.tsx` for the keys): the design
@@ -16,10 +19,14 @@ export interface StoreRow {
 	status: "connected" | "connecting" | "disconnected";
 	/** Whether the store has the Live pixel (`/live`); absent where the host has no pixel. */
 	livePixel?: "none" | "installed" | undefined;
+	/** The store's sync health; absent where the host does not check it. */
+	health?: StoreHealth | undefined;
 }
 
 export interface StoresSource {
 	stores: ReadonlyArray<StoreRow>;
+	/** The store the address points at (from a notification): its incidents are opened and it is scrolled to. */
+	focusId?: string | undefined;
 	/** The store the workspace is looking at, where the host has a store switch. */
 	activeId: string | null;
 	/** Switches to a store; absent where the host has no store switch yet. */

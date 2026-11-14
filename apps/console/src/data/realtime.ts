@@ -26,7 +26,7 @@ import { QUEUE } from "./queue.ts"
 import { RETURNS } from "./returns.ts"
 import { ACCESS_LIST, ROLES } from "./roles.ts"
 import { sheetKey, SHEETS } from "./sheets.ts"
-import { STORE_SYNC, STORES } from "./stores.ts"
+import { HEALTH, STORE_SYNC, STORES } from "./stores.ts"
 import { SUPPLIERS } from "./suppliers.ts"
 import { TEAM } from "./team.ts"
 import { TICKETS } from "./tickets.ts"
@@ -52,6 +52,8 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   webhook_endpoint: WEBHOOKS,
   // A store's pixel installed or repaired is a store change; a sale is Live's feed and figures (M14 step 3).
   store: [...STORES, ...STORE_SYNC, ...ORDERS, ...CUSTOMERS, ...PRODUCTS, ...LIVE],
+  // The health check opened, added to or resolved an incident on a store's connection (M17 step 6).
+  connection: HEALTH,
   order: [...ORDERS, ...CUSTOMERS, ...LIVE],
   customer: CUSTOMERS,
   product: [...PRODUCTS, ...QUALITY],

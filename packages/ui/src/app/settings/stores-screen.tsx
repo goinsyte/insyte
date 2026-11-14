@@ -5,12 +5,13 @@ import {
 	DropdownMenuTrigger,
 } from "../../components/dropdown-menu";
 import { Loader, MoreHorizontal, Plus } from "../../icons";
-import { useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { BrandLogo } from "../marketplace/brand-logos";
 import { BandedList, BandedRow, SectionAction, SettingCard, StatusPill } from "./setting-card";
 import { undoable } from "../lib/undo";
-import { useStoresSource } from "../shops/source";
+import { type StoreRow, useStoresSource } from "../shops/source";
+import { StoreIncidents } from "./store-health";
 
 /**
  * The Shopify stores this workspace reads. The same three the store switcher shows — they used to
@@ -20,10 +21,20 @@ import { useStoresSource } from "../shops/source";
  * The stores and what they do come from the host (`shops/source.tsx`). Where a disconnect cannot be
  * taken back (the console: the token is gone, only Shopify can grant a new one) it is said without
  * an undo, and the row offers to connect again.
+ *
+ * Where the host checks the sync (sync health), each row says it in a word and when it last went
+ * through, and its incidents follow under it with what Insyte already tried; a store that must be
+ * connected again offers that, as a disconnected one does.
  */
 export function StoresPage() {
-	const { stores, activeId, setActive, disconnect, restore, installPixel, Connect: ConnectStoreDialog } = useStoresSource();
+	const { stores, activeId, focusId, setActive, disconnect, restore, installPixel, Connect: ConnectStoreDialog } =
+		useStoresSource();
 	const [connecting, setConnecting] = useState<{ domain?: string } | null>(null);
+	// From a notification: the store it is about comes into view.
+	useEffect(() => {
+		if (focusId === undefined) return;
+		document.getElementById(`store-${focusId}`)?.scrollIntoView({ block: "center" });
+	}, [focusId]);
 
 	return (
 		<>
@@ -37,8 +48,9 @@ export function StoresPage() {
 			>
 				<BandedList>
 					{stores.map((s) => (
+						<Fragment key={s.id}>
 						<BandedRow
-							key={s.id}
+							id={`store-${s.id}`}
 							leading={<BrandLogo brand="shopify" name="Shopify" size={32} />}
 							title={
 								<span className="flex items-center gap-2">
@@ -50,7 +62,9 @@ export function StoresPage() {
 									) : null}
 								</span>
 							}
-							detail={s.currency ? `${s.domain} · ${s.currency}` : s.domain}
+							detail={[s.domain, s.currency, s.status === "connecting" ? null : s.health?.synced]
+								.filter(Boolean)
+								.join(" · ")}
 							trailing={
 								<>
 									{s.status === "connecting" ? (
@@ -58,12 +72,9 @@ export function StoresPage() {
 											<Loader className="size-3.5 animate-spin" /> Koppelen…
 										</span>
 									) : (
-										<StatusPill
-											tone={s.status === "connected" ? "success" : "danger"}
-											label={s.status === "connected" ? "Gekoppeld" : "Niet gekoppeld"}
-										/>
+										<StatusPill {...pillOf(s)} />
 									)}
-									{s.status === "disconnected" ? (
+									{s.status === "disconnected" || s.health?.reconnect ? (
 										<button
 											type="button"
 											onClick={() => setConnecting({ domain: s.domain })}
@@ -126,6 +137,10 @@ export function StoresPage() {
 								</>
 							}
 						/>
+						{s.status !== "connecting" && s.health !== undefined ? (
+							<StoreIncidents health={s.health} open={s.id === focusId} />
+						) : null}
+						</Fragment>
 					))}
 				</BandedList>
 			</SettingCard>
@@ -141,4 +156,10 @@ export function StoresPage() {
 			/>
 		</>
 	);
+}
+
+/** The row's word: the sync's, where the host checks it, else whether the store is connected. */
+function pillOf(s: StoreRow): { tone: "success" | "warning" | "danger" | "info"; label: string } {
+	if (s.health !== undefined) return { tone: s.health.tone, label: s.health.label };
+	return s.status === "connected" ? { tone: "success", label: "Gekoppeld" } : { tone: "danger", label: "Niet gekoppeld" };
 }
