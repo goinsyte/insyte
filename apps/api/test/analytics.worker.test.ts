@@ -389,6 +389,67 @@ describe("Analyse", () => {
       ]
     })
     expect((await v1("/analytics/figures?metrics=omzet&months=mei", reader)).status).toBe(400)
+
+    // A key held to another store reads what a member held there does, over `/v1` and MCP alike: the team's case, and
+    // none of the store's sales or orders.
+    const heldKey = ok(
+      await rpc("ApiKeys.create", {
+        label: "Andere winkel",
+        access: { kind: "custom", scopes: { analytics: 1 } },
+        stores: ["store_elsewhere"],
+        expiresInDays: 30,
+        ips: [],
+        agent: true
+      }, owner.cookie)
+    ).secret
+    const held = await v1(`/analytics/figures?metrics=chargebacks,omzet,bestellingen&months=${A}`, heldKey)
+    expect(held.status).toBe(200)
+    expect(held.body).toMatchObject({
+      figures: [
+        { metric: "chargebacks", month: A, value: 25, rows: 1, error: null },
+        { metric: "omzet", month: A, value: 0, rows: 0, error: null },
+        { metric: "bestellingen", month: A, value: 0, rows: 0, error: null }
+      ]
+    })
+    const ownersSales = await v1(`/analytics/figures?metrics=omzet&months=${A}`, reader)
+    expect((ownersSales.body as unknown as { figures: Array<{ value: number }> }).figures[0]!.value).toBeGreaterThan(0)
+    const tool = await call("http://api.public.test/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+        "MCP-Protocol-Version": "2026-07-28",
+        "Mcp-Method": "tools/call",
+        "Mcp-Name": "get_figures",
+        authorization: `Bearer ${heldKey}`
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "get_figures",
+          arguments: { metrics: "chargebacks,omzet", months: A },
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+            "io.modelcontextprotocol/clientInfo": { name: "insyte-test", version: "1.0.0" }
+          }
+        }
+      })
+    })
+    expect(tool.status).toBe(200)
+    const text = await tool.text()
+    const message = (tool.headers.get("content-type")?.includes("text/event-stream")
+      ? text.split("\n").filter((l) => l.startsWith("data:")).map((l) => JSON.parse(l.slice(5))).find((m) => "id" in m)
+      : JSON.parse(text)) as { result: { isError: boolean; content: Array<{ text: string }> } }
+    expect(message.result.isError).toBe(false)
+    expect(JSON.parse(message.result.content[0]!.text)).toMatchObject({
+      figures: [
+        { metric: "chargebacks", month: A, value: 25, rows: 1 },
+        { metric: "omzet", month: A, value: 0, rows: 0 }
+      ]
+    })
     const refused = await v1(`/analytics/figures?metrics=omzet`, ordersOnly)
     expect(refused.status).toBe(403)
     expect(refused.body["error"]).toMatchObject({ code: "ScopeMissingV1", scope: "analytics.read" })

@@ -57,6 +57,10 @@ export const AnalyticsFiguresV1 = Schema.Struct({
       }),
     rows: Schema.Int.annotate({
       description: "How many rows stand behind it: counted orders, or for chargebacks the cases."
+    }),
+    unconverted: Schema.Int.annotate({
+      description:
+        "How many store-days' amounts had no exchange rate into the workspace's currency and are left out of `value`. 0 for a count."
     })
   }))
 }).annotate({ identifier: "AnalyticsFigures" })

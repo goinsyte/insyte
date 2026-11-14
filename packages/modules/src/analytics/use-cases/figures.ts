@@ -69,9 +69,10 @@ const sum = (cells: ReadonlyArray<OrdersCell>) =>
       counted: n.counted + c.counted,
       revenue: n.revenue + c.revenue,
       refunds: n.refunds + c.refunds,
-      refunded: n.refunded + c.refunded
+      refunded: n.refunded + c.refunded,
+      unconverted: n.unconverted + c.unconverted
     }),
-    { counted: 0, revenue: 0, refunds: 0, refunded: 0 }
+    { counted: 0, revenue: 0, refunds: 0, refunded: 0, unconverted: 0 }
   )
 
 const answer = (request: FigureRequest, fields: Omit<FigureAnswer, "metric" | "month">): FigureAnswer => ({
@@ -102,7 +103,7 @@ export const figuresIn = Effect.fn("Analytics.figuresIn")(function*(
       read.set(month, totals)
       return totals
     })
-  const disputed = new Map<Month, { readonly amount: number; readonly cases: number }>()
+  const disputed = new Map<Month, { readonly amount: number; readonly cases: number; readonly unconverted: number }>()
   const monthDisputes = (month: Month) =>
     Effect.gen(function*() {
       const hit = disputed.get(month)
@@ -110,7 +111,8 @@ export const figuresIn = Effect.fn("Analytics.figuresIn")(function*(
       const cells = yield* disputesBy(sql, span(month), [])
       const totals = {
         amount: cells.reduce((n, c) => n + c.amount, 0),
-        cases: cells.reduce((n, c) => n + c.opened, 0)
+        cases: cells.reduce((n, c) => n + c.opened, 0),
+        unconverted: cells.reduce((n, c) => n + c.unconverted, 0)
       }
       disputed.set(month, totals)
       return totals
@@ -131,13 +133,14 @@ export const figuresIn = Effect.fn("Analytics.figuresIn")(function*(
   const costs = new Map<string, CostMonth>()
   if (costMonths.length > 0) {
     const reader = yield* CostFigures
-    for (const m of yield* reader.months(sql, costMonths)) costs.set(m.month, m)
+    // Up to the same today as the sales: a store already on tomorrow counts in neither.
+    for (const m of yield* reader.months(sql, costMonths, span(ctx.current).to)) costs.set(m.month, m)
   }
 
   const figures: Array<FigureAnswer> = []
   for (const request of requests) {
     const id = request.metric.trim().toLowerCase()
-    const refused = { value: null, waitsFor: null, rows: 0 }
+    const refused = { value: null, waitsFor: null, rows: 0, unconverted: 0 }
     if (!METRICS.some((m) => m.id === id)) {
       figures.push(answer(request, { ...refused, resolved: null, error: "unknown_metric" }))
       continue
@@ -162,17 +165,31 @@ export const figuresIn = Effect.fn("Analytics.figuresIn")(function*(
       if (month === undefined) {
         figures.push(answer(request, { ...refused, resolved, error: "no_month" }))
       } else if (id === "roas" && month.adsMinor === 0) {
-        figures.push(answer(request, { ...refused, resolved, error: "no_ads", rows: month.orders }))
-      } else {
         figures.push(
-          answer(request, { resolved, value: costed(month), error: null, waitsFor: null, rows: month.orders })
+          answer(request, { ...refused, resolved, error: "no_ads", rows: month.orders, unconverted: month.unconverted })
         )
+      } else {
+        figures.push(answer(request, {
+          resolved,
+          value: costed(month),
+          error: null,
+          waitsFor: null,
+          rows: month.orders,
+          unconverted: month.unconverted
+        }))
       }
       continue
     }
     if (id === "chargebacks") {
       const d = yield* monthDisputes(resolved)
-      figures.push(answer(request, { resolved, value: d.amount / 100, error: null, waitsFor: null, rows: d.cases }))
+      figures.push(answer(request, {
+        resolved,
+        value: d.amount / 100,
+        error: null,
+        waitsFor: null,
+        rows: d.cases,
+        unconverted: d.unconverted
+      }))
       continue
     }
     const t = yield* monthTotals(resolved)
@@ -188,7 +205,8 @@ export const figuresIn = Effect.fn("Analytics.figuresIn")(function*(
       value,
       error: null,
       waitsFor: null,
-      rows: id === "terugbetaald" ? t.refunds : t.counted
+      rows: id === "terugbetaald" ? t.refunds : t.counted,
+      unconverted: id === "bestellingen" ? 0 : t.unconverted
     }))
   }
   return new Figures({ currency: ctx.currency, current: ctx.current, months, computedAt: Date.now(), figures })

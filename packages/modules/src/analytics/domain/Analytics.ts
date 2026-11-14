@@ -333,7 +333,12 @@ export const FigureAnswer = Schema.Struct({
   error: Schema.NullOr(FigureRefusal),
   waitsFor: Schema.NullOr(FigureWaitsFor),
   /** How many rows stand behind it: the counted orders, or for `chargebacks` the cases. */
-  rows: Schema.Int
+  rows: Schema.Int,
+  /**
+   * How many store-days' amounts had no rate into the workspace's currency and are left out of `value` (sales, costs
+   * and profit: the revenue; `chargebacks`: the amounts under dispute). 0 for a count and with a refusal.
+   */
+  unconverted: Schema.Int
 })
 export type FigureAnswer = typeof FigureAnswer.Type
 

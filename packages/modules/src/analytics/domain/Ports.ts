@@ -24,17 +24,22 @@ export interface CostMonth {
   /** The ad lines read from Meta, and from Google Ads (a line typed by hand from no account is in neither). */
   readonly metaMinor: number
   readonly googleMinor: number
+  /** The store-days whose revenue had no rate into the workspace's currency, left out of revenue. */
+  readonly unconverted: number
 }
 
 /**
  * Kosten's months (`Costs.figures`), on the caller's transaction, inside the reader's stores: what INSYTE()'s cost,
- * profit and ad figures read, so a sheet and Kosten never disagree. The caller has checked Analyse · Bekijken.
+ * profit and ad figures read, so a sheet and Kosten never disagree. `until` (YYYY-MM-DD) is the last day read, the
+ * month under way's today as INSYTE()'s sales read it, so a store already on tomorrow counts in neither. The caller
+ * has checked Analyse · Bekijken.
  *
  * @effect-expect-leaking CurrentPrincipal
  */
 export class CostFigures extends Context.Service<CostFigures, {
   readonly months: (
     sql: SqlClient.SqlClient,
-    months: ReadonlyArray<string>
+    months: ReadonlyArray<string>,
+    until: string
   ) => Effect.Effect<ReadonlyArray<CostMonth>, SqlError.SqlError, CurrentPrincipal>
 }>()("analytics/CostFigures") {}

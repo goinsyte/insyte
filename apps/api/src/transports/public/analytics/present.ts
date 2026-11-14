@@ -37,6 +37,7 @@ export const figuresV1 = (f: AnalyticsFigures) => ({
     month: x.resolved,
     value: x.value,
     error: x.error,
-    rows: x.rows
+    rows: x.rows,
+    unconverted: x.unconverted
   }))
 })

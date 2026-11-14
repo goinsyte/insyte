@@ -43,19 +43,34 @@ export const workspaceMonth = Effect.fn("Costs.workspaceMonth")(function*(sql: S
 
 const firstOf = (month: string) => `${month}-01`
 
-/** Counted revenue and orders per month, in the role's stores, converted at each day's rate. */
-const basisOf = Effect.fn("Costs.basis")(function*(sql: SqlClient.SqlClient, from: string, to: string) {
+/** The days read up to and with `until`, where one is given; the whole months otherwise. */
+const upTo = (sql: SqlClient.SqlClient, column: string, until: string | undefined) =>
+  until === undefined ? sql`true` : sql`${sql.literal(column)} <= ${until}::date`
+
+/**
+ * Counted revenue and orders per month, in the role's stores, converted at each day's rate; a day without a rate is
+ * left out of revenue and counted in `unconverted`.
+ */
+const basisOf = Effect.fn("Costs.basis")(function*(
+  sql: SqlClient.SqlClient,
+  from: string,
+  to: string,
+  until?: string
+) {
   const scope = yield* inScope(sql, "f.store_id")
-  const rows = yield* sql<{ month: string; orders: number; revenueMinor: string }>`
+  const rows = yield* sql<{ month: string; orders: number; revenueMinor: string; unconverted: number }>`
     with d as (
       select f.day, f.currency, sum(f.counted_orders)::bigint as orders, sum(f.counted_revenue_minor) as revenue
       from fact_orders_day f
-      where f.day >= ${firstOf(from)}::date and f.day < ${firstOf(addMonths(to, 1))}::date and ${scope}
+      where f.day >= ${firstOf(from)}::date and f.day < ${firstOf(addMonths(to, 1))}::date
+        and ${upTo(sql, "f.day", until)} and ${scope}
       group by f.day, f.currency
     )
     select to_char(d.day, 'YYYY-MM') as month, sum(d.orders)::int as orders,
            coalesce(sum(round(d.revenue * case when d.currency = w.currency then 1 else fx.rate end)), 0)::text
-             as revenue_minor
+             as revenue_minor,
+           count(*) filter (where d.currency <> w.currency and fx.rate is null and d.revenue <> 0)::int
+             as unconverted
     from d
     cross join (select currency from workspaces where id = app_workspace_id()) w
     left join lateral (
@@ -63,8 +78,14 @@ const basisOf = Effect.fn("Costs.basis")(function*(sql: SqlClient.SqlClient, fro
       where d.currency <> w.currency and x.base = d.currency and x.quote = w.currency and x.day <= d.day
       order by x.day desc limit 1) fx on true
     group by 1`
-  return new Map<string, MonthBasis>(
-    rows.map((r) => [r.month, { revenueMinor: Number(r.revenueMinor), orders: Number(r.orders) }])
+  return new Map<string, MonthBasis & { readonly unconverted: number }>(
+    rows.map((
+      r
+    ) => [r.month, {
+      revenueMinor: Number(r.revenueMinor),
+      orders: Number(r.orders),
+      unconverted: Number(r.unconverted)
+    }])
   )
 })
 
@@ -80,7 +101,12 @@ interface LineRow {
 }
 
 /** The live lines, each with its typed months and, where it reads from a connected account, the account's spend. */
-const linesOf = Effect.fn("Costs.lines")(function*(sql: SqlClient.SqlClient, from: string, to: string) {
+const linesOf = Effect.fn("Costs.lines")(function*(
+  sql: SqlClient.SqlClient,
+  from: string,
+  to: string,
+  until?: string
+) {
   const lines = yield* sql<LineRow>`
     select l.id, l.name, l.kind, l.rate::float8 as rate, l.rate_minor::text as rate_minor, l.source,
            (l.kind = 'ads' and l.source <> 'manual' and exists (
@@ -105,6 +131,7 @@ const linesOf = Effect.fn("Costs.lines")(function*(sql: SqlClient.SqlClient, fro
       and (l.connection_id is null or c.id = l.connection_id)
     join ad_spend_day s on s.connection_id = c.id
       and s.day >= ${firstOf(from)}::date and s.day < ${firstOf(addMonths(to, 1))}::date
+      and ${upTo(sql, "s.day", until)}
     left join lateral (
       select x.rate from fx_rates x
       where s.currency <> w.currency and x.base = s.currency and x.quote = w.currency and x.day <= s.day
@@ -183,25 +210,29 @@ export const list = Effect.fn("Costs.list")(function*(input: typeof ListInput.Ty
 
 /**
  * The months' figures on a transaction already scoped to the workspace, with what the Meta and Google Ads lines cost
- * apart, for INSYTE() (M14 step 4, through analytics' `CostFigures`). The caller has checked Analyse · Bekijken.
+ * apart, for INSYTE() (M14 step 4, through analytics' `CostFigures`). The revenue, orders and ad spend read stop at
+ * `until` when one is given (the month under way's today, as INSYTE()'s sales read it); Kosten itself reads whole
+ * months. The caller has checked Analyse · Bekijken.
  */
 export const figuresIn = Effect.fn("Costs.figuresIn")(function*(
   sql: SqlClient.SqlClient,
-  wanted: ReadonlyArray<string>
+  wanted: ReadonlyArray<string>,
+  until?: string
 ) {
   const months: Array<Month> = [...new Set(wanted)].sort()
   if (months.length === 0) return []
   const from = months[0]!
   const to = months[months.length - 1]!
-  const basis = yield* basisOf(sql, from, to)
-  const lines = (yield* linesOf(sql, from, to)).map((l) => ({ rule: l.rule, source: l.row.source }))
+  const basis = yield* basisOf(sql, from, to, until)
+  const lines = (yield* linesOf(sql, from, to, until)).map((l) => ({ rule: l.rule, source: l.row.source }))
   const rules = lines.map((l) => l.rule)
   return months.map((m) => {
     const b = basis.get(m) ?? NO_BASIS
     return {
       ...figuresOf(rules, m, b),
       metaMinor: adsFrom(lines, "meta", m, b),
-      googleMinor: adsFrom(lines, "google_ads", m, b)
+      googleMinor: adsFrom(lines, "google_ads", m, b),
+      unconverted: basis.get(m)?.unconverted ?? 0
     }
   })
 })
@@ -216,7 +247,9 @@ export const figures = Effect.fn("Costs.figures")(function*(input: typeof Figure
       const months = yield* figuresIn(sql, input.months)
       return new CostsFigures({
         currency,
-        figures: months.map(({ metaMinor: _meta, googleMinor: _google, ...figures }) => figures)
+        figures: months.map(({ metaMinor: _meta, googleMinor: _google, unconverted: _unconverted, ...figures }) =>
+          figures
+        )
       })
     })
   )

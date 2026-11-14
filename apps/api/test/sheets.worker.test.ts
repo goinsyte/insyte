@@ -394,4 +394,56 @@ describe("INSYTE()'s money figures", () => {
     const file = ok(await rpc("Sheets.export", { id: made.sheet.id, format: "csv" }, owner.cookie))
     expect(file.content).toContain(String(read.figures[3]!.value).replace(".", ","))
   })
+
+  it("reads the month under way's costs to the same today as its sales, a store ahead of the workspace too", async () => {
+    const owner = await person("sheets-today", "Vandaag B.V.")
+    const ws = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
+    const seed = await call("http://api.test/api/__dev/stores/seed", {
+      method: "POST",
+      headers: { cookie: owner.cookie }
+    })
+    const store = ((await seed.json()) as { storeId: string }).storeId
+    const drain = () => call(`http://api.test/api/__dev/facts/drain?workspace=${ws}`, { method: "POST" })
+    await drain()
+    ok(await rpc("Costs.create", { name: "Inkoop", kind: "percent", rate: 38 }, owner.cookie))
+    ok(await rpc("Costs.create", { name: "Verpakking", kind: "per_order", rateMinor: 140 }, owner.cookie))
+    const metrics = ["omzet", "bestellingen", "overige_kosten", "kosten", "nettowinst"] as const
+    const read = async () => {
+      const r = ok(await rpc("Analytics.figures", { requests: metrics.map((metric) => ({ metric })) }, owner.cookie))
+      return Object.fromEntries(metrics.map((m, i) => [m, r.figures[i]!.value ?? 0])) as Record<
+        typeof metrics[number],
+        number
+      >
+    }
+    const before = await read()
+
+    // The workspace counts in Amsterdam; the store is in Kiritimati (UTC+14), already on the workspace's tomorrow for
+    // most of the day. One order on the workspace's today in the store's zone, one on its tomorrow.
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam" }).format(new Date())
+    const next = new Date(`${today}T00:00:00Z`)
+    next.setUTCDate(next.getUTCDate() + 1)
+    const tomorrow = next.toISOString().slice(0, 10)
+    const inKiritimati = (day: string) => new Date(`${day}T00:30:00+14:00`).toISOString()
+    const write = await call(`http://api.test/api/__dev/facts/orders?workspace=${ws}&store=${store}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        timezone: "Pacific/Kiritimati",
+        batch: { orders: [order(31, inKiritimati(today), 10_000), order(32, inKiritimati(tomorrow), 50_000)] }
+      })
+    })
+    expect(write.status).toBe(200)
+    await drain()
+    const after = await read()
+
+    // The sales read to today: the order on tomorrow is in no figure of the month under way yet.
+    if (tomorrow.slice(0, 7) === today.slice(0, 7)) {
+      expect(after.omzet - before.omzet).toBeGreaterThanOrEqual(100)
+      expect(after.omzet - before.omzet).toBeLessThan(500)
+    }
+    // And the costs and profit are worked out over the same sales: the design's calculation over INSYTE()'s own omzet.
+    const cents = (x: number) => Math.round(x * 100) / 100
+    expect(after.overige_kosten).toBeCloseTo(cents(0.38 * after.omzet) + cents(1.4 * after.bestellingen), 6)
+    expect(after.nettowinst).toBeCloseTo(after.omzet - after.kosten, 6)
+  })
 })
