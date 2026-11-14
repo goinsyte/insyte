@@ -1,4 +1,6 @@
 import { Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
+import { MailboxDisconnected, NoMailbox } from "@insyte/modules/inbox/domain/Inbox"
+import { CustomerEmailed, EmailCustomerInput, NoCustomerAddress } from "@insyte/modules/tickets/domain/CustomerMail"
 import {
   AssignInput,
   CommentInput,
@@ -29,7 +31,7 @@ const Watching = Schema.Struct({ watching: Schema.Boolean })
 /**
  * Tickets (M11 step 3): the board and its lists, one ticket with its activity, what "Nieuw ticket" offers, and every
  * change with an undo token (a reorder needs none). Klantenservice · Bekijken to read, Bewerken to change, Beheren for
- * the trash.
+ * the trash. "Klant informeren" mails the ticket's shopper from the team's mailbox, at Bewerken, with one undo.
  */
 export class TicketsRpcs extends RpcGroup.make(
   Rpc.make("Tickets.list", { payload: ListInput, success: TicketList, error: Forbidden }),
@@ -73,6 +75,11 @@ export class TicketsRpcs extends RpcGroup.make(
     payload: CommentInput,
     success: TicketComment,
     error: Schema.Union([Forbidden, NotFound, MemberNotActive])
+  }),
+  Rpc.make("Tickets.emailCustomer", {
+    payload: EmailCustomerInput,
+    success: CustomerEmailed,
+    error: Schema.Union([Forbidden, NotFound, Invalid, NoCustomerAddress, NoMailbox, MailboxDisconnected])
   })
 )
   .middleware(Member)

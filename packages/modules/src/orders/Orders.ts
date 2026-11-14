@@ -7,6 +7,12 @@ import type { CursorInvalid, FilterFieldUnknown, ListInput } from "../shared/dom
 import type { Relay } from "../shared/domain/Outbox.ts"
 import type { SearchHit } from "../shared/domain/Search.ts"
 import type { CancelInput, OrderChange, ShippingInput, TagInput } from "./domain/Commands.ts"
+import type {
+  CustomerMailQueued,
+  CustomerMailRefused,
+  EmailCustomerInput,
+  TrackingSent
+} from "./domain/CustomerMail.ts"
 import type { OrderDetail, OrderPage } from "./domain/Orders.ts"
 import type {
   AlreadyRefunded,
@@ -16,6 +22,7 @@ import type {
   RefundResult
 } from "./domain/Refunds.ts"
 import * as Commands from "./use-cases/commands.ts"
+import * as CustomerMail from "./use-cases/customer-mail.ts"
 import * as Delays from "./use-cases/delays.ts"
 import * as Orders from "./use-cases/orders.ts"
 import * as Refunds from "./use-cases/refund.ts"
@@ -24,7 +31,8 @@ type R = Db | CurrentPrincipal
 type W = R | Relay
 
 /**
- * The orders slice: the mirror's orders (M6.4), the commands on them (M7.1), their delays (M7, M8.3) and refunds (M7.2).
+ * The orders slice: the mirror's orders (M6.4), the commands on them (M7.1), their delays (M7, M8.3), refunds (M7.2)
+ * and the team's mail to their shoppers (M7 9.1).
  *
  * @effect-expect-leaking Db CurrentPrincipal Relay
  */
@@ -47,6 +55,17 @@ export class OrdersService extends Context.Service<OrdersService, {
   /** "Vertraging wissen": the delay taken off, with an undo. */
   readonly clearDelay: (ids: ReadonlyArray<string>) => Effect.Effect<OrderChange, Forbidden | NotFound, R>
   readonly setNote: (id: string, body: string) => Effect.Effect<void, Forbidden | NotFound, R>
+  /**
+   * The team's words to one order's shopper, in the store's name, after the undo window (forwarding's "Klant mailen",
+   * `/v1`, an automation's `send_email`). The caller's `id` makes asking twice send once.
+   */
+  readonly emailCustomer: (
+    input: EmailCustomerInput
+  ) => Effect.Effect<CustomerMailQueued, Forbidden | NotFound | Invalid | Conflict | CustomerMailRefused, W>
+  /** "Track & trace-update sturen": each order's newest parcel told once per tracking number, one undo. */
+  readonly sendTrackingUpdate: (
+    ids: ReadonlyArray<string>
+  ) => Effect.Effect<TrackingSent, Forbidden | NotFound | Invalid, W>
   readonly refund: (
     input: typeof RefundInput.Type
   ) => Effect.Effect<
@@ -69,6 +88,9 @@ export class OrdersService extends Context.Service<OrdersService, {
     flagDelayed: (ids) => Delays.flagDelayed(ids).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     clearDelay: (ids) => Delays.clearDelay(ids).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     setNote: (id, body) => Commands.setNote(id, body).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    emailCustomer: (input) => CustomerMail.emailCustomer(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    sendTrackingUpdate: (ids) =>
+      CustomerMail.sendTrackingUpdate(ids).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     refund: (input) => Refunds.refund(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))
   })
 }

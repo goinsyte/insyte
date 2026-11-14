@@ -45,6 +45,11 @@ export const OrdersHttp = HttpApiBuilder.group(
               Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.clearOrderDelay(params.id, key))
           )
           .handle(
+            "emailCustomer",
+            ({ params, payload, headers }) =>
+              Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.emailCustomer(params.id, payload, key))
+          )
+          .handle(
             "refund",
             ({ params, payload, headers }) =>
               Effect.flatMap(keyOf(headers["idempotency-key"]), (key) => act.refundOrder(params.id, payload, key))

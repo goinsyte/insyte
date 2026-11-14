@@ -3,8 +3,15 @@ import type { Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
+import type { MailboxDisconnected, NoMailbox } from "../inbox/domain/Inbox.ts"
 import { Relay } from "../shared/domain/Outbox.ts"
 import type { SearchHit } from "../shared/domain/Search.ts"
+import {
+  type CustomerEmailed,
+  type EmailCustomerInput,
+  type NoCustomerAddress,
+  TicketMail
+} from "./domain/CustomerMail.ts"
 import type {
   AssignInput,
   CommentInput,
@@ -24,6 +31,7 @@ import type {
 } from "./domain/Tickets.ts"
 import * as Commands from "./use-cases/commands.ts"
 import * as Comment from "./use-cases/comment.ts"
+import * as CustomerMail from "./use-cases/customer-mail.ts"
 import * as Tickets from "./use-cases/tickets.ts"
 
 type R = Db | CurrentPrincipal
@@ -64,13 +72,28 @@ export class TicketsService extends Context.Service<TicketsService, {
   readonly comment: (
     input: typeof CommentInput.Type
   ) => Effect.Effect<TicketComment, Forbidden | NotFound | MemberNotActive, R>
+  /** "Klant informeren": the shopper mailed from the team's mailbox, the ticket waiting on their answer; one undo. */
+  readonly emailCustomer: (
+    input: EmailCustomerInput
+  ) => Effect.Effect<
+    CustomerEmailed,
+    Forbidden | NotFound | Invalid | NoCustomerAddress | NoMailbox | MailboxDisconnected,
+    R
+  >
 }>()("modules/TicketsService") {
-  // A database that does not answer is a defect, as everywhere. The relay is taken once, for the assignees' notes.
+  // A database that does not answer is a defect, as everywhere. The relay is taken once, for the assignees' notes and
+  // the shopper's mail, and the inbox's side of that mail with it.
   static readonly layer = Layer.effect(
     TicketsService,
-    Effect.map(Effect.service(Relay), (relay) => {
+    Effect.gen(function*() {
+      const relay = yield* Relay
+      const mail = yield* TicketMail
       const run = <A, E, Req>(effect: Effect.Effect<A, E | SqlError.SqlError, Req>) =>
-        effect.pipe(Effect.provideService(Relay, relay), Effect.catchIf(SqlError.isSqlError, Effect.die))
+        effect.pipe(
+          Effect.provideService(Relay, relay),
+          Effect.provideService(TicketMail, mail),
+          Effect.catchIf(SqlError.isSqlError, Effect.die)
+        )
       return {
         list: (input) => run(Tickets.list(input)),
         counts: run(Tickets.counts()),
@@ -90,7 +113,8 @@ export class TicketsService extends Context.Service<TicketsService, {
         putBack: (input) => run(Commands.putBack(input)),
         reorder: (input) => run(Commands.reorder(input)),
         watch: (id, on) => run(Commands.watch(id, on)),
-        comment: (input) => run(Comment.comment(input))
+        comment: (input) => run(Comment.comment(input)),
+        emailCustomer: (input) => run(CustomerMail.emailCustomer(input))
       }
     })
   )

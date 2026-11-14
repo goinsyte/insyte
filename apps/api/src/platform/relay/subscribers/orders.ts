@@ -1,3 +1,4 @@
+import { sendCustomerMail } from "@insyte/modules/orders/use-cases/customer-mail"
 import { sendDelayMail } from "@insyte/modules/orders/use-cases/delay-mail"
 import { settleSent } from "@insyte/modules/proposals/Proposals"
 import { refreshIn, reopenRowIn } from "@insyte/modules/queue/Queue"
@@ -30,5 +31,23 @@ const delayMail = Effect.fn("Relay.delayMail")(
   Effect.orDie
 )
 
-/** The mail sink's part for an order's delay mail. */
-export const DelayMail = subscriber("mail", { "order.delay_mail": (_id, event, sql) => delayMail(event, sql) })
+/**
+ * The team's mail to a shopper about an order (M7 9.1), once its undo window has passed: a track-and-trace update or
+ * their own words. The workspace's tabs refresh the order, so its "Track & trace verstuurd" and timeline follow.
+ */
+const customerMail = Effect.fn("Relay.customerMail")(
+  function*(event: Extract<OutboxEvent, { type: "order.mail" }>, sql: SqlClient.SqlClient) {
+    const sent = yield* sendCustomerMail(sql, event.mailId)
+    if (sent.outcome === "skipped") return
+    yield* Effect.promise(() =>
+      roomOf(event.workspaceId).broadcast({ v: 1, type: "records.changed", kind: "order", ids: [sent.orderId] })
+    )
+  },
+  Effect.orDie
+)
+
+/** The mail sink's part for an order's mails: the delay mail a plate sends, and the team's own. */
+export const OrderMails = subscriber("mail", {
+  "order.delay_mail": (_id, event, sql) => delayMail(event, sql),
+  "order.mail": (_id, event, sql) => customerMail(event, sql)
+})

@@ -324,6 +324,14 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     mailId: Schema.String
   }),
+  // The team's mail to a shopper about an order (M7 9.1: a track-and-trace update, or their own words): sent once the
+  // undo window has passed.
+  Schema.Struct({
+    type: Schema.Literal("order.mail"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    mailId: Schema.String
+  }),
   // A person filed a plate (M10.2): the command it carried ran as them. Product analytics counts it.
   Schema.Struct({
     type: Schema.Literal("proposal.filed"),

@@ -28,7 +28,7 @@ export const capturedSenders = new Map<string, { readonly from: string | null; r
 
 /** What a member's mail says on top, so a test can read it: a note's sentence, a digest's count. */
 const subjectOf = (mail: Mail): string | null =>
-  mail.memberNote?.title ??
+  mail.support?.subject ?? mail.orderMessage?.subject ?? mail.memberNote?.title ??
     (mail.digest === undefined ? null : `${mail.digest.primary.length + mail.digest.other.length} meldingen`)
 
 /**
@@ -59,8 +59,8 @@ export const MailerCapture = Layer.effect(
             Effect.andThen(withConnection(Effect.flatMap(Effect.service(SqlClient.SqlClient), (sql) =>
               sql`insert into captured_mail (kind, to_address, url, reference, sender, subject, body_text)
                 values (${mail.kind}, ${mail.to.toLowerCase()}, ${mail.url ?? mail.memberNote?.path ?? null},
-                        ${mail.reference ?? null}, ${mail.sender ?? null}, ${mail.support?.subject ?? subjectOf(mail)},
-                        ${mail.support?.text ?? null})`))),
+                        ${mail.reference ?? null}, ${mail.sender ?? null}, ${subjectOf(mail)},
+                        ${mail.support?.text ?? mail.orderMessage?.paragraphs.join("\n\n") ?? null})`))),
             Effect.provideService(Connect, connect),
             Effect.asVoid,
             Effect.mapError((error) => new MailNotSent({ kind: mail.kind, reason: error.message }))

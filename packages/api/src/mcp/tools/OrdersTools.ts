@@ -10,7 +10,7 @@ import {
   ValidationFailedV1
 } from "../../http/Errors.ts"
 import { Order } from "../../http/groups/CommerceGroup.ts"
-import { OrderDetailV1, Refund, TrackingV1 } from "../../http/groups/OrdersGroup.ts"
+import { OrderDetailV1, OrderMailV1, Refund, TrackingV1 } from "../../http/groups/OrdersGroup.ts"
 import { asKey, Governed, IdempotencyKey, OrderId, WriteFailure } from "../Shared.ts"
 
 /* One order (M19.3): read with its parcels, and the order commands (M7) as `/v1` has them. */
@@ -83,6 +83,20 @@ export const ClearOrderDelay = Tool.make("clear_order_delay", {
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
+export const EmailOrderCustomer = Tool.make("email_order_customer", {
+  description:
+    "Mails the order's shopper in the store's name with these words (paragraphs split on blank lines); it goes a few seconds later. Write it as the store, in the shopper's language, and confirm the text with the person first; pass an idempotency_key so it goes once. Refused when the order has no e-mail address, and for an agent's key. Needs support.write and orders.read.",
+  parameters: Schema.Struct({
+    order_id: OrderId,
+    subject: Schema.String,
+    body: Schema.String,
+    idempotency_key: IdempotencyKey
+  }),
+  success: OrderMailV1,
+  failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
+  dependencies: asKey()
+}).annotate(Tool.Idempotent, true)
+
 export const CancelOrder = Tool.make("cancel_order", {
   description:
     "Cancels the order in Insyte and Shopify, without a refund. IRREVERSIBLE: confirm with the person first, and pass an idempotency_key. Refused for an order already closed or with parcels on their way. Needs orders.write.",
@@ -135,6 +149,7 @@ export const OrdersTools = Toolkit.make(
   UpdateShippingAddress,
   FlagOrderDelayed,
   ClearOrderDelay,
+  EmailOrderCustomer,
   CancelOrder,
   RefundOrder,
   GetOrderTracking

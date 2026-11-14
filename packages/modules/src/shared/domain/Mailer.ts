@@ -18,6 +18,7 @@ export const MailKind = Schema.Literals([
   "return.label",
   "return.resolved",
   "order.delayed",
+  "order.message",
   "support.message",
   "member.notification",
   "member.digest"
@@ -109,6 +110,22 @@ export interface OrderDelayFacts {
 }
 
 /**
+ * The team's mail to a shopper about one order (M7 9.1 `Orders.emailCustomer`), in the store's name: a track-and-trace
+ * update with the parcel beside it, or the team's own words (forwarding's "Klant mailen", an automation's mail). The
+ * words were fixed when it was put in line (`orders/domain/CustomerMail.ts`), so the template sets them as they are.
+ */
+export interface OrderMessageFacts {
+  readonly shop: string
+  readonly number: string
+  readonly subject: string
+  readonly paragraphs: ReadonlyArray<string>
+  /** A track-and-trace update's parcel; absent for the team's own words. */
+  readonly tracking?:
+    | { readonly carrier: string | null; readonly number: string; readonly url: string | null }
+    | undefined
+}
+
+/**
  * One note delivered by e-mail to a member who has e-mail on for its kind (M11 step 13.5): the words are written by
  * the notifications slice (`notifications/domain/Words.ts`), the link is a console path the adapter makes absolute.
  */
@@ -167,6 +184,8 @@ export interface Mail {
   readonly returnMail?: ReturnMailFacts | undefined
   /** `order.delayed` only. */
   readonly orderDelay?: OrderDelayFacts | undefined
+  /** `order.message` only. */
+  readonly orderMessage?: OrderMessageFacts | undefined
   /** `member.notification` only. */
   readonly memberNote?: MemberNoteFacts | undefined
   /** `member.digest` only. */

@@ -98,6 +98,11 @@ export const ResendMailer = Layer.effect(
             if (facts === undefined) return Effect.fail(missing(mail, "its order"))
             return renderer.render("order.delayed", facts)
           }
+          case "order.message": {
+            const facts = mail.orderMessage
+            if (facts === undefined) return Effect.fail(missing(mail, "its order"))
+            return renderer.render("order.message", facts)
+          }
           case "support.message": {
             // The team's own words, as they wrote them: no template around them.
             const facts = mail.support

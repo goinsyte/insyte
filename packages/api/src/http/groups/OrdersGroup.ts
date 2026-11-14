@@ -62,6 +62,16 @@ export const TrackingV1 = Schema.Struct({
   }))
 }).annotate({ identifier: "Tracking" })
 
+/** A mail to the order's shopper (M7 9.1): in line until its few seconds have passed, then sent or failed. */
+export const OrderMailV1 = Schema.Struct({
+  id: Schema.String,
+  order_id: Schema.String,
+  kind: Schema.Literals(["delay", "tracking", "message"]),
+  state: Schema.Literals(["scheduled", "sent", "cancelled", "failed"]),
+  to: Schema.String,
+  subject: Schema.String
+}).annotate({ identifier: "OrderMail" })
+
 export class OrdersGroup extends HttpApiGroup.make("orders")
   .add(
     HttpApiEndpoint.get("tracking", "/orders/:id/tracking", {
@@ -147,6 +157,19 @@ export class OrdersGroup extends HttpApiGroup.make("orders")
     }).annotate(
       OpenApi.Description,
       "Takes the delay off the order. Insyte does not raise it again until something new happens: the carrier reports the parcel again and it then stands still or goes wrong, or the supplier misses a later hand-off. A delay marked by hand and cleared within its few seconds sends no `order.delayed`. Needs `orders.write`."
+    ),
+    HttpApiEndpoint.post("emailCustomer", "/orders/:id/emails", {
+      params: ById,
+      headers: Writes,
+      payload: Schema.Struct({
+        subject: Schema.String.check(Schema.isMaxLength(255)),
+        body: Schema.String.check(Schema.isMaxLength(10_000))
+      }),
+      success: OrderMailV1,
+      error: WriteErrors
+    }).annotate(
+      OpenApi.Description,
+      "Mails the order's shopper in the store's name, with these words (paragraphs split on blank lines). It goes a few seconds later, from the brand's own domain where one is verified; an answer goes to the store's reply address or its support mailbox. Send an `Idempotency-Key`: the same key sends once. `409 no_email` when the order has no address. Needs `support.write` and `orders.read`."
     ),
     HttpApiEndpoint.post("refund", "/orders/:id/refunds", {
       params: ById,

@@ -489,6 +489,20 @@
     "finance": "allow",
     "view": "deny"
   },
+  "Orders.emailCustomer": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Orders.sendTrackingUpdate": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "deny"
+  },
   "Orders.refund": {
     "owner": "allow",
     "admin": "allow",
@@ -747,6 +761,13 @@
     "service": "allow",
     "finance": "allow",
     "view": "deny"
+  },
+  "Forwarding.customerDraft": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
   },
   "Suppliers.connectApi": {
     "owner": "allow",
@@ -1050,6 +1071,13 @@
     "view": "allow"
   },
   "Tickets.comment": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Tickets.emailCustomer": {
     "owner": "allow",
     "admin": "allow",
     "service": "allow",

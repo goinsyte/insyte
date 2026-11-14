@@ -94,6 +94,25 @@ const make = Effect.gen(function*() {
         ["clear_delay", id],
         Effect.flatMap(orders.clearDelay([id]), () => Effect.map(orders.get(id), (d) => orderV1(d.order)))
       ).pipe(Effect.catch(writeV1)),
+    emailCustomer: (id: string, body: { readonly subject: string; readonly body: string }, key?: string) =>
+      Idempotency.once(
+        key,
+        ["email", id, body],
+        Effect.map(orders.emailCustomer({ orderId: id, subject: body.subject, body: body.body }), ({ mail }) => ({
+          id: mail.id,
+          order_id: mail.orderId,
+          kind: mail.kind,
+          state: mail.state,
+          to: mail.to,
+          subject: mail.subject
+        }))
+      ).pipe(
+        Effect.catchTag(
+          "CustomerMailRefused",
+          () => Effect.fail({ _tag: "Conflict", entity: "order", reason: "no_email" } as const)
+        ),
+        Effect.catch(writeV1)
+      ),
     refundOrder: (
       id: string,
       body: { readonly amount_minor: number; readonly note?: string | undefined },

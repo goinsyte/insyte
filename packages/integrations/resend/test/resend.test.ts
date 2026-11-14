@@ -178,6 +178,32 @@ describe("ResendMailer", () => {
     expect(Exit.isFailure(noFacts) && JSON.stringify(noFacts.cause)).toContain("return.resolved needs its return")
   })
 
+  it("sends the team's mail about an order: the parcel and its page for a tracking update, the words alone else", async () => {
+    const seen: Array<Seen> = []
+    const http = fakeResend(() => Promise.resolve(Response.json({ id: "re_om" })), seen)
+    const facts = {
+      shop: "Northwind",
+      number: "#1002",
+      subject: "Onderweg",
+      paragraphs: ["Hallo Anna,", "Hij is onderweg."]
+    }
+    await sendWith(http, {
+      kind: "order.message",
+      to: "anna@example.com",
+      sender: "Northwind",
+      reference: "oml_1",
+      orderMessage: { ...facts, tracking: { carrier: "PostNL", number: "3S123", url: "https://track.example/3S123" } }
+    })
+    expect(seen[0]?.body["text"]).toContain("3S123")
+    expect(seen[0]?.body["text"]).toContain("https://track.example/3S123")
+    await sendWith(http, { kind: "order.message", to: "anna@example.com", sender: "Northwind", orderMessage: facts })
+    expect(seen[1]?.body["subject"]).toBe("Onderweg")
+    expect(seen[1]?.body["text"]).toContain("Hij is onderweg.")
+    expect(seen[1]?.body["text"]).not.toContain("Je bestelling is onderweg")
+    const none = await sendWith(http, { kind: "order.message", to: "anna@example.com" })
+    expect(Exit.isFailure(none) && JSON.stringify(none.cause)).toContain("order.message needs its order")
+  })
+
   it("sends from the brand's own address where the mail says one, still in the store's name (20.1c)", async () => {
     const seen: Array<Seen> = []
     const http = fakeResend(() => Promise.resolve(Response.json({ id: "re_7" })), seen)
@@ -301,10 +327,11 @@ const linksOf = (props: unknown): Array<string> =>
   })
 
 /**
- * Mails with nothing to click: the order to a supplier (answered by replying, until the portal opens, M16), and the
- * shopper's delay mail (news, in the store's words; there is nothing for them to do).
+ * Mails with nothing to click: the order to a supplier (answered by replying, until the portal opens, M16), the
+ * shopper's delay mail (news, in the store's words; there is nothing for them to do), and the team's mail about an
+ * order (its preview has no carrier's page: that is another host, tested on its own below).
  */
-const LINKLESS: ReadonlySet<string> = new Set(["supplier.order", "order.delayed"])
+const LINKLESS: ReadonlySet<string> = new Set(["supplier.order", "order.delayed", "order.message"])
 
 describe.each(KINDS)("the %s mail", (kind) => {
   it.each(ORIGINS)("renders HTML and text, carries its links, and names no host but %s", async (origin) => {
@@ -466,7 +493,8 @@ describe("the templates' content", () => {
       "return.rejected",
       "return.label",
       "return.resolved",
-      "order.delayed"
+      "order.delayed",
+      "order.message"
     ])
     expect(KINDS.filter((kind) => EMAILS[kind].group === "marketing").every((kind) => !EMAILS[kind].wired)).toBe(true)
   })

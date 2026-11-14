@@ -48,6 +48,7 @@ export interface Row {
   readonly carrier: string | null
   readonly trackingNumber: string | null
   readonly delayedAt: Date | null
+  readonly trackingSentAt: Date | null
   readonly suppliers: ReadonlyArray<{ readonly id: string; readonly name: string }>
   readonly placedAt: Date
   readonly externalUpdatedAt: Date
@@ -73,6 +74,7 @@ export const toRow = (r: Row) =>
     carrier: r.carrier,
     trackingNumber: r.trackingNumber,
     delayedAt: r.delayedAt?.getTime() ?? null,
+    trackingSentAt: r.trackingSentAt?.getTime() ?? null,
     suppliers: r.suppliers,
     placedAt: r.placedAt.getTime(),
     updatedAt: r.externalUpdatedAt.getTime()
@@ -88,6 +90,8 @@ export const SELECT =
   `o.id, o.number, o.store_id, o.shopify_id, o.customer_id, o.customer_name, o.customer_email, o.status,
   o.payment_status, o.fulfillment_status, o.total_minor, o.currency, o.tags, o.placed_at, o.external_updated_at,
   o.delayed_at,
+  (select max(m.created_at) from order_mails m where m.order_id = o.id and m.kind = 'tracking'
+     and m.state in ('scheduled', 'sent')) as tracking_sent_at,
   coalesce((select json_agg(json_build_object('id', s.id, 'name', s.name) order by s.name, s.id) from suppliers s
             where s.id in (select f.supplier_id from forwarding_items f
                            where f.order_id = o.id and f.state <> 'cancelled')), '[]') as suppliers,
