@@ -90,6 +90,17 @@ describe("validate", () => {
     ])
   })
 
+  it("allows one Terugbetalen a flow, in a lane too", () => {
+    const refund = () => node("action.refund", { amount: "10,00" })
+    expect(codes([node("trigger.shipping_delay"), refund()])).toEqual([])
+    expect(codes([node("trigger.shipping_delay"), refund(), refund()])).toEqual(["n:one_refund"])
+    const split = {
+      ...node("condition.branch"),
+      branches: { yes: [refund()], no: [] }
+    }
+    expect(codes([node("trigger.shipping_delay"), refund(), split])).toEqual(["n:one_refund"])
+  })
+
   it("finds a reference the trigger cannot fill", () => {
     const flow = [node("trigger.inventory_low"), node("action.send_email")]
     expect(validate(flow)).toMatchObject([

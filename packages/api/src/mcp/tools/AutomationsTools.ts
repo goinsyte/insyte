@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
-import { NotFoundV1, ScopeMissingV1 } from "../../http/Errors.ts"
+import { ActionNotAllowedV1, NotFoundV1, ScopeMissingV1 } from "../../http/Errors.ts"
 import {
   AutomationDetailV1,
   AutomationPageV1,
@@ -50,10 +50,10 @@ export const ListAutomationRuns = Tool.make("list_automation_runs", {
 
 export const TriggerAutomation = Tool.make("trigger_automation", {
   description:
-    "Runs a flow's live version for one order now, as its trigger would; its steps act as the flow's own service account, so they may create tickets, label the customer or notify the team. Answers the run as it started. Needs automations.write.",
+    "Runs a flow's live version for one order now, as its trigger would; its steps act as the flow's own service account, so they may create tickets, label the customer, message the supplier or refund within the flow's limit. Answers the run as it started. Refused for an agent's key. Needs automations.write.",
   parameters: Schema.Struct({ automation_id: AutomationId, order_id: OrderId, idempotency_key: IdempotencyKey }),
   success: AutomationRunV1,
-  failure: WriteFailure,
+  failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 })
 

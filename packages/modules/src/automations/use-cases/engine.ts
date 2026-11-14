@@ -1,17 +1,31 @@
 import { Db } from "@insyte/database/Db"
-import { fill, holds, missingIn, type RunContext, startedBy } from "@insyte/domain/automations/Engine"
+import {
+  crosses,
+  fill,
+  holds,
+  lookbackDays,
+  mailMatches,
+  missingIn,
+  type RunContext,
+  type RunRecordKind,
+  scheduleDue,
+  scheduleOf,
+  startedBy
+} from "@insyte/domain/automations/Engine"
 import type { Flow } from "@insyte/domain/automations/Graph"
 import { SCOPE_LABEL } from "@insyte/domain/automations/Scopes"
 import { BRAND_NAME, STEPS_BY_ID } from "@insyte/domain/automations/Steps"
 import { mintId } from "@insyte/domain/Ids"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
-import { Effect, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import { CustomersService } from "../../customers/Customers.ts"
 import { type OutboxEvent, Relay } from "../../shared/domain/Outbox.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { TicketsService } from "../../tickets/Tickets.ts"
+import { AutomationActions, type Did } from "../Links.ts"
 import { principalOf } from "./accounts.ts"
+import { contextOf } from "./context.ts"
 import { connectedBrands } from "./read.ts"
 
 /*
@@ -39,6 +53,11 @@ export interface RunPlan {
   readonly recordId: string
   readonly nodes: Flow
   readonly context: RunContext
+  /** The order the run's actions act on: the run's own, or the one its chargeback disputes. */
+  readonly orderId: string | null
+  readonly customerId: string | null
+  /** A mail run's thread, which an AI step drafts or sums up on. */
+  readonly threadId: string | null
   readonly account: { id: string; label: string; version: number; scopes: Array<string> } | null
   readonly storeScope: Array<string> | null
   readonly connected: Array<string>
@@ -48,113 +67,284 @@ export interface RunPlan {
 
 /* ── starting runs ─────────────────────────────────────────────────────────────────────────── */
 
+/** A flow a trigger may start, with its live trigger's settings. */
+interface Startable {
+  readonly id: string
+  readonly workspaceId: string
+  readonly liveVersion: number
+  readonly storeScope: Array<string> | null
+  readonly rateLimit: number
+  readonly refunds: boolean
+  readonly accountId: string | null
+  readonly triggerConfigJson: string | null
+  readonly firstPublished: Date
+}
+
+/** "Geen limiet" still holds a flow to this many runs an hour: an event storm does not become thousands of runs. */
+export const HOURLY_CEILING = 500
+
+/** A flow with "Terugbetalen" in its live version runs at most this many times an hour, whatever its setting says. */
+export const REFUND_HOURLY = 30
+
+/** The runs an hour a flow may start: its setting ("Geen limiet" is the ceiling), and less when it refunds. */
+export const hourlyLimitOf = (setting: number, refunds: boolean) => {
+  const set = setting > 0 ? setting : HOURLY_CEILING
+  return refunds ? Math.min(set, REFUND_HOURLY) : set
+}
+
+/** Whether a version's steps (`v.nodes`, lanes included) refund. */
+export const REFUNDS_SQL = `coalesce(jsonb_path_exists(v.nodes, '$.**.variantId ? (@ == "action.refund")'), false)`
+
+/** At most this many runs one stock event starts for one flow; a flow hears a variant again after `STOCK_COOLDOWN`. */
+const STOCK_MAX = 25
+const STOCK_COOLDOWN = "1 day"
+
+const triggerConfigOf = (flow: Startable): Record<string, unknown> =>
+  flow.triggerConfigJson === null ? {} : (JSON.parse(flow.triggerConfigJson) as Record<string, unknown> | null) ?? {}
+
+const startable = (sql: SqlClient.SqlClient, trigger: string) =>
+  sql<Startable>`
+    select a.id, a.workspace_id, a.live_version, a.store_scope, coalesce(s.rate_limit_per_hour, 0) as rate_limit,
+           ${
+    sql.literal(REFUNDS_SQL)
+  } as refunds, sa.id as account_id, (v.nodes -> 0 -> 'config')::text as trigger_config_json,
+           (select min(f.published_at) from automation_versions f where f.automation_id = a.id) as first_published
+    from automations a
+    left join automation_settings s on s.automation_id = a.id
+    left join service_accounts sa on sa.automation_id = a.id and sa.disabled_at is null
+    left join automation_versions v on v.automation_id = a.id and v.version = a.live_version
+    where a.trigger_variant = ${trigger} and a.status = 'active' and a.deleted_at is null
+      and a.live_version > 0
+    order by a.id`
+
+/** The store a run's record belongs to: `null` for a mail thread (the inbox has no store yet) or a case without one. */
+const storeOf = (sql: SqlClient.SqlClient, kind: RunRecordKind, id: string) =>
+  Effect.map(
+    kind === "order"
+      ? sql<{ storeId: string | null }>`select store_id from orders where id = ${id}`
+      : kind === "chargeback"
+      ? sql<{ storeId: string | null }>`select store_id from chargebacks where id = ${id}`
+      : kind === "product"
+      ? sql<{ storeId: string | null }>`select store_id from variants where id = ${id}`
+      : Effect.succeed([{ storeId: null }]),
+    ([row]) => (row === undefined ? undefined : row.storeId)
+  )
+
+/**
+ * One run row for a flow and record, `running`, or `skipped` with why (no account, the hour's limit); nothing when the
+ * record lies outside the flow's stores or this key already started it. A schedule's record (`revive`) that was
+ * skipped is tried again on a later tick, under the same row, rather than holding its key forever. Answers the id of
+ * a run to start.
+ */
+const startOne = Effect.fn("Automations.startOne")(function*(
+  sql: SqlClient.SqlClient,
+  flow: Startable,
+  run: {
+    readonly triggerEvent: string
+    readonly trigger: string
+    readonly summary: string
+    readonly kind: RunRecordKind
+    readonly recordId: string
+    readonly revive?: boolean
+  }
+) {
+  if (flow.storeScope !== null) {
+    const store = yield* storeOf(sql, run.kind, run.recordId)
+    if (store === undefined) return undefined
+    // A thread has no store yet: a flow held to some stores still hears its mail.
+    if (run.kind !== "thread" && (store === null || !flow.storeScope.includes(store))) return undefined
+  }
+  // The flow locked while its hour is counted and its run written: two batches at once do not both find room for
+  // the last run of the hour. Flows are taken in id order (`startable`), so two batches lock them in the same order.
+  yield* sql`select 1 from automations where id = ${flow.id} for update`
+  const [hour] = yield* sql<{ n: number }>`
+    select count(*)::int as n from automation_runs
+    where automation_id = ${flow.id} and status <> 'skipped' and started_at > now() - interval '1 hour'`
+  const limit = hourlyLimitOf(flow.rateLimit, flow.refunds)
+  const reason = flow.accountId === null
+    ? "De flow heeft geen actief serviceaccount."
+    : (hour?.n ?? 0) >= limit
+    ? `De limiet van ${limit} runs per uur is bereikt.`
+    : null
+  const status = reason === null ? "running" : "skipped"
+  const finishedAt = reason === null ? null : new Date()
+  const written = yield* sql<{ id: string; inserted: boolean }>`
+    insert into automation_runs (id, workspace_id, automation_id, version, service_account_id, trigger_event,
+                                 trigger_variant, summary, record_kind, record_id, status, reason, finished_at)
+    values (${mintId("run")}, ${flow.workspaceId}, ${flow.id}, ${flow.liveVersion}, ${flow.accountId},
+            ${run.triggerEvent}, ${run.trigger}, ${run.summary}, ${run.kind}, ${run.recordId}, ${status}, ${reason},
+            ${finishedAt})
+    ${
+    run.revive === true
+      ? sql`on conflict (automation_id, trigger_event, record_id) do update set
+              version = excluded.version, service_account_id = excluded.service_account_id,
+              summary = excluded.summary, status = excluded.status, reason = excluded.reason, started_at = now(),
+              finished_at = excluded.finished_at
+            where automation_runs.status = 'skipped'`
+      : sql`on conflict (automation_id, trigger_event, record_id) do nothing`
+  }
+    returning id, (xmax = 0) as inserted`
+  const [row] = written
+  if (row === undefined) return undefined
+  if (row.inserted) yield* sql`update automations set runs_total = runs_total + 1 where id = ${flow.id}`
+  return reason === null ? row.id : undefined
+})
+
 /**
  * The runs an event starts, as `running` rows, in the event's workspace scope (the relay's transaction). One per active
- * flow on that trigger and record; the same event again starts nothing. Past the flow's hourly limit, or without an
- * enabled account, the run is written `skipped` with its reason, so the history says why nothing happened.
+ * flow on that trigger and record whose own settings the record meets (a stock threshold crossed, a mail that holds
+ * the text); the same event again starts nothing. A trigger that happens once to its record (an order placed or sent,
+ * a chargeback opened: `Started.once`) is keyed by the trigger, not the event, so a duplicate event starts no second
+ * run. "Lage voorraad" starts at most `STOCK_MAX` runs an event for a flow, and none for a variant the flow ran for
+ * in the last day. Past the flow's hourly limit, or without an enabled account, the run is written `skipped` with its
+ * reason, so the history says why nothing happened.
  */
 export const startRuns = Effect.fn("Automations.startRuns")(function*(
   sql: SqlClient.SqlClient,
   outboxId: string,
   event: OutboxEvent
 ) {
-  const started = startedBy(event as unknown as { type: string } & Record<string, unknown>)
-  if (started === undefined || started.recordIds.length === 0) return []
-  const flows = yield* sql<{
-    id: string
-    workspaceId: string
-    liveVersion: number
-    storeScope: Array<string> | null
-    rateLimit: number
-    accountId: string | null
-  }>`
-    select a.id, a.workspace_id, a.live_version, a.store_scope, coalesce(s.rate_limit_per_hour, 0) as rate_limit,
-           sa.id as account_id
-    from automations a
-    left join automation_settings s on s.automation_id = a.id
-    left join service_accounts sa on sa.automation_id = a.id and sa.disabled_at is null
-    where a.trigger_variant = ${started.trigger} and a.status = 'active' and a.deleted_at is null
-      and a.live_version > 0`
   const runs: Array<string> = []
-  for (const flow of flows) {
-    for (const recordId of started.recordIds) {
-      if (flow.storeScope !== null) {
-        const [inScope] = yield* sql<{ id: string }>`
-          select id from orders where id = ${recordId} and store_id in ${sql.in([...flow.storeScope, ""])}`
-        if (inScope === undefined) continue
+  const raw = event as unknown as { type: string } & Record<string, unknown>
+  for (const started of startedBy(raw)) {
+    if (started.recordIds.length === 0) continue
+    const flows = yield* startable(sql, started.trigger)
+    if (flows.length === 0) continue
+    const mail = started.recordKind === "thread" && typeof raw["messageId"] === "string"
+      ? (yield* sql<{ subject: string; body: string }>`
+          select coalesce(subject, '') as subject, coalesce(body_text, '') as body from email_messages
+          where id = ${raw["messageId"]}`)[0]
+      : undefined
+    for (const flow of flows) {
+      const config = triggerConfigOf(flow)
+      let stock = 0
+      for (const recordId of started.recordIds) {
+        const level = started.levels?.[recordId]
+        if (level !== undefined && !crosses(config, level)) continue
+        if (started.trigger === "trigger.email_received" && !mailMatches(config, mail ?? { subject: "", body: "" })) {
+          continue
+        }
+        if (started.recordKind === "product") {
+          if (stock >= STOCK_MAX) break
+          const [recent] = yield* sql<{ id: string }>`
+            select id from automation_runs
+            where automation_id = ${flow.id} and record_id = ${recordId} and status <> 'skipped'
+              and started_at > now() - ${STOCK_COOLDOWN}::interval
+            limit 1`
+          if (recent !== undefined) continue
+          stock++
+        }
+        const id = yield* startOne(sql, flow, {
+          triggerEvent: started.once === true ? started.trigger : outboxId,
+          trigger: started.trigger,
+          summary: started.summary,
+          kind: started.recordKind,
+          recordId
+        })
+        if (id !== undefined) runs.push(id)
       }
-      const [hour] = yield* sql<{ n: number }>`
-        select count(*)::int as n from automation_runs
-        where automation_id = ${flow.id} and status <> 'skipped' and started_at > now() - interval '1 hour'`
-      const reason = flow.accountId === null
-        ? "De flow heeft geen actief serviceaccount."
-        : flow.rateLimit > 0 && (hour?.n ?? 0) >= flow.rateLimit
-        ? `De limiet van ${flow.rateLimit} runs per uur is bereikt.`
-        : null
-      const id = mintId("run")
-      const inserted = yield* sql<{ id: string }>`
-        insert into automation_runs (id, workspace_id, automation_id, version, service_account_id, trigger_event,
-                                     trigger_variant, summary, record_kind, record_id, status, reason, finished_at)
-        values (${id}, ${flow.workspaceId}, ${flow.id}, ${flow.liveVersion}, ${flow.accountId}, ${outboxId},
-                ${started.trigger}, ${started.summary}, ${started.recordKind}, ${recordId},
-                ${reason === null ? "running" : "skipped"}, ${reason}, ${reason === null ? null : new Date()})
-        on conflict (automation_id, trigger_event, record_id) do nothing
-        returning id`
-      if (inserted.length === 0) continue
-      yield* sql`update automations set runs_total = runs_total + 1 where id = ${flow.id}`
-      if (reason === null) runs.push(id)
     }
   }
   return runs
 })
 
-/* ── reading a run ─────────────────────────────────────────────────────────────────────────── */
+/** At most this many records one tick of a schedule starts runs for; the rest come due on the next. */
+const TICK_MAX = 200
 
-const euro = (minor: number) =>
-  (minor / 100).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+/**
+ * "Op een vast moment" (M12 step 3): one workspace's scheduled flows due at `at` in its timezone, a run per order the
+ * moment picks. Bestellingen die zoveel dagen onderweg zijn: paid, not yet delivered, that reached their day since the
+ * last tick (a missed tick is made good by the next) and after the flow was first switched on. Klanten die zoveel
+ * dagen niet bestelden: a customer's last order reached that age. A record runs once per flow (its key is the
+ * schedule), so the next tick does not mail the same customer again. Answers the runs to start.
+ */
+export const startScheduled = Effect.fn("Automations.startScheduled")(function*(at: Date) {
+  const db = yield* Db
+  return yield* db.scopedFor((sql) =>
+    Effect.gen(function*() {
+      const flows = yield* startable(sql, "trigger.schedule")
+      if (flows.length === 0) return []
+      const [ws] = yield* sql<{ timezone: string }>`select timezone from workspaces where id = app_workspace_id()`
+      const local = localTime(at, ws?.timezone ?? "Europe/Amsterdam")
+      const runs: Array<string> = []
+      for (const flow of flows) {
+        const schedule = scheduleOf(triggerConfigOf(flow))
+        if (!scheduleDue(schedule, local)) continue
+        const age = `${schedule.days} days`
+        const since = new Date(
+          Math.max(at.getTime() - lookbackDays(schedule) * 86_400_000, flow.firstPublished.getTime())
+        )
+        const stores = flow.storeScope === null ? sql`true` : sql`o.store_id in ${sql.in([...flow.storeScope, ""])}`
+        // A record this flow already ran for takes no place in the tick: the next ones are not starved by it.
+        const fresh = (column: string) =>
+          sql`not exists (select 1 from automation_runs x
+                          where x.automation_id = ${flow.id} and x.trigger_event = 'schedule'
+                            and x.record_id = ${sql.literal(column)} and x.status <> 'skipped')`
+        const due = schedule.records === "orders_open"
+          ? yield* sql<{ id: string }>`
+            select o.id from orders o
+            where not o.is_draft and o.status in ('paid', 'at_supplier', 'shipped') and ${stores}
+              and o.placed_at + ${age}::interval <= ${at} and o.placed_at + ${age}::interval > ${since}
+              and ${fresh("o.id")}
+            order by o.placed_at limit ${TICK_MAX}`
+          : yield* sql<{ id: string }>`
+            select l.id from (
+              select distinct on (o.customer_id) o.id, o.placed_at from orders o
+              where o.customer_id is not null and not o.is_draft and o.status <> 'cancelled' and ${stores}
+              order by o.customer_id, o.placed_at desc
+            ) l
+            where l.placed_at + ${age}::interval <= ${at} and l.placed_at + ${age}::interval > ${since}
+              and ${fresh("l.id")}
+            order by l.placed_at limit ${TICK_MAX}`
+        const summary = schedule.records === "orders_open"
+          ? `${schedule.days} dagen onderweg`
+          : `${schedule.days} dagen geen bestelling`
+        for (const { id: recordId } of due) {
+          const id = yield* startOne(sql, flow, {
+            triggerEvent: "schedule",
+            trigger: "trigger.schedule",
+            summary,
+            kind: "order",
+            recordId,
+            revive: true
+          })
+          if (id !== undefined) runs.push(id)
+        }
+      }
+      return runs
+    })
+  )
+})
 
-const regionName = (code: string) => {
-  try {
-    return new Intl.DisplayNames(["nl"], { type: "region" }).of(code) ?? code
-  } catch {
-    return code
-  }
+/** The hour, weekday (Monday 1) and day of the month at `at` in a timezone. */
+const localTime = (at: Date, timeZone: string) => {
+  const parts = (() => {
+    try {
+      return new Intl.DateTimeFormat("en-GB", {
+        timeZone,
+        hour: "numeric",
+        hourCycle: "h23",
+        weekday: "short",
+        day: "numeric"
+      })
+        .formatToParts(at)
+    } catch {
+      return new Intl.DateTimeFormat("en-GB", {
+        timeZone: "UTC",
+        hour: "numeric",
+        hourCycle: "h23",
+        weekday: "short",
+        day: "numeric"
+      })
+        .formatToParts(at)
+    }
+  })()
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? ""
+  const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(part("weekday"))
+  return { hour: Number(part("hour")), weekday, day: Number(part("day")) }
 }
 
-/** What an order run's steps can read, as the fields `Fields.ts` names. */
-export const orderContext = Effect.fn("Automations.orderContext")(function*(sql: SqlClient.SqlClient, orderId: string) {
-  const [o] = yield* sql<{
-    number: string
-    totalMinor: string
-    status: string
-    customerName: string | null
-    customerEmail: string | null
-    country: string | null
-    tags: Array<string>
-    customerTags: Array<string> | null
-    lifetimeValueMinor: string | null
-  }>`
-    select o.number, o.total_minor, o.status, o.customer_name, o.customer_email,
-           o.shipping_address ->> 'country' as country, o.tags, c.tags as customer_tags, c.lifetime_value_minor
-    from orders o left join customers c on c.id = o.customer_id
-    where o.id = ${orderId}`
-  if (o === undefined) return undefined
-  const name = o.customerName ?? ""
-  const context: Record<string, string> = {
-    "order.number": o.number,
-    "order.total": euro(Number(o.totalMinor)),
-    "order.status": o.status,
-    "order.country": o.country === null ? "" : regionName(o.country),
-    "order.country_code": o.country ?? "",
-    "order.tags": o.tags.join(", "),
-    "customer.name": name,
-    "customer.first_name": name.split(/\s+/)[0] ?? "",
-    "customer.email": o.customerEmail ?? "",
-    "customer.tags": (o.customerTags ?? []).join(", "),
-    ...(o.lifetimeValueMinor === null ? {} : { "customer.lifetime_value": `€ ${euro(Number(o.lifetimeValueMinor))}` })
-  }
-  return context
-})
+/* ── reading a run ─────────────────────────────────────────────────────────────────────────── */
 
 /**
  * The run's plan, or `null` when there is nothing left to do: the run is closed, or the version it was pinned to is gone
@@ -199,7 +389,7 @@ export const loadRun = Effect.fn("Automations.loadRun")(function*(runId: string)
                    where id = ${runId} and status in ('running', 'waiting')`
         return null
       }
-      const context = r.recordKind === "order" ? yield* orderContext(sql, r.recordId) : {}
+      const read = yield* contextOf(sql, r.recordKind, r.recordId, r.summary)
       const plan: RunPlan = {
         runId,
         workspaceId: r.workspaceId,
@@ -210,7 +400,10 @@ export const loadRun = Effect.fn("Automations.loadRun")(function*(runId: string)
         recordKind: r.recordKind,
         recordId: r.recordId,
         nodes: JSON.parse(r.nodesJson) as Flow,
-        context: { "trigger.summary": `Bestelling ${context?.["order.number"] ?? ""} ${r.summary}`, ...context },
+        context: read?.context ?? { "trigger.summary": r.summary },
+        orderId: read?.orderId ?? null,
+        customerId: read?.customerId ?? null,
+        threadId: read?.threadId ?? null,
         account: r.accountId === null
           ? null
           : {
@@ -249,23 +442,6 @@ const doneBefore = Effect.fn("Automations.doneBefore")(function*(
       and s.status = 'succeeded' and s.variant like 'action.%'`
   return rows.map((r) => r.nodeId)
 })
-
-/** What the run read when it started, as the Runs drawer's Invoer shows it. */
-export const inputOf = (context: RunContext): Record<string, string> => {
-  const pick: Array<[string, string]> = [
-    ["Bestelling", "order.number"],
-    ["Klant", "customer.name"],
-    ["E-mail", "customer.email"],
-    ["Totaal", "order.total"],
-    ["Land", "order.country"]
-  ]
-  return Object.fromEntries(
-    pick.flatMap(([label, path]) => {
-      const value = context[path] ?? ""
-      return value === "" ? [] : [[label, path === "order.total" ? `€ ${value}` : value]]
-    })
-  )
-}
 
 export const UNPUBLISHED = "De publicatie is ongedaan gemaakt; de run is gestopt."
 
@@ -379,10 +555,19 @@ export const notYet = (variantId: string, connected: ReadonlyArray<string>): str
   return `“${step?.label ?? variantId}” kan Insyte nog niet uitvoeren; de stap is overgeslagen.`
 }
 
-const TERMINAL = new Set(["Forbidden", "NotFound", "Invalid", "Conflict", "MemberNotActive"])
+const TERMINAL = new Set([
+  "Forbidden",
+  "NotFound",
+  "Invalid",
+  "Conflict",
+  "MemberNotActive",
+  "RefundOverLimit",
+  "RefundOverBalance",
+  "AlreadyRefunded"
+])
 
 /** A slice's typed refusal as the run's explanation; terminal, as trying again gives the same answer. */
-const explain = (variantId: string, error: unknown): StepFailed => {
+export const explain = (variantId: string, error: unknown): StepFailed => {
   const tag = (error as { _tag?: string })._tag ?? ""
   const scope = STEPS_BY_ID[variantId]?.scope
   const explanation = tag === "Forbidden"
@@ -397,6 +582,12 @@ const explain = (variantId: string, error: unknown): StepFailed => {
     ? "De collega aan wie de stap toewijst, is niet meer actief."
     : tag === "Conflict"
     ? "Het record veranderde intussen; de stap is niet uitgevoerd."
+    : tag === "RefundOverLimit"
+    ? "Het bedrag is meer dan de flow per bestelling mag terugbetalen; er is niets terugbetaald."
+    : tag === "RefundOverBalance"
+    ? "Het bedrag is meer dan er nog op de bestelling openstaat; er is niets terugbetaald."
+    : tag === "AlreadyRefunded"
+    ? "De bestelling is al volledig terugbetaald, of nog niet betaald; er is niets terugbetaald."
     : "De stap lukte niet; Insyte probeert het opnieuw."
   return new StepFailed({ explanation, terminal: TERMINAL.has(tag) })
 }
@@ -454,7 +645,7 @@ export const act = Effect.fn("Automations.act")(function*(
         priority: PRIORITY[String(node.config["priority"] ?? "normal")] ?? "medium",
         assigneeIds: assigneeIds.slice(0, 1),
         labels: queue === "disputes" ? ["automatisering", "geschil"] : ["automatisering"],
-        ...(plan.recordKind === "order" ? { related: { type: "order" as const, id: plan.recordId } } : {})
+        ...(plan.orderId === null ? {} : { related: { type: "order" as const, id: plan.orderId } })
       })).pipe(Effect.catch(refuse))
       return {
         status: "succeeded" as const,
@@ -466,22 +657,18 @@ export const act = Effect.fn("Automations.act")(function*(
     }
     case "action.tag_customer": {
       const customers = yield* CustomersService
-      const [order] = plan.recordKind === "order"
-        ? yield* db.scopedFor((sql) =>
-          sql<{ customerId: string | null }>`select customer_id from orders where id = ${plan.recordId}`
-        )
-        : []
-      if (order?.customerId == null) {
+      const customerId = plan.customerId
+      if (customerId === null) {
         return {
           status: "skipped" as const,
           output: {},
-          explanation: "Deze bestelling heeft geen klant om te labelen."
+          explanation: "Deze run heeft geen klant om te labelen."
         }
       }
-      yield* asAccount(customers.tag({ ids: [order.customerId], add: [text("tag")], remove: [] })).pipe(
+      yield* asAccount(customers.tag({ ids: [customerId], add: [text("tag")], remove: [] })).pipe(
         Effect.catch(refuse)
       )
-      return { status: "succeeded" as const, output: { customerId: order.customerId, tag: text("tag") } }
+      return { status: "succeeded" as const, output: { customerId, tag: text("tag") } }
     }
     case "action.alert_team": {
       if (!principal.role.levels.team) {
@@ -529,8 +716,14 @@ export const act = Effect.fn("Automations.act")(function*(
     }
     case "action.track_event":
       return { status: "succeeded" as const, output: { event: text("event") || "automation.fired" } }
-    default:
+    default: {
+      // The actions through orders, forwarding, chats, tracking and AI (M12 step 3), where the app composes them.
+      const actions = yield* Effect.serviceOption(AutomationActions)
+      if (Option.isSome(actions) && actions.value.handles.has(node.variantId)) {
+        return yield* actions.value.act({ plan, node, principal, text })
+      }
       return { status: "skipped" as const, output: {}, explanation: notYet(node.variantId, plan.connected) }
+    }
   }
 })
 
@@ -585,49 +778,99 @@ const liveOf = Effect.fn("Automations.liveOf")(function*(sql: SqlClient.SqlClien
   } as const
 })
 
+/** The step's row an earlier attempt finished it with, if one did. */
+const doneStep = (sql: SqlClient.SqlClient, plan: RunPlan, nodeId: string) =>
+  Effect.map(
+    sql<{ status: "succeeded" | "skipped"; outputJson: string; explanation: string | null }>`
+      select status, output::text as output_json, explanation from automation_run_steps
+      where run_id = ${plan.runId} and node_id = ${nodeId} and status in ('succeeded', 'skipped')
+      order by attempt desc limit 1`,
+    ([done]): ActOutcome | undefined =>
+      done === undefined ? undefined : {
+        kind: "done",
+        status: done.status,
+        output: JSON.parse(done.outputJson) as Record<string, unknown>,
+        explanation: done.explanation ?? undefined
+      }
+  )
+
+/** The run's row, locked: two attempts of one step (a retry while the first is still out) take turns. */
+const lockRun = (sql: SqlClient.SqlClient, runId: string) =>
+  sql`select id from automation_runs where id = ${runId} for update`.pipe(Effect.asVoid)
+
+/** How long a step that calls out (`AutomationActions.outside`) holds its claim; the Workflow's step times out sooner. */
+const CLAIM = "3 minutes"
+
+type Node = { readonly id: string; readonly variantId: string; readonly config: Readonly<Record<string, unknown>> }
+
 /**
- * One action step, once: in one transaction, the flow is read as it is now (`liveOf`), the action runs through its
- * slice as the account it holds today, and the step's row is written. A retried attempt (Workflows retries a step whose
- * answer it did not keep) finds that row and does not act again; an attempt that failed left nothing behind. What the
- * slice's own events say may wait for the relay's minute sweep, as they commit with the step.
+ * One action step, once. The run's row is locked first, so a second attempt of the same step waits for the first and
+ * then finds its row. In one transaction, the flow is read as it is now (`liveOf`), the action runs through its slice
+ * as the account it holds today, and the step's row is written: a retried attempt finds that row and does not act
+ * again; an attempt that failed left nothing behind. A step that calls out (Insyte AI, the carrier:
+ * `AutomationActions.outside`) is not held in a transaction while it waits: it is claimed (a `waiting` row), done on
+ * the slice's own transactions, and written after; another attempt meanwhile is told to try again. What the slice's
+ * own events say may wait for the relay's minute sweep, as they commit with the step.
  */
-export const actOnce = Effect.fn("Automations.actOnce")(function*(
-  plan: RunPlan,
-  node: { readonly id: string; readonly variantId: string; readonly config: Readonly<Record<string, unknown>> },
-  attempt: number
-) {
+export const actOnce = Effect.fn("Automations.actOnce")(function*(plan: RunPlan, node: Node, attempt: number) {
   const db = yield* Db
-  return yield* db.scopedFor((sql) =>
+  const actions = yield* Effect.serviceOption(AutomationActions)
+  const outside = Option.isSome(actions) && actions.value.outside.has(node.variantId)
+  const row = (did: Did): StepRecord => ({
+    runId: plan.runId,
+    runAt: plan.runAt,
+    nodeId: node.id,
+    variant: node.variantId,
+    attempt,
+    status: did.status,
+    input: { ...node.config },
+    output: did.output,
+    ...(did.explanation === undefined ? {} : { explanation: did.explanation })
+  })
+  if (!outside) {
+    return yield* db.scopedFor((sql) =>
+      Effect.gen(function*() {
+        yield* lockRun(sql, plan.runId)
+        const done = yield* doneStep(sql, plan, node.id)
+        if (done !== undefined) return done
+        const live = yield* liveOf(sql, plan)
+        if ("stop" in live) return { kind: "stop", reason: live.stop } satisfies ActOutcome as ActOutcome
+        const did = yield* act({ ...plan, account: live.account, storeScope: live.storeScope }, node)
+        yield* writeStep(sql, row(did))
+        return { kind: "done", ...did } satisfies ActOutcome as ActOutcome
+      })
+    )
+  }
+  const claimed = yield* db.scopedFor((sql) =>
     Effect.gen(function*() {
-      const [done] = yield* sql<{ status: "succeeded" | "skipped"; outputJson: string; explanation: string | null }>`
-        select status, output::text as output_json, explanation from automation_run_steps
-        where run_id = ${plan.runId} and node_id = ${node.id} and status in ('succeeded', 'skipped')
-        order by attempt desc limit 1`
-      if (done !== undefined) {
-        return {
-          kind: "done",
-          status: done.status,
-          output: JSON.parse(done.outputJson) as Record<string, unknown>,
-          explanation: done.explanation ?? undefined
-        } satisfies ActOutcome as ActOutcome
+      yield* lockRun(sql, plan.runId)
+      const done = yield* doneStep(sql, plan, node.id)
+      if (done !== undefined) return done
+      const [busy] = yield* sql<{ attempt: number }>`
+        select attempt from automation_run_steps
+        where run_id = ${plan.runId} and node_id = ${node.id} and status = 'waiting' and attempt <> ${attempt}
+          and started_at > now() - ${CLAIM}::interval
+        limit 1`
+      if (busy !== undefined) {
+        return yield* new StepFailed({ explanation: "Deze stap loopt al; Insyte kijkt zo opnieuw.", terminal: false })
       }
       const live = yield* liveOf(sql, plan)
       if ("stop" in live) return { kind: "stop", reason: live.stop } satisfies ActOutcome as ActOutcome
-      const did = yield* act({ ...plan, account: live.account, storeScope: live.storeScope }, node)
-      yield* writeStep(sql, {
-        runId: plan.runId,
-        runAt: plan.runAt,
-        nodeId: node.id,
-        variant: node.variantId,
-        attempt,
-        status: did.status,
-        input: { ...node.config },
-        output: did.output,
-        ...(did.explanation === undefined ? {} : { explanation: did.explanation })
-      })
-      return { kind: "done", ...did } satisfies ActOutcome as ActOutcome
+      const [run] = yield* sql<{ workspaceId: string }>`
+        select workspace_id from automation_runs where id = ${plan.runId}`
+      yield* sql`
+        insert into automation_run_steps (workspace_id, run_id, run_at, node_id, attempt, variant, status, input)
+        values (${run!.workspaceId}, ${plan.runId}, ${new Date(plan.runAt)}, ${node.id}, ${attempt}, ${node.variantId},
+                'waiting', ${JSON.stringify({ ...node.config })}::jsonb)
+        on conflict (run_id, node_id, attempt, run_at) do update set status = 'waiting', started_at = now(),
+          finished_at = null`
+      return { live } as const
     })
   )
+  if ("kind" in claimed) return claimed
+  const did = yield* act({ ...plan, account: claimed.live.account, storeScope: claimed.live.storeScope }, node)
+  yield* db.scopedFor((sql) => writeStep(sql, row(did)))
+  return { kind: "done", ...did } satisfies ActOutcome as ActOutcome
 })
 
 /** Whether the run's customer wrote in since the run started ("Wachten op antwoord"). */

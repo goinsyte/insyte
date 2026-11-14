@@ -25,7 +25,7 @@ export const WEBHOOK_EVENT_GROUPS: ReadonlyArray<WebhookEventGroup> = [
   {
     group: "orders",
     events: [
-      e("order.created"),
+      e("order.created", true),
       e("order.paid"),
       e("order.fulfilled", true),
       e("order.delivered"),

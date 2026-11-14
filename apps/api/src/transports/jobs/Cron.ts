@@ -2,6 +2,7 @@ import { fill as fillRates } from "@insyte/modules/fx/Fx"
 import { supplierLateSweep } from "@insyte/modules/orders/Orders"
 import { Effect, type ManagedRuntime } from "effect"
 import { adSpendSweep } from "../../platform/AdSpend.ts"
+import { scheduleSweep } from "../../platform/AutomationSchedule.ts"
 import { BackgroundRuntime as background } from "../../platform/BackgroundLayer.ts"
 import { deadlineSweep } from "../../platform/Deadlines.ts"
 import type { Env } from "../../platform/Env.ts"
@@ -25,7 +26,7 @@ import { startMonthlyClose } from "../../workflows/MonthlyClose.ts"
  * (M19.4); every fifteenth, the stores' reconcile (M6.3) and, beside it, their sync health (M17 step 6), the tracking sweep (M8.4), Start's queue (M10.1), the
  * daily facts (M10.4, at 02:00 UTC their nightly pass), the members' daily digests (M11.5) and the webhook
  * deliveries past 30 days (M19.4); on the hour, the chargeback deadline reminders (M13 step 3) and the supplier late
- * check (M8.3); at 03:00 UTC the
+ * check (M8.3) and the scheduled automations (M12 step 3); at 03:00 UTC the
  * Prullenbak's sweep (M17), the lapsed exports (M14 step 5) and, on the 1st, the supplier statements' monthly close (M13 step 6); at 04:00 UTC the
  * day's ad spend from every connected ad account (M13 step 5) and the sending domains' re-check (20.1c); at 02:00 UTC the ECB's reference rates into
  * `fx_rates` (§0.4). */
@@ -55,6 +56,8 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = (controller, _env
       turn(background, withRequestDb(deadlineSweep(at)))
       // …and the suppliers past the hand-off they promised: their orders delayed, the team told (M8.3).
       turn(background, withRequestDb(supplierLateSweep))
+      // …and the flows "Op een vast moment" due at this hour in their workspace's timezone (M12 step 3).
+      turn(background, withRequestDb(scheduleSweep(at)))
     }
     // The Prullenbak's items past their 30 days, once a day at 03:00 UTC (M17 step 20.1a).
     if (at.getUTCHours() === 3 && at.getUTCMinutes() === 0) {

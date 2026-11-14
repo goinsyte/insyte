@@ -46,6 +46,11 @@ export const sourcesOf = (event: OutboxEvent): ReadonlyArray<Source> => {
       return event.change === "fulfil"
         ? event.orderIds.map((id) => ({ type: "order.fulfilled", kind: "order", id }))
         : []
+    // Shopify's own (M12 step 3): an order new in the store, and one fulfilled there.
+    case "order.placed":
+      return event.orderIds.map((id) => ({ type: "order.created", kind: "order", id }))
+    case "order.fulfilled":
+      return event.orderIds.map((id) => ({ type: "order.fulfilled", kind: "order", id }))
     case "customer.created":
     case "customer.updated":
       return event.customerIds.map((id) => ({ type: event.type, kind: "customer", id }))

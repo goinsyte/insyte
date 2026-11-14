@@ -3,9 +3,10 @@ import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect, Option, Schema } from "effect"
 import { FileStore } from "../../shared/domain/Documents.ts"
-import { Relay } from "../../shared/domain/Outbox.ts"
+import { PendingEvents, Relay } from "../../shared/domain/Outbox.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { eraseShopper } from "../../shared/use-cases/ShopperErasure.ts"
+import { dropped, levelsOf } from "../../shared/use-cases/StockDrop.ts"
 import { throughGate } from "../domain/Gate.ts"
 import { addLine, emptyBatch, flatten, gidOf, type MirrorKind, NODE_QUERY } from "../domain/Mirror.ts"
 import { ConnectionGate, IngestQueue, ShopifyAdmin, ShopifyGraphql } from "../domain/Ports.ts"
@@ -107,7 +108,13 @@ export const apply = Effect.fn("Stores.webhooks.apply")(function*(inboundEventId
     >`select id, connection_id, shop_domain as shop, currency, status from stores where id = ${event.storeId}`
   )
   const body = event.body === null ? {} : JSON.parse(event.body) as Record<string, unknown>
-  if (store !== undefined) yield* applyTopic(event.topic, body, store)
+  // What applying it wrote for the relay (a new order, a stock drop): kicked with the rest below.
+  const written: Array<string> = []
+  if (store !== undefined) {
+    yield* applyTopic(event.topic, body, store).pipe(
+      Effect.provideService(PendingEvents, { add: (id) => void written.push(id) })
+    )
+  }
   // A mirrored kind changed: the workspace's open lists of it read again (M5.1's realtime).
   const kind = READS[event.topic]?.kind
   const outboxIds = yield* db.scopedFor((sql) =>
@@ -133,7 +140,7 @@ export const apply = Effect.fn("Stores.webhooks.apply")(function*(inboundEventId
       ]
     })
   )
-  if (outboxIds.length > 0) yield* (yield* Relay).kick(outboxIds)
+  if (outboxIds.length + written.length > 0) yield* (yield* Relay).kick([...written, ...outboxIds])
 })
 
 const applyTopic = Effect.fn("Stores.webhooks.topic")(
@@ -161,17 +168,27 @@ const applyTopic = Effect.fn("Stores.webhooks.topic")(
           }`
         )
       // A count is dated by Shopify's own `updated_at`: an older one (a retry, or one the import read later) is ignored.
+      // A count that went down may start a "Lage voorraad" flow (`StockDrop`).
       case "inventory_levels/update":
         return yield* db.scopedFor((sql) =>
-          sql`insert into inventory_levels (workspace_id, variant_id, location_id, available, source, reported_at)
+          Effect.gen(function*() {
+            const variants = yield* sql<{ id: string }>`
+              select id from variants where store_id = ${store.id} and inventory_item_id = ${
+              String(body["inventory_item_id"])
+            }`
+            const before = yield* levelsOf(sql, variants.map((v) => v.id), "shopify")
+            yield* sql`insert into inventory_levels (workspace_id, variant_id, location_id, available, source,
+                                                     reported_at)
               select app_workspace_id(), v.id, ${String(body["location_id"])}, ${Number(body["available"] ?? 0)},
                      'shopify', ${reportedAt(body)}::timestamptz
               from variants v where v.store_id = ${store.id} and v.inventory_item_id = ${
-            String(body["inventory_item_id"])
-          }
+              String(body["inventory_item_id"])
+            }
               on conflict (variant_id, location_id, source) do update
                 set available = excluded.available, reported_at = excluded.reported_at
                 where excluded.reported_at >= inventory_levels.reported_at`
+            yield* dropped(sql, (yield* CurrentWorkspace).id, before, "shopify")
+          })
         )
       // The item no longer stocked at that location: its count goes.
       case "inventory_levels/disconnect":
