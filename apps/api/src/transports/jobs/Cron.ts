@@ -27,14 +27,10 @@ import { startMonthlyClose } from "../../workflows/MonthlyClose.ts"
  * day's ad spend from every connected ad account (M13 step 5) and the sending domains' re-check (20.1c); at 02:00 UTC the ECB's reference rates into
  * `fx_rates` (§0.4). */
 export const scheduled: ExportedHandlerScheduledHandler<Env> = (controller, _env, ctx) => {
-  // One exporter for the whole turn (`Observability.ts`), flushed once every job in it has settled.
-  const spans = Telemetry.open()
-  const turns: Array<Promise<unknown>> = []
-  const turn = <A, E, R, ER>(runtime: ManagedRuntime.ManagedRuntime<R, ER>, effect: Effect.Effect<A, E, R>) => {
-    const job = runtime.runPromise(spans.provide(effect))
-    turns.push(job)
-    ctx.waitUntil(job)
-  }
+  // Each job its own exporter (`Observability.ts`), flushed when it settles: a job that runs into the cron's time
+  // limit loses its own spans, not the turn's.
+  const turn = <A, E, R, ER>(runtime: ManagedRuntime.ManagedRuntime<R, ER>, effect: Effect.Effect<A, E, R>) =>
+    ctx.waitUntil(Telemetry.run(runtime, effect))
   turn(background, withRequestDb(sweep()))
   turn(background, withRequestDb(notifySweep()))
   const at = new Date(controller.scheduledTime)
@@ -75,7 +71,6 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = (controller, _env
       turn(background, withRequestDb(sendingDomainSweep()))
     }
   }
-  ctx.waitUntil(Promise.allSettled(turns).then(spans.flush))
 }
 
 /** The nightly rates fill; the ECB unreachable is logged, and tomorrow's turn writes the days again. */
