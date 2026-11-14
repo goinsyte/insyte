@@ -50,7 +50,8 @@ const COPY: RefusalCopy = {
     contact: "Die persoon logt al in op hun portaal.",
     invited: "Die persoon heeft al een open uitnodiging.",
     duplicate: "Dat e-mailadres staat er twee keer in.",
-    unknown: "Die leverancier bestaat niet meer."
+    unknown: "Die leverancier bestaat niet meer.",
+    forbidden: "Hun portaal toont orders uit elke winkel; dat kan alleen wie bij alle winkels kan."
   }
 }
 

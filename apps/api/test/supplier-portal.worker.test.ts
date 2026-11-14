@@ -1,7 +1,20 @@
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
-import { cookiesOf, failure, mailsTo, ok, ORIGIN, outboxOf, password, pastUndo, post, relay, run } from "./journeys.ts"
+import {
+  cookiesOf,
+  failure,
+  join,
+  mailsTo,
+  ok,
+  ORIGIN,
+  outboxOf,
+  password,
+  pastUndo,
+  post,
+  relay,
+  run
+} from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc, sessionMe } from "./support.ts"
 
@@ -54,8 +67,24 @@ describe("the supplier portal", () => {
       }, store.cookie)
     )
     expect((await supplierNamed(store.cookie, "Atelier Noord")).portal).toBe("invited")
+    // A colleague held to another store: the portal shows every store's orders, so they invite nobody to it, and the
+    // supplier's news of this store's order does not reach them.
+    const heldEmail = `noord-${run}-held@invited.test`
+    ok(
+      await rpc("Invitations.send", {
+        rows: [{ email: heldEmail, roleId: "admin", stores: ["sto_elsewhere"] }]
+      }, store.cookie)
+    )
     await pastUndo(store.workspace)
     await relay(store.workspace)
+    const colleague = await join(heldEmail)
+    expect(
+      failure(
+        await rpc("Invitations.sendSupplier", {
+          rows: [{ supplierId: atelier.id, email: `noord-${run}-2@supplier.example`, scopes: [] }]
+        }, colleague)
+      )
+    ).toMatchObject({ _tag: "Invalid", fields: { stores: "forbidden" } })
     const mail = (await mailsTo(person))[0]!
     expect(mail.kind).toBe("team.invite")
     const url = new URL(mail.url)
@@ -130,6 +159,12 @@ describe("the supplier portal", () => {
     await relay(store.workspace)
     const tickets = ok(await rpc("Tickets.list", {}, store.cookie))
     expect(JSON.stringify(tickets)).toContain("Vertraging bij #1001 (Atelier Noord)")
+    const told = async (who: string) =>
+      ok(await rpc("Notifications.list", { tab: "inbox", cursor: null }, who)).items.filter((n) =>
+        n.kind === "supplier.delay" && n.subjectId === order.id
+      )
+    expect(await told(store.cookie)).toHaveLength(1)
+    expect(await told(colleague)).toEqual([])
     const problem = ok(await rpc("SupplierPortal.orders.get", { orderId: order.id }, cookie))
     expect(problem.problem).toMatchObject({ kind: "delay", newDate: later })
 

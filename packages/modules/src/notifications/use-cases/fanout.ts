@@ -480,7 +480,8 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
       }
       case "supplier.problem_reported":
       case "supplier.shipment_refused": {
-        // From a supplier's portal (M16 step 2): whoever handles orders hears of it; the order is the subject.
+        // From a supplier's portal (M16 step 2): whoever handles orders in the order's store hears of it; the order is
+        // the subject.
         const [work] = yield* sql<{
           number: string
           supplier: string
@@ -489,8 +490,9 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
           newDate: string | null
           ticketNumber: number | null
           ticketId: string | null
+          storeId: string
         }>`
-          select o.number, s.name as supplier, w.problem_kind as kind, w.problem_note as note,
+          select o.number, o.store_id, s.name as supplier, w.problem_kind as kind, w.problem_note as note,
                  to_char(w.problem_new_date, 'YYYY-MM-DD') as new_date, t.number::int as ticket_number,
                  w.problem_ticket_id as ticket_id
           from supplier_work w join orders o on o.id = w.order_id join suppliers s on s.id = w.supplier_id
@@ -503,7 +505,7 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
         const recipients = yield* sql<{ id: string }>`
           select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
           where m.deactivated_at is null and m.removed_at is null
-            and (r.id = 'owner' or coalesce((r.levels ->> 'orders')::int, 0) >= 2)`
+            and (r.id = 'owner' or coalesce((r.levels ->> 'orders')::int, 0) >= 2) and ${reaching(sql, work.storeId)}`
         return {
           kind: "supplier.delay",
           recipients: recipients.map((r) => r.id),

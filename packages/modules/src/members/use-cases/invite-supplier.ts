@@ -19,8 +19,19 @@ import { cancelMail, EMAIL, mailLater } from "./invite.ts"
  * may change suppliers (Beheren) invites.
  */
 
+/**
+ * The portal shows the supplier's orders in every store, so only someone who reaches every store (`storeScope` null)
+ * may invite a person to it: anyone held to some stores is refused, as for the invite link. Taking access back, and
+ * the undo of that (it puts back what such a person gave), stay with whoever may change suppliers.
+ */
+const everyStore = Effect.flatMap(
+  Effect.service(CurrentPrincipal),
+  (p) => p.storeScope === null ? Effect.void : Effect.fail(new Invalid({ fields: { stores: "forbidden" } }))
+)
+
 export const sendSupplier = Effect.fn("Invitations.sendSupplier")(function*(rows: ReadonlyArray<SupplierInviteRow>) {
   yield* Policy.require("suppliers", 3)
+  yield* everyStore
   const principal = yield* CurrentPrincipal
   const links = yield* InvitationLinks
   const relay = yield* Relay
