@@ -83,8 +83,69 @@ const reimport = async (store: Store) => {
   await instance.waitForStatus("complete")
 }
 
-/** The recorded orders were placed early in October 2026; the low-stock list counts the open ones of 90 days. */
-const OPEN = Date.now() < Date.parse("2026-12-30T10:00:00Z") ? 2 : 0
+const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString()
+
+/**
+ * Orders for the shirt's L placed some days before now, written through the mirror's own writer: the low-stock
+ * list's windows (sold in 30 days, open among 90) are read against them, whatever day the tests run on.
+ */
+let placed = 0
+const placeOrders = async (store: Store, orders: ReadonlyArray<{ status: string; days: number; quantity: number }>) => {
+  const rows = orders.map((o, i) => ({ id: `9${++placed}${i}`, ...o }))
+  const response = await call(
+    `http://api.test/api/__dev/facts/orders?workspace=${store.workspace}&store=${store.storeId}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        batch: {
+          orders: rows.map((o) => ({
+            shopify_id: o.id,
+            number: `#S${o.id}`,
+            customer_shopify_id: null,
+            customer_name: "Klant S",
+            customer_email: null,
+            status: o.status,
+            payment_status: "paid",
+            fulfillment_status: "unfulfilled",
+            total_minor: 4995 * o.quantity,
+            subtotal_minor: 4995 * o.quantity,
+            shipping_minor: 0,
+            tax_minor: 0,
+            discounts_minor: 0,
+            currency: "EUR",
+            payment_gateway: null,
+            card_last4: null,
+            shipping_address: { country: "NL" },
+            tags: [],
+            note: null,
+            channel: "web",
+            referral_code: null,
+            placed_at: ago(o.days),
+            paid_at: ago(o.days),
+            shipped_at: null,
+            cancelled_at: o.status === "cancelled" ? ago(o.days) : null,
+            refunded_at: null,
+            external_updated_at: ago(o.days),
+            raw: {}
+          })),
+          lines: rows.map((o) => ({
+            shopify_id: `${o.id}1`,
+            order_shopify_id: o.id,
+            product_shopify_id: "1",
+            variant_shopify_id: "12",
+            sku: "LIN-L",
+            title: "Linnen overhemd",
+            variant_title: "L",
+            quantity: o.quantity,
+            unit_price_minor: 4995
+          }))
+        }
+      })
+    }
+  )
+  expect(response.status).toBe(200)
+}
 
 const mcp = async (secret: string, name: string, args: Record<string, unknown>) => {
   const response = await call("http://api.public.test/mcp", {
@@ -190,8 +251,23 @@ describe("stock that is real", () => {
         ["Wollen trui", "out", 0, [["Default Title", 0]]],
         ["Linnen overhemd", "low", 26, [["L", 2]]]
       ])
-    // Order #1001 is paid and open, #1003 shipped; #1005 was cancelled.
-    expect(low.rows[1]).toMatchObject({ openOrders: OPEN, supplierName: "Atelier Noord", leadDays: 2 })
+    expect(low.rows[1]).toMatchObject({ supplierName: "Atelier Noord", leadDays: 2 })
+    // Orders placed relative to today: open from a day ago (3 sold) and from 40 days ago (out of the 30), a cancelled
+    // one, and an open one from 120 days ago (out of both windows). What the recorded orders add stays the same.
+    const before = low.rows[1]!
+    await placeOrders(store, [
+      { status: "paid", days: 1, quantity: 3 },
+      { status: "shipped", days: 40, quantity: 1 },
+      { status: "cancelled", days: 2, quantity: 5 },
+      { status: "paid", days: 120, quantity: 4 }
+    ])
+    const after = ok(await rpc("Products.lowStock", {}, store.cookie)).rows[1]!
+    expect(after).toMatchObject({
+      title: "Linnen overhemd",
+      openOrders: before.openOrders + 2,
+      soldLast30: before.soldLast30 + 3
+    })
+    expect(after.daysLeft).toBeCloseTo(26 / (after.soldLast30 / 30))
     expect(ok(await rpc("Products.lowStock", { limit: 1 }, store.cookie)).rows.map((r) => r.title))
       .toEqual(["Wollen trui"])
     // A threshold of the caller's own: the bag, untracked, never shows.
@@ -219,7 +295,8 @@ describe("stock that is real", () => {
       stock: "low",
       available: 26,
       variants: [{ title: "L", available: 2 }],
-      open_orders: OPEN,
+      open_orders: after.openOrders,
+      sold_last_30_days: after.soldLast30,
       supplier: { name: "Atelier Noord" },
       lead_days: 2
     }])
