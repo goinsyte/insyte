@@ -895,6 +895,13 @@
     "finance": "allow",
     "view": "allow"
   },
+  "Quality.stats": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
   "Quality.request": {
     "owner": "allow",
     "admin": "allow",

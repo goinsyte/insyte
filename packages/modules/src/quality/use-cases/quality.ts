@@ -9,16 +9,20 @@ import { Sealer } from "../../shared/domain/Sealer.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
+import { QualityTickets } from "../domain/Ports.ts"
 import {
   IllegalCheckMove,
   NoSupplier,
   QualityChange,
   type QualityCheckRow,
   QualityRestore,
+  QualityStats,
   QualityView,
   type RejectInput,
   type RequestInput,
   type SetPhaseInput,
+  type StatsInput,
+  type StatsRow,
   SupplierLink
 } from "../domain/Quality.ts"
 
@@ -128,10 +132,15 @@ const audit = (
     (p) => Audit.write(sql, p.workspaceId, { kind: p.kind, id: p.id }, { action, subjectType, subjectId: id, diff })
   )
 
-const answer = (sql: SqlClient.SqlClient, checkId: string | null, restore: QualityRestore) =>
+const answer = (
+  sql: SqlClient.SqlClient,
+  checkId: string | null,
+  restore: QualityRestore,
+  ticket?: { readonly id: string; readonly number: number }
+) =>
   Effect.map(
     Undo.issue(sql, { command: RESTORE, compensation: restore }),
-    (undo) => new QualityChange({ checkId, undo })
+    (undo) => new QualityChange({ checkId, undo, ...(ticket === undefined ? {} : { ticket }) })
   )
 
 export const list = Effect.fn("Quality.list")(function*(productId: string) {
@@ -181,6 +190,66 @@ export const list = Effect.fn("Quality.list")(function*(productId: string) {
         complaints: complaints.map((c) => ({ ...c, at: c.at.getTime() })),
         checks: checks.map((c) => rowOf(c, media.filter((m) => m.checkId === c.id))),
         sizes: [...new Set(sizes.map((s) => s.title))]
+      })
+    })
+  )
+})
+
+/**
+ * `Quality.stats`: the products list's Aandacht cuts, the product page's Retouren block and the suppliers' quality
+ * columns. Per product, or summed per supplier: what its products (primary) sold and got back, and the checks asked of
+ * it. Only the role's stores count; a product or supplier with nothing to say has no row.
+ */
+export const stats = Effect.fn("Quality.stats")(function*(input: typeof StatsInput.Type) {
+  yield* Policy.require("products", 1)
+  const db = yield* Db
+  const bySupplier = input.bySupplier === true
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const scope = yield* inScope(sql, "p.store_id")
+      const one = input.productId === undefined ? sql`true` : sql`p.id = ${input.productId}`
+      const [settings] = yield* sql<{ thresholdPct: string }>`select threshold_pct from quality_settings`
+      const rows = yield* sql<StatsRow>`
+        with mine as (
+          select p.id, ps.supplier_id from products p
+          left join product_supply ps on ps.product_id = p.id and ps.is_primary
+          where ${scope} and ${one}
+        ), sold as (
+          select ol.product_id, sum(ol.quantity)::int as n from order_lines ol join orders o on o.id = ol.order_id
+          where ol.product_id in (select id from mine) and o.placed_at > now() - interval '90 days'
+            and o.status <> 'cancelled'
+          group by ol.product_id
+        ), back as (
+          select ol.product_id, sum(rl.quantity)::int as returned, count(*) filter (where r.quality)::int as complaints,
+                 count(*) filter (where r.quality and r.created_at > now() - interval '30 days')::int as recent
+          from returns r join return_lines rl on rl.return_id = r.id join order_lines ol on ol.id = rl.order_line_id
+          where ol.product_id in (select id from mine) and r.status <> 'rejected'
+            and r.created_at > now() - interval '90 days'
+          group by ol.product_id
+        ), figures as (
+          select ${sql.literal(bySupplier ? "m.supplier_id" : "m.id")} as id, coalesce(sum(s.n), 0)::int as sold,
+                 coalesce(sum(b.returned), 0)::int as returned, coalesce(sum(b.complaints), 0)::int as complaints,
+                 coalesce(sum(b.recent), 0)::int as recent_complaints
+          from mine m left join sold s on s.product_id = m.id left join back b on b.product_id = m.id
+          group by 1
+        ), checks as (
+          select ${sql.literal(bySupplier ? "q.supplier_id" : "q.product_id")} as id,
+                 count(*) filter (where q.status in ('requested', 'submitted'))::int as running,
+                 count(*) filter (where q.status = 'approved')::int as passed,
+                 count(*) filter (where q.status in ('approved', 'rejected'))::int as judged
+          from quality_checks q where q.product_id in (select id from mine)
+          group by 1
+        )
+        select coalesce(f.id, c.id) as id, coalesce(f.sold, 0) as sold, coalesce(f.returned, 0) as returned,
+               coalesce(f.complaints, 0) as complaints, coalesce(f.recent_complaints, 0) as recent_complaints,
+               coalesce(c.running, 0) as running, coalesce(c.passed, 0) as passed, coalesce(c.judged, 0) as judged
+        from figures f full join checks c on c.id = f.id
+        where coalesce(f.id, c.id) is not null
+          and (coalesce(f.sold, 0) + coalesce(f.returned, 0) + coalesce(c.running, 0) + coalesce(c.judged, 0)) > 0
+        order by 1`
+      return new QualityStats({
+        threshold: Number(settings?.thresholdPct ?? DEFAULT_THRESHOLD_PCT) / 100,
+        rows
       })
     })
   )
@@ -246,10 +315,14 @@ export const approve = Effect.fn("Quality.approve")(function*(id: string) {
   )
 })
 
-/** "Afkeuren": with a reason the supplier acts on, and the product under watch if asked. */
+/**
+ * "Afkeuren": with a reason the supplier acts on, the product under watch if asked, and a ticket with the supplier on
+ * the board if asked (Klantenservice · Bewerken), in the product's store. One Undo takes all of it back.
+ */
 export const reject = Effect.fn("Quality.reject")(function*(input: typeof RejectInput.Type) {
   yield* Policy.requireAction("quality.approve")
   if (input.watch) yield* Policy.requireAction("products.phase")
+  if (input.ticket === true) yield* Policy.require("support", 2)
   const principal = yield* CurrentPrincipal
   const db = yield* Db
   return yield* db.scoped((sql) =>
@@ -270,13 +343,27 @@ export const reject = Effect.fn("Quality.reject")(function*(input: typeof Reject
           to: "watch"
         })
       }
+      const ticket = input.ticket === true ? yield* ticketFor(sql, input.id, input.note.trim()) : undefined
       return yield* answer(sql, input.id, {
         kind: "judged",
         id: input.id,
-        phase: watching ? { productId: check.productId, phase: before } : null
-      })
+        phase: watching ? { productId: check.productId, phase: before } : null,
+        ...(ticket === undefined ? {} : { ticketId: ticket.id })
+      }, ticket)
     })
   )
+})
+
+/** The rejection's ticket with the supplier, as the design words it: high, labelled Kwaliteit and Leverancier. */
+const ticketFor = Effect.fn("Quality.ticketFor")(function*(sql: SqlClient.SqlClient, id: string, reason: string) {
+  const [c] = yield* sql<{ title: string; storeId: string; supplier: string }>`
+    select p.title, p.store_id, s.name as supplier from quality_checks q join products p on p.id = q.product_id
+    join suppliers s on s.id = q.supplier_id where q.id = ${id}`
+  return yield* (yield* QualityTickets).make(sql, {
+    title: `${c!.title}: controle afgekeurd bij ${c!.supplier}`.slice(0, 200),
+    description: reason,
+    storeId: c!.storeId
+  })
 })
 
 /** The product's phase: Test, Actief, Onder toezicht, Uitgefaseerd. */
@@ -342,6 +429,7 @@ export const restore = Effect.fn("Quality.restore")(function*(sql: SqlClient.Sql
     if (back.length === 0) return yield* new Conflict({ entity: "quality_check", reason: "answered" })
     yield* audit(sql, "quality_check.reopened", "quality_check", r.id)
     if (r.phase !== null) yield* writePhase(sql, r.phase.productId, r.phase.phase, principal.id)
+    if (r.ticketId !== undefined) yield* (yield* QualityTickets).remove(sql, r.ticketId)
     return
   }
   yield* writePhase(sql, r.productId, r.phase, principal.id)

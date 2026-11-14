@@ -287,6 +287,26 @@ export const fromThread = Effect.fn("Tickets.fromThread")(function*(
   return { id: made.id, number: Number(row!.number) }
 })
 
+/**
+ * A ticket with the supplier from a rejected quality check (the quality slice's `QualityTickets`), on the verdict's
+ * transaction: `make`, high and labelled Kwaliteit and Leverancier, in the product's store so only who reaches that
+ * store sees it. No one is assigned, so no one is told.
+ */
+export const fromCheck = Effect.fn("Tickets.fromCheck")(function*(
+  sql: SqlClient.SqlClient,
+  input: { readonly title: string; readonly description: string; readonly storeId: string }
+) {
+  const made = yield* make(sql, {
+    title: input.title,
+    description: input.description.slice(0, 20_000),
+    priority: "high",
+    labels: ["Kwaliteit", "Leverancier"]
+  }).pipe(Effect.catchTags({ Invalid: Effect.die, MemberNotActive: Effect.die, NotFound: Effect.die }))
+  const [row] = yield* sql<{ number: number }>`
+    update tickets set store_id = ${input.storeId} where id = ${made.id} returning number`
+  return { id: made.id, number: Number(row!.number) }
+})
+
 /** The ticket `fromThread` made, taken away again (the inbox's Undo). */
 export const removeFromThread = Effect.fn("Tickets.removeFromThread")(function*(
   sql: SqlClient.SqlClient,
