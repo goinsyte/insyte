@@ -92,7 +92,9 @@ const customersList = (duplicates: ReadonlyArray<string>): ServerList => ({
     clv: "lifetime",
     aov: "aov",
     last_order: "last_order"
-  }
+  },
+  // The Status counts as the filter reads them: the duplicates apart (`counts.duplicates`).
+  ...(duplicates.length === 0 ? {} : { extra: { duplicates } })
 })
 
 /** The first page, the most valuable first as the screen's table first asks for it: what the route reads ahead. */
@@ -172,7 +174,10 @@ export function useConsoleCustomersSource(first: CustomerPage, open: (customer: 
   const groups = Option.getOrUndefined(AsyncResult.value(useAtomValue(duplicatesAtom)))
   const duplicates = useMemo(() => groups?.map((g) => ({ ...g, ids: [...g.ids] })) ?? NO_GROUPS, [groups])
   const list = useMemo(() => customersList([...new Set(duplicates.flatMap((g) => g.ids))].toSorted()), [duplicates])
-  const { page, fetching, onQuery } = usePaged(customersPageAtom, { input: FIRST_CUSTOMERS, page: first }, list)
+  const { page, current, fetching, failed, retry, onQuery } = usePaged(customersPageAtom, {
+    input: FIRST_CUSTOMERS,
+    page: first
+  }, list)
   const commands = useCustomerCommands()
   const create = useGate("customers", 2)
   const customers = useMemo(() => page.rows.map(customerOf), [page.rows])
@@ -182,14 +187,19 @@ export function useConsoleCustomersSource(first: CustomerPage, open: (customer: 
   const paging = useMemo(() => ({
     total: counts.total,
     all: first.counts.total,
-    next: page.nextCursor,
+    // Only the page read for what the table asks now hands on its cursor.
+    next: current ? page.nextCursor : null,
     fetching,
+    failed,
+    retry,
     filterable: FILTERABLE,
     sortable: SORTABLE,
     counts: (field: string) =>
-      field === "status" ? new Map([["new", counts.new], ["loyal", counts.returning]]) : undefined,
+      field === "status"
+        ? new Map([["new", counts.new], ["loyal", counts.returning], ["duplicate", counts.duplicates]])
+        : undefined,
     onQuery
-  }), [counts, first.counts.total, page.nextCursor, fetching, onQuery])
+  }), [counts, first.counts.total, page.nextCursor, current, fetching, failed, retry, onQuery])
   return {
     customers,
     loading: false,

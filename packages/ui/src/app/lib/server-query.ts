@@ -37,15 +37,18 @@ export type ServerField =
 export type ServerList = {
   readonly fields: Readonly<Record<string, ServerField>>
   readonly sorts: Readonly<Record<string, string>>
+  /** What the host adds to every input of the list, whatever the table asks (the list's own input fields). */
+  readonly extra?: Readonly<Record<string, unknown>>
 }
 
-/** A list's input as the server's lists take it (`ListInput`), its keys always in this order. */
+/** A list's input as the server's lists take it (`ListInput`, and the host's `extra`), its keys always in this order. */
 export type ServerInput = {
   filter?: Group
   q?: string
   sort?: { field: string; desc: boolean }
   cursor?: string
   limit: number
+  readonly [extra: string]: unknown
 }
 
 const ruleOn = (rule: Rule, route: Exclude<ServerField, (rule: Rule) => unknown>): FilterNode => {
@@ -99,6 +102,7 @@ export function serverInput(query: TableQuery, list: ServerList): ServerInput {
     ...(filter === undefined ? {} : { filter: asGroup(filter) }),
     ...(q === "" ? {} : { q }),
     ...(sort === undefined || query.sort === null ? {} : { sort: { field: sort, desc: query.sort.desc } }),
+    ...list.extra,
     ...(query.cursor === null ? {} : { cursor: query.cursor }),
     limit: query.limit
   }

@@ -87,6 +87,9 @@ export type ServerPaging = {
 	next: string | null;
 	/** A page is being read; the table keeps showing the one it has meanwhile. */
 	fetching: boolean;
+	/** The last page asked for could not be read: the table says so, and offers to ask again. */
+	failed?: boolean | undefined;
+	retry?: (() => void) | undefined;
 	/** The columns the server filters and sorts by; the others offer neither. */
 	filterable: ReadonlySet<string>;
 	sortable: ReadonlySet<string>;
@@ -585,6 +588,21 @@ export function DataTable<T>({
 					</tbody>
 				</table>
 			</div>
+
+			{server?.failed === true ? (
+				<div role="alert" className="flex items-center justify-between gap-3 px-0.5">
+					<p className="font-medium text-xs text-ink-2">Deze pagina kon niet worden geladen.</p>
+					{server.retry === undefined ? null : (
+						<button
+							type="button"
+							onClick={server.retry}
+							className="font-medium text-xs text-abyss hover:underline"
+						>
+							Opnieuw proberen
+						</button>
+					)}
+				</div>
+			) : null}
 
 			{/*
 			 * The footer only exists when there is more than one page of anything. A row reading

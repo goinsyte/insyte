@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react"
 import type { OrderPage, OrderRow } from "@insyte/modules/orders/domain/Orders"
 import type { StoreView } from "@insyte/modules/stores/domain/Stores"
 import { copyLines, counted, exportCsv } from "@insyte/ui/app/lib/bulk-io"
+import type { FilterNode, Rule } from "@insyte/ui/app/lib/filter"
 import { isSystemTag } from "@insyte/ui/app/lib/order-tags"
 import { firstQuery, type ServerList } from "@insyte/ui/app/lib/server-query"
 import type { Currency, Order } from "@insyte/ui/app/lib/types/domain"
@@ -33,11 +34,32 @@ import { useOrderCommands } from "./order-writes.ts"
  * Leverancier facet offers every supplier, and the labels offered are every one in use.
  */
 
+/*
+ * The Labels column on the server: a chosen label is one of the order's own tags (`tags`, any of them), and Vertraagd,
+ * the one label Insyte sets that the Labels facet offers, is the delay itself (`state`). Words typed are looked for in
+ * the order's own tags as text.
+ */
+const labelsRule = (rule: Rule): FilterNode | undefined => {
+  if (rule.op === "empty" || rule.op === "not_empty") return { ...rule, field: "tags" }
+  if (!Array.isArray(rule.value)) return { ...rule, field: "tag_text" }
+  if (rule.op !== "any" && rule.op !== "none") return undefined
+  const chosen: ReadonlyArray<string> = rule.value
+  const own = chosen.filter((t) => !isSystemTag(t))
+  const parts: Array<FilterNode> = [
+    ...(own.length === 0 ? [] : [{ kind: "rule" as const, id: rule.id, field: "tags", op: rule.op, value: own }]),
+    ...(chosen.includes(AT_RISK)
+      ? [{ kind: "rule" as const, id: `${rule.id}-delayed`, field: "state", op: rule.op, value: ["delayed"] }]
+      : [])
+  ]
+  if (parts.length <= 1) return parts[0]
+  return { kind: "group", id: `${rule.id}-labels`, join: rule.op === "any" ? "or" : "and", children: parts }
+}
+
 /** The orders table's columns as `Orders.list` filters and sorts them (`ORDER_FIELDS`, `ORDER_SORTS`). */
 const ORDERS_LIST: ServerList = {
   fields: {
     number: "number",
-    tags: "tag_text",
+    tags: labelsRule,
     customer: "customer_name",
     store: "store_name",
     items: "line_count",
@@ -192,7 +214,10 @@ export function useConsoleOrdersSource(
   stores: ReadonlyArray<StoreView>,
   open: (order: Order) => void
 ): OrdersSource {
-  const { page, fetching, onQuery } = usePaged(ordersPageAtom, { input: FIRST_ORDERS, page: first }, ORDERS_LIST)
+  const { page, current, fetching, failed, retry, onQuery } = usePaged(ordersPageAtom, {
+    input: FIRST_ORDERS,
+    page: first
+  }, ORDERS_LIST)
   const orders = useMemo(() => page.rows.map(orderOf), [page.rows])
   const names = useMemo(() => new Map(stores.map((s) => [s.id, s.name])), [stores])
   const options = useMemo(() => stores.map((s) => ({ value: s.name, label: s.name })), [stores])
@@ -220,13 +245,16 @@ export function useConsoleOrdersSource(
   const paging = useMemo(() => ({
     total: page.counts.total,
     all: first.counts.total,
-    next: page.nextCursor,
+    // Only the page read for what the table asks now hands on its cursor.
+    next: current ? page.nextCursor : null,
     fetching,
+    failed,
+    retry,
     filterable: FILTERABLE,
     sortable: SORTABLE,
     counts: (field: string) => (field === "cut" ? new Map(Object.entries(state)) : undefined),
     onQuery
-  }), [page.counts.total, first.counts.total, page.nextCursor, fetching, state, onQuery])
+  }), [page.counts.total, first.counts.total, page.nextCursor, current, fetching, failed, retry, state, onQuery])
   return {
     orders,
     loading: false,

@@ -62,11 +62,22 @@ const GUIDE = [
   }
 ] as const
 
-/** The list's facets: Status from the orders themselves, Winkel and Leverancier from the host. */
+const NO_LABELS: ReadonlyArray<string> = []
+
+/**
+ * The list's facets: Status from the orders themselves, Winkel and Leverancier from the host. A host that pages offers
+ * Labels too, as no page holds every label: the store's own and Vertraagd.
+ */
 const facetsOf = (
   stores: ReadonlyArray<{ value: string; label: string }>,
-  suppliers: ReadonlyArray<{ value: string; label: string }>
+  suppliers: ReadonlyArray<{ value: string; label: string }>,
+  labels?: ReadonlyArray<string>
 ): ReadonlyArray<Facet> => [
+  ...(labels === undefined ? [] : [{
+    id: "tags",
+    label: "Labels",
+    options: [...labels.map((t) => ({ value: t, label: t })), { value: "at_risk", label: tagLabel("at_risk") }]
+  }]),
   {
     id: "cut",
     label: "Status",
@@ -116,7 +127,11 @@ function AllOrders() {
   const [newOpen, setNewOpen] = useState(false)
   const [tagging, setTagging] = useState<Order[] | null>(null)
   const actions = useMemo(() => source.actions(setTagging), [source.actions])
-  const facets = useMemo(() => facetsOf(source.stores, source.suppliers), [source.stores, source.suppliers])
+  const paged = source.paging !== undefined
+  const facets = useMemo(
+    () => facetsOf(source.stores, source.suppliers, paged ? source.knownTags ?? NO_LABELS : undefined),
+    [source.stores, source.suppliers, paged, source.knownTags]
+  )
   // Making a draft order, where the host can: the empty states offer it then.
   const create = NewOrder === undefined
     ? undefined

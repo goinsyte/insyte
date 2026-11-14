@@ -213,7 +213,10 @@ const standingOf = (summary: ProductSummary) => () => {
 
 /** `first` is the route's first page (`FIRST_PRODUCTS`); `open` navigates to the product over the list. */
 export function useConsoleProductsSource(first: ProductPage, open: (product: Product) => void): ProductsSource {
-  const { page, fetching, onQuery } = usePaged(productsPageAtom, { input: FIRST_PRODUCTS, page: first }, PRODUCTS_LIST)
+  const { page, current, fetching, failed, retry, onQuery } = usePaged(productsPageAtom, {
+    input: FIRST_PRODUCTS,
+    page: first
+  }, PRODUCTS_LIST)
   const products = useMemo(() => page.rows.map(productOf), [page.rows])
   const server = useMemo(() => new Map(page.rows.map((p) => [p.id, p])), [page.rows])
   const commands = useProductCommands()
@@ -245,13 +248,16 @@ export function useConsoleProductsSource(first: ProductPage, open: (product: Pro
   const paging = useMemo(() => ({
     total: page.counts.total,
     all: summary.products,
-    next: page.nextCursor,
+    // Only the page read for what the table asks now hands on its cursor.
+    next: current ? page.nextCursor : null,
     fetching,
+    failed,
+    retry,
     filterable: FILTERABLE,
     sortable: SORTABLE,
     counts: (field: string) => (field === "status" ? new Map(Object.entries(status)) : undefined),
     onQuery
-  }), [page.counts.total, summary.products, page.nextCursor, fetching, status, onQuery])
+  }), [page.counts.total, summary.products, page.nextCursor, current, fetching, failed, retry, status, onQuery])
   return {
     products,
     loading: false,

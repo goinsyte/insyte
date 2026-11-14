@@ -79,4 +79,14 @@ describe("serverInput", () => {
     expect(input).toEqual({ filter: group(rule("orders", "gt", "2", "s")), limit: 12 })
     expect(serverInput({ ...firstQuery(null, 12), filter: group(rule("cut", "any", [])) }, LIST)).toEqual({ limit: 12 })
   })
+
+  it("adds the host's own input fields to every input, in their place", () => {
+    const input = serverInput({ ...firstQuery({ id: "total", desc: true }, 12), cursor: "abc" }, {
+      ...LIST,
+      extra: { duplicates: ["c1", "c2"] }
+    })
+    expect(JSON.stringify(input)).toBe(
+      `{"sort":{"field":"total","desc":true},"duplicates":["c1","c2"],"cursor":"abc","limit":12}`
+    )
+  })
 })
