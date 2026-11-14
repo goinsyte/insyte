@@ -94,6 +94,7 @@ describe("the MCP server", () => {
       "get_cost_figures",
       "get_costs",
       "get_export",
+      "get_figures",
       "get_order",
       "get_order_tracking",
       "get_proposal",
@@ -162,6 +163,7 @@ describe("the MCP server", () => {
         "get_costs",
         "get_cost_figures",
         "get_analytics_overview",
+        "get_figures",
         "list_sheets",
         "get_sheet",
         "list_imports",
@@ -217,6 +219,22 @@ describe("the MCP server", () => {
       name: "get_analytics_overview",
       arguments: { a: "2026-02", b: "2026-01" }
     })
+    expect(refused.message.result.isError).toBe(true)
+    expect(JSON.stringify(refused.message.result.content)).toContain("analytics.read")
+  })
+
+  it("reads INSYTE()'s figures with analytics.read, and refuses them without it (M14 step 4)", async () => {
+    const read = await mcp(agent.secret, "tools/call", {
+      name: "get_figures",
+      arguments: { metrics: "omzet,nettowinst,omzet_meta,bestaatniet" }
+    })
+    expect(read.message.result.isError).toBe(false)
+    expect(content(read.message).figures.map((f: { metric: string; error: string | null }) => [f.metric, f.error]))
+      .toEqual([["omzet", null], ["nettowinst", null], ["omzet_meta", "unavailable"], [
+        "bestaatniet",
+        "unknown_metric"
+      ]])
+    const refused = await mcp(narrow, "tools/call", { name: "get_figures", arguments: { metrics: "omzet" } })
     expect(refused.message.result.isError).toBe(true)
     expect(JSON.stringify(refused.message.result.content)).toContain("analytics.read")
   })

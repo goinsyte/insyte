@@ -9,6 +9,9 @@ export const AnalyticsHttp = HttpApiBuilder.group(
   (handlers) =>
     Effect.map(
       Effect.service(AnalyticsV1),
-      (act) => handlers.handle("overview", ({ query }) => act.analyticsOverview(query.a, query.b))
+      (act) =>
+        handlers
+          .handle("overview", ({ query }) => act.analyticsOverview(query.a, query.b))
+          .handle("figures", ({ query }) => act.figures(query.metrics, query.months))
     )
 ).pipe(Layer.provide(AnalyticsV1.layer))
