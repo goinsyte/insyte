@@ -8,9 +8,9 @@ import type { RunPlan, StepFailed } from "./use-cases/engine.ts"
  * A flow's actions through the slices that own them (M12 step 3; widgets/05 §1.3): a message in the supplier's channel
  * (chats), a refund within the flow's limit (orders), another supplier for the order (forwarding), its tracking read
  * again (tracking), its expected delivery worked out, and the AI steps (a reply draft, a summary, the ticket's topic;
- * Insyte AI, within its budget). Each runs as the flow's service account, on the step's own transaction where the slice
- * offers one; what it did is said for the run's history, what it refused is a `StepFailed`. Composed where the app is
- * put together; without it those steps say they cannot run yet.
+ * Insyte AI, within its budget). Each runs as the flow's service account, on the step's own transaction, or on the
+ * slice's own where it calls out (`outside`); what it did is said for the run's history, what it refused is a
+ * `StepFailed`. Composed where the app is put together; without it those steps say they cannot run yet.
  */
 export interface ActInput {
   readonly plan: RunPlan
@@ -30,5 +30,10 @@ export interface Did {
 export class AutomationActions extends Context.Service<AutomationActions, {
   /** The variants it carries out. */
   readonly handles: ReadonlySet<string>
+  /**
+   * Those that call out (Insyte AI, the carrier) and run on the slices' own transactions, not inside the step's: a
+   * model call is not held in a transaction while it waits, and what it billed stays billed when the step fails.
+   */
+  readonly outside: ReadonlySet<string>
   readonly act: (input: ActInput) => Effect.Effect<Did, StepFailed, Db | Relay>
 }>()("automations/AutomationActions") {}

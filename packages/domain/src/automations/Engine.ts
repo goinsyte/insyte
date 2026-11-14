@@ -22,16 +22,22 @@ export interface Started {
   readonly summary: string
   /** "Lage voorraad": each variant's stock before and after, so each flow checks its own threshold (`crosses`). */
   readonly levels?: Readonly<Record<string, { readonly before: number; readonly after: number }>>
+  /**
+   * The trigger happens once to its record (an order placed, an order sent, a chargeback opened): a flow runs once per
+   * record on it, however many events say so (a sync and a webhook, Insyte's fulfilment and Shopify's).
+   */
+  readonly once?: boolean
 }
 
 const ids = (event: Record<string, unknown>, key: string): ReadonlyArray<string> =>
   Array.isArray(event[key]) ? (event[key] as ReadonlyArray<string>) : []
 
-const order = (trigger: string, recordIds: ReadonlyArray<string>, summary: string): Started => ({
+const order = (trigger: string, recordIds: ReadonlyArray<string>, summary: string, once = false): Started => ({
   trigger,
   recordKind: "order",
   recordIds,
-  summary
+  summary,
+  ...(once ? { once } : {})
 })
 
 /**
@@ -48,19 +54,22 @@ export const startedBy = (event: { readonly type: string } & Record<string, unkn
       return [order("trigger.refund_requested", ids(event, "orderIds"), "terugbetaling aangevraagd")]
     case "order.updated":
       // Fulfilled in Insyte: the order is on its way.
-      return event["change"] === "fulfil" ? [order("trigger.order_shipped", ids(event, "orderIds"), "verzonden")] : []
+      return event["change"] === "fulfil"
+        ? [order("trigger.order_shipped", ids(event, "orderIds"), "verzonden", true)]
+        : []
     case "order.fulfilled":
       // Fulfilled in Shopify, or by an app there.
-      return [order("trigger.order_shipped", ids(event, "orderIds"), "verzonden")]
+      return [order("trigger.order_shipped", ids(event, "orderIds"), "verzonden", true)]
     case "order.placed":
-      return [order("trigger.order_placed", ids(event, "orderIds"), "geplaatst")]
+      return [order("trigger.order_placed", ids(event, "orderIds"), "geplaatst", true)]
     case "chargeback.opened":
       return typeof event["chargebackId"] === "string"
         ? [{
           trigger: "trigger.chargeback",
           recordKind: "chargeback",
           recordIds: [event["chargebackId"]],
-          summary: "chargeback geopend"
+          summary: "chargeback geopend",
+          once: true
         }]
         : []
     case "thread.received": {

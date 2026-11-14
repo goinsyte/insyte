@@ -69,6 +69,7 @@ export type IssueCode =
   | "scope_off"
   | "connection_missing"
   | "too_many_steps"
+  | "one_refund"
 
 export interface Issue {
   /** The step it is about; `null` for the flow as a whole. */
@@ -156,8 +157,9 @@ const fieldIssues = (node: FlowNode | LaneNode, step: Step, fields: ReadonlySet<
 /**
  * What is wrong with a flow, per step (widgets/05 §1.4; M12's publish invariants): one trigger at the head, every step
  * reachable from it and none twice, lanes only on the main line, required fields set, numbers in range, `{{field}}`
- * references the trigger's record carries, no step that is "Binnenkort", and the rights it needs granted. A connected
- * service that is not connected is a warning: the step says "Koppel …" and the flow can still be published.
+ * references the trigger's record carries, no step that is "Binnenkort", at most one "Terugbetalen", and the rights it
+ * needs granted. A connected service that is not connected is a warning: the step says "Koppel …" and the flow can
+ * still be published.
  */
 export const validate = (nodes: Flow, ctx: ValidateContext = {}): ReadonlyArray<Issue> => {
   const issues: Array<Issue> = []
@@ -182,6 +184,15 @@ export const validate = (nodes: Flow, ctx: ValidateContext = {}): ReadonlyArray<
   }
   const seen = new Set<string>()
   const off = new Set(ctx.scopesOff ?? [])
+  // One "Terugbetalen" a flow: a second would refund the same order again in the same run.
+  for (const extra of all.filter((n) => n.variantId === "action.refund").slice(1)) {
+    issues.push({
+      nodeId: extra.id,
+      code: "one_refund",
+      severity: "error",
+      message: "Een flow betaalt hoogstens één keer terug. Haal deze tweede stap Terugbetalen weg."
+    })
+  }
 
   const check = (node: FlowNode | LaneNode, index: number, inLane: boolean) => {
     if (seen.has(node.id)) {

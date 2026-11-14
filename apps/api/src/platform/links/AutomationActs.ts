@@ -1,5 +1,5 @@
 import { Db } from "@insyte/database/Db"
-import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
+import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentPrincipal, CurrentWorkspace, type Principal } from "@insyte/domain/Principal"
 import type { ActInput, Did } from "@insyte/modules/automations/Links"
 import { ETA_BASIS, etaOf } from "@insyte/modules/automations/use-cases/context"
@@ -9,6 +9,8 @@ import { post } from "@insyte/modules/chats/use-cases/commands"
 import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
 import { refundOn } from "@insyte/modules/orders/use-cases/refund"
 import { PendingEvents } from "@insyte/modules/shared/domain/Outbox"
+import { inScope } from "@insyte/modules/shared/use-cases/StoreScope"
+import { fromMinor, toMinor } from "@insyte/modules/stores/domain/Mirror"
 import { Tracking } from "@insyte/modules/tracking/domain/Tracking"
 import { ingest } from "@insyte/modules/tracking/use-cases/tracking"
 import { Effect, Option } from "effect"
@@ -23,13 +25,24 @@ import { withAi } from "../Ai.ts"
  */
 
 /**
- * A flow refunds at most this much per order (in cents), and never more than the flow's owner may refund themselves:
- * money goes out without anyone looking, so the safest default holds it to a small amount (Beslissen in the PR).
+ * A flow refunds at most this much per order, in the workspace's currency, summed over every flow's refunds on it, and
+ * never more than its owner, its version's publisher or the one who started the run may refund themselves: money goes
+ * out without anyone looking, so the safest default holds it to a small amount (Beslissen in the PR).
  */
-export const FLOW_REFUND_CAP_MINOR = 10_000
+export const FLOW_REFUND_CAP = 100
 
-const euro = (minor: number) =>
-  `€ ${(minor / 100).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+/** Currencies with three decimals: Insyte's minor units have two, so a flow does not refund in them. */
+const THREE_DECIMALS = new Set(["BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"])
+
+const SYMBOL: Record<string, string> = { EUR: "€", USD: "$", GBP: "£", JPY: "¥" }
+
+/** `500` in EUR → "€ 5,00". */
+const money = (minor: number, currency: string) => {
+  const digits = toMinor("1", currency) === 1 ? 0 : 2
+  const amount = Number(fromMinor(minor, currency))
+  const text = amount.toLocaleString("nl-NL", { minimumFractionDigits: digits, maximumFractionDigits: digits })
+  return `${SYMBOL[currency.toUpperCase()] ?? currency.toUpperCase()} ${text}`
+}
 
 const fail = (explanation: string, terminal = true) => Effect.fail(new StepFailed({ explanation, terminal }))
 
@@ -39,38 +52,148 @@ const orderOf = (input: ActInput) =>
     ? fail("Deze run gaat niet over een bestelling, dus deze stap kan niets doen.")
     : Effect.succeed(input.plan.orderId)
 
-/** "volledig" (or nothing) is what is left on the order; "25,00" and "€ 25" are euros. */
-const amountOf = (text: string): "full" | number | undefined => {
+/** "volledig" (or nothing) is what is left on the order; "25,00" and "€ 25" are amounts in its currency. */
+const amountOf = (text: string, currency: string): "full" | number | undefined => {
   const t = text.trim().toLowerCase()
   if (t === "" || t === "volledig" || t === "alles" || t === "full") return "full"
-  const cleaned = t.replace(/[€\s]/g, "")
+  const cleaned = t.replace(/[€$£¥\s]/g, "")
   const normal = /,\d{1,2}$/.test(cleaned) ? cleaned.replace(/\./g, "").replace(",", ".") : cleaned.replace(/,/g, "")
-  const n = Number(normal)
-  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : undefined
+  if (!/^\d+(\.\d{1,2})?$/.test(normal)) return undefined
+  const minor = toMinor(normal, currency)
+  return Number.isFinite(minor) && minor > 0 ? minor : undefined
 }
 
+const CROCKFORD = "0123456789abcdefghjkmnpqrstvwxyz"
+
 /**
- * What the flow may refund per order: its owner's own limit (a role without Terugbetalen gives none), and never more
- * than `FLOW_REFUND_CAP_MINOR`. A flow without an active owner refunds nothing.
+ * The refund's id for this run's step: the same every attempt, so a second attempt that gets through finds the first's
+ * refund (`refundOn` answers it) instead of refunding again.
  */
-const flowLimitOf = (sql: SqlClient.SqlClient, automationId: string) =>
+const refundIdOf = (runId: string, nodeId: string) =>
   Effect.map(
-    sql<{ roleId: string; limitMinor: string | null; may: boolean }>`
-      select r.id as role_id, r.refund_limit_minor as limit_minor,
-             coalesce((r.specials ->> 'refunds.write')::boolean, false) as may
-      from automations a
-      join members m on m.id = a.owner_member_id and m.deactivated_at is null and m.removed_at is null
-      join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
-      where a.id = ${automationId}`,
-    ([owner]) => {
-      if (owner === undefined) return 0
-      if (owner.roleId === "owner") return FLOW_REFUND_CAP_MINOR
-      if (!owner.may) return 0
-      return owner.limitMinor === null
-        ? FLOW_REFUND_CAP_MINOR
-        : Math.min(FLOW_REFUND_CAP_MINOR, Number(owner.limitMinor))
+    Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(`automation:${runId}:${nodeId}`))),
+    (digest) => {
+      let value = 0n
+      for (const byte of new Uint8Array(digest).slice(0, 17)) value = (value << 8n) | BigInt(byte)
+      let out = ""
+      for (let i = 0; i < 26; i++) {
+        out = CROCKFORD[Number(value & 31n)] + out
+        value >>= 5n
+      }
+      return `rfd_${out}`
     }
   )
+
+/** A member's or the run's starter's own refund right: their limit per order (0: none) and the stores they reach. */
+interface Authority {
+  readonly limitMinor: number
+  readonly stores: ReadonlyArray<string> | null
+}
+
+type StoreAccess = "all" | ReadonlyArray<string>
+
+/** The member's stores narrow the role's (as `memberships` reads them); `null` is every store. */
+const storesOf = (role: StoreAccess, member: StoreAccess): ReadonlyArray<string> | null =>
+  role === "all" ? (member === "all" ? null : member) : member === "all" ? role : member.filter((s) => role.includes(s))
+
+/**
+ * What the flow's owner and the publisher of the run's version may refund themselves, as they are now: an active member
+ * at Bestellingen · Bewerken with Terugbetalen (the workspace's owner always), within their role's limit. One who is
+ * gone, deactivated or without the right gives none.
+ */
+const peopleOf = Effect.fn("AutomationActs.peopleOf")(function*(
+  sql: SqlClient.SqlClient,
+  plan: ActInput["plan"],
+  capMinor: number
+) {
+  const rows = yield* sql<{
+    who: "owner" | "publisher"
+    roleId: string
+    limitMinor: string | null
+    may: boolean
+    orders: number
+    roleStores: StoreAccess
+    memberStores: StoreAccess
+  }>`
+    select p.who, r.id as role_id, r.refund_limit_minor as limit_minor,
+           coalesce((r.specials ->> 'refunds.write')::boolean, false) as may,
+           coalesce((r.levels ->> 'orders')::int, 0) as orders, r.stores as role_stores, m.stores as member_stores
+    from (
+      select 'owner' as who, a.owner_member_id as member_id from automations a where a.id = ${plan.automationId}
+      union all
+      select 'publisher', v.published_by from automation_versions v
+      where v.automation_id = ${plan.automationId} and v.version = ${plan.version}
+    ) p
+    join members m on m.id = p.member_id and m.deactivated_at is null and m.removed_at is null
+    join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id`
+  const of = (who: "owner" | "publisher"): Authority => {
+    const p = rows.find((r) => r.who === who)
+    if (p === undefined) return { limitMinor: 0, stores: [] }
+    const stores = storesOf(p.roleStores, p.memberStores)
+    if (p.roleId === "owner") return { limitMinor: capMinor, stores }
+    if (!p.may || p.orders < 2) return { limitMinor: 0, stores }
+    return { limitMinor: p.limitMinor === null ? capMinor : Math.min(capMinor, Number(p.limitMinor)), stores }
+  }
+  return { owner: of("owner"), publisher: of("publisher") }
+})
+
+/** Who started the run by hand, and what they could refund then (`automation_runs.started_by`); none for a trigger. */
+const starterOf = Effect.fn("AutomationActs.starterOf")(function*(
+  sql: SqlClient.SqlClient,
+  runId: string,
+  capMinor: number
+) {
+  const [run] = yield* sql<{
+    startedBy: string | null
+    starterRefundMinor: string | null
+    starterStores: Array<string> | null
+  }>`select started_by, starter_refund_minor, starter_stores from automation_runs where id = ${runId}`
+  if (run === undefined || run.startedBy === null) return undefined
+  return {
+    limitMinor: run.starterRefundMinor === null ? capMinor : Math.min(capMinor, Number(run.starterRefundMinor)),
+    stores: run.starterStores
+  } satisfies Authority
+})
+
+/**
+ * What the flow may refund on this order, or why it may not: the lowest of `FLOW_REFUND_CAP` and the limits of its
+ * owner, its version's publisher and the run's starter, and only in a store each of them reaches.
+ */
+const limitOf = Effect.fn("AutomationActs.limitOf")(function*(
+  sql: SqlClient.SqlClient,
+  plan: ActInput["plan"],
+  storeId: string,
+  capMinor: number
+) {
+  const { owner, publisher } = yield* peopleOf(sql, plan, capMinor)
+  const starter = yield* starterOf(sql, plan.runId, capMinor)
+  const reaches = (a: Authority) => a.stores === null || a.stores.includes(storeId)
+  const checks: ReadonlyArray<readonly [Authority | undefined, string, string]> = [
+    [
+      owner,
+      "De eigenaar van de flow mag zelf niet terugbetalen, dus de flow ook niet. Geef de flow een eigenaar met het recht Terugbetalen.",
+      "De eigenaar van de flow kan niet bij de winkel van deze bestelling, dus de flow betaalt hier niet terug."
+    ],
+    [
+      publisher,
+      "Wie deze versie publiceerde, mag zelf niet terugbetalen, dus de flow ook niet. Laat iemand met het recht Terugbetalen hem publiceren.",
+      "Wie deze versie publiceerde, kan niet bij de winkel van deze bestelling, dus de flow betaalt hier niet terug."
+    ],
+    [
+      starter,
+      "Wie deze run startte, mag zelf niet terugbetalen; er is niets terugbetaald.",
+      "Wie deze run startte, kan niet bij de winkel van deze bestelling; er is niets terugbetaald."
+    ]
+  ]
+  let limitMinor = capMinor
+  for (const [a, none, elsewhere] of checks) {
+    if (a === undefined) continue
+    if (a.limitMinor <= 0) return { refused: none } as const
+    if (!reaches(a)) return { refused: elsewhere } as const
+    limitMinor = Math.min(limitMinor, a.limitMinor)
+  }
+  return { limitMinor } as const
+})
 
 /** Suppliers by the names a step gives ("Yiwu Trading, Atelier Noord"), case aside. */
 const suppliersNamed = (sql: SqlClient.SqlClient, names: ReadonlyArray<string>) =>
@@ -169,49 +292,92 @@ export const act = (input: ActInput): Effect.Effect<Did, StepFailed, Db> => {
         )
       }
 
-      /* Terugbetalen: within the flow's limit and what is left on the order, audited as the flow's account. */
+      /*
+       * Terugbetalen: within the flow's limit and what is left on the order, audited as the flow's account. The order is
+       * locked first, so two steps, runs or flows refunding it at once are counted one after the other, and what flows
+       * refunded on it before counts against the limit too.
+       */
       case "action.refund": {
         if (p.role.levels.orders < 2 || !p.role.specials["refunds.write"]) return yield* forbidden()
         const orderId = yield* orderOf(input)
-        const asked = amountOf(input.text("amount"))
-        if (asked === undefined) {
-          return yield* fail(`“${input.text("amount")}” is geen bedrag; schrijf “volledig” of “25,00”.`)
-        }
+        const refundId = yield* refundIdOf(input.plan.runId, input.node.id)
         return yield* scoped((sql) =>
           Effect.gen(function*() {
-            const limitMinor = yield* flowLimitOf(sql, input.plan.automationId)
-            if (limitMinor === 0) {
+            const scope = yield* inScope(sql, "o.store_id")
+            const [o] = yield* sql<{
+              storeId: string
+              currency: string
+              workspaceCurrency: string
+              balanceMinor: string
+              byFlowsMinor: string
+              asked: boolean
+            }>`
+              select o.store_id, o.currency, w.currency as workspace_currency,
+                     o.total_minor - coalesce((select sum(r.amount_minor) from refunds r
+                                               where r.order_id = o.id and r.status <> 'failed'), 0) as balance_minor,
+                     coalesce((select sum(r.amount_minor) from refunds r
+                               where r.order_id = o.id and r.status <> 'failed' and r.created_by like 'sa\\_%'), 0)
+                       as by_flows_minor,
+                     exists (select 1 from refunds r where r.id = ${refundId}) as asked
+              from orders o join workspaces w on w.id = o.workspace_id
+              where o.id = ${orderId} and ${scope}
+              for update of o`
+            if (o === undefined) return yield* refused({ _tag: "NotFound" })
+            const currency = o.currency.trim().toUpperCase()
+            const reason = input.text("reason")
+            const note = `${reason === "" ? "Terugbetaald" : reason} · automatisering “${input.plan.name}”`
+            const account = (limitMinor: number) => ({ ...p, role: { ...p.role, refundLimit: limitMinor / 100 } })
+            if (o.asked) {
+              // An attempt before this one refunded: the same refund, answered again.
+              const [earlier] = yield* sql<{ amountMinor: string }>`
+                select amount_minor from refunds where id = ${refundId}`
+              const amountMinor = Number(earlier?.amountMinor ?? 0)
+              return {
+                status: "succeeded" as const,
+                output: { refundId, amountMinor },
+                explanation: `${money(amountMinor, currency)} terugbetaald; Shopify verwerkt het.`
+              }
+            }
+            if (currency !== o.workspaceCurrency.trim().toUpperCase() || THREE_DECIMALS.has(currency)) {
               return yield* fail(
-                "De eigenaar van de flow mag zelf niet terugbetalen, dus de flow ook niet. Geef de flow een eigenaar met het recht Terugbetalen."
+                `Deze bestelling is in ${currency}; een flow betaalt alleen terug in ${o.workspaceCurrency.trim()}. Doe het zelf.`
               )
             }
-            const [o] = yield* sql<{ balanceMinor: string }>`
-              select o.total_minor - coalesce((select sum(r.amount_minor) from refunds r
-                                               where r.order_id = o.id and r.status <> 'failed'), 0) as balance_minor
-              from orders o where o.id = ${orderId}`
-            const balance = Number(o?.balanceMinor ?? 0)
+            const asked = amountOf(input.text("amount"), currency)
+            if (asked === undefined) {
+              return yield* fail(`“${input.text("amount")}” is geen bedrag; schrijf “volledig” of “25,00”.`)
+            }
+            const capMinor = toMinor(String(FLOW_REFUND_CAP), currency)
+            const limit = yield* limitOf(sql, input.plan, o.storeId, capMinor)
+            if ("refused" in limit) return yield* fail(limit.refused)
+            const balance = Number(o.balanceMinor)
             const amountMinor = asked === "full" ? balance : asked
             if (amountMinor <= 0) return yield* fail("De bestelling is al volledig terugbetaald.")
-            if (amountMinor > limitMinor) {
+            if (amountMinor > limit.limitMinor) {
               return yield* fail(
-                `${euro(amountMinor)} is meer dan de flow per bestelling mag terugbetalen (${
-                  euro(limitMinor)
+                `${money(amountMinor, currency)} is meer dan de flow per bestelling mag terugbetalen (${
+                  money(limit.limitMinor, currency)
                 }). Doe het zelf, of vraag eerst goedkeuring.`
               )
             }
-            const account = { ...p, role: { ...p.role, refundLimit: limitMinor / 100 } }
-            const reason = input.text("reason")
-            const done = yield* refundOn(sql, {
-              id: orderId,
-              refundId: mintId("rfd") as never,
-              amountMinor,
-              note: `${reason === "" ? "Terugbetaald" : reason} · automatisering “${input.plan.name}”`
-            }).pipe(Effect.provideService(CurrentPrincipal, account))
+            const byFlows = Number(o.byFlowsMinor)
+            if (byFlows + amountMinor > limit.limitMinor) {
+              return yield* fail(
+                `Flows betaalden op deze bestelling al ${money(byFlows, currency)} terug; met ${
+                  money(amountMinor, currency)
+                } erbij is het meer dan flows per bestelling mogen (${
+                  money(limit.limitMinor, currency)
+                }). Doe het zelf, of vraag eerst goedkeuring.`
+              )
+            }
+            const done = yield* refundOn(sql, { id: orderId, refundId: refundId as never, amountMinor, note }).pipe(
+              Effect.provideService(CurrentPrincipal, account(limit.limitMinor))
+            )
             if (done.outboxId !== null) (yield* PendingEvents)?.add(done.outboxId)
             return {
               status: "succeeded" as const,
               output: { refundId: done.result.refundId, amountMinor },
-              explanation: `${euro(amountMinor)} terugbetaald; Shopify verwerkt het.`
+              explanation: `${money(amountMinor, currency)} terugbetaald; Shopify verwerkt het.`
             }
           })
         )

@@ -47,6 +47,16 @@ describe("what starts a run", () => {
     }])
   })
 
+  it("runs a flow once per record for what happens once to it, and per event for what can happen again", () => {
+    const once = (event: { type: string } & Record<string, unknown>) => startedBy(event).map((s) => s.once === true)
+    expect(once({ type: "order.placed", orderIds: ["o1"] })).toEqual([true])
+    expect(once({ type: "order.fulfilled", orderIds: ["o1"] })).toEqual([true])
+    expect(once({ type: "order.updated", change: "fulfil", orderIds: ["o1"] })).toEqual([true])
+    expect(once({ type: "chargeback.opened", chargebackId: "cb1" })).toEqual([true])
+    expect(once({ type: "order.delayed", orderIds: ["o1"] })).toEqual([false])
+    expect(once({ type: "refund.requested", orderIds: ["o1"] })).toEqual([false])
+  })
+
   it("starts Klant antwoordt beside E-mail ontvangen only for a reply on a known thread", () => {
     expect(startedBy({ type: "thread.received", threadId: "t1", reply: false }).map((s) => s.trigger)).toEqual([
       "trigger.email_received"

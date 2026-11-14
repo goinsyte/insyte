@@ -9,7 +9,7 @@ import { Effect, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { withRequestDb } from "../../../platform/RequestDb.ts"
 import { userFrom } from "../../../platform/Sessions.ts"
-import { notInProduction, workspaceParam } from "./shared.ts"
+import { devOnly, notInProduction, workspaceParam } from "./shared.ts"
 
 /**
  * `GET /api/__dev/automations/runs?workspace=<id>`: one workspace's flow runs with their steps, and the flows' service
@@ -44,29 +44,32 @@ export const AutomationRunsOf = HttpRouter.add(
 
 /**
  * `POST /api/__dev/automations/schedule?workspace=<id>&at=<iso>`: the hourly tick of "Op een vast moment" for one
- * workspace (the signed-in person's first when none is named, for the e2e), as if it were `at` (now when absent), so a
- * test need not wait for the cron. Answers the runs it started. Refused in production.
+ * workspace of the signed-in person (their first when none is named, for the e2e), as if it were `at` (now when
+ * absent), so a test need not wait for the cron. Only locally and on a preview, and only for a member of that
+ * workspace: it starts real runs at any moment it is told. Answers the runs it started.
  */
 export const AutomationScheduleTick = HttpRouter.add(
   "POST",
   "/api/__dev/automations/schedule",
   Effect.gen(function*() {
-    if (!(yield* notInProduction)) {
+    if (!(yield* devOnly)) {
       return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
     }
     const request = yield* HttpServerRequest.HttpServerRequest
     const named = yield* workspaceParam
-    const user = named !== "" ? Option.none() : yield* userFrom(new Headers(request.headers as Record<string, string>))
-    const [own] = Option.isNone(user)
-      ? []
-      : yield* Effect.flatMap(Effect.service(Workspaces), (w) => w.memberships).pipe(
-        Effect.provideService(CurrentUser, user.value),
-        Effect.provide(Workspaces.layer)
-      )
-    const workspace = named !== "" ? named : own?.workspaceId ?? ""
-    if (workspace === "") {
+    const user = yield* userFrom(new Headers(request.headers as Record<string, string>))
+    if (Option.isNone(user)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "unauthenticated" } }, { status: 401 })
+    }
+    const mine = yield* Effect.flatMap(Effect.service(Workspaces), (w) => w.memberships).pipe(
+      Effect.provideService(CurrentUser, user.value),
+      Effect.provide(Workspaces.layer)
+    )
+    const own = named === "" ? mine[0] : mine.find((m) => m.workspaceId === named)
+    if (own === undefined) {
       return HttpServerResponse.jsonUnsafe({ error: { code: "no_workspace" } }, { status: 409 })
     }
+    const workspace = own.workspaceId
     const asked = new URL(request.url, "http://local").searchParams.get("at")
     const at = asked === null ? new Date() : new Date(asked)
     if (Number.isNaN(at.getTime())) {

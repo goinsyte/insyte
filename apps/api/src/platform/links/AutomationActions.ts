@@ -20,6 +20,14 @@ const HANDLES: ReadonlySet<string> = new Set([
   "action.ai_classify"
 ])
 
+/** Those that call out, so run outside the step's transaction (`AutomationActions.outside`). */
+const OUTSIDE: ReadonlySet<string> = new Set([
+  "action.update_tracking",
+  "action.ai_compose",
+  "action.ai_summarize",
+  "action.ai_classify"
+])
+
 let loading: Promise<typeof Acts> | undefined
 
 const load = Effect.promise(() => (loading ??= import("./AutomationActs.ts").catch((error: unknown) => {
@@ -31,6 +39,7 @@ export const AutomationActionsLive = Layer.succeed(
   AutomationActions,
   AutomationActions.of({
     handles: HANDLES,
+    outside: OUTSIDE,
     act: (input) => Effect.flatMap(load, (acts) => acts.act(input))
   })
 )
