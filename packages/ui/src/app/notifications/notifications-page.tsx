@@ -530,7 +530,13 @@ export function NotificationsPage({
               </AnimatePresence>
             )}
           {more?.has(tab)
-            ? <ReadOn key={`${tab}:${allNotes.length}`} root={listRef} onNear={() => more.read(tab)} />
+            ? (
+              <ReadOn
+                key={`${key}:${source ?? ""}:${unreadOnly}:${ordered.length}`}
+                root={listRef}
+                onNear={() => more.read(tab)}
+              />
+            )
             : null}
         </div>
       </section>
@@ -751,7 +757,10 @@ function Row({
   )
 }
 
-/** Where a host reads a page at a time: the next one, as the end of the list comes into view. */
+/**
+ * Where a host reads a page at a time: the next one, as the end of the list comes into view. It is keyed on the view and
+ * the rows it shows, so it asks again only after a page added to them: a filter that finds little stops reading on.
+ */
 function ReadOn({ root, onNear }: { root: React.RefObject<HTMLDivElement | null>; onNear: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const near = useRef(onNear)
