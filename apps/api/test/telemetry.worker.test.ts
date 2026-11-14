@@ -1,12 +1,12 @@
 import { runInDurableObject } from "cloudflare:test"
 import { env } from "cloudflare:workers"
-import { ConfigProvider, Effect, Exit, Layer, ManagedRuntime } from "effect"
+import { type Cause, ConfigProvider, Effect, Exit, Layer, ManagedRuntime, Queue, Stream } from "effect"
 import { FetchHttpClient, HttpRouter, HttpServerResponse } from "effect/http"
 import { OtlpSerialization } from "effect/observability"
 import { beforeEach, expect, it } from "vitest"
 import { AppInfo } from "../src/platform/Bindings.ts"
 import { SyncScheduler } from "../src/platform/InfraLayer.ts"
-import { makeTelemetry } from "../src/platform/Observability.ts"
+import { flushAtRequestEnd, makeTelemetry } from "../src/platform/Observability.ts"
 
 /*
  * Spans leave per invocation (`Observability.ts`). Each invocation here runs inside a Durable Object call, which is a
@@ -16,19 +16,27 @@ import { makeTelemetry } from "../src/platform/Observability.ts"
  */
 
 let answer: "ok" | "hang" | "429" = "ok"
+let aborted = false
 const posted: Array<ReadonlyArray<string>> = []
+/** The server spans among them (OTLP kind 2), by name. */
+const served: Array<string> = []
 
 const intake = ((_input: RequestInfo | URL, init?: RequestInit) => {
   if (answer === "hang") {
     return new Promise<Response>((_, reject) =>
-      init?.signal?.addEventListener("abort", () => reject(new Error("aborted")))
+      init?.signal?.addEventListener("abort", () => {
+        aborted = true
+        reject(new Error("aborted"))
+      })
     )
   }
   if (answer === "429") return Promise.resolve(new Response("", { status: 429, headers: { "retry-after": "60" } }))
   const body = JSON.parse(String(init?.body)) as {
-    resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ name: string }> }> }>
+    resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ name: string; kind: number }> }> }>
   }
-  posted.push(body.resourceSpans.flatMap((r) => r.scopeSpans.flatMap((s) => s.spans.map((span) => span.name))))
+  const spans = body.resourceSpans.flatMap((r) => r.scopeSpans.flatMap((s) => s.spans))
+  posted.push(spans.map((span) => span.name))
+  served.push(...spans.filter((span) => span.kind === 2).map((span) => span.name))
   return Promise.resolve(new Response("{}", { status: 200 }))
 }) as typeof globalThis.fetch
 
@@ -58,7 +66,9 @@ const inRequest = <A>(name: string, run: () => Promise<A>) =>
 
 beforeEach(() => {
   answer = "ok"
+  aborted = false
   posted.length = 0
+  served.length = 0
 })
 
 it("exports each invocation's spans in that invocation, the second as well as the first", async () => {
@@ -69,23 +79,51 @@ it("exports each invocation's spans in that invocation, the second as well as th
   expect(posted).toEqual([["first"], ["second"]])
 })
 
+/** A handler as `Main.ts` and `Public.ts` make theirs: the request's spans told when its scope closes. */
+const handlerOf = (app: Layer.Layer<never, never, HttpRouter.HttpRouter>) =>
+  HttpRouter.toWebHandler(app.pipe(Layer.provideMerge(SyncScheduler)), { middleware: flushAtRequestEnd })
+
+/** One request through `web`, as `Main.ts` serves it, with the body read to its end. */
+const serve = async (web: ReturnType<typeof handlerOf>, path: string) => {
+  const spans = telemetry.open()
+  const response = await web.handler(new Request(`http://api.test${path}`), spans.context)
+  const flushed = spans.flushAfterRequest()
+  const text = await response.text()
+  await flushed
+  return text
+}
+
 it("exports a request's spans through the handler's context, request after request", async () => {
-  const web = HttpRouter.toWebHandler(
-    HttpRouter.add("GET", "/work", Effect.map(work("route"), () => HttpServerResponse.text("ok"))).pipe(
-      Layer.provideMerge(SyncScheduler)
-    ),
-    { disableLogger: true }
-  )
+  const web = handlerOf(HttpRouter.add("GET", "/work", Effect.map(work("route"), () => HttpServerResponse.text("ok"))))
   for (const name of ["a", "b"]) {
-    await inRequest(`http-${name}`, async () => {
-      const spans = telemetry.open()
-      const response = await web.handler(new Request("http://api.test/work"), spans.context)
-      expect(await response.text()).toBe("ok")
-      await spans.flush()
-    })
+    expect(await inRequest(`http-${name}`, () => serve(web, "/work"))).toBe("ok")
   }
   expect(posted).toHaveLength(2)
   for (const names of posted) expect(names).toContain("route")
+  // Effect's own server span, one per request, in that request's post.
+  expect(served).toEqual(["GET", "GET"])
+  await web.dispose()
+})
+
+it("exports the spans that end while a body streams, after its last chunk", async () => {
+  // As the RPC and MCP servers answer: the work runs on in the request's scope and its result streams out after the
+  // response, so its span ends after `web.handler` has returned.
+  const web = handlerOf(HttpRouter.add(
+    "GET",
+    "/stream",
+    Effect.gen(function*() {
+      const chunks = yield* Queue.make<Uint8Array, Cause.Done>()
+      yield* work("streamed").pipe(
+        Effect.delay(20),
+        Effect.flatMap((name) => Queue.offer(chunks, new TextEncoder().encode(name))),
+        Effect.andThen(Queue.end(chunks)),
+        Effect.forkScoped
+      )
+      return HttpServerResponse.stream(Stream.fromQueue(chunks))
+    })
+  ))
+  expect(await inRequest("stream", () => serve(web, "/stream"))).toBe("streamed")
+  expect(posted).toEqual([expect.arrayContaining(["streamed", "GET"])])
   await web.dispose()
 })
 
@@ -95,6 +133,8 @@ it("gives up a flush to a hanging intake after three seconds", async () => {
     const start = Date.now()
     const exit = await telemetry.runExit(runtime, work("hang"))
     expect(Exit.isSuccess(exit)).toBe(true)
+    // Effect gave up first and aborted its fetch, inside the invocation, before the flush settled.
+    expect(aborted).toBe(true)
     return Date.now() - start
   })
   expect(took).toBeLessThan(4_000)

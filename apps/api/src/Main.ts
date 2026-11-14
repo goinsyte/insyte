@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers"
 import { HttpRouter } from "effect/http"
 import { AppLayer } from "./platform/AppLayer.ts"
 import type { Env } from "./platform/Env.ts"
-import { Telemetry } from "./platform/Observability.ts"
+import { flushAtRequestEnd, Telemetry } from "./platform/Observability.ts"
 import { continueTrace } from "./platform/Tracing.ts"
 import { isPublicPath } from "./transports/public/Paths.ts"
 
@@ -13,20 +13,25 @@ import { isPublicPath } from "./transports/public/Paths.ts"
  */
 
 /** Module scope: the layer is built once per isolate, and building it does no request-time I/O. */
-const web = HttpRouter.toWebHandler(AppLayer)
+const web = HttpRouter.toWebHandler(AppLayer, { middleware: flushAtRequestEnd })
 
 export default {
   async fetch(request, _env, ctx) {
     if (!servedHere(request)) return Response.json({ error: { code: "not_found" } }, { status: 404 })
     // The public API and the MCP server: the public Worker's, on this Worker's hostname (ADR-0041 step 5).
     if (isPublicPath(new URL(request.url).pathname)) return env.PUBLIC.fetch(request)
-    // This request's own exporter (`Observability.ts`); its spans leave after the response is out (17 §1).
+    // This request's own exporter (`Observability.ts`); its spans leave once the response, streamed or not, is out
+    // (17 §1).
     const spans = Telemetry.open()
+    let response: Response
     try {
-      return await web.handler(continueTrace(request), spans.context)
-    } finally {
+      response = await web.handler(continueTrace(request), spans.context)
+    } catch (error) {
       ctx.waitUntil(spans.flush())
+      throw error
     }
+    ctx.waitUntil(spans.flushAfterRequest())
+    return response
   },
   // A support mail (M11 step 1): its handler and the background layer load on the first one, not at startup.
   email: (message, bindings, ctx) =>

@@ -1,11 +1,13 @@
 import {
   Config,
+  ConfigProvider,
   Context,
   Effect,
   Exit,
   Layer,
   Logger,
   ManagedRuntime,
+  Option,
   References,
   Scheduler,
   Scope,
@@ -31,6 +33,12 @@ import { AppInfo, ConfigLive } from "./Bindings.ts"
 /** The longest a flush may hold its invocation: a slow or rate-limiting Sentry costs spans, never a batch or a step. */
 const FLUSH_TIMEOUT_MS = 3_000
 
+/**
+ * Effect's own bound on the exporter's last send, inside the one above: on a hanging or rate-limiting intake Effect
+ * gives up first, aborts the fetch and clears a `Retry-After` sleep, and the flush settles after it has.
+ */
+const EXPORT_TIMEOUT_MS = 2_500
+
 /** One invocation's spans. */
 export interface Spans {
   /** `effect`, with its spans going to this invocation's exporter. */
@@ -39,7 +47,25 @@ export interface Spans {
   readonly context: Context.Context<never>
   /** Sends what was buffered and closes the exporter. At most three seconds; never rejects; the first call does it. */
   readonly flush: () => Promise<void>
+  /**
+   * `flush`, once the request this context was given to has ended (`flushAtRequestEnd`): its response sent, or a
+   * streamed body read to its end or dropped by the client. Spans that end while a body streams are sent with it.
+   */
+  readonly flushAfterRequest: () => Promise<void>
 }
+
+/** Told when the request's scope closes; in a request's context only (`Spans.context`). */
+class RequestEnd extends Context.Service<RequestEnd, { readonly ended: () => void }>()("api-worker/RequestEnd") {}
+
+/**
+ * `HttpRouter.toWebHandler`'s middleware: tells the request's spans when its scope closes. A streamed body takes the
+ * request's scope with it (`HttpEffect.scopeTransferToStream`), so this is after the last byte, not the response.
+ */
+export const flushAtRequestEnd = <A, E, R>(app: Effect.Effect<A, E, R>): Effect.Effect<A, E, R | Scope.Scope> =>
+  Effect.flatMap(Effect.serviceOption(RequestEnd), (end) =>
+    Option.isNone(end)
+      ? app
+      : Effect.andThen(Effect.addFinalizer(() => Effect.sync(end.value.ended)), app))
 
 /** The exporter one invocation opens: Effect's, from the `OTEL_*` configuration, or Effect's own no-op tracer. */
 const InvocationTracing = Layer.unwrap(Effect.gen(function*() {
@@ -48,12 +74,23 @@ const InvocationTracing = Layer.unwrap(Effect.gen(function*() {
   return OtlpTracer.layerFromConfig({
     resource: { serviceVersion: version, attributes: { "deployment.environment": environment } }
   })
-}))
+})).pipe(
+  // The exporter's shutdown timeout is read from this key; ours, whatever the stage sets.
+  Layer.provide(ConfigProvider.layerAdd(
+    ConfigProvider.fromEnvRecord({ OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: String(EXPORT_TIMEOUT_MS) }),
+    { asPrimary: true }
+  ))
+)
 
 /** What an invocation's exporter needs, built once per isolate: its configuration, fetch and the serialization. */
 export type SpansServices = AppInfo | HttpClient.HttpClient | OtlpSerialization.OtlpSerialization
 
-const unexported: Spans = { provide: (effect) => effect, context: Context.empty(), flush: () => Promise.resolve() }
+const unexported: Spans = {
+  provide: (effect) => effect,
+  context: Context.empty(),
+  flush: () => Promise.resolve(),
+  flushAfterRequest: () => Promise.resolve()
+}
 
 /** `Telemetry` over `layer`: the Worker's configuration and fetch, or a test's. */
 export const makeTelemetry = <LE>(layer: Layer.Layer<SpansServices, LE>) => {
@@ -75,8 +112,7 @@ export const makeTelemetry = <LE>(layer: Layer.Layer<SpansServices, LE>) => {
     const flush = () => {
       if (flushed !== undefined) return flushed
       let timer: ReturnType<typeof setTimeout> | undefined
-      // Effect's shutdown flush has a 3 s timeout of its own; this one also covers the exporter's retries, which honour
-      // a 429's `Retry-After` however long it is.
+      // Effect gives up at 2.5 s (`EXPORT_TIMEOUT_MS`) and has closed by now; this is the bound should it not have.
       const timeout = new Promise<void>((resolve) => {
         timer = setTimeout(resolve, FLUSH_TIMEOUT_MS)
       })
@@ -85,10 +121,15 @@ export const makeTelemetry = <LE>(layer: Layer.Layer<SpansServices, LE>) => {
         .finally(() => clearTimeout(timer))
       return flushed
     }
+    let ended!: () => void
+    const requestEnded = new Promise<void>((resolve) => {
+      ended = resolve
+    })
     return {
       provide: (effect) => Effect.withTracer(effect, tracer),
-      context: Context.make(Tracer.Tracer, tracer),
-      flush
+      context: Context.make(Tracer.Tracer, tracer).pipe(Context.add(RequestEnd, { ended })),
+      flush,
+      flushAfterRequest: () => requestEnded.then(flush)
     }
   }
 
