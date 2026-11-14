@@ -10,6 +10,13 @@ import * as Audit from "../../shared/use-cases/Audit.ts"
 import { inScopeOrNone } from "../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import {
+  BROKEN,
+  findingSentence,
+  handlingSentence,
+  type IncidentFacts,
+  type IncidentKind
+} from "../../stores/domain/Health.ts"
+import {
   type ListInput,
   QueueChange,
   QueueItemClosed,
@@ -23,7 +30,7 @@ import {
 /*
  * The queue on Start (M10.1). Not a rule per event: the refresh works out, from the records as they are, which
  * conditions hold (an order delayed, a return in review, a quality check sent in, a variant sold out, a store without
- * its link, a chargeback waiting for evidence) and keeps one unresolved row per condition by its `dedupe_key`: a new condition opens a row, a held one is
+ * its link, a chargeback waiting for evidence, a store's connection with an incident open) and keeps one unresolved row per condition by its `dedupe_key`: a new condition opens a row, a held one is
  * brought up to date (title, signal, value, due), an ended one resolves. Seen stays seen while the condition holds;
  * when it ends and comes back, it is a new row. Every member may open Start; the rows narrow to the areas and stores the
  * role may open, and the counts with them.
@@ -162,6 +169,30 @@ const desired = Effect.fn("Queue.desired")(function*(sql: SqlClient.SqlClient) {
       dedupeKey: `store_disconnected:${s.id}`,
       signal: "red",
       title: `Winkel ${s.name} is niet meer gekoppeld`,
+      valueMinor: null,
+      currency: null,
+      dueAt: null
+    })
+  }
+  // A store's connection with an incident open (M17 step 6), until the health check resolves it. A store that must be
+  // connected again already has its row above; the incident's own words are the title, what Insyte does the tail.
+  const incidents = yield* sql<{ id: string; kind: string; storeId: string; storeName: string; facts: IncidentFacts }>`
+    select i.id, i.kind, s.id as store_id, s.name as store_name, i.facts
+    from connection_incidents i join stores s on s.connection_id = i.connection_id
+    where i.resolved_at is null and s.status = 'connected'`
+  for (const i of incidents) {
+    const kind = i.kind as IncidentKind
+    out.push({
+      kind: "connection_incident",
+      area: "data",
+      subjectType: "store",
+      subjectId: i.storeId,
+      storeId: i.storeId,
+      dedupeKey: `connection_incident:${i.id}`,
+      signal: BROKEN.has(kind) ? "red" : "amber",
+      title: [`${i.storeName}: ${findingSentence(kind, i.facts).replace(/\.$/, "")}`, handlingSentence(kind)]
+        .filter((part) => part !== null)
+        .join(" · "),
       valueMinor: null,
       currency: null,
       dueAt: null

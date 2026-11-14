@@ -180,6 +180,8 @@ export function SupplierShellSource(
     inbox: { threads: [] },
     agentEntries: NO_ROWS,
     queueRows: NO_ROWS,
+    // A supplier's portal has no stores of its own to sync: the top bar draws no line.
+    syncLine: null,
     slots: {
       Customize: null,
       AppDetail: null,

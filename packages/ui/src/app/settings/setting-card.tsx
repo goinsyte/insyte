@@ -181,12 +181,14 @@ export function SettingsItem({
 }
 
 export function BandedRow({
+	id,
 	leading,
 	title,
 	detail,
 	trailing,
 	className,
 }: {
+	id?: string;
 	leading?: React.ReactNode;
 	title: React.ReactNode;
 	detail?: React.ReactNode;
@@ -194,7 +196,7 @@ export function BandedRow({
 	className?: string;
 }) {
 	return (
-		<li className={cn("group flex min-h-14 items-center gap-3 px-3.5 py-2.5 transition-colors hover:bg-ink/3", className)}>
+		<li id={id} className={cn("group flex min-h-14 items-center gap-3 px-3.5 py-2.5 transition-colors hover:bg-ink/3", className)}>
 			{leading}
 			<div className="flex min-w-0 flex-1 flex-col">
 				<span className="truncate font-medium text-base text-ink">{title}</span>

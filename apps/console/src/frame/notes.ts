@@ -1,6 +1,7 @@
 import { type AreaId, type Level } from "@insyte/domain/Permissions"
 import type { Note as ServerNote } from "@insyte/modules/notifications/domain/Notifications"
 import { dayName, money, monthName } from "@insyte/modules/notifications/domain/Words"
+import { triedSummary } from "@insyte/modules/stores/domain/Health"
 import type { EventKey, Note } from "@insyte/ui/app/lib/notifications"
 import { permissionName } from "@insyte/ui/app/lib/permissions"
 
@@ -188,7 +189,25 @@ const sentence = (note: ServerNote): Sentence => {
         source: "chargeback",
         to: `/chargebacks/${note.subjectId ?? ""}`
       }
+    case "integration.sync":
     case "integration.disconnected":
+      if (note.subjectType === "connection_incident") {
+        // The health check opened an incident on a store (M17 step 6): what is wrong, and what Insyte already did.
+        const tried = Array.isArray(data["tried"]) ? data["tried"].map(String) : []
+        return {
+          title: "Koppeling vraagt aandacht:",
+          record: String(data["store"] ?? ""),
+          detail: [
+            String(data["finding"] ?? ""),
+            triedSummary(tried)
+          ].filter((t) => t !== "").join(" "),
+          tone: "amber",
+          source: "integration",
+          to: "/settings/stores",
+          search: { store: String(data["storeId"] ?? "") }
+        }
+      }
+      if (note.kind === "integration.sync") return { title: "heeft iets voor je", to: "/notifications" }
       // A webhook endpoint Insyte switched off after five failed attempts in a row (M19.4).
       return {
         title: "Insyte heeft een webhook-endpoint uitgezet:",
