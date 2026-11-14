@@ -73,15 +73,33 @@ export const Route = createFileRoute("/onboarding/")({
 
 const IDLE_POLICY: Atom.Atom<AsyncResult.AsyncResult<AutonomyPolicy, unknown>> = Atom.make(AsyncResult.initial())
 
-/**
- * The policy in force on the offline step: its levels (the defaults until it is read), the version the plan is made
- * on (0 until read: the server then says someone saved since), and a re-read for after a refusal.
- */
-function useOfflinePolicy(on: boolean): { levels: Policy; version: number; refresh: () => void } {
+/** The policy in force on the offline step, as "Afronden" makes the plan on it. */
+interface OfflinePolicy {
+  /** Its levels: the defaults until it is read. */
+  readonly levels: Policy
+  /** The version the plan is made on: only one the server answered, never a guess while it is read. */
+  readonly version: number | undefined
+  /** Still being read (or read again): "Afronden" waits in its busy state. */
+  readonly pending: boolean
+  /** This role may not read Zelfstandigheid: no plan can be saved, and the step goes on without one. */
+  readonly refused: boolean
+  /** Reads it again: after a refusal, or a read that failed. */
+  readonly refresh: () => void
+}
+
+function useOfflinePolicy(on: boolean): OfflinePolicy {
   const atom = on ? autonomyAtom : IDLE_POLICY
-  const policy = Option.getOrUndefined(AsyncResult.value(useAtomValue(atom)))
+  const result = useAtomValue(atom)
   const refresh = useAtomRefresh(atom)
-  return { levels: (policy?.levels ?? DEFAULT_LEVELS) as Policy, version: policy?.version ?? 0, refresh }
+  const policy = AsyncResult.isSuccess(result) && !result.waiting ? result.value : undefined
+  const failure = AsyncResult.isFailure(result) ? Cause.findErrorOption(result.cause) : Option.none()
+  return {
+    levels: (Option.getOrUndefined(AsyncResult.value(result))?.levels ?? DEFAULT_LEVELS) as Policy,
+    version: policy?.version,
+    pending: on && (AsyncResult.isInitial(result) || result.waiting),
+    refused: Option.isSome(failure) && (failure.value as { _tag?: string })._tag === "Forbidden",
+    refresh
+  }
 }
 
 const SYNC_LABELS = [
@@ -273,12 +291,20 @@ function ConsoleOnboarding() {
           canContinue: true,
           primaryLabel: "Afronden",
           busyLabel: "Bezig met opslaan",
+          // The plan is made on the policy the step shows: "Afronden" waits until it is read.
+          pending: policy.pending,
+          pendingLabel: "Bezig met laden",
           onPrimary: async () => {
             const levels = (data["offlineLevels"] as Partial<Record<AgentActionId, AutonomyLevel>> | undefined) ??
               proposedLevels(offline.answers, policy.levels)
             const window = (data["offlineWindow"] as OfflineWindow | undefined) ?? "evening"
+            if (policy.version === undefined && !policy.refused) {
+              // Never a plan on a version the server did not answer: read it again first.
+              policy.refresh()
+              throw new Error("Zelfstandigheid kon niet worden gelezen. Probeer het opnieuw.")
+            }
             try {
-              await analysis.agreeOffline(window, levels, policy.version)
+              if (policy.version !== undefined) await analysis.agreeOffline(window, levels, policy.version)
             } catch (e) {
               // Saved meanwhile, say: the step reads the policy again, and the next try is made on it.
               policy.refresh()

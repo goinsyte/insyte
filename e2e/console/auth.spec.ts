@@ -291,7 +291,11 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   // The offline plan: the window and the levels, written into the autonomy policy on Afronden.
   await expect(page.getByRole("heading", { name: "Terwijl je offline bent." })).toBeVisible()
   await expect(page.getByText("De levertijd-update staat als concept klaar")).toBeVisible()
-  await page.getByRole("button", { name: "Afronden" }).click()
+  // "Afronden" waits in its busy state until the policy is read: the plan is made on the version the step shows.
+  const finish = page.getByRole("button", { name: "Afronden" })
+  await expect(finish).toBeEnabled()
+  await expect(finish).toHaveAttribute("aria-busy", "false")
+  await finish.click()
 
   // The automation is made as a draft, never switched on; the customer agent still waits on its part.
   await expect(page.getByRole("heading", { name: "Je bent binnen." })).toBeVisible()

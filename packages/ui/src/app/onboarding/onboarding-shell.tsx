@@ -35,6 +35,10 @@ export type StepDef = {
 	primaryLabel?: string;
 	/** What the primary button says while its work runs: "Creating your account". */
 	busyLabel?: string;
+	/** What the step's primary needs is still on its way: the button shows its busy state and does nothing yet. */
+	pending?: boolean;
+	/** What the primary button says while `pending`. */
+	pendingLabel?: string;
 	onPrimary?: () => void | Promise<void>;
 	hidePrimary?: boolean;
 	content: ReactNode;
@@ -91,7 +95,7 @@ export function OnboardingShell({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: clear the error when the step changes.
 	useEffect(() => setError(null), [step.id]);
 	async function runPrimary() {
-		if (busy || !step.onPrimary) return;
+		if (busy || step.pending === true || !step.onPrimary) return;
 		setError(null);
 		setBusy(true);
 		try {
@@ -178,17 +182,17 @@ export function OnboardingShell({
 											<button
 												type="button"
 												onClick={runPrimary}
-												disabled={busy}
+												disabled={busy || step.pending === true}
 												className="flex h-11 items-center justify-center rounded-lg px-3 font-medium text-sm text-ink-2 transition-colors hover:bg-ink/6 hover:text-ink disabled:opacity-50"
 											>
 												Overslaan
 											</button>
 										) : null}
 										<PrimaryButton
-											busy={busy}
+											busy={busy || step.pending === true}
 											disabled={step.canContinue === false}
 											label={step.primaryLabel ?? "Doorgaan"}
-											busyLabel={step.busyLabel ?? "Bezig met opslaan"}
+											busyLabel={busy ? (step.busyLabel ?? "Bezig met opslaan") : (step.pendingLabel ?? "Bezig met laden")}
 											onClick={runPrimary}
 										/>
 									</div>
