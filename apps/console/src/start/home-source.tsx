@@ -11,7 +11,6 @@ import type { StartChecklist } from "@insyte/modules/onboarding/domain/Onboardin
 import { ManualSetupTask } from "@insyte/modules/onboarding/domain/Onboarding"
 import { RevenueBreakdownView } from "@insyte/ui/app/dashboard/breakdown-view"
 import { BestsellersView, CountriesView, LiveView, RecentView, ReturnsView } from "@insyte/ui/app/dashboard/card-views"
-import { type SetupTaskId, setupTasks } from "@insyte/ui/app/dashboard/setup-checklist"
 import { WIDGET_DEFS as WIDGETS } from "@insyte/ui/app/dashboard/widget-defs"
 import {
   ChargebacksView,
@@ -48,6 +47,7 @@ import { completeTaskAtom, START } from "../data/onboarding.ts"
 import { usePrefSection } from "../frame/prefs.ts"
 import { ConsoleChats } from "./chats-card.tsx"
 import { ConsoleBookmarks, ConsoleMentions, ConsoleToday } from "./home-views.tsx"
+import { consoleSetupTasks, useCanOpenTask } from "./setup-tasks.tsx"
 
 /*
  * Start's board in the console (M10.3), over `Home.widgets`: the design's cards drawn from the read, money from minor
@@ -274,7 +274,7 @@ export function pulseFigures(p: PulseFigures, days: number, currency: Currency):
       detail: `Betaalde bestellingen in de laatste ${days} dagen, zonder geannuleerde en terugbetaalde.`,
       delta: pct(p.revenue.value, p.revenue.previous),
       spark: p.revenue.spark.map((v) => v / 100),
-      to: "/orders"
+      to: "/analytics"
     })
   }
   if (p.orders) {
@@ -324,7 +324,27 @@ export function pulseFigures(p: PulseFigures, days: number, currency: Currency):
         ? null
         : { text: `${signed(Math.round((a - b) * 10) / 10, 1)} pt`, good: a === b ? null : a > b },
       spark: o.spark.map((v) => v ?? 0),
-      to: "/orders"
+      to: "/analytics"
+    })
+  }
+  if (p.reply) {
+    const r = p.reply
+    const a = r.replied === 0 ? 0 : r.minutes / r.replied / 60
+    const b = r.repliedBefore === 0 ? 0 : r.minutesBefore / r.repliedBefore / 60
+    const d = Math.round((a - b) * 10) / 10
+    out.push({
+      id: "reply",
+      label: "Eerste reactie",
+      value: a,
+      format: (n) => (r.replied === 0 ? "—" : `${one(Math.round(n * 10) / 10)} u`),
+      detail: `Gemiddelde tijd tot het eerste antwoord op een ticket; ${r.replied} ${
+        r.replied === 1 ? "ticket" : "tickets"
+      } beantwoord in de laatste ${days} dagen.`,
+      delta: r.replied === 0 || r.repliedBefore === 0 || !p.comparable
+        ? null
+        : { text: `${signed(d, 1)} u`, good: d === 0 ? null : d < 0 },
+      spark: r.spark.map((v) => v ?? 0),
+      to: "/tickets"
     })
   }
   return out
@@ -338,8 +358,6 @@ const regions = typeof Intl.DisplayNames === "function" ? new Intl.DisplayNames(
 const countryName = (code: string | null) => (code === null ? "Onbekend" : regions?.of(code) ?? code)
 
 const isManual = Schema.is(ManualSetupTask)
-/** The setup tasks whose screen the console has. */
-const canOpenTask = (task: { readonly id: SetupTaskId }) => task.id === "team"
 
 /** "Waar dit getal vandaan komt", read when it is first opened and kept for the next. */
 function ConsoleBreakdown(
@@ -507,7 +525,8 @@ export function useHomeSlots(
     kind: r.kind as Shortcut["kind"],
     at: r.at
   }))
-  const tasks = checklist === undefined ? undefined : setupTasks((id) => checklist.done.includes(id))
+  const tasks = checklist === undefined ? undefined : consoleSetupTasks((id) => checklist.done.includes(id))
+  const canOpenTask = useCanOpenTask()
 
   return {
     queue,

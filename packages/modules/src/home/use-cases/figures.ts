@@ -136,6 +136,32 @@ const pulseOf = Effect.fn("Home.pulse")(function*(
       createdBefore: sumBy(created, (r) => r.n, (r) => r.ago >= days && r.ago < 2 * days),
       spark: parts.map((p) => sumBy(created, (r) => r.n, (r) => inBucket(r.ago, p)))
     }
+    // The first mail the team sent on a ticket's thread, after it came in: tickets of the window that were answered.
+    const answered = yield* sql<{ ago: number; replied: number; minutes: number }>`
+      select ((now() at time zone w.timezone)::date - (t.created_at at time zone w.timezone)::date) as ago,
+             count(*)::int as replied,
+             coalesce(sum(round(extract(epoch from (r.first_at - t.created_at)) / 60)), 0)::int as minutes
+      from tickets t join workspaces w on w.id = t.workspace_id
+      cross join lateral (
+        select min(m.sent_at) as first_at from email_threads th join email_messages m on m.thread_id = th.id
+        where th.ticket_id = t.id and m.direction = 'outbound' and m.send_state = 'sent'
+          and m.sent_at >= t.created_at) r
+      where t.created_at > now() - make_interval(days => ${2 * days + 1}) and t.deleted_at is null
+        and t.spam_at is null and (t.store_id is null or ${scope}) and r.first_at is not null
+      group by 1`
+    const inWindow = (keep: (ago: number) => boolean) => (r: (typeof answered)[number]) => keep(r.ago)
+    const a = inWindow((ago) => ago < days)
+    const b = inWindow((ago) => ago >= days && ago < 2 * days)
+    pulse.reply = {
+      replied: sumBy(answered, (r) => r.replied, a),
+      minutes: sumBy(answered, (r) => r.minutes, a),
+      repliedBefore: sumBy(answered, (r) => r.replied, b),
+      minutesBefore: sumBy(answered, (r) => r.minutes, b),
+      spark: parts.map((p) => {
+        const n = sumBy(answered, (r) => r.replied, (r) => inBucket(r.ago, p))
+        return n === 0 ? null : sumBy(answered, (r) => r.minutes, (r) => inBucket(r.ago, p)) / n / 60
+      })
+    }
   }
   if (can("analytics")) {
     const scope = yield* inScope(sql, "f.store_id")
