@@ -44,8 +44,46 @@ export const Product = Schema.Struct({
     currency: Schema.String
   }),
   available: Schema.NullOr(Schema.Int),
+  stock: Schema.NullOr(Schema.Literals(["available", "low", "out"])).annotate({
+    description:
+      "`available` against the low-stock threshold, by the emptiest variant; null until Shopify reported stock."
+  }),
+  avg_delivery_days: Schema.NullOr(Schema.Finite).annotate({
+    description: "Days from order to delivery, on average over its last delivered orders."
+  }),
+  lead_days: Schema.NullOr(Schema.Int).annotate({ description: "The primary supplier's delivery time, in days." }),
   updated_at: Schema.String
 }).annotate({ identifier: "Product" })
+
+export const LowStockProduct = Schema.Struct({
+  id: Schema.String,
+  store_id: Schema.String,
+  title: Schema.String,
+  image: Schema.NullOr(Schema.String),
+  status: Schema.String,
+  stock: Schema.Literals(["low", "out"]),
+  available: Schema.Int,
+  variants: Schema.Array(Schema.Struct({
+    id: Schema.String,
+    title: Schema.String,
+    sku: Schema.NullOr(Schema.String),
+    available: Schema.Int
+  })),
+  sold_last_30_days: Schema.Int,
+  open_orders: Schema.Int,
+  days_left: Schema.NullOr(Schema.Finite),
+  supplier: Schema.NullOr(Schema.Struct({ id: Schema.String, name: Schema.NullOr(Schema.String) })),
+  lead_days: Schema.NullOr(Schema.Int)
+}).annotate({ identifier: "LowStockProduct" })
+
+export const LowStockQuery = Schema.Struct({
+  store_id: Schema.optional(Schema.String),
+  threshold: Schema.optional(Schema.FiniteFromString),
+  limit: Schema.optional(Schema.FiniteFromString)
+})
+export type LowStockQuery = typeof LowStockQuery.Type
+
+export const LowStockV1 = Schema.Struct({ data: Schema.Array(LowStockProduct), threshold: Schema.Int })
 
 export const Customer = Schema.Struct({
   id: Schema.String,
@@ -82,6 +120,14 @@ export class CommerceGroup extends HttpApiGroup.make("commerce")
     }).annotate(
       OpenApi.Description,
       "The workspace's products by title, with their price range and stock. Needs `products.read`."
+    ),
+    HttpApiEndpoint.get("lowStock", "/products/low-stock", {
+      query: LowStockQuery,
+      success: LowStockV1,
+      error: [ScopeMissingV1]
+    }).annotate(
+      OpenApi.Description,
+      "The products running low: a variant at or under `threshold` units over every location (the workspace's default, 12, if not given), sold out first, then the soonest to run out at the last 30 days' pace. Archived products are left out. Read only. Needs `products.read`."
     ),
     HttpApiEndpoint.get("customers", "/customers", {
       query: ListQuery,

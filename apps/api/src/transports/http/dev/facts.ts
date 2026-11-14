@@ -61,10 +61,71 @@ const FactsOrders = HttpRouter.add(
   }).pipe(Effect.orDie, withRequestDb)
 )
 
+interface DevCase {
+  readonly caseNumber: string
+  readonly storeId?: string | null
+  readonly orderId?: string | null
+  readonly openedAt?: string
+  readonly status?: string
+  readonly reason?: string
+  readonly amountMinor?: number
+  readonly currency?: string
+}
+
+/**
+ * `POST /api/__dev/facts/disputes?workspace=<id>`: cases for the dispute facts' worker tests (M14.1), as a payment
+ * connection would bring them (any day, any outcome): `insert` adds, `update` changes by case number, `remove` takes
+ * away; each its own statement, so the chargebacks' trigger sees what a real write would. Refused in production.
+ */
+const FactsDisputes = HttpRouter.add(
+  "POST",
+  "/api/__dev/facts/disputes",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = { id: (yield* workspaceParam) as WorkspaceId }
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const body = (yield* request.json) as {
+      readonly insert?: ReadonlyArray<DevCase>
+      readonly update?: ReadonlyArray<DevCase>
+      readonly remove?: ReadonlyArray<string>
+    }
+    const db = yield* Db
+    yield* db.scopedFor((sql) =>
+      Effect.gen(function*() {
+        for (const c of body.insert ?? []) {
+          const opened = new Date(c.openedAt ?? Date.now())
+          yield* sql`
+            insert into chargebacks (id, workspace_id, store_id, provider, case_number, order_id, customer_name,
+                                     amount_minor, currency, reason, reason_code, status, deadline_at, opened_at)
+            values (${`cb_dev${crypto.randomUUID().replaceAll("-", "")}`}, ${workspace.id}, ${c.storeId ?? null},
+                    'stripe', ${c.caseNumber}, ${c.orderId ?? null}, 'Klant', ${c.amountMinor ?? 1000},
+                    ${c.currency ?? "EUR"}, ${c.reason ?? "other"}, 'payment_dispute', ${c.status ?? "open"},
+                    ${new Date(opened.getTime() + 14 * 86_400_000)}, ${opened})`
+        }
+        for (const c of body.update ?? []) {
+          yield* sql`
+            update chargebacks set
+              status = coalesce(${c.status ?? null}, status),
+              opened_at = coalesce(${c.openedAt === undefined ? null : new Date(c.openedAt)}::timestamptz, opened_at),
+              store_id = case when ${c.storeId !== undefined} then ${c.storeId ?? null} else store_id end
+            where case_number = ${c.caseNumber}`
+        }
+        for (const caseNumber of body.remove ?? []) {
+          yield* sql`delete from chargebacks where case_number = ${caseNumber}`
+        }
+      })
+    ).pipe(Effect.provideService(CurrentWorkspace, workspace))
+    return HttpServerResponse.jsonUnsafe({ ok: true })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
 /**
  * `GET /api/__dev/facts?workspace=<id>`: the workspace's fact rows as stored, every dimension; the days still marked;
  * and the live figures the facts must equal (widgets/02 §0.1: counted orders and their revenue by placed day in the
- * store's timezone; refunds by refund day), for the facts' worker tests (M10.4). Refused in production.
+ * store's timezone; refunds by refund day; disputes by the day opened), for the facts' worker tests (M10.4, M14.1).
+ * Refused in production.
  */
 const FactsOf = HttpRouter.add(
   "GET",
@@ -88,6 +149,9 @@ const FactsOf = HttpRouter.add(
         deliveries: sql`
           select store_id, day::text as day, supplier_id, country, parcels, on_time, late, days_late_sum, took_days_sum
           from fact_deliveries_day order by store_id, day, supplier_id, country`,
+        disputes: sql`
+          select store_id, day::text as day, reason, currency, opened, won, lost, amount_minor::int
+          from fact_disputes_day order by store_id nulls first, day, reason, currency`,
         marked: sql`select store_id, day::text as day from fact_dirty_days order by store_id, day`,
         live: sql`
           select o.store_id, (o.placed_at at time zone coalesce(s.timezone, w.timezone))::date::text as day,
@@ -101,7 +165,14 @@ const FactsOf = HttpRouter.add(
                  r.currency, count(*)::int as refunds, sum(r.amount_minor)::int as amount_minor
           from refunds r join stores s on s.id = r.store_id join workspaces w on w.id = r.workspace_id
           where r.status = 'succeeded'
-          group by 1, 2, 3 order by 1, 2, 3`
+          group by 1, 2, 3 order by 1, 2, 3`,
+        liveDisputes: sql`
+          select c.store_id, (c.opened_at at time zone coalesce(s.timezone, w.timezone))::date::text as day,
+                 c.reason, btrim(c.currency) as currency, count(*)::int as opened,
+                 (count(*) filter (where c.status = 'won'))::int as won,
+                 (count(*) filter (where c.status = 'lost'))::int as lost, sum(c.amount_minor)::int as amount_minor
+          from chargebacks c join workspaces w on w.id = c.workspace_id left join stores s on s.id = c.store_id
+          group by 1, 2, 3, 4 order by 1 nulls first, 2, 3, 4`
       })
     ).pipe(Effect.provideService(CurrentWorkspace, workspace), Effect.orDie)
     return HttpServerResponse.jsonUnsafe(facts)
@@ -141,4 +212,4 @@ const FactsRebuild = HttpRouter.add(
   }).pipe(Effect.orDie, withRequestDb)
 )
 
-export const FactsRoutes = Layer.mergeAll(FactsOrders, FactsOf, FactsDrain, FactsRebuild)
+export const FactsRoutes = Layer.mergeAll(FactsOrders, FactsDisputes, FactsOf, FactsDrain, FactsRebuild)

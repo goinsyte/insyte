@@ -13,7 +13,7 @@ import type { Persona } from "../lib/types/persona";
 import { useEffect, useState } from "react";
 import { CREATE_ITEMS, useStartCreate } from "./new-menu";
 import { RotateCcw } from "../../icons";
-import { useCreateUnavailable, useInboxPanel, useRecordSearch, useReturns, useShellData, useWorkspace } from "./state";
+import { useCreateUnavailable, useHasPage, useInboxPanel, useRecordSearch, useReturns, useShellData, useWorkspace } from "./state";
 
 type CommandPaletteProps = {
 	open: boolean;
@@ -33,6 +33,8 @@ export function CommandPalette({
 	const start = useStartCreate();
 	const unavailable = useCreateUnavailable();
 	const { navByPersona, customers } = useShellData();
+	// The host's pages only: a place it does not have yet is not offered.
+	const hasPage = useHasPage();
 	const nav = navByPersona[persona];
 	const orders = useWorkspace((s) => s.orders);
 	const tickets = useWorkspace((s) => s.tickets);
@@ -76,7 +78,7 @@ export function CommandPalette({
 			<CommandList>
 				<CommandEmpty>Geen resultaten gevonden.</CommandEmpty>
 				<CommandGroup heading="Acties">
-					{admin ? (
+					{admin && hasPage("/ask") ? (
 						<CommandItem
 							onSelect={() => {
 								onOpenChange(false);
@@ -189,7 +191,7 @@ export function CommandPalette({
 						key={section.label ?? "nav"}
 						heading={section.label ?? "Navigatie"}
 					>
-						{section.items.map((item) => {
+						{section.items.filter((item) => hasPage(item.to)).map((item) => {
 							const Icon = item.icon;
 							return (
 								<CommandItem key={item.to} onSelect={() => go(item.to)}>

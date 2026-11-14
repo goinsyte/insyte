@@ -45,6 +45,7 @@ api_version = "2026-10"
     "products/update",
     "products/delete",
     "inventory_levels/update",
+    "inventory_levels/disconnect",
     "customers/create",
     "customers/update",
     "customers/delete",

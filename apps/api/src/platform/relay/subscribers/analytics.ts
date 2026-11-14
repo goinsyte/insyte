@@ -132,6 +132,7 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
   "import.uploaded": none,
   "export.requested": none,
   "export.finished": none,
+  "ai.budget_crossed": none,
   // The delay mail is counted as the filing that put it in line.
   "order.delay_mail": none,
   // Filing a plate (M10.2): the mechanism the product rests on, counted by the command it carried.

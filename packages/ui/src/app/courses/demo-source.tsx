@@ -1,6 +1,6 @@
 import { type ReactNode, useMemo } from "react"
 import { suppliers } from "../../data-source"
-import { useMyName } from "../ask/agent-parts"
+import { useMyName } from "../ask/agent-demo"
 import { ME } from "../lib/assignees"
 import { type Course, reaches, suggestQuestions } from "../lib/courses"
 import { undoable } from "../lib/undo"

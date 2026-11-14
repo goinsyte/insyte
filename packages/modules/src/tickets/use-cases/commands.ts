@@ -300,9 +300,19 @@ export const removeFromThread = Effect.fn("Tickets.removeFromThread")(function*(
 export const create = Effect.fn("Tickets.create")(function*(input: typeof CreateInput.Type, origin?: Origin) {
   yield* Policy.require("support", 2)
   const db = yield* Db
+  const { once, ...fields } = input
   const { change, outboxIds } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      const made = yield* make(sql, input, origin)
+      if (once !== undefined) {
+        // One open ticket per key: a second filing waits for the first's transaction, then finds its ticket.
+        yield* sql`select pg_advisory_xact_lock(hashtextextended('ticket.once:' || app_workspace_id() || ':' || ${once}, 0))`
+        const [open] = yield* sql<{ id: string }>`
+          select id from tickets where source = 'insyte' and source_ref = ${once} and status <> 'done'
+            and deleted_at is null and archived_at is null and spam_at is null
+          order by created_at desc limit 1`
+        if (open !== undefined) return { change: yield* answer(sql, [open.id], null), outboxIds: [] }
+      }
+      const made = yield* make(sql, fields, once === undefined ? origin : { source: "insyte", sourceRef: once })
       return {
         change: yield* answer(sql, [made.id], { kind: "created", ids: [made.id] }, made.outboxIds),
         outboxIds: made.outboxIds

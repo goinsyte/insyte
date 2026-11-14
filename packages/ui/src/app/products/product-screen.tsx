@@ -34,8 +34,19 @@ const draftOf = (p: Product): ProductDraft => ({
 })
 
 export function ProductDetail() {
-  const { product, currency, categoryOf, stock: stocked, variantStock, shopifyUrl, edit, quality, Returns, arriving } =
-    useProductDetailSource()
+  const {
+    product,
+    currency,
+    categoryOf,
+    stock: stocked,
+    variantStock,
+    variantLevels,
+    shopifyUrl,
+    edit,
+    quality,
+    Returns,
+    arriving
+  } = useProductDetailSource()
   const readOnly = edit === undefined
   const tab = quality?.tab ?? "overview"
   const adsPaused = edit?.adsPaused === true
@@ -235,7 +246,7 @@ export function ProductDetail() {
                         <td className="h-9 text-ink-3 tabular-nums">{v.sku || "—"}</td>
                         <td className="h-9 text-right text-ink-2 tabular-nums">{formatCurrency(v.price, currency)}</td>
                         <td className="h-9 text-right tabular-nums">
-                          <VariantStock units={variantStock(v)} />
+                          <VariantStock units={variantStock(v)} levels={variantLevels?.(v)} />
                         </td>
                       </tr>
                     ))}
@@ -455,12 +466,13 @@ function Gallery({ images, title }: { images: ReadonlyArray<string>; title: stri
   )
 }
 
-/* A variant's units: "Op" when gone, amber when low, a dash where the host does not know them. */
-function VariantStock({ units }: { units: number | undefined }) {
+/* A variant's units: "Op" when gone, amber when low, a dash where the host does not know them; how they split over
+   places, where the host knows, on hover. */
+function VariantStock({ units, levels }: { units: number | undefined; levels?: string | undefined }) {
   if (units === undefined) return <span className="text-ink-3">—</span>
   return units <= 0 ?
-    <span className="font-medium text-signal-red">Op</span> :
-    <span className={units < 20 ? "font-medium text-signal-amber" : "text-ink-2"}>{units}</span>
+    <span className="font-medium text-signal-red" title={levels}>Op</span> :
+    <span className={units < 20 ? "font-medium text-signal-amber" : "text-ink-2"} title={levels}>{units}</span>
 }
 
 function Row({ label, children }: { label: string; children: ReactNode }) {

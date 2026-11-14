@@ -67,6 +67,18 @@ export const figuresOf = (lines: ReadonlyArray<LineRule>, month: Month, basis: M
   }
 }
 
+/** What the ad lines read from one source cost in a month (INSYTE()'s `advertenties_meta`, `advertenties_google`). */
+export const adsFrom = (
+  lines: ReadonlyArray<{ readonly rule: LineRule; readonly source: string }>,
+  source: string,
+  month: Month,
+  basis: MonthBasis
+): number =>
+  lines.reduce(
+    (n, l) => (l.rule.kind === "ads" && l.source === source ? n + costOf(l.rule, month, basis).amountMinor : n),
+    0
+  )
+
 /** `YYYY-MM` moved by `n` months. */
 export const addMonths = (month: string, n: number): Month => {
   const [y, m] = month.split("-").map(Number) as [number, number]

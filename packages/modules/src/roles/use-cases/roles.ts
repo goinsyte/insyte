@@ -17,6 +17,7 @@ import { Effect } from "effect"
 import type { SqlClient, SqlError } from "effect/sql"
 import { narrowStores, type StoreAccess, withinScope } from "../../shared/domain/Stores.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import { storeChoices } from "../../shared/use-cases/StoreScope.ts"
 import { Created, RoleHolders, Roles, RoleView, type UpdateRole } from "../domain/Roles.ts"
 
 /*
@@ -60,9 +61,15 @@ export const readRoles = Effect.fn("Roles.read")(function*(sql: SqlClient.SqlCli
     where kind = 'team' and accepted_at is null and revoked_at is null and declined_at is null and expires_at > now()
     group by role_id`
   const [link] = yield* sql<{ roleId: string; enabled: boolean }>`select role_id, enabled from invite_links`
+  const keys = yield* sql<{ roleId: string; count: number }>`
+    select access ->> 'roleId' as role_id, count(*)::int as count from api_keys
+    where access ->> 'kind' = 'role' and revoked_at is null and (expires_at is null or expires_at > now())
+    group by 1`
+  const stores = yield* storeChoices(sql)
   return new Roles({
     me: principal.id,
     myRoleId: principal.role.id,
+    storeScope: principal.storeScope,
     roles: roles.map((r) =>
       new RoleView({
         id: r.id,
@@ -77,10 +84,12 @@ export const readRoles = Effect.fn("Roles.read")(function*(sql: SqlClient.SqlCli
         holders: new RoleHolders({
           members: members.filter((m) => m.roleId === r.id).map((m) => ({ id: m.id, name: m.name })),
           invites: invites.find((i) => i.roleId === r.id)?.count ?? 0,
-          link: link?.enabled === true && link.roleId === r.id
+          link: link?.enabled === true && link.roleId === r.id,
+          keys: keys.find((k) => k.roleId === r.id)?.count ?? 0
         })
       })
-    )
+    ),
+    stores
   })
 })
 

@@ -13,6 +13,7 @@ import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { useMemo, useRef } from "react"
 import { productsAtom } from "../data/products.ts"
+import { ConsoleLowStock } from "../products/low-stock.tsx"
 import { useProductCommands } from "../products/product-writes.ts"
 import { useConsoleProductsSource } from "../products/products-source.ts"
 
@@ -109,8 +110,10 @@ function Loaded({ page }: { page: ProductPage }) {
     ),
     []
   )
+  // The low-stock advice (M7 9.3), once Shopify reported stock for any product.
+  const LowStock = page.rows.some((p) => p.stock !== null) ? ConsoleLowStock : undefined
   return (
-    <ProductsSourceProvider value={{ ...source, Margin }}>
+    <ProductsSourceProvider value={{ ...source, Margin, LowStock }}>
       <ProductsPage />
     </ProductsSourceProvider>
   )

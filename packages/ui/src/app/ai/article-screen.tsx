@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, Clock, Eye, Hash, List, RotateCcw, Sparkles, X } from "../../icons";
 import { ReadOnlyNotice } from "../access/route-gate";
-import { useMyName } from "../ask/agent-parts";
+import { useMyName } from "../ask/agent-demo";
 import { EmptyState } from "../common/empty-state";
 import { Markdown } from "../common/markdown";
 import { UnsavedBar } from "../settings/form";

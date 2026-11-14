@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { agentActionsSeed, SCENARIO, type Scenario } from "../../data-source";
-import type { AgentEffect, AgentLogEntry, AgentLogStatus, LogRecordKind } from "../lib/agent-log";
+import type { AgentEffect, AgentLogEntry, AgentLogStatus } from "../lib/agent-log";
 import { UNDO_WINDOW_MS } from "../lib/autonomy";
 import { useInbox } from "./inbox-store";
 import { useNotifications } from "./notifications-store";
@@ -181,12 +181,6 @@ export function useAgentEntries(): AgentLogEntry[] {
 	const added = useAgentLog((s) => s.added);
 	if (!cache || cache.o !== overrides || cache.a !== added) cache = { o: overrides, a: added, rows: allEntries({ overrides, added }) };
 	return cache.rows;
-}
-
-/** The rows about one record, for its timeline. */
-export function useAgentEntriesFor(kind: LogRecordKind, id: string): AgentLogEntry[] {
-	const rows = useAgentEntries();
-	return rows.filter((e) => e.record?.kind === kind && (e.record.id === id || e.record.to.endsWith(`/${id}`)));
 }
 
 /** A failed action is the one thing the agent raises as a notification. */

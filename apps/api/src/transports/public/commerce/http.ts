@@ -13,6 +13,7 @@ export const CommerceHttp = HttpApiBuilder.group(
         handlers
           .handle("orders", ({ query }) => read.orders(query))
           .handle("products", ({ query }) => read.products(query))
+          .handle("lowStock", ({ query }) => read.lowStock(query))
           .handle("customers", ({ query }) => read.customers(query))
     )
 ).pipe(Layer.provide(CommerceV1.layer))

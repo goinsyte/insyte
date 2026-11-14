@@ -15,7 +15,8 @@ export type TeamGate = { ok: boolean; reason: string }
 
 /** A product as the list shows it. */
 export type ProductRow = Product & {
-  stock: Stock
+  /** `null` when the host holds no count: an untracked product, or one Shopify has not reported yet. */
+  stock: Stock | null
   category: string
   margin: number
   supplierName: string

@@ -1,13 +1,13 @@
 import { COUNTED_PAYMENT, UNCOUNTED_STATUS } from "@insyte/domain/Revenue"
 import { Effect } from "effect"
 import type { SqlClient, Statement } from "effect/sql"
-import { inScope } from "../../shared/use-cases/StoreScope.ts"
+import { inScope, inScopeOrNone } from "../../shared/use-cases/StoreScope.ts"
 import type { Month, Span } from "../domain/Analytics.ts"
 
 /*
  * Analyse's reads of the facts (M14 step 2): sums per period from `fact_orders_day`, `fact_deliveries_day`,
- * `fact_refunds_day` and `fact_tickets_day`, inside the role's stores (§0.5), and the rows behind them for the drawer.
- * Money is counted revenue (`@insyte/domain/Revenue`, §0.1) brought into the workspace's currency at each store-day's
+ * `fact_refunds_day`, `fact_disputes_day` and `fact_tickets_day`, inside the role's stores (§0.5), and the rows behind
+ * them for the drawer. Money is counted revenue (`@insyte/domain/Revenue`, §0.1) brought into the workspace's currency at each store-day's
  * rate, the latest `fx_rates` row on or before that day, as Kosten reads it; a day without a rate is counted in
  * `unconverted` and left out. Everything here runs in a transaction scoped to the workspace.
  */
@@ -216,6 +216,75 @@ export const refundsBy = Effect.fn("Analytics.refundsBy")(function*(sql: SqlClie
     group by f.reason, f.product_id`
   return rows.map((r): RefundsCell => ({ ...r, refunds: Number(r.refunds) }))
 })
+
+export type DisputesDim = "reason" | "store_id"
+
+export interface DisputesCell {
+  readonly dims: Readonly<Record<string, string | null>>
+  /** Cases opened in the span, and of those, won and lost since. */
+  readonly opened: number
+  readonly won: number
+  readonly lost: number
+  /** What they opened with, in the workspace's currency. */
+  readonly amount: number
+  /** Cells left out of `amount` for want of a rate. */
+  readonly unconverted: number
+}
+
+/**
+ * `fact_disputes_day` over a span (by the day opened), summed by `dims`, amounts converted per day; a case without a
+ * store is the whole team's, so it counts for every role that may read Analyse.
+ */
+export const disputesBy = Effect.fn("Analytics.disputesBy")(function*(
+  sql: SqlClient.SqlClient,
+  span: Span,
+  dims: ReadonlyArray<DisputesDim>
+) {
+  const scope = yield* inScopeOrNone(sql, "f.store_id")
+  const inner = ["f.day", "f.currency", ...dims.map((d) => `f.${d}`)].join(", ")
+  const outer = dims.map((d) => `d.${d}`)
+  const rows = yield* sql<
+    Record<string, string | null> & { opened: number; won: number; lost: number; amount: string; unconverted: number }
+  >`
+    with d as (
+      select ${sql.literal(inner)}, sum(f.opened)::bigint as opened, sum(f.won)::bigint as won,
+             sum(f.lost)::bigint as lost, sum(f.amount_minor) as amount
+      from fact_disputes_day f
+      where f.day between ${span.from}::date and ${span.to}::date and ${scope}
+      group by ${sql.literal(inner)}
+    )
+    select ${sql.literal(outer.length === 0 ? "" : `${outer.join(", ")},`)}
+           sum(d.opened)::int as opened, sum(d.won)::int as won, sum(d.lost)::int as lost,
+           coalesce(sum(round(d.amount * fx.rate)) filter (where fx.rate is not null), 0)::text as amount,
+           count(*) filter (where fx.rate is null and d.amount <> 0)::int as unconverted
+    from d ${sql.literal(FX("d.day", "d.currency"))}
+    ${sql.literal(dims.length === 0 ? "" : `group by ${dims.map((_, i) => String(i + 1)).join(", ")}`)}`
+  return rows.map((r): DisputesCell => ({
+    dims: Object.fromEntries(dims.map((d) => [d, (r as Record<string, string | null>)[toCamel(d)] ?? null])),
+    opened: Number(r.opened),
+    won: Number(r.won),
+    lost: Number(r.lost),
+    amount: Number(r.amount),
+    unconverted: Number(r.unconverted)
+  }))
+})
+
+/**
+ * The ids of orders named by the cases opened in `[from, to]` (the case's store day, the workspace's without a store),
+ * of one `reason` or every one, inside `scope` (a condition on `o`, the order's store).
+ */
+export const disputedOrderIds = (
+  sql: SqlClient.SqlClient,
+  scope: Statement.Fragment,
+  from: string,
+  to: string,
+  reason: string | null
+) =>
+  sql`select distinct c.order_id as id from chargebacks c join orders o on o.id = c.order_id
+      join workspaces cw on cw.id = c.workspace_id left join stores cs on cs.id = c.store_id
+      where c.opened_at >= (${from}::date - 1)::timestamptz and c.opened_at < (${to}::date + 2)::timestamptz
+        and (c.opened_at at time zone coalesce(cs.timezone, cw.timezone))::date between ${from}::date and ${to}::date
+        and ${reason === null ? sql`true` : sql`c.reason = ${reason}`} and ${scope}`
 
 export interface TicketsCell {
   readonly weekday: number

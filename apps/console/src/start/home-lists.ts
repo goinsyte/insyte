@@ -340,6 +340,7 @@ const PHRASE: Record<string, string> = {
   "member.removed": "haalde uit het team:",
   "member.restored": "zette terug in het team:",
   "member.role_changed": "wijzigde de rol van",
+  "member.stores_changed": "wijzigde de winkels van",
   "member.invitation_declined": "sloeg de uitnodiging af",
   "member.invitation_resent": "verstuurde de uitnodiging opnieuw aan",
   "member.invitation_resend_undone": "draaide het opnieuw versturen terug voor",

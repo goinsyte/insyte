@@ -40,6 +40,8 @@ export interface ProductDetailSource {
   stock?: { units: number; daysLeft: number | null; level: Stock } | undefined
   /** A variant's units, where the host knows them. */
   variantStock: (variant: Variant) => number | undefined
+  /** How a variant's units split over places, where the host knows more than one (the units' tooltip). */
+  variantLevels?: ((variant: Variant) => string | undefined) | undefined
   /** The product in Shopify's admin. */
   shopifyUrl: string
   edit?: ProductEdit | undefined

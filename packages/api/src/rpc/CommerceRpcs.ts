@@ -32,7 +32,7 @@ import {
   RepriceResult,
   StatusInput
 } from "@insyte/modules/products/domain/Commands"
-import { ProductDetail, ProductPage } from "@insyte/modules/products/domain/Products"
+import { LowStockInput, LowStockPage, ProductDetail, ProductPage } from "@insyte/modules/products/domain/Products"
 import { CursorInvalid, FilterFieldUnknown, ListInput } from "@insyte/modules/shared/domain/Filter"
 import { Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/rpc"
@@ -90,6 +90,7 @@ export class CommerceRpcs extends RpcGroup.make(
   }),
   Rpc.make("Products.list", { payload: ListInput, success: ProductPage, error: ListError }),
   Rpc.make("Products.get", { payload: ById, success: ProductDetail, error: GetError }),
+  Rpc.make("Products.lowStock", { payload: LowStockInput, success: LowStockPage, error: Forbidden }),
   Rpc.make("Products.edit", {
     payload: EditInput,
     success: ProductChange,

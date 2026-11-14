@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest"
-import { addLine, emptyBatch, gidId, gidType, orderStatus, parseJsonl, toMinor } from "../src/stores/domain/Mirror.ts"
+import {
+  addLine,
+  emptyBatch,
+  gidId,
+  gidType,
+  orderStatus,
+  parseJsonl,
+  PRODUCTS_QUERY,
+  toMinor
+} from "../src/stores/domain/Mirror.ts"
 
 /*
  * The mirror's pure half (M6.3): a bulk result's lines become rows, children keep their parent's Shopify id, amounts
@@ -72,7 +81,7 @@ const JSONL = [
     price: "49.95",
     compareAtPrice: null,
     position: 1,
-    inventoryItem: { id: "gid://shopify/InventoryItem/111" },
+    inventoryItem: { id: "gid://shopify/InventoryItem/111", tracked: false },
     __parentId: "gid://shopify/Product/1"
   },
   order(5),
@@ -89,6 +98,16 @@ const JSONL = [
   },
   { id: "gid://shopify/Collection/9", title: "Not mirrored" }
 ].map((line) => JSON.stringify(line)).join("\n")
+
+/** One location's count of inventory item 111, as a bulk file holds it. */
+const level = (location: number, quantities: ReadonlyArray<unknown>) => ({
+  id: `gid://shopify/InventoryLevel/7${location}?inventory_item_id=111`,
+  updatedAt: "2026-09-15T08:00:00Z",
+  item: { id: "gid://shopify/InventoryItem/111" },
+  location: { id: `gid://shopify/Location/${location}` },
+  quantities,
+  __parentId: "gid://shopify/ProductVariant/11"
+})
 
 describe("the commerce mirror's lines", () => {
   it("reads gids and keeps money exact in minor units", () => {
@@ -121,7 +140,9 @@ describe("the commerce mirror's lines", () => {
       title: "M",
       price_minor: 4995,
       compare_at_minor: null,
-      position: 1
+      position: 1,
+      // Shopify does not count it: no stock to judge (an older read without the field leaves it `null`).
+      tracked: false
     }])
     expect(batch.orders).toMatchObject([{
       shopify_id: "5",
@@ -197,6 +218,22 @@ describe("the commerce mirror's lines", () => {
       tracking_status: "delivered"
     }])
     expect(batch.refunds).toMatchObject([{ shopify_id: "71", amount_minor: 1000, note: "Te klein" }])
+  })
+
+  it("reads a variant's stock per location from the bulk import, by its inventory item", () => {
+    const batch = emptyBatch()
+    addLine(batch, level(900, [{ name: "available", quantity: 14 }]), "EUR")
+    addLine(batch, level(901, [{ name: "available", quantity: -2 }]), "EUR")
+    // A level without the available count says nothing about what can be sold.
+    addLine(batch, level(902, [{ name: "on_hand", quantity: 5 }]), "EUR")
+    expect(batch.levels).toEqual([
+      { inventory_item_id: "111", location_id: "900", available: 14, reported_at: "2026-09-15T08:00:00Z" },
+      { inventory_item_id: "111", location_id: "901", available: -2, reported_at: "2026-09-15T08:00:00Z" }
+    ])
+    expect(batch.skipped).toBe(1)
+    // Within Shopify's bulk limits: five connections at most, nested two deep.
+    expect(PRODUCTS_QUERY.match(/edges/g)).toHaveLength(4)
+    expect(PRODUCTS_QUERY).toContain("inventoryLevels { edges")
   })
 
   it("puts Shopify's statuses on Insyte's lifecycle", () => {

@@ -50,6 +50,9 @@ export const productAtom = Atom.family((id: string) =>
   )
 )
 
+/** What runs low (M7 9.3), for the list's low-stock advice: read in the browser once the list is in. */
+export const lowStockAtom = ConsoleClient.query("Products.lowStock", {}, { reactivityKeys: PRODUCTS })
+
 /** The product commands (M7.3), each refreshing what names `PRODUCTS`; their undo is `orderWrites.undo`'s `Shared.undo`. */
 export const productWrites = {
   edit: ConsoleClient.mutation("Products.edit"),

@@ -1,5 +1,5 @@
 import { type Driver, type Finding, splitKey } from "../domain/Analytics.ts"
-import type { DeliveriesCell, OrdersCell, RefundsCell, TicketsCell } from "./reads.ts"
+import type { DeliveriesCell, DisputesCell, OrdersCell, RefundsCell, TicketsCell } from "./reads.ts"
 import { hoursOf, round1 } from "./reads.ts"
 
 /*
@@ -213,6 +213,49 @@ export const refunds = (
     chart: "refunds",
     lit: top.k,
     records: { _tag: "refund_reason", reason }
+  }
+}
+
+/**
+ * Geschillen: how many cases were opened against B, the reason that changed most, and how many of A's "not received"
+ * cases named an order that arrived more than two days past its promise (`late`, counted by the caller).
+ */
+export const disputes = (
+  a: ReadonlyArray<DisputesCell>,
+  b: ReadonlyArray<DisputesCell>,
+  late: { readonly notReceived: number; readonly arrivedLate: number }
+): Omit<Finding, "recordCount"> | undefined => {
+  const nA = sum(a, (c) => c.opened)
+  const nB = sum(b, (c) => c.opened)
+  if (nA === 0 && nB === 0) return undefined
+  const key = (c: DisputesCell) => c.dims["reason"] ?? ""
+  const ms = moves(group(a, key, (c) => c.opened), group(b, key, (c) => c.opened))
+  const top = ms[0]
+  return {
+    kind: "disputes",
+    tone: nA <= nB ? "good" : "bad",
+    weight: Math.abs(nA - nB) * 160,
+    figures: {
+      a: nA,
+      b: nB,
+      amountA: sum(a, (c) => c.amount),
+      reason: top?.k ?? null,
+      topA: top?.a ?? 0,
+      topB: top?.b ?? 0,
+      notReceived: late.notReceived,
+      arrivedLate: late.arrivedLate
+    },
+    drivers: ms.slice(0, 5).map((m): Driver => ({
+      dim: "dispute_reason",
+      key: m.k,
+      name: null,
+      a: m.a,
+      b: m.b,
+      n: null
+    })),
+    chart: "disputes",
+    lit: top?.k ?? null,
+    records: { _tag: "disputes" }
   }
 }
 

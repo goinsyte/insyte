@@ -1,5 +1,5 @@
 import { AiModel } from "@insyte/modules/ai/domain/Ai"
-import { ConfigProvider, Context, Effect } from "effect"
+import { ConfigProvider, Context, Effect, Exit } from "effect"
 import { describe, expect, it } from "vitest"
 import { services } from "../src/platform/AiLive.ts"
 import { aiMode } from "../src/platform/AiSettings.ts"
@@ -285,4 +285,191 @@ describe("the stage's model", () => {
     expect(await modeOf({ ANTHROPIC_API_KEY: "sk-test", AI_GATEWAY_ID: "insyte", AI_ACCOUNT_ID: "acc" }))
       .toBe("anthropic")
   })
+})
+
+type Spend = { readonly at?: string; readonly open?: boolean }
+
+/** A call billed against a person's budget, or the background's (`null`); `open`, a reservation still out. */
+const spend = async (workspace: string, memberId: string | null, cents: number, extra: Spend = {}) => {
+  const res = await call(`http://api.test/api/__dev/ai/spent?workspace=${workspace}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ memberId, cents, ...extra })
+  })
+  expect(res.status).toBe(200)
+}
+
+const budgetNotes = async (cookie: string) =>
+  ok(await rpc("Notifications.list", { tab: "inbox", cursor: null }, cookie)).items
+    .filter((n) => n.kind === "insyte.budget")
+    .map((n) => ({ subjectType: n.subjectType, data: n.data }))
+
+const budgetNote = (data: Record<string, unknown>) => ({
+  subjectType: "ai_budget",
+  data: expect.objectContaining(data)
+})
+
+describe("the AI budget's warnings", () => {
+  // A person's budget at 80%, then spent: they and the owner hear each once; the workspace's at 80% reaches only who may
+  // set the limits, not a teammate without `ai.autonomy`.
+  it(
+    "says a person's 80% and their limit to them and the owner, once each, and the workspace's to the owner",
+    async () => {
+      const owner = await person("ai-warn", "Budget B.V.")
+      const workspace = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
+      const email = `ai-${run}-warned@invited.test`
+      ok(await rpc("Invitations.send", { rows: [{ email, roleId: "service", stores: "all" }] }, owner.cookie))
+      await pastUndo(workspace)
+      await relay(workspace)
+      const member = await join(email)
+      const memberId = ok(await sessionMe(member)).principals[0]!.id
+      ok(
+        await rpc("AiBudget.setMany", {
+          entries: [{ scope: "workspace", limit: 100 }, { scope: memberId, limit: 10 }]
+        }, owner.cookie)
+      )
+      const ticket = ok(await rpc("Tickets.create", { title: "Waar blijft mijn pakket", description: "" }, member))
+        .tickets[0]!.id
+      const draft = () => rpc("Drafts.reply", { subject: { type: "ticket", id: ticket } }, member)
+
+      await spend(workspace, memberId, 790)
+      ok(await draft())
+      await relay(workspace)
+      expect(await budgetNotes(member)).toEqual([])
+
+      await spend(workspace, memberId, 20)
+      ok(await draft())
+      ok(await draft())
+      await relay(workspace)
+      const warned = { level: "warn", scope: "member", memberId, usedCents: 810, limit: 10 }
+      // The member may not raise the limit (no `ai.autonomy`): their words say whom to ask; the owner's, where.
+      expect(await budgetNotes(member)).toEqual([budgetNote({ ...warned, canSet: false })])
+      expect(await budgetNotes(owner.cookie)).toEqual([budgetNote({ ...warned, canSet: true })])
+
+      await spend(workspace, memberId, 190)
+      expect(failure(await draft())).toMatchObject({ _tag: "BudgetExceeded", scope: "member" })
+      expect(failure(await draft())).toMatchObject({ _tag: "BudgetExceeded", scope: "member" })
+      await relay(workspace)
+      const reached = budgetNote({ level: "reached", scope: "member", usedCents: 1000 })
+      expect(await budgetNotes(member)).toEqual([reached, budgetNote(warned)])
+      expect(await budgetNotes(owner.cookie)).toEqual([reached, budgetNote(warned)])
+
+      // The workspace's own limit: € 10 of € 12 used, at the owner's next call.
+      ok(await rpc("AiBudget.setMany", { entries: [{ scope: "workspace", limit: 12 }] }, owner.cookie))
+      ok(await rpc("Drafts.reply", { subject: { type: "ticket", id: ticket } }, owner.cookie))
+      await relay(workspace)
+      const ours = await budgetNotes(owner.cookie)
+      expect(ours[0]).toEqual(budgetNote({ level: "warn", scope: "workspace", memberId: null, limit: 12 }))
+      expect(await budgetNotes(member)).toHaveLength(2)
+    },
+    120_000
+  )
+
+  // What calls still out have reserved is not spent: a budget is not at 80% for them, nor at its limit when one is
+  // refused for want of room. The background's calls (no person) count against the workspace's budget.
+  it(
+    "counts only what was billed, so a call still out neither warns nor reaches, and the background's does",
+    async () => {
+      const owner = await person("ai-open", "Onderweg B.V.")
+      const workspace = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
+      ok(await rpc("AiBudget.setMany", { entries: [{ scope: "workspace", limit: 10 }] }, owner.cookie))
+      const ticket = ok(await rpc("Tickets.create", { title: "Retour", description: "" }, owner.cookie)).tickets[0]!.id
+      const draft = () => rpc("Drafts.reply", { subject: { type: "ticket", id: ticket } }, owner.cookie)
+
+      await spend(workspace, null, 850, { open: true })
+      ok(await draft())
+      await relay(workspace)
+      expect(await budgetNotes(owner.cookie)).toEqual([])
+
+      // Refused under 100% of what is billed: refused, and nothing said.
+      await spend(workspace, null, 150, { open: true })
+      expect(failure(await draft())).toMatchObject({ _tag: "BudgetExceeded", scope: "workspace" })
+      await relay(workspace)
+      expect(await budgetNotes(owner.cookie)).toEqual([])
+
+      await spend(workspace, null, 810)
+      await relay(workspace)
+      expect(await budgetNotes(owner.cookie)).toEqual([
+        budgetNote({ level: "warn", scope: "workspace", memberId: null, usedCents: 810, limit: 10, canSet: true })
+      ])
+    },
+    120_000
+  )
+
+  // The month is the workspace's: in Pago Pago (UTC−11) the first hours of a month by UTC are still the month before.
+  // A mark from last month counts as none; a new limit starts over, and an event for the old limit says nothing.
+  it("says it again in a new month, by the workspace's time zone, and for a new limit, never for the old", async () => {
+    const owner = await person("ai-month", "Maand B.V.")
+    const workspace = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
+    const regional = ok(await rpc("Workspaces.getRegional", undefined, owner.cookie))
+    ok(await rpc("Workspaces.saveRegional", { ...regional, timezone: "Pacific/Pago_Pago" }, owner.cookie))
+    ok(await rpc("AiBudget.setMany", { entries: [{ scope: "workspace", limit: 10 }] }, owner.cookie))
+    const ticket = ok(await rpc("Tickets.create", { title: "Maat", description: "" }, owner.cookie)).tickets[0]!.id
+    const draft = () => rpc("Drafts.reply", { subject: { type: "ticket", id: ticket } }, owner.cookie)
+    const local = new Date(Date.now() - 11 * 3_600_000)
+    const monthStart = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), 1, 11)
+
+    await spend(workspace, null, 900, { at: new Date(monthStart - 5 * 60_000).toISOString() })
+    await relay(workspace)
+    expect(await budgetNotes(owner.cookie)).toEqual([])
+    await spend(workspace, null, 810)
+    await relay(workspace)
+    expect(await budgetNotes(owner.cookie)).toEqual([budgetNote({ level: "warn", usedCents: 810, limit: 10 })])
+
+    // Said last month: this month's next call says it again.
+    await call(`http://api.test/api/__dev/ai/marks-earlier?workspace=${workspace}`, { method: "POST" })
+    ok(await draft())
+    await relay(workspace)
+    expect(await budgetNotes(owner.cookie)).toHaveLength(2)
+
+    // Past 80% of € 20, then the limit raised to € 30 before the note went out: it is not sent.
+    ok(await rpc("AiBudget.setMany", { entries: [{ scope: "workspace", limit: 20 }] }, owner.cookie))
+    await spend(workspace, null, 900)
+    ok(await rpc("AiBudget.setMany", { entries: [{ scope: "workspace", limit: 30 }] }, owner.cookie))
+    await relay(workspace)
+    ok(await draft())
+    await relay(workspace)
+    expect(await budgetNotes(owner.cookie)).toHaveLength(2)
+
+    // A lower limit clears the marks and warns again on it: € 17,10 of € 21.
+    ok(await rpc("AiBudget.setMany", { entries: [{ scope: "workspace", limit: 21 }] }, owner.cookie))
+    ok(await draft())
+    await relay(workspace)
+    const notes = await budgetNotes(owner.cookie)
+    expect(notes).toHaveLength(3)
+    expect(notes[0]).toEqual(budgetNote({ level: "warn", usedCents: 1710, limit: 21 }))
+  }, 120_000)
+})
+
+describe("AI calls at once", () => {
+  // A thread's first draft asked for eight times at once: one call at a time per mail (`dedupeKey`), each settled
+  // under the budget lock it reserved under, so none deadlocks and every one that ran leaves its row.
+  it("settle side by side with a reservation of the same key, without a deadlock or a lost row", async () => {
+    const owner = (await person("ai-race", "Tegelijk B.V.")).cookie
+    const workspace = ok(await sessionMe(owner)).principals[0]!.workspaceId
+    const box = ok(
+      await rpc("Mailboxes.connect", { provider: "forward", address: `race-${run}@tegelijk.nl`, label: "Post" }, owner)
+    )
+    const raw = mime({
+      From: `Ruben <ruben-${run}@voorbeeld.nl>`,
+      To: box.forwardingAddress!,
+      Subject: "Twee keer besteld?",
+      Date: new Date().toUTCString(),
+      "Message-ID": `<ai-race-${run}@voorbeeld.nl>`
+    }, "Hoi, ik zie twee bestellingen.")
+    const delivered = await (await call("http://api.test/api/__dev/mail/inbound", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ to: box.forwardingAddress, raw })
+    })).json() as { threadId: string }
+    const thread = { type: "thread", id: delivered.threadId } as const
+    const asked = await Promise.all(Array.from({ length: 8 }, () => rpc("Drafts.reply", { subject: thread }, owner)))
+    for (const exit of asked) {
+      if (Exit.isFailure(exit)) expect(failure(exit)).toMatchObject({ _tag: "ModelUnavailable", reason: "busy" })
+    }
+    expect(asked.some(Exit.isSuccess)).toBe(true)
+    const { calls, openReservations } = await aiOf(workspace)
+    expect(openReservations).toBe(0)
+    expect(calls.filter((c) => c.subjectId === delivered.threadId).length).toBeGreaterThanOrEqual(1)
+  }, 120_000)
 })

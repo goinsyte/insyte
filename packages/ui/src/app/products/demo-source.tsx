@@ -120,7 +120,7 @@ export const demoProductActions = (openMargins: (rows: Row[]) => void): Readonly
       exportCsv(
         "producten",
         ["Product", "SKU", "Leverancier", "Prijs", "Marge", "Voorraad"],
-        rows.map((p) => [p.title, p.sku, p.supplierName, p.price, p.margin, p.stock])
+        rows.map((p) => [p.title, p.sku, p.supplierName, p.price, p.margin, p.stock ?? ""])
       )
   }
 ]

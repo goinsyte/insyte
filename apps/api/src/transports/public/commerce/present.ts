@@ -1,6 +1,6 @@
 import type { CustomerPage, CustomerRow } from "@insyte/modules/customers/domain/Customers"
 import type { OrderPage, OrderRow } from "@insyte/modules/orders/domain/Orders"
-import type { ProductPage, ProductRow } from "@insyte/modules/products/domain/Products"
+import type { LowStockPage, ProductPage, ProductRow } from "@insyte/modules/products/domain/Products"
 import { iso } from "../shared/time.ts"
 
 /* The commerce mirror in the public shape (M6.4, M19.2): an order, a product and a customer row, and their pages. */
@@ -35,6 +35,9 @@ const productV1 = (p: ProductRow) => ({
   variant_count: p.variantCount,
   price: { min_minor: p.priceMinMinor, max_minor: p.priceMaxMinor, currency: p.currency },
   available: p.available,
+  stock: p.stock,
+  avg_delivery_days: p.avgDeliveryDays,
+  lead_days: p.leadDays,
   updated_at: iso(p.updatedAt)!
 })
 
@@ -68,4 +71,23 @@ export const customerPageV1 = (page: CustomerPage) => ({
   data: page.rows.map(customerV1),
   next_cursor: page.nextCursor,
   total: page.counts.total
+})
+
+export const lowStockV1 = (page: LowStockPage) => ({
+  threshold: page.threshold,
+  data: page.rows.map((r) => ({
+    id: r.productId,
+    store_id: r.storeId,
+    title: r.title,
+    image: r.image,
+    status: r.status,
+    stock: r.level,
+    available: r.available,
+    variants: r.variants.map((v) => ({ id: v.id, title: v.title, sku: v.sku, available: v.available })),
+    sold_last_30_days: r.soldLast30,
+    open_orders: r.openOrders,
+    days_left: r.daysLeft === null ? null : Math.round(r.daysLeft * 10) / 10,
+    supplier: r.supplierId === null ? null : { id: r.supplierId, name: r.supplierName },
+    lead_days: r.leadDays
+  }))
 })

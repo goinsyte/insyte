@@ -15,7 +15,7 @@ import { NotificationsInbox } from "./notifications-inbox";
 import { StoreSelector } from "./store-selector";
 import { SyncStatus } from "./sync-status";
 import { TopbarFriends } from "./topbar-friends";
-import { useMarketplaceModalStore, usePersonaChrome, useWorkspace } from "./state";
+import { useHasPage, useMarketplaceModalStore, usePersonaChrome, useWorkspace } from "./state";
 
 /**
  * The top bar: 48px of `mist`, inside the work column rather than across the window.
@@ -52,6 +52,8 @@ export function GlobalTopbar({
 	const drawn = useWorkspace((s) => s.queue.filter(isDrawn).length);
 	const chrome = usePersonaChrome(persona);
 	const admin = persona === "admin";
+	// Vraag Insyte is drawn where the host has it.
+	const ask = useHasPage()("/ask");
 
 	return (
 		<header className="flex h-12 shrink-0 items-center gap-2.5 bg-mist px-3 sm:px-4">
@@ -132,14 +134,16 @@ export function GlobalTopbar({
 			</div>
 
 			<div className="flex shrink-0 items-center gap-1.5">
-				<button
-					type="button"
-					onClick={onAskInsyte}
-					className="flex h-[30px] items-center gap-1.5 rounded-md bg-arc-tint px-2.5 font-medium text-base text-arc-ink leading-none transition-colors hover:bg-arc-tint/70"
-				>
-					<Sparkles className="size-3.5" strokeWidth={1.75} />
-					<span className="hidden sm:inline">Vraag Insyte</span>
-				</button>
+				{ask ? (
+					<button
+						type="button"
+						onClick={onAskInsyte}
+						className="flex h-[30px] items-center gap-1.5 rounded-md bg-arc-tint px-2.5 font-medium text-base text-arc-ink leading-none transition-colors hover:bg-arc-tint/70"
+					>
+						<Sparkles className="size-3.5" strokeWidth={1.75} />
+						<span className="hidden sm:inline">Vraag Insyte</span>
+					</button>
+				) : null}
 
 				<NotificationsInbox />
 

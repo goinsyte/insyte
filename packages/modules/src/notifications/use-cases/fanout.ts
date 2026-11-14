@@ -41,6 +41,8 @@ const URGENT_INCIDENTS: ReadonlySet<string> = new Set([
  * - `export.finished`: the member who asked for an export hears its file is ready (with its link), or that it failed;
  * - `supplier.problem_reported` / `supplier.shipment_refused`: whoever handles orders hears a supplier reported a problem
  *   in its portal (with the ticket it opened), or that Shopify refused a parcel it marked shipped (M16 step 2).
+ * - `ai.budget_crossed`: an AI budget at its warning or its limit; the workspace's to whoever may set the limits, a
+ *   person's to that person and the owner (M15 step 1).
  *
  * A member deactivated or removed hears nothing. Who has "Alleen als het mij betreft" on for the kind hears only of
  * what concerns them directly (they were put on it, named in it, asked for it or sent the invitation). The in-app switch
@@ -59,6 +61,8 @@ interface Planned {
   readonly data: Record<string, unknown>
   /** Whom it concerns directly, for "Alleen als het mij betreft"; the rest hear of it by their role. */
   readonly direct?: ReadonlyArray<string>
+  /** What one recipient's note adds to `data`, where the words differ by who reads them. */
+  readonly dataFor?: (recipientId: string) => Record<string, unknown>
 }
 
 /** Active members whose role manages the team (`team` at Beheren). */
@@ -571,6 +575,47 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             }
         }
       }
+      case "ai.budget_crossed": {
+        // An AI budget at its warning or its limit (M15 step 1): whoever may set the limits (`ai.autonomy`) hears of
+        // the workspace's; a person's budget, that person and the owner. A budget gone or changed since says nothing.
+        const [budget] = yield* sql<{ memberId: string | null; limitMinor: string | null; name: string | null }>`
+          select b.member_id, b.monthly_limit_minor as limit_minor, coalesce(nullif(u.name, ''), 'Iemand') as name
+          from ai_budgets b left join members m on m.id = b.member_id left join auth."user" u on u.id = m.user_id
+          where b.id = ${event.budgetId}`
+        if (budget === undefined || budget.limitMinor === null) return undefined
+        if (Math.round(Number(budget.limitMinor) / 100) !== event.limit) return undefined
+        const person = event.memberId
+        // Whether each may change the limits, for the words: "verhoog de limiet" to them, "vraag erom" to the rest.
+        const recipients = yield* sql<{ id: string; canSet: boolean }>`
+          select m.id, (r.id = 'owner' or (coalesce((r.specials ->> 'ai.autonomy')::boolean, false)
+                                           and coalesce((r.levels ->> 'settings')::int, 0) >= 3)) as can_set
+          from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or ${
+          person === null
+            ? sql`(coalesce((r.specials ->> 'ai.autonomy')::boolean, false)
+                   and coalesce((r.levels ->> 'settings')::int, 0) >= 3)`
+            : sql`m.id = ${person}`
+        })`
+        const setters = new Set(recipients.filter((r) => r.canSet).map((r) => r.id))
+        return {
+          kind: "insyte.budget",
+          recipients: recipients.map((r) => r.id),
+          direct: person === null ? [] : [person],
+          subjectType: "ai_budget",
+          subjectId: event.budgetId,
+          actor: null,
+          data: {
+            level: event.level,
+            scope: person === null ? "workspace" : "member",
+            memberId: person,
+            name: person === null ? null : budget.name,
+            usedCents: event.usedCents,
+            limit: event.limit
+          },
+          dataFor: (id) => ({ canSet: setters.has(id) })
+        }
+      }
       default:
         return undefined
     }
@@ -611,6 +656,7 @@ export const fanOut = Effect.fn("Notifications.fanOut")(function*(
   for (const member of members) {
     if (member.onlyMine === true && !(planned.direct ?? []).includes(member.id)) continue
     const on = new Set(member.channels ?? CHANNELS.filter((c) => defaults?.[c] ?? c === "app"))
+    const data = planned.dataFor === undefined ? planned.data : { ...planned.data, ...planned.dataFor(member.id) }
     let noteId: string | null = null
     if (on.has("app")) {
       noteId = mintId("note")
@@ -618,7 +664,7 @@ export const fanOut = Effect.fn("Notifications.fanOut")(function*(
                                             subject_id, actor_kind, actor_id, data)
                  values (${noteId}, ${workspaceId}, 'member', ${member.id}, ${planned.kind}, ${planned.subjectType},
                          ${planned.subjectId}, ${planned.actor === null ? null : "member"}, ${planned.actor},
-                         ${JSON.stringify(planned.data)}::jsonb)`
+                         ${JSON.stringify(data)}::jsonb)`
     }
     // E-mail goes now; push (to a browser the member allowed it on) and Slack (connected, a channel chosen) wait out
     // the member's quiet hours.
@@ -644,7 +690,7 @@ export const fanOut = Effect.fn("Notifications.fanOut")(function*(
         subjectType: planned.subjectType,
         subjectId: planned.subjectId,
         actor: planned.actor,
-        data: planned.data,
+        data,
         notBefore: channel === "email" ? null : quietUntil(now, quiet, member.timezone)
       })
     }
