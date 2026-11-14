@@ -212,12 +212,10 @@ describe("mail the shopper", () => {
     })
     expect(refused.isError).toBe(true)
     expect(refused.body).toMatchObject({ error: { code: "ActionNotAllowedV1", action: "email_order_customer" } })
-    // Over `/v1` the same: an agent's key does not mail a shopper.
+    // Over `/v1` an agent's key does not mail a shopper either: the key door sends its writes to MCP.
     const byAgent = await v1(agent, `v1-agent-${run}`)
     expect(byAgent.status).toBe(403)
-    expect(await byAgent.json()).toMatchObject({
-      error: { code: "ActionNotAllowedV1", action: "email_order_customer", reason: "unknown" }
-    })
+    expect(await byAgent.json()).toMatchObject({ error: { code: "ActionNotAllowedV1", reason: "use_mcp" } })
   })
 
   it("sends track and trace once per parcel, says why the rest were left out, with one undo", async () => {
