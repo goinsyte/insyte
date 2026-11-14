@@ -18,6 +18,7 @@ import { MarketingRpcs } from "@insyte/api/rpc/MarketingRpcs"
 import { MarketplaceRpcs } from "@insyte/api/rpc/MarketplaceRpcs"
 import { MembersRpcs } from "@insyte/api/rpc/MembersRpcs"
 import { NotificationsRpcs } from "@insyte/api/rpc/NotificationsRpcs"
+import { PrivacyRpcs } from "@insyte/api/rpc/PrivacyRpcs"
 import { ProposalsRpcs } from "@insyte/api/rpc/ProposalsRpcs"
 import { QualityRpcs } from "@insyte/api/rpc/QualityRpcs"
 import { QueueRpcs } from "@insyte/api/rpc/QueueRpcs"
@@ -564,6 +565,17 @@ const PAYLOADS: Record<string, unknown> = {
   "AgentLog.undo": { id: "aga_none" },
   "AgentLog.redo": { id: "aga_none" },
   "AgentLog.compensate": { id: "aga_none" },
+  // Je gegevens (M17 step 5): reading at Instellingen · Bewerken; a shopper's package at Exporteren with Klanten ·
+  // Bekijken, erasing at Klanten · Beheren, both for an address no shopper has; the export, its schedule and the
+  // deletion the owner's alone, the deletion with a name that is not the workspace's and nothing waiting to stop.
+  "Privacy.inventory": undefined,
+  "Privacy.requests": undefined,
+  "Privacy.setExportSchedule": { schedule: "off" },
+  "Privacy.requestAccess": { email: "niemand@authz.test" },
+  "Privacy.requestErasure": { email: "niemand@authz.test" },
+  "Workspaces.requestExport": undefined,
+  "Workspaces.requestDeletion": { confirmName: "Niet deze werkruimte" },
+  "Workspaces.cancelDeletion": undefined,
   // The Data hub (M14 step 5): Bekijken reads, Importeren (level 2) brings files in and out, an export needs
   // Exporteren (`data.export`); an import that does not exist answers `ImportNotFound`, after the check.
   "Data.overview": undefined,
@@ -617,6 +629,7 @@ const manifest = [
   ...MarketplaceRpcs.requests.keys(),
   ...LiveRpcs.requests.keys(),
   ...AgentRpcs.requests.keys(),
+  ...PrivacyRpcs.requests.keys(),
   ...DataRpcs.requests.keys()
 ]
 

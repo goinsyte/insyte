@@ -4,6 +4,7 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
 import { caseScope } from "@insyte/modules/chargebacks/use-cases/chargebacks"
 import { CoursesService } from "@insyte/modules/courses/Courses"
+import { mayDownload } from "@insyte/modules/privacy/Privacy"
 import { cleanFileName, FileStore } from "@insyte/modules/shared/domain/Documents"
 import { inScope } from "@insyte/modules/shared/use-cases/StoreScope"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
@@ -17,8 +18,10 @@ import { userFrom } from "../../platform/Sessions.ts"
  * packing slip is an order's: Bestellingen at Bekijken; a return label a return's, M9.2: Retouren at Bekijken;
  * a chargeback's evidence the case's, M13: Chargebacks at Bekijken). Through the console's origin, like every route
  * of the session. A course's image (M17 step 4) goes to whoever may take the course or reads the catalogue. A
- * supplier statement's PDF (M13 step 6) is the supplier's: Leveranciers at Bekijken. An export (M14 step 5) is the
- * requester's own, for its seven days, with Data · Exporteren; it downloads as an attachment.
+ * supplier statement's PDF (M13 step 6) is the supplier's: Leveranciers at Bekijken. A Data hub export (M14 step 5)
+ * is the requester's own, for its seven days, with Data · Exporteren; it downloads as an attachment. A privacy export
+ * (M17 step 5) is the request's: the workspace's whole export the owner's for its 7 days, a shopper's package for
+ * whoever holds Exporteren.
  */
 
 /**
@@ -62,9 +65,13 @@ export const FileRoutes = HttpRouter.add(
         sql<{ r2Key: string; name: string; mime: string; ownerType: string; ownerId: string | null }>`
           select r2_key, name, mime, owner_type, owner_id from files where id = ${id ?? ""} and deleted_at is null
             and owner_type in ('forwarding_item', 'return', 'quality_check', 'chargeback', 'brand', 'course', 'supplier_statement',
-                               'export')`
+                               'export', 'gdpr_request')`
       )
       if (row === undefined) return undefined
+      if (row.ownerType === "gdpr_request") {
+        const may = yield* db.scoped((sql) => mayDownload(sql, row.ownerId ?? ""))
+        return may ? row : undefined
+      }
       if (row.ownerType === "course") {
         const courses = yield* CoursesService
         const may = yield* db.scoped((sql) => courses.mayReadFile(sql, row.ownerId ?? ""))
@@ -145,7 +152,10 @@ export const FileRoutes = HttpRouter.add(
       contentType: stored.mime,
       contentLength: stored.size,
       headers: {
-        "content-disposition": disposition(file.name, file.ownerType === "export" ? "attachment" : "inline"),
+        "content-disposition": disposition(
+          file.name,
+          file.ownerType === "export" || file.ownerType === "gdpr_request" ? "attachment" : "inline"
+        ),
         "cache-control": "private, no-store",
         // An uploaded logo (an SVG, too) is shown as an image, never run as a page on the console's origin.
         ...(file.ownerType === "brand"

@@ -743,6 +743,7 @@ const SETTINGS_PANEL: SubPanelConfig = {
 		{
 			label: "Beheer",
 			items: [
+				{ to: "/settings/data", label: "Je gegevens", icon: Database },
 				{ to: "/settings/privacy", label: "Gegevens en privacy", icon: ShieldCheck },
 				{ to: "/settings/log", label: "Logboek", icon: FileText },
 				{ to: "/settings/trash", label: "Prullenbak", icon: Trash2 },

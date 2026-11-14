@@ -58,6 +58,8 @@ export class ShopifyAdmin extends Context.Service<ShopifyAdmin, {
     refreshToken: Redacted.Redacted<string>
   ) => Effect.Effect<ShopifyTokens, ShopifyRefused>
   readonly facts: (shop: string, accessToken: Redacted.Redacted<string>) => Effect.Effect<ShopFacts, ShopifyRefused>
+  /** The app uninstalled from the shop (`DELETE /admin/api_permissions/current.json`): its token no longer works. */
+  readonly uninstall: (shop: string, accessToken: Redacted.Redacted<string>) => Effect.Effect<void, ShopifyRefused>
 }>()("stores/ShopifyAdmin") {}
 
 /* ─── The Admin GraphQL API (M6.3): bulk operations, single reads, the gate in front ─── */

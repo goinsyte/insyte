@@ -19,6 +19,7 @@ import { HOME } from "./home.ts"
 import { INBOX } from "./inbox.ts"
 import { LIVE, liveSignals, tabId } from "./live.ts"
 import { ORDERS } from "./orders.ts"
+import { PRIVACY } from "./privacy.ts"
 import { PRODUCTS } from "./products.ts"
 import { QUALITY } from "./quality.ts"
 import { QUEUE } from "./queue.ts"
@@ -61,6 +62,8 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   return: [...RETURNS, ...QUALITY],
   quality_check: QUALITY,
   ticket: TICKETS,
+  // An export or a shopper's package made, failed or expired; a deletion asked for or stopped (PLAN 48).
+  gdpr_request: PRIVACY,
   // A chargeback opened, its pack changed, accepted, or reminded of its deadline (M13).
   chargeback: CHARGEBACKS,
   // A month closed, or its file made (M13 step 6).

@@ -12,11 +12,13 @@ import { MailerLive, onInfra, ProductAnalyticsLive } from "./InfraLayer.ts"
 import { InvitationLinksLive } from "./InvitationLinks.ts"
 import { KlaviyoChoice, MarketingSyncsLive } from "./Klaviyo.ts"
 import { LabelsChoice, ReturnLabelsLive } from "./Labels.ts"
+import { ProviderGrantsLive } from "./links/ProviderGrants.ts"
 import { NoteRepliesLive, SlackChoice, WebPushChoice } from "./Notify.ts"
+import { PrivacyRunsLive } from "./PrivacyRuns.ts"
 import { RelayLive } from "./Relay.ts"
 import { SealerLive } from "./Seal.ts"
 import { SendingDomainsChoice } from "./SendingDomains.ts"
-import { ShopifyGraphqlChoice } from "./Shopify.ts"
+import { ShopifyAdminChoice, ShopifyGraphqlChoice } from "./Shopify.ts"
 import { ShopifyWritesLive } from "./ShopifyWrites.ts"
 import { SliceLinks } from "./SliceLinks.ts"
 import { TrackingChoice } from "./Tracking.ts"
@@ -50,6 +52,8 @@ const BackgroundLayer = onInfra(Layer.mergeAll(
   ReturnLabelsLive,
   // A case's evidence pack is gathered by its Workflow (M13 step 4).
   EvidencePacksLive,
+  // An export, a shopper's package and a deletion's wait each run in their own Workflow (M17 step 5).
+  PrivacyRunsLive,
   // An uploaded CSV is read, and an export written, by their Workflows (M14 step 5).
   ImportParsesLive,
   ExportRunsLive,
@@ -99,7 +103,11 @@ export const SyncLayer = onInfra(Layer.mergeAll(
   // Where one slice's need meets another's use case: the mirror's followers, a write-back's read again.
   SliceLinks.pipe(Layer.provide(LabelsChoice)),
   // A webhook delivery's attempt (M19.4): the endpoint, over fetch.
-  WebhookSenderChoice
+  WebhookSenderChoice,
+  // A workspace's deletion (M17 step 5): each provider's grant given back before the tokens go.
+  ProviderGrantsLive.pipe(
+    Layer.provide(Layer.mergeAll(KlaviyoChoice, SlackChoice, SealerLive, ShopifyAdminChoice, ConnectionGateLive))
+  )
 ))
 
 /** The queue consumer's, the cron's and the inbound mail's runtime: built once per isolate, on first use. */
