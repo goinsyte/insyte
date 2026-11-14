@@ -19,13 +19,14 @@ import { HOME } from "./home.ts"
 import { INBOX } from "./inbox.ts"
 import { LIVE, liveSignals, tabId } from "./live.ts"
 import { ORDERS } from "./orders.ts"
+import { PRIVACY } from "./privacy.ts"
 import { PRODUCTS } from "./products.ts"
 import { QUALITY } from "./quality.ts"
 import { QUEUE } from "./queue.ts"
 import { RETURNS } from "./returns.ts"
 import { ACCESS_LIST, ROLES } from "./roles.ts"
 import { sheetKey, SHEETS } from "./sheets.ts"
-import { STORE_SYNC, STORES } from "./stores.ts"
+import { HEALTH, STORE_SYNC, STORES } from "./stores.ts"
 import { SUPPLIERS } from "./suppliers.ts"
 import { TEAM } from "./team.ts"
 import { TICKETS } from "./tickets.ts"
@@ -51,6 +52,8 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   webhook_endpoint: WEBHOOKS,
   // A store's pixel installed or repaired is a store change; a sale is Live's feed and figures (M14 step 3).
   store: [...STORES, ...STORE_SYNC, ...ORDERS, ...CUSTOMERS, ...PRODUCTS, ...LIVE],
+  // The health check opened, added to or resolved an incident on a store's connection (M17 step 6).
+  connection: HEALTH,
   order: [...ORDERS, ...CUSTOMERS, ...LIVE],
   customer: CUSTOMERS,
   product: [...PRODUCTS, ...QUALITY],
@@ -59,6 +62,8 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   return: [...RETURNS, ...QUALITY],
   quality_check: QUALITY,
   ticket: TICKETS,
+  // An export or a shopper's package made, failed or expired; a deletion asked for or stopped (PLAN 48).
+  gdpr_request: PRIVACY,
   // A chargeback opened, its pack changed, accepted, or reminded of its deadline (M13).
   chargeback: CHARGEBACKS,
   // A month closed, or its file made (M13 step 6).

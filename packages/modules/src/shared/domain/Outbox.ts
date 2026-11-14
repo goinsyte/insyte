@@ -361,6 +361,30 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     packs: Schema.Array(Schema.Struct({ chargebackId: Schema.String, runId: Schema.String }))
   }),
+  // Je gegevens (M17 step 5): an export or a shopper's access package asked for, one run per request and attempt (a
+  // request asked for again after a failure is a new attempt); a deletion asked for, its run waiting out the period
+  // (an attempt more when the daily sweep restarts one that stalled); an export made, its asker (or the owner, for a
+  // scheduled one) told.
+  Schema.Struct({
+    type: Schema.Literal("privacy.export_requested"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    requestId: Schema.String,
+    attempt: Schema.Int
+  }),
+  Schema.Struct({
+    type: Schema.Literal("privacy.deletion_requested"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    requestId: Schema.String,
+    attempt: Schema.Int
+  }),
+  Schema.Struct({
+    type: Schema.Literal("privacy.export_ready"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    requestId: Schema.String
+  }),
   // Insyte switched a webhook endpoint off after five failed attempts in a row (M19.4): whoever manages the
   // integrations hears of it. `userId` is `system`.
   Schema.Struct({
@@ -368,6 +392,19 @@ export const OutboxEvent = Schema.Union([
     workspaceId: Schema.String,
     userId: Schema.String,
     endpointId: Schema.String
+  }),
+  // The health check opened an incident on a store's connection (M17 step 6, PLAN 49): the person on call hears of it
+  // once, with what Insyte already tried, in the words Winkels shows (`stores/domain/Health.ts`).
+  Schema.Struct({
+    type: Schema.Literal("connection.incident"),
+    workspaceId: Schema.String,
+    incidentId: Schema.String,
+    memberId: Schema.String,
+    storeId: Schema.String,
+    storeName: Schema.String,
+    kind: Schema.String,
+    finding: Schema.String,
+    tried: Schema.Array(Schema.String)
   }),
   // A sheet was saved, renamed, moved, shared or put back (M14 step 4): the realtime sink tells the tabs of the members
   // who can open it (`to`) to read it again. Its version tells an open editor whether it already has it.

@@ -8,3 +8,6 @@ export const workspaceParam = Effect.map(
 )
 
 export const notInProduction = Effect.map(AppInfo, ({ environment }) => environment !== "production")
+
+/** Only where nothing real lives: a developer's machine, the worker tests, a pull request's preview. */
+export const devOnly = Effect.map(AppInfo, ({ environment }) => environment === "local" || environment === "preview")

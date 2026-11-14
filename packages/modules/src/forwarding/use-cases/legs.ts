@@ -12,7 +12,8 @@ import { type ForwardView, type LegCounts, LegList, LegRow } from "../domain/For
  * per supplier of its lines (a line's supplier is its product's primary `product_supply`; lines with none make a
  * `no_supplier` leg). A waiting leg picks up lines that arrive in a later page. A supplier set to forward on payment gets
  * its leg sent at once, but only from a live event (a webhook, the sweep), never from a store's first import. An order
- * Shopify reports fulfilled confirms its open legs; one cancelled or refunded cancels them.
+ * Shopify reports fulfilled confirms its open legs; one cancelled or refunded cancels them. A leg the operator cancelled
+ * still counts as the supplier's leg: reading the order again (a webhook, the sweep) never makes it, or sends it, anew.
  */
 
 const OPEN = "('to_forward', 'sending', 'awaiting', 'error')"
@@ -60,7 +61,7 @@ export const ensureLegs = Effect.fn("Forwarding.ensureLegs")(function*(
            coalesce(s.paused_at is not null, false) as paused, coalesce(s.auto_forward, false) as auto,
            s.forward_channel as via,
            exists (select 1 from forwarding_items f where f.order_id = o.id
-                   and coalesce(f.supplier_id, '') = coalesce(ps.supplier_id, '') and f.state <> 'cancelled') as has_leg
+                   and coalesce(f.supplier_id, '') = coalesce(ps.supplier_id, '')) as has_leg
     from orders o
     join order_lines l on l.order_id = o.id
     left join product_supply ps on ps.product_id = l.product_id and ps.is_primary

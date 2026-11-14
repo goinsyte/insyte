@@ -48,6 +48,7 @@ import { InviteDialog } from "../team/invite-dialog";
 import { WorkspaceSwitchOverlay } from "../team/workspace-switch";
 import { AppDetailModal } from "../marketplace/app-detail-modal";
 import { ConnectStoreDialog } from "../shops/connect-store-dialog";
+import { demoSyncLine } from "../shops/demo-health";
 import { CustomizeButton } from "./customize-panel";
 import { panelForPath } from "../lib/app-shell-config";
 import { type ShellSource, ShellSourceProvider } from "./source";
@@ -106,6 +107,7 @@ export function DemoShellSource({ children }: { children: ReactNode }) {
 		inbox: useInbox(),
 		agentEntries: useAgentEntries(),
 		queueRows: useQueueRows(Math.floor(Date.now() / 60_000) * 60_000),
+		syncLine: useMemo(() => demoSyncLine(workspace.stores), [workspace.stores]),
 		slots: { Customize: CustomizeButton, AppDetail: AppDetailModal, WorkspaceSwitch: WorkspaceSwitchOverlay, FirstRunHint, Invite: InviteDialog, ConnectStore: ConnectStoreDialog },
 		workspaceName: workspace.account.workspace,
 		panelFor: panelForPath,
