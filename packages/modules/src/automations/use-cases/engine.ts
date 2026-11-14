@@ -627,7 +627,8 @@ export const act = Effect.fn("Automations.act")(function*(
   if (plan.account === null) {
     return yield* new StepFailed({ explanation: "De flow staat uit of heeft geen serviceaccount.", terminal: true })
   }
-  const missing = missingIn(node.config, plan.context)
+  // "E-mail versturen" asks its order first: a cancelled one is skipped with why, not failed for a value it lacks.
+  const missing = node.variantId === "action.send_email" ? [] : missingIn(node.config, plan.context)
   if (missing.length > 0) {
     return yield* new StepFailed({
       explanation: `Deze run heeft geen ${missing.map((m) => `{{${m}}}`).join(", ")}.`,

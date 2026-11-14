@@ -2,7 +2,7 @@ import { Effect, Layer, Scope } from "effect"
 import { HttpRouter } from "effect/http"
 import { AiRoutes } from "./ai.ts"
 import { AuthEventsOf } from "./auth.ts"
-import { AutomationRunsOf, AutomationScheduleTick } from "./automations.ts"
+import { AutomationRunsOf, AutomationScheduleTick, AutomationUncheckedVersion } from "./automations.ts"
 import { ChargebackRemind } from "./chargebacks.ts"
 import { CostsRoutes } from "./costs.ts"
 import { DataRoutes } from "./data.ts"
@@ -48,6 +48,7 @@ const Routes = Layer.mergeAll(
   OutboxRoutes,
   AutomationRunsOf,
   AutomationScheduleTick,
+  AutomationUncheckedVersion,
   UndoRoutes,
   InvitationLapse,
   ProposalLapse,

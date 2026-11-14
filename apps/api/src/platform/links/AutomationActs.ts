@@ -1,16 +1,18 @@
 import { Db } from "@insyte/database/Db"
-import { SHOPPER } from "@insyte/domain/automations/Graph"
+import { missingIn } from "@insyte/domain/automations/Engine"
+import { mailsAnOrder, SHOPPER, triggerOf } from "@insyte/domain/automations/Graph"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentPrincipal, CurrentWorkspace, type Principal } from "@insyte/domain/Principal"
 import type { ActInput, Did } from "@insyte/modules/automations/Links"
 import { ETA_BASIS, etaOf } from "@insyte/modules/automations/use-cases/context"
-import { explain, StepFailed } from "@insyte/modules/automations/use-cases/engine"
+import { explain, keyOf, StepFailed } from "@insyte/modules/automations/use-cases/engine"
 import { conversationOf } from "@insyte/modules/chats/use-cases/chats"
 import { post } from "@insyte/modules/chats/use-cases/commands"
 import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
 import { emailCustomer } from "@insyte/modules/orders/use-cases/customer-mail"
 import { refundOn } from "@insyte/modules/orders/use-cases/refund"
 import { PendingEvents, type Relay } from "@insyte/modules/shared/domain/Outbox"
+import * as Outbox from "@insyte/modules/shared/use-cases/Outbox"
 import { inScope } from "@insyte/modules/shared/use-cases/StoreScope"
 import { fromMinor, toMinor } from "@insyte/modules/stores/domain/Mirror"
 import { Tracking } from "@insyte/modules/tracking/domain/Tracking"
@@ -89,8 +91,61 @@ const derivedId = (prefix: string, seed: string) =>
  */
 const refundIdOf = (runId: string, nodeId: string) => derivedId("rfd", `automation:${runId}:${nodeId}`)
 
-/** The shopper's mail for this run's step: the same every attempt, so `emailCustomer` answers it rather than send again. */
-const mailIdOf = (runId: string, nodeId: string) => derivedId("oml", `automation:mail:${runId}:${nodeId}`)
+/**
+ * The shopper's mail for this run's step: the same every attempt, and the same for a run started again ("Opnieuw", one
+ * key with the run it repeats), so `emailCustomer` answers the first mail rather than send another.
+ */
+const mailIdFor = Effect.fn("AutomationActs.mailIdFor")(function*(
+  sql: SqlClient.SqlClient,
+  runId: string,
+  nodeId: string
+) {
+  const [run] = yield* sql<{ triggerEvent: string }>`select trigger_event from automation_runs where id = ${runId}`
+  const key = run === undefined ? runId : keyOf({ id: runId, triggerEvent: run.triggerEvent })
+  return yield* derivedId("oml", `automation:mail:${key}:${nodeId}`)
+})
+
+/** What the flow's owner hears once per version that holds an unchecked mail step. */
+const REPUBLISH =
+  "“E-mail versturen” is overgeslagen: deze versie is gepubliceerd voordat Insyte e-mails uit flows controleerde. Controleer de stap en publiceer de flow opnieuw; dan mailt hij weer."
+
+/**
+ * A mail step in a version published before the mail rules (`automation_versions.mail_checked` false): its words and
+ * address never passed `validate`, so it is skipped, and whoever the flow tells (its settings, else its owner) hears it
+ * once per version, asked to publish again. `undefined` for a checked version.
+ */
+const uncheckedMail = Effect.fn("AutomationActs.uncheckedMail")(function*(sql: SqlClient.SqlClient, input: ActInput) {
+  const { plan } = input
+  const [v] = yield* sql<{ mailChecked: boolean; notify: string | null; told: boolean }>`
+    select v.mail_checked, coalesce(s.notify_member_id, a.owner_member_id) as notify,
+           exists (select 1 from automation_run_steps st join automation_runs r on r.id = st.run_id
+                   where r.automation_id = v.automation_id and r.version = v.version
+                     and st.variant = 'action.send_email' and st.output @> '{"unchecked": true}'::jsonb) as told
+    from automation_versions v
+    join automations a on a.id = v.automation_id
+    left join automation_settings s on s.automation_id = v.automation_id
+    where v.automation_id = ${plan.automationId} and v.version = ${plan.version}`
+  if (v === undefined || v.mailChecked) return undefined
+  if (!v.told && v.notify !== null) {
+    const outboxId = yield* Outbox.write(sql, plan.workspaceId, {
+      type: "automation.notify",
+      workspaceId: plan.workspaceId,
+      userId: "system",
+      kind: "alert",
+      automationId: plan.automationId,
+      runId: plan.runId,
+      memberIds: [v.notify],
+      detail: REPUBLISH
+    })
+    ;(yield* PendingEvents)?.add(outboxId)
+  }
+  return {
+    status: "skipped" as const,
+    output: { unchecked: true },
+    explanation:
+      "Deze versie is gepubliceerd voordat Insyte e-mails uit flows controleerde; de klant is niet gemaild. Publiceer de flow opnieuw."
+  } satisfies Did
+})
 
 /** A member's or the run's starter's own refund right: their limit per order (0: none) and the stores they reach. */
 interface Authority {
@@ -253,8 +308,9 @@ const limitOf = Effect.fn("AutomationActs.limitOf")(function*(
 /**
  * Why the flow may not mail this order's shopper, or nothing when it may: its owner and its version's publisher, as they
  * are now, must each be able to do it themselves (an active member at Klantenservice · Bewerken who sees Bestellingen,
- * the workspace's owner always) in the order's store, and so must whoever started the run by hand (still active, the
- * order's store among those they reached when they started it).
+ * the workspace's owner always) in the order's store, and so must whoever started the run by hand: still active, with
+ * those rights now (a member's role; a key's role, or its own areas), and the order's store among those they reached
+ * when they started it.
  */
 const mailRefusal = Effect.fn("AutomationActs.mailRefusal")(function*(
   sql: SqlClient.SqlClient,
@@ -279,32 +335,42 @@ const mailRefusal = Effect.fn("AutomationActs.mailRefusal")(function*(
     ) p
     join members m on m.id = p.member_id and m.deactivated_at is null and m.removed_at is null
     join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id`
-  const said = {
-    owner: ["De eigenaar van de flow", "de flow"],
-    publisher: ["Wie deze versie publiceerde", "de flow"]
-  } as const
+  const said = { owner: "De eigenaar van de flow", publisher: "Wie deze versie publiceerde," } as const
   for (const who of ["owner", "publisher"] as const) {
     const r = rows.find((x) => x.who === who)
     if (r === undefined || (r.roleId !== "owner" && (r.support < 2 || r.orders < 1))) {
-      return `${said[who][0]} mag zelf geen klanten mailen, dus ${said[who][1]} ook niet; er is niets verstuurd.`
+      return `${said[who]} mag zelf geen klanten mailen, dus de flow ook niet; er is niets verstuurd.`
     }
     const stores = storesOf(r.roleStores, r.memberStores)
     if (stores !== null && !stores.includes(storeId)) {
-      return `${said[who][0]} kan niet bij de winkel van deze bestelling; er is niets verstuurd.`
+      return `${said[who]} kan niet bij de winkel van deze bestelling; er is niets verstuurd.`
     }
   }
-  const [run] = yield* sql<{ startedBy: string | null; starterStores: Array<string> | null; active: boolean }>`
+  // The starter as they are now, like `starterOf` for a refund: a member's role, or a key's role or own areas.
+  const [run] = yield* sql<{ startedBy: string | null; starterStores: Array<string> | null; may: boolean | null }>`
     select r.started_by, r.starter_stores,
-           case when r.started_by like 'mem\\_%' then exists (
-                  select 1 from members m where m.id = r.started_by and m.deactivated_at is null and m.removed_at is null)
-                else exists (
-                  select 1 from api_keys k
+           case when r.started_by like 'mem\\_%' then (
+                  select ro.id = 'owner' or (coalesce((ro.levels ->> 'support')::int, 0) >= 2
+                                             and coalesce((ro.levels ->> 'orders')::int, 0) >= 1)
+                  from members m join roles ro on ro.workspace_id = m.workspace_id and ro.id = m.role_id
+                  where m.id = r.started_by and m.deactivated_at is null and m.removed_at is null)
+                else (
+                  select case when k.access ->> 'kind' = 'role'
+                              then coalesce(ro.id = 'owner' or (coalesce((ro.levels ->> 'support')::int, 0) >= 2
+                                                                 and coalesce((ro.levels ->> 'orders')::int, 0) >= 1),
+                                            false)
+                              else coalesce((k.access -> 'scopes' ->> 'support')::int, 0) >= 2
+                                   and coalesce((k.access -> 'scopes' ->> 'orders')::int, 0) >= 1
+                         end
+                  from api_keys k
                   join members m on m.id = k.created_by and m.deactivated_at is null and m.removed_at is null
+                  left join roles ro on ro.workspace_id = k.workspace_id and ro.id = k.access ->> 'roleId'
                   where k.id = r.started_by and k.revoked_at is null and (k.expires_at is null or k.expires_at > now()))
-           end as active
+           end as may
     from automation_runs r where r.id = ${plan.runId}`
   if (run === undefined || run.startedBy === null) return undefined
-  if (!run.active) return "Wie deze run startte, is niet meer actief; er is niets verstuurd."
+  if (run.may === null) return "Wie deze run startte, is niet meer actief; er is niets verstuurd."
+  if (!run.may) return "Wie deze run startte, mag zelf (nu) geen klanten mailen; er is niets verstuurd."
   if (run.starterStores !== null && !run.starterStores.includes(storeId)) {
     return "Wie deze run startte, kan niet bij de winkel van deze bestelling; er is niets verstuurd."
   }
@@ -374,10 +440,13 @@ export const act = (input: ActInput): Effect.Effect<Did, StepFailed, Db | Relay>
        * the first's mail instead of sending another.
        */
       case "action.send_email": {
+        // A version published before the mail rules never had its mail checked: it mails once published again.
+        const unchecked = yield* scoped((sql) => uncheckedMail(sql, input))
+        if (unchecked !== undefined) return unchecked
         if (p.role.levels.support < 2 || p.role.levels.orders < 1) return yield* forbidden()
-        if (input.plan.recordKind !== "order") {
+        if (input.plan.recordKind !== "order" || !mailsAnOrder(triggerOf(input.plan.nodes))) {
           return yield* fail(
-            "Een flow mailt alleen de klant van een bestelling; deze run gaat niet over een bestelling."
+            "Een flow mailt alleen de klant van een bestelling; deze run gaat niet over zo'n bestelling."
           )
         }
         const orderId = yield* orderOf(input)
@@ -385,9 +454,9 @@ export const act = (input: ActInput): Effect.Effect<Did, StepFailed, Db | Relay>
         if (to !== "" && to !== SHOPPER) {
           return yield* fail(`Een flow mailt alleen de klant van de bestelling. Zet Aan op ${SHOPPER}.`)
         }
-        const mailId = yield* mailIdOf(input.plan.runId, input.node.id)
         const state = yield* scoped((sql) =>
           Effect.gen(function*() {
+            const mailId = yield* mailIdFor(sql, input.plan.runId, input.node.id)
             const scope = yield* inScope(sql, "o.store_id")
             const [o] = yield* sql<{ storeId: string; status: string; refundedByFlow: boolean; asked: boolean }>`
               select o.store_id, o.status,
@@ -396,19 +465,26 @@ export const act = (input: ActInput): Effect.Effect<Did, StepFailed, Db | Relay>
                      exists (select 1 from order_mails m where m.id = ${mailId}) as asked
               from orders o where o.id = ${orderId} and ${scope}`
             if (o === undefined) return yield* refused({ _tag: "NotFound" })
-            if (o.asked) return { go: true } as const
+            if (o.asked) return { go: mailId } as const
             if (o.status === "cancelled") return { skip: "De bestelling is geannuleerd; de klant is niet gemaild." }
             if (o.status === "refunded" && !o.refundedByFlow) {
               return { skip: "De bestelling is terugbetaald; de klant is niet gemaild." }
             }
+            const missing = missingIn(input.node.config, input.plan.context)
+            if (missing.length > 0) {
+              return {
+                skip: `Deze run heeft geen ${missing.map((m) => `{{${m}}}`).join(", ")}; de klant is niet gemaild.`
+              }
+            }
             const refusal = yield* mailRefusal(sql, input.plan, o.storeId)
             if (refusal !== undefined) return yield* fail(refusal)
-            return { go: true } as const
+            return { go: mailId } as const
           })
         )
         if ("skip" in state) return { status: "skipped" as const, output: {}, explanation: state.skip }
-        const subject = input.text("subject")
-        const queued = yield* asAccount(emailCustomer({ orderId, subject, body: input.text("body"), id: mailId })).pipe(
+        const queued = yield* asAccount(
+          emailCustomer({ orderId, subject: input.text("subject"), body: input.text("body"), id: state.go })
+        ).pipe(
           Effect.catchIf(SqlError.isSqlError, Effect.die),
           Effect.catchTag(
             "CustomerMailRefused",

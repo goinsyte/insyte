@@ -27,6 +27,22 @@ const day = (at: Date, timeZone: string) => {
   }
 }
 
+/** The calendar day of `at` in the workspace's timezone, as `2026-11-14`, so days compare as text. */
+const isoDay = (at: Date, timeZone: string) => {
+  try {
+    return at.toLocaleDateString("en-CA", { timeZone })
+  } catch {
+    return at.toISOString().slice(0, 10)
+  }
+}
+
+/**
+ * Whether an ETA can still be said as the day the parcel is expected: today or later. A day gone by (delivered, or an
+ * estimate whose usual transit has passed with nothing newer from the carrier) is no expected day, and a mail would
+ * tell the shopper a date behind them; the run lacks `{{order.expected_delivery}}` then and says so.
+ */
+const stillAhead = (eta: Eta, timeZone: string, now: Date) => isoDay(eta.at, timeZone) >= isoDay(now, timeZone)
+
 const STATUS: Readonly<Record<string, string>> = {
   placed: "geplaatst",
   paid: "betaald",
@@ -150,7 +166,9 @@ export const orderContext = Effect.fn("Automations.orderContext")(function*(sql:
     ...(o.lifetimeValueMinor === null ? {} : { "customer.lifetime_value": `€ ${euro(Number(o.lifetimeValueMinor))}` }),
     ...(o.suppliers === null ? {} : { "order.supplier": o.suppliers }),
     ...(o.trackingUrl === null ? {} : { "order.tracking_url": o.trackingUrl }),
-    ...(eta === undefined ? {} : { "order.expected_delivery": day(eta.at, timeZone) })
+    ...(eta === undefined || !stillAhead(eta, timeZone, new Date())
+      ? {}
+      : { "order.expected_delivery": day(eta.at, timeZone) })
   }
   return context
 })

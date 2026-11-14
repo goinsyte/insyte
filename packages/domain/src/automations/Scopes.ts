@@ -40,8 +40,7 @@ export const SCOPE_GRANTS: Readonly<Record<string, ReadonlyArray<Grant>>> = {
   "orders.write": [{ area: "orders", level: 2 }],
   "customers.read": [{ area: "customers", level: 1 }],
   "customers.write": [{ area: "customers", level: 2 }],
-  // Mailing a shopper is about their order (`Orders.emailCustomer` reads it), so it sees orders too.
-  "customers.email": [{ area: "customers", level: 1 }, { area: "support", level: 2 }, { area: "orders", level: 1 }],
+  "customers.email": [{ area: "customers", level: 1 }, { area: "support", level: 2 }],
   "tickets.write": [{ area: "support", level: 2 }],
   "team.notify": [{ area: "team", level: 1 }],
   "suppliers.message": [{ area: "suppliers", level: 2 }],

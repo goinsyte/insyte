@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { fieldsOf, referencesIn } from "./Fields.ts"
 import { SCOPE_LABEL } from "./Scopes.ts"
-import { BRAND_NAME, fieldSchemaOf, type Step, STEPS_BY_ID } from "./Steps.ts"
+import { BRAND_NAME, fieldSchemaOf, scopesOfStep, type Step, STEPS_BY_ID } from "./Steps.ts"
 
 /*
  * A flow's steps, as the canvas draws them and `automations.draft_nodes` / `automation_versions.nodes` hold them: one
@@ -45,7 +45,7 @@ export const triggerOf = (nodes: Flow): FlowNode | undefined => {
 
 /** The rights the flow's steps need, once each, in catalogue order. */
 export const scopesRequired = (nodes: Flow): ReadonlyArray<string> => {
-  const needed = new Set(flat(nodes).flatMap((n) => STEPS_BY_ID[n.variantId]?.scope ?? []))
+  const needed = new Set(flat(nodes).flatMap((n) => scopesOfStep(STEPS_BY_ID[n.variantId])))
   return Object.keys(SCOPE_LABEL).filter((s) => needed.has(s))
 }
 
@@ -70,6 +70,7 @@ export type IssueCode =
   | "connection_missing"
   | "too_many_steps"
   | "one_refund"
+  | "one_mail"
   | "mail_needs_order"
   | "mail_to_customer"
 
@@ -160,14 +161,23 @@ const fieldIssues = (node: FlowNode | LaneNode, step: Step, fields: ReadonlySet<
 export const SHOPPER = "{{customer.email}}"
 
 /**
- * "E-mail versturen" mails the shopper of the run's order (`Orders.emailCustomer`), so only a trigger whose record is
- * an order can carry it, only to that shopper, and with a subject and words to send: a mail thread may be spam, and a
- * dispute or a stock alert has no shopper to tell.
+ * Whether the trigger's runs are about an order whose shopper "E-mail versturen" may mail: its record is an order, and
+ * for "Op een vast moment" the open orders, not the customers who stopped ordering (a win-back mail is marketing, and
+ * marketing needs consent and a way out that an order's mail does not carry).
+ */
+export const mailsAnOrder = (trigger: FlowNode | undefined): boolean =>
+  trigger !== undefined && STEPS_BY_ID[trigger.variantId]?.record === "order" &&
+  !(trigger.variantId === "trigger.schedule" && trigger.config["records"] === "customers_idle")
+
+/**
+ * "E-mail versturen" mails the shopper of the run's order (`Orders.emailCustomer`), so only a trigger about an order can
+ * carry it (`mailsAnOrder`), only to that shopper, and with a subject and words to send: a mail thread may be spam, a
+ * dispute or a stock alert has no shopper to tell, and an idle customer is a marketing list.
  */
 const mailIssues = (node: FlowNode | LaneNode, trigger: FlowNode | undefined): ReadonlyArray<Issue> => {
   const out: Array<Issue> = []
   const text = (key: string) => (typeof node.config[key] === "string" ? (node.config[key] as string).trim() : "")
-  if (trigger !== undefined && STEPS_BY_ID[trigger.variantId]?.record !== "order") {
+  if (trigger !== undefined && !mailsAnOrder(trigger)) {
     out.push({
       nodeId: node.id,
       code: "mail_needs_order",
@@ -196,9 +206,9 @@ const mailIssues = (node: FlowNode | LaneNode, trigger: FlowNode | undefined): R
 /**
  * What is wrong with a flow, per step (widgets/05 §1.4; M12's publish invariants): one trigger at the head, every step
  * reachable from it and none twice, lanes only on the main line, required fields set, numbers in range, `{{field}}`
- * references the trigger's record carries, no step that is "Binnenkort", at most one "Terugbetalen", and the rights it
- * needs granted. A connected service that is not connected is a warning: the step says "Koppel …" and the flow can
- * still be published.
+ * references the trigger's record carries, no step that is "Binnenkort", at most one "Terugbetalen" and one "E-mail
+ * versturen", and the rights it needs granted. A connected service that is not connected is a warning: the step says
+ * "Koppel …" and the flow can still be published.
  */
 export const validate = (nodes: Flow, ctx: ValidateContext = {}): ReadonlyArray<Issue> => {
   const issues: Array<Issue> = []
@@ -230,6 +240,15 @@ export const validate = (nodes: Flow, ctx: ValidateContext = {}): ReadonlyArray<
       code: "one_refund",
       severity: "error",
       message: "Een flow betaalt hoogstens één keer terug. Haal deze tweede stap Terugbetalen weg."
+    })
+  }
+  // One "E-mail versturen" a flow: a run mails its shopper once.
+  for (const extra of all.filter((n) => n.variantId === "action.send_email").slice(1)) {
+    issues.push({
+      nodeId: extra.id,
+      code: "one_mail",
+      severity: "error",
+      message: "Een flow mailt de klant hoogstens één keer. Haal deze tweede stap E-mail versturen weg."
     })
   }
 
@@ -291,12 +310,12 @@ export const validate = (nodes: Flow, ctx: ValidateContext = {}): ReadonlyArray<
     }
     issues.push(...fieldIssues(node, step, fields))
     if (step.id === "action.send_email") issues.push(...mailIssues(node, trigger))
-    if (step.scope !== undefined && off.has(step.scope)) {
+    for (const scope of scopesOfStep(step).filter((s) => off.has(s))) {
       issues.push({
         nodeId: node.id,
         code: "scope_off",
         severity: "error",
-        message: `De flow mag niet: ${SCOPE_LABEL[step.scope] ?? step.scope}. Zet het aan onder Instellingen › Rechten.`
+        message: `De flow mag niet: ${SCOPE_LABEL[scope] ?? scope}. Zet het aan onder Instellingen › Rechten.`
       })
     }
     if (step.brand !== undefined && ctx.connected !== undefined && !ctx.connected.has(step.brand)) {
