@@ -73,7 +73,7 @@ import customerMail from "./migrations/0081_customer_mail.ts"
 import queueKinds from "./migrations/0084_queue_kinds.ts"
 import automationRunStarter from "./migrations/0085_automation_run_starter.ts"
 import firstAnalysisMade from "./migrations/0087_first_analysis_made.ts"
-import automationMailChecked from "./migrations/0088_automation_mail_checked.ts"
+import automationMailChecked from "./migrations/0091_automation_mail_checked.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 import supplierPortal from "./migrations/contract/0075_supplier_portal.ts"
 
@@ -159,5 +159,5 @@ export const Migrations = {
   "0084_queue_kinds": queueKinds,
   "0085_automation_run_starter": automationRunStarter,
   "0087_first_analysis_made": firstAnalysisMade,
-  "0088_automation_mail_checked": automationMailChecked
+  "0091_automation_mail_checked": automationMailChecked
 }
