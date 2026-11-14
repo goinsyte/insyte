@@ -307,6 +307,7 @@ describe("Je gegevens", () => {
     const second = ok(await rpc("Privacy.requests", undefined, store.cookie)).shoppers.find((r) => r.id === again.id)!
     const more = await entriesOf((await download(second.fileId!, store.cookie)).bytes)
     expect(rowsOf(more, "drafts").map((d) => d["id"])).toContain(draft.id)
+    expect(more.has("json/supplier_work.json")).toBe(true)
     expect(rowsOf(more, "import_rows").map((r) => r["cells"])).toEqual([[shopper.name, email]])
 
     const erased = ok(await rpc("Privacy.requestErasure", { email }, store.cookie))

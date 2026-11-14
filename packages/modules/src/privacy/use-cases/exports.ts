@@ -185,6 +185,8 @@ const SHOPPER_PARTS: ReadonlyArray<readonly [string, string]> = [
   ["order_lines", `select to_jsonb(t)::text as row from order_lines t where t.order_id in ${BY_ORDER}`],
   ["fulfilments", `select to_jsonb(t)::text as row from fulfilments t where t.order_id in ${BY_ORDER}`],
   ["refunds", `select to_jsonb(t)::text as row from refunds t where t.order_id in ${BY_ORDER}`],
+  // Their parcel at the supplier (0075): the carrier and tracking it was sent with, and any problem the supplier reported.
+  ["supplier_work", `select to_jsonb(t)::text as row from supplier_work t where t.order_id in ${BY_ORDER}`],
   ["order_notes", `select to_jsonb(t)::text as row from order_notes t where t.order_id in ${BY_ORDER}`],
   ["order_mails", `select to_jsonb(t)::text as row from order_mails t where t.order_id in ${BY_ORDER}`],
   ["returns", `select to_jsonb(t)::text as row from returns t where t.id in ${BY_RETURN}`],

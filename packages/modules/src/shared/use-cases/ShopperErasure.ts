@@ -5,17 +5,18 @@ import type { SqlClient } from "effect/sql"
  * A shopper erased (security.md §6 "DSARs from shoppers"; GDPR art. 17): for "Gegevens wissen" on Je gegevens and
  * for Shopify's `customers/redact` alike. As `system` in the workspace, in the caller's transaction.
  *
- * Who: the customers named (by id, by address), the duplicates merged into them and the one they were merged into,
- * and the orders that are theirs or carry their address (plus any the caller names). What: their personal fields
- * emptied wherever the slices keep them (the customer, the orders and their notes and mails, returns and their
- * shopper events, chargebacks and their evidence, tickets and comments, mail threads and messages, earlier requests
- * about them and their packages), the files that hold them marked deleted (the caller removes them from the bucket
- * after the commit), then every text left in the workspace, the log and the chat included, scrubbed of their
- * address, name and phone (`scrub_workspace`, 0076). That last pass reaches the Data hub's imported rows (0073) and
- * Insyte AI's drafts and calls (0074) too; what they keep in the bucket goes here: a CSV whose rows name them loses
+ * Who: the customers named (by id, by address), the duplicates merged into them and the one they were merged into, and
+ * the orders that are theirs or carry their address (plus any the caller names). What: their personal fields emptied
+ * wherever the slices keep them (the customer, the orders and their notes and mails, a supplier's note on their parcel,
+ * returns and their shopper events, chargebacks and their evidence, tickets and comments, mail threads and messages,
+ * earlier requests about them and their packages), the files that hold them marked deleted (the caller removes them
+ * from the bucket after the commit), then every text left in the workspace, the log and the chat included, scrubbed of
+ * their address, name and phone (`scrub_workspace`, 0076). That last pass reaches the Data hub's imported rows (0073)
+ * and Insyte AI's drafts and calls (0074) too; what they keep in the bucket goes here: a CSV whose rows name them loses
  * the file as uploaded, and a Data hub export that may hold them (any the erasure's stores reach) is taken away, a
- * ready one's file at once (the nightly sweep empties its folder), one still being written stopped. An address or name a customer of a store the erasure does not
- * reach also has is not scrubbed: that shopper is not the asker's to erase. Amounts, dates and statuses stay.
+ * ready one's file at once (the nightly sweep empties its folder), one still being written stopped. An address or name
+ * a customer of a store the erasure does not reach also has is not scrubbed: that shopper is not the asker's to erase.
+ * Amounts, dates and statuses stay.
  *
  * Not here: a supplier's quality-check media (photos of goods, the supplier's), and webhook bodies as received
  * (`inbound_events`, applied and kept for days only).
@@ -130,6 +131,9 @@ export const eraseShopper = (sql: SqlClient.SqlClient, seeds: ShopperSeeds) =>
                  raw = '{}'::jsonb, supplier_note = null, card_last4 = null
                where id = any(${orderIds}::text[])`
     yield* sql`update order_notes set body = '[verwijderd]' where order_id = any(${orderIds}::text[])`
+    // What the supplier wrote about their parcel on its portal (0075); the carrier and tracking stay, as the order's.
+    yield* sql`update supplier_work set problem_note = null
+               where order_id = any(${orderIds}::text[]) and problem_note is not null`
     yield* sql`update order_mails set to_address = '', subject = '[verwijderd]', paragraphs = '{}'
                where order_id = any(${orderIds}::text[])`
     // The portal's photos, before they belong to a return, are kept against the order.
