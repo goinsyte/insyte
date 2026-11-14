@@ -335,6 +335,14 @@ const openOnce = Effect.fn("Tickets.openOnce")(function*(sql: SqlClient.SqlClien
   return open?.id
 })
 
+/** The store of a product the caller reaches; `NotFound` for one outside their stores. */
+const productStore = Effect.fn("Tickets.productStore")(function*(sql: SqlClient.SqlClient, productId: string) {
+  const scope = yield* inScope(sql, "p.store_id")
+  const [p] = yield* sql<{ storeId: string }>`select p.store_id from products p where p.id = ${productId} and ${scope}`
+  if (p === undefined) return yield* new NotFound({ entity: "product", id: productId })
+  return p.storeId
+})
+
 const fmt = (n: number) => n.toLocaleString("nl-NL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 
 /**
@@ -423,8 +431,16 @@ export const restock = Effect.fn("Tickets.restock")(function*(input: typeof Rest
   return change
 })
 
-/** "Ticket aanmaken" (NewTicketDialog), by hand: `#n`, at the top of the board; `insyte` for one a filed plate opens. */
-export const create = Effect.fn("Tickets.create")(function*(input: typeof CreateInput.Type, origin?: Origin) {
+/**
+ * "Ticket aanmaken" (NewTicketDialog), by hand: `#n`, at the top of the board; `insyte` for one a filed plate opens.
+ * A ticket about a product (a filed reorder plate: `productId`) is put in the product's store, as `restock` does, so
+ * only who reaches that store reads it; a product outside the caller's stores is `NotFound`.
+ */
+export const create = Effect.fn("Tickets.create")(function*(
+  input: typeof CreateInput.Type,
+  origin?: Origin,
+  about?: { readonly productId: string }
+) {
   yield* Policy.require("support", 2)
   const db = yield* Db
   const { once, ...fields } = input
@@ -434,7 +450,13 @@ export const create = Effect.fn("Tickets.create")(function*(input: typeof Create
         const open = yield* openOnce(sql, once)
         if (open !== undefined) return { change: yield* answer(sql, [open], null), outboxIds: [] }
       }
-      const made = yield* make(sql, fields, once === undefined ? origin : { source: "insyte", sourceRef: once })
+      const storeId = about === undefined ? undefined : yield* productStore(sql, about.productId)
+      const made = yield* make(
+        sql,
+        fields,
+        once === undefined ? origin : { source: "insyte", sourceRef: once },
+        storeId
+      )
       return {
         change: yield* answer(sql, [made.id], { kind: "created", ids: [made.id] }, made.outboxIds),
         outboxIds: made.outboxIds
