@@ -8,7 +8,7 @@ import { apply } from "@insyte/modules/stores/use-cases/webhooks"
 import { sweep } from "@insyte/modules/tracking/use-cases/tracking"
 import { Cause, Effect, Exit, ManagedRuntime } from "effect"
 import { SyncLayer } from "./BackgroundLayer.ts"
-import { Telemetry } from "./Observability.ts"
+import type { Spans } from "./Observability.ts"
 import { withRequestDb } from "./RequestDb.ts"
 
 /*
@@ -32,12 +32,12 @@ export const syncRuntime = ManagedRuntime.make(SyncLayer)
 const inWorkspace = <A, E, R>(workspaceId: string, effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId }))
 
-/** One batch of deliveries, each acked or retried on its own. */
-export const ingest = async (batch: MessageBatch<IngestMessage>) => {
+/** One batch of deliveries, each acked or retried on its own; its spans are the batch's (`Queue.ts` flushes them). */
+export const ingest = async (batch: MessageBatch<IngestMessage>, spans: Spans) => {
   for (const message of batch.messages) {
     const { inboundEventId, workspaceId } = message.body
     const program = withRequestDb(inWorkspace(workspaceId, apply(inboundEventId))) as Effect.Effect<void, unknown>
-    const exit = await syncRuntime.runPromiseExit(program)
+    const exit = await syncRuntime.runPromiseExit(spans.provide(program))
     if (Exit.isSuccess(exit)) {
       message.ack()
       continue
@@ -46,7 +46,7 @@ export const ingest = async (batch: MessageBatch<IngestMessage>) => {
     const throttled = failure._tag === "Some" && (failure.value as { _tag?: string })._tag === "ShopifyThrottled"
       ? Math.ceil((failure.value as unknown as { retryAfterMs: number }).retryAfterMs / 1000)
       : 30
-    await syncRuntime.runPromise(
+    await syncRuntime.runPromise(spans.provide(
       withRequestDb(inWorkspace(
         workspaceId,
         Effect.flatMap(
@@ -58,10 +58,9 @@ export const ingest = async (batch: MessageBatch<IngestMessage>) => {
             )
         )
       )).pipe(Effect.ignore) as Effect.Effect<void>
-    )
+    ))
     message.retry({ delaySeconds: throttled })
   }
-  await Telemetry.flush()
 }
 
 /** Every connected, imported store, reconciled in turn. */

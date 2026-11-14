@@ -7,7 +7,7 @@ import * as Audit from "../../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../../shared/use-cases/Outbox.ts"
 import { Accepted, type LandingRef, NotAcceptable } from "../../domain/Landing.ts"
 import { classify } from "./landing.ts"
-import { route } from "./route.ts"
+import { route, sha256 } from "./route.ts"
 
 /*
  * Accepting from the landing (M3.4), as the signed-in person, inside the invitation's workspace: the seats and the
@@ -34,10 +34,37 @@ export const accept = Effect.fn("Landing.accept")(function*(ref: LandingRef) {
         return yield* new NotAcceptable({ state: landing.state })
       }
 
+      // A supplier's person (M16): they become its contact, through `supplier_contact_join` (0075), and land in its portal.
+      // Decided by the invitation's kind, never by whether its supplier is still there: one whose supplier went is
+      // refused, not turned into a member.
+      const [kind] = found.link ? [] : yield* sql<{ kind: string }>`select kind from invitations where id = ${ref.id}`
+      if (!found.link && kind?.kind !== "team") {
+        if (kind?.kind !== "supplier_portal") return yield* new NotAcceptable({ state: "missing" })
+        const hash = yield* sha256(ref.k ?? "")
+        const [joined] = yield* sql<{ contactId: string | null }>`
+          select supplier_contact_join(${ref.id}, decode(${hash}, 'hex'), ${mintId("sct")}) as contact_id`
+        if (joined?.contactId == null) return yield* new NotAcceptable({ state: "missing" })
+        yield* Audit.write(sql, found.workspaceId, { kind: "supplier_contact", id: joined.contactId }, {
+          action: "supplier.contact_joined",
+          subjectType: "supplier_contact",
+          subjectId: joined.contactId,
+          diff: { via: "invitation" }
+        })
+        return {
+          result: new Accepted({
+            workspaceId: found.workspaceId,
+            workspace: landing.workspace ?? "",
+            landing: "/supplier/dashboard"
+          }),
+          outboxIds: []
+        }
+      }
+
       const invitation = found.link
         ? undefined
         : (yield* sql<{ roleId: string; stores: unknown; invitedBy: string }>`
-            select role_id, stores, invited_by from invitations where id = ${ref.id} for update`)[0]
+            select role_id, stores, invited_by from invitations where id = ${ref.id} and kind = 'team' for update`)[0]
+      if (!found.link && invitation === undefined) return yield* new NotAcceptable({ state: "missing" })
       const roleId = invitation?.roleId ?? (yield* sql<{ roleId: string }>`select role_id from invite_links`)[0]!.roleId
       const stores = JSON.stringify(invitation?.stores ?? "all")
       const [member] = yield* sql<{ id: string }>`

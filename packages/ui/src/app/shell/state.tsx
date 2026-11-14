@@ -1,4 +1,6 @@
 import { canOpen, canRole, type Level, type Permission } from "@insyte/domain/Permissions";
+import { PERSONA_CHROME, type PersonaChrome } from "../lib/persona-chrome";
+import type { Persona } from "../lib/types/persona";
 import { type ShellSource, useShellSource } from "./source";
 
 /*
@@ -52,6 +54,13 @@ export const useOperator = () => useShellSource().operator;
 export const useAutomationsPanel = () => useShellSource().automationsPanel;
 export const useShellSlots = () => useShellSource().slots;
 export const useWorkspaceName = () => useShellSource().workspaceName;
+/** The persona's chrome, with the brand and menu the host knows in place of the design's. */
+export const usePersonaChrome = (persona: Persona): PersonaChrome => {
+	const partner = useShellSource().partner;
+	const chrome = PERSONA_CHROME[persona];
+	if (partner === undefined || chrome.partner === undefined) return chrome;
+	return { ...chrome, partner: { ...chrome.partner, name: partner.name }, menu: partner.menu };
+};
 export const usePanelFor = () => useShellSource().panelFor;
 export const useRecordSearch = (query: string) => useShellSource().useRecordSearch(query);
 export const useCreateUnavailable = () => useShellSource().unavailable;

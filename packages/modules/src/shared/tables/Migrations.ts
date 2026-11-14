@@ -66,6 +66,7 @@ import data from "./migrations/0073_data.ts"
 import ai from "./migrations/0074_ai.ts"
 import syncHealth from "./migrations/0077_sync_health.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
+import supplierPortal from "./migrations/contract/0075_supplier_portal.ts"
 
 /**
  * Every migration, by its permanent key, in the order they were written (06; 15). A new migration is a new file and a
@@ -139,5 +140,6 @@ export const Migrations = {
   "0072_sending_domains": sendingDomains,
   "0073_data": data,
   "0074_ai": ai,
+  "0075_supplier_portal": supplierPortal,
   "0077_sync_health": syncHealth
 }

@@ -246,6 +246,25 @@ const sentence = (note: ServerNote): Sentence => {
         to: `/courses/learn/${note.subjectId ?? ""}`,
         quote: true
       }
+    case "supplier.delay": {
+      // From a supplier's portal (M16 step 2): a problem it reported, or a parcel Shopify refused.
+      const refused = data["what"] === "refused"
+      return {
+        title: refused ? "kon de verzending niet doorzetten naar Shopify voor" : "meldt een probleem met",
+        record: String(data["number"] ?? ""),
+        detail: refused
+          ? "Shopify weigerde de fulfilment. De bestelling staat weer op verzenden bij de leverancier."
+          : [
+            typeof data["note"] === "string" ? data["note"] : "",
+            typeof data["newDate"] === "string" && data["newDate"] !== "" ? `Nieuwe datum: ${data["newDate"]}` : ""
+          ].filter((t) => t !== "").join(" · "),
+        tone: "amber",
+        source: "supplier",
+        to: `/orders/${note.subjectId ?? ""}`,
+        person: String(data["by"] ?? "") || String(data["supplier"] ?? "") || "De leverancier",
+        org: String(data["supplier"] ?? "")
+      }
+    }
     case "supplier.statement": {
       // The month's supplier statements closed (M13 step 6): what is to be paid, and when.
       const count = Number(data["count"] ?? 0)

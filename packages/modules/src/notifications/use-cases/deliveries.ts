@@ -9,6 +9,9 @@ import { wordsOf } from "../domain/Words.ts"
 import { sendTo } from "./push.ts"
 import { revoked, tokenOf } from "./slack.ts"
 
+/** Text Slack shows as written: its control characters escaped, so `<!channel>` or `<https://…|…>` stay words. */
+export const slackText = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+
 /*
  * Notes outside the app (M11 step 13.5). The relay's sink plans a delivery per channel a member has on for the kind
  * (`fanout.ts`); what is due is sent here, on the sink's own transaction, and the minute sweep sends what quiet hours
@@ -98,9 +101,10 @@ const attempt = Effect.fn("Notifications.attempt")(function*(sql: SqlClient.SqlC
       const opened = yield* tokenOf(sql)
       if (opened === undefined) return skipped("not connected")
       const slack = yield* Slack
-      const lines = [`*${words.title}*`, ...(words.detail === undefined ? [] : [words.detail])]
+      // Their words can be someone else's (a supplier's name, its note): Slack reads `<…>` as a link or a mention.
+      const lines = [`*${slackText(words.title)}*`, ...(words.detail === undefined ? [] : [slackText(words.detail)])]
       const origin = yield* consoleOrigin
-      if (origin !== "") lines.push(`<${origin}${words.path}|${words.actionLabel}>`)
+      if (origin !== "") lines.push(`<${origin}${words.path}|${slackText(words.actionLabel)}>`)
       const posted = Effect.gen(function*() {
         let channel = d.slackChannel!
         if (channel === SLACK_DM) {

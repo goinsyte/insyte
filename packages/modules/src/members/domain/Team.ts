@@ -97,7 +97,51 @@ export const InviteRow = Schema.Struct({
 })
 export type InviteRow = typeof InviteRow.Type
 
+/** A supplier's person, invited to its portal for this brand (M16 step 2): no seat, no role, the parts opened to them. */
+export const SupplierInviteRow = Schema.Struct({
+  supplierId: Schema.String,
+  email: Schema.String,
+  name: Schema.optional(Schema.String),
+  /** Beyond `orders`, which is always open: `stock`, `statements`, `chat`, `media`. */
+  scopes: Schema.Array(Schema.Literals(["orders", "stock", "statements", "chat", "media"])),
+  message: Schema.optional(Schema.String)
+})
+export type SupplierInviteRow = typeof SupplierInviteRow.Type
+
 export const SendInvitations = Schema.Struct({ rows: Schema.Array(InviteRow).check(Schema.isMinLength(1)) })
+
+/**
+ * `Invitations.sendSupplier`: its own call rather than a kind of `Invitations.send`, whose answer is the team page,
+ * which whoever manages suppliers need not see.
+ */
+export const SendSupplierInvitations = Schema.Struct({
+  rows: Schema.Array(SupplierInviteRow).check(Schema.isMinLength(1), Schema.isMaxLength(20))
+})
+
+/** The invitations it sent (or renewed), by id: the supplier's page refetches its contacts. */
+export const SupplierInvitationsSent = Schema.Struct({ ids: Schema.Array(Schema.String) })
+/** One supplier's portal access, as its dialog shows it (M16): who signs in, and who is invited and has not yet. */
+export class SupplierAccess extends Schema.Class<SupplierAccess>("members/SupplierAccess")({
+  contacts: Schema.Array(Schema.Struct({
+    id: Schema.String,
+    name: Schema.String,
+    email: Schema.String,
+    role: Schema.Literals(["owner", "staff"]),
+    scopes: Schema.Array(Schema.String),
+    joinedAt: Schema.NullOr(Schema.Finite)
+  })),
+  invitations: Schema.Array(Schema.Struct({
+    id: Schema.String,
+    email: Schema.String,
+    name: Schema.NullOr(Schema.String),
+    scopes: Schema.Array(Schema.String),
+    sentAt: Schema.Finite,
+    lapsed: Schema.Boolean
+  }))
+}) {}
+export const SupplierRef = Schema.Struct({ supplierId: Schema.String })
+/** What a revoke or its undo changed, by id: the supplier's dialog refetches its access. */
+export const SupplierAccessChanged = Schema.Struct({ ids: Schema.Array(Schema.String) })
 export const InvitationRef = Schema.Struct({ id: Schema.String })
 export const InvitationRefs = Schema.Struct({ ids: Schema.Array(Schema.String) })
 export const SetInvitationRole = Schema.Struct({ id: Schema.String, roleId: Schema.String })

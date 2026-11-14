@@ -47,6 +47,8 @@ const NOTIFIED = [
   "course.question",
   "course.answered",
   "statements.closed",
+  "supplier.problem_reported",
+  "supplier.shipment_refused",
   "export.finished"
 ] as const satisfies ReadonlyArray<EventType>
 

@@ -17,6 +17,8 @@
     "./app/automations/node-types": "./src/app/automations/node-types.ts",
     "./app/automations/workflow-store": "./src/app/automations/workflow-store.ts",
     "./app/onboarding/use-onboarding-state": "./src/app/onboarding/use-onboarding-state.ts",
+    "./app/supplier/packing-slip": "./src/app/supplier/packing-slip.ts",
+    "./app/suppliers/portal-label": "./src/app/suppliers/portal-label.ts",
     "./app/*-search": "./src/app/*-search.ts",
     "./brand/book.css": "./src/brand/book.css",
     "./brand/kit.css": "./src/brand/kit.css",

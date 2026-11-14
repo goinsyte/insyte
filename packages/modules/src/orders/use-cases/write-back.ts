@@ -3,6 +3,7 @@ import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { WriteOutcome } from "../../shared/domain/ShopifyWrites.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { isAnswer, mutate } from "../../stores/domain/Gate.ts"
 import { fromMinor, gidId, gidOf, toMinor } from "../../stores/domain/Mirror.ts"
 import { ConnectionGate } from "../../stores/domain/Ports.ts"
@@ -114,7 +115,8 @@ const send = Effect.fn("Orders.writeBack.send")(function*(
       if (byOrder.length === 0) return []
       const fulfillment = {
         lineItemsByFulfillmentOrder: byOrder,
-        notifyCustomer: false,
+        // The supplier portal's parcel mails the customer the tracking (M16); an operator's does not.
+        notifyCustomer: write.notify ?? false,
         ...(write.tracking === undefined ? {} : { trackingInfo: write.tracking })
       }
       return (yield* mutate(target, FULFILLMENT_CREATE, { fulfillment }, "fulfillmentCreate")).errors
@@ -247,7 +249,25 @@ export const writeBack = Effect.fn("Orders.writeBack")(function*(write: OrderWri
   }
   const store = { id: target.storeId, connectionId: target.connectionId, shop: target.shop, currency: target.currency }
 
-  const sent = write.type === "refund.requested" ? sendRefund(write, target, orderId) : send(write, target)
+  // A supplier's parcel (M16) fulfils only lines its own leg carries, and only once its work says shipped: whatever
+  // the event names beyond that is not sent.
+  let checked = write
+  if (write.type === "order.updated" && write.change === "fulfil" && write.supplierId !== undefined) {
+    const own = new Set(
+      (yield* db.scopedFor((sql) =>
+        sql<{ shopifyId: string }>`
+          select l.shopify_id from order_lines l
+          join forwarding_items f on f.order_id = l.order_id and l.id = any(f.line_ids) and f.state <> 'cancelled'
+          join supplier_work w on w.order_id = f.order_id and w.supplier_id = f.supplier_id and w.status = 'shipped'
+          where l.order_id = ${orderId} and f.supplier_id = ${write.supplierId} and l.shopify_id is not null`
+      )).map((r) => r.shopifyId)
+    )
+    const lines = (write.lines ?? [...own]).filter((id) => own.has(id))
+    if (lines.length === 0) return outcome("skipped", "not_the_suppliers")
+    checked = { ...write, lines }
+  }
+
+  const sent = checked.type === "refund.requested" ? sendRefund(checked, target, orderId) : send(checked, target)
   const answer = yield* sent.pipe(
     Effect.map((errors) => errors.length === 0 ? null : errors.map((e) => e.message).join("; ")),
     Effect.catchTags({
@@ -281,7 +301,19 @@ export const writeBack = Effect.fn("Orders.writeBack")(function*(write: OrderWri
       subjectType: "order",
       subjectId: orderId,
       diff: { change: write.type === "order.cancelled" ? "cancel" : write.change, reason: answer.slice(0, 300) }
-    })
+    }).pipe(
+      // A parcel the supplier marked shipped in its portal (M16): its contacts and the brand hear it did not go.
+      Effect.andThen(
+        write.type === "order.updated" && write.change === "fulfil" && write.supplierId !== undefined
+          ? Outbox.write(sql, workspace.id, {
+            type: "supplier.shipment_refused",
+            workspaceId: workspace.id,
+            orderId,
+            supplierId: write.supplierId
+          })
+          : Effect.void
+      )
+    )
   )
   return outcome("refused", answer)
 })

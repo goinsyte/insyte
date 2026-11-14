@@ -8,7 +8,6 @@ import {
 	Search,
 	Sparkles,
 } from "../../icons";
-import { PERSONA_CHROME } from "../lib/persona-chrome";
 import type { Persona } from "../lib/types/persona";
 import { isDrawn } from "../lib/queue-state";
 import { NewMenu } from "./new-menu";
@@ -16,7 +15,7 @@ import { NotificationsInbox } from "./notifications-inbox";
 import { StoreSelector } from "./store-selector";
 import { SyncStatus } from "./sync-status";
 import { TopbarFriends } from "./topbar-friends";
-import { useMarketplaceModalStore, useWorkspace } from "./state";
+import { useMarketplaceModalStore, usePersonaChrome, useWorkspace } from "./state";
 
 /**
  * The top bar: 48px of `mist`, inside the work column rather than across the window.
@@ -51,7 +50,7 @@ export function GlobalTopbar({
 }) {
 	const openMarketplace = useMarketplaceModalStore((s) => s.openModal);
 	const drawn = useWorkspace((s) => s.queue.filter(isDrawn).length);
-	const chrome = PERSONA_CHROME[persona];
+	const chrome = usePersonaChrome(persona);
 	const admin = persona === "admin";
 
 	return (

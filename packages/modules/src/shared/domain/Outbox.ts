@@ -71,6 +71,9 @@ export const OutboxEvent = Schema.Union([
     remove: Schema.Array(Schema.String),
     // A supplier's parcel (M8.3): only its lines (Shopify ids), with the tracking it reported.
     lines: Schema.optional(Schema.Array(Schema.String)),
+    // Shipped from the supplier portal (M16): whose parcel it is, and whether Shopify mails the customer the tracking.
+    supplierId: Schema.optional(Schema.String),
+    notify: Schema.optional(Schema.Boolean),
     tracking: Schema.optional(Schema.Struct({
       company: Schema.NullOr(Schema.String),
       number: Schema.String,
@@ -390,6 +393,40 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     month: Schema.String,
     statementIds: Schema.Array(Schema.String)
+  }),
+  // A supplier reported a problem in its portal (M16 step 2), once the undo window has passed: the brand gets a ticket
+  // and whoever handles orders hears of it. `contactId` is the supplier contact who reported it.
+  Schema.Struct({
+    type: Schema.Literal("supplier.problem_reported"),
+    workspaceId: Schema.String,
+    orderId: Schema.String,
+    supplierId: Schema.String,
+    contactId: Schema.String
+  }),
+  // Shopify refused a parcel a supplier marked shipped (M16 step 2), after the undo window: the supplier's contacts and
+  // whoever handles orders hear "Verzending kon niet worden doorgezet".
+  Schema.Struct({
+    type: Schema.Literal("supplier.shipment_refused"),
+    workspaceId: Schema.String,
+    orderId: Schema.String,
+    supplierId: Schema.String
+  }),
+  // The brand took a supplier contact's portal access away (M16): its open portal tabs are closed at once; a new one is
+  // refused, as every call is.
+  Schema.Struct({
+    type: Schema.Literal("supplier.contact_revoked"),
+    workspaceId: Schema.String,
+    supplierId: Schema.String,
+    contactId: Schema.String
+  }),
+  // A record a supplier's portal shows changed (M16 step 1): the realtime sink tells that supplier's room
+  // (`sup:<workspace>:<supplier>`) to refetch it. Ids only, as `records.changed`.
+  Schema.Struct({
+    type: Schema.Literal("partner.changed"),
+    workspaceId: Schema.String,
+    supplierId: Schema.String,
+    kind: Schema.String,
+    ids: Schema.Array(Schema.String)
   }),
   // A CSV was uploaded into the Data hub (M14 step 5): its `ImportParseWorkflow` reads it into rows.
   Schema.Struct({

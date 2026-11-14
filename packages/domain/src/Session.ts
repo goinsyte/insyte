@@ -20,13 +20,15 @@ export type SessionUser = typeof SessionUser.Type
 /** Provided by the `Authenticated` RPC middleware from the session cookie. */
 export class CurrentUser extends Context.Service<CurrentUser, SessionUser>()("domain/CurrentUser") {}
 
-/** One way the person may act, as the session lists it: today a membership; partner principals join in M16. */
+/** One way the person may act, as the session lists it: a membership, or a supplier's contact for a brand (M16). */
 export const PrincipalSummary = Schema.Struct({
-  kind: Schema.Literal("member"),
+  kind: Schema.Literals(["member", "supplier_contact"]),
   id: Schema.String,
   workspaceId: WorkspaceId,
   workspaceName: Schema.String,
-  roleLabel: Schema.String
+  roleLabel: Schema.String,
+  /** The supplier a contact acts for. */
+  partnerName: Schema.optional(Schema.String)
 })
 export type PrincipalSummary = typeof PrincipalSummary.Type
 
@@ -37,7 +39,10 @@ export class SessionMe extends Schema.Class<SessionMe>("domain/SessionMe")({
   principals: Schema.Array(PrincipalSummary),
   /** The one requests act as: the session's choice, else the newest (`Session.switchPrincipal` arrives with a second). */
   activePrincipal: Schema.NullOr(PrincipalSummary),
-  /** `/onboarding` until the active workspace finished onboarding, then Start (`/dashboard`). */
+  /**
+   * `/onboarding` until the active workspace finished onboarding, then Start (`/dashboard`); the supplier portal
+   * (`/supplier/dashboard`) for whoever is only a supplier's contact.
+   */
   landing: Schema.String
 }) {}
 

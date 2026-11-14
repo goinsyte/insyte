@@ -50,7 +50,11 @@ export class Landing extends Schema.Class<Landing>("members/Landing")({
   /** The workspace's seats, for `full`. */
   seats: Schema.NullOr(Schema.Int),
   /** The landing already told the inviter: a new invitation or a seat was asked for. */
-  requested: Schema.Boolean
+  requested: Schema.Boolean,
+  /** A supplier portal invitation (M16): the supplier it is for; no role, no seat. */
+  supplier: Schema.optional(Schema.NullOr(Schema.String)),
+  /** And the parts of its portal the invitation opens (`orders` always). */
+  scopes: Schema.optional(Schema.NullOr(Schema.Array(Schema.String)))
 }) {}
 
 /** An invitation's address: its id (`inv_…`, or `link_<token>` for the shareable link) and, for a person's, its secret. */
