@@ -51,7 +51,7 @@ export const SCOPE_GRANTS: Readonly<Record<string, ReadonlyArray<Grant>>> = {
   "marketing.write": [{ area: "customers", level: 2 }],
   "accounting.write": [{ area: "data", level: 2 }],
   "files.write": [{ area: "data", level: 2 }],
-  "ai.draft": [{ area: "support", level: 1 }]
+  "ai.draft": [{ area: "support", level: 2 }]
 }
 
 /** The rights a flow holds: what the version needs, less what was switched off, plus what was added. */

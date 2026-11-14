@@ -104,7 +104,7 @@ export const principalOf = (
       version: account.version,
       levels: { ...LEVELS_OFF, ...levels } as Record<AreaId, Level>,
       specials: { ...SPECIALS_OFF, ...specials } as Record<SpecialId, boolean>,
-      // A flow refunds only through a step with its own amount, which does not run yet (M13): none until then.
+      // A flow refunds only through "Terugbetalen", which sets its own limit for the step (`AutomationActs.ts`).
       refundLimit: 0,
       stores: storeScope === null ? "all" : [...storeScope]
     },

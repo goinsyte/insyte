@@ -237,7 +237,7 @@ const wouldDo = Effect.fn("Automations.wouldDo")(function*(
     case "action.track_event":
       return { status: "ok" as const, explanation: `Zou “${text("event") || "automation.fired"}” vastleggen.` }
     case "action.notify_supplier": {
-      const names = text("supplier").split(/\s*,\s*/).filter((n) => n !== "")
+      const names = text("supplier").split(/\s*,\s*/).filter((name) => name !== "")
       if (names.length === 0) {
         return {
           status: "skipped" as const,
@@ -247,8 +247,10 @@ const wouldDo = Effect.fn("Automations.wouldDo")(function*(
       const found = yield* sql<{ name: string; channel: boolean }>`
         select s.name, exists (select 1 from conversations c where c.supplier_id = s.id and c.kind = 'supplier_channel'
                                  and c.archived_at is null) as channel
-        from suppliers s where s.deleted_at is null and lower(s.name) in ${sql.in(names.map((n) => n.toLowerCase()))}`
-      const missing = names.filter((n) => !found.some((s) => s.name.toLowerCase() === n.toLowerCase()))
+        from suppliers s where s.deleted_at is null and lower(s.name) in ${
+        sql.in(names.map((name) => name.toLowerCase()))
+      }`
+      const missing = names.filter((name) => !found.some((s) => s.name.toLowerCase() === name.toLowerCase()))
       if (missing.length > 0) {
         return { status: "error" as const, explanation: `Er is geen leverancier “${missing.join("”, “")}”.` }
       }
