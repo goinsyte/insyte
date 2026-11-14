@@ -8,7 +8,8 @@ import { ConsoleClient } from "./client.ts"
 /*
  * The first analysis (M6.5): the store's early read, primed by the onboarding loader when the person is on the
  * analysis step and carried in the document. The Workflow's steps send `records.changed {first_analysis}`, which names
- * `FIRST_ANALYSIS`, so each read ticks off as the server reads it. Starting it and keeping the choices are mutations.
+ * `FIRST_ANALYSIS`, so each read ticks off as the server reads it. Starting it, "Klaarzetten" and the offline plan are
+ * mutations.
  */
 
 export const FIRST_ANALYSIS = ["first-analysis"] as const
@@ -27,5 +28,6 @@ export const firstAnalysisAtom = Atom.serializable(
 
 export const firstAnalysisWrites = {
   start: ConsoleClient.mutation("FirstAnalysis.start"),
-  prepare: ConsoleClient.mutation("FirstAnalysis.prepare")
+  prepare: ConsoleClient.mutation("FirstAnalysis.prepare"),
+  agreeOffline: ConsoleClient.mutation("FirstAnalysis.agreeOffline")
 } as const

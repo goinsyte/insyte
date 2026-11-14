@@ -59,7 +59,9 @@ export const next = (track: Track, step: Step, facts: Facts): Step => {
       case "sync":
         return facts.backfillDone ? "analysis" : "sync"
       case "analysis":
-        // The offline plan sets autonomy (M15): until it is built, the analysis goes straight to ready.
+        // The offline plan (`FirstAnalysis.agreeOffline`, M15 step 5) follows the analysis.
+        return "offline"
+      case "offline":
         return "ready"
       default:
         return "ready"

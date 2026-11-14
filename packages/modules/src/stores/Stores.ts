@@ -5,6 +5,7 @@ import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
 import { Relay } from "../shared/domain/Outbox.ts"
 import { Sealer } from "../shared/domain/Sealer.ts"
+import type { ConnectionList } from "./domain/Connections.ts"
 import type { HealthLine, HealthView } from "./domain/Health.ts"
 import { ConnectionGate, ShopifyAdmin } from "./domain/Ports.ts"
 import type {
@@ -17,6 +18,7 @@ import type {
   SyncStatus
 } from "./domain/Stores.ts"
 import * as Connect from "./use-cases/connect.ts"
+import * as Connections from "./use-cases/connections.ts"
 import * as Health from "./use-cases/health.ts"
 import * as Stores from "./use-cases/stores.ts"
 
@@ -24,7 +26,9 @@ type R = Db | CurrentPrincipal
 
 /**
  * The stores slice (M6.2, M6.3): the workspace's Shopify stores, connecting one, its first import's progress, and
- * letting it go; and each connection's health (M17 step 6, `Connections.health`) with the shell's one line of it. Shopify, the sealer, the relay and the gate are ports, taken when the layer is built.
+ * letting it go; and each connection's health (M17 step 6, `Connections.health`) with the shell's one line of it; and
+ * Koppelingen's list of every external account (`Connections.list`). Shopify, the sealer, the relay and the gate are
+ * ports, taken when the layer is built.
  *
  * @effect-expect-leaking Db CurrentPrincipal
  */
@@ -41,6 +45,8 @@ export class StoresService extends Context.Service<StoresService, {
   readonly syncStatus: (id: string) => Effect.Effect<SyncStatus, Forbidden | NotFound, R>
   readonly health: Effect.Effect<HealthView, Forbidden, R>
   readonly healthLine: Effect.Effect<HealthLine, never, R>
+  /** `aiOn`: whether Insyte AI is switched on on this stage, which only the caller's settings say. */
+  readonly connections: (aiOn: boolean) => Effect.Effect<ConnectionList, Forbidden, R>
 }>()("modules/StoresService") {
   // A database that does not answer is a defect, as everywhere.
   static readonly layer = Layer.effect(
@@ -65,7 +71,8 @@ export class StoresService extends Context.Service<StoresService, {
         disconnect: (id) => run(Stores.disconnect(id)),
         syncStatus: (id) => run(Stores.syncStatus(id)),
         health: run(Health.read()),
-        healthLine: run(Health.line())
+        healthLine: run(Health.line()),
+        connections: (aiOn) => run(Connections.list(aiOn))
       }
     })
   )

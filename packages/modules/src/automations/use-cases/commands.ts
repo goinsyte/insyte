@@ -177,7 +177,8 @@ export const create = Effect.fn("Automations.create")(function*(input: typeof Cr
   if (input.templateId !== undefined && template === undefined) {
     return yield* new NotFound({ entity: "automation_template", id: input.templateId })
   }
-  const nodes = template === undefined ? (input.nodes ?? []) : nodesOfTemplate(template, () => mintId("node"))
+  // A template's steps, unless the caller gives them (the first analysis sets the template's day): still that template.
+  const nodes = input.nodes ?? (template === undefined ? [] : nodesOfTemplate(template, () => mintId("node")))
   yield* checkSize(nodes)
   const db = yield* Db
   return yield* db.scoped((sql) =>

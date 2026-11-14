@@ -1,4 +1,5 @@
 import { Forbidden, NotFound } from "@insyte/domain/Errors"
+import { ConnectionList } from "@insyte/modules/stores/domain/Connections"
 import { HealthView } from "@insyte/modules/stores/domain/Health"
 import {
   BeginConnect,
@@ -20,7 +21,9 @@ import { WithDb } from "./WithDb.ts"
  * and disconnecting one. Reading is
  * `settings` Bekijken, the rest Beheren; never reachable by a key (`settings` is `api: false`). `Connections.health`
  * (M17 step 6): every store's connection with its open incidents and what Insyte already tried, at `data` or
- * `integrations` Bekijken; a key reads it as `GET /v1/connections/health` with `data.read`.
+ * `integrations` Bekijken; a key reads it as `GET /v1/connections/health` with `data.read`. `Connections.list`
+ * (widgets/05 §5.1): Koppelingen's rows, every external account's status, name and last sync, never a credential, at
+ * `integrations` Bekijken; not on `/v1` (`integrations` is `api: false`).
  */
 export class StoresRpcs extends RpcGroup.make(
   Rpc.make("Stores.list", { success: Schema.Array(StoreView), error: Forbidden }),
@@ -31,6 +34,7 @@ export class StoresRpcs extends RpcGroup.make(
   }),
   Rpc.make("Stores.syncStatus", { payload: StoreRef, success: SyncStatus, error: Schema.Union([Forbidden, NotFound]) }),
   Rpc.make("Connections.health", { success: HealthView, error: Forbidden }),
+  Rpc.make("Connections.list", { success: ConnectionList, error: Forbidden }),
   Rpc.make("Stores.disconnect", {
     payload: StoreRef,
     success: Schema.Array(StoreView),
