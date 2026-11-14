@@ -895,7 +895,7 @@ describe("a member narrowed to one store (Members.setStores)", () => {
     expect(stores(ok(await rpc("Members.setStores", { id: vb.id, stores: "all" }, va.cookie)))).toBe("all")
   })
 
-  it("narrows the keys a member made when the member is narrowed, deactivated or removed", async () => {
+  it("narrows the keys a member made with them, and turns them away while the member is deactivated or removed", async () => {
     const token = ok(
       await rpc("ApiKeys.create", {
         label: "Van wide",
@@ -913,13 +913,21 @@ describe("a member narrowed to one store (Members.setStores)", () => {
     expect(await stores()).toEqual(new Set([a.storeId]))
     ok(await rpc("Members.setStores", { id: wide.id, stores: "all" }, a.cookie))
     expect(await stores()).toEqual(new Set([a.storeId, b]))
-    // A maker who is deactivated or removed takes their keys' stores with them, and brings them back on return.
+    // While its maker is deactivated or removed the key is turned away as revoked, for every read, a store's or not;
+    // it works again when they are back.
+    const refused = async () => {
+      for (const path of ["/orders", "/members"]) {
+        const answer = await v1(token, path)
+        expect(answer.status).toBe(401)
+        expect(answer.body).toMatchObject({ error: { reason: "revoked" } })
+      }
+    }
     ok(await rpc("Members.deactivate", { id: wide.id }, a.cookie))
-    expect(await stores()).toEqual(new Set())
+    await refused()
     ok(await rpc("Members.reactivate", { id: wide.id }, a.cookie))
     expect(await stores()).toEqual(new Set([a.storeId, b]))
     ok(await rpc("Members.remove", { id: wide.id }, a.cookie))
-    expect(await stores()).toEqual(new Set())
+    await refused()
     ok(await rpc("Members.restore", { id: wide.id }, a.cookie))
     expect(await stores()).toEqual(new Set([a.storeId, b]))
   })

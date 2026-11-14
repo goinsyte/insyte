@@ -144,13 +144,16 @@ export const authenticate = Effect.fn("ApiKeys.authenticate")(function*(token: s
           ([r]) => r
         )
         : undefined
-      // The maker's stores as they are now: a member narrowed after making a key narrows the key with them, and a key
-      // whose maker is deactivated, removed or gone from the rows reaches no store.
-      const [maker] = yield* sql<{ roleStores: StoreAccess; memberStores: StoreAccess }>`
-        select r.stores as role_stores, m.stores as member_stores
+      // Every key is made by a member (`ApiKeys.create`, a Marketplace install), agents' included. While its maker is
+      // deactivated or removed it is turned away as revoked, though it is not: bringing the maker back brings it back.
+      // Otherwise it reaches no store past the maker's as they are now: narrowing the member narrows the key.
+      const [maker] = yield* sql<{ roleStores: StoreAccess; memberStores: StoreAccess; active: boolean }>`
+        select r.stores as role_stores, m.stores as member_stores,
+               m.deactivated_at is null and m.removed_at is null as active
         from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
-        where m.id = ${key.createdBy} and m.deactivated_at is null and m.removed_at is null`
-      const makers = maker === undefined ? [] : fenceOf(maker.memberStores, maker.roleStores)
+        where m.id = ${key.createdBy}`
+      if (maker === undefined || !maker.active) return yield* new KeyRefused({ reason: "revoked" })
+      const makers = fenceOf(maker.memberStores, maker.roleStores)
       // A key whose role was removed acts with nothing until it is given another.
       const levels = key.access.kind === "role" ? throughApi(role?.levels ?? {}) : throughApi(key.access.scopes)
       yield* sql`update api_keys set last_used_at = now() where id = ${key.id}`
