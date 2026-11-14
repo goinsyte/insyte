@@ -38,6 +38,7 @@ import { ActiveSessions } from "@insyte/modules/sessions/ActiveSessions"
 import { SettingsDepth } from "@insyte/modules/settings/SettingsDepth"
 import { SheetsService } from "@insyte/modules/sheets/Sheets"
 import { StoresService } from "@insyte/modules/stores/Stores"
+import { SupplierPortalService } from "@insyte/modules/supplier-portal/SupplierPortal"
 import { SuppliersService } from "@insyte/modules/suppliers/Suppliers"
 import { TicketsService } from "@insyte/modules/tickets/Tickets"
 import { TrackingService } from "@insyte/modules/tracking/Tracking"
@@ -85,6 +86,7 @@ import { SharedHandlers } from "./handlers/shared.ts"
 import { SheetsHandlers } from "./handlers/sheets.ts"
 import { ShellHandlers } from "./handlers/shell.ts"
 import { StoresHandlers } from "./handlers/stores.ts"
+import { SupplierPortalHandlers } from "./handlers/supplier-portal.ts"
 import { SuppliersHandlers } from "./handlers/suppliers.ts"
 import { SystemHandlers } from "./handlers/system.ts"
 import { ThreadsHandlers } from "./handlers/threads.ts"
@@ -103,7 +105,7 @@ export const RpcRoutes = RpcHttp(ConsoleRpcs, RPC_PATH)
  */
 export const RpcContext = Layer.mergeAll(
   SystemHandlers,
-  SessionHandlers.pipe(Layer.provide([Workspaces.layer, ActiveSessions.layer])),
+  SessionHandlers.pipe(Layer.provide([Workspaces.layer, ActiveSessions.layer, SupplierPortalService.layer])),
   OnboardingHandlers.pipe(
     Layer.provide(Onboarding.layer),
     Layer.provide(Layer.mergeAll(Workspaces.founder, Workspaces.setup))
@@ -123,6 +125,7 @@ export const RpcContext = Layer.mergeAll(
   SharedHandlers.pipe(Layer.provide(UndoService.layer)),
   MarketingHandlers.pipe(Layer.provide(MarketingService.layer)),
   SuppliersHandlers.pipe(Layer.provide(SuppliersService.layer)),
+  SupplierPortalHandlers.pipe(Layer.provide(Layer.mergeAll(SupplierPortalService.layer, UndoService.layer))),
   ForwardingHandlers.pipe(Layer.provide(ForwardingService.layer)),
   TrackingHandlers.pipe(Layer.provide(TrackingService.layer)),
   ReturnsHandlers.pipe(Layer.provide(ReturnsService.layer)),

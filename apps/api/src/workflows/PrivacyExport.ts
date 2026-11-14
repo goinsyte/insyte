@@ -93,7 +93,7 @@ const run = async <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unk
     Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId }),
     Effect.tapCause((cause) => Effect.logWarning("a privacy export step failed", { workspaceId, cause }))
   ) as Effect.Effect<A, unknown, never>
-  const exit = await runtime.runPromiseExit(program).finally(() => Telemetry.flush())
+  const exit = await Telemetry.runExit(runtime, program)
   if (Exit.isSuccess(exit)) return exit.value
   throw Cause.squash(exit.cause)
 }

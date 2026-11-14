@@ -369,7 +369,12 @@ function AmountCell({ l, m }: { l: CostRow; m: CostMonth }) {
       value={draft ?? (value ? money(value) : "")}
       onFocus={(e) => {
         setDraft(value ? String(value).replace(".", ",") : "")
-        requestAnimationFrame(() => e.target.select())
+        // `select()` focuses the field again: if it was left (Enter) before the frame, that would reopen it with the
+        // amount from before the save, and that draft would stay over the saved one.
+        const field = e.target
+        requestAnimationFrame(() => {
+          if (document.activeElement === field) field.select()
+        })
       }}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}

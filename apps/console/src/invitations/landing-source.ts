@@ -25,18 +25,23 @@ const human = createHumanCheck()
 /** A full-page handoff is underway: nothing more happens on this page. */
 const leaving = () => new Promise<never>(() => {})
 
-const asView = (l: Landing): LandingView => ({
-  id: "",
-  state: l.state,
-  workspace: l.workspace ?? "",
-  inviter: { id: "", name: l.inviter?.name ?? "", role: l.inviter?.role ?? "" },
-  ...(l.email === null ? {} : { email: l.email }),
-  ...(l.name === null ? {} : { name: l.name }),
-  ...(l.role === null ? {} : { roleId: l.role.id }),
-  stores: l.stores === "all" ? "all" : [...l.stores],
-  ...(l.message === null ? {} : { message: l.message }),
-  ...(l.at === null ? {} : { at: l.at })
-})
+const asView = (l: Landing): LandingView => {
+  const supplier = l.supplier ?? null
+  return {
+    id: "",
+    // A supplier's person makes their account as the supplier's (M16): the landing's own state for it.
+    state: supplier !== null && l.state === "new" ? "supplier" : l.state,
+    ...(supplier === null ? {} : { company: supplier, scopes: [...(l.scopes ?? ["orders"])] }),
+    workspace: l.workspace ?? "",
+    inviter: { id: "", name: l.inviter?.name ?? "", role: l.inviter?.role ?? "" },
+    ...(l.email === null ? {} : { email: l.email }),
+    ...(l.name === null ? {} : { name: l.name }),
+    ...(l.role === null ? {} : { roleId: l.role.id }),
+    stores: l.stores === "all" ? "all" : [...l.stores],
+    ...(l.message === null ? {} : { message: l.message }),
+    ...(l.at === null ? {} : { at: l.at })
+  }
+}
 
 export function useConsoleInvitationSource(
   landing: Landing,
@@ -161,6 +166,17 @@ export function useConsoleInvitationSource(
       await navigate({ href: exit.value.landing })
     },
 
-    openWorkspace: () => void navigate({ to: "/dashboard" })
+    // A supplier's person joins as the supplier's contact and lands in its portal (M16).
+    joinPartner: () =>
+      void accept({ payload, ...keys }).then(async (exit) => {
+        if (Exit.isFailure(exit)) {
+          toast.error("Meedoen lukte niet meer", { description: "De uitnodiging is intussen veranderd." })
+          return refresh()
+        }
+        await navigate({ href: exit.value.landing })
+      }),
+
+    openWorkspace: () =>
+      void navigate({ to: (landing.supplier ?? null) === null ? "/dashboard" : "/supplier/dashboard" })
   }
 }

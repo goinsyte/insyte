@@ -76,9 +76,12 @@ export const isMember = (sql: SqlClient.SqlClient, userId: string) =>
   )
 
 interface InvitationRow {
+  readonly kind: "team" | "supplier_portal"
+  readonly supplier: string | null
+  readonly portalScopes: ReadonlyArray<string> | null
   readonly email: string
   readonly name: string | null
-  readonly roleId: string
+  readonly roleId: string | null
   readonly stores: StoreAccess | null
   readonly message: string | null
   readonly invitedBy: string
@@ -129,13 +132,15 @@ export const classify = Effect.fn("Landing.classify")(function*(
   }
 
   const [inv] = yield* sql<InvitationRow>`
-    select email, name, role_id, stores, message, invited_by, expires_at, accepted_at,
-           revoked_at is not null or declined_at is not null as gone, expires_at <= now() as lapsed,
-           requested_new_at is not null as requested_new, seat_requested_at is not null as seat_requested
-    from invitations where id = ${ref.id} and kind = 'team'`
+    select i.kind, s.name as supplier, i.portal_scopes, i.email, i.name, i.role_id, i.stores, i.message, i.invited_by, i.expires_at,
+           i.accepted_at, i.revoked_at is not null or i.declined_at is not null as gone, i.expires_at <= now() as lapsed,
+           i.requested_new_at is not null as requested_new, i.seat_requested_at is not null as seat_requested
+    from invitations i left join suppliers s on s.id = i.supplier_id
+    where i.id = ${ref.id} and i.kind in ('team', 'supplier_portal')`
   if (inv === undefined) return MISSING
-  // Only the seats beyond those already taken: an open invitation holds its own seat until it lapses.
-  const full = seats.active >= seats.total
+  // Only the seats beyond those already taken: an open invitation holds its own seat until it lapses. A supplier's
+  // person takes none (M16).
+  const full = inv.kind === "team" && seats.active >= seats.total
   const exists = signedInAs === inv.email ||
     (yield* sql<{ id: string }>`select id from auth."user" where email = ${inv.email}`).length > 0
   const state: LandingState = inv.gone
@@ -159,7 +164,7 @@ export const classify = Effect.fn("Landing.classify")(function*(
     inviter: yield* personOf(sql, inv.invitedBy),
     email: inv.email,
     name: inv.name,
-    role: yield* roleOf(sql, inv.roleId),
+    role: inv.roleId === null ? null : yield* roleOf(sql, inv.roleId),
     stores: inv.stores ?? "all",
     message: inv.message,
     at: (inv.acceptedAt ?? inv.expiresAt).getTime(),
@@ -169,6 +174,8 @@ export const classify = Effect.fn("Landing.classify")(function*(
       inv.seatRequested :
       state === "expired" || state === "revoked" || state === "other-account"
       ? inv.requestedNew
-      : false
+      : false,
+    supplier: inv.kind === "supplier_portal" ? inv.supplier : null,
+    scopes: inv.kind === "supplier_portal" ? inv.portalScopes ?? ["orders"] : null
   })
 })

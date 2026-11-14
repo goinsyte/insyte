@@ -12,7 +12,11 @@ import * as Undo from "./use-cases/undo.ts"
  * @effect-expect-leaking Db CurrentPrincipal
  */
 export class UndoService extends Context.Service<UndoService, {
-  readonly undo: (token: string) => Effect.Effect<void, Forbidden | NotFound | Conflict, Db | CurrentPrincipal>
+  /** `only`: the commands the caller may undo; another's token is `NotFound` to it. */
+  readonly undo: (
+    token: string,
+    only?: ReadonlyArray<string>
+  ) => Effect.Effect<void, Forbidden | NotFound | Conflict, Db | CurrentPrincipal>
   /** The same by the token's hash, for an undo asked for by what it undoes (a chat card's). */
   readonly undoByHash: (hash: string) => Effect.Effect<void, Forbidden | NotFound | Conflict, Db | CurrentPrincipal>
 }>()("modules/UndoService") {
@@ -21,8 +25,8 @@ export class UndoService extends Context.Service<UndoService, {
     Effect.gen(function*() {
       const compensations = yield* UndoCompensations
       return {
-        undo: (token) =>
-          Undo.undo(token).pipe(
+        undo: (token, only) =>
+          Undo.undo(token, only).pipe(
             Effect.provideService(UndoCompensations, compensations),
             Effect.catchIf(SqlError.isSqlError, Effect.die)
           ),

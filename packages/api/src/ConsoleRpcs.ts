@@ -36,6 +36,7 @@ import { SharedRpcs } from "./rpc/SharedRpcs.ts"
 import { SheetsRpcs } from "./rpc/SheetsRpcs.ts"
 import { ShellRpcs } from "./rpc/ShellRpcs.ts"
 import { StoresRpcs } from "./rpc/StoresRpcs.ts"
+import { SupplierPortalRpcs } from "./rpc/SupplierPortalRpcs.ts"
 import { SuppliersRpcs } from "./rpc/SuppliersRpcs.ts"
 import { SystemRpcs } from "./rpc/SystemRpcs.ts"
 import { ThreadsRpcs } from "./rpc/ThreadsRpcs.ts"
@@ -65,6 +66,7 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(SharedRpcs)
   .merge(MarketingRpcs)
   .merge(SuppliersRpcs)
+  .merge(SupplierPortalRpcs)
   .merge(ForwardingRpcs)
   .merge(TrackingRpcs)
   .merge(ReturnsRpcs)

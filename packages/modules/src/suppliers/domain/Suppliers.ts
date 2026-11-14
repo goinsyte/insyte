@@ -51,6 +51,8 @@ export class SupplierRow extends Schema.Class<SupplierRow>("suppliers/SupplierRo
     }))
   })),
   stats: SupplierStats,
+  /** Its portal (M16): someone of theirs signs in, an invitation is open, or neither. */
+  portal: Schema.Literals(["active", "invited", "none"]),
   createdAt: Schema.Finite
 }) {}
 

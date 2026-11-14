@@ -270,7 +270,7 @@ const program = <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unkno
   ) as Effect.Effect<A, unknown, never>
 
 const runExit = <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unknown>) =>
-  runtime.runPromiseExit(program(workspaceId, effect)).finally(() => Telemetry.flush())
+  Telemetry.runExit(runtime, program(workspaceId, effect))
 
 /** The run's plan as text (it crosses a step), or `"null"` when there is nothing left to do. */
 export const planOf = (workspaceId: string, runId: string) =>

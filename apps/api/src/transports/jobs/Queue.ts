@@ -17,22 +17,27 @@ import { withRequestDb } from "../../platform/RequestDb.ts"
  * own: a slow model holds up no event, and a failed delivery does not ask the model again.
  */
 export const queue: ExportedHandlerQueueHandler<Env, EventsMessage | IngestMessage> = async (batch, _env, ctx) => {
-  if (batch.queue.startsWith("insyte-ingest")) return ingest(batch as MessageBatch<IngestMessage>)
-  const messages = (batch as MessageBatch<EventsMessage>).messages
+  // The batch's own exporter (`Observability.ts`), flushed after the acks, in at most three seconds.
+  const spans = Telemetry.open()
   try {
+    if (batch.queue.startsWith("insyte-ingest")) return await ingest(batch as MessageBatch<IngestMessage>, spans)
+    const messages = (batch as MessageBatch<EventsMessage>).messages
     const classified = Promise.all(messages.flatMap((m) =>
       "classifyTicket" in m.body
         ? [
-          background.runPromise(withRequestDb(classify(m.body.classifyTicket))).then(() => m.ack(), () => m.retry())
+          background.runPromise(spans.provide(withRequestDb(classify(m.body.classifyTicket)))).then(
+            () => m.ack(),
+            () => m.retry()
+          )
         ]
         : []
     ))
     const outboxIds = messages.flatMap((m) => ("outboxIds" in m.body ? m.body.outboxIds : []))
-    if (outboxIds.length > 0) await background.runPromise(withRequestDb(deliver(outboxIds)))
+    if (outboxIds.length > 0) await background.runPromise(spans.provide(withRequestDb(deliver(outboxIds))))
     await classified
     batch.ackAll()
   } finally {
-    ctx.waitUntil(Telemetry.flush())
+    ctx.waitUntil(spans.flush())
   }
 }
 

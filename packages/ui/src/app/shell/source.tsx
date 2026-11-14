@@ -36,6 +36,7 @@ import type { WorkspaceState } from "../stores/workspace-store";
 import type { MarketplaceSource } from "../marketplace/marketplace-source";
 import type { useNavPrefs as NavPrefsHook } from "../hooks/use-nav-prefs";
 import type { CreateKind } from "../stores/create-intent";
+import type { PersonaChrome } from "../lib/persona-chrome";
 
 /**
  * What the frame reads and does, from whoever hosts it (as `team/source.tsx` for Team): the design app answers from
@@ -138,6 +139,11 @@ export interface ShellSource {
 	panelFor: (pathname: string) => SubPanelConfig | null;
 	/** The name of the workspace the console is in. */
 	workspaceName: string;
+	/**
+	 * For a supplier or an affiliate: the brand they work for and their avatar menu's links, where the host knows them
+	 * (the console, from the signed-in contact). Absent, the design's own (`PERSONA_CHROME`).
+	 */
+	partner?: { name: string; menu: PersonaChrome["menu"] } | undefined;
 	/** Automations' panel: flows Insyte recommends, flows that use AI, and what the panel shows under its list. */
 	automationsPanel: { recommended: number; ai: number; Extras: ComponentType | null };
 	/** The operator's products and customers as their lists show them (with this session's own). */
