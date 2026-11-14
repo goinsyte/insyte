@@ -100,7 +100,9 @@ test("@costs a new admin adds costs, types a month, removes a line and takes it 
   await expect(page.getByText(/^Shopify-abonnement, \w+: /)).toBeVisible()
   await expect(cells.last()).toHaveValue(/49/)
   await expect(cells.last()).not.toBeFocused()
-  await page.unroute("**/api/rpc/**", slow)
+  // `unroute` leaves a slowed request still waiting in `slow`; its later `fallback()` then throws "Route is already
+  // handled!". So wait for those in flight before removing it (the only page route; Access adds its own on the context).
+  await page.unrouteAll({ behavior: "wait" })
 
   // A share of revenue is worked out, not typed.
   await page.getByRole("button", { name: "Kostenpost", exact: true }).click()
