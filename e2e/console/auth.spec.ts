@@ -1,4 +1,4 @@
-import { type APIRequestContext, expect, type Page, test as base } from "@playwright/test"
+import { type APIRequestContext, expect, type Page, type Route, test as base } from "@playwright/test"
 import { createHmac } from "node:crypto"
 import { admit, newContext, onPreview, previewRequest } from "./access.ts"
 
@@ -55,6 +55,15 @@ async function signIn(page: Page, email: string, password: string) {
 
 /** Waits for the page to be React's (`<html data-hydrated>`, the root route): a click before that opens nothing. */
 const hydrated = (page: Page) => expect(page.locator("html[data-hydrated]")).toHaveCount(1)
+
+/** The person's onboarding step and the autonomy policy answered late; Access's own route still adds its headers. */
+const lateReads = async (route: Route) => {
+  const body = route.request().postData() ?? ""
+  if (body.includes("\"Onboarding.me\"") || body.includes("\"Autonomy.get\"")) {
+    await new Promise((resolve) => setTimeout(resolve, 2500))
+  }
+  await route.fallback()
+}
 
 test("@auth register, verify, sign out and in, reset the password", async ({ page, request }) => {
   const email = `e2e-${Date.now().toString(36)}@example.com`
@@ -286,15 +295,22 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   await expect(page.getByText("Wat je inrichting al zegt")).toHaveCount(0)
   await expect(page.getByText("Levertijd per land")).toBeVisible()
   await page.getByRole("radio", { name: "Ja, zelf doen" }).click()
+  // As on a busy preview: the person's step and the policy are read late after "Klaarzetten", so the offline step is
+  // drawn while the server's answer still says the analysis step. `unrouteAll` waits for those still held (see costs).
+  await page.route("**/api/rpc/**", lateReads)
   await page.getByRole("button", { name: "Klaarzetten" }).click()
 
   // The offline plan: the window and the levels, written into the autonomy policy on Afronden.
   await expect(page.getByRole("heading", { name: "Terwijl je offline bent." })).toBeVisible()
   await expect(page.getByText("De levertijd-update staat als concept klaar")).toBeVisible()
-  // "Afronden" waits in its busy state until the policy is read: the plan is made on the version the step shows.
+  // "Afronden" waits in its busy state until both are read: the plan is made on the version the server answered.
+  const loading = page.getByRole("button", { name: "Bezig met laden" })
+  await expect(loading).toBeVisible()
+  await expect(loading).toBeDisabled()
   const finish = page.getByRole("button", { name: "Afronden" })
   await expect(finish).toBeEnabled()
   await expect(finish).toHaveAttribute("aria-busy", "false")
+  await page.unrouteAll({ behavior: "wait" })
   await finish.click()
 
   // The automation is made as a draft, never switched on; the customer agent still waits on its part.
