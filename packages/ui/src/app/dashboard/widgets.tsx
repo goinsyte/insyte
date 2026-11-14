@@ -2,14 +2,11 @@ import { type ReactNode, useMemo } from "react"
 import { lastActionById, presenceById } from "../../data-source"
 import { automations } from "../../data-source"
 import { products } from "../../data-source"
-import { Workflow } from "../../icons"
-import { Glyph } from "../common/glyph"
 import { isAssignedTo, ME } from "../lib/assignees"
 import { convert } from "../lib/money"
 import { supplierName } from "../lib/order-supplier"
 import { revenueWindow } from "../lib/revenue"
 import { undoable } from "../lib/undo"
-import { cn } from "../lib/utils"
 import { useHome, type WidgetId } from "../stores/home-store"
 import { useWorkspace } from "../stores/workspace-store"
 import { CustomerAgentCard, ReturnsCard } from "./agent-cards"
@@ -29,6 +26,7 @@ import { setupTasks, Struck, type Task, TickBox } from "./setup-checklist"
 import { WIDGET_DEFS, type WidgetMeta } from "./widget-defs"
 
 import {
+  AutomationsView,
   ChargebacksView,
   type Column,
   COLUMNS,
@@ -39,7 +37,6 @@ import {
   SetupView,
   type Stage,
   STAGES,
-  Stat,
   StockView,
   SuppliersView,
   TeamView,
@@ -277,27 +274,12 @@ function AutomationsWidget() {
   const runs = automations.reduce((s, a) => s + a.runs_30d, 0)
   const top = [...automations].toSorted((a, b) => b.runs_30d - a.runs_30d).slice(0, 3)
   return (
-    <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-2 gap-1.5">
-        <Stat label="Actief" value={`${active.length} van ${automations.length}`} />
-        <Stat label="Uitvoeringen, 30 dagen" value={runs.toLocaleString("nl-NL")} />
-      </div>
-      <ul className="flex flex-col">
-        {top.map((a, i) => (
-          <li
-            key={a.id}
-            className={cn(
-              "glyph-host flex h-8 items-center gap-2.5 rounded-md px-2 text-base",
-              i % 2 === 0 && "bg-band"
-            )}
-          >
-            <Glyph draw={false} icon={Workflow} size={14} className="text-ink-3" />
-            <span className="min-w-0 flex-1 truncate text-ink">{a.name}</span>
-            <span className="text-sm text-ink-2 tabular-nums">{a.runs_30d.toLocaleString("nl-NL")}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <AutomationsView
+      active={active.length}
+      total={automations.length}
+      runs={runs}
+      top={top.map((a) => ({ id: a.id, name: a.name, runs: a.runs_30d }))}
+    />
   )
 }
 

@@ -392,6 +392,29 @@ export const widgets = Effect.fn("Home.widgets")(function*(input: WidgetsInput) 
         out.countries = { rows }
       }
 
+      if (want("automations", "automations")) {
+        // Runs over the records the person reaches, as the Runs tab fences them; a mail thread's run is everyone's.
+        const runScope = yield* inScopeOrNone(sql, "coalesce(o.store_id, cb.store_id, rv.store_id)")
+        const [flows] = yield* sql<{ active: number; total: number }>`
+          select count(*) filter (where status = 'active')::int as active, count(*)::int as total
+          from automations where deleted_at is null`
+        const ran = yield* sql<{ id: string; name: string; runs: number }>`
+          select a.id, a.name, count(*)::int as runs
+          from automation_runs r
+          join automations a on a.id = r.automation_id and a.deleted_at is null
+          left join orders o on r.record_kind = 'order' and o.id = r.record_id
+          left join chargebacks cb on r.record_kind = 'chargeback' and cb.id = r.record_id
+          left join variants rv on r.record_kind = 'product' and rv.id = r.record_id
+          where r.started_at > now() - interval '30 days' and r.status <> 'skipped' and ${runScope}
+          group by a.id, a.name order by runs desc, a.name`
+        out.automations = {
+          active: flows?.active ?? 0,
+          total: flows?.total ?? 0,
+          runs: ran.reduce((t, r) => t + r.runs, 0),
+          top: ran.slice(0, 3)
+        }
+      }
+
       return new HomeWidgets({
         currency: ws.currency,
         range: days,

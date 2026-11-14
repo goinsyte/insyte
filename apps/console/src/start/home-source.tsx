@@ -14,6 +14,7 @@ import { BestsellersView, CountriesView, LiveView, RecentView, ReturnsView } fro
 import { type SetupTaskId, setupTasks } from "@insyte/ui/app/dashboard/setup-checklist"
 import { WIDGET_DEFS as WIDGETS } from "@insyte/ui/app/dashboard/widget-defs"
 import {
+  AutomationsView,
   ChargebacksView,
   MyTicketsView,
   OrdersView,
@@ -52,7 +53,7 @@ import { ConsoleBookmarks, ConsoleMentions, ConsoleToday } from "./home-views.ts
 /*
  * Start's board in the console (M10.3), over `Home.widgets`: the design's cards drawn from the read, money from minor
  * units of the workspace currency, and the arrangement kept in the member's `board` preference. Only the cards the
- * console can fill are offered; automations (M12), Insyte and the customer agent (M15) come with their milestones,
+ * console can fill are offered (automations since M12); Insyte and the customer agent (M15) come with their milestone,
  * and chargebacks (M13 step 4) reads the cases waiting on evidence. "Ongelezen chats" reads `Chats.list`
  * (`chats-card.tsx`), and the team card's "Bericht" opens the DM. "Agenda vandaag", "Vermeldingen en toegewezen" and
  * "Bladwijzers" (M10.3b) are `home-views.tsx`'s.
@@ -72,6 +73,7 @@ export const OFFERED: ReadonlyArray<WidgetId> = [
   "bestsellers",
   "countries",
   "suppliers",
+  "automations",
   "team",
   "recent",
   "today",
@@ -94,7 +96,8 @@ const READ: ReadonlySet<WidgetId> = new Set([
   "returns",
   "live",
   "bestsellers",
-  "countries"
+  "countries",
+  "automations"
 ])
 
 const placed = (id: WidgetId): PlacedWidget =>
@@ -578,6 +581,10 @@ export function useHomeSlots(
         analyse={false}
       />
     )),
+    automations: read(
+      "automations",
+      (a) => <AutomationsView active={a.active} total={a.total} runs={a.runs} top={a.top} />
+    ),
     team: team.length === 0 ? <Quiet>Je bent hier nog alleen.</Quiet> : <TeamView team={team} message />,
     recent: <RecentView recent={recent} />,
     today: <ConsoleToday />,
