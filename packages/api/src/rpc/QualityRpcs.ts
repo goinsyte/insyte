@@ -7,10 +7,12 @@ import {
   NoSupplier,
   ProductIdInput,
   QualityChange,
+  QualityStats,
   QualityView,
   RejectInput,
   RequestInput,
   SetPhaseInput,
+  StatsInput,
   SubmitInput,
   SupplierCheck,
   SupplierLink,
@@ -25,7 +27,7 @@ import { Shopper } from "./Shopper.ts"
 import { WithDb } from "./WithDb.ts"
 
 /**
- * Product quality (M9.4): a product's checks, complaints, rate and phase; asking its supplier for a check (with Undo),
+ * Product quality (M9.4): a product's checks, complaints, rate and phase; the figures per product or supplier; asking its supplier for a check (with Undo),
  * judging what came back (with Undo), the phase (with Undo), and the link the supplier answers through.
  */
 export class QualityRpcs extends RpcGroup.make(
@@ -34,6 +36,7 @@ export class QualityRpcs extends RpcGroup.make(
     success: QualityView,
     error: Schema.Union([Forbidden, NotFound])
   }),
+  Rpc.make("Quality.stats", { payload: StatsInput, success: QualityStats, error: Forbidden }),
   Rpc.make("Quality.request", {
     payload: RequestInput,
     success: QualityChange,

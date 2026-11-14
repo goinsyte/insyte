@@ -175,6 +175,14 @@ export const CreateInput = Schema.Struct({
   once: Schema.optional(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)))
 })
 
+/**
+ * "Bijbestelling aanvragen": a ticket per product asking its supplier for a restock date, in the product's store, once
+ * per product while that ticket is open (`restock:<product>`). The words come from the product's stock and pace.
+ */
+export const RestockInput = Schema.Struct({
+  productIds: Schema.Array(Schema.String).check(Schema.isMinLength(1), Schema.isMaxLength(200))
+})
+
 /** One ticket's fields, or a priority for many at once (the selection bar). */
 export const UpdateInput = Schema.Struct({
   ids: Ids,
@@ -204,6 +212,13 @@ export class TicketChange extends Schema.Class<TicketChange>("tickets/TicketChan
   tickets: Schema.Array(TicketRow),
   /** `null` where nothing changed, and for a reorder, which needs none. */
   undo: Schema.NullOr(UndoTicket)
+}) {}
+
+/** The restock tickets: the new ones with one Undo, and how many were asked for before and are still open. */
+export class RestockChange extends Schema.Class<RestockChange>("tickets/RestockChange")({
+  tickets: Schema.Array(TicketRow),
+  undo: Schema.NullOr(UndoTicket),
+  already: Schema.Int
 }) {}
 
 /** A ticket's fields as they were, for `Shared.undo`; its labels and assignees only where the command changed them. */

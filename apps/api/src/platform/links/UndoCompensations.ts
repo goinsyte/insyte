@@ -17,6 +17,7 @@ import { restore as restoreNotifications } from "@insyte/modules/notifications/u
 import { restore as restoreOrders } from "@insyte/modules/orders/use-cases/commands"
 import { restore as restoreProducts } from "@insyte/modules/products/use-cases/commands"
 import { restore as restoreProposal } from "@insyte/modules/proposals/Proposals"
+import { QualityTickets } from "@insyte/modules/quality/domain/Ports"
 import { restore as restoreQuality } from "@insyte/modules/quality/Quality"
 import { refreshIn, reopenRowIn, restore as restoreQueue } from "@insyte/modules/queue/Queue"
 import { restore as restoreReturns } from "@insyte/modules/returns/use-cases/commands"
@@ -29,6 +30,7 @@ import { restore as restoreTickets } from "@insyte/modules/tickets/use-cases/com
 import { type Compensation, UndoCompensations } from "@insyte/modules/undo/domain/Ports"
 import { Effect, Layer } from "effect"
 import { undoKeys } from "./AppKeys.ts"
+import { qualityTickets } from "./QualityTickets.ts"
 import { threadTickets } from "./ThreadTickets.ts"
 
 /**
@@ -49,7 +51,8 @@ export const compensations: Record<string, Compensation> = {
   "chargebacks.restore": restoreChargebacks,
   "inbox.restore": (sql, compensation) =>
     restoreInbox(sql, compensation).pipe(Effect.provideService(ThreadTickets, threadTickets)),
-  "quality.restore": restoreQuality,
+  "quality.restore": (sql, compensation) =>
+    restoreQuality(sql, compensation).pipe(Effect.provideService(QualityTickets, qualityTickets)),
   "queue.restore": restoreQueue,
   "notifications.restore": restoreNotifications,
   "costs.restore": restoreCosts,

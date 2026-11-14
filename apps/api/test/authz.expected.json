@@ -895,6 +895,13 @@
     "finance": "allow",
     "view": "allow"
   },
+  "Quality.stats": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
   "Quality.request": {
     "owner": "allow",
     "admin": "allow",
@@ -952,6 +959,13 @@
     "view": "allow"
   },
   "Tickets.create": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Tickets.restock": {
     "owner": "allow",
     "admin": "allow",
     "service": "allow",
