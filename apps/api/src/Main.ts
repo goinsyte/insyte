@@ -40,7 +40,8 @@ export default {
 
 /**
  * On the Worker's own public hostname only the public API, the MCP server and the webhooks answer (M19.2, M19.3,
- * M6.3, M8.3, M8.4): `/v1`, `/mcp`, `/hooks/shopify`, `/hooks/aftership` and `/hooks/supplier/:id`; and the
+ * M6.3, M8.3, M8.4, M13): `/v1`, `/mcp`, `/hooks/shopify`, `/hooks/aftership`, `/hooks/stripe` and
+ * `/hooks/supplier/:id`; and the
  * storefront's Web Pixel, `/api/public/pixel/:storeId` (M14 step 3). Everything else (auth, the RPC, the dev routes) is reached through the console's service binding, on the
  * console's origin.
  */
@@ -48,6 +49,6 @@ const servedHere = (request: Request): boolean => {
   const url = new URL(request.url)
   if (env.PUBLIC_API_HOST === undefined || url.host !== env.PUBLIC_API_HOST) return true
   return url.pathname === "/mcp" || url.pathname === "/v1" || url.pathname.startsWith("/v1/") ||
-    url.pathname === "/hooks/shopify" || url.pathname === "/hooks/aftership" ||
+    url.pathname === "/hooks/shopify" || url.pathname === "/hooks/aftership" || url.pathname === "/hooks/stripe" ||
     url.pathname.startsWith("/hooks/supplier/") || url.pathname.startsWith("/api/public/pixel/")
 }

@@ -12,6 +12,7 @@ import { PortalRoutes } from "../transports/http/PortalRoutes.ts"
 import { QualityMediaRoutes } from "../transports/http/QualityMediaRoutes.ts"
 import { RealtimeRoutes } from "../transports/http/RealtimeRoutes.ts"
 import { RequestContext } from "../transports/http/RequestContext.ts"
+import { StripeHookRoutes } from "../transports/http/StripeHookRoutes.ts"
 import { SupplierHookRoutes } from "../transports/http/SupplierHookRoutes.ts"
 import { SystemRoutes } from "../transports/http/SystemRoutes.ts"
 import { TrackingRoutes } from "../transports/http/TrackingRoutes.ts"
@@ -42,6 +43,7 @@ const Transports = Layer.mergeAll(
   WebhookRoutes,
   SupplierHookRoutes,
   TrackingRoutes,
+  StripeHookRoutes,
   FileRoutes,
   PortalRoutes,
   QualityMediaRoutes,

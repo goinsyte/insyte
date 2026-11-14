@@ -1,0 +1,155 @@
+import { Db } from "@insyte/database/Db"
+import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
+import { CurrentWorkspace } from "@insyte/domain/Principal"
+import { Effect, Option, Schema } from "effect"
+import { Relay } from "../../shared/domain/Outbox.ts"
+import * as Audit from "../../shared/use-cases/Audit.ts"
+import * as Outbox from "../../shared/use-cases/Outbox.ts"
+import { BillingProvider, type StripeEvent, type SubscriptionSnapshot } from "../domain/Ports.ts"
+import { writeInvoice, writeSubscription } from "./state.ts"
+
+/*
+ * Stripe's webhooks (M13 step 1): `customer.subscription.*`, `invoice.*` and `checkout.session.completed`, on the API's
+ * public hostname. The raw bytes are verified against the stage's signing secret before anything is parsed (a bad or
+ * stale signature is 400, as Stripe's own libraries answer). The event's id is the dedupe key (`inbound_events`,
+ * provider `stripe`): it is written and applied on one transaction, so a delivery Stripe sends again is applied once,
+ * and one that failed to apply is not recorded and is applied when Stripe retries. The subscription and the invoice are
+ * read again from Stripe where it knows them (the event may be old by the time it arrives); otherwise the event's own
+ * copy is applied unless a newer event already was, and a settled invoice never goes back to open. An event for another
+ * subscription at the same customer does not replace one that still bills; one that bills too is logged as an error and
+ * written to the workspace's audit log (`billing.second_subscription`), once per event, for a person to sort out. A change is told as `billing.changed`; seats follow `subscriptions.extra_seats`.
+ */
+
+export interface Delivery {
+  readonly body: Uint8Array
+  readonly signature: string
+}
+
+export type Received = { readonly status: 200 | 400 }
+
+const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)))
+
+const customerOf = (event: StripeEvent): { customer: string; workspace: string | null } | undefined => {
+  switch (event.kind) {
+    case "subscription":
+      return { customer: event.subscription.customerId, workspace: event.subscription.workspaceId }
+    case "invoice":
+      return { customer: event.invoice.customerId, workspace: null }
+    case "checkout":
+      return { customer: event.customerId, workspace: event.workspaceId }
+    case "other":
+      return undefined
+  }
+}
+
+export const receive = Effect.fn("Billing.webhooks.receive")(function*(delivery: Delivery) {
+  const provider = yield* BillingProvider
+  if (!(yield* provider.verifyWebhook(delivery.body, delivery.signature, new Date()))) {
+    return { status: 400 } satisfies Received
+  }
+  const body = decodeJson(new TextDecoder().decode(delivery.body))
+  if (Option.isNone(body)) return { status: 400 } satisfies Received
+  const event = yield* provider.readEvent(body.value)
+  if (event === undefined) return { status: 400 } satisfies Received
+  const of = customerOf(event)
+  // An event Insyte does not act on: acknowledged, so Stripe stops sending it.
+  if (of === undefined) return { status: 200 } satisfies Received
+  const db = yield* Db
+  const [route] = yield* db.routing((sql) =>
+    sql<{ workspaceId: WorkspaceId }>`select workspace_id from billing_route(${of.customer}, ${of.workspace ?? ""})`
+  )
+  if (route === undefined) {
+    yield* Effect.logInfo("stripe webhook for an unknown customer", { type: event.type })
+    return { status: 200 } satisfies Received
+  }
+  // Read again from Stripe, outside the transaction: what it is now, written as of now.
+  const subscriptionId = event.kind === "subscription"
+    ? event.subscription.subscriptionId
+    : event.kind === "checkout"
+    ? event.subscriptionId
+    : null
+  const fresh = subscriptionId === null ? undefined : yield* provider.subscription(subscriptionId).pipe(
+    Effect.catchTag("BillingUnavailable", (e) =>
+      // Stripe did not answer: refused, so Stripe sends it again.
+      Effect.logWarning("stripe subscription not read again", { reason: e.reason }).pipe(Effect.as(null)))
+  )
+  if (fresh === null) return { status: 400 } satisfies Received
+  // An invoice too: its status and links as they are now, not as this event left them.
+  const freshInvoice = event.kind !== "invoice" ? undefined : yield* provider.invoice(event.invoice.id).pipe(
+    Effect.catchTag(
+      "BillingUnavailable",
+      (e) => Effect.logWarning("stripe invoice not read again", { reason: e.reason }).pipe(Effect.as(null))
+    )
+  )
+  if (freshInvoice === null) return { status: 400 } satisfies Received
+  const subscription: { readonly s: SubscriptionSnapshot; readonly at: Date } | undefined = fresh !== undefined
+    ? { s: fresh, at: new Date() }
+    : event.kind === "subscription"
+    ? { s: event.subscription, at: event.created }
+    : undefined
+  const kicked = yield* db.scopedFor((sql) =>
+    Effect.gen(function*() {
+      const [received] = yield* sql<{ id: string }>`
+        insert into inbound_events (id, workspace_id, provider, delivery_id, topic, account_ref, processed_at)
+        values (${mintId("inb")}, ${route.workspaceId}, 'stripe', ${event.id}, ${event.type}, ${of.customer}, now())
+        on conflict (provider, delivery_id) do nothing
+        returning id`
+      // Delivered before: the first one was applied.
+      if (received === undefined) return []
+      if (event.kind === "invoice") {
+        yield* freshInvoice === undefined
+          ? writeInvoice(sql, route.workspaceId, event.invoice, event.created)
+          : writeInvoice(sql, route.workspaceId, freshInvoice, new Date())
+      }
+      if (subscription === undefined) return []
+      const [before] = yield* sql<{ startedBy: string | null }>`select started_by from subscriptions`
+      const { written, started, conflict } = yield* writeSubscription(
+        sql,
+        route.workspaceId,
+        subscription.s,
+        subscription.at
+      )
+      if (conflict) {
+        // A second subscription that bills at the same customer: the workspace may be paying twice. Not cancelled or
+        // refunded here (that is a person's call in Stripe), but recorded where the workspace's audit log shows it.
+        yield* Effect.logError("stripe second subscription at one customer", {
+          type: event.type,
+          subscription: subscription.s.subscriptionId,
+          status: subscription.s.status
+        })
+        yield* Audit.write(sql, route.workspaceId, { kind: "system", id: "stripe" }, {
+          action: "billing.second_subscription",
+          subjectType: "billing",
+          subjectId: route.workspaceId,
+          diff: {
+            subscription: subscription.s.subscriptionId,
+            status: subscription.s.status,
+            plan: subscription.s.plan
+          }
+        })
+        return []
+      }
+      if (!written) {
+        // An older event than the one already applied: kept as it is.
+        yield* Effect.logInfo("stripe subscription event not applied", {
+          type: event.type,
+          subscription: subscription.s.subscriptionId
+        })
+        return []
+      }
+      return [
+        yield* Outbox.write(sql, route.workspaceId, {
+          type: "billing.changed",
+          workspaceId: route.workspaceId,
+          userId: before?.startedBy ?? null,
+          status: subscription.s.status,
+          plan: subscription.s.plan,
+          cycle: subscription.s.cycle,
+          started
+        })
+      ]
+    })
+  ).pipe(Effect.provideService(CurrentWorkspace, { id: route.workspaceId }))
+  if (kicked.length > 0) yield* (yield* Relay).kick(kicked)
+  return { status: 200 } satisfies Received
+})

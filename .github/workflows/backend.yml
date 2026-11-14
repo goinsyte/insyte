@@ -203,6 +203,9 @@ jobs:
       AFTERSHIP_WEBHOOK_SECRET: ${{ secrets.AFTERSHIP_WEBHOOK_SECRET }}
       SENDCLOUD_PUBLIC_KEY: ${{ secrets.SENDCLOUD_PUBLIC_KEY }}
       SENDCLOUD_SECRET_KEY: ${{ secrets.SENDCLOUD_SECRET_KEY }}
+      # Billing: Stripe's secret key and the webhook endpoint's signing secret, both or neither; previews use the fake.
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       # Insyte AI: Claude through the stage's AI Gateway; the fake answers until the key and the gateway are set.
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       AI_GATEWAY_ID: ${{ vars.AI_GATEWAY_ID }}
@@ -292,6 +295,9 @@ jobs:
       AFTERSHIP_WEBHOOK_SECRET: ${{ secrets.AFTERSHIP_WEBHOOK_SECRET }}
       SENDCLOUD_PUBLIC_KEY: ${{ secrets.SENDCLOUD_PUBLIC_KEY }}
       SENDCLOUD_SECRET_KEY: ${{ secrets.SENDCLOUD_SECRET_KEY }}
+      # Billing: Stripe's secret key and the webhook endpoint's signing secret, both or neither; previews use the fake.
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       # Insyte AI: Claude through the stage's AI Gateway; the fake answers until the key and the gateway are set.
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       AI_GATEWAY_ID: ${{ vars.AI_GATEWAY_ID }}

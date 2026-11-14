@@ -537,6 +537,18 @@ export const OutboxEvent = Schema.Union([
     workspaceId: Schema.String,
     levels: Schema.Array(Schema.Struct({ variantId: Schema.String, before: Schema.Int, after: Schema.Int }))
   }),
+  // The workspace's own subscription changed (M13 step 1): a plan, seats, a cancel, a payment, as Insyte asked or Stripe
+  // told. The billing page and the team's seats refetch; a trial turning into a paid plan is counted (`started`).
+  Schema.Struct({
+    type: Schema.Literal("billing.changed"),
+    workspaceId: Schema.String,
+    /** Whoever made the change, or started the subscription where Stripe told it; `null` if nobody is known. */
+    userId: Schema.NullOr(Schema.String),
+    status: Schema.String,
+    plan: Schema.NullOr(Schema.String),
+    cycle: Schema.NullOr(Schema.String),
+    started: Schema.Boolean
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

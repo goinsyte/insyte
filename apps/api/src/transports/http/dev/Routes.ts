@@ -3,6 +3,7 @@ import { HttpRouter } from "effect/http"
 import { AiRoutes } from "./ai.ts"
 import { AuthEventsOf } from "./auth.ts"
 import { AutomationRunsOf, AutomationScheduleTick, AutomationUncheckedVersion } from "./automations.ts"
+import { BillingCheckouts } from "./billing.ts"
 import { ChargebackRemind } from "./chargebacks.ts"
 import { CostsRoutes } from "./costs.ts"
 import { DataRoutes } from "./data.ts"
@@ -45,6 +46,7 @@ const Routes = Layer.mergeAll(
   NotifyRoutes,
   MailRoutes,
   AuthEventsOf,
+  BillingCheckouts,
   OutboxRoutes,
   AutomationRunsOf,
   AutomationScheduleTick,

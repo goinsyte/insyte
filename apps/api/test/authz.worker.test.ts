@@ -3,6 +3,7 @@ import { AgentRpcs } from "@insyte/api/rpc/AgentRpcs"
 import { AnalyticsRpcs } from "@insyte/api/rpc/AnalyticsRpcs"
 import { AuditRpcs } from "@insyte/api/rpc/AuditRpcs"
 import { AutomationsRpcs } from "@insyte/api/rpc/AutomationsRpcs"
+import { BillingRpcs } from "@insyte/api/rpc/BillingRpcs"
 import { ChargebacksRpcs } from "@insyte/api/rpc/ChargebacksRpcs"
 import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
@@ -198,7 +199,7 @@ const PAYLOADS: Record<string, unknown> = {
   "FirstAnalysis.get": undefined,
   "FirstAnalysis.start": undefined,
   "FirstAnalysis.prepare": { ids: ["agent"], answers: { fulfilment: "one", reply: "ask" } },
-  "FirstAnalysis.agreeOffline": { window: "evening", levels: {}, baseVersion: 0 },
+  "FirstAnalysis.agreeOffline": { window: "evening", levels: {}, baseVersion: 999_999 },
   // A token nobody holds: `NotFound` for every role; the compensation's own permission is the command's.
   "Shared.undo": { token: "und_none" },
   // No Klaviyo in this workspace: `Conflict` for every role that may; connecting needs the app (the twin has it).
@@ -567,8 +568,9 @@ const PAYLOADS: Record<string, unknown> = {
   // Insyte AI (M15 step 6): read by every member; a save on a version that is not current is refused as stale (or,
   // for budgets, a person not in the team), and taking back an action that does not exist is `NotFound`.
   "Autonomy.get": {},
-  "Autonomy.set": { levels: {}, baseVersion: -1 },
-  "Autonomy.resetDefaults": { baseVersion: -1 },
+  // A version far past any saved: refused as stale where allowed, so the run writes nothing.
+  "Autonomy.set": { levels: {}, baseVersion: 999_999 },
+  "Autonomy.resetDefaults": { baseVersion: 999_999 },
   "AiBudget.get": undefined,
   "AiBudget.setMany": { entries: [{ scope: "mem_none", limit: 10 }] },
   "AgentLog.list": {},
@@ -600,7 +602,21 @@ const PAYLOADS: Record<string, unknown> = {
   "Data.imports.restore": { importId: "imp_none" },
   "Data.export": { source: { import: "imp_none" }, columns: ["0"] },
   "Data.exports.list": {},
-  "Data.exports.get": { exportId: "exp_none" }
+  "Data.exports.get": { exportId: "exp_none" },
+  // Facturatie (M13 step 1): reading at Bekijken (an invoice's link at `billing.invoices`), every change at Beheren. The
+  // workspace is on its trial with five people: a plan or seats change that leaves too few seats is refused after the
+  // check, and there is nothing to cancel, resume or open in the portal, so nothing is subscribed.
+  "Billing.get": undefined,
+  "Billing.plans": undefined,
+  "Billing.invoices": {},
+  "Billing.invoiceUrl": { id: "in_none" },
+  "Billing.previewChange": { _tag: "seats", delta: 1 },
+  "Billing.changePlan": { plan: "starter", cycle: "monthly" },
+  "Billing.addSeats": { n: 1 },
+  "Billing.removeSeats": { n: 1 },
+  "Billing.cancel": { reason: "other" },
+  "Billing.resume": undefined,
+  "Billing.portalSession": undefined
 }
 
 const manifest = [
@@ -642,7 +658,8 @@ const manifest = [
   ...LiveRpcs.requests.keys(),
   ...AgentRpcs.requests.keys(),
   ...PrivacyRpcs.requests.keys(),
-  ...DataRpcs.requests.keys()
+  ...DataRpcs.requests.keys(),
+  ...BillingRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {
