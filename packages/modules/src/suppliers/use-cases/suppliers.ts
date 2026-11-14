@@ -3,6 +3,7 @@ import { NotFound } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
 import { Effect } from "effect"
 import type { SqlClient, Statement } from "effect/sql"
+import { levelOf, LOW_STOCK, VARIANT_UNITS } from "../../products/domain/Products.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import { type ListInput, SupplierDetail, SupplierList, SupplierRow } from "../domain/Suppliers.ts"
 
@@ -174,10 +175,11 @@ export const get = Effect.fn("Suppliers.get")(function*(id: string) {
         image: string | null
         status: "active" | "draft" | "archived"
         available: number | null
+        lowest: number | null
       }>`
         select p.id, p.title, p.images[1] as image, p.status,
-               (select sum(i.available) from inventory_levels i join variants v on v.id = i.variant_id
-                where v.product_id = p.id and i.source = 'shopify')::int as available
+               (select sum(u.units) from (${sql.literal(VARIANT_UNITS)}) u)::int as available,
+               (select min(u.units) from (${sql.literal(VARIANT_UNITS)}) u)::int as lowest
         from product_supply ps join products p on p.id = ps.product_id
         where ps.supplier_id = ${id} and ps.is_primary and ${yield* inScope(sql, "p.store_id")}
         order by lower(p.title), p.id limit 50`
@@ -188,7 +190,11 @@ export const get = Effect.fn("Suppliers.get")(function*(id: string) {
           and exists (select 1 from order_lines l join product_supply ps on ps.product_id = l.product_id and ps.is_primary
                       where l.order_id = o.id and ps.supplier_id = ${id})
         order by o.placed_at desc limit 8`
-      return new SupplierDetail({ supplier, products, delayedOrders })
+      return new SupplierDetail({
+        supplier,
+        products: products.map(({ lowest, ...p }) => ({ ...p, stock: levelOf(p.available, lowest, LOW_STOCK) })),
+        delayedOrders
+      })
     })
   )
 })

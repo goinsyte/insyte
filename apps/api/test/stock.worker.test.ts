@@ -233,7 +233,11 @@ describe("stock that is real", () => {
       ["L", [["901", 2], ["900", 0]]]
     ])
     expect(await levelsOf(store, "Wollen trui")).toEqual([["Default Title", [["900", 40]]]])
-    expect((await product(store, "Linnen overhemd")).product).toMatchObject({ available: 26, stock: "low" })
+    const linen = (await product(store, "Linnen overhemd")).product
+    expect(linen).toMatchObject({ available: 26, stock: "low" })
+    // The supplier's dialog reads the same units and level (its "{n} bijbestellen").
+    const supplier = ok(await rpc("Suppliers.get", { id: linen.supplierId! }, store.cookie))
+    expect(supplier.products.find((p) => p.id === linen.id)).toMatchObject({ available: 26, stock: "low" })
     expect(await applied(store)).toEqual([])
   })
 
