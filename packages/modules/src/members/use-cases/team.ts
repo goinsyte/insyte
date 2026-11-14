@@ -101,7 +101,7 @@ export const readTeam = Effect.fn("Members.readTeam")(function*(sql: SqlClient.S
   const roles = yield* sql<RoleRow>`
     select id, label, kind, levels, specials, refund_limit_minor, stores from roles
     order by id <> 'owner', kind <> 'system', created_at, id`
-  const stores = yield* storeChoices(sql)
+  const choices = yield* storeChoices(sql)
   const now = Date.now()
   // Someone held to some stores is shown no way in for anyone who would reach further than they do.
   const rolesStores = new Map(roles.map((r) => [r.id, r.stores]))
@@ -178,7 +178,7 @@ export const readTeam = Effect.fn("Members.readTeam")(function*(sql: SqlClient.S
         stores: r.stores
       })
     ),
-    stores
+    stores: choices
   })
 })
 
