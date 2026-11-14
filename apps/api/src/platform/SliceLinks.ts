@@ -2,6 +2,7 @@ import { StoreMirror } from "@insyte/modules/stores/Mirror"
 import { Layer } from "effect"
 import { AgentLinksLive } from "./links/AgentLinks.ts"
 import { ChatCommandsLive } from "./links/ChatCommands.ts"
+import { CostFiguresLive } from "./links/CostFigures.ts"
 import { KlaviyoSyncsLive } from "./links/KlaviyoSyncs.ts"
 import { MirrorFollowersLive } from "./links/MirrorFollowers.ts"
 import { ProposalLinksLive } from "./links/ProposalLinks.ts"
@@ -34,6 +35,7 @@ import { UndoCompensationsLive } from "./links/UndoCompensations.ts"
  *   the Prullenbak  → each kind's own put-back and purge (M17 step 20.1a)
  *   the Marketplace → a recipe app's API key, made, revoked, put back and narrowed by the developer slice (M17)
  *   a sheet export  → the INSYTE() figures from analytics, on the export's transaction (M14 step 4)
+ *   INSYTE()        → Kosten's months (costs, net profit, ROAS, the ad lines), on the figures' transaction (M14.4)
  */
 
 /** Every link between slices, and the mirror other slices write through. */
@@ -51,7 +53,7 @@ export const SliceLinks = StoreMirror.layer.pipe(
       ShopifyReturnsLive,
       ThreadTicketsLive,
       TrashKindsLive,
-      SheetFiguresLive
+      SheetFiguresLive.pipe(Layer.provideMerge(CostFiguresLive))
     )
   )
 )

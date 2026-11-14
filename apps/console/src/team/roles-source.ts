@@ -116,10 +116,10 @@ export function useConsoleRolesSource(data: Roles): RolesSource {
 
   return {
     roles,
-    stores: [],
+    stores: data.stores.map((s) => ({ id: s.id, name: s.name })),
     holders: (role) => {
       const h = data.roles.find((r) => r.id === role.id)?.holders
-      return { members: h?.members ?? [], invites: h?.invites ?? 0, link: h?.link ?? false, keys: 0 }
+      return { members: h?.members ?? [], invites: h?.invites ?? 0, link: h?.link ?? false, keys: h?.keys ?? 0 }
     },
     can: {
       manage: mine !== undefined && canRole(mine, "team", 3)
@@ -178,7 +178,12 @@ export function useConsoleRolesSource(data: Roles): RolesSource {
             levels: p.levels,
             specials: p.specials,
             refundLimit: p.refundLimit,
-            stores: p.stores === "all" ? "all" : [...p.stores]
+            // "Alle winkels" from someone held to some stores is all of theirs: every store lies past their reach.
+            stores: p.stores !== "all"
+              ? [...p.stores]
+              : data.storeScope === null
+              ? "all"
+              : data.stores.map((s) => s.id)
           },
           ...keys
         }))

@@ -1,4 +1,4 @@
-import type { AnalyticsOverview } from "@insyte/modules/analytics/domain/Analytics"
+import type { AnalyticsFigures, AnalyticsOverview } from "@insyte/modules/analytics/domain/Analytics"
 
 /* Analyse's overview in the public shape: the two months' spans and the six figures, each with what it rests on. */
 
@@ -25,4 +25,19 @@ export const overviewV1 = (o: AnalyticsOverview) => ({
   tickets_total: o.basis.tickets,
   first_order_day: o.basis.since,
   unconverted: o.unconverted
+})
+
+/* INSYTE()'s figures in the public shape: one per metric and month, the month resolved, or why there is no number. */
+export const figuresV1 = (f: AnalyticsFigures) => ({
+  currency: f.currency,
+  current_month: f.current,
+  months: f.months,
+  figures: f.figures.map((x) => ({
+    metric: x.metric,
+    month: x.resolved,
+    value: x.value,
+    error: x.error,
+    rows: x.rows,
+    unconverted: x.unconverted
+  }))
 })

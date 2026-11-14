@@ -2,10 +2,17 @@ import type { InvalidRequestV1 } from "@insyte/api/http/Errors"
 import { CurrentApiKey } from "@insyte/api/http/Security"
 import { AnalyticsService } from "@insyte/modules/analytics/Analytics"
 import { Context, Effect, Layer } from "effect"
-import { scopeMissing } from "../shared/errors.ts"
-import { overviewV1 } from "./present.ts"
+import { badQuery, scopeMissing } from "../shared/errors.ts"
+import { figuresV1, overviewV1 } from "./present.ts"
 
-/* Analyse (M19.2, M19.3): month `a` against month `b`, inside the key's stores. */
+/* Analyse (M19.2, M19.3): month `a` against month `b`, and INSYTE()'s figures per month, inside the key's stores. */
+
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
+const METRIC = /^[a-z_]{1,60}$/
+
+const listOf = (
+  text: string
+) => [...new Set(text.split(",").map((x) => x.trim().toLowerCase()).filter((x) => x !== ""))]
 
 const make = Effect.gen(function*() {
   const analytics = yield* AnalyticsService
@@ -26,7 +33,21 @@ const make = Effect.gen(function*() {
                 }
               }))
         })
+      ),
+    figures: (metrics: string, months?: string) => {
+      const named = listOf(metrics)
+      if (named.length === 0 || named.length > 20 || named.some((m) => !METRIC.test(m))) {
+        return badQuery("metrics", "Name one to 20 figures, separated by commas, as INSYTE() names them.")
+      }
+      const wanted = months === undefined ? [] : listOf(months)
+      if (months !== undefined && (wanted.length === 0 || wanted.length > 24 || wanted.some((m) => !MONTH.test(m)))) {
+        return badQuery("months", "Name one to 24 months, YYYY-MM, separated by commas.")
+      }
+      const requests = named.flatMap((metric) =>
+        wanted.length === 0 ? [{ metric }] : wanted.map((month) => ({ metric, month }))
       )
+      return analytics.lookup({ requests }).pipe(Effect.map(figuresV1), Effect.catchTag("Forbidden", scopeMissing))
+    }
   }
 })
 

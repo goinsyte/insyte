@@ -14,3 +14,9 @@ export const narrowStores = (a: StoreAccess, b: StoreAccess): StoreAccess =>
  */
 export const withinScope = (stores: StoreAccess, scope: ReadonlyArray<string> | null): boolean =>
   scope === null || (stores !== "all" && stores.every((s) => scope.includes(s)))
+
+/** A store as a store picker names it: the team's and the roles' pickers offer only those the caller reaches. */
+export class StoreChoice extends Schema.Class<StoreChoice>("shared/StoreChoice")({
+  id: Schema.String,
+  name: Schema.String
+}) {}

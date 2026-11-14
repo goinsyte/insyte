@@ -5,6 +5,7 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient, SqlError } from "effect/sql"
 import { Relay } from "../../shared/domain/Outbox.ts"
+import type { StoreAccess } from "../../shared/domain/Stores.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import { INVITATION_DAYS, InvitationLinks, UNDO_SECONDS } from "../domain/Ports.ts"
 import { SeatLimitReached } from "../domain/Team.ts"
@@ -49,6 +50,19 @@ export const revoke = Effect.fn("Invitations.revoke")(function*(ids: ReadonlyArr
   )
 })
 
+/**
+ * Refused when the invitation would let in someone who reaches past the principal's stores: whoever is held to some
+ * stores does not bring it back, send it again or revive its previous link, as they could not have sent it.
+ */
+const ensureReach = (sql: SqlClient.SqlClient, id: string) =>
+  Effect.gen(function*() {
+    const [row] = yield* sql<{ roleId: string; stores: StoreAccess | null }>`
+      select role_id, stores from invitations where id = ${id} and kind = 'team'`
+    if (row !== undefined && (yield* beyondReach(sql, row.roleId, row.stores ?? "all"))) {
+      return yield* new Invalid({ fields: { stores: "forbidden" } })
+    }
+  })
+
 /** Undo of a revoke: the same invitation and link, if no newer one went to the address and a seat is free. */
 export const restore = Effect.fn("Invitations.restore")(function*(id: string) {
   yield* Policy.require("team", 2)
@@ -56,6 +70,7 @@ export const restore = Effect.fn("Invitations.restore")(function*(id: string) {
   const db = yield* Db
   const { team, outboxIds } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
+      yield* ensureReach(sql, id)
       const seats = yield* seatsIn(sql)
       if (seats.free < 1) return yield* new SeatLimitReached({ total: seats.total, free: 0 })
       const restored = yield* sql<{ id: string }>`
@@ -94,6 +109,7 @@ export const resend = Effect.fn("Invitations.resend")(function*(id: string) {
       const [row] = yield* sql<{ round: number }>`
         select round from invitations where id = ${id} and ${OPEN(sql)} for update`
       if (row === undefined) return yield* new NotFound({ entity: "invitation", id })
+      yield* ensureReach(sql, id)
       const round = row.round + 1
       const { tokenHash } = yield* links.invitation(id, round)
       yield* cancelMail(sql, [id])
@@ -118,6 +134,7 @@ export const undoResend = Effect.fn("Invitations.undoResend")(function*(id: stri
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
+      yield* ensureReach(sql, id)
       const undone = yield* sql<{ id: string }>`
         update invitations set
           round = (previous ->> 'round')::int, token_hash = decode(previous ->> 'token_hash', 'hex'),

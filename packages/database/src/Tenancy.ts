@@ -143,7 +143,9 @@ export const TENANT_TABLES = [
   // Insyte AI (M15 steps 1 and 2): every model call, what it cost; and the drafts a person may take or leave.
   "model_calls",
   "drafts",
-  "ai_reservations"
+  "ai_reservations",
+  // Disputes by the day they were opened (M14 step 1).
+  "fact_disputes_day"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

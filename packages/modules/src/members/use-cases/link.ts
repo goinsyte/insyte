@@ -96,6 +96,11 @@ export const undoRegenerate = Effect.fn("InviteLink.undoRegenerate")(function*()
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
+      // Its previous address lets in at the link's role as much as a new one would.
+      const [row] = yield* sql<{ roleId: string }>`select role_id from invite_links for update`
+      if (row !== undefined && (yield* beyondReach(sql, row.roleId, "all"))) {
+        return yield* new Invalid({ fields: { roleId: "forbidden" } })
+      }
       const undone = yield* sql<{ round: number }>`
         update invite_links set
           round = (previous ->> 'round')::int, token_hash = decode(previous ->> 'token_hash', 'hex'),

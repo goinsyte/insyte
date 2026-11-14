@@ -1,13 +1,13 @@
 import { Db } from "@insyte/database/Db"
 import { Effect } from "effect"
-import type { SqlClient } from "effect/sql"
+import type { SqlClient, Statement } from "effect/sql"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import { FactsRange, type RangeInput } from "../domain/Facts.ts"
 
 /*
  * The daily facts (M10.4), kept from the rows. Triggers mark which store-days a write touched (`fact_dirty_days`,
- * migration 0047); `drain` takes a batch of marks and recomputes each of those days whole, in all three tables, from
- * the rows as they are now, then drops the marks. Recomputing rather than adding makes a replayed or reordered event
+ * migration 0047); `drain` takes a batch of marks and recomputes each of those days whole, in every fact table, from
+ * the rows as they are now (disputes too, migration 0078), then drops the marks. Recomputing rather than adding makes a replayed or reordered event
  * harmless, and makes the incremental path and a full rebuild the same query. The relay's `facts` sink drains a batch
  * after every order-ish change; the 15-minute sweep drains what is left, and once a night marks every store's last
  * three days first. Everything here runs in a transaction already scoped to one workspace.
@@ -59,7 +59,7 @@ const share = (value: string) =>
   `(floor(${value} * s.weight)::bigint + case when s.rank = 1
      then ${value} - sum(floor(${value} * s.weight)::bigint) over (partition by s.order_id) else 0 end)`
 
-/** Recomputes these store-days in all three fact tables, from the rows. */
+/** Recomputes these store-days in every store-day fact table, from the rows. */
 export const rebuild = Effect.fn("Facts.rebuild")(function*(sql: SqlClient.SqlClient, marks: ReadonlyArray<Mark>) {
   if (marks.length === 0) return
   const json = [JSON.stringify(marks.map((m) => ({ store_id: m.storeId, day: m.day })))]
@@ -203,7 +203,18 @@ export const rebuild = Effect.fn("Facts.rebuild")(function*(sql: SqlClient.SqlCl
     group by workspace_id, store_id, day, supplier_id, country`,
     json
   )
+
+  // Disputes by the day they were opened, in the same store-days (migration 0078 keeps them on every write).
+  yield* sql`
+    select facts_disputes_rebuild(app_workspace_id(), ${marks.map((m) => m.storeId)}::text[],
+                                  ${marks.map((m) => m.day)}::date[])`
 })
+
+/** The workspace's cases without a store, on these workspace days, recomputed (they hold no store-day to mark). */
+const rebuildUnstored = (sql: SqlClient.SqlClient, days: Statement.Fragment) =>
+  sql`
+    select facts_disputes_rebuild(app_workspace_id(), array_agg(null::text), array_agg(d.day))
+    from (${days}) d(day)`
 
 /**
  * One batch of marked days recomputed and unmarked; how many. Marks another transaction holds (a concurrent drain) are
@@ -231,6 +242,11 @@ export const markRecent = Effect.fn("Facts.markRecent")(function*(sql: SqlClient
     from stores s join workspaces w on w.id = s.workspace_id cross join generate_series(0, 2) as back
     on conflict (store_id, day) do nothing
     returning store_id`
+  yield* rebuildUnstored(
+    sql,
+    sql`select (now() at time zone w.timezone)::date - back from workspaces w
+        cross join generate_series(0, 2) as back where w.id = app_workspace_id()`
+  )
   return marked.length
 })
 
@@ -239,8 +255,16 @@ export const markAll = Effect.fn("Facts.markAll")(function*(sql: SqlClient.SqlCl
   yield* sql`delete from fact_orders_day`
   yield* sql`delete from fact_refunds_day`
   yield* sql`delete from fact_deliveries_day`
+  yield* sql`delete from fact_disputes_day`
   yield* sql`
     select facts_mark(array_agg(id), array_agg(null::timestamptz)) from orders`
+  yield* sql`
+    select facts_mark_days(array_agg(store_id), array_agg(opened_at)) from chargebacks where store_id is not null`
+  yield* rebuildUnstored(
+    sql,
+    sql`select distinct (c.opened_at at time zone w.timezone)::date from chargebacks c
+        join workspaces w on w.id = c.workspace_id where c.store_id is null`
+  )
 })
 
 /**

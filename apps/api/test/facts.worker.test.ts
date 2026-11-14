@@ -10,6 +10,17 @@ import { call, rpc, sessionMe } from "./support.ts"
  * takes the order out of its placed day's revenue.
  */
 
+type Dispute = {
+  storeId: string | null
+  day: string
+  reason: string
+  currency: string
+  opened: number
+  won: number
+  lost: number
+  amountMinor: number
+}
+
 type Facts = {
   orders: Array<
     {
@@ -39,6 +50,8 @@ type Facts = {
       tookDaysSum: number
     }
   >
+  disputes: Array<Dispute>
+  liveDisputes: Array<Dispute>
   marked: Array<{ storeId: string; day: string }>
   live: Array<{ storeId: string; day: string; currency: string; countedOrders: number; countedRevenueMinor: number }>
   liveRefunds: Array<{ storeId: string; day: string; currency: string; refunds: number; amountMinor: number }>
@@ -51,6 +64,15 @@ const drain = async (workspace: string, nightly = false) =>
   await (await call(`http://api.test/api/__dev/facts/drain?workspace=${workspace}${nightly ? "&nightly=1" : ""}`, {
     method: "POST"
   })).json() as { marked: number; drained: number }
+
+const cases = async (workspace: string, body: unknown) => {
+  const response = await call(`http://api.test/api/__dev/facts/disputes?workspace=${workspace}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  })
+  expect(response.status).toBe(200)
+}
 
 const rebuild = (workspace: string) =>
   call(`http://api.test/api/__dev/facts/rebuild?workspace=${workspace}`, { method: "POST" })
@@ -284,5 +306,99 @@ describe("the daily facts", () => {
     facts = await factsOf(store.workspace)
     expect(facts.marked).toEqual([])
     expect(counted(facts)).toEqual(facts.live)
+  })
+
+  it("keeps disputes by the day they were opened, the store's or the team's, as a rebuild would (M14.1)", async () => {
+    const store = await seeded("disputes")
+    // New York: a case at 03:30 UTC on 2 March is the store's 1 March.
+    await write(store.workspace, store.storeId, { timezone: "America/New_York" })
+    await drain(store.workspace)
+    const same = async () => {
+      const facts = await factsOf(store.workspace)
+      expect(facts.disputes).toEqual(facts.liveDisputes)
+      return facts
+    }
+    const mine = (facts: Facts, day: string, storeId: string | null) =>
+      facts.disputes.filter((d) => d.day === day && d.storeId === storeId)
+
+    await cases(store.workspace, {
+      insert: [
+        {
+          caseNumber: "DSP-F1",
+          storeId: store.storeId,
+          openedAt: "2026-03-02T03:30:00Z",
+          reason: "item_not_received",
+          amountMinor: 5000
+        },
+        {
+          caseNumber: "DSP-F2",
+          storeId: store.storeId,
+          openedAt: "2026-03-01T15:00:00Z",
+          reason: "item_not_received",
+          status: "won",
+          amountMinor: 2000
+        },
+        // By hand, without a store: the workspace's day, the whole team's.
+        { caseNumber: "DSP-F3", openedAt: "2026-03-05T10:00:00Z", reason: "other", status: "lost", amountMinor: 3000 },
+        {
+          caseNumber: "DSP-F4",
+          storeId: store.storeId,
+          openedAt: "2026-03-01T16:00:00Z",
+          reason: "unauthorized",
+          currency: "USD",
+          amountMinor: 700
+        }
+      ]
+    })
+    let facts = await same()
+    expect(mine(facts, "2026-03-01", store.storeId)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        reason: "item_not_received",
+        currency: "EUR",
+        opened: 2,
+        won: 1,
+        lost: 0,
+        amountMinor: 7000
+      }),
+      expect.objectContaining({ reason: "unauthorized", currency: "USD", opened: 1, amountMinor: 700 })
+    ]))
+    expect(mine(facts, "2026-03-05", null)).toEqual([
+      expect.objectContaining({ reason: "other", opened: 1, lost: 1, amountMinor: 3000 })
+    ])
+
+    // An outcome counts on the day the case was opened; a case moved to another day leaves its old one.
+    await cases(store.workspace, {
+      update: [{ caseNumber: "DSP-F1", status: "lost" }, { caseNumber: "DSP-F2", openedAt: "2026-03-10T15:00:00Z" }]
+    })
+    facts = await same()
+    expect(mine(facts, "2026-03-01", store.storeId).find((d) => d.reason === "item_not_received")).toMatchObject({
+      opened: 1,
+      won: 0,
+      lost: 1,
+      amountMinor: 5000
+    })
+    expect(mine(facts, "2026-03-10", store.storeId)).toEqual([expect.objectContaining({ opened: 1, won: 1 })])
+
+    // A case taken out of its store becomes the team's, on the workspace's day; one removed leaves nothing behind.
+    await cases(store.workspace, { update: [{ caseNumber: "DSP-F4", storeId: null }], remove: ["DSP-F3"] })
+    facts = await same()
+    expect(facts.disputes.some((d) => d.reason === "unauthorized" && d.storeId === null)).toBe(true)
+    expect(mine(facts, "2026-03-05", null)).toEqual([])
+
+    // A rebuild from scratch leaves exactly what the trigger kept, and so does the nightly pass.
+    const kept = facts.disputes
+    expect((await rebuild(store.workspace)).status).toBe(200)
+    expect((await same()).disputes).toEqual(kept)
+    await drain(store.workspace, true)
+    expect((await same()).disputes).toEqual(kept)
+
+    // The store moves to Amsterdam: its cases fall on the days they fall on there.
+    await write(store.workspace, store.storeId, { timezone: "Europe/Amsterdam" })
+    await drain(store.workspace)
+    facts = await same()
+    expect(facts.marked).toEqual([])
+    expect(mine(facts, "2026-03-02", store.storeId)).toEqual([
+      expect.objectContaining({ reason: "item_not_received", opened: 1, lost: 1 })
+    ])
   })
 })

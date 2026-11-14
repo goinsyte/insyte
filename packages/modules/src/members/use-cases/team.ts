@@ -6,6 +6,7 @@ import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import { seatsOf } from "../../shared/domain/Billing.ts"
 import { narrowStores, withinScope } from "../../shared/domain/Stores.ts"
+import { storeChoices } from "../../shared/use-cases/StoreScope.ts"
 import { InvitationLinks } from "../domain/Ports.ts"
 import { InviteLink, PendingInvitation, Seats, type StoreAccess, Team, TeamMember, TeamRole } from "../domain/Team.ts"
 
@@ -100,6 +101,7 @@ export const readTeam = Effect.fn("Members.readTeam")(function*(sql: SqlClient.S
   const roles = yield* sql<RoleRow>`
     select id, label, kind, levels, specials, refund_limit_minor, stores from roles
     order by id <> 'owner', kind <> 'system', created_at, id`
+  const choices = yield* storeChoices(sql)
   const now = Date.now()
   // Someone held to some stores is shown no way in for anyone who would reach further than they do.
   const rolesStores = new Map(roles.map((r) => [r.id, r.stores]))
@@ -107,6 +109,7 @@ export const readTeam = Effect.fn("Members.readTeam")(function*(sql: SqlClient.S
     mayInvite && withinScope(narrowStores(rolesStores.get(roleId) ?? "all", stores), principal.storeScope)
   return new Team({
     me: principal.id,
+    storeScope: principal.storeScope,
     members: members.map((m) =>
       new TeamMember({
         id: m.id,
@@ -174,7 +177,8 @@ export const readTeam = Effect.fn("Members.readTeam")(function*(sql: SqlClient.S
         refundLimit: r.refundLimitMinor === null ? null : Number(r.refundLimitMinor) / 100,
         stores: r.stores
       })
-    )
+    ),
+    stores: choices
   })
 })
 

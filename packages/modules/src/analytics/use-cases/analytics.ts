@@ -34,6 +34,9 @@ import {
   daysIn,
   deliveredOrders,
   deliveriesBy,
+  disputedOrderIds,
+  disputesBy,
+  type DisputesCell,
   footnote,
   hoursOf,
   monthsBetween,
@@ -115,6 +118,8 @@ export const overview = Effect.fn("Analytics.overview")(function*(input: PairInp
       const [oa, ob] = [yield* ordersBy(sql, A, []), yield* ordersBy(sql, B, [])]
       const [da, dbs] = [yield* deliveriesBy(sql, A, []), yield* deliveriesBy(sql, B, [])]
       const [ta, tb] = [yield* ticketsBy(sql, A), yield* ticketsBy(sql, B)]
+      const [xa, xb] = [yield* disputesBy(sql, A, []), yield* disputesBy(sql, B, [])]
+      const opened = (cells: typeof xa) => sumOf(cells, (c) => c.opened)
       const o = (cells: typeof oa) => ({
         orders: sumOf(cells, (c) => c.orders),
         counted: sumOf(cells, (c) => c.counted),
@@ -160,8 +165,13 @@ export const overview = Effect.fn("Analytics.overview")(function*(input: PairInp
           available: true,
           basis: { rows: "orders", by: "placed", a: a.orders, b: b.orders }
         },
-        // Chargebacks are not kept yet (M13): the figure says so rather than reading zero.
-        { id: "disputes", a: null, b: null, available: false, basis: { rows: "disputes", by: "opened", a: 0, b: 0 } },
+        {
+          id: "disputes",
+          a: opened(xa),
+          b: opened(xb),
+          available: true,
+          basis: { rows: "disputes", by: "opened", a: opened(xa), b: opened(xb) }
+        },
         {
           id: "resolve_hours",
           a: hoursOf(ta),
@@ -279,7 +289,10 @@ export const charts = Effect.fn("Analytics.charts")(function*(input: PairInput) 
         daily,
         leadTimes,
         refundReasons: reasonsOf(yield* refundsBy(sql, A), yield* refundsBy(sql, B)),
-        disputeReasons: null,
+        disputeReasons: reasonsOf(
+          (yield* disputesBy(sql, A, ["reason"])).map((c) => ({ reason: c.dims["reason"] ?? null, refunds: c.opened })),
+          (yield* disputesBy(sql, B, ["reason"])).map((c) => ({ reason: c.dims["reason"] ?? null, refunds: c.opened }))
+        ),
         supportByWeekday
       })
     })
@@ -306,6 +319,7 @@ export const findings = Effect.fn("Analytics.findings")(function*(input: PairInp
       ]
       const [rA, rB] = [yield* refundsBy(sql, A), yield* refundsBy(sql, B)]
       const [tA, tB] = [yield* ticketsBy(sql, A), yield* ticketsBy(sql, B)]
+      const [xA, xB] = [yield* disputesBy(sql, A, ["reason"]), yield* disputesBy(sql, B, ["reason"])]
       const ids = (cells: ReadonlyArray<{ dims: Readonly<Record<string, string | null>> }>, dim: string) =>
         cells.flatMap((c) => (c.dims[dim] ? [c.dims[dim]] : []))
       const names = yield* namesOf(sql, {
@@ -317,6 +331,10 @@ export const findings = Effect.fn("Analytics.findings")(function*(input: PairInp
         Detect.revenue(psA, psB, names),
         Detect.delivery(scA, scB, names),
         Detect.refunds(rA, rB, prodA, prodB, names),
+        Detect.disputes(xA, xB, {
+          notReceived: sumOf(xA.filter((c) => c.dims["reason"] === "item_not_received"), (c) => c.opened),
+          arrivedLate: yield* arrivedLate(sql, A)
+        }),
         Detect.support(tA, tB),
         Detect.growth(chA, chB, names)
       ].filter((f) => f !== undefined)
@@ -332,6 +350,21 @@ export const findings = Effect.fn("Analytics.findings")(function*(input: PairInp
       })
     })
   )
+})
+
+/** Of the orders A's "not received" cases name, those that arrived more than two days past their promise. */
+const arrivedLate = Effect.fn("Analytics.arrivedLate")(function*(sql: SqlClient.SqlClient, A: Span) {
+  const scope = yield* inScope(sql, "o.store_id")
+  const [row] = yield* sql<{ n: number }>`
+    select count(*)::int as n from orders o
+    cross join lateral (
+      select case when bool_and(coalesce(d.delivered_at, f.delivered_at) is not null)
+                  then max(coalesce(d.delivered_at, f.delivered_at)) end as at
+      from fulfilments f left join deliveries d on d.fulfilment_id = f.id
+      where f.order_id = o.id and f.status not in ('cancelled', 'error', 'failure')) a
+    where o.id in (${disputedOrderIds(sql, scope, A.from, A.to, "item_not_received")})
+      and o.promised_by is not null and a.at > o.promised_by + interval '2 days'`
+  return row?.n ?? 0
 })
 
 /** The orders behind a key in A, as a select of `id`; none for tickets. */
@@ -363,6 +396,10 @@ const idsOf = Effect.fn("Analytics.ids")(function*(sql: SqlClient.SqlClient, A: 
       return sql`select d.id from ${deliveredOrders(sql, dscope, A.from, A.to)} d
                  where d.late and ${supplier} and ${country}`
     }
+    case "disputes":
+      return disputedOrderIds(sql, scope, A.from, A.to, null)
+    case "dispute_reason":
+      return disputedOrderIds(sql, scope, A.from, A.to, key.reason)
     case "weekday":
       return undefined
   }
@@ -472,6 +509,27 @@ export const explain = Effect.fn("Analytics.explain")(function*(ref: ExplainRef)
             .filter((m) => m.a > 0)
             .sort((x, y) => y.a - x.a)
             .map((m) => driver("topic", m.k, null, m.a, 0, m.a))
+          break
+        }
+        case "disputes":
+        case "dispute_reason": {
+          // All of A's cases by reason, or one reason's by store; a store-less case is the team's ("").
+          const reason = key._tag === "dispute_reason" ? key.reason : null
+          const dim = reason === null ? "reason" : "store_id"
+          const mine = (cells: ReadonlyArray<DisputesCell>) =>
+            reason === null ? cells : cells.filter((c) => c.dims["reason"] === reason)
+          const ca = mine(yield* disputesBy(sql, A, ["reason", "store_id"]))
+          const cb = mine(yield* disputesBy(sql, B, ["reason", "store_id"]))
+          a = sumOf(ca, (c) => c.opened)
+          b = sumOf(cb, (c) => c.opened)
+          of = sumOf(ca, (c) => c.amount)
+          const by = (c: DisputesCell) => c.dims[dim] ?? ""
+          const names = yield* namesOf(sql, { stores: reason === null ? [] : [...ca, ...cb].map(by) })
+          drivers = paired(ca, cb, by, (c) => c.opened).map((m) =>
+            reason === null ?
+              driver("dispute_reason", m.k, null, m.a, m.b, m.a) :
+              driver("store", m.k, names.stores.get(m.k) ?? null, m.a, m.b, m.a)
+          )
           break
         }
         case "product_store":

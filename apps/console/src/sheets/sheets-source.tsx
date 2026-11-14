@@ -101,8 +101,6 @@ const monthOf = (id: string): SheetMonth => {
 }
 
 const WAITS: Record<string, string> = {
-  costs: "Dit cijfer komt uit Kosten, en dat staat nog niet in Insyte. Het is nog niet beschikbaar.",
-  chargebacks: "Chargebacks houdt Insyte nog niet bij, dus dit cijfer is nog niet beschikbaar.",
   channels: "Omzet per marketingkanaal houdt Insyte nog niet bij, dus dit cijfer is nog niet beschikbaar."
 }
 
