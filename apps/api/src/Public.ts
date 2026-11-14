@@ -1,6 +1,6 @@
 import { HttpRouter } from "effect/http"
 import type { Env } from "./platform/Env.ts"
-import { Telemetry } from "./platform/Observability.ts"
+import { flushAtRequestEnd, Telemetry } from "./platform/Observability.ts"
 import { PublicLayer } from "./platform/PublicLayer.ts"
 import { continueTrace } from "./platform/Tracing.ts"
 
@@ -12,12 +12,21 @@ import { continueTrace } from "./platform/Tracing.ts"
  */
 
 /** Module scope: the layer is built once per isolate, and building it does no request-time I/O. */
-const web = HttpRouter.toWebHandler(PublicLayer)
+const web = HttpRouter.toWebHandler(PublicLayer, { middleware: flushAtRequestEnd })
 
 export default {
   async fetch(request, _env, ctx) {
-    const response = await web.handler(continueTrace(request))
-    ctx.waitUntil(Telemetry.flush()) // spans leave after the response is out (17 §1)
+    // This request's own exporter (`Observability.ts`); its spans leave once the response, streamed or not, is out
+    // (17 §1).
+    const spans = Telemetry.open()
+    let response: Response
+    try {
+      response = await web.handler(continueTrace(request), spans.context)
+    } catch (error) {
+      ctx.waitUntil(spans.flush())
+      throw error
+    }
+    ctx.waitUntil(spans.flushAfterRequest())
     return response
   }
 } satisfies ExportedHandler<Env>

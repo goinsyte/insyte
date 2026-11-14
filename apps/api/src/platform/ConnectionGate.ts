@@ -12,7 +12,7 @@ import { Cause, Effect, Exit, Layer, ManagedRuntime, Redacted, Scheduler } from 
 import { FetchHttpClient } from "effect/http"
 import { AppInfo, ConfigLive } from "./Bindings.ts"
 import { HyperdriveConnect } from "./Hyperdrive.ts"
-import { ObservabilityLive } from "./Observability.ts"
+import { ObservabilityLive, Telemetry } from "./Observability.ts"
 import { withRequestDb } from "./RequestDb.ts"
 import { SealerLive } from "./Seal.ts"
 import { ShopifyAdminChoice } from "./Shopify.ts"
@@ -104,7 +104,11 @@ export class ConnectionGateObject extends DurableObject<Cloudflare.Env> {
     const program = withRequestDb(accessToken(connectionId)).pipe(
       Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId })
     )
-    const exit = await gateRuntime().runPromiseExit(program as Effect.Effect<Effect.Success<typeof program>, unknown>)
+    // The call's own spans, sent before it answers (`Observability.ts`).
+    const exit = await Telemetry.runExit(
+      gateRuntime(),
+      program as Effect.Effect<Effect.Success<typeof program>, unknown>
+    )
     if (Exit.isSuccess(exit)) {
       this.#token = { token: Redacted.value(exit.value.token), until: exit.value.until }
       return { ...this.#token, refused: null }

@@ -46,15 +46,21 @@ export const RelayLive = Layer.succeed(Relay, {
 
 const decodeEvent = Schema.decodeUnknownEffect(Schema.toType(Schema.Struct({ type: Schema.String })))
 
+/** The longest a queue message can be delayed (Cloudflare Queues: 12 hours). */
+const MAX_DELAY_SECONDS = 43_200
+
 /**
  * Delivers these events, each in its workspace's scope, each sink once; then, outside the event's transaction, the
- * runs of the webhook deliveries it made (a run that started inside it could look for a row not yet committed).
+ * runs of the webhook deliveries it made (a run that started inside it could look for a row not yet committed). An
+ * event that arrives inside its undo window goes back onto the queue for the time it has left: acked and dropped, it
+ * waited for the cron's sweep, which previews do not run.
  */
 export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyArray<string>) {
   const db = yield* Db
   const owners = yield* db.unscopedForCron((sql) =>
     sql<{ id: string; workspaceId: string }>`select id, workspace_id from outbox_workspaces(${[...outboxIds]})`
   )
+  const early: Array<{ readonly id: string; readonly seconds: number }> = []
   for (const { id, workspaceId } of owners) {
     const relayed = yield* db.scopedFor((sql) =>
       Effect.gen(function*() {
@@ -65,13 +71,17 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
             relayedAt: Date | null
             cancelled: boolean
             early: boolean
+            waitSeconds: number
           }
         >`
           select event, payload, relayed_at, cancelled_at is not null as cancelled,
-                 coalesce(not_before, created_at) > now() as early
+                 coalesce(not_before, created_at) > now() as early,
+                 greatest(1, ceil(extract(epoch from coalesce(not_before, created_at) - now())))::int as wait_seconds
           from outbox where id = ${id} for update skip locked`
-        // Relayed already, undone, or still inside its undo window (the sweep brings it when it is due).
-        if (row === undefined || row.relayedAt !== null || row.cancelled || row.early) return undefined
+        // Relayed already, or undone: nothing to do.
+        if (row === undefined || row.relayedAt !== null || row.cancelled) return undefined
+        // Still inside its undo window: back onto the queue for the rest of it (below, after the transaction).
+        if (row.early) return { early: row.waitSeconds } as const
         yield* decodeEvent({ type: row.event })
         const event = { type: row.event, ...row.payload } as OutboxEvent
         for (const route of ROUTES.get(event.type) ?? []) {
@@ -82,18 +92,34 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
           if (claimed.length > 0) yield* run
         }
         yield* sql`update outbox set relayed_at = now(), attempts = attempts + 1 where id = ${id}`
-        return event
+        return { event }
       })
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId }))
-    if (relayed !== undefined && isWebhookSource(relayed)) yield* startWebhookRuns(id, relayed)
+    if (relayed === undefined) continue
+    if ("early" in relayed) {
+      early.push({ id, seconds: relayed.early })
+      continue
+    }
+    if (isWebhookSource(relayed.event)) yield* startWebhookRuns(id, relayed.event)
     // A ticket's topic by Insyte AI (M15 step 2): its own message on the queue, so a model call that takes seconds
     // holds up no other event. Sent once, when the event is relayed; the rules' topic stands until it is done.
-    if (relayed?.type === "ticket.topic_requested") {
-      const message: EventsMessage = { classifyTicket: { workspaceId, ticketId: relayed.ticketId } }
+    if (relayed.event.type === "ticket.topic_requested") {
+      const message: EventsMessage = { classifyTicket: { workspaceId, ticketId: relayed.event.ticketId } }
       yield* Effect.tryPromise(() => env.EVENTS.send(message)).pipe(
         Effect.catchCause((cause) => Effect.logWarning("a ticket's topic was not asked for", { cause }))
       )
     }
+  }
+  // Once the whole batch has gone through: a batch that fails later is retried, and would send these again each time.
+  // A hundred messages per `sendBatch`, the Queues limit.
+  for (let at = 0; at < early.length; at += 100) {
+    const chunk = early.slice(at, at + 100)
+    yield* Effect.promise(() =>
+      env.EVENTS.sendBatch(chunk.map(({ id, seconds }) => ({
+        body: { outboxIds: [id] } satisfies EventsMessage,
+        delaySeconds: Math.min(seconds, MAX_DELAY_SECONDS)
+      })))
+    )
   }
 })
 
