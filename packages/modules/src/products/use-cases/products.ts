@@ -8,6 +8,7 @@ import { likePattern, SearchHit } from "../../shared/domain/Search.ts"
 import { compileFilter, decodeCursor, encodeCursor, type Whitelist } from "../../shared/tables/FilterSql.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import {
+  levelOf,
   LOW_STOCK,
   type LowStockInput,
   LowStockPage,
@@ -15,7 +16,7 @@ import {
   ProductDetail,
   ProductPage,
   ProductRow,
-  type StockLevel
+  VARIANT_UNITS
 } from "../domain/Products.ts"
 
 /*
@@ -36,11 +37,6 @@ const DELIVERIES = 20
 const RECENT_LINES = 60
 /** An order still open after this many days is not counted as open by the low-stock list. */
 const OPEN_DAYS = 90
-
-/** Each counted variant's units: tracked, with at least one Shopify count, each count at nothing or more. */
-const VARIANT_UNITS = `select sum(greatest(i.available, 0)) as units from variants v
-     join inventory_levels i on i.variant_id = v.id and i.source = 'shopify'
-     where v.product_id = p.id and v.tracked is not false group by v.id`
 
 export const PRODUCT_FIELDS: Whitelist = {
   status: { column: "p.status", type: "option" },
@@ -75,16 +71,6 @@ export interface Row {
   readonly leadDays: number | null
   readonly externalUpdatedAt: Date
 }
-
-/** Out when every counted variant is at nothing, low by its emptiest one, else in stock; nothing without a count. */
-export const levelOf = (available: number | null, lowest: number | null, threshold: number): StockLevel | null =>
-  available === null || lowest === null
-    ? null
-    : available <= 0
-    ? "out"
-    : lowest <= threshold
-    ? "low"
-    : "available"
 
 export const toRow = (r: Row, delivery?: ReadonlyMap<string, number>) =>
   new ProductRow({

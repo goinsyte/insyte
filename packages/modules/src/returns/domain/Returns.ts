@@ -109,9 +109,10 @@ export const ReturnCounts = Schema.Struct({
 })
 
 export const ListInput = Schema.Struct({
-  /** One order's or one customer's; absent, the queue. */
+  /** One order's, one customer's, or those with a line of one product (its page's Retouren); absent, the queue. */
   orderId: Schema.optional(Schema.String),
   customerId: Schema.optional(Schema.String),
+  productId: Schema.optional(Schema.String),
   limit: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(500)))
 })
 

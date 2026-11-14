@@ -15,6 +15,21 @@ export const LOW_STOCK = 12
 export const StockLevel = Schema.Literals(["available", "low", "out"])
 export type StockLevel = typeof StockLevel.Type
 
+/** Each counted variant's units of the product `p`: tracked, with at least one Shopify count, each at nothing or more. */
+export const VARIANT_UNITS = `select sum(greatest(i.available, 0)) as units from variants v
+     join inventory_levels i on i.variant_id = v.id and i.source = 'shopify'
+     where v.product_id = p.id and v.tracked is not false group by v.id`
+
+/** Out when every counted variant is at nothing, low by its emptiest one, else in stock; nothing without a count. */
+export const levelOf = (available: number | null, lowest: number | null, threshold: number): StockLevel | null =>
+  available === null || lowest === null
+    ? null
+    : available <= 0
+    ? "out"
+    : lowest <= threshold
+    ? "low"
+    : "available"
+
 export class ProductRow extends Schema.Class<ProductRow>("products/ProductRow")({
   id: Schema.String,
   storeId: Schema.String,

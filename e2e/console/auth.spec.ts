@@ -330,14 +330,16 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   await page.getByRole("link", { name: "Bestellingen" }).first().click()
   await expect(page.getByRole("row", { name: /#1005/ })).toBeVisible()
 
-  // @customer @product (step 8.4e): a customer opens over Klanten with their orders, each of which opens; a product
-  // opens over Producten with its variants and the way into its store's Shopify admin, and its URL is a page.
+  // @customer @product (step 8.4e): a customer opens over Klanten with their orders, each of which opens, and a follow-up
+  // ticket about them is one click; a product opens over Producten with its variants, its Retouren block and the way into
+  // its store's Shopify admin, and its URL is a page.
   await page.goto("/customers")
   await hydrated(page)
   await page.getByRole("row", { name: /Anna de Vries/ }).click()
   const profile = page.getByRole("dialog")
   await expect(profile.getByRole("link", { name: "#1002" })).toBeVisible()
-  await expect(profile.getByRole("button", { name: "Nieuw ticket" })).toHaveCount(0)
+  await profile.getByRole("button", { name: "Nieuw ticket" }).click()
+  await expect(page.getByText(/^#\d+ geopend voor Anna de Vries$/)).toBeVisible()
   await profile.getByRole("link", { name: "#1002" }).click()
   await expect(page.getByRole("heading", { name: "#1002" })).toBeVisible()
   await page.goto("/products")
@@ -347,6 +349,7 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   await expect(item.getByText("LIN-L")).toBeVisible()
   // Its stock, from the import's count per location: 24 of the M and 38 of the L.
   await expect(item.getByText(/^62 op voorraad/)).toBeVisible()
+  await expect(item.getByRole("link", { name: "Alle retouren" })).toBeVisible()
   // Its photographs, featured first, each asked for at the size it is shown.
   await expect(item.getByRole("button", { name: /^Foto \d van 3 bekijken$/ })).toHaveCount(3)
   await expect(item.getByRole("link", { name: "Openen in Shopify" })).toHaveAttribute(

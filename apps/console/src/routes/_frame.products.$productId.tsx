@@ -12,6 +12,7 @@ import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { productAtom, productsAtom } from "../data/products.ts"
 import { storesAtom } from "../data/stores.ts"
 import { arrivingProductDetail, useConsoleProductDetail } from "../products/product-detail-source.ts"
+import { useConsoleProductReturns } from "../products/product-returns.tsx"
 import { useConsoleQuality } from "../quality/quality-source.tsx"
 
 /**
@@ -91,10 +92,11 @@ function ProductRoute() {
 
 function Loaded({ detail, shopDomain }: { detail: Detail; shopDomain: string | undefined }) {
   const { tab } = Route.useSearch()
+  const source = useConsoleProductDetail(detail, shopDomain, useConsoleQuality(detail.product.id, tab ?? "overview"))
+  // The Retouren block, where the role reads returns (M9 11.6).
+  const Returns = useConsoleProductReturns()
   return (
-    <ProductDetailSourceProvider
-      value={useConsoleProductDetail(detail, shopDomain, useConsoleQuality(detail.product.id, tab ?? "overview"))}
-    >
+    <ProductDetailSourceProvider value={Returns === undefined ? source : { ...source, Returns }}>
       <ProductDetail />
     </ProductDetailSourceProvider>
   )

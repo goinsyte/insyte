@@ -4,6 +4,7 @@ import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
 import { ConsoleClient } from "./client.ts"
+import { RETURNS } from "./returns.ts"
 
 /*
  * Kwaliteit (M9.4): one product's checks, complaints, rate and phase, read when its tab opens; the commands, each
@@ -20,6 +21,23 @@ export const qualityAtom = Atom.family((productId: string) =>
     schema: AsyncResult.Schema({ success: QualityView, error: errors }),
     skipInitialRun: true
   })
+)
+
+/**
+ * The figures per product (the list's Aandacht cuts over the products it shows, keyed by their ids joined with commas;
+ * the product's Retouren block) and per supplier (the suppliers'
+ * quality columns), over the last 90 days. A verdict, a check and a return change them.
+ */
+export const productStatsAtom = Atom.family((ids: string) =>
+  ConsoleClient.query("Quality.stats", { productIds: ids === "" ? [] : ids.split(",") }, {
+    reactivityKeys: [...QUALITY, ...RETURNS]
+  })
+)
+export const supplierStatsAtom = ConsoleClient.query("Quality.stats", { bySupplier: true }, {
+  reactivityKeys: [...QUALITY, ...RETURNS]
+})
+export const productFiguresAtom = Atom.family((productId: string) =>
+  ConsoleClient.query("Quality.stats", { productId }, { reactivityKeys: [...QUALITY, ...RETURNS] })
 )
 
 export const qualityWrites = {

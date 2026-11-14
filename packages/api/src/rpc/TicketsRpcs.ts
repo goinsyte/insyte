@@ -8,6 +8,8 @@ import {
   ListInput,
   MemberNotActive,
   ReorderInput,
+  RestockChange,
+  RestockInput,
   SetStatusInput,
   SnoozeInput,
   TicketChange,
@@ -39,6 +41,11 @@ export class TicketsRpcs extends RpcGroup.make(
     payload: CreateInput,
     success: TicketChange,
     error: Schema.Union([Forbidden, NotFound, Invalid, MemberNotActive])
+  }),
+  Rpc.make("Tickets.restock", {
+    payload: RestockInput,
+    success: RestockChange,
+    error: Schema.Union([Forbidden, NotFound])
   }),
   Rpc.make("Tickets.duplicate", {
     payload: IdInput,

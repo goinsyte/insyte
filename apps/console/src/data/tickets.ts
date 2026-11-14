@@ -41,6 +41,7 @@ export const ticketCountsAtom = ConsoleClient.query("Nav.counts", { area: "ticke
 
 export const ticketWrites = {
   create: ConsoleClient.mutation("Tickets.create"),
+  restock: ConsoleClient.mutation("Tickets.restock"),
   duplicate: ConsoleClient.mutation("Tickets.duplicate"),
   update: ConsoleClient.mutation("Tickets.update"),
   setStatus: ConsoleClient.mutation("Tickets.setStatus"),

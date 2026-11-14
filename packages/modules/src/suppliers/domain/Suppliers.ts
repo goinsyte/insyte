@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { StockLevel } from "../../products/domain/Products.ts"
 
 /*
  * Suppliers as the console reads them (M8.1; domain.md §5, widgets/03 `/suppliers`). Each row carries its standing,
@@ -72,7 +73,9 @@ export const SupplierProduct = Schema.Struct({
   image: Schema.NullOr(Schema.String),
   status: Schema.Literals(["active", "draft", "archived"]),
   /** Units over every location as Shopify reports them; `null` until inventory is mirrored. */
-  available: Schema.NullOr(Schema.Int)
+  available: Schema.NullOr(Schema.Int),
+  /** `available` against the low-stock threshold by its emptiest variant, as the products list reads it. */
+  stock: Schema.NullOr(StockLevel)
 })
 
 export class SupplierDetail extends Schema.Class<SupplierDetail>("suppliers/SupplierDetail")({

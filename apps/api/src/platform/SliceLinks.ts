@@ -6,6 +6,7 @@ import { CostFiguresLive } from "./links/CostFigures.ts"
 import { KlaviyoSyncsLive } from "./links/KlaviyoSyncs.ts"
 import { MirrorFollowersLive } from "./links/MirrorFollowers.ts"
 import { ProposalLinksLive } from "./links/ProposalLinks.ts"
+import { QualityTicketsLive } from "./links/QualityTickets.ts"
 import { RefunderLive } from "./links/Refunder.ts"
 import { ReturnParcelsLive } from "./links/ReturnParcels.ts"
 import { SheetFiguresLive } from "./links/SheetFigures.ts"
@@ -31,6 +32,7 @@ import { UndoCompensationsLive } from "./links/UndoCompensations.ts"
  *   a customer      → their newest Klaviyo sync (M7.5)
  *   AfterShip       → a return's parcel, for the returns slice (M9.2)
  *   the inbox       → a ticket made from a thread, and taken away again (M11 step 2)
+ *   a quality check → a ticket with the supplier when it is rejected, and taken away again (M9.4)
  *   a chat command  → an order's note or cancellation, a ticket made, assigned or moved (M11.4), and its undo
  *   the Prullenbak  → each kind's own put-back and purge (M17 step 20.1a)
  *   the Marketplace → a recipe app's API key, made, revoked, put back and narrowed by the developer slice (M17)
@@ -52,6 +54,7 @@ export const SliceLinks = StoreMirror.layer.pipe(
       ReturnParcelsLive,
       ShopifyReturnsLive,
       ThreadTicketsLive,
+      QualityTicketsLive,
       TrashKindsLive,
       SheetFiguresLive.pipe(Layer.provideMerge(CostFiguresLive))
     )

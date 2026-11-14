@@ -9,7 +9,11 @@ import { PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
 import { createFileRoute, notFound } from "@tanstack/react-router"
 import { Effect, Exit, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
-import { arrivingCustomerDetail, consoleCustomerDetail } from "../customers/customer-detail-source.ts"
+import {
+  arrivingCustomerDetail,
+  consoleCustomerDetail,
+  useCustomerNewTicket
+} from "../customers/customer-detail-source.ts"
 import { customerAtom, customersAtom } from "../data/customers.ts"
 import { useConsoleCustomerReturns } from "../returns/returns-source.tsx"
 
@@ -76,8 +80,11 @@ function CustomerRoute() {
 
 function Loaded({ detail }: { detail: Detail }) {
   const Returns = useConsoleCustomerReturns(detail.customer.id)
+  const newTicket = useCustomerNewTicket(detail)
   return (
-    <CustomerDetailSourceProvider value={{ ...consoleCustomerDetail(detail), Returns }}>
+    <CustomerDetailSourceProvider
+      value={{ ...consoleCustomerDetail(detail), Returns, ...(newTicket === undefined ? {} : { newTicket }) }}
+    >
       <CustomerDetail />
     </CustomerDetailSourceProvider>
   )

@@ -1,23 +1,30 @@
-import { useAtomValue } from "@effect/atom-react"
+import { useAtomSet, useAtomValue } from "@effect/atom-react"
+import type { QualityStats } from "@insyte/modules/quality/domain/Quality"
 import type { SupplierDetail, SupplierList, SupplierRow as ServerRow } from "@insyte/modules/suppliers/domain/Suppliers"
 import { AreaEmpty } from "@insyte/ui/app/common/area-empty"
-import type { SupplierRow, SuppliersSource } from "@insyte/ui/app/suppliers/source"
+import type { SupplierQuality, SupplierRow, SuppliersSource } from "@insyte/ui/app/suppliers/source"
 import { Mail, Pause } from "@insyte/ui/icons"
-import { Option } from "effect"
+import { useNavigate } from "@tanstack/react-router"
+import { Exit, Option } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { useMemo } from "react"
+import { CHATS, chatWrites } from "../data/chats.ts"
 import { endpointsAtom } from "../data/developer.ts"
+import { supplierStatsAtom } from "../data/quality.ts"
 import { supplierAtom } from "../data/suppliers.ts"
-import { useGate } from "../frame/refusals.ts"
+import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
+import { useRestock } from "../products/restock.ts"
 import { ConsolePortalInviteDialog, ConsolePortalSection } from "./portal-access.tsx"
 import { supplierOf } from "./supplier-of.ts"
 import { useSupplierCommands } from "./supplier-writes.ts"
 
 /*
- * The suppliers page's source in the console (M8.1): `Suppliers.list`'s rows as the design's, the dialog's products and
- * late orders from `Suppliers.get`, the portal's section and invite over the supplier's access (M16). What the server
- * does not hold yet is left out, not made up: the quality columns (M9), the products' stock (until inventory per location is mirrored), restocking (tickets, M11) and
- * a shared chat (M11), so "Bericht aan" is a mail.
+ * The suppliers page's source in the console (M8.1): `Suppliers.list`'s rows as the design's, the dialog's products
+ * with their units and stock level and its late orders from `Suppliers.get`, the portal's section and invite over the
+ * supplier's access (M16). The quality columns are `Quality.stats{ bySupplier }` over the last 90 days, where the role
+ * reads products. "{n} bijbestellen" files a restock ticket per low product (`products/restock.ts`) where the role may
+ * open tickets; "Bericht aan" opens the shared channel with them (`Chats.openSupplierChannel`) where the role reads
+ * chats, else it is a mail.
  */
 
 const rowOf = (s: ServerRow): SupplierRow => ({
@@ -30,6 +37,7 @@ const rowOf = (s: ServerRow): SupplierRow => ({
 })
 
 const HIDDEN = ["complaints", "checks"] as const
+const NONE: ReadonlyArray<string> = []
 
 const PORTAL = { Section: ConsolePortalSection, InviteDialog: ConsolePortalInviteDialog }
 
@@ -43,6 +51,7 @@ const standing = (rows: ReadonlyArray<SupplierRow>) => {
 
 const NO_DETAIL = Atom.make(AsyncResult.initial<SupplierDetail, never>())
 const NO_LINES = { products: [], late: [] }
+const NO_STATS = Atom.make(AsyncResult.initial<QualityStats, never>())
 
 function useConsoleDetail(row: SupplierRow | null) {
   const result = useAtomValue(row === null ? NO_DETAIL : supplierAtom(row.id))
@@ -50,7 +59,12 @@ function useConsoleDetail(row: SupplierRow | null) {
   return useMemo(
     () =>
       detail === undefined ? NO_LINES : {
-        products: detail.products.map((p) => ({ id: p.id, title: p.title })),
+        products: detail.products.map((p) => ({
+          id: p.id,
+          title: p.title,
+          ...(p.available === null ? {} : { units: Math.max(0, p.available) }),
+          ...(p.stock === null ? {} : { stock: p.stock })
+        })),
         late: detail.delayedOrders
       },
     [detail]
@@ -66,6 +80,26 @@ const Empty = ({ onCreate }: { onCreate?: (() => void) | undefined }) => (
   />
 )
 
+/** Complaints and checks per supplier over the last 90 days; `undefined` where the role does not read products. */
+function useSupplierQuality(): ReadonlyMap<string, SupplierQuality> | undefined {
+  const reads = useGate("products", 1).ok
+  const stats = Option.getOrUndefined(AsyncResult.value(useAtomValue(reads ? supplierStatsAtom : NO_STATS)))
+  return useMemo(() => {
+    if (stats === undefined) return undefined
+    return new Map(stats.rows.map((r) => {
+      const rate = r.sold > 0 ? r.complaints / r.sold : 0
+      return [r.id, {
+        rate,
+        complaints: r.complaints,
+        sold: r.sold,
+        passed: r.passed,
+        judged: r.judged,
+        over: rate > stats.threshold
+      }]
+    }))
+  }, [stats])
+}
+
 /** The page over `Suppliers.list`, with the commands the role may use. */
 export function useConsoleSuppliersSource(list: SupplierList): SuppliersSource {
   const commands = useSupplierCommands()
@@ -77,10 +111,15 @@ export function useConsoleSuppliersSource(list: SupplierList): SuppliersSource {
   // Where a supplier's API reports back: the API's own public host (the API keys page names it too).
   const endpoints = Option.getOrUndefined(AsyncResult.value(useAtomValue(endpointsAtom)))
   const hookBase = endpoints?.api?.replace(/\/v1$/, "") ?? ""
+  const quality = useSupplierQuality()
+  const restock = useRestock()
+  const chats = useGate("support", 1)
+  const openChannel = useAtomSet(chatWrites.openSupplierChannel, { mode: "promiseExit" })
+  const navigate = useNavigate()
   return {
     rows,
     standing,
-    hidden: HIDDEN,
+    hidden: quality === undefined ? HIDDEN : NONE,
     actions: [
       {
         id: "pause",
@@ -107,7 +146,7 @@ export function useConsoleSuppliersSource(list: SupplierList): SuppliersSource {
         }
       }
     ],
-    qualityOf: () => undefined,
+    qualityOf: (id) => quality?.get(id),
     pauseOrResume: (picked) => void commands.pauseOrResume(picked),
     useDetail: useConsoleDetail,
     prefOf: (id) => {
@@ -123,7 +162,16 @@ export function useConsoleSuppliersSource(list: SupplierList): SuppliersSource {
       test: (row) => commands.testConnection(row),
       disconnect: (row) => void commands.disconnectApi(row)
     },
-    chatOf: () => undefined,
+    ...(restock === undefined ? {} : {
+      restock: (row, low) => void restock(low.map((p) => p.id), { to: row.name })
+    }),
+    // The channel is made the first time it is opened, so the row names the supplier and opening makes it.
+    chatOf: (row) => (chats.ok ? row.id : undefined),
+    openChat: (supplierId) =>
+      void openChannel({ payload: { supplierId }, reactivityKeys: [...CHATS] }).then((exit) => {
+        if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), { gone: "Die leverancier bestaat niet meer" })
+        void navigate({ to: "/chats", search: { id: exit.value.id } as never })
+      }),
     statementsOf: (row) => `/suppliers/${row.id}/statements`,
     ...(manage.ok ? { portal: PORTAL } : {}),
     canCreate: edit,
