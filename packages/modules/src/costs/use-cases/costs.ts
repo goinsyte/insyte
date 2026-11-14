@@ -13,7 +13,15 @@ import {
   type ListInput,
   type Month
 } from "../domain/Costs.ts"
-import { addMonths, costOf, figuresOf, type LineRule, type MonthBasis, monthsBetween } from "../domain/Figures.ts"
+import {
+  addMonths,
+  adsFrom,
+  costOf,
+  figuresOf,
+  type LineRule,
+  type MonthBasis,
+  monthsBetween
+} from "../domain/Figures.ts"
 
 /*
  * Kosten's reads (M13 step 5; widgets/02 `/costs`): the lines with what each costs per month, and the months' figures.
@@ -173,6 +181,31 @@ export const list = Effect.fn("Costs.list")(function*(input: typeof ListInput.Ty
   )
 })
 
+/**
+ * The months' figures on a transaction already scoped to the workspace, with what the Meta and Google Ads lines cost
+ * apart, for INSYTE() (M14 step 4, through analytics' `CostFigures`). The caller has checked Analyse · Bekijken.
+ */
+export const figuresIn = Effect.fn("Costs.figuresIn")(function*(
+  sql: SqlClient.SqlClient,
+  wanted: ReadonlyArray<string>
+) {
+  const months: Array<Month> = [...new Set(wanted)].sort()
+  if (months.length === 0) return []
+  const from = months[0]!
+  const to = months[months.length - 1]!
+  const basis = yield* basisOf(sql, from, to)
+  const lines = (yield* linesOf(sql, from, to)).map((l) => ({ rule: l.rule, source: l.row.source }))
+  const rules = lines.map((l) => l.rule)
+  return months.map((m) => {
+    const b = basis.get(m) ?? NO_BASIS
+    return {
+      ...figuresOf(rules, m, b),
+      metaMinor: adsFrom(lines, "meta", m, b),
+      googleMinor: adsFrom(lines, "google_ads", m, b)
+    }
+  })
+})
+
 /** The month figures alone, for Analyse and INSYTE() (M14), `/v1` and MCP. Analyse · Bekijken. */
 export const figures = Effect.fn("Costs.figures")(function*(input: typeof FiguresInput.Type) {
   yield* Policy.require("analytics", 1)
@@ -180,14 +213,10 @@ export const figures = Effect.fn("Costs.figures")(function*(input: typeof Figure
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const { currency } = yield* workspaceMonth(sql)
-      const months: Array<Month> = [...new Set(input.months)].sort()
-      const from = months[0]!
-      const to = months[months.length - 1]!
-      const basis = yield* basisOf(sql, from, to)
-      const rules = (yield* linesOf(sql, from, to)).map((l) => l.rule)
+      const months = yield* figuresIn(sql, input.months)
       return new CostsFigures({
         currency,
-        figures: months.map((m) => figuresOf(rules, m, basis.get(m) ?? NO_BASIS))
+        figures: months.map(({ metaMinor: _meta, googleMinor: _google, ...figures }) => figures)
       })
     })
   )

@@ -67,7 +67,7 @@ export const Figure = Schema.Struct({
   /** Money in minor units, percentages 0–100 (unrounded), hours to one decimal; null where nothing was there. */
   a: Schema.NullOr(Schema.Finite),
   b: Schema.NullOr(Schema.Finite),
-  /** False where the rows are not kept yet (disputes until the chargebacks land). */
+  /** False where the rows are not kept yet. Every figure is kept now; the flag stays for the ones to come. */
   available: Schema.Boolean,
   basis: Basis
 })
@@ -138,8 +138,8 @@ export class AnalyticsCharts extends Schema.Class<AnalyticsCharts>("analytics/Ch
   leadTimes: Schema.Array(LeadTimeRow),
   /** Refunds made in each period, by their reason. */
   refundReasons: Schema.Array(ReasonRow),
-  /** Null until the chargebacks are kept. */
-  disputeReasons: Schema.NullOr(Schema.Array(ReasonRow)),
+  /** Disputes opened in each period, by their normalised reason. */
+  disputeReasons: Schema.Array(ReasonRow),
   supportByWeekday: Schema.Array(WeekdayRow)
 }) {}
 
@@ -165,7 +165,11 @@ export const ExplainKey = Schema.Union([
     country: Schema.NullOr(Schema.String)
   }),
   /** The growth finding's rows: A's counted orders from one channel. */
-  Schema.TaggedStruct("channel", { channel: Schema.NullOr(Schema.String) })
+  Schema.TaggedStruct("channel", { channel: Schema.NullOr(Schema.String) }),
+  /** Disputes opened in A, against B, by reason; the rows are the orders they name. */
+  Schema.TaggedStruct("disputes", {}),
+  /** Disputes opened for one reason in A, against B, by store; the rows are the orders they name. */
+  Schema.TaggedStruct("dispute_reason", { reason: Schema.String.check(Schema.isMaxLength(40)) })
 ])
 export type ExplainKey = typeof ExplainKey.Type
 
@@ -182,6 +186,7 @@ export const Driver = Schema.Struct({
     "product_store",
     "supplier_country",
     "refund_reason",
+    "dispute_reason",
     "product",
     "country",
     "weekday",
@@ -208,7 +213,10 @@ export class Explanation extends Schema.Class<Explanation>("analytics/Explanatio
   /** The explained figure in A and in B (money in minor units, hours to one decimal). */
   a: Schema.Finite,
   b: Schema.Finite,
-  /** For a supplier's late deliveries: how many were delivered. For a weekday: A's hours over the whole week. */
+  /**
+   * For a supplier's late deliveries: how many were delivered. For a weekday: A's hours over the whole week. For
+   * disputes: what A's cases opened with, in minor units.
+   */
   of: Schema.NullOr(Schema.Finite),
   /** The name the key points at (a supplier, a product and its store). */
   name: Schema.NullOr(Schema.String),
@@ -254,7 +262,7 @@ export class RecordsPage extends Schema.Class<RecordsPage>("analytics/RecordsPag
 
 /* ── findings ─────────────────────────────────────────────────────────────────────────────────── */
 
-export const FINDING_KINDS = ["revenue", "delivery", "refunds", "support", "growth"] as const
+export const FINDING_KINDS = ["revenue", "delivery", "refunds", "disputes", "support", "growth"] as const
 export const FindingKind = Schema.Literals(FINDING_KINDS)
 export type FindingKind = typeof FindingKind.Type
 
@@ -271,7 +279,7 @@ export const Finding = Schema.Struct({
   figures: Schema.Record(Schema.String, Schema.NullOr(Schema.Union([Schema.Finite, Schema.String]))),
   drivers: Schema.Array(Driver),
   /** The chart it is drawn with, and the mark lit on it. */
-  chart: Schema.Literals(["revenue", "leadtime", "refunds", "support"]),
+  chart: Schema.Literals(["revenue", "leadtime", "refunds", "disputes", "support"]),
   lit: Schema.NullOr(Schema.String),
   records: Schema.NullOr(ExplainKey),
   recordCount: Schema.Int
@@ -290,9 +298,10 @@ export class AnalyticsFindings extends Schema.Class<AnalyticsFindings>("analytic
  * INSYTE() (M14 step 4; widgets/02 "How an INSYTE() figure is computed"): a sheet's figure lookups in one batch. A
  * request is the metric and the month as the cell wrote them (`2026-04`, `april`, nothing for the month under way);
  * the answer says which month that is and the figure, read over the whole calendar month (the month under way up to
- * today) inside the reader's stores, the same counted rows Analyse sums. A figure the reader's role may not see, one
- * whose rows Insyte does not keep yet (costs, chargebacks, the marketing channel), a month without figures and a
- * metric Insyte does not know each answer with their reason rather than a number.
+ * today) inside the reader's stores, the same counted rows Analyse sums; the costs and net profit are Kosten's own
+ * (`Costs.figures`), the disputes the dispute facts. A figure the reader's role may not see, one whose rows Insyte does
+ * not keep yet (revenue by marketing channel), ROAS without ad spend, a month without figures and a metric Insyte does
+ * not know each answer with their reason rather than a number.
  */
 
 export const FigureRequest = Schema.Struct({
@@ -311,7 +320,7 @@ export const FigureRefusal = Schema.Literals(["unknown_metric", "no_month", "for
 export type FigureRefusal = typeof FigureRefusal.Type
 
 /** What a figure waits for, when it is `unavailable`. */
-export const FigureWaitsFor = Schema.Literals(["costs", "chargebacks", "channels"])
+export const FigureWaitsFor = Schema.Literals(["channels"])
 export type FigureWaitsFor = typeof FigureWaitsFor.Type
 
 export const FigureAnswer = Schema.Struct({
@@ -323,7 +332,7 @@ export const FigureAnswer = Schema.Struct({
   value: Schema.NullOr(Schema.Finite),
   error: Schema.NullOr(FigureRefusal),
   waitsFor: Schema.NullOr(FigureWaitsFor),
-  /** How many orders stand behind it. */
+  /** How many rows stand behind it: the counted orders, or for `chargebacks` the cases. */
   rows: Schema.Int
 })
 export type FigureAnswer = typeof FigureAnswer.Type
