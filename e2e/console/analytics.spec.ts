@@ -3,9 +3,9 @@ import { admit, onPreview, previewRequest } from "./access.ts"
 
 /*
  * Analyse's journey (step 16.2): a new admin's workspace has no orders, so the page says there is nothing to read yet;
- * with the recorded store imported (previews have no Shopify) it reads the six figures from the facts, says that
- * disputes are not kept yet, takes the paid orders apart in the drawer, and says that asking cannot be done yet. One
- * person per run, as in `auth.spec.ts`.
+ * with the recorded store imported (previews have no Shopify) it reads the six figures from the facts, shows that
+ * the store has no disputes now or before, takes the paid orders apart in the drawer, and says that asking cannot be
+ * done yet. One person per run, as in `auth.spec.ts`.
  */
 
 const test = base.extend<{ page: Page }>({
@@ -77,10 +77,10 @@ test("@analytics a new admin's Analyse is empty, then reads the store's figures 
   for (const label of ["Omzet", "Betaalde bestellingen", "Op tijd", "Terugbetaald", "Uren tot opgelost"]) {
     await expect(page.locator("dt", { hasText: label }).first()).toBeVisible()
   }
-  // Disputes wait for the chargebacks: said, not shown as zero.
+  // Disputes are read from the chargebacks: the recorded store has none, so none now and none before.
   const disputes = page.locator("dl > div", { has: page.locator("dt", { hasText: "Geschillen" }) })
-  await expect(disputes.getByText("Nog niet beschikbaar")).toBeVisible()
-  await expect(disputes.getByText("—")).toBeVisible()
+  await expect(disputes.getByText("was 0")).toBeVisible()
+  await expect(disputes.getByText("Nog niet beschikbaar")).toHaveCount(0)
 
   // The paid orders, taken apart: Insyte's sentence about them, read from the server.
   await page.getByRole("button", { name: /Betaalde bestellingen/ }).click()

@@ -7,7 +7,8 @@ import type { FactsRange, RangeInput } from "./domain/Facts.ts"
 import * as Facts from "./use-cases/facts.ts"
 
 /*
- * The daily facts (M10.4): `fact_orders_day`, `fact_refunds_day` and `fact_deliveries_day`, kept from the rows. The
+ * The daily facts (M10.4): `fact_orders_day`, `fact_refunds_day` and `fact_deliveries_day`, kept from the rows, and
+ * `fact_disputes_day` (M14.1), which the chargebacks' own trigger keeps and every drain of a store-day rebuilds too. The
  * relay's `facts` sink drains one batch of marked days on its transaction (`drainIn`); the 15-minute sweep drains the
  * rest per workspace (`drainWorkspace`), and once a night marks the last three days of every store first
  * (`markRecentWorkspace`). `range` is the read Start's figures switch to.

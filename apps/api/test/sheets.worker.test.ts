@@ -5,8 +5,9 @@ import { call, rpc, sessionMe } from "./support.ts"
 /*
  * Rekenbladen (step 16.4, M14 step 4). A member's sheets are their own and those shared with them; a save names the
  * version it was made on and a stale one is refused; each change carries its undo; only the owner shares and
- * removes; the INSYTE() figures are Analyse's, read whole months from the same rows; an export evaluates the tab on
- * the server with the figures read again. `/v1` and MCP read the sheets of the key's member.
+ * removes; the INSYTE() figures are Analyse's, read whole months from the same rows, and the costs and net profit
+ * Kosten's, equal to the design's own calculation (`lib/costs.ts`, the M13 oracle); an export evaluates the tab on the
+ * server with the figures read again. `/v1` and MCP read the sheets of the key's member.
  */
 
 const pad = (n: number) => String(n).padStart(2, "0")
@@ -187,7 +188,9 @@ describe("Rekenbladen", () => {
     const value = (f: typeof after, i: number) => f.figures[i]!.value ?? 0
     expect(value(after, 0) - value(before, 0)).toBeCloseTo(200, 6)
     expect(value(after, 1) - value(before, 1)).toBe(2)
-    expect(after.figures[2]).toMatchObject({ value: null, error: "unavailable", waitsFor: "costs" })
+    // No cost lines yet: net profit is the revenue, to the cent.
+    expect(after.figures[2]).toMatchObject({ error: null, waitsFor: null })
+    expect(value(after, 2)).toBeCloseTo(value(after, 0), 6)
     expect(after.figures[3]).toMatchObject({ value: null, error: "unavailable", waitsFor: "channels" })
     expect(after.figures[4]).toMatchObject({ error: "unknown_metric" })
     expect(after.figures[5]).toMatchObject({ error: "no_month" })
@@ -278,5 +281,169 @@ describe("Rekenbladen", () => {
     ).secret
     expect((await call("http://api.test/v1/sheets", { headers: { authorization: `Bearer ${narrow}` } })).status)
       .toBe(403)
+  })
+})
+
+describe("INSYTE()'s money figures", () => {
+  it("answers costs and net profit as Kosten and the design's calculation do, and disputes from their facts", async () => {
+    const owner = await person("sheets-money", "Nettowinst B.V.")
+    const ws = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
+    const seed = await call("http://api.test/api/__dev/stores/seed", {
+      method: "POST",
+      headers: { cookie: owner.cookie }
+    })
+    const store = ((await seed.json()) as { storeId: string }).storeId
+    const facts = async () => {
+      await call(`http://api.test/api/__dev/facts/drain?workspace=${ws}`, { method: "POST" })
+      return await (await call(`http://api.test/api/__dev/facts?workspace=${ws}`)).json() as {
+        orders: Array<{ day: string; currency: string; countedOrders: number; countedRevenueMinor: number }>
+      }
+    }
+    await facts()
+    const write = await call(`http://api.test/api/__dev/facts/orders?workspace=${ws}&store=${store}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      // Two in last month, and one six months back, before the ad lines' typed months.
+      body: JSON.stringify({
+        batch: { orders: [order(11, at(B), 31_490), order(12, at(B, 11), 8_910), order(13, at(month(6)), 1_000)] }
+      })
+    })
+    expect(write.status).toBe(200)
+    // The month's counted revenue and orders, from the stored facts (every one in euros).
+    const basis = (await facts()).orders.filter((f) => f.day.startsWith(B)).reduce(
+      (n, f) => {
+        expect(f.currency).toBe("EUR")
+        return { revenue: n.revenue + f.countedRevenueMinor / 100, orders: n.orders + f.countedOrders }
+      },
+      { revenue: 0, orders: 0 }
+    )
+    expect(basis.orders).toBeGreaterThanOrEqual(2)
+
+    // Kosten: a team, a purchase share, packaging per order, ads typed by hand and for Meta (no account connected).
+    for (
+      const line of [
+        { name: "Team", kind: "fixed", amountPerMonthMinor: 1_000_000 },
+        { name: "Inkoop", kind: "percent", rate: 38 },
+        { name: "Verpakking", kind: "per_order", rateMinor: 140 },
+        { name: "Influencers", kind: "ads", amountPerMonthMinor: 30_000 },
+        { name: "Meta Ads", kind: "ads", source: "meta", amountPerMonthMinor: 5_000 }
+      ] as const
+    ) ok(await rpc("Costs.create", line, owner.cookie))
+
+    // The design's calculation (`lib/costs.ts` `costOf`, `figuresOf`), verbatim, in its own units.
+    const cents = (x: number) => Math.round(x * 100) / 100
+    const ads = 300 + 50
+    const other = 10_000 + cents(0.38 * basis.revenue) + cents(1.4 * basis.orders)
+    const net = basis.revenue - (ads + other)
+    const oracle: Record<string, number> = {
+      advertentiekosten: ads,
+      overige_kosten: other,
+      kosten: ads + other,
+      nettowinst: net,
+      marge: basis.revenue === 0 ? 0 : net / basis.revenue,
+      roas: basis.revenue / ads,
+      advertenties_meta: 50,
+      advertenties_google: 0
+    }
+    const metrics = Object.keys(oracle)
+    const read = ok(
+      await rpc("Analytics.figures", { requests: metrics.map((metric) => ({ metric, month: B })) }, owner.cookie)
+    )
+    for (const [i, metric] of metrics.entries()) {
+      expect(read.figures[i], metric).toMatchObject({ metric, resolved: B, error: null, rows: basis.orders })
+      expect(read.figures[i]!.value, metric).toBeCloseTo(oracle[metric]!, 6)
+    }
+    // Kosten says the same.
+    const costs = ok(await rpc("Costs.figures", { months: [B] }, owner.cookie)).figures[0]!
+    expect(read.figures[3]!.value).toBeCloseTo(costs.netMinor / 100, 6)
+    expect(read.figures[4]!.value).toBeCloseTo(costs.margin, 9)
+
+    // A month without ad spend has no ROAS; it says so rather than dividing by zero.
+    const none = ok(await rpc("Analytics.figures", { requests: [{ metric: "roas", month: month(6) }] }, owner.cookie))
+    expect(none.figures[0]).toMatchObject({ value: null, error: "no_ads" })
+
+    // Under dispute: the cases opened in the month, the store's and the team's, whatever came of them.
+    const disputed = async () =>
+      ok(await rpc("Analytics.figures", { requests: [{ metric: "chargebacks", month: B }] }, owner.cookie))
+        .figures[0]!
+    const before = await disputed()
+    const cases = await call(`http://api.test/api/__dev/facts/disputes?workspace=${ws}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        insert: [
+          { caseNumber: `DSP-S${run}1`, storeId: store, openedAt: at(B, 12), amountMinor: 5_000, status: "lost" },
+          { caseNumber: `DSP-S${run}2`, openedAt: at(B, 13), amountMinor: 2_500 },
+          { caseNumber: `DSP-S${run}3`, storeId: store, openedAt: at(C, 12), amountMinor: 9_900 }
+        ]
+      })
+    })
+    expect(cases.status).toBe(200)
+    const after = await disputed()
+    expect((after.value ?? 0) - (before.value ?? 0)).toBeCloseTo(75, 6)
+    expect(after.rows - before.rows).toBe(2)
+
+    // An export evaluates the same net profit on the server.
+    const made = ok(
+      await rpc("Sheets.create", {
+        template: "blank",
+        title: "Winst",
+        tabs: [tab({ A1: "Nettowinst", B1: `=INSYTE("nettowinst"; "${B}")` })]
+      }, owner.cookie)
+    )
+    const file = ok(await rpc("Sheets.export", { id: made.sheet.id, format: "csv" }, owner.cookie))
+    expect(file.content).toContain(String(read.figures[3]!.value).replace(".", ","))
+  })
+
+  it("reads the month under way's costs to the same today as its sales, a store ahead of the workspace too", async () => {
+    const owner = await person("sheets-today", "Vandaag B.V.")
+    const ws = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
+    const seed = await call("http://api.test/api/__dev/stores/seed", {
+      method: "POST",
+      headers: { cookie: owner.cookie }
+    })
+    const store = ((await seed.json()) as { storeId: string }).storeId
+    const drain = () => call(`http://api.test/api/__dev/facts/drain?workspace=${ws}`, { method: "POST" })
+    await drain()
+    ok(await rpc("Costs.create", { name: "Inkoop", kind: "percent", rate: 38 }, owner.cookie))
+    ok(await rpc("Costs.create", { name: "Verpakking", kind: "per_order", rateMinor: 140 }, owner.cookie))
+    const metrics = ["omzet", "bestellingen", "overige_kosten", "kosten", "nettowinst"] as const
+    const read = async () => {
+      const r = ok(await rpc("Analytics.figures", { requests: metrics.map((metric) => ({ metric })) }, owner.cookie))
+      return Object.fromEntries(metrics.map((m, i) => [m, r.figures[i]!.value ?? 0])) as Record<
+        typeof metrics[number],
+        number
+      >
+    }
+    const before = await read()
+
+    // The workspace counts in Amsterdam; the store is in Kiritimati (UTC+14), already on the workspace's tomorrow for
+    // most of the day. One order on the workspace's today in the store's zone, one on its tomorrow.
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam" }).format(new Date())
+    const next = new Date(`${today}T00:00:00Z`)
+    next.setUTCDate(next.getUTCDate() + 1)
+    const tomorrow = next.toISOString().slice(0, 10)
+    const inKiritimati = (day: string) => new Date(`${day}T00:30:00+14:00`).toISOString()
+    const write = await call(`http://api.test/api/__dev/facts/orders?workspace=${ws}&store=${store}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        timezone: "Pacific/Kiritimati",
+        batch: { orders: [order(31, inKiritimati(today), 10_000), order(32, inKiritimati(tomorrow), 50_000)] }
+      })
+    })
+    expect(write.status).toBe(200)
+    await drain()
+    const after = await read()
+
+    // The sales read to today: the order on tomorrow is in no figure of the month under way yet.
+    if (tomorrow.slice(0, 7) === today.slice(0, 7)) {
+      expect(after.omzet - before.omzet).toBeGreaterThanOrEqual(100)
+      expect(after.omzet - before.omzet).toBeLessThan(500)
+    }
+    // And the costs and profit are worked out over the same sales: the design's calculation over INSYTE()'s own omzet.
+    const cents = (x: number) => Math.round(x * 100) / 100
+    expect(after.overige_kosten).toBeCloseTo(cents(0.38 * after.omzet) + cents(1.4 * after.bestellingen), 6)
+    expect(after.nettowinst).toBeCloseTo(after.omzet - after.kosten, 6)
   })
 })
