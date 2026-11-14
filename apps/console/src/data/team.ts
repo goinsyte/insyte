@@ -32,6 +32,7 @@ export const teamWrites = {
   undoResend: ConsoleClient.mutation("Invitations.undoResend"),
   setInvitationRole: ConsoleClient.mutation("Invitations.setRole"),
   setMemberRole: ConsoleClient.mutation("Members.setRole"),
+  setMemberStores: ConsoleClient.mutation("Members.setStores"),
   deactivate: ConsoleClient.mutation("Members.deactivate"),
   reactivate: ConsoleClient.mutation("Members.reactivate"),
   remove: ConsoleClient.mutation("Members.remove"),

@@ -8,7 +8,7 @@ import {
   type RoleDef as Role,
   type SpecialId
 } from "@insyte/domain/Permissions"
-import type { Team } from "@insyte/modules/members/domain/Team"
+import type { StoreAccess, Team } from "@insyte/modules/members/domain/Team"
 import { grantersOf, grantingRoles } from "@insyte/ui/app/access/denial"
 import { type Permission, permissionName } from "@insyte/ui/app/lib/permissions"
 import type { Invite } from "@insyte/ui/app/lib/team-core"
@@ -24,8 +24,11 @@ import { TEAM, teamWrites } from "../data/team.ts"
  * The team screens' source in the console: `Team.get` as they read it, and each action as its RPC, refreshing the page
  * through `TEAM`. A missing permission (`Forbidden`) is said where it was asked, as the denied states say it; any other
  * refusal is said here once, in Dutch. Either way the action answers `false`, so the screen offers no undo. What
- * the console has no screen or server for yet is left out (the view as the invitee, handing over ownership, stores
- * until M6), and buying seats waits for billing (M13).
+ * the console has no screen or server for yet is left out (the view as the invitee, handing over ownership), and
+ * buying seats waits for billing (M13).
+ *
+ * The store pickers offer the stores the signed-in person reaches (`Team.stores`). For someone held to some stores,
+ * "Alle winkels" means all of theirs, so it is sent as those: every store, the later ones too, is past their reach.
  */
 
 const roleOf = (role: Team["roles"][number]): Role => ({
@@ -70,6 +73,12 @@ const refused = (error: unknown) => {
       })
     case "Invalid": {
       const fields = tagged["fields"] as Record<string, string>
+      if (fields["stores"] === "unknown") {
+        return void toast.error("Die winkel is er niet meer", {
+          description: "Laad de pagina opnieuw en kies nog eens."
+        })
+      }
+      if (fields["stores"] === "empty") return void toast.error("Kies minstens één winkel")
       if (Object.values(fields).includes("forbidden")) {
         return void toast.error("Dat reikt verder dan jouw winkels", {
           description: "Je kunt niemand een rol of winkels geven waar je zelf niet bij kunt."
@@ -116,6 +125,16 @@ const asInvite = (i: Team["invitations"][number]): Invite => ({
 /** The write took: the server answered the page. */
 const took = (result: unknown) => result !== undefined
 
+/** Copies stores for the wire. */
+const copy = (stores: StoreAccess): StoreAccess => (stores === "all" ? "all" : [...stores])
+
+/**
+ * The stores as sent: "Alle winkels" from someone held to some stores is all of theirs that they can pick, since every
+ * store (the later ones too) lies past their reach.
+ */
+const reachable = (team: Team, stores: StoreAccess): StoreAccess =>
+  stores === "all" && team.storeScope !== null ? team.stores.map((s) => s.id) : copy(stores)
+
 export function useConsoleTeamSource(team: Team): TeamSource {
   const write = {
     send: useAtomSet(teamWrites.send, { mode: "promiseExit" }),
@@ -125,6 +144,7 @@ export function useConsoleTeamSource(team: Team): TeamSource {
     undoResend: useAtomSet(teamWrites.undoResend, { mode: "promiseExit" }),
     setInvitationRole: useAtomSet(teamWrites.setInvitationRole, { mode: "promiseExit" }),
     setMemberRole: useAtomSet(teamWrites.setMemberRole, { mode: "promiseExit" }),
+    setMemberStores: useAtomSet(teamWrites.setMemberStores, { mode: "promiseExit" }),
     deactivate: useAtomSet(teamWrites.deactivate, { mode: "promiseExit" }),
     reactivate: useAtomSet(teamWrites.reactivate, { mode: "promiseExit" }),
     remove: useAtomSet(teamWrites.remove, { mode: "promiseExit" }),
@@ -215,7 +235,7 @@ export function useConsoleTeamSource(team: Team): TeamSource {
       url: team.link.url ?? ""
     },
     roles,
-    stores: [],
+    stores: team.stores.map((s) => ({ id: s.id, name: s.name })),
     can: { invite: gate(mine, 2), manage: gate(mine, 3) },
     denialFor,
     askAccess: async (perm, arg) => {
@@ -247,7 +267,7 @@ export function useConsoleTeamSource(team: Team): TeamSource {
       const sent = await run(
         "invite",
         "Invitations.send",
-        () => write.send({ payload: { rows: rows.map((r) => ({ ...r })) }, ...keys })
+        () => write.send({ payload: { rows: rows.map((r) => ({ ...r, stores: reachable(team, r.stores) })) }, ...keys })
       )
       if (sent === undefined) return undefined
       const addresses = new Set(rows.map((r) => r.email.trim().toLowerCase()))
@@ -270,8 +290,11 @@ export function useConsoleTeamSource(team: Team): TeamSource {
       ),
     setMemberRole: async (id, roleId) =>
       took(await run("members", "Members.setRole", () => write.setMemberRole({ payload: { id, roleId }, ...keys }))),
-    // Stores arrive with Shopify (M6); until then everyone works in every store.
-    setMemberStores: () => Promise.resolve(false),
+    setMemberStores: async (id, stores) =>
+      took(
+        await run("members", "Members.setStores", () =>
+          write.setMemberStores({ payload: { id, stores: reachable(team, stores) }, ...keys }))
+      ),
     setDeactivated: async (id, deactivated) =>
       took(
         await run(
