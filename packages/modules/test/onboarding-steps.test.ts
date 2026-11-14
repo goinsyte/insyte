@@ -31,7 +31,7 @@ describe("the onboarding machine", () => {
     expect(next("admin", "store", { ...verified, storeConnected: true })).toBe("sync")
     expect(next("admin", "sync", verified)).toBe("sync")
     expect(next("admin", "sync", { ...verified, backfillDone: true })).toBe("analysis")
-    expect(next("admin", "analysis", verified)).toBe("ready") // the offline plan waits for M15
+    expect(next("admin", "analysis", verified)).toBe("offline")
     expect(next("admin", "offline", verified)).toBe("ready")
     expect(next("admin", "ready", verified)).toBe("ready")
   })

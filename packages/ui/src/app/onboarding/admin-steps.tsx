@@ -1,6 +1,7 @@
 import { firstAnalysisSeed } from "../../data-source"
 import { ME } from "../automations/workflow-store"
 import { persistStep } from "../lib/onboarding-api"
+import { useAutonomy } from "../stores/autonomy-store"
 import { useFirstAnalysis } from "../stores/first-analysis-store"
 import { planStep, ReadyCard, readyStep, storeStep } from "./admin-tail-steps"
 import { type AnalysisSource, analysisStep, preparedTitles } from "./analysis-step"
@@ -56,16 +57,23 @@ export function adminSteps(
       busyLabel: "Bezig met opslaan",
       onPrimary: () => {
         const levels = (data.offlineLevels as ReturnType<typeof proposedLevels> | undefined) ??
-          proposedLevels((data.answers as Record<string, string> | undefined) ?? {})
+          proposedLevels((data.answers as Record<string, string> | undefined) ?? {}, useAutonomy.getState().policy)
         const window = (data.offlineWindow as "evening" | "late" | "shifts" | undefined) ?? "evening"
         useFirstAnalysis.getState().agreeOffline(window, levels, ME)
         persistStep("offline", { window, levels })
         next()
       },
-      content: <OfflineStep data={data} patch={patch} />
+      content: <DesignOfflineStep data={data} patch={patch} />
     },
     readyStep({ data, finish, content: <ReadyState connected={shopConnected} /> })
   ]
+}
+
+/* ─── The offline step over the reference's autonomy store ── */
+
+function DesignOfflineStep(props: { data: OnboardingData; patch: (p: OnboardingData) => void }) {
+  const policy = useAutonomy((s) => s.policy)
+  return <OfflineStep {...props} policy={policy} />
 }
 
 /* ─── The first analysis — the seed, read at the reference's pace (`analysis-step.tsx`) ── */

@@ -116,7 +116,7 @@ export const CreateInput = Schema.Struct({
   templateId: Schema.optional(Schema.String.check(Schema.isMaxLength(64))),
   name: Schema.optional(Name),
   description: Schema.optional(Description),
-  /** Steps prepared elsewhere (the first analysis); a template's win over them. */
+  /** Steps prepared elsewhere (the first analysis: a template's with its own day); they win over the template's. */
   nodes: Schema.optional(Flow)
 })
 

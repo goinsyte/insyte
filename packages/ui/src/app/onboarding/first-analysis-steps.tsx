@@ -1,14 +1,14 @@
 import { Lock } from "../../icons";
-import { CATALOGUE, LEVEL_LABEL, type AgentActionId, type AutonomyLevel } from "../lib/autonomy";
+import { CATALOGUE, LEVEL_LABEL, type AgentActionId, type AutonomyLevel, type Policy } from "../lib/autonomy";
 import { OFFLINE_ACTIONS, OFFLINE_WINDOWS, type OfflineWindow, type PreparedId } from "../lib/first-analysis";
 import { cn } from "../lib/utils";
-import { useAutonomy } from "../stores/autonomy-store";
 import { SelectionGroup, SelectionTile } from "./selection-tile";
 import type { OnboardingData } from "./use-onboarding-state";
 
 /*
  * The offline step of the first analysis (PLAN 45), after `analysis` (`analysis-step.tsx`): what Insyte does while
- * nobody is online, as autonomy levels the operator can see and change.
+ * nobody is online, as autonomy levels the operator can see and change. The policy it starts from is the host's
+ * (`policy`): the design app's store, or the console's `Autonomy.get`.
  */
 
 type Data = Record<string, unknown>;
@@ -21,8 +21,7 @@ const ENTRY = new Map(CATALOGUE.map((e) => [e.id, e]));
 const offlineActions = (answers: Record<string, string>) => OFFLINE_ACTIONS.filter((a) => a.id !== "ForwardOrder" || answers.fulfilment !== "self");
 
 /** What the offline plan proposes: routine work on its own, anything that speaks or pays on ask. */
-export function proposedLevels(answers: Record<string, string>): Partial<Record<AgentActionId, AutonomyLevel>> {
-	const policy = useAutonomy.getState().policy;
+export function proposedLevels(answers: Record<string, string>, policy: Policy): Partial<Record<AgentActionId, AutonomyLevel>> {
 	const out: Partial<Record<AgentActionId, AutonomyLevel>> = {};
 	for (const { id } of offlineActions(answers)) {
 		const locked = ENTRY.get(id)?.locked;
@@ -31,10 +30,10 @@ export function proposedLevels(answers: Record<string, string>): Partial<Record<
 	return out;
 }
 
-export function OfflineStep({ data, patch }: { data: Data; patch: (p: OnboardingData) => void }) {
+export function OfflineStep({ data, patch, policy }: { data: Data; patch: (p: OnboardingData) => void; policy: Policy }) {
 	const answers = (data.answers as Record<string, string> | undefined) ?? {};
 	const offline = (data.offlineWindow as OfflineWindow | undefined) ?? "evening";
-	const levels = (data.offlineLevels as Partial<Record<AgentActionId, AutonomyLevel>> | undefined) ?? proposedLevels(answers);
+	const levels = (data.offlineLevels as Partial<Record<AgentActionId, AutonomyLevel>> | undefined) ?? proposedLevels(answers, policy);
 	const prepared = (data.prepared as PreparedId[] | undefined) ?? [];
 	const set = (id: AgentActionId, level: AutonomyLevel) => patch({ offlineLevels: { ...levels, [id]: level } });
 
