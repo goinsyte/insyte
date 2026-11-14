@@ -343,6 +343,17 @@ describe("automations that act", () => {
       ok(await rpc("Automations.saveDraft", { id, name, nodes: nodes as Json }, store.cookie))
       return { id, published: await rpc("Automations.publish", { id, note: "" }, store.cookie) }
     }
+    // The template, tested: on an open order it says who would be mailed; on the newest, cancelled one (no delivery
+    // day to fill in, no address) the mail is skipped and the test still passes. Nothing is sent either way.
+    const template = ok(await rpc("Automations.create", { templateId: "tpl_eta_update" }, store.cookie))
+    const testOn = (recordRef?: string) =>
+      rpc("Automations.test", { id: template.automation!.automation.id, recordRef }, store.cookie).then(ok)
+    const open = await testOn("#1002")
+    expect(open).toMatchObject({ ok: true, stoppedAt: null })
+    expect(open.steps.at(-1)).toMatchObject({ status: "ok", explanation: expect.stringContaining("Zou ") })
+    const newest = await testOn()
+    expect(newest).toMatchObject({ ok: true, sample: { number: "#1005" }, stoppedAt: null })
+    expect(newest.steps.at(-1)).toMatchObject({ status: "skipped" })
     const subject = `Je bestelling {{order.number}} · ${run}`
     const mail = step("m", "action.send_email", {
       subject,

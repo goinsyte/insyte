@@ -123,6 +123,12 @@ export const test = Effect.fn("Automations.test")(
                   said(n, lane, "error", why)
                   return why
                 }
+                // A shopper who would not be mailed is said first: a cancelled order has no delivery day to fill in.
+                const notMailed = n.variantId === "action.send_email" ? yield* mailSkip(sql, sample.id) : undefined
+                if (notMailed !== undefined) {
+                  said(n, lane, "skipped", notMailed)
+                  return undefined
+                }
                 const missing = missingIn(n.config, fullContext)
                 if (missing.length > 0) {
                   const why = `Dit voorbeeld heeft geen ${missing.map((m) => `{{${m}}}`).join(", ")}.`
@@ -202,6 +208,15 @@ const sampleOf = Effect.fn("Automations.sampleOf")(function*(
   return o === undefined ? undefined : { id: o.id, number: o.number, name: o.name ?? "", customerId: o.customerId }
 })
 
+/** Why "E-mail versturen" would not mail this order's shopper: no address, or the order is cancelled. */
+const mailSkip = Effect.fn("Automations.mailSkip")(function*(sql: SqlClient.SqlClient, orderId: string) {
+  const [o] = yield* sql<{ email: string | null; status: string }>`
+    select nullif(btrim(customer_email), '') as email, status from orders where id = ${orderId}`
+  if (o?.email == null) return "Deze bestelling heeft geen e-mailadres van de klant."
+  if (o.status === "cancelled") return "Deze bestelling is geannuleerd; de klant wordt niet gemaild."
+  return undefined
+})
+
 /** What an action would do on this order, said; checked where the run would refuse it. */
 const wouldDo = Effect.fn("Automations.wouldDo")(function*(
   sql: SqlClient.SqlClient,
@@ -260,18 +275,10 @@ const wouldDo = Effect.fn("Automations.wouldDo")(function*(
         : { status: "ok" as const, explanation: `Zou ${found.map((s) => s.name).join(", ")} een bericht sturen.` }
     }
     case "action.send_email": {
-      const [o] = yield* sql<{ email: string | null; status: string }>`
-        select nullif(btrim(customer_email), '') as email, status from orders where id = ${sample.id}`
-      if (o?.email == null) {
-        return { status: "skipped" as const, explanation: "Deze bestelling heeft geen e-mailadres van de klant." }
-      }
-      if (o.status === "cancelled") {
-        return {
-          status: "skipped" as const,
-          explanation: "Deze bestelling is geannuleerd; de klant wordt niet gemaild."
-        }
-      }
-      return { status: "ok" as const, explanation: `Zou ${o.email} mailen: “${text("subject")}”.` }
+      const [o] = yield* sql<
+        { email: string }
+      >`select btrim(customer_email) as email from orders where id = ${sample.id}`
+      return { status: "ok" as const, explanation: `Zou ${o?.email ?? ""} mailen: “${text("subject")}”.` }
     }
     case "action.refund": {
       const amount = text("amount")
