@@ -5,7 +5,7 @@ import { Effect, Layer } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { AppInfo } from "../../../platform/Bindings.ts"
 import { parseMail } from "../../../platform/InboundMail.ts"
-import { capturedSenders, refusedReferences, refusedSenderDomains } from "../../../platform/Mail.ts"
+import { busyReferences, capturedSenders, refusedReferences, refusedSenderDomains } from "../../../platform/Mail.ts"
 import { withRequestDb } from "../../../platform/RequestDb.ts"
 import { notInProduction } from "./shared.ts"
 
@@ -52,7 +52,8 @@ const CapturedMail = HttpRouter.add(
 /**
  * `POST /api/__dev/mail/refuse?reference=<id>`: the capture adapter refuses one record's mails from now on (an order's
  * delay mail, M10.2), as a bouncing address would, so a mail that does not go can be tried; `&off=1` takes it back.
- * Refused in production.
+ * `&busy=1`: the provider is busy for them instead (Resend's 429), so a mail tried again later can be. Refused in
+ * production.
  */
 const MailRefuse = HttpRouter.add(
   "POST",
@@ -65,9 +66,10 @@ const MailRefuse = HttpRouter.add(
     const request = yield* HttpServerRequest.HttpServerRequest
     const query = new URL(request.url, "http://local").searchParams
     const reference = query.get("reference") ?? ""
-    if (reference !== "" && query.get("off") === "1") refusedReferences.delete(reference)
-    else if (reference !== "") refusedReferences.add(reference)
-    return HttpServerResponse.jsonUnsafe({ refused: [...refusedReferences] })
+    const set = query.get("busy") === "1" ? busyReferences : refusedReferences
+    if (reference !== "" && query.get("off") === "1") set.delete(reference)
+    else if (reference !== "") set.add(reference)
+    return HttpServerResponse.jsonUnsafe({ refused: [...refusedReferences], busy: [...busyReferences] })
   })
 )
 

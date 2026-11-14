@@ -10,6 +10,7 @@ export const ForwardingHandlers = ForwardingRpcs.toLayer(Effect.gen(function*() 
     "Forwarding.forward": (input) => forwarding.forward(input),
     "Forwarding.markConfirmed": (input) => forwarding.markConfirmed(input),
     "Forwarding.reroute": (input) => forwarding.reroute(input),
-    "Forwarding.cancel": (input) => forwarding.cancel(input)
+    "Forwarding.cancel": (input) => forwarding.cancel(input),
+    "Forwarding.customerDraft": ({ id }) => forwarding.customerDraft(id)
   })
 }))

@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react"
+import type { CustomerDraft } from "@insyte/modules/forwarding/domain/CustomerDraft"
 import type { LegList, LegRow as ServerLeg } from "@insyte/modules/forwarding/domain/Forwarding"
 import { useNow } from "@insyte/ui/app/hooks/use-now"
 import type { ForwardView } from "@insyte/ui/app/lib/forwarding"
@@ -7,19 +8,24 @@ import type { QueueRow } from "@insyte/ui/app/lib/queue-row"
 import type { Currency, Order } from "@insyte/ui/app/lib/types/domain"
 import { PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
 import { at, ForwardingList, ProcessingTrackerView, type TrackerTrack } from "@insyte/ui/app/orders/forwarding"
-import { type ForwardingSource, ForwardingSourceProvider } from "@insyte/ui/app/orders/forwarding-source"
+import {
+  type ForwardingSource,
+  ForwardingSourceProvider,
+  type ServedDraft
+} from "@insyte/ui/app/orders/forwarding-source"
 import { Option } from "effect"
-import { AsyncResult } from "effect/reactivity"
+import { AsyncResult, Atom } from "effect/reactivity"
 import { useMemo } from "react"
-import { forwardingAtom, orderLegsAtom, orderTrackingAtom } from "../data/forwarding.ts"
+import { customerDraftAtom, forwardingAtom, orderLegsAtom, orderTrackingAtom } from "../data/forwarding.ts"
 import { suppliersAtom } from "../data/suppliers.ts"
 import { useGate } from "../frame/refusals.ts"
 import { useForwardingCommands } from "./forwarding-writes.ts"
 import { useOrderCommands } from "./order-writes.ts"
 
 /*
- * The forwarding queue's source in the console (M8.2): `Forwarding.list`'s legs as the design's rows. What the server
- * does not hold yet is left out: the agent's plate and log row (M15), "Klant mailen" (until `Orders.emailCustomer`).
+ * The forwarding queue's source in the console (M8.2): `Forwarding.list`'s legs as the design's rows. "Klant mailen"
+ * opens on Insyte's draft (`Forwarding.customerDraft`, M8 10.2a) and sends it with `Orders.emailCustomer`, with its
+ * undo. What the server does not hold yet is left out: the agent's plate and log row (M15).
  * A forward's "Wordt doorgestuurd…" turns into "Wacht op bevestiging" when its window closes, as the design's does.
  */
 
@@ -76,6 +82,15 @@ const queueRowOf = (l: ServerLeg, now: number): QueueRow => {
 
 const valueOf = <A, E>(result: AsyncResult.AsyncResult<A, E>) => Option.getOrUndefined(AsyncResult.value(result))
 
+const NO_DRAFT = Atom.make(AsyncResult.initial<CustomerDraft, never>())
+
+/** Insyte's draft for the row's shopper: the dialog sends only once it is in, never a placeholder. */
+const useDraft = (row: QueueRow | null): ServedDraft => {
+  const result = useAtomValue(row === null ? NO_DRAFT : customerDraftAtom(row.key))
+  if (AsyncResult.isFailure(result)) return "failed"
+  return valueOf(result) ?? "loading"
+}
+
 /** Supplier names from the legs, and from the suppliers the role may see (who else could take a leg). */
 function useSuppliers(legs: ReadonlyArray<ServerLeg>) {
   const list = valueOf(useAtomValue(suppliersAtom))
@@ -99,6 +114,7 @@ function useConsoleForwardingSource(list: LegList): ForwardingSource {
   const commands = useForwardingCommands()
   const orders = useOrderCommands()
   const edit = useGate("orders", 2)
+  const mail = useGate("support", 2)
   const label = (id: string) => suppliers.names.get(id) ?? "Geen leverancier"
   return {
     now,
@@ -120,7 +136,12 @@ function useConsoleForwardingSource(list: LegList): ForwardingSource {
         name: s.name
       })),
     reroute: (row, supplierId) => void commands.reroute(row, supplierId, label(supplierId)),
-    cancelOrder: (row) => void orders.cancel(row.order)
+    cancelOrder: (row) => void orders.cancel(row.order),
+    mail: {
+      gate: mail,
+      send: (row, subject, body) => void orders.emailCustomer(row.orderId, subject, body, row.order.customer_name),
+      useDraft
+    }
   }
 }
 

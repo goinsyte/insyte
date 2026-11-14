@@ -56,5 +56,6 @@ export const ticketWrites = {
   watch: ConsoleClient.mutation("Tickets.watch"),
   unwatch: ConsoleClient.mutation("Tickets.unwatch"),
   comment: ConsoleClient.mutation("Tickets.comment"),
+  emailCustomer: ConsoleClient.mutation("Tickets.emailCustomer"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const

@@ -17,6 +17,12 @@ import {
   TagCount,
   TagInput
 } from "@insyte/modules/orders/domain/Commands"
+import {
+  CustomerMailQueued,
+  CustomerMailRefused,
+  EmailCustomerInput,
+  TrackingSent
+} from "@insyte/modules/orders/domain/CustomerMail"
 import { OrderDetail, OrderPage } from "@insyte/modules/orders/domain/Orders"
 import {
   AlreadyRefunded,
@@ -82,6 +88,18 @@ export class CommerceRpcs extends RpcGroup.make(
   }),
   Rpc.make("Orders.clearDelay", { payload: IdsInput, success: OrderChange, error: GetError }),
   Rpc.make("Orders.setNote", { payload: NoteInput, error: GetError }),
+  // Mail the shopper (M7 9.1): the team's words to one order's shopper (Klantenservice · Bewerken), and the bulk
+  // "Track & trace-update sturen" (Bestellingen · Bewerken). Each waits out the undo window; one undo per call.
+  Rpc.make("Orders.emailCustomer", {
+    payload: EmailCustomerInput,
+    success: CustomerMailQueued,
+    error: Schema.Union([Forbidden, NotFound, Invalid, Conflict, CustomerMailRefused])
+  }),
+  Rpc.make("Orders.sendTrackingUpdate", {
+    payload: IdsInput,
+    success: TrackingSent,
+    error: Schema.Union([Forbidden, NotFound, Invalid])
+  }),
   // Irreversible (api.md §1.1): Terugbetalen within the role's limit, confirmed in the console, no undo.
   Rpc.make("Orders.refund", {
     payload: RefundInput,
