@@ -254,7 +254,8 @@ test("@auth back from Google with a refusal, the sign-in screen says why", async
 
 test("@analysis @order @customer @product @search a new admin with a store reads its first analysis, then opens its records", async ({ page, request }) => {
   // Onboarding to the store step, the recorded store imported in its place (previews have no Shopify), then the sync
-  // and the store's first analysis: the reads tick off as the server reads, then the early read, then ready.
+  // and the store's first analysis: the reads tick off as the server reads, then the early read, the offline plan,
+  // then ready.
   test.setTimeout(180_000)
   const email = `e2e-${Date.now().toString(36)}-analysis@example.com`
   await page.goto("/onboarding")
@@ -287,18 +288,22 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   await page.getByRole("radio", { name: "Ja, zelf doen" }).click()
   await page.getByRole("button", { name: "Klaarzetten" }).click()
 
+  // The offline plan: the window and the levels, written into the autonomy policy on Afronden.
+  await expect(page.getByRole("heading", { name: "Terwijl je offline bent." })).toBeVisible()
+  await expect(page.getByText("De levertijd-update staat als concept klaar")).toBeVisible()
+  await page.getByRole("button", { name: "Afronden" }).click()
+
+  // The automation is made as a draft, never switched on; the customer agent still waits on its part.
   await expect(page.getByRole("heading", { name: "Je bent binnen." })).toBeVisible()
   await expect(page.getByText("3 producten · 5 bestellingen · 3 klanten")).toBeVisible()
-  await expect(page.getByText("Klaar om aan te zetten", { exact: true })).toBeVisible()
+  await expect(page.getByText("Klaargezet door Insyte", { exact: true })).toBeVisible()
+  await expect(page.getByText("Levertijd-update op dag 5 (concept)")).toBeVisible()
   await expect(page.getByText("Antwoorden op statusvragen, zodra de klantagent beschikbaar is"))
     .toBeVisible()
-  // A reload keeps it: the choice is the server's.
+  // A reload keeps it: the choice and what was made are the server's.
   await page.reload()
   await hydrated(page)
-  await expect(
-    page.getByText("Levertijd-update op dag 5, zodra Automatiseringen beschikbaar zijn")
-  )
-    .toBeVisible()
+  await expect(page.getByText("Levertijd-update op dag 5 (concept)")).toBeVisible()
   await page.getByRole("button", { name: "Dashboard openen" }).click()
   await expect(page).toHaveURL(/\/dashboard$/)
 
