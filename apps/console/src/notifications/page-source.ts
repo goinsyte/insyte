@@ -58,7 +58,9 @@ export function useConsoleNotificationsSource(prefs: NotifyPrefs): Notifications
     () =>
       pages.inbox === undefined || pages.later === undefined || pages.cleared === undefined
         ? undefined
-        : [...pages.inbox.items, ...pages.later.items, ...pages.cleared.items].map(toNote),
+        // A note moving between tabs can be in two of them while they read again: it shows once.
+        : [...new Map([...pages.inbox.items, ...pages.later.items, ...pages.cleared.items].map((n) => [n.id, n]))
+          .values()].map(toNote),
     [pages.inbox, pages.later, pages.cleared]
   )
 
