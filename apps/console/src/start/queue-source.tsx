@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { QUEUE, queueAtom, queueWrites } from "../data/queue.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
-import { useBeginConnect } from "../stores/stores-source.tsx"
+import { useBeginConnect } from "../stores/begin-connect.ts"
 
 /*
  * Start's queue in the console (M10.1, M10.2), over `Queue.list`: the design's rows, with their figures written here

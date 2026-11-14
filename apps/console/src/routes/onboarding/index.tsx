@@ -20,7 +20,8 @@ import { advanceOnboardingAtom, ONBOARDING, onboardingMeAtom } from "../../data/
 import { storesAtom, syncStatusAtom } from "../../data/stores.ts"
 import { AnalysisLive, ConsoleReadyCard, useConsoleAnalysis } from "../../onboarding/analysis.tsx"
 import { LiveUpdates } from "../../realtime/live-updates.tsx"
-import { notConnected, useBeginConnect } from "../../stores/stores-source.tsx"
+import { useBeginConnect } from "../../stores/begin-connect.ts"
+import { notConnected } from "../../stores/stores-source.tsx"
 
 /**
  * Onboarding (step 2, M4.1): the design reference's shell and steps, with the progress on the server. The loader reads
