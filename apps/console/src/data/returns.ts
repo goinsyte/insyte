@@ -52,6 +52,11 @@ export const customerReturnsAtom = Atom.family((customerId: string) =>
   ConsoleClient.query("Returns.list", { customerId }, { reactivityKeys: RETURNS })
 )
 
+/** The returns with a line of one product, for its page's Retouren block. */
+export const productReturnsAtom = Atom.family((productId: string) =>
+  ConsoleClient.query("Returns.list", { productId, limit: 200 }, { reactivityKeys: RETURNS })
+)
+
 /** "Retour starten": the order's lines and what is still free to send back. */
 export const returnableAtom = Atom.family((orderId: string) =>
   ConsoleClient.query("Returns.returnable", { orderId }, {

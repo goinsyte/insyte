@@ -333,6 +333,7 @@ const PAYLOADS: Record<string, unknown> = {
   "Mailboxes.setDefault": { id: "mbx_none" },
   "Mailboxes.setSignature": { id: "mbx_none", signature: "" },
   "Quality.list": { productId: "prd_none" },
+  "Quality.stats": {},
   "Quality.request": {
     productId: "prd_none",
     kind: "batch",
@@ -1440,6 +1441,33 @@ describe("the store fence on every surface", () => {
       )
     expect((await answered(whole)).length).toBeGreaterThan(0)
     expect(await answered(held)).toEqual([])
+  })
+
+  it("keeps a product's quality figures, its returns and a rejection's ticket from the held member", async () => {
+    const linen = ok(await rpc("Products.list", {}, store.cookie)).rows.find((p) => p.title === "Linnen overhemd")!
+    const ids = async (cookie: string, input: { productId?: string; bySupplier?: boolean }) =>
+      ok(await rpc("Quality.stats", input, cookie)).rows.map((r) => r.id)
+    // The check the supplier answered above, rejected with a ticket in the product's store.
+    const check = ok(await rpc("Quality.list", { productId: linen.id }, store.cookie)).checks.find((c) =>
+      c.status === "submitted"
+    )!
+    const { ticket } = ok(
+      await rpc("Quality.reject", { id: check.id, note: "Naad laat los", watch: false, ticket: true }, store.cookie)
+    )
+    expect(await ids(whole, {})).toContain(linen.id)
+    expect(await ids(whole, { bySupplier: true })).toContain(linen.supplierId)
+    expect(await ids(held, {})).toEqual([])
+    expect(await ids(held, { productId: linen.id })).toEqual([])
+    expect(await ids(held, { bySupplier: true })).toEqual([])
+    const board = async (cookie: string) => ok(await rpc("Tickets.list", { view: "all" }, cookie)).rows.map((t) => t.id)
+    expect(await board(whole)).toContain(ticket!.id)
+    expect(await board(held)).not.toContain(ticket!.id)
+
+    const product = ok(await rpc("Returns.get", { id: returnId }, store.cookie)).lines[0]!.productId!
+    const returns = async (cookie: string) =>
+      ok(await rpc("Returns.list", { productId: product }, cookie)).rows.map((r) => r.id)
+    expect(await returns(whole)).toContain(returnId)
+    expect(await returns(held)).toEqual([])
   })
 
   it("keeps a supplier's statement of this store's lines, and its PDF, from the held member", async () => {
