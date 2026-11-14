@@ -209,7 +209,7 @@ const sentence = (note: ServerNote): Sentence => {
           search: { store: String(data["storeId"] ?? "") }
         }
       }
-      if (note.kind === "integration.sync") return { title: "heeft iets voor je", to: "/notifications" }
+      if (note.kind === "integration.sync") return { title: "heeft iets voor je", to: "/dashboard" }
       // A webhook endpoint Insyte switched off after five failed attempts in a row (M19.4).
       return {
         title: "Insyte heeft een webhook-endpoint uitgezet:",
@@ -318,7 +318,8 @@ const sentence = (note: ServerNote): Sentence => {
       }
     }
     default:
-      return { title: "heeft iets voor je", to: "/notifications" }
+      // Start, until there is a page of all notifications (`/notifications` is not built yet).
+      return { title: "heeft iets voor je", to: "/dashboard" }
   }
 }
 

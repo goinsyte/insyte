@@ -24,7 +24,7 @@ import { formatDateTime } from "../lib/format";
 import { type AgentLogEntry, canUndo, leftLabel, type LogRecordKind, type LogSource, type LogSourceKind, RECORD_LABEL, ranUnder, STATUS_LABEL } from "../lib/agent-log";
 import { ENTRY } from "../lib/autonomy";
 import { cn } from "../lib/utils";
-import { useAgentLogSource } from "./agent-log-source";
+import { useAgentLogSourceOrNone } from "./agent-log-source";
 import { InsyteMark } from "./parts";
 
 /*
@@ -55,10 +55,15 @@ const SOURCE_ICON: Record<LogSourceKind, IconComponent> = {
 
 const time = (iso: string) => new Intl.DateTimeFormat("nl-NL", { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 
-/** Takes a row back inside its window, or runs its compensation by hand after it: the host's to do and to say. */
+/**
+ * Takes a row back inside its window, or runs its compensation by hand after it: the host's to do and to say;
+ * `undefined` where the host has no log.
+ */
 export function useUndoAgent() {
-	return useAgentLogSource().undo;
+	return useAgentLogSourceOrNone()?.undo;
 }
+
+const NO_ENTRIES: AgentLogEntry[] = [];
 
 export function StatusWord({ e, now }: { e: AgentLogEntry; now: number }) {
 	const sending = e.status === "sending" || (e.effect?.kind === "send" && e.status === "done" && canUndo(e, now));
@@ -105,7 +110,7 @@ function SourceChips({ sources }: { sources: ReadonlyArray<LogSource> }) {
 /** The way back, or the reason there is none. */
 export function UndoControl({ e, now, size = "sm" }: { e: AgentLogEntry; now: number; size?: "sm" | "xs" }) {
 	const undo = useUndoAgent();
-	if (e.status === "failed" || e.status === "undone") return null;
+	if (undo === undefined || e.status === "failed" || e.status === "undone") return null;
 	if (canUndo(e, now)) {
 		return (
 			<button
@@ -335,7 +340,7 @@ export const rowsFor = (entries: ReadonlyArray<AgentLogEntry>, kind: LogRecordKi
 
 /** A record's agent rows, read from the log: `<RecordAgentRows kind="ticket" id="tkt_4000" />`. */
 export function RecordAgentRows({ kind, id, title }: { kind: LogRecordKind; id: string; title?: string }) {
-	const rows = rowsFor(useAgentLogSource().entries, kind, id);
+	const rows = rowsFor(useAgentLogSourceOrNone()?.entries ?? NO_ENTRIES, kind, id);
 	return <AgentTimeline entries={rows} title={title} />;
 }
 
@@ -345,7 +350,7 @@ export function RecordAgentRows({ kind, id, title }: { kind: LogRecordKind; id: 
  * where the decision was.
  */
 export function RecentAgentRow({ action, within = 60 * 60_000, recordId }: { action: AgentLogEntry["action"]; within?: number; recordId?: string }) {
-	const { entries } = useAgentLogSource();
+	const entries = useAgentLogSourceOrNone()?.entries ?? NO_ENTRIES;
 	const now = useNow();
 	const [open, setOpen] = useState<AgentLogEntry | null>(null);
 	const e = entries.find((x) => x.action === action && now - Date.parse(x.at) < within && (!recordId || x.record?.id === recordId));
