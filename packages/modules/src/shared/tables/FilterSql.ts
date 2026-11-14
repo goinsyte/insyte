@@ -6,14 +6,16 @@ import {
   FilterFieldUnknown,
   type FilterGroup,
   type FilterNode,
-  type FilterRule
+  type FilterRule,
+  type ListSort
 } from "../domain/Filter.ts"
 
 /*
  * The filter compiler (widgets/01; 07 "per list: filter compiler whitelist"): a FilterGroup into a SQL condition, over
  * the list's whitelist. A field's column is the whitelist's own text, never the rule's; every value is a parameter.
- * Numbers in money fields arrive in the currency's units ("12.50") and compare in minor units. And the keyset cursor
- * every list pages by: the last row's sort key, opaque to the caller.
+ * Numbers in money fields arrive in the currency's units ("12.50") and compare in minor units. And the keyset every
+ * list pages by (`keyset`): an order from the list's own sort whitelist, the id as the tie-break, and the cursor as the
+ * last row's key, opaque to the caller.
  */
 
 export interface FieldSql {
@@ -110,6 +112,100 @@ export const compileFilter = (
       })
     if (node === undefined) return sql`true`
     return (yield* walk(node)) ?? sql`true`
+  })
+
+/** Whether the filter has a rule on any of these fields: a list adds what such a field reads only when it is asked. */
+export const mentions = (node: FilterNode | undefined, fields: ReadonlyArray<string>): boolean =>
+  node === undefined
+    ? false
+    : node.kind === "rule"
+    ? fields.includes(node.field)
+    : (node as FilterGroup).children.some((c) => mentions(c, fields))
+
+export interface SortSql {
+  /** The column or expression, trusted: written in the slice, never taken from a request. */
+  readonly column: string
+  /** Text sorts without case; a number or a date by its value. */
+  readonly type: "text" | "number" | "date"
+  /** A column that is never null keeps its index: no `coalesce` around it. */
+  readonly required?: boolean
+}
+
+/** A list's orders: the fields it sorts by, its own order without one, and its id column (the tie-break). */
+export interface Sorts {
+  readonly fields: Readonly<Record<string, SortSql>>
+  readonly default: ListSort
+  readonly id: string
+}
+
+/* A sort key as one value per row: text without case and nothing as "", nothing first among numbers (0) and dates. */
+const keyOf = (field: SortSql) => {
+  const column = field.column
+  switch (field.type) {
+    case "text":
+      return field.required === true ? `lower(${column})` : `lower(coalesce(${column}, ''))`
+    case "number":
+      return field.required === true ? column : `coalesce(${column}, 0)`
+    case "date":
+      return field.required === true ? column : `coalesce(${column}, '-infinity'::timestamptz)`
+  }
+}
+
+/* What a key read back from a cursor must look like for its type, before the database casts it. */
+const NUMBER = /^-?\d+(\.\d+)?(e[+-]?\d+)?$/i
+const DATE = /^(-?infinity|\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}(:?\d{2})?)?)$/
+
+/**
+ * The list's order and its page after the cursor: `key` selects the row's sort key as `sort_key` (as Postgres writes
+ * it, so a date keeps its microseconds and two rows in one millisecond are never skipped), `order` is the `order by`,
+ * `after` the condition for the rows past the cursor, and `cursorOf` the next page's cursor from the last row.
+ *
+ * The list's own order hands out `[key, id]`, as every list did before it could be sorted (a cursor from then, an
+ * order's placed time in milliseconds, still reads); any other order `[key, id, field, desc]`, so a cursor is refused
+ * under an order it was not handed out under. A field the list does not sort by is refused as a filter field is.
+ */
+export const keyset = (
+  sql: SqlClient.SqlClient,
+  input: { readonly sort?: ListSort | undefined; readonly cursor?: string | undefined },
+  sorts: Sorts
+) =>
+  Effect.gen(function*() {
+    const want = input.sort ?? sorts.default
+    const field = sorts.fields[want.field]
+    if (field === undefined) return yield* new FilterFieldUnknown({ field: want.field })
+    const own = want.field === sorts.default.field && want.desc === sorts.default.desc
+    const expression = sql.literal(keyOf(field))
+    const id = sql.literal(sorts.id)
+    const direction = sql.literal(want.desc ? "desc" : "asc")
+    const cursor = yield* decodeCursor(input.cursor)
+    let after: Fragment = sql`true`
+    if (cursor !== undefined) {
+      const [raw, last, named, desc] = cursor
+      const fits = cursor.length === 2
+        ? own
+        : cursor.length === 4 && named === want.field && desc === (want.desc ? 1 : 0)
+      if (!fits || typeof last !== "string" || raw === undefined) return yield* new CursorInvalid()
+      const value = typeof raw === "number"
+        ? field.type === "date" ? new Date(raw).toISOString() : String(raw)
+        : raw
+      if (field.type === "number" && !NUMBER.test(value)) return yield* new CursorInvalid()
+      if (field.type === "date" && !DATE.test(value)) return yield* new CursorInvalid()
+      const key = field.type === "date"
+        ? sql`${value}::timestamptz`
+        : field.type === "number"
+        ? sql`${value}::numeric`
+        : sql`${value}`
+      after = want.desc
+        ? sql`(${expression}, ${id}) < (${key}, ${last})`
+        : sql`(${expression}, ${id}) > (${key}, ${last})`
+    }
+    return {
+      key: sql`(${expression})::text as sort_key`,
+      order: sql`order by ${expression} ${direction}, ${id} ${direction}`,
+      after,
+      cursorOf: (row: { readonly sortKey: string; readonly id: string }) =>
+        encodeCursor(own ? [row.sortKey, row.id] : [row.sortKey, row.id, want.field, want.desc ? 1 : 0])
+    }
   })
 
 /** A keyset cursor: the last row's sort key, base64url JSON. */

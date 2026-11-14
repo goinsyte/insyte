@@ -62,5 +62,10 @@ export type CustomerCounts = typeof CustomerCounts.Type
 export class CustomerPage extends Schema.Class<CustomerPage>("customers/CustomerPage")({
   rows: Schema.Array(CustomerRow),
   nextCursor: Schema.NullOr(Schema.String),
-  counts: Schema.Struct({ total: Schema.Int })
+  counts: Schema.Struct({
+    total: Schema.Int,
+    /** Under the search alone: the profiles new up to `NEW_UP_TO_ORDERS` orders, and the returning ones after. */
+    new: Schema.Int,
+    returning: Schema.Int
+  })
 }) {}
