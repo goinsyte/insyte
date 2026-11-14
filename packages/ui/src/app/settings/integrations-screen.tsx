@@ -1,23 +1,28 @@
 import { Loader, RefreshCcw } from "../../icons";
 import { useState } from "react";
-import { ChannelConnectDialog, ChannelMark } from "../inbox/channel-parts";
+import { Link } from "@tanstack/react-router";
+import { ChannelMark, MailboxMark } from "../inbox/channel-mark";
 import { toast } from "sonner";
 import { BrandLogo } from "../marketplace/brand-logos";
+import { SoonChip } from "../common/soon-chip";
 import { BandedList, BandedRow, SettingCard, StatusPill } from "./setting-card";
 import { formatRelative } from "../lib/format";
 import { undoable } from "../lib/undo";
-import { useWorkspace, type WorkspaceIntegration } from "../stores/workspace-store";
+import { type ChatChannel, type IntegrationCategory, type IntegrationItem, type IntegrationsSource, useIntegrationsSource } from "./integrations-source";
 
-const ORDER: Array<WorkspaceIntegration["category"]> = ["Commerce", "Payments", "Email", "Channels", "Marketing", "AI"];
+const ORDER: Array<IntegrationCategory> = ["Commerce", "Payments", "Email", "Channels", "Marketing", "Team", "AI"];
 
-const CATEGORY_LABEL: Record<WorkspaceIntegration["category"], string> = {
+const CATEGORY_LABEL: Record<IntegrationCategory, string> = {
 	Commerce: "Commerce",
 	Payments: "Betalingen",
 	Email: "E-mail",
 	Channels: "Kanalen",
 	Marketing: "Marketing",
+	Team: "Team",
 	AI: "AI",
 };
+
+const PRIMARY = "flex h-7 items-center rounded-md bg-abyss px-2.5 font-medium text-mesh-ink text-xs shadow-primary transition-colors hover:bg-abyss-2";
 
 /**
  * The services Insyte reads from, grouped by what they are for and each wearing its own logo.
@@ -26,13 +31,19 @@ const CATEGORY_LABEL: Record<WorkspaceIntegration["category"], string> = {
  * and every Manage and Connect button raised a toast. Now Connect goes through the provider's
  * approval (simulated), a connected service can be re-synced or disconnected with an undo, and a
  * service that needs attention says so in amber and offers the one button that fixes it.
+ *
+ * What it reads and does comes from its host (`integrations-source.tsx`): where the host manages a
+ * service on another page, the row's button opens that page; what is not built yet says Binnenkort.
  */
 export function IntegrationsPage() {
-	const integrations = useWorkspace((s) => s.integrations);
-	const [connecting, setConnecting] = useState<"whatsapp" | "instagram" | "webchat" | null>(null);
+	const source = useIntegrationsSource();
+	const integrations = source.integrations;
+	const offered = integrations.filter((i) => i.status !== "soon");
+	const [connecting, setConnecting] = useState<ChatChannel | null>(null);
+	const { ChannelDialog } = source;
 	return (
 		<>
-		<SettingCard title={`Gekoppeld · ${integrations.filter((i) => i.status === "connected").length} van ${integrations.length}`}>
+		<SettingCard title={`Gekoppeld · ${offered.filter((i) => i.status === "connected").length} van ${offered.length}`}>
 			<div className="flex flex-col gap-4">
 				{ORDER.map((category) => {
 					const items = integrations.filter((i) => i.category === category);
@@ -42,7 +53,12 @@ export function IntegrationsPage() {
 							<span className="px-3 font-medium text-xs text-ink-3">{CATEGORY_LABEL[category]}</span>
 							<BandedList>
 								{items.map((it) => (
-									<IntegrationRow key={it.key} it={it} onConnect={it.category === "Channels" ? () => setConnecting(it.key as "whatsapp" | "instagram" | "webchat") : undefined} />
+									<IntegrationRow
+										key={it.key}
+										it={it}
+										source={source}
+										onConnect={it.category === "Channels" && ChannelDialog ? () => setConnecting(it.key as ChatChannel) : undefined}
+									/>
 								))}
 							</BandedList>
 						</div>
@@ -50,19 +66,21 @@ export function IntegrationsPage() {
 				})}
 			</div>
 		</SettingCard>
-		<ChannelConnectDialog channel={connecting} onClose={() => setConnecting(null)} />
+		{ChannelDialog ? <ChannelDialog channel={connecting} onClose={() => setConnecting(null)} /> : null}
 		</>
 	);
 }
 
-function IntegrationRow({ it, onConnect }: { it: WorkspaceIntegration; onConnect?: (() => void) | undefined }) {
-	const connect = useWorkspace((s) => s.connectIntegration);
-	const disconnect = useWorkspace((s) => s.disconnectIntegration);
-	const sync = useWorkspace((s) => s.syncIntegration);
-	const restore = () =>
-		useWorkspace.setState((s) => ({
-			integrations: s.integrations.map((i) => (i.key === it.key ? it : i)),
-		}));
+function IntegrationMark({ it }: { it: IntegrationItem }) {
+	const brand = it.brand ?? it.key;
+	if (brand === "webchat") return <ChannelMark channel="webchat" size={32} />;
+	if (brand === "email") return <MailboxMark logo={{ brand, name: it.name }} size={32} />;
+	return <BrandLogo brand={brand} name={it.name} size={32} />;
+}
+
+function IntegrationRow({ it, source, onConnect }: { it: IntegrationItem; source: IntegrationsSource; onConnect?: (() => void) | undefined }) {
+	const { connect, disconnect, sync } = source;
+	const restore = () => source.restore?.(it);
 
 	const status =
 		it.status === "connected" ? (
@@ -73,23 +91,28 @@ function IntegrationRow({ it, onConnect }: { it: WorkspaceIntegration; onConnect
 			<span className="flex items-center gap-1.5 text-sm text-ink-2">
 				<Loader className="size-3.5 animate-spin" /> Koppelen…
 			</span>
+		) : it.status === "soon" ? (
+			<SoonChip />
 		) : null;
+
+	const manage = it.manage ? { to: it.manage.to as never, ...(it.manage.search ? { search: it.manage.search as never } : {}) } : undefined;
 
 	return (
 		<BandedRow
-			leading={it.key === "webchat" ? <ChannelMark channel="webchat" size={32} /> : <BrandLogo brand={it.key} name={it.name} size={32} />}
+			leading={<IntegrationMark it={it} />}
 			title={it.name}
 			detail={
 				it.status === "connected" && it.syncedAt
 					? `${it.description} · gesynchroniseerd ${formatRelative(it.syncedAt)}`
 					: it.status === "action_required"
-						? `${it.description} · de toestemming is verlopen, dus er komen geen geschillen meer binnen`
+						? `${it.description} · ${it.attention ?? "de toestemming is verlopen, dus er komen geen geschillen meer binnen"}`
 						: it.description
 			}
 			trailing={
 				<>
 					{status}
 					{it.status === "connected" ? (
+						sync && disconnect ? (
 						<>
 							<button
 								type="button"
@@ -113,18 +136,33 @@ function IntegrationRow({ it, onConnect }: { it: WorkspaceIntegration; onConnect
 								Ontkoppelen
 							</button>
 						</>
-					) : it.status !== "connecting" ? (
+						) : manage ? (
+							<Link
+								{...manage}
+								aria-label={`${it.name} beheren`}
+								className="flex h-7 items-center rounded-md px-2.5 font-medium text-ink-2 text-xs transition-colors hover:bg-ink/6 hover:text-ink"
+							>
+								Beheren
+							</Link>
+						) : null
+					) : it.status === "disconnected" || it.status === "action_required" ? (
+						onConnect || connect ? (
 						<button
 							type="button"
 							onClick={async () => {
 								if (onConnect) return onConnect();
-								await connect(it.key);
+								await connect?.(it.key);
 								toast.success(`${it.name} gekoppeld`);
 							}}
-							className="flex h-7 items-center rounded-md bg-abyss px-2.5 font-medium text-mesh-ink text-xs shadow-primary transition-colors hover:bg-abyss-2"
+							className={PRIMARY}
 						>
 							{it.status === "action_required" ? "Opnieuw koppelen" : "Koppelen"}
 						</button>
+						) : manage ? (
+							<Link {...manage} className={PRIMARY}>
+								{it.action ?? (it.status === "action_required" ? "Opnieuw koppelen" : "Koppelen")}
+							</Link>
+						) : null
 					) : null}
 				</>
 			}
