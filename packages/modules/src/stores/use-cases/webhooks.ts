@@ -2,8 +2,10 @@ import { Db } from "@insyte/database/Db"
 import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect, Option, Schema } from "effect"
+import { FileStore } from "../../shared/domain/Documents.ts"
 import { Relay } from "../../shared/domain/Outbox.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
+import { eraseShopper } from "../../shared/use-cases/ShopperErasure.ts"
 import { throughGate } from "../domain/Gate.ts"
 import { addLine, emptyBatch, flatten, gidOf, type MirrorKind, NODE_QUERY } from "../domain/Mirror.ts"
 import { ConnectionGate, IngestQueue, ShopifyAdmin, ShopifyGraphql } from "../domain/Ports.ts"
@@ -224,31 +226,54 @@ const gdpr = Effect.fn("Stores.webhooks.gdpr")(
   function*(store: StoreRow, kind: "data_request" | "customer_redact" | "shop_redact", body: unknown, done: boolean) {
     const db = yield* Db
     const customer = (body as { customer?: { id?: unknown } }).customer?.id
+    // An erasure keeps no trace of whom it erased beyond Shopify's ids.
+    const kept = kind === "customer_redact"
+      ? {
+        shop_id: (body as { shop_id?: unknown }).shop_id,
+        customer: { id: customer },
+        orders_to_redact: (body as { orders_to_redact?: unknown }).orders_to_redact
+      }
+      : body
     yield* db.scopedFor((sql) =>
       sql`insert into gdpr_requests (id, workspace_id, store_id, kind, customer_shopify_id, payload, due_at, completed_at)
           values (${mintId("gdpr")}, app_workspace_id(), ${kind === "shop_redact" ? null : store.id}, ${kind},
-                  ${customer === undefined ? null : String(customer)}, ${JSON.stringify(body)}::jsonb,
+                  ${customer === undefined ? null : String(customer)}, ${JSON.stringify(kept)}::jsonb,
                   now() + interval '30 days', case when ${done} then now() end)`
     )
   }
 )
 
-/** Clears a customer's personal fields, and their orders'; amounts, dates and statuses stay for the figures. */
+/**
+ * Shopify's `customers/redact`: the shopper erased in the store everywhere Insyte holds them, as "Gegevens wissen"
+ * does (`shared/use-cases/ShopperErasure.ts`): the customer, their orders and those Shopify names, and what the
+ * other slices keep about them. Amounts, dates and statuses stay for the figures.
+ */
 const redactCustomer = Effect.fn("Stores.webhooks.redactCustomer")(function*(store: StoreRow, body: unknown) {
   const db = yield* Db
-  const payload = body as { customer?: { id?: unknown }; orders_to_redact?: ReadonlyArray<unknown> }
+  const files = yield* FileStore
+  const payload = body as {
+    customer?: { id?: unknown; email?: unknown }
+    orders_to_redact?: ReadonlyArray<unknown>
+  }
   const customer = payload.customer?.id === undefined ? "" : String(payload.customer.id)
+  const email = typeof payload.customer?.email === "string" ? payload.customer.email : null
   const orders = (payload.orders_to_redact ?? []).map(String)
-  yield* db.scopedFor((sql) =>
+  const keys = yield* db.scopedFor((sql) =>
     Effect.gen(function*() {
-      yield* sql`update customers set email = null, name = '', phone = null, address = null, raw = '{}'::jsonb,
-                   deleted_at = coalesce(deleted_at, now())
-                 where store_id = ${store.id} and shopify_id = ${customer}`
-      yield* sql`update orders set customer_name = '', customer_email = null, shipping_address = null, note = null,
-                   raw = '{}'::jsonb
-                 where store_id = ${store.id} and (customer_shopify_id = ${customer} or shopify_id = any(${orders}))`
+      const customers = yield* sql<{ id: string }>`
+        select id from customers where store_id = ${store.id} and shopify_id = ${customer}`
+      const named = yield* sql<{ id: string }>`
+        select id from orders where store_id = ${store.id} and shopify_id = any(${orders}::text[])`
+      const erased = yield* eraseShopper(sql, {
+        customerIds: customers.map((c) => c.id),
+        emails: email === null ? [] : [email],
+        orderIds: named.map((o) => o.id),
+        stores: [store.id]
+      })
+      return erased.keys
     })
   )
+  for (let i = 0; i < keys.length; i += 1000) yield* files.remove(keys.slice(i, i + 1000))
 })
 
 /** Shopify's `shop/redact`, 48 hours after an uninstall: the store's mirror goes; the store row stays, disconnected. */

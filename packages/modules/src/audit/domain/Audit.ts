@@ -82,7 +82,8 @@ const PAGE = {
   brand: { id: "brand", label: "Huisstijl", path: "/settings/brand" },
   domain: { id: "domain", label: "E-mail en domein", path: "/settings/email-domain" },
   vat: { id: "vat", label: "Btw", path: "/settings/vat" },
-  privacy: { id: "privacy", label: "Gegevens en privacy", path: "/settings/privacy" }
+  privacy: { id: "privacy", label: "Gegevens en privacy", path: "/settings/privacy" },
+  data: { id: "data", label: "Je gegevens", path: "/settings/data" }
 } as const satisfies Record<string, LogPage>
 
 /**
@@ -125,7 +126,9 @@ const SECTIONS: Readonly<Record<string, SectionLabels>> = {
   links: { page: PAGE.templates },
   brand: { page: PAGE.brand },
   domain_senders: { page: PAGE.domain },
-  vat: { page: PAGE.vat }
+  vat: { page: PAGE.vat },
+  // Je gegevens' automatic export (M17 step 5).
+  data: { page: PAGE.data, whole: "Automatisch exporteren" }
 }
 
 /** `settings.retention.*` is Gegevens en privacy's; the older `workspace.retention_updated` is Account's. */
@@ -163,7 +166,8 @@ const VALUES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     "fr-FR": "Frans"
   },
   timeFormat: { "24h": "24-uurs", "12h": "12-uurs" },
-  weekStart: { mon: "Maandag", sun: "Zondag", sat: "Zaterdag" }
+  weekStart: { mon: "Maandag", sun: "Zondag", sat: "Zaterdag" },
+  data: { off: "Uit", weekly: "Elke week", monthly: "Elke maand" }
 }
 
 /**

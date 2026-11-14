@@ -6,10 +6,12 @@ import type { ForwardSendParams } from "../workflows/ForwardSend.ts"
 import type { ImportParseParams } from "../workflows/ImportParse.ts"
 import type { MarketingSyncParams } from "../workflows/MarketingSync.ts"
 import type { MonthlyCloseParams } from "../workflows/MonthlyClose.ts"
+import type { PrivacyExportParams } from "../workflows/PrivacyExport.ts"
 import type { ReturnLabelParams } from "../workflows/ReturnLabel.ts"
 import type { BackfillParams } from "../workflows/ShopifyBackfill.ts"
 import type { ShopifyWriteParams } from "../workflows/ShopifyWrite.ts"
 import type { WebhookDeliveryParams } from "../workflows/WebhookDelivery.ts"
+import type { WorkspaceLifecycleParams } from "../workflows/WorkspaceLifecycle.ts"
 import type { ConnectionGateObject } from "./ConnectionGate.ts"
 import type { IngestMessage } from "./IngestQueue.ts"
 import type { LiveRoomDurableObject } from "./LiveRoom.ts"
@@ -57,6 +59,10 @@ declare global {
       readonly WEBHOOK_ADAPTER?: string
       /** The supplier statements' monthly close (M13 step 6): one instance per month (`MonthlyCloseWorkflow`). */
       readonly MONTHLY_CLOSE: Workflow<MonthlyCloseParams>
+      /** A workspace export or a shopper's access package (M17 step 5): one instance per request. */
+      readonly PRIVACY_EXPORT: Workflow<PrivacyExportParams>
+      /** A workspace's deletion (M17 step 5): the waiting period, then the purge; one instance per request. */
+      readonly WORKSPACE_LIFECYCLE: Workflow<WorkspaceLifecycleParams>
       /** An uploaded CSV read into rows (M14 step 5): one instance per import (`ImportParseWorkflow`). */
       readonly IMPORT_PARSE: Workflow<ImportParseParams>
       /** An export written, whatever its source (M14 step 5): one instance per export (`ExportWorkflow`). */
@@ -89,6 +95,8 @@ declare global {
       readonly INGEST: Queue<IngestMessage>
       /** Lines per backfill page, 2000 by default; the worker tests read small pages. */
       readonly SYNC_PAGE_LINES?: string
+      /** Rows per page of a privacy export (M17 step 5), 1000 by default; the worker tests read small pages. */
+      readonly PRIVACY_EXPORT_PAGE_ROWS?: string
       /** Files (M8.5): packing slips now, uploads later, one bucket per stage. */
       readonly FILES: R2Bucket
       /** Browser Rendering (M8.5): packing slips as PDF, and an evidence pack's documents (M13 step 4). */
