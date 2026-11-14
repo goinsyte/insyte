@@ -6,7 +6,7 @@ import {
   NotDuplicateInput,
   TagInput as CustomerTagInput
 } from "@insyte/modules/customers/domain/Commands"
-import { CustomerDetail, CustomerPage } from "@insyte/modules/customers/domain/Customers"
+import { CustomerDetail, CustomerListInput, CustomerPage } from "@insyte/modules/customers/domain/Customers"
 import { DuplicateGroup } from "@insyte/modules/customers/domain/Duplicates"
 import {
   CancelInput,
@@ -123,7 +123,7 @@ export class CommerceRpcs extends RpcGroup.make(
   Rpc.make("Products.setStatus", { payload: StatusInput, success: ProductChange, error: GetError }),
   Rpc.make("Products.reprice", { payload: RepriceInput, success: RepriceResult, error: GetError }),
   Rpc.make("Products.sync", { payload: ById, error: Schema.Union([Forbidden, NotFound, Conflict]) }),
-  Rpc.make("Customers.list", { payload: ListInput, success: CustomerPage, error: ListError }),
+  Rpc.make("Customers.list", { payload: CustomerListInput, success: CustomerPage, error: ListError }),
   Rpc.make("Customers.get", { payload: ById, success: CustomerDetail, error: GetError }),
   Rpc.make("Customers.tag", {
     payload: CustomerTagInput,

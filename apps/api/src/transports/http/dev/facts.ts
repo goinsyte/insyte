@@ -17,7 +17,7 @@ const storeParam = Effect.map(
 /**
  * `POST /api/__dev/facts/orders?workspace=<id>&store=<id>`: rows for the facts' worker tests (M10.4), written through
  * the Shopify mirror's own writer, so the triggers see what a sync would write: orders, lines, parcels and refunds as a
- * mirror page holds them, the store's timezone first if given, and after them the fields only Insyte sets (`delayed`,
+ * mirror page holds them (and products, variants and customers, for the long lists' paging tests), the store's timezone first if given, and after them the fields only Insyte sets (`delayed`,
  * `promised`, by Shopify id). Refused in production.
  */
 const FactsOrders = HttpRouter.add(
@@ -32,7 +32,9 @@ const FactsOrders = HttpRouter.add(
     const request = yield* HttpServerRequest.HttpServerRequest
     const body = (yield* request.json) as {
       readonly timezone?: string
-      readonly batch?: Partial<Pick<MirrorBatch, "orders" | "lines" | "fulfilments" | "refunds">>
+      readonly batch?: Partial<
+        Pick<MirrorBatch, "orders" | "lines" | "fulfilments" | "refunds" | "products" | "variants" | "customers">
+      >
       readonly delayed?: ReadonlyArray<string>
       readonly promised?: Record<string, string>
     }

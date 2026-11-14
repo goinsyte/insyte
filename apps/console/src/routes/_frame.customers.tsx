@@ -18,13 +18,13 @@ import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { useCustomerCommands } from "../customers/customer-writes.ts"
-import { useConsoleCustomersSource } from "../customers/customers-source.ts"
+import { customerOf, FIRST_CUSTOMERS, useConsoleCustomersSource } from "../customers/customers-source.ts"
 import { type Preview, useKlaviyo } from "../customers/klaviyo.ts"
-import { customersAtom } from "../data/customers.ts"
+import { customersPageAtom } from "../data/customers.ts"
 
 /**
- * Klanten (step 8.4c, M6.4): the reference's customers list over `Customers.list`, in the frame. The loader reads them
- * on the server; until they are in, the reference's table skeleton stands in. A role that may not see customers is
+ * Klanten (step 8.4c, M6.4): the reference's customers list over `Customers.list`, in the frame, paged on the server
+ * (W3.1). The loader reads the first page on the server; until it is in, the reference's table skeleton stands in. A role that may not see customers is
  * told which permission it misses.
  *
  * The list is this layout rather than `/customers/`, as with Bestellingen, so a row opened over it (step 8.4e) leaves its
@@ -37,8 +37,9 @@ export const Route = createFileRoute("/_frame/customers")({
   loader: async ({ context, location }) => {
     if (!atList(location.pathname)) return
     // Mounted so the value survives until the registry is dehydrated into the document.
-    context.registry.mount(customersAtom)
-    await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, customersAtom)))
+    const first = customersPageAtom(FIRST_CUSTOMERS)
+    context.registry.mount(first)
+    await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, first)))
   },
   pendingComponent: Pending,
   component: Layout
@@ -64,7 +65,7 @@ function Pending() {
 const isForbidden = Schema.is(Forbidden)
 
 function CustomersRoute() {
-  const result = useAtomValue(customersAtom)
+  const result = useAtomValue(customersPageAtom(FIRST_CUSTOMERS))
   const page = AsyncResult.isSuccess(result)
     ? result.value
     : AsyncResult.isWaiting(result)
@@ -136,6 +137,43 @@ function useKlaviyoReturn() {
   }, [])
 }
 
+type MergeProps = {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  groups: Array<DuplicateGroup>
+  customers: Array<Customer>
+  onMerge: (keeper: Customer, others: Array<Customer>) => void
+  onNotDuplicate: (key: string) => void
+  currency: Currency | undefined
+}
+
+/**
+ * The duplicate review, with the profiles it compares: the list pages, so while it is open a group's other profiles are
+ * read by their ids (as many as one read holds), beside those the screen has.
+ */
+function MergeWithProfiles(props: MergeProps) {
+  const ids = props.open ? [...new Set(props.groups.flatMap((g) => g.ids))].toSorted().slice(0, 200) : []
+  return ids.length === 0 ? <MergeReview {...props} /> : <MergeRead {...props} ids={ids} />
+}
+
+function MergeRead({ ids, ...props }: MergeProps & { ids: Array<string> }) {
+  const input = JSON.stringify({
+    filter: {
+      kind: "group",
+      id: "root",
+      join: "and",
+      children: [{ kind: "rule", id: "ids", field: "id", op: "any", value: ids }]
+    },
+    limit: 200
+  })
+  const read = Option.getOrUndefined(AsyncResult.value(useAtomValue(customersPageAtom(input))))
+  const have = new Set(props.customers.map((c) => c.id))
+  const customers = read === undefined
+    ? props.customers
+    : [...props.customers, ...read.rows.filter((c) => !have.has(c.id)).map(customerOf)]
+  return <MergeReview {...props} customers={customers} />
+}
+
 function Loaded({ page }: { page: CustomerPage }) {
   useKlaviyoReturn()
   const navigate = useNavigate()
@@ -168,7 +206,7 @@ function Loaded({ page }: { page: CustomerPage }) {
       groups: Array<DuplicateGroup>
       customers: Array<Customer>
     }) => (
-      <MergeReview
+      <MergeWithProfiles
         {...props}
         onMerge={(keeper, others) => void latest.current.merge(keeper, others)}
         onNotDuplicate={(key) => void latest.current.markNotDuplicate(key)}

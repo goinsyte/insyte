@@ -129,10 +129,33 @@ export const ProductListInput = Schema.Struct({
 })
 export type ProductListInput = typeof ProductListInput.Type
 
+/**
+ * The catalogue as a whole inside the principal's stores (or the one asked for), whatever the filter and search: what
+ * the list's header line says, and which of its columns have figures at all. On a list's first page only.
+ */
+export const ProductSummary = Schema.Struct({
+  products: Schema.Int,
+  /** Products whose stock runs low or out. */
+  restock: Schema.Int,
+  /** The average margin over every product, as a fraction; a product without a cost counts as none. */
+  margin: Schema.Finite,
+  /** What the stock on hand cost to buy, in minor units of `currency`. */
+  shelfMinor: Schema.Int,
+  currency: Schema.String,
+  /** Whether any product has a stock count, a cost, a primary supplier, a delivered order. */
+  stocked: Schema.Boolean,
+  costed: Schema.Boolean,
+  supplied: Schema.Boolean,
+  delivered: Schema.Boolean
+})
+export type ProductSummary = typeof ProductSummary.Type
+
 export class ProductPage extends Schema.Class<ProductPage>("products/ProductPage")({
   rows: Schema.Array(ProductRow),
   nextCursor: Schema.NullOr(Schema.String),
-  counts: Schema.Struct({ total: Schema.Int, status: Schema.Record(Schema.String, Schema.Int) })
+  counts: Schema.Struct({ total: Schema.Int, status: Schema.Record(Schema.String, Schema.Int) }),
+  /** Null after the first page. */
+  summary: Schema.NullOr(ProductSummary)
 }) {}
 
 /** `Products.lowStock`: what runs low, in the principal's stores (or one), against the workspace's threshold or this one. */

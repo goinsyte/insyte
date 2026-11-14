@@ -1,40 +1,50 @@
 import { Forbidden, NotFound, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
 import { TagCount } from "@insyte/modules/orders/domain/Commands"
 import { OrderDetail, OrderPage } from "@insyte/modules/orders/domain/Orders"
-import { CursorInvalid, FilterFieldUnknown } from "@insyte/modules/shared/domain/Filter"
+import { CursorInvalid, FilterFieldUnknown, type ListInput } from "@insyte/modules/shared/domain/Filter"
 import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
 import { ConsoleClient } from "./client.ts"
 
 /*
- * Bestellingen (M6.4): the newest orders, primed by the route's loader and carried in the document. The design's table
- * filters, searches and pages in the browser, so it gets the rows it shows at once: up to `LIMIT`, the newest first.
- * A change to an order (a webhook, M6.3, or a command, M7.1) names `ORDERS`; the commands' undo is `Shared.undo`.
+ * Bestellingen (M6.4): the list's pages, the first primed by the route's loader and carried in the document, each next
+ * one read as the design's table pages, filters, searches and sorts on the server. A change to an order (a webhook,
+ * M6.3, or a command, M7.1) names `ORDERS`; the commands' undo is `Shared.undo`.
  */
 
 export const ORDERS = ["orders"] as const
 
-/** As many orders as the list holds in the browser until it pages on the server. */
+/** As many orders as the pickers hold. */
 const LIMIT = 200
 
+const PAGE = AsyncResult.Schema({
+  success: OrderPage,
+  error: Schema.Union([
+    Forbidden,
+    FilterFieldUnknown,
+    CursorInvalid,
+    NoWorkspace,
+    Unauthenticated,
+    RpcClientError.RpcClientError
+  ])
+})
+
+/** The newest orders, for the screens that pick from them (Retouren, Data); the list itself pages on the server. */
 export const ordersAtom = Atom.serializable(
   ConsoleClient.query("Orders.list", { limit: LIMIT }, { reactivityKeys: ORDERS }),
-  {
-    key: "orders",
-    schema: AsyncResult.Schema({
-      success: OrderPage,
-      error: Schema.Union([
-        Forbidden,
-        FilterFieldUnknown,
-        CursorInvalid,
-        NoWorkspace,
-        Unauthenticated,
-        RpcClientError.RpcClientError
-      ])
-    }),
-    skipInitialRun: true
-  }
+  { key: "orders", schema: PAGE, skipInitialRun: true }
+)
+
+/**
+ * One page of Bestellingen as its table asks for it (`orders-source.ts`), keyed by `Orders.list`'s input as JSON: the
+ * route reads the first ahead, and the table reads each page, filter, search and order it is asked for after that.
+ */
+export const ordersPageAtom = Atom.family((input: string) =>
+  Atom.serializable(
+    ConsoleClient.query("Orders.list", JSON.parse(input) as ListInput, { reactivityKeys: ORDERS }),
+    { key: `orders:${input}`, schema: PAGE, skipInitialRun: true }
+  )
 )
 
 /**
