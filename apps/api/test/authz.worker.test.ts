@@ -162,6 +162,7 @@ const PAYLOADS: Record<string, unknown> = {
   "Stores.list": undefined,
   "Stores.syncStatus": { id: "sto_none" },
   "Connections.health": undefined,
+  "Connections.list": undefined,
   "Stores.beginConnect": { shopDomain: "missing-shop", returnPath: "/" },
   "Stores.disconnect": { id: "sto_none" },
   "Orders.list": {},

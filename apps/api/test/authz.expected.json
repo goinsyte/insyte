@@ -405,6 +405,13 @@
     "finance": "allow",
     "view": "allow"
   },
+  "Connections.list": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "allow"
+  },
   "Stores.beginConnect": {
     "owner": "allow",
     "admin": "allow",
