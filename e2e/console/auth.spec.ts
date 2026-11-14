@@ -537,7 +537,20 @@ test("@onboarding @team a new admin runs onboarding to Start, every return resum
   await expect(bell).toBeVisible({ timeout: 15_000 })
   await bell.click()
   await expect(page.getByText("accepteerde je uitnodiging")).toBeVisible()
-  await page.keyboard.press("Escape")
+  // @notifications (PLAN 10): "Alle meldingen" opens the page. A colleague joining is under Overig; opened, it is read,
+  // and E clears it with Undo, into Gewist.
+  await page.getByRole("link", { name: /Alle meldingen/ }).click()
+  await expect(page).toHaveURL(/\/notifications$/)
+  await page.goto("/notifications?view=other")
+  await hydrated(page)
+  const joined = page.getByRole("button", { name: /accepteerde je uitnodiging/ })
+  await joined.click()
+  await expect(page.getByRole("article", { name: "Voorbeeld" })).toBeVisible()
+  await page.keyboard.press("e")
+  await expect(page.getByText("Melding gewist")).toBeVisible()
+  await expect(joined).toHaveCount(0)
+  await page.goto("/notifications?view=cleared")
+  await expect(page.getByRole("button", { name: /accepteerde je uitnodiging/ })).toBeVisible()
   const mails = await (await request.get(`/api/__dev/mail?to=${encodeURIComponent(colleague)}`)).json() as {
     mails: Array<{ kind: string }>
   }
