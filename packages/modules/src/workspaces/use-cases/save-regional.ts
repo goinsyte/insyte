@@ -9,8 +9,9 @@ import { loadRegional } from "./regional.ts"
 
 /*
  * "Wijzigingen opslaan" on Taal en notatie (M3.1; widgets/05 §2.2): the notation into `workspaces.regional`, the zone
- * into `workspaces.timezone`, on one transaction, audited with what changed. A new zone re-buckets the days counted
- * from now on; the facts already made keep theirs. Instellingen · Bewerken.
+ * into `workspaces.timezone`, on one transaction, audited with what changed. A new zone moves the facts that count on
+ * the workspace's days onto the new ones (a trigger, 0078): the tickets and the cases without a store on the spot, the
+ * stores without a zone of their own through the facts' drain. Instellingen · Bewerken.
  */
 
 const FIELDS = ["language", "currencyDisplay", "dateFormat", "timeFormat", "weekStart", "timezone"] as const
