@@ -8,14 +8,17 @@ import { Cause, Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { toast } from "sonner"
 import { LIVE, liveWrites, pixelsAtom } from "../data/live.ts"
-import { STORES, storeWrites } from "../data/stores.ts"
+import { healthAtom, STORES, storeWrites } from "../data/stores.ts"
+import { storeHealthOf } from "./health-of.ts"
 
 /*
  * Winkels' source in the console: `Stores.list` as the screen reads it, connecting as `Stores.beginConnect` (the browser
  * goes to Shopify's approval page and comes back through the API's callback, `routes/_frame.settings.stores.tsx`), and
  * disconnecting as `Stores.disconnect`. A disconnect drops the token, so it has no undo: the row connects again. A
  * refusal is said once, in Dutch. A connected store's Live pixel (M14 step 3) is installed or repaired from its menu as
- * `Live.installPixel`, where this environment can (`Live.pixels`).
+ * `Live.installPixel`, where this environment can (`Live.pixels`). Each row's sync health is `Connections.health` (M17
+ * step 6), with the incidents open on it and what Insyte already tried; a role that may not read it sees the rows
+ * without.
  */
 
 /** Where Shopify sends the person back to once they approved. */
@@ -26,7 +29,7 @@ const rowOf = (s: StoreView): StoreRow => ({
   name: s.name,
   domain: s.shopDomain,
   currency: s.currency ?? "",
-  // "Actie nodig" until the incidents arrive (M6.4): the store must be connected again, as a disconnected one.
+  // A store that needs connecting again is offered that, as a disconnected one; its health says why (M17 step 6).
   status: s.status === "connected" || s.status === "connecting" ? s.status : "disconnected"
 })
 
@@ -111,14 +114,20 @@ function ConsoleConnectStore(props: ConnectStoreProps) {
   )
 }
 
-export function useConsoleStoresSource(stores: ReadonlyArray<StoreView>): StoresSource {
+export function useConsoleStoresSource(stores: ReadonlyArray<StoreView>, focusId?: string): StoresSource {
   const disconnect = useAtomSet(storeWrites.disconnect, { mode: "promiseExit" })
   const install = useAtomSet(liveWrites.installPixel, { mode: "promiseExit" })
   // Read in the browser; a role that may not see them, or an environment without the pixel, offers no Live item.
   const pixels = Option.getOrUndefined(AsyncResult.value(useAtomValue(pixelsAtom)))
   const pixelOf = (id: string) => pixels?.pixels.find((p) => p.storeId === id)?.state
+  const health = Option.getOrUndefined(AsyncResult.value(useAtomValue(healthAtom)))
+  const healthOf = (id: string) => {
+    const connection = health?.connections.find((c) => c.storeId === id)
+    return connection === undefined ? undefined : storeHealthOf(connection)
+  }
   return {
-    stores: stores.map((s) => ({ ...rowOf(s), livePixel: pixelOf(s.id) })),
+    stores: stores.map((s) => ({ ...rowOf(s), livePixel: pixelOf(s.id), health: healthOf(s.id) })),
+    focusId,
     installPixel: pixels?.available === true
       ? async (storeId) =>
         (await run(install({ payload: { storeId }, reactivityKeys: [...LIVE, ...STORES] }))) !== undefined

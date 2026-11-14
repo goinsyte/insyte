@@ -86,8 +86,9 @@ function Refused({ forbidden }: { forbidden: Forbidden }) {
 }
 
 function Loaded({ stores }: { stores: ReadonlyArray<StoreView> }) {
-  const source = useConsoleStoresSource(stores)
   const { connected, store, error } = Route.useSearch()
+  // A notification's link names the store its incident is on (`?store=`, without `connected`).
+  const source = useConsoleStoresSource(stores, connected === undefined ? store : undefined)
   const navigate = Route.useNavigate()
 
   // Back from Shopify: said once, then out of the address so a reload does not say it again.

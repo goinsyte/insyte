@@ -5,7 +5,7 @@ import { BackgroundRuntime as background } from "../../platform/BackgroundLayer.
 import { deadlineSweep } from "../../platform/Deadlines.ts"
 import type { Env } from "../../platform/Env.ts"
 import { exportSweep } from "../../platform/Exports.ts"
-import { reconcile, syncRuntime, trackingSweep } from "../../platform/Ingest.ts"
+import { healthCheck, reconcile, syncRuntime, trackingSweep } from "../../platform/Ingest.ts"
 import { Telemetry } from "../../platform/Observability.ts"
 import { privacyExportSweep } from "../../platform/PrivacySweep.ts"
 import { sweep } from "../../platform/Relay.ts"
@@ -21,7 +21,7 @@ import { startMonthlyClose } from "../../workflows/MonthlyClose.ts"
 
 /** Every minute (on staging every fifteenth, `infra/app.ts`): the relay's sweep for events a kick missed, the
  * notes quiet hours or a failed try held back (M11.5) and the webhook deliveries whose run never started or died
- * (M19.4); every fifteenth, the stores' reconcile (M6.3), the tracking sweep (M8.4), Start's queue (M10.1), the
+ * (M19.4); every fifteenth, the stores' reconcile (M6.3) and, beside it, their sync health (M17 step 6), the tracking sweep (M8.4), Start's queue (M10.1), the
  * daily facts (M10.4, at 02:00 UTC their nightly pass), the members' daily digests (M11.5) and the webhook
  * deliveries past 30 days (M19.4); on the hour, the chargeback deadline reminders (M13 step 3); at 03:00 UTC the
  * Prullenbak's sweep (M17), the lapsed exports (M14 step 5) and, on the 1st, the supplier statements' monthly close (M13 step 6); at 04:00 UTC the
@@ -42,6 +42,8 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = (controller, _env
     // The rates the conversions read (§0.4): the ECB's last 90 days, so a night it missed fills in on the next.
     if (nightly) turn(background, withRequestDb(ratesFill))
     turn(syncRuntime, reconcile)
+    // Sync health (M17 step 6), beside the sweep: it reads what earlier sweeps wrote, so a long one cannot hold it up.
+    turn(syncRuntime, healthCheck)
     turn(syncRuntime, trackingSweep)
     // Start's queue (M10.1): what no event says, a stock-out or a review coming due.
     turn(background, withRequestDb(queueSweep()))

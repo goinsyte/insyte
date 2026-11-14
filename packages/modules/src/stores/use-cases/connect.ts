@@ -97,16 +97,19 @@ export const callback = Effect.fn("Stores.connectCallback")(function*(query: Rea
     refreshExpiresAt: tokens.refreshExpiresAt?.toISOString() ?? null
   }))
 
+  // A fresh grant: when it lapses (the health check warns a week ahead), and no failures counted against it.
+  const health = tokens.refreshExpiresAt === null ? {} : { refreshExpiresAt: tokens.refreshExpiresAt.toISOString() }
   const connected = yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const [connection] = yield* sql<{ id: string }>`
-        insert into connections (id, workspace_id, provider, account_ref, status, scopes, connected_by)
+        insert into connections (id, workspace_id, provider, account_ref, status, scopes, connected_by, health)
         values (${mintId("con")}, ${principal.workspaceId}, 'shopify', ${shop}, 'connected', ${[
         ...tokens.scopes
       ]}::text[],
-                ${principal.id})
+                ${principal.id}, ${JSON.stringify(health)}::jsonb)
         on conflict (workspace_id, provider, account_ref) do update
-          set status = 'connected', scopes = excluded.scopes, connected_by = excluded.connected_by
+          set status = 'connected', scopes = excluded.scopes, connected_by = excluded.connected_by,
+              health = excluded.health
         returning id`
       yield* sql`insert into connection_credentials (connection_id, workspace_id, sealed, kid, token_expires_at)
                  values (${
