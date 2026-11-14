@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@insyte/modules": "workspace:*",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "stripe": "catalog:"
   }
 }

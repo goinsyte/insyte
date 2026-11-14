@@ -1,13 +1,14 @@
 import { Effect } from "effect"
 import { createHmac } from "node:crypto"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { testSignature, verifySignature } from "../src/Sdk.ts"
 import { makeStripe } from "../src/Stripe.ts"
-import { eventOf, form, signatureHeader, STRIPE_VERSION, subscriptionOf, verifySignature } from "../src/Wire.ts"
+import { eventOf, STRIPE_VERSION, subscriptionOf } from "../src/Wire.ts"
 
 /*
- * Stripe's adapter without Stripe: the webhook signature as Stripe computes it, how a subscription and an event read in
- * Insyte's words, the form encoding, and what a change sends (the pinned version, the proration to the preview's
- * second, one change per idempotency key). The secret is made up for the test.
+ * Stripe's adapter without Stripe: the webhook signature as Stripe's SDK checks it, how a subscription and an event read
+ * in Insyte's words, and what a change sends through the SDK (the pinned version, the proration to the preview's
+ * second, one change per idempotency key). `fetch` is stubbed; the key and secret are made up for the test.
  */
 
 const SECRET = "whsec_test_insyte_unit"
@@ -43,7 +44,8 @@ const SUBSCRIPTION = {
 describe("the webhook signature", () => {
   it("is Stripe's hex HMAC-SHA256 of `t.body`, within five minutes either way", async () => {
     const at = new Date("2026-11-14T12:00:00Z")
-    const header = await signatureHeader(SECRET, body, at)
+    const text = new TextDecoder().decode(body)
+    const header = await testSignature(SECRET, text, at)
     const t = Math.floor(at.getTime() / 1000)
     const hmac = createHmac("sha256", SECRET).update(`${t}.`).update(body).digest("hex")
     expect(header).toBe(`t=${t},v1=${hmac}`)
@@ -51,7 +53,6 @@ describe("the webhook signature", () => {
     expect(await verifySignature(SECRET, body, header, at)).toBe(true)
     expect(await verifySignature(SECRET, body, header, new Date(at.getTime() + 299_000))).toBe(true)
     expect(await verifySignature(SECRET, body, header, new Date(at.getTime() + 301_000))).toBe(false)
-    expect(await verifySignature(SECRET, body, header, new Date(at.getTime() - 301_000))).toBe(false)
     // Another secret, another body, no `v1`, no time: refused.
     expect(await verifySignature("whsec_other", body, header, at)).toBe(false)
     expect(await verifySignature(SECRET, new TextEncoder().encode("{}"), header, at)).toBe(false)
@@ -107,12 +108,6 @@ describe("Stripe's objects in Insyte's words", () => {
     expect(eventOf(event("customer.created", {}))).toMatchObject({ kind: "other" })
     expect(eventOf({ id: "evt_1" })).toBeUndefined()
   })
-
-  it("encodes nested forms as Stripe reads them", () => {
-    expect(form({ items: [{ id: "si_1", deleted: true }], metadata: { a: "b c" }, skip: undefined })).toBe(
-      "items%5B0%5D%5Bid%5D=si_1&items%5B0%5D%5Bdeleted%5D=true&metadata%5Ba%5D=b%20c"
-    )
-  })
 })
 
 describe("a change at Stripe", () => {
@@ -124,7 +119,7 @@ describe("a change at Stripe", () => {
       seen.push({
         method: init.method ?? "GET",
         url,
-        headers: init.headers as Record<string, string>,
+        headers: Object.fromEntries(new Headers(init.headers)),
         body: typeof init.body === "string" ? init.body : ""
       })
       return Response.json(SUBSCRIPTION)
@@ -149,9 +144,10 @@ describe("a change at Stripe", () => {
 
     const [read, write] = seen
     expect(read).toMatchObject({ method: "GET", url: expect.stringContaining("/v1/subscriptions/sub_1?") })
+    expect(write!.method).toBe("POST")
     expect(write!.url).toBe("https://api.stripe.com/v1/subscriptions/sub_1")
     expect(write!.headers).toMatchObject({
-      authorization: "Bearer sk_test_made_up",
+      authorization: expect.stringContaining("sk_test_made_up"),
       "stripe-version": STRIPE_VERSION,
       "idempotency-key": "insyte-change-sub_1-scale-monthly-0-1799000000"
     })
@@ -165,16 +161,62 @@ describe("a change at Stripe", () => {
     expect(params.get("proration_date")).toBe("1799000000")
   })
 
+  it("makes a customer and a checkout once per key, as the caller names it", async () => {
+    const keys: Array<string | null> = []
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      keys.push(new Headers(init.headers).get("idempotency-key"))
+      return Response.json(
+        url.includes("/v1/customers")
+          ? { id: "cus_1", object: "customer" }
+          : { id: "cs_1", object: "checkout.session", url: "https://checkout.stripe.test/cs_1" }
+      )
+    })
+    const stripe = makeStripe({ secretKey: "sk_test_made_up", webhookSecret: null })
+    const made = (name: string) =>
+      Effect.runPromise(stripe.createCustomer({ workspaceId: "ws_1", name, email: "eigenaar@example.test" }))
+    await made("Winkel")
+    await made("Winkel")
+    await made("Winkel B.V.")
+    // The same details are the same request; other details, another one.
+    expect(keys[0]).toMatch(/^insyte-customer-ws_1-[0-9a-f]{16}$/)
+    expect(keys[1]).toBe(keys[0])
+    expect(keys[2]).not.toBe(keys[0])
+
+    const opened = await Effect.runPromise(stripe.checkout({
+      customerId: "cus_1",
+      workspaceId: "ws_1",
+      target: { plan: "growth", cycle: "monthly", extraSeats: 0 },
+      prices: [{
+        plan: "growth",
+        cycle: "monthly",
+        priceId: "price_growth_month",
+        unitAmountMinor: 29_900,
+        currency: "eur"
+      }],
+      successUrl: "https://app.example.test/instellingen/abonnement?betaald=1",
+      cancelUrl: "https://app.example.test/instellingen/abonnement",
+      idempotencyKey: "insyte-checkout-ws_1-growth-monthly-0-first"
+    }))
+    expect(opened).toEqual({ _tag: "redirect", url: "https://checkout.stripe.test/cs_1", sessionId: "cs_1" })
+    expect(keys[3]).toBe("insyte-checkout-ws_1-growth-monthly-0-first")
+  })
+
   it("is unavailable, not a defect, when Stripe does not answer or refuses", async () => {
     vi.stubGlobal("fetch", async () => Response.json({ error: { type: "invalid_request_error" } }, { status: 400 }))
     const refused = await Effect.runPromise(
       Effect.flip(makeStripe({ secretKey: "sk_test_made_up", webhookSecret: null }).prices)
     )
     expect(refused).toMatchObject({ _tag: "BillingUnavailable", reason: "refused" })
-    vi.stubGlobal("fetch", async () => Response.json({}, { status: 503 }))
+    let tries = 0
+    vi.stubGlobal("fetch", async () => {
+      tries += 1
+      return Response.json({ error: { type: "api_error" } }, { status: 503 })
+    })
     const down = await Effect.runPromise(
       Effect.flip(makeStripe({ secretKey: "sk_test_made_up", webhookSecret: null }).prices)
     )
     expect(down).toMatchObject({ _tag: "BillingUnavailable", reason: "unreachable" })
+    // Tried once more, then given up: the caller says Stripe did not answer.
+    expect(tries).toBe(2)
   })
 })

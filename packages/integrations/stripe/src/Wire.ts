@@ -16,9 +16,6 @@ import type { BillingCycle, PlanId } from "@insyte/modules/shared/domain/Billing
 
 export const STRIPE_VERSION = "2025-03-31.basil"
 
-/** How old a signed webhook may be, as Stripe's own libraries allow. */
-export const TOLERANCE_S = 300
-
 type Raw = Record<string, unknown>
 
 const obj = (v: unknown): Raw | undefined => (typeof v === "object" && v !== null ? (v as Raw) : undefined)
@@ -204,67 +201,8 @@ export const eventOf = (raw: unknown): StripeEvent | undefined => {
   return { ...head, kind: "other" }
 }
 
-const encoder = new TextEncoder()
-
-const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("")
-
-const same = (a: string, b: string) => {
-  if (a.length !== b.length) return false
-  let diff = 0
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
-  return diff === 0
-}
-
-/** Stripe's `v1` signature: the hex HMAC-SHA256 of `<t>.<body>` under the endpoint's signing secret. */
-export const signatureOf = async (secret: string, timestamp: number, body: Uint8Array) => {
-  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [
-    "sign"
-  ])
-  const prefix = encoder.encode(`${timestamp}.`)
-  const payload = new Uint8Array(prefix.length + body.length)
-  payload.set(prefix)
-  payload.set(body, prefix.length)
-  return hex(await crypto.subtle.sign("HMAC", key, payload))
-}
-
-/** A `Stripe-Signature` header for `body`, as Stripe writes it (the tests sign their deliveries with this). */
-export const signatureHeader = async (secret: string, body: Uint8Array, at = new Date()) => {
-  const t = Math.floor(at.getTime() / 1000)
-  return `t=${t},v1=${await signatureOf(secret, t, body)}`
-}
-
-/**
- * Whether `header` signs `body`: one of its `v1` signatures matches, and its time is within the tolerance of `now`
- * (either way, so a replay of an old delivery is refused).
- */
-export const verifySignature = async (secret: string, body: Uint8Array, header: string, now: Date) => {
-  const parts = header.split(",").map((p) => p.trim().split("=", 2) as [string, string | undefined])
-  const t = Number(parts.find(([k]) => k === "t")?.[1])
-  const signatures = parts.filter(([k, v]) => k === "v1" && v !== undefined).map(([, v]) => v!)
-  if (!Number.isInteger(t) || signatures.length === 0) return false
-  if (Math.abs(now.getTime() / 1000 - t) > TOLERANCE_S) return false
-  const expected = await signatureOf(secret, t, body)
-  return signatures.some((s) => same(s, expected))
-}
-
 /** The price a target's plan and seats need, per cycle; `undefined` where Stripe has none. */
 export const pricesFor = (prices: ReadonlyArray<PlanPrice>, target: Target) => ({
   base: prices.find((p) => p.plan === target.plan && p.cycle === target.cycle),
   seat: prices.find((p) => p.plan === "seat" && p.cycle === target.cycle)
 })
-
-/** Stripe's form encoding: nested keys as `a[b][0]=v`, `undefined` left out. */
-export const form = (value: Record<string, unknown>): string => {
-  const pairs: Array<string> = []
-  const walk = (prefix: string, v: unknown) => {
-    if (v === undefined) return
-    if (Array.isArray(v)) return v.forEach((x, i) => walk(`${prefix}[${i}]`, x))
-    if (typeof v === "object" && v !== null) {
-      for (const [k, x] of Object.entries(v)) walk(prefix === "" ? k : `${prefix}[${k}]`, x)
-      return
-    }
-    pairs.push(`${encodeURIComponent(prefix)}=${encodeURIComponent(String(v))}`)
-  }
-  walk("", value)
-  return pairs.join("&")
-}

@@ -7,14 +7,17 @@ import type {
   Target
 } from "@insyte/modules/billing/domain/Ports"
 import { Effect } from "effect"
-import { eventOf, pricesFor, verifySignature } from "./Wire.ts"
+import { verifySignature } from "./Sdk.ts"
+import { eventOf, pricesFor } from "./Wire.ts"
 
 /*
  * Stripe without Stripe (M13 step 1): local runs, the worker tests and previews, where no Stripe key is set
- * (`BILLING_ADAPTER=fake`). It keeps nothing: the use case hands it the subscription as Insyte last cached it, and it
- * answers what Stripe would after the change. The first payment needs no page: it is paid at once with a test card. Its
- * prices are test fixtures, not Insyte's pricing (which is Stripe's, and still to be decided). Webhooks are verified
- * with the stage's signing secret like the real ones, so a test signs its deliveries with a made-up secret.
+ * (`BILLING_ADAPTER=fake`). It keeps what Stripe would in the isolate: the subscriptions and invoices it made, changed
+ * as Insyte changes them, and as a verified webhook says Stripe changed them (a test's delivery is how "Stripe" moves
+ * on its own), so the webhook's read-again finds them. The first payment needs no page: it is paid at once with a test
+ * card. Its prices are test fixtures, not Insyte's pricing (which is Stripe's, and still to be decided). Webhooks are
+ * verified with Stripe's SDK against the stage's signing secret like the real ones, so a test signs its deliveries with
+ * a made-up secret.
  */
 
 const DAY_MS = 86_400_000
@@ -66,6 +69,32 @@ const prorate = (prices: ReadonlyArray<PlanPrice>, current: SubscriptionSnapshot
   return { proration: Math.round((after - before) * left), after }
 }
 
+/** What "Stripe" holds in this isolate, by id, and when it last changed (ms): shared by every request it serves. */
+const subscriptions = new Map<string, { s: SubscriptionSnapshot; at: number; created: number }>()
+const invoices = new Map<string, { i: InvoiceSnapshot; at: number }>()
+
+const keep = (s: SubscriptionSnapshot, at = Date.now()) => {
+  const was = subscriptions.get(s.subscriptionId)
+  subscriptions.set(s.subscriptionId, { s, at, created: was?.created ?? at })
+  return s
+}
+
+/** A verified event, as Stripe would hold it after: newer than what is kept, it is kept. */
+const learn = (event: ReturnType<typeof eventOf>) => {
+  if (event === undefined) return
+  const at = event.created.getTime()
+  if (event.kind === "subscription") {
+    const was = subscriptions.get(event.subscription.subscriptionId)
+    if (was === undefined || was.at <= at) {
+      keep({ ...event.subscription, card: event.subscription.card ?? was?.s.card ?? null }, at)
+    }
+  }
+  if (event.kind === "invoice") {
+    const was = invoices.get(event.invoice.id)
+    if (was === undefined || was.at <= at) invoices.set(event.invoice.id, { i: event.invoice, at })
+  }
+}
+
 export interface FakeConfig {
   readonly webhookSecret: string | null
 }
@@ -105,37 +134,68 @@ export const makeFake = (config: FakeConfig): Provider => ({
         hostedUrl: null,
         pdfUrl: `https://invoice.stripe.test/${workspaceId}/${now.getTime()}.pdf`
       }
+      keep(subscription)
+      invoices.set(invoice.id, { i: invoice, at: now.getTime() })
       return { _tag: "subscribed" as const, subscription, invoice }
     }),
+  // A Checkout page is never opened: the first payment is made at once.
+  checkoutSession: () => Effect.succeed(undefined),
+  expireCheckout: () => Effect.void,
+  activeSubscription: (customerId) =>
+    Effect.sync(() =>
+      [...subscriptions.values()]
+        .filter((v) =>
+          v.s.customerId === customerId && v.s.status !== "canceled" && v.s.status !== "incomplete_expired"
+        )
+        .reduce<{ s: SubscriptionSnapshot; created: number } | undefined>(
+          (best, v) => (best === undefined || v.created > best.created ? v : best),
+          undefined
+        )?.s
+    ),
   preview: ({ current, target, prices, prorationDate }) => {
     const p = prorate(prices, current, target, prorationDate)
     if (p === undefined) return Effect.fail(noPrice())
+    // Another interval: a new period starts now and is invoiced at once, less what is left of this one.
+    const immediate = target.cycle !== (current.cycle ?? "monthly")
     return Effect.succeed({
       currency: current.currency,
       prorationMinor: p.proration,
-      nextInvoiceMinor: p.after + p.proration,
-      nextInvoiceAt: current.currentPeriodEnd
+      nextInvoiceMinor: immediate ? p.proration : p.after + p.proration,
+      nextInvoiceAt: immediate ? new Date(prorationDate * 1000) : current.currentPeriodEnd,
+      immediate
     })
   },
   update: ({ current, target, prices }) => {
     if (totalOf(prices, target) === undefined) return Effect.fail(noPrice())
     const newCycle = target.cycle !== (current.cycle ?? "monthly")
-    return Effect.succeed({
-      ...current,
-      plan: target.plan,
-      cycle: target.cycle,
-      extraSeats: target.extraSeats,
-      currentPeriodEnd: newCycle ? new Date(Date.now() + periodMs(target.cycle)) : current.currentPeriodEnd
-    })
+    const was = subscriptions.get(current.subscriptionId)?.s ?? current
+    return Effect.sync(() =>
+      keep({
+        ...was,
+        plan: target.plan,
+        cycle: target.cycle,
+        extraSeats: target.extraSeats,
+        currentPeriodEnd: newCycle ? new Date(Date.now() + periodMs(target.cycle)) : was.currentPeriodEnd
+      })
+    )
   },
   setCancelAtPeriodEnd: ({ current, cancel }) =>
-    Effect.succeed({ ...current, cancelAt: cancel ? current.currentPeriodEnd : null }),
+    Effect.sync(() => {
+      const was = subscriptions.get(current.subscriptionId)?.s ?? current
+      return keep({ ...was, cancelAt: cancel ? was.currentPeriodEnd : null })
+    }),
   // Back to the page: the fake has no portal of its own.
   portal: ({ returnUrl }) => Effect.succeed({ url: returnUrl }),
-  subscription: () => Effect.succeed(undefined),
+  subscription: (id) => Effect.sync(() => subscriptions.get(id)?.s),
+  invoice: (id) => Effect.sync(() => invoices.get(id)?.i),
   verifyWebhook: (body, header, now) =>
     config.webhookSecret === null
       ? Effect.succeed(false)
       : Effect.promise(() => verifySignature(config.webhookSecret!, body, header, now)),
-  readEvent: (body) => Effect.sync(() => eventOf(body))
+  readEvent: (body) =>
+    Effect.sync(() => {
+      const event = eventOf(body)
+      learn(event)
+      return event
+    })
 })
