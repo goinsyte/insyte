@@ -36,20 +36,6 @@ export const requireOwner = Effect.fn("Privacy.requireOwner")(function*() {
   return principal
 })
 
-/**
- * The stores the principal reaches: their role's, narrowed by their own (a member invited to some stores, a key made
- * for some); null for every store.
- */
-export const reachOf = (principal: {
-  readonly role: { readonly stores: "all" | ReadonlyArray<string> }
-  readonly storeScope: ReadonlyArray<string> | null
-}): ReadonlyArray<string> | null => {
-  const role = principal.role.stores
-  const own = principal.storeScope
-  if (role === "all") return own
-  return own === null ? role : own.filter((s) => role.includes(s))
-}
-
 /** Each category's count, over the tables it is made of. */
 const COUNTS: ReadonlyArray<readonly [CategoryId, string]> = [
   ["customers", "select count(*)::int as n from customers where deleted_at is null"],
@@ -163,12 +149,12 @@ export const requests = Effect.fn("Privacy.requests")(function*() {
         rows.flatMap((r) => (r.requestedBy === null ? [] : [{ kind: "member", id: r.requestedBy }]))
       )
       const by = (r: RequestRow) => (r.requestedBy === null ? null : names.get(`member:${r.requestedBy}`) ?? null)
-      // Who the shopper is shows only to someone who may see customers, and of the stores their role reaches.
+      // Who the shopper is shows only to someone who may see customers, and of the stores they reach (`storeScope`).
       const seesCustomers = yield* Policy.require("customers", 1).pipe(
         Effect.as(true),
         Effect.catchIf((e): e is Forbidden => e instanceof Forbidden, () => Effect.succeed(false))
       )
-      const reach = reachOf(principal)
+      const reach = principal.storeScope
       const reaches = (store: string | null) => reach === null || (store !== null && reach.includes(store))
       const exports = rows.filter((r) => r.kind === "workspace_export").slice(0, 50).map((r): ExportRow => {
         const expiresAt = r.completedAt === null ? null : r.completedAt.getTime() + EXPORT_DAYS * DAY
@@ -223,7 +209,7 @@ export const requests = Effect.fn("Privacy.requests")(function*() {
 
 /**
  * Whether the viewer may download a request's file, within its 7 days: the owner a workspace export; Exporteren and
- * Klanten · Bekijken a shopper's package, when their role reaches every store the package was made from.
+ * Klanten · Bekijken a shopper's package, when they reach (`storeScope`) every store the package was made from.
  */
 export const mayDownload = Effect.fn("Privacy.mayDownload")(function*(sql: SqlClient.SqlClient, requestId: string) {
   const principal = yield* CurrentPrincipal
@@ -243,7 +229,7 @@ export const mayDownload = Effect.fn("Privacy.mayDownload")(function*(sql: SqlCl
     Effect.catchIf((e): e is Forbidden => e instanceof Forbidden, () => Effect.succeed(false))
   )
   if (!allowed) return false
-  const reach = reachOf(principal)
+  const reach = principal.storeScope
   if (reach === null) return true
   const made = [...(row.stores ?? []), ...(row.storeId === null ? [] : [row.storeId])]
   // Made from every store (`stores` null) is more than a role held to some may have.

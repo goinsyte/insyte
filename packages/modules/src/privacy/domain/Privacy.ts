@@ -108,7 +108,7 @@ export const ShopperRequest = Schema.Struct({
   source: Schema.Literals(["shopify", "operator"]),
   /**
    * The shopper as Insyte knows them: a name or an address; null when the request names nobody Insyte holds, or the
-   * viewer may not see that customer (no Klanten · Bekijken, or a store their role does not reach).
+   * viewer may not see that customer (no Klanten · Bekijken, or a store they do not reach).
    */
   subject: Schema.NullOr(Schema.String),
   state: RequestState,

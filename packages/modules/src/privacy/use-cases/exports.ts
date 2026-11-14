@@ -169,7 +169,7 @@ export interface Paged {
 }
 
 /**
- * The shopper's rows, by the customers the request is about (`$1`, already held to the stores the asker's role
+ * The shopper's rows, by the customers the request is about (`$1`, already held to the stores the asker
  * reached), the address it names (`$2`, null when there is none) and those stores (`$3`, null for all).
  */
 const BY_ORDER = `(select o.id from orders o where o.customer_id = any($1::text[])
@@ -219,7 +219,7 @@ const SHOPPER_PARTS: ReadonlyArray<readonly [string, string]> = [
 ]
 
 /**
- * The customers a shopper request is about, within the stores the asker's role reached: the one it names, every
+ * The customers a shopper request is about, within the stores the asker reached: the one it names, every
  * customer with its address, the Shopify customer it names, and the duplicates merged into any of them.
  */
 const shopperIds = (sql: SqlClient.SqlClient, planned: Planned) =>

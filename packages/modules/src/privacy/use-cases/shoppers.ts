@@ -11,7 +11,6 @@ import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { eraseShopper } from "../../shared/use-cases/ShopperErasure.ts"
 import { type RequestAccess, type RequestErasure, type RequestMade, ShopperNotFound } from "../domain/Privacy.ts"
-import { reachOf } from "./reads.ts"
 
 /*
  * A shopper's requests (M17 step 5; security.md §6 "DSARs from shoppers"). They arrive from Shopify
@@ -24,7 +23,7 @@ import { reachOf } from "./reads.ts"
  * - "Gegevens wissen" erases at once, everywhere Insyte holds the shopper (`shared/use-cases/ShopperErasure.ts`);
  *   amounts, dates and statuses stay for the figures. It takes Klanten · Beheren, asks first and has no undo.
  *
- * Both reach only the stores the asker's role reaches: a shopper of another store is not found, and the package is
+ * Both reach only the stores the asker reaches (`storeScope`): a shopper of another store is not found, and the package is
  * made from those stores only (`gdpr_requests.stores`).
  */
 
@@ -34,7 +33,7 @@ export const requestAccess = Effect.fn("Privacy.requestAccess")(function*(input:
   yield* Policy.requireAction("data.export")
   yield* Policy.require("customers", 1)
   const principal = yield* CurrentPrincipal
-  const reach = reachOf(principal)
+  const reach = principal.storeScope
   const stores = reach === null ? null : [...reach]
   const db = yield* Db
   const files = yield* FileStore
@@ -105,7 +104,7 @@ const customersByEmail = (sql: SqlClient.SqlClient, email: string, stores: Reado
 export const requestErasure = Effect.fn("Privacy.requestErasure")(function*(input: RequestErasure) {
   yield* Policy.require("customers", 3)
   const principal = yield* CurrentPrincipal
-  const reach = reachOf(principal)
+  const reach = principal.storeScope
   const stores = reach === null ? null : [...reach]
   const db = yield* Db
   const files = yield* FileStore

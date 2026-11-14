@@ -330,7 +330,7 @@ describe("Je gegevens", () => {
     expect((await census(store.workspace, shopper.name)).found).toEqual([])
   })
 
-  it("holds a shopper's requests to the stores the asker's role reaches", async () => {
+  it("holds a shopper's requests to the stores the asker reaches, a member's own included", async () => {
     // A second store in the workspace, with the same shoppers (the recorded shop is the same), and a colleague held to it.
     await using backfills = await introspectWorkflow(env.SHOPIFY_BACKFILL)
     await backfills.modifyAll(async (m) => {
