@@ -11,7 +11,7 @@ import { Invalid, NotFound } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
-import type { SqlClient } from "effect/sql"
+import type { SqlClient, SqlError } from "effect/sql"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import {
@@ -174,6 +174,15 @@ const saved = (sql: SqlClient.SqlClient, was: Row, version: number | null) =>
     return new AutonomySaved({ policy: yield* policyOf(sql, now), undo })
   })
 
+/**
+ * Two first saves at once both find no row to lock and both make the next version: the second insert of it is a
+ * `UniqueViolation`, which is someone saving first, not a fault.
+ */
+const savedFirst = (was: Row) => (error: SqlError.SqlError): Effect.Effect<never, AutonomyStale | SqlError.SqlError> =>
+  error.reason._tag === "UniqueViolation" && error.reason.constraint.includes("autonomy_policy_versions")
+    ? Effect.fail(new AutonomyStale({ version: was.version + 1 }))
+    : Effect.fail(error)
+
 /** Saves the levels (and limits) made on `baseVersion`; one undo puts the previous version back. */
 export const set = Effect.fn("Autonomy.set")(function*(sql: SqlClient.SqlClient, input: SetAutonomyInput) {
   yield* Policy.requireAction("ai.autonomy")
@@ -183,7 +192,8 @@ export const set = Effect.fn("Autonomy.set")(function*(sql: SqlClient.SqlClient,
   if (was.version !== input.baseVersion) return yield* new AutonomyStale({ version: was.version })
   const levels = { ...levelsOf(was.levels), ...input.levels } as AutonomyLevels
   const limits = input.limits === undefined ? limitsOf(was.limits) : tidy(input.limits)
-  return yield* saved(sql, was, yield* write(sql, was, levels, limits))
+  const version = yield* write(sql, was, levels, limits).pipe(Effect.catchTag("SqlError", savedFirst(was)))
+  return yield* saved(sql, was, version)
 })
 
 /** "Standaard herstellen": every action back to Eerst vragen, no limits; undoable like any save. */
@@ -192,7 +202,8 @@ export const resetDefaults = Effect.fn("Autonomy.resetDefaults")(
     yield* Policy.requireAction("ai.autonomy")
     const was = yield* current(sql, true)
     if (was.version !== baseVersion) return yield* new AutonomyStale({ version: was.version })
-    return yield* saved(sql, was, yield* write(sql, was, DEFAULT_LEVELS, {}))
+    const version = yield* write(sql, was, DEFAULT_LEVELS, {}).pipe(Effect.catchTag("SqlError", savedFirst(was)))
+    return yield* saved(sql, was, version)
   }
 )
 
@@ -203,7 +214,7 @@ export const restore = Effect.fn("Autonomy.restore")(function*(sql: SqlClient.Sq
   const [target] = yield* sql<{ levels: Readonly<Record<string, unknown>>; limits: Limits }>`
     select levels, limits from autonomy_policy_versions where version = ${toVersion}`
   const levels = target === undefined ? DEFAULT_LEVELS : levelsOf(target.levels)
-  if (target === undefined && toVersion !== 1) {
+  if (target === undefined && toVersion !== FIRST_POLICY_VERSION) {
     return yield* new NotFound({ entity: "autonomy_policy", id: String(toVersion) })
   }
   const was = yield* current(sql, true)

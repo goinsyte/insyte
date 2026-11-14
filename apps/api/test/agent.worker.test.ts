@@ -97,6 +97,19 @@ describe("autonomy and the agent log", () => {
     expect(saved.policy.history.map((h) => h.version)).toEqual([FIRST_POLICY_VERSION + 1, FIRST_POLICY_VERSION])
   })
 
+  it("takes one of two first saves made at once, and tells the other it was saved meanwhile", async () => {
+    // Neither finds a row to lock: both make the next version, and the second insert of it is someone saving first.
+    const fresh = await person("agent-race", "Agent Race B.V.")
+    // Two different changes, so neither is a save that changes nothing.
+    const save = (action: "AddNote" | "SetTicketStatus") =>
+      rpc("Autonomy.set", { levels: { [action]: "auto" }, baseVersion: FIRST_POLICY_VERSION }, fresh.cookie)
+    const answers = await Promise.all([save("AddNote"), save("SetTicketStatus")])
+    expect(answers.filter(Exit.isSuccess)).toHaveLength(1)
+    expect(answers.map(failure).filter((e) => e !== undefined))
+      .toMatchObject([{ _tag: "AutonomyStale", version: FIRST_POLICY_VERSION + 1 }])
+    expect(ok(await rpc("Autonomy.get", {}, fresh.cookie)).version).toBe(FIRST_POLICY_VERSION + 1)
+  })
+
   it("turns an agent's call into a proposal while the action asks first, and a person files it", async () => {
     const asked = await tool(agent, "set_ticket_status", { ticket_id: ticket, status: "in_progress" })
     expect(asked.isError).toBe(false)
