@@ -163,17 +163,7 @@ export function useConsoleSuppliersSource(list: SupplierList): SuppliersSource {
       disconnect: (row) => void commands.disconnectApi(row)
     },
     ...(restock === undefined ? {} : {
-      restock: (row, low) =>
-        void restock(
-          low.map((p) => ({
-            productId: p.id,
-            title: p.title,
-            supplierName: row.name,
-            units: p.units ?? null,
-            out: p.stock === "out"
-          })),
-          row.name
-        )
+      restock: (row, low) => void restock(low.map((p) => p.id), { to: row.name })
     }),
     // The channel is made the first time it is opened, so the row names the supplier and opening makes it.
     chatOf: (row) => (chats.ok ? row.id : undefined),

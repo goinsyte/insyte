@@ -102,12 +102,15 @@ export class QualityChange extends Schema.Class<QualityChange>("quality/QualityC
 
 /**
  * `Quality.stats`: per product, or per supplier over its products (primary), in the last 90 days: units sold and
- * returned (rejected returns aside), the complaints among them and those of the last 30 days, the checks still running
- * and those judged and passed. Only products or suppliers with any of these have a row.
+ * returned (rejected returns aside), the complaints among them and those of the last 30 days, and the checks judged
+ * and passed in those 90 days; the checks still running whenever they were asked. Only products or suppliers with any
+ * of these have a row.
  */
 export const StatsInput = Schema.Struct({
   /** One product's figures. */
   productId: Schema.optional(Schema.String),
+  /** These products' figures (a list's page). */
+  productIds: Schema.optional(Schema.Array(Schema.String).check(Schema.isMaxLength(500))),
   /** Summed per supplier. */
   bySupplier: Schema.optional(Schema.Boolean)
 })

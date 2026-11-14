@@ -198,7 +198,8 @@ export const list = Effect.fn("Quality.list")(function*(productId: string) {
 /**
  * `Quality.stats`: the products list's Aandacht cuts, the product page's Retouren block and the suppliers' quality
  * columns. Per product, or summed per supplier: what its products (primary) sold and got back, and the checks asked of
- * it. Only the role's stores count; a product or supplier with nothing to say has no row.
+ * it: those judged in the last 90 days, and those still running whenever they were asked. Only the role's stores
+ * count; a product or supplier with nothing to say has no row.
  */
 export const stats = Effect.fn("Quality.stats")(function*(input: typeof StatsInput.Type) {
   yield* Policy.require("products", 1)
@@ -207,7 +208,14 @@ export const stats = Effect.fn("Quality.stats")(function*(input: typeof StatsInp
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const scope = yield* inScope(sql, "p.store_id")
-      const one = input.productId === undefined ? sql`true` : sql`p.id = ${input.productId}`
+      const one = sql.and([
+        input.productId === undefined ? sql`true` : sql`p.id = ${input.productId}`,
+        input.productIds === undefined
+          ? sql`true`
+          : input.productIds.length === 0
+          ? sql`false`
+          : sql`p.id in ${sql.in([...input.productIds])}`
+      ])
       const [settings] = yield* sql<{ thresholdPct: string }>`select threshold_pct from quality_settings`
       const rows = yield* sql<StatsRow>`
         with mine as (
@@ -235,8 +243,10 @@ export const stats = Effect.fn("Quality.stats")(function*(input: typeof StatsInp
         ), checks as (
           select ${sql.literal(bySupplier ? "q.supplier_id" : "q.product_id")} as id,
                  count(*) filter (where q.status in ('requested', 'submitted'))::int as running,
-                 count(*) filter (where q.status = 'approved')::int as passed,
-                 count(*) filter (where q.status in ('approved', 'rejected'))::int as judged
+                 count(*) filter (where q.status = 'approved' and q.decided_at > now() - interval '90 days')::int
+                   as passed,
+                 count(*) filter (where q.status in ('approved', 'rejected')
+                                    and q.decided_at > now() - interval '90 days')::int as judged
           from quality_checks q where q.product_id in (select id from mine)
           group by 1
         )

@@ -24,12 +24,15 @@ export const qualityAtom = Atom.family((productId: string) =>
 )
 
 /**
- * The figures per product (the list's Aandacht cuts, the product's Retouren block) and per supplier (the suppliers'
+ * The figures per product (the list's Aandacht cuts over the products it shows, keyed by their ids joined with commas;
+ * the product's Retouren block) and per supplier (the suppliers'
  * quality columns), over the last 90 days. A verdict, a check and a return change them.
  */
-export const productStatsAtom = ConsoleClient.query("Quality.stats", {}, {
-  reactivityKeys: [...QUALITY, ...RETURNS]
-})
+export const productStatsAtom = Atom.family((ids: string) =>
+  ConsoleClient.query("Quality.stats", { productIds: ids === "" ? [] : ids.split(",") }, {
+    reactivityKeys: [...QUALITY, ...RETURNS]
+  })
+)
 export const supplierStatsAtom = ConsoleClient.query("Quality.stats", { bySupplier: true }, {
   reactivityKeys: [...QUALITY, ...RETURNS]
 })

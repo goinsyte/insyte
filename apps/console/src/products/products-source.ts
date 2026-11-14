@@ -25,7 +25,7 @@ import { useRestock } from "./restock.ts"
  * What the server does not hold yet is hidden, not made up: stock until Shopify reported any, the supplier until one
  * is assigned, the delivery time until an order arrived, the rating (no reviews source), the margin until any product
  * has a cost. The category is Shopify's product type. "Nieuw product" waits for `Products.create`.
- * The Aandacht cuts read `Quality.stats` over the last 90 days: more than a tenth of the units sold came back, a
+ * The Aandacht cuts read `Quality.stats` for the products listed, over the last 90 days: more than a tenth of the units sold came back, a
  * complaint in the last 30 days, a check still running. "Bijbestelling aanvragen" files a restock ticket per product
  * that runs low (`restock.ts`) where the role may open tickets.
  */
@@ -75,14 +75,7 @@ const actionsOf = (
     shortcut: "r",
     bar: true,
     applies: (p: ProductRow) => p.stock === "low" || p.stock === "out",
-    run: (rows: ReadonlyArray<ProductRow>) =>
-      void restock(rows.map((p) => ({
-        productId: p.id,
-        title: p.title,
-        supplierName: p.supplierName === "—" ? null : p.supplierName,
-        units: null,
-        out: p.stock === "out"
-      })))
+    run: (rows: ReadonlyArray<ProductRow>) => void restock(rows.map((p) => p.id))
   }]),
   {
     id: "margins",
@@ -154,9 +147,10 @@ type Attention = typeof QUIET
 const NO_STATS = Atom.make(AsyncResult.initial<QualityStats, never>())
 
 /** What the returns and the quality checks say of each product (the panel's Aandacht cuts), where the role reads them. */
-function useAttention(): (product: Product) => Attention {
+function useAttention(ids: ReadonlyArray<string>): (product: Product) => Attention {
+  const key = useMemo(() => ids.toSorted().join(","), [ids])
   const stats = Option.getOrUndefined(
-    AsyncResult.value(useAtomValue(useGate("products", 1).ok ? productStatsAtom : NO_STATS))
+    AsyncResult.value(useAtomValue(useGate("products", 1).ok && key !== "" ? productStatsAtom(key) : NO_STATS))
   )
   const byId = useMemo(
     () =>
@@ -197,7 +191,8 @@ export function useConsoleProductsSource(page: ProductPage, open: (product: Prod
   const server = useMemo(() => new Map(page.rows.map((p) => [p.id, p])), [page.rows])
   const commands = useProductCommands()
   const restock = useRestock()
-  const attentionOf = useAttention()
+  const ids = useMemo(() => page.rows.map((p) => p.id), [page.rows])
+  const attentionOf = useAttention(ids)
   const costed = page.rows.some((p) => p.costMinor !== null)
   const supplied = page.rows.some((p) => p.supplierId !== null)
   const stocked = page.rows.some((p) => p.stock !== null)

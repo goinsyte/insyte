@@ -965,6 +965,13 @@
     "finance": "deny",
     "view": "deny"
   },
+  "Tickets.restock": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
   "Tickets.duplicate": {
     "owner": "allow",
     "admin": "allow",

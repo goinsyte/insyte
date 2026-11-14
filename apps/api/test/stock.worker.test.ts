@@ -343,6 +343,33 @@ describe("stock that is real", () => {
     expect(later.tickets[0]!.number).not.toBe(first.tickets[0]!.number)
   })
 
+  it("files a restock ticket per product in its store, in the server's words, once while it is open", async () => {
+    const sweater = (await product(store, "Wollen trui")).product
+    const linen = (await product(store, "Linnen overhemd")).product
+    // The linen shirt's ticket from above is still open: it stands, and only the sweater's is new.
+    const filed = ok(await rpc("Tickets.restock", { productIds: [sweater.id, linen.id] }, store.cookie))
+    expect(filed.already).toBe(1)
+    expect(filed.undo).not.toBeNull()
+    const made = filed.tickets.find((t) => t.title.startsWith("Wollen trui"))!
+    expect(made).toMatchObject({
+      status: "awaiting_reply",
+      priority: "high",
+      storeId: store.storeId,
+      labels: ["Leverancier"]
+    })
+    expect(made.description).toMatch(/^Wollen trui is uitverkocht.*Vraag .+ wanneer er nieuwe voorraad komt\.$/)
+    const again = ok(await rpc("Tickets.restock", { productIds: [sweater.id] }, store.cookie))
+    expect(again).toMatchObject({ already: 1, undo: null })
+    expect(again.tickets[0]!.id).toBe(made.id)
+    // Undo takes the new one away, and the linen shirt's stays.
+    ok(await rpc("Shared.undo", { token: filed.undo!.token }, store.cookie))
+    const board = ok(await rpc("Tickets.list", { view: "all" }, store.cookie)).rows.map((t) => t.id)
+    expect(board).not.toContain(made.id)
+    expect(failure(await rpc("Tickets.restock", { productIds: ["prd_none"] }, store.cookie))).toMatchObject({
+      _tag: "NotFound"
+    })
+  })
+
   it("shows none of a store's stock to a member or a key held to another store", async () => {
     const email = `stk-${run}-held@invited.test`
     ok(await rpc("Invitations.send", { rows: [{ email, roleId: "admin", stores: ["sto_elsewhere"] }] }, store.cookie))
