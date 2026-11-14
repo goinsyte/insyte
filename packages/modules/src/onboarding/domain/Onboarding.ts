@@ -7,7 +7,8 @@ import { Step, Track } from "./Steps.ts"
  * What the console reads and sends (M4.1). `advance` takes one member per step: the shared head (`account` and `verify`
  * carry nothing; the server checks the facts), `role`, and the admin track's `organization` (founds the workspace),
  * `plan` (starts the trial), `store` ("later", or "connected" once Shopify gave the workspace a store), `sync` (once
- * the store's first import is in) and `ready` (ends onboarding). `analysis` and `offline` join with M6.5 and M15.
+ * the store's first import is in), `analysis` (the first analysis read and its choices made, M6.5 and M15), `offline`
+ * (the offline plan agreed, M15) and `ready` (ends onboarding).
  */
 
 export const Answers = Schema.Struct({
@@ -42,6 +43,8 @@ export const AdvanceInput = Schema.Union([
   Schema.Struct({ step: Schema.Literal("sync") }),
   // The first analysis read and its choices kept (`FirstAnalysis.prepare`, M6.5).
   Schema.Struct({ step: Schema.Literal("analysis") }),
+  // The offline plan agreed (`FirstAnalysis.agreeOffline`, M15 step 5).
+  Schema.Struct({ step: Schema.Literal("offline") }),
   Schema.Struct({ step: Schema.Literal("ready") })
 ])
 export type AdvanceInput = typeof AdvanceInput.Type

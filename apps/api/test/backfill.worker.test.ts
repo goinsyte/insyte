@@ -127,8 +127,9 @@ describe("a store's first import", () => {
     const [instance] = await workflows.get()
     await instance!.waitForStatus("complete")
     expect(ok(await onboarding.advance({ step: "sync" }, founder.cookie))).toMatchObject({ step: "analysis" })
-    // The first analysis (M6.5) follows the import; the offline plan waits for M15.
-    expect(ok(await onboarding.advance({ step: "analysis" }, founder.cookie))).toMatchObject({ step: "ready" })
+    // The first analysis (M6.5) follows the import, then the offline plan (M15), which may be left as it is.
+    expect(ok(await onboarding.advance({ step: "analysis" }, founder.cookie))).toMatchObject({ step: "offline" })
+    expect(ok(await onboarding.advance({ step: "offline" }, founder.cookie))).toMatchObject({ step: "ready" })
     expect(ok(await onboarding.start(founder.cookie)).done).toContain("store")
   })
 

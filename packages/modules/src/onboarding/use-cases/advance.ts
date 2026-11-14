@@ -18,9 +18,9 @@ import { factsOf, loadProgress, type Row, saveProgress, stateOf, storeFactsOf } 
  * transaction as the person inside the new workspace: both commit, or neither; then the relay delivers its events. The
  * steps after it run the same way inside that workspace: `plan` starts the trial, `store` leaves the store for the Start
  * checklist or, connected, ticks it and goes on to `sync`, which passes once the first import is in; `analysis`
- * follows it (its choices are kept by `FirstAnalysis.prepare`, M6.5) and goes on to ready; `ready` ends
- * onboarding (`WorkspaceSetup`). A finished track answers as it is: a replayed `ready` changes
- * nothing.
+ * follows it (its choices made by `FirstAnalysis.prepare`, M6.5) and goes on to `offline` (the plan agreed by
+ * `FirstAnalysis.agreeOffline`, M15), then ready; `ready` ends onboarding (`WorkspaceSetup`). A finished track
+ * answers as it is: a replayed `ready` changes nothing.
  */
 export const advance = Effect.fn("Onboarding.advance")(function*(input: AdvanceInput) {
   const user = yield* CurrentUser
@@ -52,7 +52,7 @@ export const advance = Effect.fn("Onboarding.advance")(function*(input: AdvanceI
   const row = yield* loadProgress()
   if (
     input.step === "plan" || input.step === "store" || input.step === "sync" || input.step === "analysis" ||
-    input.step === "ready"
+    input.step === "offline" || input.step === "ready"
   ) {
     // Past the organisation step there is a workspace: `next` holds anyone without one there.
     if (row.workspaceId === null) return yield* new NotCurrentStep({ step: input.step, current: "organization" })

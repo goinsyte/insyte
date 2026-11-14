@@ -405,6 +405,13 @@
     "finance": "allow",
     "view": "allow"
   },
+  "Connections.list": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "allow"
+  },
   "Stores.beginConnect": {
     "owner": "allow",
     "admin": "allow",
@@ -623,6 +630,13 @@
     "view": "deny"
   },
   "FirstAnalysis.prepare": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "FirstAnalysis.agreeOffline": {
     "owner": "allow",
     "admin": "allow",
     "service": "deny",
