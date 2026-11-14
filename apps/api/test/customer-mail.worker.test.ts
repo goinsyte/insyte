@@ -404,6 +404,7 @@ describe("mail the shopper", () => {
     await relay(store.workspace)
     const out = ok(await rpc("Threads.get", { id: own.threadId }, store.cookie)).messages.find((m) => m.id === mailId)
     expect(out).toMatchObject({ sendState: "sent" })
+    expect(await mailsAbout(order.customerEmail!, mailId)).toHaveLength(1)
 
     // A member held to another store does not find a ticket of this one.
     const fenced = await fencedMember(store, "ticket")

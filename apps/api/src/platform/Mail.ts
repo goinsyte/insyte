@@ -49,10 +49,6 @@ export const MailerCapture = Layer.effect(
       send: (mail) =>
         mail.reference !== undefined && refusedReferences.has(mail.reference)
           ? Effect.fail(new MailNotSent({ kind: mail.kind, reason: "het adres weigert de mail" }))
-          : mail.reference !== undefined && busyReferences.has(mail.reference)
-          ? Effect.fail(
-            new MailNotSent({ kind: mail.kind, reason: "resend 429: rate_limit_exceeded", retryable: true })
-          )
           : senderRefused(mail)
           ? Effect.fail(
             new MailNotSent({
@@ -60,6 +56,11 @@ export const MailerCapture = Layer.effect(
               reason: "resend 403: validation_error The domain is not verified.",
               senderRefused: true
             })
+          )
+          // After a refused sender, so the fallback to Insyte's address can find the provider busy too.
+          : mail.reference !== undefined && busyReferences.has(mail.reference)
+          ? Effect.fail(
+            new MailNotSent({ kind: mail.kind, reason: "resend 429: rate_limit_exceeded", retryable: true })
           )
           : Effect.sync(() => {
             if (mail.reference !== undefined) {

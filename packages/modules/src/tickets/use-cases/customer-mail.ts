@@ -59,10 +59,11 @@ export const emailCustomer = Effect.fn("Tickets.emailCustomer")(function*(input:
           }
         }
         // Mailed with it and undone since (the message is gone, the audit line stays): a late second ask sends nothing.
+        // Within the day a retry can come in, so the look stays on the ticket's newest lines.
         const [undone] = yield* sql`
           select 1 from audit_events
           where subject_type = 'ticket' and subject_id = ${l!.id} and action = 'ticket.customer_emailed'
-            and diff ->> 'mail' = ${input.mailId} limit 1`
+            and diff ->> 'mail' = ${input.mailId} and at > now() - interval '1 day' limit 1`
         if (undone !== undefined) return yield* new Conflict({ entity: "email_message", reason: "mail_id_taken" })
       }
       const orders = yield* inScope(sql, "o.store_id")

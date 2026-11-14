@@ -80,6 +80,9 @@ export const cancelMails = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>
     (rows) => rows.length
   )
 
+/** Why a delay mail tried again was called off. */
+const CLOSED = "de bestelling is intussen geannuleerd of terugbetaald"
+
 export type DelayMailOutcome =
   | { readonly outcome: "sent"; readonly orderId: string }
   | { readonly outcome: "failed"; readonly orderId: string; readonly error: string }
@@ -103,21 +106,25 @@ export const sendDelayMail = Effect.fn("Orders.sendDelayMail")(
       paragraphs: ReadonlyArray<string>
       number: string
       shop: string
+      closed: boolean
     }>`
       select m.workspace_id, m.order_id, m.to_address as address, m.subject, m.paragraphs, o.number,
-             coalesce(nullif(s.name, ''), w.name) as shop
+             coalesce(nullif(s.name, ''), w.name) as shop, o.status in ('cancelled', 'refunded') as closed
       from order_mails m join orders o on o.id = m.order_id join stores s on s.id = o.store_id
       join workspaces w on w.id = m.workspace_id
       where m.id = ${mailId} and m.state = 'scheduled' for update of m`
     if (m === undefined) return { outcome: "skipped" } as DelayMailOutcome
+    // A try again, after the order was cancelled or refunded meanwhile: there is no delay left to tell, so it is called
+    // off, and the plate hears why.
+    if (attempt > 1 && m.closed) {
+      yield* sql`update order_mails set state = 'cancelled', error = ${CLOSED} where id = ${mailId}`
+      return { outcome: "failed", orderId: m.orderId, error: CLOSED } as DelayMailOutcome
+    }
     const items = yield* sql<{ title: string; variantTitle: string | null; qty: number }>`
       select coalesce(p.title, ol.title) as title, ol.variant_title, ol.quantity as qty
       from order_lines ol left join products p on p.id = ol.product_id
       where ol.order_id = ${m.orderId} order by ol.id`
-    const from = retry.from !== undefined
-      ? retry.from
-      : (yield* Senders.customerSender(sql, "order.delayed")).from ?? null
-    const sent = yield* Senders.sendToCustomer(sql, {
+    const tried = yield* Senders.trySendToCustomer(sql, {
       kind: "order.delayed",
       to: m.address,
       sender: m.shop,
@@ -129,7 +136,9 @@ export const sendDelayMail = Effect.fn("Orders.sendDelayMail")(
         paragraphs: m.paragraphs,
         items: items.map((i) => ({ title: i.title, variant: i.variantTitle, qty: i.qty }))
       }
-    }, { from }).pipe(Effect.as(null), Effect.catchTag("MailNotSent", (e) => Effect.succeed(e)))
+    }, { from: retry.from })
+    // A try again keeps the sender this one used: after the brand's was refused, Insyte's.
+    const { error: sent, from } = tried
     const afterSeconds = sent === null ? undefined : retryAfter(sent, attempt)
     if (sent !== null && afterSeconds !== undefined) {
       yield* sql`update order_mails set error = ${sent.reason} where id = ${mailId}`

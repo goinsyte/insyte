@@ -351,10 +351,7 @@ export const sendCustomerMail = Effect.fn("Orders.sendCustomerMail")(
     where order_id = ${m.orderId} and tracking_number = ${m.ref} order by shipped_at desc nulls last limit 1`
     const [mailbox] = yield* sql<{ address: string }>`
     select address from mailboxes where status = 'connected' order by is_default desc, created_at limit 1`
-    const from = retry.from !== undefined
-      ? retry.from
-      : (yield* Senders.customerSender(sql, "order.message")).from ?? null
-    const sent = yield* Senders.sendToCustomer(sql, {
+    const tried = yield* Senders.trySendToCustomer(sql, {
       kind: "order.message",
       to: m.address,
       sender: m.shop,
@@ -369,7 +366,9 @@ export const sendCustomerMail = Effect.fn("Orders.sendCustomerMail")(
           ? {}
           : { tracking: { carrier: parcel?.carrier ?? null, number: m.ref, url: safeUrl(parcel?.url ?? null) } })
       }
-    }, { from }).pipe(Effect.as(null), Effect.catchTag("MailNotSent", (e) => Effect.succeed(e)))
+    }, { from: retry.from })
+    // A try again keeps the sender this one used: after the brand's was refused, Insyte's.
+    const { error: sent, from } = tried
     const system = { kind: "system", id: "insyte" } as const
     const afterSeconds = sent === null ? undefined : retryAfter(sent, attempt)
     if (sent !== null && afterSeconds !== undefined) {

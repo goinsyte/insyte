@@ -181,6 +181,26 @@ describe("the sending domain", () => {
     async () => {
       const to = `domein-terugval-${run}@voorbeeld.nl`
       await dev(`mail/refuse-sender?domain=${domain}`)
+      // Insyte's address finds Resend busy after the brand's was refused: the try again keeps Insyte's, so it is the
+      // same mail under the same key, and goes once.
+      const busy = ok(await rpc("Threads.compose", { to, subject: "Druk", body: "Even later." }, owner)).message.id
+      await dev(`mail/refuse?reference=${busy}&busy=1`)
+      await pastUndo(workspace)
+      await relay(workspace)
+      const later = (await outboxOf(workspace)).filter((e) =>
+        e.event === "thread.message_queued" && e.relayedAt === null && !e.cancelled
+      )
+      expect(later.map((e) => e.payload)).toEqual([
+        expect.objectContaining({ messageId: busy, attempt: 2, from: null })
+      ])
+      await dev(`mail/refuse?reference=${busy}&busy=1&off=1`)
+      await pastUndo(workspace)
+      await relay(workspace)
+      expect(await captured(to)).toMatchObject([{ sender: "Domein", from: null }])
+      // Resend taking the brand's address again, the page finds it verified; then it refuses it once more, below.
+      await dev(`mail/refuse-sender?domain=${domain}&off=1`)
+      expect(ok(await rpc("SendingDomain.get", undefined, owner))).toMatchObject({ verified: true })
+      await dev(`mail/refuse-sender?domain=${domain}`)
       ok(await rpc("Threads.compose", { to, subject: "Geweigerd", body: "Toch aangekomen." }, owner))
       await pastUndo(workspace)
       await relay(workspace)

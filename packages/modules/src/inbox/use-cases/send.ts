@@ -29,6 +29,8 @@ interface Queued {
   readonly label: string
   readonly address: string
   readonly status: "connected" | "disconnected"
+  /** The thread binned or marked spam. */
+  readonly aside: boolean
 }
 
 const angle = (id: string) => `<${id}>`
@@ -41,7 +43,8 @@ export const sendQueued = Effect.fn("Inbox.sendQueued")(function*(
   const attempt = retry.attempt ?? 1
   const [m] = yield* sql<Queued>`
     select e.id, e.workspace_id, e.thread_id, e.rfc822_message_id, e.in_reply_to, e."references", e."to"::text as to,
-           e.subject, e.body_text, e.send_state, b.label, b.address, b.status
+           e.subject, e.body_text, e.send_state, b.label, b.address, b.status,
+           t.deleted_at is not null or t.spam_at is not null as aside
     from email_messages e join email_threads t on t.id = e.thread_id join mailboxes b on b.id = t.mailbox_id
     where e.id = ${messageId} and e.direction = 'outbound' for update of e`
   if (m === undefined || m.sendState !== "scheduled") return
@@ -50,11 +53,10 @@ export const sendQueued = Effect.fn("Inbox.sendQueued")(function*(
     sql`update email_messages set send_state = 'failed', send_error = ${reason.slice(0, 500)} where id = ${m.id}`
   if (m.status !== "connected") yield* failed("De mailbox is ontkoppeld.")
   else if (to === undefined) yield* failed("Geen ontvanger.")
+  // A try again, after the team binned the thread or marked it spam meanwhile: it does not go after all.
+  else if (attempt > 1 && m.aside) yield* failed("Het gesprek is weggegooid of als spam gemarkeerd.")
   else {
-    const from = retry.from !== undefined
-      ? retry.from
-      : (yield* Senders.customerSender(sql, "support.message")).from ?? null
-    const sent = yield* Senders.sendToCustomer(sql, {
+    const tried = yield* Senders.trySendToCustomer(sql, {
       kind: "support.message",
       to: to.email,
       sender: m.label,
@@ -67,7 +69,9 @@ export const sendQueued = Effect.fn("Inbox.sendQueued")(function*(
         inReplyTo: m.inReplyTo === null ? null : angle(m.inReplyTo),
         references: m.references.map(angle)
       }
-    }, { from }).pipe(Effect.as(null), Effect.catchTag("MailNotSent", (e) => Effect.succeed(e)))
+    }, { from: retry.from })
+    // A try again keeps the sender this one used: after the brand's was refused, Insyte's.
+    const { error: sent, from } = tried
     const afterSeconds = sent === null ? undefined : retryAfter(sent, attempt)
     if (sent === null) {
       yield* sql`update email_messages set send_state = 'sent', sent_at = now(), send_error = null where id = ${m.id}`

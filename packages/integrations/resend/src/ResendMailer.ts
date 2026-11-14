@@ -179,14 +179,20 @@ export const ResendMailer = Layer.effect(
           })
         }).pipe(
           Effect.catchTag("ResendError", (error) =>
-            sentAlready(error.reason) ? Effect.void : Effect.fail(
-              new MailNotSent({
+            sentAlready(error.reason)
+              ? Effect.logWarning("resend has this mail's key already; taken as sent", {
                 kind: mail.kind,
-                reason: error.reason,
-                ...(mail.from !== undefined && refusesSender(error.reason) ? { senderRefused: true } : {}),
-                ...(retriesLater(error.reason) ? { retryable: true } : {})
+                reference: mail.reference,
+                reason: error.reason
               })
-            ))
+              : Effect.fail(
+                new MailNotSent({
+                  kind: mail.kind,
+                  reason: error.reason,
+                  ...(mail.from !== undefined && refusesSender(error.reason) ? { senderRefused: true } : {}),
+                  ...(retriesLater(error.reason) ? { retryable: true } : {})
+                })
+              ))
         )
       })
     })
