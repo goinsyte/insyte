@@ -83,6 +83,17 @@ export class ProductDetail extends Schema.Class<ProductDetail>("products/Product
   lowStockAt: Schema.Int
 }) {}
 
+/** The panel's counts (ADR-0028): products per status, and per Aandacht cut (`use-cases/attention.ts`). */
+export const ProductCounts = Schema.Struct({
+  active: Schema.Int,
+  draft: Schema.Int,
+  archived: Schema.Int,
+  attentionReturns: Schema.Int,
+  attentionComplaints: Schema.Int,
+  attentionChecks: Schema.Int
+})
+export type ProductCounts = typeof ProductCounts.Type
+
 export class ProductPage extends Schema.Class<ProductPage>("products/ProductPage")({
   rows: Schema.Array(ProductRow),
   nextCursor: Schema.NullOr(Schema.String),

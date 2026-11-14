@@ -1,4 +1,5 @@
 import { Frame, ShellRpcs } from "@insyte/api/rpc/ShellRpcs"
+import type { Forbidden } from "@insyte/domain/Errors"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
 import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
@@ -10,6 +11,7 @@ import { NotificationsService } from "@insyte/modules/notifications/Notification
 import { OrdersService } from "@insyte/modules/orders/Orders"
 import { PrefsService } from "@insyte/modules/prefs/PrefsService"
 import { ProductsService } from "@insyte/modules/products/Products"
+import { ReturnsService } from "@insyte/modules/returns/Returns"
 import type { SearchKind } from "@insyte/modules/shared/domain/Search"
 import { StoresService } from "@insyte/modules/stores/Stores"
 import { TicketsService } from "@insyte/modules/tickets/Tickets"
@@ -55,6 +57,51 @@ const INBOX_CUTS = {
   "/inbox?folder=spam": "spam"
 } as const
 
+/** Returns (M9.1): each view of the panel by its link, and all of them; the list's own counts. */
+const RETURN_CUTS = {
+  "/returns": "total",
+  "/returns?view=review": "review",
+  "/returns?view=awaiting": "awaiting",
+  "/returns?view=received": "received",
+  "/returns?view=ready": "ready",
+  "/returns?view=resolved": "resolved",
+  "/returns?view=rejected": "rejected",
+  "/returns?view=returns": "returns",
+  "/returns?view=claims": "claims"
+} as const
+
+/** Klanten (M6.4): the segments the server can tell, new and returning ("VIP"); "Risico" waits for its signal. */
+const CUSTOMER_CUTS = {
+  "/customers?segment=new": "new",
+  "/customers?segment=vip": "returning"
+} as const
+
+/** Producten (M7, M9.4): per status, and the Aandacht cuts. Leveranciers shares the panel, so the counts too. */
+const PRODUCT_CUTS = {
+  "/products?status=active": "active",
+  "/products?status=draft": "draft",
+  "/products?status=archived": "archived",
+  "/products?status=attention_returns": "attentionReturns",
+  "/products?status=attention_complaints": "attentionComplaints",
+  "/products?status=attention_checks": "attentionChecks"
+} as const
+
+/** Chargebacks (M13): each tab of the panel by its link. */
+const CHARGEBACK_CUTS = {
+  "/chargebacks?tab=action_required": "actionRequired",
+  "/chargebacks?tab=submitted": "submitted",
+  "/chargebacks?tab=won": "won",
+  "/chargebacks?tab=lost": "lost"
+} as const
+
+/** Each key of `cuts` with its count from `counts`. */
+const keyed = <K extends string>(cuts: Readonly<Record<string, K>>, counts: Readonly<Record<K, number>>) =>
+  Object.fromEntries(Object.entries(cuts).map(([key, field]) => [key, counts[field as K]])) as Record<string, number>
+
+/** A role that cannot see an area gets no counts for it, not a refusal: the panel just shows none. */
+const none = <R>(read: Effect.Effect<Record<string, number>, Forbidden, R>) =>
+  read.pipe(Effect.catchTag("Forbidden", () => Effect.succeed({} as Record<string, number>)))
+
 /** The area a path is in: its first segment. */
 const areaOf = (path: string) => path.split("/").find((segment) => segment !== "") ?? "dashboard"
 
@@ -71,6 +118,7 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
   const chats = yield* ChatsService
   const chargebacks = yield* ChargebacksService
   const stores = yield* StoresService
+  const returns = yield* ReturnsService
   // Each kind through its own slice, which answers nothing where the role may not look (support level, stores, a DM).
   const SEARCHES = {
     order: (q: string, limit: number) => orders.search(q, limit),
@@ -83,7 +131,26 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
   } as const
   const EVERY: ReadonlyArray<SearchKind> = ["order", "customer", "product", "ticket", "thread", "message", "chargeback"]
 
+  // One read per area, on that area's pages only, each fenced to the principal's stores by its slice.
+  const areaCounts = (area: string) => {
+    switch (area) {
+      case "returns":
+        return returns.counts.pipe(Effect.map((c) => keyed(RETURN_CUTS, c)), none)
+      case "customers":
+        return customers.counts.pipe(Effect.map((c) => keyed(CUSTOMER_CUTS, c)), none)
+      case "products":
+      case "suppliers":
+        return products.counts.pipe(Effect.map((c) => keyed(PRODUCT_CUTS, c)), none)
+      case "chargebacks":
+        return chargebacks.counts.pipe(Effect.map((c) => keyed(CHARGEBACK_CUTS, c)), none)
+      default:
+        return undefined
+    }
+  }
+
   const countsFor = (area: string) => {
+    const read = areaCounts(area)
+    if (read !== undefined) return read
     if (area === "tickets") {
       return tickets.counts.pipe(
         Effect.map((counts) => ({

@@ -202,6 +202,13 @@ const counts = Effect.fn("Returns.counts")(function*(sql: SqlClient.SqlClient) {
   return c as typeof ReturnList.fields.counts.Type
 })
 
+/** The panel's counts alone, for the frame (ADR-0028): the list's own, so a badge is what its view lists. */
+export const panelCounts = Effect.fn("Returns.panelCounts")(function*() {
+  yield* Policy.require("returns", 1)
+  const db = yield* Db
+  return yield* db.scoped((sql) => counts(sql))
+})
+
 export const list = Effect.fn("Returns.list")(function*(input: typeof ListInput.Type) {
   yield* Policy.require("returns", 1)
   const db = yield* Db

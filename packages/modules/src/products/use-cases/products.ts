@@ -12,11 +12,13 @@ import {
   type LowStockInput,
   LowStockPage,
   LowStockRow,
+  type ProductCounts,
   ProductDetail,
   ProductPage,
   ProductRow,
   type StockLevel
 } from "../domain/Products.ts"
+import { ATTENTION, attentionSets } from "./attention.ts"
 
 /*
  * `Products.list` and `Products.get` (M6.4): at `products` Bekijken, inside the role's stores. By title, keyset on
@@ -198,6 +200,31 @@ export const list = Effect.fn("Products.list")(function*(input: ListInput) {
           : null,
         counts: { total: total?.n ?? 0, status: Object.fromEntries(facets.map((f) => [f.status, f.n])) }
       })
+    })
+  )
+})
+
+/**
+ * The panel's counts alone, for the frame (ADR-0028): the principal's products per status, as the list's facets count
+ * them, and per Aandacht cut, in one statement.
+ */
+export const counts = Effect.fn("Products.panelCounts")(function*() {
+  yield* Policy.require("products", 1)
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const scope = yield* inScope(sql, "p.store_id")
+      const [row] = yield* sql<ProductCounts>`
+        ${attentionSets(sql)}
+        select count(*) filter (where p.status = 'active')::int as active,
+               count(*) filter (where p.status = 'draft')::int as draft,
+               count(*) filter (where p.status = 'archived')::int as archived,
+               count(*) filter (where ${sql.literal(ATTENTION.attention_returns)})::int as attention_returns,
+               count(*) filter (where ${sql.literal(ATTENTION.attention_complaints)})::int as attention_complaints,
+               count(*) filter (where ${sql.literal(ATTENTION.attention_checks)})::int as attention_checks
+        from products p where ${scope}`
+      return row ??
+        { active: 0, draft: 0, archived: 0, attentionReturns: 0, attentionComplaints: 0, attentionChecks: 0 }
     })
   )
 })

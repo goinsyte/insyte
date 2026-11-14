@@ -7,7 +7,13 @@ import type { ListInput } from "../../shared/domain/Filter.ts"
 import { likePattern, SearchHit } from "../../shared/domain/Search.ts"
 import { compileFilter, decodeCursor, encodeCursor, type Whitelist } from "../../shared/tables/FilterSql.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
-import { CustomerDetail, CustomerPage, CustomerRow } from "../domain/Customers.ts"
+import {
+  type CustomerCounts,
+  CustomerDetail,
+  CustomerPage,
+  CustomerRow,
+  NEW_UP_TO_ORDERS
+} from "../domain/Customers.ts"
 import { KlaviyoSyncs } from "../domain/Ports.ts"
 
 /*
@@ -101,6 +107,29 @@ export const list = Effect.fn("Customers.list")(function*(input: ListInput) {
         nextCursor: rows.length > limit && last !== undefined ? encodeCursor([last.name.toLowerCase(), last.id]) : null,
         counts: { total: total?.n ?? 0 }
       })
+    })
+  )
+})
+
+/**
+ * The panel's counts alone, for the frame (ADR-0028): the listed profiles (not deleted, not merged away) in the
+ * principal's stores, new up to `NEW_UP_TO_ORDERS` orders and returning after, their merged profiles' orders counted
+ * in as the list counts them.
+ */
+export const counts = Effect.fn("Customers.panelCounts")(function*() {
+  yield* Policy.require("customers", 1)
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const scope = yield* inScope(sql, "c.store_id")
+      const [row] = yield* sql<{ new: number; returning: number }>`
+        select count(*) filter (where x.n <= ${NEW_UP_TO_ORDERS})::int as new,
+               count(*) filter (where x.n > ${NEW_UP_TO_ORDERS})::int as returning
+        from (select c.orders_count + coalesce(m.n, 0) as n from customers c
+              left join (select merged_into, sum(orders_count) as n from customers
+                         where merged_into is not null group by merged_into) m on m.merged_into = c.id
+              where c.deleted_at is null and c.merged_into is null and ${scope}) x`
+      return { new: row?.new ?? 0, returning: row?.returning ?? 0 } satisfies CustomerCounts
     })
   )
 })
