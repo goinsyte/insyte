@@ -77,7 +77,7 @@ export class SuppliersRpcs extends RpcGroup.make(
   Rpc.make("Suppliers.markStatementPaid", {
     payload: MarkPaidInput,
     success: StatementChange,
-    error: Schema.Union([Forbidden, NotFound])
+    error: Schema.Union([Forbidden, Invalid, NotFound])
   })
 )
   .middleware(Member)

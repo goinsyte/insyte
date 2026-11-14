@@ -5,7 +5,7 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { COUNTED_PAYMENT, UNCOUNTED_STATUS } from "@insyte/domain/Revenue"
 import { Effect } from "effect"
 import type { SqlClient, Statement } from "effect/sql"
-import { inScope } from "../../shared/use-cases/StoreScope.ts"
+import { inScope, inScopeOrNone } from "../../shared/use-cases/StoreScope.ts"
 import {
   type BoardRange,
   HomeBrief,
@@ -438,14 +438,11 @@ const chargebacksWidget = Effect.fn("Home.chargebacks")(function*(sql: SqlClient
 
 export const brief = Effect.fn("Home.brief")(function*() {
   const can = yield* reads()
-  const { role } = yield* CurrentPrincipal
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const areas = (["orders", "returns", "products", "settings", "chargebacks"] as const).filter((a) => can(a))
-      const stores = role.stores === "all" ? sql`true` : sql`(q.store_id is null or q.store_id = any(${[
-        ...role.stores
-      ]}))`
+      const stores = yield* inScopeOrNone(sql, "q.store_id")
       const [queue] = yield* sql<{ needsYou: number; open: number }>`
         select count(*) filter (where q.state = 'open' and q.signal in ('red', 'amber'))::int as needs_you,
                count(*) filter (where q.state = 'open')::int as open

@@ -62,6 +62,15 @@ const managers = (sql: SqlClient.SqlClient) =>
     (rows) => rows.map((r) => r.id)
   )
 
+/**
+ * Members whose stores reach `storeId` (`m`, with their role `r`): the role's and the member's own both name it, as
+ * their `storeScope` does. A record of no store reaches everyone who may open its area.
+ */
+const reaching = (sql: SqlClient.SqlClient, storeId: string | null) =>
+  sql`(${storeId}::text is null
+    or ((r.stores = '"all"'::jsonb or r.stores @> jsonb_build_array(${storeId}::text))
+      and (m.stores = '"all"'::jsonb or m.stores @> jsonb_build_array(${storeId}::text))))`
+
 const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Planned | undefined, unknown> =>
   Effect.gen(function*() {
     switch (event.type) {
@@ -108,12 +117,13 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
       }
       case "order.delayed": {
         // Whoever handles orders hears of a stuck parcel (M8.4); the order is the subject.
-        const [order] = yield* sql<{ number: string }>`select number from orders where id = ${event.orderIds[0] ?? ""}`
+        const [order] = yield* sql<{ number: string; storeId: string }>`
+          select number, store_id from orders where id = ${event.orderIds[0] ?? ""}`
         if (order === undefined) return undefined
         const recipients = yield* sql<{ id: string }>`
           select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
           where m.deactivated_at is null and m.removed_at is null
-            and (r.id = 'owner' or coalesce((r.levels ->> 'orders')::int, 0) >= 2)`
+            and (r.id = 'owner' or coalesce((r.levels ->> 'orders')::int, 0) >= 2) and ${reaching(sql, order.storeId)}`
         return {
           kind: "order.late",
           recipients: recipients.map((r) => r.id),
@@ -125,8 +135,10 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
       }
       case "return.requested": {
         // A shopper's request from the portal (M9.3): whoever may handle returns hears of it; the return is the subject.
-        const [ret] = yield* sql<{ number: string; type: "return" | "claim"; orderNumber: string; customer: string }>`
-          select r.number, r.type, o.number as order_number, r.customer_name as customer
+        const [ret] = yield* sql<
+          { number: string; type: "return" | "claim"; orderNumber: string; customer: string; storeId: string }
+        >`
+          select r.number, r.type, o.number as order_number, r.customer_name as customer, r.store_id
           from returns r join orders o on o.id = r.order_id where r.id = ${event.returnIds[0] ?? ""}`
         if (ret === undefined) return undefined
         const items = yield* sql<{ title: string; variantTitle: string | null; qty: number }>`
@@ -137,7 +149,7 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
         const recipients = yield* sql<{ id: string }>`
           select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
           where m.deactivated_at is null and m.removed_at is null
-            and (r.id = 'owner' or coalesce((r.levels ->> 'returns')::int, 0) >= 2)`
+            and (r.id = 'owner' or coalesce((r.levels ->> 'returns')::int, 0) >= 2) and ${reaching(sql, ret.storeId)}`
         return {
           kind: "return.new",
           recipients: recipients.map((r) => r.id),
@@ -156,14 +168,14 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
       case "ticket.assigned":
       case "ticket.mentioned": {
         // A ticket (M11 step 3): the subject, by its number and title; who may not open tickets hears nothing.
-        const [ticket] = yield* sql<{ number: string; title: string }>`
-          select number, title from tickets where id = ${event.ticketId}`
+        const [ticket] = yield* sql<{ number: string; title: string; storeId: string | null }>`
+          select number, title, store_id from tickets where id = ${event.ticketId}`
         if (ticket === undefined) return undefined
         const [actor] = yield* sql<{ id: string }>`select id from members where id = ${event.by}`
         const recipients = yield* sql<{ id: string }>`
           select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
           where m.id in ${sql.in([...event.memberIds, ""])} and m.deactivated_at is null and m.removed_at is null
-            and (r.id = 'owner' or coalesce((r.levels ->> 'support')::int, 0) >= 1)
+            and (r.id = 'owner' or coalesce((r.levels ->> 'support')::int, 0) >= 1) and ${reaching(sql, ticket.storeId)}
             and ${
           event.type === "ticket.assigned"
             ? sql`exists (select 1 from ticket_assignees a where a.ticket_id = ${event.ticketId} and a.member_id = m.id)`
@@ -191,10 +203,16 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
         // A run (M12 step 3): its flow by name; who may not see automations hears nothing.
         const [flow] = yield* sql<{ name: string }>`select name from automations where id = ${event.automationId}`
         if (flow === undefined) return undefined
+        // A run about an order is that order's store's.
+        const [run] = yield* sql<{ storeId: string | null }>`
+          select o.store_id from automation_runs x
+          left join orders o on x.record_kind = 'order' and o.id = x.record_id
+          where x.id = ${event.runId}`
         const recipients = yield* sql<{ id: string }>`
           select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
           where m.id in ${sql.in([...event.memberIds, ""])} and m.deactivated_at is null and m.removed_at is null
-            and (r.id = 'owner' or coalesce((r.levels ->> 'automations')::int, 0) >= 1)`
+            and (r.id = 'owner' or coalesce((r.levels ->> 'automations')::int, 0) >= 1)
+            and ${reaching(sql, run?.storeId ?? null)}`
         const named = recipients.map((r) => r.id)
         return {
           kind: event.kind === "alert" ? "automation.alert" : "automation.failed",
@@ -242,6 +260,7 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
         const [check] = yield* sql<{
           productId: string
           productTitle: string
+          storeId: string
           requestedBy: string
           submittedBy: string | null
           supplier: string
@@ -249,7 +268,7 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
           video: boolean
           photos: number
         }>`
-          select q.product_id, p.title as product_title, q.requested_by, q.submitted_by, s.name as supplier, q.batch,
+          select q.product_id, p.title as product_title, p.store_id, q.requested_by, q.submitted_by, s.name as supplier, q.batch,
                  q.video,
                  (select count(*)::int from quality_check_media m join files f on f.id = m.file_id
                   where m.check_id = q.id and f.mime like 'image/%') as photos
@@ -259,7 +278,8 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
         const recipients = yield* sql<{ id: string }>`
           select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
           where m.deactivated_at is null and m.removed_at is null
-            and (m.id = ${check.requestedBy} or r.id = 'owner' or coalesce((r.levels ->> 'products')::int, 0) >= 2)`
+            and (m.id = ${check.requestedBy} or r.id = 'owner' or coalesce((r.levels ->> 'products')::int, 0) >= 2)
+            and ${reaching(sql, check.storeId)}`
         return {
           kind: "supplier.message",
           recipients: recipients.map((r) => r.id),
@@ -308,10 +328,7 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
         const recipients = yield* sql<{ id: string }>`
           select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
           where m.deactivated_at is null and m.removed_at is null
-            and (r.id = 'owner' or coalesce((r.levels ->> 'chargebacks')::int, 0) >= 1)
-            and (${c.storeId}::text is null
-              or ((r.stores = '"all"'::jsonb or r.stores @> jsonb_build_array(${c.storeId}::text))
-                and (m.stores = '"all"'::jsonb or m.stores @> jsonb_build_array(${c.storeId}::text))))`
+            and (r.id = 'owner' or coalesce((r.levels ->> 'chargebacks')::int, 0) >= 1) and ${reaching(sql, c.storeId)}`
         return {
           kind: event.type === "chargeback.opened" ? "chargeback.new" : "chargeback.deadline",
           recipients: recipients.map((r) => r.id).filter((r) => r !== by),

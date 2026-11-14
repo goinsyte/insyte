@@ -8,6 +8,7 @@ import { Effect } from "effect"
 import type { SqlClient, SqlError } from "effect/sql"
 import type { ProposalAction } from "../../proposals/domain/Proposals.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import { inScopeOrNone } from "../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import {
   AgentActionFixed,
@@ -218,7 +219,8 @@ const counts = Effect.fn("AgentLog.counts")(function*(sql: SqlClient.SqlClient, 
              as today_undone,
            count(*) filter (where a.created_at >= day.start and a.outcome = 'failed')::int as today_failed
     from agent_actions a cross join day
-    where a.decision = 'run' and a.action in ${sql.in([...actions])}`
+    where a.decision = 'run' and a.action in ${sql.in([...actions])}
+      and ${yield* inScopeOrNone(sql, "a.store_id")}`
   return new AgentLogCounts(c!)
 })
 
@@ -231,6 +233,7 @@ export const list = Effect.fn("AgentLog.list")(function*(sql: SqlClient.SqlClien
     select ${columns(sql)}
     from agent_actions a ${joins(sql)}
     where a.decision = 'run' and a.action in ${sql.in(actions)}
+      and ${yield* inScopeOrNone(sql, "a.store_id")}
       ${input.subjectType === undefined ? sql`` : sql`and a.subject_type = ${input.subjectType}`}
       ${input.subjectId === undefined ? sql`` : sql`and a.subject_id = ${input.subjectId}`}
       ${input.since === undefined ? sql`` : sql`and a.created_at >= ${new Date(input.since)}`}
@@ -247,6 +250,8 @@ export const countsOf = Effect.fn("AgentLog.countsOf")(function*(sql: SqlClient.
 /** One row the caller may see, locked for a change where `lock`; `NotFound` otherwise. */
 const one = Effect.fn("AgentLog.one")(function*(sql: SqlClient.SqlClient, id: string, lock = false) {
   const visible = yield* visibleActions
+  // An action about a record in a store outside the principal's (`storeScope`) is not theirs to see or take back.
+  const fence = yield* inScopeOrNone(sql, "a.store_id")
   const [row] = lock
     ? yield* sql<
       Row & {
@@ -261,7 +266,7 @@ const one = Effect.fn("AgentLog.one")(function*(sql: SqlClient.SqlClient, id: st
         select ${columns(sql)}, a.input::text as input, a.effect::text as effect,
                encode(a.undo_token_hash, 'hex') as token_hash, a.undo_principal, a.undone_by, a.undone_at
         from agent_actions a ${joins(sql)}
-        where a.id = ${id} and a.decision = 'run'
+        where a.id = ${id} and a.decision = 'run' and ${fence}
         for update of a`
     : yield* sql<
       Row & {
@@ -276,7 +281,7 @@ const one = Effect.fn("AgentLog.one")(function*(sql: SqlClient.SqlClient, id: st
         select ${columns(sql)}, a.input::text as input, a.effect::text as effect,
                encode(a.undo_token_hash, 'hex') as token_hash, a.undo_principal, a.undone_by, a.undone_at
         from agent_actions a ${joins(sql)}
-        where a.id = ${id} and a.decision = 'run'`
+        where a.id = ${id} and a.decision = 'run' and ${fence}`
   if (row === undefined || !visible.includes(row.action)) return yield* new NotFound({ entity: "agent_action", id })
   // Read as text: the client's camel-casing of result names reaches into jsonb too, and would turn `_tag` into `Tag`.
   return {

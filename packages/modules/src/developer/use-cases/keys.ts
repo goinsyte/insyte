@@ -6,7 +6,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
-import type { StoreAccess } from "../../shared/domain/Stores.ts"
+import { type StoreAccess, withinScope } from "../../shared/domain/Stores.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import {
   ApiKeyView,
@@ -83,14 +83,29 @@ const SELECT = (sql: SqlClient.SqlClient) =>
   sql`select id, label, prefix, created_at, created_by, last_used_at, revoked_at, access, stores, expires_at, ips,
              previous_prefix, grace_until, agent from api_keys`
 
+/**
+ * The keys the principal may see and work on: those inside their own stores (`storeScope`). A key that reaches further
+ * is someone else's to rotate, revoke or read, as nobody makes a key past their own stores (`createOn`).
+ */
+const fence = (sql: SqlClient.SqlClient) =>
+  Effect.map(Effect.service(CurrentPrincipal), ({ storeScope }) =>
+    storeScope === null
+      ? sql`true`
+      : sql`(stores <> '"all"'::jsonb and stores <@ ${JSON.stringify(storeScope)}::jsonb)`)
+
 const readKeys = (sql: SqlClient.SqlClient) =>
-  Effect.map(sql<Row>`${SELECT(sql)} order by revoked_at is not null, created_at desc`, (rows) => rows.map(toView))
+  Effect.flatMap(fence(sql), (inside) =>
+    Effect.map(
+      sql<Row>`${SELECT(sql)} where ${inside} order by revoked_at is not null, created_at desc`,
+      (rows) => rows.map(toView)
+    ))
 
 const readKey = (sql: SqlClient.SqlClient, id: string) =>
-  Effect.flatMap(
-    sql<Row>`${SELECT(sql)} where id = ${id}`,
-    ([row]) => row === undefined ? Effect.fail(new NotFound({ entity: "api_key", id })) : Effect.succeed(toView(row))
-  )
+  Effect.flatMap(fence(sql), (inside) =>
+    Effect.flatMap(
+      sql<Row>`${SELECT(sql)} where id = ${id} and ${inside}`,
+      ([row]) => row === undefined ? Effect.fail(new NotFound({ entity: "api_key", id })) : Effect.succeed(toView(row))
+    ))
 
 const audit = (sql: SqlClient.SqlClient, action: string, subjectId: string, diff?: Record<string, unknown>) =>
   Effect.flatMap(
@@ -137,6 +152,7 @@ export const activity = Effect.fn("ApiKeys.activity")(function*(id: string) {
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
+      yield* readKey(sql, id)
       const requests = yield* sql<
         { id: string; method: string; path: string; status: number; ms: number; at: Date; ip: string | null }
       >`
@@ -173,6 +189,10 @@ export const createOn = Effect.fn("ApiKeys.createOn")(function*(sql: SqlClient.S
   const principal = yield* CurrentPrincipal
   const hasher = yield* KeyHasher
   const access = yield* checkAccess(sql, input.access)
+  // A key reaches no store beyond its maker's (`storeScope`): "all" is for someone who reaches every store.
+  if (!withinScope(input.stores, principal.storeScope)) {
+    return yield* new Invalid({ fields: { stores: "forbidden" } })
+  }
   const id = mintId("key")
   const token = mintToken()
   const hash = yield* hasher.hash(token.secret)

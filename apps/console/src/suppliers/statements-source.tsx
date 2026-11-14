@@ -92,7 +92,13 @@ export function useConsoleStatements(list: StatementList): StatementsSource {
   }), [list, navigate, supplier, summary])
 }
 
-const COPY = { gone: "Die afrekening bestaat niet meer" }
+const COPY = {
+  gone: "Die afrekening bestaat niet meer",
+  invalid: {
+    forbidden:
+      "Deze afrekening loopt ook over winkels waar je niet bij kunt. Iemand met alle winkels zet hem op betaald."
+  }
+}
 
 /** One month line by line, its invoice, and marking it paid. */
 export function useConsoleStatement(detail: StatementDetail): StatementSource {

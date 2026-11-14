@@ -78,7 +78,7 @@ export class Members extends Context.Service<Members, {
     id: string
   ) => Effect.Effect<Team, Forbidden | NotFound | Conflict | SeatLimitReached, Db | CurrentPrincipal>
   readonly setLink: (patch: SetLink) => Effect.Effect<Team, Forbidden | Invalid, Db | CurrentPrincipal>
-  readonly regenerateLink: Effect.Effect<Team, Forbidden, Db | CurrentPrincipal>
+  readonly regenerateLink: Effect.Effect<Team, Forbidden | Invalid, Db | CurrentPrincipal>
   readonly undoRegenerateLink: Effect.Effect<Team, Forbidden | Conflict, Db | CurrentPrincipal>
 }>()("modules/Members") {
   // A database that does not answer is a defect: the RPC answers it as one, and the request is in the traces.

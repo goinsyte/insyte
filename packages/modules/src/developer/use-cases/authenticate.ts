@@ -40,7 +40,12 @@ interface RoleRow {
   readonly levels: Record<AreaId, Level>
   readonly specials: Partial<Record<SpecialId, boolean>>
   readonly refundLimitMinor: string | number | null
+  readonly stores: "all" | ReadonlyArray<string>
 }
+
+/** The key's stores narrow its role's, never widen them; `null` is every store. */
+const fenceOf = (key: "all" | ReadonlyArray<string>, role: "all" | ReadonlyArray<string>): Array<string> | null =>
+  role === "all" ? (key === "all" ? null : [...key]) : key === "all" ? [...role] : key.filter((s) => role.includes(s))
 
 /**
  * The special actions a key may take through the API (api.md §6): a role-bound key takes them from its role, refunds
@@ -128,7 +133,7 @@ export const authenticate = Effect.fn("ApiKeys.authenticate")(function*(token: s
 
       const role = key.access.kind === "role"
         ? yield* Effect.map(
-          sql<RoleRow>`select id, label, version, levels, specials, refund_limit_minor from roles
+          sql<RoleRow>`select id, label, version, levels, specials, refund_limit_minor, stores from roles
                        where id = ${key.access.roleId} and deleted_at is null`,
           ([r]) => r
         )
@@ -156,7 +161,8 @@ export const authenticate = Effect.fn("ApiKeys.authenticate")(function*(token: s
             : Number(role.refundLimitMinor) / 100,
           stores: key.stores === "all" ? "all" : [...key.stores]
         },
-        storeScope: key.stores === "all" ? null : [...key.stores]
+        // A key that holds a role reaches the stores both name: the role's narrow the key's, as a member's do.
+        storeScope: fenceOf(key.stores, role?.stores ?? "all")
       }
       const authenticated: Authenticated = { principal, label: key.label, workspaceName: workspace?.name ?? "" }
       return authenticated
