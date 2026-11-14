@@ -153,16 +153,26 @@ const applyTopic = Effect.fn("Stores.webhooks.topic")(
             String(body["id"])
           }`
         )
+      // A count is dated by Shopify's own `updated_at`: an older one (a retry, or one the import read later) is ignored.
       case "inventory_levels/update":
         return yield* db.scopedFor((sql) =>
           sql`insert into inventory_levels (workspace_id, variant_id, location_id, available, source, reported_at)
               select app_workspace_id(), v.id, ${String(body["location_id"])}, ${Number(body["available"] ?? 0)},
-                     'shopify', now()
+                     'shopify', ${reportedAt(body)}::timestamptz
               from variants v where v.store_id = ${store.id} and v.inventory_item_id = ${
             String(body["inventory_item_id"])
           }
               on conflict (variant_id, location_id, source) do update
-                set available = excluded.available, reported_at = excluded.reported_at`
+                set available = excluded.available, reported_at = excluded.reported_at
+                where excluded.reported_at >= inventory_levels.reported_at`
+        )
+      // The item no longer stocked at that location: its count goes.
+      case "inventory_levels/disconnect":
+        return yield* db.scopedFor((sql) =>
+          sql`delete from inventory_levels i using variants v
+              where v.id = i.variant_id and v.store_id = ${store.id}
+                and v.inventory_item_id = ${String(body["inventory_item_id"])}
+                and i.location_id = ${String(body["location_id"])} and i.source = 'shopify'`
         )
       case "shop/update":
         return yield* db.scopedFor((sql) =>
@@ -204,6 +214,12 @@ const applyTopic = Effect.fn("Stores.webhooks.topic")(
 )
 
 const str = (value: unknown) => (typeof value === "string" && value !== "" ? value : null)
+
+/** When Shopify says the count changed; now, where it does not say. */
+const reportedAt = (body: Record<string, unknown>) => {
+  const at = str(body["updated_at"])
+  return at !== null && !Number.isNaN(Date.parse(at)) ? new Date(at).toISOString() : new Date().toISOString()
+}
 
 /** Reads one object as Shopify holds it now and writes it through the mirror; a deleted one is left as it was. */
 export const mirrorOne = Effect.fn("Stores.webhooks.mirror")(

@@ -56,13 +56,13 @@ export const fromMinor = (minor: number, currency: string): string => {
 
 const PRODUCT_FIELDS = `id title handle descriptionHtml status vendor productType tags createdAt updatedAt
   featuredMedia { preview { image { url } } }`
-const VARIANT_FIELDS = "id title sku price compareAtPrice position inventoryItem { id }"
+const VARIANT_FIELDS = "id title sku price compareAtPrice position inventoryItem { id tracked }"
 /**
  * A variant's stock per location, for the bulk import only: a bulk query takes a connection without `first`, a read
  * does not. Each level is its own line after its variant; it names its inventory item, so its variant is found by that
  * and not by `__parentId`. "available" is what can be sold (Shopify's own `available` field is deprecated).
  */
-const BULK_VARIANT_FIELDS = `id title sku price compareAtPrice position inventoryItem { id
+const BULK_VARIANT_FIELDS = `id title sku price compareAtPrice position inventoryItem { id tracked
   inventoryLevels { edges { node { id updatedAt item { id } location { id } quantities(names: ["available"]) {
     name quantity } } } } }`
 /** A product's photographs, in its own order; other media (video, 3D) are not mirrored. */
@@ -188,6 +188,8 @@ export interface VariantRow {
   readonly shopify_id: string
   readonly product_shopify_id: string
   readonly inventory_item_id: string | null
+  /** Whether Shopify counts its stock; `null` where the read did not say. */
+  readonly tracked: boolean | null
   readonly sku: string | null
   readonly title: string
   readonly price_minor: number
@@ -364,7 +366,7 @@ const VariantLine = Schema.Struct({
   price: Schema.String,
   compareAtPrice: Str,
   position: Schema.Finite,
-  inventoryItem: Schema.NullOr(Schema.Struct({ id: Schema.String })),
+  inventoryItem: Schema.NullOr(Schema.Struct({ id: Schema.String, tracked: Schema.optional(Schema.Boolean) })),
   __parentId: Schema.String
 })
 
@@ -563,6 +565,7 @@ export const addLine = (batch: MirrorBatch, line: unknown, storeCurrency: string
         shopify_id: gidId(v.id),
         product_shopify_id: gidId(v.__parentId),
         inventory_item_id: v.inventoryItem === null ? null : gidId(v.inventoryItem.id),
+        tracked: v.inventoryItem?.tracked ?? null,
         sku: v.sku === "" ? null : v.sku,
         title: v.title,
         price_minor: toMinor(v.price, storeCurrency),

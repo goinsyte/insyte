@@ -9,8 +9,8 @@ import { Schema } from "effect"
 export const LOW_STOCK = 12
 
 /**
- * A product's stock as the list colours it: sold out over every variant, low where a variant is at or under the
- * threshold, else in stock. `null` until Shopify reported any count for it.
+ * A product's stock as the list colours it, over the variants Shopify tracks and reported a count for: sold out when
+ * they are all at nothing, low where one is at or under the threshold, else in stock. `null` without such a variant.
  */
 export const StockLevel = Schema.Literals(["available", "low", "out"])
 export type StockLevel = typeof StockLevel.Type
@@ -34,7 +34,7 @@ export class ProductRow extends Schema.Class<ProductRow>("products/ProductRow")(
   /** What the product costs the store (M7.3): Insyte's own figure, never Shopify's; `null` until someone enters it. */
   costMinor: Schema.NullOr(Schema.Int),
   currency: Schema.String,
-  /** Units available over every location, as Shopify reports them; `null` until inventory is mirrored. */
+  /** Units over its tracked variants and every location, as Shopify reports them; `null` without a counted variant. */
   available: Schema.NullOr(Schema.Int),
   /** `available` against the low-stock threshold, by its lowest variant. */
   stock: Schema.NullOr(StockLevel),
@@ -63,7 +63,9 @@ export const Variant = Schema.Struct({
   priceMinor: Schema.Int,
   compareAtMinor: Schema.NullOr(Schema.Int),
   position: Schema.Int,
-  /** Over Shopify's locations; `null` until one reported. */
+  /** Whether Shopify counts its stock; an untracked variant has no units. */
+  tracked: Schema.Boolean,
+  /** Over Shopify's locations, each at nothing or more; `null` untracked or until one reported. */
   available: Schema.NullOr(Schema.Int),
   /** Per location, Shopify's first, the most stocked first. */
   levels: Schema.Array(Level)

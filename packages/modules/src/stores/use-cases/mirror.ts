@@ -96,32 +96,43 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
       }
 
       const variants = batch.variants.length === 0 ? [] : yield* sql`
-        insert into variants (id, workspace_id, store_id, product_id, shopify_id, inventory_item_id, sku, title,
+        insert into variants (id, workspace_id, store_id, product_id, shopify_id, inventory_item_id, tracked, sku, title,
                               price_minor, compare_at_minor, position)
-        select r.id, app_workspace_id(), ${storeId}, p.id, r.shopify_id, r.inventory_item_id, r.sku, r.title,
+        select r.id, app_workspace_id(), ${storeId}, p.id, r.shopify_id, r.inventory_item_id, r.tracked, r.sku, r.title,
                r.price_minor, r.compare_at_minor, r.position
         from jsonb_to_recordset(${withIds("var", batch.variants)}::jsonb) as r(
-          id text, shopify_id text, product_shopify_id text, inventory_item_id text, sku text, title text,
-          price_minor bigint, compare_at_minor bigint, position integer)
+          id text, shopify_id text, product_shopify_id text, inventory_item_id text, tracked boolean, sku text,
+          title text, price_minor bigint, compare_at_minor bigint, position integer)
         join products p on p.store_id = ${storeId} and p.shopify_id = r.product_shopify_id
         on conflict (store_id, shopify_id) do update set
-          product_id = excluded.product_id, inventory_item_id = excluded.inventory_item_id, sku = excluded.sku,
+          product_id = excluded.product_id, inventory_item_id = excluded.inventory_item_id,
+          tracked = coalesce(excluded.tracked, variants.tracked), sku = excluded.sku,
           title = excluded.title, price_minor = excluded.price_minor, compare_at_minor = excluded.compare_at_minor,
           position = excluded.position
         returning 1`
 
-      // Stock per location (the import's levels): a variant found by its inventory item, which this page or an earlier
-      // one wrote. A count reported later (a webhook since) stays: the import does not undo it.
-      const levels = batch.levels.length === 0 ? [] : yield* sql`
-        insert into inventory_levels (workspace_id, variant_id, location_id, available, source, reported_at)
-        select app_workspace_id(), v.id, r.location_id, r.available, 'shopify', r.reported_at
-        from jsonb_to_recordset(${JSON.stringify(latestLevels(batch.levels))}::jsonb) as r(
-          inventory_item_id text, location_id text, available integer, reported_at timestamptz)
-        join variants v on v.store_id = ${storeId} and v.inventory_item_id = r.inventory_item_id
-        on conflict (variant_id, location_id, source) do update set
-          available = excluded.available, reported_at = excluded.reported_at
-        where excluded.reported_at >= inventory_levels.reported_at
-        returning 1`
+      // Stock per location (the import's counts): a variant found by its inventory item, which this page or an earlier
+      // one wrote. A count reported since (a webhook) keeps its figure; the import marks it seen either way. The
+      // stock-out periods step aside while it writes (a variant's counts can span two pages) and are settled once the
+      // products are in (`settleStock`).
+      let levels: ReadonlyArray<unknown> = []
+      if (batch.levels.length > 0) {
+        yield* sql`select set_config('insyte.stock_import', 'on', true)`
+        levels = yield* sql`
+          insert into inventory_levels (workspace_id, variant_id, location_id, available, source, reported_at,
+                                        imported_at)
+          select app_workspace_id(), v.id, r.location_id, r.available, 'shopify', r.reported_at, now()
+          from jsonb_to_recordset(${JSON.stringify(latestLevels(batch.levels))}::jsonb) as r(
+            inventory_item_id text, location_id text, available integer, reported_at timestamptz)
+          join variants v on v.store_id = ${storeId} and v.inventory_item_id = r.inventory_item_id
+          on conflict (variant_id, location_id, source) do update set
+            available = case when excluded.reported_at >= inventory_levels.reported_at then excluded.available
+                             else inventory_levels.available end,
+            reported_at = greatest(excluded.reported_at, inventory_levels.reported_at),
+            imported_at = excluded.imported_at
+          returning 1`
+        yield* sql`select set_config('insyte.stock_import', '', true)`
+      }
 
       // A product's photographs after its featured one, in their order, each once: a re-read lists them again.
       if (batch.images.length > 0) {
@@ -262,6 +273,46 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
         orphans: children - count(variants) - count(lines) - count(fulfilments) - count(refunds)
       }
       return written
+    })
+  )
+})
+
+/**
+ * A complete products import is in (M6.3): a Shopify count it did not see, and that nothing reported since it began, is
+ * gone from Shopify and is removed; then each of the store's variants has its stock-out period opened or closed as its
+ * counts now stand (the periods stepped aside while the import wrote, so a count split over two pages opens none).
+ * A variant Shopify does not track, or with no count, has no period.
+ */
+export const settleStock = Effect.fn("Sync.settleStock")(function*(storeId: string, startedAt: string) {
+  const db = yield* Db
+  return yield* db.scopedFor((sql) =>
+    Effect.gen(function*() {
+      yield* sql`select set_config('insyte.stock_import', 'on', true)`
+      const removed = yield* sql`
+        delete from inventory_levels i using variants v
+        where v.id = i.variant_id and v.store_id = ${storeId} and i.source = 'shopify'
+          and (i.imported_at is null or i.imported_at < ${startedAt}::timestamptz)
+          and i.reported_at < ${startedAt}::timestamptz
+        returning 1`
+      yield* sql`select set_config('insyte.stock_import', '', true)`
+      const judged = sql`(
+        select v.id, v.workspace_id, v.store_id, v.product_id,
+               case when v.tracked is false then null else coalesce(
+                 (select sum(greatest(i.available, 0)) from inventory_levels i
+                    where i.variant_id = v.id and i.source = 'shopify'),
+                 (select sum(greatest(i.available, 0)) from inventory_levels i
+                    where i.variant_id = v.id and i.source = 'supplier')) end as units,
+               (select max(i.reported_at) from inventory_levels i where i.variant_id = v.id) as at
+        from variants v where v.store_id = ${storeId}
+      )`
+      yield* sql`
+        insert into stockouts (workspace_id, store_id, product_id, variant_id, from_at)
+        select j.workspace_id, j.store_id, j.product_id, j.id, coalesce(j.at, now()) from ${judged} j where j.units <= 0
+        on conflict do nothing`
+      yield* sql`
+        update stockouts s set to_at = greatest(s.from_at, now())
+        from ${judged} j where s.variant_id = j.id and s.to_at is null and (j.units is null or j.units > 0)`
+      return { removed: removed.length }
     })
   )
 })

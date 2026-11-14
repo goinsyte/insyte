@@ -20,15 +20,27 @@ import {
 
 /*
  * `Products.list` and `Products.get` (M6.4): at `products` Bekijken, inside the role's stores. By title, keyset on
- * `(lower(title), id)`; the search matches the title, the handle and a variant's SKU. Stock is Shopify's count over
- * every location (the import's levels, then `inventory_levels/update`), read against the low-stock threshold by the
- * product's emptiest variant; a supplier's own report (M16) is its own and not counted here. The average delivery
- * time is over the product's last delivered orders, from order to the last parcel's arrival. `Products.lowStock`
- * (M7 9.3) is what runs low, with the pace it sells at.
+ * `(lower(title), id)`; the search matches the title, the handle and a variant's SKU.
+ *
+ * Stock is Shopify's count (the import's, then `inventory_levels/update`), over the variants Shopify tracks and that
+ * have a count: each location at nothing or more (a negative count is an oversell, not stock), summed. A product's
+ * level is read against the low-stock threshold by its emptiest such variant, and it is out when they are all at
+ * nothing; a product with no counted variant has no level. A supplier's own report (M16) is its own, not counted here.
+ * The average delivery time is over the product's last delivered orders, from order to the last parcel's arrival.
+ * `Products.lowStock` (M7 9.3) is what runs low, with the pace it sells at.
  */
 
 /** How many of a product's last delivered orders its average delivery time is over. */
 const DELIVERIES = 20
+/** How many of its last mirrored order lines those are looked for in. */
+const RECENT_LINES = 60
+/** An order still open after this many days is not counted as open by the low-stock list. */
+const OPEN_DAYS = 90
+
+/** Each counted variant's units: tracked, with at least one Shopify count, each count at nothing or more. */
+const VARIANT_UNITS = `select sum(greatest(i.available, 0)) as units from variants v
+     join inventory_levels i on i.variant_id = v.id and i.source = 'shopify'
+     where v.product_id = p.id and v.tracked is not false group by v.id`
 
 export const PRODUCT_FIELDS: Whitelist = {
   status: { column: "p.status", type: "option" },
@@ -64,9 +76,15 @@ export interface Row {
   readonly externalUpdatedAt: Date
 }
 
-/** Out over every variant, low by its emptiest one, else in stock; nothing until a count was reported. */
+/** Out when every counted variant is at nothing, low by its emptiest one, else in stock; nothing without a count. */
 export const levelOf = (available: number | null, lowest: number | null, threshold: number): StockLevel | null =>
-  available === null ? null : available <= 0 ? "out" : (lowest ?? 0) <= threshold ? "low" : "available"
+  available === null || lowest === null
+    ? null
+    : available <= 0
+    ? "out"
+    : lowest <= threshold
+    ? "low"
+    : "available"
 
 export const toRow = (r: Row, delivery?: ReadonlyMap<string, number>) =>
   new ProductRow({
@@ -102,23 +120,25 @@ export const SELECT =
   (select v.sku from variants v where v.product_id = p.id and v.sku is not null order by v.position limit 1) as sku,
   (select min(v.price_minor) from variants v where v.product_id = p.id) as price_min,
   (select max(v.price_minor) from variants v where v.product_id = p.id) as price_max,
-  (select sum(i.available) from inventory_levels i join variants v on v.id = i.variant_id
-     where v.product_id = p.id and i.source = 'shopify')::int as available,
-  (select min(coalesce((select sum(i.available) from inventory_levels i
-     where i.variant_id = v.id and i.source = 'shopify'), 0)) from variants v where v.product_id = p.id)::int as lowest,
+  (select sum(u.units) from (${VARIANT_UNITS}) u)::int as available,
+  (select min(u.units) from (${VARIANT_UNITS}) u)::int as lowest,
   (select ps.lead_days from product_supply ps where ps.product_id = p.id and ps.is_primary) as lead_days,
   (select ps.supplier_id from product_supply ps where ps.product_id = p.id and ps.is_primary) as supplier_id,
   (select x.name from product_supply ps join suppliers x on x.id = ps.supplier_id
      where ps.product_id = p.id and ps.is_primary) as supplier_name`
 
 /**
- * Days from order to doorstep per product, over each one's last delivered orders (every live parcel arrived, by
- * AfterShip's word where it tracks the parcel, else Shopify's), rounded to a tenth.
+ * Days from order to doorstep per product, over each one's last delivered orders among its last mirrored lines (every
+ * live parcel arrived, by AfterShip's word where it tracks the parcel, else Shopify's), rounded to a tenth.
  */
 export const deliveryDays = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) =>
   ids.length === 0 ? Effect.succeed(new Map<string, number>()) : sql<{ productId: string; days: number }>`
     with mine as (
-      select distinct l.order_id, l.product_id from order_lines l where l.product_id in ${sql.in([...ids])}
+      select distinct x.product_id, l.order_id from unnest(${[...ids]}::text[]) as x(product_id)
+      cross join lateral (
+        select l.order_id from order_lines l where l.product_id = x.product_id
+        order by l.order_id desc limit ${RECENT_LINES}
+      ) l
     ),
     arrived as (
       select m.product_id, o.placed_at, max(coalesce(d.delivered_at, f.delivered_at)) as at
@@ -199,11 +219,13 @@ export const get = Effect.fn("Products.get")(function*(id: string) {
         priceMinor: string
         compareAtMinor: string | null
         position: number
+        tracked: boolean | null
         available: number | null
       }>`
-        select v.id, v.title, v.sku, v.price_minor, v.compare_at_minor, v.position,
-               (select sum(i.available) from inventory_levels i where i.variant_id = v.id and i.source = 'shopify')::int
-                 as available
+        select v.id, v.title, v.sku, v.price_minor, v.compare_at_minor, v.position, v.tracked,
+               (case when v.tracked is false then null else
+                 (select sum(greatest(i.available, 0)) from inventory_levels i
+                    where i.variant_id = v.id and i.source = 'shopify') end)::int as available
         from variants v where v.product_id = ${id} order by v.position`
       const levels = yield* sql<
         { variantId: string; locationId: string; source: "shopify" | "supplier"; available: number; reportedAt: Date }
@@ -212,17 +234,23 @@ export const get = Effect.fn("Products.get")(function*(id: string) {
         from inventory_levels i join variants v on v.id = i.variant_id
         where v.product_id = ${id}
         order by (i.source = 'shopify') desc, i.available desc, i.location_id`
+      // From the store's orders of the last 30 days (`orders_list`), not every line the product ever had.
       const [sold] = yield* sql<{ n: number }>`
-        select coalesce(sum(l.quantity), 0)::int as n from order_lines l join orders o on o.id = l.order_id
-        where l.product_id = ${id} and o.placed_at > now() - interval '30 days'
-          and not o.is_draft and o.status <> 'cancelled'`
+        select coalesce(sum(l.quantity), 0)::int as n from orders o join order_lines l on l.order_id = o.id
+        where o.store_id = ${row.storeId} and o.placed_at > now() - interval '30 days'
+          and not o.is_draft and o.status <> 'cancelled' and l.product_id = ${id}`
       const delivery = yield* deliveryDays(sql, [id])
       return new ProductDetail({
         product: toRow(row, delivery),
         images: row.images,
         descriptionHtml: row.descriptionHtml,
         variants: variants.map((v) => ({
-          ...v,
+          id: v.id,
+          title: v.title,
+          sku: v.sku,
+          position: v.position,
+          tracked: v.tracked !== false,
+          available: v.available,
           priceMinor: Number(v.priceMinor),
           compareAtMinor: v.compareAtMinor === null ? null : Number(v.compareAtMinor),
           levels: levels.filter((l) => l.variantId === v.id).map((l) => ({
@@ -239,14 +267,12 @@ export const get = Effect.fn("Products.get")(function*(id: string) {
   )
 })
 
-/** Sold out first, then the soonest to run out. */
-const rank = (r: LowStockRow) => r.level === "out" ? -1 : r.daysLeft ?? Number.POSITIVE_INFINITY
-
 /**
- * What runs low (M7 9.3): the principal's products (in one store, if named) whose emptiest variant is at or under the
- * threshold, the workspace's default unless the caller names one, with what they sold in the last 30 days, the open
- * orders they are in, and how long they last at that pace. Archived products are left out. Sold out first, then the
- * soonest to run out, then the fewest left.
+ * What runs low (M7 9.3): the principal's active products (in one store, if named) whose emptiest counted variant is
+ * at or under the threshold, the workspace's default unless the caller names one, with what they sold in the last 30
+ * days, the orders of the last 90 days they are in that are still open, and how long they last at that pace. Draft
+ * and archived products, untracked variants and variants without a count are left out. Sold out first, then the
+ * soonest to run out, then the fewest left; the page is cut in SQL.
  */
 export const lowStock = Effect.fn("Products.lowStock")(function*(input: LowStockInput) {
   yield* Policy.require("products", 1)
@@ -266,16 +292,16 @@ export const lowStock = Effect.fn("Products.lowStock")(function*(input: LowStock
         variants: ReadonlyArray<{ id: string; title: string; sku: string | null; available: number }>
         soldLast30: number
         openOrders: number
+        daysLeft: number | null
         supplierId: string | null
         supplierName: string | null
         leadDays: number | null
       }>`
         with stock as (
-          select v.product_id, v.id, v.title, v.sku, v.position, coalesce(sum(i.available), 0)::int as available,
-                 count(i.variant_id) as reported
-          from variants v join products p on p.id = v.product_id
-          left join inventory_levels i on i.variant_id = v.id and i.source = 'shopify'
-          where ${scope} and p.status <> 'archived'
+          select v.product_id, v.id, v.title, v.sku, v.position, sum(greatest(i.available, 0))::int as available
+          from products p join variants v on v.product_id = p.id
+          join inventory_levels i on i.variant_id = v.id and i.source = 'shopify'
+          where ${scope} and p.status = 'active' and v.tracked is not false
           group by v.product_id, v.id, v.title, v.sku, v.position
         ),
         low as (
@@ -283,40 +309,53 @@ export const lowStock = Effect.fn("Products.lowStock")(function*(input: LowStock
                  jsonb_agg(jsonb_build_object('id', id, 'title', title, 'sku', sku, 'available', available)
                            order by available, position) filter (where available <= ${threshold}) as variants
           from stock group by product_id
-          having sum(reported) > 0 and min(available) <= ${threshold}
+          having min(available) <= ${threshold}
+        ),
+        pace as (
+          select l.product_id,
+                 coalesce(sum(l.quantity) filter (where o.placed_at > now() - interval '30 days'
+                                                    and o.status <> 'cancelled'), 0)::int as sold,
+                 (count(distinct l.order_id) filter (where o.status not in ('delivered', 'cancelled', 'refunded')))::int
+                   as open
+          from orders o join order_lines l on l.order_id = o.id
+          where o.placed_at > now() - make_interval(days => ${OPEN_DAYS}) and not o.is_draft
+            and l.product_id in (select product_id from low)
+          group by l.product_id
+        ),
+        judged as (
+          select low.*, coalesce(pace.sold, 0) as sold, coalesce(pace.open, 0) as open,
+                 case when coalesce(pace.sold, 0) = 0 then null else low.available / (pace.sold / 30.0) end as days_left
+          from low left join pace on pace.product_id = low.product_id
         )
-        select p.id as product_id, p.store_id, p.title, p.images, p.status, low.available, low.variants,
-               (select coalesce(sum(l.quantity), 0) from order_lines l join orders o on o.id = l.order_id
-                  where l.product_id = p.id and o.placed_at > now() - interval '30 days'
-                    and not o.is_draft and o.status <> 'cancelled')::int as sold_last30,
-               (select count(distinct l.order_id) from order_lines l join orders o on o.id = l.order_id
-                  where l.product_id = p.id and not o.is_draft
-                    and o.status not in ('delivered', 'cancelled', 'refunded'))::int as open_orders,
+        select p.id as product_id, p.store_id, p.title, p.images, p.status, j.available, j.variants,
+               j.sold as sold_last30, j.open as open_orders, j.days_left::float8 as days_left,
                ps.supplier_id, su.name as supplier_name, ps.lead_days
-        from low join products p on p.id = low.product_id
+        from judged j join products p on p.id = j.product_id
         left join product_supply ps on ps.product_id = p.id and ps.is_primary
-        left join suppliers su on su.id = ps.supplier_id`
-      const out = rows.map((r) => {
-        const perDay = r.soldLast30 / 30
-        return new LowStockRow({
-          productId: r.productId,
-          storeId: r.storeId,
-          title: r.title,
-          image: r.images[0] ?? null,
-          status: r.status,
-          level: r.available <= 0 ? "out" : "low",
-          available: r.available,
-          variants: r.variants,
-          soldLast30: r.soldLast30,
-          openOrders: r.openOrders,
-          daysLeft: perDay === 0 ? null : Math.max(0, r.available) / perDay,
-          supplierId: r.supplierId,
-          supplierName: r.supplierName,
-          leadDays: r.leadDays
-        })
+        left join suppliers su on su.id = ps.supplier_id
+        order by (j.available <= 0) desc, j.days_left asc nulls last, j.available, lower(p.title), p.id
+        limit ${limit}`
+      return new LowStockPage({
+        threshold,
+        rows: rows.map((r) =>
+          new LowStockRow({
+            productId: r.productId,
+            storeId: r.storeId,
+            title: r.title,
+            image: r.images[0] ?? null,
+            status: r.status,
+            level: r.available <= 0 ? "out" : "low",
+            available: r.available,
+            variants: r.variants,
+            soldLast30: r.soldLast30,
+            openOrders: r.openOrders,
+            daysLeft: r.daysLeft === null ? null : Number(r.daysLeft),
+            supplierId: r.supplierId,
+            supplierName: r.supplierName,
+            leadDays: r.leadDays
+          })
+        )
       })
-      out.sort((a, b) => rank(a) - rank(b) || a.available - b.available || a.title.localeCompare(b.title, "nl"))
-      return new LowStockPage({ threshold, rows: out.slice(0, limit) })
     })
   )
 })

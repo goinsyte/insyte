@@ -5,7 +5,7 @@ import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { throughGate } from "../domain/Gate.ts"
 import { addLine, CUSTOMERS_QUERY, emptyBatch, ordersQuery, PRODUCTS_QUERY } from "../domain/Mirror.ts"
 import { type BulkStatus, ShopifyGraphql } from "../domain/Ports.ts"
-import { applyBatch } from "./mirror.ts"
+import { applyBatch, settleStock } from "./mirror.ts"
 
 /*
  * A store's backfill (M6.3; integrations.md §2 "Backfill"), as the steps `ShopifyBackfillWorkflow` makes durable: one
@@ -134,6 +134,8 @@ export const applyPage = Effect.fn("Stores.backfill.page")(
     const batch = emptyBatch()
     for (const line of page.lines) addLine(batch, line, ctx.currency)
     const written = yield* applyBatch(ctx.storeId, batch, { live: false })
+    // The last page of products: every count Shopify holds is in, so what it no longer holds goes.
+    if (resource === "products" && page.done) yield* settleStock(ctx.storeId, ctx.startedAt)
     yield* checkpoint(ctx, resource, page.done ? { phase: "done" } : { phase: "reading", offset: page.next })
     const counts = yield* countsOf(ctx.storeId)
     return { next: page.next, done: page.done, orphans: written.orphans, counts }
