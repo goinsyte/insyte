@@ -118,7 +118,7 @@ describe("sync health", () => {
     const checked = await check(store)
     expect(checked.due).toBe(false)
     expect(openKinds(checked)).toEqual([])
-    const frame = ok(await rpc("Shell.frame", { path: "/dashboard" }, store.cookie))
+    const frame = ok(await rpc("Shell.frame", undefined, store.cookie))
     expect(frame.health).toMatchObject({ state: "ok", stores: 1, attention: [] })
     expect(frame.health.lastSyncedAt).not.toBeNull()
     const health = ok(await rpc("Connections.health", undefined, store.cookie))
@@ -163,7 +163,7 @@ describe("sync health", () => {
     )
     expect(queued).toEqual([expect.objectContaining({ signal: "amber", subjectId: store.storeId })])
     expect(queued[0]!.title).toMatch(/Insyte leest de bestellingen zelf bij Shopify/)
-    const frame = ok(await rpc("Shell.frame", { path: "/dashboard" }, store.cookie))
+    const frame = ok(await rpc("Shell.frame", undefined, store.cookie))
     expect(frame.health).toMatchObject({
       state: "warning",
       attention: [{ storeId: store.storeId, kind: "webhook_gap" }]

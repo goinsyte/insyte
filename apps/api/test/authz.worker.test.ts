@@ -496,7 +496,7 @@ const PAYLOADS: Record<string, unknown> = {
   "Session.listSessions": undefined,
   "Session.revoke": { id: "ses_none" },
   // The frame and the one search (M5, M11 step 6): every member; a kind or area the role cannot open answers nothing.
-  "Shell.frame": { path: "/inbox" },
+  "Shell.frame": undefined,
   "Shell.health": undefined,
   "Nav.counts": { area: "tickets" },
   "Search.records": {

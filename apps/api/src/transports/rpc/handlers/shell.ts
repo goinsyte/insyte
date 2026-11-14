@@ -102,9 +102,6 @@ const keyed = <K extends string>(cuts: Readonly<Record<string, K>>, counts: Read
 const none = <R>(read: Effect.Effect<Record<string, number>, Forbidden, R>) =>
   read.pipe(Effect.catchTag("Forbidden", () => Effect.succeed({} as Record<string, number>)))
 
-/** The area a path is in: its first segment. */
-const areaOf = (path: string) => path.split("/").find((segment) => segment !== "") ?? "dashboard"
-
 export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
   const members = yield* Members
   const notes = yield* NotificationsService
@@ -184,16 +181,15 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
   }
 
   return ShellRpcs.of({
-    "Shell.frame": ({ path }) =>
+    "Shell.frame": () =>
       Effect.gen(function*() {
         const principal = yield* CurrentPrincipal
         const user = yield* CurrentUser
-        const [memberships, mine, counts, teammates, nav, health] = yield* Effect.all([
+        const [memberships, mine, counts, teammates, health] = yield* Effect.all([
           workspaces.memberships,
           prefs.get,
           notes.counts,
           members.directory,
-          countsFor(areaOf(path)),
           stores.healthLine
         ], { concurrency: 1 })
         const workspace = memberships.find((m) => m.workspaceId === principal.workspaceId)
@@ -204,7 +200,6 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
           prefs: mine,
           notes: counts,
           teammates,
-          counts: nav,
           proposals: null,
           health
         })

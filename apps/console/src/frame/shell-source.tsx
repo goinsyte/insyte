@@ -393,7 +393,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
         : MADE_HERE.has(cfg.cta.create ?? "")
         ? cfg
         : { ...cfg, cta: { ...cfg.cta, unavailable: NOT_YET[cfg.cta.create ?? ""] ?? "Dit kan hier nog niet" } }
-      return withServerCounts(panel, areaCounts === undefined ? frame.counts : { ...frame.counts, ...areaCounts })
+      return withServerCounts(panel, areaCounts ?? {})
     },
     automationsPanel: { recommended: 0, ai: 0, Extras: null },
     operator: { products: NO_ROWS, customers: NO_ROWS },
