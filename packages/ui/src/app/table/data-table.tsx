@@ -31,10 +31,11 @@ import {
 	X,
 } from "../../icons";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
-import { FilterButton, FilterChips, ViewTabs } from "../filters/filter-bar";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FilterButton, FilterChips, type OptionCounts, OptionCountsProvider, ViewTabs } from "../filters/filter-bar";
 import { useListFilter } from "../filters/use-list-filter";
-import { applyFilter, countRules, type FilterField } from "../lib/filter";
+import { applyFilter, countRules, type FilterField, type Group } from "../lib/filter";
+import type { TableQuery } from "../lib/server-query";
 import { cn } from "../lib/utils";
 import { type RowAction, SelectionBar } from "./selection-bar";
 
@@ -63,7 +64,45 @@ export type { RowAction };
  * "above", a date "in the last 7 days", a column with a handful of values is an option list — so a
  * screen gets the whole builder by declaring its columns, and names its facets only to fix the order
  * and labels of an option list.
+ *
+ * A list too long to hold in the browser pages on the server (`server`): the table keeps the same
+ * toolbar, chips, views, sort arrows, footer and selection, and hands what they say to the host as a
+ * query; the host reads that page and gives its rows back as `data`. Only the columns the host can
+ * filter or sort by on the server offer it. A selection spans pages; a new filter or search clears it,
+ * as a cut no longer shows what was picked.
  */
+
+export type { TableQuery };
+
+/** How many rows a page of a table holds, unless the screen says otherwise. */
+export const PAGE_ROWS = 12;
+
+/** The host's side of a table that pages on the server. */
+export type ServerPaging = {
+	/** The rows matching the query, over every page. */
+	total: number;
+	/** The rows in the list with no filter or search: none at all is the screen's empty state, not the table's. */
+	all: number;
+	/** The cursor after the page in `data`; null on the last page. */
+	next: string | null;
+	/** A page is being read; the table keeps showing the one it has meanwhile. */
+	fetching: boolean;
+	/** The columns the server filters and sorts by; the others offer neither. */
+	filterable: ReadonlySet<string>;
+	sortable: ReadonlySet<string>;
+	/** An option field's counts over every page, where the server counts it; otherwise the builder shows none. */
+	counts?: OptionCounts | undefined;
+	/** Every new query, the first included; the host reads its page. */
+	onQuery: (query: TableQuery) => void;
+};
+
+/** How long a changed filter or search rests before the server is asked. */
+const SEARCH_PAUSE = 250;
+const NO_COUNTS: OptionCounts = () => undefined;
+
+/** A filter's shape: its rules and groups by id, not what they hold. */
+const nodeIds = (g: Group): string =>
+	g.children.map((c) => (c.kind === "group" ? `${c.id}(${nodeIds(c)})` : c.id)).join(",");
 
 export type Facet = {
 	/** The column id the facet filters. */
@@ -145,7 +184,7 @@ export function DataTable<T>({
 	onRowClick,
 	empty,
 	toolbarEnd,
-	pageSize = 12,
+	pageSize = PAGE_ROWS,
 	initialSorting = [],
 	initialVisibility = {},
 	selectable = false,
@@ -155,6 +194,7 @@ export function DataTable<T>({
 	noun = ["row", "rows"],
 	label,
 	className,
+	server,
 }: {
 	columns: Array<ColumnDef<T, unknown>>;
 	data: Array<T>;
@@ -179,28 +219,119 @@ export function DataTable<T>({
 	/** Dutch singular/plural for display; `noun` stays the view key. Falls back to NOUN_LABEL. */
 	label?: readonly [string, string];
 	className?: string;
+	/** Pages on the server: `data` is the page the host read for the table's last query. */
+	server?: ServerPaging | undefined;
 }) {
 	const [sorting, setSorting] = useState<SortingState>(initialSorting);
 	const viewKey = noun[1];
 	const shown = label ?? NOUN_LABEL[noun[1]] ?? noun;
 	const { filter, setFilter, saveView } = useListFilter(viewKey);
-	const fields = useMemo(() => fieldsFrom(columns, facets, data), [columns, facets, data]);
+	/* On the server a page is a dozen rows: the fields are typed from the first page that had any, so a
+	   field does not change kind between pages or vanish when a filter matches nothing. */
+	const typedFrom = useRef<Array<T> | null>(null);
+	if (server !== undefined && typedFrom.current === null && data.length > 0) typedFrom.current = data;
+	const paged = server !== undefined;
+	const sample = paged ? (typedFrom.current ?? data) : data;
+	const filterable = server?.filterable;
+	const fields = useMemo(() => {
+		const all = fieldsFrom(columns, facets, sample);
+		return filterable === undefined ? all : all.filter((f) => filterable.has(f.id));
+	}, [columns, facets, sample, filterable]);
 	/* The filter runs before the table sees the rows, so sorting, search and pages work on what is
-	   left — and an option's count in the builder is over the whole list, not the current cut. */
-	const filtered = useMemo(() => applyFilter(data, filter, fields), [data, filter, fields]);
+	   left — and an option's count in the builder is over the whole list, not the current cut. On the
+	   server, the server filtered already. */
+	const filtered = useMemo(
+		() => (paged ? data : applyFilter(data, filter, fields)),
+		[paged, data, filter, fields],
+	);
 	const [columnVisibility, setColumnVisibility] =
 		useState<VisibilityState>(initialVisibility);
 	const [globalFilter, setGlobalFilter] = useState("");
 	const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
-	/* The checkbox column is prepended here rather than written into every screen's column list:
-	   it is the table's furniture, not the screen's data, and it has to look the same everywhere. */
-	const picking = selectable || (actions !== undefined && actions.length > 0);
-	const allColumns = useMemo(
-		() => (picking ? [selectColumn<T>(), ...columns] : columns),
-		[picking, columns],
-	);
+	/* The filter and search as the server is asked them. Typing — a search, or a rule's value — asks
+	   once it rests, not per keystroke; a cut, a view or a rule added or taken away asks at once. */
+	const filterKey = JSON.stringify(filter);
+	const [settled, setSettled] = useState({ filter, filterKey, q: "" });
+	useEffect(() => {
+		if (!paged) return;
+		const text = globalFilter.trim();
+		if (filterKey === settled.filterKey && text === settled.q) return;
+		const typing = text !== settled.q || nodeIds(filter) === nodeIds(settled.filter);
+		const t = setTimeout(() => setSettled({ filter, filterKey, q: text }), typing ? SEARCH_PAUSE : 0);
+		return () => clearTimeout(t);
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- the filter is read through its key
+	}, [paged, filterKey, globalFilter, settled]);
+	const q = settled.q;
 
+	/* The server's pages: the page shown, and the cursor each page read starts after (`null` for the
+	   first). A new filter, search or order starts at the first page again. */
+	const [page, setPage] = useState(0);
+	const [cursors, setCursors] = useState<ReadonlyArray<string | null>>([null]);
+	const sort = sorting[0];
+	const sortKey = sort === undefined ? "" : `${sort.id}:${sort.desc ? "desc" : "asc"}`;
+	const queryKey = `${settled.filterKey}|${q}|${sortKey}`;
+	const [askedFor, setAskedFor] = useState(queryKey);
+	if (paged && askedFor !== queryKey) {
+		setAskedFor(queryKey);
+		setPage(0);
+		setCursors([null]);
+	}
+	const cursor = askedFor === queryKey ? (cursors[page] ?? null) : null;
+	const onQuery = server?.onQuery;
+	useEffect(() => {
+		onQuery?.({
+			filter: settled.filter,
+			q,
+			sort: sort === undefined ? null : { id: sort.id, desc: sort.desc },
+			cursor: askedFor === queryKey ? (cursors[page] ?? null) : null,
+			limit: pageSize,
+		});
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- asked again when what it says changes
+	}, [onQuery, queryKey, cursor, pageSize]);
+
+	/* A selection on the server spans pages: the rows picked are remembered as they were last seen,
+	   and a new filter or search lets them go. */
+	const seen = useRef(new Map<string, T>());
+	if (server !== undefined && getRowId !== undefined) {
+		for (const row of data) seen.current.set(getRowId(row), row);
+	}
+	const cutKey = `${settled.filterKey}|${q}`;
+	const cutFor = useRef(cutKey);
+	useEffect(() => {
+		if (!paged || cutFor.current === cutKey) return;
+		cutFor.current = cutKey;
+		setRowSelection({});
+		seen.current = new Map();
+		onSelectedChange?.([]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- let go on a new cut, not on a new callback
+	}, [paged, cutKey]);
+	const pickedOf = (selection: RowSelectionState): Array<T> =>
+		server !== undefined && getRowId !== undefined
+			? Object.keys(selection)
+					.filter((id) => selection[id] === true)
+					.flatMap((id) => {
+						const row = seen.current.get(id);
+						return row === undefined ? [] : [row];
+					})
+			: filtered.filter((row, i) => selection[getRowId ? getRowId(row) : String(i)] === true);
+
+	/* The checkbox column is prepended here rather than written into every screen's column list:
+	   it is the table's furniture, not the screen's data, and it has to look the same everywhere. On
+	   the server, a column it cannot sort by does not offer to. */
+	const picking = selectable || (actions !== undefined && actions.length > 0);
+	const sortable = server?.sortable;
+	const allColumns = useMemo(() => {
+		const own = sortable === undefined
+			? columns
+			: columns.map((c) => {
+					const id = c.id ?? (c as { accessorKey?: string }).accessorKey;
+					return id !== undefined && sortable.has(id) ? c : { ...c, enableSorting: false };
+				});
+		return picking ? [selectColumn<T>(), ...own] : own;
+	}, [picking, columns, sortable]);
+
+	const pages = server === undefined ? undefined : Math.max(1, Math.ceil(server.total / pageSize));
 	const table = useReactTable({
 		data: filtered,
 		columns: allColumns,
@@ -216,13 +347,7 @@ export function DataTable<T>({
 			const next =
 				typeof updater === "function" ? updater(rowSelection) : updater;
 			setRowSelection(next);
-			if (onSelectedChange !== undefined) {
-				const chosen = filtered.filter((row, i) => {
-					const id = getRowId ? getRowId(row) : String(i);
-					return next[id] === true;
-				});
-				onSelectedChange(chosen);
-			}
+			if (onSelectedChange !== undefined) onSelectedChange(pickedOf(next));
 		},
 		onSortingChange: setSorting,
 		onColumnVisibilityChange: setColumnVisibility,
@@ -233,6 +358,15 @@ export function DataTable<T>({
 		getPaginationRowModel: getPaginationRowModel(),
 		globalFilterFn: "includesString",
 		initialState: { pagination: { pageSize } },
+		...(pages === undefined
+			? {}
+			: {
+					manualFiltering: true,
+					manualSorting: true,
+					manualPagination: true,
+					enableMultiSort: false,
+					pageCount: pages,
+				}),
 		/* TanStack's own reset writes a fresh pagination object whenever the rows change, even on
 		   page one, so a caller passing a new array each render loops the page forever. The effect
 		   below does the same reset, and only when there is a page to go back from. */
@@ -240,17 +374,35 @@ export function DataTable<T>({
 	});
 	const onPage = table.getState().pagination.pageIndex;
 	useEffect(() => {
-		if (onPage !== 0) table.setPageIndex(0);
+		if (server === undefined && onPage !== 0) table.setPageIndex(0);
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- reset on new rows, not on paging
 	}, [filtered, globalFilter, sorting]);
 
 	const activeFilters = countRules(filter);
-	const picked = table.getSelectedRowModel().rows.map((r) => r.original);
+	const picked = server === undefined ? table.getSelectedRowModel().rows.map((r) => r.original) : pickedOf(rowSelection);
 	const rows = table.getRowModel().rows;
-	const total = table.getFilteredRowModel().rows.length;
-	const { pageIndex } = table.getState().pagination;
+	const total = server === undefined ? table.getFilteredRowModel().rows.length : server.total;
+	const pageIndex = server === undefined ? table.getState().pagination.pageIndex : page;
 	const first = total === 0 ? 0 : pageIndex * pageSize + 1;
-	const last = Math.min(total, (pageIndex + 1) * pageSize);
+	const last = server === undefined
+		? Math.min(total, (pageIndex + 1) * pageSize)
+		: Math.min(total, pageIndex * pageSize + rows.length);
+	const pageCount = pages ?? table.getPageCount();
+	const canPrevious = server === undefined ? table.getCanPreviousPage() : page > 0;
+	const canNext = server === undefined ? table.getCanNextPage() : server.next !== null && !server.fetching;
+	const previous = () => {
+		if (server === undefined) table.previousPage();
+		else setPage((p) => Math.max(0, p - 1));
+	};
+	const nextPage = () => {
+		if (server === undefined) return table.nextPage();
+		const after = server.next;
+		if (after === null) return;
+		setCursors((c) => [...c.slice(0, page + 1), after]);
+		setPage(page + 1);
+	};
+	/* With a filter on the server, an empty page is an empty cut, not an empty list. */
+	const nothingYet = server === undefined ? data.length === 0 : countRules(settled.filter) === 0 && q === "";
 
 	return (
 		<div className={cn("flex min-w-0 flex-col gap-2.5", className)}>
@@ -275,7 +427,9 @@ export function DataTable<T>({
 					/>
 				</div>
 
-				<FilterButton fields={fields} rows={data} value={filter} onChange={setFilter} onSaveView={saveView} />
+				<OptionCountsProvider value={server === undefined ? null : (server.counts ?? NO_COUNTS)}>
+					<FilterButton fields={fields} rows={data} value={filter} onChange={setFilter} onSaveView={saveView} />
+				</OptionCountsProvider>
 
 				{activeFilters > 0 || globalFilter !== "" ? (
 					<button
@@ -323,7 +477,9 @@ export function DataTable<T>({
 				</div>
 			</div>
 
-			<FilterChips fields={fields} rows={data} value={filter} onChange={setFilter} />
+			<OptionCountsProvider value={server === undefined ? null : (server.counts ?? NO_COUNTS)}>
+				<FilterChips fields={fields} rows={data} value={filter} onChange={setFilter} />
+			</OptionCountsProvider>
 
 			{/*
 			 * The home queue's grammar, so every list reads like the screen the operator opens first:
@@ -391,7 +547,7 @@ export function DataTable<T>({
 									{/* A table with nothing to show says so, rather than ending at its header. */}
 									{empty ?? (
 										<p className="py-12 text-center text-ink-3 text-sm">
-											{data.length === 0 ? `Nog geen ${shown[1]}.` : `Geen ${shown[1]} voor deze zoekopdracht of filters.`}
+											{nothingYet ? `Nog geen ${shown[1]}.` : `Geen ${shown[1]} voor deze zoekopdracht of filters.`}
 										</p>
 									)}
 								</td>
@@ -442,18 +598,18 @@ export function DataTable<T>({
 					<div className="flex items-center gap-1">
 						<PageButton
 							label="Vorige pagina"
-							disabled={!table.getCanPreviousPage()}
-							onClick={() => table.previousPage()}
+							disabled={!canPrevious}
+							onClick={previous}
 						>
 							<ChevronLeft className="size-3.5" strokeWidth={2} />
 						</PageButton>
 						<p className="px-1 font-medium text-xs text-ink-2 tabular-nums">
-							{pageIndex + 1} / {table.getPageCount()}
+							{pageIndex + 1} / {pageCount}
 						</p>
 						<PageButton
 							label="Volgende pagina"
-							disabled={!table.getCanNextPage()}
-							onClick={() => table.nextPage()}
+							disabled={!canNext}
+							onClick={nextPage}
 						>
 							<ChevronRight className="size-3.5" strokeWidth={2} />
 						</PageButton>

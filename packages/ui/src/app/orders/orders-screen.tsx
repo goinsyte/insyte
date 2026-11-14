@@ -121,14 +121,18 @@ function AllOrders() {
   const create = NewOrder === undefined
     ? undefined
     : { label: "Nieuwe conceptbestelling", onClick: () => setNewOpen(true) }
-  // Counted from the orders on screen, so the line beside the title is always true.
-  const standing = useMemo(() => {
+  // Counted from the orders on screen, so the line beside the title is always true; a host that pages counts them all.
+  const counted = useMemo(() => {
     const open = orders.filter((o) => ["placed", "paid", "at_supplier"].includes(o.status)).length
     const transit = orders.filter((o) => o.status === "shipped").length
     const delayed = orders.filter((o) => o.tags.includes("at_risk") && !isClosed(o)).length
     return `${open} wachten op afhandeling · ${transit} onderweg · ${delayed} vertraagd`
   }, [orders])
-  const knownTags = useMemo(() => [...new Set(orders.flatMap((o) => o.tags).filter((t) => !isSystemTag(t)))], [orders])
+  const standing = source.standing ?? counted
+  const seenTags = useMemo(() => [...new Set(orders.flatMap((o) => o.tags).filter((t) => !isSystemTag(t)))], [orders])
+  const knownTags = source.knownTags === undefined ? seenTags : [...source.knownTags]
+  // None at all: the area's empty state. A host that pages says so for every page.
+  const none = source.paging === undefined ? allOrders.length === 0 : source.paging.all === 0
   useOnCreate("order", useCallback(() => setNewOpen(true), []))
   useSearchCut("orders", "status", {
     open: { field: "cut", values: ["placed", "paid", "at_supplier", "delayed"] },
@@ -256,7 +260,7 @@ function AllOrders() {
       />
 
       <div className="min-w-0 px-5 pb-6">
-        {!loading && allOrders.length === 0 ?
+        {!loading && none ?
           <AreaEmpty area="orders" action={create} starts={source.starts} /> :
           (
             <DataTable
@@ -265,6 +269,7 @@ function AllOrders() {
               loading={loading}
               facets={facets}
               actions={actions}
+              server={source.paging}
               initialVisibility={{ tags: false }}
               noun={["order", "orders"]}
               getRowId={(o) => o.id}
@@ -292,7 +297,7 @@ function AllOrders() {
             />
           )}
       </div>
-      {Closing ? <Closing empty={allOrders.length === 0} /> : null}
+      {Closing ? <Closing empty={none} /> : null}
 
       <TagDialog
         open={tagging !== null}
