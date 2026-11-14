@@ -120,9 +120,11 @@ const DECIDABLE = ["open", "execution_failed"]
 const visible = Effect.fn("Proposals.visible")(function*(sql: SqlClient.SqlClient) {
   const { role } = yield* CurrentPrincipal
   const plain = { ...role, stores: role.stores === "all" ? ("all" as const) : [...role.stores] }
-  const areas = (["returns", "products", "orders", "settings", "support", "suppliers"] as ReadonlyArray<AreaId>).filter(
-    (a) => canRole(plain, a, 1)
-  )
+  const areas =
+    (["returns", "products", "orders", "settings", "support", "suppliers", "chargebacks"] as ReadonlyArray<AreaId>)
+      .filter(
+        (a) => canRole(plain, a, 1)
+      )
   const stores = yield* inScopeOrNone(sql, "p.store_id")
   return sql.and([sql`p.area = any(${areas})`, stores])
 })

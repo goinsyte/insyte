@@ -29,6 +29,8 @@ export const ProposalV1 = Schema.Struct({
       "approve_quality_check",
       "notify_delayed_order",
       "create_supplier_ticket",
+      "assemble_evidence_pack",
+      "reconnect_store",
       "cancel_order",
       "refund_order",
       "resolve_return",
@@ -45,7 +47,7 @@ export const ProposalV1 = Schema.Struct({
     subject_id: Schema.String
   }).annotate({
     description:
-      "What filing runs, as the key's own call would: approving the return or the check, mailing the shopper of a delayed order the words in `after`, or opening a reorder ticket for a sold-out product. A plate an agent asked for (its autonomy is Eerst vragen) carries the tool it called, by that tool's name."
+      "What filing runs, as the key's own call would: approving the return or the check, mailing the shopper of a delayed order the words in `after`, opening a reorder ticket for a sold-out product, or gathering a chargeback's evidence pack. `reconnect_store` needs a person at Shopify's approval page and cannot be filed with a key. A plate an agent asked for (its autonomy is Eerst vragen) carries the tool it called, by that tool's name."
   }),
   revision: Schema.Int,
   heading: Schema.String,

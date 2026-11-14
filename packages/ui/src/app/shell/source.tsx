@@ -147,6 +147,12 @@ export interface ShellSource {
 	hasPage?: ((to: string) => boolean) | undefined;
 	/** The area panel for a path, with the counts the host stands behind (`panelForPath`, or the server's figures). */
 	panelFor: (pathname: string) => SubPanelConfig | null;
+	/**
+	 * Whether `panelFor` already holds the counts for the areas the panel would otherwise count from the records it
+	 * is given (orders, customers, chargebacks, returns): a host that counts on the server (the console, ADR-0028) holds
+	 * no such records, and the panel keeps its figures. Absent, the panel counts from the records.
+	 */
+	serverCounts?: boolean | undefined;
 	/** The name of the workspace the console is in. */
 	workspaceName: string;
 	/**

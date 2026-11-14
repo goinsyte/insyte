@@ -49,6 +49,16 @@ export class CustomerDetail extends Schema.Class<CustomerDetail>("customers/Cust
   klaviyo: Schema.NullOr(Schema.Struct({ list: Schema.String, at: Schema.Finite }))
 }) {}
 
+/**
+ * A customer is new up to this many orders (their merged profiles' counted in), and returning ("VIP") after: the
+ * list's status and the panel's count read the same line.
+ */
+export const NEW_UP_TO_ORDERS = 2
+
+/** The panel's segments (ADR-0028): new and returning customers, by the list's own line. */
+export const CustomerCounts = Schema.Struct({ new: Schema.Int, returning: Schema.Int })
+export type CustomerCounts = typeof CustomerCounts.Type
+
 export class CustomerPage extends Schema.Class<CustomerPage>("customers/CustomerPage")({
   rows: Schema.Array(CustomerRow),
   nextCursor: Schema.NullOr(Schema.String),

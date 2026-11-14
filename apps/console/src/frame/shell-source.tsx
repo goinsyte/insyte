@@ -41,6 +41,7 @@ import {
   viewsAtom
 } from "../data/frame.ts"
 import { inboxCountsAtom, mailboxesAtom } from "../data/inbox.ts"
+import { COUNTED_AREAS, navCountsAtom } from "../data/nav.ts"
 import { sheetsAtom } from "../data/sheets.ts"
 import { healthLineAtom } from "../data/stores.ts"
 import { ticketCountsAtom } from "../data/tickets.ts"
@@ -104,7 +105,6 @@ function value<A>(result: AsyncResult.AsyncResult<A, unknown>): A | undefined {
 /** Why each area's "new" button is off in the console, in the words its page uses. */
 const NOT_YET: Record<string, string> = {
   order: "Bestellingen maken kan hier nog niet",
-  customer: "Klanten toevoegen kan hier nog niet",
   product: "Producten toevoegen kan hier nog niet"
 }
 
@@ -116,7 +116,17 @@ const NO_MAILBOXES = Atom.make(AsyncResult.initial<ReadonlyArray<MailboxView>, n
 const NO_SHEETS = Atom.make(AsyncResult.initial<SheetList, never>())
 
 /** What the console makes from the panel's button and the top bar's + menu. */
-const MADE_HERE = new Set(["return", "ticket", "channel", "thread", "evidence", "automation", "sheet"])
+const MADE_HERE = new Set([
+  "return",
+  "ticket",
+  "channel",
+  "thread",
+  "evidence",
+  "automation",
+  "sheet",
+  "customer",
+  "course"
+])
 
 export function ConsoleShellSource({ frame, children }: { frame: Frame; children: ReactNode }) {
   const navigate = useNavigate()
@@ -179,7 +189,10 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     }),
     [sheetList]
   )
-  const areaCounts = ticketCounts ?? inboxCounts
+  // Every other area's panel counts from the server too, on that area's pages only (M5.3).
+  const area = useRouterState({ select: (s) => s.location.pathname.split("/").find((part) => part !== "") ?? "" })
+  const otherCounts = value(useAtomValue(COUNTED_AREAS.has(area) ? navCountsAtom(area) : NO_COUNTS))
+  const areaCounts = ticketCounts ?? inboxCounts ?? otherCounts
   // The Marketplace (M17 step 3): read while its modal is open or Instellingen → Apps shows.
   const marketplace = useConsoleMarketplace()
   const openMarketplace = useMarketplaceModalStore((s) => s.openModal)
@@ -381,20 +394,23 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     // ADR-0028: the design's demo counts dropped, the server's in their place.
     useRecordSearch: useConsoleRecordSearch,
     // A return is started from its page (M9.1), a ticket written on the board (M11), a channel in Chats (M11 step 4), a
-    // mail in the inbox (M11 step 2), a chargeback by hand on its list (M13); the rest is not made here yet.
+    // mail in the inbox (M11 step 2), a chargeback by hand on its list (M13), a customer on Klanten (M7.4), a course on
+    // Cursussen (M17); the rest is not made here yet.
     unavailable: (kind) => MADE_HERE.has(kind) ? null : NOT_YET[kind] ?? "Dit kan hier nog niet",
     hasPage: useHasPage(),
+    // Every area's panel is counted on the server (`Nav.counts`); the console holds none of the records to count.
+    serverCounts: true,
     panelFor: (pathname) => {
       const cfg = panelForPath(pathname)
       if (cfg === null) return null
-      // Only a return, a ticket, a channel, a mail, a chargeback and an automation are made from the console yet: any
-      // other button is off, and says so as its page does.
+      // Only what `MADE_HERE` names is made from the console yet: any other button is off, and says so as its page
+      // does.
       const panel = cfg.cta === undefined
         ? cfg
         : MADE_HERE.has(cfg.cta.create ?? "")
         ? cfg
         : { ...cfg, cta: { ...cfg.cta, unavailable: NOT_YET[cfg.cta.create ?? ""] ?? "Dit kan hier nog niet" } }
-      return withServerCounts(panel, areaCounts === undefined ? frame.counts : { ...frame.counts, ...areaCounts })
+      return withServerCounts(panel, areaCounts ?? {})
     },
     automationsPanel: { recommended: 0, ai: 0, Extras: null },
     operator: { products: NO_ROWS, customers: NO_ROWS },

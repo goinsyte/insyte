@@ -1,6 +1,4 @@
-import { useAtomValue } from "@effect/atom-react"
 import type { ProductPage, ProductRow as ServerRow } from "@insyte/modules/products/domain/Products"
-import type { QualityStats } from "@insyte/modules/quality/domain/Quality"
 import { copyLines, counted, exportCsv } from "@insyte/ui/app/lib/bulk-io"
 import { marginOf } from "@insyte/ui/app/lib/catalog"
 import { formatCurrency } from "@insyte/ui/app/lib/format"
@@ -8,11 +6,7 @@ import type { Currency, Product } from "@insyte/ui/app/lib/types/domain"
 import type { ProductRow, ProductsSource } from "@insyte/ui/app/products/source"
 import type { Facet } from "@insyte/ui/app/table/data-table"
 import { Archive, BadgePercent, Check, Copy, Download, Edit3, Truck } from "@insyte/ui/icons"
-import { Option } from "effect"
-import { AsyncResult, Atom } from "effect/reactivity"
-import { useCallback, useMemo } from "react"
-import { productStatsAtom } from "../data/quality.ts"
-import { useGate } from "../frame/refusals.ts"
+import { useMemo } from "react"
 import { useProductCommands } from "./product-writes.ts"
 import { useRestock } from "./restock.ts"
 
@@ -25,8 +19,8 @@ import { useRestock } from "./restock.ts"
  * What the server does not hold yet is hidden, not made up: stock until Shopify reported any, the supplier until one
  * is assigned, the delivery time until an order arrived, the rating (no reviews source), the margin until any product
  * has a cost. The category is Shopify's product type. "Nieuw product" waits for `Products.create`.
- * The Aandacht cuts read `Quality.stats` for the products listed, over the last 90 days: more than a tenth of the units sold came back, a
- * complaint in the last 30 days, a check still running. "Bijbestelling aanvragen" files a restock ticket per product
+ * The Aandacht flags are the server's (`Products.list`'s `attention`), drawn as the panel's badges count them and as a
+ * cut pages them (`products/use-cases/attention.ts`). "Bijbestelling aanvragen" files a restock ticket per product
  * that runs low (`restock.ts`) where the role may open tickets.
  */
 
@@ -143,26 +137,6 @@ const actionsOf = (
 ]
 
 const QUIET = { returnHigh: false, complaints: 0, checkRunning: false }
-type Attention = typeof QUIET
-const NO_STATS = Atom.make(AsyncResult.initial<QualityStats, never>())
-
-/** What the returns and the quality checks say of each product (the panel's Aandacht cuts), where the role reads them. */
-function useAttention(ids: ReadonlyArray<string>): (product: Product) => Attention {
-  const key = useMemo(() => ids.toSorted().join(","), [ids])
-  const stats = Option.getOrUndefined(
-    AsyncResult.value(useAtomValue(useGate("products", 1).ok && key !== "" ? productStatsAtom(key) : NO_STATS))
-  )
-  const byId = useMemo(
-    () =>
-      new Map((stats?.rows ?? []).map((r): [string, Attention] => [r.id, {
-        returnHigh: r.sold > 0 && r.returned / r.sold > 0.1,
-        complaints: r.recentComplaints,
-        checkRunning: r.running > 0
-      }])),
-    [stats]
-  )
-  return useCallback((p: Product) => byId.get(p.id) ?? QUIET, [byId])
-}
 
 /**
  * The line beside the title, as the design writes it, with what the server holds: how many need restocking once stock
@@ -191,8 +165,6 @@ export function useConsoleProductsSource(page: ProductPage, open: (product: Prod
   const server = useMemo(() => new Map(page.rows.map((p) => [p.id, p])), [page.rows])
   const commands = useProductCommands()
   const restock = useRestock()
-  const ids = useMemo(() => page.rows.map((p) => p.id), [page.rows])
-  const attentionOf = useAttention(ids)
   const costed = page.rows.some((p) => p.costMinor !== null)
   const supplied = page.rows.some((p) => p.supplierId !== null)
   const stocked = page.rows.some((p) => p.stock !== null)
@@ -229,7 +201,7 @@ export function useConsoleProductsSource(page: ProductPage, open: (product: Prod
       }
     },
     standing: standingOf(stocked, costed, (id) => Math.max(0, server.get(id)?.available ?? 0)),
-    attentionOf,
+    attentionOf: (p) => server.get(p.id)?.attention ?? QUIET,
     facets,
     hidden,
     actions: actionsOf(commands, restock),

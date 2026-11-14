@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { ListInput } from "../../shared/domain/Filter.ts"
 
 /*
  * Producten (M6.4; domain.md §4.1): the mirror's products with their variants' price range and stock, and Insyte's own
@@ -30,6 +31,16 @@ export const levelOf = (available: number | null, lowest: number | null, thresho
     ? "low"
     : "available"
 
+/** What the Aandacht cuts say of a product (`use-cases/attention.ts`): the list's flags, drawn as its filter draws them. */
+export const Attention = Schema.Struct({
+  /** More than a tenth of what sold in the last 90 days came back. */
+  returnHigh: Schema.Boolean,
+  /** Returns counted for quality in the last 30 days. */
+  complaints: Schema.Int,
+  /** A quality check asked for or sent in, not judged yet. */
+  checkRunning: Schema.Boolean
+})
+
 export class ProductRow extends Schema.Class<ProductRow>("products/ProductRow")({
   id: Schema.String,
   storeId: Schema.String,
@@ -60,7 +71,9 @@ export class ProductRow extends Schema.Class<ProductRow>("products/ProductRow")(
   supplierName: Schema.NullOr(Schema.String),
   /** The primary supplier's delivery time for it, in days (`product_supply.lead_days`). */
   leadDays: Schema.NullOr(Schema.Int),
-  updatedAt: Schema.Finite
+  updatedAt: Schema.Finite,
+  /** The Aandacht cuts, on `Products.list`'s rows. */
+  attention: Schema.optionalKey(Attention)
 }) {}
 
 /** One location's count of a variant: Shopify's location id, or `supplier` for a supplier's own report (M16). */
@@ -97,6 +110,24 @@ export class ProductDetail extends Schema.Class<ProductDetail>("products/Product
   /** The threshold its stock level was read against. */
   lowStockAt: Schema.Int
 }) {}
+
+/** The panel's counts (ADR-0028): products per status, and per Aandacht cut (`use-cases/attention.ts`). */
+export const ProductCounts = Schema.Struct({
+  active: Schema.Int,
+  draft: Schema.Int,
+  archived: Schema.Int,
+  attentionReturns: Schema.Int,
+  attentionComplaints: Schema.Int,
+  attentionChecks: Schema.Int
+})
+export type ProductCounts = typeof ProductCounts.Type
+
+/** `Products.list`: the list's input, and one Aandacht cut to page through, as the panel counts it. */
+export const ProductListInput = Schema.Struct({
+  ...ListInput.fields,
+  attention: Schema.optional(Schema.Literals(["returns", "complaints", "checks"]))
+})
+export type ProductListInput = typeof ProductListInput.Type
 
 export class ProductPage extends Schema.Class<ProductPage>("products/ProductPage")({
   rows: Schema.Array(ProductRow),
