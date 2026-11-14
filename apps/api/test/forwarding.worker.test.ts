@@ -148,41 +148,80 @@ describe("forwarding", () => {
     expect(ok(await rpc("Forwarding.cancel", { ids: [leg.id] }, store.cookie)).legs).toEqual([])
   })
 
-  it("sends a live order at once to a supplier set to forward on payment", async () => {
+  it("sends a live order at once to a supplier set to forward on payment, but never a leg the operator let go", async () => {
     const store = await importedStore("fwd-auto")
+    let delivery = 0
+    /** `orders/paid` for #1001 again, applied by the queue's consumer. */
+    const paid = async () => {
+      await call("http://api.public.test/hooks/shopify", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-shopify-topic": "orders/paid",
+          "x-shopify-shop-domain": store.shop,
+          "x-shopify-webhook-id": `wh-fwd-${run}-${++delivery}`,
+          "x-shopify-hmac-sha256": "valid"
+        },
+        body: JSON.stringify({ id: 1 })
+      })
+      for (let i = 0; i < 100; i++) {
+        const mirror = await (await call(
+          `http://api.test/api/__dev/stores/mirror?workspace=${store.workspace}&store=${store.storeId}`
+        )).json() as { inbound: Array<{ processed: boolean }> }
+        if (mirror.inbound.length >= delivery && mirror.inbound.every((e) => e.processed)) return
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      throw new Error("the delivery was not applied")
+    }
+    const sendsRequested = async () =>
+      (await outboxOf(store.workspace)).filter((e) => e.event === "forwarding.send_requested").length
+
+    // The operator lets the import's leg go; Atelier Noord is then set to forward on payment. #1001 delivered again
+    // makes no new leg for it, and sends nothing.
     const atelier = await supplierNamed(store.cookie, "Atelier Noord")
-    const address = `auto-${run}@supplier.example`
-    ok(await rpc("Suppliers.update", { id: atelier.id, autoForward: true, forwardEmail: address }, store.cookie))
-    // The import's leg is let go, so the next delivery of #1001 makes a new one, as a new paid order would.
     const imported = (await legsIn(store.cookie, "to_forward")).rows[0]!
     ok(await rpc("Forwarding.cancel", { ids: [imported.id] }, store.cookie))
+    const atelierAddress = `atelier-auto-${run}@supplier.example`
+    ok(await rpc("Suppliers.update", { id: atelier.id, autoForward: true, forwardEmail: atelierAddress }, store.cookie))
+    await paid()
+    expect((await legsIn(store.cookie, "to_forward")).rows).toEqual([])
+    expect((await legsIn(store.cookie, "awaiting")).rows).toEqual([])
+    expect(await sendsRequested()).toBe(0)
+
+    // The linen shirt moves to a supplier set to forward on payment: the next delivery of #1001 makes its leg and sends
+    // it with no window to wait out.
+    const direct = ok(
+      await rpc("Suppliers.create", {
+        name: "Linnen Direct",
+        contactEmail: `linnen-${run}@supplier.example`,
+        contactPhone: "",
+        description: ""
+      }, store.cookie)
+    ).suppliers[0]!
+    const address = `auto-${run}@supplier.example`
+    ok(await rpc("Suppliers.update", { id: direct.id, autoForward: true, forwardEmail: address }, store.cookie))
+    const linen = ok(await rpc("Products.list", { limit: 50 }, store.cookie)).rows.find((p) =>
+      p.title === "Linnen overhemd"
+    )!
+    ok(await rpc("Suppliers.assignProducts", { supplierId: direct.id, productIds: [linen.id] }, store.cookie))
 
     await using sends = await introspectWorkflow(env.FORWARD_SEND)
-    await call("http://api.public.test/hooks/shopify", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-shopify-topic": "orders/paid",
-        "x-shopify-shop-domain": store.shop,
-        "x-shopify-webhook-id": `wh-fwd-${run}`,
-        "x-shopify-hmac-sha256": "valid"
-      },
-      body: JSON.stringify({ id: 1 })
-    })
-    // The delivery is applied by the queue's consumer; its leg is forwarded with no window to wait out.
-    for (
-      let i = 0;
-      i < 100 && (await outboxOf(store.workspace)).every((e) => e.event !== "forwarding.send_requested");
-      i++
-    ) {
+    await paid()
+    for (let i = 0; i < 100 && (await sendsRequested()) === 0; i++) {
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
-    expect((await legsIn(store.cookie, "awaiting")).rows[0]).toMatchObject({ state: "sending", forwardedBy: "system" })
+    expect((await legsIn(store.cookie, "awaiting")).rows[0]).toMatchObject({
+      state: "sending",
+      forwardedBy: "system",
+      supplier: expect.objectContaining({ name: "Linnen Direct" })
+    })
     await relay(store.workspace)
     const [instance] = await sends.get()
     await instance!.waitForStatus("complete")
     const auto = (await legsIn(store.cookie, "awaiting")).rows[0]!
     expect(auto).toMatchObject({ orderNumber: "#1001", state: "awaiting", forwardedBy: "system" })
     expect((await mailsTo(address)).map((m) => m.kind)).toEqual(["supplier.order"])
+    expect(await mailsTo(atelierAddress)).toEqual([])
+    expect(await sendsRequested()).toBe(1)
   })
 })

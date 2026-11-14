@@ -49,6 +49,7 @@ export const useShellData = () => useShellSource().data;
 export const useInboxPanel = () => useShellSource().inbox;
 export const useAgentLogEntries = () => useShellSource().agentEntries;
 export const useForwardingRows = () => useShellSource().queueRows;
+export const useSyncLine = () => useShellSource().syncLine;
 export const useOperator = () => useShellSource().operator;
 export const useAutomationsPanel = () => useShellSource().automationsPanel;
 export const useShellSlots = () => useShellSource().slots;

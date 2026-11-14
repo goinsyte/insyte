@@ -32,9 +32,11 @@ import { coursesAtom } from "../data/courses.ts"
 import { FRAME, frameWrites, inboxAtom, notePrefsAtom, NOTES, presenceAtom, VIEWS, viewsAtom } from "../data/frame.ts"
 import { inboxCountsAtom, mailboxesAtom } from "../data/inbox.ts"
 import { sheetsAtom } from "../data/sheets.ts"
+import { healthLineAtom } from "../data/stores.ts"
 import { ticketCountsAtom } from "../data/tickets.ts"
 import { useConsoleMarketplace } from "../marketplace/marketplace-source.tsx"
 import { notifyPrefsOf } from "../notifications/settings-source.ts"
+import { syncLineOf } from "../stores/health-of.ts"
 import { ConsoleInvite } from "./invite.tsx"
 import { toNote } from "./notes.ts"
 import { useHasPage } from "./pages.ts"
@@ -179,6 +181,10 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     restoreView: useAtomSet(frameWrites.restoreView, { mode: "promiseExit" }),
     togglePinView: useAtomSet(frameWrites.togglePinView, { mode: "promiseExit" })
   }
+
+  // The stores' sync (M17 step 6): the frame's line, then `Shell.health` each time the check changes a connection.
+  const healthLine = value(useAtomValue(healthLineAtom)) ?? frame.health
+  const syncLine = useMemo(() => syncLineOf(healthLine), [healthLine])
 
   const gateRole = useMemo(() => roleOf(frame), [frame])
   const [nav, setNav] = usePrefSection(frame, "rail", NAV_DEFAULTS)
@@ -344,6 +350,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     inbox: { threads: [], mailboxes: onInbox ? panelMailboxes ?? [] : undefined },
     agentEntries: NO_ROWS,
     queueRows: NO_ROWS,
+    syncLine,
     // Customize waits for Start's board, an app's detail from the rail for its pins (M17), connecting a store for Shopify (M6).
     slots: {
       Customize: null,

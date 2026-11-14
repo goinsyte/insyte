@@ -390,3 +390,26 @@ export const lastSyncOf = (sql: SqlClient.SqlClient, customerId: string) =>
       where state = 'sent' and ${customerId} = any(customer_ids) order by sent_at desc limit 1`,
     ([row]) => (row === undefined ? null : { list: row.listName, at: row.sentAt.getTime() })
   )
+
+/**
+ * A workspace being deleted (M17 step 5): the refresh token given back to Klaviyo, before Insyte forgets it. As the
+ * workspace; best effort, as `disconnect`.
+ */
+export const releaseKlaviyo = Effect.fn("Marketing.releaseKlaviyo")(function*() {
+  const db = yield* Db
+  const klaviyo = yield* Klaviyo
+  const sealer = yield* Sealer
+  const rows = yield* db.scopedFor((sql) =>
+    sql<{ sealed: string }>`
+      select cc.sealed from connections c join connection_credentials cc on cc.connection_id = c.id
+      where c.provider = 'klaviyo'`
+  )
+  for (const row of rows) {
+    const opened = yield* sealer.open(row.sealed).pipe(
+      Effect.flatMap((o) => decodeSealed(Redacted.value(o))),
+      Effect.option
+    )
+    if (opened._tag === "Some") yield* klaviyo.revoke(Redacted.make(opened.value.refreshToken))
+  }
+  return rows.length
+})

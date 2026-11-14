@@ -5,6 +5,7 @@ import { AnalyticsHttp } from "./analytics/http.ts"
 import { AutomationsHttp } from "./automations/http.ts"
 import { ChargebacksHttp } from "./chargebacks/http.ts"
 import { CommerceHttp } from "./commerce/http.ts"
+import { ConnectionsHttp } from "./connections/http.ts"
 import { CostsHttp } from "./costs/http.ts"
 import { DataHttp } from "./data/http.ts"
 import { ForwardingHttp } from "./forwarding/http.ts"
@@ -48,6 +49,7 @@ export const PublicApiLive = Layer.mergeAll(
       ProposalsHttp,
       ChargebacksHttp,
       CostsHttp,
+      ConnectionsHttp,
       DataHttp
     )
   ),

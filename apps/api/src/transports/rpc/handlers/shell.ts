@@ -11,6 +11,7 @@ import { OrdersService } from "@insyte/modules/orders/Orders"
 import { PrefsService } from "@insyte/modules/prefs/PrefsService"
 import { ProductsService } from "@insyte/modules/products/Products"
 import type { SearchKind } from "@insyte/modules/shared/domain/Search"
+import { StoresService } from "@insyte/modules/stores/Stores"
 import { TicketsService } from "@insyte/modules/tickets/Tickets"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect } from "effect"
@@ -69,6 +70,7 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
   const inbox = yield* InboxService
   const chats = yield* ChatsService
   const chargebacks = yield* ChargebacksService
+  const stores = yield* StoresService
   // Each kind through its own slice, which answers nothing where the role may not look (support level, stores, a DM).
   const SEARCHES = {
     order: (q: string, limit: number) => orders.search(q, limit),
@@ -119,12 +121,13 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
       Effect.gen(function*() {
         const principal = yield* CurrentPrincipal
         const user = yield* CurrentUser
-        const [memberships, mine, counts, teammates, nav] = yield* Effect.all([
+        const [memberships, mine, counts, teammates, nav, health] = yield* Effect.all([
           workspaces.memberships,
           prefs.get,
           notes.counts,
           members.directory,
-          countsFor(areaOf(path))
+          countsFor(areaOf(path)),
+          stores.healthLine
         ], { concurrency: 1 })
         const workspace = memberships.find((m) => m.workspaceId === principal.workspaceId)
         return new Frame({
@@ -135,9 +138,11 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
           notes: counts,
           teammates,
           counts: nav,
-          proposals: null
+          proposals: null,
+          health
         })
       }),
+    "Shell.health": () => stores.healthLine,
     "Nav.counts": ({ area }) => countsFor(area),
     "Search.records": ({ q, kinds, limit }) =>
       Effect.forEach(new Set(kinds ?? EVERY), (kind) => SEARCHES[kind](q, limit ?? 5), {

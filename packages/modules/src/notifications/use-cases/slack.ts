@@ -180,3 +180,16 @@ export const channels = Effect.fn("Notifications.slackChannels")(function*() {
     new SlackChannel({ id: SLACK_DM, name: "Privébericht aan mij" })
   ]
 })
+
+/**
+ * A workspace being deleted (M17 step 5): the bot token given back to Slack, before Insyte forgets it. As the
+ * workspace, in its own transaction; best effort, as `disconnect`.
+ */
+export const releaseSlack = Effect.fn("Notifications.releaseSlack")(function*() {
+  const db = yield* Db
+  const slack = yield* Slack
+  const opened = yield* db.scopedFor((sql) => tokenOf(sql))
+  if (opened === undefined) return 0
+  yield* slack.revoke(opened.token)
+  return 1
+})

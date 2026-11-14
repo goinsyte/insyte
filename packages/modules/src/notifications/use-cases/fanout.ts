@@ -7,6 +7,14 @@ import { quietUntil } from "../domain/Quiet.ts"
 import { plan as planDelivery } from "./deliveries.ts"
 import { connectionOf } from "./slack.ts"
 
+/** The incidents only the operator can mend (`stores/domain/Health.ts`: `BROKEN`, and the grant about to lapse). */
+const URGENT_INCIDENTS: ReadonlySet<string> = new Set([
+  "token_expired",
+  "token_expiring",
+  "scope_missing",
+  "sync_failed"
+])
+
 /*
  * The relay's notifications sink (M5.2): a domain event → one row per member who should hear of it, in the event's
  * workspace as `system`. Who hears what:
@@ -365,6 +373,33 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
           subjectId: event.endpointId,
           actor: null,
           data: { url: endpoint.url }
+        }
+      }
+      case "connection.incident": {
+        // The health check opened an incident (M17 step 6): the person on call hears it once, with what Insyte
+        // already tried. What the operator must mend (access going or gone, a sync that stopped) is "Koppeling
+        // verbroken", in Primair and by mail; what Insyte is handling (a webhook gap, the rate limit) is in-app.
+        // Only while they still reach the store (their `storeScope`).
+        const [member] = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.id = ${event.memberId} and m.deactivated_at is null and m.removed_at is null
+            and ${reaching(sql, event.storeId)}`
+        if (member === undefined) return undefined
+        const urgent = URGENT_INCIDENTS.has(event.kind)
+        return {
+          kind: urgent ? "integration.disconnected" : "integration.sync",
+          recipients: [member.id],
+          direct: [member.id],
+          subjectType: "connection_incident",
+          subjectId: event.incidentId,
+          actor: null,
+          data: {
+            storeId: event.storeId,
+            store: event.storeName,
+            incident: event.kind,
+            finding: event.finding,
+            tried: [...event.tried]
+          }
         }
       }
       case "course.assigned": {
