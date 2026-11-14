@@ -140,6 +140,10 @@ const all = async (
   return { rows, total }
 }
 
+/** A cursor as a caller could write one: any JSON, base64url. */
+const tampered = (key: unknown) =>
+  btoa(JSON.stringify(key)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+
 /** Each key not before the one ahead of it, and the ids of a tie in the same direction. */
 const inOrder = (rows: Array<Json>, key: (r: Json) => string | number, desc: boolean) => {
   for (let i = 1; i < rows.length; i++) {
@@ -149,6 +153,9 @@ const inOrder = (rows: Array<Json>, key: (r: Json) => string | number, desc: boo
     expect(desc ? -step : step, `rows ${i - 1} and ${i}`).toBe(1)
   }
 }
+
+/** A facet's counts, added up. */
+const sum = (counts: Record<string, number>) => Object.values(counts).reduce((n, v) => n + v, 0)
 
 const once = (rows: Array<Json>) => expect(new Set(rows.map((r) => r.id)).size).toBe(rows.length)
 
@@ -285,6 +292,49 @@ describe("the long lists, paged on the server", () => {
     expect(ok(await rpc("Orders.list", { limit: 3, cursor: legacy }, owner.cookie)).rows[0]!.id).not.toBe(last.id)
     expect(failure(await rpc("Orders.list", { sort: { field: "raw; drop table orders", desc: true } }, owner.cookie)))
       .toMatchObject({ _tag: "FilterFieldUnknown" })
+    // A name every object has is no field of a list's either.
+    for (const field of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+      expect(failure(await rpc("Orders.list", { sort: { field, desc: true } }, owner.cookie)), field)
+        .toMatchObject({ _tag: "FilterFieldUnknown" })
+      expect(failure(await rpc("Customers.list", { filter: rule(field, "contains", "x") }, owner.cookie)), field)
+        .toMatchObject({ _tag: "FilterFieldUnknown" })
+    }
+  })
+
+  it("refuses a tampered cursor as a cursor, never as a failure of its own", async () => {
+    const id = "ord_x"
+    const cursors: Array<["Orders.list" | "Products.list" | "Customers.list", Record<string, unknown>, unknown]> = [
+      // The list's own order, by placed time: past what a date can hold, no such day, no such hour, a year 0.
+      ["Orders.list", {}, [8.64e15 + 1, id]],
+      ["Orders.list", {}, [Number.MAX_SAFE_INTEGER, id]],
+      ["Orders.list", {}, ["2026-02-30 10:00:00+00", id]],
+      ["Orders.list", {}, ["2026-13-01 10:00:00+00", id]],
+      ["Orders.list", {}, ["2026-01-01 25:00:00+00", id]],
+      ["Orders.list", {}, ["0000-01-01 10:00:00+00", id]],
+      ["Orders.list", {}, ["2026-01-01 10:00:00+99", id]],
+      ["Orders.list", {}, ["2026-01-01 10:00:00+00", "ord\u0000x"]],
+      // A number past every bound, or not a number at all.
+      ["Orders.list", { sort: { field: "total", desc: true } }, ["1e999999", id, "total", 1]],
+      ["Orders.list", { sort: { field: "total", desc: true } }, ["9".repeat(400), id, "total", 1]],
+      ["Orders.list", { sort: { field: "total", desc: true } }, ["NaN", id, "total", 1]],
+      ["Orders.list", { sort: { field: "total", desc: true } }, [1e300, id, "total", 1]],
+      // Text the database cannot hold: a NUL, half a surrogate pair.
+      ["Orders.list", { sort: { field: "customer_name", desc: false } }, ["a\u0000b", id, "customer_name", 0]],
+      ["Orders.list", { sort: { field: "customer_name", desc: false } }, ["\ud800", id, "customer_name", 0]],
+      ["Products.list", {}, ["tas\u0000", "prd_x"]],
+      ["Customers.list", { sort: { field: "last_order", desc: true } }, ["infinity!", "cus_x", "last_order", 1]],
+      // Not a key at all.
+      ["Orders.list", {}, [{ at: 1 }, id]],
+      ["Orders.list", {}, [null, id]],
+      ["Orders.list", {}, ["2026-01-01 10:00:00+00", 7]]
+    ]
+    for (const [name, input, key] of cursors) {
+      const cursor = tampered(key)
+      expect(failure(await rpc(name, { ...input, cursor, limit: 3 } as never, owner.cookie)), JSON.stringify(key))
+        .toMatchObject({ _tag: "CursorInvalid" })
+    }
+    expect(failure(await rpc("Orders.list", { cursor: "%%%", limit: 3 }, owner.cookie)))
+      .toMatchObject({ _tag: "CursorInvalid" })
   })
 
   it("pages the products and the customers past 200, the cuts and their counts with them", async () => {
@@ -306,6 +356,39 @@ describe("the long lists, paged on the server", () => {
     const first = ok(await rpc("Products.list", { limit: 12 }, owner.cookie))
     expect(first.summary).toMatchObject({ products: PRODUCTS + 3, costed: false })
     expect(ok(await rpc("Products.list", { limit: 12, cursor: first.nextCursor! }, owner.cookie)).summary).toBeNull()
+    // The summary is the whole catalogue's, so only the first page with nothing chosen reads it.
+    expect(
+      ok(await rpc("Products.list", { limit: 12, sort: { field: "title", desc: false } }, owner.cookie)).summary
+        ?.products
+    ).toBe(PRODUCTS + 3)
+    for (
+      const input of [
+        { q: "Artikel" },
+        { filter: rule("product_type", "any", ["Tassen"]) },
+        { sort: { field: "price", desc: true } },
+        { attention: "returns" }
+      ]
+    ) {
+      expect(
+        ok(await rpc("Products.list", { ...input, limit: 12 } as never, owner.cookie)).summary,
+        JSON.stringify(input)
+      )
+        .toBeNull()
+    }
+    // The margin's key is its exact value: a cursor under it pages on, both ways.
+    for (const desc of [false, true]) {
+      const page = ok(await rpc("Products.list", { limit: 5, sort: { field: "margin", desc } }, owner.cookie))
+      expect(
+        ok(
+          await rpc(
+            "Products.list",
+            { limit: 5, sort: { field: "margin", desc }, cursor: page.nextCursor! },
+            owner.cookie
+          )
+        ).rows
+      )
+        .toHaveLength(5)
+    }
     const bags = ok(
       await rpc("Products.list", { filter: rule("product_type", "any", ["Tassen"]), limit: 200 }, owner.cookie)
     )
@@ -338,8 +421,25 @@ describe("the long lists, paged on the server", () => {
     }
     const counts = ok(await rpc("Customers.list", { limit: 1 }, owner.cookie)).counts
     expect(counts.new + counts.returning).toBe(CUSTOMERS + 3)
+    expect(counts.duplicates).toBe(0)
     const few = ok(await rpc("Customers.list", { filter: rule("orders", "lt", "3"), limit: 1 }, owner.cookie))
     expect(few.counts.total).toBe(counts.new)
+    // The profiles the console shows as duplicates are counted as that, not as new or returning, as its filter reads.
+    const twins = names.rows.slice(0, 3).map((c) => c.id)
+    const apart = ok(await rpc("Customers.list", { limit: 1, duplicates: twins }, owner.cookie)).counts
+    expect(apart.duplicates).toBe(3)
+    expect(apart.new + apart.returning).toBe(CUSTOMERS + 3 - 3)
+    const newOnes = {
+      kind: "group" as const,
+      id: "root",
+      join: "and" as const,
+      children: [
+        { kind: "rule" as const, id: "a", field: "orders", op: "lt" as const, value: "3" },
+        { kind: "rule" as const, id: "b", field: "id", op: "none" as const, value: twins }
+      ]
+    }
+    expect(ok(await rpc("Customers.list", { filter: newOnes, limit: 1, duplicates: twins }, owner.cookie)).counts.total)
+      .toBe(apart.new)
     const ids = names.rows.slice(0, 4).map((c) => c.id)
     expect(
       ok(await rpc("Customers.list", { filter: rule("id", "any", ids) }, owner.cookie)).rows.map((c) => c.id).toSorted()
@@ -349,7 +449,17 @@ describe("the long lists, paged on the server", () => {
 
   it("pages a member held to one store through that store's rows only, whatever cursor they bring", async () => {
     other = (await anotherStore(owner, "paging-b")).storeId
-    await write(owner.workspace, other, { orders: Array.from({ length: 20 }, (_, i) => order("Q", i)) })
+    await write(owner.workspace, other, {
+      orders: Array.from({ length: 20 }, (_, i) => order("Q", i)),
+      products: Array.from(
+        { length: 4 },
+        (_, i) => ({ ...product(500 + i), shopify_id: `gid://shopify/Product/q${i}` })
+      ),
+      customers: Array.from(
+        { length: 4 },
+        (_, i) => ({ ...customer(500 + i), shopify_id: `gid://shopify/Customer/q${i}` })
+      )
+    })
     const email = `paging-${run}-held@invited.test`
     ok(await rpc("Invitations.send", { rows: [{ email, roleId: "admin", stores: [owner.storeId] }] }, owner.cookie))
     await pastUndo(owner.workspace)
@@ -369,11 +479,31 @@ describe("the long lists, paged on the server", () => {
     expect(after.rows.every((o) => o.storeId === owner.storeId)).toBe(true)
     expect(ok(await rpc("Orders.list", { filter: rule("store_name", "none", ["Insyte MVP Test"]) }, held)).counts.total)
       .toBe(0)
+    // The other store holds products and customers of its own, which the owner sees and the held member does not.
     for (const name of ["Products.list", "Customers.list"] as const) {
+      const seen = (await all(name, {}, owner.cookie, 100)).rows
+      expect(seen.filter((r) => r.storeId === other).length, name).toBeGreaterThanOrEqual(4)
       const rows = (await all(name, {}, held, 100)).rows
+      expect(rows.length, name).toBeGreaterThan(0)
       expect(rows.every((r) => r.storeId === owner.storeId), name).toBe(true)
     }
     expect(ok(await rpc("Products.list", { limit: 1 }, held)).summary?.products).toBe(PRODUCTS + 3)
+
+    // The facets count the member's store alone, as the rows they page through.
+    const ownersOrders = ok(await rpc("Orders.list", { limit: 1 }, owner.cookie)).counts
+    const heldOrders = ok(await rpc("Orders.list", { limit: 1 }, held)).counts
+    expect(sum(heldOrders.status)).toBe(ORDERS + 5)
+    expect(sum(heldOrders.state)).toBe(ORDERS + 5)
+    expect(heldOrders.delayed).toBe(2)
+    expect(sum(ownersOrders.status)).toBeGreaterThan(sum(heldOrders.status))
+    const ownersProducts = ok(await rpc("Products.list", { limit: 1 }, owner.cookie)).counts
+    const heldProducts = ok(await rpc("Products.list", { limit: 1 }, held)).counts
+    expect(sum(heldProducts.status)).toBe(PRODUCTS + 3)
+    expect(sum(ownersProducts.status)).toBeGreaterThan(sum(heldProducts.status))
+    const ownersCustomers = ok(await rpc("Customers.list", { limit: 1 }, owner.cookie)).counts
+    const heldCustomers = ok(await rpc("Customers.list", { limit: 1 }, held)).counts
+    expect(heldCustomers.new + heldCustomers.returning).toBe(CUSTOMERS + 3)
+    expect(ownersCustomers.new + ownersCustomers.returning).toBeGreaterThan(CUSTOMERS + 3)
   }, 240_000)
 
   it("keeps /v1's lists as they were: a page, its total, the next cursor", async () => {

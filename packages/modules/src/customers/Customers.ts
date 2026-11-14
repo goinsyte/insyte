@@ -3,11 +3,11 @@ import type { Conflict, Forbidden, Invalid, NotFound } from "@insyte/domain/Erro
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
-import type { CursorInvalid, FilterFieldUnknown, ListInput } from "../shared/domain/Filter.ts"
+import type { CursorInvalid, FilterFieldUnknown } from "../shared/domain/Filter.ts"
 import type { Relay } from "../shared/domain/Outbox.ts"
 import type { SearchHit } from "../shared/domain/Search.ts"
 import type { CreateInput, CustomerChange, MergeInput, TagInput } from "./domain/Commands.ts"
-import type { CustomerCounts, CustomerDetail, CustomerPage } from "./domain/Customers.ts"
+import type { CustomerCounts, CustomerDetail, CustomerListInput, CustomerPage } from "./domain/Customers.ts"
 import type { DuplicateGroup } from "./domain/Duplicates.ts"
 import { KlaviyoSyncs } from "./domain/Ports.ts"
 import * as Commands from "./use-cases/commands.ts"
@@ -22,7 +22,9 @@ type W = R | Relay
  * @effect-expect-leaking Db CurrentPrincipal Relay
  */
 export class CustomersService extends Context.Service<CustomersService, {
-  readonly list: (input: ListInput) => Effect.Effect<CustomerPage, Forbidden | FilterFieldUnknown | CursorInvalid, R>
+  readonly list: (
+    input: CustomerListInput
+  ) => Effect.Effect<CustomerPage, Forbidden | FilterFieldUnknown | CursorInvalid, R>
   readonly get: (id: string) => Effect.Effect<CustomerDetail, Forbidden | NotFound, R>
   /** The area panel's counts, for the frame: the list's segments. */
   readonly counts: Effect.Effect<CustomerCounts, Forbidden, R>

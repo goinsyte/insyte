@@ -98,7 +98,7 @@ export const compileFilter = (
     const walk = (n: FilterNode): Effect.Effect<Fragment | undefined, FilterFieldUnknown> =>
       Effect.gen(function*() {
         if (n.kind === "rule") {
-          const field = whitelist[n.field]
+          const field = Object.hasOwn(whitelist, n.field) ? whitelist[n.field] : undefined
           if (field === undefined) return yield* new FilterFieldUnknown({ field: n.field })
           return compileRule(sql, n, field)
         }
@@ -151,9 +151,42 @@ const keyOf = (field: SortSql) => {
   }
 }
 
-/* What a key read back from a cursor must look like for its type, before the database casts it. */
-const NUMBER = /^-?\d+(\.\d+)?(e[+-]?\d+)?$/i
-const DATE = /^(-?infinity|\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}(:?\d{2})?)?)$/
+/* What a key read back from a cursor must look like for its type, before the database casts it: a cursor is the
+   caller's text, so anything the cast would refuse (a number past every bound, a 31st of February, a NUL, half a
+   surrogate pair) is refused here as `CursorInvalid`, never left to fail in the database. */
+const NUMBER = /^-?\d{1,30}(\.\d{1,30})?$/
+const DATE = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2})(\.\d{1,6})?)?(Z|[+-](\d{2})(?::?(\d{2}))?)?$/
+const LONE_SURROGATE = /\p{Cs}/u
+const brokenText = (text: string) => text.includes("\u0000") || LONE_SURROGATE.test(text)
+
+const validDate = (value: string) => {
+  if (value === "-infinity" || value === "infinity") return true
+  const m = DATE.exec(value)
+  if (m === null) return false
+  const [year, month, day, hour, minute, second, offsetHours, offsetMinutes] = [1, 2, 3, 4, 5, 6, 9, 10].map((i) =>
+    Number(m[i] ?? 0)
+  ) as [number, number, number, number, number, number, number, number]
+  const calendar = new Date(Date.UTC(year, month - 1, day))
+  return year >= 1 && calendar.getUTCFullYear() === year && calendar.getUTCMonth() === month - 1 &&
+    calendar.getUTCDate() === day && hour <= 23 && minute <= 59 && second <= 59 && offsetHours <= 14 &&
+    offsetMinutes <= 59
+}
+
+/* A cursor's key as text the database can cast for the sort's type; undefined when it could not be one. */
+const keyText = (raw: string | number, type: SortSql["type"]): string | undefined => {
+  if (typeof raw === "number") {
+    if (!Number.isFinite(raw)) return undefined
+    if (type !== "date") return NUMBER.test(String(raw)) ? String(raw) : undefined
+    const at = new Date(raw)
+    return Number.isNaN(at.getTime()) || at.getUTCFullYear() < 1 || at.getUTCFullYear() > 9999
+      ? undefined
+      : at.toISOString()
+  }
+  if (brokenText(raw)) return undefined
+  if (type === "number") return NUMBER.test(raw) ? raw : undefined
+  if (type === "date") return validDate(raw) ? raw : undefined
+  return raw
+}
 
 /**
  * The list's order and its page after the cursor: `key` selects the row's sort key as `sort_key` (as Postgres writes
@@ -171,7 +204,7 @@ export const keyset = (
 ) =>
   Effect.gen(function*() {
     const want = input.sort ?? sorts.default
-    const field = sorts.fields[want.field]
+    const field = Object.hasOwn(sorts.fields, want.field) ? sorts.fields[want.field] : undefined
     if (field === undefined) return yield* new FilterFieldUnknown({ field: want.field })
     const own = want.field === sorts.default.field && want.desc === sorts.default.desc
     const expression = sql.literal(keyOf(field))
@@ -184,12 +217,11 @@ export const keyset = (
       const fits = cursor.length === 2
         ? own
         : cursor.length === 4 && named === want.field && desc === (want.desc ? 1 : 0)
-      if (!fits || typeof last !== "string" || raw === undefined) return yield* new CursorInvalid()
-      const value = typeof raw === "number"
-        ? field.type === "date" ? new Date(raw).toISOString() : String(raw)
-        : raw
-      if (field.type === "number" && !NUMBER.test(value)) return yield* new CursorInvalid()
-      if (field.type === "date" && !DATE.test(value)) return yield* new CursorInvalid()
+      if (!fits || typeof last !== "string" || raw === undefined || brokenText(last)) {
+        return yield* new CursorInvalid()
+      }
+      const value = keyText(raw, field.type)
+      if (value === undefined) return yield* new CursorInvalid()
       const key = field.type === "date"
         ? sql`${value}::timestamptz`
         : field.type === "number"

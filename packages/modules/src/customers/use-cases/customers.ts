@@ -4,13 +4,13 @@ import * as Policy from "@insyte/domain/Policy"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import type { OrderRow } from "../../orders/domain/Orders.ts"
-import type { ListInput } from "../../shared/domain/Filter.ts"
 import { likePattern, SearchHit } from "../../shared/domain/Search.ts"
 import { compileFilter, keyset, type Sorts, type Whitelist } from "../../shared/tables/FilterSql.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import {
   type CustomerCounts,
   CustomerDetail,
+  type CustomerListInput,
   CustomerPage,
   CustomerRow,
   NEW_UP_TO_ORDERS
@@ -114,7 +114,7 @@ const searchOf = (sql: SqlClient.SqlClient, q: string | undefined) => {
   return sql`(c.name ilike ${pattern} or c.email ilike ${pattern} or c.phone ilike ${pattern})`
 }
 
-export const list = Effect.fn("Customers.list")(function*(input: ListInput) {
+export const list = Effect.fn("Customers.list")(function*(input: CustomerListInput) {
   yield* Policy.require("customers", 1)
   const db = yield* Db
   const limit = input.limit ?? 50
@@ -131,16 +131,28 @@ export const list = Effect.fn("Customers.list")(function*(input: ListInput) {
         ${order.order} limit ${limit + 1}`
       const [total] = yield* sql<{ n: number }>`
         select count(*)::int as n from customers c where ${listed} and ${scope} and ${filter} and ${search}`
-      const [facets] = yield* sql<{ new: number; returning: number }>`
-        select count(*) filter (where ${sql.literal(ORDERS)} <= ${NEW_UP_TO_ORDERS})::int as new,
-               count(*) filter (where ${sql.literal(ORDERS)} > ${NEW_UP_TO_ORDERS})::int as returning
+      // The Status facet as the console's filter reads it: a profile it shows as a duplicate is that, not new or returning.
+      const duplicate = input.duplicates === undefined || input.duplicates.length === 0
+        ? sql`false`
+        : sql`c.id = any(${[...input.duplicates]}::text[])`
+      const [facets] = yield* sql<{ new: number; returning: number; duplicates: number }>`
+        select count(*) filter (where ${sql.literal(ORDERS)} <= ${NEW_UP_TO_ORDERS} and not ${duplicate})::int as new,
+               count(*) filter (where ${
+        sql.literal(ORDERS)
+      } > ${NEW_UP_TO_ORDERS} and not ${duplicate})::int as returning,
+               count(*) filter (where ${duplicate})::int as duplicates
         from customers c where ${listed} and ${scope} and ${search}`
       const shown = rows.slice(0, limit)
       const last = shown.at(-1)
       return new CustomerPage({
         rows: shown.map(toRow),
         nextCursor: rows.length > limit && last !== undefined ? order.cursorOf(last) : null,
-        counts: { total: total?.n ?? 0, new: facets?.new ?? 0, returning: facets?.returning ?? 0 }
+        counts: {
+          total: total?.n ?? 0,
+          new: facets?.new ?? 0,
+          returning: facets?.returning ?? 0,
+          duplicates: facets?.duplicates ?? 0
+        }
       })
     })
   )

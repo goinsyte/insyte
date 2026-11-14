@@ -3,6 +3,7 @@ import { NotFound } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
 import { Effect } from "effect"
 import type { SqlClient, Statement } from "effect/sql"
+import type { FilterGroup, FilterNode } from "../../shared/domain/Filter.ts"
 import { likePattern, SearchHit } from "../../shared/domain/Search.ts"
 import { compileFilter, keyset, mentions, type Sorts, type Whitelist } from "../../shared/tables/FilterSql.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
@@ -46,9 +47,12 @@ const SKU = "(select v.sku from variants v where v.product_id = p.id and v.sku i
 const PRICE = "(select min(v.price_minor) from variants v where v.product_id = p.id)"
 const SUPPLIER = `(select x.name from product_supply ps join suppliers x on x.id = ps.supplier_id
                     where ps.product_id = p.id and ps.is_primary)`
-/** The margin over the cost price as a fraction of the lowest price; none without a cost or a price. */
-const MARGIN = `case when p.cost_minor is null or coalesce(${PRICE}, 0) <= 0 then 0
-                  else (${PRICE} - p.cost_minor)::float8 / ${PRICE} end`
+/**
+ * The margin over the cost price as a fraction of the lowest price; none without a cost or a price. Numeric, so its
+ * text in a cursor is the exact value, not a float's rounding of it.
+ */
+const MARGIN = `case when p.cost_minor is null or coalesce(${PRICE}, 0) <= 0 then 0::numeric
+                  else (${PRICE} - p.cost_minor)::numeric / ${PRICE} end`
 /** The stock level as `levelOf` reads it; null without a counted variant. */
 const STOCK = `(select case when sum(u.units) is null or min(u.units) is null then null
                             when sum(u.units) <= 0 then 'out' when min(u.units) <= ${LOW_STOCK} then 'low'
@@ -70,7 +74,8 @@ export const PRODUCT_FIELDS: Whitelist = {
   product: { column: `p.title || ' ' || coalesce(${SKU}, '—')`, type: "text" },
   cost: { column: "p.cost_minor", type: "number", scale: 100 },
   price: { column: `coalesce(${PRICE}, 0)`, type: "number", scale: 100 },
-  margin: { column: MARGIN, type: "number" },
+  // A fraction, as the column holds it ("0.3"), compared to the hundredth of a percent.
+  margin: { column: `round((${MARGIN}) * 10000)`, type: "number", scale: 10000 },
   stock: { column: STOCK, type: "option" },
   supplier_name: { column: SUPPLIER, type: "option" },
   return_high: { column: flag(ATTENTION.returns), type: "option" },
@@ -236,14 +241,32 @@ export const list = Effect.fn("Products.list")(function*(input: ProductListInput
         }),
         nextCursor: rows.length > limit && last !== undefined ? order.cursorOf(last) : null,
         counts: { total: total?.n ?? 0, status: Object.fromEntries(facets.map((f) => [f.status, f.n])) },
-        summary: input.cursor === undefined ? yield* summaryOf(sql, scope) : null
+        summary: wholeFirstPage(input)
+          ? yield* summaryOf(sql, scope, yield* inScope(sql, "f.store_id", input.storeId))
+          : null
       })
     })
   )
 })
 
-/** The catalogue as a whole inside the scope: the list's header line and which of its columns have figures. */
-const summaryOf = (sql: SqlClient.SqlClient, scope: Statement.Fragment) =>
+/**
+ * Whether this page is the list's first with nothing chosen (no filter, search, cut or order of its own): the one page
+ * whose summary the console shows, so the only one that pays for it.
+ */
+const wholeFirstPage = (input: ProductListInput) =>
+  input.cursor === undefined && (input.q ?? "").trim() === "" && input.attention === undefined &&
+  (input.sort === undefined ||
+    (input.sort.field === PRODUCT_SORTS.default.field && input.sort.desc === PRODUCT_SORTS.default.desc)) &&
+  (input.filter === undefined || !hasRule(input.filter))
+
+const hasRule = (node: FilterNode): boolean =>
+  node.kind === "rule" ? true : (node as FilterGroup).children.some(hasRule)
+
+/**
+ * The catalogue as a whole inside the scope: the list's header line and which of its columns have figures. Whether any
+ * order of it was delivered starts from the delivered parcels (`fulfilments_delivered`), so it stops at the first.
+ */
+const summaryOf = (sql: SqlClient.SqlClient, scope: Statement.Fragment, parcels: Statement.Fragment) =>
   Effect.gen(function*() {
     const [row] = yield* sql<{
       products: number
@@ -269,9 +292,9 @@ const summaryOf = (sql: SqlClient.SqlClient, scope: Statement.Fragment) =>
             from products p join stores s on s.id = p.store_id where ${scope}) x`
     const [delivered] = yield* sql<{ any: boolean }>`
       select exists (
-        select 1 from products p join order_lines l on l.product_id = p.id
-        join fulfilments f on f.order_id = l.order_id and f.delivered_at is not null
-        where ${scope}) as any`
+        select 1 from fulfilments f join order_lines l on l.order_id = f.order_id
+        join products p on p.id = l.product_id
+        where ${parcels} and f.delivered_at is not null and ${scope}) as any`
     return {
       products: row?.products ?? 0,
       restock: row?.restock ?? 0,
