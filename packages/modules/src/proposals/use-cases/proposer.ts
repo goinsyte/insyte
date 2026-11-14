@@ -578,13 +578,13 @@ interface StoreFacts {
   readonly shopDomain: string
   readonly status: string
   readonly disconnectedAt: Date | null
-  readonly orders: number
+  readonly hasOrders: boolean
 }
 
 const storeFacts = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) =>
   ids.length === 0 ? Effect.succeed([] as ReadonlyArray<StoreFacts>) : sql<StoreFacts>`
     select s.id, s.name, s.shop_domain, s.status, s.disconnected_at,
-           (select count(*) from orders o where o.store_id = s.id)::int as orders
+           exists (select 1 from orders o where o.store_id = s.id) as has_orders
     from stores s where s.id in ${sql.in([...ids])}`
 
 /**
@@ -593,7 +593,7 @@ const storeFacts = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) =>
  */
 export const drawReconnect = (s: StoreFacts, timeZone: string): Draft | null => {
   if (s.status !== "disconnected" && s.status !== "action_required") return null
-  const { confidence, basis } = s.orders > 0
+  const { confidence, basis } = s.hasOrders
     ? { confidence: 0.9, basis: "Insyte heeft de bestellingen van de winkel al; opnieuw koppelen houdt ze" }
     : { confidence: 0.75, basis: "de winkel heeft nog geen bestellingen in Insyte" }
   const since = s.disconnectedAt === null ? null : when(s.disconnectedAt, timeZone)
@@ -676,6 +676,12 @@ export const insertRevision = (sql: SqlClient.SqlClient, proposalId: string, rev
  */
 const STANDING = ["open", "filed", "executed", "execution_failed", "discarded", "expired"]
 
+/**
+ * A hand-off that leaves the work with the person elsewhere ("Opnieuw koppelen bij Shopify") stands this long: when the
+ * store is still not connected by then, the person did not finish at Shopify, and the row gets a fresh plate.
+ */
+const HANDOFF_STANDS_MINUTES = 60
+
 /** The queue kinds a plate is drawn for, and the record each one's drawing reads. */
 const DRAWN_FOR: ReadonlySet<string> = new Set([
   "return_review",
@@ -691,7 +697,7 @@ const DRAWN_FOR: ReadonlySet<string> = new Set([
  * The plates brought in line with the queue's live rows, on the queue's refresh transaction: a row the rule holds for
  * gets one; an open plate whose row resolved or whose rule no longer holds is superseded, and one past its deadline
  * expires. A plate set aside, filed or failed stays as it is for its row (a failed one is superseded once its row is
- * gone). Answers whether anything changed.
+ * gone), but a hand-off to Shopify only for `HANDOFF_STANDS_MINUTES`. Answers whether anything changed.
  */
 export const drawIn = Effect.fn("Proposals.drawIn")(function*(sql: SqlClient.SqlClient, rows: ReadonlyArray<Drawable>) {
   let changed = false
@@ -735,7 +741,9 @@ export const drawIn = Effect.fn("Proposals.drawIn")(function*(sql: SqlClient.Sql
   const standing = yield* sql<{ id: string; queueItemId: string; state: string }>`
     select id, queue_item_id, state from proposals
     where queue_item_id = any(${drawable.map((r) => r.queueItemId)}::text[])
-      and state = any(${STANDING}::text[])`
+      and state = any(${STANDING}::text[])
+      and not (state = 'executed' and action ->> '_tag' = 'ReconnectStore'
+               and executed_at < now() - make_interval(mins => ${HANDOFF_STANDS_MINUTES}))`
   for (const row of drawable) {
     const draft = drafts.get(row.queueItemId) ?? null
     const held = standing.filter((s) => s.queueItemId === row.queueItemId)
