@@ -28,10 +28,16 @@ export interface Applied {
   readonly lines: number
   readonly fulfilments: number
   readonly refunds: number
+  readonly levels: number
   readonly orphans: number
 }
 
 const count = (rows: ReadonlyArray<unknown>) => rows.length
+
+/** The last of each item's count per location in the page, for the same reason as `latest`. */
+const latestLevels = (
+  rows: MirrorBatch["levels"]
+) => [...new Map(rows.map((r) => [`${r.inventory_item_id}:${r.location_id}`, r])).values()]
 
 /**
  * `live` is false for a store's first import: its forwarding legs are made, but nothing is forwarded on its own (a
@@ -102,6 +108,19 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
           product_id = excluded.product_id, inventory_item_id = excluded.inventory_item_id, sku = excluded.sku,
           title = excluded.title, price_minor = excluded.price_minor, compare_at_minor = excluded.compare_at_minor,
           position = excluded.position
+        returning 1`
+
+      // Stock per location (the import's levels): a variant found by its inventory item, which this page or an earlier
+      // one wrote. A count reported later (a webhook since) stays: the import does not undo it.
+      const levels = batch.levels.length === 0 ? [] : yield* sql`
+        insert into inventory_levels (workspace_id, variant_id, location_id, available, source, reported_at)
+        select app_workspace_id(), v.id, r.location_id, r.available, 'shopify', r.reported_at
+        from jsonb_to_recordset(${JSON.stringify(latestLevels(batch.levels))}::jsonb) as r(
+          inventory_item_id text, location_id text, available integer, reported_at timestamptz)
+        join variants v on v.store_id = ${storeId} and v.inventory_item_id = r.inventory_item_id
+        on conflict (variant_id, location_id, source) do update set
+          available = excluded.available, reported_at = excluded.reported_at
+        where excluded.reported_at >= inventory_levels.reported_at
         returning 1`
 
       // A product's photographs after its featured one, in their order, each once: a re-read lists them again.
@@ -239,6 +258,7 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
         lines: count(lines),
         fulfilments: count(fulfilments),
         refunds: count(refunds),
+        levels: count(levels),
         orphans: children - count(variants) - count(lines) - count(fulfilments) - count(refunds)
       }
       return written

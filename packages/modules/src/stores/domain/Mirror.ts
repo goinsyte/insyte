@@ -57,6 +57,14 @@ export const fromMinor = (minor: number, currency: string): string => {
 const PRODUCT_FIELDS = `id title handle descriptionHtml status vendor productType tags createdAt updatedAt
   featuredMedia { preview { image { url } } }`
 const VARIANT_FIELDS = "id title sku price compareAtPrice position inventoryItem { id }"
+/**
+ * A variant's stock per location, for the bulk import only: a bulk query takes a connection without `first`, a read
+ * does not. Each level is its own line after its variant; it names its inventory item, so its variant is found by that
+ * and not by `__parentId`. "available" is what can be sold (Shopify's own `available` field is deprecated).
+ */
+const BULK_VARIANT_FIELDS = `id title sku price compareAtPrice position inventoryItem { id
+  inventoryLevels { edges { node { id updatedAt item { id } location { id } quantities(names: ["available"]) {
+    name quantity } } } } }`
 /** A product's photographs, in its own order; other media (video, 3D) are not mirrored. */
 const MEDIA_NODE = "node { ... on MediaImage { id image { url } } }"
 /** As many photographs as a product page shows; a bulk file holds them all. */
@@ -81,7 +89,7 @@ const LINE_FIELDS =
 
 export const PRODUCTS_QUERY = `{
   products { edges { node {
-    ${PRODUCT_FIELDS} variants { edges { node { ${VARIANT_FIELDS} } } } media { edges { ${MEDIA_NODE} } }
+    ${PRODUCT_FIELDS} variants { edges { node { ${BULK_VARIANT_FIELDS} } } } media { edges { ${MEDIA_NODE} } }
   } } }
 }`
 
@@ -187,6 +195,17 @@ export interface VariantRow {
   readonly position: number
 }
 
+/**
+ * One location's count of one inventory item (a variant), as Shopify reports it: `reported_at` is when it last changed
+ * there, so a later report (a webhook) is not undone by an import that read it earlier.
+ */
+export interface LevelRow {
+  readonly inventory_item_id: string
+  readonly location_id: string
+  readonly available: number
+  readonly reported_at: string
+}
+
 export interface CustomerRow {
   readonly shopify_id: string
   readonly email: string | null
@@ -280,6 +299,8 @@ export interface MirrorBatch {
   readonly lines: Array<LineRow>
   readonly fulfilments: Array<FulfilmentRow>
   readonly refunds: Array<RefundRow>
+  /** Stock per variant and location (the bulk import; webhooks report one location at a time). */
+  readonly levels: Array<LevelRow>
   /** A product's photographs beyond its featured one, in order: folded into its `images`. */
   readonly images: Array<{ readonly product_shopify_id: string; readonly url: string }>
   /** Lines of a type Insyte does not mirror, or that did not decode: counted, never written. */
@@ -294,6 +315,7 @@ export const emptyBatch = (): MirrorBatch => ({
   lines: [],
   fulfilments: [],
   refunds: [],
+  levels: [],
   images: [],
   skipped: 0
 })
@@ -344,6 +366,14 @@ const VariantLine = Schema.Struct({
   position: Schema.Finite,
   inventoryItem: Schema.NullOr(Schema.Struct({ id: Schema.String })),
   __parentId: Schema.String
+})
+
+const InventoryLevelLine = Schema.Struct({
+  id: Schema.String,
+  updatedAt: Schema.String,
+  item: Schema.Struct({ id: Schema.String }),
+  location: Schema.Struct({ id: Schema.String }),
+  quantities: Schema.Array(Schema.Struct({ name: Schema.String, quantity: Schema.Finite }))
 })
 
 const CustomerLine = Schema.Struct({
@@ -424,6 +454,7 @@ const decode = <S extends Schema.Top>(schema: S) =>
 const product = decode(ProductLine)
 const variant = decode(VariantLine)
 const mediaImage = decode(MediaImageLine)
+const inventoryLevel = decode(InventoryLevelLine)
 const customer = decode(CustomerLine)
 const order = decode(OrderLine)
 const lineItem = decode(LineItemLine)
@@ -537,6 +568,18 @@ export const addLine = (batch: MirrorBatch, line: unknown, storeCurrency: string
         price_minor: toMinor(v.price, storeCurrency),
         compare_at_minor: v.compareAtPrice === null ? null : toMinor(v.compareAtPrice, storeCurrency),
         position: v.position
+      })
+      return
+    }
+    case "InventoryLevel": {
+      const l = Option.getOrUndefined(inventoryLevel(line))
+      const available = l?.quantities.find((q) => q.name === "available")
+      if (l === undefined || available === undefined) break
+      batch.levels.push({
+        inventory_item_id: gidId(l.item.id),
+        location_id: gidId(l.location.id),
+        available: Math.trunc(available.quantity),
+        reported_at: l.updatedAt
       })
       return
     }
