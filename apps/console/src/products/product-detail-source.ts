@@ -15,9 +15,11 @@ import { productOf } from "./products-source.ts"
 /*
  * One product's source in the console: `Products.get` as the design's page (M6.4), edited and saved with its commands
  * behind Producten · Bewerken (M7.3), cost price and margin included, and its supplier (M8.1: the select, where the role
- * may edit suppliers, saves through `Suppliers.assignProducts`). What the server does not hold is left out, as on the
- * list: the supplier's files (M16), stock (until inventory per location is mirrored; a variant shows a
- * dash), the quality checks. The category is Shopify's product type, the description Shopify's HTML as text.
+ * may edit suppliers, saves through `Suppliers.assignProducts`) with its delivery time. Stock is Shopify's over every
+ * location, how long it lasts at the last 30 days' pace and its level; a variant's units say per location where there
+ * are more than one, and what its supplier reports (M16). What the server does not hold is left out, as on the list:
+ * the supplier's files (M16), stock until Shopify reported any (a variant shows a dash), the quality checks. The
+ * category is Shopify's product type, the description Shopify's HTML as text.
  */
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: "\"", "#39": "'", nbsp: " " }
@@ -37,6 +39,27 @@ const adminUrl = (shopDomain: string | undefined, shopifyId: string) =>
   shopDomain === undefined
     ? `https://admin.shopify.com/products/${shopifyId}`
     : `https://admin.shopify.com/store/${shopDomain.replace(/\.myshopify\.com$/, "")}/products/${shopifyId}`
+
+type Levels = ProductDetail["variants"][number]["levels"]
+
+/** A variant's units per place, where there is more than one: "2 locaties: 30 en 8 · leverancier meldt 12". */
+const levelsLine = (levels: Levels): string | undefined => {
+  const shop = levels.filter((l) => l.source === "shopify").map((l) => l.available.toLocaleString("nl-NL"))
+  const supplier = levels.find((l) => l.source === "supplier")
+  const parts = [
+    ...(shop.length > 1 ? [`${shop.length} locaties: ${shop.slice(0, -1).join(", ")} en ${shop.at(-1)}`] : []),
+    ...(supplier === undefined ? [] : [`leverancier meldt ${supplier.available.toLocaleString("nl-NL")}`])
+  ]
+  return parts.length === 0 ? undefined : parts.join(" · ")
+}
+
+/** Units over every variant, how long they last at the last 30 days' pace, and the level; none before a count. */
+const stockOf = (d: ProductDetail): ProductDetailSource["stock"] => {
+  const { available, stock } = d.product
+  if (available === null || stock === null) return undefined
+  const perDay = d.soldLast30 / 30
+  return { units: available, daysLeft: perDay === 0 ? null : Math.max(0, available) / perDay, level: stock }
+}
 
 const pageOf = (row: ProductRow, shopDomain: string | undefined, product: Product): ProductDetailSource => ({
   product,
@@ -61,10 +84,13 @@ export function consoleProductDetail(d: ProductDetail, shopDomain: string | unde
       inventory_level: v.available ?? 0
     }))
   }
-  const known = new Map(d.variants.map((v) => [v.id, v.available]))
+  const known = new Map(d.variants.map((v) => [v.id, v]))
+  const stock = stockOf(d)
   return {
     ...pageOf(d.product, shopDomain, product),
-    variantStock: (v) => known.get(v.id) ?? undefined,
+    ...(stock === undefined ? {} : { stock }),
+    variantStock: (v) => known.get(v.id)?.available ?? undefined,
+    variantLevels: (v) => levelsLine(known.get(v.id)?.levels ?? []),
     arriving: false
   }
 }
@@ -103,6 +129,7 @@ export function useConsoleProductDetail(
         },
         sync: () => commands.sync(product),
         suppliers,
+        ...(d.product.leadDays === null ? {} : { leadDays: d.product.leadDays }),
         media: NONE,
         adsPaused: false,
         resumeAds: () => undefined

@@ -496,6 +496,13 @@
     "finance": "allow",
     "view": "allow"
   },
+  "Products.lowStock": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
   "Products.edit": {
     "owner": "allow",
     "admin": "allow",

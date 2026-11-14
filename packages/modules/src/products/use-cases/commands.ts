@@ -22,7 +22,7 @@ import {
   RepriceResult,
   type StatusInput
 } from "../domain/Commands.ts"
-import { type Row, SELECT, toRow } from "./products.ts"
+import { deliveryDays, type Row, SELECT, toRow } from "./products.ts"
 
 /*
  * The product commands (M7.3; api.md §2.5), at `products` Bewerken (archiving at Beheren), inside the role's stores.
@@ -60,11 +60,12 @@ const lock = Effect.fn("Products.lock")(function*(sql: SqlClient.SqlClient, ids:
 })
 
 const rowsOf = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) =>
-  Effect.map(
-    sql<Row>`select ${sql.literal(SELECT)} from products p join stores s on s.id = p.store_id
-             where p.id in ${sql.in([...ids])} order by p.title, p.id`,
-    (rows) => rows.map(toRow)
-  )
+  Effect.gen(function*() {
+    const rows = yield* sql<Row>`select ${sql.literal(SELECT)} from products p join stores s on s.id = p.store_id
+             where p.id in ${sql.in([...ids])} order by p.title, p.id`
+    const delivery = yield* deliveryDays(sql, ids)
+    return rows.map((r) => toRow(r, delivery))
+  })
 
 const audit = (sql: SqlClient.SqlClient, action: string, productId: string, diff?: Record<string, unknown>) =>
   Effect.flatMap(

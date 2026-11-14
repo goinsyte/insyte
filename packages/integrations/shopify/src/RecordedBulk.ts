@@ -2,8 +2,11 @@
  * A development store's bulk results, as Shopify writes them (JSONL, children after their parent with `__parentId`):
  * three products with four variants, three customers, and five orders across the lifecycle (paid and open, shipped,
  * delivered, refunded, cancelled), one of them without a customer. Two products have photographs (a featured one,
- * then the rest as `MediaImage` children); the third has none. The worker tests read them in pages small enough that a
- * line item lands in a later page than its order.
+ * then the rest as `MediaImage` children); the third has none. Each variant has stock, at one location or two, each
+ * count an `InventoryLevel` line after its variant; none is low, so a store's import alone raises no stock-out. The
+ * bag is made to order: Shopify does not track it, so its count of nothing is no stock-out either. The worker tests
+ * read them in pages small enough that a line item lands in a later page than its order, and a variant's second count
+ * in a later page than its first.
  */
 
 const gid = (type: string, id: number) => `gid://shopify/${type}/${id}`
@@ -42,15 +45,33 @@ const media = (id: number, productId: number, url: string) => ({
 const LINEN = ["1713881587420-113c1c43e28a", "1713881676551-b16f22ce4719", "1713881604560-085594ed2c3d"].map(photo)
 const WOOL = ["1620799140408-edc6dcb6d633", "1607160199580-1b0c9b736b66"].map(photo)
 
-const variant = (id: number, productId: number, title: string, sku: string, price: string, position: number) => ({
+const variant = (
+  id: number,
+  productId: number,
+  title: string,
+  sku: string,
+  price: string,
+  position: number,
+  tracked = true
+) => ({
   id: gid("ProductVariant", id),
   title,
   sku,
   price,
   compareAtPrice: null,
   position,
-  inventoryItem: { id: gid("InventoryItem", id) },
+  inventoryItem: { id: gid("InventoryItem", id), tracked },
   __parentId: gid("Product", productId)
+})
+
+/** One location's count of a variant's inventory item, last changed before the import. */
+const level = (variantId: number, location: number, available: number) => ({
+  id: `gid://shopify/InventoryLevel/${variantId}${location}?inventory_item_id=${variantId}`,
+  updatedAt: "2026-09-15T08:00:00Z",
+  item: { id: gid("InventoryItem", variantId) },
+  location: { id: gid("Location", location) },
+  quantities: [{ name: "available", quantity: available }],
+  __parentId: gid("ProductVariant", variantId)
 })
 
 const customer = (
@@ -145,14 +166,22 @@ const jsonl = (lines: ReadonlyArray<unknown>) => lines.map((l) => JSON.stringify
 export const RECORDED_BULK = {
   products: jsonl([
     product(1, "Linnen overhemd", "2026-09-01T00:00:00Z", LINEN[0]!, "Atelier Noord"),
-    variant(11, 1, "M", "LIN-M", "49.95", 1),
+    media(101, 1, LINEN[0]!),
+    // The L's two counts land in two pages (four lines each): nothing at the shop's own location, 38 at the second.
     variant(12, 1, "L", "LIN-L", "49.95", 2),
-    ...LINEN.map((url, i) => media(101 + i, 1, url)),
+    level(12, 900, 0),
+    level(12, 901, 38),
+    variant(11, 1, "M", "LIN-M", "49.95", 1),
+    level(11, 900, 24),
+    ...LINEN.slice(1).map((url, i) => media(102 + i, 1, url)),
     product(2, "Wollen trui", "2026-09-02T00:00:00Z", WOOL[0]!, "Wolhuis"),
     variant(21, 2, "Default Title", "WOL-1", "89.00", 1),
+    level(21, 900, 40),
     ...WOOL.map((url, i) => media(201 + i, 2, url)),
     product(3, "Canvas tas", "2026-09-03T00:00:00Z"),
-    variant(31, 3, "Default Title", "TAS-1", "24.50", 1)
+    // Made to order: Shopify does not count it, and its count stays at nothing.
+    variant(31, 3, "Default Title", "TAS-1", "24.50", 1, false),
+    level(31, 900, 0)
   ]),
   customers: jsonl([
     // Anna said yes to marketing at the checkout; the others did not (M7.5's consent).
@@ -206,6 +235,9 @@ export const RECORDED_BULK = {
 
 /** What the recorded store holds, as Shopify would count it. */
 export const RECORDED_COUNTS = { products: 3, variants: 4, customers: 3, orders: 5, lines: 6 } as const
+
+/** Each tracked variant's units over its locations after the import (inventory item id → available). */
+export const RECORDED_STOCK = { 11: 24, 12: 38, 21: 40 } as const
 
 /**
  * What Shopify holds now for an `upd-*` shop, where it differs from the import: order #1001 was shipped since (newer),

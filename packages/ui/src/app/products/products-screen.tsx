@@ -280,7 +280,8 @@ export function ProductsPage() {
   )
 }
 
-function StockBadge({ stock }: { stock: Stock }) {
+function StockBadge({ stock }: { stock: Stock | null }) {
+  if (stock === null) return <span className="text-ink-3">—</span>
   const map = {
     available: {
       label: "Op voorraad",
