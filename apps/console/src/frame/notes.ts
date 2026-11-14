@@ -1,6 +1,6 @@
 import { type AreaId, type Level } from "@insyte/domain/Permissions"
 import type { Note as ServerNote } from "@insyte/modules/notifications/domain/Notifications"
-import { dayName, money, monthName } from "@insyte/modules/notifications/domain/Words"
+import { budgetWords, dayName, money, monthName } from "@insyte/modules/notifications/domain/Words"
 import type { EventKey, Note } from "@insyte/ui/app/lib/notifications"
 import { permissionName } from "@insyte/ui/app/lib/permissions"
 
@@ -25,6 +25,8 @@ interface Sentence {
   /** Why it reached the member directly, and whether the detail is their teammate's own words. */
   readonly reason?: Note["reason"]
   readonly quote?: boolean
+  /** Insyte said it, and its name leads the sentence. */
+  readonly insyte?: boolean
 }
 
 /** A chargeback's reasons as the case names them. */
@@ -283,13 +285,26 @@ const sentence = (note: ServerNote): Sentence => {
           search: { view: "export" }
         }
     }
+    case "insyte.budget": {
+      // An AI budget at its warning or its limit (M15 step 1); the row opens Limieten.
+      const b = budgetWords(data)
+      return {
+        title: `ziet dat ${b.said}:`,
+        record: b.record,
+        detail: b.detail,
+        tone: "amber",
+        source: "insyte",
+        insyte: true,
+        to: "/settings/ai/limits"
+      }
+    }
     default:
       return { title: "heeft iets voor je", to: "/notifications" }
   }
 }
 
 export const toNote = (note: ServerNote): Note => {
-  const { title, to, detail, record, tone, source, person, org, search, reason, quote } = sentence(note)
+  const { title, to, detail, record, tone, source, person, org, search, reason, quote, insyte } = sentence(note)
   return {
     id: note.id,
     persona: "admin",
@@ -299,6 +314,8 @@ export const toNote = (note: ServerNote): Note => {
     event: note.kind as EventKey,
     ...(note.actor?.kind === "member"
       ? { actor: { kind: "member", id: note.actor.id, name: note.actor.name ?? "Iemand" } }
+      : insyte === true
+      ? { actor: { kind: "insyte" } }
       : person === undefined
       ? {}
       : { actor: { kind: "person", name: person, ...(org === undefined || org === "" ? {} : { org }) } }),
