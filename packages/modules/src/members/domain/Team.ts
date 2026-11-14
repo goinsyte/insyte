@@ -38,9 +38,10 @@ export class PendingInvitation extends Schema.Class<PendingInvitation>("members/
   url: Schema.NullOr(Schema.String)
 }) {}
 
-/** Active people plus open invitations take a seat; a lapsed invitation does not. */
+/** Active people plus open invitations take a seat; a lapsed invitation does not. `extra`: bought beyond the plan. */
 export class Seats extends Schema.Class<Seats>("members/Seats")({
   total: Schema.Int,
+  extra: Schema.Int,
   used: Schema.Int,
   active: Schema.Int,
   pending: Schema.Int,

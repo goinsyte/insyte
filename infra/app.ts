@@ -188,6 +188,22 @@ export default Alchemy.Stack(
       : {}
 
     /*
+     * Billing (M13 step 1): Insyte's own Stripe account, its secret key (test mode on staging) and the webhook
+     * endpoint's signing secret in the GitHub environment. Previews never call Stripe: they bill with the fake. A stage
+     * with the key but no signing secret could charge but never hear back, so the two go together.
+     */
+    const stripeKey = Option.filter(yield* Config.Redacted("STRIPE_SECRET_KEY").pipe(Config.option), set)
+    const stripeHook = Option.filter(yield* Config.Redacted("STRIPE_WEBHOOK_SECRET").pipe(Config.option), set)
+    if (environment !== "preview" && Option.isSome(stripeKey) !== Option.isSome(stripeHook)) {
+      return yield* Effect.die(
+        new Error(`Billing is half set up on ${stage}: STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET go together`)
+      )
+    }
+    const stripe = environment !== "preview" && Option.isSome(stripeKey) && Option.isSome(stripeHook)
+      ? { STRIPE_SECRET_KEY: stripeKey.value, STRIPE_WEBHOOK_SECRET: stripeHook.value }
+      : {}
+
+    /*
      * Insyte AI (M15 step 1, ADR-0015): Claude through the account's AI Gateway, which is made by hand per stage in the
      * dashboard with payload logging off. The Anthropic key (a secret) and the gateway's name (a variable) in the
      * GitHub environment; the gateway's token too where it is an authenticated one. With none of them a stage deploys
@@ -402,7 +418,10 @@ export default Alchemy.Stack(
         TURNSTILE_SITE_KEY: widget?.sitekey ?? "1x00000000000000000000AA",
         TURNSTILE_SECRET_KEY: widget?.secret ?? Redacted.make("1x0000000000000000000000000000000AA"),
         // Previews sit behind Access, and their browser tests all come from one CI runner: no limits per IP there.
-        IP_LIMITS: environment === "preview" ? "off" : "on"
+        IP_LIMITS: environment === "preview" ? "off" : "on",
+        // Billing's RPCs and `/hooks/stripe` are this Worker's alone (M13 step 1).
+        BILLING_ADAPTER: environment === "preview" ? "fake" : "stripe",
+        ...stripe
       }
     })
 

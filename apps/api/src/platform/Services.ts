@@ -21,6 +21,7 @@ import { WithDbLive } from "../transports/rpc/WithDbLive.ts"
 import { AnalysesLive } from "./Analyses.ts"
 import { AuthHooksLive } from "./AuthHooks.ts"
 import { AutomationRunsLive } from "./AutomationRuns.ts"
+import { BillingChoice } from "./Billing.ts"
 import { AppInfo, BetaSettings, ConfigLive } from "./Bindings.ts"
 import { ConnectionGateLive } from "./ConnectionGate.ts"
 import { DocumentsChoice, FileStoreR2 } from "./Documents.ts"
@@ -113,6 +114,8 @@ const onCore = <A, E, R>(layer: Layer.Layer<A, E, R>) =>
         LabelsChoice,
         // …and the brand's sending domain at Resend, for E-mail en domein (M17 step 20.1c).
         SendingDomainsChoice,
+        // …and Stripe, for Insyte's own billing and its webhooks (M13 step 1); loaded on first use.
+        BillingChoice,
         // …and the files bucket, for downloads (M8.5).
         FileStoreR2,
         // …and Browser Rendering, for the dev route's close of the supplier statements (M13 step 6).

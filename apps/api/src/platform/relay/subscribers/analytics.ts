@@ -97,6 +97,15 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
       properties: { action: "forward", count: event.legIds.length }
     },
   "records.changed": none,
+  // A trial turning into a paid subscription (M13 step 1); a later change of plan or seats is not a moment.
+  "billing.changed": (id, event) =>
+    !event.started || event.userId === null ? undefined : {
+      outboxId: id,
+      event: "subscription_started",
+      distinctId: event.userId,
+      groups: { workspace: event.workspaceId },
+      properties: { plan: event.plan ?? "unknown", cycle: event.cycle ?? "unknown" }
+    },
   "product.updated": none,
   "customer.updated": none,
   "customer.created": none,

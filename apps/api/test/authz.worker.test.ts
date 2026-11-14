@@ -3,6 +3,7 @@ import { AgentRpcs } from "@insyte/api/rpc/AgentRpcs"
 import { AnalyticsRpcs } from "@insyte/api/rpc/AnalyticsRpcs"
 import { AuditRpcs } from "@insyte/api/rpc/AuditRpcs"
 import { AutomationsRpcs } from "@insyte/api/rpc/AutomationsRpcs"
+import { BillingRpcs } from "@insyte/api/rpc/BillingRpcs"
 import { ChargebacksRpcs } from "@insyte/api/rpc/ChargebacksRpcs"
 import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
@@ -601,7 +602,21 @@ const PAYLOADS: Record<string, unknown> = {
   "Data.imports.restore": { importId: "imp_none" },
   "Data.export": { source: { import: "imp_none" }, columns: ["0"] },
   "Data.exports.list": {},
-  "Data.exports.get": { exportId: "exp_none" }
+  "Data.exports.get": { exportId: "exp_none" },
+  // Facturatie (M13 step 1): reading at Bekijken (an invoice's link at `billing.invoices`), every change at Beheren. The
+  // workspace is on its trial with five people: a plan or seats change that leaves too few seats is refused after the
+  // check, and there is nothing to cancel, resume or open in the portal, so nothing is subscribed.
+  "Billing.get": undefined,
+  "Billing.plans": undefined,
+  "Billing.invoices": {},
+  "Billing.invoiceUrl": { id: "in_none" },
+  "Billing.previewChange": { _tag: "seats", delta: 1 },
+  "Billing.changePlan": { plan: "starter", cycle: "monthly" },
+  "Billing.addSeats": { n: 1 },
+  "Billing.removeSeats": { n: 1 },
+  "Billing.cancel": { reason: "other" },
+  "Billing.resume": undefined,
+  "Billing.portalSession": undefined
 }
 
 const manifest = [
@@ -643,7 +658,8 @@ const manifest = [
   ...LiveRpcs.requests.keys(),
   ...AgentRpcs.requests.keys(),
   ...PrivacyRpcs.requests.keys(),
-  ...DataRpcs.requests.keys()
+  ...DataRpcs.requests.keys(),
+  ...BillingRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

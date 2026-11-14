@@ -9,6 +9,11 @@ const realtime = (event: Extract<OutboxEvent, { type: "records.changed" }>) =>
     roomOf(event.workspaceId).broadcast({ v: 1, type: "records.changed", kind: event.kind, ids: [...event.ids] })
   ).pipe(Effect.withSpan("Relay.realtime"))
 
+/** The workspace's subscription changed (M13 step 1): the billing page and the team's seats refetch. */
+const billing = (event: Extract<OutboxEvent, { type: "billing.changed" }>) =>
+  Effect.promise(() => roomOf(event.workspaceId).broadcast({ v: 1, type: "records.changed", kind: "billing", ids: [] }))
+    .pipe(Effect.withSpan("Relay.realtime.billing"))
+
 /** A supplier portal's record changed (M16): the same frame, to that supplier's room only. */
 const partner = (event: Extract<OutboxEvent, { type: "partner.changed" }>) =>
   Effect.promise(() =>
@@ -28,6 +33,7 @@ const revoked = (event: Extract<OutboxEvent, { type: "supplier.contact_revoked" 
 
 export const Realtime = subscriber("realtime", {
   "records.changed": (_id, event) => realtime(event),
+  "billing.changed": (_id, event) => billing(event),
   "partner.changed": (_id, event) => partner(event),
   "supplier.contact_revoked": (_id, event) => revoked(event)
 })

@@ -19,6 +19,7 @@
     "@insyte/integrations-anthropic": "workspace:*",
     "@insyte/integrations-ecb": "workspace:*",
     "@insyte/integrations-sendcloud": "workspace:*",
+    "@insyte/integrations-stripe": "workspace:*",
     "@insyte/integrations-supplier-api": "workspace:*",
     "@insyte/integrations-posthog": "workspace:*",
     "@insyte/integrations-resend": "workspace:*",

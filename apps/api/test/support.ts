@@ -88,3 +88,17 @@ export const rpc = <K extends keyof Client>(name: K, payload: Parameters<Client[
   }).pipe(Effect.scoped, Effect.provide(RpcProtocol), Effect.runPromiseExit) as Promise<
     Exit.Exit<Effect.Success<ReturnType<Client[K]>>, Effect.Error<ReturnType<Client[K]>>>
   >
+
+/** A console RPC sent with other credentials than a session (an API key's `Bearer`, say): what it must refuse. */
+export const rpcWith = <K extends keyof Client>(
+  name: K,
+  payload: Parameters<Client[K]>[0],
+  headers: Record<string, string>
+) =>
+  Effect.gen(function*() {
+    const client = (yield* RpcClient.make(ConsoleRpcs)) as unknown as Record<
+      string,
+      (payload: unknown, options: { headers: Record<string, string> }) => Effect.Effect<unknown, unknown>
+    >
+    return yield* client[name]!(payload, { headers })
+  }).pipe(Effect.scoped, Effect.provide(RpcProtocol), Effect.runPromiseExit)

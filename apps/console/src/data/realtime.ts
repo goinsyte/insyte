@@ -5,6 +5,7 @@ import { Socket } from "effect/socket"
 import { ACCESS } from "./access.ts"
 import { AGENT_LOG, AI_BUDGETS, AUTONOMY } from "./agent.ts"
 import { ANALYTICS } from "./analytics.ts"
+import { BILLING } from "./billing.ts"
 import { CHARGEBACKS } from "./chargebacks.ts"
 import { CHAT_PAGES, chatKey, CHATS, type Typing, TYPING_MS, typingAtom } from "./chats.ts"
 import { ConsoleClient } from "./client.ts"
@@ -48,6 +49,8 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   role: [...ROLES, ...TEAM, ...COURSES],
   access_request: [...ACCESS, ...ACCESS_LIST],
   api_key: KEYS,
+  // Stripe said the subscription or an invoice changed (M13 step 1): the page, and the team's seats that follow it.
+  billing: [...BILLING, ...TEAM],
   // An endpoint changed, or an attempt to it came back (M19.4).
   webhook_endpoint: WEBHOOKS,
   // A store's pixel installed or repaired is a store change; a sale is Live's feed and figures (M14 step 3).

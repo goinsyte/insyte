@@ -53,6 +53,7 @@ import { AgentHandlers } from "./handlers/agent.ts"
 import { AnalyticsHandlers } from "./handlers/analytics.ts"
 import { AuditHandlers } from "./handlers/audit.ts"
 import { AutomationsHandlers } from "./handlers/automations.ts"
+import { BillingHandlers } from "./handlers/billing.ts"
 import { ChargebacksHandlers } from "./handlers/chargebacks.ts"
 import { ChatsHandlers } from "./handlers/chats.ts"
 import { CommerceHandlers } from "./handlers/commerce.ts"
@@ -151,6 +152,8 @@ export const RpcContext = Layer.mergeAll(
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
   WorkspacesHandlers.pipe(Layer.provide(WorkspaceSettings.layer)),
   CostsHandlers.pipe(Layer.provide(CostsService.layer)),
+  // Facturatie (M13 step 1): the slice loads with the first billing call (`handlers/billing.ts`).
+  BillingHandlers,
   AuditHandlers.pipe(Layer.provide(AuditService.layer)),
   TrashHandlers.pipe(Layer.provide(TrashService.layer)),
   PrivacyHandlers.pipe(Layer.provide(PrivacyService.layer)),

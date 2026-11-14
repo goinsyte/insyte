@@ -4,8 +4,8 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
-import { seatsOf } from "../../shared/domain/Billing.ts"
 import { narrowStores, withinScope } from "../../shared/domain/Stores.ts"
+import { seatCount } from "../../shared/use-cases/Seats.ts"
 import { storeChoices } from "../../shared/use-cases/StoreScope.ts"
 import { InvitationLinks } from "../domain/Ports.ts"
 import { InviteLink, PendingInvitation, Seats, type StoreAccess, Team, TeamMember, TeamRole } from "../domain/Team.ts"
@@ -50,19 +50,18 @@ interface LinkRow {
   readonly joinedCount: number
 }
 
-/** The seats, as `Seats`: active people plus open invitations that have not lapsed, against the plan's seats. */
+/** The seats, as `Seats`: active people plus open invitations that have not lapsed, against the plan's and extra seats. */
 export const seatsIn = Effect.fn("Members.seats")(function*(sql: SqlClient.SqlClient) {
-  const [row] = yield* sql<{ plan: string; active: number; pending: number }>`
-    select w.plan,
-           (select count(*)::int from members where removed_at is null and deactivated_at is null) as active,
-           (select count(*)::int from invitations
-              where accepted_at is null and revoked_at is null and declined_at is null and expires_at > now()) as pending
-    from workspaces w`
-  const total = seatsOf(row?.plan ?? "trial")
-  const active = row?.active ?? 0
-  const pending = row?.pending ?? 0
-  const used = active + pending
-  return new Seats({ total, used, active, pending, free: Math.max(0, total - used), full: used >= total })
+  const c = yield* seatCount(sql)
+  return new Seats({
+    total: c.total,
+    extra: c.extra,
+    used: c.used,
+    active: c.active,
+    pending: c.pending,
+    free: c.free,
+    full: c.full
+  })
 })
 
 interface RoleRow {
