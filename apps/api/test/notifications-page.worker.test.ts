@@ -93,6 +93,24 @@ describe("the notifications page", () => {
     ok(await rpc("Notifications.setRead", { ids: [note!.id], read: true }, store.cookie))
     expect((await tab(store.cookie, "inbox")).items.find((n) => n.id === note!.id)?.read).toBe(true)
     expect(ok(await rpc("Notifications.counts", undefined, store.cookie)).unread).toBe(before.unread)
+
+    // Set aside a second time, it comes back unread a second time.
+    ok(await rpc("Notifications.snooze", { ids: [note!.id], until: Date.now() + 1_000 }, store.cookie))
+    await new Promise((resolve) => setTimeout(resolve, 1_300))
+    expect((await tab(store.cookie, "inbox")).items.find((n) => n.id === note!.id)?.read).toBe(false)
+    ok(await rpc("Notifications.setRead", { ids: [note!.id], read: true }, store.cookie))
+
+    // Cleared from Later, it stays read in Gewist when its old time comes.
+    ok(await rpc("Notifications.snooze", { ids: [note!.id], until: Date.now() + 1_000 }, store.cookie))
+    ok(await rpc("Notifications.clear", { ids: [note!.id] }, store.cookie))
+    await new Promise((resolve) => setTimeout(resolve, 1_300))
+    expect((await tab(store.cookie, "cleared")).items.find((n) => n.id === note!.id)).toMatchObject({
+      state: "cleared",
+      read: true,
+      snoozedUntil: null
+    })
+    ok(await rpc("Notifications.restore", { ids: [note!.id] }, store.cookie))
+    expect(ok(await rpc("Notifications.counts", undefined, store.cookie)).unread).toBe(before.unread)
   })
 
   it("lists a note about a store's record only for who reaches that store, and nobody else's by its id", async () => {

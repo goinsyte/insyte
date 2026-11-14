@@ -12,6 +12,7 @@ import {
   type SetRead,
   type Snooze
 } from "../domain/Notifications.ts"
+import { inTab, isRead, readNow, stateOf } from "./state.ts"
 
 /*
  * The member's own notifications (M5.2): a tab at a time, newest first, 50 per page (or as many as the page asks, up
@@ -20,21 +21,6 @@ import {
  */
 
 const PAGE = 50
-
-/** A row's tab, as of now: cleared, set aside until a time still ahead, or in the inbox. */
-const STATE = `case when n.archived_at is not null then 'cleared'
-                    when n.snoozed_until > now() then 'later'
-                    else 'inbox' end`
-
-/**
- * Whether a row is read, as of now: a note set aside comes back unread once its time has come (PLAN 10, "Later"), so
- * a read before it woke does not count; read again after, it is.
- */
-const READ = `(n.read_at is not null
-                and (n.snoozed_until is null or n.snoozed_until > now() or n.read_at >= n.snoozed_until))`
-
-/** `read_at` for a row being read: kept when it is read already, now when it is not. */
-const READ_NOW = `case when ${READ} then n.read_at else now() end`
 
 interface Row {
   readonly id: string
@@ -77,10 +63,10 @@ const parseCursor = (cursor: string | null) => {
 export const readCounts = (sql: SqlClient.SqlClient) =>
   Effect.map(
     sql<{ unread: number; primaryKinds: Array<string>; later: number }>`
-      select (count(*) filter (where not ${sql.unsafe(READ)} and ${sql.unsafe(STATE)} = 'inbox'))::int as unread,
-             coalesce(array_agg(n.kind) filter (where not ${sql.unsafe(READ)} and ${sql.unsafe(STATE)} = 'inbox'), '{}')
+      select (count(*) filter (where not ${isRead(sql)} and ${inTab(sql, "inbox")}))::int as unread,
+             coalesce(array_agg(n.kind) filter (where not ${isRead(sql)} and ${inTab(sql, "inbox")}), '{}')
                as primary_kinds,
-             (count(*) filter (where ${sql.unsafe(STATE)} = 'later'))::int as later
+             (count(*) filter (where ${inTab(sql, "later")}))::int as later
       from notifications n`,
     ([row]) =>
       new NoteCounts({
@@ -98,11 +84,11 @@ export const list = Effect.fn("Notifications.list")(function*(input: ListNotes) 
     Effect.map(
       sql<Row>`
         select n.id, n.kind, n.subject_type, n.subject_id, n.actor_kind, n.actor_id, u.name as actor_name, n.data,
-               n.created_at, ${sql.unsafe(READ)} as read, ${sql.unsafe(STATE)} as state, n.snoozed_until
+               n.created_at, ${isRead(sql)} as read, ${stateOf(sql)} as state, n.snoozed_until
         from notifications n
         left join members m on n.actor_kind = 'member' and m.id = n.actor_id
         left join auth."user" u on u.id = m.user_id
-        where ${sql.unsafe(STATE)} = ${input.tab}
+        where ${inTab(sql, input.tab)}
           ${after === null ? sql`` : sql`and (n.created_at, n.id) < (${after.at}, ${after.id})`}
         order by n.created_at desc, n.id desc
         limit ${size + 1}`,
@@ -134,7 +120,7 @@ export const setRead = Effect.fn("Notifications.setRead")(function*(input: SetRe
   return yield* over(
     input.ids,
     (sql) =>
-      sql`update notifications n set read_at = ${input.read ? sql.unsafe(READ_NOW) : null}
+      sql`update notifications n set read_at = ${input.read ? readNow(sql) : null}
         where n.id in ${sql.in(input.ids)}`
   )
 })
@@ -143,20 +129,19 @@ export const markAllRead = Effect.fn("Notifications.markAllRead")(function*() {
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.andThen(
-      sql`update notifications n set read_at = now() where not ${sql.unsafe(READ)} and ${sql.unsafe(STATE)} = 'inbox'`,
+      sql`update notifications n set read_at = now() where not ${isRead(sql)} and ${inTab(sql, "inbox")}`,
       readCounts(sql)
     )
   )
 })
 
-/** Cleared: out of the inbox, kept in Gewist. */
+/** Cleared: out of the inbox (or out of Later, its time dropped), kept in Gewist, read. */
 export const clear = Effect.fn("Notifications.clear")(function*(ids: ReadonlyArray<string>) {
   return yield* over(
     ids,
     (sql) =>
-      sql`update notifications n set archived_at = now(), read_at = ${sql.unsafe(READ_NOW)} where n.id in ${
-        sql.in(ids)
-      }`
+      sql`update notifications n set archived_at = now(), snoozed_until = null, read_at = ${readNow(sql)}
+        where n.id in ${sql.in(ids)}`
   )
 })
 
