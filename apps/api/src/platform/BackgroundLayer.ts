@@ -1,4 +1,4 @@
-import { Layer, ManagedRuntime } from "effect"
+import { Effect, Layer, ManagedRuntime } from "effect"
 import { AdSpendLive } from "./AdSpend.ts"
 import { AutomationRunsLive } from "./AutomationRuns.ts"
 import { BackfillsLive } from "./Backfills.ts"
@@ -20,7 +20,6 @@ import { SealerLive } from "./Seal.ts"
 import { SendingDomainsChoice } from "./SendingDomains.ts"
 import { ShopifyAdminChoice, ShopifyGraphqlChoice } from "./Shopify.ts"
 import { ShopifyWritesLive } from "./ShopifyWrites.ts"
-import { SliceLinks } from "./SliceLinks.ts"
 import { TrackingChoice } from "./Tracking.ts"
 import { WebhookRunsLive, WebhookSenderChoice } from "./Webhooks.ts"
 
@@ -79,6 +78,15 @@ const BackgroundLayer = onInfra(Layer.mergeAll(
 ))
 
 /**
+ * The links between slices (`SliceLinks.ts`), imported when the sync runtime is first built, not when the jobs Worker
+ * starts (ADR-0041 §3): they reach into nearly every slice's commands (each one's Undo, a filed plate's command), which
+ * only a Workflow's step ever runs here.
+ */
+const SliceLinksOnFirstUse = Layer.unwrap(
+  Effect.promise(() => import("./SliceLinks.ts")).pipe(Effect.map((m) => m.SliceLinks))
+)
+
+/**
  * What the backfill Workflow's steps run on (M6.3): the background services, Shopify's bulk operations, and the gate
  * every call passes (`ConnectionGate.ts`), which holds the account's token and bucket.
  */
@@ -101,7 +109,7 @@ export const SyncLayer = onInfra(Layer.mergeAll(
   // An export's parts joined into its file (M14 step 5).
   FilePartsR2,
   // Where one slice's need meets another's use case: the mirror's followers, a write-back's read again.
-  SliceLinks.pipe(Layer.provide(LabelsChoice)),
+  SliceLinksOnFirstUse.pipe(Layer.provide(LabelsChoice)),
   // A webhook delivery's attempt (M19.4): the endpoint, over fetch.
   WebhookSenderChoice,
   // A workspace's deletion (M17 step 5): each provider's grant given back before the tokens go.

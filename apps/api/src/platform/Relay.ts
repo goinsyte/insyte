@@ -5,7 +5,7 @@ import { isWebhookSource, startFor as startWebhookRuns } from "@insyte/modules/d
 import { type OutboxEvent, Relay } from "@insyte/modules/shared/domain/Outbox"
 import { env, waitUntil } from "cloudflare:workers"
 import { Effect, Layer, Schema } from "effect"
-import { ROUTES } from "./relay/registry.ts"
+import type * as Registry from "./relay/registry.ts"
 
 /*
  * The outbox relay (M1.4). A use case's committed events are kicked onto the `EVENTS` queue (`RelayLive`); the minute
@@ -15,8 +15,20 @@ import { ROUTES } from "./relay/registry.ts"
  * hold the event's transaction open (a webhook delivery's run, a model call) runs after it, once.
  *
  * This is the core: the kick, the claim and the sweep. The sinks are subscribers, one file per slice in
- * `relay/subscribers/`, listed in `relay/registry.ts` in the order they run (ADR-0041).
+ * `relay/subscribers/`, listed in `relay/registry.ts` in the order they run (ADR-0041). The registry, and every
+ * slice's sink with it, is imported on the first delivery an isolate makes, not when a Worker starts (ADR-0041 §3):
+ * the API and the public Worker only kick, and never load it.
  */
+
+let loading: Promise<typeof Registry> | undefined
+
+/** The sinks by event type (`relay/registry.ts`), loaded once per isolate; a load that fails is tried again. */
+const routes = Effect.promise(() =>
+  loading ??= import("./relay/registry.ts").catch((error: unknown) => {
+    loading = undefined
+    throw error
+  })
+)
 
 /**
  * What goes onto `EVENTS`: committed events to deliver, or a ticket to classify (M15 step 2), which the consumer runs
@@ -57,6 +69,7 @@ const MAX_DELAY_SECONDS = 43_200
  */
 export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyArray<string>) {
   const db = yield* Db
+  const { ROUTES } = yield* routes
   const owners = yield* db.unscopedForCron((sql) =>
     sql<{ id: string; workspaceId: string }>`select id, workspace_id from outbox_workspaces(${[...outboxIds]})`
   )
