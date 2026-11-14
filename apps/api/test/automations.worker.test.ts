@@ -1,3 +1,4 @@
+import { UNDO_SECONDS } from "@insyte/modules/shared/domain/Undo"
 import { env } from "cloudflare:workers"
 import { beforeAll, describe, expect, it, vi } from "vitest"
 import { consume, failure, join, ok, outboxOf, pastUndo, person, productEventsOf, relay, run } from "./journeys.ts"
@@ -175,10 +176,17 @@ describe("automations", () => {
       e.event === "automation.published" && !e.due && !e.cancelled
     )
     expect(early).toHaveLength(1)
-    const send = vi.spyOn(env.EVENTS, "send")
+    // Mocked: the delayed copy is asserted, not left to land in the test queue later.
+    const sendBatch = vi.spyOn(env.EVENTS, "sendBatch").mockResolvedValue(undefined as never)
     expect((await consume(early.map((e) => e.id))).ackAll).toBe(true)
-    expect(send).toHaveBeenCalledWith({ outboxIds: [early[0]!.id] }, { delaySeconds: expect.any(Number) })
-    send.mockRestore()
+    expect(sendBatch).toHaveBeenCalledTimes(1)
+    const [sent] = sendBatch.mock.calls[0]!
+    expect([...sent].map((m) => m.body)).toEqual([{ outboxIds: [early[0]!.id] }])
+    // What is left of the undo window: more than nothing, no more than the window, and so under Queues' 12 hours.
+    const delay = [...sent][0]!.delaySeconds!
+    expect(delay).toBeGreaterThanOrEqual(1)
+    expect(delay).toBeLessThanOrEqual(Math.min(UNDO_SECONDS, 43_200))
+    sendBatch.mockRestore()
 
     // The first publication's event leaves once the window has passed; the undone one's never does.
     await pastUndo(workspace)
