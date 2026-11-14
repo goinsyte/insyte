@@ -1,4 +1,5 @@
 import { Context, type Effect, Schema } from "effect"
+import { RetryFields } from "./MailRetry.ts"
 
 /*
  * What a committed write tells the rest of the system (M1.3–M1.4): an outbox event per fact, written in the use case's
@@ -322,7 +323,9 @@ export const OutboxEvent = Schema.Union([
     type: Schema.Literal("order.delay_mail"),
     workspaceId: Schema.String,
     userId: Schema.String,
-    mailId: Schema.String
+    mailId: Schema.String,
+    /** Set on a try again after the provider was busy (`MailRetry.ts`). */
+    ...RetryFields
   }),
   // The team's mail to a shopper about an order (M7 9.1: a track-and-trace update, or their own words): sent once the
   // undo window has passed.
@@ -331,8 +334,8 @@ export const OutboxEvent = Schema.Union([
     workspaceId: Schema.String,
     userId: Schema.String,
     mailId: Schema.String,
-    /** Set on a send tried again after the provider was busy (429, 5xx): the how-manyth try this is. */
-    attempt: Schema.optional(Schema.Int)
+    /** Set on a try again after the provider was busy (`MailRetry.ts`). */
+    ...RetryFields
   }),
   // A person filed a plate (M10.2): the command it carried ran as them. Product analytics counts it.
   Schema.Struct({
@@ -347,7 +350,9 @@ export const OutboxEvent = Schema.Union([
     type: Schema.Literal("thread.message_queued"),
     workspaceId: Schema.String,
     userId: Schema.String,
-    messageId: Schema.String
+    messageId: Schema.String,
+    /** Set on a try again after the provider was busy (`MailRetry.ts`). */
+    ...RetryFields
   }),
   // A chargeback opened (M13 step 3): whoever handles chargebacks hears of it, once one opened by hand has waited out
   // its undo window; `by` is who opened it (null for a provider's), who does not hear of their own.
@@ -520,6 +525,13 @@ export type OutboxEvent = typeof OutboxEvent.Type
 export class Relay extends Context.Service<Relay, {
   /** `afterSeconds`: the events wait out an undo window (`outbox.not_before`), so the queue holds them that long. */
   readonly kick: (outboxIds: ReadonlyArray<string>, options?: { readonly afterSeconds?: number }) => Effect.Effect<void>
+  /**
+   * Each event onto the queue on its own, with its own delay: a bulk spread over time (a selection's mails, one a
+   * second) arrives as it was spread, not ten at a time.
+   */
+  readonly kickEach: (
+    events: ReadonlyArray<{ readonly outboxId: string; readonly afterSeconds: number }>
+  ) => Effect.Effect<void>
 }>()("shared/Relay") {}
 
 /**

@@ -99,6 +99,9 @@ describe("Resend", () => {
 const mailer = (http: Layer.Layer<HttpClient.HttpClient>) =>
   ResendMailer.pipe(Layer.provide(http), Layer.provide(config))
 
+/** Resend's 409 for a key, by its name. */
+const answer = (name: string) => () => Promise.resolve(Response.json({ name, message: "idempotency" }, { status: 409 }))
+
 const sendWith = (http: Layer.Layer<HttpClient.HttpClient>, mail: Mail) =>
   Effect.runPromiseExit(
     Effect.flatMap(Effect.service(Mailer), (m) => m.send(mail)).pipe(Effect.provide(mailer(http)))
@@ -275,6 +278,18 @@ describe("ResendMailer", () => {
     const noFacts = await sendWith(http, { kind: "team.invite", to: "eva@example.com", url })
     expect(Exit.isFailure(noFacts) && JSON.stringify(noFacts.cause)).toContain("team.invite needs its facts")
     expect(seen).toHaveLength(0)
+  })
+
+  it("takes a key Resend has already used for this mail as sent, and one still being sent as worth trying again", async () => {
+    const mail: Mail = { kind: "auth.reset", to: "eva@example.com", url }
+    // Its key used already with other words (a try whose answer was lost, its words rendered since): the mail went.
+    expect(Exit.isSuccess(await sendWith(fakeResend(answer("invalid_idempotent_request")), mail))).toBe(true)
+    // The first try still under way: not refused, tried again later.
+    const concurrent = await sendWith(fakeResend(answer("concurrent_idempotent_requests")), mail)
+    expect(Exit.isFailure(concurrent) && JSON.stringify(concurrent.cause)).toContain("\"retryable\":true")
+    // Any other 409 is a refusal.
+    const other = await sendWith(fakeResend(answer("conflict")), mail)
+    expect(Exit.isFailure(other) && JSON.stringify(other.cause)).not.toContain("retryable")
   })
 })
 

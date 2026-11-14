@@ -7,7 +7,7 @@ import { AppInfo } from "../../../platform/Bindings.ts"
 import { parseMail } from "../../../platform/InboundMail.ts"
 import { busyReferences, capturedSenders, refusedReferences, refusedSenderDomains } from "../../../platform/Mail.ts"
 import { withRequestDb } from "../../../platform/RequestDb.ts"
-import { notInProduction } from "./shared.ts"
+import { devOnly, notInProduction } from "./shared.ts"
 
 /**
  * `GET /api/__dev/mail?to=<address>`: the mails the capture adapter "sent" to one address, newest first. For the
@@ -52,17 +52,14 @@ const CapturedMail = HttpRouter.add(
 /**
  * `POST /api/__dev/mail/refuse?reference=<id>`: the capture adapter refuses one record's mails from now on (an order's
  * delay mail, M10.2), as a bouncing address would, so a mail that does not go can be tried; `&off=1` takes it back.
- * `&busy=1`: the provider is busy for them instead (Resend's 429), so a mail tried again later can be. Refused in
- * production.
+ * `&busy=1`: the provider is busy for them instead (Resend's 429), so a mail tried again later can be. Only where
+ * nothing real lives (`devOnly`).
  */
 const MailRefuse = HttpRouter.add(
   "POST",
   "/api/__dev/mail/refuse",
   Effect.gen(function*() {
-    const { environment } = yield* AppInfo
-    if (environment === "production") {
-      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
-    }
+    if (!(yield* devOnly)) return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
     const request = yield* HttpServerRequest.HttpServerRequest
     const query = new URL(request.url, "http://local").searchParams
     const reference = query.get("reference") ?? ""

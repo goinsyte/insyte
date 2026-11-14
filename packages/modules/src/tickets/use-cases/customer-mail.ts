@@ -1,4 +1,5 @@
 import { Db } from "@insyte/database/Db"
+import { Conflict } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
@@ -27,7 +28,8 @@ import { rowsOf } from "./tickets.ts"
  * ticket's customer, else its order's, each read inside the member's own stores. The mail goes from the team's mailbox
  * (`TicketMail`, the inbox): in the ticket's thread with the shopper, else in a new thread linked to the ticket (a
  * thread with a supplier is not the shopper's), so the answer lands in the inbox beside it. The caller's `mailId` makes
- * asking twice send once. On the same transaction the ticket waits on that answer (`awaiting_reply`) and its activity
+ * asking twice send once, also after an undo: asked again with it then, or with another message's, is
+ * `Conflict{ mail_id_taken }`. On the same transaction the ticket waits on that answer (`awaiting_reply`) and its activity
  * keeps the line the design writes. The mail waits out the undo window; one undo (`tickets.mailed`) takes the mail, the
  * status and the line back together.
  */
@@ -56,6 +58,12 @@ export const emailCustomer = Effect.fn("Tickets.emailCustomer")(function*(input:
             outboxId: null
           }
         }
+        // Mailed with it and undone since (the message is gone, the audit line stays): a late second ask sends nothing.
+        const [undone] = yield* sql`
+          select 1 from audit_events
+          where subject_type = 'ticket' and subject_id = ${l!.id} and action = 'ticket.customer_emailed'
+            and diff ->> 'mail' = ${input.mailId} limit 1`
+        if (undone !== undefined) return yield* new Conflict({ entity: "email_message", reason: "mail_id_taken" })
       }
       const orders = yield* inScope(sql, "o.store_id")
       const customers = yield* inScope(sql, "c.store_id")
@@ -112,7 +120,7 @@ export const emailCustomer = Effect.fn("Tickets.emailCustomer")(function*(input:
         action: "ticket.customer_emailed",
         subjectType: "ticket",
         subjectId: l!.id,
-        diff: { thread: sent.threadId, status: [l!.status, "awaiting_reply"] }
+        diff: { thread: sent.threadId, mail: sent.messageId, status: [l!.status, "awaiting_reply"] }
       })
       const ticket: TicketsRestore = { kind: "fields", tickets: [before(l!)] }
       const undo = yield* Undo.issue(sql, {

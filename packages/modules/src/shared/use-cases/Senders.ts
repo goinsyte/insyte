@@ -26,13 +26,19 @@ const lapse = (sql: SqlClient.SqlClient) =>
       set value = jsonb_set(jsonb_set(value, '{domain,verified}', 'false'::jsonb), '{domain,readAt}', '0'::jsonb)
       where section = 'domain_senders' and jsonb_typeof(value -> 'domain') = 'object'`
 
+/**
+ * `from`: the brand's address a mail tried before went from (`null`: Insyte's), so a try again is the same mail under
+ * the same idempotency key, whatever E-mail en domein says by now; left out, as it says.
+ */
 export const sendToCustomer = Effect.fn("Senders.sendToCustomer")(function*(
   sql: SqlClient.SqlClient,
-  mail: Mail
+  mail: Mail,
+  options?: { readonly from?: string | null }
 ) {
   const mailer = yield* Mailer
-  const senders = yield* customerSender(sql, mail.kind)
-  const { from, ...rest } = senders
+  const { from: now, ...rest } = yield* customerSender(sql, mail.kind)
+  const from = options?.from === undefined ? now : options.from ?? undefined
+  const senders = { ...rest, ...(from === undefined ? {} : { from }) }
   return yield* mailer.send({ ...mail, ...senders }).pipe(
     Effect.catchTag("MailNotSent", (error) =>
       error.senderRefused !== true || from === undefined

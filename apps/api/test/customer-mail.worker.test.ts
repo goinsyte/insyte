@@ -263,7 +263,8 @@ describe("mail the shopper", () => {
     const to = by("#1003").customerEmail!
     expect(await mailsAbout(to, mailId)).toEqual([])
     const retry = (await mailEvents(store.workspace)).filter((e) => e.relayedAt === null && !e.cancelled)
-    expect(retry.map((e) => e.payload)).toEqual([expect.objectContaining({ mailId, attempt: 2 })])
+    // The try again keeps the sender the first went from (none of the brand's here: Insyte's).
+    expect(retry.map((e) => e.payload)).toEqual([expect.objectContaining({ mailId, attempt: 2, from: null })])
     expect(retry[0]!.due).toBe(false)
     await dev(`refuse?reference=${mailId}&busy=1&off=1`)
     await pastUndo(store.workspace)
@@ -328,7 +329,8 @@ describe("mail the shopper", () => {
     })
 
     // Mailed: the ticket waits on the answer, its activity says so, the thread is linked to it. Undo takes all back.
-    const mailed = ok(await rpc("Tickets.emailCustomer", { id: ticket.id }, store.cookie))
+    const undoneId = mintId("eml")
+    const mailed = ok(await rpc("Tickets.emailCustomer", { id: ticket.id, mailId: undoneId }, store.cookie))
     expect(mailed.ticket.status).toBe("awaiting_reply")
     expect(mailed.to).toBe(order.customerEmail)
     const thread = ok(await rpc("Threads.get", { id: mailed.threadId }, store.cookie))
@@ -342,6 +344,9 @@ describe("mail the shopper", () => {
     expect(back.ticket.status).toBe(ticket.status)
     expect(back.comments.filter((c) => c.kind === "email_sent")).toEqual([])
     expect(failure(await rpc("Threads.get", { id: mailed.threadId }, store.cookie))).toMatchObject({ _tag: "NotFound" })
+    // A late second ask with the undone mail's id sends nothing.
+    expect(failure(await rpc("Tickets.emailCustomer", { id: ticket.id, mailId: undoneId }, store.cookie)))
+      .toMatchObject({ _tag: "Conflict", reason: "mail_id_taken" })
 
     // Mailed for good, with the team's own words: it leaves after the window.
     const own = ok(
@@ -370,6 +375,35 @@ describe("mail the shopper", () => {
     expect(twice).toMatchObject({ threadId: own.threadId, to: order.customerEmail, undo: null })
     const shopperThread = ok(await rpc("Threads.get", { id: own.threadId }, store.cookie))
     expect(shopperThread.messages.filter((m) => m.id === mailId)).toHaveLength(1)
+    // Another ticket asking with that id is refused, and nothing of it is kept.
+    const sibling = ok(
+      await rpc("Tickets.create", { title: "Nog een vraag", related: { type: "order", id: order.id } }, store.cookie)
+    ).tickets[0]!
+    expect(failure(await rpc("Tickets.emailCustomer", { id: sibling.id, mailId }, store.cookie))).toMatchObject({
+      _tag: "Conflict",
+      reason: "mail_id_taken"
+    })
+    expect(ok(await rpc("Tickets.get", { id: sibling.id }, store.cookie)).ticket.status).toBe(sibling.status)
+
+    // The provider busy (429): the message stays in line, is tried again from the same sender, and goes once.
+    await dev(`refuse?reference=${mailId}&busy=1`)
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    const waiting = ok(await rpc("Threads.get", { id: own.threadId }, store.cookie)).messages.find((m) =>
+      m.id === mailId
+    )
+    expect(waiting).toMatchObject({ sendState: "scheduled" })
+    const again = (await outboxOf(store.workspace)).filter((e) =>
+      e.event === "thread.message_queued" && e.relayedAt === null && !e.cancelled
+    )
+    expect(again.map((e) => e.payload)).toEqual([
+      expect.objectContaining({ messageId: mailId, attempt: 2, from: null })
+    ])
+    await dev(`refuse?reference=${mailId}&busy=1&off=1`)
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    const out = ok(await rpc("Threads.get", { id: own.threadId }, store.cookie)).messages.find((m) => m.id === mailId)
+    expect(out).toMatchObject({ sendState: "sent" })
 
     // A member held to another store does not find a ticket of this one.
     const fenced = await fencedMember(store, "ticket")

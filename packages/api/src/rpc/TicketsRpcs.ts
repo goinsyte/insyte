@@ -1,4 +1,4 @@
-import { Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
+import { Conflict, Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
 import { MailboxDisconnected, NoMailbox } from "@insyte/modules/inbox/domain/Inbox"
 import { CustomerEmailed, EmailCustomerInput, NoCustomerAddress } from "@insyte/modules/tickets/domain/CustomerMail"
 import {
@@ -86,7 +86,7 @@ export class TicketsRpcs extends RpcGroup.make(
   Rpc.make("Tickets.emailCustomer", {
     payload: EmailCustomerInput,
     success: CustomerEmailed,
-    error: Schema.Union([Forbidden, NotFound, Invalid, NoCustomerAddress, NoMailbox, MailboxDisconnected])
+    error: Schema.Union([Forbidden, NotFound, Invalid, Conflict, NoCustomerAddress, NoMailbox, MailboxDisconnected])
   })
 )
   .middleware(Member)

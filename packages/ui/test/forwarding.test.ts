@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { mailDialogState, type MailRow } from "../src/app/lib/forwarding-mail.ts"
+import { canSend, mailDialogState, type MailRow } from "../src/app/lib/forwarding-mail.ts"
 import {
   cancel,
   confirm,
@@ -102,5 +102,13 @@ describe("Klant mailen's dialog", () => {
     const served = { to: "anna@example.com", subject: "Over je bestelling #5003", body: "Hoi Anna,\n\nGroet,\nWinkel" }
     expect(mailDialogState(row, served)).toMatchObject({ ready: true, body: served.body, subject: served.subject })
     expect(mailDialogState(row, { ...served, to: null }).ready).toBe(false)
+  })
+
+  it("sends only with a subject and words, as the server takes it", () => {
+    const state = mailDialogState(row, undefined)
+    expect(canSend(state, state.subject, state.body)).toBe(true)
+    expect(canSend(state, "  ", state.body)).toBe(false)
+    expect(canSend(state, state.subject, "\n ")).toBe(false)
+    expect(canSend(mailDialogState(row, "loading"), "Hoi", "Hoi")).toBe(false)
   })
 })

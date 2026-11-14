@@ -26,6 +26,15 @@ export type EventsMessage =
   | { readonly outboxIds: ReadonlyArray<string> }
   | { readonly classifyTicket: { readonly workspaceId: string; readonly ticketId: string } }
 
+/** The longest a queue message can be delayed (Cloudflare Queues: 12 hours). */
+const MAX_DELAY_SECONDS = 43_200
+
+/** A hundred messages per `sendBatch`, the Queues limit. */
+const SEND_BATCH = 100
+
+const chunksOf = <A>(items: ReadonlyArray<A>, size: number): ReadonlyArray<ReadonlyArray<A>> =>
+  Array.from({ length: Math.ceil(items.length / size) }, (_, i) => items.slice(i * size, i * size + size))
+
 /**
  * The kick: after commit, onto the queue, in `waitUntil` so the response does not wait for it. Events that wait out an
  * undo window go onto the queue with that delay; one that arrives early is left for the sweep.
@@ -41,13 +50,23 @@ export const RelayLive = Layer.succeed(Relay, {
             options?.afterSeconds === undefined ? undefined : { delaySeconds: Math.ceil(options.afterSeconds) }
           )
         )
+      ),
+  kickEach: (events) =>
+    events.length === 0 ? Effect.void : Effect.sync(() =>
+      waitUntil(
+        Promise.all(
+          chunksOf(events, SEND_BATCH).map((chunk) =>
+            env.EVENTS.sendBatch(chunk.map(({ outboxId, afterSeconds }) => ({
+              body: { outboxIds: [outboxId] } satisfies EventsMessage,
+              delaySeconds: Math.min(Math.ceil(afterSeconds), MAX_DELAY_SECONDS)
+            })))
+          )
+        )
       )
+    )
 })
 
 const decodeEvent = Schema.decodeUnknownEffect(Schema.toType(Schema.Struct({ type: Schema.String })))
-
-/** The longest a queue message can be delayed (Cloudflare Queues: 12 hours). */
-const MAX_DELAY_SECONDS = 43_200
 
 /**
  * Delivers these events, each in its workspace's scope, each sink once; then, outside the event's transaction, the
@@ -111,9 +130,7 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
     }
   }
   // Once the whole batch has gone through: a batch that fails later is retried, and would send these again each time.
-  // A hundred messages per `sendBatch`, the Queues limit.
-  for (let at = 0; at < early.length; at += 100) {
-    const chunk = early.slice(at, at + 100)
+  for (const chunk of chunksOf(early, SEND_BATCH)) {
     yield* Effect.promise(() =>
       env.EVENTS.sendBatch(chunk.map(({ id, seconds }) => ({
         body: { outboxIds: [id] } satisfies EventsMessage,

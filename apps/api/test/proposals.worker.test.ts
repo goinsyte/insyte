@@ -311,9 +311,20 @@ describe("plates that send or open something (12.2b)", () => {
     })
     expect(await mailsAbout(email, order.id)).toEqual([])
 
-    // Tried again once the address takes mail: it goes, once, in the store's name.
+    // Tried again once the address takes mail: it goes, once, in the store's name. The provider busy at first (429),
+    // the plate waits on a later try rather than failing.
     await call(`http://api.test/api/__dev/mail/refuse?reference=${order.id}&off=1`, { method: "POST" })
+    await call(`http://api.test/api/__dev/mail/refuse?reference=${order.id}&busy=1`, { method: "POST" })
     expect(ok(await rpc("Proposals.file", { id: back.proposal!.id }, store.cookie)).proposal.state).toBe("filed")
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    expect(ok(await rpc("Proposals.get", { id: back.proposal!.id }, store.cookie)).state).toBe("filed")
+    expect(await mailsAbout(email, order.id)).toEqual([])
+    const later = (await outboxOf(store.workspace)).filter((e) =>
+      e.event === "order.delay_mail" && e.relayedAt === null && !e.cancelled
+    )
+    expect(later.map((e) => e.payload)).toEqual([expect.objectContaining({ attempt: 2, from: null })])
+    await call(`http://api.test/api/__dev/mail/refuse?reference=${order.id}&busy=1&off=1`, { method: "POST" })
     await pastUndo(store.workspace)
     await relay(store.workspace)
     expect(ok(await rpc("Proposals.get", { id: back.proposal!.id }, store.cookie))).toMatchObject({

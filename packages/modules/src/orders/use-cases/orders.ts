@@ -94,9 +94,10 @@ export const SELECT =
   o.delayed_at,
   (select max(m.created_at) from order_mails m where m.order_id = o.id and m.kind = 'tracking'
      and m.state in ('scheduled', 'sent')) as tracking_sent_at,
+  case when o.status not in ('delivered', 'cancelled', 'refunded') then
   (select max(m.created_at) from order_mails m where m.order_id = o.id and m.kind = 'tracking' and m.state = 'failed'
      and not exists (select 1 from order_mails n where n.order_id = o.id and n.kind = 'tracking'
-                       and n.state in ('scheduled', 'sent') and n.created_at >= m.created_at)) as tracking_failed_at,
+                       and n.state in ('scheduled', 'sent') and n.created_at >= m.created_at)) end as tracking_failed_at,
   coalesce((select json_agg(json_build_object('id', s.id, 'name', s.name) order by s.name, s.id) from suppliers s
             where s.id in (select f.supplier_id from forwarding_items f
                            where f.order_id = o.id and f.state <> 'cancelled')), '[]') as suppliers,

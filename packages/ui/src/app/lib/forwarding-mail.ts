@@ -17,18 +17,11 @@ export interface MailRow {
   lines: ReadonlyArray<{ title: string; variant_title?: string | undefined }>
 }
 
-/** What of a forwarding row the dialog reads (a `QueueRow` is one). */
-export interface MailRow {
-  reasonNow?: string | undefined
-  order: { number: string; customer_name: string; customer_email: string }
-  lines: ReadonlyArray<{ title: string; variant_title?: string | undefined }>
-}
-
 export interface MailDialogState {
   subject: string
   body: string
   description: string | undefined
-  /** Whether Versturen may send (the words aside). */
+  /** Whether Versturen may send (the words aside: `canSend`). */
   ready: boolean
 }
 
@@ -76,3 +69,7 @@ export function mailDialogState(row: MailRow | null, served: ServedDraft | undef
   }
   return { subject: served.subject, body: served.body, description: `Aan ${served.to}. ${SENT_BY}`, ready: true }
 }
+
+/** Versturen: once the dialog may send and the mail has a subject and words; the server refuses either empty. */
+export const canSend = (state: MailDialogState, subject: string, body: string) =>
+  state.ready && subject.trim() !== "" && body.trim() !== ""

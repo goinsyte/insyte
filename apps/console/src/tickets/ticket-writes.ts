@@ -60,7 +60,15 @@ const refused = (error: unknown) => sayRefusal(error, COPY)
 /** "Klant informeren"'s undo, too late: what was sent is the mail, not a teammate's notice. */
 const MAIL_COPY: RefusalCopy = {
   ...COPY,
-  conflicts: { ...COPY.conflicts, already_sent: [LATE, "De mail aan de klant is al verstuurd."] }
+  conflicts: {
+    ...COPY.conflicts,
+    already_sent: [LATE, "De mail aan de klant is al verstuurd."],
+    // A request sent again late, after the mail went or was undone: nothing goes twice.
+    mail_id_taken: [
+      "Niet opnieuw verstuurd",
+      "Deze mail is al verstuurd of ongedaan gemaakt. Klik nog eens op Klant informeren voor een nieuwe."
+    ]
+  }
 }
 
 const mailRefused = (error: unknown) => sayRefusal(error, MAIL_COPY)

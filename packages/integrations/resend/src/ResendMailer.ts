@@ -51,9 +51,20 @@ export const plainHtml = (text: string) =>
 export const refusesSender = (reason: string) =>
   /^resend 403\b/.test(reason) && /\bdomain\b.*\bnot verified\b/i.test(reason)
 
-/** Resend was busy (429) or out (5xx, unreachable): the mail may go when it is tried again with its idempotency key. */
+/**
+ * Resend was busy (429), out (5xx, unreachable), or still sending the same mail under its key (409
+ * `concurrent_idempotent_requests`): the mail may go when it is tried again with its idempotency key.
+ */
 export const retriesLater = (reason: string) =>
-  /^resend (429|5\d\d)\b/.test(reason) || /^resend unreachable\b/.test(reason)
+  /^resend (429|5\d\d)\b/.test(reason) || /^resend unreachable\b/.test(reason) ||
+  /^resend 409: concurrent_idempotent_requests\b/.test(reason)
+
+/**
+ * Resend has taken this mail's key already, with another payload (409 `invalid_idempotent_request`): the mail it names
+ * went within the day (a try whose answer was lost, its words rendered since). Sent: tried again it would never go,
+ * and the mail would be kept as failed though the shopper has it.
+ */
+export const sentAlready = (reason: string) => /^resend 409: invalid_idempotent_request\b/.test(reason)
 
 const missing = (mail: Mail, what: string) => new MailNotSent({ kind: mail.kind, reason: `${mail.kind} needs ${what}` })
 
@@ -167,14 +178,15 @@ export const ResendMailer = Layer.effect(
             }
           })
         }).pipe(
-          Effect.mapError((error) =>
-            new MailNotSent({
-              kind: mail.kind,
-              reason: error.reason,
-              ...(mail.from !== undefined && refusesSender(error.reason) ? { senderRefused: true } : {}),
-              ...(retriesLater(error.reason) ? { retryable: true } : {})
-            })
-          )
+          Effect.catchTag("ResendError", (error) =>
+            sentAlready(error.reason) ? Effect.void : Effect.fail(
+              new MailNotSent({
+                kind: mail.kind,
+                reason: error.reason,
+                ...(mail.from !== undefined && refusesSender(error.reason) ? { senderRefused: true } : {}),
+                ...(retriesLater(error.reason) ? { retryable: true } : {})
+              })
+            ))
         )
       })
     })

@@ -4,6 +4,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import { type MailTry, retryAfter } from "../../shared/domain/MailRetry.ts"
 import { Relay } from "../../shared/domain/Outbox.ts"
 import { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
@@ -82,14 +83,18 @@ export const cancelMails = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>
 export type DelayMailOutcome =
   | { readonly outcome: "sent"; readonly orderId: string }
   | { readonly outcome: "failed"; readonly orderId: string; readonly error: string }
+  | { readonly outcome: "retry"; readonly outboxId: string; readonly afterSeconds: number }
   | { readonly outcome: "skipped" }
 
 /**
  * The relay's mail sink, inside the order's workspace as `system`: the mail sent as it was put in line, if it still is.
- * A mail that does not go is kept as failed with why; it is not tried again by itself (domain.md §12.7).
+ * The provider busy or out: it stays in line and is tried again later from the same sender (`MailRetry.ts`). A mail
+ * that is refused, or still does not go after its last try, is kept as failed with why; it is not tried again by
+ * itself after that (domain.md §12.7).
  */
 export const sendDelayMail = Effect.fn("Orders.sendDelayMail")(
-  function*(sql: SqlClient.SqlClient, mailId: string) {
+  function*(sql: SqlClient.SqlClient, mailId: string, retry: MailTry = {}) {
+    const attempt = retry.attempt ?? 1
     const [m] = yield* sql<{
       workspaceId: string
       orderId: string
@@ -109,6 +114,9 @@ export const sendDelayMail = Effect.fn("Orders.sendDelayMail")(
       select coalesce(p.title, ol.title) as title, ol.variant_title, ol.quantity as qty
       from order_lines ol left join products p on p.id = ol.product_id
       where ol.order_id = ${m.orderId} order by ol.id`
+    const from = retry.from !== undefined
+      ? retry.from
+      : (yield* Senders.customerSender(sql, "order.delayed")).from ?? null
     const sent = yield* Senders.sendToCustomer(sql, {
       kind: "order.delayed",
       to: m.address,
@@ -121,12 +129,26 @@ export const sendDelayMail = Effect.fn("Orders.sendDelayMail")(
         paragraphs: m.paragraphs,
         items: items.map((i) => ({ title: i.title, variant: i.variantTitle, qty: i.qty }))
       }
-    }).pipe(Effect.as(null), Effect.catchTag("MailNotSent", (e) => Effect.succeed(e.reason)))
-    if (sent !== null) {
-      yield* sql`update order_mails set state = 'failed', error = ${sent} where id = ${mailId}`
-      return { outcome: "failed", orderId: m.orderId, error: sent } as DelayMailOutcome
+    }, { from }).pipe(Effect.as(null), Effect.catchTag("MailNotSent", (e) => Effect.succeed(e)))
+    const afterSeconds = sent === null ? undefined : retryAfter(sent, attempt)
+    if (sent !== null && afterSeconds !== undefined) {
+      yield* sql`update order_mails set error = ${sent.reason} where id = ${mailId}`
+      const outboxId = yield* Outbox.write(sql, m.workspaceId, {
+        type: "order.delay_mail",
+        workspaceId: m.workspaceId,
+        userId: "system",
+        mailId,
+        attempt: attempt + 1,
+        from
+      }, { afterSeconds })
+      yield* Effect.logWarning("a delay mail is tried again later", { mailId, attempt, reason: sent.reason })
+      return { outcome: "retry", outboxId, afterSeconds } as DelayMailOutcome
     }
-    yield* sql`update order_mails set state = 'sent', sent_at = now() where id = ${mailId}`
+    if (sent !== null) {
+      yield* sql`update order_mails set state = 'failed', error = ${sent.reason} where id = ${mailId}`
+      return { outcome: "failed", orderId: m.orderId, error: sent.reason } as DelayMailOutcome
+    }
+    yield* sql`update order_mails set state = 'sent', sent_at = now(), error = null where id = ${mailId}`
     yield* Audit.write(sql, m.workspaceId, { kind: "system", id: "insyte" }, {
       action: "order.delay_mailed",
       subjectType: "order",

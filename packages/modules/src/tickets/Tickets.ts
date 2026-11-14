@@ -1,5 +1,5 @@
 import type { Db } from "@insyte/database/Db"
-import type { Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
+import type { Conflict, Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
@@ -80,7 +80,7 @@ export class TicketsService extends Context.Service<TicketsService, {
     input: EmailCustomerInput
   ) => Effect.Effect<
     CustomerEmailed,
-    Forbidden | NotFound | Invalid | NoCustomerAddress | NoMailbox | MailboxDisconnected,
+    Forbidden | NotFound | Invalid | Conflict | NoCustomerAddress | NoMailbox | MailboxDisconnected,
     R
   >
 }>()("modules/TicketsService") {
