@@ -19,6 +19,7 @@ export const MembersHandlers = MembersRpcs.toLayer(Effect.gen(function*() {
     "Invitations.undoResend": ({ id }) => members.undoResend(id),
     "Invitations.setRole": ({ id, roleId }) => members.setInvitationRole(id, roleId),
     "Members.setRole": ({ id, roleId }) => members.setMemberRole(id, roleId),
+    "Members.setStores": ({ id, stores }) => members.setMemberStores(id, stores),
     "Members.deactivate": ({ id }) => members.setDeactivated(id, true),
     "Members.reactivate": ({ id }) => members.setDeactivated(id, false),
     "Members.remove": ({ id }) => members.remove(id),

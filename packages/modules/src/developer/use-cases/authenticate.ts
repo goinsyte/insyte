@@ -31,6 +31,8 @@ interface KeyRow {
   readonly ips: ReadonlyArray<string>
   /** An agent's key: it acts as an `agent` principal, inside the workspace's autonomy rules (ADR-0027). */
   readonly agent: boolean
+  /** The member who made the key: it never reaches past their stores as they are now. */
+  readonly createdBy: string
 }
 
 interface RoleRow {
@@ -46,6 +48,10 @@ interface RoleRow {
 /** The key's stores narrow its role's, never widen them; `null` is every store. */
 const fenceOf = (key: "all" | ReadonlyArray<string>, role: "all" | ReadonlyArray<string>): Array<string> | null =>
   role === "all" ? (key === "all" ? null : [...key]) : key === "all" ? [...role] : key.filter((s) => role.includes(s))
+
+/** Both fences at once (`null` is every store). */
+const bothOf = (a: Array<string> | null, b: Array<string> | null): Array<string> | null =>
+  a === null ? b : b === null ? a : a.filter((s) => b.includes(s))
 
 /**
  * The special actions a key may take through the API (api.md §6): a role-bound key takes them from its role, refunds
@@ -117,7 +123,7 @@ export const authenticate = Effect.fn("ApiKeys.authenticate")(function*(token: s
       const [key] = yield* sql<KeyRow>`
         select id, label, lookup, previous_lookup, encode(secret_hash, 'hex') as hash,
                encode(previous_hash, 'hex') as previous_hash, grace_until, access, stores, expires_at, revoked_at, ips,
-               agent
+               agent, created_by
         from api_keys where id = ${route.keyId}`
       if (key === undefined) return yield* new KeyRefused({ reason: "unknown" })
       const current = key.lookup === lookup
@@ -138,6 +144,16 @@ export const authenticate = Effect.fn("ApiKeys.authenticate")(function*(token: s
           ([r]) => r
         )
         : undefined
+      // Every key is made by a member (`ApiKeys.create`, a Marketplace install), agents' included. While its maker is
+      // deactivated or removed it is turned away as revoked, though it is not: bringing the maker back brings it back.
+      // Otherwise it reaches no store past the maker's as they are now: narrowing the member narrows the key.
+      const [maker] = yield* sql<{ roleStores: StoreAccess; memberStores: StoreAccess; active: boolean }>`
+        select r.stores as role_stores, m.stores as member_stores,
+               m.deactivated_at is null and m.removed_at is null as active
+        from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+        where m.id = ${key.createdBy}`
+      if (maker === undefined || !maker.active) return yield* new KeyRefused({ reason: "revoked" })
+      const makers = fenceOf(maker.memberStores, maker.roleStores)
       // A key whose role was removed acts with nothing until it is given another.
       const levels = key.access.kind === "role" ? throughApi(role?.levels ?? {}) : throughApi(key.access.scopes)
       yield* sql`update api_keys set last_used_at = now() where id = ${key.id}`
@@ -161,8 +177,9 @@ export const authenticate = Effect.fn("ApiKeys.authenticate")(function*(token: s
             : Number(role.refundLimitMinor) / 100,
           stores: key.stores === "all" ? "all" : [...key.stores]
         },
-        // A key that holds a role reaches the stores both name: the role's narrow the key's, as a member's do.
-        storeScope: fenceOf(key.stores, role?.stores ?? "all")
+        // A key that holds a role reaches the stores both name: the role's narrow the key's, as a member's do; and
+        // never past its maker's.
+        storeScope: bothOf(fenceOf(key.stores, role?.stores ?? "all"), makers)
       }
       const authenticated: Authenticated = { principal, label: key.label, workspaceName: workspace?.name ?? "" }
       return authenticated
