@@ -12,7 +12,8 @@ import { overview } from "./state.ts"
 
 /*
  * Facturatie's reads (M13 step 1; widgets/05 §4): the page from the cache, the plans with Stripe's prices, the invoices,
- * and one invoice's link. Facturatie · Bekijken (`billing≥1`) reads; an invoice's link takes `billing.invoices`.
+ * and one invoice's link. Facturatie · Bekijken (`billing≥1`) reads the page; the invoices and their links take
+ * `billing.invoices` (api.md §2.16).
  */
 
 const PLANS: ReadonlyArray<PlanId> = ["starter", "growth", "scale"]
@@ -58,7 +59,7 @@ const parseCursor = (cursor: string | null | undefined) => {
 export const invoices = Effect.fn("Billing.invoices")(
   function*(input: { readonly cursor?: string | null | undefined }) {
     yield* peopleOnly
-    yield* Policy.require("billing", 1)
+    yield* Policy.requireAction("billing.invoices")
     const after = parseCursor(input.cursor)
     const rows = yield* (yield* Db).scoped((sql) =>
       sql<
@@ -94,23 +95,39 @@ export const invoices = Effect.fn("Billing.invoices")(
   }
 )
 
-/** Stripe's PDF of one invoice (its hosted page where there is no PDF), audited: who opened which invoice. */
+/**
+ * Stripe's PDF of one invoice (its hosted page where there is no PDF), as Stripe has it now: its links can change, so
+ * the cached ones are only what is opened when Stripe does not answer. Audited: who opened which invoice.
+ */
 export const invoiceUrl = Effect.fn("Billing.invoiceUrl")(function*(input: { readonly id: string }) {
   yield* peopleOnly
   yield* Policy.requireAction("billing.invoices")
   const principal = yield* CurrentPrincipal
-  return yield* (yield* Db).scoped((sql) =>
-    Effect.gen(function*() {
-      const [row] = yield* sql<{ pdfUrl: string | null; hostedUrl: string | null }>`
-        select pdf_url, hosted_url from invoices where id = ${input.id}`
-      const url = row?.pdfUrl ?? row?.hostedUrl ?? null
-      if (url === null) return yield* new NotFound({ entity: "invoice", id: input.id })
-      yield* Audit.write(sql, principal.workspaceId, { kind: principal.kind, id: principal.id }, {
-        action: "billing.invoice_opened",
-        subjectType: "invoice",
-        subjectId: input.id
-      })
-      return { url }
+  const db = yield* Db
+  // The workspace's own invoice, or none: the row is what fences it.
+  const [row] = yield* db.scoped((sql) =>
+    sql<
+      { pdfUrl: string | null; hostedUrl: string | null }
+    >`select pdf_url, hosted_url from invoices where id = ${input.id}`
+  )
+  if (row === undefined) return yield* new NotFound({ entity: "invoice", id: input.id })
+  const provider = yield* BillingProvider
+  const fresh = provider.configured
+    ? yield* provider.invoice(input.id).pipe(
+      Effect.catchTag(
+        "BillingUnavailable",
+        (e) => Effect.logWarning("stripe invoice not read again", { reason: e.reason }).pipe(Effect.as(undefined))
+      )
+    )
+    : undefined
+  const url = fresh?.pdfUrl ?? fresh?.hostedUrl ?? row.pdfUrl ?? row.hostedUrl ?? null
+  if (url === null) return yield* new NotFound({ entity: "invoice", id: input.id })
+  yield* db.scoped((sql) =>
+    Audit.write(sql, principal.workspaceId, { kind: principal.kind, id: principal.id }, {
+      action: "billing.invoice_opened",
+      subjectType: "invoice",
+      subjectId: input.id
     })
   )
+  return { url }
 })

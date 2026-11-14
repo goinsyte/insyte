@@ -15,11 +15,14 @@ import type {
   CancelInput,
   ChangePlanInput,
   ChangeSeatsInput,
+  CheckoutPending,
   InvoicePage,
   NoExtraSeats,
   NoSubscription,
+  PreviewExpired,
   SeatsExceedPlan,
-  StoresExceedPlan
+  StoresExceedPlan,
+  TooManySeats
 } from "./domain/Billing.ts"
 import type { BillingProvider } from "./domain/Ports.ts"
 import * as Change from "./use-cases/change.ts"
@@ -28,7 +31,16 @@ import * as Webhook from "./use-cases/webhook.ts"
 
 type R = Db | CurrentPrincipal | BillingProvider
 
-type ChangeError = Forbidden | BillingUnavailable | NoSubscription | NoExtraSeats | SeatsExceedPlan | StoresExceedPlan
+type ChangeError =
+  | Forbidden
+  | BillingUnavailable
+  | NoSubscription
+  | NoExtraSeats
+  | SeatsExceedPlan
+  | StoresExceedPlan
+  | TooManySeats
+  | PreviewExpired
+  | CheckoutPending
 
 export interface BillingService {
   readonly get: Effect.Effect<BillingOverview, Forbidden, R>

@@ -108,8 +108,9 @@ export type BillingChangeInput = typeof BillingChangeInput.Type
  * What a change will cost, before it is made (the confirm says it; there is no undo). `checkout`: no subscription yet,
  * so the change is the first payment, on Stripe's own page; `amountDueMinor` is the first period. `change`: the
  * subscription changes now; `prorationMinor` is what the rest of this period costs or credits, on the next invoice,
- * and `nextInvoiceMinor` that invoice's total. `prorationDate` goes back with the change, so Stripe prorates to the
- * second the preview did.
+ * and `nextInvoiceMinor` that invoice's total. `immediate`: another billing period (monthly ↔ yearly), which Stripe
+ * starts now and invoices at once: `amountDueMinor` is charged today, the new period less what is left of this one.
+ * `prorationDate` goes back with the change, so Stripe prorates to the second the preview did.
  */
 export class BillingPreview extends Schema.Class<BillingPreview>("billing/BillingPreview")({
   kind: Schema.Literals(["checkout", "change"]),
@@ -118,6 +119,7 @@ export class BillingPreview extends Schema.Class<BillingPreview>("billing/Billin
   prorationMinor: Schema.Int,
   nextInvoiceMinor: Schema.Int,
   nextInvoiceAt: Schema.NullOr(Schema.Finite),
+  immediate: Schema.Boolean,
   prorationDate: Schema.Int
 }) {}
 
@@ -196,3 +198,12 @@ export class StoresExceedPlan extends Schema.TaggedError<StoresExceedPlan>()("St
 
 /** Giving up more extra seats than were bought. */
 export class NoExtraSeats extends Schema.TaggedError<NoExtraSeats>()("NoExtraSeats", { extra: Schema.Int }) {}
+
+/** More extra seats than a subscription can hold. */
+export class TooManySeats extends Schema.TaggedError<TooManySeats>()("TooManySeats", { max: Schema.Int }) {}
+
+/** The preview the change was confirmed with is over an hour old: what it said may no longer hold. */
+export class PreviewExpired extends Schema.TaggedError<PreviewExpired>()("PreviewExpired", {}) {}
+
+/** The first payment was made on Stripe's page and its subscription has not reached Insyte yet. */
+export class CheckoutPending extends Schema.TaggedError<CheckoutPending>()("CheckoutPending", {}) {}

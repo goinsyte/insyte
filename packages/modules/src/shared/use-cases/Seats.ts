@@ -5,7 +5,8 @@ import { seatsOf } from "../domain/Billing.ts"
 /*
  * The workspace's seats, on the caller's transaction inside it (M3.4, M13 step 1): the plan's own seats plus those bought
  * beyond it (`subscriptions.extra_seats`, as Stripe last said), against active people plus open invitations that have
- * not lapsed. Deactivated people free their seat. The team page, inviting, accepting and billing all count with this.
+ * not lapsed. A paid plan and its bought seats count only while the subscription is paid for (active, or in Stripe's
+ * grace while a payment is retried); after that the workspace's own plan does. Deactivated people free their seat. The team page, inviting, accepting and billing all count with this.
  */
 
 export interface SeatCount {
@@ -21,8 +22,8 @@ export interface SeatCount {
 
 export const seatCount = Effect.fn("Seats.count")(function*(sql: SqlClient.SqlClient) {
   const [row] = yield* sql<{ plan: string; extra: number; active: number; pending: number }>`
-    select coalesce(s.plan, w.plan) as plan,
-           coalesce(s.extra_seats, 0)::int as extra,
+    select case when s.status in ('active', 'trialing', 'past_due') then coalesce(s.plan, w.plan) else w.plan end as plan,
+           case when s.status in ('active', 'trialing', 'past_due') then s.extra_seats else 0 end::int as extra,
            (select count(*)::int from members where removed_at is null and deactivated_at is null) as active,
            (select count(*)::int from invitations
               where accepted_at is null and revoked_at is null and declined_at is null and expires_at > now()) as pending

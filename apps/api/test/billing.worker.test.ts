@@ -1,13 +1,14 @@
-import { signatureHeader } from "@insyte/integrations-stripe/Wire"
+import { testSignature } from "@insyte/integrations-stripe/Sdk"
 import { describe, expect, it } from "vitest"
 import { failure, ok, outboxOf, person, productEventsOf, relay } from "./journeys.ts"
-import { call, onboarding, rpc, sessionMe } from "./support.ts"
+import { call, onboarding, rpc, rpcWith, sessionMe } from "./support.ts"
 
 /*
  * Facturatie (M13 step 1), against Stripe's fake (`BILLING_ADAPTER=fake`) and a signing secret made up for the tests.
  * A trial's first paid action subscribes and is counted; seats are bought and given up with the prorated amount
- * previewed first, and the team's seats follow; Stripe's signed webhooks keep the cache right, once per event and never
- * rolled back by an older one; and one workspace never reads or changes another's billing.
+ * previewed first, and the team's seats follow; Stripe's signed webhooks keep the cache right, once per event, read
+ * again from "Stripe" and never rolled back by an older one; only people change billing, never a key or an agent; and
+ * one workspace never reads or changes another's billing.
  */
 
 const SECRET = "whsec_test_insyte_worker_tests"
@@ -18,7 +19,7 @@ const stripe = async (event: unknown, signature?: string) => {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "stripe-signature": signature ?? await signatureHeader(SECRET, new TextEncoder().encode(body))
+      "stripe-signature": signature ?? await testSignature(SECRET, body)
     },
     body
   })
@@ -33,27 +34,27 @@ const price = (plan: string, interval: "month" | "year", amount: number) => ({
   metadata: { insyte_plan: plan }
 })
 
-/** A `customer.subscription.updated` as Stripe sends it, at Stripe's `created` time. */
+/** A `customer.subscription.updated` (or another `type`) as Stripe sends it, at Stripe's `created` time. */
 const subscriptionEvent = (
   id: string,
   workspace: string,
   created: number,
-  fields: { status: string; seats: number; plan?: string }
+  fields: { status: string; seats: number; plan?: string; sub?: string; type?: string; metadata?: boolean }
 ) => ({
   id,
   object: "event",
-  type: "customer.subscription.updated",
+  type: fields.type ?? "customer.subscription.updated",
   created,
   data: {
     object: {
-      id: `sub_fake_${workspace}`,
+      id: fields.sub ?? `sub_fake_${workspace}`,
       object: "subscription",
       customer: `cus_fake_${workspace}`,
       status: fields.status,
       currency: "eur",
       cancel_at_period_end: false,
       cancel_at: null,
-      metadata: { insyte_workspace: workspace },
+      metadata: fields.metadata === false ? {} : { insyte_workspace: workspace },
       items: {
         data: [
           {
@@ -76,10 +77,10 @@ const subscriptionEvent = (
   }
 })
 
-const invoiceEvent = (id: string, workspace: string, created: number) => ({
+const invoiceEvent = (id: string, workspace: string, created: number, status: "paid" | "open" = "paid") => ({
   id,
   object: "event",
-  type: "invoice.paid",
+  type: status === "paid" ? "invoice.paid" : "invoice.finalized",
   created,
   data: {
     object: {
@@ -87,7 +88,7 @@ const invoiceEvent = (id: string, workspace: string, created: number) => ({
       object: "invoice",
       customer: `cus_fake_${workspace}`,
       number: "INS-0002",
-      status: "paid",
+      status,
       total: 35_600,
       currency: "eur",
       created,
@@ -176,6 +177,14 @@ describe("billing", () => {
       seats: { included: 12, extra: 1 }
     })
 
+    // Another cycle starts a new period now: invoiced at once, less what is left of this one.
+    const annual = ok(
+      await rpc("Billing.previewChange", { _tag: "plan", plan: "scale", cycle: "annual" }, owner.cookie)
+    )
+    expect(annual).toMatchObject({ kind: "change", immediate: true })
+    expect(annual.amountDueMinor).toBe(annual.nextInvoiceMinor)
+    expect(ok(await rpc("Billing.previewChange", { _tag: "seats", delta: 1 }, owner.cookie)).immediate).toBe(false)
+
     // Opzeggen and hervatten: until the end of the period, then not after all.
     const cancelled = ok(await rpc("Billing.cancel", { reason: "too_expensive" }, owner.cookie))
     expect(cancelled.cancelAt).toBe(cancelled.currentPeriodEnd)
@@ -197,10 +206,10 @@ describe("billing", () => {
     const event = subscriptionEvent(`evt_${ws}_1`, ws, later, { status: "past_due", seats: 3 })
     expect((await stripe(event, "t=1,v1=00")).status).toBe(400)
     expect((await stripe(event, "")).status).toBe(400)
-    const body = new TextEncoder().encode(JSON.stringify(event))
-    expect((await stripe(event, await signatureHeader(SECRET, body, new Date(Date.now() - 3_600_000)))).status).toBe(
-      400
-    )
+    const body = JSON.stringify(event)
+    expect((await stripe(event, await testSignature(SECRET, body, new Date(Date.now() - 3_600_000)))).status).toBe(400)
+    // Signed just now, but not with this secret's HMAC.
+    expect((await stripe(event, `t=${now()},v1=${"0".repeat(64)}`)).status).toBe(400)
     expect(ok(await rpc("Billing.get", undefined, owner.cookie)).status).toBe("active")
 
     // Signed: the subscription as Stripe says it, its seats the team's.
@@ -230,6 +239,12 @@ describe("billing", () => {
     expect(ok(await rpc("Billing.invoiceUrl", { id: `in_hook_${ws}` }, owner.cookie)).url).toBe(
       "https://invoice.stripe.test/in_hook.pdf"
     )
+    // Stripe's `invoice.finalized` may arrive after `invoice.paid`, even with a later time: a paid invoice stays paid.
+    expect((await stripe(invoiceEvent(`evt_${ws}_inv_open`, ws, later + 5, "open"))).status).toBe(200)
+    expect(ok(await rpc("Billing.invoices", {}, owner.cookie)).rows[0]).toMatchObject({
+      id: `in_hook_${ws}`,
+      status: "paid"
+    })
 
     // A customer Insyte does not know, and an event it does not act on: acknowledged, nothing kept.
     expect(
@@ -248,6 +263,136 @@ describe("billing", () => {
       })).status
     )
       .toBe(200)
+  })
+
+  it("reads Stripe again, keeps the subscription that bills, and picks up one it had not heard of", async () => {
+    const owner = await founder("sync")
+    ok(await rpc("Billing.changePlan", { plan: "growth", cycle: "monthly" }, owner.cookie))
+    const ws = owner.workspace
+    const invoicesBefore = ok(await rpc("Billing.invoices", {}, owner.cookie)).rows.length
+
+    // A newer event, then an older one that arrives after it: Stripe is read again, so the older one's copy is not
+    // what is kept, even though the cache was written before it was sent.
+    expect((await stripe(subscriptionEvent(`evt_${ws}_new`, ws, now() + 100, { status: "active", seats: 3 }))).status)
+      .toBe(200)
+    expect((await stripe(subscriptionEvent(`evt_${ws}_old`, ws, now() + 50, { status: "active", seats: 1 }))).status)
+      .toBe(200)
+    expect(ok(await rpc("Billing.get", undefined, owner.cookie)).seats.extra).toBe(3)
+
+    // Another subscription at the same customer, while this one still bills: not taken over.
+    const other = `sub_other_${ws}`
+    expect(
+      (await stripe(subscriptionEvent(`evt_${ws}_other`, ws, now() + 150, { status: "active", seats: 1, sub: other })))
+        .status
+    ).toBe(200)
+    expect(ok(await rpc("Billing.get", undefined, owner.cookie))).toMatchObject({
+      status: "active",
+      seats: { extra: 3 }
+    })
+
+    // The one that billed ends: its plan and bought seats go, the workspace is back on the trial's seats.
+    expect(
+      (await stripe(
+        subscriptionEvent(`evt_${ws}_deleted`, ws, now() + 200, {
+          status: "canceled",
+          seats: 3,
+          type: "customer.subscription.deleted"
+        })
+      )).status
+    ).toBe(200)
+    expect(ok(await rpc("Billing.get", undefined, owner.cookie)).status).toBe("canceled")
+    expect(ok(await rpc("Team.get", undefined, owner.cookie)).seats).toMatchObject({ extra: 0, total: 5 })
+
+    // The next change finds the other subscription at Stripe and changes it: no second first payment, and the paid
+    // start is not counted again.
+    const scaled = ok(await rpc("Billing.changePlan", { plan: "scale", cycle: "monthly" }, owner.cookie))
+    expect(scaled._tag === "changed" && scaled.overview).toMatchObject({
+      status: "active",
+      plan: "scale",
+      seats: { extra: 1 }
+    })
+    expect(ok(await rpc("Billing.invoices", {}, owner.cookie)).rows).toHaveLength(invoicesBefore)
+    await relay(ws)
+    expect((await productEventsOf(ws)).filter((e) => e.event === "subscription_started")).toHaveLength(1)
+  })
+
+  it("starts the subscription when Stripe's Checkout completes, whatever order its events arrive in", async () => {
+    const owner = await founder("checkout")
+    const ws = owner.workspace
+    const sub = `sub_checkout_${ws}`
+
+    // Stripe's subscription event first, for a customer Insyte has not stored yet and without Insyte's metadata:
+    // acknowledged, nothing kept.
+    expect(
+      (await stripe(
+        subscriptionEvent(`evt_${ws}_created`, ws, now() + 5, {
+          status: "active",
+          seats: 0,
+          sub,
+          type: "customer.subscription.created",
+          metadata: false
+        })
+      )).status
+    ).toBe(200)
+    expect(ok(await rpc("Billing.get", undefined, owner.cookie)).status).toBe("trial")
+
+    // Then Checkout's own event, which names the workspace: the subscription, read from Stripe, is the workspace's.
+    expect(
+      (await stripe({
+        id: `evt_${ws}_checkout`,
+        object: "event",
+        type: "checkout.session.completed",
+        created: now() + 6,
+        data: {
+          object: {
+            id: `cs_${ws}`,
+            object: "checkout.session",
+            mode: "subscription",
+            customer: `cus_fake_${ws}`,
+            subscription: sub,
+            client_reference_id: ws
+          }
+        }
+      })).status
+    ).toBe(200)
+    expect(ok(await rpc("Billing.get", undefined, owner.cookie))).toMatchObject({ status: "active", plan: "growth" })
+  })
+
+  it("refuses a preview too old to hold, and more seats than may be bought", async () => {
+    const owner = await founder("limits")
+    ok(await rpc("Billing.changePlan", { plan: "growth", cycle: "monthly" }, owner.cookie))
+    expect(failure(await rpc("Billing.addSeats", { n: 1, prorationDate: now() - 7_200 }, owner.cookie)))
+      .toMatchObject({ _tag: "PreviewExpired" })
+    expect(failure(await rpc("Billing.addSeats", { n: 1, prorationDate: now() + 600 }, owner.cookie)))
+      .toMatchObject({ _tag: "PreviewExpired" })
+    for (let i = 0; i < 10; i++) ok(await rpc("Billing.addSeats", { n: 50 }, owner.cookie))
+    expect(ok(await rpc("Billing.get", undefined, owner.cookie)).seats.extra).toBe(500)
+    expect(failure(await rpc("Billing.previewChange", { _tag: "seats", delta: 1 }, owner.cookie)))
+      .toMatchObject({ _tag: "TooManySeats", max: 500 })
+    expect(failure(await rpc("Billing.addSeats", { n: 1 }, owner.cookie))).toMatchObject({ _tag: "TooManySeats" })
+  }, 120_000)
+
+  it("is changed by people only: an API key or an agent's key is refused", async () => {
+    const owner = await founder("keys")
+    const key = async (agent: boolean) =>
+      ok(
+        await rpc("ApiKeys.create", {
+          label: agent ? "Agent" : "Sleutel",
+          access: { kind: "role", roleId: "admin" } as never,
+          stores: "all",
+          expiresInDays: 30,
+          ips: [],
+          agent
+        }, owner.cookie)
+      ).secret
+    for (const token of [await key(false), await key(true)]) {
+      const headers = { authorization: `Bearer ${token}` }
+      expect((await rpcWith("Billing.changePlan", { plan: "scale", cycle: "monthly" }, headers))._tag).toBe("Failure")
+      expect((await rpcWith("Billing.get", undefined, headers))._tag).toBe("Failure")
+      // Nor is billing on the public API.
+      expect((await call("http://api.public.test/v1/billing", { headers })).status).toBe(404)
+    }
+    expect(ok(await rpc("Billing.get", undefined, owner.cookie)).status).toBe("trial")
   })
 
   it("keeps each workspace's billing its own", async () => {

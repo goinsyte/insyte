@@ -6,9 +6,10 @@ import { Config, Effect, Layer, Option, Redacted } from "effect"
  * Billing (M13 step 1): Stripe's fake where the stage says `BILLING_ADAPTER=fake` (local runs, the worker tests,
  * previews); Stripe's API where the stage has `STRIPE_SECRET_KEY` (its test-mode key on staging, until production has
  * a live one); and where it has neither, no billing: the page shows the trial and every change says billing is not set
- * up. Webhooks are verified with `STRIPE_WEBHOOK_SECRET`. Either adapter's module loads on the first billing call in an
- * isolate, not at startup (ADR-0041 §3); one that fails to load is that call's `BillingUnavailable`, and the next
- * call tries again.
+ * up. Webhooks are verified with `STRIPE_WEBHOOK_SECRET`. Either adapter's module (and Stripe's SDK with it) loads on the
+ * first billing call in an isolate, not at startup (ADR-0041 §3); one that fails to load is that call's
+ * `BillingUnavailable`, and the next call tries again. Production never bills with the fake or a test-mode key: such a
+ * stage is refused as not set up, and says so in its log.
  */
 
 type Provider = typeof BillingProvider.Service
@@ -32,7 +33,11 @@ const lazy = (load: () => Promise<Provider>): Provider => {
     update: (input) => using((p) => p.update(input)),
     setCancelAtPeriodEnd: (input) => using((p) => p.setCancelAtPeriodEnd(input)),
     portal: (input) => using((p) => p.portal(input)),
+    checkoutSession: (id) => using((p) => p.checkoutSession(id)),
+    expireCheckout: (id) => using((p) => p.expireCheckout(id)),
+    activeSubscription: (customerId) => using((p) => p.activeSubscription(customerId)),
     subscription: (id) => using((p) => p.subscription(id)),
+    invoice: (id) => using((p) => p.invoice(id)),
     // A module that does not load cannot verify: the delivery is refused, and Stripe sends it again.
     verifyWebhook: (body, header, now) =>
       provider.pipe(Effect.flatMap((p) => p.verifyWebhook(body, header, now)), Effect.orElseSucceed(() => false)),
@@ -51,7 +56,11 @@ const BillingUnset: Provider = {
   update: () => Effect.fail(off),
   setCancelAtPeriodEnd: () => Effect.fail(off),
   portal: () => Effect.fail(off),
+  checkoutSession: () => Effect.fail(off),
+  expireCheckout: () => Effect.fail(off),
+  activeSubscription: () => Effect.fail(off),
   subscription: () => Effect.fail(off),
+  invoice: () => Effect.fail(off),
   verifyWebhook: () => Effect.succeed(false),
   readEvent: () => Effect.undefined
 }
@@ -62,6 +71,14 @@ export const BillingChoice = Layer.unwrap(
     const key = yield* Config.Redacted("STRIPE_SECRET_KEY").pipe(Config.option)
     const secret = yield* Config.Redacted("STRIPE_WEBHOOK_SECRET").pipe(Config.option)
     const webhookSecret = Option.match(secret, { onNone: () => null, onSome: Redacted.value })
+    const environment = yield* Config.String("ENVIRONMENT").pipe(Config.withDefault("local"))
+    if (environment === "production") {
+      const testKey = Option.isSome(key) && /^(sk|rk)_test_/.test(Redacted.value(key.value))
+      if (adapter === "fake" || testKey) {
+        yield* Effect.logError("billing refused on production: the fake adapter or a test-mode Stripe key")
+        return Layer.succeed(BillingProvider, BillingUnset)
+      }
+    }
     if (adapter === "fake") {
       return Layer.succeed(
         BillingProvider,

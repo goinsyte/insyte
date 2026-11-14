@@ -4,8 +4,8 @@ import type { BillingUnavailable, Card, SubscriptionStatus } from "./Billing.ts"
 
 /*
  * Stripe as the billing slice's port (M13 step 1; ADR-0019). Two adapters (`packages/integrations/stripe`): Stripe's
- * REST API in test or live mode where the stage has its key, and a fake that answers the same shapes without Stripe
- * (local runs, the worker tests, previews). Prices are Stripe's Price objects, found by their metadata (`insyte_plan`:
+ * SDK in test or live mode where the stage has its key, and a fake that answers the same shapes without Stripe (local
+ * runs, the worker tests, previews). Prices are Stripe's Price objects, found by their metadata (`insyte_plan`:
  * a plan id, or `seat` for an extra seat), never in code. Insyte's own calls answer the subscription as Stripe now has
  * it, and the use case writes that to its cache; Stripe's webhooks keep the cache right for everything else.
  */
@@ -59,6 +59,15 @@ export interface Proration {
   readonly prorationMinor: number
   readonly nextInvoiceMinor: number
   readonly nextInvoiceAt: Date | null
+  /** Another billing period: Stripe starts it now and invoices `nextInvoiceMinor` at once. */
+  readonly immediate: boolean
+}
+
+/** A Checkout page Insyte opened, as Stripe has it now. */
+export interface CheckoutSession {
+  readonly status: "open" | "complete" | "expired"
+  readonly url: string | null
+  readonly subscriptionId: string | null
 }
 
 /** A verified webhook, read: what changed, and when Stripe says it did. */
@@ -97,11 +106,24 @@ export class BillingProvider extends Context.Service<BillingProvider, {
     readonly prices: ReadonlyArray<PlanPrice>
     readonly successUrl: string
     readonly cancelUrl: string
+    /** One page per workspace, change and attempt: the same request again answers the same page. */
+    readonly idempotencyKey: string
   }) => Effect.Effect<
-    | { readonly _tag: "redirect"; readonly url: string }
+    | { readonly _tag: "redirect"; readonly url: string; readonly sessionId: string }
     | { readonly _tag: "subscribed"; readonly subscription: SubscriptionSnapshot; readonly invoice: InvoiceSnapshot },
     BillingUnavailable
   >
+  /** A Checkout page opened before, as it stands (`undefined` where the adapter has none). */
+  readonly checkoutSession: (id: string) => Effect.Effect<CheckoutSession | undefined, BillingUnavailable>
+  /** Closes a Checkout page that is still open, so it cannot be paid. */
+  readonly expireCheckout: (id: string) => Effect.Effect<void, BillingUnavailable>
+  /**
+   * The customer's subscription that still bills or will (not cancelled, not expired), newest first: before a first
+   * payment is opened, so a workspace whose earlier payment Insyte has not heard of yet is never subscribed twice.
+   */
+  readonly activeSubscription: (
+    customerId: string
+  ) => Effect.Effect<SubscriptionSnapshot | undefined, BillingUnavailable>
   /** What changing `current` to `target` costs now, prorated to `prorationDate` (unix seconds). */
   readonly preview: (input: {
     readonly current: SubscriptionSnapshot
@@ -126,8 +148,10 @@ export class BillingProvider extends Context.Service<BillingProvider, {
     { readonly url: string },
     BillingUnavailable
   >
-  /** The subscription as Stripe has it now, where it can be asked (the fake cannot: `undefined`). */
+  /** The subscription as Stripe has it now; `undefined` where it does not know it. */
   readonly subscription: (id: string) => Effect.Effect<SubscriptionSnapshot | undefined, BillingUnavailable>
+  /** An invoice as Stripe has it now (its links among it); `undefined` where it does not know it. */
+  readonly invoice: (id: string) => Effect.Effect<InvoiceSnapshot | undefined, BillingUnavailable>
   /** Whether `header` (`Stripe-Signature`) signs `body` with the stage's webhook secret, within Stripe's tolerance. */
   readonly verifyWebhook: (body: Uint8Array, header: string, now: Date) => Effect.Effect<boolean>
   /** A verified body, read; `undefined` when it is not an event. */

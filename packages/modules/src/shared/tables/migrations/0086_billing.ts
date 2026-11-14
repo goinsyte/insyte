@@ -10,7 +10,10 @@ import { statements } from "../statements.ts"
  *   and `status` stay empty until a subscription exists (a trial is `workspaces.trial_ends_at`, not a row here).
  *   `extra_seats` are the seats bought beyond the plan's; the team's seats read them (`Members.seats`). `event_at` is
  *   the newest Stripe event applied, so an older one that arrives late does not roll the row back. `started_by` is
- *   the person whose first paid action made the row, for the product event.
+ *   the person whose first paid action made the row, and `started_at` when the subscription first paid, so the product
+ *   event is counted once. `checkout_session_id` is the Checkout page opened for the first payment, with the change it
+ *   was opened for (`checkout_key`): opened again for the same change it is reused, for another it is expired first, so
+ *   no workspace pays twice.
  * - `invoices`: Stripe's invoices for the workspace, by Stripe's id, newest first. Links are Stripe's hosted page and
  *   PDF; amounts are minor units in the invoice's currency.
  * - `billing_route(customer, workspace)`: a webhook's workspace, read before any workspace is in scope: by the
@@ -38,12 +41,16 @@ export default statements(
      card_last4             text check (card_last4 ~ '^[0-9]{4}$'),
      card_expiry            text check (card_expiry ~ '^[0-9]{2}/[0-9]{4}$'),
      started_by             text,
+     started_at             timestamptz,
+     checkout_session_id    text,
+     checkout_key           text,
      event_at               timestamptz,
      created_at             timestamptz not null default now(),
      updated_at             timestamptz not null default now(),
      check ((stripe_subscription_id is null) = (status is null))
    )`,
   tenantTable("subscriptions", { membersOnly: true }),
+  "create trigger subscriptions_touch before update on subscriptions for each row execute function touch_updated_at()",
   `create table invoices (
      id                 text primary key,
      workspace_id       text not null references workspaces(id) on delete cascade,

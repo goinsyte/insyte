@@ -10,13 +10,16 @@ import {
   CancelInput,
   ChangePlanInput,
   ChangeSeatsInput,
+  CheckoutPending,
   InvoicePage,
   InvoicesInput,
   InvoiceUrlInput,
   NoExtraSeats,
   NoSubscription,
+  PreviewExpired,
   SeatsExceedPlan,
-  StoresExceedPlan
+  StoresExceedPlan,
+  TooManySeats
 } from "@insyte/modules/billing/domain/Billing"
 import { Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/rpc"
@@ -30,13 +33,16 @@ const ChangeRefused = Schema.Union([
   NoSubscription,
   NoExtraSeats,
   SeatsExceedPlan,
-  StoresExceedPlan
+  StoresExceedPlan,
+  TooManySeats,
+  PreviewExpired,
+  CheckoutPending
 ])
 const Refused = Schema.Union([Forbidden, BillingUnavailable, NoSubscription])
 
 /**
  * Facturatie (M13 step 1): Insyte's own subscription at Stripe. Facturatie · Bekijken reads, Beheren changes, an
- * invoice's link takes `billing.invoices`. A plan or seats change is irreversible from Insyte's side: the console
+ * invoice and the list take `billing.invoices`. A plan or seats change is irreversible from Insyte's side: the console
  * confirms with `Billing.previewChange` first. Not reachable by an API key or an agent (`billing` is `api: false`).
  */
 export class BillingRpcs extends RpcGroup.make(

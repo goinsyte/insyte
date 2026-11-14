@@ -34,12 +34,14 @@ export interface SubscriptionRow {
   readonly cardLast4: string | null
   readonly cardExpiry: string | null
   readonly startedBy: string | null
+  readonly checkoutSessionId: string | null
+  readonly checkoutKey: string | null
 }
 
 export const subscriptionRow = Effect.fn("Billing.row")(function*(sql: SqlClient.SqlClient) {
   const [row] = yield* sql<SubscriptionRow>`
     select stripe_customer_id, stripe_subscription_id, status, plan, cycle, extra_seats, currency, current_period_end,
-           cancel_at, card_brand, card_last4, card_expiry, started_by
+           cancel_at, card_brand, card_last4, card_expiry, started_by, checkout_session_id, checkout_key
     from subscriptions`
   return row
 })
@@ -62,6 +64,15 @@ export const snapshotOf = (row: SubscriptionRow | undefined, workspaceId: string
     workspaceId
   }
 
+/**
+ * The statuses that hold a paid plan's seats, stores and answers: paying, or in Stripe's grace while a payment is
+ * retried. Anything else (unpaid, paused, cancelled, expired, a first payment not made) holds the trial's.
+ */
+const ENTITLED: ReadonlySet<SubscriptionStatus> = new Set(["active", "trialing", "past_due"])
+
+const isEntitled = (status: SubscriptionStatus | null | undefined) =>
+  status !== null && status !== undefined && ENTITLED.has(status)
+
 /** A subscription that still bills (or will): a change applies to it; otherwise the next paid action starts anew. */
 export const isLive = (s: SubscriptionSnapshot | undefined): s is SubscriptionSnapshot =>
   s !== undefined && s.status !== "canceled" && s.status !== "incomplete_expired"
@@ -73,7 +84,8 @@ export const currentTarget = (
 ): Target => ({
   plan: row?.plan ?? (isPlanId(workspacePlan) ? workspacePlan : "starter"),
   cycle: row?.cycle ?? "monthly",
-  extraSeats: row?.extraSeats ?? 0
+  // Seats bought on a subscription that has ended are not carried into a new one.
+  extraSeats: row !== undefined && isLive(snapshotOf(row, "")) ? row.extraSeats : 0
 })
 
 interface WorkspaceRow {
@@ -104,6 +116,10 @@ export const overview = Effect.fn("Billing.overview")(function*(sql: SqlClient.S
   const row = yield* subscriptionRow(sql)
   const live = row?.status !== null && row?.status !== undefined
   const plan: PlanId | null = row?.plan ?? (isPlanId(workspace.plan) ? workspace.plan : null)
+  // What the workspace may use: the paid plan while it is paid for, otherwise what the workspace's plan gives.
+  const holds: PlanId | null = isEntitled(row?.status)
+    ? (row?.plan ?? null)
+    : (isPlanId(workspace.plan) ? workspace.plan : null)
   const seats = yield* seatCount(sql)
   const stores = yield* connectedStores(sql)
   // This period's answers: since the paid period began, or since the start of the month on a trial.
@@ -137,8 +153,8 @@ export const overview = Effect.fn("Billing.overview")(function*(sql: SqlClient.S
       full: seats.full
     },
     usage: {
-      stores: { value: stores, max: plan === null ? TRIAL_STORES : PLAN_STORES[plan] },
-      aiReplies: { value: counts?.replies ?? 0, max: plan === null ? TRIAL_AI_REPLIES : PLAN_AI_REPLIES[plan] },
+      stores: { value: stores, max: holds === null ? TRIAL_STORES : PLAN_STORES[holds] },
+      aiReplies: { value: counts?.replies ?? 0, max: holds === null ? TRIAL_AI_REPLIES : PLAN_AI_REPLIES[holds] },
       activeAutomations: { value: counts?.automations ?? 0, max: ACTIVE_AUTOMATIONS }
     }
   })
@@ -149,8 +165,10 @@ export const seatsOfTarget = (t: Target) => PLAN_SEATS[t.plan] + t.extraSeats
 
 /**
  * The cache after Stripe answered or told: the subscription as it is now, unless a newer event already wrote it
- * (`at`, Stripe's time for a webhook; an answer to Insyte's own call is now). The workspace's plan follows a paid plan,
- * so everything that reads `workspaces.plan` sees it.
+ * (`at`, Stripe's time for a webhook; an answer to Insyte's own call is now), or the row holds another subscription that
+ * still bills (a second one at the same customer is Stripe's to sort out, not a reason to drop the first). The
+ * workspace's plan follows: a paid plan while it is paid for, the trial's once it has ended. `started` is true once,
+ * for the write that first sees it paid, however many webhooks race to it.
  */
 export const writeSubscription = Effect.fn("Billing.writeSubscription")(
   function*(sql: SqlClient.SqlClient, workspaceId: string, s: SubscriptionSnapshot, at: Date) {
@@ -176,18 +194,36 @@ export const writeSubscription = Effect.fn("Billing.writeSubscription")(
         card_expiry = coalesce(excluded.card_expiry, t.card_expiry),
         cancel_reason = case when excluded.cancel_at is null then null else t.cancel_reason end,
         cancel_note = case when excluded.cancel_at is null then null else t.cancel_note end,
+        checkout_session_id = null,
+        checkout_key = null,
         event_at = greatest(t.event_at, excluded.event_at),
         updated_at = now()
-      where t.event_at is null or t.event_at <= excluded.event_at
+      where (t.event_at is null or t.event_at <= excluded.event_at)
+        and (t.stripe_subscription_id is null
+             or t.stripe_subscription_id = excluded.stripe_subscription_id
+             or t.status not in ('trialing', 'active', 'past_due', 'unpaid', 'incomplete', 'paused'))
       returning plan`
-    if (written?.plan != null && (s.status === "active" || s.status === "trialing" || s.status === "past_due")) {
+    if (written === undefined) return { written: false, started: false }
+    if (written.plan !== null && isEntitled(s.status)) {
       yield* sql`update workspaces set plan = ${written.plan} where id = ${workspaceId} and plan <> ${written.plan}`
+    } else if (!isEntitled(s.status) && !isLive(s)) {
+      yield* sql`update workspaces set plan = 'trial' where id = ${workspaceId} and plan <> 'trial'`
     }
-    return written !== undefined
+    // One row lock decides it: a second writer waits, then finds `started_at` set.
+    const started = isEntitled(s.status) && s.status !== "past_due"
+      ? (yield* sql`
+        update subscriptions set started_at = now()
+        where workspace_id = ${workspaceId} and started_at is null
+        returning 1`).length > 0
+      : false
+    return { written: true, started }
   }
 )
 
-/** An invoice as Stripe last said it; an older event for it is ignored. */
+/**
+ * An invoice as Stripe last said it; an older event for it is ignored, and one that is settled (paid, void,
+ * uncollectible) never goes back to open or draft, whatever order Stripe's events arrive in.
+ */
 export const writeInvoice = Effect.fn("Billing.writeInvoice")(
   function*(sql: SqlClient.SqlClient, workspaceId: string, i: InvoiceSnapshot, at: Date) {
     yield* sql`
@@ -199,6 +235,7 @@ export const writeInvoice = Effect.fn("Billing.writeInvoice")(
         number = excluded.number, status = excluded.status, amount_minor = excluded.amount_minor,
         currency = excluded.currency, hosted_url = excluded.hosted_url, pdf_url = excluded.pdf_url,
         event_at = excluded.event_at
-      where t.workspace_id = excluded.workspace_id and (t.event_at is null or t.event_at <= excluded.event_at)`
+      where t.workspace_id = excluded.workspace_id and (t.event_at is null or t.event_at <= excluded.event_at)
+        and not (t.status in ('paid', 'void', 'uncollectible') and excluded.status in ('open', 'draft'))`
   }
 )
