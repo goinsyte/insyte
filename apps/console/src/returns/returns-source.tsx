@@ -24,6 +24,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useEffect, useMemo, useState } from "react"
+import { ConsoleReturnAgentRows, NoReturnProposal } from "../agent/record-rows.tsx"
 import { frameAtom } from "../data/frame.ts"
 import { ordersAtom } from "../data/orders.ts"
 import { productsAtom } from "../data/products.ts"
@@ -38,12 +39,15 @@ import { useReturnCommands } from "./return-writes.ts"
  * The returns screens' sources in the console (M9.1): `Returns.list`, `Returns.get` and `Returns.settings` as the
  * design's, with the server's commands. "Label versturen" only where a carrier is set up (M9.2). What the server does
  * not do yet is left out, not made up: the carrier's scans (M9.4), the public portal (M9.5) and the agents' proposal
- * (M15). A return's window, its product rule and what it may be settled with are the server's.
+ * (M15). The agents' rows in a return's history are `AgentLog.list` for it. A return's window, its product rule and what it may be settled with are the server's.
  */
 
 function value<A>(result: AsyncResult.AsyncResult<A, unknown>): A | undefined {
   return Option.getOrUndefined(AsyncResult.value(result))
 }
+
+/** Wat Insyte hier deed in a return's history (M15.6); the agent's plate on top is not the console's yet. */
+const AGENTS = { Proposal: NoReturnProposal, Rows: ConsoleReturnAgentRows }
 
 /** The commands, without "Label versturen" where no carrier is set up for labels. */
 const withLabels = (commands: ReturnCommands, labels: boolean): ReturnCommands =>
@@ -217,7 +221,8 @@ function useDetailSource(
     useRefundGate: useRefund,
     money: settings === undefined ?
       NO_SETTINGS :
-      { giftCardBonus: settings.giftCardBonusPct, exchangeFee: settings.exchangeFeeMinor / 100 }
+      { giftCardBonus: settings.giftCardBonusPct, exchangeFee: settings.exchangeFeeMinor / 100 },
+    agents: AGENTS
   }
 }
 

@@ -49,6 +49,8 @@ export interface Step {
   readonly ai?: boolean
   /** The right the step needs, from `SCOPES`. */
   readonly scope?: string
+  /** Rights it needs besides `scope`, when one is not enough ("E-mail versturen" reads the order it mails about). */
+  readonly alsoScopes?: ReadonlyArray<string>
   /** For a trigger: the record a run is about. */
   readonly record?: RecordKind
   /** Shown "Binnenkort": there is nothing to run it yet, so a flow with it cannot be published. */
@@ -85,6 +87,7 @@ interface ActionOpts {
   readonly brand?: string
   readonly ai?: boolean
   readonly scope?: string
+  readonly alsoScopes?: ReadonlyArray<string>
   readonly defaults?: Readonly<Record<string, unknown>>
   readonly fields?: ReadonlyArray<StepField>
 }
@@ -98,6 +101,7 @@ const act = (id: string, label: string, description: string, category: string, o
   ...(o.brand === undefined ? {} : { brand: o.brand }),
   ...(o.ai === true ? { ai: true } : {}),
   ...(o.scope === undefined ? {} : { scope: o.scope }),
+  ...(o.alsoScopes === undefined ? {} : { alsoScopes: o.alsoScopes }),
   defaultConfig: o.defaults ?? {},
   fields: o.fields ?? []
 })
@@ -167,8 +171,9 @@ export const STEPS: ReadonlyArray<Step> = [
   trig("trigger.webhook", "Inkomende webhook", "Algemene webhook-ontvanger", "payload"),
 
   /* ── Insyte's own actions ───────────────────────────────────────────────────────────────── */
-  act("action.send_email", "E-mail versturen", "Een klant of het team mailen", "Insyte", {
+  act("action.send_email", "E-mail versturen", "De klant van de bestelling mailen", "Insyte", {
     scope: "customers.email",
+    alsoScopes: ["orders.read"],
     defaults: {
       to: "{{customer.email}}",
       subject: "We zijn ermee bezig",
@@ -552,3 +557,7 @@ export const configSchemaOf = (step: Step) =>
     title_override: Schema.optional(Schema.String.check(Schema.isMaxLength(200))),
     ...Object.fromEntries(step.fields.map((f) => [f.key, Schema.optional(fieldSchemaOf(f))]))
   })
+
+/** Every right a step needs: its `scope` and any `alsoScopes`. */
+export const scopesOfStep = (step: Step | undefined): ReadonlyArray<string> =>
+  step === undefined ? [] : [...(step.scope === undefined ? [] : [step.scope]), ...(step.alsoScopes ?? [])]

@@ -9,6 +9,7 @@ import { OrderDetailPage } from "@insyte/ui/app/orders/order-screen"
 import { createFileRoute, notFound } from "@tanstack/react-router"
 import { Effect, Exit, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
+import { ConsoleOrderAgentRows } from "../agent/record-rows.tsx"
 import { orderAtom, ordersAtom } from "../data/orders.ts"
 import { ConsoleTracker } from "../orders/forwarding-source.tsx"
 import { arrivingOrderDetail, useConsoleOrderDetail } from "../orders/order-detail-source.ts"
@@ -81,7 +82,14 @@ function OrderRoute() {
 
 function Loaded({ detail }: { detail: OrderDetail }) {
   return (
-    <OrderDetailSourceProvider value={{ ...useConsoleOrderDetail(detail), Tracker: ConsoleTracker, Returns: RETURNS }}>
+    <OrderDetailSourceProvider
+      value={{
+        ...useConsoleOrderDetail(detail),
+        Tracker: ConsoleTracker,
+        Returns: RETURNS,
+        AgentRows: ConsoleOrderAgentRows
+      }}
+    >
       <OrderDetailPage />
     </OrderDetailSourceProvider>
   )

@@ -83,3 +83,37 @@ export const AutomationScheduleTick = HttpRouter.add(
     return HttpServerResponse.jsonUnsafe({ runs })
   }).pipe(withRequestDb)
 )
+
+/**
+ * `POST /api/__dev/automations/unchecked?workspace=<id>&automation=<id>`: the flow's live version published again as a
+ * version from before the mail rules (`mail_checked` false), so a worker test sees how a flow published before this
+ * release runs its "E-mail versturen". Only locally and on a preview. Answers the new version.
+ */
+export const AutomationUncheckedVersion = HttpRouter.add(
+  "POST",
+  "/api/__dev/automations/unchecked",
+  Effect.gen(function*() {
+    if (!(yield* devOnly)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const workspace = yield* workspaceParam
+    const automation = new URL(request.url, "http://local").searchParams.get("automation") ?? ""
+    const db = yield* Db
+    const version = yield* db.scopedFor((sql) =>
+      Effect.gen(function*() {
+        const [v] = yield* sql<{ version: number }>`
+          insert into automation_versions (workspace_id, automation_id, version, nodes, note, scopes_required,
+                                           published_by, mail_checked)
+          select v.workspace_id, v.automation_id, v.version + 1, v.nodes, 'Van vóór de mailregels', v.scopes_required,
+                 v.published_by, false
+          from automations a join automation_versions v on v.automation_id = a.id and v.version = a.live_version
+          where a.id = ${automation}
+          returning version`
+        if (v !== undefined) yield* sql`update automations set live_version = ${v.version} where id = ${automation}`
+        return v?.version ?? null
+      })
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe({ version })
+  }).pipe(withRequestDb)
+)

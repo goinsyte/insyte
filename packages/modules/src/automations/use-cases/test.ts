@@ -1,8 +1,8 @@
 import { Db } from "@insyte/database/Db"
 import { fill, handlingOf, missingIn } from "@insyte/domain/automations/Engine"
-import { type FlowNode, type LaneNode, scopesRequired, validate } from "@insyte/domain/automations/Graph"
+import { flat, type FlowNode, type LaneNode, scopesRequired, validate } from "@insyte/domain/automations/Graph"
 import { accountScopes, SCOPE_LABEL } from "@insyte/domain/automations/Scopes"
-import { STEPS_BY_ID } from "@insyte/domain/automations/Steps"
+import { scopesOfStep, STEPS_BY_ID } from "@insyte/domain/automations/Steps"
 import { NotFound } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
 import { Effect } from "effect"
@@ -40,6 +40,7 @@ export const test = Effect.fn("Automations.test")(
         const sample = yield* sampleOf(sql, input.id, input.recordRef)
         const context = sample === undefined ? {} : ((yield* orderContext(sql, sample.id)) ?? {})
         const held = new Set(accountScopes(scopesRequired(nodes), settings))
+        const refunds = flat(nodes).some((n) => n.variantId === "action.refund")
         const errors = new Map<string, string>()
         for (
           const i of validate(nodes, { scopesOff: settings.scopesOff, connected: new Set(connected), selfId: input.id })
@@ -117,13 +118,27 @@ export const test = Effect.fn("Automations.test")(
                 return undefined
               }
               case "action": {
-                const scope = STEPS_BY_ID[n.variantId]?.scope
-                if (scope !== undefined && !held.has(scope)) {
+                const scope = scopesOfStep(STEPS_BY_ID[n.variantId]).find((s) => !held.has(s))
+                if (scope !== undefined) {
                   const why = `De flow mist het recht “${SCOPE_LABEL[scope] ?? scope}”. Zet het aan bij Instellingen.`
                   said(n, lane, "error", why)
                   return why
                 }
                 const missing = missingIn(n.config, fullContext)
+                if (n.variantId === "action.send_email") {
+                  // As a run would: a shopper who would not be mailed is said first (a cancelled order has no delivery
+                  // day to fill in), and a mail missing a value is skipped, not sent with a gap.
+                  const notMailed = (yield* mailSkip(sql, sample.id, refunds)) ??
+                    (missing.length === 0
+                      ? undefined
+                      : `Deze bestelling heeft geen ${
+                        missing.map((m) => `{{${m}}}`).join(", ")
+                      }; de klant wordt niet gemaild.`)
+                  if (notMailed !== undefined) {
+                    said(n, lane, "skipped", notMailed)
+                    return undefined
+                  }
+                }
                 if (missing.length > 0) {
                   const why = `Dit voorbeeld heeft geen ${missing.map((m) => `{{${m}}}`).join(", ")}.`
                   said(n, lane, "error", why)
@@ -202,6 +217,23 @@ const sampleOf = Effect.fn("Automations.sampleOf")(function*(
   return o === undefined ? undefined : { id: o.id, number: o.number, name: o.name ?? "", customerId: o.customerId }
 })
 
+/**
+ * Why "E-mail versturen" would not mail this order's shopper, as a run decides it: no address, the order cancelled, or
+ * refunded when the flow does not refund it itself ("terugbetalen en dan mailen" still mails).
+ */
+const mailSkip = Effect.fn("Automations.mailSkip")(function*(
+  sql: SqlClient.SqlClient,
+  orderId: string,
+  flowRefunds: boolean
+) {
+  const [o] = yield* sql<{ email: string | null; status: string }>`
+    select nullif(btrim(customer_email), '') as email, status from orders where id = ${orderId}`
+  if (o?.email == null) return "Deze bestelling heeft geen e-mailadres van de klant."
+  if (o.status === "cancelled") return "Deze bestelling is geannuleerd; de klant wordt niet gemaild."
+  if (o.status === "refunded" && !flowRefunds) return "Deze bestelling is terugbetaald; de klant wordt niet gemaild."
+  return undefined
+})
+
 /** What an action would do on this order, said; checked where the run would refuse it. */
 const wouldDo = Effect.fn("Automations.wouldDo")(function*(
   sql: SqlClient.SqlClient,
@@ -258,6 +290,12 @@ const wouldDo = Effect.fn("Automations.wouldDo")(function*(
       return closed.length > 0
         ? { status: "error" as const, explanation: `${closed.map((s) => s.name).join(", ")} heeft nog geen kanaal.` }
         : { status: "ok" as const, explanation: `Zou ${found.map((s) => s.name).join(", ")} een bericht sturen.` }
+    }
+    case "action.send_email": {
+      const [o] = yield* sql<
+        { email: string }
+      >`select btrim(customer_email) as email from orders where id = ${sample.id}`
+      return { status: "ok" as const, explanation: `Zou ${o?.email ?? ""} mailen: “${text("subject")}”.` }
     }
     case "action.refund": {
       const amount = text("amount")

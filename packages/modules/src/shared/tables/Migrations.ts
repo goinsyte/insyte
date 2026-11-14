@@ -75,6 +75,7 @@ import automationRunStarter from "./migrations/0085_automation_run_starter.ts"
 import firstAnalysisMade from "./migrations/0087_first_analysis_made.ts"
 import listSortKeys from "./migrations/0089_list_sort_keys.ts"
 import billing from "./migrations/0090_billing.ts"
+import automationMailChecked from "./migrations/0091_automation_mail_checked.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 import supplierPortal from "./migrations/contract/0075_supplier_portal.ts"
 
@@ -161,5 +162,6 @@ export const Migrations = {
   "0085_automation_run_starter": automationRunStarter,
   "0087_first_analysis_made": firstAnalysisMade,
   "0089_list_sort_keys": listSortKeys,
-  "0090_billing": billing
+  "0090_billing": billing,
+  "0091_automation_mail_checked": automationMailChecked
 }

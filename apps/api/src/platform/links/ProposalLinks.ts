@@ -199,15 +199,20 @@ export const filed = (labels: Labels["Service"]) => (action: ProposalAction) => 
         Effect.catchTag("DelayMailRefused", () => Effect.succeed("stale" as const))
       )
     case "CreateSupplierTicket":
-      // On the filer, where a member files it; a key's ticket has no one on it yet.
+      // On the filer, where a member files it; a key's ticket has no one on it yet. In the product's store, as
+      // "Bijbestelling aanvragen" (`Tickets.restock`) puts it, so only who reaches that store reads it.
       return Effect.flatMap(Effect.service(CurrentPrincipal), (principal) =>
-        createTicket({
-          title: action.title,
-          description: action.description,
-          priority: "high",
-          labels: ["Leveringsketen"],
-          assigneeIds: principal.kind === "member" ? [principal.id] : []
-        }, { source: "insyte" })).pipe(
+        createTicket(
+          {
+            title: action.title,
+            description: action.description,
+            priority: "high",
+            labels: ["Leveringsketen"],
+            assigneeIds: principal.kind === "member" ? [principal.id] : []
+          },
+          { source: "insyte" },
+          { productId: action.productId }
+        )).pipe(
           Effect.map((change) => ({ undo: change.undo, pending: false, settles: false })),
           Effect.catchTags({ Invalid: Effect.die, MemberNotActive: Effect.die })
         )

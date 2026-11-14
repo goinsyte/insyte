@@ -7,6 +7,7 @@ import type { TicketDetailView, TicketPerson, TicketsSearch, TicketsSource } fro
 import { Option } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { ConsoleTicketAgentRows } from "../agent/record-rows.tsx"
 import { useTicketDrafts } from "../ai/drafts.tsx"
 import { frameAtom } from "../data/frame.ts"
 import { ticketAtom } from "../data/tickets.ts"
@@ -16,15 +17,18 @@ import { type Overlay, useNotifyCustomer, useTicketCommands } from "./ticket-wri
 
 /*
  * The tickets screens' source in the console (M11 step 3): `Tickets.list` as the design's tickets, `Tickets.get` for
- * the modal, the team from the frame, and the server's commands, each shown on the board at once. What the server does
- * not do yet is left out, not made up: the agents' rows (M15). Klant informeren mails the shopper from the team's
- * mailbox (`Tickets.emailCustomer`), for a role that may write to customers. Samenvatten and Antwoord voorstellen are
+ * the modal, the team from the frame, and the server's commands, each shown on the board at once. Wat Insyte hier deed
+ * is the agent's rows on the ticket (`AgentLog.list`). Klant informeren mails the shopper from the team's mailbox
+ * (`Tickets.emailCustomer`), for a role that may write to customers. Samenvatten and Antwoord voorstellen are
  * Insyte AI's (`../ai/drafts.tsx`). Every ticket is written here by hand, so the first day's page offers that.
  */
 
 function value<A>(result: AsyncResult.AsyncResult<A, unknown>): A | undefined {
   return Option.getOrUndefined(AsyncResult.value(result))
 }
+
+/** Wat Insyte hier deed, in the ticket (M15.6). */
+const AGENTS = { Rows: ConsoleTicketAgentRows }
 
 const NO_TICKET = Atom.make(AsyncResult.initial<TicketDetail, never>())
 
@@ -130,6 +134,7 @@ export function useConsoleTicketsSource(
     useTicket,
     Empty,
     drafts,
+    agents: AGENTS,
     ...(gate.ok ? { notifyCustomer } : {})
   }
 }

@@ -3,13 +3,15 @@ import { Effect, Layer } from "effect"
 import type * as Acts from "./AutomationActs.ts"
 
 /*
- * A flow's actions through orders, forwarding, chats, tracking and Insyte AI (M12 step 3). `AutomationActs.ts` is
+ * A flow's actions through orders (a refund, a mail to the shopper), forwarding, chats, tracking and Insyte AI (M12
+ * step 3). `AutomationActs.ts` is
  * imported on the first such step an isolate runs, not when the Worker starts (ADR-0041 §3); if it does not load, the
  * step fails as one that may succeed later, and the Workflow tries it again.
  */
 
 /** The variants `AutomationActs.act` carries out. */
 const HANDLES: ReadonlySet<string> = new Set([
+  "action.send_email",
   "action.notify_supplier",
   "action.refund",
   "action.assign_supplier",

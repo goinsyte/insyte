@@ -243,6 +243,7 @@ export type Handling =
 
 /** The actions that run today, through their slices; the rest of the catalogue says why it cannot yet. */
 export const RUNNABLE: ReadonlySet<string> = new Set([
+  "action.send_email",
   "action.create_ticket",
   "action.tag_customer",
   "action.alert_team",

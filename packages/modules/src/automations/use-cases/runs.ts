@@ -27,7 +27,7 @@ import {
   type RunStatus,
   RunStep
 } from "../domain/Runs.ts"
-import { hourlyLimitOf, keyOf, REFUNDS_SQL } from "./engine.ts"
+import { hourlyLimitOf, keyOf, MAILS_SQL, REFUNDS_SQL } from "./engine.ts"
 import { mayHand } from "./rights.ts"
 
 /*
@@ -421,12 +421,13 @@ const insertRun = Effect.fn("Runs.insertRun")(function*(
     storeScope: Array<string> | null
     rateLimit: number
     refunds: boolean
+    mails: boolean
     accountId: string | null
     scopes: Array<string> | null
   }>`
     select a.workspace_id, a.live_version, a.status, a.trigger_variant, a.store_scope,
            coalesce(s.rate_limit_per_hour, 0) as rate_limit, ${sql.literal(REFUNDS_SQL)} as refunds,
-           sa.id as account_id, sa.scopes
+           ${sql.literal(MAILS_SQL)} as mails, sa.id as account_id, sa.scopes
     from automations a
     left join automation_settings s on s.automation_id = a.id
     left join service_accounts sa on sa.automation_id = a.id and sa.disabled_at is null
@@ -441,7 +442,7 @@ const insertRun = Effect.fn("Runs.insertRun")(function*(
   const [hour] = yield* sql<{ n: number }>`
     select count(*)::int as n from automation_runs
     where automation_id = ${automationId} and status <> 'skipped' and started_at > now() - interval '1 hour'`
-  const limit = hourlyLimitOf(flow.rateLimit, flow.refunds)
+  const limit = hourlyLimitOf(flow.rateLimit, flow.refunds, flow.mails)
   const reason = flow.status !== "active"
     ? "De flow staat uit."
     : flow.accountId === null
@@ -506,8 +507,8 @@ export const start = Effect.fn("Runs.start")(
     // Bewerken, as a key's automations.write: the run acts as the flow's own account, not as the caller, so the
     // caller must hold what that account may do (insertRun).
     yield* Policy.require("automations", 2)
-    // An agent's key never starts one: the run's account may refund or message a supplier, and no agent action in
-    // the autonomy rules names that. MCP says so in its own words (`trigger_automation`); this holds `/v1` too.
+    // An agent's key never starts one: the run's account may refund, mail a shopper or message a supplier, and no
+    // agent action in the autonomy rules names that. MCP says so in its own words (`trigger_automation`); this holds `/v1` too.
     const principal = yield* CurrentPrincipal
     if (principal.kind === "agent") {
       return yield* new Forbidden({ permission: "automations", level: 2, roleLabel: principal.role.label })

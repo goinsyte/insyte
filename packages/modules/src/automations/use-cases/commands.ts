@@ -1,5 +1,6 @@
 import { Db } from "@insyte/database/Db"
 import {
+  flat,
   type Flow,
   MAX_STEPS,
   publishable,
@@ -301,10 +302,12 @@ export const publish = Effect.fn("Automations.publish")(function*(input: typeof 
         yield* sql`update automations set draft_nodes = ${draftJson}::jsonb where id = ${a.id}`
       }
       if (a.liveVersion > 0) {
-        const [live] = yield* sql<{ nodesJson: string }>`
-          select nodes::text as nodes_json from automation_versions
+        const [live] = yield* sql<{ nodesJson: string; mailChecked: boolean }>`
+          select nodes::text as nodes_json, mail_checked from automation_versions
           where automation_id = ${a.id} and version = ${a.liveVersion}`
-        if (live !== undefined && JSON.stringify(JSON.parse(live.nodesJson)) === JSON.stringify(nodes)) {
+        // A live version from before the mail rules is published again as it is: that is how its mail step runs.
+        const unchecked = live?.mailChecked === false && flat(nodes).some((n) => n.variantId === "action.send_email")
+        if (live !== undefined && !unchecked && JSON.stringify(JSON.parse(live.nodesJson)) === JSON.stringify(nodes)) {
           return yield* new NothingToPublish({ version: a.liveVersion })
         }
       }
@@ -320,9 +323,9 @@ export const publish = Effect.fn("Automations.publish")(function*(input: typeof 
       const trigger = triggerOf(nodes)!.variantId
       yield* sql`
         insert into automation_versions (workspace_id, automation_id, version, nodes, note, scopes_required,
-                                         published_by)
+                                         published_by, mail_checked)
         values (${principal.workspaceId}, ${a.id}, ${version}, ${draftJson}::jsonb,
-                ${input.note.trim() || "Gepubliceerd"}, ${[...scopesRequired(nodes)]}::text[], ${principal.id})`
+                ${input.note.trim() || "Gepubliceerd"}, ${[...scopesRequired(nodes)]}::text[], ${principal.id}, true)`
       const status: AutomationStatus = a.status === "draft" ? "active" : a.status
       yield* sql`update automations set live_version = ${version}, status = ${status}, trigger_variant = ${trigger},
                    store_scope = ${principal.storeScope === null ? null : [...principal.storeScope]}::text[]
@@ -493,9 +496,9 @@ const undoOf = Effect.fn("Automations.undoOf")(function*(sql: SqlClient.SqlClien
         const version = undo.version + 1
         yield* sql`
           insert into automation_versions (workspace_id, automation_id, version, nodes, note, scopes_required,
-                                           published_by)
+                                           published_by, mail_checked)
           select workspace_id, automation_id, ${version}, nodes, ${`Terug naar versie ${undo.liveVersion}`},
-                 scopes_required, ${principal.id}
+                 scopes_required, ${principal.id}, mail_checked
           from automation_versions where automation_id = ${undo.id} and version = ${undo.liveVersion}`
         yield* sql`update automations set live_version = ${version}, status = ${undo.status},
                      trigger_variant = ${undo.triggerVariant}

@@ -245,7 +245,7 @@ describe("a flow's runs", () => {
             }
           },
           step("k", "action.create_ticket", { title: "Proef: {{order.number}}", assignee: "" }),
-          step("m", "action.send_email")
+          step("m", "action.split_fulfillment")
         ] as Json
       }, store.cookie)
     )

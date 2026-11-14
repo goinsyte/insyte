@@ -343,74 +343,100 @@ describe("plates that send or open something (12.2b)", () => {
     })
   })
 
-  it("draws a reorder ticket for a sold-out variant, opens it on the filer with Undo, and lets a plate past its deadline expire", async () => {
-    const store = await importedStore("pp-stock", "upd")
-    const level = await call("http://api.public.test/hooks/shopify", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-shopify-topic": "inventory_levels/update",
-        "x-shopify-shop-domain": store.shop,
-        "x-shopify-webhook-id": `pp-${run}-1`,
-        "x-shopify-hmac-sha256": "valid"
-      },
-      body: JSON.stringify({ inventory_item_id: 11, location_id: 900, available: 0 })
-    })
-    expect(level.status).toBe(200)
-    let row: Awaited<ReturnType<typeof rowFor>>
-    for (let i = 0; i < 50 && row?.proposal == null; i++) {
-      await refresh(store.workspace)
-      row = ok(await rpc("Queue.list", { tab: "all" }, store.cookie)).rows.find((r) => r.kind === "stock_out")
-      if (row?.proposal == null) await new Promise((resolve) => setTimeout(resolve, 100))
-    }
-    expect(row!.proposal).toMatchObject({
-      number: "Linnen overhemd · M",
-      action: { _tag: "CreateSupplierTicket", productId: row!.subjectId },
-      plate: { fileLabel: "Ticket openen zoals getekend", witness: row!.storeName }
-    })
-    const plate = row!.proposal!
-    expect(plate.plate.heading).toMatch(/^Linnen overhemd · M bijbestellen/)
-    const action = plate.action as { title: string }
-
-    // Through /v1, the action is a kind and the product it reorders.
-    const secret = ok(
-      await rpc("ApiKeys.create", {
-        label: "Voorraad",
-        access: { kind: "role", roleId: "admin" } as never,
-        stores: "all",
-        expiresInDays: 30,
-        ips: [],
-        agent: false
-      }, store.cookie)
-    ).secret
-    expect(await send("GET", `/proposals/${plate.id}`, secret)).toMatchObject({
-      status: 200,
-      body: {
-        state: "open",
-        action: { kind: "create_supplier_ticket", subject_id: row!.subjectId },
-        file_label: "Ticket openen zoals getekend",
-        execution_error: null
+  it(
+    "draws a reorder ticket for a sold-out variant, opens it on the filer with Undo, and lets a plate past its deadline expire",
+    async () => {
+      const store = await importedStore("pp-stock", "upd")
+      const level = await call("http://api.public.test/hooks/shopify", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-shopify-topic": "inventory_levels/update",
+          "x-shopify-shop-domain": store.shop,
+          "x-shopify-webhook-id": `pp-${run}-1`,
+          "x-shopify-hmac-sha256": "valid"
+        },
+        body: JSON.stringify({ inventory_item_id: 11, location_id: 900, available: 0 })
+      })
+      expect(level.status).toBe(200)
+      let row: Awaited<ReturnType<typeof rowFor>>
+      for (let i = 0; i < 50 && row?.proposal == null; i++) {
+        await refresh(store.workspace)
+        row = ok(await rpc("Queue.list", { tab: "all" }, store.cookie)).rows.find((r) => r.kind === "stock_out")
+        if (row?.proposal == null) await new Promise((resolve) => setTimeout(resolve, 100))
       }
-    })
+      expect(row!.proposal).toMatchObject({
+        number: "Linnen overhemd · M",
+        action: { _tag: "CreateSupplierTicket", productId: row!.subjectId },
+        plate: { fileLabel: "Ticket openen zoals getekend", witness: row!.storeName }
+      })
+      const plate = row!.proposal!
+      expect(plate.plate.heading).toMatch(/^Linnen overhemd · M bijbestellen/)
+      const action = plate.action as { title: string }
 
-    // Filed: a high ticket on the filer, labelled for the supply chain; the row is decided, and Undo takes it all back.
-    const filed = ok(await rpc("Proposals.file", { id: plate.id }, store.cookie))
-    expect(filed.proposal.state).toBe("executed")
-    const ticket = ok(await rpc("Tickets.list", {}, store.cookie)).rows.find((t) => t.title === action.title)
-    expect(ticket).toMatchObject({ priority: "high", source: "insyte", labels: ["Leveringsketen"] })
-    expect(ticket!.assignees).toHaveLength(1)
-    expect(await rowFor(store.cookie, row!.subjectId)).toMatchObject({ state: "seen" })
-    await undo(store.cookie, filed.undo?.token)
-    expect(ok(await rpc("Tickets.list", {}, store.cookie)).rows.find((t) => t.title === action.title)).toBeUndefined()
-    const again = (await rowFor(store.cookie, row!.subjectId))!
-    expect(again).toMatchObject({ state: "open", proposal: { state: "open" } })
+      // Through /v1, the action is a kind and the product it reorders.
+      const secret = ok(
+        await rpc("ApiKeys.create", {
+          label: "Voorraad",
+          access: { kind: "role", roleId: "admin" } as never,
+          stores: "all",
+          expiresInDays: 30,
+          ips: [],
+          agent: false
+        }, store.cookie)
+      ).secret
+      expect(await send("GET", `/proposals/${plate.id}`, secret)).toMatchObject({
+        status: 200,
+        body: {
+          state: "open",
+          action: { kind: "create_supplier_ticket", subject_id: row!.subjectId },
+          file_label: "Ticket openen zoals getekend",
+          execution_error: null
+        }
+      })
 
-    // Past its deadline: the refresh lets it expire, and it is not drawn again for the row.
-    await call(`http://api.test/api/__dev/proposals/lapse?workspace=${store.workspace}&id=${again.proposal!.id}`, {
-      method: "POST"
-    })
-    await refresh(store.workspace)
-    expect(ok(await rpc("Proposals.get", { id: again.proposal!.id }, store.cookie)).state).toBe("expired")
-    expect(await rowFor(store.cookie, row!.subjectId)).toMatchObject({ state: "open", proposal: null })
-  })
+      // Two admins, one held to another store and one to the product's: the ticket is in the product's store, as
+      // "Bijbestelling aanvragen" puts it, so only the second reads it.
+      const product = ok(await rpc("Products.get", { id: row!.subjectId }, store.cookie)).product
+      const elsewhere = `pp-${run}-elsewhere@invited.test`
+      const here = `pp-${run}-here@invited.test`
+      ok(
+        await rpc("Invitations.send", {
+          rows: [
+            { email: elsewhere, roleId: "admin", stores: ["sto_elsewhere"] },
+            { email: here, roleId: "admin", stores: [product.storeId] }
+          ]
+        }, store.cookie)
+      )
+      await pastUndo(store.workspace)
+      await relay(store.workspace)
+      const [heldElsewhere, heldHere] = [await join(elsewhere), await join(here)]
+
+      // Filed: a high ticket on the filer, labelled for the supply chain; the row is decided, and Undo takes it all back.
+      const filed = ok(await rpc("Proposals.file", { id: plate.id }, store.cookie))
+      expect(filed.proposal.state).toBe("executed")
+      const ticket = ok(await rpc("Tickets.list", {}, store.cookie)).rows.find((t) => t.title === action.title)
+      expect(ticket).toMatchObject({ priority: "high", source: "insyte", labels: ["Leveringsketen"] })
+      expect(ticket!.assignees).toHaveLength(1)
+      expect(ticket!.storeId).toBe(product.storeId)
+      const seen = async (cookie: string) =>
+        ok(await rpc("Tickets.list", {}, cookie)).rows.some((t) => t.id === ticket!.id)
+      expect(await seen(heldElsewhere)).toBe(false)
+      expect(await seen(heldHere)).toBe(true)
+      expect(await rowFor(store.cookie, row!.subjectId)).toMatchObject({ state: "seen" })
+      await undo(store.cookie, filed.undo?.token)
+      expect(ok(await rpc("Tickets.list", {}, store.cookie)).rows.find((t) => t.title === action.title)).toBeUndefined()
+      const again = (await rowFor(store.cookie, row!.subjectId))!
+      expect(again).toMatchObject({ state: "open", proposal: { state: "open" } })
+
+      // Past its deadline: the refresh lets it expire, and it is not drawn again for the row.
+      await call(`http://api.test/api/__dev/proposals/lapse?workspace=${store.workspace}&id=${again.proposal!.id}`, {
+        method: "POST"
+      })
+      await refresh(store.workspace)
+      expect(ok(await rpc("Proposals.get", { id: again.proposal!.id }, store.cookie)).state).toBe("expired")
+      expect(await rowFor(store.cookie, row!.subjectId)).toMatchObject({ state: "open", proposal: null })
+    },
+    120_000
+  )
 })

@@ -105,8 +105,40 @@ describe("validate", () => {
     const flow = [node("trigger.inventory_low"), node("action.send_email")]
     expect(validate(flow)).toMatchObject([
       { code: "unresolved_reference", field: "to", message: "{{customer.email}} bestaat niet bij deze trigger." },
-      { code: "unresolved_reference", field: "body" }
+      { code: "unresolved_reference", field: "body" },
+      { code: "mail_needs_order" }
     ])
+  })
+
+  it("lets E-mail versturen mail only the shopper of an order, with a subject and words", () => {
+    expect(codes([node("trigger.order_shipped"), node("action.send_email")])).toEqual([])
+    expect(codes([node("trigger.schedule"), node("action.send_email")])).toEqual([])
+    // Customers who stopped ordering are a marketing list, not an order's shopper.
+    expect(codes([node("trigger.schedule", { records: "customers_idle" }), node("action.send_email")])).toEqual([
+      "n:mail_needs_order"
+    ])
+    expect(codes([node("trigger.chargeback"), node("action.send_email")])).toEqual(["n:mail_needs_order"])
+    expect(codes([node("trigger.email_received"), node("action.send_email")])).toEqual(["n:mail_needs_order"])
+    expect(codes([node("trigger.order_placed"), node("action.send_email", { to: "team@voorbeeld.nl" })])).toEqual([
+      "n:mail_to_customer"
+    ])
+    expect(
+      codes([node("trigger.order_placed"), node("action.send_email", { subject: " ", body: "" })])
+    ).toEqual(["n:missing_field", "n:missing_field"])
+  })
+
+  it("allows one E-mail versturen a flow, in a lane too", () => {
+    const mail = () => node("action.send_email")
+    expect(codes([node("trigger.order_shipped"), mail(), mail()])).toEqual(["n:one_mail"])
+    const split = { ...node("condition.branch"), branches: { yes: [mail()], no: [] } }
+    expect(codes([node("trigger.order_shipped"), mail(), split])).toEqual(["n:one_mail"])
+  })
+
+  it("holds E-mail versturen to Klanten mailen and Bestellingen lezen", () => {
+    const flow = [node("trigger.order_shipped"), node("action.check_eta"), node("action.send_email")]
+    expect(scopesRequired(flow)).toEqual(["orders.read", "customers.email"])
+    expect(codes(flow, { scopesOff: ["orders.read"] })).toEqual(["n:scope_off", "n:scope_off"])
+    expect(codes(flow, { scopesOff: ["customers.email"] })).toEqual(["n:scope_off"])
   })
 
   it("keeps lanes on the main line and not empty", () => {
@@ -131,6 +163,6 @@ describe("validate", () => {
   it("reads the trigger and the rights a flow needs", () => {
     const flow = [node("trigger.order_placed"), node("action.refund"), node("action.send_email")]
     expect(triggerOf(flow)?.variantId).toBe("trigger.order_placed")
-    expect(scopesRequired(flow)).toEqual(["customers.email", "refunds.write"])
+    expect(scopesRequired(flow)).toEqual(["orders.read", "customers.email", "refunds.write"])
   })
 })

@@ -74,7 +74,7 @@ describe("the automation engine", () => {
       } as Json,
       step("k", "action.create_ticket", { title: "Vertraagd: {{order.number}}", assignee: "", priority: "high" }),
       step("w", "action.alert_team", { team: "Niemand Bestaat" }),
-      step("m", "action.send_email")
+      step("m", "action.split_fulfillment")
     ])
     const filtered = await flow("Alleen negatieve bedragen", [
       TRIGGER,
@@ -95,7 +95,7 @@ describe("the automation engine", () => {
     expect(account(main)).toMatchObject({
       label: "Workflow: Vertraagd → ticket",
       disabled: false,
-      scopes: expect.arrayContaining(["customers.write", "customers.email", "tickets.write", "team.notify"])
+      scopes: expect.arrayContaining(["customers.write", "orders.write", "tickets.write", "team.notify"])
     })
     expect(account(refused).scopes).not.toContain("tickets.write")
     expect(account(paused).disabled).toBe(true)

@@ -12,7 +12,7 @@ import { orderOf } from "./orders-source.ts"
  * step, M8.2–8.3) and what AfterShip last said of each parcel (M8.4: only the latest checkpoint is kept, not every
  * scan). The supplier line names the order's suppliers; Insyte's advice on a delayed order drafts the design's ticket to
  * the supplier. The internal note is the team's (`order_notes`); the shopper's note from the checkout is shown apart.
- * The agents' rows are left out until they exist.
+ * The agents' rows under the timeline are `AgentLog.list` for the order (`../agent/record-rows.tsx`).
  */
 
 /* `formatLong`'s format, kept here because the screen module is the relaxed program's (`tsconfig.strict.json`). */
