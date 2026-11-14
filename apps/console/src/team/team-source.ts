@@ -28,7 +28,9 @@ import { TEAM, teamWrites } from "../data/team.ts"
  * buying seats waits for billing (M13).
  *
  * The store pickers offer the stores the signed-in person reaches (`Team.stores`). For someone held to some stores,
- * "Alle winkels" means all of theirs, so it is sent as those: every store, the later ones too, is past their reach.
+ * "Alle winkels" means all of theirs: an invitation is sent with those, and so is a member's stores where their role
+ * reaches further. Where the role keeps "every store" inside the caller's, it is sent as it is, so an undo puts back
+ * "Alle winkels" itself.
  */
 
 const roleOf = (role: Team["roles"][number]): Role => ({
@@ -129,11 +131,24 @@ const took = (result: unknown) => result !== undefined
 const copy = (stores: StoreAccess): StoreAccess => (stores === "all" ? "all" : [...stores])
 
 /**
- * The stores as sent: "Alle winkels" from someone held to some stores is all of theirs that they can pick, since every
- * store (the later ones too) lies past their reach.
+ * An invitation's stores as sent: "Alle winkels" from someone held to some stores is all of theirs that they can pick,
+ * since every store (the later ones too) lies past their reach.
  */
 const reachable = (team: Team, stores: StoreAccess): StoreAccess =>
   stores === "all" && team.storeScope !== null ? team.stores.map((s) => s.id) : copy(stores)
+
+/**
+ * A member's stores as sent: "Alle winkels" stays itself when the member's role keeps it inside the caller's stores
+ * (the server takes it then), and is all of the caller's otherwise.
+ */
+const memberStores = (team: Team, memberId: string, stores: StoreAccess): StoreAccess => {
+  const scope = team.storeScope
+  if (stores !== "all" || scope === null) return copy(stores)
+  const roleId = team.members.find((m) => m.id === memberId)?.roleId
+  const role = team.roles.find((r) => r.id === roleId)
+  const inside = role !== undefined && role.stores !== "all" && role.stores.every((s) => scope.includes(s))
+  return inside ? "all" : reachable(team, stores)
+}
 
 export function useConsoleTeamSource(team: Team): TeamSource {
   const write = {
@@ -293,7 +308,7 @@ export function useConsoleTeamSource(team: Team): TeamSource {
     setMemberStores: async (id, stores) =>
       took(
         await run("members", "Members.setStores", () =>
-          write.setMemberStores({ payload: { id, stores: reachable(team, stores) }, ...keys }))
+          write.setMemberStores({ payload: { id, stores: memberStores(team, id, stores) }, ...keys }))
       ),
     setDeactivated: async (id, deactivated) =>
       took(
