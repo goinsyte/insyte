@@ -9,6 +9,7 @@ export const TicketsHandlers = TicketsRpcs.toLayer(Effect.gen(function*() {
     "Tickets.get": ({ id }) => tickets.get(id),
     "Tickets.options": () => tickets.options,
     "Tickets.create": (input) => tickets.create(input),
+    "Tickets.restock": (input) => tickets.restock(input),
     "Tickets.duplicate": ({ id }) => tickets.duplicate(id),
     "Tickets.update": (input) => tickets.update(input),
     "Tickets.setStatus": (input) => tickets.setStatus(input),

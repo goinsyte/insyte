@@ -1,13 +1,20 @@
+import { useAtomValue } from "@effect/atom-react"
 import type { ProductPage, ProductRow as ServerRow } from "@insyte/modules/products/domain/Products"
+import type { QualityStats } from "@insyte/modules/quality/domain/Quality"
 import { copyLines, counted, exportCsv } from "@insyte/ui/app/lib/bulk-io"
 import { marginOf } from "@insyte/ui/app/lib/catalog"
 import { formatCurrency } from "@insyte/ui/app/lib/format"
 import type { Currency, Product } from "@insyte/ui/app/lib/types/domain"
 import type { ProductRow, ProductsSource } from "@insyte/ui/app/products/source"
 import type { Facet } from "@insyte/ui/app/table/data-table"
-import { Archive, BadgePercent, Check, Copy, Download, Edit3 } from "@insyte/ui/icons"
-import { useMemo } from "react"
+import { Archive, BadgePercent, Check, Copy, Download, Edit3, Truck } from "@insyte/ui/icons"
+import { Option } from "effect"
+import { AsyncResult, Atom } from "effect/reactivity"
+import { useCallback, useMemo } from "react"
+import { productStatsAtom } from "../data/quality.ts"
+import { useGate } from "../frame/refusals.ts"
 import { useProductCommands } from "./product-writes.ts"
+import { useRestock } from "./restock.ts"
 
 /*
  * The products list's source in the console: `Products.list`'s rows as the design's products (M6.4), with Insyte's own
@@ -18,6 +25,9 @@ import { useProductCommands } from "./product-writes.ts"
  * What the server does not hold yet is hidden, not made up: stock until Shopify reported any, the supplier until one
  * is assigned, the delivery time until an order arrived, the rating (no reviews source), the margin until any product
  * has a cost. The category is Shopify's product type. "Nieuw product" waits for `Products.create`.
+ * The Aandacht cuts read `Quality.stats` for the products listed, over the last 90 days: more than a tenth of the units sold came back, a
+ * complaint in the last 30 days, a check still running. "Bijbestelling aanvragen" files a restock ticket per product
+ * that runs low (`restock.ts`) where the role may open tickets.
  */
 
 const STOCK_FACET: Facet = {
@@ -51,7 +61,22 @@ export const productOf = (p: ServerRow): Product => ({
   created_at: new Date(p.updatedAt).toISOString()
 })
 
-const actionsOf = (commands: ReturnType<typeof useProductCommands>): ProductsSource["actions"] => (openMargins) => [
+const actionsOf = (
+  commands: ReturnType<typeof useProductCommands>,
+  restock: ReturnType<typeof useRestock>
+): ProductsSource["actions"] =>
+(openMargins) => [
+  ...(restock === undefined ? [] : [{
+    id: "restock",
+    needs: { perm: "support" as const, arg: 2 as const },
+    label: "Bijbestelling aanvragen",
+    icon: Truck,
+    group: "Leveranciers",
+    shortcut: "r",
+    bar: true,
+    applies: (p: ProductRow) => p.stock === "low" || p.stock === "out",
+    run: (rows: ReadonlyArray<ProductRow>) => void restock(rows.map((p) => p.id))
+  }]),
   {
     id: "margins",
     needs: { perm: "products", arg: 2 },
@@ -118,6 +143,26 @@ const actionsOf = (commands: ReturnType<typeof useProductCommands>): ProductsSou
 ]
 
 const QUIET = { returnHigh: false, complaints: 0, checkRunning: false }
+type Attention = typeof QUIET
+const NO_STATS = Atom.make(AsyncResult.initial<QualityStats, never>())
+
+/** What the returns and the quality checks say of each product (the panel's Aandacht cuts), where the role reads them. */
+function useAttention(ids: ReadonlyArray<string>): (product: Product) => Attention {
+  const key = useMemo(() => ids.toSorted().join(","), [ids])
+  const stats = Option.getOrUndefined(
+    AsyncResult.value(useAtomValue(useGate("products", 1).ok && key !== "" ? productStatsAtom(key) : NO_STATS))
+  )
+  const byId = useMemo(
+    () =>
+      new Map((stats?.rows ?? []).map((r): [string, Attention] => [r.id, {
+        returnHigh: r.sold > 0 && r.returned / r.sold > 0.1,
+        complaints: r.recentComplaints,
+        checkRunning: r.running > 0
+      }])),
+    [stats]
+  )
+  return useCallback((p: Product) => byId.get(p.id) ?? QUIET, [byId])
+}
 
 /**
  * The line beside the title, as the design writes it, with what the server holds: how many need restocking once stock
@@ -145,6 +190,9 @@ export function useConsoleProductsSource(page: ProductPage, open: (product: Prod
   const products = useMemo(() => page.rows.map(productOf), [page.rows])
   const server = useMemo(() => new Map(page.rows.map((p) => [p.id, p])), [page.rows])
   const commands = useProductCommands()
+  const restock = useRestock()
+  const ids = useMemo(() => page.rows.map((p) => p.id), [page.rows])
+  const attentionOf = useAttention(ids)
   const costed = page.rows.some((p) => p.costMinor !== null)
   const supplied = page.rows.some((p) => p.supplierId !== null)
   const stocked = page.rows.some((p) => p.stock !== null)
@@ -181,10 +229,10 @@ export function useConsoleProductsSource(page: ProductPage, open: (product: Prod
       }
     },
     standing: standingOf(stocked, costed, (id) => Math.max(0, server.get(id)?.available ?? 0)),
-    attentionOf: () => QUIET,
+    attentionOf,
     facets,
     hidden,
-    actions: actionsOf(commands),
+    actions: actionsOf(commands, restock),
     canCreate: { ok: false, reason: "Producten toevoegen kan hier nog niet" },
     currencyOf: (p) => p.currency,
     categories: false,

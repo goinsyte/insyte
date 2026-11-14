@@ -81,6 +81,7 @@ export const chatWrites = {
   typing: ConsoleClient.mutation("Chats.typing"),
   createChannel: ConsoleClient.mutation("Chats.createChannel"),
   openDm: ConsoleClient.mutation("Chats.openDm"),
+  openSupplierChannel: ConsoleClient.mutation("Chats.openSupplierChannel"),
   runCommand: ConsoleClient.mutation("Chats.runCommand"),
   confirm: ConsoleClient.mutation("Chats.confirmAction"),
   decline: ConsoleClient.mutation("Chats.declineAction"),

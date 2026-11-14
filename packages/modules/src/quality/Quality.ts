@@ -6,16 +6,19 @@ import { SqlError } from "effect/sql"
 import type { SqlClient } from "effect/sql"
 import { FileStore } from "../shared/domain/Documents.ts"
 import { Sealer } from "../shared/domain/Sealer.ts"
+import { QualityTickets } from "./domain/Ports.ts"
 import type {
   DeliverableMissing,
   IllegalCheckMove,
   LinkExpired,
   NoSupplier,
   QualityChange,
+  QualityStats,
   QualityView,
   RejectInput,
   RequestInput,
   SetPhaseInput,
+  StatsInput,
   SubmitInput,
   SupplierCheck,
   SupplierLink
@@ -33,6 +36,7 @@ type R = Db | CurrentPrincipal
  */
 export class QualityService extends Context.Service<QualityService, {
   readonly list: (productId: string) => Effect.Effect<QualityView, Forbidden | NotFound, R>
+  readonly stats: (input: typeof StatsInput.Type) => Effect.Effect<QualityStats, Forbidden, R>
   readonly request: (
     input: typeof RequestInput.Type
   ) => Effect.Effect<QualityChange, Forbidden | NotFound | Invalid | NoSupplier, R>
@@ -46,11 +50,16 @@ export class QualityService extends Context.Service<QualityService, {
   // A database that does not answer is a defect, as everywhere.
   static readonly layer = Layer.effect(
     QualityService,
-    Effect.map(Effect.service(Sealer), (sealer) => ({
+    Effect.map(Effect.all([Effect.service(Sealer), Effect.service(QualityTickets)]), ([sealer, tickets]) => ({
       list: (productId) => Quality.list(productId).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+      stats: (input) => Quality.stats(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
       request: (input) => Quality.request(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
       approve: (id) => Quality.approve(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-      reject: (input) => Quality.reject(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+      reject: (input) =>
+        Quality.reject(input).pipe(
+          Effect.provideService(QualityTickets, tickets),
+          Effect.catchIf(SqlError.isSqlError, Effect.die)
+        ),
       setPhase: (input) => Quality.setPhase(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
       link: (id) =>
         Quality.link(id).pipe(Effect.provideService(Sealer, sealer), Effect.catchIf(SqlError.isSqlError, Effect.die))
@@ -95,8 +104,8 @@ export class QualityLinkService extends Context.Service<QualityLinkService, {
   )
 }
 
-/** `Shared.undo` for `quality.restore`. */
+/** `Shared.undo` for `quality.restore`; a rejection's ticket goes through the tickets link. */
 export const restore: (
   sql: SqlClient.SqlClient,
   compensation: unknown
-) => Effect.Effect<void, Conflict | SqlError.SqlError, CurrentPrincipal> = Quality.restore
+) => Effect.Effect<void, Conflict | SqlError.SqlError, CurrentPrincipal | QualityTickets> = Quality.restore

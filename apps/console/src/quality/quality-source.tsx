@@ -18,13 +18,15 @@ import { useMemo } from "react"
 import { toast } from "sonner"
 import { PRODUCTS } from "../data/products.ts"
 import { QUALITY, qualityAtom, qualityWrites } from "../data/quality.ts"
+import { TICKETS } from "../data/tickets.ts"
 import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
 
 /*
  * The Kwaliteit tab in the console (M9.4), over `Quality.*`: the product's checks, complaints, rate and phase; asking
  * the supplier for a check, judging what came back and the phase, each with "Ongedaan maken". The supplier answers
- * through a link the team copies from the check (mail comes later), so the screens say "link", not "portaal". No
- * tickets and no agents yet: a rejection opens no ticket, and the agents' plate is left out.
+ * through a link the team copies from the check (mail comes later), so the screens say "link", not "portaal". A
+ * rejection can open a ticket with the supplier where the role may open tickets (Klantenservice · Bewerken); the
+ * verdict's Undo takes it away. The agents' plate is left out.
  */
 
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -112,17 +114,22 @@ function useConsoleQualitySource(): QualitySource {
     link: useAtomSet(qualityWrites.link, { mode: "promiseExit" }),
     undo: useAtomSet(qualityWrites.undo, { mode: "promiseExit" })
   }
-  // The phase shows in the product's header and list too.
-  const keys = { reactivityKeys: [...QUALITY, ...PRODUCTS] }
+  // The phase shows in the product's header and list too; a rejection's ticket is on the board.
+  const keys = { reactivityKeys: [...QUALITY, ...PRODUCTS, ...TICKETS] }
+  const tickets = useGate("support", 2)
   const undo = (token: string) =>
     void write.undo({ payload: { token }, ...keys }).then((exit) => {
       if (Exit.isFailure(exit)) refused(failureOf(exit))
     })
   const said = (exit: Exit.Exit<QualityChange, unknown>, s: Said) => {
     if (Exit.isFailure(exit)) return refused(failureOf(exit))
-    const ticket = exit.value.undo
-    if (ticket === null) return void toast.success(s.label, { description: s.detail })
-    undoable(s.label, () => undo(ticket.token), s.detail)
+    const token = exit.value.undo
+    const opened = exit.value.ticket
+    const detail = opened === undefined
+      ? s.detail
+      : `${s.detail ?? ""} Ticket #${opened.number} staat op het bord.`.trim()
+    if (token === null) return void toast.success(s.label, { description: detail })
+    undoable(s.label, () => undo(token.token), detail)
   }
   return {
     usePicture,
@@ -144,7 +151,13 @@ function useConsoleQualitySource(): QualitySource {
         ),
       approve: async (id, s) => said(await write.approve({ payload: { id }, ...keys }), s),
       reject: async (id, input, s) =>
-        said(await write.reject({ payload: { id, note: input.reason, watch: input.watch }, ...keys }), s),
+        said(
+          await write.reject({
+            payload: { id, note: input.reason, watch: input.watch, ticket: input.ticket && tickets.ok },
+            ...keys
+          }),
+          s
+        ),
       // Start (M10) is not built yet: nothing says the product shows there.
       setPhase: async (productId, phase, s) =>
         said(await write.setPhase({ payload: { productId, phase }, ...keys }), { label: s.label })
@@ -154,7 +167,7 @@ function useConsoleQualitySource(): QualitySource {
       judge: useGate("quality.approve"),
       phase: useGate("products.phase")
     },
-    tickets: false,
+    tickets: tickets.ok,
     reach: "link",
     copyLink: async (id) => {
       const exit = await write.link({ payload: { id } })
