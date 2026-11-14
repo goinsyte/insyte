@@ -35,6 +35,8 @@ interface Stage {
   readonly lowSweeps?: number
   readonly calmSweeps?: number
   readonly headroom?: number
+  /** Who connected the store: a member's id. */
+  readonly connectedBy?: string
 }
 
 const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000)
@@ -107,6 +109,9 @@ export const HealthCheck = HttpRouter.add(
         }
         if (stage.credentials === false) {
           yield* sql`delete from connection_credentials where connection_id = ${row.connectionId}`
+        }
+        if (stage.connectedBy !== undefined) {
+          yield* sql`update connections set connected_by = ${stage.connectedBy} where id = ${row.connectionId}`
         }
         return row.connectionId
       })

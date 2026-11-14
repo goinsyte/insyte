@@ -36,7 +36,7 @@ import {
  * look at (ids only, decided in SQL); each gets a transaction of its own, which locks its connections against a
  * disconnect or an uninstall, decides with `assess`, and writes what changed. An incident nobody has heard of yet is
  * told to the person on call: whoever connected the store, else the owner. Reading the health is `data` Bekijken ("de
- * synchronisatie zien") or `integrations` Bekijken; the shell's line is every member's, inside the role's stores.
+ * synchronisatie zien") or `integrations` Bekijken; the shell's line is every member's, inside the stores they reach (`storeScope`).
  */
 
 /** At most this many steps are kept per incident: the first and the latest say what happened. */
@@ -98,13 +98,20 @@ const triedOf = (raw: unknown, openedAt: number): ReadonlyArray<Tried> =>
 
 const same = (a: IncidentFacts, b: IncidentFacts) => JSON.stringify(a) === JSON.stringify(b)
 
-/** The person on call for a connection: who connected it while they are still in the team, else the owner. */
-const onCall = (sql: SqlClient.SqlClient, connectedBy: string | null) =>
+/**
+ * The person on call for a connection: who connected it while they are still in the team and still reach its store
+ * (their role's stores and their own both name it, as their `storeScope` does), else the owner.
+ */
+const onCall = (sql: SqlClient.SqlClient, connectedBy: string | null, storeId: string) =>
   Effect.map(
     sql<{ id: string }>`
-      select id from members
-      where deactivated_at is null and removed_at is null and (id = ${connectedBy ?? ""} or role_id = 'owner')
-      order by id = ${connectedBy ?? ""} desc, joined_at limit 1`,
+      select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+      where m.deactivated_at is null and m.removed_at is null
+        and (m.role_id = 'owner'
+          or (m.id = ${connectedBy ?? ""}
+            and (r.stores = '"all"'::jsonb or r.stores @> jsonb_build_array(${storeId}::text))
+            and (m.stores = '"all"'::jsonb or m.stores @> jsonb_build_array(${storeId}::text))))
+      order by m.id = ${connectedBy ?? ""} desc, m.joined_at limit 1`,
     (rows) => rows[0]?.id ?? null
   )
 
@@ -208,7 +215,7 @@ export const checkWorkspace = Effect.fn("Stores.health.check")(function*(now = D
         where i.resolved_at is null and i.notified_member_id is null`
       const told: Array<string> = []
       for (const i of untold) {
-        const memberId = i.heardBy ?? (yield* onCall(sql, i.connectedBy))
+        const memberId = i.heardBy ?? (yield* onCall(sql, i.connectedBy, i.storeId))
         if (memberId === null) continue
         // Only the check that sets it tells: a second one finds it set and says nothing.
         const claimed = yield* sql`
@@ -348,7 +355,7 @@ export const read = Effect.fn("Connections.health")(function*() {
 
 const WORST: Record<string, number> = { none: 0, ok: 1, importing: 2, warning: 3, broken: 4 }
 
-/** The shell's one line (`Shell.frame.health`): any member's, inside the role's stores. */
+/** The shell's one line (`Shell.frame.health`): any member's, inside the stores they reach (`storeScope`). */
 export const line = Effect.fn("Connections.healthLine")(function*() {
   const db = yield* Db
   return yield* db.scoped((sql) =>

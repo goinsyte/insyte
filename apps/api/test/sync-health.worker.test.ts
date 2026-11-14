@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { mailsTo, ok, outboxOf, relay, run } from "./journeys.ts"
+import { join, mailsTo, ok, outboxOf, pastUndo, relay, run } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
-import { call, rpc } from "./support.ts"
+import { call, rpc, sessionMe } from "./support.ts"
 
 /*
  * Sync health (M17 step 6, PLAN 49), against the recorded twin: the 15-minute check opens one incident per finding on
@@ -182,6 +182,36 @@ describe("sync health", () => {
     expect(health.connections[0]!.incidents).toEqual([
       expect.objectContaining({ kind: "webhook_gap", resolvedAt: expect.any(Number), notified: expect.any(String) })
     ])
+  })
+
+  it("tells who connected the store only while they still reach it, else the owner", async () => {
+    const store = await importedStore("health-reach")
+    // A colleague whose role reaches another store only: they connected this one, then lost it.
+    const created = ok(await rpc("Roles.create", { label: "Elders", from: null }, store.cookie))
+    const role = created.roles.roles.find((r) => r.id === created.id)!
+    ok(
+      await rpc("Roles.update", {
+        id: created.id,
+        levels: role.levels,
+        specials: role.specials,
+        refundLimit: null,
+        stores: ["sto_elders"]
+      }, store.cookie)
+    )
+    const email = `health-${run}-elders@invited.test`
+    ok(await rpc("Invitations.send", { rows: [{ email, roleId: created.id, stores: "all" }] }, store.cookie))
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    const cookie = await join(email)
+    const colleague = ok(await sessionMe(cookie)).principals[0]!.id
+
+    const checked = await check(store, {
+      stage: { ...steady, deliveryHoursAgo: 5, watermarkHoursAgo: 1, connectedBy: colleague }
+    })
+    expect(openKinds(checked)).toEqual(["webhook_gap"])
+    // The owner hears of it; the colleague, who no longer reaches the store, does not.
+    expect(await notesAbout(store, "webhook_gap")).toHaveLength(1)
+    expect(await notesAbout({ workspace: store.workspace, cookie }, "webhook_gap")).toEqual([])
   })
 
   it("counts no gap over the weeks a store was gone: connected again, the reconnect is where it starts", async () => {

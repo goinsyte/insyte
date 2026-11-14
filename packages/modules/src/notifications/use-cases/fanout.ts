@@ -375,8 +375,11 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
         // The health check opened an incident (M17 step 6): the person on call hears it once, with what Insyte
         // already tried. What the operator must mend (access going or gone, a sync that stopped) is "Koppeling
         // verbroken", in Primair and by mail; what Insyte is handling (a webhook gap, the rate limit) is in-app.
+        // Only while they still reach the store (their `storeScope`).
         const [member] = yield* sql<{ id: string }>`
-          select id from members where id = ${event.memberId} and deactivated_at is null and removed_at is null`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.id = ${event.memberId} and m.deactivated_at is null and m.removed_at is null
+            and ${reaching(sql, event.storeId)}`
         if (member === undefined) return undefined
         const urgent = URGENT_INCIDENTS.has(event.kind)
         return {
