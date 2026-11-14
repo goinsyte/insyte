@@ -43,3 +43,33 @@ export const write = Effect.fn("Audit.write")(
     ;(yield* PendingEvents)?.add(outboxId)
   }
 )
+
+/**
+ * `write` for many entries in two statements: one insert for the rows, one `records.changed` per subject type. For a
+ * bulk command whose transaction holds many row locks (a selection of 500 orders), so it holds them for less.
+ */
+export const writeMany = Effect.fn("Audit.writeMany")(
+  function*(sql: SqlClient.SqlClient, workspaceId: string, actor: Actor, entries: ReadonlyArray<AuditEntry>) {
+    if (entries.length === 0) return
+    const rows = entries.map((e) => ({
+      id: mintId("aud"),
+      action: e.action,
+      subject_type: e.subjectType,
+      subject_id: e.subjectId,
+      section: e.section ?? null,
+      diff: e.diff ?? {}
+    }))
+    yield* sql`insert into audit_events
+               (id, workspace_id, actor_kind, actor_id, on_behalf_of, action, subject_type, subject_id, section, diff)
+               select r.id, ${workspaceId}, ${actor.kind}, ${actor.id}, ${actor.onBehalfOf ?? null}, r.action,
+                      r.subject_type, r.subject_id, r.section, coalesce(r.diff, '{}'::jsonb)
+               from jsonb_to_recordset(${JSON.stringify(rows)}::jsonb)
+                 as r(id text, action text, subject_type text, subject_id text, section text, diff jsonb)`
+    const kinds = new Map<string, Array<string>>()
+    for (const e of entries) kinds.set(e.subjectType, [...(kinds.get(e.subjectType) ?? []), e.subjectId])
+    for (const [kind, ids] of kinds) {
+      const outboxId = yield* Outbox.write(sql, workspaceId, { type: "records.changed", workspaceId, kind, ids })
+      ;(yield* PendingEvents)?.add(outboxId)
+    }
+  }
+)

@@ -135,6 +135,16 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
   "ai.budget_crossed": none,
   // The delay mail is counted as the filing that put it in line.
   "order.delay_mail": none,
+  // The team's mail to a shopper about an order (M7 9.1) is handling it, one mail at a time; Insyte's own is not, nor
+  // a send tried again.
+  "order.mail": (id, event) =>
+    event.userId === "system" || event.attempt !== undefined ? undefined : {
+      outboxId: id,
+      event: "order_handled",
+      distinctId: event.userId,
+      groups: { workspace: event.workspaceId },
+      properties: { action: "email", count: 1 }
+    },
   // Filing a plate (M10.2): the mechanism the product rests on, counted by the command it carried.
   "proposal.filed": (id, event) => ({
     outboxId: id,

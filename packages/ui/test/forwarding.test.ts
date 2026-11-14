@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { mailDialogState, type MailRow } from "../src/app/lib/forwarding-mail.ts"
 import {
   cancel,
   confirm,
@@ -73,5 +74,33 @@ describe("waiting", () => {
       { orderId: "a", supplierId: "y" },
       { orderId: "b", supplierId: "x" }
     ])).toBe("2 bestellingen naar 2 leveranciers doorsturen")
+  })
+})
+
+describe("Klant mailen's dialog", () => {
+  const row: MailRow = {
+    reasonNow: "address",
+    order: { number: "#5003", customer_name: "Anna de Vries", customer_email: "anna@example.com" },
+    lines: []
+  }
+
+  it("drafts it as the design does where the host has no draft of its own", () => {
+    const state = mailDialogState(row, undefined)
+    expect(state.ready).toBe(true)
+    expect(state.body).toContain("huisnummer")
+    expect(state.description).toBe("Aan anna@example.com. Insyte schreef het concept; jij verstuurt het.")
+  })
+
+  it("sends nothing until the host's draft is in, and never the design's placeholder", () => {
+    for (const served of ["loading", "failed"] as const) {
+      const state = mailDialogState(row, served)
+      expect(state.ready).toBe(false)
+      expect(state.body).toBe("")
+      expect(state.subject).toBe("")
+    }
+    expect(mailDialogState(row, "failed").description).toContain("kon niet worden geladen")
+    const served = { to: "anna@example.com", subject: "Over je bestelling #5003", body: "Hoi Anna,\n\nGroet,\nWinkel" }
+    expect(mailDialogState(row, served)).toMatchObject({ ready: true, body: served.body, subject: served.subject })
+    expect(mailDialogState(row, { ...served, to: null }).ready).toBe(false)
   })
 })

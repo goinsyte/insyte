@@ -13,7 +13,7 @@ import { Support } from "./subscribers/inbox.ts"
 import { Marketing } from "./subscribers/marketing.ts"
 import { InvitationMail } from "./subscribers/members.ts"
 import { Notifications } from "./subscribers/notifications.ts"
-import { DelayMail } from "./subscribers/orders.ts"
+import { OrderMails } from "./subscribers/orders.ts"
 import { Privacy } from "./subscribers/privacy.ts"
 import { Queue } from "./subscribers/queue.ts"
 import { Realtime } from "./subscribers/realtime.ts"
@@ -38,7 +38,7 @@ const SUBSCRIBERS = [
   Facts,
   InvitationMail,
   ReturnMails,
-  DelayMail,
+  OrderMails,
   Support,
   Backfill,
   Shopify,

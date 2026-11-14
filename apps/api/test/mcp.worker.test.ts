@@ -87,6 +87,7 @@ describe("the MCP server", () => {
       "clear_order_delay",
       "comment_on_ticket",
       "create_ticket",
+      "email_order_customer",
       "file_proposal",
       "flag_order_delayed",
       "forward_orders",

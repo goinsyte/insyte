@@ -64,6 +64,7 @@ const GUIDE = [
 ] as const
 
 import { FORWARD_VIEWS, isForwardView } from "../lib/forwarding"
+import { mailDialogState, type ServedDraft } from "../lib/forwarding-mail"
 
 export { FORWARD_VIEWS, isForwardView }
 
@@ -532,19 +533,16 @@ function RerouteDialog({ row, onClose }: { row: QueueRow | null; onClose: () => 
 }
 
 /** The customer, told what went wrong, in the brand's words; a send waits out the window. */
+const noDraft = (_row: QueueRow | null): ServedDraft | undefined => undefined
+
 function MailCustomerDialog({ row, onClose }: { row: QueueRow | null; onClose: () => void }) {
   const source = useForwardingSource()
-  const first = row?.order.customer_name.split(" ")[0] ?? ""
-  const what = row?.lines[0] ? `${row.lines[0].title} (${row.lines[0].variant_title})` : "een artikel"
-  const draft = row
-    ? row.reasonNow === "address"
-      ? `Hoi ${first},\n\nBedankt voor je bestelling ${row.order.number}. Om hem te kunnen versturen, missen we je huisnummer. Kun je het adres even aanvullen door op deze mail te antwoorden?\n\nGroet,\nNorthwind`
-      : `Hoi ${first},\n\nBedankt voor je bestelling ${row.order.number}. ${what} is bij onze leverancier helaas net uitverkocht. We kunnen hem over ongeveer twee weken alsnog sturen, of je het bedrag meteen terugbetalen. Laat je weten wat je wilt?\n\nGroet,\nNorthwind`
-    : ""
+  const served = (source.mail?.useDraft ?? noDraft)(row)
+  const state = mailDialogState(row, served)
   const [body, setBody] = useState<string | null>(null)
   const [subject, setSubject] = useState<string | null>(null)
-  const text = body ?? draft
-  const subj = subject ?? (row ? `Over je bestelling ${row.order.number}` : "")
+  const text = body ?? state.body
+  const subj = subject ?? state.subject
   return (
     <FormDialog
       open={row !== null}
@@ -556,9 +554,9 @@ function MailCustomerDialog({ row, onClose }: { row: QueueRow | null; onClose: (
         }
       }}
       title={row ? `${row.order.customer_name} mailen` : ""}
-      description={row ? `Aan ${row.order.customer_email}. Insyte schreef het concept; jij verstuurt het.` : undefined}
+      description={state.description}
       primaryLabel="Versturen"
-      disabled={!text.trim()}
+      disabled={!text.trim() || !state.ready}
       onSubmit={() => {
         if (!row) return
         source.mail?.send(row, subj, text)
