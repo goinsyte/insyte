@@ -739,6 +739,9 @@ describe("a member narrowed to one store (Members.setStores)", () => {
     return { cookie, id: ok(await sessionMe(cookie)).principals[0]!.id }
   }
   let va = { cookie: "", id: "" }
+  let vb = { cookie: "", id: "" }
+  let wide = { cookie: "", id: "" }
+  const forbidden = { _tag: "Invalid", fields: { stores: "forbidden" } }
 
   beforeAll(async () => {
     a = await importedStore("authz-narrow")
@@ -796,9 +799,8 @@ describe("a member narrowed to one store (Members.setStores)", () => {
   })
 
   it("lets someone held to one store widen nobody past it, nor touch anyone who reaches further", async () => {
-    const forbidden = { _tag: "Invalid", fields: { stores: "forbidden" } }
-    const vb = await joined("vb", [a.storeId])
-    const wide = await joined("wide", "all")
+    vb = await joined("vb", [a.storeId])
+    wide = await joined("wide", "all")
     ok(await rpc("Members.setStores", { id: va.id, stores: [a.storeId] }, a.cookie))
 
     for (const stores of ["all" as const, [b], [a.storeId, b]]) {
@@ -818,6 +820,97 @@ describe("a member narrowed to one store (Members.setStores)", () => {
     const rows = ok(await rpc("Orders.list", { limit: 50 }, vb.cookie)).rows
     expect(rows.length).toBeGreaterThan(0)
     expect(rows.every((o) => o.storeId === a.storeId)).toBe(true)
+  })
+
+  it("lets someone held to one store change, deactivate, remove or bring back nobody who reaches further", async () => {
+    const as = (name: string, id: string) => rpc(name as never, { id } as never, va.cookie)
+    for (const name of ["Members.deactivate", "Members.remove"]) {
+      expect(failure(await as(name, wide.id))).toMatchObject(forbidden)
+    }
+    expect(failure(await rpc("Members.setRole", { id: wide.id, roleId: "service" }, va.cookie))).toMatchObject(
+      forbidden
+    )
+    // What the owner did to them is not the held member's to undo.
+    ok(await rpc("Members.deactivate", { id: wide.id }, a.cookie))
+    expect(failure(await as("Members.reactivate", wide.id))).toMatchObject(forbidden)
+    ok(await rpc("Members.reactivate", { id: wide.id }, a.cookie))
+    ok(await rpc("Members.remove", { id: wide.id }, a.cookie))
+    expect(failure(await as("Members.restore", wide.id))).toMatchObject(forbidden)
+    ok(await rpc("Members.restore", { id: wide.id }, a.cookie))
+    const team = ok(await rpc("Team.get", undefined, a.cookie)).members.find((m) => m.id === wide.id)!
+    expect(team).toMatchObject({ roleId: "admin", deactivated: false })
+
+    // Nor an invitation or a link that lets in someone who reaches every store.
+    const far = `authz-${run}-narrow-far@invited.test`
+    const invitation = ok(
+      await rpc("Invitations.send", { rows: [{ email: far, roleId: "view", stores: "all" }] }, a.cookie)
+    ).invitations.find((i) => i.email === far)!.id
+    ok(await rpc("Invitations.revoke", { ids: [invitation] }, a.cookie))
+    expect(failure(await as("Invitations.restore", invitation))).toMatchObject(forbidden)
+    ok(await rpc("Invitations.restore", { id: invitation }, a.cookie))
+    expect(failure(await as("Invitations.resend", invitation))).toMatchObject(forbidden)
+    ok(await rpc("Invitations.resend", { id: invitation }, a.cookie))
+    expect(failure(await as("Invitations.undoResend", invitation))).toMatchObject(forbidden)
+    ok(await rpc("InviteLink.set", { enabled: true, roleId: "view" }, a.cookie))
+    ok(await rpc("InviteLink.regenerate", undefined, a.cookie))
+    expect(failure(await rpc("InviteLink.undoRegenerate", undefined, va.cookie))).toMatchObject({
+      _tag: "Invalid",
+      fields: { roleId: "forbidden" }
+    })
+    ok(await rpc("InviteLink.undoRegenerate", undefined, a.cookie))
+    ok(await rpc("InviteLink.set", { enabled: false }, a.cookie))
+    ok(await rpc("Invitations.revoke", { ids: [invitation] }, a.cookie))
+  })
+
+  it("keeps a held member's list inside their stores, keeps \"Alle winkels\" through an undo, and hides unknown stores", async () => {
+    // A role held to store A: a member of it reaches A whatever their own list says.
+    const made = ok(await rpc("Roles.create", { label: `Alleen A ${run}`, from: "admin" }, a.cookie))
+    const role = made.roles.roles.find((r) => r.id === made.id)!
+    ok(
+      await rpc("Roles.update", {
+        id: made.id,
+        levels: role.levels,
+        specials: role.specials,
+        refundLimit: role.refundLimit,
+        stores: [a.storeId]
+      }, a.cookie)
+    )
+    ok(await rpc("Members.setRole", { id: vb.id, roleId: made.id }, a.cookie))
+
+    // [A, B] makes A with the role today, but B would come true the day the role widens.
+    expect(failure(await rpc("Members.setStores", { id: vb.id, stores: [a.storeId, b] }, va.cookie)))
+      .toMatchObject(forbidden)
+    // A store past them is never said to be unknown: it is past them.
+    expect(failure(await rpc("Members.setStores", { id: vb.id, stores: ["sto_nowhere"] }, va.cookie)))
+      .toMatchObject(forbidden)
+    // "Alle winkels" is theirs to give where the role keeps it inside A, and the undo puts it back as it was.
+    const stores = (team: { members: ReadonlyArray<{ id: string; stores: unknown }> }) =>
+      team.members.find((m) => m.id === vb.id)!.stores
+    expect(stores(ok(await rpc("Members.setStores", { id: vb.id, stores: "all" }, va.cookie)))).toBe("all")
+    expect(stores(ok(await rpc("Members.setStores", { id: vb.id, stores: [a.storeId] }, va.cookie)))).toEqual([
+      a.storeId
+    ])
+    expect(stores(ok(await rpc("Members.setStores", { id: vb.id, stores: "all" }, va.cookie)))).toBe("all")
+  })
+
+  it("narrows the keys a member made when the member is narrowed", async () => {
+    const token = ok(
+      await rpc("ApiKeys.create", {
+        label: "Van wide",
+        access: { kind: "role", roleId: "view" } as never,
+        stores: "all",
+        expiresInDays: 30,
+        ips: [],
+        agent: false
+      }, wide.cookie)
+    ).secret
+    const stores = async () =>
+      new Set(((await v1(token, "/orders?limit=100")).body.data as Array<{ store_id: string }>).map((o) => o.store_id))
+    expect(await stores()).toEqual(new Set([a.storeId, b]))
+    ok(await rpc("Members.setStores", { id: wide.id, stores: [a.storeId] }, a.cookie))
+    expect(await stores()).toEqual(new Set([a.storeId]))
+    ok(await rpc("Members.setStores", { id: wide.id, stores: "all" }, a.cookie))
+    expect(await stores()).toEqual(new Set([a.storeId, b]))
   })
 })
 
