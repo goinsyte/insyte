@@ -45,6 +45,7 @@
         "@insyte/integrations-sendcloud": "workspace:*",
         "@insyte/integrations-shopify": "workspace:*",
         "@insyte/integrations-slack": "workspace:*",
+        "@insyte/integrations-stripe": "workspace:*",
         "@insyte/integrations-supplier-api": "workspace:*",
         "@insyte/integrations-turnstile": "workspace:*",
         "@insyte/integrations-webpush": "workspace:*",
@@ -265,6 +266,14 @@
     },
     "packages/integrations/slack": {
       "name": "@insyte/integrations-slack",
+      "version": "0.0.0",
+      "dependencies": {
+        "@insyte/modules": "workspace:*",
+        "effect": "catalog:",
+      },
+    },
+    "packages/integrations/stripe": {
+      "name": "@insyte/integrations-stripe",
       "version": "0.0.0",
       "dependencies": {
         "@insyte/modules": "workspace:*",
@@ -748,6 +757,8 @@
     "@insyte/integrations-shopify": ["@insyte/integrations-shopify@workspace:packages/integrations/shopify"],
 
     "@insyte/integrations-slack": ["@insyte/integrations-slack@workspace:packages/integrations/slack"],
+
+    "@insyte/integrations-stripe": ["@insyte/integrations-stripe@workspace:packages/integrations/stripe"],
 
     "@insyte/integrations-supplier-api": ["@insyte/integrations-supplier-api@workspace:packages/integrations/supplier-api"],
 

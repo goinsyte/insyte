@@ -1,0 +1,15 @@
+{
+  // Tests, typechecked as a standalone project, as `packages/ui`'s are: a referenced
+  // project must emit declarations, and nothing here is published.
+  "extends": "../../../tsconfig.base.json",
+  "include": ["test/**/*.ts"],
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "noEmit": true,
+    "rootDir": ".",
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["node"]
+  }
+}
