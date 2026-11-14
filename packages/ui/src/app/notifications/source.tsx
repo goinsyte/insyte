@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react"
+import { type ComponentType, createContext, type ReactNode, useContext } from "react"
 import type { EventKey, Note, NoteState, NotifyPrefs } from "../lib/notifications"
 
 /**
@@ -23,6 +23,29 @@ export interface NotificationsSource {
    * asks for as it nears its end. Absent, the notes are all there is.
    */
   more?: { has: (tab: NoteState) => boolean; read: (tab: NoteState) => void } | undefined
+  /**
+   * What the preview reads of the record a note is about, and its one act, as a hook (`open` is its "Openen"). Absent,
+   * the preview shows the note's own facts and "Openen".
+   */
+  useRecord?: ((note: Note, open: () => void) => NoteRecord) | undefined
+  /** The answer box under a mention in a chat; absent, the preview has none. */
+  Reply?: ComponentType<{ note: Note; conversation: string; name: string }> | undefined
+}
+
+/** The preview's one act: open the record, or do the thing the note asks. */
+export interface NotePrimary {
+  label: string
+  run: () => void | Promise<void>
+  busy?: boolean
+  done?: string
+  quiet?: boolean
+}
+
+/** What the preview shows of a note's record, its primary act, and whether the record is gone. */
+export interface NoteRecord {
+  facts: Array<readonly [string, ReactNode]>
+  primary: NotePrimary
+  missing: boolean
 }
 
 const Context = createContext<NotificationsSource | null>(null)
