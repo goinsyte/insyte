@@ -49,6 +49,14 @@ export default defineConfig({
         }
       },
       {
+        // The console's pure parts (when onboarding's plan may be made, what a Start card shows). `node`, no browser.
+        test: {
+          name: "console",
+          include: ["apps/console/test/**/*.test.ts"],
+          environment: "node"
+        }
+      },
+      {
         // The shared values: ids, money, the permission catalogue. Pure, so `node`.
         test: {
           name: "domain",

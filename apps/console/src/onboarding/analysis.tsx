@@ -101,8 +101,8 @@ export function useConsoleAnalysis(step: "analysis" | "offline" | "ready" | "oth
     },
     /**
      * "Afronden": the offline plan into Zelfstandigheid (Nooit stays as it is), made on the policy version the step
-     * showed; throws a sentence. Without an analysis to keep it with (the store went, or the step has closed) the
-     * plan is left out and the step goes on: the levels are set on Zelfstandigheid later.
+     * showed; throws a sentence. Without an analysis to keep it with (the store went, or the step has closed), or for
+     * a role without `ai.autonomy`, the plan is left out and the step goes on: the levels are set on Zelfstandigheid.
      */
     agreeOffline: async (
       window: OfflineWindow,
@@ -119,12 +119,12 @@ export function useConsoleAnalysis(step: "analysis" | "offline" | "ready" | "oth
       if (Exit.isSuccess(exit)) return
       const failure = Cause.findErrorOption(exit.cause)
       const tag = failure._tag === "Some" ? failure.value._tag : undefined
-      if (tag === "AnalysisNotReady" || tag === "OfflineClosed") return
+      // Nothing to keep the plan with, the step closed, or a role that may not change Zelfstandigheid: the step goes
+      // on without a plan, and the levels are set on Zelfstandigheid by someone who may.
+      if (tag === "AnalysisNotReady" || tag === "OfflineClosed" || tag === "Forbidden") return
       throw new Error(
         tag === "AutonomyStale"
           ? "Iemand heeft Zelfstandigheid net aangepast. Probeer het opnieuw."
-          : tag === "Forbidden"
-          ? "Alleen wie Zelfstandigheid mag aanpassen kan dit plan opslaan."
           : "Dit kon niet worden opgeslagen. Probeer het opnieuw."
       )
     }
