@@ -3,8 +3,8 @@ import { Schema } from "effect"
 /*
  * Start's figures (M10.3; widgets/02 Part A, §0): the hero's counts, the pulse band, and the board's widgets in one
  * batched read. Every figure names the rows it sums over, from the live tables until the facts tables land (12.4). A
- * figure the role may not read is left out, never zeroed; a widget whose source milestone has not landed (automations
- * M12, AI M15, chats) is not built here, and the console says so on its card. Money is in minor units
+ * figure the role may not read is left out, never zeroed; a widget whose source milestone has not landed (AI M15,
+ * chats) is not built here, and the console says so on its card. Money is in minor units
  * of the workspace currency (`workspaces.currency`); an order in another currency is converted at the `fx_rates` row
  * of its placed day, and one without a rate is left out and counted in `unconverted`. Days are the store's own
  * (`stores.timezone`, else the workspace's), so a sum over stores adds each store's days.
@@ -238,6 +238,16 @@ export const ChargebacksWidget = Schema.Struct({
   }))
 })
 
+export const AutomationsWidget = Schema.Struct({
+  /** Flows switched on, of every flow not removed. */
+  active: Schema.Int,
+  total: Schema.Int,
+  /** Runs started over the last 30 days that did not skip, over the records the person reaches. */
+  runs: Schema.Int,
+  /** The three flows that ran most over those days. */
+  top: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String, runs: Schema.Int }))
+})
+
 export const WidgetPayloads = Schema.Struct({
   revenue: Schema.optionalKey(RevenueWidget),
   orders: Schema.optionalKey(OrdersWidget),
@@ -249,7 +259,8 @@ export const WidgetPayloads = Schema.Struct({
   returns: Schema.optionalKey(ReturnsWidget),
   live: Schema.optionalKey(LiveWidget),
   bestsellers: Schema.optionalKey(BestsellersWidget),
-  countries: Schema.optionalKey(CountriesWidget)
+  countries: Schema.optionalKey(CountriesWidget),
+  automations: Schema.optionalKey(AutomationsWidget)
 })
 export type WidgetPayloads = typeof WidgetPayloads.Type
 

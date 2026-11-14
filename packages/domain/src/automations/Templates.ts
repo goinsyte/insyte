@@ -11,6 +11,8 @@ import { STEPS_BY_ID } from "./Steps.ts"
 export interface TemplateStep {
   readonly variantId: string
   readonly summary: string
+  /** Settings beside the step's defaults: a schedule's moment and the records it picks. */
+  readonly config?: Readonly<Record<string, unknown>>
 }
 
 export type TemplateCategory = "Orders" | "Customers" | "Support" | "Stock" | "Disputes"
@@ -127,7 +129,11 @@ export const TEMPLATES: ReadonlyArray<Template> = [
     description: "Als een klant 90 dagen niet heeft besteld, zet hem op de terugwinlijst in Klaviyo.",
     category: "Customers",
     steps: [
-      { variantId: "trigger.schedule", summary: "Elke dag: klanten die 90 dagen niet bestelden" },
+      {
+        variantId: "trigger.schedule",
+        summary: "Elke dag: klanten die 90 dagen niet bestelden",
+        config: { records: "customers_idle", days: 90 }
+      },
       { variantId: "action.klaviyo_list", summary: "Klaviyo-terugwinlijst" }
     ]
   },
@@ -141,6 +147,22 @@ export const TEMPLATES: ReadonlyArray<Template> = [
       { variantId: "trigger.customer_reply", summary: "Antwoord in een open gesprek" },
       { variantId: "action.ai_summarize", summary: "Samenvatting op het ticket" }
     ]
+  },
+  {
+    id: "tpl_eta_update",
+    name: "Levertijd-update op dag 5",
+    description:
+      "Is een bestelling vijf dagen onderweg en nog niet bezorgd, reken de leverdatum opnieuw uit en laat de klant weten wanneer het pakket komt.",
+    category: "Orders",
+    steps: [
+      {
+        variantId: "trigger.schedule",
+        summary: "Elke dag om 9:00: bestellingen die 5 dagen onderweg zijn",
+        config: { records: "orders_open", days: 5 }
+      },
+      { variantId: "action.check_eta", summary: "Leverdatum herberekenen" },
+      { variantId: "action.send_email", summary: "Levertijd-update met de nieuwe leverdatum" }
+    ]
   }
 ]
 
@@ -151,5 +173,5 @@ export const nodesOfTemplate = (template: Template, newId: () => string): Flow =
   template.steps.map((s) => ({
     id: newId(),
     variantId: s.variantId,
-    config: { ...STEPS_BY_ID[s.variantId]?.defaultConfig, summary: s.summary }
+    config: { ...STEPS_BY_ID[s.variantId]?.defaultConfig, ...s.config, summary: s.summary }
   }))

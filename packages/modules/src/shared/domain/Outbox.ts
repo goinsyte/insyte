@@ -502,6 +502,36 @@ export const OutboxEvent = Schema.Union([
     usedCents: Schema.Int,
     limit: Schema.Int
   }),
+  // Orders new in Shopify (M12 step 3): written when a live sync (a webhook, the reconcile) first mirrors an order
+  // placed in the last day, never by a store's first import. Automations' "Nieuwe bestelling" and the public
+  // `order.created` hear it.
+  Schema.Struct({
+    type: Schema.Literal("order.placed"),
+    workspaceId: Schema.String,
+    orderIds: Schema.Array(Schema.String)
+  }),
+  // Orders Shopify says are fulfilled now and were not before (M12 step 3), by a live sync: a fulfilment made in
+  // Shopify or by an app. One fulfilled in Insyte says `order.updated` (`fulfil`) instead.
+  Schema.Struct({
+    type: Schema.Literal("order.fulfilled"),
+    workspaceId: Schema.String,
+    orderIds: Schema.Array(Schema.String)
+  }),
+  // A mail came in (M12 step 3): its thread, and whether it answers one already open (`reply`). Ids only.
+  Schema.Struct({
+    type: Schema.Literal("thread.received"),
+    workspaceId: Schema.String,
+    threadId: Schema.String,
+    messageId: Schema.String,
+    reply: Schema.Boolean
+  }),
+  // A variant's stock went down (M12 step 3), from Shopify or a supplier's feed, in a workspace with a "Lage
+  // voorraad" flow on: what it was and what it is, summed over its locations, so each flow checks its own threshold.
+  Schema.Struct({
+    type: Schema.Literal("inventory.dropped"),
+    workspaceId: Schema.String,
+    levels: Schema.Array(Schema.Struct({ variantId: Schema.String, before: Schema.Int, after: Schema.Int }))
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

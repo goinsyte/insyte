@@ -30,7 +30,8 @@ const ORDER: ReadonlyArray<TriggerField> = [
   { path: "order.status", label: "Status bestelling", example: "verzonden" },
   { path: "order.country", label: "Verzendland", example: "Duitsland" },
   { path: "order.tracking_url", label: "Track & trace-link", example: "https://…" },
-  { path: "order.supplier", label: "Leverancier", example: "Yiwu Trading" }
+  { path: "order.supplier", label: "Leverancier", example: "Yiwu Trading" },
+  { path: "order.expected_delivery", label: "Verwachte levering", example: "21 november" }
 ]
 
 const BY_RECORD: Readonly<Record<RecordKind, ReadonlyArray<TriggerField>>> = {

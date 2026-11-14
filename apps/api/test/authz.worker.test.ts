@@ -1117,6 +1117,47 @@ describe("the store fence on every surface", () => {
     expect(theirs.some((r) => r.subjectId === returnId || r.subjectType === "order")).toBe(false)
   })
 
+  it("keeps a flow's runs in this store out of the held member's Start card and Runs", async () => {
+    const { automation } = ok(await rpc("Automations.create", { name: "Fence" }, store.cookie))
+    const id = automation!.automation.id
+    const nodes = [
+      { id: "t", variantId: "trigger.shipping_delay", config: {} },
+      { id: "e", variantId: "action.track_event", config: { event: "fence" } }
+    ]
+    ok(await rpc("Automations.saveDraft", { id, name: "Fence", nodes }, store.cookie))
+    ok(await rpc("Automations.publish", { id, note: "" }, store.cookie))
+    const key = ok(
+      await rpc("ApiKeys.create", {
+        label: `Fence ${run}`,
+        access: { kind: "role", roleId: "admin" } as never,
+        stores: "all",
+        expiresInDays: 30,
+        ips: [],
+        agent: false
+      }, store.cookie)
+    ).secret
+    const order = ok(await rpc("Orders.list", { limit: 50 }, store.cookie)).rows.find((o) => o.number === "#1001")!
+    const started = await call(`${PUBLIC}/v1/automations/${id}/runs`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${key}`,
+        "content-type": "application/json",
+        "idempotency-key": `fence-${run}`
+      },
+      body: JSON.stringify({ order_id: order.id })
+    })
+    expect(started.status).toBe(200)
+
+    const card = async (cookie: string) =>
+      ok(await rpc("Home.widgets", { ids: ["automations"], range: 30 }, cookie)).widgets.automations!
+    expect((await card(store.cookie)).runs).toBeGreaterThan(0)
+    expect((await card(whole)).runs).toBe((await card(store.cookie)).runs)
+    expect(await card(held)).toMatchObject({ runs: 0, top: [] })
+    const runs = async (cookie: string) => ok(await rpc("Runs.list", { automationId: id }, cookie)).counts.all
+    expect(await runs(whole)).toBe(await runs(store.cookie))
+    expect(await runs(held)).toBe(0)
+  })
+
   it("keeps a queue row and a plate from a key whose role or stores reach elsewhere, over /v1 and MCP", async () => {
     const plate = (await queueRow(store.cookie))!.proposal!.id
     // A role that reaches another store only, held by a key for every store: the role narrows the key.

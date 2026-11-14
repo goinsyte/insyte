@@ -41,6 +41,12 @@ export const refundOn = Effect.fn("Orders.refundOn")(
     }
     return yield* Effect.gen(function*() {
       const scope = yield* inScope(sql, "o.store_id")
+      // The lock in a statement of its own, the refunds read after it: a statement that waited for the lock still sees
+      // the rows as they were when it began, so it would miss a refund committed meanwhile (two tabs, a double click)
+      // and pass the balance twice.
+      const [locked] = yield* sql<{ id: string }>`
+        select o.id from orders o where o.id = ${input.id} and ${scope} for update of o`
+      if (locked === undefined) return yield* new NotFound({ entity: "order", id: input.id })
       const [order] = yield* sql<{
         storeId: string
         totalMinor: string
@@ -51,7 +57,7 @@ export const refundOn = Effect.fn("Orders.refundOn")(
         select o.store_id, o.total_minor, o.currency, o.payment_status,
                coalesce((select sum(r.amount_minor) from refunds r
                          where r.order_id = o.id and ${sql.literal(COUNTED)}), 0) as refunded_minor
-        from orders o where o.id = ${input.id} and ${scope} for update`
+        from orders o where o.id = ${input.id}`
       if (order === undefined) return yield* new NotFound({ entity: "order", id: input.id })
 
       const readRow = Effect.map(

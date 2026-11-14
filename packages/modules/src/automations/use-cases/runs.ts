@@ -1,16 +1,16 @@
 import { Db } from "@insyte/database/Db"
-import { type StepRow, timelineOf } from "@insyte/domain/automations/Engine"
+import { type RunRecordKind, type StepRow, timelineOf } from "@insyte/domain/automations/Engine"
 import type { Flow } from "@insyte/domain/automations/Graph"
 import { STEPS_BY_ID } from "@insyte/domain/automations/Steps"
 import { Conflict, Forbidden, NotFound } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
 import { canRole } from "@insyte/domain/Permissions"
 import * as Policy from "@insyte/domain/Policy"
-import { CurrentPrincipal } from "@insyte/domain/Principal"
+import { CurrentPrincipal, type Principal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import * as Audit from "../../shared/use-cases/Audit.ts"
-import { inScope } from "../../shared/use-cases/StoreScope.ts"
+import { inScope, inScopeOrNone } from "../../shared/use-cases/StoreScope.ts"
 import { AutomationRuns } from "../domain/Ports.ts"
 import {
   RunChange,
@@ -27,7 +27,7 @@ import {
   type RunStatus,
   RunStep
 } from "../domain/Runs.ts"
-import { keyOf } from "./engine.ts"
+import { hourlyLimitOf, keyOf, REFUNDS_SQL } from "./engine.ts"
 import { mayHand } from "./rights.ts"
 
 /*
@@ -53,15 +53,27 @@ interface RawRun {
   readonly finishedAt: Date | null
   readonly orderNumber: string | null
   readonly customerName: string | null
+  readonly caseNumber: string | null
+  readonly caseName: string | null
+  readonly productId: string | null
+  readonly productTitle: string | null
+  readonly productSku: string | null
   readonly steps: number
   readonly waitingVariant: string | null
 }
+
+/** A run's record, by its kind: an order, a chargeback, a variant (a mail thread has none of these, nor a store). */
+const RECORDS = (sql: SqlClient.SqlClient) =>
+  sql`left join orders o on r.record_kind = 'order' and o.id = r.record_id
+      left join chargebacks cb on r.record_kind = 'chargeback' and cb.id = r.record_id
+      left join variants rv on r.record_kind = 'product' and rv.id = r.record_id`
 
 const SELECT = (sql: SqlClient.SqlClient) =>
   sql`
     select r.id, r.automation_id, a.name as automation_name, r.version, r.status, r.reason, r.trigger_variant,
            r.summary, r.record_kind, r.record_id, r.trigger_event, r.started_at, r.finished_at,
-           o.number as order_number, o.customer_name,
+           o.number as order_number, o.customer_name, cb.case_number, cb.customer_name as case_name,
+           rv.product_id, rv.title as product_title, rv.sku as product_sku,
            (select count(*)::int from automation_run_steps s
             where s.run_id = r.id and s.status in ('succeeded', 'failed')) as steps,
            (select s.variant from automation_run_steps s
@@ -69,11 +81,14 @@ const SELECT = (sql: SqlClient.SqlClient) =>
             order by s.started_at desc limit 1) as waiting_variant
     from automation_runs r
     join automations a on a.id = r.automation_id
-    left join orders o on r.record_kind = 'order' and o.id = r.record_id`
+    ${RECORDS(sql)}`
 
-/** The principal's stores (`storeScope`): a run about an order outside them is not shown. */
-const visible = (sql: SqlClient.SqlClient) =>
-  Effect.map(inScope(sql, "o.store_id"), (scope) => sql`(o.id is null or ${scope})`)
+/**
+ * The principal's stores (`storeScope`): a run about an order, a chargeback or a product outside them is not shown. A
+ * run whose record has no store (a mail thread, a chargeback without one, a record since removed) is everyone's who
+ * may open Automatiseringen, as the inbox is.
+ */
+const visible = (sql: SqlClient.SqlClient) => inScopeOrNone(sql, "coalesce(o.store_id, cb.store_id, rv.store_id)")
 
 const causeOf = (r: RawRun) => {
   const trigger = STEPS_BY_ID[r.triggerVariant]?.label ?? "De trigger"
@@ -94,6 +109,8 @@ const waitKind = (variant: string) =>
 interface Sees {
   readonly orders: boolean
   readonly customers: boolean
+  readonly chargebacks: boolean
+  readonly products: boolean
 }
 
 const seesOf = Effect.map(Effect.service(CurrentPrincipal), (principal): Sees => {
@@ -102,8 +119,37 @@ const seesOf = Effect.map(Effect.service(CurrentPrincipal), (principal): Sees =>
     stores: principal.role.stores === "all" ? "all" as const : [...principal.role.stores]
   }
   const orders = canRole(role, "orders", 1)
-  return { orders, customers: orders && canRole(role, "customers", 1) }
+  return {
+    orders,
+    customers: orders && canRole(role, "customers", 1),
+    chargebacks: canRole(role, "chargebacks", 1),
+    products: canRole(role, "products", 1)
+  }
 })
+
+const recordOf = (sees: Sees, r: RawRun): RunRow["record"] =>
+  r.recordKind === "order"
+    ? {
+      kind: "order",
+      id: r.recordId,
+      number: sees.orders ? r.orderNumber ?? "" : "",
+      name: sees.customers ? r.customerName ?? "" : ""
+    }
+    : r.recordKind === "chargeback"
+    ? {
+      kind: "chargeback",
+      id: r.recordId,
+      number: sees.chargebacks ? r.caseNumber ?? "" : "",
+      name: sees.chargebacks && sees.customers ? r.caseName ?? "" : ""
+    }
+    : r.recordKind === "product" && r.productId !== null
+    ? {
+      kind: "product",
+      id: r.productId,
+      number: sees.products ? r.productSku ?? r.productTitle ?? "" : "",
+      name: sees.products ? r.productTitle ?? "" : ""
+    }
+    : null
 
 const rowOf = (sees: Sees) => (r: RawRun) =>
   new RunRow({
@@ -115,14 +161,7 @@ const rowOf = (sees: Sees) => (r: RawRun) =>
     reason: r.reason,
     triggerVariant: r.triggerVariant,
     cause: causeOf(r),
-    record: r.recordKind === "order"
-      ? {
-        kind: "order",
-        id: r.recordId,
-        number: sees.orders ? r.orderNumber ?? "" : "",
-        name: sees.customers ? r.customerName ?? "" : ""
-      }
-      : null,
+    record: recordOf(sees, r),
     manual: r.triggerEvent.startsWith("rerun:") || r.triggerEvent.startsWith("manual:"),
     key: keyOf(r),
     startedAt: r.startedAt.getTime(),
@@ -172,7 +211,7 @@ export const list = Effect.fn("Runs.list")(function*(input: typeof RunListInput.
       const counts = yield* sql<{ status: string; n: number }>`
         select r.status, count(*)::int as n from automation_runs r
         join automations a on a.id = r.automation_id
-        left join orders o on r.record_kind = 'order' and o.id = r.record_id
+        ${RECORDS(sql)}
         where ${scope} and ${flow}
         group by r.status`
       const rows = page.slice(0, limit)
@@ -276,7 +315,7 @@ export const stats = Effect.fn("Runs.stats")(function*(input: typeof RunStatsInp
       const rows = yield* sql<{ day: string; status: string; n: number }>`
         select to_char(date_trunc('day', r.started_at at time zone 'UTC'), 'YYYY-MM-DD') as day, r.status,
                count(*)::int as n
-        from automation_runs r left join orders o on r.record_kind = 'order' and o.id = r.record_id
+        from automation_runs r ${RECORDS(sql)}
         where r.automation_id = ${input.automationId} and ${scope}
           and r.started_at > now() - make_interval(days => ${input.days})
         group by 1, 2`
@@ -307,41 +346,71 @@ export const records = Effect.fn("Runs.records")(function*(input: typeof RunReco
     Effect.gen(function*() {
       yield* flowExists(sql, input.automationId)
       const scope = yield* visible(sql)
-      const rows = yield* sql<{
-        recordId: string
-        number: string | null
-        name: string | null
-        runs: number
-        lastStatus: RunStatus
-        lastAt: Date
-      }>`
-        select r.record_id, max(o.number) as number, max(o.customer_name) as name, count(*)::int as runs,
+      const rows = yield* sql<RawRun & { runs: number; lastStatus: RunStatus; lastAt: Date }>`
+        select r.record_kind, r.record_id, max(o.number) as order_number, max(o.customer_name) as customer_name,
+               max(cb.case_number) as case_number, max(cb.customer_name) as case_name, max(rv.product_id) as product_id,
+               max(rv.title) as product_title, max(rv.sku) as product_sku, count(*)::int as runs,
                (array_agg(r.status order by r.started_at desc))[1] as last_status, max(r.started_at) as last_at
-        from automation_runs r left join orders o on r.record_kind = 'order' and o.id = r.record_id
-        where r.automation_id = ${input.automationId} and r.record_kind = 'order' and ${scope}
-        group by r.record_id order by last_at desc limit ${input.limit ?? 8}`
-      return rows.map((r) =>
-        new RunRecord({
-          record: { kind: "order", id: r.recordId, number: r.number ?? "", name: r.name ?? "" },
-          runs: r.runs,
-          lastStatus: r.lastStatus,
-          lastAt: r.lastAt.getTime()
-        })
-      )
+        from automation_runs r ${RECORDS(sql)}
+        where r.automation_id = ${input.automationId} and r.record_kind in ('order', 'chargeback', 'product')
+          and ${scope}
+        group by r.record_kind, r.record_id order by last_at desc limit ${input.limit ?? 8}`
+      const sees = yield* seesOf
+      return rows.flatMap((r) => {
+        const record = recordOf(sees, r)
+        return record === null
+          ? []
+          : [new RunRecord({ record, runs: r.runs, lastStatus: r.lastStatus, lastAt: r.lastAt.getTime() })]
+      })
     })
   )
 })
 
 /**
+ * The store of a run's record, read by its kind within the principal's stores: `null` for a record without one (a mail
+ * thread, a chargeback without a store), nothing when it is not there or lies outside them.
+ */
+const recordStore = Effect.fn("Runs.recordStore")(function*(
+  sql: SqlClient.SqlClient,
+  kind: RunRecordKind,
+  recordId: string
+) {
+  const rows = kind === "order"
+    ? yield* sql<{ storeId: string | null }>`
+        select o.store_id from orders o where o.id = ${recordId} and ${yield* inScope(sql, "o.store_id")}`
+    : kind === "chargeback"
+    ? yield* sql<{ storeId: string | null }>`
+        select c.store_id from chargebacks c where c.id = ${recordId} and ${yield* inScopeOrNone(sql, "c.store_id")}`
+    : kind === "product"
+    ? yield* sql<{ storeId: string | null }>`
+        select v.store_id from variants v where v.id = ${recordId} and ${yield* inScope(sql, "v.store_id")}`
+    : yield* sql<{ storeId: string | null }>`select null::text as store_id from email_threads where id = ${recordId}`
+  const [row] = rows
+  return row === undefined ? undefined : { storeId: row.storeId }
+})
+
+/**
+ * What the one who starts a run by hand may refund themselves (`automation_runs.starter_refund_minor`): their role's
+ * limit per order, none without Bestellingen · Bewerken and Terugbetalen, and no limit for the workspace's owner or a
+ * role that sets none. The flow's "Terugbetalen" never goes past it (`AutomationActs.ts`).
+ */
+const starterRefundOf = (principal: Principal): number | null => {
+  if (principal.role.id === "owner") return null
+  if (principal.role.levels.orders < 2 || principal.role.specials["refunds.write"] !== true) return 0
+  return principal.role.refundLimit === null ? null : Math.round(principal.role.refundLimit * 100)
+}
+
+/**
  * A run row for a flow's live version on one record, started by hand; `skipped` with its reason when the flow is
- * off, has no account, the order lies outside the flow's stores, or the hour's limit is reached (the same count the
- * trigger keeps, `startRuns`). Whoever starts it must hold what the flow's account may do (`mayHand`): a key with
- * only `automations.write` does not get tickets made through it. Answers its id, and whether the Workflow should start.
+ * off, has no account, the record lies outside the flow's stores, or the hour's limit is reached (the same count and
+ * ceiling the trigger keeps, `startRuns`). Whoever starts it must hold what the flow's account may do (`mayHand`): a key
+ * with only `automations.write` does not get tickets made through it. The run keeps who started it and what they
+ * could refund then. Answers its id, and whether the Workflow should start.
  */
 const insertRun = Effect.fn("Runs.insertRun")(function*(
   sql: SqlClient.SqlClient,
   automationId: string,
-  recordId: string,
+  record: { readonly kind: RunRecordKind; readonly id: string; readonly summary: string },
   triggerEvent: string
 ) {
   const [flow] = yield* sql<{
@@ -351,41 +420,47 @@ const insertRun = Effect.fn("Runs.insertRun")(function*(
     triggerVariant: string | null
     storeScope: Array<string> | null
     rateLimit: number
+    refunds: boolean
     accountId: string | null
     scopes: Array<string> | null
   }>`
     select a.workspace_id, a.live_version, a.status, a.trigger_variant, a.store_scope,
-           coalesce(s.rate_limit_per_hour, 0) as rate_limit, sa.id as account_id, sa.scopes
+           coalesce(s.rate_limit_per_hour, 0) as rate_limit, ${sql.literal(REFUNDS_SQL)} as refunds,
+           sa.id as account_id, sa.scopes
     from automations a
     left join automation_settings s on s.automation_id = a.id
     left join service_accounts sa on sa.automation_id = a.id and sa.disabled_at is null
+    left join automation_versions v on v.automation_id = a.id and v.version = a.live_version
     where a.id = ${automationId} and a.deleted_at is null for update of a`
   if (flow === undefined) return yield* new NotFound({ entity: "automation", id: automationId })
   if (flow.liveVersion === 0) return yield* new Conflict({ entity: "automation", reason: "not_published" })
-  yield* mayHand(yield* CurrentPrincipal, flow.scopes ?? [])
-  const scope = yield* inScope(sql, "o.store_id")
-  const [order] = yield* sql<{ id: string; storeId: string }>`
-    select o.id, o.store_id from orders o where o.id = ${recordId} and ${scope}`
-  if (order === undefined) return yield* new NotFound({ entity: "order", id: recordId })
+  const principal = yield* CurrentPrincipal
+  yield* mayHand(principal, flow.scopes ?? [])
+  const found = yield* recordStore(sql, record.kind, record.id)
+  if (found === undefined) return yield* new NotFound({ entity: record.kind, id: record.id })
   const [hour] = yield* sql<{ n: number }>`
     select count(*)::int as n from automation_runs
     where automation_id = ${automationId} and status <> 'skipped' and started_at > now() - interval '1 hour'`
+  const limit = hourlyLimitOf(flow.rateLimit, flow.refunds)
   const reason = flow.status !== "active"
     ? "De flow staat uit."
     : flow.accountId === null
     ? "De flow heeft geen actief serviceaccount."
-    : flow.storeScope !== null && !flow.storeScope.includes(order.storeId)
-    ? "De bestelling hoort bij een winkel waar de flow niet in draait."
-    : flow.rateLimit > 0 && (hour?.n ?? 0) >= flow.rateLimit
-    ? `De limiet van ${flow.rateLimit} runs per uur is bereikt.`
+    : flow.storeScope !== null && found.storeId !== null && !flow.storeScope.includes(found.storeId)
+    ? "Het record hoort bij een winkel waar de flow niet in draait."
+    : (hour?.n ?? 0) >= limit
+    ? `De limiet van ${limit} runs per uur is bereikt.`
     : null
   const id = mintId("run")
   yield* sql`
     insert into automation_runs (id, workspace_id, automation_id, version, service_account_id, trigger_event,
-                                 trigger_variant, summary, record_kind, record_id, status, reason, finished_at)
+                                 trigger_variant, summary, record_kind, record_id, status, reason, finished_at,
+                                 started_by, starter_refund_minor, starter_stores)
     values (${id}, ${flow.workspaceId}, ${automationId}, ${flow.liveVersion}, ${flow.accountId}, ${triggerEvent},
-            ${flow.triggerVariant ?? ""}, ${"met de hand gestart"}, ${"order"}, ${recordId},
-            ${reason === null ? "running" : "skipped"}, ${reason}, ${reason === null ? null : new Date()})`
+            ${flow.triggerVariant ?? ""}, ${record.summary}, ${record.kind}, ${record.id},
+            ${reason === null ? "running" : "skipped"}, ${reason}, ${reason === null ? null : new Date()},
+            ${principal.id}, ${starterRefundOf(principal)},
+            ${principal.storeScope === null ? null : [...principal.storeScope]}::text[])`
   yield* sql`update automations set runs_total = runs_total + 1 where id = ${automationId}`
   return { id, workspaceId: flow.workspaceId, start: reason === null }
 })
@@ -431,10 +506,21 @@ export const start = Effect.fn("Runs.start")(
     // Bewerken, as a key's automations.write: the run acts as the flow's own account, not as the caller, so the
     // caller must hold what that account may do (insertRun).
     yield* Policy.require("automations", 2)
+    // An agent's key never starts one: the run's account may refund or message a supplier, and no agent action in
+    // the autonomy rules names that. MCP says so in its own words (`trigger_automation`); this holds `/v1` too.
+    const principal = yield* CurrentPrincipal
+    if (principal.kind === "agent") {
+      return yield* new Forbidden({ permission: "automations", level: 2, roleLabel: principal.role.label })
+    }
     const db = yield* Db
     const made = yield* db.scoped((sql) =>
       Effect.gen(function*() {
-        const m = yield* insertRun(sql, input.automationId, input.recordId, `manual:${mintId("evt")}`)
+        const m = yield* insertRun(
+          sql,
+          input.automationId,
+          { kind: "order", id: input.recordId, summary: "met de hand gestart" },
+          `manual:${mintId("evt")}`
+        )
         return yield* started(sql, m, "automation_run.started")
       })
     )
@@ -460,7 +546,12 @@ export const rerun = Effect.fn("Runs.rerun")(function*(id: string) {
       const [n] = yield* sql<{ n: number }>`
         select count(*)::int as n from automation_runs
         where automation_id = ${r.automationId} and trigger_event like ${`rerun:${key}:%`}`
-      const m = yield* insertRun(sql, r.automationId, r.recordId, `rerun:${key}:${(n?.n ?? 0) + 1}`)
+      const m = yield* insertRun(
+        sql,
+        r.automationId,
+        { kind: r.recordKind as RunRecordKind, id: r.recordId, summary: r.summary },
+        `rerun:${key}:${(n?.n ?? 0) + 1}`
+      )
       return yield* started(sql, m, "automation_run.rerun")
     })
   )

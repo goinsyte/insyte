@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { type ReactNode, useMemo, useState } from "react"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
-import { AlertTriangle, Box, Clock, MessagesSquare, Plus, Truck, X } from "../../icons"
+import { AlertTriangle, Box, Clock, MessagesSquare, Plus, Truck, Workflow, X } from "../../icons"
 import { Glyph } from "../common/glyph"
 import { formatCurrency, initials } from "../lib/format"
 import { personStyle } from "../lib/person-color"
@@ -525,6 +525,40 @@ export function ChargebacksView({
           </Link>
         ) :
         <p className="px-2 text-sm text-ink-3">Er wacht geen zaak op bewijs.</p>}
+    </div>
+  )
+}
+
+export type AutomationRow = { id: string; name: string; runs: number }
+
+/** The flows: how many are on, how often they ran over 30 days, and the three that ran most. */
+export function AutomationsView({ active, total, runs, top }: {
+  active: number
+  total: number
+  runs: number
+  top: ReadonlyArray<AutomationRow>
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-2 gap-1.5">
+        <Stat label="Actief" value={`${active} van ${total}`} />
+        <Stat label="Uitvoeringen, 30 dagen" value={runs.toLocaleString("nl-NL")} />
+      </div>
+      <ul className="flex flex-col">
+        {top.map((a, i) => (
+          <li
+            key={a.id}
+            className={cn(
+              "glyph-host flex h-8 items-center gap-2.5 rounded-md px-2 text-base",
+              i % 2 === 0 && "bg-band"
+            )}
+          >
+            <Glyph draw={false} icon={Workflow} size={14} className="text-ink-3" />
+            <span className="min-w-0 flex-1 truncate text-ink">{a.name}</span>
+            <span className="text-sm text-ink-2 tabular-nums">{a.runs.toLocaleString("nl-NL")}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
