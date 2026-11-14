@@ -131,5 +131,7 @@
     "BETA_ALLOWED_DOMAINS": "example.com",
     // Insyte AI's fake here, whatever keys `.dev.vars` holds (`bun run dev:vars --ai` writes `AI_ADAPTER=anthropic`).
     "AI_ADAPTER": "fake",
+    // Stripe's fake here (M13 step 1): no Stripe account is called, whatever keys `.dev.vars` holds.
+    "BILLING_ADAPTER": "fake",
   },
 }

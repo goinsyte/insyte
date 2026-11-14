@@ -2735,5 +2735,82 @@
     "service": "deny",
     "finance": "allow",
     "view": "deny"
+  },
+  "Billing.get": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Billing.plans": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Billing.invoices": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Billing.invoiceUrl": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Billing.previewChange": {
+    "owner": "allow",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Billing.changePlan": {
+    "owner": "allow",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Billing.addSeats": {
+    "owner": "allow",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Billing.removeSeats": {
+    "owner": "allow",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Billing.cancel": {
+    "owner": "allow",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Billing.resume": {
+    "owner": "allow",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Billing.portalSession": {
+    "owner": "allow",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
   }
 }

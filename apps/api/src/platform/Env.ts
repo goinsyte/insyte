@@ -91,6 +91,14 @@ declare global {
       readonly AI_GATEWAY_ID?: string
       readonly AI_ACCOUNT_ID?: string
       readonly AI_GATEWAY_TOKEN?: string
+      /**
+       * Billing (M13 step 1): Stripe's secret key (test mode on staging) and the webhook endpoint's signing secret.
+       * Without the key there is no billing. `BILLING_ADAPTER=fake` (local runs, the worker tests, previews) answers
+       * with the fake whatever keys are set.
+       */
+      readonly BILLING_ADAPTER?: string
+      readonly STRIPE_SECRET_KEY?: string
+      readonly STRIPE_WEBHOOK_SECRET?: string
       /** Shopify's webhooks (M6.3): received deliveries' ids, applied by the jobs Worker's `queue` handler. */
       readonly INGEST: Queue<IngestMessage>
       /** Lines per backfill page, 2000 by default; the worker tests read small pages. */
