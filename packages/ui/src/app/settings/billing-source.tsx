@@ -55,7 +55,8 @@ export interface BillingSource {
   usage: ReadonlyArray<{ label: string; value: number; max: number }>
   seats: { included: number; extra: number; free: number; full: boolean }
   card: { brand: string; last4: string; expiry: string } | null
-  invoices: ReadonlyArray<InvoiceRow>
+  /** The invoices, newest first; `null` where they are not to be read here (the role may not), so the card is left out. */
+  invoices: ReadonlyArray<InvoiceRow> | null
   /** The next page of invoices, where there is one. */
   moreInvoices?: () => void
   /**

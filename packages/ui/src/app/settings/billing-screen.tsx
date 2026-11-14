@@ -18,6 +18,7 @@ import {
   type BillingAsk,
   type BillingCycle,
   type CancelReason,
+  type InvoiceRow,
   type PlanTier,
   useBillingSource
 } from "./billing-source"
@@ -182,65 +183,7 @@ export function BillingPage() {
         </div>
       </SettingCard>
 
-      <SettingCard title="Facturen">
-        <div className="overflow-hidden rounded-xl ">
-          <div className="flex items-stretch border-hairline border-b bg-mist">
-            <HeaderCell className="w-[160px]">Factuur</HeaderCell>
-            <HeaderCell className="flex-1">Datum</HeaderCell>
-            <HeaderCell className="w-[110px]">Bedrag</HeaderCell>
-            <HeaderCell className="w-[110px]">Status</HeaderCell>
-            <HeaderCell className="w-[60px]">{" "}</HeaderCell>
-          </div>
-          {source.invoices.length === 0
-            ? (
-              <div className="flex items-center bg-paper px-4 py-3 font-normal text-base text-ink-3">
-                Nog geen facturen. Je eerste staat hier na je eerste betaling.
-              </div>
-            )
-            : null}
-          {source.invoices.map((inv, i) => (
-            <div
-              key={inv.id}
-              className={cn(
-                "flex items-stretch bg-paper",
-                i < source.invoices.length - 1 && "border-hairline border-b"
-              )}
-            >
-              <div className="flex w-[160px] items-center px-4 py-3 font-medium text-base text-ink tabular-nums">
-                {inv.number}
-              </div>
-              <div className="flex flex-1 items-center px-4 py-3 font-normal text-base text-ink-3 tabular-nums">
-                {inv.date}
-              </div>
-              <div className="flex w-[110px] items-center px-4 py-3 font-normal text-base text-ink tabular-nums">
-                {inv.amount}
-              </div>
-              <div className="flex w-[110px] items-center px-4 py-3">
-                <StatusPill tone={inv.status.tone} label={inv.status.label} />
-              </div>
-              <div className="flex w-[60px] items-center justify-center px-2 py-3">
-                <Gate perm="billing.invoices">
-                  <button
-                    type="button"
-                    aria-label={`${inv.number} downloaden`}
-                    onClick={() => source.openInvoice(inv)}
-                    className="flex size-7 items-center justify-center rounded-md text-ink-3 hover:bg-mist hover:text-ink disabled:opacity-40"
-                  >
-                    <Download className="size-4" strokeWidth={1.75} />
-                  </button>
-                </Gate>
-              </div>
-            </div>
-          ))}
-        </div>
-        {source.moreInvoices === undefined ?
-          null :
-          (
-            <button type="button" onClick={source.moreInvoices} className={cn(SECONDARY, "self-start")}>
-              Meer facturen
-            </button>
-          )}
-      </SettingCard>
+      {source.invoices === null ? null : <Invoices invoices={source.invoices} />}
 
       <PlanDialog open={changing} onOpenChange={setChanging} />
       <CancelDialog open={cancelling} onOpenChange={setCancelling} />
@@ -707,5 +650,71 @@ function SeatDialog({ delta, onClose }: { delta: number | null; onClose: () => v
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** Facturen: the table, and the next page where there is one. */
+function Invoices({ invoices }: { invoices: ReadonlyArray<InvoiceRow> }) {
+  const source = useBillingSource()
+  return (
+    <SettingCard title="Facturen">
+      <div className="overflow-hidden rounded-xl ">
+        <div className="flex items-stretch border-hairline border-b bg-mist">
+          <HeaderCell className="w-[160px]">Factuur</HeaderCell>
+          <HeaderCell className="flex-1">Datum</HeaderCell>
+          <HeaderCell className="w-[110px]">Bedrag</HeaderCell>
+          <HeaderCell className="w-[110px]">Status</HeaderCell>
+          <HeaderCell className="w-[60px]">{" "}</HeaderCell>
+        </div>
+        {invoices.length === 0
+          ? (
+            <div className="flex items-center bg-paper px-4 py-3 font-normal text-base text-ink-3">
+              Nog geen facturen. Je eerste staat hier na je eerste betaling.
+            </div>
+          )
+          : null}
+        {invoices.map((inv, i) => (
+          <div
+            key={inv.id}
+            className={cn(
+              "flex items-stretch bg-paper",
+              i < invoices.length - 1 && "border-hairline border-b"
+            )}
+          >
+            <div className="flex w-[160px] items-center px-4 py-3 font-medium text-base text-ink tabular-nums">
+              {inv.number}
+            </div>
+            <div className="flex flex-1 items-center px-4 py-3 font-normal text-base text-ink-3 tabular-nums">
+              {inv.date}
+            </div>
+            <div className="flex w-[110px] items-center px-4 py-3 font-normal text-base text-ink tabular-nums">
+              {inv.amount}
+            </div>
+            <div className="flex w-[110px] items-center px-4 py-3">
+              <StatusPill tone={inv.status.tone} label={inv.status.label} />
+            </div>
+            <div className="flex w-[60px] items-center justify-center px-2 py-3">
+              <Gate perm="billing.invoices">
+                <button
+                  type="button"
+                  aria-label={`${inv.number} downloaden`}
+                  onClick={() => source.openInvoice(inv)}
+                  className="flex size-7 items-center justify-center rounded-md text-ink-3 hover:bg-mist hover:text-ink disabled:opacity-40"
+                >
+                  <Download className="size-4" strokeWidth={1.75} />
+                </button>
+              </Gate>
+            </div>
+          </div>
+        ))}
+      </div>
+      {source.moreInvoices === undefined ?
+        null :
+        (
+          <button type="button" onClick={source.moreInvoices} className={cn(SECONDARY, "self-start")}>
+            Meer facturen
+          </button>
+        )}
+    </SettingCard>
   )
 }

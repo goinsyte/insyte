@@ -85,8 +85,11 @@ const standing = (o: BillingOverview): { pill: { tone: Tone; label: string }; en
   }
 }
 
-/** The server's refusal of a billing change, said once in Dutch. */
-const refused = (error: unknown) =>
+/**
+ * The server's refusal of a billing call, said once in Dutch. For a change (`changing`), Stripe not answering is not
+ * "nothing changed": the change may have gone through before the answer was lost, so the page asks for a refresh first.
+ */
+const refused = (error: unknown, changing = false) =>
   sayRefusal(error, {
     gone: "Er is nog geen abonnement",
     other: (tagged) => {
@@ -98,7 +101,12 @@ const refused = (error: unknown) =>
             ? ["Dit abonnement is nog niet te koop", "Er staat nog geen prijs voor in Stripe."]
             : tagged["reason"] === "refused"
             ? ["Stripe weigerde de wijziging", "Probeer het zo nog eens, of neem contact op met Insyte."]
-            : ["Stripe reageert niet", "Er is niets gewijzigd. Probeer het zo nog eens."]
+            : changing
+            ? [
+              "Stripe reageert niet",
+              "We weten niet zeker of de wijziging is doorgekomen. Ververs de pagina voordat je het opnieuw probeert."
+            ]
+            : ["Stripe reageert niet", "Probeer het zo nog eens."]
           toast.error(title, { description })
           return true
         }
@@ -120,6 +128,21 @@ const refused = (error: unknown) =>
             description: `Je hebt ${tagged["connected"]} winkels gekoppeld; dit abonnement past er ${tagged["stores"]}.`
           })
           return true
+        case "TooManySeats":
+          toast.error("Zoveel plekken kun je hier niet bijkopen", {
+            description: `Je kunt tot ${tagged["max"]} extra plekken hebben. Neem contact op met Insyte voor meer.`
+          })
+          return true
+        case "PreviewExpired":
+          toast.error("Het voorbeeld is verlopen", {
+            description: "Er is niets gewijzigd. Bekijk de wijziging opnieuw, dan zie je wat die nu kost."
+          })
+          return true
+        case "CheckoutPending":
+          toast.error("Je betaling wordt nog verwerkt", {
+            description: "Je abonnement staat hier zodra Stripe het bevestigt. Ververs de pagina over een minuut."
+          })
+          return true
         default:
           return false
       }
@@ -131,13 +154,19 @@ const quoteOf = (p: BillingPreview, ask: BillingAsk) => {
   if (p.kind === "checkout") {
     return `Je eerste betaling is ${money(p.amountDueMinor, p.currency)}, op de betaalpagina van Stripe.`
   }
+  const what = ask.kind === "seats" ? (ask.delta > 0 ? "Een plek erbij: " : "Een plek minder: ") : ""
+  if (p.immediate) {
+    // Another cycle: a new period starts now, invoiced at once, less what is left of this one.
+    return `${what}Je betaalt nu ${
+      money(p.amountDueMinor, p.currency)
+    }: de nieuwe periode min het tegoed van deze. Die periode begint vandaag.`
+  }
   const next = p.nextInvoiceAt === null ? "" : ` op ${date(p.nextInvoiceAt)}`
   const now = p.prorationMinor > 0
     ? `${money(p.prorationMinor, p.currency)} naar rato voor de rest van deze periode`
     : p.prorationMinor < 0
     ? `${money(-p.prorationMinor, p.currency)} tegoed voor de rest van deze periode`
     : "Niets extra voor deze periode"
-  const what = ask.kind === "seats" ? (ask.delta > 0 ? "Een plek erbij: " : "Een plek minder: ") : ""
   return `${what}${now}. Je volgende factuur${next} wordt ${money(p.nextInvoiceMinor, p.currency)}.`
 }
 
@@ -150,7 +179,7 @@ const asInput = (ask: BillingAsk) =>
 /** A change's answer: made (said), or the first payment, on Stripe's page. */
 const landed = (exit: Exit.Exit<{ _tag: "changed" } | { _tag: "checkout"; url: string }, unknown>, said: string) => {
   if (Exit.isFailure(exit)) {
-    refused(failureOf(exit))
+    refused(failureOf(exit), true)
     return false
   }
   if (exit.value._tag === "checkout") {
@@ -161,10 +190,18 @@ const landed = (exit: Exit.Exit<{ _tag: "changed" } | { _tag: "checkout"; url: s
   return true
 }
 
+/** A change asked for while the first payment is still on its way: refused here, said once. */
+const stillPaying = (): false => {
+  toast.error("Je betaling wordt nog verwerkt", {
+    description: "Je abonnement staat hier zodra Stripe het bevestigt. Wijzig het daarna."
+  })
+  return false
+}
+
 export function useConsoleBillingSource(
   overview: BillingOverview,
   plans: BillingPlans | null,
-  firstPage: InvoicePage
+  firstPage: InvoicePage | null
 ): BillingSource {
   const preview = useAtomSet(billingWrites.preview, { mode: "promiseExit" })
   const changePlan = useAtomSet(billingWrites.changePlan, { mode: "promiseExit" })
@@ -181,10 +218,13 @@ export function useConsoleBillingSource(
   const [more, setMore] = useState<{ rows: ReadonlyArray<Invoice>; next: string | null }>({ rows: [], next: null })
   useEffect(() => setMore({ rows: [], next: null }), [firstPage])
 
-  // Back from Stripe's page: paid, and the subscription follows as soon as Stripe says so.
+  // Back from Stripe's page: paid, and the subscription follows as soon as Stripe says so. Until it does, another plan
+  // would be a second first payment, so the page waits for it.
+  const [paying, setPaying] = useState(false)
   useEffect(() => {
     const url = new URL(location.href)
     if (url.searchParams.get("betaald") !== "1") return
+    setPaying(true)
     toast.success("Betaling ontvangen", { description: "Je abonnement staat hier zodra Stripe het bevestigt." })
     url.searchParams.delete("betaald")
     history.replaceState(history.state, "", url)
@@ -212,6 +252,7 @@ export function useConsoleBillingSource(
   const price = offer?.price(overview.cycle) ?? null
   const live = overview.status !== "trial" && overview.status !== "canceled" &&
     overview.status !== "incomplete_expired"
+  const waiting = paying && !live
   const line = [
     price === null
       ? null
@@ -235,7 +276,7 @@ export function useConsoleBillingSource(
     afterEnd: "daarna wordt er niets meer afgeschreven",
     tiers,
     changeNote: live
-      ? "Een ander abonnement gaat meteen in. Het verschil voor de rest van deze periode staat op je volgende factuur."
+      ? "Een ander abonnement gaat meteen in. Het verschil voor de rest van deze periode staat op je volgende factuur; een andere betaaltermijn rekenen we meteen af."
       : "Je betaalt de eerste periode op de betaalpagina van Stripe. Jaarlijks betalen geeft twee maanden gratis.",
     usage: [
       { label: "Gebruikte plekken", value: overview.seats.used, max: overview.seats.total },
@@ -258,8 +299,8 @@ export function useConsoleBillingSource(
       full: overview.seats.full
     },
     card: overview.card,
-    invoices: [...firstPage.rows, ...more.rows].map(rowOf),
-    ...((more.rows.length === 0 ? firstPage.next : more.next) === null ? {} : {
+    invoices: firstPage === null ? null : [...firstPage.rows, ...more.rows].map(rowOf),
+    ...(firstPage === null || (more.rows.length === 0 ? firstPage.next : more.next) === null ? {} : {
       moreInvoices: () => {
         const cursor = more.rows.length === 0 ? firstPage.next : more.next
         void invoices({ payload: { cursor } }).then((exit) => {
@@ -269,6 +310,10 @@ export function useConsoleBillingSource(
       }
     }),
     quote: async (ask) => {
+      if (waiting) {
+        stillPaying()
+        return null
+      }
       const exit = await preview({ payload: asInput(ask) })
       if (Exit.isFailure(exit)) {
         refused(failureOf(exit))
@@ -278,6 +323,7 @@ export function useConsoleBillingSource(
       return quoteOf(exit.value, ask)
     },
     change: async (ask) => {
+      if (waiting) return stillPaying()
       const prorationDate = quoted.current.get(keyOf(ask))
       if (ask.kind === "plan") {
         const exit = await changePlan({ payload: { plan: ask.tier, cycle: ask.cycle, prorationDate }, ...keys })

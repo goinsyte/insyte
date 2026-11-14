@@ -13,8 +13,9 @@ import { SettingsPage, SettingsPending } from "../settings/settings-page.tsx"
 /**
  * Instellingen → Facturatie (M13 step 1): the reference's Abonnement, Betaalmethode and Facturen over `Billing.get`,
  * `Billing.plans` and `Billing.invoices`, read on the server. Reading takes Facturatie · Bekijken, changing it Beheren;
- * a role below reads the page with its controls disabled. Stripe's prices may be missing (billing not set up, or Stripe
- * not answering): the page still reads, and a change says why it cannot be made.
+ * a role below reads the page with its controls disabled. The invoices take Facturen downloaden too: a role without it
+ * reads the page without them, as it does when they cannot be read. Stripe's prices may be missing (billing not set up,
+ * or Stripe not answering): the page still reads, and a change says why it cannot be made.
  */
 export const Route = createFileRoute("/_frame/settings/billing")({
   head: () => ({ meta: [{ title: "Facturatie · Insyte" }] }),
@@ -42,7 +43,7 @@ function BillingRoute() {
   const retryInvoices = useAtomRefresh(invoicesAtom)
   return (
     <SettingsPage
-      result={AsyncResult.all({ overview, invoices })}
+      result={overview}
       title="Facturatie"
       icon={CreditCard}
       denied="Je rol kan de facturatie niet zien"
@@ -56,9 +57,9 @@ function BillingRoute() {
     >
       {(value) => (
         <Loaded
-          overview={value.overview}
+          overview={value}
           plans={Option.getOrNull(AsyncResult.value(plans))}
-          invoices={value.invoices}
+          invoices={Option.getOrNull(AsyncResult.value(invoices))}
         />
       )}
     </SettingsPage>
@@ -66,7 +67,7 @@ function BillingRoute() {
 }
 
 function Loaded(
-  { overview, plans, invoices }: { overview: BillingOverview; plans: BillingPlans | null; invoices: InvoicePage }
+  { overview, plans, invoices }: { overview: BillingOverview; plans: BillingPlans | null; invoices: InvoicePage | null }
 ) {
   const source = useConsoleBillingSource(overview, plans, invoices)
   return (
