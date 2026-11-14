@@ -13,7 +13,9 @@ export const QueueItemV1 = Schema.Struct({
     "stock_out",
     "store_disconnected",
     "chargeback_deadline",
-    "connection_incident"
+    "connection_incident",
+    "forwarding_failed",
+    "chargeback_opened"
   ]),
   subject_type: Schema.String,
   subject_id: Schema.String,
