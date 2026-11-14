@@ -66,6 +66,13 @@ const standing = (o: BillingOverview): { pill: { tone: Tone; label: string }; en
     }
   }
   const period = o.currentPeriodEnd === null ? null : date(o.currentPeriodEnd)
+  // Stripe bills a second subscription too: said first, until one of them has ended.
+  if (o.secondSubscription) {
+    return {
+      pill: { tone: "danger", label: "Twee abonnementen" },
+      end: "je betaalt misschien dubbel, neem contact op met Insyte"
+    }
+  }
   if (o.cancelAt !== null) {
     return { pill: { tone: "warning", label: `Stopt op ${date(o.cancelAt)}` }, end: `stopt ${date(o.cancelAt)}` }
   }
@@ -101,6 +108,13 @@ const refused = (error: unknown, changing = false) =>
             ? ["Dit abonnement is nog niet te koop", "Er staat nog geen prijs voor in Stripe."]
             : tagged["reason"] === "refused"
             ? ["Stripe weigerde de wijziging", "Probeer het zo nog eens, of neem contact op met Insyte."]
+            : tagged["reason"] === "payment_failed"
+            ? [
+              "De betaling is niet gelukt",
+              "Je abonnement is niet gewijzigd. Werk je kaart bij en probeer het opnieuw."
+            ]
+            : tagged["reason"] === "no_customer"
+            ? ["Je klantgegevens bij Stripe ontbreken", "Neem contact op met Insyte, dan zetten we het recht."]
             : changing
             ? [
               "Stripe reageert niet",
@@ -155,11 +169,17 @@ const quoteOf = (p: BillingPreview, ask: BillingAsk) => {
     return `Je eerste betaling is ${money(p.amountDueMinor, p.currency)}, op de betaalpagina van Stripe.`
   }
   const what = ask.kind === "seats" ? (ask.delta > 0 ? "Een plek erbij: " : "Een plek minder: ") : ""
+  // More credited than charged: the rest stays as credit for the next invoices.
+  const credit = p.creditMinor > 0
+    ? ` Je houdt ${money(p.creditMinor, p.currency)} tegoed voor je volgende facturen.`
+    : ""
   if (p.immediate) {
     // Another cycle: a new period starts now, invoiced at once, less what is left of this one.
-    return `${what}Je betaalt nu ${
-      money(p.amountDueMinor, p.currency)
-    }: de nieuwe periode min het tegoed van deze. Die periode begint vandaag.`
+    return p.amountDueMinor === 0
+      ? `${what}Je betaalt nu niets: het tegoed van deze periode dekt de nieuwe, die vandaag begint.${credit}`
+      : `${what}Je betaalt nu ${
+        money(p.amountDueMinor, p.currency)
+      }: de nieuwe periode min het tegoed van deze. Die periode begint vandaag.${credit}`
   }
   const next = p.nextInvoiceAt === null ? "" : ` op ${date(p.nextInvoiceAt)}`
   const now = p.prorationMinor > 0
@@ -167,7 +187,7 @@ const quoteOf = (p: BillingPreview, ask: BillingAsk) => {
     : p.prorationMinor < 0
     ? `${money(-p.prorationMinor, p.currency)} tegoed voor de rest van deze periode`
     : "Niets extra voor deze periode"
-  return `${what}${now}. Je volgende factuur${next} wordt ${money(p.nextInvoiceMinor, p.currency)}.`
+  return `${what}${now}. Je volgende factuur${next} wordt ${money(p.nextInvoiceMinor, p.currency)}.${credit}`
 }
 
 const keyOf = (ask: BillingAsk) => JSON.stringify(ask)
