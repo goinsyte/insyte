@@ -233,7 +233,8 @@ export const sendTrackingUpdate = Effect.fn("Orders.sendTrackingUpdate")(functio
       const made = wanting.length === 0 ? [] : yield* sql<{ id: string; orderId: string }>`
         insert into order_mails (id, workspace_id, order_id, kind, ref, to_address, subject, paragraphs, created_by)
         select r.id, app_workspace_id(), r.order_id, 'tracking', r.ref, r.to_address, r.subject,
-               array(select p.t from jsonb_array_elements_text(r.paragraphs) with ordinality as p(t, n) order by p.n), ${principal.id}
+               array(select p.t from jsonb_array_elements_text(r.paragraphs) with ordinality as p(t, n) order by p.n),
+               ${principal.id}
         from jsonb_to_recordset(${JSON.stringify(wanting)}::jsonb)
           as r(id text, order_id text, ref text, to_address text, subject text, paragraphs jsonb)
         on conflict do nothing returning id, order_id`
