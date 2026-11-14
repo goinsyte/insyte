@@ -14,6 +14,8 @@ export default defineConfig({
       "apps/api/vitest.config.ts",
       // The same Worker as a deployed stage configures it (Turnstile, Google), tested offline.
       "apps/api/vitest.configured.config.ts",
+      // The same Worker with span export on, against a faked OTLP intake: each entry point's spans.
+      "apps/api/vitest.telemetry.config.ts",
       {
         // The gate scripts' rules, as pure functions with a planted violation each.
         test: {
