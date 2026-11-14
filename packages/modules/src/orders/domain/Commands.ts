@@ -71,7 +71,9 @@ export const OrdersRestore = Schema.Struct({
     shippingAddress: Schema.optional(Schema.Unknown),
     status: Schema.optional(Schema.String),
     fulfillmentStatus: Schema.optional(Schema.String),
-    shippedAt: Schema.optional(Schema.NullOr(Schema.String))
+    shippedAt: Schema.optional(Schema.NullOr(Schema.String)),
+    /** `Orders.flagDelayed` / `clearDelay`: when it was delayed, or null for not. */
+    delayedAt: Schema.optional(Schema.NullOr(Schema.String))
   })),
   mails: Schema.optional(Schema.Array(Schema.String))
 })

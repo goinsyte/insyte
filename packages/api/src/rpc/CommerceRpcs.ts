@@ -74,6 +74,13 @@ export class CommerceRpcs extends RpcGroup.make(
     success: OrderChange,
     error: Schema.Union([Forbidden, NotFound, Conflict])
   }),
+  // "Als vertraagd markeren" and "Vertraging wissen" (M7, M8.3): bulk, one undo for the selection.
+  Rpc.make("Orders.flagDelayed", {
+    payload: IdsInput,
+    success: OrderChange,
+    error: Schema.Union([Forbidden, NotFound, Conflict])
+  }),
+  Rpc.make("Orders.clearDelay", { payload: IdsInput, success: OrderChange, error: GetError }),
   Rpc.make("Orders.setNote", { payload: NoteInput, error: GetError }),
   // Irreversible (api.md §1.1): Terugbetalen within the role's limit, confirmed in the console, no undo.
   Rpc.make("Orders.refund", {

@@ -130,6 +130,24 @@ export class OrdersGroup extends HttpApiGroup.make("orders")
       OpenApi.Description,
       "Cancels the order in Insyte and Shopify, without a refund. Irreversible: send an `Idempotency-Key`. Refused for an order already closed or with parcels on their way. Needs `orders.write`."
     ),
+    HttpApiEndpoint.post("delay", "/orders/:id/delay", {
+      params: ById,
+      headers: Writes,
+      success: Order,
+      error: WriteErrors
+    }).annotate(
+      OpenApi.Description,
+      "Marks the order delayed (Insyte's `at_risk` marker): it shows as delayed and the `order.delayed` event follows a few seconds later, for automations and webhooks. The shopper is not mailed. Refused for an order closed or delivered; an order already delayed stays as it is. Needs `orders.write`."
+    ),
+    HttpApiEndpoint.delete("clearDelay", "/orders/:id/delay", {
+      params: ById,
+      headers: Writes,
+      success: Order,
+      error: WriteErrors
+    }).annotate(
+      OpenApi.Description,
+      "Takes the delay off the order. Insyte does not raise it again until something new happens: the parcel moves and stops again, or the supplier misses a later hand-off. Needs `orders.write`."
+    ),
     HttpApiEndpoint.post("refund", "/orders/:id/refunds", {
       params: ById,
       headers: Writes,

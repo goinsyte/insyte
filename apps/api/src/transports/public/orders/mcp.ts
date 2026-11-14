@@ -58,6 +58,9 @@ export const OrdersMcp = OrdersTools.toLayer(Effect.gen(function*() {
       ),
     update_shipping_address: ({ order_id, idempotency_key, ...address }) =>
       kicking(read.shipOrderTo(order_id, address, idempotency_key)),
+    // Like the address, outside the autonomy catalogue (no agent action names a delay yet): run as the key may.
+    flag_order_delayed: ({ order_id, idempotency_key }) => kicking(read.delayOrder(order_id, idempotency_key)),
+    clear_order_delay: ({ order_id, idempotency_key }) => kicking(read.clearOrderDelay(order_id, idempotency_key)),
     cancel_order: ({ order_id, idempotency_key, ...body }) =>
       governed(
         "cancel_order",

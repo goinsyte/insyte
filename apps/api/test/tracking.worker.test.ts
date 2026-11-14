@@ -6,7 +6,8 @@ import { call, rpc } from "./support.ts"
 /*
  * Tracking (step 10.4, M8.4), against AfterShip's recorded twin. Each imported parcel with a tracking number becomes a
  * delivery; one Shopify already delivered stays delivered and is never registered. The sweep registers the others and
- * reads them: a parcel that has not moved for three days delays its order, once, and the team hears it. AfterShip's
+ * reads them: a parcel that has not moved for the workspace's threshold delays its order, once, and the team hears it;
+ * a delay the operator cleared stays cleared. AfterShip's
  * signed webhook delivers it, and the order with it. The order's tracking reads the same through the RPC, `/v1` and MCP.
  */
 
@@ -52,10 +53,16 @@ describe("tracking", () => {
     expect(late.delayedAt).not.toBeNull()
     expect((await tracking(delivered.id)).delayedAt).toBeNull()
     const delays = (await outboxOf(store.workspace)).filter((e) => e.event === "order.delayed")
-    expect(delays.map((e) => e.payload)).toMatchObject([{ orderIds: [moving.id], reason: "no_movement" }])
+    // At the workspace's own threshold (Instellingen · Meldingen, 48 hours unless changed).
+    expect(delays.map((e) => e.payload)).toMatchObject([{ orderIds: [moving.id], reason: "no_movement", hours: 48 }])
     // Once: a second sweep does not tell it again.
     await sweep(store.workspace)
     expect((await outboxOf(store.workspace)).filter((e) => e.event === "order.delayed")).toHaveLength(1)
+    // Cleared by the operator: not raised again until the parcel has stood still that long since.
+    ok(await rpc("Orders.clearDelay", { ids: [moving.id] }, store.cookie))
+    await sweep(store.workspace)
+    expect((await outboxOf(store.workspace)).filter((e) => e.event === "order.delayed")).toHaveLength(1)
+    expect((await tracking(moving.id)).delayedAt).toBeNull()
     await relay(store.workspace)
     const notes = ok(await rpc("Notifications.list", { tab: "inbox", cursor: null }, store.cookie)).items
     expect(notes.find((n) => n.kind === "order.late")?.data).toMatchObject({

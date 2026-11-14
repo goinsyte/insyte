@@ -129,14 +129,20 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     syncId: Schema.String
   }),
-  // An order whose parcel is stuck (M8.4): a carrier exception, or no movement for days. The team hears it.
+  // An order delayed: its parcel stuck (M8.4: a carrier exception, or no movement for the workspace's `delay_hours`),
+  // its supplier past the hand-off it promised (`supplier_late`, the hourly check), or an operator's "Als vertraagd
+  // markeren" (`manual`, once the undo window has passed). The team hears of the first three; automations of all.
   Schema.Struct({
     type: Schema.Literal("order.delayed"),
     workspaceId: Schema.String,
     userId: Schema.String,
     orderIds: Schema.Array(Schema.String),
-    reason: Schema.Literals(["exception", "no_movement"]),
-    note: Schema.NullOr(Schema.String)
+    reason: Schema.Literals(["exception", "no_movement", "supplier_late", "manual"]),
+    note: Schema.NullOr(Schema.String),
+    /** `no_movement`: the threshold it passed; `supplier_late`: how long the order has waited. */
+    hours: Schema.optional(Schema.Int),
+    /** `supplier_late`: the supplier that has not handed it over. */
+    supplier: Schema.optional(Schema.String)
   }),
   // Legs forwarded to their suppliers (M8.2): sent once the undo window has passed, or at once for a supplier set to
   // forward on payment (`userId` is then `system`).

@@ -91,12 +91,30 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
         ? { title: `${who} gaf je meer rechten`, actionLabel: "Team bekijken", path: "/settings/team" }
         : { title: `${who} wees je verzoek om meer rechten af`, actionLabel: "Team bekijken", path: "/settings/team" }
     case "order.late": {
-      const exception = data["reason"] === "exception"
       const number = text(data["number"])
+      const hours = typeof data["hours"] === "number" ? data["hours"] : undefined
+      if (data["reason"] === "supplier_late") {
+        // As the design's late order: how long it has waited, at which supplier.
+        const supplier = text(data["supplier"])
+        return {
+          title: hours === undefined
+            ? `Bestelling ${number} is nog niet verzonden`
+            : `Bestelling ${number} staat ${hours} uur zonder verzending`,
+          detail: supplier === ""
+            ? "De leverancier heeft hem niet op tijd overgedragen."
+            : `Bij ${supplier}. De afgesproken overdracht is voorbij.`,
+          record: `Bestelling ${number}`,
+          actionLabel: "Bestelling openen",
+          path: `/orders/${id}`
+        }
+      }
+      const exception = data["reason"] === "exception"
       return {
         title: exception
           ? `De vervoerder meldt een probleem met bestelling ${number}`
-          : `Het pakket van bestelling ${number} beweegt al drie dagen niet`,
+          : hours === undefined
+          ? `Het pakket van bestelling ${number} beweegt al drie dagen niet`
+          : `Het pakket van bestelling ${number} beweegt al ${hours} uur niet`,
         detail: text(data["note"]) !== ""
           ? text(data["note"])
           : exception
