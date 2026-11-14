@@ -18,6 +18,31 @@ describe("roles", () => {
     expect(roles.roles.map((r) => r.id)).toEqual(["owner", "admin", "service", "finance", "view"])
     expect(roles.myRoleId).toBe("owner")
     expect(roles.roles[0]!.holders.members.map((m) => m.name)).toEqual(["Persoon roles-owner"])
+    expect(roles.roles.every((r) => r.holders.keys === 0)).toBe(true)
+    // Every store, and none connected yet.
+    expect(roles.storeScope).toBeNull()
+    expect(roles.stores).toEqual([])
+  })
+
+  it("counts the live API keys that hold a role among its holders", async () => {
+    const make = async (label: string) =>
+      ok(
+        await rpc("ApiKeys.create", {
+          label,
+          access: { kind: "role", roleId: "service" } as never,
+          stores: "all",
+          expiresInDays: 30,
+          ips: [],
+          agent: false
+        }, owner.cookie)
+      ).key.id
+    const keys = (roles: { roles: ReadonlyArray<{ id: string; holders: { keys: number } }> }) =>
+      Object.fromEntries(roles.roles.map((r) => [r.id, r.holders.keys]))
+    const first = await make("Eerste")
+    await make("Tweede")
+    expect(keys(ok(await rpc("Roles.list", undefined, owner.cookie)))).toMatchObject({ service: 2, view: 0 })
+    ok(await rpc("ApiKeys.revoke", { id: first }, owner.cookie))
+    expect(keys(ok(await rpc("Roles.list", undefined, owner.cookie)))).toMatchObject({ service: 1 })
   })
 
   it("makes a role from another, and refuses an empty or taken name", async () => {

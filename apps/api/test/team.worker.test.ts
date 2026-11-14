@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   consume,
   failure,
+  join,
   mailsTo,
   ok,
   ORIGIN,
@@ -198,5 +199,45 @@ describe("the team on the server", () => {
       _tag: "Conflict"
     })
     expect(ok(await rpc("InviteLink.set", { enabled: false }, owner.cookie)).link.enabled).toBe(false)
+  })
+
+  it("sets a member's own stores, refusing none, a store the workspace lacks, the owner and oneself", async () => {
+    const noor = `noor-${run}@example.com`
+    ok(
+      await rpc("Invitations.revoke", {
+        ids: ok(await rpc("Team.get", undefined, owner.cookie)).invitations.map((i) => i.id)
+      }, owner.cookie)
+    )
+    ok(await rpc("Invitations.send", { rows: [{ email: noor, roleId: "service", stores: "all" }] }, owner.cookie))
+    await pastUndo(workspace)
+    await relay(workspace)
+    const cookie = await join(noor)
+    const team = ok(await rpc("Team.get", undefined, owner.cookie))
+    // No store connected yet: nothing to pick, and the owner reaches every store.
+    expect(team.stores).toEqual([])
+    expect(team.storeScope).toBeNull()
+    const id = team.members.find((m) => m.email === noor)!.id
+    const ownerId = team.me
+
+    expect(failure(await rpc("Members.setStores", { id, stores: [] }, owner.cookie))).toMatchObject({
+      _tag: "Invalid",
+      fields: { stores: "empty" }
+    })
+    expect(failure(await rpc("Members.setStores", { id, stores: ["sto_nowhere"] }, owner.cookie))).toMatchObject({
+      _tag: "Invalid",
+      fields: { stores: "unknown" }
+    })
+    expect(failure(await rpc("Members.setStores", { id: ownerId, stores: "all" }, owner.cookie))).toMatchObject({
+      _tag: "Conflict",
+      reason: "owner"
+    })
+    expect(failure(await rpc("Members.setStores", { id: "mem_none", stores: "all" }, owner.cookie))).toMatchObject({
+      _tag: "NotFound"
+    })
+    // Their role cannot manage the team: not even their own stores.
+    expect(failure(await rpc("Members.setStores", { id, stores: "all" }, cookie))).toMatchObject({ _tag: "Forbidden" })
+    // Setting what is already there changes nothing.
+    expect(ok(await rpc("Members.setStores", { id, stores: "all" }, owner.cookie)).members.find((m) => m.id === id))
+      .toMatchObject({ stores: "all" })
   })
 })

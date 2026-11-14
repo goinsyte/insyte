@@ -118,6 +118,13 @@
     "finance": "deny",
     "view": "deny"
   },
+  "Members.setStores": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
   "Members.deactivate": {
     "owner": "allow",
     "admin": "allow",
