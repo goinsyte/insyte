@@ -12,14 +12,15 @@ import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { useMemo, useRef } from "react"
-import { ATTENTION_CUTS, attentionProductsAtom, productsAtom } from "../data/products.ts"
+import { productsPageAtom } from "../data/products.ts"
 import { ConsoleLowStock } from "../products/low-stock.tsx"
 import { useProductCommands } from "../products/product-writes.ts"
-import { useConsoleProductsSource } from "../products/products-source.ts"
+import { FIRST_PRODUCTS, useConsoleProductsSource } from "../products/products-source.ts"
 
 /**
- * Producten (step 8.4c, M6.4): the reference's products list over `Products.list`, in the frame. The loader reads them
- * on the server; until they are in, the reference's table skeleton stands in. A role that may not see products is
+ * Producten (step 8.4c, M6.4): the reference's products list over `Products.list`, in the frame, paged on the server
+ * (W3.1; an Aandacht cut from the panel is a filter on its flag, `products-source.ts`). The loader reads the first page
+ * on the server; until it is in, the reference's table skeleton stands in. A role that may not see products is
  * told which permission it misses.
  *
  * The list is this layout rather than `/products/`, as with Bestellingen, so a row opened over it (step 8.4e) leaves its
@@ -33,7 +34,7 @@ export const Route = createFileRoute("/_frame/products")({
   head: () => ({ meta: [{ title: "Producten · Insyte" }] }),
   loader: async ({ context, location }) => {
     if (!atList(location.pathname)) return
-    const atom = listAtom((location.search as { status?: string }).status)
+    const atom = productsPageAtom(FIRST_PRODUCTS)
     // Mounted so the value survives until the registry is dehydrated into the document.
     context.registry.mount(atom)
     await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, atom)))
@@ -43,12 +44,6 @@ export const Route = createFileRoute("/_frame/products")({
 })
 
 const atList = (pathname: string) => pathname.replace(/\/$/, "") === "/products"
-
-/** The catalogue, or one Aandacht cut paged on the server, so the list holds what the panel's badge counts. */
-const listAtom = (status: string | undefined) => {
-  const cut = status === undefined ? undefined : ATTENTION_CUTS[status as keyof typeof ATTENTION_CUTS]
-  return cut === undefined ? productsAtom : attentionProductsAtom(cut)
-}
 
 function Layout() {
   const asModal = useOpenedAsModal()
@@ -68,8 +63,7 @@ function Pending() {
 const isForbidden = Schema.is(Forbidden)
 
 function ProductsRoute() {
-  const status = Route.useSearch({ select: (s) => s.status })
-  const result = useAtomValue(listAtom(status))
+  const result = useAtomValue(productsPageAtom(FIRST_PRODUCTS))
   const page = AsyncResult.isSuccess(result)
     ? result.value
     : AsyncResult.isWaiting(result)
@@ -119,7 +113,7 @@ function Loaded({ page }: { page: ProductPage }) {
     []
   )
   // The low-stock advice (M7 9.3), once Shopify reported stock for any product.
-  const LowStock = page.rows.some((p) => p.stock !== null) ? ConsoleLowStock : undefined
+  const LowStock = page.summary?.stocked === true ? ConsoleLowStock : undefined
   return (
     <ProductsSourceProvider value={{ ...source, Margin, LowStock }}>
       <ProductsPage />

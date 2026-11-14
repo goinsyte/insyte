@@ -13,16 +13,16 @@ import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { forwardingAtom } from "../data/forwarding.ts"
-import { ordersAtom } from "../data/orders.ts"
+import { ordersPageAtom } from "../data/orders.ts"
 import { storesAtom } from "../data/stores.ts"
 import { ConsoleForwarding } from "../orders/forwarding-source.tsx"
-import { useConsoleOrdersSource } from "../orders/orders-source.ts"
+import { FIRST_ORDERS, useConsoleOrdersSource } from "../orders/orders-source.ts"
 
 /**
- * Bestellingen (step 8.4b, M6.4): the reference's orders list over `Orders.list`, in the frame. The loader reads the
- * orders and the stores (for the Winkel column) on the server, so the first paint has them; until they are in (a
- * client navigation), the reference's own table skeleton stands in. A role that may not see orders is told which
- * permission it misses.
+ * Bestellingen (step 8.4b, M6.4): the reference's orders list over `Orders.list`, in the frame, paged on the server
+ * (W3.1). The loader reads the first page and the stores (for the Winkel column) on the server, so the first paint has
+ * them; until they are in (a client navigation), the reference's own table skeleton stands in. A role that may not see
+ * orders is told which permission it misses.
  *
  * The list is this layout rather than `/orders/`, as in the reference's `orders-layout.tsx`, so a row opened over it
  * (step 8.4d) leaves its filters, sort and scroll as they were. An order reached by its URL is a page with no list
@@ -42,11 +42,12 @@ export const Route = createFileRoute("/_frame/orders")({
       await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, forwardingAtom)))
     }
     // Mounted so the values survive until the registry is dehydrated into the document.
-    context.registry.mount(ordersAtom)
+    const first = ordersPageAtom(FIRST_ORDERS)
+    context.registry.mount(first)
     context.registry.mount(storesAtom)
     await Effect.runPromise(
       Effect.all([
-        Effect.ignore(AtomRegistry.getResult(context.registry, ordersAtom)),
+        Effect.ignore(AtomRegistry.getResult(context.registry, first)),
         Effect.ignore(AtomRegistry.getResult(context.registry, storesAtom))
       ], { concurrency: "unbounded" })
     )
@@ -75,7 +76,7 @@ function Pending() {
 const isForbidden = Schema.is(Forbidden)
 
 function OrdersRoute() {
-  const result = useAtomValue(ordersAtom)
+  const result = useAtomValue(ordersPageAtom(FIRST_ORDERS))
   const stores = Option.getOrUndefined(AsyncResult.value(useAtomValue(storesAtom))) ?? []
   // A refresh keeps showing the list as it was until the new one is in.
   const page = AsyncResult.isSuccess(result)

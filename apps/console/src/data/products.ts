@@ -9,8 +9,10 @@ import { QUALITY } from "./quality.ts"
 import { RETURNS } from "./returns.ts"
 
 /*
- * Producten (M6.4): the catalogue, primed by the route's loader and carried in the document; up to 200 by title, as
- * the design's table works in the browser. A change (a webhook, or a command, M7.3) names `PRODUCTS`.
+ * Producten (M6.4): the catalogue's pages, the first primed by the route's loader and carried in the document, each
+ * next one read as the design's table pages, filters (the panel's Aandacht cuts too, `Products.list`'s flags), searches
+ * and sorts on the server. A change (a webhook, or a command, M7.3) names `PRODUCTS`; a return or a quality check
+ * moves the Aandacht flags, so those name the list too.
  */
 
 export const PRODUCTS = ["products"] as const
@@ -27,28 +29,19 @@ const PAGE = AsyncResult.Schema({
   ])
 })
 
+/** Up to 200 by title, for the screens that pick from them (Retouren, a product's header); the list pages. */
 export const productsAtom = Atom.serializable(
   ConsoleClient.query("Products.list", { limit: 200 }, { reactivityKeys: PRODUCTS }),
   { key: "products", schema: PAGE, skipInitialRun: true }
 )
 
-/** The panel's Aandacht cuts, by their link's `status`, as `Products.list` takes them. */
-export const ATTENTION_CUTS = {
-  attention_returns: "returns",
-  attention_complaints: "complaints",
-  attention_checks: "checks"
-} as const satisfies Record<string, NonNullable<ProductListInput["attention"]>>
-
-/**
- * One Aandacht cut, paged on the server as the panel counts it (`Products.list`'s `attention`), so the list shows what
- * the badge counts. A return or a quality check moves it, as it moves the badge.
- */
-export const attentionProductsAtom = Atom.family((cut: NonNullable<ProductListInput["attention"]>) =>
+/** One page of Producten as its table asks for it (`products-source.ts`), keyed by `Products.list`'s input as JSON. */
+export const productsPageAtom = Atom.family((input: string) =>
   Atom.serializable(
-    ConsoleClient.query("Products.list", { limit: 200, attention: cut }, {
+    ConsoleClient.query("Products.list", JSON.parse(input) as ProductListInput, {
       reactivityKeys: [...PRODUCTS, ...RETURNS, ...QUALITY]
     }),
-    { key: `products:${cut}`, schema: PAGE, skipInitialRun: true }
+    { key: `products:${input}`, schema: PAGE, skipInitialRun: true }
   )
 )
 

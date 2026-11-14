@@ -1,36 +1,46 @@
 import { Forbidden, NotFound, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
 import { CustomerDetail, CustomerPage } from "@insyte/modules/customers/domain/Customers"
 import { DuplicateGroup } from "@insyte/modules/customers/domain/Duplicates"
-import { CursorInvalid, FilterFieldUnknown } from "@insyte/modules/shared/domain/Filter"
+import { CursorInvalid, FilterFieldUnknown, type ListInput } from "@insyte/modules/shared/domain/Filter"
 import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
 import { ConsoleClient } from "./client.ts"
 
 /*
- * Klanten (M6.4): the customers, primed by the route's loader and carried in the document. As with the orders, the
- * design's table works in the browser, so it gets its rows at once: up to 200, by name. A change names `CUSTOMERS`.
+ * Klanten (M6.4): the profiles' pages, the first primed by the route's loader and carried in the document, each next
+ * one read as the design's table pages, filters, searches and sorts on the server. A change names `CUSTOMERS`.
  */
 
 export const CUSTOMERS = ["customers"] as const
 
+const PAGE = AsyncResult.Schema({
+  success: CustomerPage,
+  error: Schema.Union([
+    Forbidden,
+    FilterFieldUnknown,
+    CursorInvalid,
+    NoWorkspace,
+    Unauthenticated,
+    RpcClientError.RpcClientError
+  ])
+})
+
+/** Up to 200 by name, for a customer's header while the record loads; the list pages. */
 export const customersAtom = Atom.serializable(
   ConsoleClient.query("Customers.list", { limit: 200 }, { reactivityKeys: CUSTOMERS }),
-  {
-    key: "customers",
-    schema: AsyncResult.Schema({
-      success: CustomerPage,
-      error: Schema.Union([
-        Forbidden,
-        FilterFieldUnknown,
-        CursorInvalid,
-        NoWorkspace,
-        Unauthenticated,
-        RpcClientError.RpcClientError
-      ])
-    }),
-    skipInitialRun: true
-  }
+  { key: "customers", schema: PAGE, skipInitialRun: true }
+)
+
+/**
+ * One page of Klanten as its table asks for it (`customers-source.ts`), keyed by `Customers.list`'s input as JSON; the
+ * duplicate review reads its profiles by id the same way.
+ */
+export const customersPageAtom = Atom.family((input: string) =>
+  Atom.serializable(
+    ConsoleClient.query("Customers.list", JSON.parse(input) as ListInput, { reactivityKeys: CUSTOMERS }),
+    { key: `customers:${input}`, schema: PAGE, skipInitialRun: true }
+  )
 )
 
 /**
