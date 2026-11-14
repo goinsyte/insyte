@@ -1,4 +1,4 @@
-import { Archive, FileText, Keyboard, Mail, MessageSquareText, Palette, Receipt, ShieldCheck, Truck, RotateCcw, BadgePercent, Bell, BookOpen, Bot, CreditCard, Globe, type IconComponent, Key, MessageCircle, Plug, Shield, Sparkles, Store, User, UserCog, Users, Wallet, Webhook } from "../../icons";
+import { Archive, Database, FileText, Keyboard, Mail, MessageSquareText, Palette, Receipt, ShieldCheck, Truck, RotateCcw, BadgePercent, Bell, BookOpen, Bot, CreditCard, Globe, type IconComponent, Key, MessageCircle, Plug, Shield, Sparkles, Store, User, UserCog, Users, Wallet, Webhook } from "../../icons";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { ReadOnlyNotice, useReadOnly } from "../access/route-gate";
 import { SettingsSheet } from "./settings-sheet";
@@ -29,6 +29,7 @@ const PAGES: Record<string, { title: string; icon: IconComponent }> = {
 	"email-domain": { title: "E-mail en domein", icon: Mail },
 	vat: { title: "Btw", icon: Receipt },
 	privacy: { title: "Gegevens en privacy", icon: ShieldCheck },
+	data: { title: "Je gegevens", icon: Database },
 	log: { title: "Logboek", icon: FileText },
 	trash: { title: "Prullenbak", icon: Archive },
 	shortcuts: { title: "Sneltoetsen", icon: Keyboard },

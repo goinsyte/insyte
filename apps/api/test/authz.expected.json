@@ -2526,6 +2526,62 @@
     "finance": "deny",
     "view": "deny"
   },
+  "Privacy.inventory": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Privacy.requests": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Privacy.setExportSchedule": {
+    "owner": "allow",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Privacy.requestAccess": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Privacy.requestErasure": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Workspaces.requestExport": {
+    "owner": "allow",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Workspaces.requestDeletion": {
+    "owner": "allow",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Workspaces.cancelDeletion": {
+    "owner": "allow",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
   "Data.overview": {
     "owner": "allow",
     "admin": "allow",

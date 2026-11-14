@@ -69,6 +69,14 @@
     { "binding": "WEBHOOK_DELIVERY", "name": "insyte-webhook-delivery", "class_name": "WebhookDeliveryWorkflow" },
     // The supplier statements' monthly close (M13 step 6), from the cron on the 1st.
     { "binding": "MONTHLY_CLOSE", "name": "insyte-monthly-close", "class_name": "MonthlyCloseWorkflow" },
+    // A workspace export or a shopper's access package (M17 step 5): a step per table, then the ZIP.
+    { "binding": "PRIVACY_EXPORT", "name": "insyte-privacy-export", "class_name": "PrivacyExportWorkflow" },
+    // A workspace's deletion (M17 step 5): the waiting period, then the purge.
+    {
+      "binding": "WORKSPACE_LIFECYCLE",
+      "name": "insyte-workspace-lifecycle",
+      "class_name": "WorkspaceLifecycleWorkflow",
+    },
     // An uploaded CSV read into rows (M14 step 5), one run per import.
     { "binding": "IMPORT_PARSE", "name": "insyte-import-parse", "class_name": "ImportParseWorkflow" },
     // An export written, page by page, whatever its source (M14 step 5).

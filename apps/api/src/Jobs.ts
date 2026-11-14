@@ -27,10 +27,12 @@ export { ForwardSendWorkflow } from "./workflows/ForwardSend.ts"
 export { ImportParseWorkflow } from "./workflows/ImportParse.ts"
 export { MarketingSyncWorkflow } from "./workflows/MarketingSync.ts"
 export { MonthlyCloseWorkflow } from "./workflows/MonthlyClose.ts"
+export { PrivacyExportWorkflow } from "./workflows/PrivacyExport.ts"
 export { ReturnLabelWorkflow } from "./workflows/ReturnLabel.ts"
 export { ShopifyBackfillWorkflow } from "./workflows/ShopifyBackfill.ts"
 export { ShopifyWriteWorkflow } from "./workflows/ShopifyWrite.ts"
 export { WebhookDeliveryWorkflow } from "./workflows/WebhookDelivery.ts"
+export { WorkspaceLifecycleWorkflow } from "./workflows/WorkspaceLifecycle.ts"
 
 export default {
   queue,

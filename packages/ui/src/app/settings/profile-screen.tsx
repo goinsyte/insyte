@@ -11,7 +11,6 @@ import {
 import { Archive, Bell, Check, CreditCard, Download, Store, Trash2, Users } from "../../icons"
 import { ConfirmDialog } from "../common/confirm-dialog"
 import { PageGuide } from "../common/page-guide"
-import { SoonChip } from "../common/soon-chip"
 import { cn } from "../lib/utils"
 import { FieldRow, INPUT_CLASS, SelectInput, TextInput, UnsavedBar } from "./form"
 import { BandedList, SettingCard, SettingsItem } from "./setting-card"
@@ -44,7 +43,6 @@ const alertText = (alerts: AlertFields) => ({
 })
 
 /** What the host cannot do yet, said when it is asked for. */
-const soon = (what: string) => () => toast(`${what} is nog niet beschikbaar`, { description: "Dit komt er nog aan." })
 
 /**
  * The workspace's own facts, and nothing else.
@@ -175,8 +173,7 @@ export function AccountSettingsPage() {
             tone="green"
             title="Je data downloaden"
             detail="Alles in één bestand"
-            onClick={source.download ?? soon("Je data downloaden")}
-            trailing={source.download ? undefined : <SoonChip />}
+            {...(source.download ? { onClick: source.download } : { to: "/settings/data" })}
           />
           <SettingsItem
             icon={Archive}
@@ -188,9 +185,8 @@ export function AccountSettingsPage() {
             icon={Trash2}
             tone="danger"
             title="Werkruimte verwijderen"
-            detail="Dit kan niet ongedaan worden gemaakt"
-            onClick={source.remove ? () => setDeleting(true) : soon("Werkruimte verwijderen")}
-            trailing={source.remove ? undefined : <SoonChip />}
+            detail={source.remove ? "Dit kan niet ongedaan worden gemaakt" : "Na 7 dagen wachten, onder Je gegevens"}
+            {...(source.remove ? { onClick: () => setDeleting(true) } : { to: "/settings/data" })}
           />
         </BandedList>
       </SettingCard>
