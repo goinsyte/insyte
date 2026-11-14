@@ -65,6 +65,7 @@ import sendingDomains from "./migrations/0072_sending_domains.ts"
 import data from "./migrations/0073_data.ts"
 import ai from "./migrations/0074_ai.ts"
 import privacy from "./migrations/0076_privacy.ts"
+import syncHealth from "./migrations/0077_sync_health.ts"
 import stockTracking from "./migrations/0079_stock_tracking.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 import supplierPortal from "./migrations/contract/0075_supplier_portal.ts"
@@ -143,5 +144,6 @@ export const Migrations = {
   "0074_ai": ai,
   "0075_supplier_portal": supplierPortal,
   "0076_privacy": privacy,
+  "0077_sync_health": syncHealth,
   "0079_stock_tracking": stockTracking
 }

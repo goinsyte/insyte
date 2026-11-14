@@ -42,6 +42,7 @@ const NOTIFIED = [
   "chargeback.deadline_near",
   "automation.notify",
   "webhook.disabled",
+  "connection.incident",
   "course.assigned",
   "course.question",
   "course.answered",

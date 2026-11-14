@@ -96,9 +96,9 @@ export const apply = Effect.fn("Stores.webhooks.apply")(function*(inboundEventId
   const db = yield* Db
   // The body as text: the SQL client camelCases a jsonb value's keys, and Shopify's are `order_id`, `inventory_item_id`.
   const [event] = yield* db.scopedFor((sql) =>
-    sql<{ topic: string; body: string | null; storeId: string | null; processed: boolean }>`
+    sql<{ topic: string; body: string | null; storeId: string | null; processed: boolean; receivedAt: Date }>`
       update inbound_events set attempts = attempts + 1 where id = ${inboundEventId}
-      returning topic, body_inline::text as body, store_id, processed_at is not null as processed`
+      returning topic, body_inline::text as body, store_id, processed_at is not null as processed, received_at`
   )
   if (event === undefined || event.processed || event.storeId === null) return
   const [store] = yield* db.scopedFor((sql) =>
@@ -113,6 +113,13 @@ export const apply = Effect.fn("Stores.webhooks.apply")(function*(inboundEventId
   const outboxIds = yield* db.scopedFor((sql) =>
     Effect.gen(function*() {
       yield* sql`update inbound_events set processed_at = now(), error = null where id = ${inboundEventId}`
+      // When Shopify last delivered an order: the webhook-gap check reads it (sync health, M17 step 6), kept to the
+      // minute so a busy store does not write its row on every delivery.
+      if (event.topic.startsWith("orders/") && store !== undefined) {
+        yield* sql`update stores set last_order_hook_at = ${event.receivedAt}
+                   where id = ${store.id} and (last_order_hook_at is null
+                     or last_order_hook_at < ${event.receivedAt}::timestamptz - interval '1 minute')`
+      }
       if (kind === undefined) return []
       const [workspace] = yield* sql<{ id: string }>`select app_workspace_id() as id`
       const workspaceId = workspace!.id
@@ -189,8 +196,18 @@ const applyTopic = Effect.fn("Stores.webhooks.topic")(
                        where id = ${store.id} and status <> 'disconnected'`
             yield* sql`update connections set status = 'revoked' where id = ${store.connectionId}`
             yield* sql`delete from connection_credentials where connection_id = ${store.connectionId}`
+            // Let go, nothing about the connection is open any more; the health line reads again.
+            yield* sql`update connection_incidents set resolved_at = now()
+                       where connection_id = ${store.connectionId} and resolved_at is null`
+            const [workspace] = yield* sql<{ id: string }>`select app_workspace_id() as id`
+            return yield* Outbox.write(sql, workspace!.id, {
+              type: "records.changed",
+              workspaceId: workspace!.id,
+              kind: "connection",
+              ids: [store.connectionId]
+            })
           })
-        )
+        ).pipe(Effect.flatMap((outboxId) => Effect.flatMap(Relay, (relay) => relay.kick([outboxId]))))
         return yield* (yield* ConnectionGate).forget(store.connectionId)
       case "customers/data_request":
         return yield* gdpr(store, "data_request", body, false)
