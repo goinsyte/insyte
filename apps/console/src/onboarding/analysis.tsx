@@ -1,39 +1,52 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { FirstAnalysisView } from "@insyte/modules/first-analysis/domain/FirstAnalysis"
-import type { PreparedId } from "@insyte/ui/app/lib/first-analysis"
+import type { AgentActionId, AutonomyLevel } from "@insyte/ui/app/lib/autonomy"
+import type { OfflineWindow, PreparedId } from "@insyte/ui/app/lib/first-analysis"
 import { ReadyCard } from "@insyte/ui/app/onboarding/admin-tail-steps"
 import type { AnalysisSource } from "@insyte/ui/app/onboarding/analysis-step"
-import { Exit, Option } from "effect"
+import { Cause, Exit, Option } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { useEffect } from "react"
+import { AUTONOMY } from "../data/agent.ts"
 import { FIRST_ANALYSIS, firstAnalysisAtom, firstAnalysisWrites } from "../data/first-analysis.ts"
 import { LiveUpdates } from "../realtime/live-updates.tsx"
 
 /*
- * The first analysis in the console's onboarding (step 8.5, M6.5): `FirstAnalysis.get` as the design's
+ * The first analysis in the console's onboarding (step 8.5, M6.5, M15 step 5): `FirstAnalysis.get` as the design's
  * `AnalysisSource`. Each read ticks off as the server reads it (its frames, and a slow poll for a lost socket); the
- * step starts the reading when it opens on an analysis not yet begun. The mail is not read until M15, so the reads
- * leave it out and a store with enough history is told why there is no finding. Read only on the analysis and ready
- * steps.
+ * step starts the reading when it opens on an analysis not yet begun. With the team's mail in Insyte and enough
+ * history the server names one finding; without, the early read, and a store with enough history is told why there
+ * is no finding. "Klaarzetten" makes the automation draft and the sheet on the server; the offline step's plan goes
+ * into Zelfstandigheid. Read only on the analysis, offline and ready steps.
  */
 
 const IDLE: Atom.Atom<AsyncResult.AsyncResult<FirstAnalysisView, unknown>> = Atom.make(AsyncResult.initial())
 
-/** The chosen items' titles for the ready card, each waiting on the part of Insyte that will make it. */
+/** What the ready card says of a chosen item the server could not make yet. */
 const WAITS_ON: Record<PreparedId, string> = {
-  automation: "zodra Automatiseringen beschikbaar zijn",
+  automation: "nog niet klaargezet",
   agent: "zodra de klantagent beschikbaar is",
-  sheet: "zodra Rekenbladen beschikbaar zijn"
+  sheet: "nog niet klaargezet"
 }
 
 const sourceOf = (view: FirstAnalysisView | undefined): AnalysisSource => ({
   connected: true,
   failed: view?.state === "failed",
-  store: { orders: view?.store.orders ?? 0, mails: 0, days: view?.store.days ?? 0 },
+  store: { orders: view?.store.orders ?? 0, mails: view?.store.mails ?? 0, days: view?.store.days ?? 0 },
   history: view?.history ?? "young",
-  readsMail: false,
+  readsMail: (view?.reads ?? []).some((r) => r.id === "mail"),
   reads: (view?.reads ?? []).map((r) => ({ label: r.label, done: r.done })),
-  read: view?.state === "early" || view?.state === "failed",
+  read: view?.state === "early" || view?.state === "found" || view?.state === "failed",
+  ...(view?.state === "found" && view.finding !== null
+    ? {
+      finding: {
+        headline: view.finding.headline,
+        evidence: view.finding.evidence.map((e) => ({ figure: e.figure, says: e.says, basis: e.basis })),
+        fix: { title: view.finding.fix.title, why: view.finding.fix.why },
+        effect: { figure: view.finding.effect.figure, basis: view.finding.effect.basis }
+      }
+    }
+    : {}),
   ...(view?.state === "early"
     ? {
       early: {
@@ -56,11 +69,12 @@ const sourceOf = (view: FirstAnalysisView | undefined): AnalysisSource => ({
 })
 
 /** The analysis on the steps that show it; it starts the reading once, when the step opens on one not begun. */
-export function useConsoleAnalysis(step: "analysis" | "ready" | "other") {
+export function useConsoleAnalysis(step: "analysis" | "offline" | "ready" | "other") {
   const result = useAtomValue(step === "other" ? IDLE : firstAnalysisAtom)
   const view = Option.getOrUndefined(AsyncResult.value(result))
   const start = useAtomSet(firstAnalysisWrites.start, { mode: "promiseExit" })
   const prepare = useAtomSet(firstAnalysisWrites.prepare, { mode: "promiseExit" })
+  const agree = useAtomSet(firstAnalysisWrites.agreeOffline, { mode: "promiseExit" })
   useEffect(() => {
     if (step === "analysis" && view?.state === "none") {
       void start({ payload: undefined, reactivityKeys: FIRST_ANALYSIS })
@@ -84,6 +98,23 @@ export function useConsoleAnalysis(step: "analysis" | "ready" | "other") {
         reactivityKeys: FIRST_ANALYSIS
       })
       if (Exit.isFailure(exit)) throw new Error("Dit kon niet worden opgeslagen. Probeer het opnieuw.")
+    },
+    /** "Afronden": the offline plan into Zelfstandigheid (Nooit stays as it is); throws a sentence. */
+    agreeOffline: async (window: OfflineWindow, levels: Partial<Record<AgentActionId, AutonomyLevel>>) => {
+      const kept = Object.fromEntries(
+        Object.entries(levels).flatMap(([id, level]) => (level === "auto" || level === "ask" ? [[id, level]] : []))
+      )
+      const exit = await agree({ payload: { window, levels: kept }, reactivityKeys: [...FIRST_ANALYSIS, ...AUTONOMY] })
+      if (Exit.isSuccess(exit)) return
+      const failure = Cause.findErrorOption(exit.cause)
+      const tag = failure._tag === "Some" ? failure.value._tag : undefined
+      throw new Error(
+        tag === "AutonomyStale"
+          ? "Iemand heeft Zelfstandigheid net aangepast. Probeer het opnieuw."
+          : tag === "Forbidden"
+          ? "Alleen wie Zelfstandigheid mag aanpassen kan dit plan opslaan."
+          : "Dit kon niet worden opgeslagen. Probeer het opnieuw."
+      )
     }
   }
 }
@@ -99,14 +130,25 @@ export function AnalysisLive({ reading }: { reading: boolean }) {
   return <LiveUpdates />
 }
 
-/** The ready step's card: the store's counts, and what the operator chose to have ready, each waiting on its part. */
+/** The ready step's card: the store's counts, what Insyte made, and what of the chosen still waits on its part. */
 export function ConsoleReadyCard({ view }: { view: FirstAnalysisView | undefined }) {
   const chosen = view?.chosen?.ids ?? []
+  const made = (id: PreparedId) =>
+    id === "automation"
+      ? (view?.made.automationId ?? null) !== null
+      : id === "sheet"
+      ? (view?.made.sheetId ?? null) !== null
+      : false
+  const line = (id: PreparedId) => {
+    const title = view!.prepared[id].title
+    if (!made(id)) return `${title}, ${WAITS_ON[id]}`
+    return id === "automation" ? `${title} (concept)` : title
+  }
   return (
     <ReadyCard
       connected={view !== undefined && view.state !== "none"}
-      preparedHeading="Klaar om aan te zetten"
-      prepared={chosen.map((id) => `${view!.prepared[id].title}, ${WAITS_ON[id]}`)}
+      {...(chosen.some(made) ? {} : { preparedHeading: "Klaar om aan te zetten" })}
+      prepared={chosen.map(line)}
       {...(view === undefined ? {} : { counts: view.store })}
     />
   )
