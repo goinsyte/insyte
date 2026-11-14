@@ -33,8 +33,7 @@ import { usePrefSection } from "../frame/prefs.ts"
 /*
  * Analyse's source in the console (M14 step 2): `Analytics.*` as the design's page. The server keeps the numbers and no
  * words, so the sentences are written here, a template per finding kind, with every amount in the workspace's currency.
- * The two months are the member's `analytics` preference. Disputes wait for the chargebacks and say so; Ask has no
- * model yet and says that too.
+ * The two months are the member's `analytics` preference. Ask has no model yet and says so.
  */
 
 /* ── Words ──────────────────────────────────────────────────────────────────────────────────── */
@@ -80,6 +79,16 @@ const SUGGESTED = [
   "Welk kanaal groeide het meest?",
   "Wanneer zijn tickets het traagst?"
 ] as const
+
+/** A dispute's normalised reason, as the design names it. */
+const DISPUTE_REASON: Record<string, string> = {
+  item_not_received: "Niet ontvangen",
+  not_as_described: "Niet zoals beschreven",
+  unauthorized: "Niet geautoriseerd",
+  duplicate: "Dubbele afschrijving",
+  other: "Overig"
+}
+const disputeReason = (reason: string | null) => DISPUTE_REASON[reason ?? ""] ?? reason ?? "Overig"
 
 const regions = typeof Intl.DisplayNames === "function" ? new Intl.DisplayNames(["nl"], { type: "region" }) : undefined
 const countryName = (
@@ -183,6 +192,7 @@ const OPENS: Partial<Record<Figure["id"], Finding["kind"]>> = {
   revenue: "revenue",
   on_time: "delivery",
   refund_rate: "refunds",
+  disputes: "disputes",
   resolve_hours: "support"
 }
 
@@ -214,6 +224,10 @@ function figureOf(f: Figure, money: (n: number) => string, open: (() => void) | 
       open
     }
   }
+  // Disputes compare as a count, as the design shows them: "+2", never a percentage.
+  if (f.id === "disputes") {
+    return { ...base, value, before, delta: f.a - f.b, unit: "", digits: 0, available: true, open }
+  }
   const points = f.id === "on_time" || f.id === "refund_rate"
   if (!points && f.b === 0 && f.a !== 0) {
     return { ...base, value, before, delta: 0, unit: "", available: false, note: "Niets om mee te vergelijken", open }
@@ -235,6 +249,7 @@ const METRIC: Record<Finding["kind"], string> = {
   revenue: "Omzet",
   delivery: "Op tijd geleverd",
   refunds: "Terugbetalingen",
+  disputes: "Geschillen",
   support: "Klantenservice",
   growth: "Groei"
 }
@@ -387,6 +402,33 @@ function write(f: Finding, A: PeriodLabels, B: PeriodLabels, money: (n: number) 
         )
       }
     }
+    case "disputes": {
+      const a = asNumber(x["a"])
+      const b = asNumber(x["b"])
+      const reason = asString(x["reason"])
+      const tied = asNumber(x["notReceived"])
+      const late = asNumber(x["arrivedLate"])
+      const linked = tied === 0 ?
+        "" :
+        ` ${
+          late === tied ?
+            (tied === 1 ? "Het enige geval" : tied === 2 ? "Beide gevallen" : `Alle ${int(tied)} gevallen`) :
+            `${int(late)} van de ${int(tied)} gevallen`
+        } van “${disputeReason("item_not_received")}” ${
+          tied === 1 ? "was een pakket dat" : "waren pakketten die"
+        } meer dan twee dagen te laat ${tied === 1 ? "aankwam" : "aankwamen"}${
+          late * 2 > a ? ", dus de meeste geschillen volgen uit het leveringsprobleem en niet uit fraude" : ""
+        }.`
+      return {
+        headline: `${plural(a, "geschil", "geschillen")} geopend, ${
+          a > b ? "meer dan" : a < b ? "minder dan" : "evenveel als"
+        } de ${int(b)} in ${B.short}${reason === null ? "" : `; “${disputeReason(reason)}” veranderde het meest`}.`,
+        figure: `${sign(a - b)}${int(Math.abs(a - b))}`,
+        explain: `Er staat ${m("amountA")} onder geschil uit ${A.label}.${linked}`,
+        drivers: f.drivers.map((d) => moved(disputeReason(d.key), d.a, d.b, int, `${int(d.b)} → ${int(d.a)}`)),
+        open: { label: "Geschillen openen", to: "/chargebacks" }
+      }
+    }
     case "support": {
       const weekend = asNumber(x["weekend"])
       const weekendTickets = asNumber(x["weekendTickets"])
@@ -504,6 +546,26 @@ function explained(e: Explanation, money: (n: number) => string): Read {
           because(key.reason)
         }, tegenover ${int(e.b)} in ${B.label}.`,
         drivers: e.drivers.map((d) => moved(d.name ?? "Zonder product", d.a, d.b, int, `${int(d.b)} → ${int(d.a)}`))
+      }
+    }
+    case "disputes":
+    case "dispute_reason": {
+      const one = key._tag === "dispute_reason"
+      return {
+        value: int(e.a),
+        compare: `tegenover ${int(e.b)} in ${B.short}`,
+        explain: `In ${A.label} ${e.a === 1 ? "is 1 geschil" : `zijn ${int(e.a)} geschillen`} geopend${
+          one ? ` wegens “${disputeReason(key.reason)}”` : ""
+        }, samen ${money(major(e.of ?? 0))}.`,
+        drivers: e.drivers.map((d) =>
+          moved(
+            one ? (d.key === "" ? "Zonder winkel" : storeName(d)) : disputeReason(d.key),
+            d.a,
+            d.b,
+            int,
+            `${int(d.b)} → ${int(d.a)}`
+          )
+        )
       }
     }
     case "weekday": {
@@ -701,9 +763,12 @@ export function useConsoleAnalyticsSource(input: {
         refunds: charts.refundReasons
           .map((r) => ({ key: r.reason ?? "", label: cap(reasonName(r.reason)), a: r.a, b: r.b }))
           .toSorted((x, y) => y.a - x.a),
-        disputes: charts.disputeReasons === null ?
-          null :
-          charts.disputeReasons.map((r) => ({ key: r.reason ?? "", label: cap(reasonName(r.reason)), a: r.a, b: r.b })),
+        disputes: charts.disputeReasons.map((r) => ({
+          key: r.reason ?? "",
+          label: disputeReason(r.reason),
+          a: r.a,
+          b: r.b
+        })),
         support: charts.supportByWeekday.map((r) => ({
           w: r.weekday,
           label: cap((WEEKDAY[r.weekday] ?? "").slice(0, 2)),
@@ -807,8 +872,12 @@ export function useConsoleAnalyticsSource(input: {
         { key: { _tag: "refund_reason", reason: reason === "" ? null : reason } },
         `Terugbetalingen ${because(reason === "" ? null : reason)}`
       ),
-    // Disputes are not kept yet: the chart is not drawn, so nothing opens.
-    openDisputeReason: () => undefined,
+    openDisputeReason: (reason) =>
+      openExplain(
+        { key: { _tag: "dispute_reason", reason } },
+        `Geschillen wegens “${disputeReason(reason)}”`,
+        { label: "Geschillen openen", to: "/chargebacks" }
+      ),
     openWeekday: (w) =>
       openExplain({ key: { _tag: "weekday", weekday: w } }, `Tickets op ${WEEKDAY[w] ?? ""}`, {
         label: "Tickets openen",
