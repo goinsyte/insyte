@@ -32,6 +32,11 @@ export const inboxAtom = ConsoleClient.query("Notifications.list", { tab: "inbox
   reactivityKeys: NOTES
 })
 
+/** What is set aside until later, for the panel's count and for the shell to see when one comes back. */
+export const laterAtom = ConsoleClient.query("Notifications.list", { tab: "later", cursor: null }, {
+  reactivityKeys: NOTES
+})
+
 export const notePrefsAtom = ConsoleClient.query("Notifications.prefs", undefined, { reactivityKeys: NOTES })
 
 export const viewsAtom = ConsoleClient.query("Views.list", undefined, { reactivityKeys: VIEWS })

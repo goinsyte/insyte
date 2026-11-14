@@ -29,7 +29,6 @@ import { frameAtom } from "../data/frame.ts"
 import { briefAtom, widgetsAtom, widgetsKey } from "../data/home.ts"
 import { completeTaskAtom, START, startAtom } from "../data/onboarding.ts"
 import { queueAtom } from "../data/queue.ts"
-import { useHasPage } from "../frame/pages.ts"
 import {
   boardOfFrame,
   OFFERED,
@@ -109,7 +108,7 @@ const VIEWS: ReadonlyArray<HomeView> = ["overzicht", "werk", "agenda", "activite
 /** Only the operator can say they did these; the rest tick themselves when the workspace has them. */
 const isManual = Schema.is(ManualSetupTask)
 
-/** The cards whose "Openen" has its screen in the console; Vermeldingen's opens once the notifications page is in. */
+/** The cards whose "Openen" has its screen in the console. */
 const OPENS = new Set([
   "orders",
   "revenue",
@@ -122,7 +121,8 @@ const OPENS = new Set([
   "returns",
   "bestsellers",
   "suppliers",
-  "team"
+  "team",
+  "mentions"
 ])
 
 function Start() {
@@ -242,7 +242,6 @@ function Board(
   }
 ) {
   const navigate = useNavigate({ from: "/dashboard" })
-  const hasPage = useHasPage()
   const [editing, setEditing] = useState(false)
   const work = useConsoleWork(frame, now)
   const due = dueToday(work.items, now)
@@ -321,7 +320,7 @@ function Board(
                 editing={editing}
                 onEditing={setEditing}
                 slots={slots}
-                opens={(id) => OPENS.has(id) || (id === "mentions" && hasPage("/notifications"))}
+                opens={(id) => OPENS.has(id)}
                 defaults={board.defaults}
                 live
               />

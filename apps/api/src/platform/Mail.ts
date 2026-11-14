@@ -11,6 +11,12 @@ import { SqlClient } from "effect/sql"
 export const refusedReferences = new Set<string>()
 
 /**
+ * The records whose mails find the provider busy, as Resend's 429 (`POST /api/__dev/mail/refuse?busy=1`): so a mail
+ * tried again later can be seen. Only this isolate's, and never in production.
+ */
+export const busyReferences = new Set<string>()
+
+/**
  * The sending domains whose `from` the capture adapter refuses as Resend does a domain that is not verified
  * (`POST /api/__dev/mail/refuse-sender`): so a brand's mail falling back to Insyte's address can be seen. Only this
  * isolate's, and never in production.
@@ -28,7 +34,7 @@ export const capturedSenders = new Map<string, { readonly from: string | null; r
 
 /** What a member's mail says on top, so a test can read it: a note's sentence, a digest's count. */
 const subjectOf = (mail: Mail): string | null =>
-  mail.memberNote?.title ??
+  mail.support?.subject ?? mail.orderMessage?.subject ?? mail.memberNote?.title ??
     (mail.digest === undefined ? null : `${mail.digest.primary.length + mail.digest.other.length} meldingen`)
 
 /**
@@ -43,6 +49,10 @@ export const MailerCapture = Layer.effect(
       send: (mail) =>
         mail.reference !== undefined && refusedReferences.has(mail.reference)
           ? Effect.fail(new MailNotSent({ kind: mail.kind, reason: "het adres weigert de mail" }))
+          : mail.reference !== undefined && busyReferences.has(mail.reference)
+          ? Effect.fail(
+            new MailNotSent({ kind: mail.kind, reason: "resend 429: rate_limit_exceeded", retryable: true })
+          )
           : senderRefused(mail)
           ? Effect.fail(
             new MailNotSent({
@@ -59,8 +69,8 @@ export const MailerCapture = Layer.effect(
             Effect.andThen(withConnection(Effect.flatMap(Effect.service(SqlClient.SqlClient), (sql) =>
               sql`insert into captured_mail (kind, to_address, url, reference, sender, subject, body_text)
                 values (${mail.kind}, ${mail.to.toLowerCase()}, ${mail.url ?? mail.memberNote?.path ?? null},
-                        ${mail.reference ?? null}, ${mail.sender ?? null}, ${mail.support?.subject ?? subjectOf(mail)},
-                        ${mail.support?.text ?? null})`))),
+                        ${mail.reference ?? null}, ${mail.sender ?? null}, ${subjectOf(mail)},
+                        ${mail.support?.text ?? mail.orderMessage?.paragraphs.join("\n\n") ?? null})`))),
             Effect.provideService(Connect, connect),
             Effect.asVoid,
             Effect.mapError((error) => new MailNotSent({ kind: mail.kind, reason: error.message }))

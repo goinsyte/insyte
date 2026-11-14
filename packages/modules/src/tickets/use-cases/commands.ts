@@ -56,7 +56,7 @@ interface Locked {
   readonly spamAt: Date | null
 }
 
-const lock = Effect.fn("Tickets.lock")(function*(sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) {
+export const lock = Effect.fn("Tickets.lock")(function*(sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) {
   const scope = yield* ticketScope(sql)
   const rows = yield* sql<Locked>`
     select t.id, t.number, t.title, t.description, t.status, t.priority, t.topic, t.position, t.due_at, t.resolved_at,
@@ -71,7 +71,7 @@ const lock = Effect.fn("Tickets.lock")(function*(sql: SqlClient.SqlClient, ids: 
 const ms = (d: Date | null) => d?.getTime() ?? null
 const at = (n: number | null) => (n === null ? null : new Date(n))
 
-const before = (l: Locked, extra: Pick<Before, "labels" | "assignees"> = {}): Before => ({
+export const before = (l: Locked, extra: Pick<Before, "labels" | "assignees"> = {}): Before => ({
   id: l.id,
   title: l.title,
   description: l.description,

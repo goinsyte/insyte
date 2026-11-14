@@ -21,6 +21,7 @@ import StoreSynced, * as storeSynced from "./platform/store-synced.tsx"
 import SupplierDigest, * as supplierDigest from "./platform/supplier-digest.tsx"
 import SupplierOrder, * as supplierOrder from "./platform/supplier-order.tsx"
 import OrderDelayed, * as orderDelayed from "./shopper/order-delayed.tsx"
+import OrderMessage, * as orderMessage from "./shopper/order-message.tsx"
 import ReturnApproved, * as returnApproved from "./shopper/return-approved.tsx"
 import ReturnLabel, * as returnLabel from "./shopper/return-label.tsx"
 import ReturnReceived, * as returnReceived from "./shopper/return-received.tsx"
@@ -34,7 +35,7 @@ import SupplierInvite, * as supplierInvite from "./team/supplier-invite.tsx"
 /*
  * Every mail Insyte sends, by kind: its template, its subject, which group it belongs to, whether a real send uses it
  * yet, and its preview props (the dev server's, and the tests', for any origin). The kinds the `Mailer` port names
- * (`auth.*`, `team.invite`, `supplier.order`, the shopper's `return.*` and `order.delayed`) are wired; the rest are
+ * (`auth.*`, `team.invite`, `supplier.order`, the shopper's `return.*`, `order.delayed` and `order.message`) are wired; the rest are
  * specified in docs/backend and wait for the slice that sends them. Marketing mails are templates only: nothing sends
  * them. The shopper's mails (M9.3, M10.2) are a store's to its customer, sent in the store's name.
  */
@@ -87,6 +88,7 @@ export const EMAILS = {
   "return.label": email("shopper", true, ReturnLabel, returnLabel),
   "return.resolved": email("shopper", true, ReturnResolved, returnResolved),
   "order.delayed": email("shopper", true, OrderDelayed, orderDelayed),
+  "order.message": email("shopper", true, OrderMessage, orderMessage),
 
   "marketing.welcome": email("marketing", false, Welcome, welcome),
   "marketing.connect_store": email("marketing", false, ConnectStoreNudge, connectStoreNudge),

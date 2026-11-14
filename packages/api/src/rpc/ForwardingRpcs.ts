@@ -1,4 +1,5 @@
 import { Conflict, Forbidden, NotFound } from "@insyte/domain/Errors"
+import { CustomerDraft } from "@insyte/modules/forwarding/domain/CustomerDraft"
 import {
   ForwardingChange,
   ForwardInput,
@@ -16,7 +17,8 @@ import { WithDb } from "./WithDb.ts"
 
 /**
  * Doorsturen (M8.2): the queue by view with its counts, an order's legs, and the commands on legs (Bestellingen at
- * Bewerken), each with an undo token.
+ * Bewerken), each with an undo token. "Klant mailen" reads Insyte's draft for a leg's shopper (Bekijken); sending it is
+ * `Orders.emailCustomer`.
  */
 export class ForwardingRpcs extends RpcGroup.make(
   Rpc.make("Forwarding.list", { payload: ListInput, success: LegList, error: Forbidden }),
@@ -43,6 +45,11 @@ export class ForwardingRpcs extends RpcGroup.make(
   Rpc.make("Forwarding.cancel", {
     payload: IdsInput,
     success: ForwardingChange,
+    error: Schema.Union([Forbidden, NotFound])
+  }),
+  Rpc.make("Forwarding.customerDraft", {
+    payload: Schema.Struct({ id: Schema.String }),
+    success: CustomerDraft,
     error: Schema.Union([Forbidden, NotFound])
   })
 )

@@ -44,7 +44,12 @@ export class NoteCounts extends Schema.Class<NoteCounts>("notifications/NoteCoun
   later: Schema.Int
 }) {}
 
-export const ListNotes = Schema.Struct({ tab: NoteTab, cursor: Schema.NullOr(Schema.String) })
+/** A tab's page: 50 rows, or as many as `limit` asks (the notifications page reads on as the list nears its end). */
+export const ListNotes = Schema.Struct({
+  tab: NoteTab,
+  cursor: Schema.NullOr(Schema.String),
+  limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 500 })))
+})
 export type ListNotes = typeof ListNotes.Type
 export const NoteIds = Schema.Struct({ ids: Schema.Array(Schema.String) })
 export const SetRead = Schema.Struct({ ids: Schema.Array(Schema.String), read: Schema.Boolean })

@@ -18,6 +18,7 @@ export const CUSTOMER_MAIL_KINDS = [
   "return.label",
   "return.resolved",
   "order.delayed",
+  "order.message",
   "support.message"
 ] as const satisfies ReadonlyArray<MailKind>
 

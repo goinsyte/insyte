@@ -6,6 +6,7 @@ import type { OutboxEvent } from "../../shared/domain/Outbox.ts"
 import { quietUntil } from "../domain/Quiet.ts"
 import { plan as planDelivery } from "./deliveries.ts"
 import { connectionOf } from "./slack.ts"
+import { inTab, isRead } from "./state.ts"
 
 /** The incidents only the operator can mend (`stores/domain/Health.ts`: `BROKEN`, and the grant about to lapse). */
 const URGENT_INCIDENTS: ReadonlySet<string> = new Set([
@@ -696,9 +697,9 @@ export const fanOut = Effect.fn("Notifications.fanOut")(function*(
     }
     if (noteId === null) continue
     const [count] = yield* sql<{ unread: number }>`
-      select count(*)::int as unread from notifications
-      where recipient_kind = 'member' and recipient_id = ${member.id} and read_at is null and archived_at is null
-        and (snoozed_until is null or snoozed_until <= now())`
+      select count(*)::int as unread from notifications n
+      where n.recipient_kind = 'member' and n.recipient_id = ${member.id} and not ${isRead(sql)}
+        and ${inTab(sql, "inbox")}`
     out.push({ recipientId: member.id, unread: count?.unread ?? 0 })
   }
   return out

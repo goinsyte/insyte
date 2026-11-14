@@ -23,6 +23,7 @@ export const TicketsHandlers = TicketsRpcs.toLayer(Effect.gen(function*() {
     "Tickets.reorder": (input) => tickets.reorder(input),
     "Tickets.watch": ({ id }) => tickets.watch(id, true),
     "Tickets.unwatch": ({ id }) => tickets.watch(id, false),
-    "Tickets.comment": (input) => tickets.comment(input)
+    "Tickets.comment": (input) => tickets.comment(input),
+    "Tickets.emailCustomer": (input) => tickets.emailCustomer(input)
   })
 }))

@@ -4,6 +4,7 @@ import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
 import type { Relay } from "../shared/domain/Outbox.ts"
+import type { CustomerDraft } from "./domain/CustomerDraft.ts"
 import type {
   ForwardingChange,
   ForwardInput,
@@ -14,6 +15,7 @@ import type {
   RerouteInput
 } from "./domain/Forwarding.ts"
 import * as Commands from "./use-cases/commands.ts"
+import * as Drafts from "./use-cases/customer-draft.ts"
 import * as Legs from "./use-cases/legs.ts"
 
 type R = Db | CurrentPrincipal
@@ -34,6 +36,8 @@ export class ForwardingService extends Context.Service<ForwardingService, {
     input: typeof RerouteInput.Type
   ) => Effect.Effect<ForwardingChange, Forbidden | NotFound | Conflict, R>
   readonly cancel: (input: typeof IdsInput.Type) => Effect.Effect<ForwardingChange, Forbidden | NotFound, R>
+  /** "Klant mailen": Insyte's draft for the leg's shopper, sent with `Orders.emailCustomer` once the team read it. */
+  readonly customerDraft: (legId: string) => Effect.Effect<CustomerDraft, Forbidden | NotFound, R>
 }>()("modules/ForwardingService") {
   static readonly layer = Layer.succeed(ForwardingService, {
     list: (view) => Legs.list(view).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
@@ -41,6 +45,7 @@ export class ForwardingService extends Context.Service<ForwardingService, {
     forward: (input) => Commands.forward(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     markConfirmed: (input) => Commands.markConfirmed(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     reroute: (input) => Commands.reroute(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-    cancel: (input) => Commands.cancel(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))
+    cancel: (input) => Commands.cancel(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    customerDraft: (legId) => Drafts.customerDraft(legId).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))
   })
 }

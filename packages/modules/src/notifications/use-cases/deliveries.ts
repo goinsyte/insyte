@@ -8,6 +8,7 @@ import { REPLYABLE, Slack } from "../domain/Ports.ts"
 import { wordsOf } from "../domain/Words.ts"
 import { sendTo } from "./push.ts"
 import { revoked, tokenOf } from "./slack.ts"
+import { inTab, isRead } from "./state.ts"
 
 /** Text Slack shows as written: its control characters escaped, so `<!channel>` or `<https://…|…>` stay words. */
 export const slackText = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -257,8 +258,7 @@ export const digestDue = Effect.fn("Notifications.digestDue")(function*(
       left join members am on n.actor_kind = 'member' and am.id = n.actor_id
       left join auth."user" au on au.id = am.user_id
       where n.recipient_kind = 'member' and n.recipient_id = ${member.memberId}
-        and n.read_at is null and n.archived_at is null
-        and (n.snoozed_until is null or n.snoozed_until <= ${now})
+        and not ${isRead(sql, now)} and ${inTab(sql, "inbox", now)}
         and n.created_at > ${since ?? member.since}
       order by n.created_at desc limit 30`
     // The day is claimed first: two sweeps at once send one digest.
