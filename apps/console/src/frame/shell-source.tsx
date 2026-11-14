@@ -39,6 +39,7 @@ import { notifyPrefsOf } from "../notifications/settings-source.ts"
 import { syncLineOf } from "../stores/health-of.ts"
 import { ConsoleInvite } from "./invite.tsx"
 import { toNote } from "./notes.ts"
+import { useHasPage } from "./pages.ts"
 import { usePrefSection } from "./prefs.ts"
 import { useConsoleRecordSearch } from "./record-search.ts"
 
@@ -365,6 +366,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     // A return is started from its page (M9.1), a ticket written on the board (M11), a channel in Chats (M11 step 4), a
     // mail in the inbox (M11 step 2), a chargeback by hand on its list (M13); the rest is not made here yet.
     unavailable: (kind) => MADE_HERE.has(kind) ? null : NOT_YET[kind] ?? "Dit kan hier nog niet",
+    hasPage: useHasPage(),
     panelFor: (pathname) => {
       const cfg = panelForPath(pathname)
       if (cfg === null) return null

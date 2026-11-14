@@ -1,4 +1,5 @@
-import { AgentSuggestion, RecentAgentRow } from "../ask/agent-parts";
+import { AgentSuggestion } from "../ask/agent-demo";
+import { RecentAgentRow } from "../ask/agent-parts";
 import { PHASE_LABEL, shouldWatch } from "../lib/quality";
 import { pct } from "../lib/returns";
 import type { Product } from "../lib/types/domain";

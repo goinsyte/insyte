@@ -73,6 +73,31 @@ export const money = (minor: number, currency: string) =>
   new Intl.NumberFormat("nl-NL", { style: "currency", currency }).format(minor / 100)
 
 /**
+ * An AI budget at its warning or its limit (M15 step 1), as the bell and the mail both say it: whose budget, how much of
+ * it is used, the figures, and what follows. The design's own words (`stores/autonomy-store.ts`).
+ */
+export const budgetWords = (data: Record<string, unknown>) => {
+  const usedCents = Number(data["usedCents"] ?? 0)
+  const limit = Number(data["limit"] ?? 0)
+  const reached = data["level"] === "reached"
+  const who = data["scope"] === "member" ? text(data["name"]) || "iemand" : "de werkruimte"
+  const pct = limit > 0 ? Math.round(usedCents / limit) : 100
+  return {
+    /** The sentence after "Insyte ziet dat". */
+    said: reached
+      ? `${who} het AI-budget voor deze maand heeft bereikt`
+      : `${who} ${pct}% van het AI-budget heeft gebruikt`,
+    record: `€${Math.round(usedCents / 100)} van €${limit}`,
+    // Who may not change the limits (`ai.autonomy`) is told whom to ask, not where to do it.
+    detail: reached
+      ? "Insyte handelt niet meer zelf tot de maand omslaat of de limiet omhoog gaat."
+      : data["canSet"] === false
+      ? "Bij 100% komt alles als voorstel. Een hogere limiet vraag je aan wie de limieten beheert."
+      : "Bij 100% komt alles als voorstel. Je kunt de limiet verhogen onder Limieten."
+  }
+}
+
+/**
  * A connection incident (M17 step 6): what is wrong with the store, and what Insyte already tried, as the health check
  * wrote them (`stores/domain/Health.ts`); the button leads to Winkels.
  */
@@ -304,6 +329,17 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
           path: `/data${query({ view: "export" })}`
         }
     }
+    case "insyte.budget": {
+      const b = budgetWords(data)
+      return {
+        title: `Insyte ziet dat ${b.said}`,
+        detail: b.detail,
+        record: b.record,
+        actionLabel: "Limieten openen",
+        path: "/settings/ai/limits"
+      }
+    }
   }
-  return { title: "Er is een nieuwe melding voor je", actionLabel: "Meldingen openen", path: "/notifications" }
+  // Start: the console has no page of all notifications yet.
+  return { title: "Er is een nieuwe melding voor je", actionLabel: "Insyte openen", path: "/dashboard" }
 }

@@ -1,20 +1,15 @@
 import { Users, Wallet } from "../../icons";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ReadOnlyNotice } from "../access/route-gate";
+import { ReadOnlyNotice } from "../access/read-only-notice";
 import { PageGuide } from "../common/page-guide";
 import { Notice } from "../developer/bits";
 import { FieldRow, UnsavedBar } from "../settings/form";
 import { BandedList, SettingCard } from "../settings/setting-card";
 import { PersonDisc } from "../team/bits";
-import { budgetState, type PersonBudget } from "../lib/autonomy";
-import { undoable } from "../lib/undo";
+import { budgetState } from "../lib/autonomy";
 import { cn } from "../lib/utils";
-import { useGate } from "../stores/access-store";
-import { useAutonomy } from "../stores/autonomy-store";
-import { useWorkspace } from "../stores/workspace-store";
 import { BudgetBar, euroCents } from "./budget-bar";
-
-type Draft = { limit: number | null; people: Record<string, number | null> };
+import { type LimitsDraft as Draft, type LimitsPerson, useLimitsSource } from "./limits-source";
 
 const GUIDE = [
 	{ title: "Een budget per maand", body: "Wat Insyte deze maand mag kosten, voor iedereen samen en het werk op de achtergrond. Leeg is geen limiet.", art: "budget" },
@@ -27,14 +22,11 @@ const MONTH = () => new Intl.DateTimeFormat("nl-NL", { month: "long" }).format(n
 /**
  * Instellingen → Insyte AI → Limieten (PLAN 29, ADR-0027): the month's AI budget for the workspace
  * and, optionally, per person, each with what is spent so far. At 80% the owner and the person hear
- * about it; what happens at 100% is stated, not set, in phase 1.
+ * about it; what happens at 100% is stated, not set, in phase 1. The figures and the save are the
+ * host's (`LimitsSource`).
  */
 export function LimitsPage() {
-	const budget = useAutonomy((s) => s.budget);
-	const people = useAutonomy((s) => s.people);
-	const background = useAutonomy((s) => s.background);
-	const members = useWorkspace((s) => s.members);
-	const gate = useGate("ai.autonomy");
+	const { budget, people, background, gate, save: send } = useLimitsSource();
 	const readOnly = !gate.ok;
 	const saved: Draft = useMemo(() => ({ limit: budget.limit, people: Object.fromEntries(people.map((p) => [p.memberId, p.limit])) }), [budget.limit, people]);
 	const savedKey = JSON.stringify(saved);
@@ -51,11 +43,7 @@ export function LimitsPage() {
 	const month = MONTH();
 
 	function save() {
-		const before = { budget: { ...budget }, people: people.map((p) => ({ ...p })) };
-		const s = useAutonomy.getState();
-		s.setBudgetLimit(draft.limit);
-		for (const p of people) if (draft.people[p.memberId] !== p.limit) s.setPersonLimit(p.memberId, draft.people[p.memberId] ?? null);
-		undoable("Limieten opgeslagen", () => useAutonomy.setState({ budget: before.budget, people: before.people }));
+		void send(draft);
 	}
 
 	return (
@@ -90,11 +78,9 @@ export function LimitsPage() {
 			<SettingCard title="Per persoon" icon={Users}>
 				<BandedList>
 					{people.map((p) => {
-						const m = members.find((x) => x.id === p.memberId);
-						if (!m) return null;
 						const limit = draft.people[p.memberId] ?? null;
 						const st = budgetState(p.used, limit);
-						return <PersonRow key={p.memberId} p={p} name={m.name} role={m.role} limit={limit} state={st} readOnly={readOnly} onChange={(v) => setDraft((d) => ({ ...d, people: { ...d.people, [p.memberId]: v } }))} />;
+						return <PersonRow key={p.memberId} p={p} name={p.name} role={p.role} limit={limit} state={st} readOnly={readOnly} onChange={(v) => setDraft((d) => ({ ...d, people: { ...d.people, [p.memberId]: v } }))} />;
 					})}
 				</BandedList>
 			</SettingCard>
@@ -105,7 +91,7 @@ export function LimitsPage() {
 	);
 }
 
-function PersonRow({ p, name, role, limit, state, readOnly, onChange }: { p: PersonBudget; name: string; role: string; limit: number | null; state: ReturnType<typeof budgetState>; readOnly: boolean; onChange: (v: number | null) => void }) {
+function PersonRow({ p, name, role, limit, state, readOnly, onChange }: { p: LimitsPerson; name: string; role: string; limit: number | null; state: ReturnType<typeof budgetState>; readOnly: boolean; onChange: (v: number | null) => void }) {
 	return (
 		<li className="grid grid-cols-1 items-center gap-x-4 gap-y-2 px-3.5 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,240px)_120px]">
 			<span className="flex min-w-0 items-center gap-3">

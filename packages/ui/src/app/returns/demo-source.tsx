@@ -1,6 +1,7 @@
 import { type ReactNode, useMemo } from "react"
 import { toast } from "sonner"
-import { useMyName, useNow } from "../ask/agent-parts"
+import { useMyName } from "../ask/agent-demo"
+import { useNow } from "../ask/agent-parts"
 import { useProducts } from "../hooks/use-operator-data"
 import { ME } from "../lib/assignees"
 import {

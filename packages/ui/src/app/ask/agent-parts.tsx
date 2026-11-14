@@ -18,19 +18,14 @@ import {
 	X,
 } from "../../icons";
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { type ReactNode, useRef, useState } from "react";
 import { useNow } from "../hooks/use-now";
 import { formatDateTime } from "../lib/format";
-import { type AgentLogEntry, canUndo, leftLabel, type LogSource, type LogSourceKind, RECORD_LABEL, ranUnder, STATUS_LABEL } from "../lib/agent-log";
+import { type AgentLogEntry, canUndo, leftLabel, type LogRecordKind, type LogSource, type LogSourceKind, RECORD_LABEL, ranUnder, STATUS_LABEL } from "../lib/agent-log";
 import { ENTRY } from "../lib/autonomy";
 import { cn } from "../lib/utils";
-import { applyEffect, useAgentEntries, useAgentEntriesFor, useAgentLog } from "../stores/agent-log-store";
-import { useAutonomy, useDecide } from "../stores/autonomy-store";
-import { useWorkspace } from "../stores/workspace-store";
-import { ME } from "../lib/assignees";
-import { InsyteMark, ProposalPlate } from "./parts";
-import { ConfirmDialog } from "../common/confirm-dialog";
+import { useAgentLogSourceOrNone } from "./agent-log-source";
+import { InsyteMark } from "./parts";
 
 /*
  * What the agent did on its own, drawn the way DESIGN.md says it is drawn: a log row, never a plate.
@@ -38,15 +33,13 @@ import { ConfirmDialog } from "../common/confirm-dialog";
  * it read as check chips, one line of why, and an outlined Ongedaan maken while the server's window
  * is open. After the window: "Niet meer terug te draaien", and the compensation by hand where one
  * exists. The plate (`ProposalPlate`) stays what Eerst vragen looks like.
+ *
+ * The rows and the way back come from the host's `AgentLogSource` (`agent-log-source.tsx`); what the design app's
+ * agent does on its own pages (`AgentSuggestion`) is in `agent-demo.tsx`.
  */
 
 /** A clock that ticks, for the windows counting down. */
 export { useNow };
-
-/** The person at the desk, by name, for "Ongedaan gemaakt door …". */
-export function useMyName(): string {
-	return useWorkspace((s) => s.members.find((m) => m.id === ME)?.name ?? "Elena Hart");
-}
 
 const SOURCE_ICON: Record<LogSourceKind, IconComponent> = {
 	ticket: Ticket,
@@ -62,27 +55,15 @@ const SOURCE_ICON: Record<LogSourceKind, IconComponent> = {
 
 const time = (iso: string) => new Intl.DateTimeFormat("nl-NL", { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 
-/** Takes a row back, or runs its compensation by hand, and says so with the person's own Undo. */
+/**
+ * Takes a row back inside its window, or runs its compensation by hand after it: the host's to do and to say;
+ * `undefined` where the host has no log.
+ */
 export function useUndoAgent() {
-	const me = useMyName();
-	return (e: AgentLogEntry, now: number) => {
-		const log = useAgentLog.getState();
-		if (canUndo(e, now)) {
-			if (!log.undo(e.id, me)) return;
-			toast(e.effect?.kind === "send" ? "Niet verstuurd" : "Ongedaan gemaakt", {
-				description: e.effect?.kind === "send" ? "Het bericht wachtte nog op het venster en is nooit vertrokken." : e.sentence,
-				duration: 6000,
-				action: e.effect?.kind === "send" ? undefined : { label: "Toch laten staan", onClick: () => log.redo(e.id) },
-			});
-			return;
-		}
-		// Past the window: a person runs the compensation by hand, which is their own action.
-		if (!e.compensation || !e.effect) return;
-		applyEffect(e.effect, "back");
-		useAgentLog.setState((s) => ({ overrides: { ...s.overrides, [e.id]: { status: "undone", undoneBy: me, at: Date.now() } } }));
-		toast(`${e.compensation}: gedaan`, { description: e.sentence, duration: 6000, action: { label: "Ongedaan maken", onClick: () => log.redo(e.id) } });
-	};
+	return useAgentLogSourceOrNone()?.undo;
 }
+
+const NO_ENTRIES: AgentLogEntry[] = [];
 
 export function StatusWord({ e, now }: { e: AgentLogEntry; now: number }) {
 	const sending = e.status === "sending" || (e.effect?.kind === "send" && e.status === "done" && canUndo(e, now));
@@ -129,7 +110,7 @@ function SourceChips({ sources }: { sources: ReadonlyArray<LogSource> }) {
 /** The way back, or the reason there is none. */
 export function UndoControl({ e, now, size = "sm" }: { e: AgentLogEntry; now: number; size?: "sm" | "xs" }) {
 	const undo = useUndoAgent();
-	if (e.status === "failed" || e.status === "undone") return null;
+	if (undo === undefined || e.status === "failed" || e.status === "undone") return null;
 	if (canUndo(e, now)) {
 		return (
 			<button
@@ -342,112 +323,6 @@ export function AgentTimeline({ entries, title = "Wat Insyte hier deed", empty }
 	);
 }
 
-/* ── a touchpoint: plate at Eerst vragen, log row at Zelf doen ─────────────────────────────── */
-
-export type AgentDraft = Omit<AgentLogEntry, "id" | "at" | "undoUntil" | "policyVersion" | "model" | "promptVersion" | "level" | "approvedBy" | "status" | "action">;
-
-/**
- * One thing the agent wants to do, asked of the policy every render. At Zelf doen it does it at
- * once and shows the log row; at Eerst vragen it draws the plate, and filing runs the same action
- * under the person's name; at Nooit nothing is shown. Flipping the row on Zelfstandigheid flips
- * this between the two, which is the whole point of the setting.
- *
- * `perform` changes the records and returns what the log should say about it (its effect for the
- * undo, and before/after); it runs once per `id`.
- */
-export function AgentSuggestion({
-	id,
-	action,
-	proposal,
-	evidence,
-	draft,
-	perform,
-	wide,
-	level = 3,
-	confirmFirst,
-}: {
-	/** For what cannot be taken back (a refund): filing asks first, naming the consequence. */
-	confirmFirst?: { title: string; description: string; confirmLabel: string } | undefined;
-	id: string;
-	action: AgentLogEntry["action"];
-	proposal: import("../lib/ask/scripts").Proposal;
-	evidence?: ReactNode;
-	draft: AgentDraft;
-	perform: () => Partial<Pick<AgentLogEntry, "effect" | "before" | "after" | "sentence">> | null;
-	wide?: boolean;
-	level?: 2 | 3;
-}) {
-	const decision = useDecide(action);
-	const settled = useAgentLog((s) => s.suggestions[id]);
-	const entries = useAgentEntries();
-	const me = useMyName();
-	const version = useAutonomy((s) => s.version);
-	const now = useNow();
-	const [open, setOpen] = useState<AgentLogEntry | null>(null);
-	const [asking, setAsking] = useState(false);
-	const ran = useRef(false);
-
-	const run = (as: "auto" | "ask") => {
-		const done = perform();
-		if (!done) return;
-		const entry = useAgentLog.getState().record({ ...draft, ...done, action, level: as, approvedBy: as === "ask" ? me : undefined, status: "done", policyVersion: version });
-		useAgentLog.getState().settle(id, { state: as === "auto" ? "ran" : "filed", entryId: entry.id });
-	};
-
-	useEffect(() => {
-		if (decision === "run" && !settled && !ran.current) {
-			ran.current = true;
-			run("auto");
-		}
-	});
-
-	if (settled?.state === "discarded") return null;
-	if (settled) {
-		const e = entries.find((x) => x.id === settled.entryId);
-		if (!e) return null;
-		return (
-			<>
-				<ul className="rounded-xl bg-paper shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--ink)_9%,transparent)]">
-					<AgentLogRow e={e} now={now} onOpen={setOpen} />
-				</ul>
-				<AgentLogDrawer e={open} onClose={() => setOpen(null)} />
-			</>
-		);
-	}
-	if (decision !== "propose") return null;
-	return (
-		<div className="flex flex-col gap-1.5">
-			<ProposalPlate
-				proposal={proposal}
-				decision="open"
-				wide={wide}
-				level={level}
-				evidence={evidence}
-				onFile={() => (confirmFirst ? setAsking(true) : run("ask"))}
-				onEdit={() => toast("Pas het voorstel aan in Vraag Insyte", { description: proposal.title })}
-				onDiscard={() => {
-					useAgentLog.getState().settle(id, { state: "discarded" });
-					toast("Voorstel genegeerd", { duration: 6000, action: { label: "Ongedaan maken", onClick: () => useAgentLog.getState().settle(id, null) } });
-				}}
-			/>
-			<WhyAsks action={action} />
-			{confirmFirst ? (
-				<ConfirmDialog
-					open={asking}
-					onOpenChange={setAsking}
-					title={confirmFirst.title}
-					description={confirmFirst.description}
-					confirmLabel={confirmFirst.confirmLabel}
-					onConfirm={() => {
-						setAsking(false);
-						run("ask");
-					}}
-				/>
-			) : null}
-		</div>
-	);
-}
-
 /** "Waarom vraagt Insyte dit?" under a plate: the row on Zelfstandigheid that makes it ask. */
 export function WhyAsks({ action }: { action: AgentLogEntry["action"] }) {
 	const entry = ENTRY[action];
@@ -459,9 +334,13 @@ export function WhyAsks({ action }: { action: AgentLogEntry["action"] }) {
 	);
 }
 
+/** The rows about one record, for its timeline. */
+export const rowsFor = (entries: ReadonlyArray<AgentLogEntry>, kind: LogRecordKind, id: string) =>
+	entries.filter((e) => e.record?.kind === kind && (e.record.id === id || e.record.to.endsWith(`/${id}`)));
+
 /** A record's agent rows, read from the log: `<RecordAgentRows kind="ticket" id="tkt_4000" />`. */
-export function RecordAgentRows({ kind, id, title }: { kind: import("../lib/agent-log").LogRecordKind; id: string; title?: string }) {
-	const rows = useAgentEntriesFor(kind, id);
+export function RecordAgentRows({ kind, id, title }: { kind: LogRecordKind; id: string; title?: string }) {
+	const rows = rowsFor(useAgentLogSourceOrNone()?.entries ?? NO_ENTRIES, kind, id);
 	return <AgentTimeline entries={rows} title={title} />;
 }
 
@@ -471,7 +350,7 @@ export function RecordAgentRows({ kind, id, title }: { kind: import("../lib/agen
  * where the decision was.
  */
 export function RecentAgentRow({ action, within = 60 * 60_000, recordId }: { action: AgentLogEntry["action"]; within?: number; recordId?: string }) {
-	const entries = useAgentEntries();
+	const entries = useAgentLogSourceOrNone()?.entries ?? NO_ENTRIES;
 	const now = useNow();
 	const [open, setOpen] = useState<AgentLogEntry | null>(null);
 	const e = entries.find((x) => x.action === action && now - Date.parse(x.at) < within && (!recordId || x.record?.id === recordId));

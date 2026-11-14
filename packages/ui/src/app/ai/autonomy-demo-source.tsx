@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { useMyName } from "../ask/agent-parts"
+import { useMyName } from "../ask/agent-demo"
 import { DEFAULT_POLICY } from "../lib/autonomy"
 import { undoable } from "../lib/undo"
 import { useGate } from "../stores/access-store"

@@ -10,7 +10,7 @@ import { useSearchCut } from "../filters/use-search-cut";
 import { type AgentLogEntry, canUndo, RECORD_LABEL, ranUnder, STATUS_LABEL } from "../lib/agent-log";
 import { CATALOGUE, ENTRY } from "../lib/autonomy";
 import { DataTable, type Facet, facetFilter } from "../table/data-table";
-import { useAgentEntries } from "../stores/agent-log-store";
+import { useAgentLogSource } from "./agent-log-source";
 import { AgentLogDrawer, StatusWord, UndoControl, useNow } from "./agent-parts";
 import { InsyteMark } from "./parts";
 
@@ -35,12 +35,13 @@ const FACETS: ReadonlyArray<Facet> = [
  * Wat Insyte deed (`/ask/activity`, PLAN 30): every action the agent took, with the setting it ran
  * under, what started it, and Ongedaan maken while the server's window is open. A row opens its
  * drawer: before and after, what it read, the policy and model versions. The list is the house
- * table, so its cuts are filters and can be saved as views.
+ * table, so its cuts are filters and can be saved as views. The rows and the way back are the host's
+ * (`AgentLogSource`).
  */
 export function ActivityPage() {
 	const search = useSearch({ strict: false }) as ActivitySearch;
 	const navigate = useNavigate();
-	const entries = useAgentEntries();
+	const { entries, today: counted, pages } = useAgentLogSource();
 	const now = useNow(15_000);
 	const [openId, setOpenId] = useState<string | null>(search.row ?? null);
 	const open = openId ? (entries.find((e) => e.id === openId) ?? null) : null;
@@ -52,12 +53,13 @@ export function ActivityPage() {
 		auto: { field: "setting", values: ["Zelf doen"] },
 	});
 
-	const today = useMemo(() => {
+	const counts = useMemo(() => {
 		const start = new Date();
 		start.setHours(0, 0, 0, 0);
 		const t = entries.filter((e) => Date.parse(e.at) >= start.getTime());
 		return { n: t.length, undone: t.filter((e) => e.status === "undone").length, failed: t.filter((e) => e.status === "failed").length };
 	}, [entries]);
+	const today = counted ?? counts;
 
 	const columns = useMemo<Array<ColumnDef<AgentLogEntry, unknown>>>(
 		() => [
@@ -126,7 +128,7 @@ export function ActivityPage() {
 					title="Insyte heeft nog niets zelf gedaan"
 					body="Zet een actie op Zelf doen en ze verschijnt hier."
 					action={{ label: "Zelfstandigheid instellen", onClick: () => void navigate({ to: "/settings/ai/autonomy" }) }}
-					secondary={{ label: "Vraag Insyte openen", onClick: () => void navigate({ to: "/ask" }) }}
+					secondary={pages.ask ? { label: "Vraag Insyte openen", onClick: () => void navigate({ to: "/ask" as never }) } : undefined}
 					starts={[
 						{ id: "assign", label: "Laat Insyte toewijzen", body: "Bij de collega met het minste werk.", to: "/settings/ai/autonomy", search: { actie: "AssignTicket" } },
 						{ id: "label", label: "Laat Insyte labelen", body: "Retour, Levering, Kwaliteit op elke mail.", to: "/settings/ai/autonomy", search: { actie: "ApplyLabel" } },

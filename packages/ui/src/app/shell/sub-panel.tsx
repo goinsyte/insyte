@@ -36,7 +36,7 @@ import type { QueueRow } from "../lib/queue-row";
 import { type ForwardView, inView as forwardInView } from "../lib/forwarding";
 import { type AgentLogEntry, canUndo } from "../lib/agent-log";
 import { ReportSection, ShortcutsSection } from "./panel-shortcuts";
-import { useAgentLogEntries, useAutomationsPanel, useCan, useCanOpen, useChatStore, useCourses, useCurrentRole, useForwardingRows, useInboxPanel, useNotifications, useOperator, usePanel, usePanelFor, useReturns, useSheets, useShellData, useShellSlots, useSupplierOrders, useWorkflows, useWorkspace, useWorkspaceName } from "./state";
+import { useAgentLogEntries, useAutomationsPanel, useCan, useCanOpen, useHasPage, useChatStore, useCourses, useCurrentRole, useForwardingRows, useInboxPanel, useNotifications, useOperator, usePanel, usePanelFor, useReturns, useSheets, useShellData, useShellSlots, useSupplierOrders, useWorkflows, useWorkspace, useWorkspaceName } from "./state";
 
 /**
  * The area panel: 224px of `mist`, adjacent to the rail, carrying where you are.
@@ -91,13 +91,14 @@ export function SubPanel() {
 	const queueRows = useForwardingRows();
 	const can = useCan();
 	const role = useCurrentRole();
+	const hasPage = useHasPage();
 	const base = panelFor(pathname);
 	if (!base) return null;
 	// Making something new in an area needs Bewerken there; without it the button says what is missing.
 	const ctaNeed = base.cta?.to ? areaForPath(base.cta.to) : null;
 	const ctaBlocked =
 		base.cta?.unavailable ?? (ctaNeed && !can(ctaNeed.area, 2) ? `Je rol ${role.label} mist ${permissionName(ctaNeed.area, 2)}` : null);
-	const cfg =
+	const drawn =
 		base.title === "Meldingen"
 			? withNotifications(base, pathname, notes, notePrefs)
 			: base.title === "Chats"
@@ -121,6 +122,8 @@ export function SubPanel() {
 						: base.title === "Rekenbladen"
 						? withSheets(base, sheetList, sheetFolders, sheetCounts)
 						: base;
+	// A link to a page the host does not have yet is left out, and a section it leaves empty goes with it.
+	const cfg = withPages(drawn, hasPage);
 
 	return (
 		<aside className="flex w-56 shrink-0 flex-col overflow-hidden bg-mist px-2 py-2.5">
@@ -310,6 +313,18 @@ function SubPanelLink({
 			) : null}
 		</button>
 	);
+}
+
+/** The panel without the links to pages the host has not got; a section that only had those goes too. */
+function withPages(cfg: SubPanelConfig, hasPage: (to: string) => boolean): SubPanelConfig {
+	if (cfg.sections.every((s) => s.items.every((i) => hasPage(i.to)))) return cfg;
+	return {
+		...cfg,
+		sections: cfg.sections.flatMap((s) => {
+			const items = s.items.filter((i) => hasPage(i.to));
+			return items.length === 0 && s.items.length > 0 ? [] : [{ ...s, items }];
+		}),
+	};
 }
 
 /**

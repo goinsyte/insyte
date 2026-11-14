@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { deliveriesSeed } from "../../data-source";
-import { useMyName } from "../ask/agent-parts";
+import { useMyName } from "../ask/agent-demo";
 import { OPEN_AS_MODAL } from "../common/detail-shell";
 import { useProducts } from "../hooks/use-operator-data";
 import type { ReturnKind } from "../lib/returns";

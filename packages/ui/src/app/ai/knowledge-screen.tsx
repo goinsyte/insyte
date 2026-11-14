@@ -6,7 +6,7 @@ import { EmptyPage } from "../common/empty-page";
 import { PageGuide } from "../common/page-guide";
 import { FormDialog } from "../common/form-dialog";
 import { BandedList, SettingCard, StatusPill } from "../settings/setting-card";
-import { useMyName } from "../ask/agent-parts";
+import { useMyName } from "../ask/agent-demo";
 import { type Article, AUDIENCE_LABEL, type Audience, type Gap, LIMIT, STATUS_LABEL, statusOf, SUGGESTED } from "../lib/knowledge";
 import { formatRelative } from "../lib/format";
 import { undoable } from "../lib/undo";

@@ -8,7 +8,7 @@ import { NoteLead, NoteSentence, useNow } from "../notifications/note-parts";
 import { DAY_GROUPS, dayGroup, type Note, noteTime, stateOf } from "../lib/notifications";
 import { PERSONA_CHROME } from "../lib/persona-chrome";
 import { cn } from "../lib/utils";
-import { useHeardNotes, useNotifications, usePersonaSelection, useShellData } from "./state";
+import { useHasPage, useHeardNotes, useNotifications, usePersonaSelection, useShellData } from "./state";
 
 /**
  * Notifications, as a list of who did what.
@@ -47,6 +47,8 @@ export function NotificationsInbox() {
 	const [tab, setTab] = useState<Tab>("all");
 	const still = useReducedMotion();
 	const chrome = PERSONA_CHROME[persona];
+	// The full notifications page, where the host has it: its links and `g n` wait for it otherwise.
+	const inbox = useHasPage()(chrome.inbox);
 
 	// A snoozed notification comes back on its own, wherever the operator is.
 	useEffect(() => wake(now), [now, wake]);
@@ -60,7 +62,7 @@ export function NotificationsInbox() {
 			if (t?.closest("input, textarea, select, [contenteditable=true], [role=dialog]")) return;
 			const k = e.key.toLowerCase();
 			if (k === "g") g = Date.now();
-			else if (k === "n" && Date.now() - g < 900) {
+			else if (k === "n" && Date.now() - g < 900 && inbox) {
 				g = 0;
 				e.preventDefault();
 				navigate({ to: chrome.inbox } as never);
@@ -68,7 +70,7 @@ export function NotificationsInbox() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [navigate, chrome.inbox]);
+	}, [navigate, chrome.inbox, inbox]);
 
 	const items = useMemo(
 		() => heardNotes.filter((n) => stateOf(n, now) === "inbox").sort((a, b) => Date.parse(b.at) - Date.parse(a.at)),
@@ -215,7 +217,7 @@ export function NotificationsInbox() {
 							</section>
 						))
 					)}
-					{shown.length > SHOWN ? (
+					{shown.length > SHOWN && inbox ? (
 						<Link
 							to={chrome.inbox}
 							onClick={() => setOpen(false)}
@@ -235,14 +237,16 @@ export function NotificationsInbox() {
 						<Glyph icon={Settings} motion="nudge" size={14} draw={false} />
 						Wat je hoort, en wanneer
 					</Link>
-					<Link
-						to={chrome.inbox}
-						onClick={() => setOpen(false)}
-						className="ml-auto flex h-8 items-center gap-2 rounded-md px-2 font-medium text-sm text-arc-ink hover:bg-arc-tint"
-					>
-						Alle meldingen
-						<kbd className="flex h-5 items-center rounded-sm bg-paper px-1 font-medium text-ink-3 text-xs">G N</kbd>
-					</Link>
+					{inbox ? (
+						<Link
+							to={chrome.inbox}
+							onClick={() => setOpen(false)}
+							className="ml-auto flex h-8 items-center gap-2 rounded-md px-2 font-medium text-sm text-arc-ink hover:bg-arc-tint"
+						>
+							Alle meldingen
+							<kbd className="flex h-5 items-center rounded-sm bg-paper px-1 font-medium text-ink-3 text-xs">G N</kbd>
+						</Link>
+					) : null}
 				</footer>
 			</PopoverContent>
 		</Popover>

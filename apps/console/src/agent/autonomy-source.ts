@@ -13,7 +13,8 @@ import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
  * Zelfstandigheid in the console (M15 step 6): `Autonomy.get` as the design's policy, saved through `Autonomy.set` on
  * the version it was read at, with its undo (which writes the previous version again). Someone else's save in the
  * meantime is said, and the page reads again; a locked action at Zelf doen cannot be chosen, but is said if it comes.
- * The month's AI use is not recorded yet (M15 step 1), so the budget is never spent here but by a limit of nothing.
+ * The budget is the month's model calls against the workspace's limit (M15 step 1); it links to Limieten and to Wat
+ * Insyte deed, both in the console.
  */
 
 const notSaved = (error: unknown, refresh: () => void) => {
@@ -76,10 +77,9 @@ export function useConsoleAutonomySource(policy: AutonomyPolicy, budgets: AiBudg
     version: policy.version,
     history,
     budget: { used, limit },
-    spent: limit === 0,
+    spent: limit !== null && (limit === 0 || used >= limit),
     gate,
-    // Limieten and Wat Insyte deed come to the console with their own pages.
-    pages: { limits: false, activity: false },
+    pages: { limits: true, activity: true },
     save: async (next: Policy) =>
       after(
         await set({ payload: { levels: next, baseVersion: policy.version }, reactivityKeys: [...AUTONOMY] }),
