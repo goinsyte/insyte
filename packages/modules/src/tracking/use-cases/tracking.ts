@@ -5,7 +5,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
-import * as Outbox from "../../shared/use-cases/Outbox.ts"
+import { delayHours, markDelayed, notClearedAfter } from "../../shared/use-cases/Delays.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import { OrderTracking, Tracking, type TrackingSnapshot } from "../domain/Tracking.ts"
 import { ReturnParcels } from "../Parcels.ts"
@@ -15,11 +15,11 @@ import { ReturnParcels } from "../Parcels.ts"
  * 15-minute sweep registers new ones with AfterShip, polls those it has not heard about for four hours, and flags a
  * parcel that has not moved for three days. AfterShip's webhook and the poll land in `ingest`: a parcel delivered,
  * and every parcel of its order delivered, delivers the order (Insyte's word stands against Shopify's older `shipped`);
- * a carrier exception, or no movement, delays the order once and tells the team (`order.delayed`, `order.late`).
+ * a carrier exception, or no movement for the workspace's `alerts.delay_hours`, delays the order once and tells the team
+ * (`order.delayed`, `order.late`). A delay the operator cleared stays cleared until the carrier reports the parcel again
+ * (a `last_event_at` after the clear): it must move, and then stop or go wrong, to be raised again.
  */
 
-/** No movement for this long is a delay (the workspace's own `alerts.delay_hours` setting is not built yet). */
-const DELAY_HOURS = 72
 const POLL_HOURS = 4
 const PER_SWEEP = 50
 
@@ -65,25 +65,6 @@ export const ensureDeliveries = Effect.fn("Tracking.ensureDeliveries")(function*
     on conflict (fulfilment_id) do nothing`
 })
 
-/** Marks the order delayed, once, and tells the team. */
-const delay = (sql: SqlClient.SqlClient, orderId: string, reason: "exception" | "no_movement", note: string | null) =>
-  Effect.gen(function*() {
-    const marked = yield* sql<{ workspaceId: string }>`
-      update orders set delayed_at = now() where id = ${orderId} and delayed_at is null
-        and status not in ('delivered', 'cancelled', 'refunded')
-      returning workspace_id`
-    const ws = marked[0]
-    if (ws === undefined) return
-    yield* Outbox.write(sql, ws.workspaceId, {
-      type: "order.delayed",
-      workspaceId: ws.workspaceId,
-      userId: "system",
-      orderIds: [orderId],
-      reason,
-      note
-    })
-  })
-
 /** What AfterShip said of one delivery, applied. */
 export const ingest = Effect.fn("Tracking.ingest")(function*(
   sql: SqlClient.SqlClient,
@@ -108,7 +89,14 @@ export const ingest = Effect.fn("Tracking.ingest")(function*(
           where f.order_id = o.id and coalesce(d.status, f.tracking_status, 'pending') <> 'delivered'
             and coalesce(f.tracking_status, '') <> 'delivered')`
   }
-  if (snapshot.status === "exception") yield* delay(sql, row.orderId, "exception", snapshot.exception)
+  if (snapshot.status !== "exception") return
+  // Once per order; an exception the operator cleared is not raised again until the parcel has moved since.
+  const [open] = yield* sql<{ id: string }>`
+    select d.order_id as id from deliveries d
+    where d.id = ${deliveryId}
+      and ${notClearedAfter(sql, "d.order_id", "coalesce(d.last_event_at, d.registered_at, d.created_at)")}`
+  if (open === undefined) return
+  yield* markDelayed(sql, { orderId: row.orderId, reason: "exception", note: snapshot.exception })
 })
 
 /** One workspace's turn of the sweep: register, poll, and flag what has not moved. */
@@ -153,17 +141,20 @@ export const sweepWorkspace = Effect.fn("Tracking.sweepWorkspace")(function*() {
       )
     }
   }
-  // A registered parcel on its way that has not moved for three days: late, whatever AfterShip says. Without AfterShip
-  // there is no movement to measure, so nothing is called late for want of news.
+  // A registered parcel on its way that has not moved for the workspace's threshold: late, whatever AfterShip says.
+  // Without AfterShip there is no movement to measure, so nothing is called late for want of news. A delay the
+  // operator cleared stays cleared until the carrier reports the parcel again and it then stands still that long.
   if (!tracking.configured) return
   yield* db.scopedFor((sql) =>
     Effect.gen(function*() {
+      const hours = yield* delayHours(sql)
       const still = yield* sql<{ orderId: string }>`
         select distinct d.order_id from deliveries d join orders o on o.id = d.order_id
         where d.aftership_id is not null and d.status in ('pending', 'in_transit', 'out_for_delivery')
           and o.delayed_at is null
-          and coalesce(d.last_event_at, d.registered_at) < now() - make_interval(hours => ${DELAY_HOURS})`
-      for (const s of still) yield* delay(sql, s.orderId, "no_movement", null)
+          and coalesce(d.last_event_at, d.registered_at) < now() - make_interval(hours => ${hours})
+          and ${notClearedAfter(sql, "o.id", "coalesce(d.last_event_at, d.registered_at)")}`
+      for (const s of still) yield* markDelayed(sql, { orderId: s.orderId, reason: "no_movement", note: null, hours })
     })
   )
 })

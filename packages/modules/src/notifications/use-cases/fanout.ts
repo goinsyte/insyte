@@ -22,7 +22,8 @@ const URGENT_INCIDENTS: ReadonlySet<string> = new Set([
  * - `member.joined`: whoever sent the invitation (by link: everyone who may manage the team) hears that they joined;
  * - `access.requested`: everyone who may manage the team, but the asker;
  * - `access.decided`: the asker hears the answer;
- * - `order.delayed`: whoever handles orders hears of a stuck parcel;
+ * - `order.delayed`: whoever handles orders in its store hears of a stuck parcel or a supplier past its hand-off (not of
+ *   an operator's own mark);
  * - `return.requested`: whoever handles returns hears of a shopper's request from the portal;
  * - `ticket.assigned`: who was put on a ticket hears of it, once the undo window has passed and if still on it;
  * - `ticket.mentioned`: who a ticket comment names with `@` hears of it;
@@ -128,7 +129,9 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
           }
       }
       case "order.delayed": {
-        // Whoever handles orders hears of a stuck parcel (M8.4); the order is the subject.
+        // Whoever handles orders hears of a stuck parcel (M8.4) or a supplier past its hand-off (M8.3); the order is the
+        // subject. An operator's own "Als vertraagd markeren" tells no one: the one who did it knows, the queue shows it.
+        if (event.reason === "manual") return undefined
         const [order] = yield* sql<{ number: string; storeId: string }>`
           select number, store_id from orders where id = ${event.orderIds[0] ?? ""}`
         if (order === undefined) return undefined
@@ -142,7 +145,13 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
           subjectType: "order",
           subjectId: event.orderIds[0] ?? "",
           actor: null,
-          data: { number: order.number, reason: event.reason, note: event.note }
+          data: {
+            number: order.number,
+            reason: event.reason,
+            note: event.note,
+            ...(event.hours === undefined ? {} : { hours: event.hours }),
+            ...(event.supplier === undefined ? {} : { supplier: event.supplier })
+          }
         }
       }
       case "return.requested": {

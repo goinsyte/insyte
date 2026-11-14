@@ -16,6 +16,7 @@ import type {
   RefundResult
 } from "./domain/Refunds.ts"
 import * as Commands from "./use-cases/commands.ts"
+import * as Delays from "./use-cases/delays.ts"
 import * as Orders from "./use-cases/orders.ts"
 import * as Refunds from "./use-cases/refund.ts"
 
@@ -23,7 +24,7 @@ type R = Db | CurrentPrincipal
 type W = R | Relay
 
 /**
- * The orders slice: the mirror's orders (M6.4), the commands on them (M7.1) and refunds (M7.2).
+ * The orders slice: the mirror's orders (M6.4), the commands on them (M7.1), their delays (M7, M8.3) and refunds (M7.2).
  *
  * @effect-expect-leaking Db CurrentPrincipal Relay
  */
@@ -41,6 +42,10 @@ export class OrdersService extends Context.Service<OrdersService, {
     input: typeof ShippingInput.Type
   ) => Effect.Effect<OrderChange, Forbidden | NotFound | Invalid | Conflict, W>
   readonly cancel: (input: typeof CancelInput.Type) => Effect.Effect<OrderChange, Forbidden | NotFound | Conflict, W>
+  /** "Als vertraagd markeren": open orders marked delayed, `order.delayed` (`manual`) after the undo window. */
+  readonly flagDelayed: (ids: ReadonlyArray<string>) => Effect.Effect<OrderChange, Forbidden | NotFound | Conflict, W>
+  /** "Vertraging wissen": the delay taken off, with an undo. */
+  readonly clearDelay: (ids: ReadonlyArray<string>) => Effect.Effect<OrderChange, Forbidden | NotFound, R>
   readonly setNote: (id: string, body: string) => Effect.Effect<void, Forbidden | NotFound, R>
   readonly refund: (
     input: typeof RefundInput.Type
@@ -61,7 +66,12 @@ export class OrdersService extends Context.Service<OrdersService, {
     markFulfilled: (ids) => Commands.markFulfilled(ids).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     updateShipping: (input) => Commands.updateShipping(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     cancel: (input) => Commands.cancel(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    flagDelayed: (ids) => Delays.flagDelayed(ids).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    clearDelay: (ids) => Delays.clearDelay(ids).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     setNote: (id, body) => Commands.setNote(id, body).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     refund: (input) => Refunds.refund(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))
   })
 }
+
+/** The hourly supplier check (M8.3), for the jobs Worker's cron: work past its hand-off delays its order. */
+export const supplierLateSweep = Delays.supplierLateSweep().pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))

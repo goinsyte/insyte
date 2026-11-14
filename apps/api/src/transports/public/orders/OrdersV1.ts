@@ -82,6 +82,18 @@ const make = Effect.gen(function*() {
           (change) => orderV1(change.orders[0]!)
         )
       ).pipe(Effect.catch(writeV1)),
+    delayOrder: (id: string, key?: string) =>
+      Idempotency.once(
+        key,
+        ["delay", id],
+        Effect.flatMap(orders.flagDelayed([id]), () => Effect.map(orders.get(id), (d) => orderV1(d.order)))
+      ).pipe(Effect.catch(writeV1)),
+    clearOrderDelay: (id: string, key?: string) =>
+      Idempotency.once(
+        key,
+        ["clear_delay", id],
+        Effect.flatMap(orders.clearDelay([id]), () => Effect.map(orders.get(id), (d) => orderV1(d.order)))
+      ).pipe(Effect.catch(writeV1)),
     refundOrder: (
       id: string,
       body: { readonly amount_minor: number; readonly note?: string | undefined },

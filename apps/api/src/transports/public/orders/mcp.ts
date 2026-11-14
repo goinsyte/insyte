@@ -1,6 +1,6 @@
 import { OrdersTools } from "@insyte/api/mcp/tools/OrdersTools"
 import { Effect, Layer } from "effect"
-import { governed, type Plan, token } from "../mcp/Governance.ts"
+import { governed, notForAgents, type Plan, token } from "../mcp/Governance.ts"
 import { kicker } from "../mcp/Outbox.ts"
 import { OrdersV1 } from "./OrdersV1.ts"
 
@@ -58,6 +58,11 @@ export const OrdersMcp = OrdersTools.toLayer(Effect.gen(function*() {
       ),
     update_shipping_address: ({ order_id, idempotency_key, ...address }) =>
       kicking(read.shipOrderTo(order_id, address, idempotency_key)),
+    // No agent action names a delay yet: an agent's key is refused, any other runs them as the key may.
+    flag_order_delayed: ({ order_id, idempotency_key }) =>
+      notForAgents("flag_order_delayed", kicking(read.delayOrder(order_id, idempotency_key))),
+    clear_order_delay: ({ order_id, idempotency_key }) =>
+      notForAgents("clear_order_delay", kicking(read.clearOrderDelay(order_id, idempotency_key))),
     cancel_order: ({ order_id, idempotency_key, ...body }) =>
       governed(
         "cancel_order",

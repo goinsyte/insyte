@@ -20,7 +20,10 @@ export interface OrdersSource {
   /** The Winkel facet's options, and a store's name for its column. */
   stores: ReadonlyArray<{ value: string; label: string }>
   storeName: (storeId: string) => string
-  /** The Leverancier facet's options, and an order's supplier (the demo's; empty until M8 in the console). */
+  /**
+   * The Leverancier facet's options, and an order's suppliers by name ("A, B" for more than one): the demo's, and the
+   * console's from the order's forwarding legs.
+   */
   suppliers: ReadonlyArray<{ value: string; label: string }>
   supplierName: (orderId: string) => string
   /** The selection bar's actions; `openTags` opens the label dialog for the rows. */

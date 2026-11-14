@@ -74,6 +74,8 @@ export const orderWrites = {
   markFulfilled: ConsoleClient.mutation("Orders.markFulfilled"),
   updateShipping: ConsoleClient.mutation("Orders.updateShipping"),
   cancel: ConsoleClient.mutation("Orders.cancel"),
+  flagDelayed: ConsoleClient.mutation("Orders.flagDelayed"),
+  clearDelay: ConsoleClient.mutation("Orders.clearDelay"),
   setNote: ConsoleClient.mutation("Orders.setNote"),
   refund: ConsoleClient.mutation("Orders.refund"),
   undo: ConsoleClient.mutation("Shared.undo")

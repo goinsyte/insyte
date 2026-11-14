@@ -47,6 +47,10 @@ export class OrderRow extends Schema.Class<OrderRow>("orders/OrderRow")({
   hasTracking: Schema.Boolean,
   carrier: Schema.NullOr(Schema.String),
   trackingNumber: Schema.NullOr(Schema.String),
+  /** When Insyte, a supplier's lateness or an operator marked it delayed; null when it is not (M8.4, M7). */
+  delayedAt: Schema.NullOr(Schema.Finite),
+  /** The suppliers its forwarding legs went or go to, by name (M8.2); none before it is paid or for its own stock. */
+  suppliers: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),
   placedAt: Schema.Finite,
   updatedAt: Schema.Finite
 }) {}
@@ -72,7 +76,36 @@ export const Fulfilment = Schema.Struct({
   trackingUrl: Schema.NullOr(Schema.String),
   trackingStatus: Schema.NullOr(Schema.String),
   shippedAt: Schema.NullOr(Schema.Finite),
-  deliveredAt: Schema.NullOr(Schema.Finite)
+  deliveredAt: Schema.NullOr(Schema.Finite),
+  /**
+   * What AfterShip last said of the parcel (M8.4), where it tracks it: its status, the latest checkpoint and when, a
+   * carrier exception, the expected day. Only the latest is kept, not every scan.
+   */
+  delivery: Schema.NullOr(Schema.Struct({
+    status: Schema.String,
+    checkpoint: Schema.NullOr(Schema.String),
+    exception: Schema.NullOr(Schema.String),
+    lastEventAt: Schema.NullOr(Schema.Finite),
+    estimatedDelivery: Schema.NullOr(Schema.Finite)
+  }))
+})
+
+/**
+ * A supplier the order went to (M8.2, M8.3): when its leg was sent, and its work as the supplier reports it: accepted,
+ * the hand-off it promised (`handoffBy`), shipped. `late` once the hand-off has passed with nothing shipped.
+ */
+export const OrderSupplier = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  /** The leg's state (`forwarding_items.state`). */
+  state: Schema.String,
+  forwardedAt: Schema.NullOr(Schema.Finite),
+  /** The work's status (`supplier_work.status`), once the leg reached the supplier. */
+  work: Schema.NullOr(Schema.String),
+  acceptedAt: Schema.NullOr(Schema.Finite),
+  handoffBy: Schema.NullOr(Schema.Finite),
+  shippedAt: Schema.NullOr(Schema.Finite),
+  late: Schema.Boolean
 })
 
 export const Refund = Schema.Struct({
@@ -118,7 +151,9 @@ export class OrderDetail extends Schema.Class<OrderDetail>("orders/OrderDetail")
   refundedAt: Schema.NullOr(Schema.Finite),
   lines: Schema.Array(OrderLine),
   fulfilments: Schema.Array(Fulfilment),
-  refunds: Schema.Array(Refund)
+  refunds: Schema.Array(Refund),
+  /** Where its legs went (M8.2), the first forwarded first. */
+  supplierWork: Schema.Array(OrderSupplier)
 }) {}
 
 /** A page of orders, the cursor to the next, and the counts the header and the facets show. */

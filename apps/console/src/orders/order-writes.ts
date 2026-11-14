@@ -8,11 +8,13 @@ import { permissionName } from "@insyte/ui/app/lib/permissions"
 import type { Address, Order } from "@insyte/ui/app/lib/types/domain"
 import { undoable } from "@insyte/ui/app/lib/undo"
 import type { TeamGate } from "@insyte/ui/app/orders/source"
+import { useNavigate } from "@tanstack/react-router"
 import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useMemo } from "react"
 import { toast } from "sonner"
 import { ORDERS, orderTagsAtom, orderWrites } from "../data/orders.ts"
+import { TICKETS, ticketWrites } from "../data/tickets.ts"
 import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
 
 /*
@@ -32,7 +34,8 @@ const COPY: RefusalCopy = {
     fulfilled: [
       "Deze bestelling is al onderweg",
       "Een bestelling met verzonden pakketten kun je niet meer zo wijzigen."
-    ]
+    ],
+    delivered: ["Deze bestelling is al bezorgd", "Een bezorgde bestelling markeer je niet meer als vertraagd."]
   },
   invalid: {
     system: "Dit label zet Insyte zelf; je kunt het hier niet toevoegen of weghalen.",
@@ -62,6 +65,9 @@ const COPY: RefusalCopy = {
 }
 
 const orderRefused = (error: unknown) => sayRefusal(error, COPY)
+
+/** Insyte's delay marker as the design's orders carry it. */
+const AT_RISK = "at_risk"
 
 /** Whether the viewer's role may, as the design's gates say it. */
 export const useOrderGate = useGate
@@ -95,12 +101,16 @@ export function useRefundGate(refundableMinor: number): TeamGate {
 
 /** Every order command, as the screens call them. */
 export function useOrderCommands() {
+  const navigate = useNavigate()
   const keys = { reactivityKeys: ORDERS }
   const write = {
     tag: useAtomSet(orderWrites.tag, { mode: "promiseExit" }),
     markFulfilled: useAtomSet(orderWrites.markFulfilled, { mode: "promiseExit" }),
     updateShipping: useAtomSet(orderWrites.updateShipping, { mode: "promiseExit" }),
     cancel: useAtomSet(orderWrites.cancel, { mode: "promiseExit" }),
+    flagDelayed: useAtomSet(orderWrites.flagDelayed, { mode: "promiseExit" }),
+    clearDelay: useAtomSet(orderWrites.clearDelay, { mode: "promiseExit" }),
+    createTicket: useAtomSet(ticketWrites.create, { mode: "promiseExit" }),
     setNote: useAtomSet(orderWrites.setNote, { mode: "promiseExit" }),
     refund: useAtomSet(orderWrites.refund, { mode: "promiseExit" }),
     undo: useAtomSet(orderWrites.undo, { mode: "promiseExit" })
@@ -123,8 +133,9 @@ export function useOrderCommands() {
   return {
     /** The order's tags as the screen wants them: what is new is added, what is gone is taken off. */
     setTags: async (order: Order, tags: ReadonlyArray<string>, message: string) => {
-      const add = tags.filter((t) => !order.tags.includes(t))
-      const remove = order.tags.filter((t) => !tags.includes(t))
+      // "Vertraagd" (`at_risk`) is the order's delay, not a label: it changes through flagDelayed and clearDelay.
+      const add = tags.filter((t) => !order.tags.includes(t) && t !== AT_RISK)
+      const remove = order.tags.filter((t) => !tags.includes(t) && t !== AT_RISK)
       if (add.length === 0 && remove.length === 0) return
       said(await write.tag({ payload: { ids: [order.id], add, remove }, ...keys }), message)
     },
@@ -160,6 +171,37 @@ export function useOrderCommands() {
         }),
         "Verzendadres bijgewerkt"
       ),
+    /** "Als vertraagd markeren": the order shows as Vertraagd; automations hear of it, the shopper is not mailed. */
+    flagDelayed: async (rows: ReadonlyArray<Order>, message: string) =>
+      said(await write.flagDelayed({ payload: { ids: rows.map((o) => o.id) }, ...keys }), message),
+    clearDelay: async (rows: ReadonlyArray<Order>, message: string) =>
+      said(await write.clearDelay({ payload: { ids: rows.map((o) => o.id) }, ...keys }), message),
+    /**
+     * Insyte's advice on a slow supplier, as the design drafts it: a ticket on the order for the team to check before
+     * it goes to the supplier.
+     */
+    draftSupplierMessage: async (order: Order, supplier: string) => {
+      const exit = await write.createTicket({
+        payload: {
+          title: `Overdrachtsdatum bevestigen met ${supplier} voor ${order.number}`,
+          description:
+            `${supplier} verwerkt ${order.number} trager dan normaal. Vraag om de overdrachtsdatum en het track & trace-nummer en laat het ${order.customer_name} weten zodra je het hebt.`,
+          priority: "high",
+          related: { type: "order", id: order.id }
+        },
+        reactivityKeys: [...TICKETS]
+      })
+      if (Exit.isFailure(exit)) return orderRefused(failureOf(exit))
+      const row = exit.value.tickets[0]
+      if (row === undefined) return
+      toast.success(`Opgesteld als #${row.number}`, {
+        description: "Controleer het voordat het naar de leverancier gaat.",
+        action: {
+          label: "Openen",
+          onClick: () => void navigate({ to: "/tickets", search: { ticket: row.id } as never })
+        }
+      })
+    },
     cancel: async (order: Order) =>
       said(
         await write.cancel({ payload: { ids: [order.id], restock: true, notify: true }, ...keys }),

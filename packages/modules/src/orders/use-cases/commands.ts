@@ -29,22 +29,24 @@ import { type Row, SELECT, toRow } from "./orders.ts"
  * once and without undo for a cancellation (ADR-0023). The internal note is Insyte's own and never reaches Shopify.
  */
 
-const RESTORE = "orders.restore"
+export const RESTORE = "orders.restore"
 
-interface Locked {
+export interface Locked {
   readonly id: string
   readonly tags: ReadonlyArray<string>
   readonly status: string
   readonly fulfillmentStatus: string
   readonly shippingAddress: unknown
   readonly shippedAt: Date | null
+  readonly delayedAt: Date | null
 }
 
 /** The orders, locked, inside the role's stores; any one missing is `NotFound`. */
-const lock = Effect.fn("Orders.lock")(function*(sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) {
+export const lock = Effect.fn("Orders.lock")(function*(sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) {
   const scope = yield* inScope(sql, "o.store_id")
   const rows = yield* sql<Locked>`
-    select o.id, o.tags, o.status, o.fulfillment_status, o.shipping_address, o.shipped_at from orders o
+    select o.id, o.tags, o.status, o.fulfillment_status, o.shipping_address, o.shipped_at, o.delayed_at
+    from orders o
     where o.id in ${sql.in([...new Set(ids)])} and ${scope} order by o.id for update`
   const found = new Set(rows.map((r) => r.id))
   const missing = ids.find((id) => !found.has(id))
@@ -53,14 +55,14 @@ const lock = Effect.fn("Orders.lock")(function*(sql: SqlClient.SqlClient, ids: R
 })
 
 /** The orders as the list shows them, after the change. */
-const rowsOf = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) =>
+export const rowsOf = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) =>
   Effect.map(
     sql<Row>`select ${sql.literal(SELECT)} from orders o where o.id in ${sql.in([...ids])}
              order by o.placed_at desc, o.id desc`,
     (rows) => rows.map(toRow)
   )
 
-const audit = (sql: SqlClient.SqlClient, action: string, orderId: string, diff?: Record<string, unknown>) =>
+export const audit = (sql: SqlClient.SqlClient, action: string, orderId: string, diff?: Record<string, unknown>) =>
   Effect.flatMap(
     Effect.service(CurrentPrincipal),
     (p) =>
@@ -72,8 +74,8 @@ const audit = (sql: SqlClient.SqlClient, action: string, orderId: string, diff?:
       })
   )
 
-const iso = (d: Date | null) => (d === null ? null : d.toISOString())
-const closed = (o: Locked) => o.status === "cancelled" || o.status === "refunded"
+export const iso = (d: Date | null) => (d === null ? null : d.toISOString())
+export const closed = (o: Locked) => o.status === "cancelled" || o.status === "refunded"
 
 /** Writes the outbox event for Shopify and the undo token that can still cancel it; kicks it after commit. */
 const later = Effect.fn("Orders.later")(function*(
@@ -308,6 +310,10 @@ export const restore = Effect.fn("Orders.restore")(function*(sql: SqlClient.SqlC
       yield* sql`update orders set shipping_address = nullif(${
         JSON.stringify(o.shippingAddress)
       }::jsonb, 'null') where id = ${o.id}`
+    }
+    if (o.delayedAt !== undefined) {
+      yield* sql`update orders set delayed_at = ${o.delayedAt === null ? null : new Date(o.delayedAt)}
+                 where id = ${o.id}`
     }
     if (o.fulfillmentStatus !== undefined) {
       yield* sql`update orders set fulfillment_status = ${o.fulfillmentStatus}, status = ${o.status ?? "paid"},

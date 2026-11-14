@@ -93,6 +93,14 @@ const facetsOf = (
   }
 ]
 
+/** The Leverancier facet: an order with more than one supplier ("A, B") matches each of them. */
+const supplierFilter = (row: { getValue: (id: string) => unknown }, id: string, value: unknown): boolean => {
+  const chosen = value as Array<string> | undefined
+  if (chosen === undefined || chosen.length === 0) return true
+  const names = String(row.getValue(id)).split(", ")
+  return chosen.some((c) => names.includes(c))
+}
+
 export function OrdersList() {
   const view = useRouterState({ select: (s) => (s.location.search as Record<string, unknown>).view })
   const { Forwarding } = useOrdersSource()
@@ -211,7 +219,7 @@ function AllOrders() {
         id: "supplier",
         accessorFn: (o) => supplierName(o.id),
         header: "Leverancier",
-        filterFn: facetFilter
+        filterFn: supplierFilter
       },
       {
         id: "placed",

@@ -47,6 +47,8 @@ export interface Row {
   readonly lineCount: number
   readonly carrier: string | null
   readonly trackingNumber: string | null
+  readonly delayedAt: Date | null
+  readonly suppliers: ReadonlyArray<{ readonly id: string; readonly name: string }>
   readonly placedAt: Date
   readonly externalUpdatedAt: Date
 }
@@ -70,16 +72,25 @@ export const toRow = (r: Row) =>
     hasTracking: r.trackingNumber !== null,
     carrier: r.carrier,
     trackingNumber: r.trackingNumber,
+    delayedAt: r.delayedAt?.getTime() ?? null,
+    suppliers: r.suppliers,
     placedAt: r.placedAt.getTime(),
     updatedAt: r.externalUpdatedAt.getTime()
   })
 
 const ms = (d: Date | null) => (d === null ? null : d.getTime())
 
-/** The columns every order read selects, `o` the order. */
+/**
+ * The columns every order read selects, `o` the order. Its suppliers are those of its legs not called off (M8.2), so an
+ * order rerouted names the supplier it went to.
+ */
 export const SELECT =
   `o.id, o.number, o.store_id, o.shopify_id, o.customer_id, o.customer_name, o.customer_email, o.status,
   o.payment_status, o.fulfillment_status, o.total_minor, o.currency, o.tags, o.placed_at, o.external_updated_at,
+  o.delayed_at,
+  coalesce((select json_agg(json_build_object('id', s.id, 'name', s.name) order by s.name, s.id) from suppliers s
+            where s.id in (select f.supplier_id from forwarding_items f
+                           where f.order_id = o.id and f.state <> 'cancelled')), '[]') as suppliers,
   (select count(*) from order_lines l where l.order_id = o.id)::int as line_count,
   (select f.carrier from fulfilments f where f.order_id = o.id and f.tracking_number is not null
      order by f.shipped_at desc nulls last limit 1) as carrier,
@@ -181,8 +192,30 @@ export const get = Effect.fn("Orders.get")(function*(id: string) {
         trackingStatus: string | null
         shippedAt: Date | null
         deliveredAt: Date | null
-      }>`select id, status, carrier, tracking_number, tracking_url, tracking_status, shipped_at, delivered_at
-         from fulfilments where order_id = ${id} order by shipped_at nulls last`
+        deliveryStatus: string | null
+        checkpoint: string | null
+        exception: string | null
+        lastEventAt: Date | null
+        estimatedDelivery: Date | null
+      }>`select f.id, f.status, f.carrier, f.tracking_number, f.tracking_url, f.tracking_status, f.shipped_at,
+                f.delivered_at, d.status as delivery_status, d.checkpoint, d.exception, d.last_event_at,
+                d.estimated_delivery
+         from fulfilments f left join deliveries d on d.fulfilment_id = f.id
+         where f.order_id = ${id} order by f.shipped_at nulls last, f.id`
+      const work = yield* sql<{
+        id: string
+        name: string
+        state: string
+        forwardedAt: Date | null
+        work: string | null
+        acceptedAt: Date | null
+        handoffBy: Date | null
+        shippedAt: Date | null
+      }>`select s.id, s.name, f.state, f.forwarded_at, w.status as work, w.accepted_at, w.handoff_by, w.shipped_at
+         from forwarding_items f join suppliers s on s.id = f.supplier_id
+         left join supplier_work w on w.order_id = f.order_id and w.supplier_id = f.supplier_id
+         where f.order_id = ${id} and f.state <> 'cancelled'
+         order by f.forwarded_at nulls last, s.name, s.id`
       const refunds = yield* sql<{
         id: string
         amountMinor: string
@@ -218,8 +251,36 @@ export const get = Effect.fn("Orders.get")(function*(id: string) {
         cancelledAt: ms(row.cancelledAt),
         refundedAt: ms(row.refundedAt),
         lines: lines.map((l) => ({ ...l, unitPriceMinor: Number(l.unitPriceMinor) })),
-        fulfilments: fulfilments.map((f) => ({ ...f, shippedAt: ms(f.shippedAt), deliveredAt: ms(f.deliveredAt) })),
-        refunds: refunds.map((r) => ({ ...r, amountMinor: Number(r.amountMinor), createdAt: r.createdAt.getTime() }))
+        fulfilments: fulfilments.map((f) => ({
+          id: f.id,
+          status: f.status,
+          carrier: f.carrier,
+          trackingNumber: f.trackingNumber,
+          trackingUrl: f.trackingUrl,
+          trackingStatus: f.trackingStatus,
+          shippedAt: ms(f.shippedAt),
+          deliveredAt: ms(f.deliveredAt),
+          delivery: f.deliveryStatus === null ? null : {
+            status: f.deliveryStatus,
+            checkpoint: f.checkpoint,
+            exception: f.exception,
+            lastEventAt: ms(f.lastEventAt),
+            estimatedDelivery: ms(f.estimatedDelivery)
+          }
+        })),
+        refunds: refunds.map((r) => ({ ...r, amountMinor: Number(r.amountMinor), createdAt: r.createdAt.getTime() })),
+        supplierWork: work.map((w) => ({
+          id: w.id,
+          name: w.name,
+          state: w.state,
+          forwardedAt: ms(w.forwardedAt),
+          work: w.work,
+          acceptedAt: ms(w.acceptedAt),
+          handoffBy: ms(w.handoffBy),
+          shippedAt: ms(w.shippedAt),
+          late: w.handoffBy !== null && w.handoffBy.getTime() < Date.now() &&
+            (w.work === "to_accept" || w.work === "to_ship" || w.work === "problem")
+        }))
       })
     })
   )

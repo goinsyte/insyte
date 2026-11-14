@@ -173,6 +173,8 @@ const PAYLOADS: Record<string, unknown> = {
     address: { line1: "Straat 1", line2: null, city: "Stad", postcode: "1000 AA", region: "", country: "NL" }
   },
   "Orders.cancel": { ids: ["ord_none"], restock: true, notify: false },
+  "Orders.flagDelayed": { ids: ["ord_none"] },
+  "Orders.clearDelay": { ids: ["ord_none"] },
   "Orders.setNote": { id: "ord_none", body: "x" },
   "Orders.refund": { id: "ord_none", refundId: "rfd_00000000000000000000000000", amountMinor: 100 },
   "Products.list": {},
