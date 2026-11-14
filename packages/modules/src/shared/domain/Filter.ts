@@ -57,10 +57,21 @@ export class FilterFieldUnknown extends Schema.TaggedError<FilterFieldUnknown>()
 /** A cursor that is not one this list handed out. */
 export class CursorInvalid extends Schema.TaggedError<CursorInvalid>()("CursorInvalid", {}) {}
 
-/** What every list takes (widgets/01): a filter, a search, a page after a cursor, a page size. */
+/**
+ * A list's order: one of the list's sort fields (its whitelist, `tables/FilterSql.ts`), ascending or descending. The
+ * row's id breaks a tie, in the same direction, so a page boundary never falls between two equal keys.
+ */
+export const ListSort = Schema.Struct({ field: Schema.String, desc: Schema.Boolean })
+export type ListSort = typeof ListSort.Type
+
+/**
+ * What every list takes (widgets/01): a filter, a search, an order, a page after a cursor, a page size. Without `sort`
+ * the list keeps its own order; a cursor belongs to the order it was handed out under.
+ */
 export const ListInput = Schema.Struct({
   filter: Schema.optional(FilterNode),
   q: Schema.optional(Schema.String),
+  sort: Schema.optional(ListSort),
   cursor: Schema.optional(Schema.String),
   limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 200 }))),
   storeId: Schema.optional(Schema.String)

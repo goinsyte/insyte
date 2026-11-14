@@ -1,9 +1,14 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
+import { DEFAULT_LEVELS } from "@insyte/domain/AgentActions"
+import type { AutonomyPolicy } from "@insyte/modules/agent/domain/Autonomy"
 import type { AdvanceInput } from "@insyte/modules/onboarding/domain/Onboarding"
 import { authClient } from "@insyte/ui/app/lib/auth-client"
+import type { AgentActionId, AutonomyLevel, Policy } from "@insyte/ui/app/lib/autonomy"
 import { fieldCopy } from "@insyte/ui/app/lib/errors"
+import type { OfflineWindow } from "@insyte/ui/app/lib/first-analysis"
 import { planStep, readyStep, storeStep } from "@insyte/ui/app/onboarding/admin-tail-steps"
 import { analysisStep } from "@insyte/ui/app/onboarding/analysis-step"
+import { OfflineStep, proposedLevels } from "@insyte/ui/app/onboarding/first-analysis-steps"
 import { search } from "@insyte/ui/app/onboarding/onboarding-search"
 import { OnboardingShell, type StepDef } from "@insyte/ui/app/onboarding/onboarding-shell"
 import { type NewWorkspace, organizationStep } from "@insyte/ui/app/onboarding/organization-step"
@@ -12,9 +17,10 @@ import { SyncProgress, type SyncRowData, syncStep } from "@insyte/ui/app/onboard
 import { useOnboardingState } from "@insyte/ui/app/onboarding/use-onboarding-state"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { Cause, Effect, Exit, Option } from "effect"
-import { AsyncResult, AtomRegistry } from "effect/reactivity"
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity"
 import { useEffect, useRef } from "react"
 import { toast } from "sonner"
+import { autonomyAtom } from "../../data/agent.ts"
 import { firstAnalysisAtom } from "../../data/first-analysis.ts"
 import { advanceOnboardingAtom, ONBOARDING, onboardingMeAtom } from "../../data/onboarding.ts"
 import { storesAtom, syncStatusAtom } from "../../data/stores.ts"
@@ -32,8 +38,9 @@ import { notConnected } from "../../stores/stores-source.tsx"
  * Built so far: the shared head and the admin track up to ready (organisation founds the workspace, plan starts the
  * trial, the store connects through Shopify or waits on Start), which lands on Start. Shopify's way back is
  * `?connected=shopify` (the store step is then recorded as connected) or `?error=`; the sync step shows the first
- * import as it lands, live, and the analysis step the store's first analysis as the server reads it (M6.5). The
- * offline plan follows with autonomy (M15); the partner tracks say they are not available yet (11 §7.3). A finished
+ * import as it lands, live, the analysis step the store's first analysis as the server reads it (M6.5, M15), with
+ * "Klaarzetten" making the automation draft and the sheet, and the offline step the plan for while nobody is online,
+ * written into Zelfstandigheid (M15 step 5). The partner tracks say they are not available yet (11 §7.3). A finished
  * person is sent to Start.
  */
 export const Route = createFileRoute("/onboarding/")({
@@ -49,21 +56,32 @@ export const Route = createFileRoute("/onboarding/")({
       context.registry.mount(storesAtom)
       await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, storesAtom)))
     }
-    // The analysis and ready steps show the store's first analysis: in the document too.
-    if (Option.isSome(me) && (me.value.step === "analysis" || me.value.step === "ready")) {
+    // The analysis, offline and ready steps show the store's first analysis: in the document too.
+    const step = Option.isSome(me) ? me.value.step : undefined
+    if (step === "analysis" || step === "offline" || step === "ready") {
       context.registry.mount(firstAnalysisAtom)
       await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, firstAnalysisAtom)))
+    }
+    // The offline step starts from the autonomy policy in force.
+    if (step === "offline") {
+      context.registry.mount(autonomyAtom)
+      await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, autonomyAtom)))
     }
   },
   component: ConsoleOnboarding
 })
 
-/** The offline plan follows with autonomy (M15); until then the server goes from the analysis straight to ready. */
-const OFFLINE: StepDef = {
-  id: "offline",
-  title: "Deze stap volgt zodra je winkel is gekoppeld.",
-  hidePrimary: true,
-  content: null
+const IDLE_POLICY: Atom.Atom<AsyncResult.AsyncResult<AutonomyPolicy, unknown>> = Atom.make(AsyncResult.initial())
+
+/**
+ * The policy in force on the offline step: its levels (the defaults until it is read), the version the plan is made
+ * on (0 until read: the server then says someone saved since), and a re-read for after a refusal.
+ */
+function useOfflinePolicy(on: boolean): { levels: Policy; version: number; refresh: () => void } {
+  const atom = on ? autonomyAtom : IDLE_POLICY
+  const policy = Option.getOrUndefined(AsyncResult.value(useAtomValue(atom)))
+  const refresh = useAtomRefresh(atom)
+  return { levels: (policy?.levels ?? DEFAULT_LEVELS) as Policy, version: policy?.version ?? 0, refresh }
 }
 
 const SYNC_LABELS = [
@@ -163,8 +181,9 @@ function ConsoleOnboarding() {
   }
   const beginConnect = useBeginConnect("/onboarding")
   const analysis = useConsoleAnalysis(
-    server?.step === "analysis" ? "analysis" : server?.step === "ready" ? "ready" : "other"
+    server?.step === "analysis" || server?.step === "offline" || server?.step === "ready" ? server.step : "other"
   )
+  const policy = useOfflinePolicy(server?.step === "offline")
 
   // Back from Shopify: a connected store is the store step's answer; a refusal is said once.
   useEffect(() => {
@@ -239,7 +258,37 @@ function ConsoleOnboarding() {
           )
         }
       })(),
-      OFFLINE,
+      (() => {
+        // The answers and the choices as the server kept them, where this tab did not make them (a reload).
+        const offline = {
+          ...data,
+          answers: (data["answers"] as Record<string, string> | undefined) ?? analysis.view?.chosen?.answers ?? {},
+          prepared: (data["prepared"] as ReadonlyArray<string> | undefined) ?? analysis.view?.chosen?.ids ?? []
+        }
+        return {
+          id: "offline",
+          title: "Terwijl je offline bent.",
+          subtitle:
+            "Wat Insyte doet als niemand online is. Jij zet de grens, per soort werk, en past hem later aan onder Zelfstandigheid.",
+          canContinue: true,
+          primaryLabel: "Afronden",
+          busyLabel: "Bezig met opslaan",
+          onPrimary: async () => {
+            const levels = (data["offlineLevels"] as Partial<Record<AgentActionId, AutonomyLevel>> | undefined) ??
+              proposedLevels(offline.answers, policy.levels)
+            const window = (data["offlineWindow"] as OfflineWindow | undefined) ?? "evening"
+            try {
+              await analysis.agreeOffline(window, levels, policy.version)
+            } catch (e) {
+              // Saved meanwhile, say: the step reads the policy again, and the next try is made on it.
+              policy.refresh()
+              throw e
+            }
+            await finish({ step: "offline" })
+          },
+          content: <OfflineStep data={offline} patch={patch} policy={policy.levels} />
+        } satisfies StepDef
+      })(),
       readyStep({
         data,
         finish: () => undefined,

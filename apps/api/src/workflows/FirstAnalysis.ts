@@ -5,6 +5,7 @@ import {
   begin,
   fail,
   finish,
+  readMail,
   readOrders,
   readPolicies,
   readProducts
@@ -17,10 +18,11 @@ import { withRequestDb } from "../platform/RequestDb.ts"
 import { roomOf } from "../platform/Room.ts"
 
 /*
- * A store's first analysis (M6.5): read the mirror's orders, then its product pages, then Shopify's countries and
- * policies, then work out the early read. Every step is durable and ticks its read off; after each the workspace's
- * tabs hear `records.changed {first_analysis}` and the step reads the analysis again. When the retries are spent the
- * analysis says it failed rather than reading forever.
+ * A store's first analysis (M6.5, M15 step 5): read the mirror's orders and parcels, then the inbox (when the workspace
+ * has one), then its product pages, then Shopify's countries and policies, then work out the finding or the early
+ * read. Every step is durable and ticks its read off; after each the workspace's tabs hear
+ * `records.changed {first_analysis}` and the step reads the analysis again. When the retries are spent the analysis
+ * says it failed rather than reading forever.
  */
 
 export interface AnalysisParams {
@@ -45,6 +47,8 @@ export class FirstAnalysisWorkflow extends WorkflowEntrypoint<Cloudflare.Env, An
     if (ctx === null) return null
     try {
       await step.do("orders", RETRY, () => exec(readOrders(ctx)))
+      await changed()
+      await step.do("mail", RETRY, () => exec(readMail(ctx)))
       await changed()
       await step.do("products", RETRY, () => exec(readProducts(ctx)))
       await changed()

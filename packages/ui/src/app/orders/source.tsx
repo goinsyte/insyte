@@ -2,7 +2,7 @@ import { type ComponentType, createContext, useContext } from "react"
 import type { ForwardView } from "../lib/forwarding"
 import type { Order } from "../lib/types/domain"
 import type { IndexItem } from "../marketing-sections/link-index"
-import type { RowAction } from "../table/data-table"
+import type { RowAction, ServerPaging } from "../table/data-table"
 
 /**
  * What the orders list reads and does, from whoever hosts it (as `shops/source.tsx` for Winkels): the design app from
@@ -41,6 +41,13 @@ export interface OrdersSource {
   Closing?: ComponentType<{ empty: boolean }> | undefined
   /** Opening an order; absent where the detail is not there yet. */
   open?: ((order: Order) => void) | undefined
+  /**
+   * Where the host pages the orders on the server (the console): `orders` is then the page the table asked for, and
+   * the line beside the title and the tags offered come from the host, over every page.
+   */
+  paging?: ServerPaging | undefined
+  standing?: string | undefined
+  knownTags?: ReadonlyArray<string> | undefined
 }
 
 const OrdersSourceContext = createContext<OrdersSource | null>(null)

@@ -30,7 +30,7 @@ import {
 	X,
 } from "../../icons";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { type ReactNode, useMemo, useState } from "react";
+import { createContext, type ReactNode, useContext, useMemo, useState } from "react";
 import { Glyph } from "../common/glyph";
 import {
 	appendTo,
@@ -77,6 +77,15 @@ const TYPE_ICON: Record<FieldType, IconComponent> = {
 };
 
 type Tone = "light" | "mesh";
+
+/**
+ * Where an option's count comes from. Without a provider, from the rows the builder was given — the whole list, in a
+ * table that holds it. A table that pages on the server holds one page, so it provides the server's counts instead,
+ * and a field the server does not count shows its options without a number rather than one page's.
+ */
+export type OptionCounts = (field: string) => ReadonlyMap<string, number> | undefined;
+const OptionCountsContext = createContext<OptionCounts | null>(null);
+export const OptionCountsProvider = OptionCountsContext.Provider;
 
 /* ─── The button and the builder ────────────────────────────────────────── */
 
@@ -463,7 +472,8 @@ function OptionPicker<T>({
 	value: ReadonlyArray<string>;
 	onChange: (v: ReadonlyArray<string>) => void;
 }) {
-	const counts = useMemo(() => {
+	const counted = useContext(OptionCountsContext);
+	const fromRows = useMemo(() => {
 		const m = new Map<string, number>();
 		for (const r of rows) {
 			const k = String(field.get(r));
@@ -471,7 +481,9 @@ function OptionPicker<T>({
 		}
 		return m;
 	}, [rows, field]);
-	const options = field.options ?? [...counts.keys()].map((v) => ({ value: v, label: v }));
+	const fromHost = counted === null ? undefined : counted(field.id);
+	const counts = counted === null ? fromRows : fromHost;
+	const options = field.options ?? [...(fromHost ?? fromRows).keys()].map((v) => ({ value: v, label: v }));
 	const labels = value.map((v) => options.find((o) => o.value === v)?.label ?? v);
 
 	return (
@@ -508,7 +520,9 @@ function OptionPicker<T>({
 											{on ? <Check className="size-2.5" strokeWidth={3} /> : null}
 										</span>
 										<span className="min-w-0 flex-1 truncate">{o.label}</span>
-										<span className="text-xs text-ink-3 tabular-nums">{counts.get(o.value) ?? 0}</span>
+										{counts === undefined ? null : (
+											<span className="text-xs text-ink-3 tabular-nums">{counts.get(o.value) ?? 0}</span>
+										)}
 									</CommandItem>
 								);
 							})}

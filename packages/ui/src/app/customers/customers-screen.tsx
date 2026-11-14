@@ -104,12 +104,15 @@ export function CustomersPage() {
     }))
   }, [customers, groups, source.statusOf])
   const standing = useMemo(() => {
-    const fresh = rows.filter((r) => r.status === "new").length
+    const all = source.standing?.customers ?? rows.length
+    const fresh = source.standing?.new ?? rows.filter((r) => r.status === "new").length
     const dup = groups.reduce((n, g) => n + g.ids.length, 0)
-    return `${rows.length} ${rows.length === 1 ? "klant" : "klanten"} · ${fresh} nieuw · ${
+    return `${all} ${all === 1 ? "klant" : "klanten"} · ${fresh} nieuw · ${
       dup === 0 ? "geen dubbele profielen" : `${dup} lijken dubbel`
     }`
-  }, [rows, groups])
+  }, [rows, groups, source.standing])
+  // None at all: the area's empty state. A host that pages says so for every page.
+  const none = source.paging === undefined ? customers.length === 0 : source.paging.all === 0
   const knownTags = useMemo(() => [...new Set(rows.flatMap((r) => r.tags))], [rows])
 
   const [tagging, setTagging] = useState<Row[] | null>(null)
@@ -287,7 +290,7 @@ export function CustomersPage() {
             </button>
           ) :
           null}
-        {!loading && customers.length === 0 ?
+        {!loading && none ?
           <AreaEmpty area="customers" action={create} starts={source.starts} /> :
           (
             <DataTable
@@ -296,6 +299,7 @@ export function CustomersPage() {
               loading={loading}
               facets={FACETS}
               actions={actions}
+              server={source.paging}
               noun={["customer", "customers"]}
               getRowId={(r) => r.id}
               searchPlaceholder="Klanten zoeken"
@@ -322,7 +326,7 @@ export function CustomersPage() {
             />
           )}
       </div>
-      {Closing ? <Closing empty={customers.length === 0} /> : null}
+      {Closing ? <Closing empty={none} /> : null}
 
       {NewCustomer ? <NewCustomer open={newOpen} onOpenChange={setNewOpen} /> : null}
       <TagDialog

@@ -1,3 +1,5 @@
+import { type Spec, tabFrom } from "@insyte/domain/sheet-templates"
+import type { Tab } from "@insyte/domain/sheets"
 import type { DeliveryPromise, Prediction, PreparedId, Read, SetupFacts, Watch } from "./FirstAnalysis.ts"
 
 /*
@@ -5,12 +7,15 @@ import type { DeliveryPromise, Prediction, PreparedId, Read, SetupFacts, Watch }
  * fact is there; nothing is inferred from other stores. Pure, so every rule is tested without a database.
  */
 
-/** What the reading goes through, in order. Mail joins when the inbox does (M15). */
-export const READS: ReadonlyArray<Read> = [
+/** What the reading goes through, in order; the inbox only when the workspace has a mailbox (M15). */
+export const readsFor = (mail: boolean): ReadonlyArray<Read> => [
   { id: "orders", label: "Bestellingen en verzendingen", done: false },
+  ...(mail ? [{ id: "mail" as const, label: "Klantmails in de inbox", done: false }] : []),
   { id: "products", label: "Productpagina's en wat ze beloven", done: false },
   { id: "policies", label: "Verzend- en retourbeleid", done: false }
 ]
+
+export const READS: ReadonlyArray<Read> = readsFor(false)
 
 /** Above this many days a delivery takes long enough that customers start asking where it is. */
 const LONG_DELIVERY_DAYS = 7
@@ -48,6 +53,9 @@ export const promisesIn = (html: string, source: DeliveryPromise["source"]): Arr
 }
 
 /** The longest delivery the store promises anywhere, or nothing. */
+/** Calendar days a promise allows at most: working days stretch over weekends. */
+export const allowedDays = (p: DeliveryPromise) => (p.working ? (p.max * 7) / 5 : p.max)
+
 export const longestPromise = (facts: SetupFacts): DeliveryPromise | undefined =>
   facts.promises.reduce<DeliveryPromise | undefined>((a, p) => (a === undefined || p.max > a.max ? p : a), undefined)
 
@@ -115,10 +123,15 @@ export const watchOf = (facts: SetupFacts): Array<Watch> => [
 export const historyOf = (facts: Pick<SetupFacts, "orders" | "days">): "young" | "enough" =>
   facts.orders >= ENOUGH_ORDERS && facts.days >= ENOUGH_DAYS ? "enough" : "young"
 
+/** The day the delivery update goes out: two days before the longest promise's shortest end, from day 2 to 10. */
+export const updateDay = (facts: SetupFacts): number => {
+  const longest = longestPromise(facts)
+  return longest === undefined ? 5 : Math.min(10, Math.max(2, longest.min - 2))
+}
+
 /** The prepared items in this store's words: the update goes out two days before the shortest promise ends. */
 export const titlesOf = (facts: SetupFacts): Record<PreparedId, { title: string; does: string }> => {
-  const longest = longestPromise(facts)
-  const day = longest === undefined ? 5 : Math.min(10, Math.max(2, longest.min - 2))
+  const day = updateDay(facts)
   return {
     automation: {
       title: `Levertijd-update op dag ${day}`,
@@ -133,4 +146,51 @@ export const titlesOf = (facts: SetupFacts): Record<PreparedId, { title: string;
       does: "Wat je belooft naast wat het werkelijk duurt, per land."
     }
   }
+}
+
+/** Countries the sheet lists at most. */
+const SHEET_COUNTRIES = 20
+
+const decimal = (n: number) => n.toFixed(1).replace(".", ",")
+
+/**
+ * The sheet "Levertijd per land" as its first analysis leaves it: per country what the store promises (in calendar
+ * days, a promise in working days stretched over the weekends) next to the median it really took and how many parcels that median stands on, the difference a formula. The countries with
+ * parcels first, then those the store ships to without any yet; never a figure Insyte did not count.
+ */
+export const deliverySheet = (
+  facts: SetupFacts,
+  countryName: (code: string) => string,
+  tabId: string
+): Tab => {
+  const promise = longestPromise(facts)
+  // In calendar days, as the median is: the difference never subtracts working days from calendar days.
+  const promisedDays = promise === undefined ? null : decimal(allowedDays(promise))
+  const counted = [...(facts.countries ?? [])].sort((a, b) => b.delivered - a.delivered).slice(0, SHEET_COUNTRIES)
+  const seen = new Set(counted.map((c) => c.country))
+  const waiting = (facts.shipsTo ?? []).filter((c) => !seen.has(c)).slice(0, SHEET_COUNTRIES - counted.length)
+  const rows: Spec = [
+    [
+      "Land",
+      promise?.working ? `Belofte (dagen, ${promise.max} werkdagen)` : "Belofte (dagen)",
+      "Werkelijk (mediaan)",
+      "Verschil",
+      "Zendingen"
+    ],
+    ...counted.map((c, i) => [
+      countryName(c.country),
+      promisedDays === null ? null : [promisedDays, "number"] as const,
+      [decimal(c.days), "number"] as const,
+      promisedDays === null ? null : [`=C${i + 2}-B${i + 2}`, "number"] as const,
+      [String(c.delivered), "integer"] as const
+    ]),
+    ...waiting.map((c) => [
+      countryName(c),
+      promisedDays === null ? null : [promisedDays, "number"] as const,
+      null,
+      null,
+      ["0", "integer"] as const
+    ])
+  ]
+  return tabFrom(tabId, "Per land", rows, { A: 170, B: 140, C: 150 })
 }

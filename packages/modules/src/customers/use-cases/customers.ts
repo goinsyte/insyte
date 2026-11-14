@@ -4,13 +4,13 @@ import * as Policy from "@insyte/domain/Policy"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import type { OrderRow } from "../../orders/domain/Orders.ts"
-import type { ListInput } from "../../shared/domain/Filter.ts"
 import { likePattern, SearchHit } from "../../shared/domain/Search.ts"
-import { compileFilter, decodeCursor, encodeCursor, type Whitelist } from "../../shared/tables/FilterSql.ts"
+import { compileFilter, keyset, type Sorts, type Whitelist } from "../../shared/tables/FilterSql.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import {
   type CustomerCounts,
   CustomerDetail,
+  type CustomerListInput,
   CustomerPage,
   CustomerRow,
   NEW_UP_TO_ORDERS
@@ -20,8 +20,18 @@ import { KlaviyoSyncs } from "../domain/Ports.ts"
 /*
  * `Customers.list` and `Customers.get` (M6.4): at `customers` Bekijken, inside the role's stores; a customer Shopify
  * deleted or a privacy request cleared is not listed, nor one merged into another (M7.4), whose orders and value the
- * survivor counts. By name, keyset on `(lower(name), id)`; the search matches the name, the email and the phone.
+ * survivor counts. By name unless sorted (`CUSTOMER_SORTS`), keyset on the sort key and the id; the search matches the
+ * name, the email and the phone. Orders and value count the merged profiles in, in the filter and the order as in the
+ * row.
  */
+
+const ORDERS =
+  "(c.orders_count + coalesce((select sum(m.orders_count) from customers m where m.merged_into = c.id), 0))"
+const LIFETIME =
+  "(c.lifetime_value_minor + coalesce((select sum(m.lifetime_value_minor) from customers m where m.merged_into = c.id), 0))"
+const AOV = `case when ${ORDERS} > 0 then ${LIFETIME}::numeric / ${ORDERS} else 0 end`
+/** "Laatste bestelling" as the console shows it: the newest order Insyte holds, else when Shopify last changed them. */
+const LAST_ORDER = "coalesce((select max(o.placed_at) from orders o where o.customer_id = c.id), c.external_updated_at)"
 
 export const CUSTOMER_FIELDS: Whitelist = {
   store_id: { column: "c.store_id", type: "option" },
@@ -30,7 +40,30 @@ export const CUSTOMER_FIELDS: Whitelist = {
   email: { column: "c.email", type: "text" },
   orders_count: { column: "c.orders_count", type: "number" },
   lifetime_value: { column: "c.lifetime_value_minor", type: "number", scale: 100 },
-  tags: { column: "c.tags", type: "tags" }
+  tags: { column: "c.tags", type: "tags" },
+  // What the console's columns read (widgets/03): the profile by name and address, its id (the duplicates' cut),
+  // orders, value and average order with its merged profiles counted in, the newest order.
+  id: { column: "c.id", type: "option" },
+  customer: { column: "c.name || ' ' || coalesce(c.email, '')", type: "text" },
+  orders: { column: ORDERS, type: "number" },
+  lifetime: { column: LIFETIME, type: "number", scale: 100 },
+  aov: { column: AOV, type: "number", scale: 100 },
+  last_order: { column: LAST_ORDER, type: "date" }
+}
+
+/** What the list sorts by. */
+export const CUSTOMER_SORTS: Sorts = {
+  fields: {
+    name: { column: "c.name", type: "text", required: true },
+    email: { column: "c.email", type: "text" },
+    country: { column: "c.country", type: "text" },
+    orders: { column: ORDERS, type: "number", required: true },
+    lifetime: { column: LIFETIME, type: "number", required: true },
+    aov: { column: AOV, type: "number", required: true },
+    last_order: { column: LAST_ORDER, type: "date", required: true }
+  },
+  default: { field: "name", desc: false },
+  id: "c.id"
 }
 
 export interface Row {
@@ -81,32 +114,45 @@ const searchOf = (sql: SqlClient.SqlClient, q: string | undefined) => {
   return sql`(c.name ilike ${pattern} or c.email ilike ${pattern} or c.phone ilike ${pattern})`
 }
 
-export const list = Effect.fn("Customers.list")(function*(input: ListInput) {
+export const list = Effect.fn("Customers.list")(function*(input: CustomerListInput) {
   yield* Policy.require("customers", 1)
   const db = yield* Db
   const limit = input.limit ?? 50
-  const after = yield* decodeCursor(input.cursor)
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const scope = yield* inScope(sql, "c.store_id", input.storeId)
       const filter = yield* compileFilter(sql, input.filter, CUSTOMER_FIELDS)
+      const order = yield* keyset(sql, input, CUSTOMER_SORTS)
       const search = searchOf(sql, input.q)
-      const page = after === undefined
-        ? sql`true`
-        : sql`(lower(c.name), c.id) > (${String(after[0])}, ${String(after[1])})`
-      const rows = yield* sql<Row>`
-        select ${sql.literal(SELECT)} from customers c
-        where c.deleted_at is null and c.merged_into is null and ${scope} and ${filter} and ${search} and ${page}
-        order by lower(c.name), c.id limit ${limit + 1}`
+      const listed = sql`c.deleted_at is null and c.merged_into is null`
+      const rows = yield* sql<Row & { sortKey: string }>`
+        select ${sql.literal(SELECT)}, ${order.key} from customers c
+        where ${listed} and ${scope} and ${filter} and ${search} and ${order.after}
+        ${order.order} limit ${limit + 1}`
       const [total] = yield* sql<{ n: number }>`
-        select count(*)::int as n from customers c
-        where c.deleted_at is null and c.merged_into is null and ${scope} and ${filter} and ${search}`
+        select count(*)::int as n from customers c where ${listed} and ${scope} and ${filter} and ${search}`
+      // The Status facet as the console's filter reads it: a profile it shows as a duplicate is that, not new or returning.
+      const duplicate = input.duplicates === undefined || input.duplicates.length === 0
+        ? sql`false`
+        : sql`c.id = any(${[...input.duplicates]}::text[])`
+      const [facets] = yield* sql<{ new: number; returning: number; duplicates: number }>`
+        select count(*) filter (where ${sql.literal(ORDERS)} <= ${NEW_UP_TO_ORDERS} and not ${duplicate})::int as new,
+               count(*) filter (where ${
+        sql.literal(ORDERS)
+      } > ${NEW_UP_TO_ORDERS} and not ${duplicate})::int as returning,
+               count(*) filter (where ${duplicate})::int as duplicates
+        from customers c where ${listed} and ${scope} and ${search}`
       const shown = rows.slice(0, limit)
       const last = shown.at(-1)
       return new CustomerPage({
         rows: shown.map(toRow),
-        nextCursor: rows.length > limit && last !== undefined ? encodeCursor([last.name.toLowerCase(), last.id]) : null,
-        counts: { total: total?.n ?? 0 }
+        nextCursor: rows.length > limit && last !== undefined ? order.cursorOf(last) : null,
+        counts: {
+          total: total?.n ?? 0,
+          new: facets?.new ?? 0,
+          returning: facets?.returning ?? 0,
+          duplicates: facets?.duplicates ?? 0
+        }
       })
     })
   )

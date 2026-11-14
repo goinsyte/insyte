@@ -2,7 +2,7 @@ import { type ComponentType, createContext, useContext } from "react"
 import type { DuplicateGroup } from "../lib/duplicates"
 import type { Currency, Customer } from "../lib/types/domain"
 import type { IndexItem } from "../marketing-sections/link-index"
-import type { RowAction } from "../table/data-table"
+import type { RowAction, ServerPaging } from "../table/data-table"
 import type { CustomerStatus } from "./customer-status-badge"
 
 /**
@@ -51,6 +51,12 @@ export interface CustomersSource {
   starts?: IndexItem[] | undefined
   Closing?: ComponentType<{ empty: boolean }> | undefined
   open?: ((customer: CustomerRow) => void) | undefined
+  /**
+   * Where the host pages the profiles on the server (the console): `customers` is then the page the table asked for,
+   * and the line beside the title comes from the host, over every page.
+   */
+  paging?: ServerPaging | undefined
+  standing?: { customers: number; new: number } | undefined
 }
 
 const CustomersSourceContext = createContext<CustomersSource | null>(null)

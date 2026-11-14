@@ -7,6 +7,7 @@ export const FirstAnalysisHandlers = FirstAnalysisRpcs.toLayer(Effect.gen(functi
   return FirstAnalysisRpcs.of({
     "FirstAnalysis.get": () => analysis.get,
     "FirstAnalysis.start": () => analysis.start,
-    "FirstAnalysis.prepare": (input) => analysis.prepare(input)
+    "FirstAnalysis.prepare": (input) => analysis.prepare(input),
+    "FirstAnalysis.agreeOffline": (input) => analysis.agreeOffline(input)
   })
 }))
