@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { GOTO_DEFAULTS } from "../lib/settings-depth";
-import { useSettingsDepth } from "./state";
+import { useHasPage, useSettingsDepth } from "./state";
 
 /** Whether a key press belongs to whatever the person is typing in. */
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.closest("[role=grid],[role=dialog],[role=menu]") !== null);
@@ -15,6 +15,10 @@ export function useGoToKeys(enabled: boolean) {
 	// The latest keys, for a listener added once.
 	const depth = useRef({ gotoOn: false, keys: {} as Record<string, string> });
 	depth.current = useSettingsDepth((s) => ({ gotoOn: s.gotoOn, keys: s.keys }));
+	// A page the host does not have yet is no place to go.
+	const pages = useHasPage();
+	const hasPage = useRef(pages);
+	hasPage.current = pages;
 	useEffect(() => {
 		if (!enabled) return;
 		let armed = 0;
@@ -26,7 +30,7 @@ export function useGoToKeys(enabled: boolean) {
 			if (armed && Date.now() - armed < 1000) {
 				armed = 0;
 				const hit = GOTO_DEFAULTS.find((g) => (keys[g.id] ?? g.key) === k);
-				if (hit) {
+				if (hit && hasPage.current(hit.to)) {
 					e.preventDefault();
 					void navigate({ to: hit.to as never });
 				}

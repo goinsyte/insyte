@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import { ArrowRight, Sparkle, UserPlus } from "../../icons"
-import { AgentSuggestion, useMyName } from "../ask/agent-parts"
+import { AgentSuggestion, useMyName } from "../ask/agent-demo"
 import { InsyteMark } from "../ask/parts"
 import { ME } from "../lib/assignees"
 import { formatCurrency } from "../lib/format"

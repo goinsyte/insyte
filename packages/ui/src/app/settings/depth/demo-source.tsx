@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from "react"
 import { toast } from "sonner"
-import { useMyName } from "../../ask/agent-parts"
+import { useMyName } from "../../ask/agent-demo"
 import type { DnsRecord, Domain, Retention } from "../../lib/settings-depth"
 import { undoable } from "../../lib/undo"
 import { useSettingsDepth } from "../../stores/settings-depth-store"

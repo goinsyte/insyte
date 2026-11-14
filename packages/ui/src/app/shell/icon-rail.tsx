@@ -16,7 +16,7 @@ import type { Extension } from "../lib/types/domain";
 import type { Persona } from "../lib/types/persona";
 import { cn } from "../lib/utils";
 import { PERSONA_CHROME } from "../lib/persona-chrome";
-import { useCanOpen, useExtensions, useMarketplaceState, useNavPrefs, useShellSlots } from "./state";
+import { useCanOpen, useExtensions, useHasPage, useMarketplaceState, useNavPrefs, useShellSlots } from "./state";
 
 /**
  * The rail: 52px of `abyss`, the mark at its head, the avatar at its foot.
@@ -51,6 +51,7 @@ export function IconRail({
 	// A destination the role cannot open is not on the rail at all: the rail is where you can go.
 	// Inside an area the panel keeps such links, dimmed, so it still says what is there.
 	const canOpen = useCanOpen();
+	const hasPage = useHasPage();
 
 	const orderedKeys = sortedRail(allItems.map((i) => i.to));
 	const itemByKey = new Map(allItems.map((i) => [i.to, i] as const));
@@ -58,7 +59,7 @@ export function IconRail({
 		.map((k) => itemByKey.get(k))
 		.filter(
 			(item): item is (typeof allItems)[number] =>
-				item !== undefined && !isHidden(item.to) && (persona !== "admin" || canOpen(item.to)),
+				item !== undefined && !isHidden(item.to) && hasPage(item.to) && (persona !== "admin" || canOpen(item.to)),
 		);
 
 	const admin = persona === "admin";

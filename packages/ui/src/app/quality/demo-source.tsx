@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { products, suppliers } from "../../data-source";
-import { useMyName } from "../ask/agent-parts";
+import { useMyName } from "../ask/agent-demo";
 import { undoable } from "../lib/undo";
 import { useGate } from "../stores/access-store";
 import { THRESHOLD, useProductQuality, useQuality } from "../stores/quality-store";

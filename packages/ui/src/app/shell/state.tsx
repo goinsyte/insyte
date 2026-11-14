@@ -63,6 +63,9 @@ export const usePersonaChrome = (persona: Persona): PersonaChrome => {
 export const usePanelFor = () => useShellSource().panelFor;
 export const useRecordSearch = (query: string) => useShellSource().useRecordSearch(query);
 export const useCreateUnavailable = () => useShellSource().unavailable;
+const everyPage = () => true;
+/** `hasPage("/ask")`: whether the host has that page, so a link to it is drawn. */
+export const useHasPage = () => useShellSource().hasPage ?? everyPage;
 
 /** The workspace the chrome is in. */
 export const useActiveWorkspace = () => {

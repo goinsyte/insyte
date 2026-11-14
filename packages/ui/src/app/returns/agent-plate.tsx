@@ -1,5 +1,6 @@
 import { Check } from "../../icons";
-import { AgentSuggestion, RecordAgentRows } from "../ask/agent-parts";
+import { AgentSuggestion } from "../ask/agent-demo";
+import { RecordAgentRows } from "../ask/agent-parts";
 import { RESOLUTION_LABEL } from "../lib/returns";
 import { useReturns } from "../stores/returns-store";
 import type { ReturnView } from "./source";
