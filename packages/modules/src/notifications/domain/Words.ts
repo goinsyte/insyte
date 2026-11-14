@@ -88,8 +88,11 @@ export const budgetWords = (data: Record<string, unknown>) => {
       ? `${who} het AI-budget voor deze maand heeft bereikt`
       : `${who} ${pct}% van het AI-budget heeft gebruikt`,
     record: `€${Math.round(usedCents / 100)} van €${limit}`,
+    // Who may not change the limits (`ai.autonomy`) is told whom to ask, not where to do it.
     detail: reached
       ? "Insyte handelt niet meer zelf tot de maand omslaat of de limiet omhoog gaat."
+      : data["canSet"] === false
+      ? "Bij 100% komt alles als voorstel. Een hogere limiet vraag je aan wie de limieten beheert."
       : "Bij 100% komt alles als voorstel. Je kunt de limiet verhogen onder Limieten."
   }
 }
@@ -337,5 +340,6 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
       }
     }
   }
-  return { title: "Er is een nieuwe melding voor je", actionLabel: "Meldingen openen", path: "/notifications" }
+  // Start: the console has no page of all notifications yet.
+  return { title: "Er is een nieuwe melding voor je", actionLabel: "Insyte openen", path: "/dashboard" }
 }

@@ -60,6 +60,8 @@ interface Planned {
   readonly data: Record<string, unknown>
   /** Whom it concerns directly, for "Alleen als het mij betreft"; the rest hear of it by their role. */
   readonly direct?: ReadonlyArray<string>
+  /** What one recipient's note adds to `data`, where the words differ by who reads them. */
+  readonly dataFor?: (recipientId: string) => Record<string, unknown>
 }
 
 /** Active members whose role manages the team (`team` at Beheren). */
@@ -574,8 +576,11 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
         if (budget === undefined || budget.limitMinor === null) return undefined
         if (Math.round(Number(budget.limitMinor) / 100) !== event.limit) return undefined
         const person = event.memberId
-        const recipients = yield* sql<{ id: string }>`
-          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+        // Whether each may change the limits, for the words: "verhoog de limiet" to them, "vraag erom" to the rest.
+        const recipients = yield* sql<{ id: string; canSet: boolean }>`
+          select m.id, (r.id = 'owner' or (coalesce((r.specials ->> 'ai.autonomy')::boolean, false)
+                                           and coalesce((r.levels ->> 'settings')::int, 0) >= 3)) as can_set
+          from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
           where m.deactivated_at is null and m.removed_at is null
             and (r.id = 'owner' or ${
           person === null
@@ -583,6 +588,7 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
                    and coalesce((r.levels ->> 'settings')::int, 0) >= 3)`
             : sql`m.id = ${person}`
         })`
+        const setters = new Set(recipients.filter((r) => r.canSet).map((r) => r.id))
         return {
           kind: "insyte.budget",
           recipients: recipients.map((r) => r.id),
@@ -597,7 +603,8 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             name: person === null ? null : budget.name,
             usedCents: event.usedCents,
             limit: event.limit
-          }
+          },
+          dataFor: (id) => ({ canSet: setters.has(id) })
         }
       }
       default:
@@ -640,6 +647,7 @@ export const fanOut = Effect.fn("Notifications.fanOut")(function*(
   for (const member of members) {
     if (member.onlyMine === true && !(planned.direct ?? []).includes(member.id)) continue
     const on = new Set(member.channels ?? CHANNELS.filter((c) => defaults?.[c] ?? c === "app"))
+    const data = planned.dataFor === undefined ? planned.data : { ...planned.data, ...planned.dataFor(member.id) }
     let noteId: string | null = null
     if (on.has("app")) {
       noteId = mintId("note")
@@ -647,7 +655,7 @@ export const fanOut = Effect.fn("Notifications.fanOut")(function*(
                                             subject_id, actor_kind, actor_id, data)
                  values (${noteId}, ${workspaceId}, 'member', ${member.id}, ${planned.kind}, ${planned.subjectType},
                          ${planned.subjectId}, ${planned.actor === null ? null : "member"}, ${planned.actor},
-                         ${JSON.stringify(planned.data)}::jsonb)`
+                         ${JSON.stringify(data)}::jsonb)`
     }
     // E-mail goes now; push (to a browser the member allowed it on) and Slack (connected, a channel chosen) wait out
     // the member's quiet hours.
@@ -673,7 +681,7 @@ export const fanOut = Effect.fn("Notifications.fanOut")(function*(
         subjectType: planned.subjectType,
         subjectId: planned.subjectId,
         actor: planned.actor,
-        data: planned.data,
+        data,
         notBefore: channel === "email" ? null : quietUntil(now, quiet, member.timezone)
       })
     }

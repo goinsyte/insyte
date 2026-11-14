@@ -101,6 +101,15 @@ export const checkBudget = Effect.fn("Ai.checkBudget")(
 )
 
 /**
+ * The workspace's budget lock, for as long as the transaction runs. Whatever writes a reservation or a budget's row takes
+ * it before its first write (`reserve`, a call's settlement, `AiBudget.setMany` and its undo), so none holds a row
+ * another waits for while it waits for the lock: a settlement that marked its reservation first, then asked for the
+ * lock a `reserve` of the same `dedupeKey` held, would deadlock with it.
+ */
+export const lockBudgets = (sql: SqlClient.SqlClient) =>
+  sql`select pg_advisory_xact_lock(hashtextextended('ai_budget:' || app_workspace_id(), 0))`.pipe(Effect.asVoid)
+
+/**
  * The call's worst case held against the budget, under the workspace's lock so the check and the hold are one step.
  * With a `dedupeKey`, a second call for the same thing while the first is out finds it held: `busy`.
  */
@@ -111,7 +120,7 @@ export const reserve = Effect.fn("Ai.reserve")(function*(
   worstMicros: number,
   dedupeKey: string | undefined
 ) {
-  yield* sql`select pg_advisory_xact_lock(hashtextextended('ai_budget:' || app_workspace_id(), 0))`
+  yield* lockBudgets(sql)
   yield* checkBudget(sql, caller.memberId, worstMicros)
   const id = mintId("air")
   const held = yield* sql`
@@ -123,17 +132,19 @@ export const reserve = Effect.fn("Ai.reserve")(function*(
 })
 
 /**
- * The budgets a settled call carried past their warning (`warn_at_pct`, 80% unless set) or their limit this month
+ * The budgets the month's settled calls have carried past their warning (`warn_at_pct`, 80% unless set) or their limit
  * (M15 step 1): each marked (`warned_at`, `reached_at`) and said once a month, as an `ai.budget_crossed` event the
- * notifications sink turns into `insyte.budget`. A call that jumps past both says only that the limit is reached. A
- * reservation keeps a settled call inside its limit, so the limit is mostly reached when a call is refused for it
- * (`refused`, the budget that refused it): that budget is spent for this month's calls. A mark from an earlier month
- * counts as none; a new limit clears both (`AiBudget.setMany`). Under the workspace's budget lock, so two calls at once
- * say it once.
+ * notifications sink turns into `insyte.budget`. Only what was billed counts (`model_calls`, each at its day's rate), not
+ * what calls still out have reserved: those may cost far less, and a budget is not "at 80%" for a call that has not
+ * ended. A call that jumps past both says only that the limit is reached. A reservation keeps the billed sum under the
+ * limit, so a budget mostly says its limit when that was lowered below what is spent; a call refused for want of room
+ * says nothing more than it was refused. A mark from an earlier month (in the workspace's time zone) counts as none; a
+ * new limit clears both (`AiBudget.setMany`), and a mark is set only on the limit it was counted against. Run under
+ * the workspace's budget lock, so two calls at once say it once.
  */
 export const noteCrossings = Effect.fn("Ai.noteCrossings")(
-  function*(sql: SqlClient.SqlClient, memberId: string | null, refused: "workspace" | "member" | null = null) {
-    yield* sql`select pg_advisory_xact_lock(hashtextextended('ai_budget:' || app_workspace_id(), 0))`
+  function*(sql: SqlClient.SqlClient, memberId: string | null) {
+    yield* lockBudgets(sql)
     const crossed = yield* sql<{
       id: string
       memberId: string | null
@@ -142,32 +153,41 @@ export const noteCrossings = Effect.fn("Ai.noteCrossings")(
       used: string
       limitMinor: string
     }>`
-    with month as (
-      select (date_trunc('month', now() at time zone coalesce(w.timezone, 'Europe/Amsterdam'))
-              at time zone coalesce(w.timezone, 'Europe/Amsterdam')) as start
-      from workspaces w where w.id = app_workspace_id()
+    with ws as (
+      select coalesce(w.timezone, 'Europe/Amsterdam') as tz from workspaces w where w.id = app_workspace_id()
+    ),
+    month as (select (date_trunc('month', now() at time zone ws.tz) at time zone ws.tz) as start from ws),
+    billed as (
+      select m.member_id, m.cost_micros * coalesce(r.rate, 1) as micros
+      from model_calls m
+      cross join ws cross join month
+      left join lateral (
+        select f.rate from fx_rates f
+        where f.base = 'USD' and f.quote = 'EUR' and f.day <= (m.created_at at time zone ws.tz)::date
+        order by f.day desc limit 1
+      ) r on true
+      where m.workspace_id = app_workspace_id() and m.created_at >= month.start
     ),
     b as (
-      select b.id, b.member_id, b.monthly_limit_minor, ai_month_used(b.member_id) as used,
-             b.monthly_limit_minor::numeric * 10000 as limit_micros, b.warn_at_pct,
+      select b.id, b.member_id, b.monthly_limit_minor, b.warn_at_pct,
+             (select coalesce(round(sum(x.micros)), 0) from billed x
+              where b.member_id is null or x.member_id = b.member_id) as used,
+             b.monthly_limit_minor::numeric * 10000 as limit_micros,
              coalesce(b.warned_at >= month.start, false) as warned,
              coalesce(b.reached_at >= month.start, false) as was_reached
       from ai_budgets b cross join month
       where b.monthly_limit_minor > 0 and (b.member_id is null or b.member_id = ${memberId})
     ),
     hit as (
-      select b.*,
-             (b.used >= b.limit_micros
-               or (b.member_id is null and coalesce(${refused}::text, '') = 'workspace')
-               or (b.member_id is not null and coalesce(${refused}::text, '') = 'member')) as at_limit,
-             b.used * 100 >= b.limit_micros * b.warn_at_pct as at_warn
+      select b.*, b.used >= b.limit_micros as at_limit, b.used * 100 >= b.limit_micros * b.warn_at_pct as at_warn
       from b
     )
     update ai_budgets a
     set warned_at = case when hit.at_warn and not hit.warned then now() else a.warned_at end,
         reached_at = case when hit.at_limit and not hit.was_reached then now() else a.reached_at end
     from hit
-    where a.id = hit.id and ((hit.at_warn and not hit.warned) or (hit.at_limit and not hit.was_reached))
+    where a.id = hit.id and a.monthly_limit_minor = hit.monthly_limit_minor
+      and ((hit.at_warn and not hit.warned) or (hit.at_limit and not hit.was_reached))
     returning a.id, a.member_id, a.workspace_id, (hit.at_limit and not hit.was_reached) as reached, hit.used::text as used,
               hit.monthly_limit_minor::text as limit_minor`
     for (const c of crossed) {
@@ -270,10 +290,11 @@ export const call = <I, O, X>(
       const reservation = yield* inTx((sql) =>
         reserve(sql, caller, prompt.id, costOf(model.price, worst), options.dedupeKey)
       ).pipe(
-        // A budget that refuses the call is spent for this month: whoever sets the limits hears it, once.
+        // A refused call looks again at what is billed: a limit lowered below it is said now, not at the next call
+        // that is let through (none is, until the month turns).
         Effect.tapError((error) =>
           error instanceof BudgetExceeded
-            ? Effect.ignore(inTx((sql) => noteCrossings(sql, caller.memberId, error.scope)))
+            ? Effect.ignore(inTx((sql) => noteCrossings(sql, caller.memberId)))
             : Effect.void
         )
       )
@@ -299,6 +320,8 @@ export const call = <I, O, X>(
       const callId = mintId("mcl")
       yield* inTx((sql) =>
         Effect.gen(function*() {
+          // The lock before the reservation's row: see `lockBudgets`.
+          yield* lockBudgets(sql)
           yield* sql`insert into model_calls (id, workspace_id, member_id, principal_kind, purpose, prompt_id,
                                               prompt_version, provider, model, input_tokens, output_tokens,
                                               cached_tokens, cache_write_tokens, cost_micros, latency_ms, outcome,

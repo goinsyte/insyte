@@ -66,6 +66,9 @@ const snapshot = (budgets: AiBudgets, scopes: ReadonlyArray<string>): Array<Entr
 
 const apply = Effect.fn("AiBudget.apply")(function*(sql: SqlClient.SqlClient, entries: ReadonlyArray<Entry>) {
   const principal = yield* CurrentPrincipal
+  // The workspace's budget lock first, as a model call's settlement takes it (`ai/use-cases/call.ts`, `lockBudgets`):
+  // a call that counted against the old limit cannot then mark the new one as warned.
+  yield* sql`select pg_advisory_xact_lock(hashtextextended('ai_budget:' || app_workspace_id(), 0))`
   for (const e of entries) {
     const member = e.scope === "workspace" ? null : e.scope
     const minor = e.limit === null ? null : e.limit * 100
