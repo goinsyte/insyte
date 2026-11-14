@@ -55,6 +55,8 @@ export function ProductsPage() {
 	   the list, the product page and the low-stock advice say the same thing (the host's `rowOf`). */
   const rows = useMemo<Array<Row>>(() => products.map((p, i) => source.rowOf(p, i)), [products, source.rowOf])
   const standing = useMemo(() => source.standing(rows), [rows, source.standing])
+  // None at all: the area's empty state. A host that pages says so for every page.
+  const none = source.paging === undefined ? products.length === 0 : source.paging.all === 0
 
   const columns = useMemo<Array<ColumnDef<Row, unknown>>>(
     () => [
@@ -226,7 +228,7 @@ export function ProductsPage() {
           (
             <>
               {LowStock ? <LowStock products={products as Product[]} /> : null}
-              {!loading && products.length === 0 ?
+              {!loading && none ?
                 <AreaEmpty area="products" action={create} starts={source.starts} /> :
                 (
                   <DataTable
@@ -235,6 +237,7 @@ export function ProductsPage() {
                     loading={loading}
                     facets={source.facets}
                     actions={actions}
+                    server={source.paging}
                     noun={["product", "products"]}
                     initialVisibility={{
                       status: false,
@@ -269,7 +272,7 @@ export function ProductsPage() {
             </>
           )}
       </div>
-      {Closing ? <Closing empty={products.length === 0} /> : null}
+      {Closing ? <Closing empty={none} /> : null}
 
       {Margin
         ? <Margin open={margining !== null} onOpenChange={(v) => !v && setMargining(null)} picked={margining ?? []} />

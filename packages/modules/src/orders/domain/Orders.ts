@@ -169,6 +169,10 @@ export class OrderPage extends Schema.Class<OrderPage>("orders/OrderPage")({
   nextCursor: Schema.NullOr(Schema.String),
   counts: Schema.Struct({
     total: Schema.Int,
-    status: Schema.Record(Schema.String, Schema.Int)
+    status: Schema.Record(Schema.String, Schema.Int),
+    /** Per state as the list's Status shows it: a delayed order is `delayed` rather than its status. */
+    state: Schema.Record(Schema.String, Schema.Int),
+    /** The open orders marked delayed (not cancelled or refunded). */
+    delayed: Schema.Int
   })
 }) {}

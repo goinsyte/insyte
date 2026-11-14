@@ -34,7 +34,9 @@ describe("the commerce lists", () => {
     expect(first.rows.map((o) => o.number)).toEqual(["#1005", "#1004"])
     expect(first.counts).toEqual({
       total: 5,
-      status: { paid: 1, delivered: 1, shipped: 1, refunded: 1, cancelled: 1 }
+      status: { paid: 1, delivered: 1, shipped: 1, refunded: 1, cancelled: 1 },
+      state: { paid: 1, delivered: 1, shipped: 1, refunded: 1, cancelled: 1 },
+      delayed: 0
     })
     const second = ok(await rpc("Orders.list", { limit: 2, cursor: first.nextCursor! }, store.cookie))
     expect(second.rows.map((o) => o.number)).toEqual(["#1003", "#1002"])

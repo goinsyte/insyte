@@ -1,12 +1,19 @@
-import type { ProductPage, ProductRow as ServerRow } from "@insyte/modules/products/domain/Products"
+import { useAtomValue } from "@effect/atom-react"
+import type { ProductPage, ProductRow as ServerRow, ProductSummary } from "@insyte/modules/products/domain/Products"
 import { copyLines, counted, exportCsv } from "@insyte/ui/app/lib/bulk-io"
 import { marginOf } from "@insyte/ui/app/lib/catalog"
 import { formatCurrency } from "@insyte/ui/app/lib/format"
+import { firstQuery, type ServerList } from "@insyte/ui/app/lib/server-query"
 import type { Currency, Product } from "@insyte/ui/app/lib/types/domain"
 import type { ProductRow, ProductsSource } from "@insyte/ui/app/products/source"
-import type { Facet } from "@insyte/ui/app/table/data-table"
+import { type Facet, PAGE_ROWS } from "@insyte/ui/app/table/data-table"
 import { Archive, BadgePercent, Check, Copy, Download, Edit3, Truck } from "@insyte/ui/icons"
+import { Option } from "effect"
+import { AsyncResult } from "effect/reactivity"
 import { useMemo } from "react"
+import { firstInput, usePaged } from "../data/paged.ts"
+import { productsPageAtom } from "../data/products.ts"
+import { suppliersAtom } from "../data/suppliers.ts"
 import { useProductCommands } from "./product-writes.ts"
 import { useRestock } from "./restock.ts"
 
@@ -22,7 +29,57 @@ import { useRestock } from "./restock.ts"
  * The Aandacht flags are the server's (`Products.list`'s `attention`), drawn as the panel's badges count them and as a
  * cut pages them (`products/use-cases/attention.ts`). "Bijbestelling aanvragen" files a restock ticket per product
  * that runs low (`restock.ts`) where the role may open tickets.
+ *
+ * The list pages on the server (W3.1): the table's filter (the Aandacht cuts too, as the flags' `yes`/`no`), search,
+ * order and page as `Products.list`'s input (`PRODUCTS_LIST`). Which columns have figures, and the line beside the title,
+ * are the catalogue's as a whole (the first page's `summary`); "Gem. levertijd" and "Beoordeling" are not filtered or
+ * sorted on the server.
  */
+
+const FLAG = { values: { ja: "yes", nee: "no" } } as const
+
+/** The products table's columns as `Products.list` filters and sorts them (`PRODUCT_FIELDS`, `PRODUCT_SORTS`). */
+const PRODUCTS_LIST: ServerList = {
+  fields: {
+    status: "status",
+    returnHigh: { field: "return_high", ...FLAG },
+    complaints: { field: "open_complaints", ...FLAG },
+    checkRunning: { field: "check_running", ...FLAG },
+    product: "product",
+    category: { field: "product_type", blank: "Overig" },
+    cogs: "cost",
+    price: "price",
+    margin: "margin",
+    stock: "stock",
+    supplier: { field: "supplier_name", blank: "—" }
+  },
+  sorts: {
+    product: "title",
+    category: "product_type",
+    cogs: "cost",
+    price: "price",
+    margin: "margin",
+    stock: "stock",
+    supplier: "supplier_name"
+  }
+}
+
+/** The first page, by title as the screen's table first asks for it: what the route reads ahead. */
+export const FIRST_PRODUCTS = firstInput(firstQuery(null, PAGE_ROWS), PRODUCTS_LIST)
+
+const FILTERABLE: ReadonlySet<string> = new Set(Object.keys(PRODUCTS_LIST.fields))
+const SORTABLE: ReadonlySet<string> = new Set(Object.keys(PRODUCTS_LIST.sorts))
+const NO_SUMMARY: ProductSummary = {
+  products: 0,
+  restock: 0,
+  margin: 0,
+  shelfMinor: 0,
+  currency: "EUR",
+  stocked: false,
+  costed: false,
+  supplied: false,
+  delivered: false
+}
 
 const STOCK_FACET: Facet = {
   id: "stock",
@@ -139,36 +196,33 @@ const actionsOf = (
 const QUIET = { returnHigh: false, complaints: 0, checkRunning: false }
 
 /**
- * The line beside the title, as the design writes it, with what the server holds: how many need restocking once stock
- * is known, the average margin once a cost is, and what the stock on hand cost to buy once both are.
+ * The line beside the title, as the design writes it, with what the server holds over the whole catalogue: how many
+ * need restocking once stock is known, the average margin once a cost is, and what the stock on hand cost to buy once
+ * both are.
  */
-const standingOf =
-  (stocked: boolean, costed: boolean, unitsOf: (id: string) => number) => (rows: ReadonlyArray<ProductRow>) => {
-    if (rows.length === 0) return undefined
-    const parts = [`${rows.length} ${rows.length === 1 ? "product" : "producten"}`]
-    if (stocked) {
-      parts.push(`${rows.filter((p) => p.stock === "low" || p.stock === "out").length} moeten worden bijbesteld`)
-    }
-    if (costed) {
-      parts.push(`${Math.round((rows.reduce((s, p) => s + p.margin, 0) / rows.length) * 100)}% gemiddelde marge`)
-    }
-    if (stocked && costed) {
-      const value = rows.reduce((s, p) => s + (p.cost ?? 0) * unitsOf(p.id), 0)
-      parts.push(`${formatCurrency(value, rows[0]?.currency)} op de plank`)
-    }
-    return parts.join(" · ")
+const standingOf = (summary: ProductSummary) => () => {
+  if (summary.products === 0) return undefined
+  const parts = [`${summary.products} ${summary.products === 1 ? "product" : "producten"}`]
+  if (summary.stocked) parts.push(`${summary.restock} moeten worden bijbesteld`)
+  if (summary.costed) parts.push(`${Math.round(summary.margin * 100)}% gemiddelde marge`)
+  if (summary.stocked && summary.costed) {
+    parts.push(`${formatCurrency(summary.shelfMinor / 100, summary.currency as Currency)} op de plank`)
   }
+  return parts.join(" · ")
+}
 
-/** `open` is the route's: it navigates to the product over the list. */
-export function useConsoleProductsSource(page: ProductPage, open: (product: Product) => void): ProductsSource {
+/** `first` is the route's first page (`FIRST_PRODUCTS`); `open` navigates to the product over the list. */
+export function useConsoleProductsSource(first: ProductPage, open: (product: Product) => void): ProductsSource {
+  const { page, current, fetching, failed, retry, onQuery } = usePaged(productsPageAtom, {
+    input: FIRST_PRODUCTS,
+    page: first
+  }, PRODUCTS_LIST)
   const products = useMemo(() => page.rows.map(productOf), [page.rows])
   const server = useMemo(() => new Map(page.rows.map((p) => [p.id, p])), [page.rows])
   const commands = useProductCommands()
   const restock = useRestock()
-  const costed = page.rows.some((p) => p.costMinor !== null)
-  const supplied = page.rows.some((p) => p.supplierId !== null)
-  const stocked = page.rows.some((p) => p.stock !== null)
-  const delivered = page.rows.some((p) => p.avgDeliveryDays !== null)
+  const summary = first.summary ?? NO_SUMMARY
+  const { costed, supplied, stocked, delivered } = summary
   const hidden = [
     ...(stocked ? [] : ["stock"]),
     ...(supplied ? [] : ["supplier"]),
@@ -176,14 +230,34 @@ export function useConsoleProductsSource(page: ProductPage, open: (product: Prod
     "feedback",
     ...(costed ? [] : ["margin"])
   ]
-  const suppliers = [...new Set(page.rows.flatMap((p) => p.supplierName === null ? [] : [p.supplierName]))]
-    .toSorted((a, b) => a.localeCompare(b, "nl"))
+  // Every supplier where the role may see them, else the ones on this page.
+  const known = Option.getOrUndefined(AsyncResult.value(useAtomValue(suppliersAtom)))
+  const suppliers = [
+    ...new Set([
+      ...(known?.rows ?? []).map((s) => s.name),
+      ...page.rows.flatMap((p) => p.supplierName === null ? [] : [p.supplierName])
+    ])
+  ].toSorted((a, b) => a.localeCompare(b, "nl"))
   const facets: Array<Facet> = [
     ...(stocked ? [STOCK_FACET] : []),
     ...(supplied
       ? [{ id: "supplier", label: "Leverancier", options: suppliers.map((name) => ({ value: name, label: name })) }]
       : [])
   ]
+  const status = page.counts.status
+  const paging = useMemo(() => ({
+    total: page.counts.total,
+    all: summary.products,
+    // Only the page read for what the table asks now hands on its cursor.
+    next: current ? page.nextCursor : null,
+    fetching,
+    failed,
+    retry,
+    filterable: FILTERABLE,
+    sortable: SORTABLE,
+    counts: (field: string) => (field === "status" ? new Map(Object.entries(status)) : undefined),
+    onQuery
+  }), [page.counts.total, summary.products, page.nextCursor, current, fetching, failed, retry, status, onQuery])
   return {
     products,
     loading: false,
@@ -200,7 +274,7 @@ export function useConsoleProductsSource(page: ProductPage, open: (product: Prod
         sku: row?.sku ?? "—"
       }
     },
-    standing: standingOf(stocked, costed, (id) => Math.max(0, server.get(id)?.available ?? 0)),
+    standing: standingOf(summary),
     attentionOf: (p) => server.get(p.id)?.attention ?? QUIET,
     facets,
     hidden,
@@ -208,6 +282,7 @@ export function useConsoleProductsSource(page: ProductPage, open: (product: Prod
     canCreate: { ok: false, reason: "Producten toevoegen kan hier nog niet" },
     currencyOf: (p) => p.currency,
     categories: false,
-    open
+    open,
+    paging
   }
 }

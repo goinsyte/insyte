@@ -5,16 +5,26 @@ import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import type { ListInput } from "../../shared/domain/Filter.ts"
 import { likePattern, SearchHit } from "../../shared/domain/Search.ts"
-import { compileFilter, decodeCursor, encodeCursor, type Whitelist } from "../../shared/tables/FilterSql.ts"
+import { compileFilter, keyset, type Sorts, type Whitelist } from "../../shared/tables/FilterSql.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import { OrderDetail, OrderPage, OrderRow } from "../domain/Orders.ts"
 
 /*
- * `Orders.list` and `Orders.get` (M6.4): at `orders` Bekijken, inside the role's stores. Newest first, keyset on
- * `(placed_at, id)`; the search matches the number, the customer's name and address; the filter is the list's
- * whitelist below. Counts: the total under the filter and search, and per status under the search alone (the
- * status facet).
+ * `Orders.list` and `Orders.get` (M6.4): at `orders` Bekijken, inside the role's stores. Newest first unless sorted
+ * (`ORDER_SORTS`), keyset on the sort key and the id; the search matches the number, the customer's name and address;
+ * the filter is the list's whitelist below. Counts: the total under the filter and search; under the search alone, per
+ * status, per state (the list's Status facet, where a delayed order is `delayed`), and the open orders marked delayed.
  */
+
+/** An order's state as the list's Status shows it: `delayed` once marked delayed, else its status. */
+const STATE = "case when o.delayed_at is not null then 'delayed' else o.status end"
+
+/** The suppliers its forwarding legs not called off went or go to, by name (M8.2). */
+const SUPPLIERS = `select s.name from suppliers s where s.id in (select f.supplier_id from forwarding_items f
+                     where f.order_id = o.id and f.state <> 'cancelled')`
+
+const LINE_COUNT = "(select count(*) from order_lines l where l.order_id = o.id)"
+const STORE_NAME = "(select s.name from stores s where s.id = o.store_id)"
 
 export const ORDER_FIELDS: Whitelist = {
   status: { column: "o.status", type: "option" },
@@ -27,7 +37,34 @@ export const ORDER_FIELDS: Whitelist = {
   customer_email: { column: "o.customer_email", type: "text" },
   total: { column: "o.total_minor", type: "number", scale: 100 },
   placed_at: { column: "o.placed_at", type: "date" },
-  tags: { column: "o.tags", type: "tags" }
+  tags: { column: "o.tags", type: "tags" },
+  // What the console's columns read (widgets/03): the state, the store and suppliers by name, the line count, the tags
+  // as text.
+  state: { column: STATE, type: "option" },
+  store_name: { column: STORE_NAME, type: "option" },
+  supplier: { column: `array(${SUPPLIERS})`, type: "tags" },
+  line_count: { column: LINE_COUNT, type: "number" },
+  tag_text: { column: "array_to_string(o.tags, ', ')", type: "text" }
+}
+
+/** What the list sorts by; the number reads as a number ("#999" before "#1000"). */
+export const ORDER_SORTS: Sorts = {
+  fields: {
+    placed_at: { column: "o.placed_at", type: "date", required: true },
+    number: {
+      column: "lpad(regexp_replace(o.number, '\\D', '', 'g'), 20, '0') || o.number",
+      type: "text",
+      required: true
+    },
+    customer_name: { column: "o.customer_name", type: "text" },
+    store_name: { column: STORE_NAME, type: "text" },
+    line_count: { column: LINE_COUNT, type: "number", required: true },
+    total: { column: "o.total_minor", type: "number", required: true },
+    state: { column: STATE, type: "text", required: true },
+    supplier: { column: `(select string_agg(x.name, ', ' order by x.name) from (${SUPPLIERS}) x)`, type: "text" }
+  },
+  default: { field: "placed_at", desc: true },
+  id: "o.id"
 }
 
 export interface Row {
@@ -118,29 +155,39 @@ export const list = Effect.fn("Orders.list")(function*(input: ListInput) {
   yield* Policy.require("orders", 1)
   const db = yield* Db
   const limit = input.limit ?? 50
-  const after = yield* decodeCursor(input.cursor)
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const scope = yield* inScope(sql, "o.store_id", input.storeId)
       const filter = yield* compileFilter(sql, input.filter, ORDER_FIELDS)
+      const order = yield* keyset(sql, input, ORDER_SORTS)
       const search = searchOf(sql, input.q)
-      const page = after === undefined
-        ? sql`true`
-        : sql`(o.placed_at, o.id) < (${new Date(Number(after[0]))}, ${String(after[1])})`
-      const rows = yield* sql<Row>`
-        select ${sql.literal(SELECT)} from orders o
-        where ${scope} and ${filter} and ${search} and ${page}
-        order by o.placed_at desc, o.id desc limit ${limit + 1}`
+      const rows = yield* sql<Row & { sortKey: string }>`
+        select ${sql.literal(SELECT)}, ${order.key} from orders o
+        where ${scope} and ${filter} and ${search} and ${order.after}
+        ${order.order} limit ${limit + 1}`
       const [total] = yield* sql<{ n: number }>`
         select count(*)::int as n from orders o where ${scope} and ${filter} and ${search}`
-      const facets = yield* sql<{ status: string; n: number }>`
-        select o.status, count(*)::int as n from orders o where ${scope} and ${search} group by o.status`
+      const facets = yield* sql<{ status: string; delayed: boolean; n: number }>`
+        select o.status, o.delayed_at is not null as delayed, count(*)::int as n from orders o
+        where ${scope} and ${search} group by 1, 2`
+      const tally = (key: (f: (typeof facets)[number]) => string) => {
+        const out: Record<string, number> = {}
+        for (const f of facets) out[key(f)] = (out[key(f)] ?? 0) + f.n
+        return out
+      }
       const shown = rows.slice(0, limit)
       const last = shown.at(-1)
       return new OrderPage({
         rows: shown.map(toRow),
-        nextCursor: rows.length > limit && last !== undefined ? encodeCursor([last.placedAt.getTime(), last.id]) : null,
-        counts: { total: total?.n ?? 0, status: Object.fromEntries(facets.map((f) => [f.status, f.n])) }
+        nextCursor: rows.length > limit && last !== undefined ? order.cursorOf(last) : null,
+        counts: {
+          total: total?.n ?? 0,
+          status: tally((f) => f.status),
+          state: tally((f) => (f.delayed ? "delayed" : f.status)),
+          delayed: facets
+            .filter((f) => f.delayed && f.status !== "cancelled" && f.status !== "refunded")
+            .reduce((n, f) => n + f.n, 0)
+        }
       })
     })
   )

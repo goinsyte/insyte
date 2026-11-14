@@ -2,9 +2,10 @@ import { Db } from "@insyte/database/Db"
 import { NotFound } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
 import { Effect } from "effect"
-import type { SqlClient } from "effect/sql"
+import type { SqlClient, Statement } from "effect/sql"
+import type { FilterGroup, FilterNode } from "../../shared/domain/Filter.ts"
 import { likePattern, SearchHit } from "../../shared/domain/Search.ts"
-import { compileFilter, decodeCursor, encodeCursor, type Whitelist } from "../../shared/tables/FilterSql.ts"
+import { compileFilter, keyset, mentions, type Sorts, type Whitelist } from "../../shared/tables/FilterSql.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import {
   levelOf,
@@ -17,13 +18,15 @@ import {
   type ProductListInput,
   ProductPage,
   ProductRow,
+  type ProductSummary,
   VARIANT_UNITS
 } from "../domain/Products.ts"
 import { ATTENTION, attentionOf, attentionSets } from "./attention.ts"
 
 /*
- * `Products.list` and `Products.get` (M6.4): at `products` Bekijken, inside the role's stores. By title, keyset on
- * `(lower(title), id)`; the search matches the title, the handle and a variant's SKU.
+ * `Products.list` and `Products.get` (M6.4): at `products` Bekijken, inside the role's stores. By title unless sorted
+ * (`PRODUCT_SORTS`), keyset on the sort key and the id; the search matches the title, the handle and a variant's SKU.
+ * The first page also says what the catalogue as a whole holds (`ProductSummary`).
  *
  * Stock is Shopify's count (the import's, then `inventory_levels/update`), over the variants Shopify tracks and that
  * have a count: each location at nothing or more (a negative count is an oversell, not stock), summed. A product's
@@ -40,13 +43,59 @@ const RECENT_LINES = 60
 /** An order still open after this many days is not counted as open by the low-stock list. */
 const OPEN_DAYS = 90
 
+const SKU = "(select v.sku from variants v where v.product_id = p.id and v.sku is not null order by v.position limit 1)"
+const PRICE = "(select min(v.price_minor) from variants v where v.product_id = p.id)"
+const SUPPLIER = `(select x.name from product_supply ps join suppliers x on x.id = ps.supplier_id
+                    where ps.product_id = p.id and ps.is_primary)`
+/**
+ * The margin over the cost price as a fraction of the lowest price; none without a cost or a price. Numeric, so its
+ * text in a cursor is the exact value, not a float's rounding of it.
+ */
+const MARGIN = `case when p.cost_minor is null or coalesce(${PRICE}, 0) <= 0 then 0::numeric
+                  else (${PRICE} - p.cost_minor)::numeric / ${PRICE} end`
+/** The stock level as `levelOf` reads it; null without a counted variant. */
+const STOCK = `(select case when sum(u.units) is null or min(u.units) is null then null
+                            when sum(u.units) <= 0 then 'out' when min(u.units) <= ${LOW_STOCK} then 'low'
+                            else 'available' end
+                from (${VARIANT_UNITS}) u)`
+/** An Aandacht cut as `yes` or `no`, inside a statement that starts with `attentionSets`. */
+const flag = (cut: string) => `case when ${cut} then 'yes' else 'no' end`
+const ATTENTION_FIELDS = ["return_high", "open_complaints", "check_running"]
+
 export const PRODUCT_FIELDS: Whitelist = {
   status: { column: "p.status", type: "option" },
   store_id: { column: "p.store_id", type: "option" },
   vendor: { column: "p.vendor", type: "option" },
   product_type: { column: "p.product_type", type: "option" },
   title: { column: "p.title", type: "text" },
-  tags: { column: "p.tags", type: "tags" }
+  tags: { column: "p.tags", type: "tags" },
+  // What the console's columns read (widgets/03): the title with the first SKU, the figures, the stock level, the
+  // primary supplier, and the Aandacht cuts as `yes` or `no`.
+  product: { column: `p.title || ' ' || coalesce(${SKU}, '—')`, type: "text" },
+  cost: { column: "p.cost_minor", type: "number", scale: 100 },
+  price: { column: `coalesce(${PRICE}, 0)`, type: "number", scale: 100 },
+  // A fraction, as the column holds it ("0.3"), compared to the hundredth of a percent.
+  margin: { column: `round((${MARGIN}) * 10000)`, type: "number", scale: 10000 },
+  stock: { column: STOCK, type: "option" },
+  supplier_name: { column: SUPPLIER, type: "option" },
+  return_high: { column: flag(ATTENTION.returns), type: "option" },
+  open_complaints: { column: flag(ATTENTION.complaints), type: "option" },
+  check_running: { column: flag(ATTENTION.checks), type: "option" }
+}
+
+/** What the list sorts by. */
+export const PRODUCT_SORTS: Sorts = {
+  fields: {
+    title: { column: "p.title", type: "text", required: true },
+    product_type: { column: "p.product_type", type: "text" },
+    cost: { column: "p.cost_minor", type: "number" },
+    price: { column: PRICE, type: "number" },
+    margin: { column: MARGIN, type: "number", required: true },
+    stock: { column: STOCK, type: "text" },
+    supplier_name: { column: SUPPLIER, type: "text" }
+  },
+  default: { field: "title", desc: false },
+  id: "p.id"
 }
 
 export interface Row {
@@ -159,24 +208,22 @@ export const list = Effect.fn("Products.list")(function*(input: ProductListInput
   yield* Policy.require("products", 1)
   const db = yield* Db
   const limit = input.limit ?? 50
-  const after = yield* decodeCursor(input.cursor)
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const scope = yield* inScope(sql, "p.store_id", input.storeId)
       const filter = yield* compileFilter(sql, input.filter, PRODUCT_FIELDS)
+      const order = yield* keyset(sql, input, PRODUCT_SORTS)
       const search = searchOf(sql, input.q)
-      // One Aandacht cut, as the panel counts it: the statement starts with the cuts' sets, and keeps only its own.
+      // One Aandacht cut, as the panel counts it: the statement starts with the cuts' sets, and keeps only its own. A
+      // filter on a cut's flag reads the same sets.
       const cut = input.attention === undefined ? undefined : ATTENTION[input.attention]
-      const sets = cut === undefined ? sql`` : yield* attentionSets(sql)
+      const sets = cut === undefined && !mentions(input.filter, ATTENTION_FIELDS) ? sql`` : yield* attentionSets(sql)
       const attention = cut === undefined ? sql`true` : sql.literal(cut)
-      const page = after === undefined
-        ? sql`true`
-        : sql`(lower(p.title), p.id) > (${String(after[0])}, ${String(after[1])})`
-      const rows = yield* sql<Row>`
+      const rows = yield* sql<Row & { sortKey: string }>`
         ${sets}
-        select ${sql.literal(SELECT)} from products p join stores s on s.id = p.store_id
-        where ${scope} and ${filter} and ${search} and ${attention} and ${page}
-        order by lower(p.title), p.id limit ${limit + 1}`
+        select ${sql.literal(SELECT)}, ${order.key} from products p join stores s on s.id = p.store_id
+        where ${scope} and ${filter} and ${search} and ${attention} and ${order.after}
+        ${order.order} limit ${limit + 1}`
       const [total] = yield* sql<{ n: number }>`
         ${sets}
         select count(*)::int as n from products p where ${scope} and ${filter} and ${search} and ${attention}`
@@ -192,14 +239,74 @@ export const list = Effect.fn("Products.list")(function*(input: ProductListInput
           const a = flags.get(r.id)
           return a === undefined ? row : new ProductRow({ ...row, attention: a })
         }),
-        nextCursor: rows.length > limit && last !== undefined
-          ? encodeCursor([last.title.toLowerCase(), last.id])
-          : null,
-        counts: { total: total?.n ?? 0, status: Object.fromEntries(facets.map((f) => [f.status, f.n])) }
+        nextCursor: rows.length > limit && last !== undefined ? order.cursorOf(last) : null,
+        counts: { total: total?.n ?? 0, status: Object.fromEntries(facets.map((f) => [f.status, f.n])) },
+        summary: wholeFirstPage(input)
+          ? yield* summaryOf(sql, scope, yield* inScope(sql, "f.store_id", input.storeId))
+          : null
       })
     })
   )
 })
+
+/**
+ * Whether this page is the list's first with nothing chosen (no filter, search, cut or order of its own): the one page
+ * whose summary the console shows, so the only one that pays for it.
+ */
+const wholeFirstPage = (input: ProductListInput) =>
+  input.cursor === undefined && (input.q ?? "").trim() === "" && input.attention === undefined &&
+  (input.sort === undefined ||
+    (input.sort.field === PRODUCT_SORTS.default.field && input.sort.desc === PRODUCT_SORTS.default.desc)) &&
+  (input.filter === undefined || !hasRule(input.filter))
+
+const hasRule = (node: FilterNode): boolean =>
+  node.kind === "rule" ? true : (node as FilterGroup).children.some(hasRule)
+
+/**
+ * The catalogue as a whole inside the scope: the list's header line and which of its columns have figures. Whether any
+ * order of it was delivered starts from the delivered parcels (`fulfilments_delivered`), so it stops at the first.
+ */
+const summaryOf = (sql: SqlClient.SqlClient, scope: Statement.Fragment, parcels: Statement.Fragment) =>
+  Effect.gen(function*() {
+    const [row] = yield* sql<{
+      products: number
+      restock: number
+      margin: number | null
+      shelfMinor: string | null
+      currency: string | null
+      stocked: boolean
+      costed: boolean
+      supplied: boolean
+    }>`
+      select count(*)::int as products,
+             count(*) filter (where x.stock in ('low', 'out'))::int as restock,
+             avg(x.margin)::float8 as margin,
+             sum(coalesce(x.cost_minor, 0) * greatest(coalesce(x.available, 0), 0))::bigint as shelf_minor,
+             min(x.currency) as currency,
+             bool_or(x.stock is not null) as stocked,
+             bool_or(x.cost_minor is not null) as costed,
+             bool_or(x.supplied) as supplied
+      from (select ${sql.literal(STOCK)} as stock, ${sql.literal(MARGIN)} as margin, p.cost_minor, s.currency,
+                   (select sum(u.units) from (${sql.literal(VARIANT_UNITS)}) u) as available,
+                   exists (select 1 from product_supply ps where ps.product_id = p.id and ps.is_primary) as supplied
+            from products p join stores s on s.id = p.store_id where ${scope}) x`
+    const [delivered] = yield* sql<{ any: boolean }>`
+      select exists (
+        select 1 from fulfilments f join order_lines l on l.order_id = f.order_id
+        join products p on p.id = l.product_id
+        where ${parcels} and f.delivered_at is not null and ${scope}) as any`
+    return {
+      products: row?.products ?? 0,
+      restock: row?.restock ?? 0,
+      margin: row?.margin ?? 0,
+      shelfMinor: Number(row?.shelfMinor ?? 0),
+      currency: row?.currency ?? "EUR",
+      stocked: row?.stocked ?? false,
+      costed: row?.costed ?? false,
+      supplied: row?.supplied ?? false,
+      delivered: delivered?.any ?? false
+    } satisfies ProductSummary
+  })
 
 /**
  * The panel's counts alone, for the frame (ADR-0028): the principal's products per status, as the list's facets count

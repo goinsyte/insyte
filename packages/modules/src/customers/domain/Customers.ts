@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { FulfillmentStatus, PaymentStatus } from "../../orders/domain/Orders.ts"
+import { ListInput } from "../../shared/domain/Filter.ts"
 
 /*
  * Klanten (M6.4; domain.md §4.2): the mirror's customers, their order count and value as Shopify keeps them, with the
@@ -59,8 +60,27 @@ export const NEW_UP_TO_ORDERS = 2
 export const CustomerCounts = Schema.Struct({ new: Schema.Int, returning: Schema.Int })
 export type CustomerCounts = typeof CustomerCounts.Type
 
+/**
+ * `Customers.list`: the list's input, and the profiles the console shows as duplicates (`Customers.duplicates`), which
+ * its Status counts apart from new and returning, as its Status filter does.
+ */
+export const CustomerListInput = Schema.Struct({
+  ...ListInput.fields,
+  duplicates: Schema.optional(Schema.Array(Schema.String).check(Schema.isMaxLength(20000)))
+})
+export type CustomerListInput = typeof CustomerListInput.Type
+
 export class CustomerPage extends Schema.Class<CustomerPage>("customers/CustomerPage")({
   rows: Schema.Array(CustomerRow),
   nextCursor: Schema.NullOr(Schema.String),
-  counts: Schema.Struct({ total: Schema.Int })
+  counts: Schema.Struct({
+    total: Schema.Int,
+    /**
+     * Under the search alone: the profiles new up to `NEW_UP_TO_ORDERS` orders, the returning ones after, and those of
+     * them named as `duplicates` (counted there, not as new or returning).
+     */
+    new: Schema.Int,
+    returning: Schema.Int,
+    duplicates: Schema.Int
+  })
 }) {}
