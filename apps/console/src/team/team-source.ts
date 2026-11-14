@@ -70,6 +70,11 @@ const refused = (error: unknown) => {
       })
     case "Invalid": {
       const fields = tagged["fields"] as Record<string, string>
+      if (Object.values(fields).includes("forbidden")) {
+        return void toast.error("Dat reikt verder dan jouw winkels", {
+          description: "Je kunt niemand een rol of winkels geven waar je zelf niet bij kunt."
+        })
+      }
       const reasons = [...new Set(Object.values(fields).map((r) => ADDRESS_REASONS[r] ?? r))]
       return void toast.error("Niet alles kan verstuurd worden", { description: `Een adres ${reasons.join(", ")}.` })
     }

@@ -7,6 +7,7 @@ import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import * as Proposals from "../../proposals/Proposals.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import { inScopeOrNone } from "../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import {
   BROKEN,
@@ -320,12 +321,15 @@ const rowOf = (r: Row, plates: ReadonlyMap<string, QueueRow["proposal"] & {}> = 
 /** An open plate drawn for the row: the "Getekend" tab. */
 const DRAWN = `exists (select 1 from proposals p where p.queue_item_id = q.id and p.state = 'open')`
 
-/** What the role may open: the areas it holds at Bekijken, and its stores (a row for every store is everyone's). */
+/**
+ * What the principal may open: the areas its role holds at Bekijken, and the stores it reaches (`storeScope`; a row for
+ * every store is everyone's).
+ */
 const visible = Effect.fn("Queue.visible")(function*(sql: SqlClient.SqlClient) {
   const { role } = yield* CurrentPrincipal
   const plain = { ...role, stores: role.stores === "all" ? ("all" as const) : [...role.stores] }
   const areas = AREA_IDS.filter((a) => canRole(plain, a, 1))
-  const stores = role.stores === "all" ? sql`true` : sql`(q.store_id is null or q.store_id = any(${[...role.stores]}))`
+  const stores = yield* inScopeOrNone(sql, "q.store_id")
   return sql.and([sql`q.area = any(${areas})`, stores])
 })
 

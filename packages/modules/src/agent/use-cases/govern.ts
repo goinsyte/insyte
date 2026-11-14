@@ -2,7 +2,7 @@ import { Db } from "@insyte/database/Db"
 import { AGENT_ACTION, AGENT_UNDO_SECONDS, type AgentActionId } from "@insyte/domain/AgentActions"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
-import type { SqlError } from "effect/sql"
+import type { SqlClient, SqlError } from "effect/sql"
 import type { ProposalAction } from "../../proposals/domain/Proposals.ts"
 import { proposeIn } from "../../proposals/Proposals.ts"
 import { IssuedUndo } from "../../shared/domain/Undo.ts"
@@ -63,6 +63,36 @@ const why = (reason: string | null) => {
   }
 }
 
+/** Where each store-bound subject keeps its store, as `x`. */
+const STORE_OF: Partial<Record<string, string>> = {
+  order: "orders x",
+  customer: "customers x",
+  ticket: "tickets x",
+  return: "returns x",
+  product: "products x",
+  chargeback: "chargebacks x",
+  forwarding_leg: "forwarding_items x",
+  quality_check: "(select q.id, p.store_id from quality_checks q join products p on p.id = q.product_id) x"
+}
+
+/**
+ * The store an action is about: the plan's, or else its subject's own, so the log and the plate are fenced to the
+ * stores of whoever reads them (`storeScope`). A subject of no store (a ticket without one, a new record) has none.
+ */
+const storeOf = (
+  sql: SqlClient.SqlClient,
+  storeId: string | null,
+  subject: { readonly type: string; readonly id: string } | null
+) =>
+  Effect.gen(function*() {
+    if (storeId !== null || subject === null) return storeId
+    const from = STORE_OF[subject.type]
+    if (from === undefined) return null
+    const [row] = yield* sql<{ storeId: string | null }>`
+      select x.store_id from ${sql.literal(from)} where x.id = ${subject.id}`
+    return row?.storeId ?? null
+  })
+
 const tagOf = (e: unknown) =>
   typeof e === "object" && e !== null && "_tag" in e && typeof e._tag === "string" ? e._tag : "failed"
 
@@ -73,11 +103,12 @@ export const govern = <A, E, R>(
     const principal = yield* CurrentPrincipal
     if (principal.kind !== "agent") return { _tag: "Ran" as const, value: (yield* g.run).value }
     const db = yield* Db
+    const storeId = yield* db.scoped((sql) => storeOf(sql, g.storeId, g.subject))
 
     const base = {
       action: g.action,
       input: g.ask,
-      storeId: g.storeId,
+      storeId,
       subject: g.subject,
       trigger: g.trigger,
       reason: g.reason,
@@ -134,7 +165,7 @@ export const govern = <A, E, R>(
         Effect.gen(function*() {
           const proposalId = yield* proposeIn(sql, {
             number: subject.label,
-            storeId: g.storeId,
+            storeId,
             area: AGENT_ACTION[g.action].area,
             subjectType: subject.type,
             subjectId: subject.id,
