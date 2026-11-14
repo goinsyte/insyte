@@ -102,7 +102,9 @@ function IntegrationRow({ it, source, onConnect }: { it: IntegrationItem; source
 			leading={<IntegrationMark it={it} />}
 			title={it.name}
 			detail={
-				it.status === "connected" && it.syncedAt
+				it.status === "connected" && it.attention
+					? `${it.description} · ${it.attention}`
+					: it.status === "connected" && it.syncedAt
 					? `${it.description} · gesynchroniseerd ${formatRelative(it.syncedAt)}`
 					: it.status === "action_required"
 						? `${it.description} · ${it.attention ?? "de toestemming is verlopen, dus er komen geen geschillen meer binnen"}`

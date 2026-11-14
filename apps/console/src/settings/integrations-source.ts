@@ -82,9 +82,12 @@ const itemOf = (row: Row): IntegrationItem => {
         category: "Commerce",
         status: row.status,
         ...iso(row.lastSyncedAt),
+        // A warning (a grant about to lapse, webhooks behind) is said beside Gekoppeld, in place of the last sync.
         ...(row.status === "action_required"
           ? { attention: row.note === null ? "koppel de winkel opnieuw" : after(row.note) }
-          : {}),
+          : row.note === null
+          ? {}
+          : { attention: after(row.note) }),
         manage: row.storeId === null
           ? { to: "/settings/stores" }
           : { to: "/settings/stores", search: { store: row.storeId } }

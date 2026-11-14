@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { BROKEN, findingSentence, type IncidentFacts, type IncidentKind, remedySentence, stateOf } from "./Health.ts"
 
 /*
  * Koppelingen (M6, widgets/05 §5.1): every external account the workspace has, read in one go and read only. The page
@@ -6,13 +7,14 @@ import { Schema } from "effect"
  * Meldingen, the inbox, E-mail en domein, Apps). Only status, names and times: never a token, a scope, a credential
  * or what the provider said about the account beyond its name.
  *
- * - `shopify`: one row per store the reader reaches (`storeScope`), with its sync health (`Health.ts`).
+ * - `shopify`: one row per store the reader reaches (`storeScope`), with its sync health (`Health.ts`); none for a
+ *   reader held to some stores who reaches none.
  * - `forward` (and later `gmail`, `outlook`): one row per connected mailbox. Mailboxes belong to the workspace, not to
  *   a store.
  * - `klaviyo`, `slack`, `resend` (the sending domain), `anthropic` (Insyte AI on this stage): one row each.
  *
- * A provider with nothing connected is one row of `status: "disconnected"` and `id` its own name, so the page can offer
- * the way to connect it.
+ * Any other provider with nothing connected is one row of `status: "disconnected"` and `id` its own name, so the page
+ * can offer the way to connect it.
  */
 
 export const ConnectionProvider = Schema.Literals([
@@ -40,12 +42,13 @@ export class ConnectionRow extends Schema.Class<ConnectionRow>("stores/Connectio
   account: Schema.NullOr(Schema.String),
   status: ConnectionStatus,
   /**
-   * Why it needs attention, as a code: Shopify's worst open incident (`Health.ts`) or `action_required`; `revoked`,
-   * `token_expired` or `scope_missing` for Klaviyo and Slack; `unverified` for a domain not seen verified yet; `off`
-   * for Insyte AI not switched on on this stage. `null` when nothing is the matter.
+   * Why it needs attention, as a code: `action_required` for a store Shopify asks to connect again, else its worst open
+   * incident (`Health.ts`), a warning too while the store still reads as connected; `token_expired` or `scope_missing`
+   * for Klaviyo and Slack; `unverified` for a domain not verified at Resend as last read; `off` for Insyte AI not
+   * switched on on this stage. `null` when nothing is the matter.
    */
   reason: Schema.NullOr(Schema.String),
-  /** The finding in a sentence where the module has one (a store's sync); `null` otherwise. */
+  /** What a store's sync found, or what to do about it, in the module's sentence; `null` otherwise. */
   note: Schema.NullOr(Schema.String),
   /** When Insyte last read it through, epoch milliseconds; `null` when it never did or does not sync. */
   lastSyncedAt: Schema.NullOr(Schema.Finite)
@@ -55,7 +58,10 @@ export class ConnectionList extends Schema.Class<ConnectionList>("stores/Connect
   connections: Schema.Array(ConnectionRow)
 }) {}
 
-/** A Klaviyo or Slack connection's stored status in the page's terms, with the reason where it needs action. */
+/**
+ * A Klaviyo or Slack connection's stored status in the page's terms, with the reason where it needs action. The list
+ * passes no revoked one: it reads as none.
+ */
 export const accountStatus = (
   status: string | undefined
 ): { readonly status: ConnectionStatus; readonly reason: string | null } => {
@@ -72,4 +78,38 @@ export const accountStatus = (
     default:
       return { status: "disconnected", reason: null }
   }
+}
+
+/**
+ * A store's row, as the shell's line reads its health (`Health.line`): a store Shopify asks to connect again says so
+ * first, with what to do; otherwise its worst open incident speaks for it, the one that asks something of the operator
+ * before the newest. A warning (a grant about to lapse, webhooks behind) leaves the store connected, with its sentence.
+ */
+export const storeConnection = (
+  store: {
+    readonly storeId: string
+    readonly storeName: string
+    readonly storeStatus: string
+    readonly lastSyncedAt: number | null
+  },
+  open: ReadonlyArray<{ readonly kind: IncidentKind; readonly facts: IncidentFacts }>
+): ConnectionRow => {
+  const state = stateOf(store.storeStatus, open.map((i) => i.kind))
+  const row = {
+    provider: "shopify",
+    id: store.storeId,
+    storeId: store.storeId,
+    account: store.storeName,
+    status: state === "broken" ? "action_required" : state === "importing" ? "connecting" : "connected",
+    lastSyncedAt: store.lastSyncedAt
+  } as const
+  if (store.storeStatus === "action_required") {
+    return new ConnectionRow({ ...row, reason: "action_required", note: remedySentence("token_expired") })
+  }
+  const worst = open.find((i) => BROKEN.has(i.kind)) ?? open[0]
+  return new ConnectionRow({
+    ...row,
+    reason: worst?.kind ?? null,
+    note: worst === undefined ? null : findingSentence(worst.kind, worst.facts)
+  })
 }

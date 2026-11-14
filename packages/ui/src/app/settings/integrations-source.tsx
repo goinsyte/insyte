@@ -25,7 +25,10 @@ export interface IntegrationItem {
   status: IntegrationState
   /** When it last synced, for the connected ones. */
   syncedAt?: string
-  /** What needs doing, after the description, for one that needs action; absent: the design's sentence. */
+  /**
+   * What needs doing, after the description, for one that needs action (absent: the design's sentence); for a connected
+   * one, what Insyte is watching (a warning), in place of when it last synced.
+   */
   attention?: string
   /** Where it is managed: its button opens that page (and search) rather than acting here. */
   manage?: { to: string; search?: Record<string, string> }

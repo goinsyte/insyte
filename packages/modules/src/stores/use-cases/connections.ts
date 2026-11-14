@@ -1,10 +1,19 @@
 import { Db } from "@insyte/database/Db"
 import * as Policy from "@insyte/domain/Policy"
-import { Effect } from "effect"
+import { CurrentPrincipal } from "@insyte/domain/Principal"
+import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
+import { decodeOr } from "../../settings/domain/Check.ts"
+import { StoredDomain } from "../../settings/domain/SendingDomain.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
-import { accountStatus, ConnectionList, type ConnectionProvider, ConnectionRow } from "../domain/Connections.ts"
-import { BROKEN, findingSentence, type IncidentFacts, type IncidentKind, stateOf } from "../domain/Health.ts"
+import {
+  accountStatus,
+  ConnectionList,
+  type ConnectionProvider,
+  ConnectionRow,
+  storeConnection
+} from "../domain/Connections.ts"
+import type { IncidentFacts, IncidentKind } from "../domain/Health.ts"
 
 /*
  * `Connections.list` (M6, widgets/05 §5.1): Koppelingen's rows, at `integrations` Bekijken. Every read names its
@@ -41,9 +50,13 @@ interface OpenRow {
   readonly facts: IncidentFacts
 }
 
-/** The stores the reader reaches, each with its sync health in the page's terms. */
+/**
+ * The stores the reader reaches, each with its sync health in the page's terms (`storeConnection`). A reader held to
+ * some stores who reaches none of them gets no Shopify row: the workspace's stores are not theirs to connect.
+ */
 const shopify = (sql: SqlClient.SqlClient) =>
   Effect.gen(function*() {
+    const { storeScope } = yield* CurrentPrincipal
     const scope = yield* inScope(sql, "s.id")
     const stores = yield* sql<StoreRow>`
       select s.id as store_id, s.name as store_name, s.status as store_status, c.id as connection_id,
@@ -51,27 +64,17 @@ const shopify = (sql: SqlClient.SqlClient) =>
       from stores s join connections c on c.id = s.connection_id
       where s.status <> 'disconnected' and ${scope}
       order by s.created_at, s.id`
-    if (stores.length === 0) return [none("shopify")]
+    if (stores.length === 0) return storeScope === null ? [none("shopify")] : []
     const open = yield* sql<OpenRow>`
       select connection_id, kind, facts from connection_incidents
       where resolved_at is null and connection_id in ${sql.in(stores.map((s) => s.connectionId))}
       order by opened_at desc`
-    return stores.map((s) => {
-      const mine = open.filter((i) => i.connectionId === s.connectionId)
-      const state = stateOf(s.storeStatus, mine.map((i) => i.kind))
-      // The incident that asks something of the operator first, else the newest.
-      const worst = mine.find((i) => BROKEN.has(i.kind)) ?? mine[0]
-      return new ConnectionRow({
-        provider: "shopify",
-        id: s.storeId,
-        storeId: s.storeId,
-        account: s.storeName,
-        status: state === "broken" ? "action_required" : state === "importing" ? "connecting" : "connected",
-        reason: worst?.kind ?? (state === "broken" ? "action_required" : null),
-        note: worst === undefined ? null : findingSentence(worst.kind, worst.facts),
-        lastSyncedAt: time(s.lastSyncedAt)
-      })
-    })
+    return stores.map((s) =>
+      storeConnection(
+        { storeId: s.storeId, storeName: s.storeName, storeStatus: s.storeStatus, lastSyncedAt: time(s.lastSyncedAt) },
+        open.filter((i) => i.connectionId === s.connectionId)
+      )
+    )
   })
 
 /** The workspace's connected mailboxes; the forwarding address's row when there is none. */
@@ -95,29 +98,43 @@ const mailboxes = (sql: SqlClient.SqlClient) =>
       )
   )
 
-/** The sending domain (E-mail en domein): connected once Resend has seen it verified. */
-const sendingDomain = (sql: SqlClient.SqlClient) =>
-  Effect.map(
-    sql<{ name: string; verifiedAt: Date | null }>`select name, verified_at from sending_domains`,
-    ([d]) =>
-      d === undefined ? none("resend") : new ConnectionRow({
-        provider: "resend",
-        id: "resend",
-        storeId: null,
-        account: d.name,
-        status: d.verifiedAt === null ? "action_required" : "connected",
-        reason: d.verifiedAt === null ? "unverified" : null,
-        note: null,
-        lastSyncedAt: null
-      })
-  )
+const MaybeDomain = Schema.NullOr(StoredDomain)
+const decodeDomain = (raw: unknown) => decodeOr(MaybeDomain, raw, null)
 
-/** Klaviyo's or Slack's one account: the connected one, else the newest that still needs something. */
+/**
+ * The sending domain (E-mail en domein), as its page last read it from Resend (`domain_senders`, which
+ * `SendingDomain.get` and the daily re-check keep): connected while it is verified there. A name claimed whose domain
+ * was not made yet needs the set-up finished; `sending_domains.verified_at` only says it was verified once.
+ */
+const sendingDomain = (sql: SqlClient.SqlClient) =>
+  Effect.gen(function*() {
+    const [claim] = yield* sql<{ name: string }>`select name from sending_domains`
+    const [section] = yield* sql<{ domain: unknown }>`
+      select value -> 'domain' as domain from workspace_settings where section = 'domain_senders'`
+    const stored = section === undefined ? null : decodeDomain(section.domain)
+    if (stored === null && claim === undefined) return none("resend")
+    const verified = stored?.verified === true
+    return new ConnectionRow({
+      provider: "resend",
+      id: "resend",
+      storeId: null,
+      account: stored?.name ?? claim?.name ?? null,
+      status: verified ? "connected" : "action_required",
+      reason: verified ? null : "unverified",
+      note: null,
+      lastSyncedAt: null
+    })
+  })
+
+/**
+ * Klaviyo's or Slack's one account: the connected one, else the newest that still needs something. A revoked one is
+ * gone for good (the app was removed, or the token refused for good) and nothing lets it go, so it reads as none.
+ */
 const account = (sql: SqlClient.SqlClient, provider: "klaviyo" | "slack", name: "accountName" | "teamName") =>
   Effect.map(
     sql<{ status: string; account: string | null; lastSyncedAt: Date | null }>`
       select status, health ->> ${name} as account, last_synced_at from connections
-      where provider = ${provider} and status <> 'disconnected'
+      where provider = ${provider} and status not in ('disconnected', 'revoked')
       order by status = 'connected' desc, created_at desc limit 1`,
     ([c]) => {
       if (c === undefined) return none(provider)
