@@ -1,5 +1,5 @@
 import { Forbidden, NotFound, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
-import { AgentLogEntry, AgentLogPage } from "@insyte/modules/agent/domain/AgentLog"
+import { AgentLogEntry, AgentLogPage, type ListInput } from "@insyte/modules/agent/domain/AgentLog"
 import { AiBudgets, AutonomyPolicy } from "@insyte/modules/agent/domain/Autonomy"
 import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
@@ -57,3 +57,11 @@ export const agentWrites = {
   compensateAction: ConsoleClient.mutation("AgentLog.compensate"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const
+
+/**
+ * The rows about one record, or one action's recent rows, for the agent rows on a page (M15.6): `AgentLog.list` as
+ * JSON (`{"subjectType":"order","subjectId":"ord_…"}`), read when the page shows them.
+ */
+export const agentRowsAtom = Atom.family((input: string) =>
+  ConsoleClient.query("AgentLog.list", JSON.parse(input) as ListInput, { reactivityKeys: AGENT_LOG })
+)

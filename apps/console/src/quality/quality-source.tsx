@@ -16,6 +16,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useMemo } from "react"
 import { toast } from "sonner"
+import { ConsoleQualityAgents } from "../agent/record-rows.tsx"
 import { PRODUCTS } from "../data/products.ts"
 import { QUALITY, qualityAtom, qualityWrites } from "../data/quality.ts"
 import { TICKETS } from "../data/tickets.ts"
@@ -26,7 +27,8 @@ import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refus
  * the supplier for a check, judging what came back and the phase, each with "Ongedaan maken". The supplier answers
  * through a link the team copies from the check (mail comes later), so the screens say "link", not "portaal". A
  * rejection can open a ticket with the supplier where the role may open tickets (Klantenservice · Bewerken); the
- * verdict's Undo takes it away. The agents' plate is left out.
+ * verdict's Undo takes it away. The agents' plate is its last batch check asked, from `AgentLog.list`; the plate that
+ * proposes one is Start's.
  */
 
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -180,7 +182,8 @@ function useConsoleQualitySource(): QualitySource {
           }),
         () => toast.error("Kopiëren lukte niet", { description: url })
       )
-    }
+    },
+    Agents: ConsoleQualityAgents
   }
 }
 

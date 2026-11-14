@@ -16,6 +16,7 @@ import {
 import { Option } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { useMemo } from "react"
+import { ConsoleForwardingRecent } from "../agent/record-rows.tsx"
 import { customerDraftAtom, forwardingAtom, orderLegsAtom, orderTrackingAtom } from "../data/forwarding.ts"
 import { suppliersAtom } from "../data/suppliers.ts"
 import { useGate } from "../frame/refusals.ts"
@@ -141,7 +142,8 @@ function useConsoleForwardingSource(list: LegList): ForwardingSource {
       gate: mail,
       send: (row, subject, body) => void orders.emailCustomer(row.orderId, subject, body, row.order.customer_name),
       useDraft
-    }
+    },
+    Recent: ConsoleForwardingRecent
   }
 }
 

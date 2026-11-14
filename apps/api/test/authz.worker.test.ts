@@ -1277,6 +1277,12 @@ describe("the store fence on every surface", () => {
     expect(row).toBeDefined()
     expect((await noted(whole)).map((r) => r.id)).toEqual([row!.id])
     expect(await noted(held)).toEqual([])
+    // The order's own rows ("Wat Insyte hier deed" on its page) are fenced the same way.
+    const about = async (cookie: string) =>
+      ok(await rpc("AgentLog.list", { subjectType: "order", subjectId: order.id }, cookie)).rows.map((r) => r.id)
+    expect(await about(store.cookie)).toContain(row!.id)
+    expect(await about(whole)).toContain(row!.id)
+    expect(await about(held)).toEqual([])
     expect(ok(await rpc("AgentLog.counts", undefined, held)).total).toBe(0)
     expect(failure(await rpc("AgentLog.get", { id: row!.id }, held))).toMatchObject({ _tag: "NotFound" })
     expect(ok(await rpc("AgentLog.get", { id: row!.id }, whole)).id).toBe(row!.id)
