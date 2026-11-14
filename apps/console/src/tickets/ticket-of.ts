@@ -78,7 +78,8 @@ export const lineOf = (c: TicketComment, now: number): ActivityLine => ({
   authorId: c.author.id,
   name: c.author.name,
   initial: initialOfName(c.author.name),
-  insyte: c.author.kind === "agent" || c.kind === "ai_summary",
+  // What Insyte did or wrote on the ticket: an agent's line, a summary, the mail "Klant informeren" sent.
+  insyte: c.author.kind === "agent" || c.kind === "ai_summary" || c.kind === "email_sent",
   body: c.body,
   at: agoOf(c.createdAt, now)
 })

@@ -46,6 +46,7 @@ export class CustomerMailQueued extends Schema.Class<CustomerMailQueued>("orders
 
 /** Why an order of a selection got no track-and-trace update. */
 export const TrackingSkip = Schema.Literals(["closed", "no_tracking", "no_email", "already_told"])
+export type TrackingSkip = typeof TrackingSkip.Type
 
 /** What "Track & trace-update sturen" did: the orders told (as the list shows them), those left out and why, one undo. */
 export class TrackingSent extends Schema.Class<TrackingSent>("orders/TrackingSent")({

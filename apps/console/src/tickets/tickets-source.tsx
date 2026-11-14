@@ -12,14 +12,14 @@ import { frameAtom } from "../data/frame.ts"
 import { ticketAtom } from "../data/tickets.ts"
 import { useGate } from "../frame/refusals.ts"
 import { dueLabelOf, initialOfName, lineOf, ticketOf } from "./ticket-of.ts"
-import { type Overlay, useTicketCommands } from "./ticket-writes.ts"
+import { type Overlay, useNotifyCustomer, useTicketCommands } from "./ticket-writes.ts"
 
 /*
  * The tickets screens' source in the console (M11 step 3): `Tickets.list` as the design's tickets, `Tickets.get` for
  * the modal, the team from the frame, and the server's commands, each shown on the board at once. What the server does
- * not do yet is left out, not made up: the agents' rows (M15) and Klant informeren (a mailbox, M11 step 2). Samenvatten
- * and Antwoord voorstellen are Insyte AI's (`../ai/drafts.tsx`). Every ticket is written here by hand, so the first
- * day's page offers that.
+ * not do yet is left out, not made up: the agents' rows (M15). Klant informeren mails the shopper from the team's
+ * mailbox (`Tickets.emailCustomer`), for a role that may write to customers. Samenvatten and Antwoord voorstellen are
+ * Insyte AI's (`../ai/drafts.tsx`). Every ticket is written here by hand, so the first day's page offers that.
  */
 
 function value<A>(result: AsyncResult.AsyncResult<A, unknown>): A | undefined {
@@ -62,6 +62,7 @@ export function useConsoleTicketsSource(
   const commands = useTicketCommands(show, reset)
   const gate = useGate("support", 2)
   const drafts = useTicketDrafts()
+  const notifyCustomer = useNotifyCustomer()
   const meId = frame?.me.memberId ?? ""
 
   const people = useMemo<ReadonlyArray<TicketPerson>>(
@@ -128,6 +129,7 @@ export function useConsoleTicketsSource(
     gate,
     useTicket,
     Empty,
-    drafts
+    drafts,
+    ...(gate.ok ? { notifyCustomer } : {})
   }
 }

@@ -2,6 +2,7 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import { mintId } from "@insyte/domain/Ids"
 import { canRole } from "@insyte/domain/Permissions"
 import type { OrderChange } from "@insyte/modules/orders/domain/Commands"
+import type { TrackingSent, TrackingSkip } from "@insyte/modules/orders/domain/CustomerMail"
 import { useGateRole } from "@insyte/ui/app/access/gate-role"
 import { counted } from "@insyte/ui/app/lib/bulk-io"
 import { permissionName } from "@insyte/ui/app/lib/permissions"
@@ -35,7 +36,8 @@ const COPY: RefusalCopy = {
       "Deze bestelling is al onderweg",
       "Een bestelling met verzonden pakketten kun je niet meer zo wijzigen."
     ],
-    delivered: ["Deze bestelling is al bezorgd", "Een bezorgde bestelling markeer je niet meer als vertraagd."]
+    delivered: ["Deze bestelling is al bezorgd", "Een bezorgde bestelling markeer je niet meer als vertraagd."],
+    already_sent: ["Te laat om ongedaan te maken", "De mail is al verstuurd."]
   },
   invalid: {
     system: "Dit label zet Insyte zelf; je kunt het hier niet toevoegen of weghalen.",
@@ -55,6 +57,9 @@ const COPY: RefusalCopy = {
           description: `Er staat nog ${euros(Number(tagged["balanceMinor"]))} open op deze bestelling.`
         })
         return true
+      case "CustomerMailRefused":
+        toast.error("Geen e-mailadres", { description: "Shopify heeft geen e-mailadres voor deze klant." })
+        return true
       case "AlreadyRefunded":
         toast.error("Al terugbetaald", { description: "Er staat niets meer open op deze bestelling." })
         return true
@@ -66,8 +71,23 @@ const COPY: RefusalCopy = {
 
 const orderRefused = (error: unknown) => sayRefusal(error, COPY)
 
-/** Insyte's delay marker as the design's orders carry it. */
+/** Insyte's markers as the design's orders carry them: set by Insyte, never as a label. */
 const AT_RISK = "at_risk"
+const MARKERS: ReadonlySet<string> = new Set([AT_RISK, "tracking_sent"])
+
+/** Why orders of a selection got no track-and-trace update, in a toast's words. */
+const SKIPPED: Record<TrackingSkip, readonly [one: string, many: string]> = {
+  already_told: ["kreeg dit track & trace-nummer al", "kregen dit track & trace-nummer al"],
+  no_email: ["heeft geen e-mailadres", "hebben geen e-mailadres"],
+  no_tracking: ["heeft nog geen track & trace", "hebben nog geen track & trace"],
+  closed: ["is gesloten", "zijn gesloten"]
+}
+
+const skippedText = (skipped: TrackingSent["skipped"]) => {
+  const counts = new Map<TrackingSkip, number>()
+  for (const s of skipped) counts.set(s.reason, (counts.get(s.reason) ?? 0) + 1)
+  return [...counts].map(([reason, n]) => `${n} ${SKIPPED[reason][n === 1 ? 0 : 1]}`).join(", ")
+}
 
 /** Whether the viewer's role may, as the design's gates say it. */
 export const useOrderGate = useGate
@@ -113,6 +133,8 @@ export function useOrderCommands() {
     createTicket: useAtomSet(ticketWrites.create, { mode: "promiseExit" }),
     setNote: useAtomSet(orderWrites.setNote, { mode: "promiseExit" }),
     refund: useAtomSet(orderWrites.refund, { mode: "promiseExit" }),
+    emailCustomer: useAtomSet(orderWrites.emailCustomer, { mode: "promiseExit" }),
+    sendTrackingUpdate: useAtomSet(orderWrites.sendTrackingUpdate, { mode: "promiseExit" }),
     undo: useAtomSet(orderWrites.undo, { mode: "promiseExit" })
   }
 
@@ -133,9 +155,10 @@ export function useOrderCommands() {
   return {
     /** The order's tags as the screen wants them: what is new is added, what is gone is taken off. */
     setTags: async (order: Order, tags: ReadonlyArray<string>, message: string) => {
-      // "Vertraagd" (`at_risk`) is the order's delay, not a label: it changes through flagDelayed and clearDelay.
-      const add = tags.filter((t) => !order.tags.includes(t) && t !== AT_RISK)
-      const remove = order.tags.filter((t) => !tags.includes(t) && t !== AT_RISK)
+      // "Vertraagd" (`at_risk`) is the order's delay, not a label: it changes through flagDelayed and clearDelay. The
+      // same goes for "Track & trace verstuurd", which the track-and-trace mail sets.
+      const add = tags.filter((t) => !order.tags.includes(t) && !MARKERS.has(t))
+      const remove = order.tags.filter((t) => !tags.includes(t) && !MARKERS.has(t))
       if (add.length === 0 && remove.length === 0) return
       said(await write.tag({ payload: { ids: [order.id], add, remove }, ...keys }), message)
     },
@@ -214,6 +237,33 @@ export function useOrderCommands() {
       toast.success(`${order.number} wordt terugbetaald`, {
         description: `${euros(amountMinor)} aan ${order.customer_name}, via de oorspronkelijke betaalmethode.`
       })
+    },
+    /**
+     * "Track & trace-update sturen": each order's shopper is mailed its newest parcel, once per tracking number. The mails
+     * wait out the undo window; what was left out says why.
+     */
+    sendTrackingUpdate: async (rows: ReadonlyArray<Order>) => {
+      const exit = await write.sendTrackingUpdate({ payload: { ids: rows.map((o) => o.id) }, ...keys })
+      if (Exit.isFailure(exit)) return orderRefused(failureOf(exit))
+      const { orders, skipped, undo: ticket } = exit.value
+      const why = skipped.length === 0 ? undefined : `Overgeslagen: ${skippedText(skipped)}.`
+      if (orders.length === 0 || ticket === null) {
+        return void toast.error("Geen track & trace-update gestuurd", { description: why })
+      }
+      undoable(
+        `Track & trace-update gestuurd naar ${counted(orders.length, "klant", "klanten")}`,
+        () => undo(ticket.token),
+        why
+      )
+    },
+    /** The team's own mail to the order's shopper, in the store's name; it waits out the undo window. */
+    emailCustomer: async (orderId: string, subject: string, body: string, customer: string) => {
+      const exit = await write.emailCustomer({ payload: { orderId, subject, body, id: mintId("oml") }, ...keys })
+      if (Exit.isFailure(exit)) return orderRefused(failureOf(exit))
+      const ticket = exit.value.undo
+      const detail = `Aan ${customer}: ${subject}`
+      if (ticket === null) return void toast.success("Wordt verstuurd…", { description: detail })
+      undoable("Wordt verstuurd…", () => undo(ticket.token), detail)
     },
     saveNote: async (order: Order, body: string) => {
       const exit = await write.setNote({ payload: { id: order.id, body }, ...keys })

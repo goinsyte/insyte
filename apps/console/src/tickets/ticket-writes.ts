@@ -33,13 +33,36 @@ const COPY: RefusalCopy = {
     required: "Een titel is verplicht."
   },
   other: (tagged) => {
-    if (tagged._tag !== "MemberNotActive") return false
-    toast.error("Die collega zit niet meer in het team", { description: "Kies iemand anders." })
-    return true
+    switch (tagged._tag) {
+      case "MemberNotActive":
+        toast.error("Die collega zit niet meer in het team", { description: "Kies iemand anders." })
+        return true
+      case "NoCustomerAddress":
+        toast.error("Geen e-mailadres", {
+          description: "Koppel het ticket aan een klant of bestelling met een e-mailadres om de klant te mailen."
+        })
+        return true
+      case "NoMailbox":
+        toast.error("Er is nog geen mailbox", { description: "Koppel eerst een mailbox om vanaf te versturen." })
+        return true
+      case "MailboxDisconnected":
+        toast.error("Deze mailbox is ontkoppeld", { description: "Er gaat niets vanaf tot hij weer gekoppeld is." })
+        return true
+      default:
+        return false
+    }
   }
 }
 
 const refused = (error: unknown) => sayRefusal(error, COPY)
+
+/** "Klant informeren"'s undo, too late: what was sent is the mail, not a teammate's notice. */
+const MAIL_COPY: RefusalCopy = {
+  ...COPY,
+  conflicts: { ...COPY.conflicts, already_sent: [LATE, "De mail aan de klant is al verstuurd."] }
+}
+
+const mailRefused = (error: unknown) => sayRefusal(error, MAIL_COPY)
 
 /** A ticket list changed as the command will change it, until the server's comes back. */
 export type Overlay = (tickets: Array<Ticket>) => Array<Ticket>
@@ -71,6 +94,33 @@ const changeOf = (change: BulkChange) => (t: Ticket): Ticket => {
       return { ...t, deleted_at: now }
     case "snoozed":
       return { ...t, snoozed_until: new Date(Date.now() + 86_400_000).toISOString() }
+  }
+}
+
+/**
+ * "Klant informeren" (M11): Insyte mails the ticket's shopper the state of things from the team's mailbox, in the
+ * ticket's own thread, and the ticket waits for an answer. Answers whether it went.
+ */
+export function useNotifyCustomer(): (ticket: Ticket) => Promise<boolean> {
+  const keys = { reactivityKeys: [...TICKETS] }
+  const send = useAtomSet(ticketWrites.emailCustomer, { mode: "promiseExit" })
+  const undo = useAtomSet(ticketWrites.undo, { mode: "promiseExit" })
+  return async (ticket) => {
+    const exit = await send({ payload: { id: ticket.id }, ...keys })
+    if (Exit.isFailure(exit)) {
+      mailRefused(failureOf(exit))
+      return false
+    }
+    const { undo: token, to } = exit.value
+    const detail = `Aan ${to}`
+    if (token === null) toast.success("Klant gemaild", { description: detail })
+    else {
+      undoable("Klant gemaild", () =>
+        void undo({ payload: { token: token.token }, ...keys }).then((e) => {
+          if (Exit.isFailure(e)) mailRefused(failureOf(e))
+        }), detail)
+    }
+    return true
   }
 }
 

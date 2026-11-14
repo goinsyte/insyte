@@ -241,7 +241,15 @@ export function TicketModal({
 		);
 	}
 
-	function notifyCustomer() {
+	async function notifyCustomer() {
+		const send = source.notifyCustomer;
+		if (typeof send === "function") {
+			// The host mails the shopper and moves the ticket itself; the modal shows what it did once it went.
+			if (!draft || !(await send(draft))) return;
+			setDraft((d) => (d ? { ...d, status: "awaiting_reply" } : d));
+			log("Klant gemaild met de laatste stand van zaken. Wacht op antwoord.");
+			return;
+		}
 		patch({ status: "awaiting_reply" }, { label: "Klant gemaild", quiet: true });
 		log("Klant gemaild met de laatste stand van zaken. Wacht op antwoord.");
 		toast.success("Klant gemaild");
@@ -744,7 +752,7 @@ export function TicketModal({
 									<SidebarAction
 										icon={MessageSquare}
 										label="Klant informeren"
-										onClick={notifyCustomer}
+										onClick={() => void notifyCustomer()}
 									/>
 								) : null}
 								<SidebarAction
