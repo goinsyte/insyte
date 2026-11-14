@@ -75,8 +75,15 @@ export class TicketMail extends Context.Service<TicketMail, {
     /** The caller's id for the message. */
     readonly messageId?: string | undefined
   }) => Effect.Effect<
-    { readonly threadId: string; readonly to: string; readonly outboxId: string; readonly compensation: unknown },
-    NoMailbox | MailboxDisconnected | NotFound | Invalid | SqlError.SqlError,
+    {
+      readonly threadId: string
+      readonly messageId: string
+      readonly to: string
+      readonly outboxId: string
+      readonly compensation: unknown
+    },
+    /** `Conflict{ mail_id_taken }`: the caller's id is another message's. */
+    NoMailbox | MailboxDisconnected | NotFound | Invalid | Conflict | SqlError.SqlError,
     CurrentPrincipal
   >
   /** The inbox's way back for a mail `send` put in line. */

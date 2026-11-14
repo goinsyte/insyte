@@ -1,5 +1,5 @@
 import { Db } from "@insyte/database/Db"
-import { Invalid, NotFound } from "@insyte/domain/Errors"
+import { Conflict, Invalid, NotFound } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
@@ -383,7 +383,7 @@ const queueMessage = Effect.fn("Threads.queueMessage")(function*(
   const principal = yield* CurrentPrincipal
   const domain = yield* mailDomain
   const id = input.id ?? mintId("eml")
-  yield* sql`
+  const made = yield* sql<{ id: string }>`
     insert into email_messages (id, workspace_id, thread_id, rfc822_message_id, in_reply_to, "references", direction,
                                 kind, from_name, from_address, "to", subject, body_text, sent_by, send_state)
     values (${id}, ${principal.workspaceId}, ${input.threadId}, ${`${id}@${domain}`}, ${input.inReplyTo},
@@ -391,7 +391,10 @@ const queueMessage = Effect.fn("Threads.queueMessage")(function*(
             ${input.mailbox.address.toLowerCase()}, ${JSON.stringify([input.to])}::jsonb, ${
     input.subject.slice(0, 998)
   },
-            ${input.text}, ${principal.id}, 'scheduled')`
+            ${input.text}, ${principal.id}, 'scheduled')
+    on conflict (id) do nothing returning id`
+  // The caller's id is another message's already (another thread's, another workspace's): this one is not sent.
+  if (made.length === 0) return yield* new Conflict({ entity: "email_message", reason: "mail_id_taken" })
   const outboxId = yield* Outbox.write(sql, principal.workspaceId, {
     type: "thread.message_queued",
     workspaceId: principal.workspaceId,
@@ -459,6 +462,10 @@ export const replyOn = Effect.fn("Threads.replyOn")(function*(
   return { threadId: l!.id, messageId: id, to: to.email.toLowerCase(), outboxId: held, compensation } satisfies Queued
 })
 
+/** A message with an id of Insyte's own: it is never taken, so `mail_id_taken` cannot come of it. */
+const ownId = <A, E, R>(effect: Effect.Effect<A, E | Conflict, R>) =>
+  effect.pipe(Effect.catchTag("Conflict", (e) => Effect.die(e))) as Effect.Effect<A, Exclude<E, Conflict>, R>
+
 /** One undo token for a message just put in line, and the thread as the screen shows it. */
 const settled = (sql: SqlClient.SqlClient, q: Queued) =>
   Effect.gen(function*() {
@@ -471,7 +478,9 @@ export const reply = Effect.fn("Threads.reply")(function*(input: typeof ReplyInp
   yield* Policy.require("support", 2)
   if (input.body.trim() === "") return yield* new Invalid({ fields: { body: "required" } })
   const db = yield* Db
-  const { change, outboxId } = yield* db.scoped((sql) => Effect.flatMap(replyOn(sql, input), (q) => settled(sql, q)))
+  const { change, outboxId } = yield* db.scoped((sql) =>
+    Effect.flatMap(replyOn(sql, input).pipe(ownId), (q) => settled(sql, q))
+  )
   yield* kick(outboxId)
   return change
 })
@@ -506,7 +515,7 @@ export const forward = Effect.fn("Threads.forward")(function*(input: typeof Forw
         text,
         inReplyTo: null,
         references: []
-      })
+      }).pipe(ownId)
       yield* audit(sql, "thread.forwarded", l!.id, { messageId: id, to: input.to.trim().toLowerCase() })
       const undo = yield* Undo.issue(sql, {
         command: RESTORE,
@@ -576,7 +585,9 @@ export const compose = Effect.fn("Threads.compose")(function*(input: typeof Comp
   if (input.body.trim() === "") return yield* new Invalid({ fields: { body: "required" } })
   if (input.subject.trim() === "") return yield* new Invalid({ fields: { subject: "required" } })
   const db = yield* Db
-  const { change, outboxId } = yield* db.scoped((sql) => Effect.flatMap(composeOn(sql, input), (q) => settled(sql, q)))
+  const { change, outboxId } = yield* db.scoped((sql) =>
+    Effect.flatMap(composeOn(sql, input).pipe(ownId), (q) => settled(sql, q))
+  )
   yield* kick(outboxId)
   return change
 })

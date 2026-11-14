@@ -64,7 +64,7 @@ const GUIDE = [
 ] as const
 
 import { FORWARD_VIEWS, isForwardView } from "../lib/forwarding"
-import { mailDialogState, type ServedDraft } from "../lib/forwarding-mail"
+import { canSend, mailDialogState, type ServedDraft } from "../lib/forwarding-mail"
 
 export { FORWARD_VIEWS, isForwardView }
 
@@ -556,7 +556,7 @@ function MailCustomerDialog({ row, onClose }: { row: QueueRow | null; onClose: (
       title={row ? `${row.order.customer_name} mailen` : ""}
       description={state.description}
       primaryLabel="Versturen"
-      disabled={!text.trim() || !state.ready}
+      disabled={!canSend(state, subj, text)}
       onSubmit={() => {
         if (!row) return
         source.mail?.send(row, subj, text)

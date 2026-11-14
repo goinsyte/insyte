@@ -5,6 +5,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
+import { type MailTry, retryAfter } from "../../shared/domain/MailRetry.ts"
 import { Relay } from "../../shared/domain/Outbox.ts"
 import { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
@@ -45,11 +46,11 @@ const RESTORE = "orders.unsend"
 
 const MAX_SELECTION = 500
 
-/** How many of a bulk's mails go each second once its undo window has passed: Resend's default rate. */
-const PER_SECOND = 2
-
-/** A bulk's mails kicked onto the queue this many at a time. */
-const KICK_EVERY = 10
+/**
+ * How many of a bulk's mails go each second once its undo window has passed: half Resend's default rate (two a second,
+ * for the whole account), so the inbox's answers, delay mails and sign-in links sent meanwhile still go.
+ */
+const PER_SECOND = 1
 
 interface MailRow {
   readonly id: string
@@ -232,7 +233,8 @@ export const sendTrackingUpdate = Effect.fn("Orders.sendTrackingUpdate")(functio
       const made = wanting.length === 0 ? [] : yield* sql<{ id: string; orderId: string }>`
         insert into order_mails (id, workspace_id, order_id, kind, ref, to_address, subject, paragraphs, created_by)
         select r.id, app_workspace_id(), r.order_id, 'tracking', r.ref, r.to_address, r.subject,
-               array(select jsonb_array_elements_text(r.paragraphs)), ${principal.id}
+               array(select p.t from jsonb_array_elements_text(r.paragraphs) with ordinality as p(t, n) order by p.n),
+               ${principal.id}
         from jsonb_to_recordset(${JSON.stringify(wanting)}::jsonb)
           as r(id text, order_id text, ref text, to_address text, subject text, paragraphs jsonb)
         on conflict do nothing returning id, order_id`
@@ -275,11 +277,8 @@ export const sendTrackingUpdate = Effect.fn("Orders.sendTrackingUpdate")(functio
       }
     })
   )
-  // One kick per few seconds of the spread, each when its last mail is due; one that comes early waits on the queue.
-  for (let at = 0; at < kicks.length; at += KICK_EVERY) {
-    const chunk = kicks.slice(at, at + KICK_EVERY)
-    yield* relay.kick(chunk.map((e) => e.id), { afterSeconds: chunk[chunk.length - 1]!.after })
-  }
+  // Each mail onto the queue on its own, when it is due: the queue hands them on as spread, not ten at a time.
+  yield* relay.kickEach(kicks.map((e) => ({ outboxId: e.id, afterSeconds: e.after })))
   return answer
 })
 
@@ -320,19 +319,16 @@ export type CustomerMailOutcome =
   | { readonly outcome: "retry"; readonly outboxId: string; readonly afterSeconds: number }
   | { readonly outcome: "skipped" }
 
-/** How often a mail is tried while the provider is busy or out, and how long before the first try again. */
-const MAX_ATTEMPTS = 5
-const FIRST_RETRY_SECONDS = 60
-
 /**
  * The relay's mail sink, inside the order's workspace as `system`: the mail sent as it was put in line, if it still is,
  * in the store's name. An answer goes to E-mail en domein's "Antwoorden naar", else to the workspace's default mailbox,
- * so it lands in the inbox. The provider busy or out (429, 5xx): the mail stays in line and is tried again later, one,
- * two, four, eight minutes on, with the same idempotency key, so it goes once. A mail that is refused, or still does not
- * go after `MAX_ATTEMPTS`, is kept as failed with why, and audited; the order says so.
+ * so it lands in the inbox. The provider busy or out: the mail stays in line and is tried again later from the same
+ * sender (`MailRetry.ts`). A mail that is refused, or still does not go after its last try, is kept as failed with why,
+ * and audited; the order says so.
  */
 export const sendCustomerMail = Effect.fn("Orders.sendCustomerMail")(
-  function*(sql: SqlClient.SqlClient, mailId: string, attempt = 1) {
+  function*(sql: SqlClient.SqlClient, mailId: string, retry: MailTry = {}) {
+    const attempt = retry.attempt ?? 1
     const [m] = yield* sql<{
       workspaceId: string
       orderId: string
@@ -355,7 +351,7 @@ export const sendCustomerMail = Effect.fn("Orders.sendCustomerMail")(
     where order_id = ${m.orderId} and tracking_number = ${m.ref} order by shipped_at desc nulls last limit 1`
     const [mailbox] = yield* sql<{ address: string }>`
     select address from mailboxes where status = 'connected' order by is_default desc, created_at limit 1`
-    const sent = yield* Senders.sendToCustomer(sql, {
+    const tried = yield* Senders.trySendToCustomer(sql, {
       kind: "order.message",
       to: m.address,
       sender: m.shop,
@@ -370,17 +366,20 @@ export const sendCustomerMail = Effect.fn("Orders.sendCustomerMail")(
           ? {}
           : { tracking: { carrier: parcel?.carrier ?? null, number: m.ref, url: safeUrl(parcel?.url ?? null) } })
       }
-    }).pipe(Effect.as(null), Effect.catchTag("MailNotSent", (e) => Effect.succeed(e)))
+    }, { from: retry.from })
+    // A try again keeps the sender this one used: after the brand's was refused, Insyte's.
+    const { error: sent, from } = tried
     const system = { kind: "system", id: "insyte" } as const
-    if (sent?.retryable === true && attempt < MAX_ATTEMPTS) {
-      const afterSeconds = FIRST_RETRY_SECONDS * 2 ** (attempt - 1)
+    const afterSeconds = sent === null ? undefined : retryAfter(sent, attempt)
+    if (sent !== null && afterSeconds !== undefined) {
       yield* sql`update order_mails set error = ${sent.reason} where id = ${mailId}`
       const outboxId = yield* Outbox.write(sql, m.workspaceId, {
         type: "order.mail",
         workspaceId: m.workspaceId,
         userId: "system",
         mailId,
-        attempt: attempt + 1
+        attempt: attempt + 1,
+        from
       }, { afterSeconds })
       yield* Effect.logWarning("a shopper's mail is tried again later", { mailId, attempt, reason: sent.reason })
       return { outcome: "retry", outboxId, afterSeconds } as CustomerMailOutcome

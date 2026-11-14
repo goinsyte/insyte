@@ -20,7 +20,13 @@ export const ticketMail = TicketMail.of({
           messageId: input.messageId
         })
         : yield* replyOn(sql, { threadId: input.threadId, body: input.body, messageId: input.messageId })
-      return { threadId: q.threadId, to: q.to, outboxId: q.outboxId, compensation: q.compensation }
+      return {
+        threadId: q.threadId,
+        messageId: q.messageId,
+        to: q.to,
+        outboxId: q.outboxId,
+        compensation: q.compensation
+      }
     }),
   unsend: (sql, compensation) =>
     restoreInbox(sql, compensation).pipe(Effect.provideService(ThreadTickets, threadTickets))
