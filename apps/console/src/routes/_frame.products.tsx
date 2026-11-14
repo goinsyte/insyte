@@ -12,7 +12,7 @@ import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { useMemo, useRef } from "react"
-import { productsAtom } from "../data/products.ts"
+import { ATTENTION_CUTS, attentionProductsAtom, productsAtom } from "../data/products.ts"
 import { ConsoleLowStock } from "../products/low-stock.tsx"
 import { useProductCommands } from "../products/product-writes.ts"
 import { useConsoleProductsSource } from "../products/products-source.ts"
@@ -33,15 +33,22 @@ export const Route = createFileRoute("/_frame/products")({
   head: () => ({ meta: [{ title: "Producten · Insyte" }] }),
   loader: async ({ context, location }) => {
     if (!atList(location.pathname)) return
+    const atom = listAtom((location.search as { status?: string }).status)
     // Mounted so the value survives until the registry is dehydrated into the document.
-    context.registry.mount(productsAtom)
-    await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, productsAtom)))
+    context.registry.mount(atom)
+    await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, atom)))
   },
   pendingComponent: Pending,
   component: Layout
 })
 
 const atList = (pathname: string) => pathname.replace(/\/$/, "") === "/products"
+
+/** The catalogue, or one Aandacht cut paged on the server, so the list holds what the panel's badge counts. */
+const listAtom = (status: string | undefined) => {
+  const cut = status === undefined ? undefined : ATTENTION_CUTS[status as keyof typeof ATTENTION_CUTS]
+  return cut === undefined ? productsAtom : attentionProductsAtom(cut)
+}
 
 function Layout() {
   const asModal = useOpenedAsModal()
@@ -61,7 +68,8 @@ function Pending() {
 const isForbidden = Schema.is(Forbidden)
 
 function ProductsRoute() {
-  const result = useAtomValue(productsAtom)
+  const status = Route.useSearch({ select: (s) => s.status })
+  const result = useAtomValue(listAtom(status))
   const page = AsyncResult.isSuccess(result)
     ? result.value
     : AsyncResult.isWaiting(result)

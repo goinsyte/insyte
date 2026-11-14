@@ -35,6 +35,13 @@ export const ProposalAction = Schema.Union([
     title: Schema.String,
     description: Schema.String
   }),
+  /** A chargeback's evidence pack gathered (`Chargebacks.assemblePack`): the case stays open until it is submitted. */
+  Schema.TaggedStruct("AssembleEvidencePack", { chargebackId: Schema.String }),
+  /**
+   * A store that lost its link, connected again: filing hands the person to Shopify's approval page (the console
+   * starts `Stores.beginConnect` for `shopDomain`); only a member in a browser can finish it.
+   */
+  Schema.TaggedStruct("ReconnectStore", { storeId: Schema.String, shopDomain: Schema.String }),
   Schema.TaggedStruct("CancelOrder", { orderId: Schema.String, restock: Schema.Boolean, notify: Schema.Boolean }),
   Schema.TaggedStruct("RefundOrder", {
     orderId: Schema.String,

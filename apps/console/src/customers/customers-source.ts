@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react"
-import type { CustomerPage, CustomerRow } from "@insyte/modules/customers/domain/Customers"
+import { type CustomerPage, type CustomerRow, NEW_UP_TO_ORDERS } from "@insyte/modules/customers/domain/Customers"
 import type { CustomersSource } from "@insyte/ui/app/customers/source"
 import { copyLines, counted, exportCsv } from "@insyte/ui/app/lib/bulk-io"
 import type { DuplicateGroup } from "@insyte/ui/app/lib/duplicates"
@@ -99,7 +99,8 @@ export function useConsoleCustomersSource(page: CustomerPage, open: (customer: C
     customers,
     loading: false,
     duplicates,
-    statusOf: (c) => (c.orders_count <= 2 ? "new" : "loyal"),
+    // The panel's "Nieuw" and "VIP" count by the same line (`Customers.counts`).
+    statusOf: (c) => (c.orders_count <= NEW_UP_TO_ORDERS ? "new" : "loyal"),
     lastOrder: (c) => {
       const at = lastOrders.get(c.id)
       return at === null || at === undefined ? "Nog geen" : formatDate(new Date(at), { day: "2-digit" })

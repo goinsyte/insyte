@@ -16,7 +16,7 @@ export const NOTES = ["notes"] as const
 export const VIEWS = ["views"] as const
 
 export const frameAtom = Atom.serializable(
-  ConsoleClient.query("Shell.frame", { path: "/" }, { reactivityKeys: FRAME }),
+  ConsoleClient.query("Shell.frame", undefined, { reactivityKeys: FRAME }),
   {
     key: "frame",
     schema: AsyncResult.Schema({

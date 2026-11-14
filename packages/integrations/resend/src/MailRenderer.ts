@@ -1,11 +1,13 @@
-import { render, toPlainText } from "@react-email/render"
 import { Context, Effect, Layer, Schema } from "effect"
-import { type Email, type EmailKind, type EmailProps, EMAILS } from "./emails/index.ts"
+import type { EmailKind, EmailProps } from "./emails/index.ts"
+import type * as RenderEmail from "./RenderEmail.ts"
 
 /*
  * A mail of one kind, rendered: the subject, the HTML React Email makes of its template, and a plain-text alternative
  * read off that same HTML, so the two never say different things. The renderer is a service with a layer, like every
- * integration here; the pure `renderEmail` under it is what the previews and the tests call.
+ * integration here; the pure `renderEmail` under it (`RenderEmail.ts`) is what the previews and the tests call. The
+ * templates and React Email are imported on the first mail an isolate renders, not when the Worker starts
+ * (ADR-0041 §3); a load that fails is that mail's `MailRenderError`, and the next mail tries again.
  */
 
 export interface Rendered {
@@ -20,41 +22,14 @@ export class MailRenderError extends Schema.TaggedError<MailRenderError>()("Mail
   reason: Schema.String
 }) {}
 
-/*
- * Outlook for Windows renders with Word, which ignores a font stack whose first face is not installed and falls back
- * to Times New Roman. A conditional stylesheet only it reads names a face it has.
- */
-const OUTLOOK =
-  "<!--[if mso]><style>body,table,td,p,a,h1,h2,span{font-family:\"Segoe UI\",Arial,sans-serif !important}</style><![endif]-->"
+let loading: Promise<typeof RenderEmail> | undefined
 
-/*
- * The plain text: headings as written (html-to-text upper-cases them by default), a link as "label: address", and the
- * HTML's own skips (the drawn mark, the button's written-out fallback) left out.
- */
-const TEXT = {
-  selectors: [
-    { selector: "h1", options: { uppercase: false, leadingLineBreaks: 1, trailingLineBreaks: 2 } },
-    { selector: "h2", options: { uppercase: false, leadingLineBreaks: 2, trailingLineBreaks: 1 } },
-    { selector: "a", format: "labelledLink" }
-  ],
-  formatters: {
-    labelledLink: (
-      elem: { readonly attribs?: Record<string, string>; readonly children: unknown },
-      walk: (nodes: unknown, builder: unknown) => void,
-      builder: { readonly addInline: (text: string) => void }
-    ) => {
-      walk(elem.children, builder)
-      const href = elem.attribs?.["href"]
-      if (href !== undefined && href !== "") builder.addInline(`: ${href}`)
-    }
-  }
-}
-
-export const renderEmail = async <K extends EmailKind>(kind: K, props: EmailProps<K>): Promise<Rendered> => {
-  const entry = EMAILS[kind] as unknown as Email<EmailProps<K>>
-  const html = (await render(entry.Template(props))).replace("</head>", `${OUTLOOK}</head>`)
-  return { subject: entry.subject(props), html, text: toPlainText(html, TEXT).trim() }
-}
+const load = () =>
+  loading ??= import("./RenderEmail.ts").catch((error: unknown) => {
+    // Tried again on the next mail.
+    loading = undefined
+    throw error
+  })
 
 export class MailRenderer extends Context.Service<MailRenderer, {
   readonly render: <K extends EmailKind>(kind: K, props: EmailProps<K>) => Effect.Effect<Rendered, MailRenderError>
@@ -64,7 +39,7 @@ export class MailRenderer extends Context.Service<MailRenderer, {
     MailRenderer.of({
       render: (kind, props) =>
         Effect.tryPromise({
-          try: () => renderEmail(kind, props),
+          try: () => load().then((m) => m.renderEmail(kind, props)),
           catch: (error) => new MailRenderError({ kind, reason: String(error) })
         }).pipe(Effect.withSpan("MailRenderer.render", { attributes: { kind } }))
     })

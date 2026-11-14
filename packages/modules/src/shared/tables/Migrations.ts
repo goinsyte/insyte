@@ -70,6 +70,7 @@ import disputeFacts from "./migrations/0078_dispute_facts.ts"
 import stockTracking from "./migrations/0079_stock_tracking.ts"
 import supplierLate from "./migrations/0080_supplier_late.ts"
 import customerMail from "./migrations/0081_customer_mail.ts"
+import queueKinds from "./migrations/0084_queue_kinds.ts"
 import automationRunStarter from "./migrations/0085_automation_run_starter.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 import supplierPortal from "./migrations/contract/0075_supplier_portal.ts"
@@ -153,5 +154,6 @@ export const Migrations = {
   "0079_stock_tracking": stockTracking,
   "0080_supplier_late": supplierLate,
   "0081_customer_mail": customerMail,
+  "0084_queue_kinds": queueKinds,
   "0085_automation_run_starter": automationRunStarter
 }

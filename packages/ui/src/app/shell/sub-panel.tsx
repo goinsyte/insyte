@@ -36,7 +36,7 @@ import type { QueueRow } from "../lib/queue-row";
 import { type ForwardView, inView as forwardInView } from "../lib/forwarding";
 import { type AgentLogEntry, canUndo } from "../lib/agent-log";
 import { ReportSection, ShortcutsSection } from "./panel-shortcuts";
-import { useAgentLogEntries, useAutomationsPanel, useCan, useCanOpen, useHasPage, useChatStore, useCourses, useCurrentRole, useForwardingRows, useInboxPanel, useNotifications, useOperator, usePanel, usePanelFor, useReturns, useSheets, useShellData, useShellSlots, useSupplierOrders, useWorkflows, useWorkspace, useWorkspaceName } from "./state";
+import { useAgentLogEntries, useAutomationsPanel, useCan, useCanOpen, useHasPage, useChatStore, useCourses, useCurrentRole, useForwardingRows, useInboxPanel, useNotifications, useOperator, usePanel, usePanelFor, useReturns, useServerCounts, useSheets, useShellData, useShellSlots, useSupplierOrders, useWorkflows, useWorkspace, useWorkspaceName } from "./state";
 
 /**
  * The area panel: 224px of `mist`, adjacent to the rail, carrying where you are.
@@ -80,6 +80,7 @@ export function SubPanel() {
 	const { Customize } = useShellSlots();
 	const workspaceName = useWorkspaceName();
 	const panelFor = usePanelFor();
+	const serverCounts = useServerCounts();
 
 	const agentEntries = useAgentLogEntries();
 	const returnRecords = useReturns((s) => s.records);
@@ -103,6 +104,8 @@ export function SubPanel() {
 			? withNotifications(base, pathname, notes, notePrefs)
 			: base.title === "Chats"
 			? withChats(base, created, pinnedChats, conversations)
+			: serverCounts && (base.title === "Retouren" || pathname.startsWith("/orders") || pathname.startsWith("/customers") || pathname.startsWith("/chargebacks"))
+				? base
 			: pathname.startsWith("/orders") || pathname.startsWith("/customers") || pathname.startsWith("/chargebacks")
 				? withCounts(base, orders, customers, chargebacks, queueRows)
 			: base.title === "Tickets"

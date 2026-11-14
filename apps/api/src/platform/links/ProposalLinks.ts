@@ -1,6 +1,9 @@
-import type { Forbidden, NotFound } from "@insyte/domain/Errors"
+import { Db } from "@insyte/database/Db"
+import { Forbidden, NotFound } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
+import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
+import { assemblePack } from "@insyte/modules/chargebacks/use-cases/pack"
 import { forward as forwardLegs } from "@insyte/modules/forwarding/use-cases/commands"
 import { cancel as cancelOrders, setNote, tag as tagOrders } from "@insyte/modules/orders/use-cases/commands"
 import { notifyDelay } from "@insyte/modules/orders/use-cases/delay-mail"
@@ -17,6 +20,7 @@ import {
   sendLabel as sendReturnLabel
 } from "@insyte/modules/returns/use-cases/commands"
 import type { UndoTicket } from "@insyte/modules/shared/domain/Undo"
+import { inScope } from "@insyte/modules/shared/use-cases/StoreScope"
 import type {
   CreateInput as TicketCreateInput,
   UpdateInput as TicketUpdateInput
@@ -42,7 +46,15 @@ type Status = "intake" | "in_progress" | "awaiting_reply" | "done"
 
 type AgentAsked = Exclude<
   ProposalAction,
-  { readonly _tag: "ApproveReturn" | "ApproveQualityCheck" | "NotifyDelayedOrder" | "CreateSupplierTicket" }
+  {
+    readonly _tag:
+      | "ApproveReturn"
+      | "ApproveQualityCheck"
+      | "NotifyDelayedOrder"
+      | "CreateSupplierTicket"
+      | "AssembleEvidencePack"
+      | "ReconnectStore"
+  }
 >
 
 /** A refused filing: the record moved on (`stale`); anything else the person is told as the command said it. */
@@ -140,6 +152,30 @@ const agentAsked = (action: AgentAsked, labels: Labels["Service"]) => {
   }
 }
 
+/**
+ * "Opnieuw koppelen bij Shopify": only a member with Instellingen · Beheren can approve the app again, in a browser, so
+ * filing checks that and that the store still has no link; the console then sends them to Shopify
+ * (`Stores.beginConnect`). The row resolves when the store is connected again.
+ */
+const reconnect = (storeId: string) =>
+  Effect.gen(function*() {
+    const principal = yield* CurrentPrincipal
+    yield* Policy.require("settings", 3)
+    if (principal.kind !== "member") {
+      return yield* new Forbidden({ permission: "settings", level: 3, roleLabel: principal.role.label })
+    }
+    const db = yield* Db
+    const [store] = yield* db.scoped((sql) =>
+      Effect.flatMap(
+        inScope(sql, "id"),
+        (scope) => sql<{ status: string }>`select status from stores where id = ${storeId} and ${scope}`
+      )
+    )
+    if (store === undefined) return yield* new NotFound({ entity: "store", id: storeId })
+    if (store.status !== "disconnected" && store.status !== "action_required") return "stale" as const
+    return { undo: null, pending: false, settles: true }
+  })
+
 /** A filed plate's command, as the person filing it (and an agent's action run again by the person, M15 step 6). */
 export const filed = (labels: Labels["Service"]) => (action: ProposalAction) => {
   switch (action._tag) {
@@ -175,6 +211,14 @@ export const filed = (labels: Labels["Service"]) => (action: ProposalAction) => 
           Effect.map((change) => ({ undo: change.undo, pending: false, settles: false })),
           Effect.catchTags({ Invalid: Effect.die, MemberNotActive: Effect.die })
         )
+    case "AssembleEvidencePack":
+      // The pack is gathered by its workflow; the case still needs the person to submit it, so its row stands.
+      return assemblePack({ ids: [action.chargebackId] }).pipe(
+        Effect.map(() => ({ undo: null, pending: false, settles: true })),
+        Effect.catchTag("CaseClosed", () => Effect.succeed("stale" as const))
+      )
+    case "ReconnectStore":
+      return reconnect(action.storeId)
     default:
       return agentAsked(action, labels)
   }

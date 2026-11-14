@@ -7,7 +7,7 @@ import type { CursorInvalid, FilterFieldUnknown, ListInput } from "../shared/dom
 import type { Relay } from "../shared/domain/Outbox.ts"
 import type { SearchHit } from "../shared/domain/Search.ts"
 import type { CreateInput, CustomerChange, MergeInput, TagInput } from "./domain/Commands.ts"
-import type { CustomerDetail, CustomerPage } from "./domain/Customers.ts"
+import type { CustomerCounts, CustomerDetail, CustomerPage } from "./domain/Customers.ts"
 import type { DuplicateGroup } from "./domain/Duplicates.ts"
 import { KlaviyoSyncs } from "./domain/Ports.ts"
 import * as Commands from "./use-cases/commands.ts"
@@ -24,6 +24,8 @@ type W = R | Relay
 export class CustomersService extends Context.Service<CustomersService, {
   readonly list: (input: ListInput) => Effect.Effect<CustomerPage, Forbidden | FilterFieldUnknown | CursorInvalid, R>
   readonly get: (id: string) => Effect.Effect<CustomerDetail, Forbidden | NotFound, R>
+  /** The area panel's counts, for the frame: the list's segments. */
+  readonly counts: Effect.Effect<CustomerCounts, Forbidden, R>
   /** Matches for `Search.records`; none where the role cannot see the area. */
   readonly search: (q: string, limit: number) => Effect.Effect<ReadonlyArray<SearchHit>, never, R>
   readonly tag: (input: typeof TagInput.Type) => Effect.Effect<CustomerChange, Forbidden | NotFound | Invalid, W>
@@ -45,6 +47,7 @@ export class CustomersService extends Context.Service<CustomersService, {
             Effect.provideService(KlaviyoSyncs, syncs),
             Effect.catchIf(SqlError.isSqlError, Effect.die)
           ),
+        counts: Customers.counts().pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         search: (q, limit) => Customers.search(q, limit).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         tag: (input) => Commands.tag(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         create: (input) => Commands.create(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
