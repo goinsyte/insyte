@@ -174,6 +174,7 @@ const PAYLOADS: Record<string, unknown> = {
   "Orders.refund": { id: "ord_none", refundId: "rfd_00000000000000000000000000", amountMinor: 100 },
   "Products.list": {},
   "Products.get": { id: "prd_none" },
+  "Products.lowStock": {},
   "Products.edit": { id: "prd_none", title: "x" },
   "Products.setStatus": { ids: ["prd_none"], status: "draft" },
   "Products.reprice": { ids: ["prd_none"], targetMargin: 0.5, apply: false },

@@ -7,6 +7,7 @@ export const CommerceMcp = CommerceTools.toLayer(Effect.gen(function*() {
   return {
     list_orders: (query) => read.orders(query),
     list_products: (query) => read.products(query),
+    list_low_stock: (query) => read.lowStock(query),
     list_customers: (query) => read.customers(query)
   }
 })).pipe(Layer.provide(CommerceV1.layer))
