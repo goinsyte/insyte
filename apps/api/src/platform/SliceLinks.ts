@@ -3,6 +3,7 @@ import { Layer } from "effect"
 import { AgentLinksLive } from "./links/AgentLinks.ts"
 import { ChatCommandsLive } from "./links/ChatCommands.ts"
 import { CostFiguresLive } from "./links/CostFigures.ts"
+import { FirstAnalysisMakersLive } from "./links/FirstAnalysisMakers.ts"
 import { KlaviyoSyncsLive } from "./links/KlaviyoSyncs.ts"
 import { MirrorFollowersLive } from "./links/MirrorFollowers.ts"
 import { ProposalLinksLive } from "./links/ProposalLinks.ts"
@@ -40,6 +41,7 @@ import { UndoCompensationsLive } from "./links/UndoCompensations.ts"
  *   the Marketplace → a recipe app's API key, made, revoked, put back and narrowed by the developer slice (M17)
  *   a sheet export  → the INSYTE() figures from analytics, on the export's transaction (M14 step 4)
  *   INSYTE()        → Kosten's months (costs, net profit, ROAS, the ad lines), on the figures' transaction (M14.4)
+ *   first analysis  → its automation draft, its sheet and its offline plan's autonomy levels (M15 step 5)
  */
 
 /** Every link between slices, and the mirror other slices write through. */
@@ -59,6 +61,7 @@ export const SliceLinks = StoreMirror.layer.pipe(
       TicketMailLive,
       QualityTicketsLive,
       TrashKindsLive,
+      FirstAnalysisMakersLive,
       SheetFiguresLive.pipe(Layer.provideMerge(CostFiguresLive))
     )
   )

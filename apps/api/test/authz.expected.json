@@ -629,6 +629,13 @@
     "finance": "deny",
     "view": "deny"
   },
+  "FirstAnalysis.agreeOffline": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
   "Shared.undo": {
     "owner": "allow",
     "admin": "allow",
