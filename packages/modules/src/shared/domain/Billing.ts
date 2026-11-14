@@ -23,3 +23,18 @@ export const TRIAL_SEATS = 5
 
 /** The seats a workspace's plan includes: `workspaces.plan` is a plan id, or `trial` until onboarding's plan step. */
 export const seatsOf = (plan: string): number => (PLAN_SEATS as Record<string, number | undefined>)[plan] ?? TRIAL_SEATS
+
+/** What each plan includes beside its seats (M13; widgets/05 §4): entitlements are code, prices are Stripe's. */
+export const PLAN_STORES: Record<PlanId, number> = { starter: 1, growth: 3, scale: 5 }
+
+/** AI answers a period, per plan. */
+export const PLAN_AI_REPLIES: Record<PlanId, number> = { starter: 1000, growth: 2500, scale: 5000 }
+
+/** Active automations, the same for every plan (the design's "/ 50"). */
+export const ACTIVE_AUTOMATIONS = 50
+
+/** Before a plan is picked, the trial's stores and AI answers: as Scale, so a trial is not held back. */
+export const TRIAL_STORES = PLAN_STORES.scale
+export const TRIAL_AI_REPLIES = PLAN_AI_REPLIES.scale
+
+export const isPlanId = (plan: string): plan is PlanId => plan in PLAN_SEATS

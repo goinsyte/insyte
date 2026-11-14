@@ -13,6 +13,7 @@ import { grantersOf, grantingRoles } from "@insyte/ui/app/access/denial"
 import { type Permission, permissionName } from "@insyte/ui/app/lib/permissions"
 import type { Invite } from "@insyte/ui/app/lib/team-core"
 import type { RefusalScope, TeamGate, TeamRefusal, TeamSource } from "@insyte/ui/app/team/source"
+import { useNavigate } from "@tanstack/react-router"
 import { Cause, Exit, Option, Schema } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useMemo, useState } from "react"
@@ -24,8 +25,8 @@ import { TEAM, teamWrites } from "../data/team.ts"
  * The team screens' source in the console: `Team.get` as they read it, and each action as its RPC, refreshing the page
  * through `TEAM`. A missing permission (`Forbidden`) is said where it was asked, as the denied states say it; any other
  * refusal is said here once, in Dutch. Either way the action answers `false`, so the screen offers no undo. What
- * the console has no screen or server for yet is left out (the view as the invitee, handing over ownership), and
- * buying seats waits for billing (M13).
+ * the console has no screen or server for yet is left out (the view as the invitee, handing over ownership). Seats
+ * are bought on Facturatie (M13 step 1), where what they cost is shown first.
  *
  * The store pickers offer the stores the signed-in person reaches (`Team.stores`). For someone held to some stores,
  * "Alle winkels" means all of theirs: an invitation is sent with those, and so is a member's stores where their role
@@ -151,6 +152,7 @@ const memberStores = (team: Team, memberId: string, stores: StoreAccess): StoreA
 }
 
 export function useConsoleTeamSource(team: Team): TeamSource {
+  const navigate = useNavigate()
   const write = {
     send: useAtomSet(teamWrites.send, { mode: "promiseExit" }),
     revoke: useAtomSet(teamWrites.revoke, { mode: "promiseExit" }),
@@ -239,7 +241,7 @@ export function useConsoleTeamSource(team: Team): TeamSource {
       deactivated: m.deactivated
     })),
     invites: team.invitations.map(asInvite),
-    seats: { ...team.seats, extra: 0 },
+    seats: team.seats,
     link: {
       enabled: team.link.enabled,
       token: team.link.token ?? "",
@@ -273,10 +275,7 @@ export function useConsoleTeamSource(team: Team): TeamSource {
     refusal,
     dismissRefusal: () => setRefusal(null),
     inviteUrl: (id) => team.invitations.find((i) => i.id === id)?.url ?? undefined,
-    buySeats: () =>
-      void toast("Extra plekken komen met Facturatie", {
-        description: "Tot dan werk je met de plekken van je proefperiode."
-      }),
+    buySeats: () => void navigate({ to: "/settings/billing", hash: "plekken" }),
 
     send: async (rows) => {
       const sent = await run(
