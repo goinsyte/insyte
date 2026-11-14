@@ -81,7 +81,7 @@ const JSONL = [
     price: "49.95",
     compareAtPrice: null,
     position: 1,
-    inventoryItem: { id: "gid://shopify/InventoryItem/111" },
+    inventoryItem: { id: "gid://shopify/InventoryItem/111", tracked: false },
     __parentId: "gid://shopify/Product/1"
   },
   order(5),
@@ -140,7 +140,9 @@ describe("the commerce mirror's lines", () => {
       title: "M",
       price_minor: 4995,
       compare_at_minor: null,
-      position: 1
+      position: 1,
+      // Shopify does not count it: no stock to judge (an older read without the field leaves it `null`).
+      tracked: false
     }])
     expect(batch.orders).toMatchObject([{
       shopify_id: "5",

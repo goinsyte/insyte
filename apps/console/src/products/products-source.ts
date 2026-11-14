@@ -127,7 +127,9 @@ const standingOf =
   (stocked: boolean, costed: boolean, unitsOf: (id: string) => number) => (rows: ReadonlyArray<ProductRow>) => {
     if (rows.length === 0) return undefined
     const parts = [`${rows.length} ${rows.length === 1 ? "product" : "producten"}`]
-    if (stocked) parts.push(`${rows.filter((p) => p.stock !== "available").length} moeten worden bijbesteld`)
+    if (stocked) {
+      parts.push(`${rows.filter((p) => p.stock === "low" || p.stock === "out").length} moeten worden bijbesteld`)
+    }
     if (costed) {
       parts.push(`${Math.round((rows.reduce((s, p) => s + p.margin, 0) / rows.length) * 100)}% gemiddelde marge`)
     }
@@ -169,7 +171,7 @@ export function useConsoleProductsSource(page: ProductPage, open: (product: Prod
       const row = server.get(p.id)
       return {
         ...p,
-        stock: row?.stock ?? "available",
+        stock: row?.stock ?? null,
         category: row?.productType ?? "Overig",
         margin: marginOf(p.price, p.cost),
         supplierName: row?.supplierName ?? "—",

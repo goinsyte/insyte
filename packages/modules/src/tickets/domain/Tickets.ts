@@ -167,7 +167,12 @@ export const CreateInput = Schema.Struct({
   dueAt: Schema.optional(Schema.NullOr(Schema.Finite)),
   /** The template it was started from. */
   template: Schema.optional(Schema.String),
-  related: Schema.optional(Schema.Struct({ type: Schema.Literals(["order", "customer"]), id: Schema.String }))
+  related: Schema.optional(Schema.Struct({ type: Schema.Literals(["order", "customer"]), id: Schema.String })),
+  /**
+   * What an Insyte plate files the ticket for (`restock:<product>`): while a ticket filed with the same key is still
+   * open, that one is answered, with no undo, instead of a second.
+   */
+  once: Schema.optional(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)))
 })
 
 /** One ticket's fields, or a priority for many at once (the selection bar). */

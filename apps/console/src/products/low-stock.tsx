@@ -7,6 +7,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { Exit, Option } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { useState } from "react"
+import { toast } from "sonner"
 import { lowStockAtom } from "../data/products.ts"
 import { TICKETS, ticketWrites } from "../data/tickets.ts"
 import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
@@ -14,7 +15,7 @@ import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
 /*
  * The list's low-stock advice in the console: the design's plate over `Products.lowStock` (M7 9.3), the product that
  * runs out soonest at its own pace. Filing asks the supplier for a restock date in a ticket on the board (Klantenservice
- * · Bewerken), with Undo; Discard leaves it, for this visit. Insyte cannot pause the ads yet (M13.5), so the plate
+ * · Bewerken), with Undo, once per product while that ticket is open; Discard leaves it, for this visit. Insyte cannot pause the ads yet (M13.5), so the plate
  * proposes the restock request alone. A role that may not open tickets is not offered it.
  */
 
@@ -48,7 +49,8 @@ export function ConsoleLowStock() {
         } verkocht per dag). Vraag wanneer er nieuwe voorraad komt.`,
         priority: units === 0 ? "high" : "medium",
         status: "awaiting_reply",
-        labels: ["Leverancier"]
+        labels: ["Leverancier"],
+        once: `restock:${r.productId}`
       },
       ...keys
     })
@@ -57,10 +59,18 @@ export function ConsoleLowStock() {
       return sayRefusal(failureOf(exit), { gone: "Dat product bestaat niet meer" })
     }
     const ticket = exit.value.tickets[0]
+    const number = ticket === undefined ? "" : ` in #${ticket.number}`
     const token = exit.value.undo?.token
-    undoable(`Bijbestelling gevraagd${ticket === undefined ? "" : ` in #${ticket.number}`}`, () => {
+    // Asked before and still open: that ticket stands, and there is nothing to undo.
+    if (token === undefined) return void toast(`Bijbestelling loopt al${number}`)
+    undoable(`Bijbestelling gevraagd${number}`, () => {
       setDecided((d) => ({ ...d, [r.productId]: "open" }))
-      if (token !== undefined) void undo({ payload: { token }, ...keys })
+      void undo({ payload: { token }, ...keys }).then((e) => {
+        if (Exit.isFailure(e)) {
+          setDecided((d) => ({ ...d, [r.productId]: "filed" }))
+          sayRefusal(failureOf(e), { gone: "Dat ticket is er niet meer" })
+        }
+      })
     })
   }
 
