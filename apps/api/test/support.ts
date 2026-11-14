@@ -6,7 +6,11 @@ import { FetchHttpClient } from "effect/http"
 import { RpcClient, RpcSerialization } from "effect/rpc"
 import worker from "../src/Local.ts"
 
-/** One request through the Worker's own `fetch`, waiting for its `waitUntil` work (the span flush) too. */
+/**
+ * One request through the Worker's own `fetch`, waiting for its `waitUntil` work (the span flush) too. The body is
+ * read first, as a client would: the request's spans are flushed once its response is sent, so waiting before reading
+ * a streamed body would wait forever.
+ */
 export const call = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   const ctx = createExecutionContext()
   // A test request has no `cf` properties; the Worker reads none.
@@ -15,8 +19,13 @@ export const call = async (input: RequestInfo | URL, init?: RequestInit): Promis
     env,
     ctx
   )
+  if (response.webSocket !== null && response.webSocket !== undefined) {
+    await waitOnExecutionContext(ctx)
+    return response
+  }
+  const body = await response.arrayBuffer()
   await waitOnExecutionContext(ctx)
-  return response
+  return new Response(response.status === 204 || response.status === 304 ? null : body, response)
 }
 
 /** The console's RPC client, as the console builds it, with the Worker's `fetch` as the network. */
