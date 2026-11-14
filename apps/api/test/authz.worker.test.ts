@@ -1505,4 +1505,24 @@ describe("the store fence on every surface", () => {
     expect(ok(await rpc("Home.brief", undefined, whole)).needsYou).toBeGreaterThan(0)
     expect(ok(await rpc("Home.brief", undefined, held)).needsYou).toBe(0)
   })
+
+  it("counts each area's panel over the member's stores only", async () => {
+    // A case in this store, as a payment connection brings it.
+    const cases = await call(`http://api.test/api/__dev/facts/disputes?workspace=${store.workspace}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        insert: [{ caseNumber: `fence-${run}`, storeId: store.storeId, status: "awaiting_evidence" }]
+      })
+    })
+    expect(cases.status).toBe(200)
+    const counted = async (cookie: string, area: string) =>
+      Object.values(ok(await rpc("Nav.counts", { area }, cookie))).reduce((n, c) => n + c, 0)
+    for (const area of ["returns", "customers", "products", "suppliers", "chargebacks"]) {
+      const owners = await counted(store.cookie, area)
+      expect(owners, area).toBeGreaterThan(0)
+      expect(await counted(whole, area), area).toBe(owners)
+      expect(await counted(held, area), area).toBe(0)
+    }
+  })
 })
