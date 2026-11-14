@@ -114,7 +114,8 @@ const startable = (sql: SqlClient.SqlClient, trigger: string) =>
     left join service_accounts sa on sa.automation_id = a.id and sa.disabled_at is null
     left join automation_versions v on v.automation_id = a.id and v.version = a.live_version
     where a.trigger_variant = ${trigger} and a.status = 'active' and a.deleted_at is null
-      and a.live_version > 0`
+      and a.live_version > 0
+    order by a.id`
 
 /** The store a run's record belongs to: `null` for a mail thread (the inbox has no store yet) or a case without one. */
 const storeOf = (sql: SqlClient.SqlClient, kind: RunRecordKind, id: string) =>
@@ -153,6 +154,9 @@ const startOne = Effect.fn("Automations.startOne")(function*(
     // A thread has no store yet: a flow held to some stores still hears its mail.
     if (run.kind !== "thread" && (store === null || !flow.storeScope.includes(store))) return undefined
   }
+  // The flow locked while its hour is counted and its run written: two batches at once do not both find room for
+  // the last run of the hour. Flows are taken in id order (`startable`), so two batches lock them in the same order.
+  yield* sql`select 1 from automations where id = ${flow.id} for update`
   const [hour] = yield* sql<{ n: number }>`
     select count(*)::int as n from automation_runs
     where automation_id = ${flow.id} and status <> 'skipped' and started_at > now() - interval '1 hour'`

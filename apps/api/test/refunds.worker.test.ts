@@ -125,4 +125,19 @@ describe("refunds", () => {
     // The balance is whole again: a smaller refund can be asked.
     ok(await rpc("Orders.refund", { id: order.id, refundId: mintId("rfd"), amountMinor: 1000 }, store.cookie))
   })
+
+  it("lets two refunds asked at once take what is left once", async () => {
+    const store = await importedStore("rfd-race")
+    const order = await orderNumbered(store.cookie, "#1001")
+    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    // € 49,95 left: either € 30 fits, both do not. Each request locks the order, then reads its refunds.
+    const asked = await Promise.all(
+      [0, 1].map(() => rpc("Orders.refund", { id: order.id, refundId: mintId("rfd"), amountMinor: 3000 }, store.cookie))
+    )
+    expect(asked.map((a) => failure(a)?._tag ?? "ok").toSorted()).toEqual(["RefundOverBalance", "ok"])
+    expect(ok(await rpc("Orders.get", { id: order.id }, store.cookie)).refunds).toHaveLength(1)
+    // The one refund goes to Shopify, within this test.
+    await relay(store.workspace)
+    for (const instance of await writes.get()) await instance.waitForStatus("complete")
+  })
 })

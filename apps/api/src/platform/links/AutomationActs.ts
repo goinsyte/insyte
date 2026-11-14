@@ -129,15 +129,36 @@ const peopleOf = Effect.fn("AutomationActs.peopleOf")(function*(
   const of = (who: "owner" | "publisher"): Authority => {
     const p = rows.find((r) => r.who === who)
     if (p === undefined) return { limitMinor: 0, stores: [] }
-    const stores = storesOf(p.roleStores, p.memberStores)
-    if (p.roleId === "owner") return { limitMinor: capMinor, stores }
-    if (!p.may || p.orders < 2) return { limitMinor: 0, stores }
-    return { limitMinor: p.limitMinor === null ? capMinor : Math.min(capMinor, Number(p.limitMinor)), stores }
+    return { limitMinor: roleLimit(p, capMinor), stores: storesOf(p.roleStores, p.memberStores) }
   }
   return { owner: of("owner"), publisher: of("publisher") }
 })
 
-/** Who started the run by hand, and what they could refund then (`automation_runs.started_by`); none for a trigger. */
+/** A role's own refund right: none without Bestellingen · Bewerken and Terugbetalen; the owner's is the cap. */
+const roleLimit = (
+  r: { readonly roleId: string; readonly may: boolean; readonly orders: number; readonly limitMinor: string | null },
+  capMinor: number
+) =>
+  r.roleId === "owner"
+    ? capMinor
+    : !r.may || r.orders < 2
+    ? 0
+    : r.limitMinor === null
+    ? capMinor
+    : Math.min(capMinor, Number(r.limitMinor))
+
+interface RoleRow {
+  readonly roleId: string
+  readonly limitMinor: string | null
+  readonly may: boolean
+  readonly orders: number
+}
+
+/**
+ * Who started the run by hand (`automation_runs.started_by`), and what they may refund: no more than they could when
+ * they started it (the run keeps that), and no more than they can now. A member since deactivated or removed, or a key
+ * since revoked, expired or whose maker is gone, gives none. A trigger's run has no starter.
+ */
 const starterOf = Effect.fn("AutomationActs.starterOf")(function*(
   sql: SqlClient.SqlClient,
   runId: string,
@@ -149,10 +170,36 @@ const starterOf = Effect.fn("AutomationActs.starterOf")(function*(
     starterStores: Array<string> | null
   }>`select started_by, starter_refund_minor, starter_stores from automation_runs where id = ${runId}`
   if (run === undefined || run.startedBy === null) return undefined
-  return {
-    limitMinor: run.starterRefundMinor === null ? capMinor : Math.min(capMinor, Number(run.starterRefundMinor)),
-    stores: run.starterStores
-  } satisfies Authority
+  const then = run.starterRefundMinor === null ? capMinor : Math.min(capMinor, Number(run.starterRefundMinor))
+  const now = run.startedBy.startsWith("mem_")
+    ? yield* Effect.map(
+      sql<RoleRow>`
+        select r.id as role_id, r.refund_limit_minor as limit_minor,
+               coalesce((r.specials ->> 'refunds.write')::boolean, false) as may,
+               coalesce((r.levels ->> 'orders')::int, 0) as orders
+        from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+        where m.id = ${run.startedBy} and m.deactivated_at is null and m.removed_at is null`,
+      ([r]) => (r === undefined ? 0 : roleLimit(r, capMinor))
+    )
+    : yield* Effect.map(
+      sql<RoleRow & { kind: string }>`
+        select k.access ->> 'kind' as kind, r.id as role_id, r.refund_limit_minor as limit_minor,
+               coalesce((r.specials ->> 'refunds.write')::boolean, false) as may,
+               coalesce((r.levels ->> 'orders')::int, 0) as orders
+        from api_keys k
+        join members m on m.id = k.created_by and m.deactivated_at is null and m.removed_at is null
+        left join roles r on r.workspace_id = k.workspace_id and r.id = k.access ->> 'roleId'
+        where k.id = ${run.startedBy} and k.revoked_at is null and (k.expires_at is null or k.expires_at > now())`,
+      ([k]) =>
+        k === undefined
+          ? 0
+          : k.kind !== "role"
+          ? capMinor
+          : k.roleId === null
+          ? 0
+          : roleLimit(k, capMinor)
+    )
+  return { limitMinor: Math.min(then, now), stores: run.starterStores } satisfies Authority
 })
 
 /**
@@ -181,7 +228,7 @@ const limitOf = Effect.fn("AutomationActs.limitOf")(function*(
     ],
     [
       starter,
-      "Wie deze run startte, mag zelf niet terugbetalen; er is niets terugbetaald.",
+      "Wie deze run startte, mag zelf niet (meer) terugbetalen; er is niets terugbetaald.",
       "Wie deze run startte, kan niet bij de winkel van deze bestelling; er is niets terugbetaald."
     ]
   ]
@@ -294,8 +341,10 @@ export const act = (input: ActInput): Effect.Effect<Did, StepFailed, Db> => {
 
       /*
        * Terugbetalen: within the flow's limit and what is left on the order, audited as the flow's account. The order is
-       * locked first, so two steps, runs or flows refunding it at once are counted one after the other, and what flows
-       * refunded on it before counts against the limit too.
+       * locked in a statement of its own, and only then are its refunds read: a statement that waited for the lock
+       * still sees the rows as they were when it began, so reading them in the same statement would miss a refund
+       * another flow committed meanwhile. Two steps, runs or flows refunding the order at once are so counted one
+       * after the other, and what flows refunded on it before counts against the limit too.
        */
       case "action.refund": {
         if (p.role.levels.orders < 2 || !p.role.specials["refunds.write"]) return yield* forbidden()
@@ -304,6 +353,9 @@ export const act = (input: ActInput): Effect.Effect<Did, StepFailed, Db> => {
         return yield* scoped((sql) =>
           Effect.gen(function*() {
             const scope = yield* inScope(sql, "o.store_id")
+            const [locked] = yield* sql<{ id: string }>`
+              select o.id from orders o where o.id = ${orderId} and ${scope} for update of o`
+            if (locked === undefined) return yield* refused({ _tag: "NotFound" })
             const [o] = yield* sql<{
               storeId: string
               currency: string
@@ -320,8 +372,7 @@ export const act = (input: ActInput): Effect.Effect<Did, StepFailed, Db> => {
                        as by_flows_minor,
                      exists (select 1 from refunds r where r.id = ${refundId}) as asked
               from orders o join workspaces w on w.id = o.workspace_id
-              where o.id = ${orderId} and ${scope}
-              for update of o`
+              where o.id = ${orderId}`
             if (o === undefined) return yield* refused({ _tag: "NotFound" })
             const currency = o.currency.trim().toUpperCase()
             const reason = input.text("reason")

@@ -13,8 +13,8 @@ import { call, rpc } from "./support.ts"
  * the account, "Leverancier toewijzen" moves a leg not yet sent. A refund over the limit fails the run with why, and no
  * money moves: flows together refund at most € 100 an order, however many steps, runs or flows ask, and never more than
  * the flow's owner, its version's publisher or the run's starter may refund themselves, nor in a store one of them
- * cannot reach. "Op een vast moment" starts a run per order that reached its day, once. An agent's key never starts a
- * run, over MCP or `/v1`.
+ * cannot reach, also when two flows refund one order at once. "Op een vast moment" starts a run per order that
+ * reached its day, once. An agent's key never starts a run, over MCP or `/v1`.
  */
 
 // A response body, read loosely as a client would.
@@ -244,10 +244,12 @@ describe("automations that act", () => {
     const small = await roleWith("Klein", {}, { "refunds.write": true }, 5)
     const none = await roleWith("Zonder", {}, { "refunds.write": false }, null)
     const elsewhere = await roleWith("Elders", {}, {}, null, ["sto_elsewhere"])
+    const thirty = await roleWith("Dertig", {}, { "refunds.write": true }, 30)
     const invited = [
       { email: `act-${run}-klein@invited.test`, roleId: small },
       { email: `act-${run}-zonder@invited.test`, roleId: none },
-      { email: `act-${run}-elders@invited.test`, roleId: elsewhere }
+      { email: `act-${run}-elders@invited.test`, roleId: elsewhere },
+      { email: `act-${run}-dertig@invited.test`, roleId: thirty }
     ]
     ok(
       await rpc("Invitations.send", {
@@ -256,7 +258,7 @@ describe("automations that act", () => {
     )
     await pastUndo(store.workspace)
     await relay(store.workspace)
-    const [klein, zonder, elders] = await Promise.all(invited.map((i) => join(i.email)))
+    const [klein, zonder, elders, dertig] = await Promise.all(invited.map((i) => join(i.email)))
     const nodes = [step("t", "trigger.shipping_delay"), step("r", "action.refund", { amount: "20,00", reason: "" })]
     /** A flow `owner` makes and `publisher` publishes. */
     const flow = async (name: string, owner: string, publisher: string) => {
@@ -306,9 +308,29 @@ describe("automations that act", () => {
     )
     // Started by hand with a key held to € 5: the run refunds no more than that.
     expect(await reasonOf(smallKey, plain)).toBe(limited)
-    for (const instance of await workflows.get()) await instance.waitForStatus("complete")
-    const activity = ok(await rpc("Home.activity", { source: "integration" }, store.cookie))
+    let activity = ok(await rpc("Home.activity", { source: "integration" }, store.cookie))
     expect(activity.rows.filter((r) => r.action === "order.refunded")).toHaveLength(0)
+
+    // Two flows of an owner held to € 30, each refunding € 20, started at once on one order: one refunds, the other
+    // sees that refund though it waited for the order's lock, and is refused.
+    const pair = await Promise.all([
+      flow("Tegelijk A", dertig!, store.cookie),
+      flow("Tegelijk B", dertig!, store.cookie)
+    ])
+    const runs = await Promise.all(pair.map(async (id) => {
+      const response = await startBy(admin, id, orderId)
+      expect(response.status).toBe(200)
+      const runId = (await response.json() as Json).id as string
+      return await until(() => rpc("Runs.get", { id: runId }, store.cookie).then(ok), (d) => d.run.finishedAt !== null)
+    }))
+    expect(runs.map((d) => d.run.status).toSorted()).toEqual(["failed", "succeeded"])
+    expect(runs.find((d) => d.run.status === "failed")!.run.reason).toBe(
+      "“Terugbetalen”: Flows betaalden op deze bestelling al € 20,00 terug; met € 20,00 erbij is het meer dan flows per bestelling mogen (€ 30,00). Doe het zelf, of vraag eerst goedkeuring."
+    )
+    for (const instance of await workflows.get()) await instance.waitForStatus("complete")
+    await relay(store.workspace)
+    activity = ok(await rpc("Home.activity", { source: "integration" }, store.cookie))
+    expect(activity.rows.filter((r) => r.action === "order.refunded")).toHaveLength(1)
   }, 300_000)
 
   it("starts a scheduled flow once per order that reached its day", async () => {
