@@ -893,7 +893,7 @@ describe("a member narrowed to one store (Members.setStores)", () => {
     expect(stores(ok(await rpc("Members.setStores", { id: vb.id, stores: "all" }, va.cookie)))).toBe("all")
   })
 
-  it("narrows the keys a member made when the member is narrowed", async () => {
+  it("narrows the keys a member made when the member is narrowed, deactivated or removed", async () => {
     const token = ok(
       await rpc("ApiKeys.create", {
         label: "Van wide",
@@ -910,6 +910,15 @@ describe("a member narrowed to one store (Members.setStores)", () => {
     ok(await rpc("Members.setStores", { id: wide.id, stores: [a.storeId] }, a.cookie))
     expect(await stores()).toEqual(new Set([a.storeId]))
     ok(await rpc("Members.setStores", { id: wide.id, stores: "all" }, a.cookie))
+    expect(await stores()).toEqual(new Set([a.storeId, b]))
+    // A maker who is deactivated or removed takes their keys' stores with them, and brings them back on return.
+    ok(await rpc("Members.deactivate", { id: wide.id }, a.cookie))
+    expect(await stores()).toEqual(new Set())
+    ok(await rpc("Members.reactivate", { id: wide.id }, a.cookie))
+    expect(await stores()).toEqual(new Set([a.storeId, b]))
+    ok(await rpc("Members.remove", { id: wide.id }, a.cookie))
+    expect(await stores()).toEqual(new Set())
+    ok(await rpc("Members.restore", { id: wide.id }, a.cookie))
     expect(await stores()).toEqual(new Set([a.storeId, b]))
   })
 })
