@@ -43,7 +43,9 @@ export const ValidationFailedV1 = envelope("ValidationFailedV1", 400, {
 export const RefundOverLimitV1 = envelope("RefundOverLimitV1", 422, { limit_minor: Schema.Int })
 /**
  * An agent's call the workspace's autonomy rules do not allow (M15 step 6, ADR-0027): the action is set to Nooit, or
- * is outside the catalogue; `reason` says which (`policy`, `unknown`). Nothing happened.
+ * is outside the catalogue; `reason` says which (`policy`, `unknown`). On `/v1` an agent's key only reads: any write is
+ * refused with `use_mcp` and `action` its method and path, since its writes go through MCP's autonomy rules. Nothing
+ * happened.
  */
 export const ActionNotAllowedV1 = envelope("ActionNotAllowedV1", 403, { action: Schema.String, reason: Schema.String })
 /** The `Idempotency-Key` was first used for a different request. */
