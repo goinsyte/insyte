@@ -66,9 +66,13 @@ test("@developer a key made in Instellingen lists the team over /v1 and MCP, and
   // A key with the role Alleen lezen (the dialog's default), which sees who is in the team; its secret once.
   await page.goto("/settings/api-keys")
   await hydrated(page)
-  const making = page.getByRole("dialog")
+  // The page's first-visit guide is a dialog too, and can arrive late: the key's dialog is the one with its title, and
+  // the guide is closed when it shows.
+  const making = page.getByRole("dialog").filter({ hasText: /API-sleutel aanmaken|is klaar/ })
+  const guide = page.getByRole("button", { name: "Uitleg sluiten" })
   // A click before the page has hydrated opens nothing: try until the dialog is there.
   await expect(async () => {
+    if (await guide.isVisible()) await guide.click()
     await page.getByRole("button", { name: "Sleutel aanmaken" }).first().click()
     await expect(making).toBeVisible({ timeout: 2_000 })
   }).toPass()
@@ -96,8 +100,12 @@ test("@developer a key made in Instellingen lists the team over /v1 and MCP, and
     }
 
     // Revoked from its detail.
-    await page.getByRole("button", { name: /Teamoverzicht/ }).click()
-    const detail = page.getByRole("dialog")
+    const detail = page.getByRole("dialog").filter({ hasText: "Intrekken" })
+    await expect(async () => {
+      if (await guide.isVisible()) await guide.click()
+      await page.getByRole("button", { name: /Teamoverzicht/ }).click()
+      await expect(detail).toBeVisible({ timeout: 2_000 })
+    }).toPass()
     await detail.getByRole("button", { name: "Intrekken" }).click()
     await expect(page.getByText("Teamoverzicht ingetrokken")).toBeVisible()
 
