@@ -1,5 +1,6 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { StoreView } from "@insyte/modules/stores/domain/Stores"
+import { useActiveStore } from "@insyte/ui/app/shell/state"
 import { ConnectStoreFlow, type ConnectStoreProps } from "@insyte/ui/app/shops/connect-store-flow"
 import type { StoreRow, StoresSource } from "@insyte/ui/app/shops/source"
 import { Option } from "effect"
@@ -15,7 +16,7 @@ import { storeHealthOf } from "./health-of.ts"
  * goes to Shopify's approval page and comes back through the API's callback, `routes/_frame.settings.stores.tsx`), and
  * disconnecting as `Stores.disconnect`. A disconnect drops the token, so it has no undo: the row connects again. A
  * refusal is said once, in Dutch. A connected store's Live pixel (M14 step 3) is installed or repaired from its menu as
- * `Live.installPixel`, where this environment can (`Live.pixels`). Each row's sync health is `Connections.health` (M17
+ * `Live.installPixel`, where this environment can (`Live.pixels`). Which store is in view is the top bar's switch. Each row's sync health is `Connections.health` (M17
  * step 6), with the incidents open on it and what Insyte already tried; a role that may not read it sees the rows
  * without.
  */
@@ -64,6 +65,8 @@ function ConsoleConnectStore(props: ConnectStoreProps) {
 }
 
 export function useConsoleStoresSource(stores: ReadonlyArray<StoreView>, focusId?: string): StoresSource {
+  // The top bar's store switch: the store in view is "Actief", and a row's menu switches to it.
+  const { active, setActive } = useActiveStore()
   const disconnect = useAtomSet(storeWrites.disconnect, { mode: "promiseExit" })
   const install = useAtomSet(liveWrites.installPixel, { mode: "promiseExit" })
   // Read in the browser; a role that may not see them, or an environment without the pixel, offers no Live item.
@@ -81,8 +84,9 @@ export function useConsoleStoresSource(stores: ReadonlyArray<StoreView>, focusId
       ? async (storeId) =>
         (await run(install({ payload: { storeId }, reactivityKeys: [...LIVE, ...STORES] }))) !== undefined
       : undefined,
-    // One store per workspace until the store switch is live: the connected one is the one in view.
-    activeId: stores.find((s) => s.status === "connected")?.id ?? null,
+    // Every store at once marks none.
+    activeId: active?.id ?? null,
+    setActive,
     disconnect: async (id) => (await run(disconnect({ payload: { id }, reactivityKeys: STORES }))) !== undefined,
     Connect: ConsoleConnectStore
   }
