@@ -15,8 +15,8 @@ import { record } from "./log.ts"
  * workspace's own agent does what the autonomy rules let it, as itself (`actor_kind = agent`), within its scopes and
  * its stores. Every trigger is claimed once (its touchpoint), so a relay or queue that delivers it twice acts once.
  * Then, in order: Nooit, or a record outside the agent's stores, does nothing and is logged as refused; Eerst vragen,
- * the plan's hours, a spent budget or a draft that may not go alone leave what Insyte prepared for a person (the
- * inbox's draft card, the queue's plate on Start) and are logged as asked; Zelf doen runs the use case a person's
+ * the plan's hours, a spent budget, the day's limit or something that may not go alone leave a person what they need
+ * (the inbox's draft card, the queue's plate on Start) and are logged as asked; Zelf doen runs the use case a person's
  * button runs, with its sends held for the log's five minutes, and logs it with its way back.
  *
  * The slices' own use cases are the caller's (`platform/AgentSink.ts`); this is the only way the agent runs them.
@@ -93,10 +93,10 @@ const teamHolds = (action: AgentActionId) =>
 
 /**
  * A run of the day for an action with a limit per day (Limieten), claimed before it runs: one touchpoint per slot of
- * the day, so two triggers acting at once cannot both take the last one. `true` when a slot was free, or there is no
- * limit.
+ * the day, so two triggers, or a trigger and an MCP call, acting at once cannot both take the last one. `true` when a
+ * slot was free, or there is no limit. A run that then does not happen gives it back (`freeSlot`).
  */
-const daySlot = (action: AgentActionId, id: string) =>
+export const daySlot = (action: AgentActionId, id: string) =>
   Effect.flatMap(Effect.service(Db), (db) =>
     db.scopedFor((sql) =>
       Effect.gen(function*() {
@@ -105,7 +105,17 @@ const daySlot = (action: AgentActionId, id: string) =>
                  to_char(now() at time zone coalesce(w.timezone, 'Europe/Amsterdam'), 'YYYY-MM-DD') as day
           from workspaces w where w.id = app_workspace_id()`
         if (row === undefined || row.perDay === null) return true
-        for (let n = 1; n <= row.perDay; n++) {
+        // Runs of the day from before the limit was set hold no slot: they count first.
+        const [before] = yield* sql<{ n: number }>`
+          select count(*)::int as n from agent_actions x
+          where x.action = ${action} and x.decision = 'run' and x.outcome <> 'failed'
+            and x.created_at >= (date_trunc('day', now() at time zone coalesce(
+                                   (select timezone from workspaces where id = app_workspace_id()), 'Europe/Amsterdam'))
+                                 at time zone coalesce(
+                                   (select timezone from workspaces where id = app_workspace_id()), 'Europe/Amsterdam'))
+            and not exists (select 1 from agent_touchpoints p where p.agent_action_id = x.id
+                            and p.dedupe_key like 'slot:%')`
+        for (let n = (before?.n ?? 0) + 1; n <= row.perDay; n++) {
           const taken = yield* sql`
             insert into agent_touchpoints (workspace_id, dedupe_key, agent_action_id)
             values (app_workspace_id(), ${`slot:${action}:${row.day}:${n}`}, ${id})
@@ -116,6 +126,16 @@ const daySlot = (action: AgentActionId, id: string) =>
       })
     ))
 
+/** The day's slot an action claimed, given back: it stood down or failed, so it was not one of the day's runs. */
+export const freeSlot = (id: string) =>
+  Effect.flatMap(
+    Effect.service(Db),
+    (db) =>
+      db.scopedFor((sql) =>
+        sql`delete from agent_touchpoints where agent_action_id = ${id} and dedupe_key like 'slot:%'`
+      )
+  )
+
 /** What a trigger prepared for either way (the reply's text), or why there is nothing to go on. */
 export type Prepared<P> =
   | { readonly _tag: "Ready"; readonly value: P }
@@ -123,8 +143,8 @@ export type Prepared<P> =
 
 /**
  * What a run answers when, at the moment it would send, the record is no longer the agent's to act on: the thread
- * taken by the team or answered meanwhile (`taken`, nothing done), or the agent's mails to this address for the day
- * used (`limit`, the draft left for the team). Checked on the send's own transaction, after its lock.
+ * taken by the team or answered meanwhile (`taken`, nothing done), or the agent's mail to this address for the day
+ * sent (`limit`, a draft left for the team). Checked on the send's own transaction, after its lock.
  */
 export interface StoodDown {
   readonly _tag: "StoodDown"
@@ -154,14 +174,28 @@ export interface Trigger<P, A, E, R> {
   readonly before?: string | null
   readonly after?: string | null
   readonly sources: ReadonlyArray<{ kind: string; title: string; detail: string; to: string | null }>
-  /** What both ways need first; on Eerst vragen it is what the person finds (the inbox's draft). */
+  /** What both ways need first, read from the record's facts; no model is asked for it. */
   readonly prepare: Effect.Effect<Prepared<P>, never, R>
-  /** Whether it may go without a person; a draft that may not waits for the team (`guard`). */
-  readonly safe: (prepared: P) => boolean
+  /**
+   * Why it may not go without a person, though it may: what it would send fails a check (`guard`), or it is not clear
+   * what to send (`unclear`). `null`: it may go.
+   */
+  readonly check: (prepared: P) => "guard" | "unclear" | null
+  /**
+   * What a person finds when it is theirs (Eerst vragen, the hours, a check, a limit): a draft for them to read, with
+   * the model that wrote it; or why there is none. Absent where what was prepared is what they find (the plate).
+   */
+  readonly ask?: (prepared: P) => Effect.Effect<Asked, never, R>
+  /** The model behind what it sends; `null` for a text that is no model's. */
   readonly model: (prepared: P) => { readonly name: string; readonly promptVersion: string } | null
   /** Zelf doen: the use case a person's button runs, as the agent; or why, at the last moment, it is not its to run. */
   readonly run: (prepared: P, actionId: string) => Effect.Effect<A | StoodDown, E, R>
 }
+
+/** What `ask` left for the person: the model that wrote it, or why nothing was written (a spent budget). */
+export type Asked =
+  | { readonly _tag: "Drafted"; readonly model: { readonly name: string; readonly promptVersion: string } | null }
+  | { readonly _tag: "Held"; readonly reason: "budget" | "unknown" }
 
 export type Acted = "ran" | "proposed" | "refused" | "failed" | "seen"
 
@@ -241,16 +275,22 @@ export const act = <P, A, E, R>(t: Trigger<P, A, E, R>) =>
     }
     const p = prepared.value
     const model = t.model(p)
-    const asks = d.decision === "propose" ? d.reason ?? "policy" : hours ? "hours" : t.safe(p) ? null : "guard"
-    if (asks !== null) {
-      yield* write({ decision: "propose", outcome: "proposed", refuseReason: asks, model })
-      return "proposed" as Acted
-    }
+    /** The person's: what they find is written for them (the reply's draft), and the row says why it is theirs. */
+    const theirs = (reason: string) =>
+      Effect.gen(function*() {
+        const asked = t.ask === undefined ? null : yield* t.ask(p)
+        yield* write({
+          decision: "propose",
+          outcome: "proposed",
+          refuseReason: asked?._tag === "Held" ? asked.reason : reason,
+          model: asked?._tag === "Drafted" ? asked.model : model
+        })
+        return "proposed" as Acted
+      })
+    const asks = d.decision === "propose" ? d.reason ?? "policy" : hours ? "hours" : t.check(p)
+    if (asks !== null) return yield* theirs(asks)
     // The day's limit, claimed: a second trigger at the same moment finds the last slot taken.
-    if (!(yield* daySlot(t.action, id))) {
-      yield* write({ decision: "propose", outcome: "proposed", refuseReason: "limit", model })
-      return "proposed" as Acted
-    }
+    if (!(yield* daySlot(t.action, id))) return yield* theirs("limit")
 
     // Zelf doen: the command as the agent; its undo token kept for the log, its sends held for the log's window.
     const issued: Array<{ readonly hash: string; readonly command: string; readonly until: number }> = []
@@ -262,15 +302,16 @@ export const act = <P, A, E, R>(t: Trigger<P, A, E, R>) =>
     )
     if (Exit.isFailure(ran)) {
       yield* Effect.logWarning("the agent's action did not run", { action: t.action, cause: ran.cause })
+      yield* freeSlot(id)
       yield* write({ decision: "run", outcome: "failed", refuseReason: null, error: tagOf(ran.cause), model })
       return "failed" as Acted
     }
     if (isStoodDown(ran.value)) {
-      const stood = ran.value
-      yield* stood.reason === "taken"
-        ? write({ decision: "refuse", outcome: "refused", refuseReason: "taken", model })
-        : write({ decision: "propose", outcome: "proposed", refuseReason: "limit", model })
-      return stood.reason === "taken" ? "refused" as Acted : "proposed" as Acted
+      // Not one of the day's runs: its slot goes back.
+      yield* freeSlot(id)
+      if (ran.value.reason === "limit") return yield* theirs("limit")
+      yield* write({ decision: "refuse", outcome: "refused", refuseReason: "taken", model })
+      return "refused" as Acted
     }
     const token = issued[0]
     yield* write({

@@ -1,6 +1,7 @@
 import { Db } from "@insyte/database/Db"
 import { AGENT_ACTION, AGENT_UNDO_SECONDS, type AgentActionId } from "@insyte/domain/AgentActions"
-import { CurrentPrincipal } from "@insyte/domain/Principal"
+import { mintId } from "@insyte/domain/Ids"
+import { CurrentPrincipal, CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient, SqlError } from "effect/sql"
 import type { ProposalAction } from "../../proposals/domain/Proposals.ts"
@@ -9,6 +10,7 @@ import { IssuedUndo, logUntil, UndoWindow } from "../../shared/domain/Undo.ts"
 import { ActionNotAllowed, type AgentEffect } from "../domain/AgentLog.ts"
 import { decide } from "./autonomy.ts"
 import { record, seen } from "./log.ts"
+import { daySlot, freeSlot } from "./triggers.ts"
 
 /*
  * An agent's action under the workspace's autonomy rules (M15 step 6; ADR-0027): `Autonomy.decide` first, then one
@@ -135,7 +137,15 @@ export const govern = <A, E, R>(
       }
       return { _tag: "Ran" as const, value: (yield* g.run).value }
     }
-    const d = first.decision!
+    const decided = first.decision!
+    // A run of the day, claimed as the agent's own triggers claim it (`daySlot`): the day's limit holds for MCP calls
+    // and triggers together, however many come at once. None left: the call is asked, as `decide` would have.
+    const id = mintId("aga")
+    const workspace = { id: principal.workspaceId }
+    const d = decided.decision === "run" &&
+        !(yield* daySlot(g.action, id).pipe(Effect.provideService(CurrentWorkspace, workspace)))
+      ? { ...decided, decision: "propose" as const, reason: "limit" }
+      : decided
 
     if (d.decision === "refuse") {
       yield* db.scoped((sql) =>
@@ -209,19 +219,23 @@ export const govern = <A, E, R>(
       Effect.provideService(IssuedUndo, { add: (t) => void issued.push(t) }),
       Effect.provideService(UndoWindow, AGENT_UNDO_SECONDS),
       Effect.tapError((e) =>
-        db.scoped((sql) =>
-          record(sql, {
-            ...base,
-            policyVersion: d.policyVersion,
-            level: d.level,
-            decision: "run",
-            refuseReason: null,
-            effect: null,
-            outcome: "failed",
-            error: tagOf(e),
-            proposalId: null,
-            undo: null
-          })
+        Effect.andThen(
+          freeSlot(id).pipe(Effect.provideService(CurrentWorkspace, workspace)),
+          db.scoped((sql) =>
+            record(sql, {
+              ...base,
+              id,
+              policyVersion: d.policyVersion,
+              level: d.level,
+              decision: "run",
+              refuseReason: null,
+              effect: null,
+              outcome: "failed",
+              error: tagOf(e),
+              proposalId: null,
+              undo: null
+            })
+          )
         ).pipe(Effect.orDie)
       )
     )
@@ -229,6 +243,7 @@ export const govern = <A, E, R>(
     yield* db.scoped((sql) =>
       record(sql, {
         ...base,
+        id,
         policyVersion: d.policyVersion,
         level: d.level,
         decision: "run",

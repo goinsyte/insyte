@@ -16,8 +16,8 @@ import { withRequestDb } from "../../platform/RequestDb.ts"
  * Shopify's webhooks (M6.3), each delivery acked or retried on its own.
  *
  * A ticket to classify (M15 step 2) and a trigger the agent sink heard (M15 step 6) run beside the batch's deliveries,
- * not before or after them, and are acked on their own: a slow model holds up no event, and a failed delivery does not
- * ask the model again.
+ * not before or after them, and are acked or retried on their own: a slow model holds up no event, a failed delivery
+ * does not ask the model again, and a task that could not run (the database away) comes back rather than being lost.
  */
 export const queue: ExportedHandlerQueueHandler<Env, EventsMessage | IngestMessage> = async (batch, _env, ctx) => {
   // The batch's own exporter (`Observability.ts`), flushed after the acks, in at most three seconds.
@@ -25,22 +25,27 @@ export const queue: ExportedHandlerQueueHandler<Env, EventsMessage | IngestMessa
   try {
     if (batch.queue.startsWith("insyte-ingest")) return await ingest(batch as MessageBatch<IngestMessage>, spans)
     const messages = (batch as MessageBatch<EventsMessage>).messages
-    // Neither a topic nor an agent's task throws (each logs what went wrong and leaves it to the team), so each is
-    // acked once it has run; all of them are waited for, whatever the deliveries beside them do.
+    // A topic never throws (it logs and leaves the rules' topic). An agent's task throws only when it could not run at
+    // all: it is retried, and acts once however often it comes. Each is acked or retried when it is done; all of them
+    // are waited for, whatever the deliveries beside them do.
+    const settle = (m: (typeof messages)[number], run: Promise<unknown>) => run.then(() => m.ack(), () => m.retry())
     const beside = Promise.allSettled(messages.flatMap((m) =>
       "classifyTicket" in m.body
-        ? [background.runPromise(spans.provide(withRequestDb(classify(m.body.classifyTicket)))).then(() => m.ack())]
+        ? [settle(m, background.runPromise(spans.provide(withRequestDb(classify(m.body.classifyTicket)))))]
         : "agent" in m.body
-        ? [background.runPromise(spans.provide(withRequestDb(agentAct(m.body.agent)))).then(() => m.ack())]
+        ? [settle(m, background.runPromise(spans.provide(withRequestDb(agentAct(m.body.agent)))))]
         : []
     ))
-    const outboxIds = messages.flatMap((m) => ("outboxIds" in m.body ? m.body.outboxIds : []))
+    const deliveries = messages.filter((m) => "outboxIds" in m.body)
+    const outboxIds = deliveries.flatMap((m) => ("outboxIds" in m.body ? m.body.outboxIds : []))
     try {
       if (outboxIds.length > 0) await background.runPromise(spans.provide(withRequestDb(deliver(outboxIds))))
     } finally {
       await beside
     }
-    batch.ackAll()
+    // The deliveries acked; a task beside them has said for itself, and a batch of tasks is not acked whole over it.
+    if (deliveries.length === messages.length) batch.ackAll()
+    else for (const m of deliveries) m.ack()
   } finally {
     ctx.waitUntil(spans.flush())
   }
@@ -57,7 +62,8 @@ let agentSink: Promise<typeof AgentSink> | undefined
 
 /**
  * A trigger for the agent (`relay/subscribers/agent.ts`): `AgentSink.ts`, with the slices' use cases it runs, is loaded
- * on the first task an isolate sees, not when the jobs Worker starts. A task acts once however often it comes.
+ * on the first task an isolate sees, not when the jobs Worker starts. A task acts once however often it comes, so one
+ * that failed to load or to reach the database fails here, and the queue hands it over again.
  */
 const agentAct = (task: AgentTask) =>
   Effect.tryPromise(() =>
@@ -67,5 +73,5 @@ const agentAct = (task: AgentTask) =>
     })
   ).pipe(
     Effect.flatMap((sink) => sink.act(task)),
-    Effect.catchCause((cause) => Effect.logWarning("the agent's task did not run", { cause }))
+    Effect.tapCause((cause) => Effect.logWarning("the agent's task did not run; it is tried again", { cause }))
   )
