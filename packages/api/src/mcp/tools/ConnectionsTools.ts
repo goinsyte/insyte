@@ -1,7 +1,7 @@
 import { Tool, Toolkit } from "effect/ai"
 import { ScopeMissingV1 } from "../../http/Errors.ts"
 import { ConnectionsHealthV1 } from "../../http/groups/ConnectionsGroup.ts"
-import { asKey } from "../Shared.ts"
+import { asKey, Needs, read } from "../Shared.ts"
 
 /* Sync health (M17 step 6): every store's connection, its state and its incidents with what Insyte tried. */
 
@@ -11,6 +11,6 @@ export const GetConnectionHealth = Tool.make("get_connection_health", {
   success: ConnectionsHealthV1,
   failure: ScopeMissingV1,
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("data")])
 
 export const ConnectionsTools = Toolkit.make(GetConnectionHealth)

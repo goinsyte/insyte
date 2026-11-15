@@ -2,7 +2,18 @@ import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import { ActionNotAllowedV1, NotFoundV1, ScopeMissingV1 } from "../../http/Errors.ts"
 import { ForwardView, Leg, LegPageV1, Supplier, SupplierStatementsV1 } from "../../http/groups/ForwardingGroup.ts"
-import { asKey, Governed, IdempotencyKey, WriteFailure } from "../Shared.ts"
+import {
+  asKey,
+  ForAgents,
+  Governed,
+  governedAs,
+  IdempotencyKey,
+  Needs,
+  read,
+  refusedToAgents,
+  write,
+  WriteFailure
+} from "../Shared.ts"
 
 /* Forwarding (M8): the suppliers and their statements, the queue of legs, forwarding and rerouting. */
 
@@ -12,7 +23,7 @@ export const ListSuppliers = Tool.make("list_suppliers", {
   success: Schema.Struct({ data: Schema.Array(Supplier) }),
   failure: ScopeMissingV1,
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("suppliers")])
 
 export const ListSupplierStatements = Tool.make("list_supplier_statements", {
   description:
@@ -21,7 +32,7 @@ export const ListSupplierStatements = Tool.make("list_supplier_statements", {
   success: SupplierStatementsV1,
   failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("suppliers")])
 
 export const ListForwarding = Tool.make("list_forwarding", {
   description:
@@ -30,7 +41,7 @@ export const ListForwarding = Tool.make("list_forwarding", {
   success: LegPageV1,
   failure: ScopeMissingV1,
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("orders")])
 
 export const ForwardOrders = Tool.make("forward_orders", {
   description:
@@ -43,7 +54,7 @@ export const ForwardOrders = Tool.make("forward_orders", {
   success: Governed(Schema.Struct({ data: Schema.Array(Leg) })),
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Destructive, true)
+}).annotate(Tool.Destructive, true).annotate(Needs, [write("orders")]).annotate(ForAgents, governedAs("ForwardOrder"))
 
 export const RerouteLeg = Tool.make("reroute_leg", {
   description:
@@ -52,7 +63,7 @@ export const RerouteLeg = Tool.make("reroute_leg", {
   success: Leg,
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("orders")]).annotate(ForAgents, refusedToAgents)
 
 export const ForwardingTools = Toolkit.make(
   ListSuppliers,

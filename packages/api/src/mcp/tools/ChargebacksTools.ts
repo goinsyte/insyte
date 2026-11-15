@@ -2,7 +2,7 @@ import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import { NotFoundV1, ScopeMissingV1 } from "../../http/Errors.ts"
 import { ChargebackDetailV1, ChargebackPageV1, ChargebackTabV1 } from "../../http/groups/ChargebacksGroup.ts"
-import { asKey } from "../Shared.ts"
+import { asKey, Needs, read } from "../Shared.ts"
 
 /* Chargebacks (M13), to read: the cases, and one with its evidence pack and timeline. */
 
@@ -20,7 +20,7 @@ export const ListChargebacks = Tool.make("list_chargebacks", {
   success: ChargebackPageV1,
   failure: ScopeMissingV1,
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("chargebacks")])
 
 export const GetChargeback = Tool.make("get_chargeback", {
   description:
@@ -29,7 +29,7 @@ export const GetChargeback = Tool.make("get_chargeback", {
   success: ChargebackDetailV1,
   failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("chargebacks")])
 
 export const ChargebacksTools = Toolkit.make(
   ListChargebacks,

@@ -11,7 +11,20 @@ import {
 } from "../../http/Errors.ts"
 import { Order } from "../../http/groups/CommerceGroup.ts"
 import { OrderDetailV1, OrderMailV1, Refund, TrackingV1 } from "../../http/groups/OrdersGroup.ts"
-import { asKey, Governed, IdempotencyKey, OrderId, WriteFailure } from "../Shared.ts"
+import {
+  asKey,
+  ForAgents,
+  Governed,
+  governedAs,
+  IdempotencyKey,
+  Needs,
+  OrderId,
+  read,
+  refusedToAgents,
+  special,
+  write,
+  WriteFailure
+} from "../Shared.ts"
 
 /* One order (M19.3): read with its parcels, and the order commands (M7) as `/v1` has them. */
 
@@ -22,7 +35,7 @@ export const GetOrder = Tool.make("get_order", {
   success: OrderDetailV1,
   failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("orders")])
 
 export const TagOrder = Tool.make("tag_order", {
   description:
@@ -36,7 +49,7 @@ export const TagOrder = Tool.make("tag_order", {
   success: Governed(Order),
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("orders")]).annotate(ForAgents, governedAs("ApplyLabel"))
 
 export const SetOrderNote = Tool.make("set_order_note", {
   description:
@@ -45,7 +58,7 @@ export const SetOrderNote = Tool.make("set_order_note", {
   success: Governed(OrderDetailV1),
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("orders")]).annotate(ForAgents, governedAs("AddNote"))
 
 export const UpdateShippingAddress = Tool.make("update_shipping_address", {
   description:
@@ -63,7 +76,7 @@ export const UpdateShippingAddress = Tool.make("update_shipping_address", {
   success: Order,
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("orders")]).annotate(ForAgents, refusedToAgents)
 
 export const FlagOrderDelayed = Tool.make("flag_order_delayed", {
   description:
@@ -72,7 +85,7 @@ export const FlagOrderDelayed = Tool.make("flag_order_delayed", {
   success: Order,
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("orders")]).annotate(ForAgents, refusedToAgents)
 
 export const ClearOrderDelay = Tool.make("clear_order_delay", {
   description:
@@ -81,7 +94,7 @@ export const ClearOrderDelay = Tool.make("clear_order_delay", {
   success: Order,
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("orders")]).annotate(ForAgents, refusedToAgents)
 
 export const EmailOrderCustomer = Tool.make("email_order_customer", {
   description:
@@ -95,7 +108,10 @@ export const EmailOrderCustomer = Tool.make("email_order_customer", {
   success: OrderMailV1,
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("support"), read("orders")]).annotate(
+  ForAgents,
+  refusedToAgents
+)
 
 export const CancelOrder = Tool.make("cancel_order", {
   description:
@@ -109,7 +125,7 @@ export const CancelOrder = Tool.make("cancel_order", {
   success: Governed(Order),
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Destructive, true)
+}).annotate(Tool.Destructive, true).annotate(Needs, [write("orders")]).annotate(ForAgents, governedAs("CancelOrder"))
 
 export const RefundOrder = Tool.make("refund_order", {
   description:
@@ -131,7 +147,10 @@ export const RefundOrder = Tool.make("refund_order", {
     RefundOverLimitV1
   ]),
   dependencies: asKey()
-}).annotate(Tool.Destructive, true)
+}).annotate(Tool.Destructive, true).annotate(Needs, [write("orders"), special("refunds.write")]).annotate(
+  ForAgents,
+  governedAs("RefundOrder")
+)
 
 export const GetOrderTracking = Tool.make("get_order_tracking", {
   description:
@@ -140,7 +159,7 @@ export const GetOrderTracking = Tool.make("get_order_tracking", {
   success: TrackingV1,
   failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("orders")])
 
 export const OrdersTools = Toolkit.make(
   GetOrder,
