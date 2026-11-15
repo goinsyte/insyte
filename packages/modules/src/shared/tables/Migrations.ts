@@ -76,6 +76,7 @@ import firstAnalysisMade from "./migrations/0087_first_analysis_made.ts"
 import listSortKeys from "./migrations/0089_list_sort_keys.ts"
 import billing from "./migrations/0090_billing.ts"
 import automationMailChecked from "./migrations/0091_automation_mail_checked.ts"
+import workspaceChoice from "./migrations/0096_workspace_choice.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 import supplierPortal from "./migrations/contract/0075_supplier_portal.ts"
 
@@ -163,5 +164,6 @@ export const Migrations = {
   "0087_first_analysis_made": firstAnalysisMade,
   "0089_list_sort_keys": listSortKeys,
   "0090_billing": billing,
-  "0091_automation_mail_checked": automationMailChecked
+  "0091_automation_mail_checked": automationMailChecked,
+  "0096_workspace_choice": workspaceChoice
 }

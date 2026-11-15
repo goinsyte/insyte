@@ -157,6 +157,42 @@ describe("tenancy", () => {
     expect(seen.map((r) => r.workspaceId)).toEqual([wsA])
   })
 
+  it("keeps a person's other workspace out of the one they work in (0096)", async () => {
+    const wsA2 = Schema.decodeSync(WorkspaceId)(mintId("ws"))
+    const seen = await run(
+      Effect.gen(function*() {
+        const db = yield* Db
+        yield* db.asUserIn(wsA2)((sql) =>
+          Effect.gen(function*() {
+            yield* sql`insert into workspaces (id, name, slug) values (${wsA2}, 'a2', ${`t-${runId}-a2`})`
+            yield* sql`insert into roles (id, workspace_id, label, kind, levels) values ('owner', ${wsA2}, 'Eigenaar', 'system', '{}')`
+            yield* sql`insert into members (id, workspace_id, user_id, role_id) values (${
+              mintId("mem")
+            }, ${wsA2}, ${alice.id}, 'owner')`
+          })
+        )
+        const mine = (sql: Parameters<Parameters<typeof db.forUser>[0]>[0]) =>
+          Effect.all({
+            members: sql<{ id: string }>`select workspace_id as id from members order by id`,
+            roles: sql<{ id: string }>`select workspace_id as id from roles where id = 'owner' order by id`,
+            workspaces: sql<{ id: string }>`select id from workspaces order by id`
+          }).pipe(Effect.map((r) => ({
+            members: r.members.map((x) => x.id),
+            roles: r.roles.map((x) => x.id),
+            workspaces: r.workspaces.map((x) => x.id)
+          })))
+        const before = yield* db.forUser(mine)
+        const inA = yield* db.asUserIn(wsA)(mine)
+        const inA2 = yield* db.asUserIn(wsA2)(mine)
+        return { before, inA, inA2 }
+      }).pipe(Effect.provideService(CurrentUser, alice))
+    )
+    const both = [wsA, wsA2].toSorted()
+    expect(seen.before).toEqual({ members: both, roles: both, workspaces: both })
+    expect(seen.inA).toEqual({ members: [wsA], roles: [wsA], workspaces: [wsA] })
+    expect(seen.inA2).toEqual({ members: [wsA2], roles: [wsA2], workspaces: [wsA2] })
+  })
+
   it("refuses to write a row into another workspace", async () => {
     const exit = await Effect.runPromiseExit(
       Effect.flatMap(
