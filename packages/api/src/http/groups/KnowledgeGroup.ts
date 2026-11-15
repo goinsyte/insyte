@@ -36,7 +36,7 @@ export class KnowledgeGroup extends HttpApiGroup.make("knowledge")
       error: [ScopeMissingV1]
     }).annotate(
       OpenApi.Description,
-      "Kennisbank: the published chapters, by title. A draft, a change not yet published and an archived chapter are never here. Needs `settings.read`."
+      "Kennisbank: the published chapters, by title. A draft, a change not yet published and an archived chapter are never here. Needs `support.read`."
     ),
     HttpApiEndpoint.get("get", "/knowledge_articles/:id", {
       params: ById,
@@ -44,7 +44,7 @@ export class KnowledgeGroup extends HttpApiGroup.make("knowledge")
       error: [ScopeMissingV1, NotFoundV1]
     }).annotate(
       OpenApi.Description,
-      "One published chapter with its published text. A chapter never published, archived, or for a store the key does not reach is not found. Needs `settings.read`."
+      "One published chapter with its published text. A chapter never published, archived, or for a store the key does not reach is not found. Needs `support.read`."
     )
   )
   .annotate(OpenApi.Title, "Knowledge")

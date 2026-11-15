@@ -57,6 +57,8 @@ export class KnowledgeService extends Context.Service<KnowledgeService, {
   readonly search: (input: SearchInput) => Effect.Effect<SearchResult, Forbidden, R>
   /** The published chapters as the public API reads them (`id`: one, or none). */
   readonly published: (id: string | null) => Effect.Effect<ReadonlyArray<Articles.Published>, Forbidden, R>
+  /** The search as the public API reads it: published chapters, with `support.read`. */
+  readonly searchPublished: (input: SearchInput) => Effect.Effect<SearchResult, Forbidden, R>
 }>()("modules/KnowledgeService") {
   static readonly layer = Layer.succeed(KnowledgeService, {
     list: (input) => scoped((sql) => Articles.list(sql, input)),
@@ -78,6 +80,13 @@ export class KnowledgeService extends Context.Service<KnowledgeService, {
       Effect.gen(function*() {
         // Reading by search is reading the knowledge base.
         yield* Policy.require("settings", 1)
+        const db = yield* Db
+        return yield* Search.search(db.scoped, input)
+      }).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    searchPublished: (input) =>
+      Effect.gen(function*() {
+        // What the published chapters say is what support answers with; a key reaches no Instellingen.
+        yield* Policy.require("support", 1)
         const db = yield* Db
         return yield* Search.search(db.scoped, input)
       }).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))

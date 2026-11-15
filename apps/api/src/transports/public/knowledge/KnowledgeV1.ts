@@ -32,7 +32,7 @@ const make = Effect.gen(function*() {
       const limit = Math.min(Math.max(Math.trunc(input.limit ?? 3), 1), 10)
       return (query === ""
         ? Effect.succeed(searchV1(new SearchResult({ hits: [], mode: "text" })))
-        : withEmbedder(knowledge.search({ query, audience: input.audience ?? "customer_agent", limit })).pipe(
+        : withEmbedder(knowledge.searchPublished({ query, audience: input.audience ?? "customer_agent", limit })).pipe(
           Effect.map(searchV1)
         )).pipe(Effect.catchTag("Forbidden", scopeMissing))
     }

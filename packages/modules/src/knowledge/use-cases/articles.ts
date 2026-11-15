@@ -200,7 +200,8 @@ export interface Published {
  * version, none archived, within the principal's stores. A chapter never published is not there.
  */
 export const published = Effect.fn("Knowledge.published")(function*(sql: SqlClient.SqlClient, id: string | null) {
-  yield* Policy.require("settings", 1)
+  // What the published chapters say is what support answers with: `support.read`, so a key reaches no Instellingen.
+  yield* Policy.require("support", 1)
   const scope = yield* inScopeOrNone(sql, "a.store_id")
   return yield* sql<Published>`
     select a.id, v.title, v.audience, a.store_id, v.version,

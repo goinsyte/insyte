@@ -342,7 +342,7 @@ describe("Kennisbank", () => {
     const key = ok(
       await rpc("ApiKeys.create", {
         label: "Kennisbank",
-        access: { kind: "custom", scopes: { settings: 1 } },
+        access: { kind: "custom", scopes: { support: 1 } },
         stores: "all",
         expiresInDays: 30,
         ips: [],
@@ -377,7 +377,7 @@ describe("Kennisbank", () => {
       headers: { authorization: `Bearer ${narrow}` }
     })
     expect(refused.status).toBe(403)
-    expect(((await refused.json()) as { error: { scope: string } }).error.scope).toBe("settings.read")
+    expect(((await refused.json()) as { error: { scope: string } }).error.scope).toBe("support.read")
   })
 
   it("archives a chapter out of every read, with undo", async () => {
