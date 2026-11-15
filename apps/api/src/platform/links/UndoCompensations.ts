@@ -1,4 +1,5 @@
 import { restoreAutonomy, restoreBudgets } from "@insyte/modules/agent/Agent"
+import { restore as restoreAsk } from "@insyte/modules/ask/Ask"
 import { restore as restoreAutomations } from "@insyte/modules/automations/use-cases/commands"
 import { restore as restoreChargebacks } from "@insyte/modules/chargebacks/Chargebacks"
 import { restore as restoreChats } from "@insyte/modules/chats/use-cases/commands"
@@ -69,6 +70,7 @@ export const compensations: Record<string, Compensation> = {
   "sheets.restore": restoreSheets,
   "data.restore": restoreData,
   "courses.restore": restoreCourses,
+  "ask.restore": restoreAsk,
   "marketplace.restore": (sql, compensation) =>
     restoreApp(sql, compensation).pipe(Effect.provideService(AppKeys, undoKeys)),
   "marketplace.rescope": (sql, compensation) =>
