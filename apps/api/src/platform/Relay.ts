@@ -1,6 +1,7 @@
 import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
+import type { AgentTask } from "@insyte/modules/agent/domain/Triggers"
 import { isWebhookSource, startFor as startWebhookRuns } from "@insyte/modules/developer/use-cases/deliveries"
 import { type OutboxEvent, Relay } from "@insyte/modules/shared/domain/Outbox"
 import { env, waitUntil } from "cloudflare:workers"
@@ -31,12 +32,14 @@ const routes = Effect.promise(() =>
 )
 
 /**
- * What goes onto `EVENTS`: committed events to deliver, or a ticket to classify (M15 step 2), which the consumer runs
- * beside the deliveries, never in front of them (`transports/jobs/Queue.ts`).
+ * What goes onto `EVENTS`: committed events to deliver, a ticket to classify (M15 step 2), or a trigger the agent sink
+ * heard (M15 step 6), which the consumer runs beside the deliveries, never in front of them
+ * (`transports/jobs/Queue.ts`).
  */
 export type EventsMessage =
   | { readonly outboxIds: ReadonlyArray<string> }
   | { readonly classifyTicket: { readonly workspaceId: string; readonly ticketId: string } }
+  | { readonly agent: AgentTask }
 
 /** The longest a queue message can be delayed (Cloudflare Queues: 12 hours). */
 const MAX_DELAY_SECONDS = 43_200
