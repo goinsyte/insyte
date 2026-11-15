@@ -68,6 +68,11 @@ export const receive = Effect.fn("Stores.webhooks.receive")(function*(delivery: 
   return { status: 200 } satisfies Received
 })
 
+/** A completed draft whose order Insyte does not hold yet: the delivery is tried again, the draft kept until then. */
+class DraftNotCompleted extends Schema.TaggedError<DraftNotCompleted>()("DraftNotCompleted", {
+  draft: Schema.String
+}) {}
+
 /** The topics whose object is read again and mirrored; the value says which object, from the payload. */
 const READS: Record<string, { readonly kind: MirrorKind; readonly id: (body: Record<string, unknown>) => unknown }> = {
   "orders/create": { kind: "Order", id: (b) => b["id"] },
@@ -241,7 +246,8 @@ const applyTopic = Effect.fn("Stores.webhooks.topic")(
       case "returns/close":
         return yield* (yield* ShopifyReturns).applied(store.id, topic, body)
       // A draft made in Insyte (M7.1) that Shopify completed into an order: the order mirrored as Shopify holds it, the
-      // team's internal note moved to it, and the draft gives way. Any other draft's change is Shopify's own.
+      // team's internal note and chosen payment moved to it, and the draft gives way. Until the order is in Insyte the
+      // draft stays and the delivery is tried again, so the note is never lost. Any other draft's change is Shopify's.
       case "draft_orders/update": {
         const order = body["order_id"]
         if (body["status"] !== "completed" || (typeof order !== "string" && typeof order !== "number")) return
@@ -250,16 +256,23 @@ const applyTopic = Effect.fn("Stores.webhooks.topic")(
         }
         return yield* db.scopedFor((sql) =>
           Effect.gen(function*() {
-            const [draft] = yield* sql<{ id: string }>`
-              select id from orders
-              where store_id = ${store.id} and shopify_id = ${`draft-${String(body["id"])}`} and is_draft`
+            const [draft] = yield* sql<{ id: string; draftPayment: string | null }>`
+              select id, draft_payment from orders
+              where store_id = ${store.id} and shopify_id = ${`draft-${String(body["id"])}`} and is_draft
+              for update`
             if (draft === undefined) return
+            const [real] = yield* sql<{ id: string }>`
+              select id from orders where store_id = ${store.id} and shopify_id = ${String(order)} and not is_draft`
+            if (real === undefined) return yield* new DraftNotCompleted({ draft: draft.id })
             yield* sql`
               insert into order_notes (order_id, workspace_id, body, updated_by, updated_at)
-              select o.id, n.workspace_id, n.body, n.updated_by, n.updated_at
-              from order_notes n join orders o on o.store_id = ${store.id} and o.shopify_id = ${String(order)}
-              where n.order_id = ${draft.id}
+              select ${real.id}, n.workspace_id, n.body, n.updated_by, n.updated_at
+              from order_notes n where n.order_id = ${draft.id}
               on conflict (order_id) do nothing`
+            if (draft.draftPayment !== null) {
+              yield* sql`update orders set draft_payment = ${draft.draftPayment}
+                         where id = ${real.id} and draft_payment is null`
+            }
             yield* sql`delete from orders where id = ${draft.id}`
           })
         )

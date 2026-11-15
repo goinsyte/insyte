@@ -19,7 +19,15 @@ describe("a Shopify refusal to make a record", () => {
     expect(refusalOf([])).toBe("other")
   })
 
-  it("says every reason in Dutch", () => {
-    for (const sentence of Object.values(CREATE_REFUSED)) expect(sentence).toMatch(/^[A-Z].*\.$/)
+  it("says every reason in Dutch, once", () => {
+    expect(CREATE_REFUSED).toEqual({
+      email: "Shopify accepteert het e-mailadres van de klant niet.",
+      lines: "Shopify accepteert een van de artikelen niet.",
+      title: "Shopify accepteert deze titel niet.",
+      sku: "Shopify accepteert deze SKU niet.",
+      price: "Shopify accepteert deze prijs niet.",
+      scope: "Insyte mag dit nog niet in deze winkel. Open de app in Shopify en keur de nieuwe toestemmingen goed.",
+      other: "Shopify gaf geen reden op."
+    })
   })
 })
