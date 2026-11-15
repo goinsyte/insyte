@@ -7,7 +7,7 @@ import {
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
-import { failure, join, ok, pastUndo, relay, run } from "./journeys.ts"
+import { failure, join, ok, outboxOf, pastUndo, relay, run } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"
 
@@ -55,9 +55,23 @@ const writesOf = async () => {
   return writes
 }
 
-/** Every write the window let through, run to the end. */
-const written = async (writes: Writes) => {
-  const instances = await writes.get()
+/**
+ * This workspace's Shopify writes among those the session saw: each is named by its outbox event (`sw-<id>`). Another
+ * test's write (an earlier test's draft that its own kick sends once its window passed, a write of a test running
+ * beside this one) can start while this one's session is open, and is not this test's.
+ */
+const ours = async (writes: Writes, workspace: string) => {
+  const events = new Set((await outboxOf(workspace)).map((e) => `sw-${e.id}`))
+  return (await writes.get()).filter((instance) => {
+    const id = (instance as { readonly instanceId?: unknown }).instanceId
+    if (typeof id !== "string") throw new Error("a workflow instance without its id")
+    return events.has(id)
+  })
+}
+
+/** Every write of this workspace the window let through, run to the end. */
+const written = async (writes: Writes, workspace: string) => {
+  const instances = await ours(writes, workspace)
   for (const instance of instances) await instance.waitForStatus("complete")
   return (await Promise.all(instances.map((i) => i.getOutput()))).flat() as Array<Outcome>
 }
@@ -121,7 +135,7 @@ describe("draft orders", () => {
 
     // Nothing reaches Shopify inside the window; a draft is not tagged, cancelled, or mailed about.
     await relay(store.workspace)
-    expect(await writes.get()).toHaveLength(0)
+    expect(await ours(writes, store.workspace)).toHaveLength(0)
     expect(failure(await rpc("Orders.tag", { ids: [draft.id], add: ["x"], remove: [] }, store.cookie)))
       .toMatchObject({ _tag: "Conflict", reason: "draft" })
     expect(failure(await rpc("Orders.cancel", { ids: [draft.id], restock: false, notify: false }, store.cookie)))
@@ -134,7 +148,7 @@ describe("draft orders", () => {
 
     await pastUndo(store.workspace)
     await relay(store.workspace)
-    expect((await written(writes)).map((o) => o.outcome)).toEqual(["sent"])
+    expect((await written(writes, store.workspace)).map((o) => o.outcome)).toEqual(["sent"])
     const sent = ok(await rpc("Orders.get", { id: draft.id }, store.cookie)).order
     expect(sent.shopifyId).toMatch(/^draft-\d+$/)
     const draftGid = `gid://shopify/DraftOrder/${sent.shopifyId.slice("draft-".length)}`
@@ -170,7 +184,7 @@ describe("draft orders", () => {
     const draft = ok(await rpc("Orders.createDraft", draftOf(store.storeId), store.cookie)).orders[0]!
     await pastUndo(store.workspace)
     await relay(store.workspace)
-    await written(writes)
+    await written(writes, store.workspace)
     const sent = ok(await rpc("Orders.get", { id: draft.id }, store.cookie)).order
     // Completed into an order Shopify does not answer for (yet): the delivery fails and is tried again later.
     expect(
@@ -221,13 +235,13 @@ describe("draft orders", () => {
     const kept = ok(await rpc("Orders.createDraft", draftOf(store.storeId), store.cookie)).orders[0]!
     await pastUndo(store.workspace)
     await relay(store.workspace)
-    expect((await written(writes)).map((o) => o.outcome)).toEqual(["sent"])
+    expect((await written(writes, store.workspace)).map((o) => o.outcome)).toEqual(["sent"])
     expect(recordedDrafts(store.shop).filter((d) => d.tags.includes(kept.number))).toHaveLength(1)
 
     ok(await rpc("Orders.removeDraft", { id: kept.id }, store.cookie))
     expect(failure(await rpc("Orders.get", { id: kept.id }, store.cookie))).toMatchObject({ _tag: "NotFound" })
     await relay(store.workspace)
-    const outcomes = await written(writes)
+    const outcomes = await written(writes, store.workspace)
     expect(outcomes.map((o) => o.outcome)).toEqual(["sent", "sent"])
     expect(recordedDrafts(store.shop).filter((d) => d.tags.includes(kept.number))).toHaveLength(0)
 
@@ -252,7 +266,7 @@ describe("draft orders", () => {
     expect(ok(await rpc("Orders.get", { id: draft.id }, store.cookie)).order.shopifyId).toBe(`insyte-${draft.id}`)
     ok(await rpc("Orders.removeDraft", { id: draft.id }, store.cookie))
     // …and the step that would have adopted it deletes it in Shopify instead.
-    expect(await written(writes)).toEqual([{ id: draft.id, outcome: "skipped", reason: "removed" }])
+    expect(await written(writes, store.workspace)).toEqual([{ id: draft.id, outcome: "skipped", reason: "removed" }])
     expect(recordedDrafts(store.shop).filter((d) => d.tags.includes(draft.number))).toHaveLength(0)
   })
 
@@ -265,7 +279,7 @@ describe("draft orders", () => {
     const draft = ok(await rpc("Orders.createDraft", draftOf(store.storeId), store.cookie)).orders[0]!
     await pastUndo(store.workspace)
     await relay(store.workspace)
-    expect((await written(writes)).map((o) => o.outcome)).toEqual(["sent"])
+    expect((await written(writes, store.workspace)).map((o) => o.outcome)).toEqual(["sent"])
     const inShopify = recordedDrafts(store.shop).filter((d) => d.tags.includes(draft.number))
     expect(inShopify).toHaveLength(1)
     expect(ok(await rpc("Orders.get", { id: draft.id }, store.cookie)).order.shopifyId)
@@ -291,7 +305,7 @@ describe("draft orders", () => {
     // The merchant's copy carries the number too, and was made two minutes after the draft took its id.
     const copy = copyRecordedDraft(kept, new Date(Date.now() + 120_000))
 
-    expect((await written(writes)).map((o) => o.outcome)).toEqual(["sent"])
+    expect((await written(writes, store.workspace)).map((o) => o.outcome)).toEqual(["sent"])
     // The twin from before the adopt step is gone; Insyte's draft and the merchant's copy stay.
     expect(tagged().map((d) => d.id).toSorted()).toEqual([kept, copy].toSorted())
   })
@@ -306,7 +320,7 @@ describe("draft orders", () => {
     await until(() => recordedDrafts(store.shop).some((d) => d.tags.includes(draft.number)), "Shopify made it")
     ok(await rpc("Orders.removeDraft", { id: draft.id }, store.cookie))
     // …the retry finds it by its number and deletes it there too.
-    expect(await written(writes)).toEqual([{ id: draft.id, outcome: "skipped", reason: "gone" }])
+    expect(await written(writes, store.workspace)).toEqual([{ id: draft.id, outcome: "skipped", reason: "gone" }])
     expect(recordedDrafts(store.shop).filter((d) => d.tags.includes(draft.number))).toHaveLength(0)
   })
 
@@ -330,7 +344,7 @@ describe("draft orders", () => {
       .orders[0]!
     await pastUndo(store.workspace)
     await relay(store.workspace)
-    expect(await written(writes)).toEqual([{ id: draft.id, outcome: "refused", reason: "email" }])
+    expect(await written(writes, store.workspace)).toEqual([{ id: draft.id, outcome: "refused", reason: "email" }])
     expect(failure(await rpc("Orders.get", { id: draft.id }, store.cookie))).toMatchObject({ _tag: "NotFound" })
     await relay(store.workspace)
     const notes = await inbox(store.cookie)
@@ -405,10 +419,10 @@ describe("new products", () => {
       .toMatchObject({ _tag: "Invalid", fields: { priceMinor: "required" } })
 
     await relay(store.workspace)
-    expect(await writes.get()).toHaveLength(0)
+    expect(await ours(writes, store.workspace)).toHaveLength(0)
     await pastUndo(store.workspace)
     await relay(store.workspace)
-    expect((await written(writes)).map((o) => o.outcome)).toEqual(["sent"])
+    expect((await written(writes, store.workspace)).map((o) => o.outcome)).toEqual(["sent"])
     // Shopify got it on sale with its price and SKU together, never at nothing.
     const [inShopify, ...more] = recordedProducts(store.shop)
     expect(more).toHaveLength(0)
@@ -428,7 +442,7 @@ describe("new products", () => {
     const product = ok(await rpc("Products.create", productOf("Linnen broek", "LIN-B"), store.cookie)).products[0]!
     await pastUndo(store.workspace)
     await relay(store.workspace)
-    expect((await written(writes)).map((o) => o.outcome)).toEqual(["sent"])
+    expect((await written(writes, store.workspace)).map((o) => o.outcome)).toEqual(["sent"])
     const inShopify = recordedProducts(store.shop)
     expect(inShopify).toHaveLength(1)
     expect(inShopify[0]).toMatchObject({ title: "Linnen broek", price: "29.95", sku: "LIN-B", status: "DRAFT" })
@@ -449,7 +463,7 @@ describe("new products", () => {
       { method: "POST" }
     )
     expect(await unmade.json()).toEqual({ gone: true })
-    expect(await written(writes)).toEqual([{ id: product.id, outcome: "skipped", reason: "gone" }])
+    expect(await written(writes, store.workspace)).toEqual([{ id: product.id, outcome: "skipped", reason: "gone" }])
     expect(recordedProducts(store.shop)).toHaveLength(0)
   })
 
@@ -480,7 +494,7 @@ describe("new products", () => {
     expect(level.status).toBe(200)
     await until(async () => (await titled()).some((p) => p.id !== product.id && p.available === 7), "the stock landed")
 
-    expect((await written(writes)).map((o) => o.outcome)).toEqual(["sent"])
+    expect((await written(writes, store.workspace)).map((o) => o.outcome)).toEqual(["sent"])
     const left = await titled()
     expect(left).toHaveLength(1)
     // Insyte's row stays, with the stock the echo held.
@@ -504,7 +518,7 @@ describe("new products", () => {
     const refused = ok(await rpc("Products.create", productOf("Geweigerd shirt"), store.cookie)).products[0]!
     await pastUndo(store.workspace)
     await relay(store.workspace)
-    expect(await written(writes)).toEqual([{ id: refused.id, outcome: "refused", reason: "title" }])
+    expect(await written(writes, store.workspace)).toEqual([{ id: refused.id, outcome: "refused", reason: "title" }])
     expect(failure(await rpc("Products.get", { id: refused.id }, store.cookie))).toMatchObject({ _tag: "NotFound" })
     expect(recordedProducts(store.shop)).toHaveLength(0)
     await relay(store.workspace)
