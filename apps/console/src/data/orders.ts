@@ -6,6 +6,8 @@ import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
 import { ConsoleClient } from "./client.ts"
+import { storeKey, withStore } from "./in-view.ts"
+import { inView } from "./store-view.ts"
 
 /*
  * Bestellingen (M6.4): the list's pages, the first primed by the route's loader and carried in the document, each next
@@ -31,9 +33,11 @@ const PAGE = AsyncResult.Schema({
 })
 
 /** The newest orders, for the screens that pick from them (Retouren, Data); the list itself pages on the server. */
-export const ordersAtom = Atom.serializable(
-  ConsoleClient.query("Orders.list", { limit: LIMIT }, { reactivityKeys: ORDERS }),
-  { key: "orders", schema: PAGE, skipInitialRun: true }
+export const ordersAtom = inView((storeId) =>
+  Atom.serializable(
+    ConsoleClient.query("Orders.list", withStore({ limit: LIMIT }, storeId), { reactivityKeys: ORDERS }),
+    { key: `orders@${storeKey(storeId)}`, schema: PAGE, skipInitialRun: true }
+  )
 )
 
 /**
@@ -41,9 +45,13 @@ export const ordersAtom = Atom.serializable(
  * route reads the first ahead, and the table reads each page, filter, search and order it is asked for after that.
  */
 export const ordersPageAtom = Atom.family((input: string) =>
-  Atom.serializable(
-    ConsoleClient.query("Orders.list", JSON.parse(input) as ListInput, { reactivityKeys: ORDERS }),
-    { key: `orders:${input}`, schema: PAGE, skipInitialRun: true }
+  inView((storeId) =>
+    Atom.serializable(
+      ConsoleClient.query("Orders.list", withStore(JSON.parse(input) as ListInput, storeId), {
+        reactivityKeys: ORDERS
+      }),
+      { key: `orders@${storeKey(storeId)}:${input}`, schema: PAGE, skipInitialRun: true }
+    )
   )
 )
 

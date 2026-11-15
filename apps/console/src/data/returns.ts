@@ -4,7 +4,9 @@ import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
 import { ConsoleClient } from "./client.ts"
+import { storeKey, withStore } from "./in-view.ts"
 import { ORDERS } from "./orders.ts"
+import { inView } from "./store-view.ts"
 
 /*
  * Retouren (M9.1): the queue, primed by the route's loader; one return when it opens; the returns policy; an order's
@@ -17,9 +19,15 @@ export const RETURN_SETTINGS = ["return-settings"] as const
 
 const errors = Schema.Union([Forbidden, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
 
-export const returnsAtom = Atom.serializable(
-  ConsoleClient.query("Returns.list", {}, { reactivityKeys: RETURNS }),
-  { key: "returns", schema: AsyncResult.Schema({ success: ReturnList, error: errors }), skipInitialRun: true }
+export const returnsAtom = inView((storeId) =>
+  Atom.serializable(
+    ConsoleClient.query("Returns.list", withStore({}, storeId), { reactivityKeys: RETURNS }),
+    {
+      key: `returns@${storeKey(storeId)}`,
+      schema: AsyncResult.Schema({ success: ReturnList, error: errors }),
+      skipInitialRun: true
+    }
+  )
 )
 
 export const returnAtom = Atom.family((id: string) =>

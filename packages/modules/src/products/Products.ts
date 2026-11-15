@@ -6,6 +6,7 @@ import { SqlError } from "effect/sql"
 import type { CursorInvalid, FilterFieldUnknown } from "../shared/domain/Filter.ts"
 import type { Relay } from "../shared/domain/Outbox.ts"
 import type { SearchHit } from "../shared/domain/Search.ts"
+import { inStore } from "../shared/use-cases/StoreScope.ts"
 import type { ConnectionGate, ShopifyGraphql } from "../stores/domain/Ports.ts"
 import { StoreMirror } from "../stores/Mirror.ts"
 import type {
@@ -62,7 +63,9 @@ export class ProductsService extends Context.Service<ProductsService, {
     Effect.gen(function*() {
       const mirror = yield* StoreMirror
       return {
-        list: (input) => Products.list(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        // Narrowed as a whole, so the facets and summaries count the one store too (the store switch).
+        list: (input) =>
+          Products.list(input).pipe(inStore(input.storeId), Effect.catchIf(SqlError.isSqlError, Effect.die)),
         get: (id) => Products.get(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         counts: Products.counts().pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         lowStock: (input) => Products.lowStock(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),

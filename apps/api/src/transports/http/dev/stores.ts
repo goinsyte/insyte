@@ -80,7 +80,8 @@ const StoreMirror = HttpRouter.add(
  * `POST /api/__dev/stores/seed`: the signed-in person's workspace gets the recorded twin's store, imported (three
  * products, three customers, five orders across their lifecycle), as a first import would leave it. Shopify is not
  * reached: the store has a connection without credentials, so it is for reading only. For the console's journey,
- * which has no Shopify to connect (previews never get one), and for a person trying a preview. Refused in production.
+ * which has no Shopify to connect (previews never get one), and for a person trying a preview. `?tag=<a-z0-9>&name=`
+ * seeds another store beside it, named so (the store switch's journey). Refused in production.
  */
 const StoreSeed = HttpRouter.add(
   "POST",
@@ -100,7 +101,12 @@ const StoreSeed = HttpRouter.add(
     )
     if (active === undefined) return HttpServerResponse.jsonUnsafe({ error: { code: "no_workspace" } }, { status: 409 })
     const workspace = { id: active.workspaceId }
-    const shop = `seed-${active.workspaceId.toLowerCase().replaceAll(/[^a-z0-9]/g, "")}.myshopify.com`
+    const params = new URL(request.url, "http://local").searchParams
+    const tag = (params.get("tag") ?? "").toLowerCase().replaceAll(/[^a-z0-9]/g, "").slice(0, 20)
+    const name = (params.get("name") ?? "").trim().slice(0, 80) || "Insyte MVP Test"
+    const shop = `seed-${tag === "" ? "" : `${tag}-`}${
+      active.workspaceId.toLowerCase().replaceAll(/[^a-z0-9]/g, "")
+    }.myshopify.com`
     const db = yield* Db
     const storeId = yield* db.scopedFor((sql) =>
       Effect.gen(function*() {
@@ -115,7 +121,7 @@ const StoreSeed = HttpRouter.add(
         yield* sql`
           insert into stores (id, workspace_id, connection_id, shop_domain, name, country, currency, timezone, plan_name,
                               status, connected_at, last_synced_at)
-          values (${id}, app_workspace_id(), ${connection!.id}, ${shop}, 'Insyte MVP Test', 'NL', 'EUR',
+          values (${id}, app_workspace_id(), ${connection!.id}, ${shop}, ${name}, 'NL', 'EUR',
                   'Europe/Amsterdam', 'development', 'connected', now(), now())`
         return id
       })

@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { StoreFilter } from "../../shared/domain/Stores.ts"
 
 /*
  * Analyse (M14 step 2; widgets/02 Part B, api.md §2.13): two calendar months compared over the same days, every figure
@@ -33,7 +34,8 @@ export class AnalyticsPeriods extends Schema.Class<AnalyticsPeriods>("analytics/
 }) {}
 
 /** The two months compared: A against B. */
-export const PairInput = Schema.Struct({ a: Month, b: Month })
+/** Two months, and one of the principal's stores where the console looks at one (the store switch). */
+export const PairInput = Schema.Struct({ a: Month, b: Month, ...StoreFilter })
 export type PairInput = typeof PairInput.Type
 
 /** A month as read: both are cut to the shorter one's elapsed days (§B.0.2), `from`–`to` inclusive. */
@@ -173,7 +175,7 @@ export const ExplainKey = Schema.Union([
 ])
 export type ExplainKey = typeof ExplainKey.Type
 
-export const ExplainRef = Schema.Struct({ a: Month, b: Month, key: ExplainKey })
+export const ExplainRef = Schema.Struct({ a: Month, b: Month, key: ExplainKey, ...StoreFilter })
 export type ExplainRef = typeof ExplainRef.Type
 
 /** A driver's or a chart mark's key, `a|b`, in its parts; an empty part is a slice without that dimension (null). */

@@ -6,6 +6,7 @@ import { SqlError } from "effect/sql"
 import type { MailboxDisconnected, NoMailbox } from "../inbox/domain/Inbox.ts"
 import { Relay } from "../shared/domain/Outbox.ts"
 import type { SearchHit } from "../shared/domain/Search.ts"
+import { inStore } from "../shared/use-cases/StoreScope.ts"
 import {
   type CustomerEmailed,
   type EmailCustomerInput,
@@ -98,7 +99,7 @@ export class TicketsService extends Context.Service<TicketsService, {
           Effect.catchIf(SqlError.isSqlError, Effect.die)
         )
       return {
-        list: (input) => run(Tickets.list(input)),
+        list: (input) => run(Tickets.list(input).pipe(inStore(input.storeId))),
         counts: run(Tickets.counts()),
         get: (id) => run(Tickets.get(id)),
         search: (q, limit) => run(Tickets.search(q, limit)),

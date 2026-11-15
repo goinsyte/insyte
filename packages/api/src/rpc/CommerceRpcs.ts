@@ -48,6 +48,7 @@ import {
   ProductPage
 } from "@insyte/modules/products/domain/Products"
 import { CursorInvalid, FilterFieldUnknown, ListInput } from "@insyte/modules/shared/domain/Filter"
+import { MaybeInStore } from "@insyte/modules/shared/domain/Stores"
 import { Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/rpc"
 import { Authenticated } from "./Authenticated.ts"
@@ -159,7 +160,7 @@ export class CommerceRpcs extends RpcGroup.make(
     success: CustomerChange,
     error: Schema.Union([Forbidden, NotFound, Invalid, Conflict])
   }),
-  Rpc.make("Customers.duplicates", { success: Schema.Array(DuplicateGroup), error: Forbidden }),
+  Rpc.make("Customers.duplicates", { payload: MaybeInStore, success: Schema.Array(DuplicateGroup), error: Forbidden }),
   Rpc.make("Customers.markNotDuplicate", { payload: NotDuplicateInput, error: Forbidden })
 )
   // Innermost first: `Member` needs the person (`Authenticated`) and the connection (`WithDb`) around it.

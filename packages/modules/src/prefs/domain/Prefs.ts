@@ -22,7 +22,9 @@ export const PREF_SECTIONS = [
   "columns",
   "analytics",
   "automations_promo",
-  "home"
+  "home",
+  // The store the console looks at (the top bar's store switch): `{ id }`, or `{ id: null }` for every store.
+  "store"
 ] as const
 export const PrefSection = Schema.Literals(PREF_SECTIONS)
 export type PrefSection = typeof PrefSection.Type

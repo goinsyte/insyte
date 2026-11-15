@@ -6,6 +6,8 @@ import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
 import { ConsoleClient } from "./client.ts"
+import { storeKey, withStore } from "./in-view.ts"
+import { inView } from "./store-view.ts"
 
 /*
  * Klanten (M6.4): the profiles' pages, the first primed by the route's loader and carried in the document, each next
@@ -27,9 +29,11 @@ const PAGE = AsyncResult.Schema({
 })
 
 /** Up to 200 by name, for a customer's header while the record loads; the list pages. */
-export const customersAtom = Atom.serializable(
-  ConsoleClient.query("Customers.list", { limit: 200 }, { reactivityKeys: CUSTOMERS }),
-  { key: "customers", schema: PAGE, skipInitialRun: true }
+export const customersAtom = inView((storeId) =>
+  Atom.serializable(
+    ConsoleClient.query("Customers.list", withStore({ limit: 200 }, storeId), { reactivityKeys: CUSTOMERS }),
+    { key: `customers@${storeKey(storeId)}`, schema: PAGE, skipInitialRun: true }
+  )
 )
 
 /**
@@ -37,9 +41,13 @@ export const customersAtom = Atom.serializable(
  * duplicate review reads its profiles by id the same way.
  */
 export const customersPageAtom = Atom.family((input: string) =>
-  Atom.serializable(
-    ConsoleClient.query("Customers.list", JSON.parse(input) as ListInput, { reactivityKeys: CUSTOMERS }),
-    { key: `customers:${input}`, schema: PAGE, skipInitialRun: true }
+  inView((storeId) =>
+    Atom.serializable(
+      ConsoleClient.query("Customers.list", withStore(JSON.parse(input) as ListInput, storeId), {
+        reactivityKeys: CUSTOMERS
+      }),
+      { key: `customers@${storeKey(storeId)}:${input}`, schema: PAGE, skipInitialRun: true }
+    )
   )
 )
 
@@ -61,17 +69,24 @@ export const customerAtom = Atom.family((id: string) =>
   )
 )
 
-/** The profiles that look like the same person (M7.4), for the list's review; a change to a customer refreshes it. */
-export const duplicatesAtom = Atom.serializable(
-  ConsoleClient.query("Customers.duplicates", undefined, { reactivityKeys: CUSTOMERS }),
-  {
-    key: "customer-duplicates",
-    schema: AsyncResult.Schema({
-      success: Schema.Array(DuplicateGroup),
-      error: Schema.Union([Forbidden, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
+/**
+ * The profiles that look like the same person (M7.4), for the list's review, in the store in view as the list is; a
+ * change to a customer refreshes it.
+ */
+export const duplicatesAtom = inView((storeId) =>
+  Atom.serializable(
+    ConsoleClient.query("Customers.duplicates", storeId === undefined ? undefined : { storeId }, {
+      reactivityKeys: CUSTOMERS
     }),
-    skipInitialRun: true
-  }
+    {
+      key: `customer-duplicates@${storeKey(storeId)}`,
+      schema: AsyncResult.Schema({
+        success: Schema.Array(DuplicateGroup),
+        error: Schema.Union([Forbidden, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
+      }),
+      skipInitialRun: true
+    }
+  )
 )
 
 /** The customer commands (M7.4), each refreshing what names `CUSTOMERS`, and the undo they offer. */

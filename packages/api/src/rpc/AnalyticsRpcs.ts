@@ -12,6 +12,7 @@ import {
   RecordsInput,
   RecordsPage
 } from "@insyte/modules/analytics/domain/Analytics"
+import { MaybeInStore } from "@insyte/modules/shared/domain/Stores"
 import { Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/rpc"
 import { Authenticated } from "./Authenticated.ts"
@@ -26,7 +27,7 @@ const Refused = Schema.Union([Forbidden, Invalid])
  * the member's `analytics` preference (`Prefs.patch`).
  */
 export class AnalyticsRpcs extends RpcGroup.make(
-  Rpc.make("Analytics.periods", { success: AnalyticsPeriods, error: Forbidden }),
+  Rpc.make("Analytics.periods", { payload: MaybeInStore, success: AnalyticsPeriods, error: Forbidden }),
   Rpc.make("Analytics.overview", { payload: PairInput, success: AnalyticsOverview, error: Refused }),
   Rpc.make("Analytics.charts", { payload: PairInput, success: AnalyticsCharts, error: Refused }),
   Rpc.make("Analytics.findings", { payload: PairInput, success: AnalyticsFindings, error: Refused }),
