@@ -3,7 +3,7 @@
  * console's streamed answers both draw through these.
  */
 
-export type RefKind = "order" | "chargeback" | "ticket" | "customer" | "supplier" | "store";
+export type RefKind = "order" | "chargeback" | "ticket" | "customer" | "supplier" | "store" | "return";
 /**
  * A word, a record as a chip, or a figure: a number the host computed, with what it is and where its rows are (the
  * console's answers place every number this way, so each one opens where it was counted). A figure's `search` is the

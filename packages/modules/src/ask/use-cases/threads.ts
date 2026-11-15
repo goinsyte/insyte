@@ -15,6 +15,7 @@ import {
   AskThreadRow,
   AskTurn,
   type Source,
+  STALE_MS,
   type Token,
   type ToolChip,
   type TurnFailure
@@ -26,9 +27,6 @@ import {
  * that read from a store the reader no longer reaches is not given back (`withheld`). Only what the person was shown
  * is kept: no prompt and no tool output.
  */
-
-/** An answer still streaming after this long was left behind (its Worker went away): read as failed. */
-const STALE_MS = 3 * 60_000
 
 /** How many earlier questions and answers the model reads back. */
 const HISTORY = 4
@@ -158,14 +156,22 @@ export interface Begun {
   readonly history: ReadonlyArray<{ readonly question: string; readonly answer: string }>
 }
 
-const historyOf = (sql: SqlClient.SqlClient, threadId: string) =>
-  sql<{ question: string; answer: string }>`
-    select question, answer from (
-      select a.seq, q.text as question, a.text as answer
+/**
+ * The conversation so far, as the model reads it back: the last questions and their answers, without an answer read
+ * from a store the person no longer reaches (it is withheld from them, so it is not told to the model either).
+ */
+const historyOf = (sql: SqlClient.SqlClient, p: Principal, threadId: string) =>
+  sql<{ question: string; answer: string; storeIds: ReadonlyArray<string> }>`
+    select question, answer, store_ids from (
+      select a.seq, q.text as question, a.text as answer, a.store_ids
       from ask_turns a join ask_turns q on q.thread_id = a.thread_id and q.seq = a.seq - 1 and q.role = 'user'
       where a.thread_id = ${threadId} and a.role = 'assistant' and a.state = 'settled' and a.text <> ''
       order by a.seq desc limit ${HISTORY}
-    ) last order by seq`
+    ) last order by seq`.pipe(
+    Effect.map((rows) =>
+      rows.filter((r) => reaches(p, r.storeIds)).map(({ question, answer }) => ({ question, answer }))
+    )
+  )
 
 /**
  * The question kept and the answer's row opened (`streaming`), on a thread of the person's own (a new one when none is
@@ -199,7 +205,7 @@ export const begin = Effect.fn("Ask.begin")(function*(
         and created_at > now() - make_interval(secs => ${STALE_MS / 1000})`
     if (busy !== undefined) return yield* new AskBusy({ threadId })
   }
-  const history = yield* historyOf(sql, threadId)
+  const history = yield* historyOf(sql, p, threadId)
   const [last] = yield* sql<{ seq: number | null }>`select max(seq) as seq from ask_turns where thread_id = ${threadId}`
   const seq = (last?.seq ?? 0) + 1
   const questionId = mintId("atn")

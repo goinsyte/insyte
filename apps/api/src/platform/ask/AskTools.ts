@@ -1,7 +1,7 @@
 import type { Db } from "@insyte/database/Db"
 import type { Forbidden, Invalid } from "@insyte/domain/Errors"
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
-import { dataBlock } from "@insyte/modules/ai/domain/Guards"
+import { dataBlock, defused } from "@insyte/modules/ai/domain/Guards"
 import { AnalyticsService } from "@insyte/modules/analytics/Analytics"
 import type { ExplainRef, Figure } from "@insyte/modules/analytics/domain/Analytics"
 import type { RefKind, Source } from "@insyte/modules/ask/domain/Ask"
@@ -15,6 +15,7 @@ import {
 import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import { OrdersService } from "@insyte/modules/orders/Orders"
+import type { QueueRow } from "@insyte/modules/queue/domain/Queue"
 import { QueueService } from "@insyte/modules/queue/Queue"
 import type { SearchHit } from "@insyte/modules/shared/domain/Search"
 import { TicketsService } from "@insyte/modules/tickets/Tickets"
@@ -87,8 +88,67 @@ const QUEUE_PATH: Readonly<Record<string, string>> = {
   order: "/orders",
   chargeback: "/chargebacks",
   ticket: "/tickets",
-  customer: "/customers"
+  customer: "/customers",
+  return: "/returns"
 }
+
+/** A queue subject as a record, and its chip where the line gave no number. */
+const QUEUE_REF: Readonly<Record<string, { readonly kind: RefKind; readonly name: string }>> = {
+  order: { kind: "order", name: "Bestelling" },
+  chargeback: { kind: "chargeback", name: "Chargeback" },
+  ticket: { kind: "ticket", name: "Ticket" },
+  customer: { kind: "customer", name: "Klant" },
+  return: { kind: "return", name: "Retour" }
+}
+
+/** The kinds whose title is Insyte's own words about a product, a supplier or a store, and names no shopper. */
+const OWN_TITLE: ReadonlySet<string> = new Set([
+  "quality_review",
+  "stock_out",
+  "store_disconnected",
+  "connection_incident",
+  "forwarding_failed"
+])
+
+/**
+ * A queue line as the model and the sources read it. The other kinds' titles end with the shopper's name ("Bestelling
+ * #1002 is vertraagd · <name>"), so their line is said again from the kind and the record's own number, and a title
+ * that does not start the way its kind does says only the kind. A kind this list does not know says nothing more.
+ */
+const queueLine = (r: QueueRow): { readonly line: string; readonly label: string | null } => {
+  if (OWN_TITLE.has(r.kind)) return { line: r.title, label: null }
+  const take = (pattern: RegExp) => pattern.exec(r.title)
+  switch (r.kind) {
+    case "order_delayed": {
+      const m = take(/^Bestelling (\S+)/)
+      return m === null ?
+        { line: "Een bestelling is vertraagd", label: null } :
+        { line: `Bestelling ${m[1]} is vertraagd`, label: m[1]! }
+    }
+    case "return_review": {
+      const m = take(/^(Retour|Claim) (\S+)/)
+      return m === null ?
+        { line: "Een retour wacht op beoordeling", label: null } :
+        { line: `${m[1]} ${m[2]} wacht op beoordeling`, label: m[2]! }
+    }
+    case "chargeback_opened":
+    case "chargeback_deadline": {
+      const opened = r.kind === "chargeback_opened"
+      const m = take(/^(?:Nieuwe chargeback|Chargeback) (\S+)/)
+      const said = opened ? "Nieuwe chargeback" : "Chargeback"
+      const tail = opened ? "" : " wacht op bewijs"
+      return m === null ?
+        { line: `${opened ? "Een nieuwe chargeback" : "Een chargeback"}${tail}`, label: null } :
+        { line: `${said} ${m[1]}${tail}`, label: m[1]! }
+    }
+    default:
+      return { line: "Een open zaak", label: null }
+  }
+}
+
+/** The record a queue line opens, or Start where it opens none. */
+const pathOf = (r: QueueRow) =>
+  QUEUE_PATH[r.subjectType] === undefined ? "/" : `${QUEUE_PATH[r.subjectType]}/${r.subjectId}`
 
 const listQueue: AskTool<QueueService | Base> = {
   name: "list_queue",
@@ -100,7 +160,7 @@ const listQueue: AskTool<QueueService | Base> = {
     Effect.gen(function*() {
       const queue = yield* QueueService
       const list = yield* queue.list({ tab: "needs_you", limit: 50, storeId: context.storeId })
-      const rows = list.rows.slice(0, RESULT_ROWS)
+      const rows = list.rows.slice(0, RESULT_ROWS).map((r) => ({ row: r, ...queueLine(r) }))
       const figures: Array<ToolFigure> = [
         { label: "Wacht op jou", display: INT.format(list.counts.needsYou), to: "/", explain: null },
         {
@@ -110,22 +170,29 @@ const listQueue: AskTool<QueueService | Base> = {
           explain: null
         }
       ]
-      const sources = rows.map((r): Source => ({
+      const sources = rows.map(({ line, row }): Source => ({
         kind: "queue",
-        title: r.title,
-        detail: r.storeName ?? "Alle winkels",
-        to: QUEUE_PATH[r.subjectType] === undefined ? "/" : `${QUEUE_PATH[r.subjectType]}/${r.subjectId}`
+        title: line,
+        detail: row.storeName ?? "Alle winkels",
+        to: pathOf(row)
       }))
-      const lines = rows.map((r) =>
-        `- ${r.signal}, ${r.kind}${r.dueAt === null ? "" : `, uiterlijk ${day(r.dueAt)}`}${
-          r.proposalId === null ? "" : ", voorstel klaar"
-        }: ${dataBlock("regel", r.title)}`
+      // The record each line is about, so the answer can place it and the turn keeps it as one of its refs.
+      const records = rows.flatMap(({ label, row }) => {
+        const ref = QUEUE_REF[row.subjectType]
+        if (ref === undefined) return []
+        const name = ref.kind === "customer" ? ref.name : label ?? ref.name
+        return [record(ref.kind, row.subjectId, name, pathOf(row), `in de wachtrij, ${defused(row.signal)}`, null)]
+      })
+      const lines = rows.map(({ line, row }) =>
+        `- ${row.signal}, ${row.kind}${row.dueAt === null ? "" : `, uiterlijk ${day(row.dueAt)}`}${
+          row.proposalId === null ? "" : ", voorstel klaar"
+        }: ${dataBlock("regel", line)}`
       )
       return {
         chip: { verb: "Las", object: plural(list.rows.length, "wachtrijregel", "wachtrijregels") },
         summary: [`De wachtrij, ${rows.length} van de open regels, dringendste eerst:`, ...lines].join("\n"),
         figures,
-        records: [],
+        records,
         sources,
         storeIds: context.storeId === undefined ? [] : [context.storeId]
       } satisfies ToolResult
@@ -168,10 +235,14 @@ const listOrders: AskTool<OrdersService | Base> = {
           o.number,
           `/orders/${o.id}`,
           [
-            `status ${o.status}, betaling ${o.paymentStatus}, levering ${o.fulfillmentStatus}`,
+            `status ${defused(o.status)}, betaling ${defused(o.paymentStatus)}, levering ${
+              defused(o.fulfillmentStatus)
+            }`,
             `geplaatst ${day(o.placedAt)}`,
             o.delayedAt === null ? "" : `vertraagd sinds ${day(o.delayedAt)}`,
-            o.hasTracking ? `track & trace${o.carrier === null ? "" : ` via ${o.carrier}`}` : "geen track & trace",
+            o.hasTracking
+              ? `track & trace${o.carrier === null ? "" : ` via ${defused(o.carrier)}`}`
+              : "geen track & trace",
             o.suppliers.length === 0
               ? ""
               : `leverancier ${dataBlock("naam", o.suppliers.map((s) => s.name).join(", "))}`
@@ -237,7 +308,7 @@ const listTickets: AskTool<TicketsService | Base> = {
           `#${t.number}`,
           `/tickets/${t.id}`,
           [
-            `prioriteit ${t.priority}, status ${t.status}`,
+            `prioriteit ${defused(t.priority)}, status ${defused(t.status)}`,
             t.dueAt === null ? "" : `uiterlijk ${day(t.dueAt)}`,
             t.assignees.length === 0 ? "niemand toegewezen" : "toegewezen",
             `onderwerp ${dataBlock("onderwerp", t.title)}`
@@ -289,9 +360,9 @@ const listChargebacks: AskTool<ChargebacksService | Base> = {
           c.caseNumber,
           `/chargebacks/${c.id}`,
           [
-            `reden ${c.reason}, status ${c.status}`,
+            `reden ${defused(c.reason)}, status ${defused(c.status)}`,
             `deadline ${day(c.deadlineAt)}`,
-            c.orderNumber === null ? "" : `bestelling ${c.orderNumber}`
+            c.orderNumber === null ? "" : `bestelling ${defused(c.orderNumber)}`
           ].filter((x) => x !== "").join("; "),
           c.storeId
         )
@@ -473,7 +544,8 @@ const getFigures: AskTool<AnalyticsService | Base> = {
         figures,
         records: [],
         sources: [{ kind: "store", title: "Kosten", detail: "Maandcijfers", to: "/costs" }],
-        storeIds: []
+        storeIds: [],
+        wide: true
       } satisfies ToolResult
     })
 }
@@ -530,7 +602,8 @@ const searchRecords: AskTool<OrdersService | TicketsService | ChargebacksService
         figures: [],
         records,
         sources: records.slice(0, 4).map((r) => sourceOf(r, r.label, "Gevonden")),
-        storeIds: []
+        storeIds: [],
+        wide: true
       } satisfies ToolResult
     })
 }

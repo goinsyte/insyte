@@ -12,7 +12,7 @@ import { UndoTicket } from "../../shared/domain/Undo.ts"
  */
 
 /** What a record chip opens, by the icon the thread gives it. */
-export const RefKind = Schema.Literals(["order", "chargeback", "ticket", "customer", "supplier", "store"])
+export const RefKind = Schema.Literals(["order", "chargeback", "ticket", "customer", "supplier", "store", "return"])
 export type RefKind = typeof RefKind.Type
 
 /** A word (or the space after it). */
@@ -42,12 +42,21 @@ export type ToolChip = typeof ToolChip.Type
 
 /** What an answer read, for "{n} bronnen gelezen" and "Wat Insyte las". */
 export const Source = Schema.Struct({
-  kind: Schema.Literals(["order", "chargeback", "ticket", "customer", "supplier", "store", "queue"]),
+  kind: Schema.Literals(["order", "chargeback", "ticket", "customer", "supplier", "store", "return", "queue"]),
   title: Schema.String,
   detail: Schema.String,
   to: Schema.String
 })
 export type Source = typeof Source.Type
+
+/**
+ * How long one answer may take, all its steps and tools together (each step's model call is up to 45 s): past it the
+ * turn is stopped and kept as `interrupted`. An answer still `streaming` after `STALE_MS` was left behind by a Worker
+ * that went away: it is read as failed, its thread takes a question again, and an `Idempotency-Key` held by it is free.
+ * The one is shorter than the other, so a thread whose answer still runs never takes a second question.
+ */
+export const TURN_MS = 165_000
+export const STALE_MS = 180_000
 
 /**
  * Why an answer did not come: the month's AI budget is spent (`budget`), the model did not answer or its answer did not

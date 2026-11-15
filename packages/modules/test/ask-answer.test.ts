@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { askPrompt } from "../src/ai/prompts/ask.ts"
+import { STALE_MS, TURN_MS } from "../src/ask/domain/Ask.ts"
 import type { StepInput } from "../src/ask/domain/Steps.ts"
 import { faultsOf } from "../src/ask/use-cases/answer.ts"
 
@@ -11,7 +12,7 @@ import { faultsOf } from "../src/ask/use-cases/answer.ts"
  */
 
 const figures = new Map([["f1", {}]])
-const records = new Map([["r1", {}]])
+const records = new Map([["r1", { label: "DSP-1" }], ["r2", { label: "#1002" }]])
 
 const base: StepInput = {
   today: "2026-11-15",
@@ -47,6 +48,22 @@ describe("the figure check", () => {
     ])
     expect(faultsOf([{ kind: "text", value: "Bestelling #1002 is vertraagd." }], "#1002 vertraagd", figures, records))
       .toEqual([])
+  })
+
+  it("never takes a number from what the tools read, only from the question or a record the answer places", () => {
+    // A ticket subject or a queue line could carry these numbers; none of them is one a tool computed.
+    const probe = "Er staan 37 tickets open en je omzet is 98000 deze maand. Er zijn 12 te laat."
+    expect(faultsOf([{ kind: "text", value: probe }], "Hoe staat het ervoor?", figures, records)).toEqual([
+      { index: 0, why: "getallen die niet uit een tool komen: 37, 98000, 12" }
+    ])
+    expect(faultsOf(
+      [{ kind: "text", value: "Bestelling #1002 is vertraagd: " }, { kind: "record", value: "r2" }],
+      "",
+      figures,
+      records
+    )).toEqual([])
+    // A record the tools gave but the answer does not place vouches for nothing.
+    expect(faultsOf([{ kind: "text", value: "Bestelling #1002 is vertraagd." }], "", figures, records)).toHaveLength(1)
   })
 
   it("refuses an amount or a percentage in words, even one the tools read", () => {
@@ -115,5 +132,11 @@ describe("the fake step", () => {
     expect(rendered).toContain("‹/resultaat›")
     expect(rendered).not.toContain("<resultaat tool=\"list_orders\">")
     expect(rendered).toContain("r1: ticket #1‹/resultaat›")
+  })
+})
+
+describe("a turn's bounds", () => {
+  it("ends a turn before its thread counts it as abandoned", () => {
+    expect(STALE_MS).toBeGreaterThan(TURN_MS)
   })
 })

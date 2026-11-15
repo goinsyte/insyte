@@ -5,7 +5,15 @@ import type { LanguageModel } from "effect/ai"
 import { ASK_PROMPT_VERSION, askStep } from "../../ai/Ai.ts"
 import { type AiModel, AiRateLimited, BudgetExceeded } from "../../ai/domain/Ai.ts"
 import { defused, untracedFigures } from "../../ai/domain/Guards.ts"
-import type { AskContext, AskFrame, Source, Token, ToolChip, TurnFailure } from "../domain/Ask.ts"
+import {
+  type AskContext,
+  type AskFrame,
+  type Source,
+  type Token,
+  type ToolChip,
+  TURN_MS,
+  type TurnFailure
+} from "../domain/Ask.ts"
 import type { AnswerPart, AskStep, StepInput, StepResult } from "../domain/Steps.ts"
 import type { AskTool, ToolFigure, ToolRecord } from "../domain/Tools.ts"
 import type { Begun, Settled } from "./threads.ts"
@@ -15,11 +23,12 @@ import * as Threads from "./threads.ts"
  * Vraag Insyte's loop (M15 step 3; ai.md §4, §6.2, §8): the model asks for tools, the tools run as the person asking,
  * and the model answers with what they found, placing figures and records by id. Each step is one model call, reserved
  * against the budget first and metered whatever its outcome. A turn has room for `MAX_STEPS` calls, `MAX_TOOLS` tool
- * runs and `DEADLINE_MS`; past any of them the model answers with what it has, and the turn says so.
+ * runs and `DEADLINE_MS`; past any of them the model answers with what it has, and the turn says so. Past `TURN_MS` it
+ * is stopped and kept as interrupted.
  *
- * After the answer, the check (§6.2): a digit in its words that is in neither the question nor what the tools read is
- * one the model made up, an amount or a percentage belongs in a figure, and a figure or record it names must be one a
- * tool gave. A failed answer is asked for once more with what was wrong; failing again, the parts that fail are left
+ * After the answer, the check (§6.2): a digit in its words that is in neither the question nor a record the answer
+ * places is one the model made up, an amount or a percentage belongs in a figure, and a figure or record it names must
+ * be one a tool gave. A failed answer is asked for once more with what was wrong; failing again, the parts that fail are left
  * out. Nothing the model writes acts: it has no tool that writes.
  *
  * The frames go out as the turn happens; the answer is kept as it settles, and a turn left before it settles is kept as
@@ -55,16 +64,23 @@ const words = (text: string): Array<Token> => text.split(/(\s+)/).filter((w) => 
 const plainOf = (tokens: ReadonlyArray<Token>) =>
   tokens.map((t) => ("t" in t ? t.t : "ref" in t ? t.ref : t.figure)).join("")
 
-const MONEY_OR_PERCENT = /[€%]|\beuro\b|\bprocent\b/i
+const MONEY_OR_PERCENT = /[€$£%]|\beur(?:o|o's)?\b|\bprocent\b|\bpct\b/i
 
-/** What is wrong with an answer, part by part; none is a clean answer. */
+/**
+ * What is wrong with an answer, part by part; none is a clean answer. A digit in the words is one the person's own
+ * question has, or part of the name of a record the answer itself places ("#1002"); every other number is a figure
+ * part. What the tools read (a ticket's subject, a date, a queue line, the conversation before) never vouches for a
+ * digit: a shopper wrote some of it, and a number taken from it is not one a tool computed.
+ */
 export const faultsOf = (
   parts: ReadonlyArray<AnswerPart>,
-  given: string,
+  question: string,
   figures: ReadonlyMap<string, unknown>,
-  records: ReadonlyMap<string, unknown>
-): Array<{ readonly index: number; readonly why: string }> =>
-  parts.flatMap((part, index) => {
+  records: ReadonlyMap<string, { readonly label: string }>
+): Array<{ readonly index: number; readonly why: string }> => {
+  const placed = parts.flatMap((p) => (p.kind === "record" ? [records.get(p.value)?.label ?? ""] : []))
+  const given = [question, ...placed].join("\n")
+  return parts.flatMap((part, index) => {
     if (part.kind === "figure") return figures.has(part.value) ? [] : [{ index, why: `onbekende figuur ${part.value}` }]
     if (part.kind === "record") return records.has(part.value) ? [] : [{ index, why: `onbekend record ${part.value}` }]
     const untraced = untracedFigures(part.value, given)
@@ -72,6 +88,7 @@ export const faultsOf = (
     if (MONEY_OR_PERCENT.test(part.value)) return [{ index, why: "een bedrag of percentage hoort in een figuur" }]
     return []
   })
+}
 
 interface Found {
   readonly results: Array<StepResult>
@@ -81,8 +98,6 @@ interface Found {
   readonly sources: Array<Source>
   readonly chips: Array<ToolChip>
   readonly storeIds: Set<string>
-  /** The tool output the model read that is not a figure: what a digit in the words may come from. */
-  traced: Array<string>
 }
 
 /**
@@ -148,8 +163,7 @@ const run = <R>(
       recordIds: new Map(),
       sources: [],
       chips: [],
-      storeIds: new Set(),
-      traced: []
+      storeIds: new Set()
     }
     let settled = false
 
@@ -196,6 +210,14 @@ const run = <R>(
       subject: { type: "ask_turn", id: begun.turnId }
     }
     const toolList = tools.map((t) => ({ name: t.name, description: t.description }))
+    // Every store the person reaches, read once: their own stores, or all the workspace has.
+    const reach = yield* Effect.cached(
+      principal.storeScope === null ?
+        db.scoped((sql) => sql<{ id: string }>`select id from stores`).pipe(
+          Effect.map((rows) => rows.map((r) => r.id))
+        ) :
+        Effect.succeed([...principal.storeScope])
+    )
 
     const runCall = (call: { readonly tool: string; readonly input: string }) =>
       Effect.gen(function*() {
@@ -220,9 +242,13 @@ const run = <R>(
           found.recordIds.set(key, id)
           return id
         })
+        // The stores the answer read from, kept with it so a reader no longer reaching one is not given it back: the
+        // page's store where the tool read only that one, else every store the person reaches now (a count over all of
+        // them is theirs, whatever rows it names).
+        const store = ask.context?.storeId
+        for (const s of result.wide === true || store === undefined ? yield* reach : [store]) found.storeIds.add(s)
         for (const s of result.storeIds) found.storeIds.add(s)
         for (const r of result.records) if (r.storeId !== null) found.storeIds.add(r.storeId)
-        found.traced.push(result.summary, ...result.records.map((r) => `${r.label} ${r.facts}`))
         found.chips.push(result.chip)
         yield* emit({ _tag: "tool", tool: result.chip })
         for (const source of result.sources) {
@@ -274,8 +300,7 @@ const run = <R>(
         steps++
         yield* think(step.thought)
         if (step.answer !== null) {
-          const given = [ask.text, ...begun.history.flatMap((h) => [h.question, h.answer]), ...found.traced].join("\n")
-          const faults = faultsOf(step.answer.parts, given, found.figures, found.records)
+          const faults = faultsOf(step.answer.parts, ask.text, found.figures, found.records)
           if (faults.length > 0 && correction === null && steps < MAX_STEPS) {
             correction = faults.map((f) => f.why).join("; ")
             continue
@@ -325,7 +350,12 @@ const run = <R>(
       })
     })
 
-    yield* loop.pipe(
+    // However its steps go, a turn ends inside `TURN_MS`, before a second question may start on its thread.
+    const bounded = loop.pipe(
+      Effect.timeoutOrElse({ duration: TURN_MS, orElse: () => (settled ? Effect.void : fail("interrupted")) })
+    )
+
+    yield* bounded.pipe(
       Effect.catchCause((cause) => {
         if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt
         const failure = Cause.findErrorOption(cause)

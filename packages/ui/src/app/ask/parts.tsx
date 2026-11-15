@@ -8,6 +8,7 @@ import {
 	FileText,
 	type IconComponent,
 	Inbox,
+	Package,
 	RotateCcw,
 	ShoppingBag,
 	Sparkle,
@@ -37,6 +38,7 @@ const KIND_ICON: Record<RefKind | "queue", IconComponent> = {
 	customer: User,
 	supplier: Factory,
 	store: Store,
+	return: Package,
 	queue: Inbox,
 };
 
