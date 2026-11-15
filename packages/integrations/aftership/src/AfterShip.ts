@@ -61,11 +61,13 @@ const STATUS: Record<string, TrackingSnapshot["status"]> = {
 export const snapshotOf = (t: Raw): TrackingSnapshot => {
   const checkpoints = Array.isArray(t["checkpoints"]) ? (t["checkpoints"] as Array<Raw>) : []
   const last = checkpoints.at(-1)
-  const status = STATUS[String(t["tag"] ?? "")] ?? "pending"
+  const tag = String(t["tag"] ?? "")
+  const status = STATUS[tag] ?? "pending"
   const estimate = (t["courier_estimated_delivery_date"] as Raw | undefined)?.["estimated_delivery_date"] ??
     (t["aftership_estimated_delivery_date"] as Raw | undefined)?.["estimated_delivery_date"] ?? t["expected_delivery"]
   return {
     status,
+    stage: tag === "AvailableForPickup" ? "available_for_pickup" : tag === "AttemptFail" ? "failed_attempt" : null,
     checkpoint: str(last?.["message"]),
     exception: status === "exception" ? str(t["subtag_message"]) ?? str(last?.["message"]) : null,
     estimatedDelivery: date(estimate),

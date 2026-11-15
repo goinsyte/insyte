@@ -20,6 +20,8 @@ export interface ReplyOrder {
   readonly carrier: string | null
   readonly trackingNumber: string | null
   readonly deliveredOn: string | null
+  /** The newest parcel's status as the shop words it for the customer (Verzending); none without a parcel. */
+  readonly parcel: string | null
 }
 
 export interface ReplyMessage {
@@ -46,6 +48,7 @@ const orderLine = (o: ReplyOrder): string => {
   const parts = [`Bestelling ${o.number}: ${o.status}, geplaatst op ${o.placedOn}`]
   if (o.carrier !== null) parts.push(`vervoerder ${o.carrier}`)
   if (o.trackingNumber !== null) parts.push(`trackingnummer ${o.trackingNumber}`)
+  if (o.parcel !== null) parts.push(`pakket: "${o.parcel}"`)
   if (o.deliveredOn !== null) parts.push(`bezorgd op ${o.deliveredOn}`)
   return parts.join(", ")
 }
@@ -57,7 +60,7 @@ const first = (c: ReplyContext): string => {
   const order = c.orders[0]
   const facts = order === undefined
     ? ""
-    : ` Je bestelling ${order.number} staat op "${order.status.toLowerCase()}"${
+    : ` Je bestelling ${order.number} staat op "${(order.parcel ?? order.status).toLowerCase()}"${
       order.trackingNumber === null ? "" : `, met trackingnummer ${order.trackingNumber}`
     }.`
   return `${
@@ -85,7 +88,7 @@ const fake = (c: ReplyContext): { text: string } => {
 
 export const replyPrompt = definePrompt<ReplyContext, typeof Output.Type>({
   id: "reply_draft",
-  version: "1.1.0",
+  version: "1.2.0",
   purpose: "draft",
   effort: "low",
   maxTokens: MAX_TOKENS,
@@ -99,7 +102,8 @@ ${DATA_RULE}
 ${FIGURE_RULE}
 
 Write the reply the team would send to the customer's latest message: greet them by first name ("Hoi Sanne,"), answer
-what they asked with the order facts given, say what happens next, and sign with the store's name after "Groet,".
+what they asked with the order facts given (a parcel's status in the shop's own words, as given after "pakket:"),
+say what happens next, and sign with the store's name after "Groet,".
 Keep it short: at most about 120 words. When the facts do not answer the question, say the team is looking into it;
 never guess. Do not mention that you are an AI. Return only the reply text in the "text" field.`,
   render: (c) =>

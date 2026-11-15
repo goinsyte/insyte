@@ -31,7 +31,12 @@ export class PortalStore extends Schema.Class<PortalStore>("returns/PortalStore"
   reasons: Schema.Array(PortalReason),
   offered: Schema.Array(Resolution),
   giftCardBonusPct: Schema.Finite,
-  claimSteps: Schema.Array(Schema.String)
+  claimSteps: Schema.Array(Schema.String),
+  /**
+   * Huisstijl (M17 step 20.1b): the brand's colour for the page's button, only where white text reads on it, and the
+   * path its logo is served from on this origin; none of either, the portal's own look.
+   */
+  look: Schema.Struct({ color: Schema.NullOr(Schema.String), logoUrl: Schema.NullOr(Schema.String) })
 }) {}
 
 /** Why a line cannot go back for a kind, as facts: the screen writes the sentence. */

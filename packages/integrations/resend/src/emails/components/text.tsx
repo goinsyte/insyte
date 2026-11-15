@@ -1,6 +1,7 @@
-import type { ReactNode } from "react"
+import { type ReactNode, useContext } from "react"
 import { Button, Heading, Link, Section, Text } from "react-email"
 import { corner, font, light, type } from "../theme.ts"
+import { LookContext } from "./layout.tsx"
 
 /*
  * The letter's parts. Weight carries hierarchy, not size (DESIGN.md, Typography): one title at 600, body at 400,
@@ -136,39 +137,43 @@ export const Items = (props: { readonly items: ReadonlyArray<ReactNode> }) => (
  * The one action a mail asks for: an `abyss` button carrying `mesh-ink`, the console's primary, and under it the same
  * link written out for a client that does not show buttons. The plain text gets the link once, after the label.
  */
-export const Action = (props: { readonly href: string; readonly children: string; readonly fallback?: boolean }) => (
-  <>
-    <Section style={{ margin: "28px 0 0" }}>
-      <Button
-        href={props.href}
-        style={{
-          backgroundColor: light.abyss,
-          color: light["mesh-ink"],
-          fontFamily: font.sans,
-          ...type("base"),
-          fontWeight: 500,
-          borderRadius: corner.control,
-          padding: "10px 20px",
-          textDecoration: "none"
-        }}
-      >
-        {props.children}
-      </Button>
-    </Section>
-    {props.fallback === false ? null : (
-      <Text
-        data-skip-in-text="true"
-        className="x-ink-3"
-        style={{ ...reset, ...type("xs"), color: light["ink-3"], margin: "16px 0 0", wordBreak: "break-all" }}
-      >
-        Werkt de knop niet? Open dan deze link:{" "}
-        <Link href={props.href} className="x-ink-3" style={{ color: light["ink-3"], textDecoration: "underline" }}>
-          {props.href}
-        </Link>
-      </Text>
-    )}
-  </>
-)
+export const Action = (props: { readonly href: string; readonly children: string; readonly fallback?: boolean }) => {
+  // A store's mail: its brand's colour, which Huisstijl only lets through where light text reads on it.
+  const look = useContext(LookContext)
+  return (
+    <>
+      <Section style={{ margin: "28px 0 0" }}>
+        <Button
+          href={props.href}
+          style={{
+            backgroundColor: look?.color ?? light.abyss,
+            color: light["mesh-ink"],
+            fontFamily: font.sans,
+            ...type("base"),
+            fontWeight: 500,
+            borderRadius: corner.control,
+            padding: "10px 20px",
+            textDecoration: "none"
+          }}
+        >
+          {props.children}
+        </Button>
+      </Section>
+      {props.fallback === false ? null : (
+        <Text
+          data-skip-in-text="true"
+          className="x-ink-3"
+          style={{ ...reset, ...type("xs"), color: light["ink-3"], margin: "16px 0 0", wordBreak: "break-all" }}
+        >
+          Werkt de knop niet? Open dan deze link:{" "}
+          <Link href={props.href} className="x-ink-3" style={{ color: light["ink-3"], textDecoration: "underline" }}>
+            {props.href}
+          </Link>
+        </Text>
+      )}
+    </>
+  )
+}
 
 /**
  * A status as a word on its tint (the Word With The Colour Rule): amber for something that needs a look. The mails use

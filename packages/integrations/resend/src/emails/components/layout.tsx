@@ -1,5 +1,5 @@
-import type { ReactNode } from "react"
-import { Heading, Link, Section, Text } from "react-email"
+import { createContext, type ReactNode } from "react"
+import { Heading, Img, Link, Section, Text } from "react-email"
 import { corner, font, light, mix, type } from "../theme.ts"
 import { Document } from "./document.tsx"
 import { Lockup } from "./mark.tsx"
@@ -66,32 +66,79 @@ export const Letter = (props: { readonly preview: string; readonly footer: Foote
 )
 
 /**
- * A store's letter to its shopper (M9.3): the same page and letter, headed with the store's name in the display face
- * instead of Insyte's lockup, because the mail is sent in the store's name; the footer signs it with the store and says
- * Insyte carried it.
+ * Huisstijl on a shopper's mail (M17 step 20.1b): the brand's colour on the one button, only where white text reads on
+ * it, and its logo at the head, as an address anyone may load. Absent, the letter is Insyte's own.
+ */
+export interface ShopLook {
+  readonly color: string | null
+  readonly logoUrl: string | null
+}
+
+/** A shopper's mail's props beside its facts: the look it is sent with. */
+export interface Branded {
+  readonly look?: ShopLook | undefined
+}
+
+/** The letter's look, for the parts inside it (`Action`). */
+export const LookContext = createContext<ShopLook | undefined>(undefined)
+
+/**
+ * The logo's width in pixels, written on the image too: Outlook draws with Word, which ignores `width: auto` and would
+ * show the file at its own size. The height follows the logo's shape.
+ */
+const LOGO_WIDTH = 160
+
+const ShopHead = (props: { readonly shop: string; readonly look: ShopLook | undefined }) =>
+  props.look?.logoUrl ?
+    (
+      <Section data-skip-in-text="true" style={{ padding: "0 4px 20px" }}>
+        <Img
+          src={props.look.logoUrl}
+          alt={props.shop}
+          width={LOGO_WIDTH}
+          style={{ display: "block", width: `${LOGO_WIDTH}px`, maxWidth: "100%", height: "auto", border: "0" }}
+        />
+      </Section>
+    ) :
+    (
+      <Section style={{ padding: "0 4px 20px" }}>
+        <Text
+          className="x-ink"
+          style={{
+            margin: "0",
+            fontFamily: font.display,
+            fontStretch: "88%",
+            ...type("lg"),
+            fontWeight: 600,
+            color: props.look?.color ?? light.ink
+          }}
+        >
+          {props.shop}
+        </Text>
+      </Section>
+    )
+
+/**
+ * A store's letter to its shopper (M9.3): the same page and letter, headed with the store's logo, or its name in the
+ * display face, instead of Insyte's lockup, because the mail is sent in the store's name; the footer signs it with the
+ * store and says Insyte carried it. Huisstijl's colour carries the button (`look`).
  */
 export const ShopLetter = (
-  props: { readonly shop: string; readonly preview: string; readonly footer: Footer; readonly children: ReactNode }
+  props: {
+    readonly shop: string
+    readonly preview: string
+    readonly footer: Footer
+    readonly look?: ShopLook | undefined
+    readonly children: ReactNode
+  }
 ) => (
-  <Document preview={props.preview}>
-    <Section style={{ padding: "0 4px 20px" }}>
-      <Text
-        className="x-ink"
-        style={{
-          margin: "0",
-          fontFamily: font.display,
-          fontStretch: "88%",
-          ...type("lg"),
-          fontWeight: 600,
-          color: light.ink
-        }}
-      >
-        {props.shop}
-      </Text>
-    </Section>
-    <Card>{props.children}</Card>
-    <FooterBlock {...props.footer} signature={props.footer.signature ?? `${props.shop} · verstuurd met Insyte`} />
-  </Document>
+  <LookContext.Provider value={props.look}>
+    <Document preview={props.preview}>
+      <ShopHead shop={props.shop} look={props.look} />
+      <Card>{props.children}</Card>
+      <FooterBlock {...props.footer} signature={props.footer.signature ?? `${props.shop} · verstuurd met Insyte`} />
+    </Document>
+  </LookContext.Provider>
 )
 
 export interface Plate {

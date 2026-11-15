@@ -1,5 +1,5 @@
 import type { OrderDelayFacts } from "@insyte/modules/shared/domain/Mailer"
-import { ShopLetter } from "../components/layout.tsx"
+import { type Branded, ShopLetter } from "../components/layout.tsx"
 import { Facts, Lead, Paragraph, Title } from "../components/text.tsx"
 
 /*
@@ -10,11 +10,12 @@ import { Facts, Lead, Paragraph, Title } from "../components/text.tsx"
 
 export const subject = (props: OrderDelayFacts) => props.subject
 
-const OrderDelayed = (props: OrderDelayFacts) => {
+const OrderDelayed = (props: OrderDelayFacts & Branded) => {
   const [hello, news, ...rest] = props.paragraphs
   return (
     <ShopLetter
       shop={props.shop}
+      look={props.look}
       preview={news ?? props.subject}
       footer={{ reason: `Je krijgt deze mail omdat je bij ${props.shop} iets hebt besteld.` }}
     >

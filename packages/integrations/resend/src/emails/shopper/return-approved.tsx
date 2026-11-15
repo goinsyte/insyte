@@ -15,6 +15,7 @@ export const subject = (props: ReturnProps) =>
 const ReturnApproved = (props: ReturnProps) => (
   <ShopLetter
     shop={props.shop}
+    look={props.look}
     preview={props.keepItem === true
       ? "Je hoeft niets terug te sturen."
       : "Stuur het artikel terug naar het adres in deze mail."}

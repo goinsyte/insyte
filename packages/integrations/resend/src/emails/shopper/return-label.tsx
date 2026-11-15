@@ -14,6 +14,7 @@ export const subject = (props: ReturnProps) => `Je retourlabel voor ${props.numb
 const ReturnLabel = (props: ReturnProps) => (
   <ShopLetter
     shop={props.shop}
+    look={props.look}
     preview={`Het label van ${props.label?.carrier ?? "de vervoerder"} zit als PDF bij deze mail.`}
     footer={{ reason: reason(props) }}
   >
