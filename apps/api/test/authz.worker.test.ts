@@ -1,6 +1,7 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
 import { AgentRpcs } from "@insyte/api/rpc/AgentRpcs"
 import { AnalyticsRpcs } from "@insyte/api/rpc/AnalyticsRpcs"
+import { AskRpcs } from "@insyte/api/rpc/AskRpcs"
 import { AuditRpcs } from "@insyte/api/rpc/AuditRpcs"
 import { AutomationsRpcs } from "@insyte/api/rpc/AutomationsRpcs"
 import { BillingRpcs } from "@insyte/api/rpc/BillingRpcs"
@@ -46,7 +47,7 @@ import { beforeAll, describe, expect, it } from "vitest"
 import expected from "./authz.expected.json" with { type: "json" }
 import { failure, join, ok, pastUndo, person, relay, run } from "./journeys.ts"
 import { anotherStore, importedStore } from "./shops.ts"
-import { call, rpc, sessionMe } from "./support.ts"
+import { call, rpc, rpcStream, sessionMe } from "./support.ts"
 
 /*
  * The authorisation matrix (07 §3.4, step 5.4): every team, invitation, access, roles and API-key RPC as each of the five system
@@ -636,8 +637,18 @@ const PAYLOADS: Record<string, unknown> = {
   "Billing.removeSeats": { n: 1 },
   "Billing.cancel": { reason: "other" },
   "Billing.resume": undefined,
-  "Billing.portalSession": undefined
+  "Billing.portalSession": undefined,
+  // Vraag Insyte (M15 step 3): every member asks; what an answer reads is each tool's own area, as the person asking
+  // (`ask.worker.test.ts`). A conversation that is not there is `NotFound` before a question is kept or a model called.
+  "Ask.list": {},
+  "Ask.get": { id: "ask_none" },
+  "Ask.send": { text: "Wat wacht er?", threadId: "ask_none" },
+  "Ask.retry": { turnId: "ask_none" },
+  "Ask.remove": { id: "ask_none" }
 }
+
+/** The RPCs that stream: called as a stream, and refused as any other. */
+const STREAMS = new Set(["Ask.send", "Ask.retry"])
 
 const manifest = [
   ...MembersRpcs.requests.keys(),
@@ -679,7 +690,8 @@ const manifest = [
   ...AgentRpcs.requests.keys(),
   ...PrivacyRpcs.requests.keys(),
   ...DataRpcs.requests.keys(),
-  ...BillingRpcs.requests.keys()
+  ...BillingRpcs.requests.keys(),
+  ...AskRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {
@@ -710,7 +722,9 @@ describe("the authorisation matrix", () => {
 
   for (const name of Object.keys(table)) {
     it.each(ROLES)(`${name} as %s`, async (role) => {
-      const exit = await rpc(name as never, PAYLOADS[name] as never, cookies[role])
+      const exit = STREAMS.has(name) ?
+        await rpcStream(name as never, PAYLOADS[name] as never, cookies[role]) :
+        await rpc(name as never, PAYLOADS[name] as never, cookies[role])
       const forbidden = Exit.isFailure(exit) &&
         exit.cause.reasons.some((r) => r._tag === "Fail" && (r.error as { _tag?: string })._tag === "Forbidden")
       expect(forbidden ? "deny" : "allow").toBe(table[name]![role])
