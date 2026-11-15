@@ -11,8 +11,11 @@ export type ShopifyWrite = Extract<
     type:
       | "order.updated"
       | "order.cancelled"
+      | "order.draft_created"
+      | "order.draft_removed"
       | "refund.requested"
       | "product.updated"
+      | "product.created"
       | "customer.updated"
       | "customer.created"
       | "return.approved"
@@ -23,7 +26,7 @@ export type ShopifyWrite = Extract<
 
 /** The records a change names, whatever their kind. */
 export const idsOf = (write: ShopifyWrite): ReadonlyArray<string> =>
-  write.type === "product.updated"
+  write.type === "product.updated" || write.type === "product.created"
     ? write.productIds
     : write.type === "customer.updated" || write.type === "customer.created"
     ? write.customerIds
@@ -39,6 +42,13 @@ export interface WriteOutcome {
   readonly outcome: "sent" | "refused" | "skipped"
   readonly reason: string | null
 }
+
+/**
+ * A record made in Insyte, on its way to Shopify (M7: a draft order, a product), in two durable steps: sending it, which
+ * ends here (an outcome) or with what Shopify made, and the row taking Shopify's ids. Apart, a retry of either step
+ * repeats only that step: a send tried again finds what Shopify made first instead of making a second.
+ */
+export type CreateSent<M> = { readonly outcome: WriteOutcome } | { readonly made: M }
 
 /**
  * Sends a change to Shopify (M7.1): one `ShopifyWriteWorkflow` instance per outbox event, named by it, so a relay that
