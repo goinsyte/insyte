@@ -88,6 +88,7 @@ describe("AfterShipLive", () => {
   it("reads a tracking in Insyte's words, from data or data.tracking", async () => {
     expect(snapshotOf(TRACKING)).toEqual({
       status: "exception",
+      stage: null,
       checkpoint: "Bezorger kon het adres niet vinden",
       exception: "Adres onbekend",
       estimatedDelivery: new Date("2026-11-12"),
@@ -99,6 +100,16 @@ describe("AfterShipLive", () => {
       (t) => t.get("trk_1")
     )
     expect(Exit.isSuccess(exit) && exit.value.status).toBe("delivered")
+    // Ready at a pickup point and a missed delivery keep their status, and say so beside it (Verzending words them).
+    expect(snapshotOf({ ...TRACKING, tag: "AvailableForPickup" })).toMatchObject({
+      status: "in_transit",
+      stage: "available_for_pickup"
+    })
+    expect(snapshotOf({ ...TRACKING, tag: "AttemptFail" })).toMatchObject({
+      status: "exception",
+      stage: "failed_attempt"
+    })
+    expect(snapshotOf({ ...TRACKING, tag: "InTransit" }).stage).toBeNull()
     expect(slugOf("DHL Express")).toBe("dhl")
     expect(slugOf("Bezorgdienst Henk")).toBeUndefined()
   })

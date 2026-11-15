@@ -20,6 +20,11 @@ export type DeliveryStatus = typeof DeliveryStatus.Type
 /** What AfterShip knows of a parcel now. */
 export interface TrackingSnapshot {
   readonly status: DeliveryStatus
+  /**
+   * What AfterShip says beyond the status, which Verzending words on its own (M17 step 20.1b): ready at a pickup point
+   * (status `in_transit`), a missed delivery (status `exception`); none otherwise.
+   */
+  readonly stage?: "available_for_pickup" | "failed_attempt" | null
   /** The latest checkpoint, as the carrier wrote it. */
   readonly checkpoint: string | null
   /** Why it is stuck, when it is. */

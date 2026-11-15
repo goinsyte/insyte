@@ -56,7 +56,8 @@ const shipped: ReplyContext = {
     placedOn: "3 november 2026",
     carrier: "PostNL",
     trackingNumber: "3SABCD1234567",
-    deliveredOn: null
+    deliveredOn: null,
+    parcel: "Onderweg met PostNL"
   }],
   rewrite: null
 }

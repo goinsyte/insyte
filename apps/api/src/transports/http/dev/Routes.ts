@@ -9,6 +9,7 @@ import { ChargebackRemind } from "./chargebacks.ts"
 import { CostsRoutes } from "./costs.ts"
 import { DataRoutes } from "./data.ts"
 import { FactsRoutes } from "./facts.ts"
+import { FileScan } from "./files.ts"
 import { FxRoutes } from "./fx.ts"
 import { HealthCheck } from "./health.ts"
 import { InvitationLapse } from "./invitations.ts"
@@ -37,6 +38,7 @@ const Routes = Layer.mergeAll(
   SendingDomainRoutes,
   RetentionRoutes,
   FactsRoutes,
+  FileScan,
   FxRoutes,
   StoreRoutes,
   HealthCheck,

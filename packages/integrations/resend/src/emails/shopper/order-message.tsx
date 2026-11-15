@@ -1,22 +1,23 @@
 import type { OrderMessageFacts } from "@insyte/modules/shared/domain/Mailer"
-import { ShopLetter } from "../components/layout.tsx"
+import { type Branded, ShopLetter } from "../components/layout.tsx"
 import { Action, Facts, Lead, Paragraph, Title } from "../components/text.tsx"
 
 /*
  * M7 9.1: the team's mail to a shopper about one order, in the store's name. The words were fixed when it was put in
  * line (`orders/domain/CustomerMail.ts`), so the template sets them as they are. A track-and-trace update has a title,
  * the parcel beside it and the carrier's page to follow it on; the team's own words stand alone, as they wrote them.
+ * The parcel's status reads as the store words it at Verzending (`tracking.status`), its look as Huisstijl has it.
  */
 
 export const subject = (props: OrderMessageFacts) => props.subject
 
-const OrderMessage = (props: OrderMessageFacts) => {
+const OrderMessage = (props: OrderMessageFacts & Branded) => {
   const footer = { reason: `Je krijgt deze mail omdat je bij ${props.shop} iets hebt besteld.` }
   const tracking = props.tracking
   if (tracking === undefined) {
     const [first, ...rest] = props.paragraphs
     return (
-      <ShopLetter shop={props.shop} preview={rest[0] ?? first ?? props.subject} footer={footer}>
+      <ShopLetter shop={props.shop} look={props.look} preview={rest[0] ?? first ?? props.subject} footer={footer}>
         <Lead>{first ?? ""}</Lead>
         {rest.map((p, i) => <Paragraph key={`${i}-${p}`}>{p}</Paragraph>)}
         <Facts rows={[["Bestelling", props.number]]} />
@@ -24,13 +25,19 @@ const OrderMessage = (props: OrderMessageFacts) => {
     )
   }
   const [hello, news, ...rest] = props.paragraphs
+  // Verzending's sentence for the parcel's status: the title where it shows everywhere, the status line unless hidden
+  // or the title says it already. Never saved, there is none, and the mail is as it always was.
+  const status = tracking.status
+  const title = status?.show === "all" ? status.text : "Je bestelling is onderweg"
+  const line = status === undefined || status.show === "hidden" || status.text === title ? undefined : status.text
   return (
-    <ShopLetter shop={props.shop} preview={news ?? props.subject} footer={footer}>
-      <Title>Je bestelling is onderweg</Title>
+    <ShopLetter shop={props.shop} look={props.look} preview={news ?? props.subject} footer={footer}>
+      <Title>{title}</Title>
       <Lead>{[hello, news].filter((p) => p !== undefined).join(" ")}</Lead>
       <Facts
         rows={[
           ["Bestelling", props.number],
+          ...(line === undefined ? [] : [["Status", line] as const]),
           ...(tracking.carrier === null ? [] : [["Vervoerder", tracking.carrier] as const]),
           ["Track & trace", tracking.number]
         ]}
@@ -52,7 +59,12 @@ export const preview = (): OrderMessageFacts => ({
     "Heb je een vraag, neem dan contact op met de winkel en noem je bestelnummer."
   ],
   // The carrier's own page is a link to another host; the preview leaves it out, a real mail has it where Shopify does.
-  tracking: { carrier: "PostNL", number: "3SABCD1234567", url: null }
+  tracking: {
+    carrier: "PostNL",
+    number: "3SABCD1234567",
+    url: null,
+    status: { text: "Onderweg met PostNL", show: "all" }
+  }
 })
 
 OrderMessage.PreviewProps = preview()
