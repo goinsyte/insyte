@@ -2,7 +2,7 @@ import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import { InvalidRequestV1, ScopeMissingV1 } from "../../http/Errors.ts"
 import { CustomerPageV1, LowStockV1, OrderPageV1, ProductPageV1 } from "../../http/groups/CommerceGroup.ts"
-import { asKey } from "../Shared.ts"
+import { asKey, Needs, read } from "../Shared.ts"
 
 /* The commerce mirror's lists (M19.3): orders, products and customers, in the `/v1` list's pages. */
 
@@ -22,7 +22,7 @@ export const ListOrders = Tool.make("list_orders", {
   success: OrderPageV1,
   failure: Schema.Union([ScopeMissingV1, InvalidRequestV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("orders")])
 
 export const ListProducts = Tool.make("list_products", {
   description: "The workspace's products by title: status, vendor, price range and stock. Needs products.read.",
@@ -30,7 +30,7 @@ export const ListProducts = Tool.make("list_products", {
   success: ProductPageV1,
   failure: Schema.Union([ScopeMissingV1, InvalidRequestV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("products")])
 
 export const ListLowStock = Tool.make("list_low_stock", {
   description:
@@ -43,7 +43,7 @@ export const ListLowStock = Tool.make("list_low_stock", {
   success: LowStockV1,
   failure: ScopeMissingV1,
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("products")])
 
 export const ListCustomers = Tool.make("list_customers", {
   description:
@@ -52,7 +52,7 @@ export const ListCustomers = Tool.make("list_customers", {
   success: CustomerPageV1,
   failure: Schema.Union([ScopeMissingV1, InvalidRequestV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("customers")])
 
 export const CommerceTools = Toolkit.make(
   ListOrders,

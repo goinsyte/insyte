@@ -11,6 +11,7 @@ import { DataMcp } from "./data/mcp.ts"
 import { ForwardingMcp } from "./forwarding/mcp.ts"
 import { KeyMcp } from "./key/mcp.ts"
 import { McpAuth } from "./mcp/KeyAuth.ts"
+import { ToolReach } from "./mcp/Reach.ts"
 import { McpServerOptions } from "./mcp/Server.ts"
 import { OrdersMcp } from "./orders/mcp.ts"
 import { ProposalsMcp } from "./proposals/mcp.ts"
@@ -26,7 +27,9 @@ import { TicketsMcp } from "./tickets/mcp.ts"
  * (docs/adr/0041-transports-are-per-slice-layers-and-the-api-runs-as-three-workers.md): a new slice adds one line here.
  */
 
+// Each key is shown the tools it can call (`mcp/Reach.ts`).
 const Tools = McpServer.toolkit(InsyteTools).pipe(
+  Layer.provide(ToolReach.layer),
   Layer.provide(
     Layer.mergeAll(
       KeyMcp,
