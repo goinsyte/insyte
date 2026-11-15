@@ -32,6 +32,8 @@ export interface AskSource {
 	mentions: ReadonlyArray<{ ref: string; hint: string; kind: "order" | "chargeback" }>;
 	/** Filing a proposal an answer drew; absent where the host's answers draw none. */
 	file?: ((action: ProposalAction) => void) | undefined;
+	/** "Volledige pagina openen" from the panel: the host opens the conversation on its page; absent, `/ask`. */
+	page?: (() => void) | undefined;
 	/** How many actions Wat Insyte deed holds, for its link; absent where the host does not count them here. */
 	actions?: number | undefined;
 }

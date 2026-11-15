@@ -191,6 +191,7 @@ function FigureChip({ tok }: { tok: Extract<Token, { figure: string }> }) {
 	return (
 		<Link
 			to={tok.to}
+			search={tok.search}
 			title={tok.label}
 			aria-label={`${tok.label}: ${tok.figure}`}
 			className="ask-pop font-medium text-ink tabular-nums underline decoration-ink/25 decoration-dotted underline-offset-[3px] transition-colors hover:text-arc-ink hover:decoration-arc-ink/50"

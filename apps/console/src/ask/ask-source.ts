@@ -37,7 +37,13 @@ const FAILED: Record<string, string> = {
 
 const words = (text: string): Array<Token> => text.split(/(\s+)/).filter((w) => w !== "").map((t) => ({ t }))
 
-const tokenOf = (t: ServerToken): Token => "figure" in t ? { figure: t.figure, label: t.label, to: t.to } : t
+/** A figure with an explanation opens it over Analyse (`/analytics?explain=`); any other opens the list it counts. */
+const tokenOf = (t: ServerToken): Token =>
+  "figure" in t ?
+    t.explain === null ?
+      { figure: t.figure, label: t.label, to: t.to } :
+      { figure: t.figure, label: t.label, to: "/analytics", search: { explain: t.explain } } :
+    t
 
 const sourceOf = (s: Source): Script["sources"][number] => s
 
@@ -142,11 +148,16 @@ function useThread(id: string | null): AskThread | undefined {
   return Option.getOrUndefined(AsyncResult.value(useAtomValue(id === null ? NONE : askThreadAtom(id))))
 }
 
-export function useConsoleAskSource(): AskSource {
+/**
+ * Vraag Insyte where it is drawn: the page (`/ask`), whose open conversation is the address's `?c=`, or the top bar's
+ * panel, which keeps its own beside whatever page is open. Both ask and read over the same `Ask.*`.
+ */
+export function useConsoleAskSource(place: "page" | "panel" = "page"): AskSource {
   const navigate = useNavigate()
   const search = useRouterState({ select: (s) => s.location.search as Record<string, unknown> })
   const route = useRouterState({ select: (s) => s.location.pathname })
-  const active = typeof search["c"] === "string" ? search["c"] : null
+  const [held, setHeld] = useState<string | null>(null)
+  const active = place === "panel" ? held : typeof search["c"] === "string" ? search["c"] : null
   const list = Option.getOrUndefined(AsyncResult.value(useAtomValue(askListAtom)))
   const thread = useThread(active)
   const frame = Option.getOrUndefined(AsyncResult.value(useAtomValue(frameAtom)))
@@ -158,8 +169,9 @@ export function useConsoleAskSource(): AskSource {
   const busy = pending !== null && pending.settled === null
 
   const openThread = useCallback((id: string | null) => {
+    if (place === "panel") return setHeld(id)
     void navigate({ to: "/ask" as never, search: (id === null ? {} : { c: id }) as never })
-  }, [navigate])
+  }, [navigate, place])
 
   const run = useCallback((p: Pending, call: { kind: "send"; text: string } | { kind: "retry"; turnId: string }) => {
     setPending(p)
@@ -218,6 +230,7 @@ export function useConsoleAskSource(): AskSource {
         openThread(null)
       },
       open: (id) => openThread(id),
+      page: () => void navigate({ to: "/ask" as never, search: (active === null ? {} : { c: active }) as never }),
       remove: (id) => {
         void remove({ payload: { id }, reactivityKeys: ASK }).then((exit) => {
           if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), { gone: "Dat gesprek bestaat niet meer" })
@@ -240,7 +253,7 @@ export function useConsoleAskSource(): AskSource {
       note:
         "Insyte leest alleen wat jij mag zien en verandert niets: elk getal in een antwoord komt uit je eigen gegevens en opent waar het geteld is."
     }
-  }, [list, thread, pending, active, busy, frame, run, openThread, remove, undo])
+  }, [list, thread, pending, active, busy, frame, run, openThread, remove, undo, navigate])
 }
 
 const emptyPending = (threadId: string | null, question: string): Pending => ({

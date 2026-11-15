@@ -654,13 +654,21 @@ const idle: Atom.Atom<ExplainRead> = Atom.make<ExplainRead>(AsyncResult.initial(
 const success = <A>(r: AsyncResult.AsyncResult<A, unknown>): A | undefined =>
   AsyncResult.isSuccess(r) ? r.value : Option.getOrUndefined(AsyncResult.value(r))
 
+/** What an explanation opened from elsewhere (`/analytics?explain=`, a Vraag Insyte figure) is called over the drawer. */
+const LINKED: Partial<Record<ExplainRef["key"]["_tag"], { title: string; open: { label: string; to: string } }>> = {
+  paid_orders: { title: "Betaalde bestellingen", open: { label: "Bestellingen openen", to: "/orders" } },
+  disputes: { title: "Geschillen", open: { label: "Geschillen openen", to: "/chargebacks" } }
+}
+
 export function useConsoleAnalyticsSource(input: {
   readonly periods: AnalyticsPeriods
   readonly pair: Pair
   readonly setPair: (pair: Pair) => void
   readonly overview: AnalyticsOverview
+  /** An explanation to open over the page as it loads: its own months, whatever months the page shows. */
+  readonly explain?: ExplainRef | undefined
 }): AnalyticsSource {
-  const { periods, pair, setPair, overview } = input
+  const { periods, pair, setPair, overview, explain } = input
   const key = pairKey(pair)
   const { money, kilo } = useMemo(() => moneyIn(overview.currency), [overview.currency])
   const A = useMemo(() => labelsOf(overview.A), [overview.A])
@@ -704,6 +712,20 @@ export function useConsoleAnalyticsSource(input: {
 
   const openExplain = (ref: Omit<ExplainRef, "a" | "b">, title: string, open?: { label: string; to: string }) =>
     setOpened({ kind: "explain", key: refKey({ ...pair, ...ref }), title, ref: { ...pair, ...ref }, open })
+
+  // Opened once per link: closing it leaves the page as it is.
+  const linked = explain === undefined ? null : refKey(explain)
+  useEffect(() => {
+    if (explain === undefined) return
+    const named = LINKED[explain.key._tag]
+    setOpened({
+      kind: "explain",
+      key: refKey(explain),
+      title: named?.title ?? "Uitleg",
+      ref: explain,
+      open: named?.open
+    })
+  }, [linked])
 
   const openFinding = (f: Finding) => {
     const written = write(f, A, B, money)

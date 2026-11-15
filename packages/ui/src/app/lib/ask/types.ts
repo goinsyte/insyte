@@ -6,9 +6,13 @@
 export type RefKind = "order" | "chargeback" | "ticket" | "customer" | "supplier" | "store";
 /**
  * A word, a record as a chip, or a figure: a number the host computed, with what it is and where its rows are (the
- * console's answers place every number this way, so each one opens where it was counted).
+ * console's answers place every number this way, so each one opens where it was counted). A figure's `search` is the
+ * page's own query, such as Analyse's `explain` that opens the figure's explanation over the page.
  */
-export type Token = { t: string } | { ref: string; to: string; kind: RefKind } | { figure: string; label: string; to: string };
+export type Token =
+	| { t: string }
+	| { ref: string; to: string; kind: RefKind }
+	| { figure: string; label: string; to: string; search?: Readonly<Record<string, unknown>> };
 
 /** A token as plain text: the words, a record's name, a figure's value. */
 export const plainOf = (tokens: ReadonlyArray<Token>) =>
