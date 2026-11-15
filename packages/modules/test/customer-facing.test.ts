@@ -53,7 +53,9 @@ describe("Verzending's wording", () => {
 })
 
 describe("Sjablonen' links", () => {
-  it("puts each link in for its variable, and takes out only what led up to an empty one", () => {
+  const none = linksOf(undefined)
+
+  it("puts each link in for its variable, and takes out only an empty one with its lead-in", () => {
     const text = [
       "Hoi Lena,",
       "",
@@ -76,38 +78,37 @@ describe("Sjablonen' links", () => {
     )
   })
 
-  it("leaves the team's other sentences alone", () => {
-    const none = linksOf(undefined)
+  it("never deletes the team's other words or sentences", () => {
     expect(fillLinks("Je pakket is onderweg. {review_link}", none)).toBe("Je pakket is onderweg.")
     expect(fillLinks("Kijk bijv. op {review_link} en laat iets weten. Groet", none)).toBe(
       "Kijk bijv. en laat iets weten. Groet"
     )
-    expect(fillLinks("Je bent bij o.a. ons bekend. Hier: {review_link}", none)).toBe("Je bent bij o.a. ons bekend.")
-    expect(fillLinks("Kijk op www.northwind.store of {uitschrijf_link}. Tot snel!", LINKS)).toBe(
-      "Kijk op www.northwind.store. Tot snel!"
+    expect(fillLinks("We bezorgen op di. Wat vind je? {review_link}", none)).toBe("We bezorgen op di. Wat vind je?")
+    expect(fillLinks("Tot ma. {review_link}", none)).toBe("Tot ma.")
+    expect(fillLinks("Bezorgd. Vertel je ons wat je ervan vindt? {review_link}", none)).toBe(
+      "Bezorgd. Vertel je ons wat je ervan vindt?"
     )
   })
 
-  it("takes a question or a lead-in that only led up to an empty link out with it", () => {
-    const none = linksOf(undefined)
-    expect(fillLinks("Bezorgd. Vertel je ons wat je ervan vindt? {review_link}", none)).toBe("Bezorgd.")
-    expect(fillLinks("Bezorgd! Weer op voorraad: {voorraad_link}. Groet", none)).toBe("Bezorgd! Groet")
-    // An abbreviation's dot does not end the sentence before the question.
-    expect(fillLinks("Fijn dat je bijv. ma. belde. Wat vond je ervan? {review_link}", none)).toBe(
-      "Fijn dat je bijv. ma. belde."
+  it("takes the lead-in and its colon with the link, and tidies what is left", () => {
+    expect(fillLinks("Kijk hier: {review_link} voor je kortingscode van 10%.", none)).toBe(
+      "Kijk voor je kortingscode van 10%."
+    )
+    expect(fillLinks("Review: {review_link}, dan weten we het.", none)).toBe("Review, dan weten we het.")
+    expect(fillLinks("Wat vind je ervan? {review_link} Hij is weer binnen: {voorraad_link}.", none)).toBe(
+      "Wat vind je ervan? Hij is weer binnen."
     )
     expect(fillLinks("Hoi,\n\n{uitschrijf_link}\n\nGroet", LINKS)).toBe("Hoi,\n\nGroet")
+    expect(fillLinks("Hoi,\n\nVia: {uitschrijf_link}.\n\nGroet", LINKS)).toBe("Hoi,\n\nGroet")
   })
 
-  it("never leaves words that were not empty empty: then only the variables go", () => {
-    const none = linksOf(undefined)
-    expect(fillLinks("Je review: {review_link}", none)).toBe("Je review:")
-    expect(fillLinks("Wat vind je ervan? {review_link}", none)).toBe("Wat vind je ervan?")
-    // Only a variable is no words of the team's: nothing to send, which the caller refuses as an empty body.
+  it("answers nothing where no letter is left, which the caller refuses as an empty body", () => {
     expect(fillLinks("{review_link}", none)).toBe("")
+    expect(fillLinks("Hier: {review_link}. {voorraad_link}", none)).toBe("")
+    expect(fillLinks("Je review: {review_link}", none)).toBe("Je review")
   })
 
-  it("ends a sentence at its stop before a space, not at an address's dots", () => {
+  it("ends nothing at an address's dots", () => {
     expect(fillLinks("Groet. Vind ons op northwind.store: {review_link}", LINKS)).toBe(
       "Groet. Vind ons op northwind.store: https://northwind.store/review"
     )

@@ -448,6 +448,7 @@ export const replyOn = Effect.fn("Threads.replyOn")(function*(
   if (to === undefined) return yield* new Invalid({ fields: { to: "none" } })
   // Sjablonen' links in; the limit holds for what goes out.
   const body = yield* CustomerFacing.withLinks(sql, input.body)
+  if (body.trim() === "") return yield* new Invalid({ fields: { body: "required" } })
   if (body.length > BODY_MAX) return yield* new Invalid({ fields: { body: "too_long" } })
   const text = withSignature(body, mailbox.signature)
   const { id, outboxId: held } = yield* queueMessage(sql, {
@@ -556,7 +557,9 @@ export const composeOn = Effect.fn("Threads.composeOn")(function*(
   const fill = yield* CustomerFacing.linkFiller(sql)
   const body = fill(input.body)
   const subject = fill(input.subject).trim()
+  if (body.trim() === "") return yield* new Invalid({ fields: { body: "required" } })
   if (body.length > BODY_MAX) return yield* new Invalid({ fields: { body: "too_long" } })
+  if (subject === "") return yield* new Invalid({ fields: { subject: "required" } })
   if (subject.length > SUBJECT_MAX) return yield* new Invalid({ fields: { subject: "too_long" } })
   const to = { name: "", email: input.to.trim().toLowerCase() }
   const threadId = mintId("thr")

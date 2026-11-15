@@ -122,102 +122,46 @@ export const linksOf = (stored: unknown): Links =>
   })) as Links
 
 /**
- * Abbreviations whose dot does not end a sentence ("Kijk bijv. op …"), without their last dot. Not "zo" or "do", which
- * are words too ("Tot zo.").
+ * The words that lead up to a link and go with it when it is empty: one of via, op, naar, bij or hier, and a colon,
+ * as in "Schrijf je uit via {uitschrijf_link}", "Kijk hier: {review_link}", "Review: {review_link}".
  */
-const ABBREVIATIONS = new Set([
-  "bijv",
-  "bv",
-  "b.v",
-  "o.a",
-  "d.w.z",
-  "i.p.v",
-  "m.b.t",
-  "t.a.v",
-  "t.z.t",
-  "z.s.m",
-  "a.u.b",
-  "s.v.p",
-  "etc",
-  "enz",
-  "evt",
-  "incl",
-  "excl",
-  "ca",
-  "nl",
-  "nr",
-  "tel",
-  "dhr",
-  "mevr",
-  "ma",
-  "di",
-  "wo",
-  "vr",
-  "za"
-])
+const LEAD_IN = /(?:(?:^|[ \t]+)(?:via|op|naar|bij|hier))?[ \t]*:?[ \t]*$/iu
 
-const STOP = /[.!?…]/
-
-/** Where the sentence holding position `at` of `line` starts: after the last stop before it that ends a sentence. */
-const sentenceStart = (line: string, at: number) => {
-  for (let i = at - 1; i >= 0; i--) {
-    if (!STOP.test(line[i]!) || !/\s/.test(line[i + 1] ?? "")) continue
-    const word = /([\p{L}.]+)$/u.exec(line.slice(0, i))?.[1]?.toLowerCase() ?? ""
-    if (line[i] === "." && ABBREVIATIONS.has(word)) continue
-    return i + 1
-  }
-  return 0
-}
-
-/** The words that lead up to a link ("via", "op", "hier:"), which go with it. */
-const LEAD_IN = /\s*(?:\b(?:via|op|naar|bij|hier|of)\b\s*:?\s*)?$/iu
-
-/**
- * `line` without the first `variable` in it, whose link is empty. Where the variable ends a sentence and follows a
- * question or a colon ("Vertel je ons wat je ervan vindt? {review_link}", "Je review: {review_link}."), that sentence
- * goes with it: it only led up to the link. Otherwise only the variable goes, with the word that led up to it ("Schrijf
- * je uit via {uitschrijf_link}" is "Schrijf je uit"); the sentences around it stay as written.
- */
+/** `line` without every `variable` in it, each with its lead-in; nothing else of the team's words goes. */
 const withoutVariable = (line: string, variable: string) => {
-  const at = line.indexOf(variable)
-  const after = at + variable.length
-  const before = line.slice(0, at).trimEnd()
-  const closing = /^[.!?…]*(?=\s|$)/.exec(line.slice(after))
-  if (closing !== null && /[?:]$/.test(before)) {
-    const from = sentenceStart(line, before.length - 1)
-    const head = line.slice(0, from).trimEnd()
-    const tail = line.slice(after + closing[0].length)
-    return head === "" ? tail.trimStart() : head + tail
+  let out = line
+  for (let at = out.indexOf(variable); at !== -1; at = out.indexOf(variable)) {
+    const lead = LEAD_IN.exec(out.slice(0, at))![0]
+    const kept = out.slice(0, at - lead.length)
+    const rest = out.slice(at + variable.length)
+    out = kept === "" ? rest.trimStart() : kept + rest
   }
-  const lead = LEAD_IN.exec(line.slice(0, at))![0]
-  const kept = line.slice(0, at - lead.length)
-  const rest = line.slice(after)
-  return kept === "" ? rest.trimStart() : kept + rest
+  return out
 }
+
+/** What a removal leaves behind, tidied: doubled spaces, a space before a stop or comma, a colon before a stop. */
+const tidy = (line: string) =>
+  line.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+([,.;:!?…])/g, "$1").replace(/:([.!?…,])/g, "$1").trimEnd()
 
 /** Each variable with its link: a function, so a `$` in a link is the link's, not a replacement pattern. */
 const putIn = (text: string, links: Links) =>
   LINK_KEYS.reduce((t, k) => links[k] === "" ? t : t.replaceAll(LINK_VARIABLES[k], () => links[k]), text)
 
 /**
- * The team's words with the links in. Each variable becomes its link. A variable whose link is empty goes, with what
- * only led up to it (`withoutVariable`); a line left empty goes too. Words without a variable come back as they were,
- * and words that were not empty never come back empty: then only the variables go.
+ * The team's words with the links in. Each variable becomes its link. A variable whose link is empty goes, with the
+ * word and colon that led up to it, and the line is tidied; a line left with no words goes too. Nothing else of the
+ * team's words goes, and words without a variable come back as they were. Words with no letter left are none: the
+ * caller refuses them as an empty body.
  */
 export const fillLinks = (text: string, links: Links): string => {
   if (!LINK_KEYS.some((k) => text.includes(LINK_VARIABLES[k]))) return text
   const empty = LINK_KEYS.filter((k) => links[k] === "").map((k) => LINK_VARIABLES[k])
   const kept = text.split("\n").flatMap((line) => {
     if (!empty.some((v) => line.includes(v))) return [line]
-    let left = line
-    for (let v = empty.find((e) => left.includes(e)); v !== undefined; v = empty.find((e) => left.includes(e))) {
-      left = withoutVariable(left, v)
-    }
-    return left.trim() === "" ? [] : [left.trimEnd()]
+    const left = tidy(empty.reduce(withoutVariable, line))
+    return /\p{L}|\p{N}/u.test(left) ? [left] : []
   }).join("\n").replace(/\n{3,}/g, "\n\n").trim()
-  if (kept !== "" || text.trim() === "") return putIn(kept, links)
-  const bare = empty.reduce((t, v) => t.replaceAll(v, ""), text).replace(/[ \t]+$/gm, "").trim()
-  return putIn(bare, links)
+  return /\p{L}/u.test(kept) ? putIn(kept, links) : ""
 }
 
 /* ── Huisstijl ────────────────────────────────────────────────────────────────────────────────── */
