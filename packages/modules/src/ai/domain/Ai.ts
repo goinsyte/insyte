@@ -153,6 +153,11 @@ export class Draft extends Schema.Class<Draft>("ai/Draft")({
   provider: Schema.Literals(["anthropic", "fake"]),
   model: Schema.String,
   promptVersion: Schema.String,
+  /**
+   * What the person must check before it goes, where the agent wrote it for them (M15 step 6): money or goods
+   * promised, a figure or a link it was not given. Empty for every other draft.
+   */
+  flags: Schema.Array(Schema.Literals(["money", "figure", "link"])),
   /** The knowledge base chapters it used; absent or empty when none. */
   sources: Schema.optional(Schema.Array(DraftSource))
 }) {}
