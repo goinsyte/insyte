@@ -113,14 +113,17 @@ export const store = Effect.fn("Inbox.store")(function*(
     htmlKey = `${workspaceId}/mail/${messageId}.html`
     yield* files.put(htmlKey, new TextEncoder().encode(mail.html), "text/html; charset=utf-8").pipe(Effect.orDie)
   }
+  // When it was written, the thread locked, not when this transaction began: a reply queued on the thread meanwhile
+  // (the agent's, `Inbox.sendQueued`) is older than it, and sees it as the newer mail.
   yield* sql`
     insert into email_messages (id, workspace_id, thread_id, rfc822_message_id, in_reply_to, "references", direction,
-                                kind, from_name, from_address, "to", cc, subject, body_text, body_html_key, sent_at)
+                                kind, from_name, from_address, "to", cc, subject, body_text, body_html_key, sent_at,
+                                automated, created_at)
     values (${messageId}, ${workspaceId}, ${threadId}, ${rfc822},
             ${mail.inReplyTo === null ? null : bare(mail.inReplyTo)}, ${mail.references.map(bare)}::text[],
             'inbound', 'message', ${mail.from.name.trim()}, ${mail.from.email.trim().toLowerCase()},
             ${JSON.stringify(mail.to)}::jsonb, ${JSON.stringify(mail.cc)}::jsonb, ${mail.subject.slice(0, 998)},
-            ${mail.text}, ${htmlKey}, ${sentAt})`
+            ${mail.text}, ${htmlKey}, ${sentAt}, ${mail.automated}, clock_timestamp())`
 
   let kept = 0
   for (const [i, a] of mail.attachments.entries()) {

@@ -1,5 +1,6 @@
 import { Effect, Layer, Scope } from "effect"
 import { HttpRouter } from "effect/http"
+import { AgentRoutes } from "./agent.ts"
 import { AiRoutes } from "./ai.ts"
 import { AuthEventsOf } from "./auth.ts"
 import { AutomationRunsOf, AutomationScheduleTick, AutomationUncheckedVersion } from "./automations.ts"
@@ -55,7 +56,8 @@ const Routes = Layer.mergeAll(
   InvitationLapse,
   ProposalLapse,
   PrivacyRoutes,
-  AiRoutes
+  AiRoutes,
+  AgentRoutes
 )
 
 /**
