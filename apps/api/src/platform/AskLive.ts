@@ -4,5 +4,5 @@
  */
 
 export * as Answer from "@insyte/modules/ask/Answer"
-export { services } from "./AiLive.ts"
+export { AskModelChoice as services } from "./AiLive.ts"
 export { askTools } from "./ask/AskTools.ts"

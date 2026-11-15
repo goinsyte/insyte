@@ -4,8 +4,8 @@ import { admit, onPreview, previewRequest } from "./access.ts"
 /*
  * Vraag Insyte (M15 step 3, W11.1): a new admin with the recorded store asks what waits on them. The answer streams in
  * with its numbers as figures that open where they were counted, a follow-up asks on in the same conversation, and the
- * conversation is set aside with Undo. On the fake model locally; where Insyte AI is not switched on (a preview has no
- * model), there is nothing to answer with and the journey is skipped. One person per run, as in `auth.spec.ts`.
+ * conversation is set aside with Undo. On the fake model, locally and on a preview (where Vraag Insyte takes the fake
+ * when the stage has no model, `AiSettings.ts`). One person per run, as in `auth.spec.ts`.
  */
 
 const test = base.extend<{ page: Page }>({
@@ -72,10 +72,7 @@ test("@ask Vraag Insyte answers with figures, asks on, and sets the conversation
   await page.getByRole("button", { name: "Welke bestellingen dreigen te laat te komen?" }).click()
   const conversation = page.getByRole("region", { name: "Gesprek" })
   const figure = conversation.getByRole("link", { name: /^Vertraagde bestellingen: / })
-  // The answer, or the word that there is no model here to answer with.
-  const unconfigured = page.getByText("Insyte AI is nog niet ingeschakeld")
-  await expect(figure.or(unconfigured).first()).toBeVisible({ timeout: 30_000 })
-  test.skip(await unconfigured.isVisible(), "Insyte AI is not switched on here (a preview has no model)")
+  await expect(figure).toBeVisible({ timeout: 30_000 })
   await expect(page).toHaveURL(/\/ask\?c=ask_/)
   const address = page.url()
   await expect(conversation.getByText("Las", { exact: true }).first()).toBeVisible()
@@ -88,6 +85,17 @@ test("@ask Vraag Insyte answers with figures, asks on, and sets the conversation
   // The figure opens where it was counted.
   await figure.click()
   await expect(page).toHaveURL(/\/orders/)
+
+  // A figure Analyse explains opens its explanation over Analyse.
+  await page.goto(address)
+  await hydrated(page)
+  await page.getByRole("textbox").last().fill("Hoe gaat het deze maand met de omzet?")
+  await page.keyboard.press("Enter")
+  const paid = conversation.getByRole("link", { name: /^Betaalde bestellingen deze maand: / })
+  await expect(paid).toBeVisible({ timeout: 30_000 })
+  await paid.click()
+  await expect(page).toHaveURL(/\/analytics\?explain=/)
+  await expect(page.getByRole("dialog", { name: "Betaalde bestellingen" })).toBeVisible()
 
   // Back on the conversation, read as kept; then set aside, and put back with Undo.
   await page.goto(address)
@@ -102,4 +110,17 @@ test("@ask Vraag Insyte answers with figures, asks on, and sets the conversation
   await expect(listed).toHaveCount(0)
   await page.getByRole("button", { name: "Ongedaan maken" }).click()
   await expect(listed).toBeVisible()
+
+  // The top bar's panel asks over the same conversations, beside the page, and opens its own on the full page.
+  await page.goto("/dashboard")
+  await hydrated(page)
+  await page.getByRole("button", { name: "Vraag Insyte", exact: true }).click()
+  const panel = page.getByRole("dialog", { name: "Vraag Insyte" })
+  await expect(panel).toBeVisible()
+  await panel.getByRole("button", { name: "Welke chargebacks hebben bewijs nodig?" }).click()
+  await expect(panel.getByRole("link", { name: /^Zaken die op jou wachten: / })).toBeVisible({ timeout: 30_000 })
+  await expect(page).toHaveURL(/\/dashboard$/)
+  await panel.getByRole("button", { name: "Volledige pagina openen" }).click()
+  await expect(page).toHaveURL(/\/ask\?c=ask_/)
+  await expect(conversation.getByRole("link", { name: /^Zaken die op jou wachten: / })).toBeVisible()
 })
