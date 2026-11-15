@@ -1,6 +1,10 @@
-import { Option, Redacted } from "effect"
+import { STALE_MS } from "@insyte/modules/ask/domain/Ask"
+import { unzip } from "@insyte/modules/privacy/domain/Archive"
+import { introspectWorkflow } from "cloudflare:test"
+import { env } from "cloudflare:workers"
+import { ConfigProvider, Effect, Option, Redacted } from "effect"
 import { describe, expect, it } from "vitest"
-import { aiModeOf, askModeOf } from "../src/platform/AiSettings.ts"
+import { aiModeOf, AiSettings, askModeOf } from "../src/platform/AiSettings.ts"
 import { failure, join, ok, pastUndo, person, relay, run } from "./journeys.ts"
 import { call, rpc, rpcStream, sessionMe } from "./support.ts"
 
@@ -193,6 +197,78 @@ describe("Vraag Insyte", () => {
     expect(refsOf(turn)).toHaveLength(1)
   })
 
+  it("names no shopper in a queue line, and keeps each line's record with the answer", async () => {
+    const shoppers = ok(await rpc("Customers.list", { limit: 200 }, owner)).rows
+    const order = ok(await rpc("Orders.list", { limit: 50, storeId: first }, owner)).rows.find((o) =>
+      o.customerId !== null && o.customerEmail !== null && o.customerName.length >= 5 && o.delayedAt === null &&
+      !["cancelled", "refunded", "delivered"].includes(o.status)
+    )!
+    ok(await rpc("Orders.flagDelayed", { ids: [order.id] }, owner))
+    await pastUndo(workspace)
+    const refreshed = await call(`http://api.test/api/__dev/queue/refresh?workspace=${workspace}`, { method: "POST" })
+    expect(refreshed.status).toBe(200)
+
+    const turn = settledOf(await ask(owner, "Vat de open zaken van vandaag samen"))
+    expect(turn.state).toBe("settled")
+    expect(turn.tools).toEqual([{ verb: "Las", object: expect.stringMatching(/wachtrijregels?$/) }])
+    // The queue's titles end with the shopper's name; the lines the answer read and shows say only the record.
+    const shown = JSON.stringify({ tokens: turn.tokens, sources: turn.sources, text: turn.text })
+    const names = [order.customerName, ...shoppers.map((c) => c.name)].filter((n) => n.length >= 5)
+    expect(names.filter((n) => shown.includes(n))).toEqual([])
+    expect(turn.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "queue", title: `Bestelling ${order.number} is vertraagd` })
+      ])
+    )
+    // Each line is about a record the answer places, so the turn keeps it for the shopper's own request.
+    expect(refsOf(turn).map((r: Json) => r.to)).toEqual(expect.arrayContaining([`/orders/${order.id}`]))
+
+    // The shopper's package has the question and the answer, the dates and their own records: nothing of who asked.
+    await using workflows = await introspectWorkflow(env.PRIVACY_EXPORT)
+    const { id } = ok(await rpc("Privacy.requestAccess", { email: order.customerEmail! }, owner))
+    await relay(workspace)
+    const [instance] = await workflows.get()
+    await instance!.waitForStatus("complete")
+    const asked = ok(await rpc("Privacy.requests", undefined, owner)).shoppers.find((r) => r.id === id)!
+    const file = await call(`http://api.test/api/files/${asked.fileId}`, { headers: { cookie: owner } })
+    const decoder = new TextDecoder()
+    const entries = new Map(
+      (await unzip(new Uint8Array(await file.arrayBuffer()))).map((e) => [e.name, decoder.decode(e.bytes)])
+    )
+    const rows = [...entries.keys()].filter((n) => n === "json/ask_turns.json" || n.startsWith("json/ask_turns-"))
+      .flatMap((n) => JSON.parse(entries.get(n)!) as Array<Record<string, Json>>)
+    const row = rows.find((r) => r.question === "Vat de open zaken van vandaag samen")!
+    expect(Object.keys(row).toSorted()).toEqual(["answer", "answered_at", "asked_at", "question", "records"])
+    expect(row.records).toContain(order.id)
+    // Only their records: no other shopper's order or case the same answer named.
+    const theirs = new Set(
+      ok(await rpc("Orders.list", { limit: 200 }, owner)).rows.filter((o) => o.customerId === order.customerId)
+        .map((o) => o.id)
+    )
+    const named = new Set(
+      refsOf(turn).filter((r: Json) => r.kind === "order").map((r: Json) => r.to.split("/").at(-1) as string)
+    )
+    expect(row.records.filter((r: string) => named.has(r) && !theirs.has(r))).toEqual([])
+  })
+
+  it("withholds an answer from a reader who no longer reaches every store it read", async () => {
+    const email = `ask-${run}-narrowed@invited.test`
+    ok(await rpc("Invitations.send", { rows: [{ email, roleId: "admin", stores: "all" }] }, owner))
+    await pastUndo(workspace)
+    await relay(workspace)
+    const wide = await join(email)
+    const member = ok(await sessionMe(wide)).principals[0]!.id
+    // The month's figures, asked from no store's page: a sum over both stores, whatever rows it names.
+    const frames = await ask(wide, "Hoe gaat het deze maand met de omzet?")
+    const turn = settledOf(frames)
+    expect(turn).toMatchObject({ state: "settled", withheld: false })
+    expect(figuresOf(turn).length).toBeGreaterThan(0)
+    ok(await rpc("Members.setStores", { id: member, stores: [first] }, owner))
+    const thread = ok(await rpc("Ask.get", { id: frames[0].threadId }, wide))
+    const answer = thread.turns.find((t) => t.id === turn.id)!
+    expect(answer).toMatchObject({ withheld: true, tokens: [] })
+  })
+
   it("says what a role may not see, and puts no number to it", async () => {
     const email = `ask-${run}-service@invited.test`
     ok(await rpc("Invitations.send", { rows: [{ email, roleId: "service", stores: "all" }] }, owner))
@@ -259,6 +335,21 @@ describe("Vraag Insyte", () => {
     expect(ok(await rpc("Ask.list", {}, owner)).rows.map((r) => r.id)).not.toContain(asked.body.thread_id)
     expect(failure(await rpc("Ask.get", { id: asked.body.thread_id }, owner))).toMatchObject({ _tag: "NotFound" })
     expect((await v1(`/ask/threads/${threadId}`)).status).toBe(404)
+
+    // A claim whose run was cut off: still running while a turn could be, given up once it is older than any turn.
+    const abandon = (seconds: number) =>
+      call(`http://api.test/api/__dev/idempotency/abandon?workspace=${workspace}&key=ask-${run}&seconds=${seconds}`, {
+        method: "POST"
+      })
+    expect(await (await abandon(10)).json()).toEqual({ abandoned: 1 })
+    expect(await v1("/ask", { method: "POST", body: question, key: `ask-${run}` })).toMatchObject({
+      status: 409,
+      body: { error: { reason: "in_progress" } }
+    })
+    expect(await (await abandon(STALE_MS / 1000 + 5)).json()).toEqual({ abandoned: 1 })
+    const retried = await v1("/ask", { method: "POST", body: question, key: `ask-${run}` })
+    expect(retried.status).toBe(200)
+    expect(retried.body.answer.id).not.toBe(answerOf)
 
     // The key may not read Analyse: a question about this month says so and puts no number to it.
     const monthly = await v1("/ask", {
@@ -330,6 +421,42 @@ describe("Vraag Insyte", () => {
   })
 })
 
+describe("Vraag Insyte's limits", () => {
+  it("counts a key's questions in the workspace's window, as the console's", async () => {
+    const me = await person("ask-limits", "Vraag Limiet B.V.")
+    const ws = ok(await sessionMe(me.cookie)).principals[0]!.workspaceId
+    await seed(me.cookie)
+    const secret = ok(
+      await rpc("ApiKeys.create", {
+        label: "Vraag Insyte",
+        access: { kind: "custom", scopes: { chargebacks: 1 } },
+        stores: "all",
+        expiresInDays: 30,
+        ips: [],
+        agent: false
+      }, me.cookie)
+    ).secret
+    // The workspace's window is full: its people asked twenty questions this minute.
+    const bucket = env.RATE_LIMITER.getByName(`ask:${ws}`)
+    for (let i = 0; i < 25; i++) if (!(await bucket.take("questions", 20, 60)).ok) break
+    const response = await call("http://api.public.test/v1/ask", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${secret}`,
+        "content-type": "application/json",
+        "idempotency-key": `ask-limits-${run}`
+      },
+      body: JSON.stringify({ question: "Welke chargebacks hebben bewijs nodig?" })
+    })
+    expect(response.status).toBe(429)
+    expect(await response.json()).toMatchObject({ error: { code: "RateLimitedV1" } })
+    expect(failure(await rpcStream("Ask.send", { text: "En nu?" }, me.cookie))).toMatchObject({ _tag: "AiRateLimited" })
+  })
+})
+
+/** The stage's settings as a Worker with these variables reads them. */
+const read = (vars: Record<string, string>) => Effect.runSync(AiSettings.parse(ConfigProvider.fromEnvRecord(vars)))
+
 describe("Vraag Insyte's model", () => {
   const settings = (environment: string, adapter = "", key = "") => ({
     adapter,
@@ -350,5 +477,10 @@ describe("Vraag Insyte's model", () => {
     // A stage with its model asks it, a preview included.
     expect(askModeOf(settings("preview", "", "sk-ant-test"))).toBe("anthropic")
     expect(askModeOf(settings("production", "", "sk-ant-test"))).toBe("anthropic")
+  })
+
+  it("is off where the stage does not say which it is", () => {
+    expect(askModeOf(read({}))).toBe("off")
+    expect(askModeOf(read({ ENVIRONMENT: "preview" }))).toBe("fake")
   })
 })
