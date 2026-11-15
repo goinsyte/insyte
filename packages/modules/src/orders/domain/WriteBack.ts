@@ -68,6 +68,17 @@ export const DRAFT_CREATE = `mutation($input: DraftOrderInput!) {
   draftOrderCreate(input: $input) { draftOrder { id name } userErrors { field message } }
 }`
 
+/**
+ * Shopify's draft for an Insyte draft, by the tag its create carried (its `SO-…` number): a create tried again after
+ * Shopify made it, but before Insyte heard so, finds it here instead of making a second.
+ */
+export const DRAFT_FIND = `query($query: String!) {
+  draftOrders(first: 1, query: $query) { nodes { id } }
+}`
+
+/** The tag search for a draft's number, as Shopify's search reads it. */
+export const draftTagQuery = (number: string) => `tag:'${number.replaceAll("'", "")}'`
+
 export const DRAFT_DELETE = `mutation($input: DraftOrderDeleteInput!) {
   draftOrderDelete(input: $input) { deletedId userErrors { field message } }
 }`

@@ -1,9 +1,9 @@
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { customerWriteBack } from "@insyte/modules/customers/use-cases/write-back"
-import { draftWriteBack } from "@insyte/modules/orders/use-cases/drafts"
+import { draftAdopt, draftRemove, draftSend } from "@insyte/modules/orders/use-cases/drafts"
 import { refundFailed, writeBack } from "@insyte/modules/orders/use-cases/write-back"
-import { productCreateWriteBack, productWriteBack } from "@insyte/modules/products/use-cases/write-back"
+import { productCreateAdopt, productCreateSend, productWriteBack } from "@insyte/modules/products/use-cases/write-back"
 import { decisionWriteBack, resolutionFailed, resolutionWriteBack } from "@insyte/modules/returns/use-cases/shopify"
 import { idsOf, type ShopifyWrite, type WriteOutcome } from "@insyte/modules/shared/domain/ShopifyWrites"
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers"
@@ -14,8 +14,9 @@ import { withRequestDb } from "../platform/RequestDb.ts"
 import { roomOf } from "../platform/Room.ts"
 
 /*
- * A change made in Insyte to Shopify (M7), once the undo window has passed: a durable step per record, so a
- * bulk change of fifty that Shopify throttles halfway resumes where it stopped and sends none twice. A step that keeps
+ * A change made in Insyte to Shopify (M7), once the undo window has passed: a durable step per record (two for a
+ * record made in Insyte: sent, then its row takes Shopify's ids), so a bulk change of fifty that Shopify throttles
+ * halfway resumes where it stopped and sends none twice. A step that keeps
  * failing (Shopify unreachable) gives up after its retries; the others still go, and a refund that never got there is
  * failed. Where Shopify refused, the record was read again, and the workspace's tabs hear it; a refund always. A
  * return's (M9.3): its resolution made there, or a return from Shopify approved or declined there; a resolution that
@@ -46,12 +47,33 @@ export class ShopifyWriteWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Sho
     const outcomes: Array<WriteOutcome> = []
     for (const id of idsOf(write)) {
       try {
+        // A record made in Insyte goes in two steps: sent, then its row takes Shopify's ids (`CreateSent`).
+        if (write.type === "product.created") {
+          const sent = await step.do(`${kind} ${id}`, RETRY, () => run(workspaceId, productCreateSend(write, id)))
+          outcomes.push(
+            "outcome" in sent
+              ? sent.outcome
+              : await step.do(
+                `${kind} ${id} adopt`,
+                RETRY,
+                () => run(workspaceId, productCreateAdopt(write, id, sent.made))
+              )
+          )
+          continue
+        }
+        if (write.type === "order.draft_created") {
+          const sent = await step.do(`${kind} ${id}`, RETRY, () => run(workspaceId, draftSend(write, id)))
+          outcomes.push(
+            "outcome" in sent
+              ? sent.outcome
+              : await step.do(`${kind} ${id} adopt`, RETRY, () => run(workspaceId, draftAdopt(write, id, sent.made)))
+          )
+          continue
+        }
         const effect = write.type === "product.updated"
           ? productWriteBack(write, id)
-          : write.type === "product.created"
-          ? productCreateWriteBack(write, id)
-          : write.type === "order.draft_created" || write.type === "order.draft_removed"
-          ? draftWriteBack(write, id)
+          : write.type === "order.draft_removed"
+          ? draftRemove(write, id)
           : write.type === "customer.updated" || write.type === "customer.created"
           ? customerWriteBack(write, id)
           : write.type === "return.resolution_requested"

@@ -219,8 +219,8 @@ export const get = Effect.fn("Orders.get")(function*(id: string) {
         }
       >`
         select ${sql.literal(SELECT)}, o.subtotal_minor, o.shipping_minor, o.tax_minor, o.discounts_minor,
-               o.payment_gateway, o.card_last4, o.shipping_address, o.note, o.channel, o.paid_at, o.shipped_at,
-               o.cancelled_at, o.refunded_at
+               coalesce(o.payment_gateway, o.draft_payment) as payment_gateway, o.card_last4, o.shipping_address,
+               o.note, o.channel, o.paid_at, o.shipped_at, o.cancelled_at, o.refunded_at
         from orders o where o.id = ${id} and ${scope}`
       if (row === undefined) return yield* new NotFound({ entity: "order", id })
       const lines = yield* sql<{

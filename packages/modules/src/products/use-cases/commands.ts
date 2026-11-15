@@ -168,13 +168,20 @@ export const edit = Effect.fn("Products.edit")(function*(input: typeof EditInput
 })
 
 /** Shopify's handle for a title: lower case, words joined by hyphens. */
-const handleOf = (title: string) =>
-  title.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "product"
+/**
+ * The product's handle in Shopify: its title as a slug, and the end of Insyte's id, so a create tried again finds the
+ * product it made before by it (`productByIdentifier`) and no product of the store's own has it.
+ */
+const handleOf = (title: string, id: string) =>
+  `${
+    title.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "").slice(0, 80) || "product"
+  }-${id.slice(-6).toLowerCase()}`
 
 /**
- * "Nieuw product": in Insyte at once with its one variant ("Standaard"), its cost price and its supplier, in Shopify
- * once the window has passed (`productCreate`, then the variant's price and SKU); the row takes Shopify's ids, and the
+ * "Nieuw product": in Insyte at once with its one variant ("Standaard"), its cost price and its supplier, in the store
+ * named (the one in view, once the console has a store switch) or else the first the principal reaches; in Shopify
+ * once the window has passed (`productSet`, its variant's price and SKU with it); the row takes Shopify's ids, and the
  * `products/create` echo gives way to it. Undo removes it before Shopify hears of it.
  */
 export const create = Effect.fn("Products.create")(function*(input: typeof CreateInput.Type) {
@@ -217,7 +224,7 @@ export const create = Effect.fn("Products.create")(function*(input: typeof Creat
       yield* sql`
         insert into products (id, workspace_id, store_id, shopify_id, title, handle, description_html, status,
                               cost_minor, shopify_created_at, external_updated_at)
-        values (${id}, ${principal.workspaceId}, ${store.id}, ${`insyte-${id}`}, ${title}, ${handleOf(title)},
+        values (${id}, ${principal.workspaceId}, ${store.id}, ${`insyte-${id}`}, ${title}, ${handleOf(title, id)},
                 ${htmlOf(input.description)}, ${input.status}, ${input.costMinor}, now(), now())`
       yield* sql`
         insert into variants (id, workspace_id, store_id, product_id, shopify_id, sku, title, price_minor, position)
