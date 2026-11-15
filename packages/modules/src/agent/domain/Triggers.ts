@@ -1,7 +1,7 @@
 import type { AgentActionId } from "@insyte/domain/AgentActions"
 import { Schema } from "effect"
 import type { Hours, OfflinePlan } from "../../first-analysis/domain/FirstAnalysis.ts"
-import type { ShipStatusId } from "../../settings/domain/Settings.ts"
+import type { ShipStatusId } from "../../shared/domain/CustomerFacing.ts"
 
 /*
  * What starts the agent by itself (M15 step 6, ADR-0027 "started by an event"): the outbox sink `agent` hears a mail

@@ -15,6 +15,7 @@ export const subject = (props: ReturnProps) =>
 const ReturnReceived = (props: ReturnProps) => (
   <ShopLetter
     shop={props.shop}
+    look={props.look}
     preview={`${props.shop} bekijkt ${what(props)} binnen twee werkdagen.`}
     footer={{ reason: reason(props) }}
   >
