@@ -6,6 +6,7 @@ import { SqlError } from "effect/sql"
 import type { CursorInvalid, FilterFieldUnknown } from "../shared/domain/Filter.ts"
 import type { Relay } from "../shared/domain/Outbox.ts"
 import type { SearchHit } from "../shared/domain/Search.ts"
+import { inStore } from "../shared/use-cases/StoreScope.ts"
 import type { CreateInput, CustomerChange, MergeInput, TagInput } from "./domain/Commands.ts"
 import type { CustomerCounts, CustomerDetail, CustomerListInput, CustomerPage } from "./domain/Customers.ts"
 import type { DuplicateGroup } from "./domain/Duplicates.ts"
@@ -43,7 +44,9 @@ export class CustomersService extends Context.Service<CustomersService, {
     Effect.gen(function*() {
       const syncs = yield* KlaviyoSyncs
       return {
-        list: (input) => Customers.list(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        // Narrowed as a whole, so the facets and summaries count the one store too (the store switch).
+        list: (input) =>
+          Customers.list(input).pipe(inStore(input.storeId), Effect.catchIf(SqlError.isSqlError, Effect.die)),
         get: (id) =>
           Customers.get(id).pipe(
             Effect.provideService(KlaviyoSyncs, syncs),

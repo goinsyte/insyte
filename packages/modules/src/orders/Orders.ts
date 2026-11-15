@@ -6,6 +6,7 @@ import { SqlError } from "effect/sql"
 import type { CursorInvalid, FilterFieldUnknown, ListInput } from "../shared/domain/Filter.ts"
 import type { Relay } from "../shared/domain/Outbox.ts"
 import type { SearchHit } from "../shared/domain/Search.ts"
+import { inStore } from "../shared/use-cases/StoreScope.ts"
 import type { CancelInput, OrderChange, ShippingInput, TagInput } from "./domain/Commands.ts"
 import type {
   CustomerMailQueued,
@@ -76,7 +77,8 @@ export class OrdersService extends Context.Service<OrdersService, {
 }>()("modules/OrdersService") {
   // A database that does not answer is a defect, as everywhere.
   static readonly layer = Layer.succeed(OrdersService, {
-    list: (input) => Orders.list(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    // Narrowed as a whole, so the facets and summaries count the one store too (the store switch).
+    list: (input) => Orders.list(input).pipe(inStore(input.storeId), Effect.catchIf(SqlError.isSqlError, Effect.die)),
     get: (id) => Orders.get(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     search: (q, limit) => Orders.search(q, limit).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     statusCounts: Orders.statusCounts().pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),

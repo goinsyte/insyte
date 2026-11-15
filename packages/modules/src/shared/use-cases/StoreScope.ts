@@ -16,7 +16,11 @@ export const inScope = Effect.fn("StoreScope.inScope")(
   function*(sql: SqlClient.SqlClient, column: string, storeId?: string) {
     const { storeScope } = yield* CurrentPrincipal
     const parts = [
-      storeScope === null ? sql`true` : sql`${sql.literal(column)} = any(${[...storeScope]})`,
+      storeScope === null
+        ? sql`true`
+        : storeScope.length === 0
+        ? sql`false`
+        : sql`${sql.literal(column)} = any(${[...storeScope]})`,
       storeId === undefined ? sql`true` : sql`${sql.literal(column)} = ${storeId}`
     ]
     return sql.and(parts)
@@ -43,3 +47,15 @@ export const storeChoices = Effect.fn("StoreScope.storeChoices")(function*(sql: 
     select id, name from stores where ${yield* inScope(sql, "id")} order by status = 'disconnected', created_at, id`
   return rows.map((r) => new StoreChoice(r))
 })
+
+/**
+ * A read narrowed to one store (the console's store switch, M6): the principal's `storeScope` narrowed to `storeId` for
+ * every fence inside it, never widened. A store outside the principal's stores leaves none in scope, so the read is
+ * empty rather than refused (a stale choice reads as nothing, not an error). No `storeId` is every store they reach.
+ */
+export const inStore =
+  (storeId: string | undefined) => <A, E, R>(read: Effect.Effect<A, E, R>): Effect.Effect<A, E, R | CurrentPrincipal> =>
+    storeId === undefined ? read : read.pipe(Effect.updateService(CurrentPrincipal, (principal) => ({
+      ...principal,
+      storeScope: principal.storeScope === null ? [storeId] : principal.storeScope.filter((s) => s === storeId)
+    })))

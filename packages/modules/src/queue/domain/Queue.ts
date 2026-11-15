@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { ProposalView } from "../../proposals/domain/Proposals.ts"
+import { StoreFilter } from "../../shared/domain/Stores.ts"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
 
 /*
@@ -58,7 +59,9 @@ export const QueueTab = Schema.Literals(["needs_you", "drawn", "all"])
 
 export const ListInput = Schema.Struct({
   tab: Schema.optional(QueueTab),
-  limit: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(500)))
+  limit: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(500))),
+  /** One store's rows, and those of no store (everyone's). */
+  ...StoreFilter
 })
 
 export class QueueList extends Schema.Class<QueueList>("queue/QueueList")({
