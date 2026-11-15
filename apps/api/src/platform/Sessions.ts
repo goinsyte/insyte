@@ -1,5 +1,5 @@
 import { Db } from "@insyte/database/Db"
-import { UserId } from "@insyte/domain/Ids"
+import { UserId, WorkspaceId } from "@insyte/domain/Ids"
 import type { SessionUser } from "@insyte/domain/Session"
 import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
 import { Effect, Option, Schema } from "effect"
@@ -8,10 +8,12 @@ import { Effect, Option, Schema } from "effect"
  * The session cookie → the signed-in user, the one door every RPC and server render goes through (12 §5). Two checks:
  * better-auth verifies the cookie (a cache hit costs no query), then the session row must still exist and be unexpired
  * on our own connection, so a sign-out or a revoked session takes effect at once despite the 5-minute cookie cache.
- * Workspaces and principals join in M3.
+ * The same read names the workspace the session acts in (`Workspaces.switch`): from the row, never the cookie's copy,
+ * so a switch holds from the very next request.
  */
 
 const decodeUserId = Schema.decodeUnknownOption(UserId)
+const decodeWorkspaceId = Schema.decodeUnknownOption(WorkspaceId)
 
 export const userFrom = Effect.fn("Sessions.userFrom")(function*(headers: Headers) {
   const auth = yield* (yield* BetterAuth).forRequest
@@ -21,7 +23,9 @@ export const userFrom = Effect.fn("Sessions.userFrom")(function*(headers: Header
   if (found === null) return Option.none<SessionUser>()
   const db = yield* Db
   const [live] = yield* db.routing((sql) =>
-    sql<{ id: string }>`select id from auth.session where id = ${found.session.id} and expires_at > now()`
+    sql<{ id: string; activeWorkspaceId: string | null }>`
+      select id, active_workspace_id from auth.session
+      where id = ${found.session.id} and expires_at > now()`
   ).pipe(Effect.orElseSucceed(() => []))
   if (live === undefined) return Option.none<SessionUser>()
   return Option.map(decodeUserId(found.user.id), (id): SessionUser => ({
@@ -30,7 +34,9 @@ export const userFrom = Effect.fn("Sessions.userFrom")(function*(headers: Header
     name: found.user.name,
     emailVerified: found.user.emailVerified,
     image: found.user.image ?? null,
-    twoFactorEnabled: found.user.twoFactorEnabled === true
+    twoFactorEnabled: found.user.twoFactorEnabled === true,
+    activeWorkspaceId: Option.getOrNull(decodeWorkspaceId(live.activeWorkspaceId)),
+    sessionId: live.id
   }))
 })
 

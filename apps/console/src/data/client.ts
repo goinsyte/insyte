@@ -3,6 +3,7 @@ import { Layer } from "effect"
 import { FetchHttpClient } from "effect/http"
 import { Atom, AtomRpc } from "effect/reactivity"
 import { RpcClient, RpcSerialization } from "effect/rpc"
+import { fetchInTab } from "./tab-workspace.ts"
 
 /*
  * The console's one client for the API (13 §2). Every server read is a query atom and every command a mutation atom,
@@ -13,13 +14,13 @@ import { RpcClient, RpcSerialization } from "effect/rpc"
  * The browser's `fetch`, minus Effect's own trace headers. Sentry's SDK wraps the page's `fetch` and sends
  * `traceparent` for the browser's trace (`propagateTraceparent`), and the API continues that one. Effect's client adds
  * its own `traceparent` and `b3` first, and with them in place the browser and API traces did not join. The call goes
- * through `globalThis.fetch` at request time, so it reaches Sentry's wrapper.
+ * through `globalThis.fetch` at request time, so it reaches Sentry's wrapper; `fetchInTab` names the tab's workspace.
  */
 const fetchForSentryTrace: typeof globalThis.fetch = (input, init) => {
   const headers = new Headers(init?.headers)
   headers.delete("traceparent")
   headers.delete("b3")
-  return globalThis.fetch(input, { ...init, headers })
+  return fetchInTab(input, { ...init, headers })
 }
 
 /** In the browser: same origin, because the console Worker forwards `/api/*` to the API by service binding. */

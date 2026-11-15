@@ -7,6 +7,7 @@ import { Exit } from "effect"
 import { useMemo } from "react"
 import { toast } from "sonner"
 import { COURSES, courseWrites } from "../data/courses.ts"
+import { fetchInTab } from "../data/tab-workspace.ts"
 import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
 
 /*
@@ -318,7 +319,7 @@ export function useConsoleCoursesSource(catalogue: CourseCatalogue): CoursesSour
       answer: async (id, text, s) => void said(await write.answer({ payload: { id, text }, ...keys }), s)
     },
     uploadImage: async (courseId, file) => {
-      const response = await fetch(`/api/courses/${encodeURIComponent(courseId)}/media`, {
+      const response = await fetchInTab(`/api/courses/${encodeURIComponent(courseId)}/media`, {
         method: "PUT",
         headers: {
           "content-type": file.type || "application/octet-stream",

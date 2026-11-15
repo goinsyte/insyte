@@ -167,6 +167,63 @@ export const tenantTable = (table: TenantTable, options: { readonly membersOnly?
     : [])
 ]
 
+/** The principal kind of a person inside a workspace they are not a member of (`Db.asNewcomerIn`, 0096). */
+export const NEWCOMER_KIND = "newcomer"
+
+/** The tables founding and the invitations touch, each with what the newcomer may do there (`newcomerMay`, 0096). */
+export const NEWCOMER_TABLES = [
+  "workspaces",
+  "roles",
+  "members",
+  "workspace_counters",
+  "ai_budgets",
+  "audit_events",
+  "outbox",
+  "onboarding_progress",
+  "invitations",
+  "invite_links",
+  "api_keys"
+] as const
+
+/** Any principal but the newcomer. */
+export const NOT_NEWCOMER = `app_principal_kind() is distinct from '${NEWCOMER_KIND}'`
+
+/**
+ * A table the newcomer never reads or writes (0096): every table with row level security but the few founding and
+ * invitations touch (`newcomerMay`). A migration that makes a table adds this with its `tenantTable`; `tenancy.test.ts`
+ * checks that every one has it.
+ */
+export const newcomerBlind = (table: string): string =>
+  `create policy ${table}_no_newcomer on ${table} as restrictive for all
+     using (${NOT_NEWCOMER}) with check (${NOT_NEWCOMER})`
+
+/** A newcomer's rows on one statement: none, any, or those a predicate names. */
+const newcomerRows = (rows: true | string | undefined) =>
+  rows === undefined ? NOT_NEWCOMER : rows === true ? "true" : `${NOT_NEWCOMER} or (${rows})`
+
+/**
+ * What the newcomer may do on one of the tables founding and invitations touch (0096): per statement, nothing (left
+ * out), any row the other policies let through (`true`), or the rows a predicate names. One restrictive policy per
+ * statement, so the table's other policies still hold.
+ */
+export const newcomerMay = (
+  table: (typeof NEWCOMER_TABLES)[number],
+  may: {
+    readonly select?: true | string
+    readonly insert?: true | string
+    readonly update?: true | string
+    readonly delete?: true | string
+  }
+): Array<string> => [
+  `create policy ${table}_newcomer_select on ${table} as restrictive for select using (${newcomerRows(may.select)})`,
+  `create policy ${table}_newcomer_insert on ${table} as restrictive for insert with check (${
+    newcomerRows(may.insert)
+  })`,
+  `create policy ${table}_newcomer_update on ${table} as restrictive for update
+       using (${newcomerRows(may.update)}) with check (${newcomerRows(may.update)})`,
+  `create policy ${table}_newcomer_delete on ${table} as restrictive for delete using (${newcomerRows(may.delete)})`
+]
+
 /** A supplier contact acting for its own supplier, whose rows `own` (a predicate over the table's columns) names. */
 const asPartner = (own: string) =>
   `app_principal_kind() = 'supplier_contact' and app_partner_id() is not null and (${own})`

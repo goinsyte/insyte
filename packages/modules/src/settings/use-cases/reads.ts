@@ -4,18 +4,10 @@ import { mintId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
+import { LINK_KEYS, LINK_VARIABLES, SHIP_STATUS_IDS } from "../../shared/domain/CustomerFacing.ts"
 import { FileStore } from "../../shared/domain/Documents.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
-import {
-  LINK_KEYS,
-  LINK_VARIABLES,
-  type LinkUsage,
-  LOGO_BYTES,
-  LOGO_MIMES,
-  SHIP_STATUS_IDS,
-  type StatusCounts,
-  type UploadLogo
-} from "../domain/Settings.ts"
+import { type LinkUsage, LOGO_BYTES, LOGO_MIMES, type StatusCounts, type UploadLogo } from "../domain/Settings.ts"
 
 /*
  * What the settings pages read beside their section (M17 step 20.1b): Verzending's "Nu" column, how many reply templates
@@ -36,7 +28,7 @@ export const statusCounts = Effect.fn("Shipping.statusCounts")(function*() {
     Effect.flatMap(inScope(sql, "o.store_id"), (mine) =>
       sql<{ status: string; n: number }>`
       with parcels as (
-        select distinct on (f.order_id) f.order_id, d.status as tracked, f.tracking_status as shopify
+        select distinct on (f.order_id) f.order_id, d.status as tracked, d.stage, f.tracking_status as shopify
         from fulfilments f
         join orders o on o.id = f.order_id
         left join deliveries d on d.fulfilment_id = f.id
@@ -44,14 +36,18 @@ export const statusCounts = Effect.fn("Shipping.statusCounts")(function*() {
           and ${mine}
         order by f.order_id, f.shipped_at desc nulls last, f.id desc
       ), worded as (
-        select case coalesce(nullif(tracked, 'pending'), shopify)
-                 when 'delivered' then 'delivered'
-                 when 'out_for_delivery' then 'out'
-                 when 'exception' then 'exception'
-                 when 'returned' then 'exception'
-                 when 'expired' then 'stale'
-                 when 'in_transit' then 'transit'
-                 else case when tracked = 'pending' then 'noinfo' else 'info' end
+        select case
+                 when tracked = 'in_transit' and stage = 'available_for_pickup' then 'pickup'
+                 when tracked = 'exception' and stage = 'failed_attempt' then 'failed'
+                 else case coalesce(nullif(tracked, 'pending'), shopify)
+                   when 'delivered' then 'delivered'
+                   when 'out_for_delivery' then 'out'
+                   when 'exception' then 'exception'
+                   when 'returned' then 'exception'
+                   when 'expired' then 'stale'
+                   when 'in_transit' then 'transit'
+                   else case when tracked = 'pending' then 'noinfo' else 'info' end
+                 end
                end as status
         from parcels
         union all

@@ -37,7 +37,7 @@ import { ThreadsRpcs } from "@insyte/api/rpc/ThreadsRpcs"
 import { TicketsRpcs } from "@insyte/api/rpc/TicketsRpcs"
 import { TrackingRpcs } from "@insyte/api/rpc/TrackingRpcs"
 import { TrashRpcs } from "@insyte/api/rpc/TrashRpcs"
-import { WorkspacesRpcs } from "@insyte/api/rpc/WorkspacesRpcs"
+import { WorkspaceChoiceRpcs, WorkspacesRpcs } from "@insyte/api/rpc/WorkspacesRpcs"
 import { recordedPixelSettings } from "@insyte/integrations-shopify/ShopifyRecorded"
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
@@ -418,6 +418,15 @@ const PAYLOADS: Record<string, unknown> = {
   "Workspaces.setRetention": { days: 7 },
   "Workspaces.getRegional": undefined,
   "Workspaces.getSecurity": undefined,
+  "Workspaces.transferOwnership": { memberId: "mem_none" },
+  "Workspaces.list": undefined,
+  "Workspaces.create": { name: " ", slug: "", country: "NL", teamSize: "1" },
+  "Workspaces.switch": { workspaceId: "ws_00000000000000000000000000" },
+  "Workspaces.leave": { workspaceId: "ws_00000000000000000000000000" },
+  "Workspaces.listInvites": undefined,
+  "Workspaces.acceptInvite": NONE,
+  "Workspaces.declineInvite": NONE,
+  "Workspaces.restoreInvite": NONE,
   "Workspaces.saveRegional": {
     language: "xx",
     currencyDisplay: "EUR",
@@ -663,6 +672,7 @@ const manifest = [
   ...AnalyticsRpcs.requests.keys(),
   ...ProposalsRpcs.requests.keys(),
   ...WorkspacesRpcs.requests.keys(),
+  ...WorkspaceChoiceRpcs.requests.keys(),
   ...ChatsRpcs.requests.keys(),
   ...CoursesRpcs.requests.keys(),
   ...SheetsRpcs.requests.keys(),

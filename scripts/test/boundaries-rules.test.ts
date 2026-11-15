@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { checkBoundaries, importsOf } from "../lib/boundaries-rules.ts"
+import { checkBoundaries, checkDoors, importsOf } from "../lib/boundaries-rules.ts"
 
 const fails = (file: string, specifier: string) => expect(checkBoundaries([{ file, specifier }])).toHaveLength(1)
 const passes = (file: string, specifier: string) => expect(checkBoundaries([{ file, specifier }])).toEqual([])
@@ -55,5 +55,17 @@ describe("boundaries", () => {
       )
     )
       .toEqual(["x", "y", "z", "w", "v"])
+  })
+
+  it("lets only founding and the invitations act as a newcomer", () => {
+    const call = "yield* db.asNewcomerIn(workspaceId)((sql) => sql`select 1`)"
+    expect(checkDoors([{ file: "packages/modules/src/orders/use-cases/refund.ts", text: call }])).toHaveLength(1)
+    expect(checkDoors([{ file: "apps/api/src/transports/http/FileRoutes.ts", text: call }])).toHaveLength(1)
+    expect(checkDoors([{ file: "packages/modules/src/members/use-cases/invitations/accept.ts", text: call }]))
+      .toEqual([])
+    expect(checkDoors([{ file: "packages/database/test/tenancy.test.ts", text: call }])).toEqual([])
+    // Named, not called: a comment pointing at it is fine.
+    expect(checkDoors([{ file: "packages/modules/src/orders/use-cases/refund.ts", text: "// see `Db.asNewcomerIn`" }]))
+      .toEqual([])
   })
 })

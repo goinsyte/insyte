@@ -1,3 +1,4 @@
+import { NotFound } from "@insyte/domain/Errors"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentPrincipal, CurrentWorkspace, type Principal } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
@@ -29,10 +30,24 @@ export interface DbService {
    */
   readonly forUser: InTransaction<CurrentUser>
   /**
-   * As the signed-in person inside one workspace, before they have a principal there: founding a workspace (its first
-   * rows pass the tenant policies they will always pass), and resolving the person's principal in it.
+   * As the signed-in person inside one workspace they are an active member of, without their principal: reading a
+   * workspace of theirs from outside it (the switcher, onboarding's Start), and resolving the person's principal in it.
+   * The membership is checked first, in the same transaction: for someone who left, was removed or was deactivated it
+   * fails as `NotFound` (the workspace, for them), so a use case that takes a workspace id from a row of the person's
+   * own (onboarding's) cannot act in a workspace that is no longer theirs.
    */
-  readonly asUserIn: (workspaceId: WorkspaceId) => InTransaction<CurrentUser>
+  readonly asUserIn: (workspaceId: WorkspaceId) => <A, E, R>(
+    f: (sql: SqlClient.SqlClient) => Effect.Effect<A, E, R>
+  ) => Effect.Effect<A, E | NotFound | SqlError.SqlError, R | CurrentUser>
+  /**
+   * As the signed-in person inside a workspace they are not (yet, or any more) a member of, on the two paths that make
+   * them one: founding it (its first rows pass the tenant policies they will always pass), and taking up or turning
+   * down an invitation to it, which the caller has proved first (the link's secret, or the verified address). Its own
+   * principal kind, `newcomer`, which the database holds to those paths' tables (0096); `invitationId` names the
+   * invitation handled (`app.invitation_id`), the one invitation it may change. Called only from those use cases
+   * (`bun run boundaries` checks).
+   */
+  readonly asNewcomerIn: (workspaceId: WorkspaceId, invitationId?: string) => InTransaction<CurrentUser>
   /** Background work that resolved its workspace (a queue, a Workflow step, a cron fan-out). Runs as `system`. */
   readonly scopedFor: InTransaction<CurrentWorkspace>
   /** Routing lookups only, through security-definer functions: shop domain → workspace, key prefix → key. */
@@ -61,6 +76,17 @@ const setContext = (sql: SqlClient.SqlClient, c: RlsContext) =>
         set_config('app.principal_kind', ${c.kind}, true),
         set_config('app.partner_id', ${c.partnerId ?? ""}, true),
         set_config('app.user_id', ${c.userId ?? ""}, true)`
+
+/** The person inside one workspace, before their principal there: a member (`asUserIn`), or none (`asNewcomerIn`). */
+const asPerson = (
+  sql: SqlClient.SqlClient,
+  userId: string,
+  workspaceId: WorkspaceId,
+  kind: "member" | "newcomer",
+  invitationId = ""
+) =>
+  sql`select set_config('app.user_id', ${userId}, true), set_config('app.workspace_id', ${workspaceId}, true),
+             set_config('app.principal_kind', ${kind}, true), set_config('app.invitation_id', ${invitationId}, true)`
 
 /**
  * `Db` over one connection, given as the effect that yields it: `WithDb` passes one that opens the request's
@@ -101,16 +127,32 @@ export const makeDb = (connection: Effect.Effect<SqlClient.SqlClient, SqlError.S
           Effect.flatMap(connection, (sql) =>
             sql.withTransaction(Effect.andThen(sql`select set_config('app.user_id', ${user.id}, true)`, f(sql))))
       ),
-    asUserIn: (workspaceId) => (f) =>
+    asUserIn: (workspaceId) => <A, E, R>(f: (sql: SqlClient.SqlClient) => Effect.Effect<A, E, R>) =>
       Effect.flatMap(
         Effect.service(CurrentUser),
         (user) =>
           Effect.flatMap(connection, (sql) =>
             sql.withTransaction(Effect.andThen(
-              sql`select set_config('app.user_id', ${user.id}, true), set_config('app.workspace_id', ${workspaceId}, true),
-                       set_config('app.principal_kind', 'member', true)`,
-              f(sql)
+              asPerson(sql, user.id, workspaceId, "member"),
+              Effect.flatMap(
+                sql`select 1 from members where workspace_id = ${workspaceId} and user_id = ${user.id}
+                      and removed_at is null and deactivated_at is null`,
+                (rows): Effect.Effect<A, E | NotFound, R> =>
+                  rows.length === 0
+                    ? Effect.fail(new NotFound({ entity: "workspace", id: workspaceId }))
+                    : f(sql)
+              )
             )))
+      ),
+    asNewcomerIn: (workspaceId, invitationId) => (f) =>
+      Effect.flatMap(
+        Effect.service(CurrentUser),
+        (user) =>
+          Effect.flatMap(
+            connection,
+            (sql) =>
+              sql.withTransaction(Effect.andThen(asPerson(sql, user.id, workspaceId, "newcomer", invitationId), f(sql)))
+          )
       ),
     scopedFor: (f) =>
       Effect.flatMap(
