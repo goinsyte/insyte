@@ -148,7 +148,10 @@ export const TENANT_TABLES = [
   "fact_disputes_day",
   // Billing (M13 step 1): the workspace's Stripe subscription and invoices, as Stripe last said.
   "subscriptions",
-  "invoices"
+  "invoices",
+  // Vraag Insyte (M15 step 3): a person's conversations and their turns, the owner's alone.
+  "ask_threads",
+  "ask_turns"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

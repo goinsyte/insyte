@@ -210,6 +210,13 @@ const SHOPPER_PARTS: ReadonlyArray<readonly [string, string]> = [
          or (t.subject_type = 'chargeback' and t.subject_id in
                (select c.id from chargebacks c where c.customer_id = any($1::text[]) or c.order_id in ${BY_ORDER}))`
   ],
+  // What Vraag Insyte answered about them (0098): an answer that named their order, ticket, case or customer record.
+  [
+    "ask_turns",
+    `select to_jsonb(t)::text as row from ask_turns t
+      where t.refs && ($1::text[] || array${BY_ORDER} || array${BY_TICKET}
+              || array(select c.id from chargebacks c where c.customer_id = any($1::text[]) or c.order_id in ${BY_ORDER}))`
+  ],
   // A row of an imported CSV (0073) with their address in a cell. Imports are the workspace's, not a store's: only for
   // an asker who reaches every store, as the threads by address.
   [
