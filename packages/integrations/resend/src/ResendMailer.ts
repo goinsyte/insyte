@@ -78,6 +78,15 @@ export const ResendMailer = Layer.effect(
     const urls = yield* MailUrls
     const from = yield* Config.String("MAIL_FROM").pipe(Config.withDefault("Insyte <noreply@mail.goinsyte.com>"))
 
+    /** Huisstijl on a shopper's mail, its logo as an address the shopper's mail client can load. */
+    const branded = (mail: Mail) =>
+      mail.look === undefined || (mail.look.color === null && mail.look.logoPath === null) ? {} : {
+        look: {
+          color: mail.look.color,
+          logoUrl: mail.look.logoPath === null ? null : urls.console(mail.look.logoPath)
+        }
+      }
+
     /** The mail's subject and bodies, by its kind. A mail missing what its kind needs is not sent. */
     const render = (mail: Mail): Effect.Effect<Rendered, MailNotSent> => {
       const rendered = (() => {
@@ -106,17 +115,17 @@ export const ResendMailer = Layer.effect(
             const facts = mail.returnMail
             if (facts === undefined) return Effect.fail(missing(mail, "its return"))
             const portalUrl = facts.portal === null ? null : urls.console(`/retour/${encodeURIComponent(facts.portal)}`)
-            return renderer.render(mail.kind, { ...facts, portalUrl })
+            return renderer.render(mail.kind, { ...facts, portalUrl, ...branded(mail) })
           }
           case "order.delayed": {
             const facts = mail.orderDelay
             if (facts === undefined) return Effect.fail(missing(mail, "its order"))
-            return renderer.render("order.delayed", facts)
+            return renderer.render("order.delayed", { ...facts, ...branded(mail) })
           }
           case "order.message": {
             const facts = mail.orderMessage
             if (facts === undefined) return Effect.fail(missing(mail, "its order"))
-            return renderer.render("order.message", facts)
+            return renderer.render("order.message", { ...facts, ...branded(mail) })
           }
           case "support.message": {
             // The team's own words, as they wrote them: no template around them.
@@ -169,12 +178,15 @@ export const ResendMailer = Layer.effect(
           idempotencyKey: yield* idempotencyKey(mail),
           attachments: mail.attachments,
           ...(replyTo === undefined ? {} : { replyTo }),
-          ...(mail.support === undefined ? {} : {
-            replyTo: mail.support.replyTo,
+          ...(mail.support === undefined ? {} : { replyTo: mail.support.replyTo }),
+          ...(mail.support === undefined && mail.autoSubmitted === undefined ? {} : {
             headers: {
-              "Message-ID": mail.support.messageId,
-              ...(mail.support.inReplyTo === null ? {} : { "In-Reply-To": mail.support.inReplyTo }),
-              ...(mail.support.references.length === 0 ? {} : { References: mail.support.references.join(" ") })
+              ...(mail.support === undefined ? {} : {
+                "Message-ID": mail.support.messageId,
+                ...(mail.support.inReplyTo === null ? {} : { "In-Reply-To": mail.support.inReplyTo }),
+                ...(mail.support.references.length === 0 ? {} : { References: mail.support.references.join(" ") })
+              }),
+              ...(mail.autoSubmitted === undefined ? {} : { "Auto-Submitted": mail.autoSubmitted })
             }
           })
         }).pipe(

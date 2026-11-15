@@ -123,6 +123,48 @@ export const OutboxEvent = Schema.Union([
     userId: Schema.String,
     customerIds: Schema.Array(Schema.String)
   }),
+  // A draft order made in Insyte ("Nieuwe bestelling", M7.1): made in Shopify once the undo window has passed. It names
+  // the draft's store and number, so a send that finds the row gone still finds what a try before made, and deletes it.
+  Schema.Struct({
+    type: Schema.Literal("order.draft_created"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    orderIds: Schema.Array(Schema.String),
+    storeId: Schema.optional(Schema.String),
+    number: Schema.optional(Schema.String)
+  }),
+  // A draft order removed in Insyte: deleted in Shopify at once. Its row is gone, so the event names its store and
+  // Shopify's draft.
+  Schema.Struct({
+    type: Schema.Literal("order.draft_removed"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    orderIds: Schema.Array(Schema.String),
+    storeId: Schema.String,
+    draftId: Schema.String
+  }),
+  // A product made in Insyte ("Nieuw product", M7.3): made in Shopify once the undo window has passed. It names the
+  // product's store and handle, for the same reason as a draft's number.
+  Schema.Struct({
+    type: Schema.Literal("product.created"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    productIds: Schema.Array(Schema.String),
+    storeId: Schema.optional(Schema.String),
+    handle: Schema.optional(Schema.String)
+  }),
+  // Shopify would not make what Insyte made (a draft order, a product): it left Insyte again, and whoever made it hears
+  // why, as the reason Shopify's answer comes down to (`ShopifyCreates.ts`).
+  Schema.Struct({
+    type: Schema.Literal("shopify.create_refused"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    subject: Schema.Literals(["order", "product"]),
+    subjectId: Schema.String,
+    /** The draft's number or the product's title, since the record itself is gone. */
+    label: Schema.String,
+    reason: Schema.Literals(["email", "lines", "title", "sku", "price", "scope", "other"])
+  }),
   // Customers sent to a marketing list (M7.5), once the undo window has passed; the sync row holds who and where.
   Schema.Struct({
     type: Schema.Literal("marketing.sync_requested"),
@@ -463,6 +505,13 @@ export const OutboxEvent = Schema.Union([
     workspaceId: Schema.String,
     supplierId: Schema.String,
     contactId: Schema.String
+  }),
+  // A member's access to the workspace ended (M3.1): they left it, or were removed. Their open tabs' sockets in the
+  // workspace's room are closed at once; reconnecting is refused, as every call is.
+  Schema.Struct({
+    type: Schema.Literal("member.access_ended"),
+    workspaceId: Schema.String,
+    memberId: Schema.String
   }),
   // A record a supplier's portal shows changed (M16 step 1): the realtime sink tells that supplier's room
   // (`sup:<workspace>:<supplier>`) to refetch it. Ids only, as `records.changed`.

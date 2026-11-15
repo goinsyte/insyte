@@ -24,6 +24,21 @@ export const EditInput = Schema.Struct({
   costMinor: Schema.optional(Schema.NullOr(Money))
 })
 
+/** "Nieuw product" (widgets/03): one variant, priced; in the principal's store, the first they reach if none is named. */
+export const CreateInput = Schema.Struct({
+  storeId: Schema.optional(Schema.String),
+  title: Schema.String.check(Schema.isMaxLength(255)),
+  sku: Schema.String.check(Schema.isMaxLength(100)),
+  priceMinor: Money,
+  /** Insyte's own (`products.cost_minor`), never sent to Shopify; null for none. */
+  costMinor: Schema.NullOr(Money),
+  supplierId: Schema.NullOr(Schema.String),
+  /** An archived product is not made: the dialog's "Gearchiveerd" makes a concept. */
+  status: Schema.Literals(["active", "draft"]),
+  /** Plain text, as the dialog takes it; Shopify gets it as paragraphs. */
+  description: Schema.String.check(Schema.isMaxLength(20000))
+})
+
 export const StatusInput = Schema.Struct({ ids: Ids, status: ProductStatus })
 
 export const RepriceInput = Schema.Struct({
@@ -75,6 +90,8 @@ export const ProductsRestore = Schema.Struct({
     status: Schema.optional(ProductStatus),
     costMinor: Schema.optional(Schema.NullOr(Schema.Int)),
     variantPrices: Schema.optional(Schema.Array(Schema.Struct({ id: Schema.String, priceMinor: Schema.Int })))
-  }))
+  })),
+  /** `Products.create`: the product made, removed again before Shopify heard of it. */
+  created: Schema.optional(Schema.String)
 })
 export type ProductsRestore = typeof ProductsRestore.Type

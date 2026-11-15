@@ -454,6 +454,20 @@
     "finance": "allow",
     "view": "deny"
   },
+  "Orders.createDraft": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Orders.removeDraft": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "deny"
+  },
   "Orders.markFulfilled": {
     "owner": "allow",
     "admin": "allow",
@@ -553,6 +567,13 @@
     "view": "deny"
   },
   "Products.reprice": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Products.create": {
     "owner": "allow",
     "admin": "allow",
     "service": "deny",
@@ -1852,6 +1873,69 @@
     "admin": "allow",
     "service": "deny",
     "finance": "deny",
+    "view": "allow"
+  },
+  "Workspaces.transferOwnership": {
+    "owner": "allow",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Workspaces.list": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Workspaces.create": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Workspaces.switch": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Workspaces.leave": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Workspaces.listInvites": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Workspaces.acceptInvite": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Workspaces.declineInvite": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Workspaces.restoreInvite": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
     "view": "allow"
   },
   "Session.me": {

@@ -37,7 +37,7 @@ import { ThreadsRpcs } from "@insyte/api/rpc/ThreadsRpcs"
 import { TicketsRpcs } from "@insyte/api/rpc/TicketsRpcs"
 import { TrackingRpcs } from "@insyte/api/rpc/TrackingRpcs"
 import { TrashRpcs } from "@insyte/api/rpc/TrashRpcs"
-import { WorkspacesRpcs } from "@insyte/api/rpc/WorkspacesRpcs"
+import { WorkspaceChoiceRpcs, WorkspacesRpcs } from "@insyte/api/rpc/WorkspacesRpcs"
 import { recordedPixelSettings } from "@insyte/integrations-shopify/ShopifyRecorded"
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
@@ -169,6 +169,15 @@ const PAYLOADS: Record<string, unknown> = {
   "Orders.get": { id: "ord_none" },
   "Orders.tags": undefined,
   "Orders.tag": { ids: ["ord_none"], add: ["x"], remove: [] },
+  // A store that is not there: `NotFound` for every role that may, never a draft made.
+  "Orders.createDraft": {
+    storeId: "sto_none",
+    customer: { name: "Iemand", email: "iemand@example.com" },
+    payment: "manual",
+    lines: [{ sku: "", title: "x", quantity: 1, unitPriceMinor: 100 }],
+    note: ""
+  },
+  "Orders.removeDraft": { id: "ord_none" },
   "Orders.markFulfilled": { ids: ["ord_none"] },
   "Orders.updateShipping": {
     id: "ord_none",
@@ -184,6 +193,17 @@ const PAYLOADS: Record<string, unknown> = {
   "Products.list": {},
   "Products.get": { id: "prd_none" },
   "Products.lowStock": {},
+  // A store that is not there: `NotFound` for every role that may, never a product made.
+  "Products.create": {
+    storeId: "sto_none",
+    title: "x",
+    sku: "",
+    priceMinor: 100,
+    costMinor: null,
+    supplierId: null,
+    status: "draft",
+    description: ""
+  },
   "Products.edit": { id: "prd_none", title: "x" },
   "Products.setStatus": { ids: ["prd_none"], status: "draft" },
   "Products.reprice": { ids: ["prd_none"], targetMargin: 0.5, apply: false },
@@ -398,6 +418,15 @@ const PAYLOADS: Record<string, unknown> = {
   "Workspaces.setRetention": { days: 7 },
   "Workspaces.getRegional": undefined,
   "Workspaces.getSecurity": undefined,
+  "Workspaces.transferOwnership": { memberId: "mem_none" },
+  "Workspaces.list": undefined,
+  "Workspaces.create": { name: " ", slug: "", country: "NL", teamSize: "1" },
+  "Workspaces.switch": { workspaceId: "ws_00000000000000000000000000" },
+  "Workspaces.leave": { workspaceId: "ws_00000000000000000000000000" },
+  "Workspaces.listInvites": undefined,
+  "Workspaces.acceptInvite": NONE,
+  "Workspaces.declineInvite": NONE,
+  "Workspaces.restoreInvite": NONE,
   "Workspaces.saveRegional": {
     language: "xx",
     currencyDisplay: "EUR",
@@ -643,6 +672,7 @@ const manifest = [
   ...AnalyticsRpcs.requests.keys(),
   ...ProposalsRpcs.requests.keys(),
   ...WorkspacesRpcs.requests.keys(),
+  ...WorkspaceChoiceRpcs.requests.keys(),
   ...ChatsRpcs.requests.keys(),
   ...CoursesRpcs.requests.keys(),
   ...SheetsRpcs.requests.keys(),

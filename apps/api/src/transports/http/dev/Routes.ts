@@ -1,5 +1,6 @@
 import { Effect, Layer, Scope } from "effect"
 import { HttpRouter } from "effect/http"
+import { AgentRoutes } from "./agent.ts"
 import { AiRoutes } from "./ai.ts"
 import { AuthEventsOf } from "./auth.ts"
 import { AutomationRunsOf, AutomationScheduleTick, AutomationUncheckedVersion } from "./automations.ts"
@@ -8,6 +9,7 @@ import { ChargebackRemind } from "./chargebacks.ts"
 import { CostsRoutes } from "./costs.ts"
 import { DataRoutes } from "./data.ts"
 import { FactsRoutes } from "./facts.ts"
+import { FileScan } from "./files.ts"
 import { FxRoutes } from "./fx.ts"
 import { HealthCheck } from "./health.ts"
 import { InvitationLapse } from "./invitations.ts"
@@ -36,6 +38,7 @@ const Routes = Layer.mergeAll(
   SendingDomainRoutes,
   RetentionRoutes,
   FactsRoutes,
+  FileScan,
   FxRoutes,
   StoreRoutes,
   HealthCheck,
@@ -55,7 +58,8 @@ const Routes = Layer.mergeAll(
   InvitationLapse,
   ProposalLapse,
   PrivacyRoutes,
-  AiRoutes
+  AiRoutes,
+  AgentRoutes
 )
 
 /**

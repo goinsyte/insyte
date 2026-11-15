@@ -55,6 +55,7 @@ import { usePrefSection } from "./prefs.ts"
 import { useConsoleRecordSearch } from "./record-search.ts"
 import { ShellConnectStore, useConsoleActiveStore } from "./store-switch.tsx"
 import { useWake } from "./wake.ts"
+import { ConsoleWorkspaceSwitch, useConsoleWorkspaces } from "./workspaces-source.tsx"
 
 /*
  * The frame in the console (step 7.4c, M5): the design's parts over the server. What the member set is their
@@ -104,11 +105,6 @@ function value<A>(result: AsyncResult.AsyncResult<A, unknown>): A | undefined {
 }
 
 /** Why each area's "new" button is off in the console, in the words its page uses. */
-const NOT_YET: Record<string, string> = {
-  order: "Bestellingen maken kan hier nog niet",
-  product: "Producten toevoegen kan hier nog niet"
-}
-
 const NO_COUNTS = Atom.make(AsyncResult.initial<Readonly<Record<string, number>>, never>())
 const NO_CHATS = Atom.make(AsyncResult.initial<ChatList, never>())
 const NO_CHARGEBACKS = Atom.make(AsyncResult.initial<ChargebackList, never>())
@@ -126,7 +122,9 @@ const MADE_HERE = new Set([
   "automation",
   "sheet",
   "customer",
-  "course"
+  "course",
+  "order",
+  "product"
 ])
 
 export function ConsoleShellSource({ frame, children }: { frame: Frame; children: ReactNode }) {
@@ -213,6 +211,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   const syncLine = useMemo(() => syncLineOf(healthLine), [healthLine])
 
   const gateRole = useMemo(() => roleOf(frame), [frame])
+  const team = useConsoleWorkspaces(frame)
   const [nav, setNav] = usePrefSection(frame, "rail", NAV_DEFAULTS)
   const [panel, setPanel] = usePrefSection(frame, "panel", PANEL_DEFAULTS)
   const [pins, setPins] = usePrefSection(frame, "pins", PINS_DEFAULTS)
@@ -335,25 +334,8 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     autonomy: { budget: { limit: null, used: 0 } },
     ask: { start: () => void navigate({ to: "/ask" as never }) },
     marketplaceModal: { openModal: openMarketplace },
-    team: {
-      workspaces: [{
-        id: frame.workspace.id,
-        name: frame.workspace.name,
-        role: frame.role.label,
-        members: frame.teammates.length,
-        plan: "",
-        own: frame.role.id === "owner",
-        home: true
-      }],
-      activeWorkspaceId: frame.workspace.id,
-      workspaceInvites: [],
-      acceptWorkspaceInvite: () => undefined,
-      declineWorkspaceInvite: () => undefined,
-      restoreWorkspaceInvite: () => {},
-      leaveWorkspace: () => {},
-      switchWorkspace: () => {},
-      setCreatingWorkspace: () => {}
-    },
+    // The person's workspaces and invitations to another (M3.1): `workspaces-source.tsx`.
+    team,
     workspace: {
       tickets: [],
       orders: [],
@@ -387,7 +369,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     slots: {
       Customize: null,
       AppDetail: null,
-      WorkspaceSwitch: null,
+      WorkspaceSwitch: ConsoleWorkspaceSwitch,
       FirstRunHint: null,
       Invite: ConsoleInvite,
       ConnectStore: ShellConnectStore
@@ -397,8 +379,8 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     useRecordSearch: useConsoleRecordSearch,
     // A return is started from its page (M9.1), a ticket written on the board (M11), a channel in Chats (M11 step 4), a
     // mail in the inbox (M11 step 2), a chargeback by hand on its list (M13), a customer on Klanten (M7.4), a course on
-    // Cursussen (M17); the rest is not made here yet.
-    unavailable: (kind) => MADE_HERE.has(kind) ? null : NOT_YET[kind] ?? "Dit kan hier nog niet",
+    // Cursussen (M17), a draft order on Bestellingen (M7.1), a product on Producten (M7.3); the rest is not made here yet.
+    unavailable: (kind) => MADE_HERE.has(kind) ? null : "Dit kan hier nog niet",
     hasPage: useHasPage(),
     // Every area's panel is counted on the server (`Nav.counts`); the console holds none of the records to count.
     serverCounts: true,
@@ -411,7 +393,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
         ? cfg
         : MADE_HERE.has(cfg.cta.create ?? "")
         ? cfg
-        : { ...cfg, cta: { ...cfg.cta, unavailable: NOT_YET[cfg.cta.create ?? ""] ?? "Dit kan hier nog niet" } }
+        : { ...cfg, cta: { ...cfg.cta, unavailable: "Dit kan hier nog niet" } }
       return withServerCounts(panel, areaCounts ?? {})
     },
     automationsPanel: { recommended: 0, ai: 0, Extras: null },

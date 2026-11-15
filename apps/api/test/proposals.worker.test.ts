@@ -148,7 +148,8 @@ describe("plates and proposals", () => {
     expect(failure(await rpc("Shared.undo", { token: filed.undo!.token }, store.cookie))).toMatchObject({
       _tag: "Conflict"
     })
-    const back = (await rowFor(store.cookie, started.id))!
+    // The row comes back with its fresh plate once the undo's event is delivered, which may be just after the call.
+    const back = (await drawnRowFor(store.cookie, started.id))!
     expect(back.proposal).toMatchObject({ state: "open", action: { returnId: started.id } })
     expect(back.proposal!.id).not.toBe(row.proposal!.id)
 

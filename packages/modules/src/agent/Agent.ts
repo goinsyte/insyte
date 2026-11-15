@@ -29,6 +29,7 @@ import * as Autonomy from "./use-cases/autonomy.ts"
 import * as Budgets from "./use-cases/budgets.ts"
 import * as Govern from "./use-cases/govern.ts"
 import * as Log from "./use-cases/log.ts"
+import * as Triggers from "./use-cases/triggers.ts"
 
 /*
  * The agent's rules and its log (M15 step 6; ADR-0027): Zelfstandigheid and Limieten as the team sets them, the
@@ -127,6 +128,15 @@ export class AgentLogService extends Context.Service<AgentLogService, {
 /** An agent's action under the workspace's autonomy rules: run, a proposal, or refused (`ActionNotAllowed`). */
 export const govern = Govern.govern
 export type { Governed, Outcome as GovernedOutcome } from "./use-cases/govern.ts"
+
+/**
+ * The agent acting on its own (the outbox sink `agent`): the workspace's agent as the principal it acts as, and one
+ * trigger under the autonomy rules, claimed once and logged.
+ */
+export const agentPrincipal = Triggers.agentPrincipal
+export const actOnTrigger = Triggers.act
+export const standDown = Triggers.standDown
+export type { Acted, Prepared, StoodDown, Trigger } from "./use-cases/triggers.ts"
 
 /** `Shared.undo` for `autonomy.restore`. */
 export const restoreAutonomy: (

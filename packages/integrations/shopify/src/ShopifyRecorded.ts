@@ -23,7 +23,12 @@ import { readLines } from "./ShopifyGraphql.ts"
  * idempotency key answers the same refund. A return's writes (M9.3): a gift card or a discount code under a code made
  * before is taken; a draft order completes into one new order, the same one when completed again; a Shopify return is
  * approved or declined. A `noscope-*` shop approved the app before `write_gift_cards` and `write_returns` joined its
- * scopes, so Shopify denies those calls (`ACCESS_DENIED`).
+ * scopes, so Shopify denies those calls (`ACCESS_DENIED`). Insyte's drafts and new products (M7): a draft order is made
+ * and deleted as asked, and found by its tag, but one for an address with `invalid` in it is refused on its email; a
+ * product is made through `productSet` with its one variant, found by its handle and read back, but one titled with
+ * `Geweigerd` is refused on its title. A `lost-*` shop makes its first draft or product and then fails the call, as
+ * an answer lost on the way back. In a shop whose name holds `-lag-`, Shopify's search lags: a new draft is not found
+ * by its tag on the first search after it was made. A test completes a draft as the merchant would (`completeRecordedDraft`).
  */
 
 export const RECORDED_FACTS: ShopFacts = {
@@ -60,6 +65,8 @@ const CONNECTION: Record<string, string> = { ProductVariant: "variants", MediaIm
 
 /** An object as a GraphQL read answers it: nested connections, the shop's later changes applied. */
 const nest = (shop: string, id: string): Record<string, unknown> | null => {
+  const own = madeNodes.get(id)
+  if (own !== undefined) return own
   const line = parsed.find((l) => l["id"] === id)
   if (line === undefined) return null
   const { __parentId: _, ...node } = line
@@ -96,6 +103,9 @@ const MUTATIONS: Record<string, { readonly field?: string; readonly ok: Record<s
   discountCodeBasicCreate: { ok: {} },
   draftOrderCreate: { ok: {} },
   draftOrderComplete: { ok: {} },
+  draftOrderDelete: { ok: {} },
+  productSet: { ok: {} },
+  productDelete: { ok: {} },
   returnApproveRequest: { ok: {} },
   returnDeclineRequest: { ok: {} },
   // The Live pixel (M14 step 3): created once per store, updated with a new key on a repair.
@@ -114,8 +124,85 @@ const NEWER_SCOPES: Record<string, string> = {
 
 /** Codes made (gift cards, discounts), draft orders made and what each completed into. */
 const codes = new Set<string>()
-const drafts = new Map<string, { id: string; name: string } | null>()
+interface RecordedDraft {
+  readonly shop: string
+  readonly tags: ReadonlyArray<string>
+  readonly email: string | null
+  readonly lines: ReadonlyArray<Record<string, unknown>>
+  order: { id: string; name: string } | null
+  /** Searches still to miss it, while Shopify's search index has not caught up. */
+  unindexed: number
+  readonly createdAt: string
+}
+const drafts = new Map<string, RecordedDraft>()
 let made = 0
+
+/** A product made through `productSet` (M7.3), as Shopify holds it. */
+export interface RecordedProduct {
+  readonly id: string
+  readonly variant: string
+  /** Its one variant's inventory item, which Shopify's stock webhooks name. */
+  readonly item: string
+  readonly handle: string
+  readonly title: string
+  readonly status: string
+  readonly price: string
+  readonly sku: string | null
+}
+const products = new Map<string, RecordedProduct & { readonly shop: string }>()
+
+/** Objects made here (products, completed drafts' orders), as a single read answers them. */
+const madeNodes = new Map<string, Record<string, unknown>>()
+
+/** The products a shop holds that were made through the twin: a worker test reads what Shopify was sent. */
+export const recordedProducts = (shop: string): ReadonlyArray<RecordedProduct> =>
+  [...products.values()].filter((p) => p.shop === shop)
+
+/** The draft orders a shop holds that were made through the twin, with their tags and lines. */
+export const recordedDrafts = (shop: string) =>
+  [...drafts.entries()].filter(([, d]) => d.shop === shop).map(([id, d]) => ({ id, ...d }))
+
+/**
+ * A draft completed in Shopify's admin, as the merchant would (M7.1): a new order with the draft's lines, paid by no
+ * gateway Shopify names, that a single read then answers. Its gid and number, for the webhook a test delivers.
+ */
+export const completeRecordedDraft = (id: string) => {
+  const draft = drafts.get(id)
+  if (draft === undefined) throw new Error(`no recorded draft ${id}`)
+  const n = ++made
+  const order = { id: `gid://shopify/Order/${9000 + n}`, name: `#${1900 + n}` }
+  draft.order = order
+  const base = parsed.find((l) => l["id"] === "gid://shopify/Order/1")!
+  const line = parsed.find((l) => l["id"] === "gid://shopify/LineItem/101")!
+  const { __parentId: _, ...lineNode } = line
+  madeNodes.set(order.id, {
+    ...base,
+    id: order.id,
+    name: order.name,
+    email: draft.email,
+    customer: null,
+    displayFinancialStatus: "PENDING",
+    paymentGatewayNames: [],
+    transactions: [],
+    lineItems: { edges: [{ node: { ...lineNode, id: `gid://shopify/LineItem/${9500 + n}` } }] }
+  })
+  return order
+}
+
+/**
+ * A draft copied in Shopify's admin, as a merchant would ("Dupliceren"): the same tags and lines, made at `createdAt`,
+ * and already in the search index. Its gid.
+ */
+export const copyRecordedDraft = (id: string, createdAt: Date) => {
+  const draft = drafts.get(id)
+  if (draft === undefined) throw new Error(`no recorded draft ${id}`)
+  const copy = `gid://shopify/DraftOrder/${++made}`
+  drafts.set(copy, { ...draft, order: null, unindexed: 0, createdAt: createdAt.toISOString() })
+  return copy
+}
+
+/** Shops whose answer to a create is lost once: Shopify made it, the call failed on the way back. */
+const lostOnce = new Set<string>()
 
 /** A code made before, as Shopify answers it. */
 const taken = (field: string) => ({
@@ -123,7 +210,11 @@ const taken = (field: string) => ({
 })
 
 /** A return's write (M9.3) as Shopify answers it; `undefined` for the other mutations. */
-const returnWrite = (name: string, variables: Record<string, unknown>): Record<string, unknown> | undefined => {
+const returnWrite = (
+  shop: string,
+  name: string,
+  variables: Record<string, unknown>
+): Record<string, unknown> | undefined => {
   const input = (variables["input"] ?? variables["basicCodeDiscount"] ?? {}) as Record<string, unknown>
   switch (name) {
     case "giftCardCreate": {
@@ -142,16 +233,91 @@ const returnWrite = (name: string, variables: Record<string, unknown>): Record<s
       return { codeDiscountNode: { id: `gid://shopify/DiscountCodeNode/${++made}` } }
     }
     case "draftOrderCreate": {
+      if (String(input["email"] ?? "").includes("invalid")) {
+        return { userErrors: [{ field: ["email"], message: "Email is invalid" }] }
+      }
       const id = `gid://shopify/DraftOrder/${++made}`
-      drafts.set(id, null)
-      return { draftOrder: { id } }
+      drafts.set(id, {
+        shop,
+        tags: (input["tags"] as ReadonlyArray<string> | undefined) ?? [],
+        email: typeof input["email"] === "string" ? input["email"] : null,
+        lines: (input["lineItems"] as ReadonlyArray<Record<string, unknown>> | undefined) ?? [],
+        order: null,
+        unindexed: shop.includes("-lag-") ? 1 : 0,
+        createdAt: new Date().toISOString()
+      })
+      return { draftOrder: { id, name: `#D${made}` } }
+    }
+    case "draftOrderDelete": {
+      const id = String(input["id"] ?? "")
+      if (!drafts.has(id)) return { userErrors: [{ field: ["id"], message: "Draft order does not exist" }] }
+      drafts.delete(id)
+      return { deletedId: id }
+    }
+    case "productSet": {
+      const product = (variables["input"] ?? {}) as Record<string, unknown>
+      if (String(product["title"] ?? "").includes("Geweigerd")) {
+        return { userErrors: [{ field: ["input", "title"], message: "Title is not allowed" }] }
+      }
+      const variant = ((product["variants"] as ReadonlyArray<Record<string, unknown>> | undefined) ?? [])[0] ?? {}
+      const sku = (variant["inventoryItem"] as { sku?: string } | undefined)?.sku ?? null
+      const n = ++made
+      const ids = {
+        id: `gid://shopify/Product/${8000 + n}`,
+        variant: `gid://shopify/ProductVariant/${8500 + n}`,
+        item: `gid://shopify/InventoryItem/${8700 + n}`
+      }
+      const kept = {
+        shop,
+        id: ids.id,
+        variant: ids.variant,
+        item: ids.item,
+        handle: String(product["handle"] ?? ""),
+        title: String(product["title"] ?? ""),
+        status: String(product["status"] ?? "DRAFT"),
+        price: String(variant["price"] ?? "0.00"),
+        sku
+      }
+      products.set(ids.id, kept)
+      const base = parsed.find((l) => l["id"] === "gid://shopify/Product/3")!
+      const baseVariant = parsed.find((l) => l["id"] === "gid://shopify/ProductVariant/31")!
+      const { __parentId: _, ...variantNode } = baseVariant
+      madeNodes.set(ids.id, {
+        ...base,
+        id: ids.id,
+        title: kept.title,
+        handle: kept.handle,
+        status: kept.status,
+        descriptionHtml: String(product["descriptionHtml"] ?? ""),
+        variants: {
+          edges: [{
+            node: {
+              ...variantNode,
+              id: ids.variant,
+              sku,
+              price: kept.price,
+              inventoryItem: { id: ids.item, tracked: true }
+            }
+          }]
+        }
+      })
+      return {
+        product: { id: ids.id, variants: { nodes: [{ id: ids.variant, inventoryItem: { id: ids.item } }] } }
+      }
+    }
+    case "productDelete": {
+      const id = String(input["id"] ?? "")
+      if (!products.has(id)) return { userErrors: [{ field: ["id"], message: "Product does not exist" }] }
+      products.delete(id)
+      madeNodes.delete(id)
+      return { deletedProductId: id }
     }
     case "draftOrderComplete": {
       const id = String(variables["id"] ?? "")
-      if (!drafts.has(id)) return { userErrors: [{ field: ["id"], message: "Conceptbestelling bestaat niet" }] }
-      const order = drafts.get(id) ?? { id: `gid://shopify/Order/${9000 + ++made}`, name: `#${1900 + made}` }
-      drafts.set(id, order)
-      return { draftOrder: { id, order } }
+      const draft = drafts.get(id)
+      if (draft === undefined) return { userErrors: [{ field: ["id"], message: "Conceptbestelling bestaat niet" }] }
+      draft.order ??= { id: `gid://shopify/Order/${9000 + ++made}`, name: `#${1900 + made}` }
+      return { draftOrder: { id, order: draft.order } }
     }
     case "returnApproveRequest":
       return { return: { id: input["id"], status: "OPEN" } }
@@ -188,7 +354,7 @@ const recordedMutation = (shop: string, query: string, variables: Record<string,
   // A refund is Shopify's own, under the idempotency key it was asked with.
   const answer = name === "refundCreate"
     ? { refund: { id: `gid://shopify/Refund/${refundsTaken(String(variables["key"] ?? ""))}` } }
-    : returnWrite(name, variables) ?? ok
+    : returnWrite(shop, name, variables) ?? ok
   return { [name]: { [field]: [], ...answer } }
 }
 
@@ -208,6 +374,47 @@ const deniedFor = (shop: string, query: string): ShopifyRefused | undefined => {
 const recordedQuery = (shop: string, query: string, variables: Record<string, unknown>): unknown => {
   const mutation = recordedMutation(shop, query, variables)
   if (mutation !== undefined) return mutation
+  // A draft by the tag Insyte gave it (`tag:'SO-10001'`), and a product by its handle: what a create tried again finds.
+  if (query.includes("draftOrders(")) {
+    const tag = /tag:'([^']*)'/.exec(String(variables["query"] ?? ""))?.[1]
+    const first = Number(/first: (\d+)/.exec(query)?.[1] ?? 50)
+    const found = [...drafts.entries()].filter(([, d]) => d.shop === shop && tag !== undefined && d.tags.includes(tag))
+    // One the index has not caught up with is missed, this once.
+    const indexed = found.filter(([, d]) => {
+      if (d.unindexed <= 0) return true
+      d.unindexed -= 1
+      return false
+    })
+    return {
+      draftOrders: {
+        nodes: indexed.slice(0, first).map(([id, d]) => ({
+          id,
+          status: d.order === null ? "OPEN" : "COMPLETED",
+          createdAt: d.createdAt
+        }))
+      }
+    }
+  }
+  // Drafts by their ids, as they are now: a completed one names its order.
+  if (query.includes("nodes(ids:")) {
+    const ids = (variables["ids"] as ReadonlyArray<string> | undefined) ?? []
+    return {
+      nodes: ids.map((id) => {
+        const d = drafts.get(id)
+        return d === undefined || d.shop !== shop
+          ? null
+          : { id, status: d.order === null ? "OPEN" : "COMPLETED", order: d.order === null ? null : { id: d.order.id } }
+      })
+    }
+  }
+  if (query.includes("productByIdentifier(")) {
+    const found = recordedProducts(shop).find((p) => p.handle === variables["handle"])
+    return {
+      productByIdentifier: found === undefined
+        ? null
+        : { id: found.id, variants: { nodes: [{ id: found.variant, inventoryItem: { id: null } }] } }
+    }
+  }
   // The order's single sale, as a full refund splits it: a `short-*` shop sees only €10 of it.
   if (query.includes("suggestedRefund(")) {
     return {
@@ -264,10 +471,15 @@ const recordedQuery = (shop: string, query: string, variables: Record<string, un
 export const ShopifyGraphqlRecorded = Layer.succeed(ShopifyGraphql)(ShopifyGraphql.of({
   query: (shop, _token, query, variables) => {
     const denied = deniedFor(shop, query)
-    return denied !== undefined ? Effect.fail(denied) : Effect.succeed({
-      data: recordedQuery(shop, query, variables),
-      throttle: { maximumAvailable: 2000, currentlyAvailable: 1990, restoreRate: 100 }
-    })
+    if (denied !== undefined) return Effect.fail(denied)
+    const data = recordedQuery(shop, query, variables)
+    // A `lost-*` shop makes its first draft or product, and the answer never arrives: a gateway error, tried again.
+    const create = query.includes("draftOrderCreate(") || query.includes("productSet(")
+    if (create && shop.startsWith("lost-") && !lostOnce.has(shop)) {
+      lostOnce.add(shop)
+      return Effect.fail(new ShopifyRefused({ status: 502, reason: "Bad Gateway" }))
+    }
+    return Effect.succeed({ data, throttle: { maximumAvailable: 2000, currentlyAvailable: 1990, restoreRate: 100 } })
   },
   start: (shop, _token, query) =>
     Effect.succeed({

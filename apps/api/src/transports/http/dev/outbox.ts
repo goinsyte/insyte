@@ -4,7 +4,7 @@ import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect, Layer } from "effect"
 import { HttpRouter, HttpServerResponse } from "effect/http"
 import { withRequestDb } from "../../../platform/RequestDb.ts"
-import { notInProduction, workspaceParam } from "./shared.ts"
+import { devOnly, notInProduction, workspaceParam } from "./shared.ts"
 
 /**
  * `GET /api/__dev/outbox?workspace=<id>`: one workspace's outbox events and whether each was relayed, read in that
@@ -82,4 +82,26 @@ const OutboxDue = HttpRouter.add(
   }).pipe(withRequestDb)
 )
 
-export const OutboxRoutes = Layer.mergeAll(OutboxOf, OutboxDue, ProductEventsOf)
+/**
+ * `GET /api/__dev/audit?workspace=<id>`: one workspace's audit rows, oldest first, read in that workspace's scope. For
+ * the worker tests of changes that write no settings line (a transfer of ownership, leaving). Only where nothing real
+ * lives (`devOnly`): staging's audit log is people's, so it is refused there as in production.
+ */
+const AuditOf = HttpRouter.add(
+  "GET",
+  "/api/__dev/audit",
+  Effect.gen(function*() {
+    if (!(yield* devOnly)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const db = yield* Db
+    const rows = yield* db.scopedFor((sql) =>
+      sql<{ action: string; actorKind: string; actorId: string; subjectId: string; diff: Record<string, unknown> }>`
+        select action, actor_kind, actor_id, subject_id, diff from audit_events order by at, id`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe({ rows })
+  }).pipe(withRequestDb)
+)
+
+export const OutboxRoutes = Layer.mergeAll(OutboxOf, OutboxDue, ProductEventsOf, AuditOf)

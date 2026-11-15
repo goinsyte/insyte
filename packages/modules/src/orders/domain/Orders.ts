@@ -43,6 +43,8 @@ export class OrderRow extends Schema.Class<OrderRow>("orders/OrderRow")({
   totalMinor: Schema.Int,
   currency: Schema.String,
   tags: Schema.Array(Schema.String),
+  /** A draft made in Insyte ("Nieuwe bestelling", M7.1), numbered `SO-…`, until Shopify completes it into an order. */
+  isDraft: Schema.Boolean,
   lineCount: Schema.Int,
   hasTracking: Schema.Boolean,
   carrier: Schema.NullOr(Schema.String),

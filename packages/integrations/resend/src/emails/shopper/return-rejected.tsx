@@ -15,6 +15,7 @@ export const subject = (props: ReturnProps) =>
 const ReturnRejected = (props: ReturnProps) => (
   <ShopLetter
     shop={props.shop}
+    look={props.look}
     preview={`${props.shop} kan ${what(props)} niet goedkeuren.`}
     footer={{ reason: reason(props) }}
   >

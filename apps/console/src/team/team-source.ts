@@ -19,13 +19,16 @@ import { AsyncResult } from "effect/reactivity"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 import { ACCESS, accessWrites, myAccessAtom } from "../data/access.ts"
+import { FRAME } from "../data/frame.ts"
 import { TEAM, teamWrites } from "../data/team.ts"
+import { WORKSPACES, workspaceWrites } from "../data/workspaces.ts"
 
 /*
  * The team screens' source in the console: `Team.get` as they read it, and each action as its RPC, refreshing the page
  * through `TEAM`. A missing permission (`Forbidden`) is said where it was asked, as the denied states say it; any other
  * refusal is said here once, in Dutch. Either way the action answers `false`, so the screen offers no undo. What
- * the console has no screen or server for yet is left out (the view as the invitee, handing over ownership). Seats
+ * the console has no screen or server for yet is left out (the view as the invitee). Handing over ownership
+ * (`Workspaces.transferOwnership`) is irreversible (M3): the design's confirmation, then no undo. Seats
  * are bought on Facturatie (M13 step 1), where what they cost is shown first.
  *
  * The store pickers offer the stores the signed-in person reaches (`Team.stores`). For someone held to some stores,
@@ -168,7 +171,8 @@ export function useConsoleTeamSource(team: Team): TeamSource {
     restoreMember: useAtomSet(teamWrites.restoreMember, { mode: "promiseExit" }),
     setLink: useAtomSet(teamWrites.setLink, { mode: "promiseExit" }),
     regenerateLink: useAtomSet(teamWrites.regenerateLink, { mode: "promiseExit" }),
-    undoRegenerateLink: useAtomSet(teamWrites.undoRegenerateLink, { mode: "promiseExit" })
+    undoRegenerateLink: useAtomSet(teamWrites.undoRegenerateLink, { mode: "promiseExit" }),
+    transfer: useAtomSet(workspaceWrites.transferOwnership, { mode: "promiseExit" })
   }
   const roles = useMemo(() => team.roles.map(roleOf), [team.roles])
   const mine = roles.find((r) => r.id === team.members.find((m) => m.id === team.me)?.roleId)
@@ -276,6 +280,19 @@ export function useConsoleTeamSource(team: Team): TeamSource {
     dismissRefusal: () => setRefusal(null),
     inviteUrl: (id) => team.invitations.find((i) => i.id === id)?.url ?? undefined,
     buySeats: () => void navigate({ to: "/settings/billing", hash: "plekken" }),
+    // Irreversible: said once it took, with no undo; the frame reads the role again, so the gates follow at once.
+    transfer: async (memberId) => {
+      const name = team.members.find((m) => m.id === memberId)?.name ?? "Je collega"
+      const done = await run(
+        "members",
+        "Workspaces.transferOwnership",
+        () => write.transfer({ payload: { memberId }, reactivityKeys: [...TEAM, ...FRAME, ...WORKSPACES] })
+      )
+      if (done !== undefined) {
+        toast.success(`${name} is nu eigenaar`, { description: "Jij bent nu Beheerder van deze werkruimte." })
+      }
+      return undefined
+    },
 
     send: async (rows) => {
       const sent = await run(

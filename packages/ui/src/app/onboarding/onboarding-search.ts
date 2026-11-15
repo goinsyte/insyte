@@ -8,4 +8,6 @@ export const search = z.object({
 	connected: z.literal("shopify").optional(),
 	store: z.string().optional(),
 	error: z.string().optional(),
+	// "Nieuwe werkruimte" from the switcher: the organisation step again, for one more workspace (the console, M3.1).
+	workspace: z.literal("new").optional(),
 });
