@@ -1,4 +1,5 @@
 import { Db } from "@insyte/database/Db"
+import type { NotFound } from "@insyte/domain/Errors"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentUser } from "@insyte/domain/Session"
 import { Effect } from "effect"
@@ -36,24 +37,30 @@ const workspaceOf = Effect.fn("Onboarding.workspaceOf")(function*(active: Worksp
   return workspaceId
 })
 
+/** Out of the workspace between `workspaceOf` and the read or write: as `workspaceOf` refuses. */
+const outOf = <A, E, R>(effect: Effect.Effect<A, E | NotFound, R>) =>
+  Effect.catchTag(effect, "NotFound", () => Effect.fail(new NotCurrentStep({ step: "ready", current: "ready" })))
+
 export const start = Effect.fn("Onboarding.start")(function*(active: WorkspaceId | null) {
   const workspaceId = yield* workspaceOf(active)
   const db = yield* Db
-  return yield* db.asUserIn(workspaceId)((sql) =>
-    Effect.gen(function*() {
-      const [workspace] = yield* sql<{ name: string; members: string }>`
+  return yield* outOf(
+    db.asUserIn(workspaceId)((sql) =>
+      Effect.gen(function*() {
+        const [workspace] = yield* sql<{ name: string; members: string }>`
         select w.name, (select count(*) from members m where m.workspace_id = w.id and m.deactivated_at is null)::text
                as members
         from workspaces w where w.id = ${workspaceId}`
-      const ticked = yield* sql<{ task: SetupTask }>`
+        const ticked = yield* sql<{ task: SetupTask }>`
         select task from setup_tasks where done_at is not null and dismissed_at is null`
-      const [store] = yield* sql<{ connected: boolean }>`
+        const [store] = yield* sql<{ connected: boolean }>`
         select exists (select 1 from stores where status <> 'disconnected') as connected`
-      const done: Array<SetupTask> = Number(workspace?.members ?? 0) > 1 ? ["team"] : []
-      if (store?.connected === true) done.push("store")
-      for (const { task } of ticked) if (task !== "store" && task !== "inbox" && task !== "team") done.push(task)
-      return new StartChecklist({ workspaceName: workspace?.name ?? "", done })
-    })
+        const done: Array<SetupTask> = Number(workspace?.members ?? 0) > 1 ? ["team"] : []
+        if (store?.connected === true) done.push("store")
+        for (const { task } of ticked) if (task !== "store" && task !== "inbox" && task !== "team") done.push(task)
+        return new StartChecklist({ workspaceName: workspace?.name ?? "", done })
+      })
+    )
   )
 })
 
@@ -63,10 +70,12 @@ export const completeTask = Effect.fn("Onboarding.completeTask")(
     const user = yield* CurrentUser
     const workspaceId = yield* workspaceOf(active)
     const db = yield* Db
-    yield* db.asUserIn(workspaceId)((sql) =>
-      sql`insert into setup_tasks (workspace_id, task, done_at, done_by)
+    yield* outOf(
+      db.asUserIn(workspaceId)((sql) =>
+        sql`insert into setup_tasks (workspace_id, task, done_at, done_by)
         values (${workspaceId}, ${input.task}, case when ${input.done} then now() end, ${input.done ? user.id : null})
         on conflict (workspace_id, task) do update set done_at = excluded.done_at, done_by = excluded.done_by`
+      )
     )
     return yield* start(workspaceId)
   }

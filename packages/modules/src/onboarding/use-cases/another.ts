@@ -29,18 +29,20 @@ export const another = Effect.fn("Onboarding.another")(function*(input: CreateWo
   const user = yield* CurrentUser
   const current = yield* loadProgress()
   if (!current.completed) return yield* new NotCurrentStep({ step: "organization", current: current.step })
-  const db = yield* Db
-  const [founded] = yield* db.forUser((sql) =>
-    sql<{ n: number }>`select count(*)::int as n from onboarding_progress where workspace_id is not null`
-  )
-  if ((founded?.n ?? 0) >= MAX_FOUNDED) return yield* new Conflict({ entity: "workspace", reason: "limit" })
   const checked = validateWorkspace(input)
   if ("fields" in checked) return yield* new Invalid({ fields: checked.fields })
+  const db = yield* Db
   const founder = yield* WorkspaceFounder
   const workspaceId = mintId("ws") as WorkspaceId
   const step = next("admin", "organization", factsOf(user, { workspaceId }))
   const outboxIds = yield* db.asNewcomerIn(workspaceId)((sql) =>
     Effect.gen(function*() {
+      // Counted in the founding transaction, one founding per person at a time: two "Nieuwe werkruimte" at once
+      // cannot both pass at the cap.
+      yield* sql`select pg_advisory_xact_lock(hashtextextended(${`founding:${user.id}`}, 0))`
+      const [founded] = yield* sql<{ n: number }>`
+        select count(*)::int as n from onboarding_progress where workspace_id is not null`
+      if ((founded?.n ?? 0) >= MAX_FOUNDED) return yield* new Conflict({ entity: "workspace", reason: "limit" })
       const written = yield* founder.found(workspaceId, checked.ok, user.id)
       yield* sql`insert into onboarding_progress (id, user_id, workspace_id, track, step, answers)
                  values (${mintId("onb")}, ${user.id}, ${workspaceId}, 'admin', ${step},

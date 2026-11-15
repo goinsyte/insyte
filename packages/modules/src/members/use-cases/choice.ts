@@ -18,11 +18,14 @@ import type { Route } from "./invitations/route.ts"
  * the workspace concerned: as a newcomer for an invitation (`asNewcomerIn`), as the member for leaving (`asUserIn`).
  */
 
-/** The workspace of an invitation to the signed-in address; nothing for anyone else's. */
-const mine = Effect.fn("Members.myInvitation")(function*(id: string) {
+/**
+ * The workspace of an open invitation to the signed-in address, or with `restoring` of one they declined inside the
+ * undo window; nothing for anyone else's, or for one accepted, revoked or lapsed.
+ */
+const mine = Effect.fn("Members.myInvitation")(function*(id: string, restoring = false) {
   const db = yield* Db
   const [row] = yield* db.forUser((sql) =>
-    sql<{ workspaceId: string | null }>`select invitation_route_for_user(${id}) as workspace_id`
+    sql<{ workspaceId: string | null }>`select invitation_route_for_user(${id}, ${restoring}) as workspace_id`
   )
   return row?.workspaceId == null ? undefined : ({ workspaceId: row.workspaceId, link: false } satisfies Route)
 })
@@ -99,7 +102,7 @@ export const declineMine = Effect.fn("Members.declineMine")(function*(id: string
 export const restoreMine = Effect.fn("Members.restoreMine")(function*(id: string) {
   const user = yield* CurrentUser
   const db = yield* Db
-  const found = yield* mine(id)
+  const found = yield* mine(id, true)
   if (found === undefined) return yield* new NotFound({ entity: "invitation", id })
   yield* db.asNewcomerIn(found.workspaceId as WorkspaceId)((sql) =>
     Effect.gen(function*() {
@@ -130,12 +133,7 @@ export const restoreMine = Effect.fn("Members.restoreMine")(function*(id: string
 export const leave = Effect.fn("Members.leave")(function*(sessionId: string, workspaceId: WorkspaceId) {
   const user = yield* CurrentUser
   const db = yield* Db
-  // Only a workspace the person is still an active member of: any other reads as no such workspace.
-  const held = yield* db.forUser((sql) =>
-    sql`select 1 from members where workspace_id = ${workspaceId} and user_id = ${user.id}
-          and removed_at is null and deactivated_at is null`
-  )
-  if (held.length === 0) return yield* new NotFound({ entity: "workspace", id: workspaceId })
+  // Only a workspace the person is still an active member of: `asUserIn` reads any other as no such workspace.
   yield* db.asUserIn(workspaceId)((sql) =>
     Effect.gen(function*() {
       const [me] = yield* sql<{ id: string; roleId: string }>`

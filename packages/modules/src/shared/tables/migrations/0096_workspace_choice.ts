@@ -1,3 +1,4 @@
+import { NEWCOMER_KIND, newcomerMay, NOT_NEWCOMER } from "@insyte/database/Tenancy"
 import { statements } from "../statements.ts"
 
 /**
@@ -14,11 +15,24 @@ import { statements } from "../statements.ts"
  *   before one is (`Db.forUser`, routing, the sweeps) nothing changes.
  * - `invitations_to_user()`: the open team invitations addressed to the signed-in person's verified address, as
  *   `(invitation_id, workspace_id)` and nothing else; the switcher then reads each inside its workspace.
- * - `invitation_route_for_user(id)`: the workspace of one team invitation to that address, in whatever state (accepting,
- *   declining and undoing a decline from the switcher, where there is no link and so no secret: the signed-in address
- *   is the proof). As 0014's functions, each looks as the owner with `app.principal_kind` at `system`, and puts the
- *   caller's value back before it returns.
+ * - `invitation_route_for_user(id, restoring)`: the workspace of one open team invitation to that address (accepting
+ *   and declining from the switcher, where there is no link and so no secret: the signed-in address is the proof),
+ *   or, with `restoring`, of one declined inside the decline's undo window (32 seconds: four times `UNDO_SECONDS`).
+ *   Accepted, revoked and lapsed ones route nowhere. As 0014's functions, each looks as the owner with `app.principal_kind` at
+ *   `system`, and puts the caller's value back before it returns.
+ * - The newcomer (`Db.asNewcomerIn`): a person inside a workspace they are not a member of, founding it or taking up or
+ *   turning down an invitation to it, has a principal kind of its own, `newcomer`, and the database holds it to those
+ *   paths. On the tables they touch (`newcomerMay`), only the statements they make there, and on members and API keys
+ *   only the person's own rows; every other table with row level security refuses it outright (`newcomerBlind`, made
+ *   here for the ones there are; a table made later adds it, and `tenancy.test.ts` checks every one has one or the
+ *   other). It counts as member side (`app_is_member_side`), so the members-only tables it may touch (invitations,
+ *   their link, AI budgets, API keys, the audit log) let it through to what `newcomerMay` allows.
  */
+
+/** The person's own member row in the transaction's workspace, and the keys that row made. */
+const OWN_MEMBER = "user_id = app_user_id()"
+const OWN_KEYS = "created_by in (select m.id from members m where m.user_id = app_user_id())"
+
 export default statements(
   "alter table members add column left_at timestamptz",
   `create policy members_in_workspace on members as restrictive for all
@@ -45,17 +59,60 @@ export default statements(
      end $$`,
   "revoke all on function invitations_to_user() from public",
   "grant execute on function invitations_to_user() to insyte_app",
-  `create function invitation_route_for_user(invitation text) returns text
+  `create function invitation_route_for_user(invitation text, restoring boolean default false) returns text
      language plpgsql security definer set search_path = public, pg_temp as $$
      declare prior text := current_setting('app.principal_kind', true); result text;
      begin
        perform set_config('app.principal_kind', 'system', true);
        select i.workspace_id into result from invitations i
          join auth."user" u on u.id = app_user_id() and u.email_verified
-         where i.id = invitation and i.kind = 'team' and i.email = lower(u.email);
+         where i.id = invitation and i.kind = 'team' and i.email = lower(u.email)
+           and i.accepted_at is null and i.revoked_at is null and i.expires_at > now()
+           and case when restoring then i.declined_at > now() - interval '32 seconds' else i.declined_at is null end;
        perform set_config('app.principal_kind', coalesce(prior, ''), true);
        return result;
      end $$`,
-  "revoke all on function invitation_route_for_user(text) from public",
-  "grant execute on function invitation_route_for_user(text) to insyte_app"
+  "revoke all on function invitation_route_for_user(text, boolean) from public",
+  "grant execute on function invitation_route_for_user(text, boolean) to insyte_app",
+  //
+  // The newcomer counts as member side, so the members-only tables below let it through to what `newcomerMay` allows.
+  `create or replace function app_is_member_side() returns boolean language sql stable as
+     $$ select app_principal_kind() in ('member', '${NEWCOMER_KIND}', 'api_key', 'service_account', 'agent', 'system') $$`,
+  // Founding: the workspace, its system roles, the founder's row, its counters, its AI limit, its audit line and event.
+  newcomerMay("workspaces", { select: true, insert: true }),
+  newcomerMay("roles", { select: true, insert: true }),
+  newcomerMay("members", { select: true, insert: OWN_MEMBER, update: OWN_MEMBER }),
+  newcomerMay("workspace_counters", { insert: true }),
+  newcomerMay("ai_budgets", { insert: true }),
+  newcomerMay("audit_events", { insert: true }),
+  // `workspace.created` and `member.joined`, and the `member.invited` mail a decline cancels.
+  newcomerMay("outbox", { select: true, insert: true, update: true }),
+  // The onboarding row, the person's own anyway (0008): the founding step moves it, a new workspace adds one.
+  newcomerMay("onboarding_progress", { select: true, insert: true, update: true }),
+  // An invitation: what it offers, the seats and the sign-in policy (and whether the workspace pays), then accepting,
+  // declining or undoing that. A supplier's person joins through `supplier_contact_join` (0075), as the system.
+  newcomerMay("invitations", { select: true, update: true }),
+  newcomerMay("invite_links", { select: true, update: true }),
+  newcomerMay("subscriptions", { select: true }),
+  newcomerMay("suppliers", { select: true }),
+  // A member back through a new invitation: the keys they made before stay revoked.
+  newcomerMay("api_keys", { select: OWN_KEYS, update: OWN_KEYS }),
+  // Every other table with row level security: `newcomerBlind`'s policy.
+  `do $$
+     declare t text;
+     begin
+       for t in
+         select c.relname from pg_class c
+         where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p') and c.relrowsecurity
+           and not c.relispartition
+           and not exists (select 1 from pg_policy p
+                           where p.polrelid = c.oid and p.polname in (c.relname || '_newcomer_select', c.relname || '_no_newcomer'))
+         order by c.relname
+       loop
+         execute format('create policy %I on %I as restrictive for all using (%s) with check (%s)',
+                        t || '_no_newcomer', t, '${NOT_NEWCOMER.replaceAll("'", "''")}', '${
+    NOT_NEWCOMER.replaceAll("'", "''")
+  }');
+       end loop;
+     end $$`
 )

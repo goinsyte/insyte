@@ -9,7 +9,7 @@ import { Schema } from "effect"
 export class WorkspaceSummary extends Schema.Class<WorkspaceSummary>("workspaces/WorkspaceSummary")({
   id: WorkspaceId,
   name: Schema.String,
-  /** The person's member id there: the principal `Session.switchPrincipal` names. */
+  /** The person's member id there: their principal once the session acts in it. */
   memberId: Schema.String,
   /** Their role's label there. */
   role: Schema.String,

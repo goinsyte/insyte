@@ -39,8 +39,10 @@ export const advance = Effect.fn("Onboarding.advance")(function*(input: AdvanceI
     const outboxIds = yield* db.asNewcomerIn(workspaceId)((sql) =>
       Effect.gen(function*() {
         const written = yield* founder.found(workspaceId, checked.ok, user.id)
-        yield* sql`update onboarding_progress set workspace_id = ${workspaceId}, step = ${moved.step}
-                   where completed_at is null`
+        // The open row without a workspace, once: a second click that raced this one founds nothing.
+        const [claimed] = yield* sql`update onboarding_progress set workspace_id = ${workspaceId}, step = ${moved.step}
+                   where completed_at is null and workspace_id is null returning id`
+        if (claimed === undefined) return yield* new NotCurrentStep({ step: "organization", current: moved.step })
         return written
       }).pipe(Effect.provideService(SqlClient.SqlClient, sql))
     )
@@ -57,7 +59,7 @@ export const advance = Effect.fn("Onboarding.advance")(function*(input: AdvanceI
     // Past the organisation step there is a workspace: `next` holds anyone without one there.
     if (row.workspaceId === null) return yield* new NotCurrentStep({ step: input.step, current: "organization" })
     const workspaceId = row.workspaceId as WorkspaceId
-    // Only in a workspace the person is still an active member of (`loadProgress` closes the row once they left).
+    // Only in a workspace the person is still an active member of (else `loadProgress` reads the row as closed).
     if (!(yield* activeIn(workspaceId))) {
       return yield* new NotCurrentStep({ step: input.step, current: "organization" })
     }
@@ -90,7 +92,7 @@ export const advance = Effect.fn("Onboarding.advance")(function*(input: AdvanceI
         yield* sql`update onboarding_progress
                    set step = ${moved.step}, answers = ${JSON.stringify(answers)}::jsonb,
                        completed_at = case when ${done} then now() end
-                   where completed_at is null`
+                   where completed_at is null and workspace_id = ${workspaceId}`
         return [
           yield* Outbox.write(sql, workspaceId, {
             type: "onboarding.step_completed",
@@ -100,6 +102,9 @@ export const advance = Effect.fn("Onboarding.advance")(function*(input: AdvanceI
           })
         ]
       }).pipe(Effect.provideService(SqlClient.SqlClient, sql))
+    ).pipe(
+      // Out of the workspace meanwhile: as above.
+      Effect.catchTag("NotFound", () => Effect.fail(new NotCurrentStep({ step: input.step, current: "organization" })))
     )
     yield* (yield* Relay).kick(outboxIds)
     return stateOf(moved)

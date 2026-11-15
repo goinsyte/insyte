@@ -1,4 +1,4 @@
-import { Member, WORKSPACE_HEADER } from "@insyte/api/rpc/Member"
+import { Member, namesOtherWorkspace, WORKSPACE_HEADER } from "@insyte/api/rpc/Member"
 import { NoWorkspace, WorkspaceMismatch } from "@insyte/domain/Errors"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
@@ -19,8 +19,9 @@ export const MemberLive = Layer.effect(
         Effect.flatMap(workspaces.current, (memberships) => {
           const active = memberships[0]
           if (active === undefined) return Effect.fail(new NoWorkspace())
-          const named = (headers as Record<string, string | undefined>)[WORKSPACE_HEADER]
-          if (named !== undefined && named !== "" && named !== active.workspaceId) {
+          if (
+            namesOtherWorkspace((headers as Record<string, string | undefined>)[WORKSPACE_HEADER], active.workspaceId)
+          ) {
             return Effect.fail(new WorkspaceMismatch())
           }
           return Effect.provideService(effect, CurrentPrincipal, active.principal)

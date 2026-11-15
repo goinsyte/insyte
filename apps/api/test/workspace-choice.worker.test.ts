@@ -178,10 +178,16 @@ describe("a second workspace", () => {
     })
   })
 
-  it("founds at most three workspaces per person, the first included", async () => {
-    ok(await rpc("Workspaces.create", NEW("third"), owner.cookie))
+  it("founds at most three workspaces per person, the first included, even asked twice at once", async () => {
+    // Two "Nieuwe werkruimte" at the same moment with one left: one is founded, the other refused.
+    const [a, b] = await Promise.all([
+      rpc("Workspaces.create", NEW("third"), owner.cookie),
+      rpc("Workspaces.create", NEW("fourth"), owner.cookie)
+    ])
+    expect([a, b].map((r) => r._tag).toSorted()).toEqual(["Failure", "Success"])
+    expect(failure([a, b].find((r) => r._tag === "Failure")!)).toMatchObject({ _tag: "Conflict", reason: "limit" })
     await finish(owner.cookie)
-    expect(failure(await rpc("Workspaces.create", NEW("fourth"), owner.cookie))).toMatchObject({
+    expect(failure(await rpc("Workspaces.create", NEW("fifth"), owner.cookie))).toMatchObject({
       _tag: "Conflict",
       reason: "limit"
     })
@@ -344,6 +350,14 @@ describe("an invitation to another workspace, in the switcher", () => {
     // until the person switches.
     ok(await rpc("Workspaces.switch", { workspaceId: before! }, invitee.cookie))
     expect(ok(await rpc("Shell.frame", undefined, invitee.cookie)).workspace.id).toBe(before)
+    // Taken up, it routes nowhere from the switcher any more: not accepted again, not declined, not "undone".
+    for (const step of ["Workspaces.acceptInvite", "Workspaces.declineInvite"] as const) {
+      expect(failure(await rpc(step, { id }, invitee.cookie))).toMatchObject({
+        _tag: "NotAcceptable",
+        state: "missing"
+      })
+    }
+    expect(failure(await rpc("Workspaces.restoreInvite", { id }, invitee.cookie))).toMatchObject({ _tag: "NotFound" })
   })
 })
 
@@ -379,6 +393,32 @@ describe("one session, one workspace", () => {
     expect(ok(await rpc("Roles.list", undefined, owner.cookie)).roles.map((r) => r.label)).not.toContain(
       "Verkeerde tab"
     )
+  })
+
+  it("refuses an upload and Start's checklist from a tab that names another workspace", async () => {
+    // The session is in the shop (the test before switched it); a tab still showing the person's own workspace.
+    const csv = "e-mail,naam\nanna@example.com,Anna\n"
+    const upload = (workspace: string) =>
+      call("http://api.test/api/data/imports", {
+        method: "PUT",
+        headers: {
+          cookie: leaver.cookie,
+          "x-insyte-workspace": workspace,
+          "content-type": "text/csv",
+          "content-length": String(new TextEncoder().encode(csv).byteLength),
+          "x-file-name": "klanten.csv"
+        },
+        body: csv
+      })
+    const refused = await upload(own)
+    expect(refused.status).toBe(409)
+    expect(await refused.json()).toEqual({ error: { code: "WorkspaceMismatch" } })
+    expect((await upload(shop)).status).toBe(201)
+    const named = { cookie: leaver.cookie, "x-insyte-workspace": own }
+    expect(failure(await rpcWith("Onboarding.start", undefined, named))).toMatchObject({ _tag: "WorkspaceMismatch" })
+    expect(failure(await rpcWith("Onboarding.completeTask", { task: "alerts", done: true }, named))).toMatchObject({
+      _tag: "WorkspaceMismatch"
+    })
   })
 
   it("leaves: keys revoked, sockets closed, other sessions fall back, and no way back in but an invitation", async () => {
@@ -421,6 +461,30 @@ describe("one session, one workspace", () => {
     await bringIn(owner.cookie, leaver, "admin")
     expect(ok(await rpc("ApiKeys.list", undefined, owner.cookie)).find((k) => k.id === key)?.status).toBe("revoked")
   })
+
+  it("lets a member's keys work again when their removal is undone", async () => {
+    ok(await rpc("Workspaces.switch", { workspaceId: shop }, leaver.cookie))
+    const made = ok(
+      await rpc("ApiKeys.create", {
+        label: "Terug",
+        access: { kind: "role", roleId: "view" },
+        stores: "all",
+        expiresInDays: 90,
+        ips: [],
+        agent: false
+      }, leaver.cookie)
+    )
+    const me = () => call("http://api.public.test/v1/me", { headers: { authorization: `Bearer ${made.secret}` } })
+    expect((await me()).status).toBe(200)
+    const memberId = ok(await sessionMe(leaver.cookie)).activePrincipal!.id
+    ok(await rpc("Members.remove", { id: memberId }, owner.cookie))
+    expect((await me()).status).toBe(401)
+    ok(await rpc("Members.restore", { id: memberId }, owner.cookie))
+    expect((await me()).status).toBe(200)
+    expect(ok(await rpc("ApiKeys.list", undefined, owner.cookie)).find((k) => k.id === made.key.id)?.status).toBe(
+      "active"
+    )
+  })
 })
 
 describe("onboarding after handing the workspace over and leaving it", () => {
@@ -445,7 +509,7 @@ describe("onboarding after handing the workspace over and leaving it", () => {
     ok(await rpc("Workspaces.leave", { workspaceId: workspace }, founder.cookie))
     const before = ok(await rpc("Workspaces.list", undefined, heir))[0]!
 
-    // Onboarding's row named the workspace: it is closed, and the founder is done with it.
+    // Onboarding's row named the workspace: it reads as closed, and the founder is done with it.
     expect(ok(await onboarding.me(founder.cookie))).toMatchObject({ completed: true })
     ok(await onboarding.advance({ step: "plan", plan: "scale", cycle: "monthly" }, founder.cookie))
     expect(failure(await onboarding.start(founder.cookie))).toMatchObject({ _tag: "NotCurrentStep" })
@@ -458,5 +522,27 @@ describe("onboarding after handing the workspace over and leaving it", () => {
 
     // With no workspace left, "Nieuwe werkruimte" founds another.
     expect(ok(await rpc("Workspaces.create", NEW("orphan"), founder.cookie)).landing).toBe("/onboarding")
+  })
+
+  it("is only read as closed while the founder is out: deactivated, then back, it opens where it was", async () => {
+    const pioneer = await person("paused-founder", "Gepauzeerd Co.")
+    const paused = ok(await sessionMe(pioneer.cookie)).principals[0]!.workspaceId
+    const email = `paused-${run}-heir@invited.test`
+    ok(await rpc("Invitations.send", { rows: [{ email, roleId: "admin", stores: "all" }] }, pioneer.cookie))
+    await pastUndo(paused)
+    await relay(paused)
+    const successor = await join(email)
+    ok(
+      await rpc(
+        "Workspaces.transferOwnership",
+        { memberId: ok(await sessionMe(successor)).activePrincipal!.id },
+        pioneer.cookie
+      )
+    )
+    const pioneerId = ok(await sessionMe(pioneer.cookie)).activePrincipal!.id
+    ok(await rpc("Members.deactivate", { id: pioneerId }, successor))
+    expect(ok(await onboarding.me(pioneer.cookie))).toMatchObject({ completed: true })
+    ok(await rpc("Members.reactivate", { id: pioneerId }, successor))
+    expect(ok(await onboarding.me(pioneer.cookie))).toMatchObject({ step: "plan", completed: false })
   })
 })

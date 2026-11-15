@@ -30,6 +30,9 @@ export const list = Effect.fn("Workspaces.list")(function*() {
                  exists (select 1 from subscriptions s where s.workspace_id = w.id and s.status in ('active', 'trialing', 'past_due'))
                  as paid
           from workspaces w where w.id = ${m.workspaceId}`
+      ).pipe(
+        // Left or removed between the two reads: shown with the defaults; the next list leaves it out.
+        Effect.catchTag("NotFound", () => Effect.succeed([] as Array<Figures>))
       ),
       ([row]) =>
         new WorkspaceSummary({

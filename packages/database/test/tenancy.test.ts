@@ -2,10 +2,10 @@ import { PgClient } from "@effect/sql-pg"
 import { mintId, UserId, WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentPrincipal, type Principal } from "@insyte/domain/Principal"
 import { CurrentUser, type SessionUser } from "@insyte/domain/Session"
-import { Effect, Layer, Redacted, Schema } from "effect"
+import { Cause, Effect, type Exit, Layer, Redacted, Schema } from "effect"
 import { describe, expect, it } from "vitest"
 import { Db, DbLive } from "../src/Db.ts"
-import { TENANT_TABLES } from "../src/Tenancy.ts"
+import { NEWCOMER_TABLES, TENANT_TABLES } from "../src/Tenancy.ts"
 
 /*
  * The tenancy suite (step 3, 06 §2): two people, each with a workspace, and the proof that a member of A reads nothing of
@@ -53,7 +53,10 @@ const memberOf = (workspaceId: WorkspaceId, user: SessionUser): Principal => ({
   storeScope: null
 })
 
-/** A person and their workspace, founded as the app founds one: inside the new workspace, as that person. */
+/**
+ * A person and their workspace, founded as the app founds one: inside the new workspace, as a newcomer there (the rows
+ * founding writes); then the rest as its member.
+ */
 const found = (user: SessionUser, workspaceId: WorkspaceId) =>
   Effect.gen(function*() {
     const db = yield* Db
@@ -61,14 +64,21 @@ const found = (user: SessionUser, workspaceId: WorkspaceId) =>
       sql`insert into auth."user" (id, name, email, email_verified, created_at, updated_at)
           values (${user.id}, ${user.name}, ${user.email}, true, now(), now())`
     )
-    return yield* db.asNewcomerIn(workspaceId)((sql) =>
+    const memberId = mintId("mem")
+    yield* db.asNewcomerIn(workspaceId)((sql) =>
       Effect.gen(function*() {
         yield* sql`insert into workspaces (id, name, slug) values (${workspaceId}, ${user.name}, ${`t-${runId}-${user.name}`})`
         yield* sql`insert into roles (id, workspace_id, label, kind, levels) values ('owner', ${workspaceId}, 'Eigenaar', 'system', '{}')`
-        const memberId = mintId("mem")
         yield* sql`insert into members (id, workspace_id, user_id, role_id) values (${memberId}, ${workspaceId}, ${user.id}, 'owner')`
-        yield* sql`insert into teams (id, workspace_id, name) values (${mintId("team")}, ${workspaceId}, 'Team')`
         yield* sql`insert into workspace_counters (workspace_id, kind) values (${workspaceId}, 'order')`
+        yield* sql`insert into outbox (id, workspace_id, event, payload) values (${
+          mintId("obx")
+        }, ${workspaceId}, 'test', '{}')`
+      })
+    ).pipe(Effect.provideService(CurrentUser, user))
+    yield* db.asUserIn(workspaceId)((sql) =>
+      Effect.gen(function*() {
+        yield* sql`insert into teams (id, workspace_id, name) values (${mintId("team")}, ${workspaceId}, 'Team')`
         yield* sql`insert into setup_tasks (workspace_id, task) values (${workspaceId}, 'connect_store')`
         yield* sql`insert into invitations (id, workspace_id, email, token_hash, role_id, invited_by, expires_at)
                    values (${mintId("inv")}, ${workspaceId}, ${`invitee-${user.name}@example.com`}, '\\x00', 'owner',
@@ -83,12 +93,9 @@ const found = (user: SessionUser, workspaceId: WorkspaceId) =>
                    values (${mintId("acr")}, ${workspaceId}, ${memberId}, 'owner', 'team', 3)`
         yield* sql`insert into invite_links (workspace_id, token_hash, role_id, days, expires_at)
                    values (${workspaceId}, '\\x00', 'owner', 7, now() + interval '7 days')`
-        yield* sql`insert into outbox (id, workspace_id, event, payload) values (${
-          mintId("obx")
-        }, ${workspaceId}, 'test', '{}')`
-        return memberId
       })
     ).pipe(Effect.provideService(CurrentUser, user))
+    return memberId
   })
 
 const members: Record<string, string> = {}
@@ -96,6 +103,21 @@ const members: Record<string, string> = {}
 /** As one member, by id: the member-own tables (0018) answer to the principal's id. */
 const asMember = (id: string, workspaceId: WorkspaceId, user: SessionUser) =>
   Effect.provideService(CurrentPrincipal, { ...memberOf(workspaceId, user), id })
+
+/** Two more people, for the members who are out of a workspace and for a row nobody may write for them. */
+const carol = person("c")
+const dave = person("d")
+
+/** What refused a statement: the database's message, or how it otherwise ended. */
+const refusalOf = (exit: Exit.Exit<unknown, unknown>) =>
+  exit._tag === "Success"
+    ? "accepted"
+    : Cause.pretty(exit.cause).match(/new row violates row-level security policy.*? for table "[^"]+"/)?.[0] ??
+      Cause.pretty(exit.cause).slice(0, 300)
+
+/** Row level security refusing a new row in `table`: by its restrictive `policy`, or for want of a permissive one. */
+const rlsRefusal = (table: string, policy?: string) =>
+  `new row violates row-level security policy ${policy === undefined ? "" : `"${policy}" `}for table "${table}"`
 
 /** The tables both workspaces have rows in, by the column that names the workspace. */
 const POPULATED = [
@@ -208,20 +230,110 @@ describe("tenancy", () => {
           sql`insert into roles (id, workspace_id, label, kind, levels)
               values ('extra', ${wsA2}, 'Extra', 'custom', '{}')`
         ))
-        return { members: roleKept.length, workspaces: workspaces.length, role: role._tag }
+        return { members: roleKept.length, workspaces: workspaces.length, role: refusalOf(role) }
       }).pipe(Effect.provideService(CurrentUser, alice))
     )
-    expect(tried).toEqual({ members: 0, workspaces: 0, role: "Failure" })
+    expect(tried).toEqual({ members: 0, workspaces: 0, role: rlsRefusal("roles") })
   })
 
   it("acts as a person only inside a workspace they are an active member of", async () => {
-    const exit = await Effect.runPromiseExit(
-      Effect.flatMap(Effect.service(Db), (db) => db.asUserIn(wsB)((sql) => sql`select 1`)).pipe(
-        Effect.provideService(CurrentUser, alice),
-        Effect.provide(DbLive.pipe(Layer.provide(PgClient.layer({ url: Redacted.make(APP_URL) }))))
-      )
+    const tried = await run(
+      Effect.gen(function*() {
+        const db = yield* Db
+        // Carol was removed from A, Dave deactivated there; neither ever belonged to B.
+        yield* db.routing((sql) =>
+          sql`insert into auth."user" (id, name, email, email_verified, created_at, updated_at)
+              values (${carol.id}, 'c', ${carol.email}, true, now(), now()),
+                     (${dave.id}, 'd', ${dave.email}, true, now(), now())`
+        )
+        yield* db.asUserIn(wsA)((sql) =>
+          Effect.gen(function*() {
+            yield* sql`insert into roles (id, workspace_id, label, kind, levels) values ('staff', ${wsA}, 'Medewerker', 'system', '{}')`
+            yield* sql`insert into members (id, workspace_id, user_id, role_id, removed_at, deactivated_at)
+                       values (${mintId("mem")}, ${wsA}, ${carol.id}, 'staff', now(), null),
+                              (${mintId("mem")}, ${wsA}, ${dave.id}, 'staff', null, now())`
+          })
+        ).pipe(Effect.provideService(CurrentUser, alice))
+        const into = (user: SessionUser, workspaceId: WorkspaceId) =>
+          Effect.exit(db.asUserIn(workspaceId)((sql) => sql`select 1`).pipe(Effect.provideService(CurrentUser, user)))
+        return {
+          stranger: yield* into(alice, wsB),
+          removed: yield* into(carol, wsA),
+          deactivated: yield* into(dave, wsA),
+          member: yield* into(alice, wsA)
+        }
+      })
     )
-    expect(exit._tag === "Failure" && String(exit.cause)).toContain("no active member")
+    const refused = (exit: (typeof tried)["removed"]) =>
+      exit._tag === "Failure" ? exit.cause.reasons.map((r) => (r._tag === "Fail" ? r.error._tag : r._tag)) : []
+    expect(refused(tried.stranger)).toEqual(["NotFound"])
+    expect(refused(tried.removed)).toEqual(["NotFound"])
+    expect(refused(tried.deactivated)).toEqual(["NotFound"])
+    expect(tried.member._tag).toBe("Success")
+  })
+
+  it("holds a newcomer to the rows founding and invitations write (0096)", async () => {
+    const seen = await run(
+      Effect.gen(function*() {
+        const db = yield* Db
+        // B has settings of its own; Alice is no member of B.
+        yield* db.asUserIn(wsB)((sql) =>
+          sql`insert into workspace_settings (workspace_id, section, value) values (${wsB}, 'shipping', '{}')`
+        ).pipe(Effect.provideService(CurrentUser, bob))
+        const asNewcomer = <A, E>(f: (sql: Parameters<Parameters<typeof db.forUser>[0]>[0]) => Effect.Effect<A, E>) =>
+          db.asNewcomerIn(wsB)(f).pipe(Effect.provideService(CurrentUser, alice))
+        const count = (table: string) =>
+          asNewcomer((sql) =>
+            Effect.map(sql<{ n: string }>`select count(*)::text as n from ${sql(table)}`, ([r]) => Number(r!.n))
+          )
+        const asBob = db.asUserIn(wsB)((sql) =>
+          Effect.map(sql<{ n: string }>`select count(*)::text as n from workspace_settings`, ([r]) => Number(r!.n))
+        ).pipe(Effect.provideService(CurrentUser, bob))
+        return {
+          read: {
+            settings: yield* count("workspace_settings"),
+            customers: yield* count("customers"),
+            orders: yield* count("orders"),
+            teams: yield* count("teams"),
+            settingsForBob: yield* asBob
+          },
+          settings: refusalOf(
+            yield* Effect.exit(
+              asNewcomer((sql) =>
+                sql`insert into workspace_settings (workspace_id, section, value) values (${wsB}, 'links', '{}')`
+              )
+            )
+          ),
+          customer: refusalOf(
+            yield* Effect.exit(
+              asNewcomer((sql) =>
+                sql`insert into customers (id, workspace_id, store_id, shopify_id, external_updated_at)
+                  values (${mintId("cus")}, ${wsB}, 'sto_none', '1', now())`
+              )
+            )
+          ),
+          // Their own member row they may write, nobody else's.
+          othersRow: refusalOf(
+            yield* Effect.exit(
+              asNewcomer((sql) =>
+                sql`insert into members (id, workspace_id, user_id, role_id) values (${
+                  mintId("mem")
+                }, ${wsB}, ${carol.id}, 'owner')`
+              )
+            )
+          ),
+          settingsChanged: (yield* asNewcomer((sql) =>
+            sql`update workspace_settings set value = '{}' returning section`
+          ))
+            .length
+        }
+      })
+    )
+    expect(seen.read).toEqual({ settings: 0, customers: 0, orders: 0, teams: 0, settingsForBob: 1 })
+    expect(seen.settings).toEqual(rlsRefusal("workspace_settings", "workspace_settings_no_newcomer"))
+    expect(seen.customer).toEqual(rlsRefusal("customers", "customers_no_newcomer"))
+    expect(seen.othersRow).toEqual(rlsRefusal("members", "members_newcomer_insert"))
+    expect(seen.settingsChanged).toBe(0)
   })
 
   it("refuses to write a row into another workspace", async () => {
@@ -297,5 +409,29 @@ describe("tenancy", () => {
       })
       expect(Number(row.policies), row.table).toBeGreaterThan(0)
     }
+  })
+
+  it("keeps the newcomer out of every table with row level security but founding's and the invitations' (0096)", async () => {
+    const rows = await run(
+      Effect.flatMap(
+        Effect.service(Db),
+        (db) =>
+          db.routing((sql) =>
+            sql<{ table: string; blind: boolean; may: boolean }>`
+            select c.relname as table,
+                   exists (select 1 from pg_policy p where p.polrelid = c.oid and p.polname = c.relname || '_no_newcomer')
+                     as blind,
+                   (select count(*) from pg_policy p where p.polrelid = c.oid and p.polname like c.relname || '_newcomer_%') = 4
+                     as may
+            from pg_class c
+            where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p') and c.relrowsecurity
+              and not c.relispartition
+            order by c.relname`
+          )
+      )
+    )
+    expect(rows.length).toBeGreaterThan(TENANT_TABLES.length)
+    for (const row of rows) expect(row.blind !== row.may, `${row.table}: newcomerBlind or newcomerMay`).toBe(true)
+    expect(rows.filter((r) => r.may).map((r) => r.table)).toEqual([...NEWCOMER_TABLES].toSorted())
   })
 })
