@@ -2,7 +2,7 @@ import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import { ScopeMissingV1 } from "../../http/Errors.ts"
 import { KnowledgeArticleListV1 } from "../../http/groups/KnowledgeGroup.ts"
-import { asKey } from "../Shared.ts"
+import { asKey, Needs, read } from "../Shared.ts"
 
 /* Kennisbank (M15 step 7): the published chapters, and the pieces of them that answer a question. */
 
@@ -29,7 +29,7 @@ export const ListKnowledge = Tool.make("list_knowledge", {
   success: KnowledgeArticleListV1,
   failure: ScopeMissingV1,
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("support")])
 
 export const SearchKnowledge = Tool.make("search_knowledge", {
   description:
@@ -45,7 +45,7 @@ export const SearchKnowledge = Tool.make("search_knowledge", {
   success: KnowledgeSearchV1,
   failure: ScopeMissingV1,
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("support")])
 
 export const KnowledgeTools = Toolkit.make(
   ListKnowledge,
