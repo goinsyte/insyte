@@ -4,7 +4,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "../../components/dropdown-menu";
-import { Check, ChevronDown, LogOut, Plus, Settings, UserPlus } from "../../icons";
+import { Check, ChevronDown, LogOut, Plus, Settings, Store, UserPlus } from "../../icons";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -41,7 +41,7 @@ export function StoreSelector({
 	variant?: "wide" | "compact";
 }) {
 	const navigate = useNavigate();
-	const { active, stores, setActive } = useActiveStore();
+	const { active, stores, setActive, viewAll } = useActiveStore();
 	const current = useActiveWorkspace();
 	const team = useTeam((s) => s);
 	const { WorkspaceSwitch, FirstRunHint, ConnectStore, Invite } = useShellSlots();
@@ -168,6 +168,18 @@ export function StoreSelector({
 
 					<div className="flex flex-col gap-px p-1.5">
 						<div className="px-2 pt-1.5 pb-1 font-medium text-xs text-ink-3">Winkels{current.home ? "" : ` in ${current.name}`}</div>
+						{viewAll && stores.length > 1 ? (
+							<DropdownMenuItem onClick={viewAll} className="h-11 gap-2.5 px-2">
+								<span className={cn("flex size-6 shrink-0 items-center justify-center rounded-md", active === undefined ? "bg-abyss text-mesh-ink" : "bg-ink/7 text-ink-2")}>
+									<Store className="size-3.5" strokeWidth={1.75} />
+								</span>
+								<span className="flex min-w-0 flex-1 flex-col">
+									<span className="truncate font-medium text-base text-ink">Alle winkels</span>
+									<span className="truncate text-sm text-ink-3">{stores.length} winkels samen</span>
+								</span>
+								{active === undefined ? <Check className="size-4 shrink-0 text-arc-ink" strokeWidth={2.25} /> : null}
+							</DropdownMenuItem>
+						) : null}
 						{stores.map((s) => (
 							<StoreRow
 								key={s.id}

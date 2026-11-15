@@ -53,6 +53,7 @@ import { toNote } from "./notes.ts"
 import { useHasPage } from "./pages.ts"
 import { usePrefSection } from "./prefs.ts"
 import { useConsoleRecordSearch } from "./record-search.ts"
+import { ShellConnectStore, useConsoleActiveStore } from "./store-switch.tsx"
 import { useWake } from "./wake.ts"
 import { ConsoleWorkspaceSwitch, useConsoleWorkspaces } from "./workspaces-source.tsx"
 
@@ -218,6 +219,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   const [panel, setPanel] = usePrefSection(frame, "panel", PANEL_DEFAULTS)
   const [pins, setPins] = usePrefSection(frame, "pins", PINS_DEFAULTS)
   const [shortcuts, setShortcuts] = usePrefSection(frame, "shortcuts", SHORTCUT_DEFAULTS)
+  const activeStore = useConsoleActiveStore(frame)
   const shortcutsRef = useRef(shortcuts)
   shortcutsRef.current = shortcuts
   const navRef = useRef(nav)
@@ -353,7 +355,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     settings: { roles: [roleOf(frame)] },
     loading: { pace: "live", setPace: () => {} },
     persona: { selection: "admin", persona: "admin", landing: "/dashboard" },
-    activeStore: { active: undefined, stores: [], setActive: () => {} },
+    activeStore,
     seats: { total: 0, used: 0, active: frame.teammates.length, pending: 0, extra: 0, free: 0, full: false },
     currentRole: roleOf(frame),
     workflows: {},
@@ -366,14 +368,14 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     agentEntries: NO_ROWS,
     queueRows: NO_ROWS,
     syncLine,
-    // Customize waits for Start's board, an app's detail from the rail for its pins (M17), connecting a store for Shopify (M6).
+    // Customize waits for Start's board, an app's detail from the rail for its pins (M17).
     slots: {
       Customize: null,
       AppDetail: null,
       WorkspaceSwitch: ConsoleWorkspaceSwitch,
       FirstRunHint: null,
       Invite: ConsoleInvite,
-      ConnectStore: null
+      ConnectStore: ShellConnectStore
     },
     workspaceName: frame.workspace.name,
     // ADR-0028: the design's demo counts dropped, the server's in their place.

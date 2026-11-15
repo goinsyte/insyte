@@ -3,7 +3,7 @@ import { type AreaId, canRole } from "@insyte/domain/Permissions"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Array as Arr, Effect, Order } from "effect"
 import type { SqlClient } from "effect/sql"
-import { inScope, inScopeOrNone } from "../../shared/use-cases/StoreScope.ts"
+import { inScope, inScopeOrNone, seesStoreless } from "../../shared/use-cases/StoreScope.ts"
 import {
   ACTIVITY_LIMIT,
   type ActivityInput,
@@ -388,7 +388,7 @@ export const activity = Effect.fn("Home.activity")(function*(input: ActivityInpu
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const stores = yield* inScopeOrNone(sql, "f.store_id")
-      const { storeScope } = yield* CurrentPrincipal
+      const storeless = yield* seesStoreless
       // Every change the role may see, and every order the store placed, over the last 90 days, with its record named.
       // A change to a store's record that is gone since names no store: someone held to some stores does not see it.
       const feed = sql`(
@@ -425,7 +425,7 @@ export const activity = Effect.fn("Home.activity")(function*(input: ActivityInpu
           from orders o join stores st on st.id = o.store_id
           where ${can("orders")} and not o.is_draft and o.placed_at > now() - make_interval(days => ${ACTIVITY_DAYS})
         ) f
-        where ${stores} and (${storeScope === null}::boolean or not f.orphan))`
+        where ${stores} and (${storeless}::boolean or not f.orphan))`
       const who = input.who === undefined ? sql`true` : sql`x.actor_key = ${input.who}`
       const source = input.source === undefined ? sql`true` : sql`x.source = ${input.source}`
       const after = parseCursor(input.cursor)

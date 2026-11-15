@@ -6,6 +6,7 @@ import { SqlError } from "effect/sql"
 import type { SqlClient } from "effect/sql"
 import { FileStore } from "../shared/domain/Documents.ts"
 import { Sealer } from "../shared/domain/Sealer.ts"
+import { inStore } from "../shared/use-cases/StoreScope.ts"
 import { QualityTickets } from "./domain/Ports.ts"
 import type {
   DeliverableMissing,
@@ -52,7 +53,8 @@ export class QualityService extends Context.Service<QualityService, {
     QualityService,
     Effect.map(Effect.all([Effect.service(Sealer), Effect.service(QualityTickets)]), ([sealer, tickets]) => ({
       list: (productId) => Quality.list(productId).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-      stats: (input) => Quality.stats(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+      stats: (input) =>
+        Quality.stats(input).pipe(inStore(input.storeId), Effect.catchIf(SqlError.isSqlError, Effect.die)),
       request: (input) => Quality.request(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
       approve: (id) => Quality.approve(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
       reject: (input) =>

@@ -4,6 +4,8 @@ import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
 import { ConsoleClient } from "./client.ts"
+import { storeKey, withStore } from "./in-view.ts"
+import { inView } from "./store-view.ts"
 
 /*
  * Start's queue (M10.1): every open row the person may open, and what was seen in the last day; the screen draws its
@@ -12,16 +14,18 @@ import { ConsoleClient } from "./client.ts"
 
 export const QUEUE = ["queue"] as const
 
-export const queueAtom = Atom.serializable(
-  ConsoleClient.query("Queue.list", { tab: "all" }, { reactivityKeys: QUEUE }),
-  {
-    key: "queue",
-    schema: AsyncResult.Schema({
-      success: QueueList,
-      error: Schema.Union([NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
-    }),
-    skipInitialRun: true
-  }
+export const queueAtom = inView((storeId) =>
+  Atom.serializable(
+    ConsoleClient.query("Queue.list", withStore({ tab: "all" as const }, storeId), { reactivityKeys: QUEUE }),
+    {
+      key: `queue@${storeKey(storeId)}`,
+      schema: AsyncResult.Schema({
+        success: QueueList,
+        error: Schema.Union([NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
+      }),
+      skipInitialRun: true
+    }
+  )
 )
 
 export const queueWrites = {

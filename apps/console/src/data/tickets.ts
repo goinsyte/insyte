@@ -4,6 +4,8 @@ import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
 import { ConsoleClient } from "./client.ts"
+import { storeKey, withStore } from "./in-view.ts"
+import { inView } from "./store-view.ts"
 
 /*
  * Tickets (M11 step 3): every ticket the role may see, primed by the route's loader, which the board and the lists
@@ -15,9 +17,15 @@ export const TICKETS = ["tickets"] as const
 
 const errors = Schema.Union([Forbidden, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
 
-export const ticketsAtom = Atom.serializable(
-  ConsoleClient.query("Tickets.list", {}, { reactivityKeys: TICKETS }),
-  { key: "tickets", schema: AsyncResult.Schema({ success: TicketList, error: errors }), skipInitialRun: true }
+export const ticketsAtom = inView((storeId) =>
+  Atom.serializable(
+    ConsoleClient.query("Tickets.list", withStore({}, storeId), { reactivityKeys: TICKETS }),
+    {
+      key: `tickets@${storeKey(storeId)}`,
+      schema: AsyncResult.Schema({ success: TicketList, error: errors }),
+      skipInitialRun: true
+    }
+  )
 )
 
 export const ticketOptionsAtom = Atom.serializable(
@@ -37,7 +45,9 @@ export const ticketAtom = Atom.family((id: string) =>
 )
 
 /** The area panel's counts, per view and per source, on the tickets pages (ADR-0028). */
-export const ticketCountsAtom = ConsoleClient.query("Nav.counts", { area: "tickets" }, { reactivityKeys: TICKETS })
+export const ticketCountsAtom = inView((storeId) =>
+  ConsoleClient.query("Nav.counts", withStore({ area: "tickets" }, storeId), { reactivityKeys: TICKETS })
+)
 
 export const ticketWrites = {
   create: ConsoleClient.mutation("Tickets.create"),

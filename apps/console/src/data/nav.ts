@@ -2,10 +2,12 @@ import { Atom } from "effect/reactivity"
 import { CHARGEBACKS } from "./chargebacks.ts"
 import { ConsoleClient } from "./client.ts"
 import { CUSTOMERS } from "./customers.ts"
+import { withStore } from "./in-view.ts"
 import { ORDERS } from "./orders.ts"
 import { PRODUCTS } from "./products.ts"
 import { QUALITY } from "./quality.ts"
 import { RETURNS } from "./returns.ts"
+import { inView } from "./store-view.ts"
 
 /*
  * The area panel's counts (M5.3, ADR-0028) for the areas whose panel holds no list of its own: one `Nav.counts` read
@@ -27,5 +29,7 @@ const KEYS: Record<string, ReadonlyArray<string>> = {
 export const COUNTED_AREAS: ReadonlySet<string> = new Set(Object.keys(KEYS))
 
 export const navCountsAtom = Atom.family((area: string) =>
-  ConsoleClient.query("Nav.counts", { area }, { reactivityKeys: [...(KEYS[area] ?? [])] })
+  inView((storeId) =>
+    ConsoleClient.query("Nav.counts", withStore({ area }, storeId), { reactivityKeys: [...(KEYS[area] ?? [])] })
+  )
 )

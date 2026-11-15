@@ -7,6 +7,7 @@ import {
   WidgetsInput
 } from "@insyte/modules/home/domain/Home"
 import { ActivityInput, AgendaInput, HomeActivity, HomeAgenda, HomeWork } from "@insyte/modules/home/domain/Lists"
+import { MaybeInStore } from "@insyte/modules/shared/domain/Stores"
 import { Rpc, RpcGroup } from "effect/rpc"
 import { Authenticated } from "./Authenticated.ts"
 import { Member } from "./Member.ts"
@@ -18,10 +19,10 @@ import { WithDb } from "./WithDb.ts"
  * not read is left out. The breakdown is Analyse's.
  */
 export class HomeRpcs extends RpcGroup.make(
-  Rpc.make("Home.brief", { success: HomeBrief }),
+  Rpc.make("Home.brief", { payload: MaybeInStore, success: HomeBrief }),
   Rpc.make("Home.widgets", { payload: WidgetsInput, success: HomeWidgets }),
   Rpc.make("Home.revenueBreakdown", { payload: BreakdownInput, success: RevenueBreakdown, error: Forbidden }),
-  Rpc.make("Home.work", { success: HomeWork }),
+  Rpc.make("Home.work", { payload: MaybeInStore, success: HomeWork }),
   Rpc.make("Home.agenda", { payload: AgendaInput, success: HomeAgenda }),
   Rpc.make("Home.activity", { payload: ActivityInput, success: HomeActivity })
 )

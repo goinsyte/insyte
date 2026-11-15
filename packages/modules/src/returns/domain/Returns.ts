@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { StoreFilter } from "../../shared/domain/Stores.ts"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
 
 /*
@@ -113,7 +114,8 @@ export const ListInput = Schema.Struct({
   orderId: Schema.optional(Schema.String),
   customerId: Schema.optional(Schema.String),
   productId: Schema.optional(Schema.String),
-  limit: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(500)))
+  limit: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(500))),
+  ...StoreFilter
 })
 
 export class ReturnList extends Schema.Class<ReturnList>("returns/ReturnList")({

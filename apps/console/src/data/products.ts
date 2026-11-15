@@ -5,8 +5,10 @@ import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
 import { ConsoleClient } from "./client.ts"
+import { storeKey, withStore } from "./in-view.ts"
 import { QUALITY } from "./quality.ts"
 import { RETURNS } from "./returns.ts"
+import { inView } from "./store-view.ts"
 
 /*
  * Producten (M6.4): the catalogue's pages, the first primed by the route's loader and carried in the document, each
@@ -30,18 +32,22 @@ const PAGE = AsyncResult.Schema({
 })
 
 /** Up to 200 by title, for the screens that pick from them (Retouren, a product's header); the list pages. */
-export const productsAtom = Atom.serializable(
-  ConsoleClient.query("Products.list", { limit: 200 }, { reactivityKeys: PRODUCTS }),
-  { key: "products", schema: PAGE, skipInitialRun: true }
+export const productsAtom = inView((storeId) =>
+  Atom.serializable(
+    ConsoleClient.query("Products.list", withStore({ limit: 200 }, storeId), { reactivityKeys: PRODUCTS }),
+    { key: `products@${storeKey(storeId)}`, schema: PAGE, skipInitialRun: true }
+  )
 )
 
 /** One page of Producten as its table asks for it (`products-source.ts`), keyed by `Products.list`'s input as JSON. */
 export const productsPageAtom = Atom.family((input: string) =>
-  Atom.serializable(
-    ConsoleClient.query("Products.list", JSON.parse(input) as ProductListInput, {
-      reactivityKeys: [...PRODUCTS, ...RETURNS, ...QUALITY]
-    }),
-    { key: `products:${input}`, schema: PAGE, skipInitialRun: true }
+  inView((storeId) =>
+    Atom.serializable(
+      ConsoleClient.query("Products.list", withStore(JSON.parse(input) as ProductListInput, storeId), {
+        reactivityKeys: [...PRODUCTS, ...RETURNS, ...QUALITY]
+      }),
+      { key: `products@${storeKey(storeId)}:${input}`, schema: PAGE, skipInitialRun: true }
+    )
   )
 )
 
@@ -64,7 +70,9 @@ export const productAtom = Atom.family((id: string) =>
 )
 
 /** What runs low (M7 9.3), for the list's low-stock advice: read in the browser once the list is in. */
-export const lowStockAtom = ConsoleClient.query("Products.lowStock", {}, { reactivityKeys: PRODUCTS })
+export const lowStockAtom = inView((storeId) =>
+  ConsoleClient.query("Products.lowStock", withStore({}, storeId), { reactivityKeys: PRODUCTS })
+)
 
 /** The product commands (M7.3), each refreshing what names `PRODUCTS`; their undo is `orderWrites.undo`'s `Shared.undo`. */
 export const productWrites = {

@@ -4,7 +4,9 @@ import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
 import { ConsoleClient } from "./client.ts"
+import { storeKey, withStore } from "./in-view.ts"
 import { QUEUE } from "./queue.ts"
+import { inView } from "./store-view.ts"
 
 /*
  * Chargebacks (M13): the cases with their counts and the workspace's record, primed by the route's loader; one case
@@ -16,9 +18,15 @@ export const CHARGEBACKS = ["chargebacks"] as const
 
 const errors = Schema.Union([Forbidden, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
 
-export const chargebacksAtom = Atom.serializable(
-  ConsoleClient.query("Chargebacks.list", { limit: 500 }, { reactivityKeys: CHARGEBACKS }),
-  { key: "chargebacks", schema: AsyncResult.Schema({ success: ChargebackList, error: errors }), skipInitialRun: true }
+export const chargebacksAtom = inView((storeId) =>
+  Atom.serializable(
+    ConsoleClient.query("Chargebacks.list", withStore({ limit: 500 }, storeId), { reactivityKeys: CHARGEBACKS }),
+    {
+      key: `chargebacks@${storeKey(storeId)}`,
+      schema: AsyncResult.Schema({ success: ChargebackList, error: errors }),
+      skipInitialRun: true
+    }
+  )
 )
 
 export const chargebackAtom = Atom.family((id: string) =>

@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { StoreFilter } from "../../shared/domain/Stores.ts"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
 
 /*
@@ -93,7 +94,8 @@ export const ListInput = Schema.Struct({
   provider: Schema.optional(Provider),
   /** The table's search: the case number or the customer's name. */
   q: Schema.optional(Schema.String.check(Schema.isMaxLength(200))),
-  limit: Schema.optional(Limit)
+  limit: Schema.optional(Limit),
+  ...StoreFilter
 })
 
 export class ChargebackList extends Schema.Class<ChargebackList>("chargebacks/ChargebackList")({

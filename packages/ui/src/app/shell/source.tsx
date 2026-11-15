@@ -92,7 +92,16 @@ export interface ShellSource {
 	loading: Pick<LoadingState, "pace" | "setPace">;
 	/* What the stores' own hooks work out, worked out by the host. */
 	persona: ReturnType<typeof PersonaSelectionHook>;
-	activeStore: { active: ActiveStore | undefined; stores: ReadonlyArray<ActiveStore>; setActive: (id: string) => void };
+	/**
+	 * The stores to switch between. A host that can show every store at once passes `viewAll`: with more than one store
+	 * the menu then offers "Alle winkels", which is in view while `active` is none.
+	 */
+	activeStore: {
+		active: ActiveStore | undefined;
+		stores: ReadonlyArray<ActiveStore>;
+		setActive: (id: string) => void;
+		viewAll?: (() => void) | undefined;
+	};
 	seats: ReturnType<typeof SeatsHook>;
 	currentRole: ReturnType<typeof CurrentRoleHook>;
 	workflows: Record<string, WorkflowState>;

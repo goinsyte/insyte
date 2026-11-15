@@ -13,6 +13,7 @@ import { PrefsService } from "@insyte/modules/prefs/PrefsService"
 import { ProductsService } from "@insyte/modules/products/Products"
 import { ReturnsService } from "@insyte/modules/returns/Returns"
 import type { SearchKind } from "@insyte/modules/shared/domain/Search"
+import { inStore } from "@insyte/modules/shared/use-cases/StoreScope"
 import { StoresService } from "@insyte/modules/stores/Stores"
 import { TicketsService } from "@insyte/modules/tickets/Tickets"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
@@ -185,12 +186,13 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
       Effect.gen(function*() {
         const principal = yield* CurrentPrincipal
         const user = yield* CurrentUser
-        const [memberships, mine, counts, teammates, health] = yield* Effect.all([
+        const [memberships, mine, counts, teammates, health, reachable] = yield* Effect.all([
           workspaces.memberships,
           prefs.get,
           notes.counts,
           members.directory,
-          stores.healthLine
+          stores.healthLine,
+          stores.reachable
         ], { concurrency: 1 })
         const workspace = memberships.find((m) => m.workspaceId === principal.workspaceId)
         return new Frame({
@@ -201,11 +203,12 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
           notes: counts,
           teammates,
           proposals: null,
-          health
+          health,
+          stores: reachable
         })
       }),
     "Shell.health": () => stores.healthLine,
-    "Nav.counts": ({ area }) => countsFor(area),
+    "Nav.counts": ({ area, storeId }) => countsFor(area).pipe(inStore(storeId)),
     "Search.records": ({ q, kinds, limit }) =>
       Effect.forEach(new Set(kinds ?? EVERY), (kind) => SEARCHES[kind](q, limit ?? 5), {
         concurrency: 1

@@ -7,6 +7,7 @@ import { SqlError } from "effect/sql"
 import type { AlreadyRefunded, RefundOverBalance, RefundOverLimit } from "../orders/domain/Refunds.ts"
 import type { Relay } from "../shared/domain/Outbox.ts"
 import type { UndoTicket } from "../shared/domain/Undo.ts"
+import { inStore } from "../shared/use-cases/StoreScope.ts"
 import { Labels, Refunder } from "./domain/Ports.ts"
 import type {
   AddTrackingInput,
@@ -107,6 +108,7 @@ export class ReturnsService extends Context.Service<ReturnsService, {
       return {
         list: (input) =>
           Returns.list(input).pipe(
+            inStore(input.storeId),
             Effect.provideService(Labels, labels),
             Effect.catchIf(SqlError.isSqlError, Effect.die)
           ),

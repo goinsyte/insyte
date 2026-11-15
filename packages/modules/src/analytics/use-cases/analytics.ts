@@ -247,7 +247,8 @@ export const charts = Effect.fn("Analytics.charts")(function*(input: PairInput) 
       const daily = dailyOf(A, byDay(yield* ordersBy(sql, A, ["day"])), byDay(yield* ordersBy(sql, B, ["day"])))
 
       const perSupplier = yield* deliveriesBy(sql, A, ["supplier_id"])
-      const scope = yield* inScope(sql, "d.store_id")
+      // The fence reads inside `deliveredOrders`, on its orders (`o`).
+      const scope = yield* inScope(sql, "o.store_id")
       const dots = yield* sql<{ supplierId: string | null; orderId: string; daysLate: number }>`
         select x.supplier_id, x.id as order_id, x.days_late from (
           select d.supplier_id, d.id, d.days_late,
