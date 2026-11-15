@@ -43,7 +43,8 @@ export const ApiKeyAuthLive = Layer.effect(
           door.enter(Redacted.value(credential), agentsRead(endpoint, handler)).pipe(
             Effect.catchTags({
               Refused: (e) => Effect.succeed(refusal(e)),
-              Throttled: (e) => Effect.succeed(refusal(e))
+              Throttled: (e) => Effect.succeed(refusal(e)),
+              UnknownVersion: (e) => Effect.succeed(refusal(e))
             })
           )
       })

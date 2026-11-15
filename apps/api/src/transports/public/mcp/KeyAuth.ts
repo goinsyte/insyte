@@ -28,7 +28,8 @@ export const McpAuth = HttpRouter.middleware<{ provides: CurrentPrincipal | Curr
           ).pipe(
             Effect.catchTags({
               Refused: (e) => Effect.succeed(refusal(e)),
-              Throttled: (e) => Effect.succeed(refusal(e))
+              Throttled: (e) => Effect.succeed(refusal(e)),
+              UnknownVersion: (e) => Effect.succeed(refusal(e))
             })
           )
       )
