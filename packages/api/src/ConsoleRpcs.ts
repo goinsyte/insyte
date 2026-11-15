@@ -44,7 +44,7 @@ import { ThreadsRpcs } from "./rpc/ThreadsRpcs.ts"
 import { TicketsRpcs } from "./rpc/TicketsRpcs.ts"
 import { TrackingRpcs } from "./rpc/TrackingRpcs.ts"
 import { TrashRpcs } from "./rpc/TrashRpcs.ts"
-import { WorkspacesRpcs } from "./rpc/WorkspacesRpcs.ts"
+import { WorkspaceChoiceRpcs, WorkspacesRpcs } from "./rpc/WorkspacesRpcs.ts"
 
 /** Where the console calls every RPC. The client and the server name the same path. */
 export const RPC_PATH = "/api/rpc/v1"
@@ -82,6 +82,7 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(AnalyticsRpcs)
   .merge(ProposalsRpcs)
   .merge(WorkspacesRpcs)
+  .merge(WorkspaceChoiceRpcs)
   .merge(ChatsRpcs)
   .merge(AutomationsRpcs)
   .merge(RunsRpcs)

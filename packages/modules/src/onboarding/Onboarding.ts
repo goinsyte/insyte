@@ -1,9 +1,10 @@
 import type { Db } from "@insyte/database/Db"
-import type { Invalid } from "@insyte/domain/Errors"
-import type { CurrentUser } from "@insyte/domain/Session"
+import type { Conflict, Invalid } from "@insyte/domain/Errors"
+import type { WorkspaceId } from "@insyte/domain/Ids"
+import type { CurrentUser, Switched } from "@insyte/domain/Session"
 import { Context, Effect, Layer } from "effect"
 import { Relay } from "../shared/domain/Outbox.ts"
-import { WorkspaceFounder, WorkspaceSetup } from "../shared/domain/Workspaces.ts"
+import { type CreateWorkspaceInput, WorkspaceFounder, WorkspaceSetup } from "../shared/domain/Workspaces.ts"
 import type {
   AdvanceInput,
   CompleteTaskInput,
@@ -13,6 +14,7 @@ import type {
   StepNotReady
 } from "./domain/Onboarding.ts"
 import { advance } from "./use-cases/advance.ts"
+import { another } from "./use-cases/another.ts"
 import { me } from "./use-cases/me.ts"
 import { completeTask, start } from "./use-cases/start.ts"
 
@@ -28,10 +30,20 @@ export class Onboarding extends Context.Service<Onboarding, {
   readonly advance: (
     input: AdvanceInput
   ) => Effect.Effect<OnboardingState, NotCurrentStep | StepNotReady | Invalid, Db | CurrentUser>
-  readonly start: Effect.Effect<StartChecklist, NotCurrentStep, Db | CurrentUser>
+  /** Start's checklist for `active`, the workspace the session acts in (`null`: none chosen yet). */
+  readonly start: (active: WorkspaceId | null) => Effect.Effect<StartChecklist, NotCurrentStep, Db | CurrentUser>
   readonly completeTask: (
-    input: CompleteTaskInput
+    input: CompleteTaskInput,
+    active: WorkspaceId | null
   ) => Effect.Effect<StartChecklist, NotCurrentStep, Db | CurrentUser>
+  /**
+   * A further workspace for someone whose onboarding is done (`Workspaces.create`); the session goes on in it.
+   * `Conflict` "limit" past the workspaces one person may found.
+   */
+  readonly another: (
+    input: CreateWorkspaceInput,
+    sessionId: string
+  ) => Effect.Effect<Switched, NotCurrentStep | Invalid | Conflict, Db | CurrentUser>
 }>()("modules/Onboarding") {
   // A database that does not answer is a defect: the RPC answers it as one, and the request is in the traces.
   // The workspace's own changes and kicking the relay go through ports, taken from the context when the layer is built.
@@ -48,9 +60,16 @@ export class Onboarding extends Context.Service<Onboarding, {
             Effect.provideService(Relay, relay),
             Effect.catchTags({ SqlError: Effect.die, SchemaError: Effect.die })
           ),
-        start: start().pipe(Effect.catchTags({ SqlError: Effect.die, SchemaError: Effect.die })),
-        completeTask: (input: CompleteTaskInput) =>
-          completeTask(input).pipe(Effect.catchTags({ SqlError: Effect.die, SchemaError: Effect.die }))
+        start: (active: WorkspaceId | null) =>
+          start(active).pipe(Effect.catchTags({ SqlError: Effect.die, SchemaError: Effect.die })),
+        completeTask: (input: CompleteTaskInput, active: WorkspaceId | null) =>
+          completeTask(input, active).pipe(Effect.catchTags({ SqlError: Effect.die, SchemaError: Effect.die })),
+        another: (input: CreateWorkspaceInput, sessionId: string) =>
+          another(input, sessionId).pipe(
+            Effect.provideService(WorkspaceFounder, founder),
+            Effect.provideService(Relay, relay),
+            Effect.catchTags({ SqlError: Effect.die, SchemaError: Effect.die })
+          )
       })
     )
   )

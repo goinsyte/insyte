@@ -132,10 +132,10 @@ export const classify = Effect.fn("Landing.classify")(function*(
   }
 
   const [inv] = yield* sql<InvitationRow>`
-    select i.kind, s.name as supplier, i.portal_scopes, i.email, i.name, i.role_id, i.stores, i.message, i.invited_by, i.expires_at,
+    select i.kind, supplier_name_in_workspace(i.supplier_id) as supplier, i.portal_scopes, i.email, i.name, i.role_id, i.stores, i.message, i.invited_by, i.expires_at,
            i.accepted_at, i.revoked_at is not null or i.declined_at is not null as gone, i.expires_at <= now() as lapsed,
            i.requested_new_at is not null as requested_new, i.seat_requested_at is not null as seat_requested
-    from invitations i left join suppliers s on s.id = i.supplier_id
+    from invitations i
     where i.id = ${ref.id} and i.kind in ('team', 'supplier_portal')`
   if (inv === undefined) return MISSING
   // Only the seats beyond those already taken: an open invitation holds its own seat until it lapses. A supplier's

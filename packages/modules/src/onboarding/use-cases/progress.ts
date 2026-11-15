@@ -36,15 +36,29 @@ export const factsOf = (user: SessionUser, row: Pick<Row, "workspaceId">, store:
   backfillDone: store.synced
 })
 
+/**
+ * Whether the person is still an active member of the workspace their onboarding names. A founder may hand the
+ * workspace over and leave it before onboarding is done (M3.1): from then on onboarding neither reads nor writes there.
+ */
+export const activeIn = Effect.fn("Onboarding.activeIn")(function*(workspaceId: WorkspaceId) {
+  const user = yield* CurrentUser
+  const db = yield* Db
+  const rows = yield* db.forUser((sql) =>
+    sql`select 1 from members where workspace_id = ${workspaceId} and user_id = ${user.id}
+          and removed_at is null and deactivated_at is null`
+  )
+  return rows.length > 0
+})
+
 /** The workspace's store facts, read inside it as the person (the stores table is the workspace's). */
 export const storeFactsOf = Effect.fn("Onboarding.storeFacts")(function*(workspaceId: WorkspaceId | null) {
-  if (workspaceId === null) return NO_STORE
+  if (workspaceId === null || !(yield* activeIn(workspaceId))) return NO_STORE
   const db = yield* Db
   const [row] = yield* db.asUserIn(workspaceId)((sql) =>
     sql<StoreFacts>`
       select exists (select 1 from stores where status in ('connecting', 'connected')) as connected,
              exists (select 1 from stores where status = 'connected' and last_synced_at is not null) as synced`
-  )
+  ).pipe(Effect.catchTag("NotFound", () => Effect.succeed([NO_STORE])))
   return row ?? NO_STORE
 })
 
@@ -61,14 +75,26 @@ const decodeRow = Schema.decodeUnknownEffect(Row)
 
 /**
  * The open row, else the last finished one; created on first read: a signed-in person has an account, so they start
- * past `account`.
+ * past `account`. A row whose workspace the person is no longer an active member of (they handed it over and left,
+ * were removed or deactivated) reads as finished: there is nothing left for them to set up there, and they go on as
+ * someone whose onboarding is done (Start in another workspace, or "Nieuwe werkruimte"). Only read so, never written:
+ * an undone removal or a reactivation opens it again where it was.
  */
 export const loadProgress = Effect.fn("Onboarding.loadProgress")(function*() {
   const user = yield* CurrentUser
   const db = yield* Db
+  // Open rows first, the session's workspace's first among them (a founder back in a workspace they left, with
+  // another one founded since); then the last finished.
   const select = (sql: Parameters<Parameters<typeof db.forUser>[0]>[0]) =>
-    sql`select track, step, answers, workspace_id, completed_at is not null as completed from onboarding_progress
-        order by completed_at desc nulls first, started_at limit 1`
+    sql`select track, step, answers, workspace_id, completed from (
+          select p.*, p.completed_at is not null
+                   or (p.workspace_id is not null
+                       and not exists (select 1 from members m where m.workspace_id = p.workspace_id
+                                       and m.user_id = p.user_id and m.removed_at is null
+                                       and m.deactivated_at is null)) as completed
+          from onboarding_progress p) r
+        order by completed, workspace_id is not distinct from ${user.activeWorkspaceId ?? null} desc,
+                 completed_at desc nulls first, started_at limit 1`
   const found = yield* db.forUser((sql) =>
     Effect.gen(function*() {
       const rows = yield* select(sql)
@@ -89,6 +115,6 @@ export const saveProgress = Effect.fn("Onboarding.saveProgress")(function*(row: 
   yield* db.forUser((sql) =>
     sql`update onboarding_progress
         set track = ${row.track}, step = ${row.step}, answers = ${JSON.stringify(row.answers)}::jsonb
-        where completed_at is null`
+        where completed_at is null and workspace_id is not distinct from ${row.workspaceId}`
   )
 })

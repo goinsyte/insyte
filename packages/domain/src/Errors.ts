@@ -32,3 +32,9 @@ export class Unauthenticated extends Schema.TaggedError<Unauthenticated>()("Unau
 
 /** Signed in, but a member of no workspace yet: the console sends them to onboarding. */
 export class NoWorkspace extends Schema.TaggedError<NoWorkspace>()("NoWorkspace", {}) {}
+
+/**
+ * The console tab names another workspace than the session now acts in (`x-insyte-workspace`, M3.1): another tab
+ * switched, or the person left the tab's workspace. Nothing was done; the console loads the page afresh.
+ */
+export class WorkspaceMismatch extends Schema.TaggedError<WorkspaceMismatch>()("WorkspaceMismatch", {}) {}

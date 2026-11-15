@@ -1,17 +1,16 @@
 import { Db } from "@insyte/database/Db"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
-import { CurrentUser } from "@insyte/domain/Session"
 import { caseScope } from "@insyte/modules/chargebacks/use-cases/chargebacks"
 import { CoursesService } from "@insyte/modules/courses/Courses"
 import { mayDownload } from "@insyte/modules/privacy/Privacy"
 import { cleanFileName, FileStore } from "@insyte/modules/shared/domain/Documents"
 import { inScope } from "@insyte/modules/shared/use-cases/StoreScope"
-import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 import { userFrom } from "../../platform/Sessions.ts"
+import { activeMemberOf, MISMATCH, workspaceMismatch } from "./ActiveMember.ts"
 
 /*
  * `GET /api/files/:id` (M8.5): one of the workspace's files, for a signed-in member who may see what it belongs to (a
@@ -50,14 +49,13 @@ export const FileRoutes = HttpRouter.add(
   Effect.gen(function*() {
     const request = yield* HttpServerRequest.HttpServerRequest
     const { id } = yield* HttpRouter.params
-    const user = yield* userFrom(new Headers(request.headers as Record<string, string>))
+    const headers = new Headers(request.headers as Record<string, string>)
+    const user = yield* userFrom(headers)
     if (Option.isNone(user)) {
       return HttpServerResponse.jsonUnsafe({ error: { code: "unauthenticated" } }, { status: 401 })
     }
-    const [active] = yield* Effect.flatMap(Effect.service(Workspaces), (w) => w.memberships).pipe(
-      Effect.provideService(CurrentUser, user.value),
-      Effect.provide(Workspaces.layer)
-    )
+    const active = yield* activeMemberOf(user.value, headers)
+    if (active === MISMATCH) return workspaceMismatch()
     if (active === undefined) return notFound
     const db = yield* Db
     const file = yield* Effect.gen(function*() {

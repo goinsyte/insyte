@@ -1875,6 +1875,69 @@
     "finance": "deny",
     "view": "allow"
   },
+  "Workspaces.transferOwnership": {
+    "owner": "allow",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Workspaces.list": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Workspaces.create": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Workspaces.switch": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Workspaces.leave": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Workspaces.listInvites": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Workspaces.acceptInvite": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Workspaces.declineInvite": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Workspaces.restoreInvite": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
   "Session.me": {
     "owner": "allow",
     "admin": "allow",

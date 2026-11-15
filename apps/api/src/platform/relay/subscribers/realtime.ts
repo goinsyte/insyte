@@ -31,9 +31,16 @@ const revoked = (event: Extract<OutboxEvent, { type: "supplier.contact_revoked" 
     Effect.withSpan("Relay.realtime.revoked")
   )
 
+/** A member left the workspace or was removed (M3.1): their tabs' sockets in its room closed. */
+const ended = (event: Extract<OutboxEvent, { type: "member.access_ended" }>) =>
+  Effect.promise(() => roomOf(event.workspaceId).closeMember(event.memberId)).pipe(
+    Effect.withSpan("Relay.realtime.ended")
+  )
+
 export const Realtime = subscriber("realtime", {
   "records.changed": (_id, event) => realtime(event),
   "billing.changed": (_id, event) => billing(event),
   "partner.changed": (_id, event) => partner(event),
-  "supplier.contact_revoked": (_id, event) => revoked(event)
+  "supplier.contact_revoked": (_id, event) => revoked(event),
+  "member.access_ended": (_id, event) => ended(event)
 })

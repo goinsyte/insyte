@@ -1,4 +1,4 @@
-import { Invalid } from "@insyte/domain/Errors"
+import { Invalid, WorkspaceMismatch } from "@insyte/domain/Errors"
 import {
   AdvanceInput,
   CompleteTaskInput,
@@ -23,6 +23,11 @@ export class OnboardingRpcs extends RpcGroup.make(
     success: OnboardingState,
     error: Schema.Union([NotCurrentStep, StepNotReady, Invalid])
   }),
-  Rpc.make("Onboarding.start", { success: StartChecklist, error: NotCurrentStep }),
-  Rpc.make("Onboarding.completeTask", { payload: CompleteTaskInput, success: StartChecklist, error: NotCurrentStep })
+  // Start's checklist is the workspace the session acts in: a tab that names another one is refused (`Member`).
+  Rpc.make("Onboarding.start", { success: StartChecklist, error: Schema.Union([NotCurrentStep, WorkspaceMismatch]) }),
+  Rpc.make("Onboarding.completeTask", {
+    payload: CompleteTaskInput,
+    success: StartChecklist,
+    error: Schema.Union([NotCurrentStep, WorkspaceMismatch])
+  })
 ).middleware(Authenticated).middleware(WithDb) {}

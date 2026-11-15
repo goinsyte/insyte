@@ -2,11 +2,11 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
 import { DataService } from "@insyte/modules/data/Data"
 import { MAX_IMPORT_BYTES } from "@insyte/modules/data/domain/Data"
-import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 import { userFrom } from "../../platform/Sessions.ts"
+import { activeMemberOf, MISMATCH, workspaceMismatch } from "./ActiveMember.ts"
 
 /*
  * `PUT /api/data/imports` (M14 step 5): a CSV for the Data hub, uploaded before `Data.imports.upload` makes it an
@@ -29,10 +29,8 @@ export const DataImportRoutes = HttpRouter.add(
     if (Number(declared) > MAX_IMPORT_BYTES) return refusal(413, "too_large")
     const user = yield* userFrom(headers)
     if (Option.isNone(user)) return refusal(401, "unauthenticated")
-    const [active] = yield* Effect.flatMap(Effect.service(Workspaces), (w) => w.memberships).pipe(
-      Effect.provideService(CurrentUser, user.value),
-      Effect.provide(Workspaces.layer)
-    )
+    const active = yield* activeMemberOf(user.value, headers)
+    if (active === MISMATCH) return workspaceMismatch()
     if (active === undefined) return refusal(404, "not_found")
     const bytes = new Uint8Array(yield* Effect.orDie(request.arrayBuffer))
     if (bytes.byteLength > MAX_IMPORT_BYTES) return refusal(413, "too_large")
