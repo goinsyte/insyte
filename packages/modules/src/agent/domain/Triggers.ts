@@ -136,11 +136,11 @@ const WHERE_WHEN = [/\bwaar\b/, /\bwanneer\b/, /\bstatus\b/, /\bonderweg\b/, /\b
 
 /**
  * What a mail that asks where an order is may not also be about: it is the team's, not a status the agent can tell
- * (something broken, a cancellation, a move or another address, a return or another size, a complaint, money or an
- * invoice, fraud).
+ * (something broken, a cancellation, a change to the order, a move or another address, a return or another size, a
+ * complaint, money or an invoice, fraud).
  */
 const OTHER =
-  /kapot|beschadigd|schade|defect|stuk aangekomen|gebroken|annuleer|annuler|geannuleerd|ander adres|nieuw adres|adres (wijzig|aanpass|veranderen)|adreswijziging|verkeerd adres|verhuisd|verhuis|retour|terugsturen|terug sturen|ruilen|omruilen|andere maat|wil (hem|het|ze|deze|die|dit) niet meer|niet meer nodig|klacht|ontevreden|teleurgesteld|advocaat|juridisch|consumentenbond|fraude|oplichting|aangifte|politie|chargeback|geschil|terugbetal|\bgeld\b|factuur|refund|cancel|damaged|broken|wrong address|invoice|money/
+  /wijzig|aanpass|aan te passen|toevoeg|toe te voegen|verander|bijbestel|erbij bestel|ophalen|afhalen|omzetten|uitstel|later (bezorg|lever)|ander(e)? (kleur|product|artikel|variant)|change (my|the) order|modify|add to (my|the) order|pick ?up|kapot|beschadigd|schade|defect|stuk aangekomen|gebroken|annuleer|annuler|geannuleerd|ander adres|nieuw adres|adres (wijzig|aanpass|veranderen)|adreswijziging|verkeerd adres|verhuisd|verhuis|retour|terugsturen|terug sturen|ruilen|omruilen|andere maat|wil (hem|het|ze|deze|die|dit) niet meer|niet meer nodig|klacht|ontevreden|teleurgesteld|advocaat|juridisch|consumentenbond|fraude|oplichting|aangifte|politie|chargeback|geschil|terugbetal|\bgeld\b|factuur|refund|cancel|damaged|broken|wrong address|invoice|money/
 
 /**
  * Whether a mail asks where an order is ("waar is mijn bestelling?") and nothing the team must answer: a sentence that
@@ -154,7 +154,7 @@ export const asksWhereOrderIs = (
 ) => {
   const subject = mail.subject.toLowerCase()
   const text = `${mail.reply ? "" : `${subject}\n`}${mail.text.slice(0, QUESTION_CHARS).toLowerCase()}`
-  if (OTHER.test(text)) return false
+  if (OTHER.test(text) || OTHER.test(subject) || !plainSubject(subject)) return false
   const aboutAnOrder = mail.reply && ORDER_NOUN.test(subject)
   return text.split(/[.?!\n]+/).some((sentence) =>
     TRACKING.test(sentence) ||
@@ -162,6 +162,13 @@ export const asksWhereOrderIs = (
     (aboutAnOrder && NOT_COME.some((w) => w.test(sentence)))
   )
 }
+
+/**
+ * A subject the team must read: one that names money, an amount, or a link or an address, written plainly or to slip
+ * past ("Betaal €4,95 invoerkosten via x.nl"). Whatever it asks, such a mail is the team's.
+ */
+const plainSubject = (subject: string) =>
+  !promisesMoney(subject) && !AMOUNT.test(subject) && !DEFANGED.test(subject) && subject.match(LINK) === null
 
 /**
  * What a reply may never say without a person reading it first (ADR-0027: the agent never refunds, cancels or promises
@@ -287,6 +294,12 @@ export const draftFlags = (text: string, given: Given): Array<DraftFlag> => {
 export interface WismoOrder {
   readonly number: string
   readonly status: string
+  /** Shopify's payment status (`orders.payment_status`): `paid`, `pending`, `partially_refunded`, `refunded`, `voided`. */
+  readonly payment: string
+  /** Shopify's fulfilment status (`orders.fulfillment_status`): `unfulfilled`, `partial`, `fulfilled`, `returned`. */
+  readonly fulfilment: string
+  /** How many fulfilments (parcels) the order has, each with its own tracking. */
+  readonly parcels: number
   /** The parcel's state, AfterShip's or else Shopify's (`deliveries.status`, `fulfilments.tracking_status`). */
   readonly parcel: string | null
   readonly carrier: string | null
@@ -301,7 +314,8 @@ const OPEN = new Set(["placed", "paid", "at_supplier", "shipped"])
 
 /**
  * Which of the customer's orders the mail is about: the one whose number it names, or, naming none, their one open
- * order. A number that is not theirs, two named, or two open: unclear, and the team answers.
+ * order. A number that is not theirs ("#9999", "bestelling 9999"), two named, or two open: unclear, and the team
+ * answers.
  */
 export const pickOrder = <O extends { readonly number: string; readonly status: string }>(
   text: string,
@@ -312,19 +326,35 @@ export const pickOrder = <O extends { readonly number: string; readonly status: 
     return digits !== "" && new RegExp(`(?<!\\d)${digits}(?!\\d)`).test(text)
   })
   if (named.length > 0) return named.length === 1 ? named[0]! : null
-  if (/#\s?\d{3,}|\b(bestel|order)\s*(nummer|nr\.?)\s*:?\s*\d+/i.test(text)) return null
+  // A number named that is none of theirs: a typo, someone else's order, or a guess. Not their other order.
+  if (
+    /#\s?\d{3,}|\b(bestel|order)\s*(nummer|nr\.?)\s*(is\s*)?:?\s*\d+|\b(bestelling|order|nummer|nr\.?)\s*(is\s*)?:?\s*\d{3,}/i
+      .test(text)
+  ) {
+    return null
+  }
   const open = orders.filter((o) => OPEN.has(o.status))
   return open.length === 1 ? open[0]! : null
 }
 
+/** Paid, or still to be: no money has gone back. */
+const PAYMENT_AS_PLACED = new Set(["paid", "pending"])
+
 /**
  * The order's state as Verzending names it (Instellingen → Verzending, `SHIP_STATUSES`): not yet sent, sent, on its
- * way, out for delivery, delivered, or looked into. A cancelled or refunded order, or a parcel coming back, is not a
- * status to send: the team answers.
+ * way, out for delivery, delivered, or looked into. Only an order with one story to tell has one: nothing sent yet,
+ * or all of it in the one parcel. A cancelled, refunded or partly refunded order, one sent in part or in several
+ * parcels, or one sent back, is not a status to send: the team answers.
  */
 export const shipStage = (o: WismoOrder): ShipStatusId | null => {
+  if (!PAYMENT_AS_PLACED.has(o.payment)) return null
+  if (o.fulfilment === "unfulfilled") {
+    return o.parcels === 0 && (o.status === "placed" || o.status === "paid" || o.status === "at_supplier")
+      ? "supplier"
+      : null
+  }
+  if (o.fulfilment !== "fulfilled" || o.parcels !== 1) return null
   if (o.status === "delivered") return "delivered"
-  if (o.status === "placed" || o.status === "paid" || o.status === "at_supplier") return "supplier"
   if (o.status !== "shipped") return null
   switch (o.parcel) {
     case "delivered":

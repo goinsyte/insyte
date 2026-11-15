@@ -2,7 +2,7 @@ import { Db } from "@insyte/database/Db"
 import { AGENT_ACTION, AGENT_UNDO_SECONDS, type AgentActionId } from "@insyte/domain/AgentActions"
 import { mintId } from "@insyte/domain/Ids"
 import { CurrentPrincipal, CurrentWorkspace } from "@insyte/domain/Principal"
-import { Effect } from "effect"
+import { Effect, Exit } from "effect"
 import type { SqlClient, SqlError } from "effect/sql"
 import type { ProposalAction } from "../../proposals/domain/Proposals.ts"
 import { proposeIn } from "../../proposals/Proposals.ts"
@@ -219,24 +219,27 @@ export const govern = <A, E, R>(
       Effect.provideService(IssuedUndo, { add: (t) => void issued.push(t) }),
       Effect.provideService(UndoWindow, AGENT_UNDO_SECONDS),
       Effect.tapError((e) =>
-        Effect.andThen(
-          freeSlot(id).pipe(Effect.provideService(CurrentWorkspace, workspace)),
-          db.scoped((sql) =>
-            record(sql, {
-              ...base,
-              id,
-              policyVersion: d.policyVersion,
-              level: d.level,
-              decision: "run",
-              refuseReason: null,
-              effect: null,
-              outcome: "failed",
-              error: tagOf(e),
-              proposalId: null,
-              undo: null
-            })
-          )
+        db.scoped((sql) =>
+          record(sql, {
+            ...base,
+            id,
+            policyVersion: d.policyVersion,
+            level: d.level,
+            decision: "run",
+            refuseReason: null,
+            effect: null,
+            outcome: "failed",
+            error: tagOf(e),
+            proposalId: null,
+            undo: null
+          })
         ).pipe(Effect.orDie)
+      ),
+      // However it did not happen (an error, a defect, the call dropped), the day's slot goes back.
+      Effect.onExit((exit) =>
+        Exit.isFailure(exit)
+          ? freeSlot(id).pipe(Effect.provideService(CurrentWorkspace, workspace), Effect.ignore)
+          : Effect.void
       )
     )
     const token = issued[0]

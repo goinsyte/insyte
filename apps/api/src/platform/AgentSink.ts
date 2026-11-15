@@ -67,9 +67,15 @@ interface Standing {
   readonly automated: boolean
 }
 
+/**
+ * The thread's standing, read after its lock where `lock`: the lock on a statement of its own, so the read that follows
+ * sees what a writer that held the thread meanwhile committed. A `for update` on this same select would wait for that
+ * writer, then recheck the thread's row alone, and read its messages as they were before the wait.
+ */
 const standingOf = (sql: SqlClient.SqlClient, threadId: string, messageId: string, lock: boolean) =>
-  Effect.map(
-    sql<Standing>`
+  Effect.gen(function*() {
+    if (lock) yield* sql`select id from email_threads where id = ${threadId} for update`
+    const [row] = yield* sql<Standing>`
       select (select m.id from email_messages m where m.thread_id = t.id
               order by m.created_at desc, m.id desc limit 1) as last_id,
              c.store_id, lower(x.from_address) as sender, c.name as customer_name,
@@ -84,10 +90,9 @@ const standingOf = (sql: SqlClient.SqlClient, threadId: string, messageId: strin
       from email_threads t join mailboxes b on b.id = t.mailbox_id
       left join customers c on c.id = t.customer_id and c.deleted_at is null
       left join email_messages x on x.id = ${messageId} and x.thread_id = t.id and x.direction = 'inbound'
-      where t.id = ${threadId}
-      ${lock ? sql`for update of t` : sql``}`,
-    ([row]) => row
-  )
+      where t.id = ${threadId}`
+    return row
+  })
 
 /**
  * Whether the thread is still the agent's to answer, for this mail: the newest message (as Insyte received them) is
@@ -103,6 +108,8 @@ const mine = (row: Standing | undefined, messageId: string): row is Standing =>
 interface Reply {
   /** The fixed text, or `null` where it is not clear which order, or its status is none to send (`unclear`). */
   readonly text: string | null
+  /** Its subject, from the order alone ("Je bestelling #1042"): the thread's is the shopper's words. */
+  readonly subject: string | null
   /** What a reply may repeat: the store's name and address, the orders' numbers, carriers and tracking. */
   readonly given: Given
 }
@@ -137,6 +144,9 @@ const replyFacts = (sql: SqlClient.SqlClient, threadId: string, messageId: strin
     const orders = yield* sql<{
       number: string
       status: string
+      payment: string
+      fulfilment: string
+      parcels: number
       parcel: string | null
       carrier: string | null
       trackingNumber: string | null
@@ -144,7 +154,9 @@ const replyFacts = (sql: SqlClient.SqlClient, threadId: string, messageId: strin
       expected: Date | null
       deliveredAt: Date | null
     }>`
-      select o.number, o.status, coalesce(d.status, f.tracking_status) as parcel,
+      select o.number, o.status, o.payment_status as payment, o.fulfillment_status as fulfilment,
+             (select count(*)::int from fulfilments a where a.order_id = o.id) as parcels,
+             coalesce(d.status, f.tracking_status) as parcel,
              coalesce(f.carrier, d.carrier) as carrier, f.tracking_number,
              nullif(btrim(f.tracking_url), '') as tracking_url,
              case when d.estimated_delivery > now() then d.estimated_delivery end as expected,
@@ -158,6 +170,9 @@ const replyFacts = (sql: SqlClient.SqlClient, threadId: string, messageId: strin
     const theirs: Array<WismoOrder> = orders.map((o) => ({
       number: o.number,
       status: o.status,
+      payment: o.payment,
+      fulfilment: o.fulfilment,
+      parcels: o.parcels,
       parcel: o.parcel,
       carrier: o.carrier,
       trackingUrl: httpsOnly(o.trackingUrl),
@@ -175,7 +190,7 @@ const replyFacts = (sql: SqlClient.SqlClient, threadId: string, messageId: strin
     }
     const order = pickOrder(`${mail?.subject ?? ""}\n${mail?.text ?? ""}`, theirs)
     const stage = order === null ? null : shipStage(order)
-    if (order === null || stage === null) return { text: null, given } satisfies Reply
+    if (order === null || stage === null) return { text: null, subject: null, given } satisfies Reply
     const wording = Option.getOrNull(decodeShipping(w?.wording))?.statuses ?? SHIP_STATUSES
     const label = wording.find((x) => x.id === stage)?.label ?? SHIP_STATUSES.find((x) => x.id === stage)!.label
     const text = wismoReply({
@@ -185,7 +200,7 @@ const replyFacts = (sql: SqlClient.SqlClient, threadId: string, messageId: strin
       order,
       label
     })
-    return { text, given } satisfies Reply
+    return { text, subject: `Je bestelling ${order.number}`, given } satisfies Reply
   })
 
 const reply = (task: AgentTask, t: Extract<AgentTask["trigger"], { kind: "thread.received" }>) =>
@@ -214,7 +229,12 @@ const reply = (task: AgentTask, t: Extract<AgentTask["trigger"], { kind: "thread
       ),
       // The fixed text goes alone. Not clear which order, or its status none to send: the team's. And the text, though
       // it is only the order's facts, passes the same check a person's draft is flagged by (ai.md §6.2).
-      check: (r) => r.text === null ? "unclear" : draftFlags(r.text, r.given).length > 0 ? "guard" : null,
+      check: (r) =>
+        r.text === null || r.subject === null
+          ? "unclear"
+          : draftFlags(`${r.subject}\n${r.text}`, r.given).length > 0
+          ? "guard"
+          : null,
       // For the person: Insyte AI's draft, flagged where it names money, a figure or a link it was not given.
       ask: (r) =>
         Effect.gen(function*() {
@@ -265,6 +285,7 @@ const reply = (task: AgentTask, t: Extract<AgentTask["trigger"], { kind: "thread
               const q = yield* replyOn(sql, {
                 threadId: t.threadId,
                 body,
+                subject: r.subject!,
                 to: { name: now.customerName ?? "", email: to },
                 answering: t.messageId
               })

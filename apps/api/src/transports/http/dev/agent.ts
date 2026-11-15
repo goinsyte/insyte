@@ -96,24 +96,31 @@ const AgentSetup = HttpRouter.add(
   }).pipe(Effect.orDie, withRequestDb)
 )
 
+const Parcel = Schema.Struct({
+  carrier: Schema.String.check(Schema.isMaxLength(40)),
+  trackingNumber: Schema.String.check(Schema.isMaxLength(60)),
+  trackingUrl: Schema.String.check(Schema.isMaxLength(300)),
+  status: Schema.Literals(["pending", "in_transit", "out_for_delivery", "delivered", "exception"]),
+  expected: Schema.optional(Schema.String)
+})
+
 const Order = Schema.Struct({
   /** The customer it is theirs, by their e-mail address, in their own store. */
   email: Schema.String.check(Schema.isMaxLength(200)),
   number: Schema.String.check(Schema.isMaxLength(20)),
   status: Schema.Literals(["placed", "paid", "at_supplier", "shipped", "delivered", "cancelled", "refunded"]),
+  /** Shopify's payment and fulfilment status; by default paid, and fulfilled when it has a parcel. */
+  payment: Schema.optional(Schema.Literals(["pending", "paid", "partially_refunded", "refunded", "voided"])),
+  fulfilment: Schema.optional(Schema.Literals(["unfulfilled", "partial", "fulfilled", "returned"])),
   /** Its parcel: the carrier, its tracking, AfterShip's state and when it expects it. */
-  parcel: Schema.optional(Schema.Struct({
-    carrier: Schema.String.check(Schema.isMaxLength(40)),
-    trackingNumber: Schema.String.check(Schema.isMaxLength(60)),
-    trackingUrl: Schema.String.check(Schema.isMaxLength(300)),
-    status: Schema.Literals(["pending", "in_transit", "out_for_delivery", "delivered", "exception"]),
-    expected: Schema.optional(Schema.String)
-  }))
+  parcel: Schema.optional(Parcel),
+  /** More parcels of the same order, each sent after the one before. */
+  more: Schema.optional(Schema.Array(Parcel).check(Schema.isMaxLength(5)))
 })
 const decodeOrder = Schema.decodeUnknownEffect(Order)
 
 /**
- * `POST /api/__dev/agent/order?workspace=<id>` `{ email, number, status, parcel? }`: an order of one customer's, with
+ * `POST /api/__dev/agent/order?workspace=<id>` `{ email, number, status, payment?, fulfilment?, parcel?, more? }`: an order of one customer's, with
  * its parcel, as an import would have brought it in; for the agent sink's tests of the reply it sends from an order's
  * facts, each with a customer of its own. Locally and on a preview only.
  */
@@ -135,27 +142,29 @@ const AgentOrder = HttpRouter.add(
           select id, store_id, name from customers where lower(email) = lower(${o.email}) and deleted_at is null
           order by id desc limit 1`
         if (c === undefined) return false
-        const shipped = o.status === "shipped" || o.status === "delivered"
+        const parcels = [...(o.parcel === undefined ? [] : [o.parcel]), ...(o.more ?? [])]
+        const fulfilment = o.fulfilment ?? (parcels.length > 0 ? "fulfilled" : "unfulfilled")
         yield* sql`
           insert into orders (id, workspace_id, store_id, shopify_id, number, customer_id, customer_name, customer_email,
                               status, payment_status, fulfillment_status, total_minor, subtotal_minor, shipping_minor,
                               tax_minor, discounts_minor, currency, placed_at, external_updated_at)
           values (${orderId}, ${workspace.id}, ${c.storeId}, ${`dev-${orderId}`}, ${o.number}, ${c.id}, ${c.name},
-                  ${o.email}, ${o.status}, 'paid', ${shipped ? "fulfilled" : "unfulfilled"}, 4995, 4995, 0, 0, 0,
+                  ${o.email}, ${o.status}, ${o.payment ?? "paid"}, ${fulfilment}, 4995, 4995, 0, 0, 0,
                   'EUR', now() - interval '3 days', now())`
-        if (o.parcel !== undefined) {
-          const p = o.parcel
+        for (const [i, p] of parcels.entries()) {
           const fulfilmentId = mintId("ful")
           yield* sql`
             insert into fulfilments (id, workspace_id, store_id, order_id, shopify_id, status, carrier, tracking_number,
                                      tracking_url, shipped_at)
             values (${fulfilmentId}, ${workspace.id}, ${c.storeId}, ${orderId}, ${`dev-${fulfilmentId}`}, 'success',
-                    ${p.carrier}, ${p.trackingNumber}, ${p.trackingUrl}, now() - interval '2 days')`
+                    ${p.carrier}, ${p.trackingNumber}, ${p.trackingUrl},
+                    now() - interval '2 days' + ${i} * interval '1 hour')`
           yield* sql`
             insert into deliveries (id, workspace_id, order_id, fulfilment_id, carrier, tracking_number, status,
-                                    estimated_delivery)
+                                    estimated_delivery, delivered_at)
             values (${mintId("dlv")}, ${workspace.id}, ${orderId}, ${fulfilmentId}, ${p.carrier}, ${p.trackingNumber},
-                    ${p.status}, ${p.expected === undefined ? null : new Date(p.expected)})`
+                    ${p.status}, ${p.expected === undefined ? null : new Date(p.expected)},
+                    ${p.status === "delivered" ? new Date() : null})`
         }
         return true
       })
