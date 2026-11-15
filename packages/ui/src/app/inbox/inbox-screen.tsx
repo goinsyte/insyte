@@ -727,6 +727,13 @@ export function InboxPage() {
                             <p className="whitespace-pre-wrap text-base text-mesh-ink-2 leading-[1.65]">
                               {drafts.reply}
                             </p>
+                            {drafts.check ?
+                              (
+                                <p role="note" className="font-medium text-sm text-mesh-ink leading-[1.5]">
+                                  {drafts.check}
+                                </p>
+                              ) :
+                              null}
                           </div>
                           <div className="flex items-center gap-2">
                             <button

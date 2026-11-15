@@ -169,12 +169,15 @@ export const ResendMailer = Layer.effect(
           idempotencyKey: yield* idempotencyKey(mail),
           attachments: mail.attachments,
           ...(replyTo === undefined ? {} : { replyTo }),
-          ...(mail.support === undefined ? {} : {
-            replyTo: mail.support.replyTo,
+          ...(mail.support === undefined ? {} : { replyTo: mail.support.replyTo }),
+          ...(mail.support === undefined && mail.autoSubmitted === undefined ? {} : {
             headers: {
-              "Message-ID": mail.support.messageId,
-              ...(mail.support.inReplyTo === null ? {} : { "In-Reply-To": mail.support.inReplyTo }),
-              ...(mail.support.references.length === 0 ? {} : { References: mail.support.references.join(" ") })
+              ...(mail.support === undefined ? {} : {
+                "Message-ID": mail.support.messageId,
+                ...(mail.support.inReplyTo === null ? {} : { "In-Reply-To": mail.support.inReplyTo }),
+                ...(mail.support.references.length === 0 ? {} : { References: mail.support.references.join(" ") })
+              }),
+              ...(mail.autoSubmitted === undefined ? {} : { "Auto-Submitted": mail.autoSubmitted })
             }
           })
         }).pipe(

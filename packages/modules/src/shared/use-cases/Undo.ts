@@ -2,7 +2,7 @@ import { Conflict, NotFound } from "@insyte/domain/Errors"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
-import { IssuedUndo, UNDO_SECONDS, type UndoTicket } from "../domain/Undo.ts"
+import { IssuedUndo, type UndoTicket, UndoWindow } from "../domain/Undo.ts"
 
 /*
  * The undo tokens (ADR-0023; `undo_tokens`): `issue` on the command's transaction, with the compensation and the
@@ -26,7 +26,8 @@ const mint = () => {
 
 /**
  * Keeps the compensation for `command`; answers the ticket the console's toast holds. The window is `UNDO_SECONDS`
- * unless the command's kind keeps its own (`seconds`): a chat card's "Ongedaan maken" stays five minutes.
+ * unless the command's kind keeps its own (`seconds`): a chat card's "Ongedaan maken" stays five minutes; an action the
+ * agent ran keeps the agent log's (`UndoWindow`).
  */
 export const issue = Effect.fn("Undo.issue")(function*(
   sql: SqlClient.SqlClient,
@@ -39,9 +40,9 @@ export const issue = Effect.fn("Undo.issue")(function*(
 ) {
   const principal = yield* CurrentPrincipal
   const token = mint()
-  const until = Date.now() + (input.seconds ?? UNDO_SECONDS) * 1000
+  const until = Date.now() + (input.seconds ?? (yield* UndoWindow)) * 1000
   const hash = yield* hashOf(token)
-  ;(yield* IssuedUndo)?.add({ hash, command: input.command })
+  ;(yield* IssuedUndo)?.add({ hash, command: input.command, until })
   yield* sql`insert into undo_tokens (token_hash, workspace_id, principal_id, command, compensation, outbox_ids,
                                       expires_at)
              values (decode(${hash}, 'hex'), ${principal.workspaceId}, ${principal.id},

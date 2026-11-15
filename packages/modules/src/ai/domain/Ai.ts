@@ -139,7 +139,12 @@ export class Draft extends Schema.Class<Draft>("ai/Draft")({
   /** What wrote it, for "prompt {versie}" and for a fake's text to say it is one. */
   provider: Schema.Literals(["anthropic", "fake"]),
   model: Schema.String,
-  promptVersion: Schema.String
+  promptVersion: Schema.String,
+  /**
+   * What the person must check before it goes, where the agent wrote it for them (M15 step 6): money or goods
+   * promised, a figure or a link it was not given. Empty for every other draft.
+   */
+  flags: Schema.Array(Schema.Literals(["money", "figure", "link"]))
 }) {}
 
 export const ReplyInput = Schema.Struct({

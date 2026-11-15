@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import { type ReactElement, type ReactNode, useState } from "react"
+import { type ReactElement, type ReactNode, useLayoutEffect, useRef, useState } from "react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -351,6 +351,15 @@ function AmountCell({ l, m }: { l: CostRow; m: CostMonth }) {
   const value = cell?.amount ?? 0
   const own = cell?.typed ?? false
   const [draft, setDraft] = useState<string | null>(null)
+  // The draft selected as it first shows, on the render that shows it: typed over at once, it is replaced, not added
+  // to ("39" then "49" is 49, not 3949).
+  const field = useRef<HTMLInputElement>(null)
+  const [opened, setOpened] = useState(false)
+  useLayoutEffect(() => {
+    if (!opened) return
+    setOpened(false)
+    if (field.current !== null && document.activeElement === field.current) field.current.select()
+  }, [opened])
   const commit = () => {
     if (draft === null) return
     const t = draft.trim()
@@ -366,14 +375,18 @@ function AmountCell({ l, m }: { l: CostRow; m: CostMonth }) {
   }
   return (
     <input
+      ref={field}
       value={draft ?? (value ? money(value) : "")}
       onFocus={(e) => {
-        setDraft(value ? String(value).replace(".", ",") : "")
-        // `select()` focuses the field again: if it was left (Enter) before the frame, that would reopen it with the
-        // amount from before the save, and that draft would stay over the saved one.
-        const field = e.target
+        const shown = value ? String(value).replace(".", ",") : ""
+        setDraft(shown)
+        setOpened(true)
+        // And again on the next frame, as a click's mouseup puts the caret back: only while the field is still focused
+        // (left with Enter before the frame, `select()` would reopen it with the amount from before the save) and still
+        // holds the amount it opened with (typed into meanwhile, that is kept).
+        const el = e.target
         requestAnimationFrame(() => {
-          if (document.activeElement === field) field.select()
+          if (document.activeElement === el && el.value === shown) el.select()
         })
       }}
       onChange={(e) => setDraft(e.target.value)}

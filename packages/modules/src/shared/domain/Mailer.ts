@@ -203,6 +203,11 @@ export interface Mail {
   readonly replyTo?: string | undefined
   /** What makes two mails of one kind to one address different (a leg's id), for the sender's idempotency. */
   readonly reference?: string | undefined
+  /**
+   * Sent by Insyte's agent on its own, with no person in between (RFC 3834 `Auto-Submitted`): an answer to a mail is
+   * `auto-replied`, a notice of its own `auto-generated`. Another machine's out-of-office then does not answer it.
+   */
+  readonly autoSubmitted?: "auto-replied" | "auto-generated" | undefined
   /** Files sent with it (a packing slip, M8.5). */
   readonly attachments?: ReadonlyArray<{ readonly filename: string; readonly content: Uint8Array }> | undefined
 }
