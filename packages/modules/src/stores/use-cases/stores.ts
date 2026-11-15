@@ -50,6 +50,15 @@ export const list = Effect.fn("Stores.list")(function*() {
   return yield* db.scoped(readStores)
 })
 
+/**
+ * The stores the principal reaches (`storeScope`), for the top bar's store switch: every member may switch between the
+ * stores they work in, so this asks for no area. Names and addresses only; Winkels' own read is `list`.
+ */
+export const reachable = Effect.fn("Stores.reachable")(function*() {
+  const db = yield* Db
+  return yield* db.scoped(readStores)
+})
+
 /** A store's first import as far as it got: each resource's phase and the mirror's counts. */
 export const syncStatus = Effect.fn("Stores.syncStatus")(function*(id: string) {
   yield* Policy.require("settings", 1)

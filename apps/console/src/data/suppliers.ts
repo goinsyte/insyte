@@ -5,7 +5,9 @@ import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
 import { ConsoleClient } from "./client.ts"
+import { storeKey, withStore } from "./in-view.ts"
 import { PRODUCTS } from "./products.ts"
+import { inView } from "./store-view.ts"
 
 /*
  * Leveranciers (M8.1): the list with each supplier's standing, primed by the route's loader, and one supplier when its
@@ -17,9 +19,15 @@ export const SUPPLIERS = ["suppliers"] as const
 
 const errors = Schema.Union([Forbidden, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
 
-export const suppliersAtom = Atom.serializable(
-  ConsoleClient.query("Suppliers.list", {}, { reactivityKeys: [...SUPPLIERS, ...PRODUCTS] }),
-  { key: "suppliers", schema: AsyncResult.Schema({ success: SupplierList, error: errors }), skipInitialRun: true }
+export const suppliersAtom = inView((storeId) =>
+  Atom.serializable(
+    ConsoleClient.query("Suppliers.list", withStore({}, storeId), { reactivityKeys: [...SUPPLIERS, ...PRODUCTS] }),
+    {
+      key: `suppliers@${storeKey(storeId)}`,
+      schema: AsyncResult.Schema({ success: SupplierList, error: errors }),
+      skipInitialRun: true
+    }
+  )
 )
 
 export const supplierAtom = Atom.family((id: string) =>

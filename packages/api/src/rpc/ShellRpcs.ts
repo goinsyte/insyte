@@ -3,7 +3,9 @@ import { Teammate } from "@insyte/modules/members/domain/Team"
 import { NoteCounts } from "@insyte/modules/notifications/domain/Notifications"
 import { Prefs } from "@insyte/modules/prefs/domain/Prefs"
 import { SearchHit, SearchKind } from "@insyte/modules/shared/domain/Search"
+import { StoreFilter } from "@insyte/modules/shared/domain/Stores"
 import { HealthLine } from "@insyte/modules/stores/domain/Health"
+import { StoreView } from "@insyte/modules/stores/domain/Stores"
 import { Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/rpc"
 import { Authenticated } from "./Authenticated.ts"
@@ -35,14 +37,16 @@ export class Frame extends Schema.Class<Frame>("shell/Frame")({
   /** Proposals ready to review (M15); `null` until Insyte drafts them, so the top bar shows no button. */
   proposals: Schema.NullOr(Schema.Int),
   /** Every store connection's state in one line (M17 step 6): what the shell says about the sync. */
-  health: HealthLine
+  health: HealthLine,
+  /** The stores the member reaches (`storeScope`), for the top bar's store switch; a disconnected one last. */
+  stores: Schema.Array(StoreView)
 }) {}
 
 export class ShellRpcs extends RpcGroup.make(
   Rpc.make("Shell.frame", { success: Frame }),
   // The shell's health line on its own, read again when a connection changes (`records.changed connection`).
   Rpc.make("Shell.health", { success: HealthLine }),
-  Rpc.make("Nav.counts", { payload: Schema.Struct({ area: Schema.String }), success: NavCounts }),
+  Rpc.make("Nav.counts", { payload: Schema.Struct({ area: Schema.String, ...StoreFilter }), success: NavCounts }),
   // The one search (api.md): the palette, the bookmark picker, Ask's `@`. Kinds join as their tables land.
   Rpc.make("Search.records", {
     payload: Schema.Struct({

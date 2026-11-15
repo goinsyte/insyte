@@ -5,7 +5,7 @@ import { Effect } from "effect"
 export const AnalyticsHandlers = AnalyticsRpcs.toLayer(Effect.gen(function*() {
   const analytics = yield* AnalyticsService
   return AnalyticsRpcs.of({
-    "Analytics.periods": () => analytics.periods,
+    "Analytics.periods": (input) => analytics.periods(input ?? {}),
     "Analytics.overview": (input) => analytics.overview(input),
     "Analytics.charts": (input) => analytics.charts(input),
     "Analytics.findings": (input) => analytics.findings(input),

@@ -3,6 +3,8 @@ import type { Forbidden, Invalid } from "@insyte/domain/Errors"
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
+import type { InStore } from "../shared/domain/Stores.ts"
+import { inStore } from "../shared/use-cases/StoreScope.ts"
 import type {
   AnalyticsCharts,
   AnalyticsFigures,
@@ -31,7 +33,7 @@ type R = Db | CurrentPrincipal
  * @effect-expect-leaking Db CurrentPrincipal
  */
 export class AnalyticsService extends Context.Service<AnalyticsService, {
-  readonly periods: Effect.Effect<AnalyticsPeriods, Forbidden, R>
+  readonly periods: (input: InStore) => Effect.Effect<AnalyticsPeriods, Forbidden, R>
   readonly overview: (input: PairInput) => Effect.Effect<AnalyticsOverview, Forbidden | Invalid, R>
   readonly charts: (input: PairInput) => Effect.Effect<AnalyticsCharts, Forbidden | Invalid, R>
   readonly findings: (input: PairInput) => Effect.Effect<AnalyticsFindings, Forbidden | Invalid, R>
@@ -50,12 +52,13 @@ export class AnalyticsService extends Context.Service<AnalyticsService, {
       const run = <A, E, Req>(effect: Effect.Effect<A, E | SqlError.SqlError, Req>) =>
         effect.pipe(Effect.provideService(CostFigures, costs), Effect.catchIf(SqlError.isSqlError, Effect.die))
       return {
-        periods: run(Analytics.periods()),
-        overview: (input) => run(Analytics.overview(input)),
-        charts: (input) => run(Analytics.charts(input)),
-        findings: (input) => run(Analytics.findings(input)),
-        explain: (ref) => run(Analytics.explain(ref)),
-        records: (input) => run(Analytics.records(input)),
+        // Each of Analyse's reads narrows to one of the principal's stores when it names one (the store switch).
+        periods: ({ storeId }) => run(Analytics.periods().pipe(inStore(storeId))),
+        overview: (input) => run(Analytics.overview(input).pipe(inStore(input.storeId))),
+        charts: (input) => run(Analytics.charts(input).pipe(inStore(input.storeId))),
+        findings: (input) => run(Analytics.findings(input).pipe(inStore(input.storeId))),
+        explain: (ref) => run(Analytics.explain(ref).pipe(inStore(ref.storeId))),
+        records: (input) => run(Analytics.records(input).pipe(inStore(input.explainKey.storeId))),
         figures: (input) => run(Figures.figures(input)),
         lookup: (input) => run(Figures.lookup(input))
       }

@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { StoreFilter } from "../../shared/domain/Stores.ts"
 
 /*
  * Start's figures (M10.3; widgets/02 Part A, §0): the hero's counts, the pulse band, and the board's widgets in one
@@ -266,7 +267,8 @@ export type WidgetPayloads = typeof WidgetPayloads.Type
 
 export const WidgetsInput = Schema.Struct({
   ids: Schema.Array(WidgetId),
-  range: BoardRange
+  range: BoardRange,
+  ...StoreFilter
 })
 export type WidgetsInput = typeof WidgetsInput.Type
 
@@ -282,7 +284,8 @@ export class HomeWidgets extends Schema.Class<HomeWidgets>("home/HomeWidgets")({
 
 /* ── "Waar €X vandaan komt" ────────────────────────────────────────────────────────────────────── */
 
-export const BreakdownInput = Schema.Struct({ range: BoardRange })
+export const BreakdownInput = Schema.Struct({ range: BoardRange, ...StoreFilter })
+export type BreakdownInput = typeof BreakdownInput.Type
 
 export class RevenueBreakdown extends Schema.Class<RevenueBreakdown>("home/RevenueBreakdown")({
   currency: Schema.String,

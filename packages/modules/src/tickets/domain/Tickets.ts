@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { StoreFilter } from "../../shared/domain/Stores.ts"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
 
 /*
@@ -101,7 +102,8 @@ export const ListInput = Schema.Struct({
   /** One view; absent, every ticket the role may see, set aside or not, as the console filters them itself. */
   view: Schema.optional(TicketView),
   source: Schema.optional(TicketSource),
-  limit: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(500)))
+  limit: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(500))),
+  ...StoreFilter
 })
 
 export class TicketList extends Schema.Class<TicketList>("tickets/TicketList")({

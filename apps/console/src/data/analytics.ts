@@ -9,6 +9,8 @@ import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
 import { ConsoleClient } from "./client.ts"
+import { storeKey, withStore } from "./in-view.ts"
+import { inView } from "./store-view.ts"
 
 /*
  * Analyse (M14 step 2): the months the pickers offer and the six figures for the member's two months, primed by the
@@ -22,13 +24,15 @@ export const ANALYTICS = ["analytics"] as const
 const errors = Schema.Union([Forbidden, Invalid, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
 const periodErrors = Schema.Union([Forbidden, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
 
-export const periodsAtom = Atom.serializable(
-  ConsoleClient.query("Analytics.periods", undefined, { reactivityKeys: ANALYTICS }),
-  {
-    key: "analytics.periods",
-    schema: AsyncResult.Schema({ success: AnalyticsPeriods, error: periodErrors }),
-    skipInitialRun: true
-  }
+export const periodsAtom = inView((storeId) =>
+  Atom.serializable(
+    ConsoleClient.query("Analytics.periods", withStore({}, storeId), { reactivityKeys: ANALYTICS }),
+    {
+      key: `analytics.periods@${storeKey(storeId)}`,
+      schema: AsyncResult.Schema({ success: AnalyticsPeriods, error: periodErrors }),
+      skipInitialRun: true
+    }
+  )
 )
 
 /** One pair's key, `2026-11:2026-10`. */
@@ -39,29 +43,39 @@ const pairOf = (key: string): PairInput => {
 }
 
 export const overviewAtom = Atom.family((key: string) =>
-  Atom.serializable(
-    ConsoleClient.query("Analytics.overview", pairOf(key), { reactivityKeys: ANALYTICS }),
-    {
-      key: `analytics.overview:${key}`,
-      schema: AsyncResult.Schema({ success: AnalyticsOverview, error: errors }),
-      skipInitialRun: true
-    }
+  inView((storeId) =>
+    Atom.serializable(
+      ConsoleClient.query("Analytics.overview", withStore(pairOf(key), storeId), { reactivityKeys: ANALYTICS }),
+      {
+        key: `analytics.overview@${storeKey(storeId)}:${key}`,
+        schema: AsyncResult.Schema({ success: AnalyticsOverview, error: errors }),
+        skipInitialRun: true
+      }
+    )
   )
 )
 
 export const chartsAtom = Atom.family((key: string) =>
-  ConsoleClient.query("Analytics.charts", pairOf(key), { reactivityKeys: ANALYTICS })
+  inView((storeId) =>
+    ConsoleClient.query("Analytics.charts", withStore(pairOf(key), storeId), { reactivityKeys: ANALYTICS })
+  )
 )
 
 export const findingsAtom = Atom.family((key: string) =>
-  ConsoleClient.query("Analytics.findings", pairOf(key), { reactivityKeys: ANALYTICS })
+  inView((storeId) =>
+    ConsoleClient.query("Analytics.findings", withStore(pairOf(key), storeId), { reactivityKeys: ANALYTICS })
+  )
 )
 
 /** One explanation's key: the ref as JSON, built in one order so the same mark is the same read. */
 export const refKey = (ref: ExplainRef) => JSON.stringify(ref)
 
 export const explainAtom = Atom.family((key: string) =>
-  ConsoleClient.query("Analytics.explain", JSON.parse(key) as ExplainRef, { reactivityKeys: ANALYTICS })
+  inView((storeId) =>
+    ConsoleClient.query("Analytics.explain", withStore(JSON.parse(key) as ExplainRef, storeId), {
+      reactivityKeys: ANALYTICS
+    })
+  )
 )
 
 /** The drawer's orders, forty at a time from the cursor the last page gave. */

@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { StockLevel } from "../../products/domain/Products.ts"
+import { StoreFilter } from "../../shared/domain/Stores.ts"
 
 /*
  * Suppliers as the console reads them (M8.1; domain.md §5, widgets/03 `/suppliers`). Each row carries its standing,
@@ -90,5 +91,7 @@ export const ListInput = Schema.Struct({
   /** Only suppliers that supply every one of these products ("naar een andere leverancier"). */
   carries: Schema.optional(Schema.Array(Schema.String).check(Schema.isMaxLength(500))),
   /** Leave out the paused ones. */
-  notPaused: Schema.optional(Schema.Boolean)
+  notPaused: Schema.optional(Schema.Boolean),
+  /** Their figures (products, open, late, shipped) in this store only. */
+  ...StoreFilter
 })

@@ -5,7 +5,9 @@ import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { RpcClientError } from "effect/rpc"
 import { ConsoleClient } from "./client.ts"
+import { storeKey, withStore } from "./in-view.ts"
 import { ORDERS } from "./orders.ts"
+import { inView } from "./store-view.ts"
 
 /*
  * Doorsturen (M8.2): every open leg, primed by the orders route's loader on a forwarding view, and an order's legs for its
@@ -16,9 +18,15 @@ export const FORWARDING = ["forwarding"] as const
 
 const errors = Schema.Union([Forbidden, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
 
-export const forwardingAtom = Atom.serializable(
-  ConsoleClient.query("Forwarding.list", {}, { reactivityKeys: [...FORWARDING, ...ORDERS] }),
-  { key: "forwarding", schema: AsyncResult.Schema({ success: LegList, error: errors }), skipInitialRun: true }
+export const forwardingAtom = inView((storeId) =>
+  Atom.serializable(
+    ConsoleClient.query("Forwarding.list", withStore({}, storeId), { reactivityKeys: [...FORWARDING, ...ORDERS] }),
+    {
+      key: `forwarding@${storeKey(storeId)}`,
+      schema: AsyncResult.Schema({ success: LegList, error: errors }),
+      skipInitialRun: true
+    }
+  )
 )
 
 export const orderLegsAtom = Atom.family((orderId: string) =>
