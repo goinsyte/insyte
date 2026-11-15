@@ -103,11 +103,6 @@ function value<A>(result: AsyncResult.AsyncResult<A, unknown>): A | undefined {
 }
 
 /** Why each area's "new" button is off in the console, in the words its page uses. */
-const NOT_YET: Record<string, string> = {
-  order: "Bestellingen maken kan hier nog niet",
-  product: "Producten toevoegen kan hier nog niet"
-}
-
 const NO_COUNTS = Atom.make(AsyncResult.initial<Readonly<Record<string, number>>, never>())
 const NO_CHATS = Atom.make(AsyncResult.initial<ChatList, never>())
 const NO_CHARGEBACKS = Atom.make(AsyncResult.initial<ChargebackList, never>())
@@ -125,7 +120,9 @@ const MADE_HERE = new Set([
   "automation",
   "sheet",
   "customer",
-  "course"
+  "course",
+  "order",
+  "product"
 ])
 
 export function ConsoleShellSource({ frame, children }: { frame: Frame; children: ReactNode }) {
@@ -395,8 +392,8 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     useRecordSearch: useConsoleRecordSearch,
     // A return is started from its page (M9.1), a ticket written on the board (M11), a channel in Chats (M11 step 4), a
     // mail in the inbox (M11 step 2), a chargeback by hand on its list (M13), a customer on Klanten (M7.4), a course on
-    // Cursussen (M17); the rest is not made here yet.
-    unavailable: (kind) => MADE_HERE.has(kind) ? null : NOT_YET[kind] ?? "Dit kan hier nog niet",
+    // Cursussen (M17), a draft order on Bestellingen (M7.1), a product on Producten (M7.3); the rest is not made here yet.
+    unavailable: (kind) => MADE_HERE.has(kind) ? null : "Dit kan hier nog niet",
     hasPage: useHasPage(),
     // Every area's panel is counted on the server (`Nav.counts`); the console holds none of the records to count.
     serverCounts: true,
@@ -409,7 +406,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
         ? cfg
         : MADE_HERE.has(cfg.cta.create ?? "")
         ? cfg
-        : { ...cfg, cta: { ...cfg.cta, unavailable: NOT_YET[cfg.cta.create ?? ""] ?? "Dit kan hier nog niet" } }
+        : { ...cfg, cta: { ...cfg.cta, unavailable: "Dit kan hier nog niet" } }
       return withServerCounts(panel, areaCounts ?? {})
     },
     automationsPanel: { recommended: 0, ai: 0, Extras: null },

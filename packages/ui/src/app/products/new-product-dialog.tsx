@@ -2,13 +2,13 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { Field, FormDialog, SelectField, TextAreaField, TextField } from "../common/form-dialog"
 
-const SUPPLIERS = [
+const SUPPLIERS: ReadonlyArray<string> = [
   "Allure Fulfillment",
   "DPC Apparel",
   "Yiwu Trading",
   "Linyi Logistics",
   "Skyway Freight"
-] as const
+]
 
 const STATUSES = ["active", "draft", "archived"] as const
 
@@ -22,20 +22,33 @@ export type NewProductInput = {
   description: string
 }
 
+/**
+ * "Nieuw product" (widgets/03). The host names the suppliers to choose from (the demo's own by default; `supplierLabel`
+ * says one by its value), the currency symbol the prices are in, and whether a product can be made archived.
+ */
 export function NewProductDialog({
   open,
   onOpenChange,
-  onCreate
+  onCreate,
+  suppliers = SUPPLIERS,
+  supplierLabel = (v: string) => v,
+  symbol = "$",
+  archivable = true
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   onCreate: (input: NewProductInput) => void
+  suppliers?: ReadonlyArray<string>
+  supplierLabel?: (value: string) => string
+  symbol?: string
+  archivable?: boolean
 }) {
+  const first = suppliers[0] ?? ""
   const [title, setTitle] = useState("")
   const [sku, setSku] = useState("")
   const [cost, setCost] = useState("0")
   const [price, setPrice] = useState("0")
-  const [supplier, setSupplier] = useState<(typeof SUPPLIERS)[number]>("Allure Fulfillment")
+  const [supplier, setSupplier] = useState(first)
   const [status, setStatus] = useState<(typeof STATUSES)[number]>("draft")
   const [description, setDescription] = useState("")
 
@@ -44,7 +57,7 @@ export function NewProductDialog({
     setSku("")
     setCost("0")
     setPrice("0")
-    setSupplier("Allure Fulfillment")
+    setSupplier(first)
     setStatus("draft")
     setDescription("")
   }
@@ -63,7 +76,7 @@ export function NewProductDialog({
       sku,
       cost: costNum,
       price: priceNum,
-      supplier,
+      supplier: suppliers.includes(supplier) ? supplier : first,
       status,
       description
     })
@@ -97,10 +110,10 @@ export function NewProductDialog({
         </Field>
       </div>
       <div className="grid grid-cols-3 gap-4">
-        <Field label="Inkoopprijs ($)">
+        <Field label={`Inkoopprijs (${symbol})`}>
           <TextField value={cost} onChange={setCost} type="number" />
         </Field>
-        <Field label="Prijs ($)">
+        <Field label={`Prijs (${symbol})`}>
           <TextField value={price} onChange={setPrice} type="number" />
         </Field>
         <Field label="Marge">
@@ -112,16 +125,17 @@ export function NewProductDialog({
       <div className="grid grid-cols-2 gap-4">
         <Field label="Leverancier">
           <SelectField
-            value={supplier}
+            value={suppliers.includes(supplier) ? supplier : first}
             onChange={setSupplier}
-            options={SUPPLIERS}
+            options={suppliers}
+            renderLabel={supplierLabel}
           />
         </Field>
         <Field label="Status">
           <SelectField
             value={status}
             onChange={setStatus}
-            options={STATUSES}
+            options={archivable ? STATUSES : STATUSES.filter((s) => s !== "archived")}
             renderLabel={(s) => ({ active: "Actief", draft: "Concept", archived: "Gearchiveerd" })[s]}
           />
         </Field>

@@ -72,5 +72,6 @@ export const productWrites = {
   setStatus: ConsoleClient.mutation("Products.setStatus"),
   reprice: ConsoleClient.mutation("Products.reprice"),
   sync: ConsoleClient.mutation("Products.sync"),
+  create: ConsoleClient.mutation("Products.create"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const

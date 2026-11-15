@@ -15,6 +15,7 @@ import { useMemo } from "react"
 import { ordersPageAtom, orderTagsAtom } from "../data/orders.ts"
 import { firstInput, usePaged } from "../data/paged.ts"
 import { suppliersAtom } from "../data/suppliers.ts"
+import { useGate } from "../frame/refusals.ts"
 import { useOrderCommands } from "./order-writes.ts"
 
 /*
@@ -25,8 +26,8 @@ import { useOrderCommands } from "./order-writes.ts"
  * so it shows as Vertraagd; an order whose parcel the shopper was told of (`trackingSentAt`) carries `tracking_sent`,
  * one whose track-and-trace mail did not go (`trackingFailedAt`) `tracking_failed`. "Track & trace-update sturen" mails
  * each selected order's shopper its newest parcel, once per tracking number. Bulk cancelling waits for the selection
- * bar's confirm (cancelling cannot be undone); "Nieuwe bestelling" is greyed out with why until draft orders. A row
- * opens its order over the list.
+ * bar's confirm (cancelling cannot be undone). "Nieuwe bestelling" makes a draft (M7.1, `routes/_frame.orders.tsx`),
+ * shown as Concept and left alone by the order commands until Shopify completes it. A row opens its order over the list.
  *
  * The list pages on the server (W3.1): the table's filter, search, order and page as `Orders.list`'s input
  * (`ORDERS_LIST`), each column on the field the server filters and sorts it by. The line beside the title counts every
@@ -92,7 +93,8 @@ const iso = (ms: number) => new Date(ms).toISOString()
 const AT_RISK = "at_risk"
 const TRACKING_SENT = "tracking_sent"
 const TRACKING_FAILED = "tracking_failed"
-const MARKERS: ReadonlySet<string> = new Set([AT_RISK, TRACKING_SENT, TRACKING_FAILED])
+const DRAFT = "draft"
+const MARKERS: ReadonlySet<string> = new Set([AT_RISK, TRACKING_SENT, TRACKING_FAILED, DRAFT])
 
 /** The order's suppliers as its Leverancier column shows them: by name, more than one joined. */
 const SUPPLIER_JOIN = ", "
@@ -121,13 +123,18 @@ export const orderOf = (o: OrderRow): Order => ({
     ...o.tags.filter((t) => !MARKERS.has(t)),
     ...(o.delayedAt === null ? [] : [AT_RISK]),
     ...(o.trackingSentAt === null ? [] : [TRACKING_SENT]),
-    ...(o.trackingFailedAt === null ? [] : [TRACKING_FAILED])
+    ...(o.trackingFailedAt === null ? [] : [TRACKING_FAILED]),
+    // A draft made in Insyte (M7.1) shows as Concept until Shopify completes it into an order.
+    ...(o.isDraft ? [DRAFT] : [])
   ],
   created_at: iso(o.placedAt),
   updated_at: iso(o.updatedAt)
 })
 
 const isClosed = (o: Order) => o.status === "cancelled" || o.status === "refunded"
+
+/** A draft is not an order yet: the order commands leave it alone (the server refuses it as `draft`). */
+const isDraft = (o: Order) => o.tags.includes(DRAFT)
 
 const actionsOf = (commands: ReturnType<typeof useOrderCommands>): OrdersSource["actions"] => (openTags) => [
   {
@@ -137,6 +144,7 @@ const actionsOf = (commands: ReturnType<typeof useOrderCommands>): OrdersSource[
     icon: Tag,
     group: "Ordenen",
     shortcut: "g",
+    applies: (o) => !isDraft(o),
     run: (rows) => openTags([...rows])
   },
   {
@@ -147,7 +155,7 @@ const actionsOf = (commands: ReturnType<typeof useOrderCommands>): OrdersSource[
     group: "Afhandeling",
     shortcut: "f",
     bar: true,
-    applies: (o) => !isClosed(o) && o.fulfillment_status !== "fulfilled",
+    applies: (o) => !isDraft(o) && !isClosed(o) && o.fulfillment_status !== "fulfilled",
     run: (rows) =>
       void commands.markFulfilled(
         rows,
@@ -162,7 +170,7 @@ const actionsOf = (commands: ReturnType<typeof useOrderCommands>): OrdersSource[
     group: "Afhandeling",
     shortcut: "d",
     bar: true,
-    applies: (o) => !isClosed(o) && o.status !== "delivered" && !o.tags.includes(AT_RISK),
+    applies: (o) => !isDraft(o) && !isClosed(o) && o.status !== "delivered" && !o.tags.includes(AT_RISK),
     run: (rows) =>
       void commands.flagDelayed(rows, `${counted(rows.length, "bestelling", "bestellingen")} als vertraagd gemarkeerd`)
   },
@@ -182,7 +190,7 @@ const actionsOf = (commands: ReturnType<typeof useOrderCommands>): OrdersSource[
     label: "Track & trace-update sturen",
     icon: Send,
     group: "Klanten",
-    applies: (o) => o.tracking_number !== undefined && !isClosed(o) && o.status !== "delivered",
+    applies: (o) => !isDraft(o) && o.tracking_number !== undefined && !isClosed(o) && o.status !== "delivered",
     run: (rows) => void commands.sendTrackingUpdate(rows)
   },
   {
@@ -239,6 +247,7 @@ export function useConsoleOrdersSource(
   const inUse = Option.getOrUndefined(AsyncResult.value(useAtomValue(orderTagsAtom)))
   const knownTags = useMemo(() => inUse?.map((t) => t.tag).filter((t) => !isSystemTag(t)), [inUse])
   const commands = useOrderCommands()
+  const create = useGate("orders", 2)
   const { status, delayed } = first.counts
   const sum = (keys: ReadonlyArray<string>) => keys.reduce((n, k) => n + (status[k] ?? 0), 0)
   const state = page.counts.state
@@ -264,7 +273,7 @@ export function useConsoleOrdersSource(
     supplierName: (id) => supplierNames.get(id) ?? "",
     actions: actionsOf(commands),
     applyTags: (rows, tags, mode) => void commands.applyTags(rows, tags, mode),
-    canCreate: { ok: false, reason: "Bestellingen maken kan hier nog niet" },
+    canCreate: create,
     open,
     paging,
     standing: `${sum(OPEN)} wachten op afhandeling · ${sum(["shipped"])} onderweg · ${delayed} vertraagd`,

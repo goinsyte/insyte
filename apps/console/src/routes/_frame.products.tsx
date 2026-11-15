@@ -6,6 +6,7 @@ import { OPEN_AS_MODAL, useOpenedAsModal } from "@insyte/ui/app/common/detail-sh
 import type { Level, Permission } from "@insyte/ui/app/lib/permissions"
 import { PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
 import { MarginDialog } from "@insyte/ui/app/products/margin-dialog"
+import { NewProductDialog } from "@insyte/ui/app/products/new-product-dialog"
 import { ProductsPage } from "@insyte/ui/app/products/products-screen"
 import { type ProductRow, ProductsSourceProvider } from "@insyte/ui/app/products/source"
 import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
@@ -13,6 +14,8 @@ import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { useMemo, useRef } from "react"
 import { productsPageAtom } from "../data/products.ts"
+import { storesAtom } from "../data/stores.ts"
+import { suppliersAtom } from "../data/suppliers.ts"
 import { ConsoleLowStock } from "../products/low-stock.tsx"
 import { useProductCommands } from "../products/product-writes.ts"
 import { FIRST_PRODUCTS, useConsoleProductsSource } from "../products/products-source.ts"
@@ -92,6 +95,13 @@ function ProductsRoute() {
   return <Pending />
 }
 
+const NO_SUPPLIER = ""
+
+/** "€" for EUR: the currency's sign as prices are written in Dutch. */
+const symbolOf = (currency: string) =>
+  new Intl.NumberFormat("nl-NL", { style: "currency", currency }).formatToParts(0).find((p) => p.type === "currency")
+    ?.value ?? currency
+
 function Loaded({ page }: { page: ProductPage }) {
   const navigate = useNavigate()
   const commands = useProductCommands()
@@ -114,8 +124,51 @@ function Loaded({ page }: { page: ProductPage }) {
   )
   // The low-stock advice (M7 9.3), once Shopify reported stock for any product.
   const LowStock = page.summary?.stocked === true ? ConsoleLowStock : undefined
+  // "Nieuw product" in the design's dialog, made by `Products.create` (M7.3) in the first connected store the role
+  // reaches, priced in its currency; the supplier is one of the workspace's, or none.
+  const stores = Option.getOrUndefined(AsyncResult.value(useAtomValue(storesAtom)))
+  const store = stores?.find((s) => s.status === "connected" || s.status === "connecting")
+  const known = Option.getOrUndefined(AsyncResult.value(useAtomValue(suppliersAtom)))?.rows
+  const create = useRef(commands.create)
+  create.current = commands.create
+  const NewProduct = useMemo(() => {
+    const names = new Map((known ?? []).map((s) => [s.id, s.name]))
+    const suppliers = [NO_SUPPLIER, ...names.keys()]
+    const symbol = symbolOf(store?.currency ?? "EUR")
+    const storeId = store?.id
+    return ({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) => (
+      <NewProductDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        suppliers={suppliers}
+        supplierLabel={(id) => names.get(id) ?? "Geen leverancier"}
+        symbol={symbol}
+        archivable={false}
+        onCreate={(input) =>
+          void create.current({
+            storeId,
+            title: input.title,
+            sku: input.sku,
+            price: input.price,
+            cost: input.cost,
+            supplierId: input.supplier === NO_SUPPLIER ? null : input.supplier,
+            status: input.status,
+            description: input.description
+          }).then((id) => {
+            if (id !== undefined) {
+              void navigate({ to: "/products/$productId", params: { productId: id }, state: OPEN_AS_MODAL })
+            }
+          })}
+      />
+    )
+  }, [known, store?.id, store?.currency, navigate])
+  const canCreate = source.canCreate.ok && stores !== undefined && store === undefined
+    ? { ok: false, reason: "Verbind eerst een winkel; daar komt het product in" }
+    : source.canCreate
   return (
-    <ProductsSourceProvider value={{ ...source, Margin, LowStock }}>
+    <ProductsSourceProvider
+      value={{ ...source, canCreate, Margin, LowStock, ...(canCreate.ok ? { NewProduct } : {}) }}
+    >
       <ProductsPage />
     </ProductsSourceProvider>
   )
