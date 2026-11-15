@@ -8,11 +8,17 @@ import { statements } from "../statements.ts"
  *   a logo uploaded and never saved stays private. Every logo saved now is marked.
  * - `deliveries.stage`: what AfterShip says beyond the status, which Verzending words on its own: ready at a pickup
  *   point (status `in_transit`) or a missed delivery (status `exception`). The status itself is unchanged, so the delay
- *   checks read the parcel as before.
+ *   checks read the parcel as before. Its check is added `not valid`: every row is null, so there is nothing to check,
+ *   and no scan holds the table.
+ *
+ * A lock it cannot take within five seconds fails the migration instead of queueing the app's writes behind it.
  */
 export default statements(
+  "set local lock_timeout = '5s'",
   "alter table files add column published_at timestamptz",
-  "alter table deliveries add column stage text check (stage in ('available_for_pickup', 'failed_attempt'))",
+  "alter table deliveries add column stage text",
+  `alter table deliveries add constraint deliveries_stage_check
+     check (stage in ('available_for_pickup', 'failed_attempt')) not valid`,
   "alter table files no force row level security",
   "alter table workspace_settings no force row level security",
   `update files f set published_at = now()

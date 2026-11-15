@@ -12,8 +12,10 @@ import { withRequestDb } from "../../platform/RequestDb.ts"
  * returns portal show it (`shared/domain/CustomerFacing.ts` writes the path). Any logo the workspace ever saved at
  * Huisstijl (`files.published_at`), so a mail sent before the logo was replaced keeps its image; one uploaded and never
  * saved, deleted, or refused by a scan is not found. Through the console's origin, like the portal. Shown as an image,
- * never run as a page (an SVG too), and cached a day: a new logo is a new file. The edge cache answers a repeat without
- * the database or R2, which a mail opened by many shoppers would otherwise cost each time.
+ * never run as a page (an SVG too). The edge cache answers a repeat without the database or R2, which a mail opened by
+ * many shoppers would otherwise cost each time. Cached five minutes, by the edge and the browser alike: the edge cache
+ * is one per data centre and cannot be purged everywhere, so a logo refused or deleted since is served at most that
+ * long (`forgetLogo` drops it at once where the verdict lands).
  */
 
 const ID = /^[a-z]+_[0-9a-z]{10,40}$/i
@@ -21,7 +23,7 @@ const ID = /^[a-z]+_[0-9a-z]{10,40}$/i
 const notFound = HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
 
 const HEADERS = {
-  "cache-control": "public, max-age=86400",
+  "cache-control": "public, max-age=300",
   "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
   "x-content-type-options": "nosniff"
 }
@@ -29,6 +31,10 @@ const HEADERS = {
 /** The edge cache's key: the logo's own path, on a host of its own, whatever origin asked. */
 const cacheKey = (workspace: string, file: string) =>
   new Request(`https://brand-logo.cache/api/brand/${workspace}/logo/${file}`)
+
+/** The logo out of this data centre's edge cache, once it may no longer be served; best effort. */
+export const forgetLogo = (workspace: string, file: string) =>
+  Effect.promise(() => caches.default.delete(cacheKey(workspace, file)).catch(() => false))
 
 export const BrandRoutes = HttpRouter.add(
   "GET",
