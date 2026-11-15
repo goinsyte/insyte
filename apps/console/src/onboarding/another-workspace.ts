@@ -37,6 +37,9 @@ export function useAnotherWorkspace() {
     }
     const failure = Cause.findErrorOption(exit.cause)
     if (failure._tag === "Some" && failure.value._tag === "Invalid") return fieldCopy(failure.value.fields)
+    if (failure._tag === "Some" && failure.value._tag === "Conflict") {
+      return "Je kunt maximaal drie werkruimtes aanmaken. Vraag een collega je uit te nodigen voor een bestaande."
+    }
     return "Je werkruimte kon niet worden aangemaakt. Probeer het opnieuw."
   }
 

@@ -1,4 +1,5 @@
 import { ConsoleRpcs, RPC_PATH } from "@insyte/api/ConsoleRpcs"
+import { WORKSPACE_HEADER } from "@insyte/api/rpc/Member"
 import { Layer } from "effect"
 import { FetchHttpClient } from "effect/http"
 import { Atom, AtomRpc } from "effect/reactivity"
@@ -19,7 +20,31 @@ const fetchForSentryTrace: typeof globalThis.fetch = (input, init) => {
   const headers = new Headers(init?.headers)
   headers.delete("traceparent")
   headers.delete("b3")
-  return globalThis.fetch(input, { ...init, headers })
+  if (tabWorkspace !== null) headers.set(WORKSPACE_HEADER, tabWorkspace)
+  const sent = globalThis.fetch(input, { ...init, headers })
+  if (tabWorkspace !== null) void sent.then(reloadOnMismatch, () => {})
+  return sent
+}
+
+/*
+ * The workspace this tab shows (M3.1), named on every call (`x-insyte-workspace`): the session may have moved to
+ * another one since the page loaded (another tab switched, or the person left this one). The server then does nothing
+ * and answers `WorkspaceMismatch`, and the tab loads afresh, in the workspace the session is in now.
+ */
+let tabWorkspace: string | null = null
+let reloading = false
+
+/** The frame names its workspace once it is read; until then no call names one. In the browser only. */
+export const nameTabWorkspace = (id: string) => {
+  if (typeof window !== "undefined") tabWorkspace = id
+}
+
+const reloadOnMismatch = async (response: Response) => {
+  if (reloading || !response.ok) return
+  const body = await response.clone().text().catch(() => "")
+  if (!body.includes("\"WorkspaceMismatch\"")) return
+  reloading = true
+  window.location.reload()
 }
 
 /** In the browser: same origin, because the console Worker forwards `/api/*` to the API by service binding. */

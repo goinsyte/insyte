@@ -9,6 +9,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { useEffect, useMemo, useRef } from "react"
 import { toast } from "sonner"
+import { nameTabWorkspace } from "../data/client.ts"
 import { workspaceInvitesAtom, WORKSPACES, workspacesAtom, workspaceWrites } from "../data/workspaces.ts"
 import { onOtherTabSwitched, reloadInto, takeFlash } from "./switching.ts"
 
@@ -55,6 +56,8 @@ const asInvite = (i: ServerInvite): WorkspaceInvite => ({
 const tryAgain = { description: "Probeer het zo nog eens." }
 
 export function useConsoleWorkspaces(frame: Frame): ShellSource["team"] {
+  // Every call from here on names this tab's workspace, so a tab left behind by a switch elsewhere writes nothing.
+  nameTabWorkspace(frame.workspace.id)
   const listed = Option.getOrUndefined(AsyncResult.value(useAtomValue(workspacesAtom)))
   const invited = Option.getOrUndefined(AsyncResult.value(useAtomValue(workspaceInvitesAtom)))
   const setSwitching = useAtomSet(switchingAtom)
