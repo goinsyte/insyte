@@ -12,11 +12,15 @@ import { statements } from "../statements.ts"
  *   is its description, else its URL's host only, since a path or query can hold a token.
  * - Each new table gets the partial index the view and the sweep read, and the routing read `trash_due_workspaces()`
  *   needs (as `tickets_routing` in 0060).
+ * - `trash_kind_joins`: when each kind joined the Prullenbak in this environment (the moment this migration ran, so
+ *   each stage keeps its own). Nobody could see a row removed before then in the trash, so its 30 days count from
+ *   that moment: `purge_at` is `greatest(deleted_at, joined_at) + 30 days`. A kind without a row (tickets, there from
+ *   the start) counts from `deleted_at` alone, as `greatest` passes over a null. Not tenant data: one row per kind.
  *
  * A kind that lands later (the Kennisbank's items, reply templates) is one more `select` with these nine columns in a
  * migration of its own: `create or replace view trash_items_v ... ${trashView([...KINDS, its select])}`, its index and
- * routing read, and its entry in `TRASH_KINDS` (`trash/domain/Trash.ts`) and `TrashKindsLive`. `KINDS` and `trashView`
- * are exported for that and never change here.
+ * routing read, a `trash_kind_joins` row if it already holds removed rows, and its entry in `TRASH_KINDS`
+ * (`trash/domain/Trash.ts`) and `TrashKindsLive`. `KINDS` and `trashView` are exported for that and never change here.
  */
 
 /** Each kind's rows in the trash: workspace, kind, id, title, store, owner, when, audit subject and action. */
@@ -42,12 +46,16 @@ export const KINDS: ReadonlyArray<string> = [
    from cost_lines where deleted_at is not null`
 ]
 
-/** The view's body over `kinds`: who put each item in the trash is the newest audit line of its `trashed_by`. */
+/**
+ * The view's body over `kinds`: who put each item in the trash is the newest audit line of its `trashed_by`; its 30
+ * days run from when it was removed, or from when its kind joined (`trash_kind_joins`) if that was later.
+ */
 export const trashView = (kinds: ReadonlyArray<string>) =>
   `select i.workspace_id, i.kind, i.id, i.title, i.store_id, i.deleted_at,
-          i.deleted_at + interval '30 days' as purge_at,
+          greatest(i.deleted_at, j.joined_at) + interval '30 days' as purge_at,
           d.actor_kind as deleted_by_kind, d.actor_id as deleted_by_id, i.owner_id
    from (${kinds.join(" union all ")}) i
+   left join trash_kind_joins j on j.kind = i.kind
    left join lateral (
      select a.actor_kind, a.actor_id from audit_events a
      where a.workspace_id = i.workspace_id and a.subject_type = i.subject_type and a.subject_id = i.id
@@ -58,6 +66,11 @@ export const trashView = (kinds: ReadonlyArray<string>) =>
 const TABLES = ["automations", "sheets", "courses", "webhook_endpoints", "cost_lines"] as const
 
 export default statements(
+  `create table trash_kind_joins (
+     kind      text primary key,
+     joined_at timestamptz not null default now()
+   )`,
+  "insert into trash_kind_joins (kind) values ('automation'), ('sheet'), ('course'), ('webhook'), ('cost_line')",
   ...TABLES.map((t) => `create index ${t}_trash on ${t} (workspace_id, deleted_at) where deleted_at is not null`),
   ...TABLES.map((t) => `create policy ${t}_routing on ${t} as permissive for select to insyte_owner using (true)`),
   `create or replace view trash_items_v with (security_invoker = true) as ${trashView(KINDS)}`

@@ -7,13 +7,22 @@ import { call, rpc, sessionMe } from "./support.ts"
  * removed by its own page, are listed with who removed them, put back through their own slice with an undo that puts
  * them in the trash again, purged for good, and swept after 30 days. A sheet is its owner's alone; each kind takes its
  * own area's level (and a cost line `costs.write`); a webhook endpoint for every store does not come back for someone
- * held to one store.
+ * held to one store. What was removed before its kind joined the trash has its 30 days from that moment.
  */
 
-const ageAndSweep = async (workspace: string, days: number) =>
-  (await (await call(`http://api.test/api/__dev/trash/sweep?workspace=${workspace}&age=${days}`, {
-    method: "POST"
-  })).json()) as { purged: number }
+/**
+ * The workspace's items as if removed `age` days earlier, and (`joined`) the kinds of 0101 as if they joined the
+ * Prullenbak that many days ago, then the daily sweep for the workspace.
+ */
+const sweep = async (workspace: string, days: { readonly age: number; readonly joined?: number }) =>
+  (await (await call(
+    `http://api.test/api/__dev/trash/sweep?workspace=${workspace}&age=${days.age}${
+      days.joined === undefined ? "" : `&joined=${days.joined}`
+    }`,
+    { method: "POST" }
+  )).json()) as { purged: number }
+
+const DAY = 86_400_000
 
 const endpoint = (url: string, description = "") => ({
   url,
@@ -183,14 +192,38 @@ describe("more kinds in the Prullenbak", () => {
 
   it("sweeps every kind past its 30 days, and keeps what did not pass them", async () => {
     const old = await removedSet("oud")
-    expect(await ageAndSweep(workspace, 31)).toEqual({ purged: 5 })
+    // The kinds joined long before: these count from their removal, 31 days ago.
+    expect(await sweep(workspace, { age: 31, joined: 60 })).toEqual({ purged: 5 })
     expect(failure(await rpc("Automations.get", { id: old.automation }, people.owner))).toMatchObject({
       _tag: "NotFound"
     })
     const fresh = await removedSet("vers")
-    expect(await ageAndSweep(workspace, 0)).toEqual({ purged: 0 })
+    expect(await sweep(workspace, { age: 0, joined: 0 })).toEqual({ purged: 0 })
     expect((await trash(people.owner)).map((i) => i.id).toSorted()).toEqual(Object.values(fresh).toSorted())
     expect(ok(await rpc("Trash.empty", undefined, people.owner)).purged).toBe(5)
     expect(await trash(people.owner)).toEqual([])
+  })
+
+  it("gives what was removed before its kind joined the trash 30 days from that moment", async () => {
+    const before = Object.values(await removedSet("voor"))
+    try {
+      // Removed 40 days before the kinds joined, a day ago: still in the trash, with 29 days to go.
+      expect(await sweep(workspace, { age: 41, joined: 1 })).toEqual({ purged: 0 })
+      const listed = (await trash(people.owner)).filter((i) => before.includes(i.id))
+      expect(listed).toHaveLength(5)
+      for (const item of listed) {
+        expect(Math.round((Date.now() - item.deletedAt) / DAY)).toBe(41)
+        expect(Math.round((item.purgeAt - Date.now()) / DAY)).toBe(29)
+      }
+      // Day 30 of the kinds in the trash has passed: gone.
+      expect(await sweep(workspace, { age: 0, joined: 31 })).toEqual({ purged: 5 })
+      expect(await trash(people.owner)).toEqual([])
+      expect(failure(await rpc("Sheets.get", { id: before[1]! }, people.owner))).toMatchObject({
+        _tag: "SheetNotFound"
+      })
+    } finally {
+      // The join moment is the stage's: back to now for whoever sweeps next.
+      await sweep(workspace, { age: 0, joined: 0 })
+    }
   })
 })

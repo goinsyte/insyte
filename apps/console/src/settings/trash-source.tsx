@@ -68,7 +68,9 @@ export function useConsoleTrashSource(list: TrashList, canEdit: boolean): TrashS
     kind: KIND[i.kind],
     title: i.title.trim() === "" ? UNTITLED[i.kind] ?? "Zonder titel" : i.title,
     by: i.deletedBy ?? "iemand",
-    at: new Date(i.deletedAt).toISOString()
+    at: new Date(i.deletedAt).toISOString(),
+    // Removed before its kind joined the trash: its 30 days run from then (0101).
+    purgeAt: new Date(i.purgeAt).toISOString()
   }))
 
   return {
