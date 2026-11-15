@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { StoreFilter } from "../../shared/domain/Stores.ts"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
 
 /*
@@ -110,7 +111,8 @@ export const StatsInput = Schema.Struct({
   /** One product's figures. */
   productId: Schema.optional(Schema.String),
   /** Summed per supplier. */
-  bySupplier: Schema.optional(Schema.Boolean)
+  bySupplier: Schema.optional(Schema.Boolean),
+  ...StoreFilter
 })
 
 export const StatsRow = Schema.Struct({

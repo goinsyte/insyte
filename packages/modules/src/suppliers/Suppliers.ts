@@ -5,6 +5,7 @@ import { Context, Effect, Layer, type Redacted } from "effect"
 import { SqlError } from "effect/sql"
 import type { SupplierApi } from "../forwarding/domain/Forwarding.ts"
 import type { Sealer } from "../shared/domain/Sealer.ts"
+import { inStore } from "../shared/use-cases/StoreScope.ts"
 import type { AssignInput, CreateInput, SetPausedInput, SupplierChange, UpdateInput } from "./domain/Commands.ts"
 import type {
   MarkPaidInput,
@@ -56,7 +57,8 @@ export class SuppliersService extends Context.Service<SuppliersService, {
   ) => Effect.Effect<StatementChange, Forbidden | Invalid | NotFound, R>
 }>()("modules/SuppliersService") {
   static readonly layer = Layer.succeed(SuppliersService, {
-    list: (input) => Suppliers.list(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    list: (input) =>
+      Suppliers.list(input).pipe(inStore(input.storeId), Effect.catchIf(SqlError.isSqlError, Effect.die)),
     get: (id) => Suppliers.get(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     create: (input) => Commands.create(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     update: (input) => Commands.update(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),

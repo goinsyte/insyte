@@ -1,4 +1,5 @@
 import { Context, type Effect, Schema } from "effect"
+import { StoreFilter } from "../../shared/domain/Stores.ts"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
 
 /*
@@ -80,7 +81,7 @@ export class LegList extends Schema.Class<LegList>("forwarding/LegList")({
 const Ids = Schema.Array(Schema.String).check(Schema.isMinLength(1), Schema.isMaxLength(500))
 
 /** One view of the queue; without one, every leg still open (the screen counts its header from them all). */
-export const ListInput = Schema.Struct({ view: Schema.optional(ForwardView) })
+export const ListInput = Schema.Struct({ view: Schema.optional(ForwardView), ...StoreFilter })
 
 /** "Doorsturen": the legs, how each supplier gets them where the operator says otherwise, and a note for the suppliers. */
 export const ForwardInput = Schema.Struct({

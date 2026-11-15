@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { StoreFilter } from "../../shared/domain/Stores.ts"
 
 /*
  * Start's three other views (M10.3b; widgets/02 Part A, "Mijn werk", "Agenda", "Activiteit"): facts from rows, never
@@ -53,7 +54,7 @@ export const AgendaSpan = Schema.Literals(["day", "week"])
 export type AgendaSpan = typeof AgendaSpan.Type
 
 /** The day, or the seven days from `from`. */
-export const AgendaInput = Schema.Struct({ from: Day, span: AgendaSpan })
+export const AgendaInput = Schema.Struct({ from: Day, span: AgendaSpan, ...StoreFilter })
 export type AgendaInput = typeof AgendaInput.Type
 
 export const AgendaKind = Schema.Literals(["queue", "supplier", "ticket", "invite", "todo"])
@@ -109,7 +110,8 @@ export const ActivityInput = Schema.Struct({
   source: Schema.optional(ActivitySource),
   /** The last row's `cursor` of the page before. */
   cursor: Schema.optional(Schema.String),
-  limit: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(200)))
+  limit: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(200))),
+  ...StoreFilter
 })
 export type ActivityInput = typeof ActivityInput.Type
 

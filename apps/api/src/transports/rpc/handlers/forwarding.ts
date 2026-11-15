@@ -5,7 +5,7 @@ import { Effect } from "effect"
 export const ForwardingHandlers = ForwardingRpcs.toLayer(Effect.gen(function*() {
   const forwarding = yield* ForwardingService
   return ForwardingRpcs.of({
-    "Forwarding.list": ({ view }) => forwarding.list(view),
+    "Forwarding.list": ({ view, storeId }) => forwarding.list(view, storeId),
     "Forwarding.forOrder": ({ orderId }) => forwarding.forOrder(orderId),
     "Forwarding.forward": (input) => forwarding.forward(input),
     "Forwarding.markConfirmed": (input) => forwarding.markConfirmed(input),
