@@ -167,6 +167,18 @@ export const tenantTable = (table: TenantTable, options: { readonly membersOnly?
     : [])
 ]
 
+/**
+ * The statements that close one partition of a partitioned tenant table to direct use (0097): row level security on
+ * and forced, with no policy, so `insyte_app` naming the partition itself reads and writes nothing. A query through
+ * the parent is held to the parent's policies alone (Postgres does not apply a partition's own), so it sees what it
+ * did. Every partition gets these when it is made: the default ones, and each month's once the job that makes them
+ * lands (M18); `tenancy.test.ts` checks every partition has them.
+ */
+export const sealedPartition = (partition: string): Array<string> => [
+  `alter table ${partition} enable row level security`,
+  `alter table ${partition} force row level security`
+]
+
 /** A supplier contact acting for its own supplier, whose rows `own` (a predicate over the table's columns) names. */
 const asPartner = (own: string) =>
   `app_principal_kind() = 'supplier_contact' and app_partner_id() is not null and (${own})`
