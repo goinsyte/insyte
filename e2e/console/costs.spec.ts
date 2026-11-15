@@ -39,9 +39,14 @@ async function mailLink(request: APIRequestContext, to: string, kind: string): P
   return `${url.pathname}${url.search}`
 }
 
-/** An RPC answered late, as on a busy preview; Access's own route still adds its headers (`fallback`). */
-const slow = async (route: Route) => {
-  await new Promise((resolve) => setTimeout(resolve, 1500))
+/**
+ * The month's save answered late, as on a busy preview; every other RPC goes on at once, so no read the page refreshes
+ * (and so drops) is held here meanwhile. Access's own route still adds its headers (`fallback`).
+ */
+const slowSave = async (route: Route) => {
+  if (route.request().postData()?.includes("Costs.setAmount")) {
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+  }
   await route.fallback()
 }
 
@@ -94,14 +99,15 @@ test("@costs a new admin adds costs, types a month, removes a line and takes it 
     const frame = window.requestAnimationFrame.bind(window)
     window.requestAnimationFrame = (run) => window.setTimeout(() => frame(run), 300)
   })
-  await page.route("**/api/rpc/**", slow)
+  await page.route("**/api/rpc/**", slowSave)
   await cells.last().fill("49")
   await cells.last().press("Enter")
-  await expect(page.getByText(/^Shopify-abonnement, \w+: /)).toBeVisible()
-  await expect(cells.last()).toHaveValue(/49/)
+  // What was typed replaces the amount, never adds to it ("€ 3.949").
+  await expect(page.getByText(/^Shopify-abonnement, \w+: €\s?49$/)).toBeVisible()
+  await expect(cells.last()).toHaveValue(/^€\s?49$/)
   await expect(cells.last()).not.toBeFocused()
-  // `unroute` leaves a slowed request still waiting in `slow`; its later `fallback()` then throws "Route is already
-  // handled!". So wait for those in flight before removing it (the only page route; Access adds its own on the context).
+  // `unroute` leaves a slowed save still waiting in `slowSave`; its later `fallback()` then throws "Route is already
+  // handled!". So wait for it before removing the route (the only page route; Access adds its own on the context).
   await page.unrouteAll({ behavior: "wait" })
 
   // A share of revenue is worked out, not typed.
@@ -126,5 +132,5 @@ test("@costs a new admin adds costs, types a month, removes a line and takes it 
   await page.reload()
   await hydrated(page)
   await expect(page.getByText("2 posten ·", { exact: false })).toBeVisible()
-  await expect(page.getByRole("textbox", { name: /^Shopify-abonnement, / }).last()).toHaveValue(/49/)
+  await expect(page.getByRole("textbox", { name: /^Shopify-abonnement, / }).last()).toHaveValue(/^€\s?49$/)
 })
