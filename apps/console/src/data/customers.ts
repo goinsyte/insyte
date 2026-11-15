@@ -69,17 +69,24 @@ export const customerAtom = Atom.family((id: string) =>
   )
 )
 
-/** The profiles that look like the same person (M7.4), for the list's review; a change to a customer refreshes it. */
-export const duplicatesAtom = Atom.serializable(
-  ConsoleClient.query("Customers.duplicates", undefined, { reactivityKeys: CUSTOMERS }),
-  {
-    key: "customer-duplicates",
-    schema: AsyncResult.Schema({
-      success: Schema.Array(DuplicateGroup),
-      error: Schema.Union([Forbidden, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
+/**
+ * The profiles that look like the same person (M7.4), for the list's review, in the store in view as the list is; a
+ * change to a customer refreshes it.
+ */
+export const duplicatesAtom = inView((storeId) =>
+  Atom.serializable(
+    ConsoleClient.query("Customers.duplicates", storeId === undefined ? undefined : { storeId }, {
+      reactivityKeys: CUSTOMERS
     }),
-    skipInitialRun: true
-  }
+    {
+      key: `customer-duplicates@${storeKey(storeId)}`,
+      schema: AsyncResult.Schema({
+        success: Schema.Array(DuplicateGroup),
+        error: Schema.Union([Forbidden, NoWorkspace, Unauthenticated, RpcClientError.RpcClientError])
+      }),
+      skipInitialRun: true
+    }
+  )
 )
 
 /** The customer commands (M7.4), each refreshing what names `CUSTOMERS`, and the undo they offer. */

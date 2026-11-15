@@ -82,7 +82,12 @@ test("@stores an admin with two stores switches the console from both to one and
   await page.getByRole("button", { name: workspace }).click()
   const menu = page.getByRole("menu")
   await expect(menu.getByRole("menuitem", { name: /Alle winkels/ })).toBeVisible()
+  // The choice is written as the member's preference: the reload below reads it back, so it waits for the write.
+  const saved = page.waitForResponse((r) =>
+    r.request().method() === "POST" && (r.request().postData() ?? "").includes("\"Prefs.patch\"") && r.ok()
+  )
   await menu.getByRole("menuitem", { name: new RegExp(SECOND) }).click()
+  expect(await (await saved).text(), "the store preference is saved").toContain("\"Success\"")
   await expect(page.getByRole("button", { name: SECOND })).toBeVisible()
   await expect(rows.filter({ hasText: SECOND }).first()).toBeVisible()
   await expect(rows.filter({ hasText: FIRST })).toHaveCount(0)

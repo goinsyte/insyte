@@ -1,3 +1,4 @@
+import { Option } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 
 /*
@@ -35,6 +36,21 @@ export const choiceOf = (value: unknown): StoreChoice | undefined => {
   return typeof id === "string" || id === null ? { id } : undefined
 }
 
+/** The store in view for a frame read and this tab's switch (`viewStoreAtom` in `store-view.ts`). */
+export const viewStoreOf = (
+  frame: AsyncResult.AsyncResult<{ readonly stores: ReadonlyArray<Reachable>; readonly prefs: SavedPrefs }, unknown>,
+  chosen: StoreChoice | undefined
+): string | null | undefined => {
+  const value = Option.getOrUndefined(AsyncResult.value(frame))
+  if (value === undefined) return AsyncResult.isFailure(frame) && !AsyncResult.isWaiting(frame) ? null : undefined
+  return storeInView(value.stores, chosen ?? choiceOf(value.prefs.sections["store"]?.value))
+}
+
+/** The member's preferences, as the frame carries them. */
+export interface SavedPrefs {
+  readonly sections: { readonly [section: string]: { readonly value: unknown } | undefined }
+}
+
 /** A read's input for the store in view: unchanged for every store, `storeId` added for one. */
 export const withStore = <P extends object>(payload: P, storeId: string | undefined): P & { storeId?: string } =>
   storeId === undefined ? payload : { ...payload, storeId }
@@ -46,19 +62,29 @@ export const storeKey = (storeId: string | undefined) => storeId ?? "all"
  * A store-bound read over `view` (the store in view; `undefined` while that is not known yet): one read per store,
  * made by `read` and kept apart by store, so a serializable one carries the store in its key. Until the store in view
  * is known it waits, as a first read does. Refreshing it reads the store in view again.
+ *
+ * Which store's read is in view is itself an atom (`current`), so every registry (each tab, the server's render) keeps
+ * its own. It changes only when the store in view does (an atom that reads the same value again tells no one), so
+ * when it is read again for the same store, that is a refresh, and it refreshes that store's read.
  */
 export const inViewOf =
   (view: Atom.Atom<string | null | undefined>) =>
   <A, E>(read: (storeId: string | undefined) => Atom.Atom<AsyncResult.AsyncResult<A, E>>) => {
     const perStore = Atom.family((store: string) => read(store === "" ? undefined : store))
-    let shown = ""
+    const current = Atom.readable((get): Atom.Atom<AsyncResult.AsyncResult<A, E>> | undefined => {
+      const store = get(view)
+      if (store === undefined) return undefined
+      const atom = perStore(store ?? "")
+      if (Option.getOrUndefined(get.self<Atom.Atom<AsyncResult.AsyncResult<A, E>> | undefined>()) === atom) {
+        get.refresh(atom)
+      }
+      return atom
+    })
     return Atom.readable(
       (get): AsyncResult.AsyncResult<A, E> => {
-        const store = get(view)
-        if (store === undefined) return AsyncResult.initial(true)
-        shown = store ?? ""
-        return get(perStore(shown))
+        const atom = get(current)
+        return atom === undefined ? AsyncResult.initial(true) : get(atom)
       },
-      (refresh) => refresh(perStore(shown))
+      (refresh) => refresh(current)
     )
   }

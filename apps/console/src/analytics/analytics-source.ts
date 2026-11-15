@@ -28,7 +28,7 @@ import { AsyncResult, Atom } from "effect/reactivity"
 import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { analyticsReads, chartsAtom, explainAtom, findingsAtom, pairKey, refKey } from "../data/analytics.ts"
-import { withStore } from "../data/in-view.ts"
+import { storeKey, withStore } from "../data/in-view.ts"
 import { viewStoreAtom } from "../data/store-view.ts"
 import { usePrefSection } from "../frame/prefs.ts"
 
@@ -676,13 +676,14 @@ export function useConsoleAnalyticsSource(input: {
 
   // The drawer's orders: the first page once it opens, the next ones on request.
   const readRecords = useAtomSet(analyticsReads.records, { mode: "promiseExit" })
-  // The drawer's orders are the store in view's, as its figures are.
+  // The drawer's orders are the store in view's, as its figures are: keyed by it, so a switch while the drawer is open
+  // reads the next store's first page, and a late answer or the next page of the store before is dropped.
   const store = useAtomValue(viewStoreAtom) ?? undefined
   const rowsRef = opened === null ? null : opened.kind === "finding" ? opened.rows : opened.ref
-  const rowsKey = rowsRef === null ? null : refKey(rowsRef)
+  const rowsKey = rowsRef === null ? null : `${refKey(rowsRef)}@${storeKey(store)}`
   const [paged, setPaged] = useState<Paged | null>(null)
   const load = (ref: ExplainRef, cursor: string | null, before: ReadonlyArray<RecordRow>) => {
-    const k = refKey(ref)
+    const k = `${refKey(ref)}@${storeKey(store)}`
     setPaged({ key: k, rows: before, next: cursor, loading: true, failed: false })
     void readRecords({ payload: { explainKey: withStore(ref, store), ...(cursor === null ? {} : { cursor }) } }).then((
       exit
