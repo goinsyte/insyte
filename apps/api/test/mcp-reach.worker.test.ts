@@ -84,6 +84,8 @@ const argsFor = (r: { order: string; line: string; ret: string; ticket: string; 
   const t = { ticket_id: r.ticket }
   return {
     whoami: {},
+    // On a conversation that is not there: answered NotFound before any model call, never refused for its scope.
+    ask_insyte: { question: "Wat wacht er op mij?", thread_id: "ath_none" },
     list_members: {},
     list_roles: {},
     list_orders: {},
@@ -207,7 +209,7 @@ describe("per-key tools/list", () => {
     }
 
     const catalogue = await names(full)
-    expect(catalogue).toHaveLength(58)
+    expect(catalogue).toHaveLength(59)
     const real = argsFor(records)
     const none = argsFor(NONE)
     expect(Object.keys(real).toSorted()).toEqual(catalogue)
@@ -233,7 +235,9 @@ describe("per-key tools/list", () => {
     // What each kind is named, by the catalogue's own words.
     expect(lists["view"]).not.toContain("tag_order")
     expect(lists["view"]).toContain("list_orders")
+    // Vraag Insyte needs no scope of its own: each read it makes needs its own.
     expect(lists["orders"]).toEqual([
+      "ask_insyte",
       "file_proposal",
       "get_order",
       "get_order_tracking",
