@@ -77,6 +77,7 @@ import listSortKeys from "./migrations/0089_list_sort_keys.ts"
 import billing from "./migrations/0090_billing.ts"
 import automationMailChecked from "./migrations/0091_automation_mail_checked.ts"
 import agentSink from "./migrations/0092_agent_sink.ts"
+import draftPayment from "./migrations/0094_draft_payment.ts"
 import knowledge from "./migrations/0099_knowledge.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 import supplierPortal from "./migrations/contract/0075_supplier_portal.ts"
@@ -167,5 +168,6 @@ export const Migrations = {
   "0090_billing": billing,
   "0091_automation_mail_checked": automationMailChecked,
   "0092_agent_sink": agentSink,
+  "0094_draft_payment": draftPayment,
   "0099_knowledge": knowledge
 }

@@ -37,13 +37,20 @@ const COPY: RefusalCopy = {
       "Een bestelling met verzonden pakketten kun je niet meer zo wijzigen."
     ],
     delivered: ["Deze bestelling is al bezorgd", "Een bezorgde bestelling markeer je niet meer als vertraagd."],
-    already_sent: ["Te laat om ongedaan te maken", "De mail is al verstuurd."]
+    already_sent: ["Te laat om ongedaan te maken", "De mail is al verstuurd."],
+    draft: ["Dit is een concept", "Een concept wordt pas een bestelling als het in Shopify is afgerond."],
+    not_draft: ["Dit is geen concept", "Alleen een concept kun je zo verwijderen."],
+    disconnected: ["De winkel is niet verbonden", "Verbind de winkel opnieuw om er een bestelling in te maken."]
   },
   invalid: {
     system: "Dit label zet Insyte zelf; je kunt het hier niet toevoegen of weghalen.",
     "address.country": "Gebruik een landcode van twee letters, zoals NL.",
     "address.line1": "Vul de straat en het huisnummer in.",
-    "address.city": "Vul de plaats in."
+    "address.city": "Vul de plaats in.",
+    "customer.name": "Vul de naam van de klant in.",
+    "customer.email": "Kijk het e-mailadres van de klant nog eens na.",
+    lines: "Geef elk artikel een SKU of een naam.",
+    unknown: "Deze winkel verkoopt een van de SKU's niet. Laat de SKU leeg voor een eigen artikel."
   },
   other: (tagged) => {
     switch (tagged._tag) {
@@ -60,6 +67,10 @@ const COPY: RefusalCopy = {
       case "CustomerMailRefused":
         toast.error("Geen e-mailadres", { description: "Shopify heeft geen e-mailadres voor deze klant." })
         return true
+      case "NotFound":
+        if (tagged["entity"] !== "store") return false
+        toast.error("Die winkel kun je niet bereiken", { description: "Kies een winkel waar je rol bij kan." })
+        return true
       case "AlreadyRefunded":
         toast.error("Al terugbetaald", { description: "Er staat niets meer open op deze bestelling." })
         return true
@@ -73,7 +84,7 @@ const orderRefused = (error: unknown) => sayRefusal(error, COPY)
 
 /** Insyte's markers as the design's orders carry them: set by Insyte, never as a label. */
 const AT_RISK = "at_risk"
-const MARKERS: ReadonlySet<string> = new Set([AT_RISK, "tracking_sent", "tracking_failed"])
+const MARKERS: ReadonlySet<string> = new Set([AT_RISK, "tracking_sent", "tracking_failed", "draft"])
 
 /** Why orders of a selection got no track-and-trace update, in a toast's words. */
 const SKIPPED: Record<TrackingSkip, readonly [one: string, many: string]> = {
@@ -120,6 +131,19 @@ export function useRefundGate(refundableMinor: number): TeamGate {
   return { ok: false, reason: `Je rol ${role.label} mist ${permissionName("refunds.write")}` }
 }
 
+/** "Nieuwe bestelling" as the dialog fills it in: amounts in the store's units. */
+export interface NewDraft {
+  readonly storeId: string
+  readonly name: string
+  readonly email: string
+  readonly payment: string
+  readonly note: string
+  readonly lines: ReadonlyArray<{ sku: string; title: string; qty: number; price: number }>
+}
+
+const PAYMENTS = ["stripe", "paypal", "klarna", "manual"] as const
+const paymentOf = (p: string) => PAYMENTS.find((k) => k === p.toLowerCase()) ?? "manual"
+
 /** Every order command, as the screens call them. */
 export function useOrderCommands() {
   const navigate = useNavigate()
@@ -136,6 +160,7 @@ export function useOrderCommands() {
     refund: useAtomSet(orderWrites.refund, { mode: "promiseExit" }),
     emailCustomer: useAtomSet(orderWrites.emailCustomer, { mode: "promiseExit" }),
     sendTrackingUpdate: useAtomSet(orderWrites.sendTrackingUpdate, { mode: "promiseExit" }),
+    createDraft: useAtomSet(orderWrites.createDraft, { mode: "promiseExit" }),
     undo: useAtomSet(orderWrites.undo, { mode: "promiseExit" })
   }
 
@@ -154,6 +179,36 @@ export function useOrderCommands() {
   }
 
   return {
+    /**
+     * "Conceptbestelling aanmaken": the draft in Insyte at once, in Shopify once the undo window has passed. Answers the
+     * draft's id, to open it.
+     */
+    createDraft: async (input: NewDraft): Promise<string | undefined> => {
+      const exit = await write.createDraft({
+        payload: {
+          storeId: input.storeId,
+          customer: { name: input.name, email: input.email },
+          payment: paymentOf(input.payment),
+          note: input.note,
+          lines: input.lines.map((l) => ({
+            sku: l.sku,
+            title: l.title,
+            quantity: l.qty,
+            unitPriceMinor: Math.max(0, Math.round(l.price * 100))
+          }))
+        },
+        ...keys
+      })
+      if (Exit.isFailure(exit)) return void orderRefused(failureOf(exit))
+      const draft = exit.value.orders[0]
+      const ticket = exit.value.undo
+      if (draft === undefined) return
+      const message = `Conceptbestelling ${draft.number} aangemaakt`
+      const detail = "Shopify krijgt het concept zodra je het niet meer ongedaan kunt maken."
+      if (ticket === null) toast.success(message, { description: detail })
+      else undoable(message, () => undo(ticket.token), detail)
+      return draft.id
+    },
     /** The order's tags as the screen wants them: what is new is added, what is gone is taken off. */
     setTags: async (order: Order, tags: ReadonlyArray<string>, message: string) => {
       // "Vertraagd" (`at_risk`) is the order's delay, not a label: it changes through flagDelayed and clearDelay. The

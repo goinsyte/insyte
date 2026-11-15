@@ -332,10 +332,23 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   // hears of it. Its URL is a page, rendered whole on the server.
   await page.goto("/orders")
   await hydrated(page)
-  // Draft orders are not made from the console yet: the page's and the panel's "new" are off.
-  for (const button of await page.getByRole("button", { name: "Nieuwe bestelling" }).all()) {
-    await expect(button).toBeDisabled()
-  }
+  // @order (M7.1): "Nieuwe bestelling" makes a draft in the store, a line by its SKU at the variant's price; it opens as
+  // Concept, and Undo inside the window takes it back before Shopify hears of it.
+  await page.getByRole("button", { name: "Nieuwe bestelling" }).first().click()
+  const draft = page.getByRole("dialog", { name: "Nieuwe bestelling" })
+  await draft.getByLabel("Naam klant").fill("Dewi Kusuma")
+  await draft.getByLabel("E-mailadres klant").fill("dewi@example.com")
+  await draft.getByPlaceholder("SKU").fill("WOL-1")
+  await draft.getByRole("button", { name: "Conceptbestelling aanmaken" }).click()
+  await expect(page.getByText(/^Conceptbestelling SO-\d+ aangemaakt$/)).toBeVisible()
+  const made = page.getByRole("dialog")
+  await expect(made.getByText("Wollen trui")).toBeVisible()
+  await expect(made.getByText("Concept", { exact: true }).first()).toBeVisible()
+  await page.getByRole("button", { name: "Ongedaan maken" }).click()
+  await page.goto("/orders")
+  await hydrated(page)
+  await expect(page.getByRole("row", { name: /#1002/ })).toBeVisible()
+  await expect(page.getByRole("row", { name: /Dewi Kusuma/ })).toHaveCount(0)
   await page.getByRole("row", { name: /#1002/ }).click()
   const record = page.getByRole("dialog")
   await expect(record.getByText("#1002")).toBeVisible()
@@ -385,6 +398,23 @@ test("@analysis @order @customer @product @search a new admin with a store reads
   await hydrated(page)
   await expect(page.getByRole("heading", { name: "Linnen overhemd" })).toBeVisible()
   await expect(page.getByText("LIN-M")).toBeVisible()
+  // @product (M7.3): "Nieuw product" makes one in the store with its price and SKU, opened over the list; Undo inside
+  // the window takes it back before Shopify hears of it.
+  await page.goto("/products")
+  await hydrated(page)
+  await page.getByRole("button", { name: "Nieuw product" }).first().click()
+  const product = page.getByRole("dialog", { name: "Nieuw product" })
+  await product.getByLabel("Producttitel").fill("Katoenen shirt")
+  await product.getByLabel("SKU").fill("KAT-1")
+  await product.getByLabel(/^Prijs/).fill("29.95")
+  await product.getByRole("button", { name: "Concept opslaan" }).click()
+  await expect(page.getByText("Katoenen shirt aangemaakt")).toBeVisible()
+  await expect(page.getByRole("dialog").getByText("KAT-1")).toBeVisible()
+  await page.getByRole("button", { name: "Ongedaan maken" }).click()
+  await page.goto("/products")
+  await hydrated(page)
+  await expect(page.getByRole("row", { name: /Linnen overhemd/ })).toBeVisible()
+  await expect(page.getByRole("row", { name: /Katoenen shirt/ })).toHaveCount(0)
 
   // @search (step 8.4e): the palette finds records through `Search.records`: an order by its number, then a customer
   // by name, each opening its record.

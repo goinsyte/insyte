@@ -38,7 +38,7 @@ export const GetReturn = Tool.make("get_return", {
 
 export const StartReturn = Tool.make("start_return", {
   description:
-    "Starts a return or claim for a shopper on an order's lines (line ids from get_order); it waits for review. A claim reason (damaged, wrong_item, quality) makes it a claim. Needs returns.write.",
+    "Starts a return or claim for a shopper on an order's lines (line ids from get_order); it waits for review. A claim reason (damaged, wrong_item, quality) makes it a claim. Refused for an agent's key. Needs returns.write.",
   parameters: Schema.Struct({
     order_id: OrderId,
     lines: Schema.Array(Schema.Struct({ line_id: Schema.String, quantity: Schema.Int })),
@@ -50,7 +50,7 @@ export const StartReturn = Tool.make("start_return", {
     idempotency_key: IdempotencyKey
   }),
   success: Return,
-  failure: ReturnMoveFailure,
+  failure: Schema.Union([...ReturnMoveFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
@@ -69,16 +69,16 @@ export const ApproveReturn = Tool.make("approve_return", {
 
 export const RejectReturn = Tool.make("reject_return", {
   description:
-    "Rejects a return in review or waiting for its parcel, with a reason the shopper reads. Needs returns.write and returns.approve.",
+    "Rejects a return in review or waiting for its parcel, with a reason the shopper reads. Refused for an agent's key. Needs returns.write and returns.approve.",
   parameters: Schema.Struct({ return_id: ReturnId, reason: Schema.String, idempotency_key: IdempotencyKey }),
   success: Return,
-  failure: ReturnMoveFailure,
+  failure: Schema.Union([...ReturnMoveFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
 export const AddReturnTracking = Tool.make("add_return_tracking", {
   description:
-    "Records the carrier and tracking number a shopper sent their return parcel with themselves (\"zelf versturen\"), for a return waiting for its parcel without a label from Insyte; AfterShip then follows it. Needs returns.write.",
+    "Records the carrier and tracking number a shopper sent their return parcel with themselves (\"zelf versturen\"), for a return waiting for its parcel without a label from Insyte; AfterShip then follows it. Refused for an agent's key. Needs returns.write.",
   parameters: Schema.Struct({
     return_id: ReturnId,
     carrier: Schema.Literals(["PostNL", "DHL", "DPD", "UPS"]),
@@ -86,7 +86,7 @@ export const AddReturnTracking = Tool.make("add_return_tracking", {
     idempotency_key: IdempotencyKey
   }),
   success: Return,
-  failure: ReturnMoveFailure,
+  failure: Schema.Union([...ReturnMoveFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
@@ -100,16 +100,16 @@ export const SendReturnLabel = Tool.make("send_return_label", {
 }).annotate(Tool.Idempotent, true).annotate(Tool.Destructive, true)
 
 export const ReceiveReturn = Tool.make("receive_return", {
-  description: "Marks a return's parcel received. Needs returns.write.",
+  description: "Marks a return's parcel received. Refused for an agent's key. Needs returns.write.",
   parameters: Schema.Struct({ return_id: ReturnId, idempotency_key: IdempotencyKey }),
   success: Return,
-  failure: ReturnMoveFailure,
+  failure: Schema.Union([...ReturnMoveFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
 export const InspectReturn = Tool.make("inspect_return", {
   description:
-    "Records a received return's inspection (each line ok, damaged or missing, and whether it goes back on the shelf; without lines, all in order); it is then ready to settle. Needs returns.write.",
+    "Records a received return's inspection (each line ok, damaged or missing, and whether it goes back on the shelf; without lines, all in order); it is then ready to settle. Refused for an agent's key. Needs returns.write.",
   parameters: Schema.Struct({
     return_id: ReturnId,
     lines: Schema.optional(Schema.Array(Schema.Struct({
@@ -120,7 +120,7 @@ export const InspectReturn = Tool.make("inspect_return", {
     idempotency_key: IdempotencyKey
   }),
   success: Return,
-  failure: ReturnMoveFailure,
+  failure: Schema.Union([...ReturnMoveFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 

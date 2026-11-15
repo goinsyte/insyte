@@ -170,6 +170,15 @@ const PAYLOADS: Record<string, unknown> = {
   "Orders.get": { id: "ord_none" },
   "Orders.tags": undefined,
   "Orders.tag": { ids: ["ord_none"], add: ["x"], remove: [] },
+  // A store that is not there: `NotFound` for every role that may, never a draft made.
+  "Orders.createDraft": {
+    storeId: "sto_none",
+    customer: { name: "Iemand", email: "iemand@example.com" },
+    payment: "manual",
+    lines: [{ sku: "", title: "x", quantity: 1, unitPriceMinor: 100 }],
+    note: ""
+  },
+  "Orders.removeDraft": { id: "ord_none" },
   "Orders.markFulfilled": { ids: ["ord_none"] },
   "Orders.updateShipping": {
     id: "ord_none",
@@ -185,6 +194,17 @@ const PAYLOADS: Record<string, unknown> = {
   "Products.list": {},
   "Products.get": { id: "prd_none" },
   "Products.lowStock": {},
+  // A store that is not there: `NotFound` for every role that may, never a product made.
+  "Products.create": {
+    storeId: "sto_none",
+    title: "x",
+    sku: "",
+    priceMinor: 100,
+    costMinor: null,
+    supplierId: null,
+    status: "draft",
+    description: ""
+  },
   "Products.edit": { id: "prd_none", title: "x" },
   "Products.setStatus": { ids: ["prd_none"], status: "draft" },
   "Products.reprice": { ids: ["prd_none"], targetMargin: 0.5, apply: false },
