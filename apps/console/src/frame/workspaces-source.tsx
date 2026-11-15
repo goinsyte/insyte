@@ -9,7 +9,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { useEffect, useMemo, useRef } from "react"
 import { toast } from "sonner"
-import { nameTabWorkspace } from "../data/client.ts"
+import { nameTabWorkspace } from "../data/tab-workspace.ts"
 import { workspaceInvitesAtom, WORKSPACES, workspacesAtom, workspaceWrites } from "../data/workspaces.ts"
 import { onOtherTabSwitched, reloadInto, takeFlash } from "./switching.ts"
 

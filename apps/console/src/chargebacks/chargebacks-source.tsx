@@ -14,6 +14,7 @@ import { AsyncResult } from "effect/reactivity"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { CHARGEBACK_WRITES, chargebackWrites, nextCaseNumberAtom } from "../data/chargebacks.ts"
+import { fetchInTab } from "../data/tab-workspace.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 import { caseOf, chargebackOf, providerName, reasonCodeOf } from "./chargeback-of.ts"
 
@@ -114,7 +115,7 @@ function useCommands(
     attach: async (c, files) => {
       const fileIds: Array<string> = []
       for (const file of files) {
-        const response = await fetch(`/api/chargebacks/${encodeURIComponent(c.id)}/evidence`, {
+        const response = await fetchInTab(`/api/chargebacks/${encodeURIComponent(c.id)}/evidence`, {
           method: "PUT",
           headers: {
             "content-type": file.type || "application/octet-stream",
