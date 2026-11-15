@@ -54,6 +54,7 @@ import { useHasPage } from "./pages.ts"
 import { usePrefSection } from "./prefs.ts"
 import { useConsoleRecordSearch } from "./record-search.ts"
 import { useWake } from "./wake.ts"
+import { ConsoleWorkspaceSwitch, useConsoleWorkspaces } from "./workspaces-source.tsx"
 
 /*
  * The frame in the console (step 7.4c, M5): the design's parts over the server. What the member set is their
@@ -212,6 +213,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
   const syncLine = useMemo(() => syncLineOf(healthLine), [healthLine])
 
   const gateRole = useMemo(() => roleOf(frame), [frame])
+  const team = useConsoleWorkspaces(frame)
   const [nav, setNav] = usePrefSection(frame, "rail", NAV_DEFAULTS)
   const [panel, setPanel] = usePrefSection(frame, "panel", PANEL_DEFAULTS)
   const [pins, setPins] = usePrefSection(frame, "pins", PINS_DEFAULTS)
@@ -333,25 +335,8 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     autonomy: { budget: { limit: null, used: 0 } },
     ask: { start: () => void navigate({ to: "/ask" as never }) },
     marketplaceModal: { openModal: openMarketplace },
-    team: {
-      workspaces: [{
-        id: frame.workspace.id,
-        name: frame.workspace.name,
-        role: frame.role.label,
-        members: frame.teammates.length,
-        plan: "",
-        own: frame.role.id === "owner",
-        home: true
-      }],
-      activeWorkspaceId: frame.workspace.id,
-      workspaceInvites: [],
-      acceptWorkspaceInvite: () => undefined,
-      declineWorkspaceInvite: () => undefined,
-      restoreWorkspaceInvite: () => {},
-      leaveWorkspace: () => {},
-      switchWorkspace: () => {},
-      setCreatingWorkspace: () => {}
-    },
+    // The person's workspaces and invitations to another (M3.1): `workspaces-source.tsx`.
+    team,
     workspace: {
       tickets: [],
       orders: [],
@@ -385,7 +370,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     slots: {
       Customize: null,
       AppDetail: null,
-      WorkspaceSwitch: null,
+      WorkspaceSwitch: ConsoleWorkspaceSwitch,
       FirstRunHint: null,
       Invite: ConsoleInvite,
       ConnectStore: null
