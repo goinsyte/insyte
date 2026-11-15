@@ -82,6 +82,7 @@ describe("the MCP server", () => {
     expect(tools.map((t) => t.name).toSorted()).toEqual([
       "add_return_tracking",
       "approve_return",
+      "ask_insyte",
       "assign_ticket",
       "cancel_order",
       "clear_order_delay",
@@ -174,7 +175,8 @@ describe("the MCP server", () => {
         "get_sheet",
         "list_imports",
         "list_exports",
-        "get_export"
+        "get_export",
+        "ask_insyte"
       ]
     ) {
       expect(hints[read]?.["readOnlyHint"]).toBe(true)

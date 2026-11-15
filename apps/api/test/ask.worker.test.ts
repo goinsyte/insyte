@@ -193,6 +193,109 @@ describe("Vraag Insyte", () => {
     expect(turn.sources).toEqual([])
   })
 
+  it("answers a key over /v1 and MCP as it would a person, once per Idempotency-Key, in the key's own conversations", async () => {
+    const keyOf = async (agent: boolean) =>
+      ok(
+        await rpc("ApiKeys.create", {
+          label: agent ? "Vraag Insyte (agent)" : "Vraag Insyte",
+          access: { kind: "custom", scopes: { chargebacks: 1 } },
+          stores: "all",
+          expiresInDays: 30,
+          ips: [],
+          agent
+        }, owner)
+      ).secret
+    const key = await keyOf(false)
+    const agent = await keyOf(true)
+    const v1 = async (path: string, init: { method?: string; body?: unknown; key?: string; as?: string } = {}) => {
+      const response = await call(`http://api.public.test/v1${path}`, {
+        method: init.method ?? "GET",
+        headers: {
+          authorization: `Bearer ${init.as ?? key}`,
+          ...(init.body === undefined ? {} : { "content-type": "application/json" }),
+          ...(init.key === undefined ? {} : { "idempotency-key": init.key })
+        },
+        ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) })
+      })
+      return { status: response.status, body: await response.json() as Json }
+    }
+    const question = { question: "Welke chargebacks hebben bewijs nodig?" }
+    expect((await v1("/ask", { method: "POST", body: question })).status).toBe(400)
+    const asked = await v1("/ask", { method: "POST", body: question, key: `ask-${run}` })
+    expect(asked.status).toBe(200)
+    expect(asked.body.question).toMatchObject({ role: "user", text: question.question })
+    expect(asked.body.answer).toMatchObject({ role: "assistant", state: "settled", failure: null })
+    expect(asked.body.answer.figures.map((f: Json) => f.value.replaceAll("\u00a0", " "))).toEqual(
+      expect.arrayContaining(["€ 45,00", "€ 72,50"])
+    )
+    expect(asked.body.answer.records.every((r: Json) => r.path.startsWith("/chargebacks/"))).toBe(true)
+    const answerOf = asked.body.answer.id as string
+    expect(await callsOf(workspace, answerOf)).toHaveLength(2)
+
+    // The same key again is the same answer, not a second one.
+    const again = await v1("/ask", { method: "POST", body: question, key: `ask-${run}` })
+    expect(again.body.answer.id).toBe(answerOf)
+    expect(await callsOf(workspace, answerOf)).toHaveLength(2)
+
+    const threads = await v1("/ask/threads")
+    expect(threads.body.data.map((t: Json) => t.id)).toEqual([asked.body.thread_id])
+    const thread = await v1(`/ask/threads/${asked.body.thread_id}`)
+    expect(thread.body.turns.map((t: Json) => t.role)).toEqual(["user", "assistant"])
+    // A key's conversation is the key's: the owner has it neither listed nor to open, and the key not theirs.
+    expect(ok(await rpc("Ask.list", {}, owner)).rows.map((r) => r.id)).not.toContain(asked.body.thread_id)
+    expect(failure(await rpc("Ask.get", { id: asked.body.thread_id }, owner))).toMatchObject({ _tag: "NotFound" })
+    expect((await v1(`/ask/threads/${threadId}`)).status).toBe(404)
+
+    // The key may not read Analyse: a question about this month says so and puts no number to it.
+    const monthly = await v1("/ask", {
+      method: "POST",
+      body: { question: "Hoe gaat het deze maand met de omzet?" },
+      key: `ask-${run}-2`
+    })
+    expect(monthly.body.answer.figures).toEqual([])
+
+    // An agent's key asks over MCP, as all its calls that are not reads do; on `/v1` it is told so.
+    expect(await v1("/ask", { method: "POST", body: question, key: `ask-${run}-3`, as: agent })).toMatchObject({
+      status: 403,
+      body: { error: { code: "ActionNotAllowedV1", reason: "use_mcp" } }
+    })
+    const tool = await call("http://api.public.test/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+        "MCP-Protocol-Version": "2026-07-28",
+        "Mcp-Method": "tools/call",
+        "Mcp-Name": "ask_insyte",
+        authorization: `Bearer ${agent}`
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "ask_insyte",
+          arguments: { question: "Welke chargebacks hebben bewijs nodig?" },
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+            "io.modelcontextprotocol/clientInfo": { name: "insyte-test", version: "1.0.0" }
+          }
+        }
+      })
+    })
+    expect(tool.status).toBe(200)
+    const text = await tool.text()
+    const message = (tool.headers.get("content-type")?.includes("text/event-stream")
+      ? text.split("\n").filter((l) => l.startsWith("data:")).map((l) => JSON.parse(l.slice(5))).find((m) => "id" in m)
+      : JSON.parse(text)) as { result: { isError: boolean; content: Array<{ text: string }> } }
+    expect(message.result.isError).toBe(false)
+    const answered = JSON.parse(message.result.content[0]!.text)
+    expect(answered).toMatchObject({ answer: { state: "settled" } })
+    expect(answered.thread_id).not.toBe(asked.body.thread_id)
+    expect(answered.answer.figures.length).toBeGreaterThan(0)
+  })
+
   it("sets a conversation aside with Undo, and puts it back", async () => {
     const removed = ok(await rpc("Ask.remove", { id: threadId }, owner))
     expect(removed.id).toBe(threadId)
