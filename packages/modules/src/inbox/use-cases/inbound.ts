@@ -115,12 +115,13 @@ export const store = Effect.fn("Inbox.store")(function*(
   }
   yield* sql`
     insert into email_messages (id, workspace_id, thread_id, rfc822_message_id, in_reply_to, "references", direction,
-                                kind, from_name, from_address, "to", cc, subject, body_text, body_html_key, sent_at)
+                                kind, from_name, from_address, "to", cc, subject, body_text, body_html_key, sent_at,
+                                automated)
     values (${messageId}, ${workspaceId}, ${threadId}, ${rfc822},
             ${mail.inReplyTo === null ? null : bare(mail.inReplyTo)}, ${mail.references.map(bare)}::text[],
             'inbound', 'message', ${mail.from.name.trim()}, ${mail.from.email.trim().toLowerCase()},
             ${JSON.stringify(mail.to)}::jsonb, ${JSON.stringify(mail.cc)}::jsonb, ${mail.subject.slice(0, 998)},
-            ${mail.text}, ${htmlKey}, ${sentAt})`
+            ${mail.text}, ${htmlKey}, ${sentAt}, ${mail.automated})`
 
   let kept = 0
   for (const [i, a] of mail.attachments.entries()) {

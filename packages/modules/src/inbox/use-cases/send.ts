@@ -31,6 +31,8 @@ interface Queued {
   readonly status: "connected" | "disconnected"
   /** The thread binned or marked spam. */
   readonly aside: boolean
+  /** Written by the workspace's agent on its own (M15 step 6). */
+  readonly automatic: boolean
 }
 
 const angle = (id: string) => `<${id}>`
@@ -44,7 +46,8 @@ export const sendQueued = Effect.fn("Inbox.sendQueued")(function*(
   const [m] = yield* sql<Queued>`
     select e.id, e.workspace_id, e.thread_id, e.rfc822_message_id, e.in_reply_to, e."references", e."to"::text as to,
            e.subject, e.body_text, e.send_state, b.label, b.address, b.status,
-           t.deleted_at is not null or t.spam_at is not null as aside
+           t.deleted_at is not null or t.spam_at is not null as aside,
+           exists (select 1 from agents a where a.id = e.sent_by) as automatic
     from email_messages e join email_threads t on t.id = e.thread_id join mailboxes b on b.id = t.mailbox_id
     where e.id = ${messageId} and e.direction = 'outbound' for update of e`
   if (m === undefined || m.sendState !== "scheduled") return
@@ -61,6 +64,8 @@ export const sendQueued = Effect.fn("Inbox.sendQueued")(function*(
       to: to.email,
       sender: m.label,
       reference: m.id,
+      // The agent's own answer says so, so an out-of-office does not answer it back.
+      ...(m.automatic ? { autoSubmitted: "auto-replied" as const } : {}),
       support: {
         subject: m.subject,
         text: m.bodyText,
