@@ -1,6 +1,6 @@
 import { PgClient } from "@effect/sql-pg"
 import { mintId, UserId, WorkspaceId } from "@insyte/domain/Ids"
-import { CurrentPrincipal, type Principal } from "@insyte/domain/Principal"
+import { CurrentPrincipal, CurrentWorkspace, type Principal } from "@insyte/domain/Principal"
 import { CurrentUser, type SessionUser } from "@insyte/domain/Session"
 import { Cause, Effect, type Exit, Layer, Redacted, Schema } from "effect"
 import { describe, expect, it } from "vitest"
@@ -73,7 +73,7 @@ const found = (user: SessionUser, workspaceId: WorkspaceId) =>
         yield* sql`insert into workspace_counters (workspace_id, kind) values (${workspaceId}, 'order')`
         yield* sql`insert into outbox (id, workspace_id, event, payload) values (${
           mintId("obx")
-        }, ${workspaceId}, 'test', '{}')`
+        }, ${workspaceId}, 'workspace.created', '{}')`
       })
     ).pipe(Effect.provideService(CurrentUser, user))
     yield* db.asUserIn(workspaceId)((sql) =>
@@ -114,6 +114,9 @@ const refusalOf = (exit: Exit.Exit<unknown, unknown>) =>
     ? "accepted"
     : Cause.pretty(exit.cause).match(/new row violates row-level security policy.*? for table "[^"]+"/)?.[0] ??
       Cause.pretty(exit.cause).slice(0, 300)
+
+/** The ids of some rows, sorted. */
+const ids = (rows: ReadonlyArray<{ id: string }>) => rows.map((r) => r.id).toSorted()
 
 /** Row level security refusing a new row in `table`: by its restrictive `policy`, or for want of a permissive one. */
 const rlsRefusal = (table: string, policy?: string) =>
@@ -409,6 +412,104 @@ describe("tenancy", () => {
       })
       expect(Number(row.policies), row.table).toBeGreaterThan(0)
     }
+  })
+
+  it("shows a newcomer only the invitation they handle and theirs, its mail, and no card or supplier details (0096)", async () => {
+    const theirs = mintId("inv")
+    const handled = mintId("inv")
+    const seen = await run(
+      Effect.gen(function*() {
+        const db = yield* Db
+        // B pays, works with a supplier, and has invitations: one to Alice, one to someone else, and that one's mail.
+        const supplier = mintId("sup")
+        yield* db.scopedFor((sql) =>
+          Effect.gen(function*() {
+            yield* sql`insert into subscriptions (workspace_id, stripe_customer_id, stripe_subscription_id, status, plan,
+                                                  extra_seats, card_last4, card_expiry)
+                       values (${wsB}, ${`cus_${runId}`}, ${`sub_${runId}`}, 'active', 'growth', 2, '4242', '12/2030')`
+            yield* sql`insert into suppliers (id, workspace_id, name, created_by, contact_email)
+                       values (${supplier}, ${wsB}, 'Linyi Trading', ${members["b"]!}, 'sales@linyi.example')`
+            yield* sql`insert into invitations (id, workspace_id, email, token_hash, role_id, invited_by, expires_at)
+                       values (${theirs}, ${wsB}, ${alice.email}, '\\x01', 'owner', ${members["b"]!},
+                               now() + interval '7 days'),
+                              (${handled}, ${wsB}, 'iemand@example.com', '\\x02', 'owner', ${members["b"]!},
+                               now() + interval '7 days')`
+            yield* sql`insert into outbox (id, workspace_id, event, payload)
+                       values (${mintId("obx")}, ${wsB}, 'member.invited', ${
+              JSON.stringify({ invitationId: handled })
+            }::jsonb),
+                              (${mintId("obx")}, ${wsB}, 'member.invited', ${
+              JSON.stringify({ invitationId: theirs })
+            }::jsonb)`
+          })
+        ).pipe(Effect.provideService(CurrentWorkspace, { id: wsB }))
+        const as =
+          (invitation?: string) =>
+          <A, E>(f: (sql: Parameters<Parameters<typeof db.forUser>[0]>[0]) => Effect.Effect<A, E>) =>
+            db.asNewcomerIn(wsB, invitation)(f).pipe(Effect.provideService(CurrentUser, alice))
+        return {
+          invitations: {
+            unhandled: ids(yield* as()((sql) => sql<{ id: string }>`select id from invitations`)),
+            handlingAnother: ids(yield* as(handled)((sql) => sql<{ id: string }>`select id from invitations`)),
+            // Handled but not addressed to Alice: read, never changed; hers, but not the one handled: not changed.
+            changedNotHers: (yield* as(handled)((sql) =>
+              sql`update invitations set declined_at = now() where id = ${handled} returning id`
+            )).length,
+            changedUnhandled: (yield* as()((sql) =>
+              sql`update invitations set declined_at = now() where id = ${theirs} returning id`
+            )).length,
+            changedHers: (yield* as(theirs)((sql) =>
+              sql`update invitations set declined_at = null where id = ${theirs} returning id`
+            )).length
+          },
+          outbox: {
+            read: (yield* as(theirs)((sql) =>
+              sql<{ invitation: string }>`select payload ->> 'invitationId' as invitation from outbox`
+            )).map((r) =>
+              r.invitation
+            ),
+            cancelled: (yield* as(theirs)((sql) =>
+              sql`update outbox set cancelled_at = now() where event = 'member.invited' returning id`
+            )).length,
+            otherEvent: refusalOf(
+              yield* Effect.exit(
+                as()((sql) =>
+                  sql`insert into outbox (id, workspace_id, event, payload)
+                    values (${mintId("obx")}, ${wsB}, 'member.removed', '{}')`
+                )
+              )
+            )
+          },
+          subscriptions: yield* as()((sql) =>
+            sql`select card_last4 from subscriptions`
+          ),
+          seats: yield* as()((sql) =>
+            sql<{ status: string; extra: number }>`
+            select status, extra_seats as extra from workspace_seat_facts()`
+          ),
+          suppliers: yield* as()((sql) => sql`select contact_email from suppliers`),
+          supplierName: (yield* as()((sql) =>
+            sql<{ name: string | null }>`select supplier_name_in_workspace(${supplier}) as name`
+          ))[0]!.name
+        }
+      })
+    )
+    expect(seen.invitations).toEqual({
+      unhandled: [theirs],
+      handlingAnother: [handled, theirs].toSorted(),
+      changedNotHers: 0,
+      changedUnhandled: 0,
+      changedHers: 1
+    })
+    expect(seen.outbox).toEqual({
+      read: [theirs],
+      cancelled: 1,
+      otherEvent: rlsRefusal("outbox", "outbox_newcomer_insert")
+    })
+    expect(seen.subscriptions).toEqual([])
+    expect(seen.seats).toEqual([{ status: "active", extra: 2 }])
+    expect(seen.suppliers).toEqual([])
+    expect(seen.supplierName).toBe("Linyi Trading")
   })
 
   it("keeps the newcomer out of every table with row level security but founding's and the invitations' (0096)", async () => {

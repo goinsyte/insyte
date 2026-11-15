@@ -32,6 +32,12 @@ import { statements } from "../statements.ts"
 /** The person's own member row in the transaction's workspace, and the keys that row made. */
 const OWN_MEMBER = "user_id = app_user_id()"
 const OWN_KEYS = "created_by in (select m.id from members m where m.user_id = app_user_id())"
+/** The invitation the newcomer handles (`app.invitation_id`, the one accepted, declined or undone), and theirs. */
+const HANDLED = "id = app_invitation_id()"
+const ADDRESSED = "email = app_verified_email()"
+/** What founding and an invitation write to the outbox, and the invitation mail a decline cancels. */
+const WRITTEN = "event in ('workspace.created', 'member.joined', 'records.changed')"
+const ITS_MAIL = "event = 'member.invited' and payload ->> 'invitationId' = app_invitation_id()"
 
 export default statements(
   "alter table members add column left_at timestamptz",
@@ -75,6 +81,49 @@ export default statements(
   "revoke all on function invitation_route_for_user(text, boolean) from public",
   "grant execute on function invitation_route_for_user(text, boolean) to insyte_app",
   //
+  // The invitation a newcomer handles, and the signed-in person's verified address (both null when there is none).
+  `create function app_invitation_id() returns text language sql stable as
+     $$ select nullif(current_setting('app.invitation_id', true), '') $$`,
+  `create function app_verified_email() returns text language sql stable as
+     $$ select lower(u.email) from auth."user" u where u.id = app_user_id() and u.email_verified $$`,
+  // The seats (Seats.ts) and a supplier's name (the landing) without the rows behind them: the subscription's card
+  // and invoices and a supplier's contact details stay out of the newcomer's reach. Member side only; as the owner
+  // with `app.principal_kind` at `system`, put back before they return.
+  `create function workspace_seat_facts()
+     returns table (workspace_plan text, status text, plan text, extra_seats int, started_at timestamptz,
+                    active int, pending int)
+     language plpgsql security definer set search_path = public, pg_temp as $$
+     #variable_conflict use_column
+     declare prior text := current_setting('app.principal_kind', true);
+     begin
+       if not coalesce(app_is_member_side(), false) then return; end if;
+       perform set_config('app.principal_kind', 'system', true);
+       return query
+         select w.plan, s.status, s.plan, s.extra_seats, s.started_at,
+                (select count(*)::int from members m
+                  where m.workspace_id = w.id and m.removed_at is null and m.deactivated_at is null),
+                (select count(*)::int from invitations i
+                  where i.workspace_id = w.id and i.accepted_at is null and i.revoked_at is null
+                    and i.declined_at is null and i.expires_at > now())
+         from workspaces w left join subscriptions s on s.workspace_id = w.id
+         where w.id = app_workspace_id();
+       perform set_config('app.principal_kind', coalesce(prior, ''), true);
+     end $$`,
+  "revoke all on function workspace_seat_facts() from public",
+  "grant execute on function workspace_seat_facts() to insyte_app",
+  `create function supplier_name_in_workspace(supplier text) returns text
+     language plpgsql security definer set search_path = public, pg_temp as $$
+     declare prior text := current_setting('app.principal_kind', true); result text;
+     begin
+       if not coalesce(app_is_member_side(), false) then return null; end if;
+       perform set_config('app.principal_kind', 'system', true);
+       select s.name into result from suppliers s where s.id = supplier and s.workspace_id = app_workspace_id();
+       perform set_config('app.principal_kind', coalesce(prior, ''), true);
+       return result;
+     end $$`,
+  "revoke all on function supplier_name_in_workspace(text) from public",
+  "grant execute on function supplier_name_in_workspace(text) to insyte_app",
+  //
   // The newcomer counts as member side, so the members-only tables below let it through to what `newcomerMay` allows.
   `create or replace function app_is_member_side() returns boolean language sql stable as
      $$ select app_principal_kind() in ('member', '${NEWCOMER_KIND}', 'api_key', 'service_account', 'agent', 'system') $$`,
@@ -85,16 +134,16 @@ export default statements(
   newcomerMay("workspace_counters", { insert: true }),
   newcomerMay("ai_budgets", { insert: true }),
   newcomerMay("audit_events", { insert: true }),
-  // `workspace.created` and `member.joined`, and the `member.invited` mail a decline cancels.
-  newcomerMay("outbox", { select: true, insert: true, update: true }),
+  // `workspace.created`, `member.joined` and their `records.changed`; the `member.invited` mail a decline cancels.
+  newcomerMay("outbox", { select: ITS_MAIL, insert: WRITTEN, update: ITS_MAIL }),
   // The onboarding row, the person's own anyway (0008): the founding step moves it, a new workspace adds one.
   newcomerMay("onboarding_progress", { select: true, insert: true, update: true }),
-  // An invitation: what it offers, the seats and the sign-in policy (and whether the workspace pays), then accepting,
-  // declining or undoing that. A supplier's person joins through `supplier_contact_join` (0075), as the system.
-  newcomerMay("invitations", { select: true, update: true }),
+  // An invitation: the one handled and the others to the person's address (the undo of a decline checks none
+  // replaced it), changed only when it is both; then the link and its count. The seats and whether the workspace
+  // pays come from `workspace_seat_facts`, a supplier's name from `supplier_name_in_workspace`. A supplier's person
+  // joins through `supplier_contact_join` (0075), as the system.
+  newcomerMay("invitations", { select: `${HANDLED} or ${ADDRESSED}`, update: `${HANDLED} and ${ADDRESSED}` }),
   newcomerMay("invite_links", { select: true, update: true }),
-  newcomerMay("subscriptions", { select: true }),
-  newcomerMay("suppliers", { select: true }),
   // A member back through a new invitation: the keys they made before stay revoked.
   newcomerMay("api_keys", { select: OWN_KEYS, update: OWN_KEYS }),
   // Every other table with row level security: `newcomerBlind`'s policy.

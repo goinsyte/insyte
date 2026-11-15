@@ -83,6 +83,8 @@ const decodeRow = Schema.decodeUnknownEffect(Row)
 export const loadProgress = Effect.fn("Onboarding.loadProgress")(function*() {
   const user = yield* CurrentUser
   const db = yield* Db
+  // Open rows first, the session's workspace's first among them (a founder back in a workspace they left, with
+  // another one founded since); then the last finished.
   const select = (sql: Parameters<Parameters<typeof db.forUser>[0]>[0]) =>
     sql`select track, step, answers, workspace_id, completed from (
           select p.*, p.completed_at is not null
@@ -91,7 +93,8 @@ export const loadProgress = Effect.fn("Onboarding.loadProgress")(function*() {
                                        and m.user_id = p.user_id and m.removed_at is null
                                        and m.deactivated_at is null)) as completed
           from onboarding_progress p) r
-        order by completed, completed_at desc nulls first, started_at limit 1`
+        order by completed, workspace_id is not distinct from ${user.activeWorkspaceId ?? null} desc,
+                 completed_at desc nulls first, started_at limit 1`
   const found = yield* db.forUser((sql) =>
     Effect.gen(function*() {
       const rows = yield* select(sql)

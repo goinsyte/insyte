@@ -51,12 +51,13 @@ export const invitesToMe = Effect.fn("Members.invitesToMe")(function*() {
   const rows = yield* Effect.forEach(
     routed,
     (r) =>
-      db.asNewcomerIn(r.workspaceId as WorkspaceId)((sql) =>
+      db.asNewcomerIn(r.workspaceId as WorkspaceId, r.invitationId)((sql) =>
         sql<InviteRow>`
         select i.id, w.name as workspace, u.name as invited_by, r.label as role,
                (select count(*) from members x where x.workspace_id = w.id and x.deactivated_at is null and x.removed_at is null)
                  as members,
-               w.plan, exists (select 1 from subscriptions s where s.workspace_id = w.id and s.status in ('active', 'trialing', 'past_due'))
+               w.plan,
+               coalesce((select f.status in ('active', 'trialing', 'past_due') from workspace_seat_facts() f), false)
                  as paid,
                i.sent_at
         from invitations i
@@ -104,7 +105,7 @@ export const restoreMine = Effect.fn("Members.restoreMine")(function*(id: string
   const db = yield* Db
   const found = yield* mine(id, true)
   if (found === undefined) return yield* new NotFound({ entity: "invitation", id })
-  yield* db.asNewcomerIn(found.workspaceId as WorkspaceId)((sql) =>
+  yield* db.asNewcomerIn(found.workspaceId as WorkspaceId, id)((sql) =>
     Effect.gen(function*() {
       const back = yield* sql<{ id: string }>`
         update invitations i set declined_at = null

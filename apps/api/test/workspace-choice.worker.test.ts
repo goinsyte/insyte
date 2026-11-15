@@ -522,6 +522,12 @@ describe("onboarding after handing the workspace over and leaving it", () => {
 
     // With no workspace left, "Nieuwe werkruimte" founds another.
     expect(ok(await rpc("Workspaces.create", NEW("orphan"), founder.cookie)).landing).toBe("/onboarding")
+    ok(await onboarding.advance({ step: "plan", plan: "growth", cycle: "monthly" }, founder.cookie))
+
+    // Invited back into the first one, the founder's onboarding there reads as open again; the session is in the new
+    // workspace, so its row is the one onboarding goes on with.
+    await bringIn(heir, { email: founder.email, cookie: founder.cookie }, "admin")
+    expect(ok(await onboarding.me(founder.cookie))).toMatchObject({ step: "store", completed: false })
   })
 
   it("is only read as closed while the founder is out: deactivated, then back, it opens where it was", async () => {

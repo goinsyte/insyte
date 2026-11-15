@@ -7,7 +7,9 @@ import { holdingPlan, isPlanId, PLAN_SEATS, type PlanId, standingOf, TRIAL_SEATS
  * beyond it (`subscriptions.extra_seats`, as Stripe last said), against active people plus open invitations that have
  * not lapsed. A paid plan and its bought seats count only while the subscription is paid for (active, or in Stripe's
  * grace while a payment is retried); once it no longer is, Starter's seats do (`standingOf`), and on a trial the picked
- * plan's. Deactivated people free their seat. The team page, inviting, accepting and billing all count with this.
+ * plan's. Deactivated people free their seat. The team page, inviting, accepting and billing all count with this. The
+ * figures come from `workspace_seat_facts()` (0096), so someone accepting an invitation counts the seats without
+ * reading the subscription or the other invitations.
  */
 
 export interface SeatCount {
@@ -31,12 +33,7 @@ export const seatCount = Effect.fn("Seats.count")(function*(sql: SqlClient.SqlCl
     active: number
     pending: number
   }>`
-    select w.plan as workspace_plan, s.status, s.plan, s.extra_seats as extra, s.started_at,
-           (select count(*)::int from members where removed_at is null and deactivated_at is null) as active,
-           (select count(*)::int from invitations
-              where accepted_at is null and revoked_at is null and declined_at is null and expires_at > now()) as pending
-    from workspaces w
-    left join subscriptions s on s.workspace_id = w.id`
+    select workspace_plan, status, plan, extra_seats as extra, started_at, active, pending from workspace_seat_facts()`
   const standing = standingOf(row?.status, row?.startedAt)
   const paidPlan: PlanId | null = row?.plan !== null && row?.plan !== undefined && isPlanId(row.plan) ? row.plan : null
   const holds = holdingPlan(standing, paidPlan, row?.workspacePlan ?? "trial")

@@ -43,10 +43,11 @@ export interface DbService {
    * As the signed-in person inside a workspace they are not (yet, or any more) a member of, on the two paths that make
    * them one: founding it (its first rows pass the tenant policies they will always pass), and taking up or turning
    * down an invitation to it, which the caller has proved first (the link's secret, or the verified address). Its own
-   * principal kind, `newcomer`, which the database holds to those paths' tables (0096). Called only from those use
-   * cases (`bun run boundaries` checks).
+   * principal kind, `newcomer`, which the database holds to those paths' tables (0096); `invitationId` names the
+   * invitation handled (`app.invitation_id`), the one invitation it may change. Called only from those use cases
+   * (`bun run boundaries` checks).
    */
-  readonly asNewcomerIn: (workspaceId: WorkspaceId) => InTransaction<CurrentUser>
+  readonly asNewcomerIn: (workspaceId: WorkspaceId, invitationId?: string) => InTransaction<CurrentUser>
   /** Background work that resolved its workspace (a queue, a Workflow step, a cron fan-out). Runs as `system`. */
   readonly scopedFor: InTransaction<CurrentWorkspace>
   /** Routing lookups only, through security-definer functions: shop domain → workspace, key prefix → key. */
@@ -77,9 +78,15 @@ const setContext = (sql: SqlClient.SqlClient, c: RlsContext) =>
         set_config('app.user_id', ${c.userId ?? ""}, true)`
 
 /** The person inside one workspace, before their principal there: a member (`asUserIn`), or none (`asNewcomerIn`). */
-const asPerson = (sql: SqlClient.SqlClient, userId: string, workspaceId: WorkspaceId, kind: "member" | "newcomer") =>
+const asPerson = (
+  sql: SqlClient.SqlClient,
+  userId: string,
+  workspaceId: WorkspaceId,
+  kind: "member" | "newcomer",
+  invitationId = ""
+) =>
   sql`select set_config('app.user_id', ${userId}, true), set_config('app.workspace_id', ${workspaceId}, true),
-             set_config('app.principal_kind', ${kind}, true)`
+             set_config('app.principal_kind', ${kind}, true), set_config('app.invitation_id', ${invitationId}, true)`
 
 /**
  * `Db` over one connection, given as the effect that yields it: `WithDb` passes one that opens the request's
@@ -137,13 +144,14 @@ export const makeDb = (connection: Effect.Effect<SqlClient.SqlClient, SqlError.S
               )
             )))
       ),
-    asNewcomerIn: (workspaceId) => (f) =>
+    asNewcomerIn: (workspaceId, invitationId) => (f) =>
       Effect.flatMap(
         Effect.service(CurrentUser),
         (user) =>
           Effect.flatMap(
             connection,
-            (sql) => sql.withTransaction(Effect.andThen(asPerson(sql, user.id, workspaceId, "newcomer"), f(sql)))
+            (sql) =>
+              sql.withTransaction(Effect.andThen(asPerson(sql, user.id, workspaceId, "newcomer", invitationId), f(sql)))
           )
       ),
     scopedFor: (f) =>

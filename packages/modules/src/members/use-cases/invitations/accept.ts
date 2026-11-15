@@ -31,7 +31,9 @@ export const acceptRouted = Effect.fn("Landing.acceptRouted")(function*(ref: Lan
   const db = yield* Db
   if (found === undefined) return yield* new NotAcceptable({ state: "missing" })
 
-  const { result, outboxIds } = yield* db.asNewcomerIn(found.workspaceId as WorkspaceId)((sql) =>
+  // A link names no invitation; a team or supplier invitation is the one handled (`app.invitation_id`, 0096).
+  const handled = found.link ? undefined : ref.id
+  const { result, outboxIds } = yield* db.asNewcomerIn(found.workspaceId as WorkspaceId, handled)((sql) =>
     Effect.gen(function*() {
       const landing = yield* classify(sql, ref, found, user)
       if (landing.state === "sso") {
@@ -131,7 +133,7 @@ export const declineRouted = Effect.fn("Landing.declineRouted")(function*(ref: L
   if (found === undefined || found.link) {
     return yield* new NotAcceptable({ state: found === undefined ? "missing" : "link" })
   }
-  return yield* db.asNewcomerIn(found.workspaceId as WorkspaceId)((sql) =>
+  return yield* db.asNewcomerIn(found.workspaceId as WorkspaceId, ref.id)((sql) =>
     Effect.gen(function*() {
       const landing = yield* classify(sql, ref, found, user)
       if (landing.state !== "existing" && landing.state !== "full" && landing.state !== "sso") {

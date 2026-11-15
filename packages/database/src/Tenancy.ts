@@ -182,8 +182,6 @@ export const NEWCOMER_TABLES = [
   "onboarding_progress",
   "invitations",
   "invite_links",
-  "subscriptions",
-  "suppliers",
   "api_keys"
 ] as const
 
