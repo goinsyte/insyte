@@ -49,13 +49,15 @@ const Setup = Schema.Struct({
   /** The agent's stores (`agents.scopes.stores`); `null`, every store. */
   stores: Schema.optional(Schema.NullOr(Schema.Array(Schema.String.check(Schema.isMaxLength(64))))),
   /** The offline plan as the offline step writes it, on the workspace's first analysis; `null`, none. */
-  offline: Schema.optional(Schema.NullOr(OfflinePlan))
+  offline: Schema.optional(Schema.NullOr(OfflinePlan)),
+  /** The agent switched off (`agents.disabled_at`), or on again. */
+  disabled: Schema.optional(Schema.Boolean)
 })
 const decodeSetup = Schema.decodeUnknownEffect(Setup)
 
 /**
- * `POST /api/__dev/agent/setup?workspace=<id>` `{ stores?, offline? }`: the workspace's agent held to these stores, and
- * the offline plan its first analysis keeps, as the onboarding's offline step would have agreed it; for the agent sink's
+ * `POST /api/__dev/agent/setup?workspace=<id>` `{ stores?, offline?, disabled? }`: the workspace's agent held to these
+ * stores or switched off, and the offline plan its first analysis keeps, as the onboarding's offline step would have agreed it; for the agent sink's
  * tests of the store fence and the opening hours without walking the onboarding. Locally and on a preview only.
  */
 const AgentSetup = HttpRouter.add(
@@ -67,7 +69,7 @@ const AgentSetup = HttpRouter.add(
     const request = yield* HttpServerRequest.HttpServerRequest
     const body = yield* request.json.pipe(Effect.flatMap(decodeSetup), Effect.option)
     if (Option.isNone(body)) return invalid
-    const { stores, offline } = body.value
+    const { stores, offline, disabled } = body.value
     const db = yield* Db
     yield* db.scopedFor((sql) =>
       Effect.gen(function*() {
@@ -75,6 +77,11 @@ const AgentSetup = HttpRouter.add(
           const scopes = JSON.stringify(stores === null ? {} : { stores })
           yield* sql`insert into agents (id, workspace_id, scopes) values (${mintId("agt")}, ${workspace.id}, ${scopes})
                      on conflict (workspace_id) do update set scopes = excluded.scopes`
+        }
+        if (disabled !== undefined) {
+          yield* sql`insert into agents (id, workspace_id, disabled_at)
+                     values (${mintId("agt")}, ${workspace.id}, ${disabled ? new Date() : null})
+                     on conflict (workspace_id) do update set disabled_at = excluded.disabled_at`
         }
         if (offline !== undefined) {
           yield* sql`insert into first_analyses (id, workspace_id, store_id)

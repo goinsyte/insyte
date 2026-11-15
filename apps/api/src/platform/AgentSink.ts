@@ -2,8 +2,8 @@ import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal, CurrentWorkspace } from "@insyte/domain/Principal"
-import { actOnTrigger, agentPrincipal, type Prepared } from "@insyte/modules/agent/Agent"
-import { type AgentTask, promisesMoney } from "@insyte/modules/agent/domain/Triggers"
+import { actOnTrigger, agentPrincipal, type Prepared, standDown } from "@insyte/modules/agent/Agent"
+import { type AgentTask, promisesMoney, systemSender, untracedLinks } from "@insyte/modules/agent/domain/Triggers"
 import type { Draft } from "@insyte/modules/ai/domain/Ai"
 import { untracedFigures } from "@insyte/modules/ai/domain/Guards"
 import { threadFacts } from "@insyte/modules/ai/use-cases/context"
@@ -14,6 +14,7 @@ import { Relay } from "@insyte/modules/shared/domain/Outbox"
 import { UndoWindow } from "@insyte/modules/shared/domain/Undo"
 import * as Undo from "@insyte/modules/shared/use-cases/Undo"
 import { Effect } from "effect"
+import type { SqlClient } from "effect/sql"
 import { withAi } from "./Ai.ts"
 import { aiMode } from "./AiSettings.ts"
 
@@ -36,18 +37,53 @@ import { aiMode } from "./AiSettings.ts"
 /** "Een vraag waar de bestelling is", the same for every customer: the log keeps no one's words. */
 const QUESTION = "Waar is mijn bestelling?"
 
-interface ThreadRow {
+/** The thread as the agent must find it to answer it, read before the draft and again on the send's transaction. */
+interface Standing {
   readonly lastId: string | null
   readonly storeId: string | null
+  readonly sender: string | null
+  readonly customerEmail: string | null
+  readonly mailbox: string
   readonly aside: boolean
   readonly connected: boolean
-  readonly answeredByAgent: boolean
+  readonly assigned: boolean
+  readonly answered: boolean
+  readonly automated: boolean
 }
 
-/** A drafted reply and what it was written from, for the checks it must pass to go alone. */
+const standingOf = (sql: SqlClient.SqlClient, threadId: string, messageId: string, lock: boolean) =>
+  Effect.map(
+    sql<Standing>`
+      select (select m.id from email_messages m where m.thread_id = t.id
+              order by m.created_at desc, m.id desc limit 1) as last_id,
+             c.store_id, lower(x.from_address) as sender, lower(nullif(c.email, '')) as customer_email,
+             lower(b.address) as mailbox,
+             t.deleted_at is not null or t.spam_at is not null as aside, b.status = 'connected' as connected,
+             t.assignee_id is not null as assigned,
+             exists (select 1 from email_messages m where m.thread_id = t.id and m.direction = 'outbound') as answered,
+             coalesce(x.automated, true) as automated
+      from email_threads t join mailboxes b on b.id = t.mailbox_id
+      left join customers c on c.id = t.customer_id and c.deleted_at is null
+      left join email_messages x on x.id = ${messageId} and x.thread_id = t.id and x.direction = 'inbound'
+      where t.id = ${threadId}
+      ${lock ? sql`for update of t` : sql``}`,
+    ([row]) => row
+  )
+
+/**
+ * Whether the thread is still the agent's to answer, for this mail: the newest message is the one it heard, from the
+ * customer the thread is bound to (never a third party on copy), sent by a person, and nobody has answered, taken or
+ * binned the thread. Otherwise it is the team's.
+ */
+const mine = (row: Standing | undefined, messageId: string): row is Standing =>
+  row !== undefined && row.lastId === messageId && !row.aside && row.connected && !row.assigned && !row.answered &&
+  !row.automated && row.sender !== null && row.customerEmail !== null && row.sender === row.customerEmail &&
+  !systemSender(row.sender)
+
+/** A drafted reply and what it may state: the customer's orders and the store's own name and address, never their words. */
 interface Reply {
   readonly draft: Draft
-  readonly facts: string
+  readonly given: string
 }
 
 const reply = (task: AgentTask, t: Extract<AgentTask["trigger"], { kind: "thread.received" }>) =>
@@ -55,20 +91,8 @@ const reply = (task: AgentTask, t: Extract<AgentTask["trigger"], { kind: "thread
     // Where no model is set up (a preview), Insyte writes nothing and the mail is the team's, as before.
     if ((yield* aiMode) === "off") return
     const db = yield* Db
-    const [row] = yield* db.scopedFor((sql) =>
-      sql<ThreadRow>`
-        select (select m.id from email_messages m where m.thread_id = t.id
-                order by m.created_at desc, m.id desc limit 1) as last_id,
-               c.store_id, t.deleted_at is not null or t.spam_at is not null as aside,
-               b.status = 'connected' as connected,
-               exists (select 1 from email_messages m join agents a on a.id = m.sent_by
-                       where m.thread_id = t.id and m.direction = 'outbound') as answered_by_agent
-        from email_threads t join mailboxes b on b.id = t.mailbox_id
-        left join customers c on c.id = t.customer_id
-        where t.id = ${t.threadId}`
-    )
-    // The thread binned, its mailbox gone, the team (or the agent) answered since, or a newer mail is its own trigger.
-    if (row === undefined || row.aside || !row.connected || row.answeredByAgent || row.lastId !== t.messageId) return
+    const row = yield* db.scopedFor((sql) => standingOf(sql, t.threadId, t.messageId, false))
+    if (!mine(row, t.messageId)) return
     const agent = yield* agentPrincipal()
     yield* actOnTrigger<Reply, void, unknown, Db | CurrentPrincipal | CurrentWorkspace | Relay>({
       action: "SendReply",
@@ -91,27 +115,50 @@ const reply = (task: AgentTask, t: Extract<AgentTask["trigger"], { kind: "thread
           return { _tag: "Held", reason } satisfies Prepared<Reply> as Prepared<Reply>
         }
         const facts = yield* (yield* Db).scoped((sql) => threadFacts(sql, t.threadId)).pipe(Effect.orDie)
-        return {
-          _tag: "Ready",
-          value: { draft: draft.success, facts: JSON.stringify(facts.context) }
-        } satisfies Prepared<Reply> as Prepared<Reply>
+        // What the reply may state: the order facts and the store's own name and address. The shopper's mail is what
+        // it answers, not a source: a figure or a link the shopper wrote is not thereby the store's to confirm.
+        const given = JSON.stringify({ brand: facts.context.brand, orders: facts.context.orders, mailbox: row.mailbox })
+        return { _tag: "Ready", value: { draft: draft.success, given } } satisfies Prepared<Reply> as Prepared<Reply>
       }),
-      // What goes without a person promises no money and states no figure it was not given (ai.md §6.2).
-      safe: (r) => !promisesMoney(r.draft.text) && untracedFigures(r.draft.text, r.facts).length === 0,
+      // What goes without a person promises no money, refund, cancellation or new parcel, and states no figure, link
+      // or address it was not given (ai.md §6.2).
+      safe: (r) =>
+        !promisesMoney(r.draft.text) && untracedFigures(r.draft.text, r.given).length === 0 &&
+        untracedLinks(r.draft.text, r.given).length === 0,
       model: (r) => ({ name: r.draft.model || r.draft.provider, promptVersion: r.draft.promptVersion }),
-      run: (r) =>
+      run: (r, actionId) =>
         Effect.gen(function*() {
           yield* Policy.require("support", 2)
           const hold = yield* UndoWindow
-          const outboxId = yield* (yield* Db).scoped((sql) =>
+          const sent = yield* (yield* Db).scoped((sql) =>
             Effect.gen(function*() {
+              // Again, on the send's own transaction, the thread locked: the team may have answered or taken it, or a
+              // newer mail come in, while the reply was written.
+              const now = yield* standingOf(sql, t.threadId, t.messageId, true)
+              if (!mine(now, t.messageId)) return standDown("taken")
+              // Once per thread, whichever trigger gets here first.
+              const first = yield* sql`
+                insert into agent_touchpoints (workspace_id, dedupe_key, agent_action_id)
+                values (app_workspace_id(), ${`agent:SendReply:thread:${t.threadId}`}, ${actionId})
+                on conflict do nothing returning dedupe_key`
+              if (first.length === 0) return standDown("taken")
+              // At most one mail of the agent's to one address in 24 hours, whatever thread it is in: a helpdesk that opens a
+              // new thread for every answer gets one. Locked per address, so two at once count each other.
+              yield* sql`select pg_advisory_xact_lock(hashtext(app_workspace_id() || ':agent-mail:' || ${now.sender}))`
+              const [today] = yield* sql<{ n: number }>`
+                select count(*)::int as n from email_messages m join agents a on a.id = m.sent_by
+                where m.direction = 'outbound'
+                  and m.created_at > now() - interval '24 hours'
+                  and exists (select 1 from jsonb_array_elements(m."to") r where lower(r ->> 'email') = ${now.sender})`
+              if ((today?.n ?? 0) > 0) return standDown("limit")
               const q = yield* replyOn(sql, { threadId: t.threadId, body: r.draft.text })
               yield* Undo.issue(sql, { command: INBOX_RESTORE, compensation: q.compensation, outboxIds: [q.outboxId] })
               yield* sql`update drafts set used_at = coalesce(used_at, now()) where id = ${r.draft.id}`
               return q.outboxId
             })
           )
-          yield* (yield* Relay).kick([outboxId], { afterSeconds: hold })
+          if (typeof sent !== "string") return sent
+          yield* (yield* Relay).kick([sent], { afterSeconds: hold })
         })
     }).pipe(Effect.provideService(CurrentPrincipal, agent))
   })

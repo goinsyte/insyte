@@ -319,7 +319,8 @@ const changed = (sql: SqlClient.SqlClient, id: string) =>
 
 /**
  * "Ongedaan maken" inside the window: the action's own undo token, held by the agent, spent for the person on their
- * transaction, its compensation run as theirs. Its effects still waiting are cancelled; what already left stays sent.
+ * transaction, its compensation run as theirs. Its effects still waiting are cancelled; once one has left, the action
+ * is fixed (`state`) and its compensation, where it has one, is the way back.
  */
 export const undo = Effect.fn("AgentLog.undo")(function*(sql: SqlClient.SqlClient, id: string) {
   const principal = yield* CurrentPrincipal
@@ -333,7 +334,8 @@ export const undo = Effect.fn("AgentLog.undo")(function*(sql: SqlClient.SqlClien
   if (row.undoUntil === null || row.undoUntil.getTime() <= Date.now()) {
     return yield* new AgentActionFixed({ id, reason: "window" })
   }
-  const spent = yield* Undo.redeemByHash(sql, row.tokenHash, { outer: true, owner: row.undoPrincipal }).pipe(
+  // Its own token, inside its own window: what it held back and already left (`already_sent`) cannot be taken back.
+  const spent = yield* Undo.redeemByHash(sql, row.tokenHash, { owner: row.undoPrincipal }).pipe(
     Effect.catchTag("Conflict", () => Effect.fail(new AgentActionFixed({ id, reason: "state" })))
   )
   yield* links.takeBack(sql, spent.command, spent.compensation)

@@ -5,7 +5,7 @@ import { AREA_IDS, type AreaId, type Level, SPECIAL_IDS, type SpecialId } from "
 import { CurrentPrincipal, CurrentWorkspace, type Principal } from "@insyte/domain/Principal"
 import { Cause, Effect, Exit, Option, Schema } from "effect"
 import { OfflinePlan } from "../../first-analysis/domain/FirstAnalysis.ts"
-import { IssuedUndo, UndoWindow } from "../../shared/domain/Undo.ts"
+import { IssuedUndo, logUntil, UndoWindow } from "../../shared/domain/Undo.ts"
 import { heldForTeam } from "../domain/Triggers.ts"
 import { decide } from "./autonomy.ts"
 import { record } from "./log.ts"
@@ -77,15 +77,42 @@ const teamHolds = (action: AgentActionId) =>
   Effect.flatMap(Effect.service(Db), (db) =>
     db.scopedFor((sql) =>
       Effect.gen(function*() {
-        const [row] = yield* sql<{ plan: unknown; timezone: string | null; changedAt: number | null }>`
-          select f.offline as plan, w.timezone,
-                 (select max(v.version) from autonomy_policy_versions v
-                  where v.diff @> ${JSON.stringify([{ id: action }])}::jsonb) as changed_at
+        const [row] = yield* sql<{ plan: unknown; timezone: string | null }>`
+          select f.offline as plan, w.timezone
           from first_analyses f join workspaces w on w.id = f.workspace_id
           where f.offline is not null order by f.offline_at desc nulls last limit 1`
         if (row === undefined) return false
+        const [last] = yield* sql<{ version: number; changedAt: Date }>`
+          select v.version, v.changed_at from autonomy_policy_versions v
+          where v.diff @> ${JSON.stringify([{ id: action }])}::jsonb order by v.version desc limit 1`
         const plan = Option.getOrNull(Schema.decodeUnknownOption(OfflinePlan)(row.plan))
-        return heldForTeam(plan, action, row.changedAt, row.timezone ?? "Europe/Amsterdam", new Date())
+        const changed = last === undefined ? null : { version: last.version, at: last.changedAt.getTime() }
+        return heldForTeam(plan, action, changed, row.timezone ?? "Europe/Amsterdam", new Date())
+      })
+    ))
+
+/**
+ * A run of the day for an action with a limit per day (Limieten), claimed before it runs: one touchpoint per slot of
+ * the day, so two triggers acting at once cannot both take the last one. `true` when a slot was free, or there is no
+ * limit.
+ */
+const daySlot = (action: AgentActionId, id: string) =>
+  Effect.flatMap(Effect.service(Db), (db) =>
+    db.scopedFor((sql) =>
+      Effect.gen(function*() {
+        const [row] = yield* sql<{ perDay: number | null; day: string }>`
+          select (select (p.limits -> ${action} ->> 'perDay')::int from autonomy_policies p) as per_day,
+                 to_char(now() at time zone coalesce(w.timezone, 'Europe/Amsterdam'), 'YYYY-MM-DD') as day
+          from workspaces w where w.id = app_workspace_id()`
+        if (row === undefined || row.perDay === null) return true
+        for (let n = 1; n <= row.perDay; n++) {
+          const taken = yield* sql`
+            insert into agent_touchpoints (workspace_id, dedupe_key, agent_action_id)
+            values (app_workspace_id(), ${`slot:${action}:${row.day}:${n}`}, ${id})
+            on conflict do nothing returning dedupe_key`
+          if (taken.length > 0) return true
+        }
+        return false
       })
     ))
 
@@ -93,6 +120,24 @@ const teamHolds = (action: AgentActionId) =>
 export type Prepared<P> =
   | { readonly _tag: "Ready"; readonly value: P }
   | { readonly _tag: "Held"; readonly reason: "budget" | "unknown" }
+
+/**
+ * What a run answers when, at the moment it would send, the record is no longer the agent's to act on: the thread
+ * taken by the team or answered meanwhile (`taken`, nothing done), or the agent's mails to this address for the day
+ * used (`limit`, the draft left for the team). Checked on the send's own transaction, after its lock.
+ */
+export interface StoodDown {
+  readonly _tag: "StoodDown"
+  readonly reason: "taken" | "limit"
+}
+
+export const standDown = (reason: StoodDown["reason"]): StoodDown => ({ _tag: "StoodDown", reason })
+
+const isStoodDown = (a: unknown): a is StoodDown =>
+  typeof a === "object" && a !== null && "_tag" in a && a._tag === "StoodDown"
+
+/** Asked first for a reason no draft can change: no model is asked for one. */
+const UNPREPARED = new Set(["disabled", "locked", "budget", "unknown"])
 
 export interface Trigger<P, A, E, R> {
   readonly action: AgentActionId
@@ -114,8 +159,8 @@ export interface Trigger<P, A, E, R> {
   /** Whether it may go without a person; a draft that may not waits for the team (`guard`). */
   readonly safe: (prepared: P) => boolean
   readonly model: (prepared: P) => { readonly name: string; readonly promptVersion: string } | null
-  /** Zelf doen: the use case a person's button runs, as the agent. */
-  readonly run: (prepared: P) => Effect.Effect<A, E, R>
+  /** Zelf doen: the use case a person's button runs, as the agent; or why, at the last moment, it is not its to run. */
+  readonly run: (prepared: P, actionId: string) => Effect.Effect<A | StoodDown, E, R>
 }
 
 export type Acted = "ran" | "proposed" | "refused" | "failed" | "seen"
@@ -183,6 +228,11 @@ export const act = <P, A, E, R>(t: Trigger<P, A, E, R>) =>
       yield* write({ decision: "refuse", outcome: "refused", refuseReason: "scope" })
       return "refused" as Acted
     }
+    // Switched off, an action it may never run alone, a spent budget: asked, and no model asked for a draft.
+    if (d.decision === "propose" && UNPREPARED.has(d.reason ?? "")) {
+      yield* write({ decision: "propose", outcome: "proposed", refuseReason: d.reason })
+      return "proposed" as Acted
+    }
     const hours = d.decision === "run" && (yield* teamHolds(t.action))
     const prepared = yield* t.prepare
     if (prepared._tag === "Held") {
@@ -196,11 +246,16 @@ export const act = <P, A, E, R>(t: Trigger<P, A, E, R>) =>
       yield* write({ decision: "propose", outcome: "proposed", refuseReason: asks, model })
       return "proposed" as Acted
     }
+    // The day's limit, claimed: a second trigger at the same moment finds the last slot taken.
+    if (!(yield* daySlot(t.action, id))) {
+      yield* write({ decision: "propose", outcome: "proposed", refuseReason: "limit", model })
+      return "proposed" as Acted
+    }
 
     // Zelf doen: the command as the agent; its undo token kept for the log, its sends held for the log's window.
-    const issued: Array<{ readonly hash: string; readonly command: string }> = []
+    const issued: Array<{ readonly hash: string; readonly command: string; readonly until: number }> = []
     const ran = yield* Effect.exit(
-      t.run(p).pipe(
+      t.run(p, id).pipe(
         Effect.provideService(IssuedUndo, { add: (token) => void issued.push(token) }),
         Effect.provideService(UndoWindow, AGENT_UNDO_SECONDS)
       )
@@ -210,13 +265,20 @@ export const act = <P, A, E, R>(t: Trigger<P, A, E, R>) =>
       yield* write({ decision: "run", outcome: "failed", refuseReason: null, error: tagOf(ran.cause), model })
       return "failed" as Acted
     }
+    if (isStoodDown(ran.value)) {
+      const stood = ran.value
+      yield* stood.reason === "taken"
+        ? write({ decision: "refuse", outcome: "refused", refuseReason: "taken", model })
+        : write({ decision: "propose", outcome: "proposed", refuseReason: "limit", model })
+      return stood.reason === "taken" ? "refused" as Acted : "proposed" as Acted
+    }
     const token = issued[0]
     yield* write({
       decision: "run",
       outcome: "done",
       refuseReason: null,
       model,
-      undo: token === undefined ? null : { hash: token.hash, until: new Date(Date.now() + AGENT_UNDO_SECONDS * 1000) }
+      undo: token === undefined ? null : { hash: token.hash, until: logUntil(token) }
     })
     return "ran" as Acted
   })

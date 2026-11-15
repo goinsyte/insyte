@@ -25,30 +25,21 @@ export const queue: ExportedHandlerQueueHandler<Env, EventsMessage | IngestMessa
   try {
     if (batch.queue.startsWith("insyte-ingest")) return await ingest(batch as MessageBatch<IngestMessage>, spans)
     const messages = (batch as MessageBatch<EventsMessage>).messages
-    const classified = Promise.all(messages.flatMap((m) =>
+    // Neither a topic nor an agent's task throws (each logs what went wrong and leaves it to the team), so each is
+    // acked once it has run; all of them are waited for, whatever the deliveries beside them do.
+    const beside = Promise.allSettled(messages.flatMap((m) =>
       "classifyTicket" in m.body
-        ? [
-          background.runPromise(spans.provide(withRequestDb(classify(m.body.classifyTicket)))).then(
-            () => m.ack(),
-            () => m.retry()
-          )
-        ]
-        : []
-    ))
-    const acted = Promise.all(messages.flatMap((m) =>
-      "agent" in m.body
-        ? [
-          background.runPromise(spans.provide(withRequestDb(agentAct(m.body.agent)))).then(
-            () => m.ack(),
-            () => m.retry()
-          )
-        ]
+        ? [background.runPromise(spans.provide(withRequestDb(classify(m.body.classifyTicket)))).then(() => m.ack())]
+        : "agent" in m.body
+        ? [background.runPromise(spans.provide(withRequestDb(agentAct(m.body.agent)))).then(() => m.ack())]
         : []
     ))
     const outboxIds = messages.flatMap((m) => ("outboxIds" in m.body ? m.body.outboxIds : []))
-    if (outboxIds.length > 0) await background.runPromise(spans.provide(withRequestDb(deliver(outboxIds))))
-    await classified
-    await acted
+    try {
+      if (outboxIds.length > 0) await background.runPromise(spans.provide(withRequestDb(deliver(outboxIds))))
+    } finally {
+      await beside
+    }
     batch.ackAll()
   } finally {
     ctx.waitUntil(spans.flush())

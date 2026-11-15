@@ -16,6 +16,15 @@ export const UNDO_SECONDS = 8
  */
 export const UndoWindow = Context.Reference<number>("shared/UndoWindow", { defaultValue: () => UNDO_SECONDS })
 
+/**
+ * How much sooner than its token the agent log's "Ongedaan maken" closes: a person who clicks in the last second
+ * still finds the token there, and what it held back still waiting.
+ */
+export const LOG_MARGIN_MS = 5_000
+
+/** The agent log's window for an issued token: the token's own end, less the margin. */
+export const logUntil = (token: { readonly until: number }) => new Date(token.until - LOG_MARGIN_MS)
+
 /** What a reversible write answers: the token for `Shared.undo`, and until when it holds. */
 export const UndoTicket = Schema.Struct({ token: Schema.String, until: Schema.Finite })
 export type UndoTicket = typeof UndoTicket.Type
@@ -25,5 +34,8 @@ export type UndoTicket = typeof UndoTicket.Type
  * the command it ran, so the agent log can spend it later for the person who takes the action back. Absent elsewhere.
  */
 export const IssuedUndo = Context.Reference<
-  { readonly add: (issued: { readonly hash: string; readonly command: string }) => void } | undefined
+  | {
+    readonly add: (issued: { readonly hash: string; readonly command: string; readonly until: number }) => void
+  }
+  | undefined
 >("shared/IssuedUndo", { defaultValue: () => undefined })

@@ -42,7 +42,7 @@ export const issue = Effect.fn("Undo.issue")(function*(
   const token = mint()
   const until = Date.now() + (input.seconds ?? (yield* UndoWindow)) * 1000
   const hash = yield* hashOf(token)
-  ;(yield* IssuedUndo)?.add({ hash, command: input.command })
+  ;(yield* IssuedUndo)?.add({ hash, command: input.command, until })
   yield* sql`insert into undo_tokens (token_hash, workspace_id, principal_id, command, compensation, outbox_ids,
                                       expires_at)
              values (decode(${hash}, 'hex'), ${principal.workspaceId}, ${principal.id},

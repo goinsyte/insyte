@@ -5,7 +5,7 @@ import { Effect } from "effect"
 import type { SqlClient, SqlError } from "effect/sql"
 import type { ProposalAction } from "../../proposals/domain/Proposals.ts"
 import { proposeIn } from "../../proposals/Proposals.ts"
-import { IssuedUndo } from "../../shared/domain/Undo.ts"
+import { IssuedUndo, logUntil, UndoWindow } from "../../shared/domain/Undo.ts"
 import { ActionNotAllowed, type AgentEffect } from "../domain/AgentLog.ts"
 import { decide } from "./autonomy.ts"
 import { record, seen } from "./log.ts"
@@ -202,10 +202,12 @@ export const govern = <A, E, R>(
       )
     }
 
-    // Zelf doen: the command as the agent, its undo token kept for the log.
-    const issued: Array<{ readonly hash: string; readonly command: string }> = []
+    // Zelf doen: the command as the agent, its undo token kept for the log, with the log's window, so its sends wait
+    // that long and the log can still call them off.
+    const issued: Array<{ readonly hash: string; readonly command: string; readonly until: number }> = []
     const ran = yield* g.run.pipe(
       Effect.provideService(IssuedUndo, { add: (t) => void issued.push(t) }),
+      Effect.provideService(UndoWindow, AGENT_UNDO_SECONDS),
       Effect.tapError((e) =>
         db.scoped((sql) =>
           record(sql, {
@@ -235,7 +237,7 @@ export const govern = <A, E, R>(
         outcome: "done",
         error: null,
         proposalId: null,
-        undo: token === undefined ? null : { hash: token.hash, until: new Date(Date.now() + AGENT_UNDO_SECONDS * 1000) }
+        undo: token === undefined ? null : { hash: token.hash, until: logUntil(token) }
       })
     )
     return { _tag: "Ran" as const, value: ran.value }

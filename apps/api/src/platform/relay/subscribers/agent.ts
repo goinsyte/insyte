@@ -1,4 +1,4 @@
-import { type AgentTask, asksWhereOrderIs, SYSTEM_SENDER } from "@insyte/modules/agent/domain/Triggers"
+import { type AgentTask, asksWhereOrderIs, systemSender } from "@insyte/modules/agent/domain/Triggers"
 import { env } from "cloudflare:workers"
 import { Effect } from "effect"
 import type { EventsMessage } from "../../Relay.ts"
@@ -18,13 +18,14 @@ const ask = (task: AgentTask) =>
   )
 
 export const Agent = subscriber("agent", {
-  // A mail in (M11): the agent answers one that asks where an order is, from a customer, never a system's.
+  // A mail in (M11): the agent answers one that asks where an order is, from a person, never a system's or a
+  // machine's (an out-of-office, a helpdesk's receipt, a list: `automated`), so two machines never answer each other.
   "thread.received": (id, event, sql) =>
     Effect.gen(function*() {
-      const [m] = yield* sql<{ subject: string; text: string; sender: string }>`
-        select subject, left(body_text, 2000) as text, from_address as sender from email_messages
+      const [m] = yield* sql<{ subject: string; text: string; sender: string; automated: boolean }>`
+        select subject, left(body_text, 2000) as text, from_address as sender, automated from email_messages
         where id = ${event.messageId} and direction = 'inbound'`
-      if (m === undefined || SYSTEM_SENDER.test(m.sender)) return
+      if (m === undefined || m.automated || systemSender(m.sender)) return
       if (!asksWhereOrderIs({ subject: m.subject, text: m.text, reply: event.reply })) return
       yield* ask({
         workspaceId: event.workspaceId,

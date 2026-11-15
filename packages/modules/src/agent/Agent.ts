@@ -135,7 +135,8 @@ export type { Governed, Outcome as GovernedOutcome } from "./use-cases/govern.ts
  */
 export const agentPrincipal = Triggers.agentPrincipal
 export const actOnTrigger = Triggers.act
-export type { Acted, Prepared, Trigger } from "./use-cases/triggers.ts"
+export const standDown = Triggers.standDown
+export type { Acted, Prepared, StoodDown, Trigger } from "./use-cases/triggers.ts"
 
 /** `Shared.undo` for `autonomy.restore`. */
 export const restoreAutonomy: (

@@ -82,8 +82,9 @@ export const cancelMails = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>
     (rows) => rows.length
   )
 
-/** Why a delay mail tried again was called off. */
+/** Why a delay mail was called off before it went. */
 const CLOSED = "de bestelling is intussen geannuleerd of terugbetaald"
+const NOT_DELAYED = "de bestelling is niet meer vertraagd"
 
 export type DelayMailOutcome =
   | { readonly outcome: "sent"; readonly orderId: string }
@@ -109,18 +110,23 @@ export const sendDelayMail = Effect.fn("Orders.sendDelayMail")(
       number: string
       shop: string
       closed: boolean
+      delayed: boolean
+      automatic: boolean
     }>`
       select m.workspace_id, m.order_id, m.to_address as address, m.subject, m.paragraphs, o.number,
-             coalesce(nullif(s.name, ''), w.name) as shop, o.status in ('cancelled', 'refunded') as closed
+             coalesce(nullif(s.name, ''), w.name) as shop, o.status in ('cancelled', 'refunded') as closed,
+             o.delayed_at is not null and o.status in ('paid', 'at_supplier', 'shipped') as delayed,
+             exists (select 1 from agents a where a.id = m.created_by) as automatic
       from order_mails m join orders o on o.id = m.order_id join stores s on s.id = o.store_id
       join workspaces w on w.id = m.workspace_id
       where m.id = ${mailId} and m.state = 'scheduled' for update of m`
     if (m === undefined) return { outcome: "skipped" } as DelayMailOutcome
-    // A try again, after the order was cancelled or refunded meanwhile: there is no delay left to tell, so it is called
-    // off, and the plate hears why.
-    if (attempt > 1 && m.closed) {
-      yield* sql`update order_mails set state = 'cancelled', error = ${CLOSED} where id = ${mailId}`
-      return { outcome: "failed", orderId: m.orderId, error: CLOSED } as DelayMailOutcome
+    // The order cancelled or refunded, delivered or no longer delayed since the mail was put in line (during its undo
+    // window, or before a try again): there is no delay left to tell, so it is called off, and the plate hears why.
+    if (m.closed || !m.delayed) {
+      const why = m.closed ? CLOSED : NOT_DELAYED
+      yield* sql`update order_mails set state = 'cancelled', error = ${why} where id = ${mailId}`
+      return { outcome: "failed", orderId: m.orderId, error: why } as DelayMailOutcome
     }
     const items = yield* sql<{ title: string; variantTitle: string | null; qty: number }>`
       select coalesce(p.title, ol.title) as title, ol.variant_title, ol.quantity as qty
@@ -131,6 +137,8 @@ export const sendDelayMail = Effect.fn("Orders.sendDelayMail")(
       to: m.address,
       sender: m.shop,
       reference: m.orderId,
+      // Put in line by the agent on its own: a notice no person sent.
+      ...(m.automatic ? { autoSubmitted: "auto-generated" as const } : {}),
       orderDelay: {
         shop: m.shop,
         number: m.number,
