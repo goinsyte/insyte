@@ -134,7 +134,8 @@ describe("the fake", () => {
         subject: "Waar is mijn pakket?",
         messages: [],
         orders: [],
-        rewrite: null
+        rewrite: null,
+        knowledge: []
       }),
       makeFake
     )

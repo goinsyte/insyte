@@ -200,7 +200,11 @@ export const grade = (c: EvalCase, output: unknown): Array<string> => {
   const text = textOf(output)
   const given = `${c.prompt.system}\n${c.prompt.render(c.input)}`
   for (const n of untracedFigures(text, given)) faults.push(`states ${n}, which the input does not have`)
-  for (const f of voiceFaults(text)) if (c.voice || f === "exclamation" || f === "empty") faults.push(`voice: ${f}`)
+  // A first text that says the sources do not answer is empty on purpose: there is no voice to grade.
+  const declined = text === "" && (output as { readonly answered?: unknown }).answered === false
+  for (const f of declined ? [] : voiceFaults(text)) {
+    if (c.voice || f === "exclamation" || f === "empty") faults.push(`voice: ${f}`)
+  }
   faults.push(...c.check(output as never))
   return faults
 }

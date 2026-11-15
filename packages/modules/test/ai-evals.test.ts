@@ -51,7 +51,11 @@ describe("the guards", () => {
 
   it("marks a made-up figure and a broken voice in a graded answer", () => {
     const reply = CASES[0]!
-    expect(grade(reply, { text: "Hoi Sanne! Je krijgt 20% korting op bestelling #1042. Groet, Noordkust" }))
+    expect(grade(reply, {
+      text: "Hoi Sanne! Je krijgt 20% korting op bestelling #1042. Groet, Noordkust",
+      sources: [],
+      unanswered: null
+    }))
       .toEqual(["states 20, which the input does not have", "voice: exclamation", "says \"korting\""])
     expect(grade(reply, { answer: 1 })).toEqual(["does not fit the prompt's schema"])
   })
