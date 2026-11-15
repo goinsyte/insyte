@@ -32,8 +32,8 @@ const seed = async (cookie: string, tag?: string, name?: string) => {
 }
 
 /** Paid orders placed this month in one store, through the mirror's writer, for Analyse's facts. */
-const paid = async (workspace: string, store: string, tag: string, count: number) => {
-  const placed = `${A}-01T10:00:00Z`
+const paid = async (workspace: string, store: string, tag: string, count: number, placedIn = A) => {
+  const placed = `${placedIn}-01T10:00:00Z`
   const orders = Array.from({ length: count }, (_, i) => ({
     shopify_id: `gid://shopify/Order/sw${tag}${run}${i}`,
     number: `#SW${tag}${i}`,
@@ -77,27 +77,34 @@ const storesOf = (rows: ReadonlyArray<{ storeId: string | null }>) => new Set(ro
 describe("the store switch", () => {
   it("narrows every list and figure to the store asked for, within the stores the member reaches", async () => {
     const owner = await person("switch", "Wissel B.V.")
-    const workspace = ok(await sessionMe(owner.cookie)).principals[0]!.workspaceId
+    const me = ok(await sessionMe(owner.cookie)).principals[0]!
+    const workspace = me.workspaceId
     const first = await seed(owner.cookie)
     const second = await seed(owner.cookie, "tweede", "Tweede winkel")
     expect(second).not.toBe(first)
     await paid(workspace, first, "a", 2)
     await paid(workspace, second, "b", 1)
+    // An older order in the second store only: Analyse's months start there for that store alone.
+    await paid(workspace, second, "old", 1, month(14))
     await call(`http://api.test/api/__dev/facts/drain?workspace=${workspace}`, { method: "POST" })
 
-    // A ticket, a return and a chargeback on an order of each store.
+    // A ticket (the owner's, due tomorrow), a return and a chargeback on an order of each store.
+    const dueAt = Date.now() + 86_400_000
+    const ticketOf: Record<string, string> = {}
     for (const storeId of [first, second]) {
       const order = ok(await rpc("Orders.list", { limit: 50, storeId }, owner.cookie)).rows.find((o) =>
         o.number === "#1002"
       )!
       const line = ok(await rpc("Orders.get", { id: order.id }, owner.cookie)).lines[0]!
-      ok(
+      ticketOf[storeId] = ok(
         await rpc("Tickets.create", {
           title: `Vraag over ${order.number}`,
           priority: "high",
+          assigneeIds: [me.id],
+          dueAt,
           related: { type: "order", id: order.id }
         }, owner.cookie)
-      )
+      ).tickets[0]!.id
       ok(
         await rpc("Returns.start", {
           orderId: order.id,
@@ -177,10 +184,30 @@ describe("the store switch", () => {
     )
       .toBe(pulseOf(await pulse({}, owner.cookie)))
     expect(pulseOf(await pulse({ storeId: second }, held))).toBe(0)
-    ok(await rpc("Home.work", { storeId: first }, owner.cookie))
+    const workTickets = async (p: { storeId?: string }) =>
+      ok(await rpc("Home.work", p, owner.cookie)).rows.filter((r) => r.kind === "ticket").map((r) => r.subjectId)
+    expect(await workTickets({ storeId: first })).toEqual([ticketOf[first]])
+    expect(await workTickets({ storeId: second })).toEqual([ticketOf[second]])
+    expect((await workTickets({})).toSorted()).toEqual([ticketOf[first], ticketOf[second]].toSorted())
     const today = new Date().toISOString().slice(0, 10)
-    ok(await rpc("Home.agenda", { from: today, span: "week", storeId: first }, owner.cookie))
-    ok(await rpc("Home.revenueBreakdown", { range: 90, storeId: first }, owner.cookie))
+    const agendaTickets = async (p: { storeId?: string }, c: string) =>
+      ok(await rpc("Home.agenda", { from: today, span: "week", ...p }, c)).rows.filter((r) => r.kind === "ticket")
+        .map((r) => r.subjectId)
+    expect(await agendaTickets({ storeId: first }, owner.cookie)).toEqual([ticketOf[first]])
+    expect(await agendaTickets({ storeId: second }, owner.cookie)).toEqual([ticketOf[second]])
+    expect(await agendaTickets({ storeId: second }, held)).toEqual([])
+    const breakdown = async (p: { storeId?: string }) =>
+      ok(await rpc("Home.revenueBreakdown", { range: 90, ...p }, owner.cookie))
+    const [allRevenue, firstRevenue, secondRevenue] = [
+      await breakdown({}),
+      await breakdown({ storeId: first }),
+      await breakdown({ storeId: second })
+    ]
+    expect(firstRevenue.byStore.map((s) => s.id)).toEqual([first])
+    expect(secondRevenue.byStore.map((s) => s.id)).toEqual([second])
+    expect(firstRevenue.totalMinor).toBeGreaterThan(0)
+    expect(secondRevenue.totalMinor).toBeGreaterThan(0)
+    expect(firstRevenue.totalMinor + secondRevenue.totalMinor).toBe(allRevenue.totalMinor)
     const feed = async (p: { storeId?: string }, c: string) =>
       ok(await rpc("Home.activity", { limit: 200, ...p }, c)).rows.filter((r) => r.source === "order").length
     expect(await feed({ storeId: second }, held)).toBe(0)
@@ -191,9 +218,16 @@ describe("the store switch", () => {
     // The queue: rows of the store asked for, and those of no store.
     const queue = async (p: { storeId?: string }, c: string) =>
       ok(await rpc("Queue.list", { tab: "all", ...p }, c)).rows
-    for (const row of await queue({ storeId: first }, owner.cookie)) {
-      expect(["Insyte MVP Test", null]).toContain(row.storeName)
-    }
+    const queueOfFirst = await queue({ storeId: first }, owner.cookie)
+    const queueOfSecond = await queue({ storeId: second }, owner.cookie)
+    expect(queueOfFirst.some((r) => r.storeName === "Insyte MVP Test")).toBe(true)
+    expect(queueOfSecond.some((r) => r.storeName === "Tweede winkel")).toBe(true)
+    for (const row of queueOfFirst) expect(["Insyte MVP Test", null]).toContain(row.storeName)
+    for (const row of queueOfSecond) expect(["Tweede winkel", null]).toContain(row.storeName)
+    const noStore = (rows: ReadonlyArray<Json>) => rows.filter((r) => r.storeName === null).length
+    expect(queueOfFirst.length + queueOfSecond.length - noStore(queueOfFirst)).toBe(
+      (await queue({}, owner.cookie)).length
+    )
     for (const row of await queue({ storeId: second }, held)) expect(row.storeName).toBeNull()
 
     // The panel's counts.
@@ -208,10 +242,25 @@ describe("the store switch", () => {
     expect(await openOrders({ storeId: first }, owner.cookie) + await openOrders({ storeId: second }, owner.cookie))
       .toBe(await openOrders({}, owner.cookie))
     expect(await openOrders({ storeId: second }, held)).toBe(0)
+    // Each area's counts: a store's apart add up to every store's, none of the other store for the colleague.
+    for (const area of ["returns", "customers", "products", "chargebacks"]) {
+      const all = await navCount(area, {}, owner.cookie)
+      const ofFirst = await navCount(area, { storeId: first }, owner.cookie)
+      const ofSecond = await navCount(area, { storeId: second }, owner.cookie)
+      const total = (counts: Record<string, number>) => Object.values(counts).reduce((n, v) => n + v, 0)
+      expect(total(ofFirst), area).toBeGreaterThan(0)
+      expect(total(ofSecond), area).toBeGreaterThan(0)
+      for (const path of Object.keys(all)) {
+        expect((ofFirst[path] ?? 0) + (ofSecond[path] ?? 0), `${area} ${path}`).toBe(all[path])
+      }
+      expect(total(await navCount(area, { storeId: second }, held)), area).toBe(0)
+    }
 
     // The suppliers' work: their products and orders counted in the store asked for.
     const supplied = async (p: { storeId?: string }, c: string) =>
       ok(await rpc("Suppliers.list", p, c)).rows.reduce((n: number, s: Json) => n + s.stats.products, 0)
+    expect(await supplied({ storeId: first }, owner.cookie)).toBeGreaterThan(0)
+    expect(await supplied({ storeId: second }, owner.cookie)).toBeGreaterThan(0)
     expect(await supplied({ storeId: first }, owner.cookie) + await supplied({ storeId: second }, owner.cookie)).toBe(
       await supplied({}, owner.cookie)
     )
@@ -222,8 +271,29 @@ describe("the store switch", () => {
     expect(await sold({ storeId: first }, owner.cookie) + await sold({ storeId: second }, owner.cookie)).toBe(
       await sold({}, owner.cookie)
     )
-    expect(ok(await rpc("Forwarding.list", { storeId: second }, held)).rows).toEqual([])
-    expect(ok(await rpc("Products.lowStock", { storeId: second }, held)).rows).toEqual([])
+    // Each store's import made a leg to forward, and stock under a high mark: one store's apart, none of the other store
+    // for the colleague.
+    const legs = async (p: { storeId?: string }, c: string) =>
+      ok(await rpc("Forwarding.list", { view: "to_forward", ...p }, c)).rows.map((l: Json) => l.id)
+    const [legsOfFirst, legsOfSecond] = [
+      await legs({ storeId: first }, owner.cookie),
+      await legs({ storeId: second }, owner.cookie)
+    ]
+    expect(legsOfFirst.length).toBeGreaterThan(0)
+    expect(legsOfSecond.length).toBeGreaterThan(0)
+    expect([...legsOfFirst, ...legsOfSecond].toSorted()).toEqual((await legs({}, owner.cookie)).toSorted())
+    expect(await legs({ storeId: first }, held)).toEqual(legsOfFirst)
+    expect(await legs({ storeId: second }, held)).toEqual([])
+    const low = async (p: { storeId?: string }, c: string) =>
+      ok(await rpc("Products.lowStock", { threshold: 100, ...p }, c)).rows.map((r: Json) => r.id)
+    const [lowOfFirst, lowOfSecond] = [
+      await low({ storeId: first }, owner.cookie),
+      await low({ storeId: second }, owner.cookie)
+    ]
+    expect(lowOfFirst.length).toBeGreaterThan(0)
+    expect(lowOfSecond.length).toBeGreaterThan(0)
+    expect([...lowOfFirst, ...lowOfSecond].toSorted()).toEqual((await low({}, owner.cookie)).toSorted())
+    expect(await low({ storeId: second }, held)).toEqual([])
 
     // Analyse: this month's paid orders, two in the first store and one in the second.
     const pair = { a: A, b: B }
@@ -236,13 +306,61 @@ describe("the store switch", () => {
     expect(inFirst - inSecond).toBe(1)
     expect(await paidOrders({}, held)).toBe(inFirst)
     expect(await paidOrders({ storeId: second }, held)).toBe(0)
-    ok(await rpc("Analytics.periods", { storeId: first }, owner.cookie))
+    // The months start at the store's first order: the second store's is fourteen months back.
+    const months = async (p: { storeId?: string }, c: string) =>
+      ok(await rpc("Analytics.periods", p, c)).months.map((m) => m.month)
+    expect((await months({ storeId: second }, owner.cookie))[0]).toBe(month(14))
+    expect((await months({}, owner.cookie))[0]).toBe(month(14))
+    expect(await months({ storeId: first }, owner.cookie)).not.toContain(month(14))
+    expect(await months({}, held)).toEqual(await months({ storeId: first }, owner.cookie))
     ok(await rpc("Analytics.charts", { ...pair, storeId: first }, owner.cookie))
-    ok(await rpc("Analytics.findings", { ...pair, storeId: first }, owner.cookie))
+    // A finding's orders are the store's: the paid orders it names count only the store asked for.
+    const findingCounts = async (p: { storeId?: string }, c: string) =>
+      ok(await rpc("Analytics.findings", { ...pair, ...p }, c)).findings.reduce((n, f) => n + f.recordCount, 0)
+    expect(await findingCounts({ storeId: second }, held)).toBe(0)
+    expect(await findingCounts({ storeId: "sto_elsewhere" }, owner.cookie)).toBe(0)
+    expect(await findingCounts({}, owner.cookie)).toBeGreaterThan(0)
     const explainKey = { ...pair, key: { _tag: "paid_orders" as const }, storeId: second }
     expect(ok(await rpc("Analytics.explain", explainKey, owner.cookie)).recordCount).toBe(inSecond)
     expect(ok(await rpc("Analytics.explain", explainKey, held)).recordCount).toBe(0)
     expect(ok(await rpc("Analytics.records", { explainKey }, held)).rows).toEqual([])
+
+    // A ticket of no store (as mail makes them): narrowing to a store never hides a row of no store that the reader
+    // saw, nor shows one they did not. Tickets are everyone's without a store, so each sees it in every store; the feed
+    // shows a change to a record of no store only to someone who reaches every store, so the owner sees it in each
+    // store and the colleague held to one in none, as before. Lists and counts agree.
+    const storeless = ok(
+      await rpc(
+        "Tickets.create",
+        { title: "Mail zonder winkel", priority: "high", assigneeIds: [me.id], dueAt },
+        owner.cookie
+      )
+    ).tickets[0]!.id
+    const ticketIds = async (p: { storeId?: string }, c: string) =>
+      (await lists["Tickets.list"]!(p, c)).map((t: Json) => t.id)
+    const changed = async (p: { storeId?: string }, c: string) =>
+      ok(await rpc("Home.activity", { limit: 200, ...p }, c)).rows.some((r) => r.subjectId === storeless)
+    for (const p of [{}, { storeId: first }, { storeId: second }]) {
+      const at = JSON.stringify(p)
+      expect(await ticketIds(p, owner.cookie), at).toContain(storeless)
+      expect(await workTickets(p), at).toContain(storeless)
+      expect(await agendaTickets(p, owner.cookie), at).toContain(storeless)
+      expect(await changed(p, owner.cookie), at).toBe(true)
+      // The panel's count is the list's.
+      expect(await ticketsIn(p, owner.cookie), at).toBe((await ticketIds(p, owner.cookie)).length)
+    }
+    expect(await brief({}, owner.cookie)).toMatchObject({ urgent: 3 })
+    expect(await brief({ storeId: first }, owner.cookie)).toMatchObject({ urgent: 2 })
+    expect(await brief({ storeId: second }, owner.cookie)).toMatchObject({ urgent: 2 })
+    expect(await ticketsIn({ storeId: first }, owner.cookie) + await ticketsIn({ storeId: second }, owner.cookie))
+      .toBe(await ticketsIn({}, owner.cookie) + 1)
+    // The colleague held to the first store reads it as before, named or not.
+    expect(await ticketIds({}, held)).toContain(storeless)
+    expect((await ticketIds({ storeId: first }, held)).toSorted()).toEqual((await ticketIds({}, held)).toSorted())
+    expect(await brief({ storeId: first }, held)).toEqual(await brief({}, held))
+    expect(await ticketsIn({ storeId: first }, held)).toBe(await ticketsIn({}, held))
+    expect(await changed({}, held)).toBe(false)
+    expect(await changed({ storeId: first }, held)).toBe(false)
 
     // The choice is kept as the member's own preference.
     const saved = ok(

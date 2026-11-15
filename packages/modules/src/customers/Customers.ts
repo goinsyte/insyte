@@ -36,7 +36,8 @@ export class CustomersService extends Context.Service<CustomersService, {
   readonly merge: (
     input: typeof MergeInput.Type
   ) => Effect.Effect<CustomerChange, Forbidden | NotFound | Invalid | Conflict, R>
-  readonly duplicates: Effect.Effect<ReadonlyArray<DuplicateGroup>, Forbidden, R>
+  /** In one store (the store switch), or every store the principal reaches. */
+  readonly duplicates: (storeId?: string) => Effect.Effect<ReadonlyArray<DuplicateGroup>, Forbidden, R>
   readonly markNotDuplicate: (key: string) => Effect.Effect<void, Forbidden, R>
 }>()("modules/CustomersService") {
   static readonly layer = Layer.effect(
@@ -57,7 +58,8 @@ export class CustomersService extends Context.Service<CustomersService, {
         tag: (input) => Commands.tag(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         create: (input) => Commands.create(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         merge: (input) => Commands.merge(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
-        duplicates: Commands.duplicates().pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        duplicates: (storeId) =>
+          Commands.duplicates().pipe(inStore(storeId), Effect.catchIf(SqlError.isSqlError, Effect.die)),
         markNotDuplicate: (key) => Commands.markNotDuplicate(key).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))
       }
     })
