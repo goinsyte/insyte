@@ -182,7 +182,10 @@ export const AREAS: ReadonlyArray<Area> = [
       2: "instellingen wijzigen",
       3: "instellingen beheren, ook winkels koppelen en ontkoppelen"
     },
-    api: false
+    // A script or an agent may read the knowledge base's published chapters (`settings.read`, M15 step 7); changing a
+    // setting stays with people.
+    api: true,
+    apiMax: 1
   },
   {
     id: "team",

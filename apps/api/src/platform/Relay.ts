@@ -32,14 +32,15 @@ const routes = Effect.promise(() =>
 )
 
 /**
- * What goes onto `EVENTS`: committed events to deliver, a ticket to classify (M15 step 2), or a trigger the agent sink
- * heard (M15 step 6), which the consumer runs beside the deliveries, never in front of them
+ * What goes onto `EVENTS`: committed events to deliver, a ticket to classify (M15 step 2), a trigger the agent sink
+ * heard (M15 step 6), or a published chapter to embed (M15 step 7), which the consumer runs beside the deliveries, never in front of them
  * (`transports/jobs/Queue.ts`).
  */
 export type EventsMessage =
   | { readonly outboxIds: ReadonlyArray<string> }
   | { readonly classifyTicket: { readonly workspaceId: string; readonly ticketId: string } }
   | { readonly agent: AgentTask }
+  | { readonly embedKnowledge: { readonly workspaceId: string; readonly articleId: string; readonly version: number } }
 
 /** The longest a queue message can be delayed (Cloudflare Queues: 12 hours). */
 const MAX_DELAY_SECONDS = 43_200
@@ -142,6 +143,14 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
       const message: EventsMessage = { classifyTicket: { workspaceId, ticketId: relayed.event.ticketId } }
       yield* Effect.tryPromise(() => env.EVENTS.send(message)).pipe(
         Effect.catchCause((cause) => Effect.logWarning("a ticket's topic was not asked for", { cause }))
+      )
+    }
+    // A chapter published (M15 step 7): its pieces embedded on their own message, found by their words meanwhile.
+    if (relayed.event.type === "knowledge.published") {
+      const { articleId, version } = relayed.event
+      const message: EventsMessage = { embedKnowledge: { workspaceId, articleId, version } }
+      yield* Effect.tryPromise(() => env.EVENTS.send(message)).pipe(
+        Effect.catchCause((cause) => Effect.logWarning("a chapter's embedding was not asked for", { cause }))
       )
     }
   }

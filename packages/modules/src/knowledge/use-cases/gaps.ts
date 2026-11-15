@@ -110,7 +110,7 @@ const audit = (sql: SqlClient.SqlClient, action: string, id: string, diff?: Reco
 
 /** "negeren": out of the list; its undo opens it again. */
 export const dismiss = Effect.fn("Knowledge.dismissGap")(function*(sql: SqlClient.SqlClient, id: string) {
-  yield* Policy.require("settings", 2)
+  yield* Policy.require("settings", 3)
   const row = yield* find(sql, id, true)
   if (row.state !== "open") return yield* new GapNotOpen({ state: row.state })
   const p = yield* CurrentPrincipal
@@ -146,7 +146,7 @@ const reopen = Effect.fn("Knowledge.reopenGap")(function*(
 })
 
 export const restore = Effect.fn("Knowledge.restoreGap")(function*(sql: SqlClient.SqlClient, id: string) {
-  yield* Policy.require("settings", 2)
+  yield* Policy.require("settings", 3)
   return new GapChanged({ gap: gapOf(yield* reopen(sql, id, null)), undo: null })
 })
 
@@ -158,8 +158,11 @@ export const undoDismiss = Effect.fn("Knowledge.undoDismiss")(function*(
   compensation: unknown
 ) {
   const c = yield* decodeRestore(compensation).pipe(Effect.orDie)
-  yield* Policy.require("settings", 2)
-  yield* reopen(sql, c.gapId, c.articleId)
+  yield* Policy.require("settings", 3)
+  // Answered meanwhile: nothing to open again.
+  yield* reopen(sql, c.gapId, c.articleId).pipe(
+    Effect.catchTag("GapNotOpen", (e) => Effect.fail(new Conflict({ entity: "knowledge_gap", reason: e.state })))
+  )
 })
 
 /** "Toevoegen aan…": the chapter whose next publication answers the gap. */
@@ -167,7 +170,7 @@ export const link = Effect.fn("Knowledge.linkGap")(function*(
   sql: SqlClient.SqlClient,
   input: { readonly gapId: string; readonly articleId: string }
 ) {
-  yield* Policy.require("settings", 2)
+  yield* Policy.require("settings", 3)
   const row = yield* find(sql, input.gapId, true)
   if (row.state !== "open") return yield* new GapNotOpen({ state: row.state })
   const scope = yield* inScopeOrNone(sql, "a.store_id")

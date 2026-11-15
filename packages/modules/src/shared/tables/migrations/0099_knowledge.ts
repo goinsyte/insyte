@@ -31,11 +31,9 @@ import { statements } from "../statements.ts"
 
 const NO_NEWCOMER = `app_principal_kind() is distinct from 'newcomer'`
 
-const tenant = (table: Parameters<typeof tenantTable>[0]) => [
-  ...tenantTable(table, { membersOnly: true }),
+const noNewcomer = (table: string) =>
   `create policy ${table}_no_newcomer on ${table} as restrictive for all
      using (${NO_NEWCOMER}) with check (${NO_NEWCOMER})`
-]
 
 export default statements(
   "create extension if not exists vector",
@@ -57,7 +55,8 @@ export default statements(
      archived_by       text
    )`,
   "create index knowledge_articles_list on knowledge_articles (workspace_id, updated_at desc) where archived_at is null",
-  tenant("knowledge_articles"),
+  tenantTable("knowledge_articles", { membersOnly: true }),
+  noNewcomer("knowledge_articles"),
   "revoke delete on knowledge_articles from insyte_app",
   //
   `create table knowledge_versions (
@@ -73,7 +72,8 @@ export default statements(
      primary key (article_id, version)
    )`,
   "create index knowledge_versions_workspace on knowledge_versions (workspace_id, article_id, version desc)",
-  tenant("knowledge_versions"),
+  tenantTable("knowledge_versions", { membersOnly: true }),
+  noNewcomer("knowledge_versions"),
   "revoke update, delete on knowledge_versions from insyte_app",
   //
   `create table knowledge_chunks (
@@ -95,7 +95,8 @@ export default statements(
   "create index knowledge_chunks_embedding on knowledge_chunks using hnsw (embedding vector_cosine_ops)",
   "create index knowledge_chunks_words on knowledge_chunks using gin (workspace_id, tsv)",
   "create index knowledge_chunks_unembedded on knowledge_chunks (workspace_id, article_id) where embedding is null",
-  tenant("knowledge_chunks"),
+  tenantTable("knowledge_chunks", { membersOnly: true }),
+  noNewcomer("knowledge_chunks"),
   //
   `create table knowledge_gaps (
      id                  text primary key,
@@ -123,7 +124,8 @@ export default statements(
   "create unique index knowledge_gaps_open on knowledge_gaps (workspace_id, question_key) where state = 'open'",
   "create index knowledge_gaps_list on knowledge_gaps (workspace_id, state, last_seen_at desc)",
   "create index knowledge_gaps_target on knowledge_gaps (workspace_id, target_article_id) where state = 'open'",
-  tenant("knowledge_gaps"),
+  tenantTable("knowledge_gaps", { membersOnly: true }),
+  noNewcomer("knowledge_gaps"),
   "revoke delete on knowledge_gaps from insyte_app",
   //
   `create table knowledge_citations (
@@ -137,6 +139,7 @@ export default statements(
      unique (source_kind, source_id, article_id)
    )`,
   "create index knowledge_citations_uses on knowledge_citations (workspace_id, article_id, at desc)",
-  tenant("knowledge_citations"),
+  tenantTable("knowledge_citations", { membersOnly: true }),
+  noNewcomer("knowledge_citations"),
   "revoke update, delete on knowledge_citations from insyte_app"
 )

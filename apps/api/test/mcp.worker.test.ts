@@ -113,6 +113,7 @@ describe("the MCP server", () => {
       "list_exports",
       "list_forwarding",
       "list_imports",
+      "list_knowledge",
       "list_low_stock",
       "list_members",
       "list_orders",
@@ -129,6 +130,7 @@ describe("the MCP server", () => {
       "reject_return",
       "reroute_leg",
       "resolve_return",
+      "search_knowledge",
       "send_return_label",
       "set_order_note",
       "set_ticket_status",
@@ -174,7 +176,9 @@ describe("the MCP server", () => {
         "get_sheet",
         "list_imports",
         "list_exports",
-        "get_export"
+        "get_export",
+        "list_knowledge",
+        "search_knowledge"
       ]
     ) {
       expect(hints[read]?.["readOnlyHint"]).toBe(true)

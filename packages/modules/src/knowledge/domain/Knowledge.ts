@@ -7,8 +7,8 @@ import { UndoTicket } from "../../shared/domain/Undo.ts"
  * an answer reads them through. A draft is never read by an answer.
  *
  * Who may do what (M15's decision): reading needs Instellingen · Bekijken; writing a draft, "negeren" and "Toevoegen
- * aan…" need Instellingen · Bewerken; publishing (or putting back) a chapter the customer agent answers from also needs
- * `ai.autonomy`. A chapter only Vraag Insyte reads is published with Bewerken alone.
+ * aan…" need Instellingen · Beheren; publishing (or putting back) a chapter the customer agent answers from also needs
+ * `ai.autonomy`. A chapter only Vraag Insyte reads is published with Beheren alone.
  */
 
 /** The longest a chapter may be, counted as the browser counts it (UTF-16 code units). */
@@ -216,12 +216,13 @@ export class ArticleArchived extends Schema.TaggedError<ArticleArchived>()("Arti
 
 /* ── the undo commands' snapshots ──────────────────────────────────────────────────────────────────────────────── */
 
-/** What an article's undo puts back. */
+/** What an article's undo puts back (`kind`, not `_tag`: the snapshot comes back through the database's names). */
 export const ArticleRestore = Schema.Union([
   /** A create: the chapter archived again. */
-  Schema.TaggedStruct("Created", { id: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("created"), id: Schema.String }),
   /** A draft save: the working text as it was (a new draft version of it). */
-  Schema.TaggedStruct("Draft", {
+  Schema.Struct({
+    kind: Schema.Literal("draft"),
     id: Schema.String,
     title: Schema.String,
     audience: Audience,
@@ -231,7 +232,8 @@ export const ArticleRestore = Schema.Union([
    * A publication or a put-back: the version published before it published again (a new version), or, where there was
    * none, the chapter a draft again; and the gaps it answered open again.
    */
-  Schema.TaggedStruct("Published", {
+  Schema.Struct({
+    kind: Schema.Literal("published"),
     id: Schema.String,
     previous: Schema.NullOr(Schema.Int),
     title: Schema.String,
@@ -240,7 +242,7 @@ export const ArticleRestore = Schema.Union([
     gapIds: Schema.Array(Schema.String)
   }),
   /** An archive: the chapter back, and its published version searchable again. */
-  Schema.TaggedStruct("Archived", { id: Schema.String })
+  Schema.Struct({ kind: Schema.Literal("archived"), id: Schema.String })
 ])
 export type ArticleRestore = typeof ArticleRestore.Type
 

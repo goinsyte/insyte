@@ -321,6 +321,10 @@ export default Alchemy.Stack(
       FILES: files,
       // Browser Rendering (M8.5): packing slips as PDF, and an evidence pack's documents (M13 step 4).
       BROWSER: Cloudflare.Browser("BROWSER"),
+      // Workers AI (M15 step 7): the knowledge base's embeddings, `bge-m3`; the account's, no key. Previews embed with
+      // the fake (a vector of the words): nothing they hold is sent anywhere.
+      AI: Cloudflare.Workers.AI("AI"),
+      EMBEDDINGS_ADAPTER: environment === "preview" ? "fake" : "workers_ai",
       // The relay's kick (M1.4): whoever commits an event puts its id here.
       EVENTS: events,
       ENVIRONMENT: environment,

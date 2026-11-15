@@ -55,6 +55,8 @@ export class KnowledgeService extends Context.Service<KnowledgeService, {
     input: { readonly gapId: string; readonly articleId: string }
   ) => Effect.Effect<GapChanged, Forbidden | NotFound | GapNotOpen, R>
   readonly search: (input: SearchInput) => Effect.Effect<SearchResult, Forbidden, R>
+  /** The published chapters as the public API reads them (`id`: one, or none). */
+  readonly published: (id: string | null) => Effect.Effect<ReadonlyArray<Articles.Published>, Forbidden, R>
 }>()("modules/KnowledgeService") {
   static readonly layer = Layer.succeed(KnowledgeService, {
     list: (input) => scoped((sql) => Articles.list(sql, input)),
@@ -71,6 +73,7 @@ export class KnowledgeService extends Context.Service<KnowledgeService, {
     dismissGap: (id) => scoped((sql) => Gaps.dismiss(sql, id)),
     restoreGap: (id) => scoped((sql) => Gaps.restore(sql, id)),
     linkGap: (input) => scoped((sql) => Gaps.link(sql, input)),
+    published: (id) => scoped((sql) => Articles.published(sql, id)),
     search: (input) =>
       Effect.gen(function*() {
         // Reading by search is reading the knowledge base.

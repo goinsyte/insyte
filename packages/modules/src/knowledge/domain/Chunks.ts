@@ -86,14 +86,64 @@ const hash = (word: string) => {
   return h >>> 0
 }
 
+/** Dutch words too common to say what a text is about. */
+const STOP_WORDS = new Set([
+  "aan",
+  "alleen",
+  "als",
+  "bij",
+  "dan",
+  "dat",
+  "die",
+  "dit",
+  "een",
+  "elke",
+  "heb",
+  "hebben",
+  "hebt",
+  "heeft",
+  "het",
+  "hoe",
+  "ik",
+  "jij",
+  "jou",
+  "jouw",
+  "jullie",
+  "kan",
+  "kun",
+  "kunnen",
+  "kunt",
+  "maar",
+  "met",
+  "mijn",
+  "naar",
+  "niet",
+  "nog",
+  "ons",
+  "onze",
+  "ook",
+  "over",
+  "van",
+  "via",
+  "voor",
+  "waar",
+  "wanneer",
+  "wat",
+  "wij",
+  "wordt",
+  "zijn",
+  "zou"
+])
+
 /**
- * A vector of the text's words: each word adds one to its own place (by hash), and its first five letters a half to
+ * A vector of the text's words, the common ones left out: each word adds one to its own place (by hash), and its first five letters a half to
  * theirs, so "verzending" and "verzendkosten" share something. Normalised to length one, so the cosine of two texts is
  * how many words they share against how long they are. Deterministic; knows nothing of meaning.
  */
 export const fakeVector = (text: string): ReadonlyArray<number> => {
   const v = Array.from({ length: DIMENSIONS }, () => 0)
   for (const w of wordsOf(text)) {
+    if (STOP_WORDS.has(w)) continue
     v[hash(w) % DIMENSIONS]! += 1
     if (w.length > 5) v[hash(`${w.slice(0, 5)}*`) % DIMENSIONS]! += 0.5
   }
@@ -105,7 +155,7 @@ export const fakeVector = (text: string): ReadonlyArray<number> => {
 export const FAKE_EMBEDDER: EmbedderApi = {
   provider: "fake",
   model: "fake-words-1024",
-  minScore: 0.12,
+  minScore: 0.2,
   pricePerMillion: 0,
   embed: (texts) => Effect.succeed(texts.map(fakeVector))
 }

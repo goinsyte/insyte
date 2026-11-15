@@ -402,7 +402,8 @@ export const knowledgeAnswer = Effect.fn("Ai.knowledgeAnswer")(function*(
   inTx: InTx<CurrentPrincipal>,
   input: KnowledgeAnswerInput
 ) {
-  yield* Policy.require("settings", 2)
+  // Whoever may write the chapter (Kennisbank's editor: Instellingen · Beheren).
+  yield* Policy.require("settings", 3)
   const callerFor = yield* callerOf
   const { question, chapter, subject } = yield* inTx((sql) =>
     Effect.gen(function*() {

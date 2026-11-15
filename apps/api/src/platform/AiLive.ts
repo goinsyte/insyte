@@ -1,8 +1,10 @@
 import { FAKE_INFO, makeAnthropic, makeFake, MODEL_INFO, NO_MODEL } from "@insyte/integrations-anthropic/Anthropic"
 import { AiModel } from "@insyte/modules/ai/domain/Ai"
+import { Embedder } from "@insyte/modules/knowledge/domain/Knowledge"
 import { Context, Effect, Option } from "effect"
 import { LanguageModel } from "effect/ai"
 import { aiModeOf, AiSettings, filled } from "./AiSettings.ts"
+import { embedder } from "./Embeddings.ts"
 
 /*
  * Insyte AI's model (M15 step 1; ADR-0015), chosen per call by configuration:
@@ -13,6 +15,8 @@ import { aiModeOf, AiSettings, filled } from "./AiSettings.ts"
  *   (`infra/app.ts`, which refuses a stage with only some of them).
  * - Otherwise (previews, a stage not set up yet) no model: `ready: false`, so no call is made and the console says
  *   Insyte AI is not switched on yet. The fake's template text is never shown there as Insyte's.
+ *
+ * A reply reads the knowledge base by meaning with the stage's embedder (`Embeddings.ts`), which comes with it.
  *
  * The choice itself is `AiSettings.ts`, which `Drafts.status` reads without loading this module.
  *
@@ -25,8 +29,13 @@ export * as Ai from "@insyte/modules/ai/Ai"
 const of = (info: typeof MODEL_INFO, model: LanguageModel.LanguageModel) =>
   Context.make(AiModel, info).pipe(Context.add(LanguageModel.LanguageModel, model))
 
-/** The stage's model and what it is, as the context an AI call runs in. */
-export const services = Effect.gen(function*() {
+/** The stage's model and what it is, and its embedder, as the context an AI call runs in. */
+export const services = Effect.map(
+  Effect.all([Effect.suspend(() => stageModel), embedder]),
+  ([context, e]) => Context.add(context, Embedder, e)
+)
+
+const stageModel = Effect.gen(function*() {
   const c = yield* AiSettings
   const mode = aiModeOf(c)
   if (mode === "fake") return of(FAKE_INFO, yield* makeFake)

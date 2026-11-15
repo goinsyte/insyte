@@ -40,7 +40,7 @@ import {
  * - "Terugzetten" publishes an earlier version again, as a new version, so the old ones stay.
  * - Archiving takes the chapter out of every answer; its undo puts it back.
  *
- * Reading needs Instellingen · Bekijken, a draft Bewerken; publishing or putting back a chapter the customer agent
+ * Reading needs Instellingen · Bekijken, a draft Beheren; publishing or putting back a chapter the customer agent
  * reads (before or after) also needs `ai.autonomy`. A chapter for one store is read only by who reaches that store.
  */
 
@@ -182,6 +182,37 @@ export const versions = Effect.fn("Knowledge.versions")(function*(sql: SqlClient
   return [...rows].reverse().map((v) => new Version({ ...v, at: v.at.getTime() }))
 })
 
+/** A chapter as the public API and the agents read it: its published version, never a draft. */
+export interface Published {
+  readonly id: string
+  readonly title: string
+  readonly audience: Audience
+  readonly storeId: string | null
+  readonly version: number
+  /** The published text; the list leaves it out (`null`) and names its length. */
+  readonly body: string | null
+  readonly length: number
+  readonly publishedAt: Date
+}
+
+/**
+ * The published chapters (`GET /v1/knowledge_articles`, `list_knowledge`), or one (`/{id}`): each one's published
+ * version, none archived, within the principal's stores. A chapter never published is not there.
+ */
+export const published = Effect.fn("Knowledge.published")(function*(sql: SqlClient.SqlClient, id: string | null) {
+  yield* Policy.require("settings", 1)
+  const scope = yield* inScopeOrNone(sql, "a.store_id")
+  return yield* sql<Published>`
+    select a.id, v.title, v.audience, a.store_id, v.version,
+           case when ${id}::text is null then null else v.body end as body, length(v.body)::int as length,
+           v.saved_at as published_at
+    from knowledge_articles a
+    join knowledge_versions v on v.article_id = a.id and v.version = a.published_version
+    where a.archived_at is null and ${scope} and (${id}::text is null or a.id = ${id})
+    order by lower(v.title), a.id
+    limit 500`
+})
+
 /** One version's text. */
 export const version = Effect.fn("Knowledge.version")(function*(sql: SqlClient.SqlClient, id: string, n: number) {
   const all = yield* versions(sql, id)
@@ -282,10 +313,13 @@ const audit = (
     })
   })
 
-/** Publishing needs Bewerken, and `ai.autonomy` where the customer agent reads the chapter before or after. */
+/**
+ * Publishing needs Beheren, and `ai.autonomy` where the customer agent reads the chapter before or after: the version
+ * published now, and the one it replaces. A draft's own audience is read by no agent.
+ */
 const requirePublish = (...audiences: ReadonlyArray<Audience | null>) =>
   Effect.gen(function*() {
-    yield* Policy.require("settings", 2)
+    yield* Policy.require("settings", 3)
     if (audiences.some((a) => a !== null && reachesCustomers(a))) yield* Policy.requireAction("ai.autonomy")
   })
 
@@ -305,7 +339,7 @@ const savedOf = (sql: SqlClient.SqlClient, id: string, restore: ArticleRestore |
 
 /** "Hoofdstuk schrijven", or one of the suggested starts: a new chapter, as a draft. */
 export const create = Effect.fn("Knowledge.create")(function*(sql: SqlClient.SqlClient, input: CreateInput) {
-  yield* Policy.require("settings", 2)
+  yield* Policy.require("settings", 3)
   const p = yield* CurrentPrincipal
   const title = yield* trimmedTitle(input.title)
   const storeId = input.storeId ?? null
@@ -321,12 +355,12 @@ export const create = Effect.fn("Knowledge.create")(function*(sql: SqlClient.Sql
              values (${id}, app_workspace_id(), ${storeId}, ${title}, ${input.audience}, ${input.body}, ${by}, ${by})`
   yield* writeVersion(sql, id, { title, audience: input.audience, body: input.body }, false)
   yield* audit(sql, "knowledge_article.created", id, { title, audience: input.audience })
-  return yield* savedOf(sql, id, { _tag: "Created", id })
+  return yield* savedOf(sql, id, { kind: "created", id })
 })
 
 /** "Opslaan als concept": a version the agents do not read. */
 export const saveDraft = Effect.fn("Knowledge.saveDraft")(function*(sql: SqlClient.SqlClient, input: SaveInput) {
-  yield* Policy.require("settings", 2)
+  yield* Policy.require("settings", 3)
   const row = yield* find(sql, input.id, true)
   yield* checkLive(row)
   yield* checkRevision(row, input.baseRevision)
@@ -335,7 +369,7 @@ export const saveDraft = Effect.fn("Knowledge.saveDraft")(function*(sql: SqlClie
   yield* writeArticle(sql, row.id, content)
   yield* audit(sql, "knowledge_article.draft_saved", row.id, { length: content.body.length })
   return yield* savedOf(sql, row.id, {
-    _tag: "Draft",
+    kind: "draft",
     id: row.id,
     title: row.title,
     audience: row.audience,
@@ -354,8 +388,10 @@ const publishedAudience = (sql: SqlClient.SqlClient, row: Row) =>
 
 /** "Publiceren": the text as a new version the agents read; the gaps pointed at this chapter answered. */
 export const publish = Effect.fn("Knowledge.publish")(function*(sql: SqlClient.SqlClient, input: SaveInput) {
+  // Beheren before the chapter is looked for: who may not publish learns nothing of what is there.
+  yield* Policy.require("settings", 3)
   const row = yield* find(sql, input.id, true)
-  yield* requirePublish(input.audience, row.audience, yield* publishedAudience(sql, row))
+  yield* requirePublish(input.audience, yield* publishedAudience(sql, row))
   yield* checkLive(row)
   yield* checkRevision(row, input.baseRevision)
   const content = { title: yield* trimmedTitle(input.title), audience: input.audience, body: input.body }
@@ -378,7 +414,7 @@ export const publish = Effect.fn("Knowledge.publish")(function*(sql: SqlClient.S
   }
   yield* audit(sql, "knowledge_article.published", row.id, { version: n, audience: content.audience })
   return yield* savedOf(sql, row.id, {
-    _tag: "Published",
+    kind: "published",
     id: row.id,
     previous: row.publishedVersion,
     title: row.title,
@@ -393,18 +429,19 @@ export const restoreVersion = Effect.fn("Knowledge.restoreVersion")(function*(
   sql: SqlClient.SqlClient,
   input: { readonly id: string; readonly version: number }
 ) {
+  yield* Policy.require("settings", 3)
   const row = yield* find(sql, input.id, true)
   const [v] = yield* sql<{ title: string; audience: Audience; body: string }>`
     select title, audience, body from knowledge_versions where article_id = ${row.id} and version = ${input.version}`
   if (v === undefined) return yield* new NotFound({ entity: "knowledge_version", id: `${row.id}@${input.version}` })
-  yield* requirePublish(v.audience, row.audience, yield* publishedAudience(sql, row))
+  yield* requirePublish(v.audience, yield* publishedAudience(sql, row))
   yield* checkLive(row)
   const n = yield* writeVersion(sql, row.id, v, true)
   yield* writeArticle(sql, row.id, v, n)
   yield* rebuildChunks(sql, row.id)
   yield* audit(sql, "knowledge_article.restored", row.id, { from: input.version, version: n })
   return yield* savedOf(sql, row.id, {
-    _tag: "Published",
+    kind: "published",
     id: row.id,
     previous: row.publishedVersion,
     title: row.title,
@@ -416,7 +453,7 @@ export const restoreVersion = Effect.fn("Knowledge.restoreVersion")(function*(
 
 /** "Archiveren": out of every answer and the list; its undo puts it back. */
 export const archive = Effect.fn("Knowledge.archive")(function*(sql: SqlClient.SqlClient, id: string) {
-  yield* Policy.require("settings", 2)
+  yield* Policy.require("settings", 3)
   const row = yield* find(sql, id, true)
   if (row.archivedAt !== null) return yield* savedOf(sql, row.id, null)
   const p = yield* CurrentPrincipal
@@ -424,7 +461,7 @@ export const archive = Effect.fn("Knowledge.archive")(function*(sql: SqlClient.S
   yield* sql`delete from knowledge_chunks where article_id = ${row.id}`
   yield* sql`update knowledge_gaps set target_article_id = null where target_article_id = ${row.id} and state = 'open'`
   yield* audit(sql, "knowledge_article.archived", row.id)
-  return yield* savedOf(sql, row.id, { _tag: "Archived", id: row.id })
+  return yield* savedOf(sql, row.id, { kind: "archived", id: row.id })
 })
 
 /* ── undo ──────────────────────────────────────────────────────────────────────────────────────────────────────── */
@@ -436,23 +473,23 @@ export const restore = Effect.fn("Knowledge.restore")(function*(sql: SqlClient.S
   const c = yield* decodeRestore(compensation).pipe(Effect.orDie)
   const row = yield* find(sql, c.id, true)
   const p = yield* CurrentPrincipal
-  switch (c._tag) {
-    case "Created": {
-      yield* Policy.require("settings", 2)
+  switch (c.kind) {
+    case "created": {
+      yield* Policy.require("settings", 3)
       yield* sql`update knowledge_articles set archived_at = now(), archived_by = ${p.id} where id = ${row.id}`
       yield* sql`delete from knowledge_chunks where article_id = ${row.id}`
       yield* audit(sql, "knowledge_article.archived", row.id, { undo: true })
       return
     }
-    case "Archived": {
-      yield* Policy.require("settings", 2)
+    case "archived": {
+      yield* Policy.require("settings", 3)
       yield* sql`update knowledge_articles set archived_at = null, archived_by = null where id = ${row.id}`
       yield* rebuildChunks(sql, row.id)
       yield* audit(sql, "knowledge_article.unarchived", row.id, { undo: true })
       return
     }
-    case "Draft": {
-      yield* Policy.require("settings", 2)
+    case "draft": {
+      yield* Policy.require("settings", 3)
       if (row.archivedAt !== null) return yield* new Conflict({ entity: "knowledge_article", reason: "archived" })
       const content = { title: c.title, audience: c.audience, body: c.body }
       yield* writeVersion(sql, row.id, content, false)
@@ -460,14 +497,14 @@ export const restore = Effect.fn("Knowledge.restore")(function*(sql: SqlClient.S
       yield* audit(sql, "knowledge_article.draft_saved", row.id, { undo: true })
       return
     }
-    case "Published": {
+    case "published": {
       const before = c.previous === null
         ? null
         : (yield* sql<{ title: string; audience: Audience; body: string }>`
             select title, audience, body from knowledge_versions where article_id = ${row.id} and version = ${c.previous}`)[
           0
         ]
-      yield* requirePublish(row.audience, before?.audience ?? null, yield* publishedAudience(sql, row))
+      yield* requirePublish(before?.audience ?? null, yield* publishedAudience(sql, row))
       if (row.archivedAt !== null) return yield* new Conflict({ entity: "knowledge_article", reason: "archived" })
       const working = { title: c.title, audience: c.audience, body: c.body }
       if (before === undefined || before === null) {

@@ -92,6 +92,12 @@ declare global {
       readonly AI_ACCOUNT_ID?: string
       readonly AI_GATEWAY_TOKEN?: string
       /**
+       * The knowledge base's embeddings (M15 step 7): Workers AI's `bge-m3` through `AI` (`workers_ai`), the fake
+       * (`fake`: local runs, the worker tests, previews), or none, where it is searched by its words.
+       */
+      readonly EMBEDDINGS_ADAPTER?: string
+      readonly AI: Ai
+      /**
        * Billing (M13 step 1): Stripe's secret key (test mode on staging) and the webhook endpoint's signing secret.
        * Without the key there is no billing. `BILLING_ADAPTER=fake` (local runs, the worker tests, previews) answers
        * with the fake whatever keys are set.

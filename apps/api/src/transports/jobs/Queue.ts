@@ -15,7 +15,7 @@ import { withRequestDb } from "../../platform/RequestDb.ts"
  * The outbox relay's consumer (M1.4): a throw leaves the batch to the queue's retries, then its dead letters. And
  * Shopify's webhooks (M6.3), each delivery acked or retried on its own.
  *
- * A ticket to classify (M15 step 2) and a trigger the agent sink heard (M15 step 6) run beside the batch's deliveries,
+ * A ticket to classify (M15 step 2), a trigger the agent sink heard (M15 step 6) and a chapter to embed (M15 step 7) run beside the batch's deliveries,
  * not before or after them, and are acked or retried on their own: a slow model holds up no event, a failed delivery
  * does not ask the model again, and a task that could not run (the database away) comes back rather than being lost.
  */
@@ -34,6 +34,8 @@ export const queue: ExportedHandlerQueueHandler<Env, EventsMessage | IngestMessa
         ? [settle(m, background.runPromise(spans.provide(withRequestDb(classify(m.body.classifyTicket)))))]
         : "agent" in m.body
         ? [settle(m, background.runPromise(spans.provide(withRequestDb(agentAct(m.body.agent)))))]
+        : "embedKnowledge" in m.body
+        ? [settle(m, background.runPromise(spans.provide(withRequestDb(embed(m.body.embedKnowledge)))))]
         : []
     ))
     const deliveries = messages.filter((m) => "outboxIds" in m.body)
@@ -56,6 +58,22 @@ const classify = (task: { readonly workspaceId: string; readonly ticketId: strin
   withAi((ai) => ai.classifyTicket(task.ticketId)).pipe(
     Effect.provideService(CurrentWorkspace, { id: task.workspaceId as WorkspaceId }),
     Effect.catchCause((cause) => Effect.logWarning("a ticket's topic was not classified", { cause }))
+  )
+
+/**
+ * A published chapter's pieces embedded (M15 step 7), with the slice loaded on the first such task. The embedder failing, or the database away, fails here and the
+ * queue hands it over again; a piece embedded already is not embedded twice, and a stage with no embedder or a spent
+ * budget leaves the pieces to be found by their words.
+ */
+const embed = (task: { readonly workspaceId: string; readonly articleId: string; readonly version: number }) =>
+  Effect.tryPromise(() =>
+    Promise.all([import("@insyte/modules/knowledge/Knowledge"), import("../../platform/Embeddings.ts")])
+  ).pipe(
+    Effect.flatMap(([knowledge, embeddings]) =>
+      embeddings.withEmbedder(knowledge.embedArticle(task.articleId, task.version))
+    ),
+    Effect.provideService(CurrentWorkspace, { id: task.workspaceId as WorkspaceId }),
+    Effect.tapCause((cause) => Effect.logWarning("a chapter was not embedded; it is tried again", { cause }))
   )
 
 let agentSink: Promise<typeof AgentSink> | undefined

@@ -157,6 +157,16 @@ const byWords = (sql: SqlClient.SqlClient, query: string, audiences: ReadonlyArr
       limit ${CANDIDATES}`
   })
 
+/** Whether any published chapter is there to read, so a workspace with none asks the embedder nothing. */
+const anyPublished = (sql: SqlClient.SqlClient, audiences: ReadonlyArray<string>) =>
+  Effect.map(
+    sql`select 1 from knowledge_chunks c
+        join knowledge_articles a on a.id = c.article_id and a.archived_at is null and a.published_version = c.version
+        where c.workspace_id = app_workspace_id() and c.audience = any(${[...audiences]}::text[])
+        limit 1`,
+    (rows) => rows.length > 0
+  )
+
 /** The best piece per chapter, best first, at most `limit`. */
 const bestPerChapter = (rows: ReadonlyArray<HitRow>, limit: number): ReadonlyArray<Hit> => {
   const best = new Map<string, HitRow>()
@@ -182,9 +192,12 @@ export const search = Effect.fn("Knowledge.search")(function*(inTx: InTx<Current
   const limit = input.limit ?? DEFAULT_LIMIT
   const audiences = audienceIn(input.audience)
   const embedder = yield* Embedder
-  const vector = embedder === null || query === "" ? null : yield* queryVector(inTx, embedder, query)
+  if (query === "" || !(yield* inTx((sql) => anyPublished(sql, audiences)))) {
+    return new SearchResult({ hits: [], mode: embedder === null ? "text" : "vector" })
+  }
+  const vector = embedder === null ? null : yield* queryVector(inTx, embedder, query)
   if (vector === null || embedder === null) {
-    const rows = query === "" ? [] : yield* inTx((sql) => byWords(sql, query, audiences, false))
+    const rows = yield* inTx((sql) => byWords(sql, query, audiences, false))
     return new SearchResult({ hits: bestPerChapter(rows, limit), mode: "text" })
   }
   const rows = yield* inTx((sql) =>

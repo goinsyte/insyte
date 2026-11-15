@@ -92,6 +92,8 @@
   // which store the HTML: `DOCUMENTS_ADAPTER=html`).
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "insyte-files" }],
   "browser": { "binding": "BROWSER" },
+  // Workers AI (M15 step 7): the knowledge base's embeddings on staging and production; the fake here.
+  "ai": { "binding": "AI" },
   // The outbox relay (M1.4): committed events' ids onto EVENTS, consumed by this Worker; the minute cron sweeps.
   "queues": {
     "producers": [
@@ -133,5 +135,7 @@
     "AI_ADAPTER": "fake",
     // Stripe's fake here (M13 step 1): no Stripe account is called, whatever keys `.dev.vars` holds.
     "BILLING_ADAPTER": "fake",
+    // The knowledge base's fake embedder here (M15 step 7): a vector of the words, sent nowhere.
+    "EMBEDDINGS_ADAPTER": "fake",
   },
 }

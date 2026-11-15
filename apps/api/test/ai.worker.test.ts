@@ -60,7 +60,7 @@ describe("Insyte AI drafts", () => {
     expect(before).toMatchObject({ draft: null, canDraft: true })
 
     const first = ok(await rpc("Drafts.reply", { subject: { type: "ticket", id: ticket } }, owner))
-    expect(first).toMatchObject({ kind: "reply", tone: null, provider: "fake", promptVersion: "1.1.0", usedAt: null })
+    expect(first).toMatchObject({ kind: "reply", tone: null, provider: "fake", promptVersion: "1.2.0", usedAt: null })
     expect(first.text).toContain("Waar blijft mijn pakket")
     expect(first.text).not.toMatch(/!|Intern|korting/)
 
@@ -101,8 +101,8 @@ describe("Insyte AI drafts", () => {
     const drafts = await callsOf(workspace, ticket, "draft")
     const summaries = await callsOf(workspace, ticket, "summarize")
     expect([...drafts, ...summaries]).toEqual([
-      { purpose: "draft", prompt: "reply_draft@1.1.0", provider: "fake", outcome: "ok" },
-      { purpose: "draft", prompt: "reply_draft@1.1.0", provider: "fake", outcome: "ok" },
+      { purpose: "draft", prompt: "reply_draft@1.2.0", provider: "fake", outcome: "ok" },
+      { purpose: "draft", prompt: "reply_draft@1.2.0", provider: "fake", outcome: "ok" },
       { purpose: "summarize", prompt: "ticket_summary@1.1.0", provider: "fake", outcome: "ok" }
     ])
     expect((await aiOf(workspace)).openReservations).toBe(0)
@@ -132,7 +132,13 @@ describe("Insyte AI drafts", () => {
   })
 
   it("says the knowledge base has nothing to write from yet", async () => {
-    expect(ok(await rpc("Drafts.knowledgeAnswer", {}, owner))).toEqual({ _tag: "Nothing", reason: "no_knowledge" })
+    // A first text is for a gap or a chapter.
+    expect(failure(await rpc("Drafts.knowledgeAnswer", {}, owner))).toMatchObject({ _tag: "Invalid" })
+    const chapter = ok(
+      await rpc("Knowledge.create", { title: "Verzending", audience: "customer_agent", body: "" }, owner)
+    ).article
+    expect(ok(await rpc("Drafts.knowledgeAnswer", { articleId: chapter.id }, owner)))
+      .toEqual({ _tag: "Nothing", reason: "no_knowledge" })
   })
 
   it("limits one person's model calls a minute", async () => {
