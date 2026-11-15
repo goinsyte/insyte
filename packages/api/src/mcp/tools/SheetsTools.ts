@@ -2,7 +2,7 @@ import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import { NotFoundV1, ScopeMissingV1 } from "../../http/Errors.ts"
 import { SheetListV1, SheetV1 } from "../../http/groups/SheetsGroup.ts"
-import { asKey } from "../Shared.ts"
+import { asKey, Needs, read } from "../Shared.ts"
 
 /* Rekenbladen (M19.3): the key's member's sheets, as typed. */
 
@@ -12,7 +12,7 @@ export const ListSheets = Tool.make("list_sheets", {
   success: SheetListV1,
   failure: ScopeMissingV1,
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("data")])
 
 export const GetSheet = Tool.make("get_sheet", {
   description:
@@ -21,7 +21,7 @@ export const GetSheet = Tool.make("get_sheet", {
   success: SheetV1,
   failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("data")])
 
 export const SheetsTools = Toolkit.make(
   ListSheets,

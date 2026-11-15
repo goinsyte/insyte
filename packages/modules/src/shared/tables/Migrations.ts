@@ -80,6 +80,7 @@ import agentSink from "./migrations/0092_agent_sink.ts"
 import draftPayment from "./migrations/0094_draft_payment.ts"
 import publicLogosParcelStage from "./migrations/0095_public_logos_parcel_stage.ts"
 import workspaceChoice from "./migrations/0096_workspace_choice.ts"
+import sealedPartitions from "./migrations/0097_sealed_partitions.ts"
 import knowledge from "./migrations/0099_knowledge.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 import supplierPortal from "./migrations/contract/0075_supplier_portal.ts"
@@ -173,5 +174,6 @@ export const Migrations = {
   "0094_draft_payment": draftPayment,
   "0095_public_logos_parcel_stage": publicLogosParcelStage,
   "0096_workspace_choice": workspaceChoice,
+  "0097_sealed_partitions": sealedPartitions,
   "0099_knowledge": knowledge
 }

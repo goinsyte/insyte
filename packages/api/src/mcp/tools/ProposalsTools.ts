@@ -2,7 +2,7 @@ import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import { ActionNotAllowedV1, NotFoundV1, ScopeMissingV1 } from "../../http/Errors.ts"
 import { ProposalV1 } from "../../http/groups/ProposalsGroup.ts"
-import { asKey, Governed, IdempotencyKey, WriteFailure } from "../Shared.ts"
+import { asKey, ForAgents, Governed, governedByRecord, IdempotencyKey, Needs, WriteFailure } from "../Shared.ts"
 
 /* The queue's plates (M19.3): one read, and filed as the key. */
 
@@ -17,7 +17,7 @@ export const GetProposal = Tool.make("get_proposal", {
   success: ProposalV1,
   failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [])
 
 export const FileProposal = Tool.make("file_proposal", {
   description:
@@ -26,7 +26,7 @@ export const FileProposal = Tool.make("file_proposal", {
   success: Governed(ProposalV1),
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, []).annotate(ForAgents, governedByRecord)
 
 export const ProposalsTools = Toolkit.make(
   GetProposal,

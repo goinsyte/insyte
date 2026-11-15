@@ -10,10 +10,13 @@ import { CostsMcp } from "./costs/mcp.ts"
 import { DataMcp } from "./data/mcp.ts"
 import { ForwardingMcp } from "./forwarding/mcp.ts"
 import { KeyMcp } from "./key/mcp.ts"
+import { WorkspaceResource } from "./key/resources.ts"
 import { KnowledgeMcp } from "./knowledge/mcp.ts"
 import { McpAuth } from "./mcp/KeyAuth.ts"
+import { ToolReach } from "./mcp/Reach.ts"
 import { McpServerOptions } from "./mcp/Server.ts"
 import { OrdersMcp } from "./orders/mcp.ts"
+import { OrderResource } from "./orders/resources.ts"
 import { ProposalsMcp } from "./proposals/mcp.ts"
 import { QueueMcp } from "./queue/mcp.ts"
 import { ReturnsMcp } from "./returns/mcp.ts"
@@ -27,7 +30,9 @@ import { TicketsMcp } from "./tickets/mcp.ts"
  * (docs/adr/0041-transports-are-per-slice-layers-and-the-api-runs-as-three-workers.md): a new slice adds one line here.
  */
 
+// Each key is shown the tools it can call (`mcp/Reach.ts`).
 const Tools = McpServer.toolkit(InsyteTools).pipe(
+  Layer.provide(ToolReach.layer),
   Layer.provide(
     Layer.mergeAll(
       KeyMcp,
@@ -51,6 +56,12 @@ const Tools = McpServer.toolkit(InsyteTools).pipe(
   )
 )
 
-export const McpLive = McpServer.layerHttpRequestScoped({ ...McpServerOptions, registrations: Tools }).pipe(
+// The records a client reads by address (M19.3): one line per slice.
+const Resources = Layer.mergeAll(WorkspaceResource, OrderResource)
+
+export const McpLive = McpServer.layerHttpRequestScoped({
+  ...McpServerOptions,
+  registrations: Layer.mergeAll(Tools, Resources)
+}).pipe(
   Layer.provide(McpAuth.layer)
 )
