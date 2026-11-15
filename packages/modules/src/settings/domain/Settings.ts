@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { SHIP_SHOWS, SHIP_STATUS_IDS } from "../../shared/domain/CustomerFacing.ts"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
 import { SendersValue } from "./SendingDomain.ts"
 
@@ -21,38 +22,6 @@ export type SettingsSectionId = typeof SettingsSectionId.Type
 
 /* ── Verzending ───────────────────────────────────────────────────────────────────────────────── */
 
-/** The twelve carrier statuses, in the page's order, with the wording a new workspace starts from. */
-export const SHIP_STATUSES = [
-  { id: "info", label: "Je bestelling is verzonden", show: "all" },
-  { id: "supplier", label: "We maken je bestelling klaar", show: "line" },
-  { id: "country", label: "Onderweg", show: "line" },
-  { id: "local", label: "Onderweg met {vervoerder}", show: "all" },
-  { id: "noinfo", label: "Verzonden", show: "all" },
-  { id: "transit", label: "Onderweg", show: "all" },
-  { id: "pickup", label: "Ligt klaar om op te halen", show: "all" },
-  { id: "out", label: "Wordt vandaag bezorgd", show: "all" },
-  { id: "failed", label: "Bezorgpoging mislukt", show: "all" },
-  { id: "exception", label: "We kijken naar je zending", show: "all" },
-  { id: "stale", label: "Onderweg", show: "line" },
-  { id: "delivered", label: "Bezorgd", show: "all" }
-] as const
-export const SHIP_STATUS_IDS = [
-  "info",
-  "supplier",
-  "country",
-  "local",
-  "noinfo",
-  "transit",
-  "pickup",
-  "out",
-  "failed",
-  "exception",
-  "stale",
-  "delivered"
-] as const satisfies ReadonlyArray<(typeof SHIP_STATUSES)[number]["id"]>
-export type ShipStatusId = (typeof SHIP_STATUS_IDS)[number]
-export const SHIP_SHOWS = ["all", "line", "hidden"] as const
-
 export const ShipWording = Schema.Struct({
   id: Schema.Literals(SHIP_STATUS_IDS),
   label: Schema.String,
@@ -64,14 +33,6 @@ export type ShippingValue = typeof ShippingValue.Type
 
 /* ── Sjablonen ────────────────────────────────────────────────────────────────────────────────── */
 
-export const LINK_KEYS = ["review", "unsubscribe", "restock"] as const
-export type LinkKey = (typeof LINK_KEYS)[number]
-/** The variable a reply template writes for each link. */
-export const LINK_VARIABLES: Record<LinkKey, string> = {
-  review: "{review_link}",
-  unsubscribe: "{uitschrijf_link}",
-  restock: "{voorraad_link}"
-}
 export const LinksValue = Schema.Struct({ review: Schema.String, unsubscribe: Schema.String, restock: Schema.String })
 export type LinksValue = typeof LinksValue.Type
 

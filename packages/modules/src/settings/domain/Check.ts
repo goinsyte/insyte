@@ -1,16 +1,14 @@
 import { Option, Schema } from "effect"
+import { LINK_KEYS, SHIP_SHOWS, SHIP_STATUSES } from "../../shared/domain/CustomerFacing.ts"
 import type { SendersValue } from "./SendingDomain.ts"
 import {
   type BrandValue,
   FONTS,
-  LINK_KEYS,
   type LinksValue,
   RETENTION_CLASSES,
   RETENTION_DEFAULTS,
   RETENTION_MONTHS,
   type RetentionValue,
-  SHIP_SHOWS,
-  SHIP_STATUSES,
   type ShippingValue,
   type StoreVat,
   VAT_CURRENCIES,

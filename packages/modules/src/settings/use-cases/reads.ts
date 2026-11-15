@@ -4,18 +4,10 @@ import { mintId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
+import { LINK_KEYS, LINK_VARIABLES, SHIP_STATUS_IDS } from "../../shared/domain/CustomerFacing.ts"
 import { FileStore } from "../../shared/domain/Documents.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
-import {
-  LINK_KEYS,
-  LINK_VARIABLES,
-  type LinkUsage,
-  LOGO_BYTES,
-  LOGO_MIMES,
-  SHIP_STATUS_IDS,
-  type StatusCounts,
-  type UploadLogo
-} from "../domain/Settings.ts"
+import { type LinkUsage, LOGO_BYTES, LOGO_MIMES, type StatusCounts, type UploadLogo } from "../domain/Settings.ts"
 
 /*
  * What the settings pages read beside their section (M17 step 20.1b): Verzending's "Nu" column, how many reply templates

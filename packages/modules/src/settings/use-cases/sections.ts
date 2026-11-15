@@ -4,6 +4,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
+import { SHIP_STATUSES } from "../../shared/domain/CustomerFacing.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import {
@@ -26,7 +27,6 @@ import {
   RetentionValue,
   type SaveSection,
   type SettingsSectionId,
-  SHIP_STATUSES,
   ShippingValue,
   VAT_CURRENCIES,
   type VatStore,
