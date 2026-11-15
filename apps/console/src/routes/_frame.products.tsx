@@ -14,6 +14,7 @@ import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
 import { useMemo, useRef } from "react"
 import { productsPageAtom } from "../data/products.ts"
+import { viewStoreAtom } from "../data/store-view.ts"
 import { storesAtom } from "../data/stores.ts"
 import { suppliersAtom } from "../data/suppliers.ts"
 import { ConsoleLowStock } from "../products/low-stock.tsx"
@@ -29,6 +30,9 @@ import { FIRST_PRODUCTS, useConsoleProductsSource } from "../products/products-s
  * The list is this layout rather than `/products/`, as with Bestellingen, so a row opened over it (step 8.4e) leaves its
  * filters, sort and scroll as they were; a product reached by its URL is a page with nothing read behind it.
  */
+/** A store a new product can go into. */
+const live = (s: { readonly status: string }) => s.status === "connected" || s.status === "connecting"
+
 export const Route = createFileRoute("/_frame/products")({
   validateSearch: (s: Record<string, unknown>): { status?: string; view?: string } => ({
     ...(typeof s["status"] === "string" ? { status: s["status"] } : {}),
@@ -124,10 +128,12 @@ function Loaded({ page }: { page: ProductPage }) {
   )
   // The low-stock advice (M7 9.3), once Shopify reported stock for any product.
   const LowStock = page.summary?.stocked === true ? ConsoleLowStock : undefined
-  // "Nieuw product" in the design's dialog, made by `Products.create` (M7.3) in the first connected store the role
-  // reaches, priced in its currency; the supplier is one of the workspace's, or none.
+  // "Nieuw product" in the design's dialog, made by `Products.create` (M7.3) in the store in view (the top bar's switch)
+  // when it is connected, else the first connected store the role reaches, priced in its currency; the supplier is one
+  // of the workspace's, or none.
   const stores = Option.getOrUndefined(AsyncResult.value(useAtomValue(storesAtom)))
-  const store = stores?.find((s) => s.status === "connected" || s.status === "connecting")
+  const inView = useAtomValue(viewStoreAtom)
+  const store = stores?.find((s) => s.id === inView && live(s)) ?? stores?.find(live)
   const known = Option.getOrUndefined(AsyncResult.value(useAtomValue(suppliersAtom)))?.rows
   const create = useRef(commands.create)
   create.current = commands.create
