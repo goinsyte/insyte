@@ -28,7 +28,7 @@ export const statusCounts = Effect.fn("Shipping.statusCounts")(function*() {
     Effect.flatMap(inScope(sql, "o.store_id"), (mine) =>
       sql<{ status: string; n: number }>`
       with parcels as (
-        select distinct on (f.order_id) f.order_id, d.status as tracked, f.tracking_status as shopify
+        select distinct on (f.order_id) f.order_id, d.status as tracked, d.stage, f.tracking_status as shopify
         from fulfilments f
         join orders o on o.id = f.order_id
         left join deliveries d on d.fulfilment_id = f.id
@@ -36,14 +36,18 @@ export const statusCounts = Effect.fn("Shipping.statusCounts")(function*() {
           and ${mine}
         order by f.order_id, f.shipped_at desc nulls last, f.id desc
       ), worded as (
-        select case coalesce(nullif(tracked, 'pending'), shopify)
-                 when 'delivered' then 'delivered'
-                 when 'out_for_delivery' then 'out'
-                 when 'exception' then 'exception'
-                 when 'returned' then 'exception'
-                 when 'expired' then 'stale'
-                 when 'in_transit' then 'transit'
-                 else case when tracked = 'pending' then 'noinfo' else 'info' end
+        select case
+                 when tracked = 'in_transit' and stage = 'available_for_pickup' then 'pickup'
+                 when tracked = 'exception' and stage = 'failed_attempt' then 'failed'
+                 else case coalesce(nullif(tracked, 'pending'), shopify)
+                   when 'delivered' then 'delivered'
+                   when 'out_for_delivery' then 'out'
+                   when 'exception' then 'exception'
+                   when 'returned' then 'exception'
+                   when 'expired' then 'stale'
+                   when 'in_transit' then 'transit'
+                   else case when tracked = 'pending' then 'noinfo' else 'info' end
+                 end
                end as status
         from parcels
         union all
