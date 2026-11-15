@@ -4,11 +4,12 @@
  *   bun run boundaries
  *
  * Reads every TypeScript file under apps/, packages/ and infra/, skipping build output, dependencies, the vendored
- * Effect source and the generated route trees. Run in hygiene, so in preflight and CI.
+ * Effect source and the generated route trees, for their imports and for the narrow doors to the database they call
+ * (`checkDoors`). Run in hygiene, so in preflight and CI.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
-import { checkBoundaries, type Import, importsOf } from "./lib/boundaries-rules.ts"
+import { checkBoundaries, checkDoors, type Import, importsOf, type Source } from "./lib/boundaries-rules.ts"
 
 const SKIP = new Set(["node_modules", "dist", ".wrangler", ".tanstack", ".tsbuildinfo", "coverage"])
 
@@ -27,11 +28,15 @@ const filesUnder = (dir: string): Array<string> => {
   })
 }
 
-const imports: Array<Import> = ["apps", "packages", "infra"].flatMap(filesUnder).flatMap((file) =>
-  importsOf(readFileSync(file, "utf8")).map((specifier) => ({ file, specifier }))
+const sources: Array<Source> = ["apps", "packages", "infra"].flatMap(filesUnder).map((file) => ({
+  file,
+  text: readFileSync(file, "utf8")
+}))
+const imports: Array<Import> = sources.flatMap(({ file, text }) =>
+  importsOf(text).map((specifier) => ({ file, specifier }))
 )
 
-const errors = checkBoundaries(imports)
+const errors = [...checkBoundaries(imports), ...checkDoors(sources)]
 if (errors.length > 0) {
   console.error("\nboundaries failed:")
   for (const e of errors) console.error(`  ${e}`)

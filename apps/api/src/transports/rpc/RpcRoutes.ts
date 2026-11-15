@@ -23,6 +23,7 @@ import { MarketingService } from "@insyte/modules/marketing/Marketing"
 import { MarketplaceService } from "@insyte/modules/marketplace/Marketplace"
 import { Landing } from "@insyte/modules/members/Landing"
 import { Members } from "@insyte/modules/members/Members"
+import { Memberships } from "@insyte/modules/members/Memberships"
 import { NotificationsService } from "@insyte/modules/notifications/NotificationsService"
 import { Onboarding } from "@insyte/modules/onboarding/Onboarding"
 import { OrdersService } from "@insyte/modules/orders/Orders"
@@ -110,7 +111,7 @@ export const RpcContext = Layer.mergeAll(
   SystemHandlers,
   SessionHandlers.pipe(Layer.provide([Workspaces.layer, ActiveSessions.layer, SupplierPortalService.layer])),
   OnboardingHandlers.pipe(
-    Layer.provide(Onboarding.layer),
+    Layer.provide(Layer.mergeAll(Onboarding.layer, Workspaces.layer)),
     Layer.provide(Layer.mergeAll(Workspaces.founder, Workspaces.setup))
   ),
   MembersHandlers.pipe(Layer.provide(Members.layer)),
@@ -166,7 +167,13 @@ export const RpcContext = Layer.mergeAll(
   SheetsHandlers.pipe(Layer.provide(SheetsService.layer)),
   DataHandlers.pipe(Layer.provide(DataService.layer)),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
-  WorkspacesHandlers.pipe(Layer.provide(WorkspaceSettings.layer)),
+  // …with the switcher's (M3.1): the list and switching, leaving and invitations, and a new workspace (onboarding's).
+  WorkspacesHandlers.pipe(
+    Layer.provide(
+      Layer.mergeAll(WorkspaceSettings.layer, Members.layer, Workspaces.layer, Memberships.layer, Onboarding.layer)
+    ),
+    Layer.provide(Layer.mergeAll(Workspaces.founder, Workspaces.setup))
+  ),
   CostsHandlers.pipe(Layer.provide(CostsService.layer)),
   // Facturatie (M13 step 1): the slice loads with the first billing call (`handlers/billing.ts`).
   BillingHandlers,

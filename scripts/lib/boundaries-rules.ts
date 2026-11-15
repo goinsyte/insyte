@@ -94,6 +94,42 @@ export const checkBoundaries = (imports: ReadonlyArray<Import>): Array<string> =
     )
   )
 
+export interface Source {
+  readonly file: string
+  readonly text: string
+}
+
+/**
+ * Doors to the database that only a few files may open, by the name they are called by. `Db.asNewcomerIn` acts in a
+ * workspace the person is not a member of (founding it, an invitation to it): only the use cases that make them one,
+ * and the database's own tests, call it (0096 holds the newcomer to their tables as well).
+ */
+const NARROW_DOORS: ReadonlyArray<
+  { readonly call: string; readonly files: ReadonlyArray<string>; readonly because: string }
+> = [
+  {
+    call: "asNewcomerIn",
+    files: [
+      "packages/database/src/Db.ts",
+      "packages/modules/src/onboarding/use-cases/advance.ts",
+      "packages/modules/src/onboarding/use-cases/another.ts",
+      "packages/modules/src/members/use-cases/invitations/accept.ts",
+      "packages/modules/src/members/use-cases/choice.ts"
+    ],
+    because: "only founding a workspace and an invitation to one act as a newcomer (Db.asNewcomerIn)"
+  }
+]
+
+/** Each file that calls a narrow door it may not open. Tests under `packages/database/test/` may open any. */
+export const checkDoors = (sources: ReadonlyArray<Source>): Array<string> =>
+  sources.flatMap(({ file, text }) =>
+    file.startsWith("packages/database/test/")
+      ? []
+      : NARROW_DOORS.filter((door) => !door.files.includes(file) && text.includes(`.${door.call}(`)).map(
+        (door) => `${file}: ${door.call}: ${door.because}`
+      )
+  )
+
 /** Every import specifier in a TypeScript source: static, dynamic, re-exports, side-effect imports. */
 export const importsOf = (source: string): Array<string> =>
   [

@@ -1,11 +1,11 @@
 import { CurrentUser } from "@insyte/domain/Session"
 import { SupplierPortalService } from "@insyte/modules/supplier-portal/SupplierPortal"
-import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 import { ROOM_MEMBER, ROOM_TAB, roomOf, supplierRoomOf } from "../../platform/Room.ts"
 import { userFrom } from "../../platform/Sessions.ts"
+import { activeMemberOf, MISMATCH, workspaceMismatch } from "./ActiveMember.ts"
 
 /*
  * `GET /api/realtime` (M5.1, ADR-0013): the console tab's one socket, through the console's origin. The session cookie
@@ -25,7 +25,8 @@ export const RealtimeRoutes = HttpRouter.add(
   Effect.gen(function*() {
     const request = yield* HttpServerRequest.HttpServerRequest
     if (request.headers["upgrade"]?.toLowerCase() !== "websocket") return refuse(426, "upgrade_required")
-    const user = yield* userFrom(new Headers(request.headers as Record<string, string>))
+    const headers = new Headers(request.headers as Record<string, string>)
+    const user = yield* userFrom(headers)
     if (Option.isNone(user)) return refuse(401, "unauthenticated")
     const url = new URL(request.url, "http://x")
     const tab = url.searchParams.get("tab")
@@ -43,10 +44,8 @@ export const RealtimeRoutes = HttpRouter.add(
       )
       return HttpServerResponse.raw(response, { status: response.status })
     }
-    const [active] = yield* Effect.flatMap(Effect.service(Workspaces), (w) => w.memberships).pipe(
-      Effect.provideService(CurrentUser, user.value),
-      Effect.provide(Workspaces.layer)
-    )
+    const active = yield* activeMemberOf(user.value, headers)
+    if (active === MISMATCH) return workspaceMismatch()
     if (active === undefined) return refuse(403, "no_workspace")
     const response = yield* Effect.promise(() =>
       roomOf(active.workspaceId).fetch("https://room/connect", {

@@ -6,7 +6,7 @@ import { UserId, WorkspaceId } from "./Ids.ts"
  * they act as arrives in M3, and `Session.me` grows the principals then.
  */
 
-export const SessionUser = Schema.Struct({
+const PERSON = {
   id: UserId,
   email: Schema.String,
   name: Schema.String,
@@ -14,6 +14,22 @@ export const SessionUser = Schema.Struct({
   image: Schema.NullOr(Schema.String),
   /** Whether sign-in asks for a TOTP or a backup code after the password (M2). */
   twoFactorEnabled: Schema.Boolean
+}
+
+/** The person as the console reads them: the session's own choice of workspace stays on the server. */
+export const MeUser = Schema.Struct(PERSON)
+export type MeUser = typeof MeUser.Type
+
+export const SessionUser = Schema.Struct({
+  ...PERSON,
+  /**
+   * The workspace this session acts in (`Workspaces.switch`, M3.1), read from the session's row on every request; set
+   * on the session's first request inside a workspace and kept, so joining or making another one does not move it.
+   * Never sent to the console: `Session.me` names the active principal instead.
+   */
+  activeWorkspaceId: Schema.optional(Schema.NullOr(WorkspaceId)),
+  /** The session's id, for writing that choice on its own row. */
+  sessionId: Schema.optional(Schema.String)
 })
 export type SessionUser = typeof SessionUser.Type
 
@@ -34,10 +50,10 @@ export type PrincipalSummary = typeof PrincipalSummary.Type
 
 /** What the console needs after sign-in: who, as whom, and where they land (widgets/01). */
 export class SessionMe extends Schema.Class<SessionMe>("domain/SessionMe")({
-  user: SessionUser,
+  user: MeUser,
   /** Every principal the person may act as, newest first; empty before their first workspace. */
   principals: Schema.Array(PrincipalSummary),
-  /** The one requests act as: the session's choice, else the newest (`Session.switchPrincipal` arrives with a second). */
+  /** The one requests act as: the session's workspace (`Workspaces.switch`), else the newest membership. */
   activePrincipal: Schema.NullOr(PrincipalSummary),
   /**
    * `/onboarding` until the active workspace finished onboarding, then Start (`/dashboard`); the supplier portal
@@ -67,6 +83,12 @@ export class ActiveSession extends Schema.Class<ActiveSession>("domain/ActiveSes
   /** When the session last renewed (at most daily) or was opened: ISO 8601. */
   lastActiveAt: Schema.String,
   current: Schema.Boolean
+}) {}
+
+/** Where the console goes after a switch: Start, or onboarding for a workspace still being set up. */
+export class Switched extends Schema.Class<Switched>("domain/Switched")({
+  workspaceId: WorkspaceId,
+  landing: Schema.String
 }) {}
 
 /** Signs out one of the person's other sessions. Their current one signs out through better-auth. */

@@ -1,4 +1,4 @@
-import { tenantTable } from "@insyte/database/Tenancy"
+import { newcomerBlind, tenantTable } from "@insyte/database/Tenancy"
 import { statements } from "../statements.ts"
 
 /*
@@ -14,7 +14,8 @@ import { statements } from "../statements.ts"
  *   access request and erasure. No prompt and no tool output is kept: only what the person was shown.
  *
  * Both are the owner's alone: a restrictive policy holds every read and write to the principal that owns the row, with
- * `system` let through for the workspace export, a shopper's erasure and the purge. A thread goes with its workspace.
+ * `system` let through for the workspace export, a shopper's erasure and the purge. A newcomer (0096) reads and writes
+ * neither (`newcomerBlind`). A thread goes with its workspace.
  */
 
 const OWNER = "owner_id = app_principal_id() or app_principal_kind() = 'system'"
@@ -34,6 +35,7 @@ export default statements(
      where deleted_at is null`,
   tenantTable("ask_threads", { membersOnly: true }),
   `create policy ask_threads_owner on ask_threads as restrictive for all using (${OWNER}) with check (${OWNER})`,
+  newcomerBlind("ask_threads"),
   "revoke delete on ask_threads from insyte_app",
   //
   `create table ask_turns (
@@ -67,5 +69,6 @@ export default statements(
   "create index ask_turns_refs on ask_turns using gin (refs)",
   tenantTable("ask_turns", { membersOnly: true }),
   `create policy ask_turns_owner on ask_turns as restrictive for all using (${OWNER}) with check (${OWNER})`,
+  newcomerBlind("ask_turns"),
   "revoke delete on ask_turns from insyte_app"
 )
