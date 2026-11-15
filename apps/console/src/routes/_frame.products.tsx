@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react"
 import { Forbidden } from "@insyte/domain/Errors"
 import type { ProductPage } from "@insyte/modules/products/domain/Products"
+import type { StoreView } from "@insyte/modules/stores/domain/Stores"
 import { DeniedPanel } from "@insyte/ui/app/access/denied"
 import { OPEN_AS_MODAL, useOpenedAsModal } from "@insyte/ui/app/common/detail-shell"
 import type { Level, Permission } from "@insyte/ui/app/lib/permissions"
@@ -106,6 +107,53 @@ const symbolOf = (currency: string) =>
   new Intl.NumberFormat("nl-NL", { style: "currency", currency }).formatToParts(0).find((p) => p.type === "currency")
     ?.value ?? currency
 
+/** The store a new product goes into: the store in view when it is connected, else the first connected one. */
+const storeFor = (stores: ReadonlyArray<StoreView> | undefined, inView: string | null | undefined) =>
+  stores?.find((s) => s.id === inView && live(s)) ?? stores?.find(live)
+
+/**
+ * "Nieuw product", made by `Products.create` (M7.3) in the store `storeFor` picks, priced in its currency; the supplier
+ * is one of the workspace's, or none. It reads the stores and suppliers itself, so new lists re-render it in place.
+ */
+function NewProductOf({ open, onOpenChange, create, navigate }: {
+  readonly open: boolean
+  readonly onOpenChange: (open: boolean) => void
+  readonly create: { readonly current: ReturnType<typeof useProductCommands>["create"] }
+  readonly navigate: ReturnType<typeof useNavigate>
+}) {
+  const stores = Option.getOrUndefined(AsyncResult.value(useAtomValue(storesAtom)))
+  const store = storeFor(stores, useAtomValue(viewStoreAtom))
+  const known = Option.getOrUndefined(AsyncResult.value(useAtomValue(suppliersAtom)))?.rows
+  const names = useMemo(() => new Map((known ?? []).map((s) => [s.id, s.name])), [known])
+  const suppliers = useMemo(() => [NO_SUPPLIER, ...names.keys()], [names])
+  const storeId = store?.id
+  return (
+    <NewProductDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      suppliers={suppliers}
+      supplierLabel={(id) => names.get(id) ?? "Geen leverancier"}
+      symbol={symbolOf(store?.currency ?? "EUR")}
+      archivable={false}
+      onCreate={(input) =>
+        void create.current({
+          storeId,
+          title: input.title,
+          sku: input.sku,
+          price: input.price,
+          cost: input.cost,
+          supplierId: input.supplier === NO_SUPPLIER ? null : input.supplier,
+          status: input.status,
+          description: input.description
+        }).then((id) => {
+          if (id !== undefined) {
+            void navigate({ to: "/products/$productId", params: { productId: id }, state: OPEN_AS_MODAL })
+          }
+        })}
+    />
+  )
+}
+
 function Loaded({ page }: { page: ProductPage }) {
   const navigate = useNavigate()
   const commands = useProductCommands()
@@ -128,46 +176,18 @@ function Loaded({ page }: { page: ProductPage }) {
   )
   // The low-stock advice (M7 9.3), once Shopify reported stock for any product.
   const LowStock = page.summary?.stocked === true ? ConsoleLowStock : undefined
-  // "Nieuw product" in the design's dialog, made by `Products.create` (M7.3) in the store in view (the top bar's switch)
-  // when it is connected, else the first connected store the role reaches, priced in its currency; the supplier is one
-  // of the workspace's, or none.
+  // "Nieuw product" in the design's dialog (`NewProductOf`). One component for the page's life, so a store or supplier
+  // list read again behind an open dialog (the store switch re-keys them) does not remount it and lose what was typed.
   const stores = Option.getOrUndefined(AsyncResult.value(useAtomValue(storesAtom)))
-  const inView = useAtomValue(viewStoreAtom)
-  const store = stores?.find((s) => s.id === inView && live(s)) ?? stores?.find(live)
-  const known = Option.getOrUndefined(AsyncResult.value(useAtomValue(suppliersAtom)))?.rows
+  const store = storeFor(stores, useAtomValue(viewStoreAtom))
   const create = useRef(commands.create)
   create.current = commands.create
-  const NewProduct = useMemo(() => {
-    const names = new Map((known ?? []).map((s) => [s.id, s.name]))
-    const suppliers = [NO_SUPPLIER, ...names.keys()]
-    const symbol = symbolOf(store?.currency ?? "EUR")
-    const storeId = store?.id
-    return ({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) => (
-      <NewProductDialog
-        open={open}
-        onOpenChange={onOpenChange}
-        suppliers={suppliers}
-        supplierLabel={(id) => names.get(id) ?? "Geen leverancier"}
-        symbol={symbol}
-        archivable={false}
-        onCreate={(input) =>
-          void create.current({
-            storeId,
-            title: input.title,
-            sku: input.sku,
-            price: input.price,
-            cost: input.cost,
-            supplierId: input.supplier === NO_SUPPLIER ? null : input.supplier,
-            status: input.status,
-            description: input.description
-          }).then((id) => {
-            if (id !== undefined) {
-              void navigate({ to: "/products/$productId", params: { productId: id }, state: OPEN_AS_MODAL })
-            }
-          })}
-      />
-    )
-  }, [known, store?.id, store?.currency, navigate])
+  const NewProduct = useMemo(
+    () => ({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) => (
+      <NewProductOf open={open} onOpenChange={onOpenChange} create={create} navigate={navigate} />
+    ),
+    [navigate]
+  )
   const canCreate = source.canCreate.ok && stores !== undefined && store === undefined
     ? { ok: false, reason: "Verbind eerst een winkel; daar komt het product in" }
     : source.canCreate
