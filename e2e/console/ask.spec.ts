@@ -72,11 +72,10 @@ test("@ask Vraag Insyte answers with figures, asks on, and sets the conversation
   await page.getByRole("button", { name: "Welke bestellingen dreigen te laat te komen?" }).click()
   const conversation = page.getByRole("region", { name: "Gesprek" })
   const figure = conversation.getByRole("link", { name: /^Vertraagde bestellingen: / })
-  await expect(figure).toBeVisible({ timeout: 30_000 })
-  test.skip(
-    await page.getByText("Insyte AI is nog niet ingeschakeld").isVisible(),
-    "Insyte AI is not switched on here (a preview has no model)"
-  )
+  // The answer, or the word that there is no model here to answer with.
+  const unconfigured = page.getByText("Insyte AI is nog niet ingeschakeld")
+  await expect(figure.or(unconfigured).first()).toBeVisible({ timeout: 30_000 })
+  test.skip(await unconfigured.isVisible(), "Insyte AI is not switched on here (a preview has no model)")
   await expect(page).toHaveURL(/\/ask\?c=ask_/)
   const address = page.url()
   await expect(conversation.getByText("Las", { exact: true }).first()).toBeVisible()
