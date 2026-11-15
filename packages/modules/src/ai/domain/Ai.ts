@@ -125,10 +125,23 @@ export type DraftSubject = typeof DraftSubject.Type
 
 export const Tone = Schema.Literals(["warmer", "korter"])
 
+/** What a draft is about: a thread or a ticket (a reply, a summary), or a knowledge gap or chapter (a first text). */
+export const DraftRecord = Schema.Struct({
+  type: Schema.Literals(["thread", "ticket", "knowledge_gap", "knowledge_article"]),
+  id: Schema.String
+})
+
+/** A knowledge base chapter a draft used (M15 step 7): its citation, as the draft card names it. */
+export const DraftSource = Schema.Struct({
+  articleId: Schema.String,
+  version: Schema.Int,
+  title: Schema.String
+})
+
 /** One draft as the inbox card and the ticket's composer show it. */
 export class Draft extends Schema.Class<Draft>("ai/Draft")({
   id: Schema.String,
-  subject: DraftSubject,
+  subject: DraftRecord,
   kind: Schema.Literals(["reply", "summary", "knowledge_answer"]),
   text: Schema.String,
   /** `null` is the first draft; `warmer` and `korter` are its rewrites. */
@@ -139,7 +152,9 @@ export class Draft extends Schema.Class<Draft>("ai/Draft")({
   /** What wrote it, for "prompt {versie}" and for a fake's text to say it is one. */
   provider: Schema.Literals(["anthropic", "fake"]),
   model: Schema.String,
-  promptVersion: Schema.String
+  promptVersion: Schema.String,
+  /** The knowledge base chapters it used; absent or empty when none. */
+  sources: Schema.optional(Schema.Array(DraftSource))
 }) {}
 
 export const ReplyInput = Schema.Struct({
@@ -189,13 +204,15 @@ export const KnowledgeAnswerInput = Schema.Struct({
   gapId: Schema.optional(Schema.String),
   articleId: Schema.optional(Schema.String)
 })
+export type KnowledgeAnswerInput = typeof KnowledgeAnswerInput.Type
 
 /**
- * "Laat Insyte een eerste tekst schrijven": a first text, or nothing yet. Until the knowledge base exists there is
- * nothing to write from (`no_knowledge`), and Insyte says so instead of inventing an answer.
+ * "Laat Insyte een eerste tekst schrijven": a first text from the published chapters, or nothing: nothing published
+ * is about the question (`no_knowledge`), or what is does not answer it (`not_covered`). Insyte says so instead of
+ * inventing an answer.
  */
 export const KnowledgeAnswer = Schema.Union([
   Schema.TaggedStruct("Written", { draft: Draft }),
-  Schema.TaggedStruct("Nothing", { reason: Schema.Literals(["no_knowledge"]) })
+  Schema.TaggedStruct("Nothing", { reason: Schema.Literals(["no_knowledge", "not_covered"]) })
 ])
 export type KnowledgeAnswer = typeof KnowledgeAnswer.Type

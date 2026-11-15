@@ -26,3 +26,7 @@ alter default privileges for role insyte_owner in schema public
 -- Not a trusted extension, so the migrations (as insyte_owner) cannot create it. Neon preloads it; locally it exists
 -- but its view stays empty.
 create extension if not exists pg_stat_statements;
+
+-- The knowledge base's embeddings (M15 step 7, migration 0099): pgvector is not a trusted extension either, so the
+-- database's owner creates it once (on Neon as `neondb_owner`); the migration only asks for it.
+create extension if not exists vector;

@@ -10,6 +10,7 @@ import {
   type Draft,
   type DraftSubject,
   type KnowledgeAnswer,
+  type KnowledgeAnswerInput,
   type LatestDraft,
   type ModelUnavailable,
   type ReplyInput,
@@ -36,7 +37,9 @@ export interface DraftsApi {
   readonly forSubject: (subject: DraftSubject) => Effect.Effect<LatestDraft, Forbidden | NotFound, R>
   readonly summarizeTicket: (ticketId: string) => Effect.Effect<TicketSummary, Forbidden | NotFound | Model, R>
   readonly summarizeThread: (threadId: string) => Effect.Effect<ThreadSummary, Forbidden | NotFound | Model, R>
-  readonly knowledgeAnswer: Effect.Effect<KnowledgeAnswer, Forbidden, R>
+  readonly knowledgeAnswer: (
+    input: KnowledgeAnswerInput
+  ) => Effect.Effect<KnowledgeAnswer, Forbidden | NotFound | Invalid | Model, R>
 }
 
 /** The drafts over the model in context. */
@@ -69,7 +72,10 @@ export const drafts: Effect.Effect<DraftsApi, never, AiModel | LanguageModel.Lan
       withModel(Effect.flatMap(Effect.service(Db), (db) => Drafts.summarizeThread(db.scoped, threadId))).pipe(
         Effect.catchIf(SqlError.isSqlError, Effect.die)
       ),
-    knowledgeAnswer: Drafts.knowledgeAnswer()
+    knowledgeAnswer: (input) =>
+      withModel(Effect.flatMap(Effect.service(Db), (db) => Drafts.knowledgeAnswer(db.scoped, input))).pipe(
+        Effect.catchIf(SqlError.isSqlError, Effect.die)
+      )
   } satisfies DraftsApi
 })
 

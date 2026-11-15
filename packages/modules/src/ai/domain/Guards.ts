@@ -34,8 +34,12 @@ export const voiceFaults = (text: string): Array<"exclamation" | "formal" | "apo
 /** Text the model reads, with every angle bracket defused: nothing in it can open or close a block. */
 export const defused = (text: string): string => text.replaceAll("<", "‹").replaceAll(">", "›")
 
-/** A customer's or supplier's words, as data the model reads and never obeys (§6.3). Tags in the text are defused. */
-export const dataBlock = (name: string, text: string): string => `<${name}>\n${defused(text)}\n</${name}>`
+/**
+ * A customer's or supplier's words, as data the model reads and never obeys (§6.3). Tags in the text are defused. A
+ * block opened with attributes (`kennisbank bron="2"`) names its closing tag (`kennisbank`).
+ */
+export const dataBlock = (name: string, text: string, close: string = name): string =>
+  `<${name}>\n${defused(text)}\n</${close}>`
 
 /** A first name only: the minimum a reply needs to greet someone (§6.4). */
 export const firstName = (name: string | null | undefined): string => (name ?? "").trim().split(/\s+/)[0] ?? ""

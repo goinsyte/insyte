@@ -549,6 +549,15 @@ export const OutboxEvent = Schema.Union([
     cycle: Schema.NullOr(Schema.String),
     started: Schema.Boolean
   }),
+  // A knowledge base chapter's published text was cut into pieces (M15 step 7): the jobs Worker embeds them, after the
+  // event's transaction, where the stage has an embedder; until then the pieces are found by their words.
+  Schema.Struct({
+    type: Schema.Literal("knowledge.published"),
+    workspaceId: Schema.String,
+    userId: Schema.String,
+    articleId: Schema.String,
+    version: Schema.Int
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({
