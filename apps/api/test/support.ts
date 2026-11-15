@@ -1,7 +1,7 @@
 import { ConsoleRpcs, RPC_PATH } from "@insyte/api/ConsoleRpcs"
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { env } from "cloudflare:workers"
-import { Effect, type Exit, Layer } from "effect"
+import { Effect, type Exit, Layer, Stream } from "effect"
 import { FetchHttpClient } from "effect/http"
 import { RpcClient, RpcSerialization } from "effect/rpc"
 import worker from "../src/Local.ts"
@@ -87,6 +87,21 @@ export const rpc = <K extends keyof Client>(name: K, payload: Parameters<Client[
     return yield* client[name]!(payload, { headers: cookie === undefined ? {} : { cookie } })
   }).pipe(Effect.scoped, Effect.provide(RpcProtocol), Effect.runPromiseExit) as Promise<
     Exit.Exit<Effect.Success<ReturnType<Client[K]>>, Effect.Error<ReturnType<Client[K]>>>
+  >
+
+/** A console RPC that streams (`Ask.send`): every element it sent, collected, or how it failed. */
+export const rpcStream = <K extends keyof Client>(name: K, payload: Parameters<Client[K]>[0], cookie?: string) =>
+  Effect.gen(function*() {
+    const client = (yield* RpcClient.make(ConsoleRpcs)) as unknown as Record<
+      string,
+      (payload: unknown, options: { headers: Record<string, string> }) => Stream.Stream<unknown, unknown>
+    >
+    return yield* Stream.runCollect(client[name]!(payload, { headers: cookie === undefined ? {} : { cookie } }))
+  }).pipe(Effect.scoped, Effect.provide(RpcProtocol), Effect.runPromiseExit) as Promise<
+    Exit.Exit<
+      Array<Stream.Success<ReturnType<Client[K]>>>,
+      Stream.Error<ReturnType<Client[K]>>
+    >
   >
 
 /** A console RPC sent with other credentials than a session (an API key's `Bearer`, say): what it must refuse. */

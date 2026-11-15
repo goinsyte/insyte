@@ -6,7 +6,9 @@ import { Effect, Schema } from "effect"
  * `Idempotency-Key` on the public API's writes (api.md §6; `idempotency_keys`): the first request with a key runs and
  * its answer is kept for a day; the same key with the same request answers that again without running; the same key
  * with another request is refused, and so is one that arrives while the first is still running. A request without a
- * key just runs. Per principal: two keys never share each other's answers.
+ * key just runs. Per principal: two keys never share each other's answers. A caller whose run has a bound
+ * (`inFlightMs`) has a claim older than that given up: the run it held was cut off without letting go of it (the Worker
+ * ended), and the same key may try again rather than be told for a day that it is still running.
  */
 
 /** The key came with a different request than the one it was first used for. */
@@ -26,7 +28,12 @@ const hashOf = (request: unknown) =>
  * Runs `effect` once per `key` and `request`. The answer is kept as JSON, so it must be one (the public API's shapes
  * are). A failure is not kept: the same key may try again.
  */
-export const once = <A, E, R>(key: string | undefined, request: unknown, effect: Effect.Effect<A, E, R>) =>
+export const once = <A, E, R>(
+  key: string | undefined,
+  request: unknown,
+  effect: Effect.Effect<A, E, R>,
+  options?: { readonly inFlightMs?: number | undefined }
+) =>
   Effect.gen(function*() {
     if (key === undefined || key.trim() === "") return yield* effect
     const principal = yield* CurrentPrincipal
@@ -36,6 +43,10 @@ export const once = <A, E, R>(key: string | undefined, request: unknown, effect:
       Effect.gen(function*() {
         yield* sql`delete from idempotency_keys where principal_id = ${principal.id} and key = ${key}
                    and expires_at < now()`
+        if (options?.inFlightMs !== undefined) {
+          yield* sql`delete from idempotency_keys where principal_id = ${principal.id} and key = ${key}
+                     and response is null and created_at < now() - make_interval(secs => ${options.inFlightMs / 1000})`
+        }
         const inserted = yield* sql`
           insert into idempotency_keys (workspace_id, principal_id, key, request_hash, expires_at)
           values (${principal.workspaceId}, ${principal.id}, ${key}, decode(${hash}, 'hex'),

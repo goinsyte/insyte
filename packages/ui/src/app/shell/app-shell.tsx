@@ -15,6 +15,7 @@ import { useApplyTheme } from "../hooks/use-theme";
 import type { Persona } from "../lib/types/persona";
 import { AskInsyteContext } from "./ask-insyte-context";
 import { AskInsytePanel } from "./ask-insyte-panel";
+import { DemoAskSource } from "../ask/demo-ask-source";
 import { CommandPalette } from "./command-palette";
 import { Frame } from "./frame";
 import { ManagePopup, type ManageTab } from "./manage-popup";
@@ -79,7 +80,9 @@ export function AppShell({
 				persona={persona}
 				onAskInsyte={() => setAskOpen(true)}
 			/>
-			<AskInsytePanel open={askOpen} onOpenChange={setAskOpen} />
+			<DemoAskSource>
+				<AskInsytePanel open={askOpen} onOpenChange={setAskOpen} />
+			</DemoAskSource>
 			<ShellDialogs />
 			<ManagePopup
 				open={manageOpen}
