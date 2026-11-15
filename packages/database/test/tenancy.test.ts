@@ -535,4 +535,67 @@ describe("tenancy", () => {
     for (const row of rows) expect(row.blind !== row.may, `${row.table}: newcomerBlind or newcomerMay`).toBe(true)
     expect(rows.filter((r) => r.may).map((r) => r.table)).toEqual([...NEWCOMER_TABLES].toSorted())
   })
+
+  it("has row level security, forced, on every partition, so only the parent's policies let anything through (0097)", async () => {
+    const rows = await run(
+      Effect.flatMap(
+        Effect.service(Db),
+        (db) =>
+          db.routing((sql) =>
+            sql<{ table: string; enabled: boolean; forced: boolean }>`
+            select c.relname as table, c.relrowsecurity as enabled, c.relforcerowsecurity as forced
+            from pg_class c
+            where c.relnamespace = 'public'::regnamespace and c.relispartition and c.relkind in ('r', 'p')
+            order by c.relname`
+          )
+      )
+    )
+    expect(rows.map((r) => r.table)).toEqual(expect.arrayContaining(["agent_actions_default", "audit_events_default"]))
+    for (const row of rows) expect(row, row.table).toEqual({ table: row.table, enabled: true, forced: true })
+  })
+
+  it("reads a workspace's audit rows through the parent, and none named by their partition, scoped or not", async () => {
+    const seen = await run(
+      Effect.gen(function*() {
+        const db = yield* Db
+        yield* db.scoped((sql) =>
+          sql`insert into audit_events (id, workspace_id, actor_kind, actor_id, action, subject_type, subject_id)
+              values (${mintId("aud")}, ${wsA}, 'member', ${members["a"]!}, 'tenancy.test', 'workspace', ${wsA})`
+        ).pipe(Effect.provideService(CurrentPrincipal, memberOf(wsA, alice)))
+        const count = (table: string) =>
+          db.scoped((sql) =>
+            Effect.map(
+              sql<{ n: string }>`select count(*)::text as n from ${sql(table)} where workspace_id = ${wsA}`,
+              ([r]) => Number(r!.n)
+            )
+          ).pipe(Effect.provideService(CurrentPrincipal, memberOf(wsA, alice)))
+        const routed = yield* db.routing((sql) =>
+          Effect.map(
+            sql<{ n: string }>`select count(*)::text as n from audit_events_default where workspace_id = ${wsA}`,
+            ([r]) => Number(r!.n)
+          )
+        )
+        const written = yield* db.routing((sql) =>
+          Effect.map(
+            sql<{ n: string }>`update audit_events_default set action = 'tampered' where workspace_id = ${wsA}
+                               returning 1::text as n`,
+            (rows) => rows.length
+          )
+        )
+        const asSystem = (table: string) =>
+          db.scopedFor((sql) =>
+            Effect.map(sql<{ n: string }>`select count(*)::text as n from ${sql(table)}`, ([r]) => Number(r!.n))
+          ).pipe(Effect.provideService(CurrentWorkspace, { id: wsA }))
+        return {
+          parent: yield* count("audit_events"),
+          partition: yield* count("audit_events_default"),
+          systemParent: yield* asSystem("audit_events"),
+          systemPartition: yield* asSystem("audit_events_default"),
+          routed,
+          written
+        }
+      })
+    )
+    expect(seen).toEqual({ parent: 1, partition: 0, systemParent: 1, systemPartition: 0, routed: 0, written: 0 })
+  })
 })

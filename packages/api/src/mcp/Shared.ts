@@ -1,6 +1,8 @@
 import { Db } from "@insyte/database/Db"
+import type { AgentActionId } from "@insyte/domain/AgentActions"
+import type { AreaId, SpecialId } from "@insyte/domain/Permissions"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
-import { Schema } from "effect"
+import { Context, Schema } from "effect"
 import { ConflictV1, IdempotencyKeyReusedV1, NotFoundV1, ScopeMissingV1, ValidationFailedV1 } from "../http/Errors.ts"
 import { CurrentApiKey } from "../http/Security.ts"
 
@@ -38,3 +40,36 @@ export const AgentProposalV1 = Schema.Struct({
 
 /** A write an agent's key makes under the autonomy rules: the result, or the proposal it became. */
 export const Governed = <S extends Schema.Top>(success: S) => Schema.Union([success, AgentProposalV1])
+
+/*
+ * What a tool needs of the key (M19.3): `tools/list` names a tool only to a key that can call it, and a call of one it
+ * does not name is refused as before, by the use case (`ScopeMissingV1`) or the agents' rule (`ActionNotAllowedV1`).
+ * Each tool says it here, next to the words of its description; the server reads it per request (`mcp/Reach.ts`).
+ */
+
+/** One thing a tool needs: an area at a level (1 read, 2 write), or a special action. */
+export type Need = { readonly area: AreaId; readonly level: 1 | 2 } | { readonly special: SpecialId }
+
+/** Everything the tool needs, all of it. None: any key may call it (or what it needs depends on its record). */
+export const Needs = Context.Reference<ReadonlyArray<Need>>("insyte/mcp/Needs", { defaultValue: () => [] })
+
+export const read = (area: AreaId): Need => ({ area, level: 1 })
+export const write = (area: AreaId): Need => ({ area, level: 2 })
+export const special = (id: SpecialId): Need => ({ special: id })
+
+/**
+ * How a write tool meets an agent's key (ADR-0027): through the workspace's autonomy rules as one of `actions` (`null`
+ * where the action depends on the record, as a plate's does), or refused (`notForAgents`). A write tool that says
+ * nothing is not listed to an agent's key; a read is listed as its scopes allow.
+ */
+export type AgentReach = { readonly kind: "governed"; readonly actions: ReadonlyArray<AgentActionId> | null } | {
+  readonly kind: "refused"
+}
+
+export const ForAgents = Context.Reference<AgentReach>("insyte/mcp/ForAgents", {
+  defaultValue: () => ({ kind: "refused" })
+})
+
+export const governedAs = (...actions: ReadonlyArray<AgentActionId>): AgentReach => ({ kind: "governed", actions })
+export const governedByRecord: AgentReach = { kind: "governed", actions: null }
+export const refusedToAgents: AgentReach = { kind: "refused" }

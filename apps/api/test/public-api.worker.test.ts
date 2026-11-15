@@ -56,6 +56,19 @@ describe("the public API", () => {
     expect(me.body.key.scopes).not.toContain("team.write")
   })
 
+  it("answers in the key's API version, or the one a call names, and refuses one there is none of", async () => {
+    // A key made today answers in the newest version dated on or before today.
+    expect((await v1("/me", read.secret)).headers.get("insyte-version")).toBe("2026-10-01")
+    const named = await v1("/me", read.secret, { "insyte-version": "2026-07-01" })
+    expect(named.status).toBe(200)
+    expect(named.headers.get("insyte-version")).toBe("2026-07-01")
+    const unknown = await json(await v1("/me", read.secret, { "insyte-version": "2025-01-01" }))
+    expect(unknown).toMatchObject({
+      status: 400,
+      body: { error: { code: "InvalidRequestV1", field: "insyte-version" } }
+    })
+  })
+
   it("lists members and roles for a key with team.read, and refuses one without", async () => {
     const members = await json(await v1("/members", read.secret))
     expect(members.status).toBe(200)

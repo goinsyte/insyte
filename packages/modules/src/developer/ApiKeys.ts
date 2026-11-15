@@ -8,6 +8,7 @@ import type { ApiKeyView, CreateKey, KeyActivity, KeyRefused, UpdateKey, WithSec
 import { KeyHasher } from "./domain/Ports.ts"
 import * as Auth from "./use-cases/authenticate.ts"
 import * as Keys from "./use-cases/keys.ts"
+import { type KeyWorkspace, workspace } from "./use-cases/workspace.ts"
 
 type R = Db | CurrentPrincipal
 type List = ReadonlyArray<ApiKeyView>
@@ -33,6 +34,8 @@ export class ApiKeys extends Context.Service<ApiKeys, {
     ip: string | null
   ) => Effect.Effect<Auth.Authenticated, KeyRefused, Db>
   readonly logRequest: (workspaceId: WorkspaceId, entry: Auth.RequestEntry) => Effect.Effect<void, never, Db>
+  /** The key's workspace for MCP (M19.3): name, plan and the stores the key reaches. */
+  readonly workspace: Effect.Effect<KeyWorkspace, never, R>
 }>()("modules/ApiKeys") {
   // A database that does not answer is a defect, as everywhere.
   static readonly layer = Layer.effect(
@@ -50,7 +53,8 @@ export class ApiKeys extends Context.Service<ApiKeys, {
         revoke: (id) => run(Keys.revoke(id)),
         restore: (id) => run(Keys.restore(id)),
         authenticate: (token, ip) => run(Auth.authenticate(token, ip)),
-        logRequest: (workspaceId, entry) => run(Auth.logRequest(workspaceId, entry))
+        logRequest: (workspaceId, entry) => run(Auth.logRequest(workspaceId, entry)),
+        workspace: run(workspace())
       }
     })
   )
