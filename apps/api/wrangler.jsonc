@@ -92,8 +92,6 @@
   // which store the HTML: `DOCUMENTS_ADAPTER=html`).
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "insyte-files" }],
   "browser": { "binding": "BROWSER" },
-  // Workers AI (M15 step 7): the knowledge base's embeddings on staging and production; the fake here.
-  "ai": { "binding": "AI" },
   // The outbox relay (M1.4): committed events' ids onto EVENTS, consumed by this Worker; the minute cron sweeps.
   "queues": {
     "producers": [

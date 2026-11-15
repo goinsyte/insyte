@@ -14,7 +14,7 @@ describe("bindings:check", () => {
     expect(env).toEqual([
       { name: "HYPERDRIVE", isString: false },
       { name: "ENVIRONMENT", isString: true },
-      { name: "VERSION", isString: true }
+      { name: "VERSION", isString: true, optional: true }
     ])
   })
 
@@ -38,6 +38,21 @@ describe("bindings:check", () => {
     const withSecret = [...env, { name: "RESEND_API_KEY", isString: true }]
     expect(checkBindings("w", { bindings: ["HYPERDRIVE"], vars: ["RESEND_API_KEY"] }, withSecret)).toEqual([
       "w: RESEND_API_KEY looks like a secret; secrets are never plain-text vars"
+    ])
+  })
+
+  it("lets a deploy-only binding be absent from the config, optional in Env and given by infra", () => {
+    const withAi = [...env, { name: "AI", isString: false, optional: true }]
+    const given = { names: ["AI"], provided: (n: string) => n === "AI" }
+    expect(checkBindings("w", { bindings: ["HYPERDRIVE"], vars: [] }, withAi, given)).toEqual([])
+    expect(checkBindings("w", { bindings: ["HYPERDRIVE", "AI"], vars: [] }, withAi, given)).toEqual([
+      "w: deploy-only binding AI is in the wrangler config; local runs and tests never have it"
+    ])
+    expect(checkBindings("w", { bindings: ["HYPERDRIVE"], vars: [] }, withAi, { ...given, provided: () => false }))
+      .toEqual(["w: deploy-only binding AI is not given by infra"])
+    const required = [...env, { name: "AI", isString: false }]
+    expect(checkBindings("w", { bindings: ["HYPERDRIVE"], vars: [] }, required, given)).toEqual([
+      "w: deploy-only binding AI must be optional in Env"
     ])
   })
 
