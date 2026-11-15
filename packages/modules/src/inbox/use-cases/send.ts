@@ -33,6 +33,11 @@ interface Queued {
   readonly aside: boolean
   /** Written by the workspace's agent on its own (M15 step 6). */
   readonly automatic: boolean
+  /**
+   * For the agent's: the thread is no longer its to answer since it put this in line. The team answered or took it
+   * (an assignee, or a ticket someone has or works on), the customer wrote again, or it was binned or marked spam.
+   */
+  readonly taken: boolean
 }
 
 const angle = (id: string) => `<${id}>`
@@ -47,14 +52,30 @@ export const sendQueued = Effect.fn("Inbox.sendQueued")(function*(
     select e.id, e.workspace_id, e.thread_id, e.rfc822_message_id, e.in_reply_to, e."references", e."to"::text as to,
            e.subject, e.body_text, e.send_state, b.label, b.address, b.status,
            t.deleted_at is not null or t.spam_at is not null as aside,
-           exists (select 1 from agents a where a.id = e.sent_by) as automatic
+           exists (select 1 from agents a where a.id = e.sent_by) as automatic,
+           (t.deleted_at is not null or t.spam_at is not null or t.assignee_id is not null
+            or exists (select 1 from tickets k where k.id = t.ticket_id and k.deleted_at is null
+                       and (k.status = 'in_progress'
+                            or exists (select 1 from ticket_assignees a where a.ticket_id = k.id)))
+            or exists (select 1 from email_messages o where o.thread_id = t.id and o.id <> e.id
+                       and o.created_at > e.created_at
+                       and (o.direction = 'inbound' or o.send_state is distinct from 'failed'))) as taken
     from email_messages e join email_threads t on t.id = e.thread_id join mailboxes b on b.id = t.mailbox_id
-    where e.id = ${messageId} and e.direction = 'outbound' for update of e`
+    where e.id = ${messageId} and e.direction = 'outbound' for update of e, t`
   if (m === undefined || m.sendState !== "scheduled") return
   const [to] = JSON.parse(m.to) as Array<{ name: string; email: string }>
   const failed = (reason: string) =>
     sql`update email_messages set send_state = 'failed', send_error = ${reason.slice(0, 500)} where id = ${m.id}`
-  if (m.status !== "connected") yield* failed("De mailbox is ontkoppeld.")
+  // The agent's answer, on every try: what changed in the thread while it waited out its hold calls it off. It never
+  // left, so it goes as an undo would, and its log row says so.
+  if (m.automatic && m.taken) {
+    yield* sql`delete from email_messages where id = ${m.id} and send_state = 'scheduled'`
+    yield* sql`update agent_actions set outcome = 'compensated', refuse_reason = 'taken', undo_until = null,
+                                        compensation = 'taken'
+               where subject_type = 'thread' and subject_id = ${m.threadId} and principal_kind = 'agent'
+                 and outcome = 'done' and created_at >= now() - interval '1 day'`
+    yield* Effect.logInfo("the agent's reply was called off: the thread changed while it waited", { messageId: m.id })
+  } else if (m.status !== "connected") yield* failed("De mailbox is ontkoppeld.")
   else if (to === undefined) yield* failed("Geen ontvanger.")
   // A try again, after the team binned the thread or marked it spam meanwhile: it does not go after all.
   else if (attempt > 1 && m.aside) yield* failed("Het gesprek is weggegooid of als spam gemarkeerd.")

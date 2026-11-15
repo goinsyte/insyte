@@ -304,7 +304,7 @@ export const linkTicket = Effect.fn("Threads.linkTicket")(function*(input: typeo
       } else {
         const [last] = yield* sql<{ name: string; email: string }>`
           select from_name as name, from_address as email from email_messages
-          where thread_id = ${l!.id} and direction = 'inbound' order by sent_at desc limit 1`
+          where thread_id = ${l!.id} and direction = 'inbound' order by created_at desc, id desc limit 1`
         const from = otherSide(l!, last)
         ticket = yield* tickets.make(sql, {
           title: (l!.subject.trim() || "Mail zonder onderwerp").slice(0, 200),
@@ -427,20 +427,32 @@ export interface Queued {
 /**
  * A reply in `threadId` on the caller's transaction (the caller checked the seat), without an undo token of its own: a
  * ticket's "Klant informeren" holds one token for the mail and the ticket together.
+ *
+ * Mail is in the order Insyte received it (`created_at`): a `Date:` header is the sender's to set. The agent names who
+ * it answers and which message (`to`, `answering`): its reply goes to the thread's own customer, threaded under the
+ * mail it heard.
  */
 export const replyOn = Effect.fn("Threads.replyOn")(function*(
   sql: SqlClient.SqlClient,
-  input: typeof ReplyInput.Type & { readonly messageId?: string | undefined }
+  input: typeof ReplyInput.Type & {
+    readonly messageId?: string | undefined
+    readonly to?: { readonly name: string; readonly email: string } | undefined
+    readonly answering?: string | undefined
+  }
 ) {
   const [l] = yield* lock(sql, [input.threadId])
   const mailbox = yield* mailboxFor(sql, l!.mailboxId)
-  const [last] = yield* sql<{ name: string; email: string; rfc822: string; references: ReadonlyArray<string> }>`
+  const [last] = input.answering === undefined
+    ? yield* sql<{ name: string; email: string; rfc822: string; references: ReadonlyArray<string> }>`
         select from_name as name, from_address as email, rfc822_message_id as rfc822, "references"
-        from email_messages where thread_id = ${l!.id} order by sent_at desc, created_at desc limit 1`
-  const [lastInbound] = yield* sql<{ name: string; email: string }>`
+        from email_messages where thread_id = ${l!.id} order by created_at desc, id desc limit 1`
+    : yield* sql<{ name: string; email: string; rfc822: string; references: ReadonlyArray<string> }>`
+        select from_name as name, from_address as email, rfc822_message_id as rfc822, "references"
+        from email_messages where thread_id = ${l!.id} and id = ${input.answering}`
+  const [lastInbound] = input.to !== undefined ? [] : yield* sql<{ name: string; email: string }>`
         select from_name as name, from_address as email from email_messages
-        where thread_id = ${l!.id} and direction = 'inbound' order by sent_at desc limit 1`
-  const to = otherSide(l!, lastInbound)
+        where thread_id = ${l!.id} and direction = 'inbound' order by created_at desc, id desc limit 1`
+  const to = input.to ?? otherSide(l!, lastInbound)
   if (to === undefined) return yield* new Invalid({ fields: { to: "none" } })
   const text = withSignature(input.body, mailbox.signature)
   const { id, outboxId: held } = yield* queueMessage(sql, {
