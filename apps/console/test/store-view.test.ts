@@ -74,22 +74,26 @@ describe("a store-bound read", () => {
     expect(asked).toEqual([])
     registry.set(view, null)
     expect(asked).toEqual([undefined])
-    registry.set(results.get("all")!, AsyncResult.success("every store's rows"))
-    expect(registry.get(read)).toEqual(AsyncResult.success("every store's rows"))
+    const every = AsyncResult.success("every store's rows")
+    registry.set(results.get("all")!, every)
+    expect(registry.get(read)).toBe(every)
   })
 
   it("starts empty on a switch, never with the other store's rows", async () => {
     const { view, asked, results, read, registry } = setup()
     registry.set(view, "sto_a")
-    registry.set(results.get("sto_a")!, AsyncResult.success("rows of a"))
+    const ofA = AsyncResult.success("rows of a")
+    registry.set(results.get("sto_a")!, ofA)
     registry.set(view, "sto_b")
     expect(asked).toEqual(["sto_a", "sto_b"])
     expect(AsyncResult.isInitial(registry.get(read))).toBe(true)
-    registry.set(results.get("sto_b")!, AsyncResult.success("rows of b"))
+    const ofB = AsyncResult.success("rows of b")
+    registry.set(results.get("sto_b")!, ofB)
     expect(await Effect.runPromise(AtomRegistry.getResult(registry, read))).toBe("rows of b")
     // Back on the first store: its own read again (kept, or read anew), never the second store's rows.
     registry.set(view, "sto_a")
-    expect(registry.get(read)).not.toEqual(AsyncResult.success("rows of b"))
+    const back = registry.get(read)
+    expect(back === ofA || AsyncResult.isInitial(back)).toBe(true)
   })
 
   it("refreshes the store in view's read only, in the registry that asks", () => {
