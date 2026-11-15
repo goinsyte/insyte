@@ -81,6 +81,7 @@ export interface Row {
   readonly totalMinor: string | number
   readonly currency: string
   readonly tags: ReadonlyArray<string>
+  readonly isDraft: boolean
   readonly lineCount: number
   readonly carrier: string | null
   readonly trackingNumber: string | null
@@ -107,6 +108,7 @@ export const toRow = (r: Row) =>
     totalMinor: Number(r.totalMinor),
     currency: r.currency,
     tags: r.tags,
+    isDraft: r.isDraft,
     lineCount: r.lineCount,
     hasTracking: r.trackingNumber !== null,
     carrier: r.carrier,
@@ -127,8 +129,8 @@ const ms = (d: Date | null) => (d === null ? null : d.getTime())
  */
 export const SELECT =
   `o.id, o.number, o.store_id, o.shopify_id, o.customer_id, o.customer_name, o.customer_email, o.status,
-  o.payment_status, o.fulfillment_status, o.total_minor, o.currency, o.tags, o.placed_at, o.external_updated_at,
-  o.delayed_at,
+  o.payment_status, o.fulfillment_status, o.total_minor, o.currency, o.tags, o.is_draft, o.placed_at,
+  o.external_updated_at, o.delayed_at,
   (select max(m.created_at) from order_mails m where m.order_id = o.id and m.kind = 'tracking'
      and m.state in ('scheduled', 'sent')) as tracking_sent_at,
   case when o.status not in ('delivered', 'cancelled', 'refunded') then

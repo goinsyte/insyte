@@ -116,7 +116,7 @@ export const apply = Effect.fn("Stores.webhooks.apply")(function*(inboundEventId
     )
   }
   // A mirrored kind changed: the workspace's open lists of it read again (M5.1's realtime).
-  const kind = READS[event.topic]?.kind
+  const kind = READS[event.topic]?.kind ?? (event.topic === "draft_orders/update" ? "Order" : undefined)
   const outboxIds = yield* db.scopedFor((sql) =>
     Effect.gen(function*() {
       yield* sql`update inbound_events set processed_at = now(), error = null where id = ${inboundEventId}`
@@ -240,8 +240,32 @@ const applyTopic = Effect.fn("Stores.webhooks.topic")(
       case "returns/decline":
       case "returns/close":
         return yield* (yield* ShopifyReturns).applied(store.id, topic, body)
+      // A draft made in Insyte (M7.1) that Shopify completed into an order: the order mirrored as Shopify holds it, the
+      // team's internal note moved to it, and the draft gives way. Any other draft's change is Shopify's own.
+      case "draft_orders/update": {
+        const order = body["order_id"]
+        if (body["status"] !== "completed" || (typeof order !== "string" && typeof order !== "number")) return
+        if (store.status === "connected" || store.status === "connecting") {
+          yield* mirrorOne(store, "Order", gidOf("Order", order))
+        }
+        return yield* db.scopedFor((sql) =>
+          Effect.gen(function*() {
+            const [draft] = yield* sql<{ id: string }>`
+              select id from orders
+              where store_id = ${store.id} and shopify_id = ${`draft-${String(body["id"])}`} and is_draft`
+            if (draft === undefined) return
+            yield* sql`
+              insert into order_notes (order_id, workspace_id, body, updated_by, updated_at)
+              select o.id, n.workspace_id, n.body, n.updated_by, n.updated_at
+              from order_notes n join orders o on o.store_id = ${store.id} and o.shopify_id = ${String(order)}
+              where n.order_id = ${draft.id}
+              on conflict (order_id) do nothing`
+            yield* sql`delete from orders where id = ${draft.id}`
+          })
+        )
+      }
       default:
-        // `bulk_operations/finish` (the backfill polls), `draft_orders/update` (drafts arrive with M7): nothing to do.
+        // `bulk_operations/finish` (the backfill polls): nothing to do.
         return
     }
   }

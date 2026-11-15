@@ -13,3 +13,11 @@ export const VARIANTS_UPDATE = `mutation($productId: ID!, $variants: [ProductVar
 
 /** Shopify's `ProductStatus`. */
 export const STATUS: Record<string, string> = { active: "ACTIVE", draft: "DRAFT", archived: "ARCHIVED" }
+
+/** A product made in Insyte ("Nieuw product"): Shopify makes its one variant, which takes the price and SKU next. */
+export const PRODUCT_CREATE = `mutation($product: ProductCreateInput!) {
+  productCreate(product: $product) {
+    product { id variants(first: 1) { nodes { id inventoryItem { id } } } }
+    userErrors { field message }
+  }
+}`

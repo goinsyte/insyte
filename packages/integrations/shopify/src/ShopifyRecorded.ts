@@ -23,7 +23,9 @@ import { readLines } from "./ShopifyGraphql.ts"
  * idempotency key answers the same refund. A return's writes (M9.3): a gift card or a discount code under a code made
  * before is taken; a draft order completes into one new order, the same one when completed again; a Shopify return is
  * approved or declined. A `noscope-*` shop approved the app before `write_gift_cards` and `write_returns` joined its
- * scopes, so Shopify denies those calls (`ACCESS_DENIED`).
+ * scopes, so Shopify denies those calls (`ACCESS_DENIED`). Insyte's drafts and new products (M7): a draft order is made
+ * and deleted as asked, but one for an address with `invalid` in it is refused on its email; a product is made with
+ * one variant, but one titled with `Geweigerd` is refused on its title.
  */
 
 export const RECORDED_FACTS: ShopFacts = {
@@ -96,6 +98,8 @@ const MUTATIONS: Record<string, { readonly field?: string; readonly ok: Record<s
   discountCodeBasicCreate: { ok: {} },
   draftOrderCreate: { ok: {} },
   draftOrderComplete: { ok: {} },
+  draftOrderDelete: { ok: {} },
+  productCreate: { ok: {} },
   returnApproveRequest: { ok: {} },
   returnDeclineRequest: { ok: {} },
   // The Live pixel (M14 step 3): created once per store, updated with a new key on a repair.
@@ -142,9 +146,36 @@ const returnWrite = (name: string, variables: Record<string, unknown>): Record<s
       return { codeDiscountNode: { id: `gid://shopify/DiscountCodeNode/${++made}` } }
     }
     case "draftOrderCreate": {
+      if (String(input["email"] ?? "").includes("invalid")) {
+        return { userErrors: [{ field: ["email"], message: "Email is invalid" }] }
+      }
       const id = `gid://shopify/DraftOrder/${++made}`
       drafts.set(id, null)
-      return { draftOrder: { id } }
+      return { draftOrder: { id, name: `#D${made}` } }
+    }
+    case "draftOrderDelete": {
+      const id = String(input["id"] ?? "")
+      if (!drafts.has(id)) return { userErrors: [{ field: ["id"], message: "Draft order does not exist" }] }
+      drafts.delete(id)
+      return { deletedId: id }
+    }
+    case "productCreate": {
+      const product = (variables["product"] ?? {}) as Record<string, unknown>
+      if (String(product["title"] ?? "").includes("Geweigerd")) {
+        return { userErrors: [{ field: ["title"], message: "Title is not allowed" }] }
+      }
+      const n = ++made
+      return {
+        product: {
+          id: `gid://shopify/Product/${8000 + n}`,
+          variants: {
+            nodes: [{
+              id: `gid://shopify/ProductVariant/${8500 + n}`,
+              inventoryItem: { id: `gid://shopify/InventoryItem/${8700 + n}` }
+            }]
+          }
+        }
+      }
     }
     case "draftOrderComplete": {
       const id = String(variables["id"] ?? "")

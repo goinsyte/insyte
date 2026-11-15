@@ -3,13 +3,16 @@ import { Effect } from "effect"
 import { onEach, subscriber } from "../Subscriber.ts"
 
 export const Shopify = subscriber("shopify", {
-  // An order, a product or a customer changed in Insyte (M7): to Shopify, one Workflow per event, named by it.
+  // An order, a product or a customer changed or made in Insyte (M7): to Shopify, one Workflow per event, named by it.
   ...onEach(
     [
       "order.updated",
       "order.cancelled",
+      "order.draft_created",
+      "order.draft_removed",
       "refund.requested",
       "product.updated",
+      "product.created",
       "customer.updated",
       "customer.created",
       "return.resolution_requested"

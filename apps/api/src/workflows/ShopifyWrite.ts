@@ -1,8 +1,9 @@
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { customerWriteBack } from "@insyte/modules/customers/use-cases/write-back"
+import { draftWriteBack } from "@insyte/modules/orders/use-cases/drafts"
 import { refundFailed, writeBack } from "@insyte/modules/orders/use-cases/write-back"
-import { productWriteBack } from "@insyte/modules/products/use-cases/write-back"
+import { productCreateWriteBack, productWriteBack } from "@insyte/modules/products/use-cases/write-back"
 import { decisionWriteBack, resolutionFailed, resolutionWriteBack } from "@insyte/modules/returns/use-cases/shopify"
 import { idsOf, type ShopifyWrite, type WriteOutcome } from "@insyte/modules/shared/domain/ShopifyWrites"
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers"
@@ -34,7 +35,7 @@ const RETRY: WorkflowStepConfig = {
 export class ShopifyWriteWorkflow extends WorkflowEntrypoint<Cloudflare.Env, ShopifyWriteParams> {
   override async run(event: Readonly<WorkflowEvent<ShopifyWriteParams>>, step: WorkflowStep) {
     const { workspaceId, write } = event.payload
-    const kind = write.type === "product.updated"
+    const kind = write.type === "product.updated" || write.type === "product.created"
       ? "product"
       : write.type === "customer.updated" || write.type === "customer.created"
       ? "customer"
@@ -47,6 +48,10 @@ export class ShopifyWriteWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Sho
       try {
         const effect = write.type === "product.updated"
           ? productWriteBack(write, id)
+          : write.type === "product.created"
+          ? productCreateWriteBack(write, id)
+          : write.type === "order.draft_created" || write.type === "order.draft_removed"
+          ? draftWriteBack(write, id)
           : write.type === "customer.updated" || write.type === "customer.created"
           ? customerWriteBack(write, id)
           : write.type === "return.resolution_requested"

@@ -11,8 +11,11 @@ export type ShopifyWrite = Extract<
     type:
       | "order.updated"
       | "order.cancelled"
+      | "order.draft_created"
+      | "order.draft_removed"
       | "refund.requested"
       | "product.updated"
+      | "product.created"
       | "customer.updated"
       | "customer.created"
       | "return.approved"
@@ -23,7 +26,7 @@ export type ShopifyWrite = Extract<
 
 /** The records a change names, whatever their kind. */
 export const idsOf = (write: ShopifyWrite): ReadonlyArray<string> =>
-  write.type === "product.updated"
+  write.type === "product.updated" || write.type === "product.created"
     ? write.productIds
     : write.type === "customer.updated" || write.type === "customer.created"
     ? write.customerIds

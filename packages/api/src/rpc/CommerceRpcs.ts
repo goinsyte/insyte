@@ -10,6 +10,7 @@ import { CustomerDetail, CustomerListInput, CustomerPage } from "@insyte/modules
 import { DuplicateGroup } from "@insyte/modules/customers/domain/Duplicates"
 import {
   CancelInput,
+  CreateDraftInput,
   IdsInput,
   NoteInput,
   OrderChange,
@@ -32,6 +33,7 @@ import {
   RefundResult
 } from "@insyte/modules/orders/domain/Refunds"
 import {
+  CreateInput as CreateProductInput,
   EditInput,
   ProductChange,
   RepriceInput,
@@ -69,8 +71,15 @@ export class CommerceRpcs extends RpcGroup.make(
   Rpc.make("Orders.tag", {
     payload: TagInput,
     success: OrderChange,
-    error: Schema.Union([Forbidden, NotFound, Invalid])
+    error: Schema.Union([Forbidden, NotFound, Invalid, Conflict])
   }),
+  // "Nieuwe bestelling" (M7.1): a draft in one of the principal's stores, with Undo; removing one is final.
+  Rpc.make("Orders.createDraft", {
+    payload: CreateDraftInput,
+    success: OrderChange,
+    error: Schema.Union([Forbidden, NotFound, Invalid, Conflict])
+  }),
+  Rpc.make("Orders.removeDraft", { payload: ById, error: Schema.Union([Forbidden, NotFound, Conflict]) }),
   Rpc.make("Orders.markFulfilled", {
     payload: IdsInput,
     success: OrderChange,
@@ -92,8 +101,12 @@ export class CommerceRpcs extends RpcGroup.make(
     success: OrderChange,
     error: Schema.Union([Forbidden, NotFound, Conflict])
   }),
-  Rpc.make("Orders.clearDelay", { payload: IdsInput, success: OrderChange, error: GetError }),
-  Rpc.make("Orders.setNote", { payload: NoteInput, error: GetError }),
+  Rpc.make("Orders.clearDelay", {
+    payload: IdsInput,
+    success: OrderChange,
+    error: Schema.Union([Forbidden, NotFound, Conflict])
+  }),
+  Rpc.make("Orders.setNote", { payload: NoteInput, error: Schema.Union([Forbidden, NotFound, Conflict]) }),
   // Mail the shopper (M7 9.1): the team's words to one order's shopper (Klantenservice · Bewerken), and the bulk
   // "Track & trace-update sturen" (Bestellingen · Bewerken). Each waits out the undo window; one undo per call.
   Rpc.make("Orders.emailCustomer", {
@@ -115,6 +128,12 @@ export class CommerceRpcs extends RpcGroup.make(
   Rpc.make("Products.list", { payload: ProductListInput, success: ProductPage, error: ListError }),
   Rpc.make("Products.get", { payload: ById, success: ProductDetail, error: GetError }),
   Rpc.make("Products.lowStock", { payload: LowStockInput, success: LowStockPage, error: Forbidden }),
+  // "Nieuw product" (M7.3): one variant, in one of the principal's stores, with Undo.
+  Rpc.make("Products.create", {
+    payload: CreateProductInput,
+    success: ProductChange,
+    error: Schema.Union([Forbidden, NotFound, Invalid, Conflict])
+  }),
   Rpc.make("Products.edit", {
     payload: EditInput,
     success: ProductChange,

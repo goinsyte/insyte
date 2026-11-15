@@ -62,3 +62,15 @@ export type OrderWrite =
   | Extract<OutboxEvent, { type: "order.updated" }>
   | Extract<OutboxEvent, { type: "order.cancelled" }>
   | Extract<OutboxEvent, { type: "refund.requested" }>
+
+/** A draft order made in Insyte ("Nieuwe bestelling"): Shopify's draft, with its own number (`#D1`) beside Insyte's. */
+export const DRAFT_CREATE = `mutation($input: DraftOrderInput!) {
+  draftOrderCreate(input: $input) { draftOrder { id name } userErrors { field message } }
+}`
+
+export const DRAFT_DELETE = `mutation($input: DraftOrderDeleteInput!) {
+  draftOrderDelete(input: $input) { deletedId userErrors { field message } }
+}`
+
+/** A draft as Insyte keeps it until Shopify has one (`insyte-<id>`), then Shopify's draft (`draft-<number>`). */
+export const DRAFT_PREFIX = "draft-"

@@ -6,7 +6,7 @@ import { SqlError } from "effect/sql"
 import type { CursorInvalid, FilterFieldUnknown, ListInput } from "../shared/domain/Filter.ts"
 import type { Relay } from "../shared/domain/Outbox.ts"
 import type { SearchHit } from "../shared/domain/Search.ts"
-import type { CancelInput, OrderChange, ShippingInput, TagInput } from "./domain/Commands.ts"
+import type { CancelInput, CreateDraftInput, OrderChange, ShippingInput, TagInput } from "./domain/Commands.ts"
 import type {
   CustomerMailQueued,
   CustomerMailRefused,
@@ -24,6 +24,7 @@ import type {
 import * as Commands from "./use-cases/commands.ts"
 import * as CustomerMail from "./use-cases/customer-mail.ts"
 import * as Delays from "./use-cases/delays.ts"
+import * as Drafts from "./use-cases/drafts.ts"
 import * as Orders from "./use-cases/orders.ts"
 import * as Refunds from "./use-cases/refund.ts"
 
@@ -44,7 +45,15 @@ export class OrdersService extends Context.Service<OrdersService, {
   /** Orders per status, inside the role's stores. */
   readonly statusCounts: Effect.Effect<Readonly<Record<string, number>>, Forbidden, R>
   readonly tags: Effect.Effect<ReadonlyArray<{ tag: string; count: number }>, Forbidden, R>
-  readonly tag: (input: typeof TagInput.Type) => Effect.Effect<OrderChange, Forbidden | NotFound | Invalid, W>
+  readonly tag: (
+    input: typeof TagInput.Type
+  ) => Effect.Effect<OrderChange, Forbidden | NotFound | Invalid | Conflict, W>
+  /** "Nieuwe bestelling": a draft in one of the principal's stores, with Undo; Shopify's after the window (M7.1). */
+  readonly createDraft: (
+    input: typeof CreateDraftInput.Type
+  ) => Effect.Effect<OrderChange, Forbidden | NotFound | Invalid | Conflict, W>
+  /** A draft removed, in Shopify at once where it got there. */
+  readonly removeDraft: (id: string) => Effect.Effect<void, Forbidden | NotFound | Conflict, W>
   readonly markFulfilled: (ids: ReadonlyArray<string>) => Effect.Effect<OrderChange, Forbidden | NotFound | Conflict, W>
   readonly updateShipping: (
     input: typeof ShippingInput.Type
@@ -53,8 +62,8 @@ export class OrdersService extends Context.Service<OrdersService, {
   /** "Als vertraagd markeren": open orders marked delayed, `order.delayed` (`manual`) after the undo window. */
   readonly flagDelayed: (ids: ReadonlyArray<string>) => Effect.Effect<OrderChange, Forbidden | NotFound | Conflict, W>
   /** "Vertraging wissen": the delay taken off, with an undo. */
-  readonly clearDelay: (ids: ReadonlyArray<string>) => Effect.Effect<OrderChange, Forbidden | NotFound, R>
-  readonly setNote: (id: string, body: string) => Effect.Effect<void, Forbidden | NotFound, R>
+  readonly clearDelay: (ids: ReadonlyArray<string>) => Effect.Effect<OrderChange, Forbidden | NotFound | Conflict, R>
+  readonly setNote: (id: string, body: string) => Effect.Effect<void, Forbidden | NotFound | Conflict, R>
   /**
    * The team's words to one order's shopper, in the store's name, after the undo window (forwarding's "Klant mailen",
    * `/v1`, an automation's `send_email`). The caller's `id` makes asking twice send once.
@@ -82,6 +91,8 @@ export class OrdersService extends Context.Service<OrdersService, {
     statusCounts: Orders.statusCounts().pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     tags: Commands.tags().pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     tag: (input) => Commands.tag(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    createDraft: (input) => Drafts.createDraft(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    removeDraft: (id) => Drafts.removeDraft(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     markFulfilled: (ids) => Commands.markFulfilled(ids).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     updateShipping: (input) => Commands.updateShipping(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     cancel: (input) => Commands.cancel(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
