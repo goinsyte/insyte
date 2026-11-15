@@ -2,8 +2,8 @@ import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from ".
 import { Maximize2, Plus, X } from "../../icons";
 import { useNavigate } from "@tanstack/react-router";
 import { InsyteMark } from "../ask/parts";
+import { useAskSource } from "../ask/ask-source";
 import { Thread } from "../ask/thread";
-import { useAsk } from "./state";
 
 /**
  * Ask Insyte, as a drawer beside whatever the operator is looking at.
@@ -11,10 +11,11 @@ import { useAsk } from "./state";
  * It sat on a mesh class the token rewrite had removed, so it opened as white ink on a white sheet.
  * Now it is a white drawer with the brand in a narrow Abyss band at its head — the mark, the name,
  * a new conversation, and the full page — and the thread under it is the same one /ask shows, so a
- * conversation can move from the drawer to the page without starting again.
+ * conversation can move from the drawer to the page without starting again. Its conversations are the host's
+ * (`AskSourceProvider` around it: the demo's in the design app, `Ask.*` in the console).
  */
 export function AskInsytePanel({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-	const start = useAsk((s) => s.start);
+	const { start, page } = useAskSource();
 	const navigate = useNavigate();
 	return (
 		<Sheet open={open} onOpenChange={onOpenChange}>
@@ -36,7 +37,8 @@ export function AskInsytePanel({ open, onOpenChange }: { open: boolean; onOpenCh
 						label="Volledige pagina openen"
 						onClick={() => {
 							onOpenChange(false);
-							void navigate({ to: "/ask" });
+							if (page) page();
+							else void navigate({ to: "/ask" });
 						}}
 					>
 						<Maximize2 className="size-3.5" strokeWidth={2} />

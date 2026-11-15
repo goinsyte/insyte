@@ -650,6 +650,222 @@
       }
     },
     {
+      "name": "ask_insyte",
+      "description": "Ask Insyte a question about this workspace in Dutch or English, as a person on the team would in the console: what waits, which orders are late, which chargebacks need evidence, how this month compares. It reads only what this key may, counts against the workspace's AI budget, and changes nothing. Every number in the answer is one of its figures. thread_id asks on in an earlier conversation. Needs no scope of its own; each read needs the scope it would on its own.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Your own key for doing this once: the same key again answers the first result instead of acting twice."
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "thread_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "question": {
+            "$ref": "#/$defs/AskTurn"
+          },
+          "answer": {
+            "$ref": "#/$defs/AskTurn"
+          }
+        },
+        "required": [
+          "thread_id",
+          "title",
+          "question",
+          "answer"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AskFigure": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string",
+                "description": "What the number is, in Dutch: Vertraagde bestellingen."
+              },
+              "value": {
+                "type": "string",
+                "description": "As the answer shows it: 3, € 1.240,00, 92%."
+              },
+              "path": {
+                "type": "string",
+                "description": "The console page that holds its rows."
+              }
+            },
+            "required": [
+              "label",
+              "value",
+              "path"
+            ],
+            "additionalProperties": true
+          },
+          "AskRecord": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "description": "order, ticket, chargeback, customer, supplier, store or return."
+              },
+              "label": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string",
+                "description": "The console page that opens it."
+              }
+            },
+            "required": [
+              "kind",
+              "label",
+              "path"
+            ],
+            "additionalProperties": true
+          },
+          "AskTurn": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "assistant"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "streaming",
+                  "settled",
+                  "failed"
+                ]
+              },
+              "failure": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Why an answer did not come: budget, model, rate, interrupted; limit when it settled with what it had."
+              },
+              "text": {
+                "type": "string",
+                "description": "The question, or the answer's words with its figures and records in place."
+              },
+              "figures": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/AskFigure"
+                }
+              },
+              "records": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/AskRecord"
+                }
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "title",
+                    "path"
+                  ],
+                  "additionalProperties": true
+                }
+              },
+              "follow_ups": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "withheld": {
+                "type": "boolean",
+                "description": "The answer read from a store this key no longer reaches, and is not given back."
+              },
+              "created_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "role",
+              "state",
+              "failure",
+              "text",
+              "figures",
+              "records",
+              "sources",
+              "follow_ups",
+              "withheld",
+              "created_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
       "name": "assign_ticket",
       "description": "Puts a teammate on a ticket (they hear of it), or takes them off with unassign. Needs support.write.",
       "inputSchema": {

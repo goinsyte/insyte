@@ -157,7 +157,7 @@ export const eraseShopper = (sql: SqlClient.SqlClient, seeds: ShopperSeeds) =>
     fileIds.push(...returnFiles.map((f) => f.id))
 
     const chargebacks = yield* sql<{ id: string }>`
-      update chargebacks set customer_name = '', raw = null, note = ''
+      update chargebacks set customer_name = '[verwijderd]', raw = null, note = ''
       where customer_id = any(${ids}::text[]) or order_id = any(${orderIds}::text[])
       returning id`
     const chargebackIds = chargebacks.map((c) => c.id)

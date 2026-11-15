@@ -2,6 +2,7 @@ import { ConsoleRpcs, RPC_PATH } from "@insyte/api/ConsoleRpcs"
 import { Access } from "@insyte/modules/access/Access"
 import { AgentLogService, AiBudgetService, AutonomyService } from "@insyte/modules/agent/Agent"
 import { AnalyticsService } from "@insyte/modules/analytics/Analytics"
+import { AskService } from "@insyte/modules/ask/Ask"
 import { AuditService } from "@insyte/modules/audit/Audit"
 import { AutomationsService } from "@insyte/modules/automations/Automations"
 import { RunsService } from "@insyte/modules/automations/Runs"
@@ -53,6 +54,7 @@ import { RpcSerialization } from "effect/rpc"
 import { AccessHandlers } from "./handlers/access.ts"
 import { AgentHandlers } from "./handlers/agent.ts"
 import { AnalyticsHandlers } from "./handlers/analytics.ts"
+import { AskHandlers } from "./handlers/ask.ts"
 import { AuditHandlers } from "./handlers/audit.ts"
 import { AutomationsHandlers } from "./handlers/automations.ts"
 import { BillingHandlers } from "./handlers/billing.ts"
@@ -149,6 +151,20 @@ export const RpcContext = Layer.mergeAll(
   // Insyte AI's drafts and summaries (M15 step 2): the slice and `effect/ai` load with the first AI call
   // (`platform/Ai.ts`), never with this layer, so no other RPC waits on them or fails with them (ADR-0041 §3).
   DraftsHandlers,
+  // Vraag Insyte (M15 step 3): its conversations here; the loop, the tools and the model load with a question.
+  AskHandlers.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        AskService.layer,
+        OrdersService.layer,
+        TicketsService.layer,
+        ChargebacksService.layer,
+        QueueService.layer,
+        AnalyticsService.layer,
+        CustomersService.layer
+      )
+    )
+  ),
   ChatsHandlers.pipe(Layer.provide(Layer.mergeAll(ChatsService.layer, UndoService.layer))),
   SheetsHandlers.pipe(Layer.provide(SheetsService.layer)),
   KnowledgeHandlers.pipe(Layer.provide(KnowledgeService.layer)),

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { type Script, scriptFor } from "../lib/ask/scripts";
+import { scriptFor } from "../lib/ask/scripts";
 
 /*
  * Ask Insyte's conversations, shared by the drawer and the /ask page, so a thread started in the
@@ -11,10 +11,8 @@ import { type Script, scriptFor } from "../lib/ask/scripts";
  * the operator did with it.
  */
 
-export type Decision = "open" | "filed" | "discarded";
-export type Turn =
-	| { id: string; role: "user"; text: string }
-	| { id: string; role: "assistant"; script: Script; settled: boolean; decision: Decision };
+export type { Decision, Turn } from "../lib/ask/types";
+import type { Decision, Turn } from "../lib/ask/types";
 export type Conversation = { id: string; title: string; at: number; turns: Turn[] };
 
 let n = 0;

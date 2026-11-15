@@ -743,11 +743,45 @@ describe("the agent's limit per day", () => {
     const replies = [...await s.outbound(a.threadId), ...await s.outbound(b.threadId)]
     expect(replies).toHaveLength(1)
     const rows = (await actionsOf(s.workspace)).filter((r) => r.subjectId === a.threadId || r.subjectId === b.threadId)
-    expect(rows.filter((r) => r.outcome === "done")).toHaveLength(1)
-    // The other mail's trigger, however often it came (the queue's delivery and the test's own): asked, for the limit.
-    const others = rows.filter((r) => r.outcome !== "done")
+    const [done, ...more] = rows.filter((r) => r.outcome === "done")
+    expect(more).toEqual([])
+    const answered = done!.subjectId
+    const other = answered === a.threadId ? b.threadId : a.threadId
+    const asked = { decision: "propose", outcome: "proposed", refuseReason: "limit" }
+    // The answered mail's other trigger (the queue's delivery or the test's own) found the day's slot taken, or the
+    // day's run done: asked, for the limit. It never ran.
+    for (const row of rows.filter((r) => r.subjectId === answered && r.id !== done!.id)) {
+      expect(row).toMatchObject(asked)
+    }
+    // The other mail's triggers, however often it came: asked, for the limit, each. Two at once write one draft between
+    // them: the second finds it being written, and still says why the mail is the team's.
+    const others = rows.filter((r) => r.subjectId === other)
     expect(others.length).toBeGreaterThan(0)
-    expect(others.every((r) => r.decision === "propose" && r.refuseReason === "limit")).toBe(true)
+    for (const row of others) expect(row).toMatchObject(asked)
+    expect(ok(await rpc("Drafts.forSubject", { subject: { type: "thread", id: other } }, s.cookie)).draft).not
+      .toBeNull()
+  }, 120_000)
+
+  it("keeps why a mail is the team's when its draft is being written already", async () => {
+    // Eerst vragen, the store's default. The same mail's trigger three times at once (the queue's delivery and two of
+    // the test's own): one writes the draft, another finds it being written. Each row says Eerst vragen, none "unknown".
+    const s = await mailStore("agent-busy")
+    for (let round = 0; round < 3; round++) {
+      const m = await s.mail(`Ada <${await s.customer("Ada")}>`, "Waar is mijn pakket?", "Nog niet ontvangen.")
+      await Promise.all([
+        deliverTask(await s.taskFor(m, `evt_busy_a_${m.messageId}`)),
+        deliverTask(await s.taskFor(m, `evt_busy_b_${m.messageId}`))
+      ])
+      const rows = await about(s.workspace, m.threadId)
+      expect(rows.length).toBeGreaterThan(1)
+      for (const r of rows) {
+        expect(r).toMatchObject({ decision: "propose", outcome: "proposed", refuseReason: "policy" })
+      }
+      expect(rows.some((r) => r.model === "fake")).toBe(true)
+      expect(ok(await rpc("Drafts.forSubject", { subject: { type: "thread", id: m.threadId } }, s.cookie)).draft)
+        .not.toBeNull()
+      expect(await s.outbound(m.threadId)).toEqual([])
+    }
   }, 120_000)
 
   it("gives the day's slot back when a run stands down", async () => {

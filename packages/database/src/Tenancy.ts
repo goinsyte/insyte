@@ -149,6 +149,9 @@ export const TENANT_TABLES = [
   // Billing (M13 step 1): the workspace's Stripe subscription and invoices, as Stripe last said.
   "subscriptions",
   "invoices",
+  // Vraag Insyte (M15 step 3): a person's conversations and their turns, the owner's alone.
+  "ask_threads",
+  "ask_turns",
   // The knowledge base (M15 step 7): chapters, their versions, the published text in pieces, the questions Insyte could
   // not answer, and every answer that used a chapter.
   "knowledge_articles",
