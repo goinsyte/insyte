@@ -182,8 +182,9 @@ const outcomeOf = (id: string) => (o: WriteOutcome["outcome"], reason: string | 
 /**
  * A product made in Insyte, made in Shopify (M7.3) once the undo window has passed, the first step of two: the one a
  * try before made, found by the handle Insyte gave it, else `productSet` with its title, description, status and its
- * one variant's price and SKU, in one call. Shopify refusing the product removes it from Insyte, since it never
- * existed there, and whoever made it hears why.
+ * one variant's price and SKU, in one call. Gone from Insyte (removed between a try whose answer was lost and the
+ * next), what that try made is found by the handle the event carries and deleted. Shopify refusing the product removes
+ * it from Insyte, since it never existed there, and whoever made it hears why.
  */
 export const productCreateSend = Effect.fn("Products.createSend")(function*(
   write: Extract<ShopifyWrite, { type: "product.created" }>,
@@ -200,7 +201,7 @@ export const productCreateSend = Effect.fn("Products.createSend")(function*(
         on true
       where p.id = ${productId}`
   )
-  if (t === undefined) return { outcome: outcome("skipped", "gone") } satisfies CreateSent<ProductMade>
+  if (t === undefined) return { outcome: yield* dropEarlier(write, productId) } satisfies CreateSent<ProductMade>
   if (t.status !== "connected" && t.status !== "connecting") {
     return { outcome: outcome("skipped", "disconnected") } satisfies CreateSent<ProductMade>
   }
@@ -261,6 +262,51 @@ export const productCreateSend = Effect.fn("Products.createSend")(function*(
   return { outcome: outcome("refused", sent.refused.reason) } satisfies CreateSent<ProductMade>
 })
 
+interface Store {
+  readonly id: string
+  readonly connectionId: string
+  readonly shop: string
+  readonly status: string
+}
+
+const storeOf = (storeId: string) =>
+  Effect.flatMap(Effect.service(Db), (db) =>
+    Effect.map(
+      db.scopedFor((sql) =>
+        sql<Store>`select id, connection_id, shop_domain as shop, status from stores where id = ${storeId}`
+      ),
+      (rows) => rows[0]
+    ))
+
+/** Shopify's product deleted; one Shopify no longer has is the same, and what Shopify does not answer is tried again. */
+const deleteInShopify = (store: Store, product: string) =>
+  mutate(store, PRODUCT_DELETE, { input: { id: product } }, "productDelete").pipe(
+    Effect.asVoid,
+    Effect.catchTags({
+      TokenRefused: () => Effect.void,
+      ShopifyRefused: (error) => Effect.asVoid(refusal(store)(error))
+    })
+  )
+
+/** A product gone from Insyte before its send got through: what a try before made, found by its handle, is deleted. */
+const dropEarlier = (write: Extract<ShopifyWrite, { type: "product.created" }>, productId: string) =>
+  Effect.gen(function*() {
+    const gone = outcomeOf(productId)("skipped", "gone")
+    if (write.storeId === undefined || write.handle === undefined) return gone
+    const store = yield* storeOf(write.storeId)
+    if (store === undefined || (store.status !== "connected" && store.status !== "connecting")) return gone
+    // Read directly, never through the search index: what Shopify made is there at once.
+    const found = yield* mutate(store, PRODUCT_FIND, { handle: write.handle }, "productByIdentifier").pipe(
+      Effect.map(({ data }) => (data as { productByIdentifier?: Node } | null)?.productByIdentifier ?? null),
+      Effect.catchTags({
+        TokenRefused: () => Effect.succeed(null),
+        ShopifyRefused: (error) => Effect.as(refusal(store)(error), null)
+      })
+    )
+    if (found !== null) yield* deleteInShopify(store, found.id)
+    return gone
+  })
+
 const isTaken = (error: unknown) => SqlError.isSqlError(error) && error.reason._tag === "UniqueViolation"
 
 /**
@@ -288,6 +334,21 @@ export const productCreateAdopt = Effect.fn("Products.createAdopt")(function*(
         if (row === undefined) return false
         if (row.shopifyId === shopifyId) return true
         if (echoFirst) {
+          // The stock Shopify reported on the echo's variant moves to Insyte's before the echo goes, which would take
+          // it along; where Insyte's already holds a count for the location, the newer one stays.
+          if (variantShopifyId !== null && row.variantId !== null) {
+            yield* sql`
+              insert into inventory_levels (workspace_id, variant_id, location_id, available, source, reported_by,
+                                            reported_at)
+              select l.workspace_id, ${row.variantId}, l.location_id, l.available, l.source, l.reported_by,
+                     l.reported_at
+              from inventory_levels l join variants v on v.id = l.variant_id
+              where v.store_id = ${made.storeId} and v.shopify_id = ${variantShopifyId} and v.product_id <> ${productId}
+              on conflict (variant_id, location_id, source) do update
+                set available = excluded.available, reported_by = excluded.reported_by,
+                    reported_at = excluded.reported_at
+                where excluded.reported_at > inventory_levels.reported_at`
+          }
           yield* sql`delete from products where store_id = ${made.storeId} and shopify_id = ${shopifyId}
                      and id <> ${productId}`
           if (variantShopifyId !== null) {
@@ -313,17 +374,9 @@ export const productCreateAdopt = Effect.fn("Products.createAdopt")(function*(
   if (kept === null) kept = yield* take(true)
   if (kept) return outcome("sent")
 
-  const [store] = yield* db.scopedFor((sql) =>
-    sql<{ id: string; connectionId: string; shop: string; status: string }>`
-      select id, connection_id, shop_domain as shop, status from stores where id = ${made.storeId}`
-  )
+  const store = yield* storeOf(made.storeId)
   if (store === undefined) return outcome("skipped", "gone")
   if (store.status !== "connected" && store.status !== "connecting") return outcome("skipped", "disconnected")
-  yield* mutate(store, PRODUCT_DELETE, { input: { id: made.product } }, "productDelete").pipe(
-    Effect.catchTags({
-      TokenRefused: () => Effect.void,
-      ShopifyRefused: (error) => Effect.asVoid(refusal(store)(error))
-    })
-  )
+  yield* deleteInShopify(store, made.product)
   return outcome("skipped", "removed")
 })

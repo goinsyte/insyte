@@ -36,7 +36,8 @@ const StoreConnection = HttpRouter.add(
 
 /**
  * `GET /api/__dev/stores/mirror?workspace=<id>&store=<id>`: a store's mirrored orders and products by their states,
- * its deliveries and its stock-outs (M9.5), for the webhook, reconcile and stock-out tests. Refused in production.
+ * its deliveries (with why one failed, if it did) and its stock-outs (M9.5), for the webhook, reconcile and stock-out
+ * tests. Refused in production.
  */
 const StoreMirror = HttpRouter.add(
   "GET",
@@ -60,9 +61,9 @@ const StoreMirror = HttpRouter.add(
           select title, status from products where store_id = ${store} order by title`,
         customers: sql<{ name: string; email: string | null }>`
           select name, email from customers where store_id = ${store} order by shopify_id`,
-        inbound: sql<{ topic: string; processed: boolean }>`
-          select topic, processed_at is not null as processed from inbound_events where store_id = ${store}
-          order by received_at`,
+        inbound: sql<{ topic: string; processed: boolean; error: string | null }>`
+          select topic, processed_at is not null as processed, left(error, 300) as error from inbound_events
+          where store_id = ${store} order by received_at`,
         gdpr: sql<{ kind: string; completed: boolean }>`
           select kind, completed_at is not null as completed from gdpr_requests order by received_at`,
         stockouts: sql<{ product: string; variant: string; open: boolean }>`
@@ -128,4 +129,27 @@ const StoreSeed = HttpRouter.add(
   }).pipe(withRequestDb)
 )
 
-export const StoreRoutes = Layer.mergeAll(StoreSeed, StoreConnection, StoreMirror)
+/**
+ * `POST /api/__dev/stores/unmake?workspace=<id>&product=<id>`: a product made in Insyte and not yet Shopify's, gone from
+ * Insyte as an undo from the agent log leaves it, so the create tests can stand between a try whose answer was lost and
+ * the next. Answers whether it was there. Refused in production.
+ */
+const StoreUnmake = HttpRouter.add(
+  "POST",
+  "/api/__dev/stores/unmake",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const product = new URL(request.url, "http://local").searchParams.get("product") ?? ""
+    const db = yield* Db
+    const gone = yield* db.scopedFor((sql) =>
+      sql`delete from products where id = ${product} and shopify_id = ${`insyte-${product}`} returning id`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe({ gone: gone.length > 0 })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+export const StoreRoutes = Layer.mergeAll(StoreSeed, StoreConnection, StoreMirror, StoreUnmake)

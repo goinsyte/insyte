@@ -221,10 +221,11 @@ export const create = Effect.fn("Products.create")(function*(input: typeof Creat
       }
       const id = mintId("prd")
       const variantId = mintId("var")
+      const handle = handleOf(title, id)
       yield* sql`
         insert into products (id, workspace_id, store_id, shopify_id, title, handle, description_html, status,
                               cost_minor, shopify_created_at, external_updated_at)
-        values (${id}, ${principal.workspaceId}, ${store.id}, ${`insyte-${id}`}, ${title}, ${handleOf(title, id)},
+        values (${id}, ${principal.workspaceId}, ${store.id}, ${`insyte-${id}`}, ${title}, ${handle},
                 ${htmlOf(input.description)}, ${input.status}, ${input.costMinor}, now(), now())`
       yield* sql`
         insert into variants (id, workspace_id, store_id, product_id, shopify_id, sku, title, price_minor, position)
@@ -240,7 +241,9 @@ export const create = Effect.fn("Products.create")(function*(input: typeof Creat
         type: "product.created",
         workspaceId: principal.workspaceId,
         userId: principal.userId ?? principal.id,
-        productIds: [id]
+        productIds: [id],
+        storeId: store.id,
+        handle
       }, { afterSeconds: UNDO_SECONDS })
       const undo = yield* Undo.issue(sql, {
         command: RESTORE,

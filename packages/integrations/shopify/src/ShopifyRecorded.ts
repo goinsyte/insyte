@@ -27,7 +27,8 @@ import { readLines } from "./ShopifyGraphql.ts"
  * and deleted as asked, and found by its tag, but one for an address with `invalid` in it is refused on its email; a
  * product is made through `productSet` with its one variant, found by its handle and read back, but one titled with
  * `Geweigerd` is refused on its title. A `lost-*` shop makes its first draft or product and then fails the call, as
- * an answer lost on the way back. A test completes a draft as the merchant would (`completeRecordedDraft`).
+ * an answer lost on the way back. In a shop whose name holds `-lag-`, Shopify's search lags: a new draft is not found
+ * by its tag on the first search after it was made. A test completes a draft as the merchant would (`completeRecordedDraft`).
  */
 
 export const RECORDED_FACTS: ShopFacts = {
@@ -129,6 +130,8 @@ interface RecordedDraft {
   readonly email: string | null
   readonly lines: ReadonlyArray<Record<string, unknown>>
   order: { id: string; name: string } | null
+  /** Searches still to miss it, while Shopify's search index has not caught up. */
+  unindexed: number
 }
 const drafts = new Map<string, RecordedDraft>()
 let made = 0
@@ -137,6 +140,8 @@ let made = 0
 export interface RecordedProduct {
   readonly id: string
   readonly variant: string
+  /** Its one variant's inventory item, which Shopify's stock webhooks name. */
+  readonly item: string
   readonly handle: string
   readonly title: string
   readonly status: string
@@ -224,7 +229,8 @@ const returnWrite = (
         tags: (input["tags"] as ReadonlyArray<string> | undefined) ?? [],
         email: typeof input["email"] === "string" ? input["email"] : null,
         lines: (input["lineItems"] as ReadonlyArray<Record<string, unknown>> | undefined) ?? [],
-        order: null
+        order: null,
+        unindexed: shop.includes("-lag-") ? 1 : 0
       })
       return { draftOrder: { id, name: `#D${made}` } }
     }
@@ -251,6 +257,7 @@ const returnWrite = (
         shop,
         id: ids.id,
         variant: ids.variant,
+        item: ids.item,
         handle: String(product["handle"] ?? ""),
         title: String(product["title"] ?? ""),
         status: String(product["status"] ?? "DRAFT"),
@@ -356,8 +363,31 @@ const recordedQuery = (shop: string, query: string, variables: Record<string, un
   // A draft by the tag Insyte gave it (`tag:'SO-10001'`), and a product by its handle: what a create tried again finds.
   if (query.includes("draftOrders(")) {
     const tag = /tag:'([^']*)'/.exec(String(variables["query"] ?? ""))?.[1]
-    const found = recordedDrafts(shop).filter((d) => tag !== undefined && d.tags.includes(tag))
-    return { draftOrders: { nodes: found.slice(0, 1).map((d) => ({ id: d.id })) } }
+    const first = Number(/first: (\d+)/.exec(query)?.[1] ?? 50)
+    const found = [...drafts.entries()].filter(([, d]) => d.shop === shop && tag !== undefined && d.tags.includes(tag))
+    // One the index has not caught up with is missed, this once.
+    const indexed = found.filter(([, d]) => {
+      if (d.unindexed <= 0) return true
+      d.unindexed -= 1
+      return false
+    })
+    return {
+      draftOrders: {
+        nodes: indexed.slice(0, first).map(([id, d]) => ({ id, status: d.order === null ? "OPEN" : "COMPLETED" }))
+      }
+    }
+  }
+  // Drafts by their ids, as they are now: a completed one names its order.
+  if (query.includes("nodes(ids:")) {
+    const ids = (variables["ids"] as ReadonlyArray<string> | undefined) ?? []
+    return {
+      nodes: ids.map((id) => {
+        const d = drafts.get(id)
+        return d === undefined || d.shop !== shop
+          ? null
+          : { id, status: d.order === null ? "OPEN" : "COMPLETED", order: d.order === null ? null : { id: d.order.id } }
+      })
+    }
   }
   if (query.includes("productByIdentifier(")) {
     const found = recordedProducts(shop).find((p) => p.handle === variables["handle"])

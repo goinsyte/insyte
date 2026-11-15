@@ -10,10 +10,11 @@ import { call, rpc } from "./support.ts"
  * Draft orders and new products (M7.1 "Nieuwe bestelling", M7.3 "Nieuw product"), against Shopify's recorded twin.
  * Each is made in Insyte at once, in a store the principal reaches, with Undo; Shopify makes it once the undo window
  * has passed, and the row takes Shopify's id in a step of its own. A send tried again after Shopify made it finds what
- * it made instead of making a second; a product goes with its price and SKU in the same call; one removed while
- * Shopify made it is deleted there too. Shopify refusing removes it again and tells whoever made it why. A draft is
- * not an order yet: the order commands, the shopper's mail and the returns portal leave it alone, and a draft Shopify
- * completed gives way to the real order only once Insyte holds it.
+ * it made instead of making a second, and a few minutes later deletes a twin Shopify's lagging search let it make; a
+ * product goes with its price and SKU in the same call; one removed while Shopify made it, or between a try whose
+ * answer was lost and the next, is deleted there too. Shopify refusing removes it again and tells whoever made it why.
+ * A draft is not an order yet: the order commands, the shopper's mail and the returns portal leave it alone, and a
+ * draft Shopify completed gives way to the real order only once Insyte holds it, from its webhook or the sweep.
  */
 
 type Outcome = { id: string; outcome: string; reason: string | null }
@@ -39,6 +40,15 @@ const productOf = (title: string, sku = "", status: "draft" | "active" = "draft"
   status,
   description: "Zacht katoen.\n\nWasbaar op 30 graden."
 })
+
+/** The Shopify writes this test starts, their sleeps off: a draft's last look for twins comes at once. */
+const writesOf = async () => {
+  const writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+  await writes.modifyAll(async (m) => {
+    await m.disableSleeps()
+  })
+  return writes
+}
 
 /** Every write the window let through, run to the end. */
 const written = async (writes: Writes) => {
@@ -74,10 +84,14 @@ const hook = (shop: string, topic: string, body: unknown) =>
 
 const numeric = (gid: string) => Number(gid.split("/").pop())
 
+const mirrorOf = async (store: { workspace: string; storeId: string }) =>
+  (await (await call(`http://api.test/api/__dev/stores/mirror?workspace=${store.workspace}&store=${store.storeId}`))
+    .json()) as { inbound: Array<{ topic: string; processed: boolean; error: string | null }> }
+
 describe("draft orders", () => {
   it("makes a draft in Insyte, then in Shopify after the window; the order commands leave it alone", async () => {
     const store = await importedStore("draft-make")
-    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    await using writes = await writesOf()
     const made = ok(await rpc("Orders.createDraft", draftOf(store.storeId), store.cookie))
     const draft = made.orders[0]!
     expect(draft).toMatchObject({
@@ -147,7 +161,7 @@ describe("draft orders", () => {
 
   it("keeps a completed draft, note and all, until Insyte holds the order it became", async () => {
     const store = await importedStore("draft-wait")
-    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    await using writes = await writesOf()
     const draft = ok(await rpc("Orders.createDraft", draftOf(store.storeId), store.cookie)).orders[0]!
     await pastUndo(store.workspace)
     await relay(store.workspace)
@@ -161,15 +175,39 @@ describe("draft orders", () => {
         order_id: 987654
       })).status
     ).toBe(200)
-    await new Promise((resolve) => setTimeout(resolve, 3_000))
+    await until(
+      async () =>
+        (await mirrorOf(store)).inbound.some((e) =>
+          e.topic === "draft_orders/update" && !e.processed && (e.error ?? "").includes("DraftNotCompleted")
+        ),
+      "the delivery failed, to be tried again"
+    )
     const kept = ok(await rpc("Orders.get", { id: draft.id }, store.cookie))
     expect(kept.order.isDraft).toBe(true)
     expect(kept.internalNote?.body).toBe("Graag als cadeau inpakken")
+
+    // Shopify gave up on the delivery; the sweep finds the draft completed, mirrors its order and retires it.
+    const order = completeRecordedDraft(`gid://shopify/DraftOrder/${sent.shopifyId.slice("draft-".length)}`)
+    const swept = await call(
+      `http://api.test/api/__dev/stores/health?workspace=${store.workspace}&store=${store.storeId}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sweep: true, check: false })
+      }
+    )
+    expect(swept.status).toBe(200)
+    expect(failure(await rpc("Orders.get", { id: draft.id }, store.cookie))).toMatchObject({ _tag: "NotFound" })
+    const real = ok(await rpc("Orders.list", { limit: 50 }, store.cookie)).rows.find((o) => o.number === order.name)!
+    const after = ok(await rpc("Orders.get", { id: real.id }, store.cookie))
+    expect(after.order.isDraft).toBe(false)
+    expect(after.internalNote?.body).toBe("Graag als cadeau inpakken")
+    expect(after.paymentGateway).toBe("klarna")
   })
 
   it("undoes a draft inside the window, and removes one Shopify has", async () => {
     const store = await importedStore("draft-undo")
-    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    await using writes = await writesOf()
     const undone = ok(await rpc("Orders.createDraft", draftOf(store.storeId), store.cookie))
     ok(await rpc("Shared.undo", { token: undone.undo!.token }, store.cookie))
     expect(failure(await rpc("Orders.get", { id: undone.orders[0]!.id }, store.cookie)))
@@ -196,7 +234,7 @@ describe("draft orders", () => {
 
   it("deletes in Shopify a draft removed while Shopify made it", async () => {
     const store = await importedStore("draft-midway")
-    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    await using writes = await writesOf()
     const draft = ok(await rpc("Orders.createDraft", draftOf(store.storeId), store.cookie)).orders[0]!
     // The row takes Shopify's id a step later than Shopify made it: here, five seconds later.
     await writes.modifyAll(async (m) => {
@@ -215,7 +253,7 @@ describe("draft orders", () => {
 
   it("finds the draft Shopify made when its answer was lost, instead of making a second", async () => {
     const store = await importedStore("draft-lost", "lost")
-    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    await using writes = await writesOf()
     await writes.modifyAll(async (m) => {
       await m.disableRetryDelays()
     })
@@ -229,9 +267,40 @@ describe("draft orders", () => {
       .toBe(`draft-${numeric(inShopify[0]!.id)}`)
   })
 
+  it("deletes, a few minutes on, the twin a lagging search let a retry make", async () => {
+    // Shopify's search misses a draft on its first search after it was made: the retry makes a second.
+    const store = await importedStore("draft-lag", "lost")
+    await using writes = await writesOf()
+    await writes.modifyAll(async (m) => {
+      await m.disableRetryDelays()
+    })
+    const draft = ok(await rpc("Orders.createDraft", draftOf(store.storeId), store.cookie)).orders[0]!
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    expect((await written(writes)).map((o) => o.outcome)).toEqual(["sent"])
+    const left = recordedDrafts(store.shop).filter((d) => d.tags.includes(draft.number))
+    expect(left).toHaveLength(1)
+    expect(ok(await rpc("Orders.get", { id: draft.id }, store.cookie)).order.shopifyId)
+      .toBe(`draft-${numeric(left[0]!.id)}`)
+  })
+
+  it("deletes the draft a lost answer left in Shopify when it is removed before the retry", async () => {
+    const store = await importedStore("draft-gone", "lost")
+    await using writes = await writesOf()
+    const draft = ok(await rpc("Orders.createDraft", draftOf(store.storeId), store.cookie)).orders[0]!
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    // Shopify made it, its answer was lost, and the retry is five seconds off: removed in Insyte meanwhile…
+    await until(() => recordedDrafts(store.shop).some((d) => d.tags.includes(draft.number)), "Shopify made it")
+    ok(await rpc("Orders.removeDraft", { id: draft.id }, store.cookie))
+    // …the retry finds it by its number and deletes it there too.
+    expect(await written(writes)).toEqual([{ id: draft.id, outcome: "skipped", reason: "gone" }])
+    expect(recordedDrafts(store.shop).filter((d) => d.tags.includes(draft.number))).toHaveLength(0)
+  })
+
   it("refuses what it cannot make, and tells the maker when Shopify will not", async () => {
     const store = await importedStore("draft-refuse")
-    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    await using writes = await writesOf()
     expect(
       failure(
         await rpc("Orders.createDraft", {
@@ -300,7 +369,7 @@ describe("draft orders", () => {
 describe("new products", () => {
   it("makes a product in Insyte, then in Shopify after the window with its price and SKU in one call", async () => {
     const store = await importedStore("product-make")
-    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    await using writes = await writesOf()
     const made = ok(
       await rpc(
         "Products.create",
@@ -340,7 +409,7 @@ describe("new products", () => {
 
   it("finds the product Shopify made when its answer was lost, instead of making a second", async () => {
     const store = await importedStore("product-lost", "lost")
-    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    await using writes = await writesOf()
     await writes.modifyAll(async (m) => {
       await m.disableRetryDelays()
     })
@@ -355,9 +424,26 @@ describe("new products", () => {
       .toBe(String(numeric(inShopify[0]!.id)))
   })
 
+  it("deletes the product a lost answer left in Shopify when it is gone before the retry", async () => {
+    const store = await importedStore("product-gone", "lost")
+    await using writes = await writesOf()
+    const product = ok(await rpc("Products.create", productOf("Linnen jas", "LIN-J"), store.cookie)).products[0]!
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    await until(() => recordedProducts(store.shop).length === 1, "Shopify made it")
+    // Gone from Insyte as an undo from the agent log leaves it, before the retry five seconds on.
+    const unmade = await call(
+      `http://api.test/api/__dev/stores/unmake?workspace=${store.workspace}&product=${product.id}`,
+      { method: "POST" }
+    )
+    expect(await unmade.json()).toEqual({ gone: true })
+    expect(await written(writes)).toEqual([{ id: product.id, outcome: "skipped", reason: "gone" }])
+    expect(recordedProducts(store.shop)).toHaveLength(0)
+  })
+
   it("keeps its own row when Shopify's echo arrives before the row took Shopify's ids", async () => {
     const store = await importedStore("product-echo")
-    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    await using writes = await writesOf()
     const product = ok(await rpc("Products.create", productOf("Katoenen echo", "KAT-E"), store.cookie)).products[0]!
     await writes.modifyAll(async (m) => {
       await m.mockStepError({ name: `product ${product.id} adopt` }, new Error("the isolate went away"), 1)
@@ -371,16 +457,33 @@ describe("new products", () => {
     const titled = async () =>
       ok(await rpc("Products.list", { limit: 50 }, store.cookie)).rows.filter((p) => p.title === "Katoenen echo")
     await until(async () => (await titled()).length === 2, "the echo mirrored")
+    // Shopify's stock for it lands on the echo, the only row that knows its inventory item yet.
+    const item = numeric(recordedProducts(store.shop)[0]!.item)
+    const level = await hook(store.shop, "inventory_levels/update", {
+      inventory_item_id: item,
+      location_id: 900,
+      available: 7,
+      updated_at: new Date().toISOString()
+    })
+    expect(level.status).toBe(200)
+    await until(async () => (await titled()).some((p) => p.id !== product.id && p.available === 7), "the stock landed")
 
     expect((await written(writes)).map((o) => o.outcome)).toEqual(["sent"])
     const left = await titled()
     expect(left).toHaveLength(1)
-    expect(left[0]).toMatchObject({ id: product.id, shopifyId: String(numeric(gid)), costMinor: 1200, sku: "KAT-E" })
+    // Insyte's row stays, with the stock the echo held.
+    expect(left[0]).toMatchObject({
+      id: product.id,
+      shopifyId: String(numeric(gid)),
+      costMinor: 1200,
+      sku: "KAT-E",
+      available: 7
+    })
   })
 
   it("undoes a product inside the window; Shopify refusing one removes it and tells its maker", async () => {
     const store = await importedStore("product-refuse")
-    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    await using writes = await writesOf()
     const undone = ok(await rpc("Products.create", productOf("Linnen tas"), store.cookie))
     ok(await rpc("Shared.undo", { token: undone.undo!.token }, store.cookie))
     expect(failure(await rpc("Products.get", { id: undone.products[0]!.id }, store.cookie)))

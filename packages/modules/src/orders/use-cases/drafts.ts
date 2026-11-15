@@ -16,15 +16,24 @@ import { isAnswer, mutate } from "../../stores/domain/Gate.ts"
 import { fromMinor, gidId } from "../../stores/domain/Mirror.ts"
 import { ConnectionGate, missingScope, type ShopifyRefused } from "../../stores/domain/Ports.ts"
 import { type CreateDraftInput, OrderChange } from "../domain/Commands.ts"
-import { DRAFT_CREATE, DRAFT_DELETE, DRAFT_FIND, DRAFT_PREFIX, draftTagQuery } from "../domain/WriteBack.ts"
+import {
+  DRAFT_CREATE,
+  DRAFT_DELETE,
+  DRAFT_FIND,
+  DRAFT_PREFIX,
+  type DraftFound,
+  draftTagQuery,
+  openDrafts
+} from "../domain/WriteBack.ts"
 import { audit, lock, RESTORE, rowsOf } from "./commands.ts"
 
 /*
  * Draft orders (M7.1; widgets/03 "Nieuwe bestelling", domain.md §4.4). "Conceptbestelling aanmaken" makes the draft in
  * Insyte at once, in the chosen store and only one the principal reaches, numbered `SO-…` from the workspace's order
  * counter, with Undo; Shopify gets it as a draft order once the undo window has passed (`draftOrderCreate`, or the one a
- * try before made, found by its tag), and the row then carries Shopify's draft (`draft-<id>`), in a step of its own. Shopify refusing removes it again, since it never existed there,
- * and whoever made it hears why. A draft is not yet an order: no payment, no forwarding, no figures (`is_draft`), and
+ * try before made, found by its tag), and the row then carries Shopify's draft (`draft-<id>`), in a step of its own.
+ * Shopify's search lags behind its writes, so a few minutes later a last look deletes any twin a lagging search let a
+ * retry make. Shopify refusing removes it again, since it never existed there, and whoever made it hears why. A draft is not yet an order: no payment, no forwarding, no figures (`is_draft`), and
  * the order commands refuse it. Completing it is Shopify's (the invoice, or "Betaling markeren"): the real order
  * arrives through the webhooks and the draft gives way to it (`stores/use-cases/webhooks.ts`). Removing a draft
  * deletes it in Shopify at once.
@@ -139,7 +148,9 @@ export const createDraft = Effect.fn("Orders.createDraft")(function*(input: type
         type: "order.draft_created",
         workspaceId: principal.workspaceId,
         userId: principal.userId ?? principal.id,
-        orderIds: [id]
+        orderIds: [id],
+        storeId: store.id,
+        number
       }, { afterSeconds: UNDO_SECONDS })
       const undo = yield* Undo.issue(sql, {
         command: RESTORE,
@@ -273,10 +284,22 @@ const refusalOf4xx = (t: Target) => (error: ShopifyRefused) => {
 const refusedOf = (errors: Errors): Refused | null =>
   errors.length === 0 ? null : { reason: refusalOf(errors), text: errors.map((e) => e.message).join("; ") }
 
+/** Shopify's open drafts carrying a draft's number, the newest search Shopify has. */
+const tagged = (t: Target, number: string) =>
+  Effect.map(mutate(t, DRAFT_FIND, { query: draftTagQuery(number) }, "draftOrders"), ({ data }) => openDrafts(data))
+
+/** As `tagged`, where nothing waits on the answer: a refusal or a token Shopify no longer takes finds none. */
+const taggedOrNone = (t: Target, number: string) =>
+  tagged(t, number).pipe(Effect.catchTags({
+    TokenRefused: () => Effect.succeed<ReadonlyArray<DraftFound>>([]),
+    ShopifyRefused: (error) => Effect.as(refusalOf4xx(t)(error), [] as ReadonlyArray<DraftFound>)
+  }))
+
 /**
  * A new draft's first step of the `ShopifyWrite` Workflow, once the window has passed: Shopify's draft for it, the one
- * a try before made when there is one (found by the `SO-…` tag it carries), else a new one. Gone (undone, removed) or
- * already Shopify's, nothing is sent. Refused, it leaves Insyte again and whoever made it hears why.
+ * a try before made when there is one (found by the `SO-…` tag it carries), else a new one. Already Shopify's, nothing
+ * is sent. Gone (removed after a try whose answer was lost), what that try made is found by its number and deleted.
+ * Refused, it leaves Insyte again and whoever made it hears why.
  */
 export const draftSend = Effect.fn("Orders.draftSend")(function*(write: DraftCreated, orderId: string) {
   const db = yield* Db
@@ -290,16 +313,14 @@ export const draftSend = Effect.fn("Orders.draftSend")(function*(write: DraftCre
                        from order_lines l where l.order_id = o.id), '[]') as lines
       from orders o where o.id = ${orderId} and o.is_draft`
   )
-  if (draft === undefined) return { outcome: outcome("skipped", "gone") } satisfies CreateSent<DraftMade>
+  if (draft === undefined) return { outcome: yield* dropEarlier(write, orderId) } satisfies CreateSent<DraftMade>
   if (!draft.shopifyId.startsWith("insyte-")) return { outcome: outcome("sent") } satisfies CreateSent<DraftMade>
   const target = yield* targetOf(draft.storeId)
   if (target === undefined) return { outcome: outcome("skipped", "gone") } satisfies CreateSent<DraftMade>
   if (!live(target)) return { outcome: outcome("skipped", "disconnected") } satisfies CreateSent<DraftMade>
 
   const send = Effect.gen(function*() {
-    const found = yield* mutate(target, DRAFT_FIND, { query: draftTagQuery(draft.number) }, "draftOrders")
-    const earlier = (found.data as { draftOrders?: { nodes?: ReadonlyArray<{ id: string }> } } | null)?.draftOrders
-      ?.nodes?.[0]
+    const [earlier] = yield* tagged(target, draft.number)
     if (earlier !== undefined) return { made: { id: earlier.id, storeId: draft.storeId } }
     const created = yield* mutate(target, DRAFT_CREATE, { input: draftInput(draft) }, "draftOrderCreate")
     const refused = refusedOf(created.errors as Errors)
@@ -369,6 +390,43 @@ export const draftAdopt = Effect.fn("Orders.draftAdopt")(function*(
   return yield* dropInShopify(orderId, made.storeId, gidId(made.id), "removed")
 })
 
+/**
+ * A draft gone from Insyte before its send got through: removed between a try whose answer was lost and the next. What
+ * that try made is found by the number the event carries and deleted, so Shopify keeps no draft Insyte does not know.
+ */
+const dropEarlier = (write: DraftCreated, orderId: string) =>
+  Effect.gen(function*() {
+    const gone = outcomeOf(orderId)("skipped", "gone")
+    if (write.storeId === undefined || write.number === undefined) return gone
+    const target = yield* targetOf(write.storeId)
+    if (target === undefined || !live(target)) return gone
+    for (const d of yield* taggedOrNone(target, write.number)) {
+      yield* dropInShopify(orderId, write.storeId, gidId(d.id), "gone")
+    }
+    return gone
+  })
+
+/**
+ * The last look, a few minutes after the draft took Shopify's id: Shopify's search caught up, any other open draft with
+ * its number is a twin a lagging search let a retry make, and is deleted. Answers how many.
+ */
+export const draftTwins = Effect.fn("Orders.draftTwins")(function*(
+  write: DraftCreated,
+  orderId: string,
+  made: DraftMade
+) {
+  const db = yield* Db
+  const number = write.number ??
+    (yield* db.scopedFor((sql) => sql<{ number: string }>`select number from orders where id = ${orderId}`))[0]
+      ?.number
+  if (number === undefined) return 0
+  const target = yield* targetOf(made.storeId)
+  if (target === undefined || !live(target)) return 0
+  const twins = (yield* taggedOrNone(target, number)).filter((d) => d.id !== made.id)
+  for (const d of twins) yield* dropInShopify(orderId, made.storeId, gidId(d.id), "twin")
+  return twins.length
+})
+
 /** A draft removed from Insyte after Shopify had it: deleted there at once. */
 export const draftRemove = Effect.fn("Orders.draftRemove")(function*(write: DraftRemoved, orderId: string) {
   return yield* dropInShopify(orderId, write.storeId, write.draftId, null)
@@ -378,7 +436,7 @@ export const draftRemove = Effect.fn("Orders.draftRemove")(function*(write: Draf
  * Shopify's draft deleted. Shopify not knowing it (deleted in its admin already) is the same; any other refusal is
  * recorded, the step retries what Shopify did not answer.
  */
-const dropInShopify = (orderId: string, storeId: string, draftId: string, removed: "removed" | null) =>
+const dropInShopify = (orderId: string, storeId: string, draftId: string, removed: string | null) =>
   Effect.gen(function*() {
     const db = yield* Db
     const outcome = outcomeOf(orderId)

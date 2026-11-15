@@ -69,12 +69,25 @@ export const DRAFT_CREATE = `mutation($input: DraftOrderInput!) {
 }`
 
 /**
- * Shopify's draft for an Insyte draft, by the tag its create carried (its `SO-…` number): a create tried again after
- * Shopify made it, but before Insyte heard so, finds it here instead of making a second.
+ * Shopify's drafts for an Insyte draft, by the tag its create carried (its `SO-…` number): a create tried again after
+ * Shopify made it, but before Insyte heard so, finds it here instead of making a second. Shopify's search lags behind
+ * its writes, so one made a moment ago may not be found yet: every one found is read, with its status, so a later look
+ * can delete the twins a lagging search let through, and one of a record Insyte no longer holds.
  */
 export const DRAFT_FIND = `query($query: String!) {
-  draftOrders(first: 1, query: $query) { nodes { id } }
+  draftOrders(first: 25, query: $query) { nodes { id status } }
 }`
+
+/** A draft Shopify found by its tag: a completed one is an order now, never deleted. */
+export interface DraftFound {
+  readonly id: string
+  readonly status: string
+}
+
+/** The open drafts in a `DRAFT_FIND` answer. */
+export const openDrafts = (data: unknown): ReadonlyArray<DraftFound> =>
+  ((data as { draftOrders?: { nodes?: ReadonlyArray<DraftFound> } } | null)?.draftOrders?.nodes ?? [])
+    .filter((d) => d.status !== "COMPLETED")
 
 /** The tag search for a draft's number, as Shopify's search reads it. */
 export const draftTagQuery = (number: string) => `tag:'${number.replaceAll("'", "")}'`

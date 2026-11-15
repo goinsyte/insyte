@@ -1,7 +1,7 @@
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { customerWriteBack } from "@insyte/modules/customers/use-cases/write-back"
-import { draftAdopt, draftRemove, draftSend } from "@insyte/modules/orders/use-cases/drafts"
+import { draftAdopt, draftRemove, draftSend, draftTwins } from "@insyte/modules/orders/use-cases/drafts"
 import { refundFailed, writeBack } from "@insyte/modules/orders/use-cases/write-back"
 import { productCreateAdopt, productCreateSend, productWriteBack } from "@insyte/modules/products/use-cases/write-back"
 import { decisionWriteBack, resolutionFailed, resolutionWriteBack } from "@insyte/modules/returns/use-cases/shopify"
@@ -16,7 +16,8 @@ import { roomOf } from "../platform/Room.ts"
 /*
  * A change made in Insyte to Shopify (M7), once the undo window has passed: a durable step per record (two for a
  * record made in Insyte: sent, then its row takes Shopify's ids), so a bulk change of fifty that Shopify throttles
- * halfway resumes where it stopped and sends none twice. A step that keeps
+ * halfway resumes where it stopped and sends none twice. A draft gets a last look a few minutes later, once Shopify's
+ * search has caught up, for a twin a lagging search let a retry make (`TWINS_AFTER`). A step that keeps
  * failing (Shopify unreachable) gives up after its retries; the others still go, and a refund that never got there is
  * failed. Where Shopify refused, the record was read again, and the workspace's tabs hear it; a refund always. A
  * return's (M9.3): its resolution made there, or a return from Shopify approved or declined there; a resolution that
@@ -32,6 +33,9 @@ const RETRY: WorkflowStepConfig = {
   retries: { limit: 6, delay: "5 seconds", backoff: "exponential" },
   timeout: "1 minute"
 }
+
+/** How long Shopify's search may lag behind a draft it made: the last look for twins waits this long. */
+const TWINS_AFTER = "5 minutes"
 
 export class ShopifyWriteWorkflow extends WorkflowEntrypoint<Cloudflare.Env, ShopifyWriteParams> {
   override async run(event: Readonly<WorkflowEvent<ShopifyWriteParams>>, step: WorkflowStep) {
@@ -63,11 +67,17 @@ export class ShopifyWriteWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Sho
         }
         if (write.type === "order.draft_created") {
           const sent = await step.do(`${kind} ${id}`, RETRY, () => run(workspaceId, draftSend(write, id)))
+          if ("outcome" in sent) {
+            outcomes.push(sent.outcome)
+            continue
+          }
           outcomes.push(
-            "outcome" in sent
-              ? sent.outcome
-              : await step.do(`${kind} ${id} adopt`, RETRY, () => run(workspaceId, draftAdopt(write, id, sent.made)))
+            await step.do(`${kind} ${id} adopt`, RETRY, () => run(workspaceId, draftAdopt(write, id, sent.made)))
           )
+          // The last look changes nothing Insyte holds; it failing leaves the outcome as it is.
+          await step.sleep(`${kind} ${id} settle`, TWINS_AFTER)
+          await step.do(`${kind} ${id} twins`, RETRY, () => run(workspaceId, draftTwins(write, id, sent.made)))
+            .catch(() => undefined)
           continue
         }
         const effect = write.type === "product.updated"
