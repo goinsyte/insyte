@@ -1938,13 +1938,6 @@
     "finance": "allow",
     "view": "allow"
   },
-  "Session.switchPrincipal": {
-    "owner": "allow",
-    "admin": "allow",
-    "service": "allow",
-    "finance": "allow",
-    "view": "allow"
-  },
   "Shell.frame": {
     "owner": "allow",
     "admin": "allow",

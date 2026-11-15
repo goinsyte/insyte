@@ -23,13 +23,13 @@ export type MeUser = typeof MeUser.Type
 export const SessionUser = Schema.Struct({
   ...PERSON,
   /**
-   * The workspace this session acts in (`Session.switchPrincipal`, M3.1), read from the session's row on every request;
-   * absent or `null` until the person chooses one, when the newest membership is the active one. Never sent to the
-   * console: `Session.me` names the active principal instead.
+   * The workspace this session acts in (`Workspaces.switch`, M3.1), read from the session's row on every request; set
+   * on the session's first request inside a workspace and kept, so joining or making another one does not move it.
+   * Never sent to the console: `Session.me` names the active principal instead.
    */
   activeWorkspaceId: Schema.optional(Schema.NullOr(WorkspaceId)),
-  /** And as whom there: a member, or a supplier's contact (M16); absent or `null` is a member. */
-  activePrincipalKind: Schema.optional(Schema.NullOr(Schema.Literals(["member", "supplier_contact"])))
+  /** The session's id, for writing that choice on its own row. */
+  sessionId: Schema.optional(Schema.String)
 })
 export type SessionUser = typeof SessionUser.Type
 
@@ -53,7 +53,7 @@ export class SessionMe extends Schema.Class<SessionMe>("domain/SessionMe")({
   user: MeUser,
   /** Every principal the person may act as, newest first; empty before their first workspace. */
   principals: Schema.Array(PrincipalSummary),
-  /** The one requests act as: the session's choice (`Session.switchPrincipal`), else the newest. */
+  /** The one requests act as: the session's workspace (`Workspaces.switch`), else the newest membership. */
   activePrincipal: Schema.NullOr(PrincipalSummary),
   /**
    * `/onboarding` until the active workspace finished onboarding, then Start (`/dashboard`); the supplier portal
@@ -85,11 +85,7 @@ export class ActiveSession extends Schema.Class<ActiveSession>("domain/ActiveSes
   current: Schema.Boolean
 }) {}
 
-/** "Naar het portaal", or another workspace from the switcher: the principal the session acts as from now on. */
-export const SwitchPrincipal = Schema.Struct({ principalId: Schema.String })
-export type SwitchPrincipal = typeof SwitchPrincipal.Type
-
-/** Where the console goes after a switch: Start, onboarding for a workspace still being set up, or the portal. */
+/** Where the console goes after a switch: Start, or onboarding for a workspace still being set up. */
 export class Switched extends Schema.Class<Switched>("domain/Switched")({
   workspaceId: WorkspaceId,
   landing: Schema.String

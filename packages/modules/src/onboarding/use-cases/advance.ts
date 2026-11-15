@@ -10,7 +10,7 @@ import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { type AdvanceInput, NotCurrentStep, StepNotReady } from "../domain/Onboarding.ts"
 import { next } from "../domain/Steps.ts"
 import { me } from "./me.ts"
-import { factsOf, loadProgress, type Row, saveProgress, stateOf, storeFactsOf } from "./progress.ts"
+import { activeIn, factsOf, loadProgress, type Row, saveProgress, stateOf, storeFactsOf } from "./progress.ts"
 
 /**
  * `Onboarding.advance`: finishes the current step with its answers, and moves to the next. `role` stores the persona
@@ -36,7 +36,7 @@ export const advance = Effect.fn("Onboarding.advance")(function*(input: AdvanceI
     const workspaceId = mintId("ws") as WorkspaceId
     const row = yield* loadProgress()
     const moved = { ...row, workspaceId, step: next(row.track, "organization", factsOf(user, { workspaceId })) }
-    const outboxIds = yield* db.asUserIn(workspaceId)((sql) =>
+    const outboxIds = yield* db.asNewcomerIn(workspaceId)((sql) =>
       Effect.gen(function*() {
         const written = yield* founder.found(workspaceId, checked.ok, user.id)
         yield* sql`update onboarding_progress set workspace_id = ${workspaceId}, step = ${moved.step}
@@ -57,6 +57,10 @@ export const advance = Effect.fn("Onboarding.advance")(function*(input: AdvanceI
     // Past the organisation step there is a workspace: `next` holds anyone without one there.
     if (row.workspaceId === null) return yield* new NotCurrentStep({ step: input.step, current: "organization" })
     const workspaceId = row.workspaceId as WorkspaceId
+    // Only in a workspace the person is still an active member of (`loadProgress` closes the row once they left).
+    if (!(yield* activeIn(workspaceId))) {
+      return yield* new NotCurrentStep({ step: input.step, current: "organization" })
+    }
     const store = yield* storeFactsOf(workspaceId)
     const connected = input.step === "store" && input.choice === "connected"
     if (connected && !store.connected) return yield* new StepNotReady({ step: "store", missing: "store" })

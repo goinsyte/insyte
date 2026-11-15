@@ -513,7 +513,6 @@ const PAYLOADS: Record<string, unknown> = {
   "Session.me": undefined,
   "Session.listSessions": undefined,
   "Session.revoke": { id: "ses_none" },
-  "Session.switchPrincipal": { principalId: "mem_none" },
   // The frame and the one search (M5, M11 step 6): every member; a kind or area the role cannot open answers nothing.
   "Shell.frame": undefined,
   "Shell.health": undefined,

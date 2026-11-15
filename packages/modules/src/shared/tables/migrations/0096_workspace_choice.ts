@@ -31,7 +31,7 @@ export default statements(
      using (app_workspace_id() is null or id = app_workspace_id())
      with check (app_workspace_id() is null or id = app_workspace_id())`,
   `create function invitations_to_user() returns table (invitation_id text, workspace_id text)
-     language plpgsql security definer set search_path = public as $$
+     language plpgsql security definer set search_path = public, pg_temp as $$
      declare prior text := current_setting('app.principal_kind', true);
      begin
        perform set_config('app.principal_kind', 'system', true);
@@ -46,7 +46,7 @@ export default statements(
   "revoke all on function invitations_to_user() from public",
   "grant execute on function invitations_to_user() to insyte_app",
   `create function invitation_route_for_user(invitation text) returns text
-     language plpgsql security definer set search_path = public as $$
+     language plpgsql security definer set search_path = public, pg_temp as $$
      declare prior text := current_setting('app.principal_kind', true); result text;
      begin
        perform set_config('app.principal_kind', 'system', true);

@@ -31,7 +31,10 @@ export const transferOwnership = Effect.fn("Members.transferOwnership")(function
         from members where id = ${id} for update`
       if (target === undefined || target.removed) return yield* new NotFound({ entity: "member", id })
       if (target.deactivated) return yield* new Conflict({ entity: "member", reason: "deactivated" })
-      yield* sql`update members set role_id = ${FORMER_OWNER_ROLE} where id = ${principal.id} and role_id = 'owner'`
+      // A transfer that ran meanwhile already made someone else the owner: this one has nothing left to hand over.
+      const demoted = yield* sql<{ id: string }>`
+        update members set role_id = ${FORMER_OWNER_ROLE} where id = ${principal.id} and role_id = 'owner' returning id`
+      if (demoted.length === 0) return yield* new Conflict({ entity: "workspace", reason: "not_owner" })
       yield* sql`update members set role_id = 'owner', stores = '"all"'::jsonb where id = ${id}`
       yield* Audit.write(sql, principal.workspaceId, { kind: "member", id: principal.id }, {
         action: "workspace.ownership_transferred",

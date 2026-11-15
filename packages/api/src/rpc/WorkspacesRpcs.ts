@@ -59,7 +59,7 @@ export class WorkspaceChoiceRpcs extends RpcGroup.make(
   Rpc.make("Workspaces.create", {
     payload: CreateWorkspaceInput,
     success: Switched,
-    error: Schema.Union([Invalid, NotCurrentStep])
+    error: Schema.Union([Invalid, NotCurrentStep, Conflict])
   }),
   Rpc.make("Workspaces.switch", { payload: SwitchWorkspace, success: Switched, error: NotFound }),
   Rpc.make("Workspaces.leave", { payload: LeaveWorkspace, error: Schema.Union([NotFound, Conflict]) }),

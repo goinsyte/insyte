@@ -3,7 +3,7 @@ import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentUser } from "@insyte/domain/Session"
 import { Effect } from "effect"
 import { type CompleteTaskInput, NotCurrentStep, type SetupTask, StartChecklist } from "../domain/Onboarding.ts"
-import { loadProgress } from "./progress.ts"
+import { activeIn, loadProgress } from "./progress.ts"
 
 /*
  * Start's first-run page (M4.1): the workspace onboarding founded and how far its setup is, read inside it as the
@@ -13,21 +13,27 @@ import { loadProgress } from "./progress.ts"
 
 /**
  * The workspace whose checklist this is: the one the session acts in (`active`), where this person's onboarding
- * founded it; else, with no workspace chosen, the one their onboarding founded. Someone who did not found the active
- * workspace (they joined it) has no checklist there, and never sees another workspace's.
+ * founded it; else, with no workspace chosen, the one their onboarding founded. Either only while the person is still
+ * an active member there. Someone who did not found the active workspace (they joined it), or handed theirs over and
+ * left it, has no checklist there, and never sees another workspace's.
  */
 const workspaceOf = Effect.fn("Onboarding.workspaceOf")(function*(active: WorkspaceId | null) {
   const row = yield* loadProgress()
+  const refused = new NotCurrentStep({ step: "ready", current: row.step })
+  let workspaceId: WorkspaceId
   if (active !== null) {
     const db = yield* Db
     const founded = yield* db.forUser((sql) =>
       sql<{ workspaceId: string }>`select workspace_id from onboarding_progress where workspace_id = ${active}`
     )
-    if (founded.length === 0) return yield* new NotCurrentStep({ step: "ready", current: row.step })
-    return active
+    if (founded.length === 0) return yield* refused
+    workspaceId = active
+  } else {
+    if (row.workspaceId === null) return yield* refused
+    workspaceId = row.workspaceId as WorkspaceId
   }
-  if (row.workspaceId === null) return yield* new NotCurrentStep({ step: "ready", current: row.step })
-  return row.workspaceId as WorkspaceId
+  if (!(yield* activeIn(workspaceId))) return yield* refused
+  return workspaceId
 })
 
 export const start = Effect.fn("Onboarding.start")(function*(active: WorkspaceId | null) {

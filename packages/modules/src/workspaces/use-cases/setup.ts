@@ -11,8 +11,9 @@ import * as Audit from "../../shared/use-cases/Audit.ts"
 
 const memberOf = Effect.fn("Workspaces.memberOf")(function*(id: WorkspaceId, user: UserId) {
   const sql = yield* SqlClient.SqlClient
-  const [row] = yield* sql<{ id: string }>`select id from members where workspace_id = ${id} and user_id = ${user}`
-  if (row === undefined) return yield* Effect.die(`${user} is not a member of ${id}`)
+  const [row] = yield* sql<{ id: string }>`
+    select id from members where workspace_id = ${id} and user_id = ${user} and removed_at is null and deactivated_at is null`
+  if (row === undefined) return yield* Effect.die(`${user} is no active member of ${id}`)
   return { kind: "member" as const, id: row.id }
 })
 

@@ -7,6 +7,7 @@ import type { SqlClient } from "effect/sql"
 import type { StoreAccess } from "../../shared/domain/Stores.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import { SeatLimitReached } from "../domain/Team.ts"
+import { closeSockets } from "./access-ended.ts"
 import { beyondReach, grantable } from "./invite.ts"
 import { readTeam, seatsIn } from "./team.ts"
 
@@ -107,6 +108,7 @@ export const setDeactivated = Effect.fn("Members.setDeactivated")(function*(id: 
       }
       yield* sql`update members set deactivated_at = ${deactivated ? sql`now()` : null} where id = ${id}`
       yield* audit(sql, deactivated ? "member.deactivated" : "member.reactivated", id)
+      if (deactivated) yield* closeSockets(sql, (yield* CurrentPrincipal).workspaceId, id)
       return yield* readTeam(sql)
     })
   )
@@ -122,6 +124,7 @@ export const remove = Effect.fn("Members.remove")(function*(id: string) {
       if (!before.removed) {
         yield* sql`update members set removed_at = now() where id = ${id}`
         yield* audit(sql, "member.removed", id)
+        yield* closeSockets(sql, (yield* CurrentPrincipal).workspaceId, id)
       }
       return yield* readTeam(sql)
     })

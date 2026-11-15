@@ -193,7 +193,8 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
   "supplier.problem_reported": none,
   "supplier.shipment_refused": none,
   "partner.changed": none,
-  "supplier.contact_revoked": none
+  "supplier.contact_revoked": none,
+  "member.access_ended": none
 }
 
 const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefined =>

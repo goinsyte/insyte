@@ -7,6 +7,7 @@ import { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
 import { release } from "../../shared/use-cases/ActiveWorkspace.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import { WorkspaceInvite } from "../domain/Choice.ts"
+import { closeSockets, revokeKeysOf } from "./access-ended.ts"
 import { acceptRouted, declineRouted } from "./invitations/accept.ts"
 import type { Route } from "./invitations/route.ts"
 
@@ -14,7 +15,7 @@ import type { Route } from "./invitations/route.ts"
  * What the person does with their own memberships from the switcher (M3.1, M3.4), as the person rather than as a
  * principal: the invitations to another workspace (found by the signed-in, verified address, `invitations_to_user`,
  * 0096), accepting or declining one there, the undo of a decline, and leaving a workspace. Each reads and writes inside
- * the workspace concerned (`asUserIn`), as the landing does.
+ * the workspace concerned: as a newcomer for an invitation (`asNewcomerIn`), as the member for leaving (`asUserIn`).
  */
 
 /** The workspace of an invitation to the signed-in address; nothing for anyone else's. */
@@ -44,9 +45,11 @@ export const invitesToMe = Effect.fn("Members.invitesToMe")(function*() {
   const routed = yield* db.forUser((sql) =>
     sql<{ invitationId: string; workspaceId: string }>`select invitation_id, workspace_id from invitations_to_user()`
   )
-  const rows = yield* Effect.forEach(routed, (r) =>
-    db.asUserIn(r.workspaceId as WorkspaceId)((sql) =>
-      sql<InviteRow>`
+  const rows = yield* Effect.forEach(
+    routed,
+    (r) =>
+      db.asNewcomerIn(r.workspaceId as WorkspaceId)((sql) =>
+        sql<InviteRow>`
         select i.id, w.name as workspace, u.name as invited_by, r.label as role,
                (select count(*) from members x where x.workspace_id = w.id and x.deactivated_at is null and x.removed_at is null)
                  as members,
@@ -61,7 +64,9 @@ export const invitesToMe = Effect.fn("Members.invitesToMe")(function*() {
         where i.id = ${r.invitationId}
           and not exists (select 1 from members me
                           where me.workspace_id = i.workspace_id and me.user_id = ${user.id} and me.removed_at is null)`
-    ).pipe(Effect.map((found) => found.map((row) => ({ ...row, workspaceId: r.workspaceId })))), { concurrency: 1 })
+      ).pipe(Effect.map((found) => found.map((row) => ({ ...row, workspaceId: r.workspaceId })))),
+    { concurrency: 1 }
+  )
   return rows.flat().map((row) =>
     new WorkspaceInvite({
       id: row.id,
@@ -96,7 +101,7 @@ export const restoreMine = Effect.fn("Members.restoreMine")(function*(id: string
   const db = yield* Db
   const found = yield* mine(id)
   if (found === undefined) return yield* new NotFound({ entity: "invitation", id })
-  yield* db.asUserIn(found.workspaceId as WorkspaceId)((sql) =>
+  yield* db.asNewcomerIn(found.workspaceId as WorkspaceId)((sql) =>
     Effect.gen(function*() {
       const back = yield* sql<{ id: string }>`
         update invitations i set declined_at = null
@@ -125,6 +130,12 @@ export const restoreMine = Effect.fn("Members.restoreMine")(function*(id: string
 export const leave = Effect.fn("Members.leave")(function*(sessionId: string, workspaceId: WorkspaceId) {
   const user = yield* CurrentUser
   const db = yield* Db
+  // Only a workspace the person is still an active member of: any other reads as no such workspace.
+  const held = yield* db.forUser((sql) =>
+    sql`select 1 from members where workspace_id = ${workspaceId} and user_id = ${user.id}
+          and removed_at is null and deactivated_at is null`
+  )
+  if (held.length === 0) return yield* new NotFound({ entity: "workspace", id: workspaceId })
   yield* db.asUserIn(workspaceId)((sql) =>
     Effect.gen(function*() {
       const [me] = yield* sql<{ id: string; roleId: string }>`
@@ -133,6 +144,8 @@ export const leave = Effect.fn("Members.leave")(function*(sessionId: string, wor
       if (me === undefined) return yield* new NotFound({ entity: "workspace", id: workspaceId })
       if (me.roleId === "owner") return yield* new Conflict({ entity: "workspace", reason: "owner" })
       yield* sql`update members set removed_at = now(), left_at = now() where id = ${me.id}`
+      yield* revokeKeysOf(sql, me.id)
+      yield* closeSockets(sql, workspaceId, me.id)
       yield* Audit.write(sql, workspaceId, { kind: "member", id: me.id }, {
         action: "member.left",
         subjectType: "member",

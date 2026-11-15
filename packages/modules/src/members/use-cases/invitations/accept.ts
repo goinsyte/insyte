@@ -6,6 +6,7 @@ import { Relay } from "../../../shared/domain/Outbox.ts"
 import * as Audit from "../../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../../shared/use-cases/Outbox.ts"
 import { Accepted, type LandingRef, NotAcceptable } from "../../domain/Landing.ts"
+import { revokeKeysOf } from "../access-ended.ts"
 import { classify } from "./landing.ts"
 import { type Route, route, sha256 } from "./route.ts"
 
@@ -30,7 +31,7 @@ export const acceptRouted = Effect.fn("Landing.acceptRouted")(function*(ref: Lan
   const db = yield* Db
   if (found === undefined) return yield* new NotAcceptable({ state: "missing" })
 
-  const { result, outboxIds } = yield* db.asUserIn(found.workspaceId as WorkspaceId)((sql) =>
+  const { result, outboxIds } = yield* db.asNewcomerIn(found.workspaceId as WorkspaceId)((sql) =>
     Effect.gen(function*() {
       const landing = yield* classify(sql, ref, found, user)
       if (landing.state === "sso") {
@@ -85,6 +86,8 @@ export const acceptRouted = Effect.fn("Landing.acceptRouted")(function*(ref: Lan
         returning id`
       const memberId = member?.id ??
         (yield* sql<{ id: string }>`select id from members where user_id = ${user.id}`)[0]!.id
+      // Back through a new invitation: the keys they made before they left or were removed stay revoked.
+      if (member !== undefined) yield* revokeKeysOf(sql, member.id)
 
       if (found.link) yield* sql`update invite_links set joined_count = joined_count + 1`
       else yield* sql`update invitations set accepted_at = now(), accepted_by_user = ${user.id} where id = ${ref.id}`
@@ -128,7 +131,7 @@ export const declineRouted = Effect.fn("Landing.declineRouted")(function*(ref: L
   if (found === undefined || found.link) {
     return yield* new NotAcceptable({ state: found === undefined ? "missing" : "link" })
   }
-  return yield* db.asUserIn(found.workspaceId as WorkspaceId)((sql) =>
+  return yield* db.asNewcomerIn(found.workspaceId as WorkspaceId)((sql) =>
     Effect.gen(function*() {
       const landing = yield* classify(sql, ref, found, user)
       if (landing.state !== "existing" && landing.state !== "full" && landing.state !== "sso") {

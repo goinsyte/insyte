@@ -1,5 +1,5 @@
 import { Db } from "@insyte/database/Db"
-import { Invalid } from "@insyte/domain/Errors"
+import { Conflict, Invalid } from "@insyte/domain/Errors"
 import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentUser, Switched } from "@insyte/domain/Session"
 import { Effect } from "effect"
@@ -17,19 +17,29 @@ import { factsOf, loadProgress } from "./progress.ts"
  * the person as its owner, its counters, audited, `workspace.created` in the outbox), with a new onboarding row for it
  * on the step after (`plan`), and the session goes on in it, all in one transaction. The console then opens onboarding,
  * which resumes on that row: the plan step starts the trial exactly as it does at sign-up, and the rest of the track
- * follows. Someone still in their first onboarding founds there instead (`NotCurrentStep`).
+ * follows. Someone still in their first onboarding founds there instead (`NotCurrentStep`). A person founds at most
+ * `MAX_FOUNDED` workspaces, their first one included, counted on their onboarding rows, so a workspace handed over or
+ * left still counts: each starts its own trial, and the cap keeps that from being repeated without end.
  */
+
+/** The workspaces one person may found, the first included. */
+export const MAX_FOUNDED = 3
+
 export const another = Effect.fn("Onboarding.another")(function*(input: CreateWorkspaceInput, sessionId: string) {
   const user = yield* CurrentUser
   const current = yield* loadProgress()
   if (!current.completed) return yield* new NotCurrentStep({ step: "organization", current: current.step })
+  const db = yield* Db
+  const [founded] = yield* db.forUser((sql) =>
+    sql<{ n: number }>`select count(*)::int as n from onboarding_progress where workspace_id is not null`
+  )
+  if ((founded?.n ?? 0) >= MAX_FOUNDED) return yield* new Conflict({ entity: "workspace", reason: "limit" })
   const checked = validateWorkspace(input)
   if ("fields" in checked) return yield* new Invalid({ fields: checked.fields })
   const founder = yield* WorkspaceFounder
-  const db = yield* Db
   const workspaceId = mintId("ws") as WorkspaceId
   const step = next("admin", "organization", factsOf(user, { workspaceId }))
-  const outboxIds = yield* db.asUserIn(workspaceId)((sql) =>
+  const outboxIds = yield* db.asNewcomerIn(workspaceId)((sql) =>
     Effect.gen(function*() {
       const written = yield* founder.found(workspaceId, checked.ok, user.id)
       yield* sql`insert into onboarding_progress (id, user_id, workspace_id, track, step, answers)

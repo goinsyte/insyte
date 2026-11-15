@@ -32,6 +32,8 @@ const alice = person("a")
 const bob = person("b")
 const wsA = Schema.decodeSync(WorkspaceId)(mintId("ws"))
 const wsB = Schema.decodeSync(WorkspaceId)(mintId("ws"))
+/** Alice's second workspace (0096). */
+const wsA2 = Schema.decodeSync(WorkspaceId)(mintId("ws"))
 
 const memberOf = (workspaceId: WorkspaceId, user: SessionUser): Principal => ({
   kind: "member",
@@ -59,7 +61,7 @@ const found = (user: SessionUser, workspaceId: WorkspaceId) =>
       sql`insert into auth."user" (id, name, email, email_verified, created_at, updated_at)
           values (${user.id}, ${user.name}, ${user.email}, true, now(), now())`
     )
-    return yield* db.asUserIn(workspaceId)((sql) =>
+    return yield* db.asNewcomerIn(workspaceId)((sql) =>
       Effect.gen(function*() {
         yield* sql`insert into workspaces (id, name, slug) values (${workspaceId}, ${user.name}, ${`t-${runId}-${user.name}`})`
         yield* sql`insert into roles (id, workspace_id, label, kind, levels) values ('owner', ${workspaceId}, 'Eigenaar', 'system', '{}')`
@@ -158,11 +160,10 @@ describe("tenancy", () => {
   })
 
   it("keeps a person's other workspace out of the one they work in (0096)", async () => {
-    const wsA2 = Schema.decodeSync(WorkspaceId)(mintId("ws"))
     const seen = await run(
       Effect.gen(function*() {
         const db = yield* Db
-        yield* db.asUserIn(wsA2)((sql) =>
+        yield* db.asNewcomerIn(wsA2)((sql) =>
           Effect.gen(function*() {
             yield* sql`insert into workspaces (id, name, slug) values (${wsA2}, 'a2', ${`t-${runId}-a2`})`
             yield* sql`insert into roles (id, workspace_id, label, kind, levels) values ('owner', ${wsA2}, 'Eigenaar', 'system', '{}')`
@@ -191,6 +192,36 @@ describe("tenancy", () => {
     expect(seen.before).toEqual({ members: both, roles: both, workspaces: both })
     expect(seen.inA).toEqual({ members: [wsA], roles: [wsA], workspaces: [wsA] })
     expect(seen.inA2).toEqual({ members: [wsA2], roles: [wsA2], workspaces: [wsA2] })
+  })
+
+  it("refuses a write into the person's other workspace from inside this one (0096)", async () => {
+    const tried = await run(
+      Effect.gen(function*() {
+        const db = yield* Db
+        const inA = <A, E>(f: (sql: Parameters<Parameters<typeof db.forUser>[0]>[0]) => Effect.Effect<A, E>) =>
+          db.asUserIn(wsA)(f)
+        const roleKept = yield* inA((sql) =>
+          sql`update members set role_id = role_id where workspace_id = ${wsA2} returning id`
+        )
+        const workspaces = yield* inA((sql) => sql`update workspaces set name = 'x' where id = ${wsA2} returning id`)
+        const role = yield* Effect.exit(inA((sql) =>
+          sql`insert into roles (id, workspace_id, label, kind, levels)
+              values ('extra', ${wsA2}, 'Extra', 'custom', '{}')`
+        ))
+        return { members: roleKept.length, workspaces: workspaces.length, role: role._tag }
+      }).pipe(Effect.provideService(CurrentUser, alice))
+    )
+    expect(tried).toEqual({ members: 0, workspaces: 0, role: "Failure" })
+  })
+
+  it("acts as a person only inside a workspace they are an active member of", async () => {
+    const exit = await Effect.runPromiseExit(
+      Effect.flatMap(Effect.service(Db), (db) => db.asUserIn(wsB)((sql) => sql`select 1`)).pipe(
+        Effect.provideService(CurrentUser, alice),
+        Effect.provide(DbLive.pipe(Layer.provide(PgClient.layer({ url: Redacted.make(APP_URL) }))))
+      )
+    )
+    expect(exit._tag === "Failure" && String(exit.cause)).toContain("no active member")
   })
 
   it("refuses to write a row into another workspace", async () => {

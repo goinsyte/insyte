@@ -3,13 +3,14 @@ import type { WorkspaceId } from "@insyte/domain/Ids"
 import type { Principal } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
 import { Effect } from "effect"
+import { activate } from "../../shared/use-cases/ActiveWorkspace.ts"
 
 /*
  * A person's memberships, each with its workspace and role: read as that person before any workspace is chosen
  * (`members_own`, `workspaces_member_of`, `roles_mine`). The first is the active principal everywhere it is read (the
  * RPCs' `Member`, the frame, the realtime socket, the upload routes): the workspace the session chose
- * (`Session.switchPrincipal`), then the rest newest first. A session whose choice is no longer a membership (left,
- * removed, deactivated) falls back to the newest.
+ * (`Workspaces.switch`), then the rest newest first. A session whose choice is no longer a membership (left, removed,
+ * deactivated) falls back to the newest.
  */
 
 export interface Membership {
@@ -85,3 +86,19 @@ export const memberships = Effect.fn("Workspaces.memberships")(function*() {
  */
 export const landingOf = (m: Membership) =>
   m.onboarded || m.principal.role.id !== "owner" ? "/dashboard" : "/onboarding"
+
+/**
+ * `memberships`, with the session held to the first (`Session.me` and the RPCs' `Member`): a session that has chosen
+ * no workspace yet, or whose choice is no longer a membership, is pinned to the one it now acts in. From then on,
+ * joining or making another workspace does not move it; only a switch does.
+ */
+export const current = Effect.fn("Workspaces.current")(function*() {
+  const user = yield* CurrentUser
+  const mine = yield* memberships()
+  const first = mine[0]
+  if (first !== undefined && user.sessionId !== undefined && first.workspaceId !== user.activeWorkspaceId) {
+    const session = { id: user.sessionId, userId: user.id }
+    yield* (yield* Db).routing((sql) => activate(sql, session, first.workspaceId))
+  }
+  return mine
+})
