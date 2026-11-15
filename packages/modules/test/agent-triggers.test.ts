@@ -48,6 +48,9 @@ const h = (key: string, value: string) => [{ key, value }]
 const order = (o: Partial<WismoOrder>): WismoOrder => ({
   number: "#1042",
   status: "shipped",
+  payment: "paid",
+  fulfilment: "fulfilled",
+  parcels: 1,
   parcel: "in_transit",
   carrier: "PostNL",
   trackingUrl: "https://jouw.postnl.nl/track/3S123",
@@ -104,11 +107,35 @@ describe("a mail the agent answers", () => {
         "Waar is mijn bestelling? Dit is fraude, ik doe aangifte.",
         "Waar blijft mijn pakket? Anders ga ik naar de consumentenbond.",
         "Waar is mijn pakket? Ik wil een andere maat.",
-        "Waar is de factuur van mijn bestelling?"
+        "Waar is de factuur van mijn bestelling?",
+        "Ik wil mijn bestelling wijzigen, wanneer kan dat?",
+        "Kan ik mijn bestelling nog aanpassen? Wanneer wordt hij verstuurd?",
+        "Kan ik iets aan mijn bestelling toevoegen voor hij onderweg is?",
+        "Wanneer kan ik mijn bestelling ophalen?",
+        "Waar is mijn bestelling? Ik wil er nog iets bijbestellen.",
+        "I want to change my order, when does it ship?"
       ]
     ) {
       expect(asks("Vraag", text)).toBe(false)
     }
+  })
+
+  it("leaves a mail whose subject names money, an amount or a link, whatever its text asks", () => {
+    for (
+      const subject of [
+        "Waar is mijn pakket? Betaal €4,95 invoerkosten via evil-pay.nl",
+        "Waar is mijn pakket? Kijk op pakket-hulp.example",
+        "Waar is mijn pakket? Mail hulp@pakket-hulp.example",
+        "Waar is mijn pakket? pakket-hulp [dot] nl",
+        "Waar is mijn pakket? 10% korting graag",
+        "Waar is mijn pakket? Stuur een waardebon",
+        "Waar is mijn bestelling? Ik wil hem wijzigen"
+      ]
+    ) {
+      expect(asks(subject, "Nog niets ontvangen."), subject).toBe(false)
+      expect(asks(`Re: ${subject}`, "Mijn pakket is nog niet ontvangen.", true), subject).toBe(false)
+    }
+    expect(asks("Waar is mijn pakket? #1042", "Nog niets ontvangen.")).toBe(true)
   })
 
   it("reads a reply by its own words, not the thread's subject", () => {
@@ -271,17 +298,39 @@ describe("the reply the agent sends on its own", () => {
     expect(pickOrder("Waar is mijn pakket?", orders)?.number).toBe("#1042")
     expect(pickOrder("Waar is 1043?", orders)?.number).toBe("#1043")
     expect(pickOrder("Waar is bestelling #9999?", orders)).toBeNull()
+    expect(pickOrder("Waar is bestelling 9999?", orders)).toBeNull()
+    expect(pickOrder("Mijn ordernummer is 9999, waar blijft hij?", orders)).toBeNull()
     expect(pickOrder("Waar is mijn pakket?", [...orders, order({ number: "#1044" })])).toBeNull()
     expect(pickOrder("Waar is mijn pakket?", [])).toBeNull()
   })
 
   it("tells the status as Verzending names it, and none for an order that is not coming", () => {
-    expect(shipStage(order({ status: "paid" }))).toBe("supplier")
+    const unsent = { fulfilment: "unfulfilled", parcels: 0 } as const
+    expect(shipStage(order({ status: "paid", ...unsent }))).toBe("supplier")
+    expect(shipStage(order({ status: "placed", payment: "pending", ...unsent }))).toBe("supplier")
     expect(shipStage(order({ parcel: null }))).toBe("noinfo")
     expect(shipStage(order({ parcel: "out_for_delivery" }))).toBe("out")
     expect(shipStage(order({ status: "delivered" }))).toBe("delivered")
     expect(shipStage(order({ status: "cancelled" }))).toBeNull()
     expect(shipStage(order({ parcel: "returned" }))).toBeNull()
+  })
+
+  it("tells none for an order with more than one story: sent in part or in parcels, sent back, money back", () => {
+    // Sent in part: the latest parcel delivered is not the order delivered.
+    expect(shipStage(order({ fulfilment: "partial", parcels: 2, parcel: "delivered" }))).toBeNull()
+    expect(shipStage(order({ fulfilment: "partial", parcels: 1 }))).toBeNull()
+    // All of it, in two parcels: one tracking link would tell half.
+    expect(shipStage(order({ parcels: 2 }))).toBeNull()
+    // Sent back (Shopify's RESTOCKED): the order's status reads paid, and is no "nog niet verzonden".
+    expect(shipStage(order({ status: "paid", fulfilment: "returned", parcels: 1 }))).toBeNull()
+    expect(shipStage(order({ status: "paid", fulfilment: "returned", parcels: 0 }))).toBeNull()
+    // Money gone back, in part or whole, or the payment voided.
+    for (const payment of ["partially_refunded", "refunded", "voided"]) {
+      expect(shipStage(order({ payment }))).toBeNull()
+    }
+    // Unsent, yet with a parcel, or "sent" with none: the facts disagree.
+    expect(shipStage(order({ status: "paid", fulfilment: "unfulfilled", parcels: 1 }))).toBeNull()
+    expect(shipStage(order({ parcels: 0 }))).toBeNull()
   })
 
   it("is the order's facts only, in a fixed text", () => {
