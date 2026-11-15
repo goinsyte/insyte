@@ -5,6 +5,7 @@ import { ArrowUpRight, X } from "../../icons"
 import { Answer, FollowUps, Thinking } from "../ask/parts"
 import { type AnswerChart, ask, type AskAnswer } from "../lib/analytics/ask"
 import { money, type Span } from "../lib/analytics/engine"
+import { plainOf } from "../lib/ask/scripts"
 import { useAnalytics } from "../stores/analytics-store"
 import { anim, AXIS, ClientChart, num, Tip } from "./charts"
 import { useWriting } from "./writing"
@@ -37,7 +38,7 @@ function AnswerBlock({ a, onAsk, onDismiss }: { a: AskAnswer; onAsk: (q: string)
   const explain = useAnalytics((s) => s.explain)
   const { phase, reached, shown, seconds } = useWriting(a.id, a.steps.length, a.tokens.length)
   const done = phase === "done"
-  const text = a.tokens.map((t) => ("t" in t ? t.t : t.ref)).join("")
+  const text = plainOf(a.tokens)
 
   return (
     <motion.article

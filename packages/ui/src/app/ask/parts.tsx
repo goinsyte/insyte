@@ -158,6 +158,9 @@ export function Answer({ tokens, shown, streaming }: { tokens: ReadonlyArray<Tok
 				"ref" in tok ? (
 					// biome-ignore lint/suspicious/noArrayIndexKey: an append-only stream of one answer
 					<RefChip key={i} tok={tok} />
+				) : "figure" in tok ? (
+					// biome-ignore lint/suspicious/noArrayIndexKey: an append-only stream of one answer
+					<FigureChip key={i} tok={tok} />
 				) : (
 					// biome-ignore lint/suspicious/noArrayIndexKey: an append-only stream of one answer
 					<span key={i} className={streaming && i >= shown - 6 ? "ask-word" : undefined}>
@@ -179,6 +182,20 @@ function RefChip({ tok }: { tok: Extract<Token, { ref: string }> }) {
 		>
 			<Icon className="size-3" strokeWidth={1.75} />
 			{tok.ref}
+		</Link>
+	);
+}
+
+/** A number the host computed: its value in the sentence, what it is on hover, and its rows a click away. */
+function FigureChip({ tok }: { tok: Extract<Token, { figure: string }> }) {
+	return (
+		<Link
+			to={tok.to}
+			title={tok.label}
+			aria-label={`${tok.label}: ${tok.figure}`}
+			className="ask-pop font-medium text-ink tabular-nums underline decoration-ink/25 decoration-dotted underline-offset-[3px] transition-colors hover:text-arc-ink hover:decoration-arc-ink/50"
+		>
+			{tok.figure}
 		</Link>
 	);
 }

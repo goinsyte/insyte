@@ -2,9 +2,8 @@ import { ArrowUp, AtSign, CornerDownLeft, type IconComponent, ShoppingBag, Slash
 import { useRouterState } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "motion/react";
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { COMMANDS } from "../lib/ask/scripts";
+import { COMMANDS } from "../lib/ask/types";
 import { cn } from "../lib/utils";
-import { useWorkspace } from "../stores/workspace-store";
 
 /**
  * The composer, after beautifului's Prompt Bar: a white well that grows with what is typed, `@` to
@@ -29,14 +28,17 @@ const PLACES: Record<string, string> = {
 	ask: "Vraag Insyte",
 };
 
-export const PromptBar = forwardRef<PromptBarHandle, { onSend: (text: string) => void; busy?: boolean; autoFocus?: boolean }>(
-	function PromptBar({ onSend, busy = false, autoFocus = false }, ref) {
+type Mention = { ref: string; hint: string; kind: "order" | "chargeback" };
+
+export const PromptBar = forwardRef<
+	PromptBarHandle,
+	{ onSend: (text: string) => void; busy?: boolean; autoFocus?: boolean; mentions?: ReadonlyArray<Mention> }
+>(
+	function PromptBar({ onSend, busy = false, autoFocus = false, mentions = [] }, ref) {
 		const [text, setText] = useState("");
 		const [cursor, setCursor] = useState(0);
 		const [active, setActive] = useState(0);
 		const area = useRef<HTMLTextAreaElement>(null);
-		const orders = useWorkspace((s) => s.orders);
-		const chargebacks = useWorkspace((s) => s.chargebacks);
 		const where = useRouterState({ select: (s) => s.location.pathname.split("/")[1] ?? "" });
 
 		useImperativeHandle(ref, () => ({
@@ -70,16 +72,12 @@ export const PromptBar = forwardRef<PromptBarHandle, { onSend: (text: string) =>
 					insert: `/${c.name} `,
 				}));
 			}
-			const records = [
-				...orders.filter((o) => o.tags.includes("at_risk")).map((o) => ({ ref: o.number, hint: `${o.customer_name} · vertraagd`, icon: ShoppingBag })),
-				...chargebacks.map((c) => ({ ref: c.case_number, hint: `${c.customer_name} · ${c.provider}`, icon: CornerDownLeft })),
-				...orders.filter((o) => !o.tags.includes("at_risk")).map((o) => ({ ref: o.number, hint: o.customer_name, icon: ShoppingBag })),
-			];
+			const records = mentions.map((m) => ({ ref: m.ref, hint: m.hint, icon: m.kind === "order" ? ShoppingBag : CornerDownLeft }));
 			return records
 				.filter((r) => r.ref.toLowerCase().includes(trigger.query) || r.hint.toLowerCase().includes(trigger.query))
 				.slice(0, 6)
 				.map((r) => ({ key: r.ref, label: r.ref, hint: r.hint, icon: r.icon, insert: `@${r.ref} ` }));
-		}, [trigger, orders, chargebacks]);
+		}, [trigger, mentions]);
 
 		function choose(s: Suggestion) {
 			if (!trigger) return;

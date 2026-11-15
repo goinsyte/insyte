@@ -2,8 +2,9 @@ import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from ".
 import { Maximize2, Plus, X } from "../../icons";
 import { useNavigate } from "@tanstack/react-router";
 import { InsyteMark } from "../ask/parts";
+import { DemoAskSource, useDemoAskSource } from "../ask/demo-ask-source";
+import { useHostedAskSource } from "../ask/ask-source";
 import { Thread } from "../ask/thread";
-import { useAsk } from "./state";
 
 /**
  * Ask Insyte, as a drawer beside whatever the operator is looking at.
@@ -14,7 +15,9 @@ import { useAsk } from "./state";
  * conversation can move from the drawer to the page without starting again.
  */
 export function AskInsytePanel({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-	const start = useAsk((s) => s.start);
+	const hosted = useHostedAskSource();
+	const demo = useDemoAskSource();
+	const { start } = hosted ?? demo;
 	const navigate = useNavigate();
 	return (
 		<Sheet open={open} onOpenChange={onOpenChange}>
@@ -47,7 +50,9 @@ export function AskInsytePanel({ open, onOpenChange }: { open: boolean; onOpenCh
 						</HeadButton>
 					</SheetClose>
 				</header>
-				<Thread compact />
+				<DemoAskSource>
+					<Thread compact />
+				</DemoAskSource>
 			</SheetContent>
 		</Sheet>
 	);
