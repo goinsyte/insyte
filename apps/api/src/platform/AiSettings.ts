@@ -20,7 +20,8 @@ export const AiSettings = Config.all({
   gatewayId: Config.String("AI_GATEWAY_ID").pipe(Config.withDefault("")),
   accountId: Config.String("AI_ACCOUNT_ID").pipe(Config.withDefault("")),
   gatewayToken: Config.Redacted("AI_GATEWAY_TOKEN").pipe(Config.option),
-  environment: Config.String("ENVIRONMENT").pipe(Config.withDefault("local"))
+  // No stage named is no stage the fake may answer on: an unset `ENVIRONMENT` is neither local nor a preview.
+  environment: Config.String("ENVIRONMENT").pipe(Config.withDefault(""))
 })
 
 export type AiSettings = typeof AiSettings extends Config.Config<infer A> ? A : never

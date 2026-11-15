@@ -1,8 +1,7 @@
 import { CurrentApiKey } from "@insyte/api/http/Security"
-import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { AnalyticsService } from "@insyte/modules/analytics/Analytics"
 import { AskService } from "@insyte/modules/ask/Ask"
-import type { AskThread, AskTurn } from "@insyte/modules/ask/domain/Ask"
+import { type AskThread, type AskTurn, STALE_MS } from "@insyte/modules/ask/domain/Ask"
 import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
 import { CustomersService } from "@insyte/modules/customers/Customers"
 import { OrdersService } from "@insyte/modules/orders/Orders"
@@ -11,16 +10,15 @@ import * as Idempotency from "@insyte/modules/shared/use-cases/Idempotency"
 import { TicketsService } from "@insyte/modules/tickets/Tickets"
 import { Context, Effect, Layer, Option, Stream } from "effect"
 import { withAsk } from "../../../platform/Ask.ts"
+import { takeQuestion } from "../../../platform/ask/AskLimits.ts"
 import { RateLimits } from "../../../platform/RateLimits.ts"
 import { conflict, notFound, writeV1 } from "../shared/errors.ts"
 
 /*
  * Vraag Insyte for a key (M15 step 3, W11.1): the same loop and tools as the console's, run as the key, answered once
- * it has settled. The conversations are the key's own. A key asks as often as a person may (`QUESTIONS_PER_MINUTE`),
- * each answer up to five model calls under the workspace's budget.
+ * it has settled. The conversations are the key's own. A key asks as often as a person may, in the same workspace
+ * window as the console's questions (`AskLimits.ts`), each answer up to five model calls under the workspace's budget.
  */
-
-const QUESTIONS_PER_MINUTE = 6
 
 const iso = (ms: number) => new Date(ms).toISOString()
 
@@ -53,14 +51,13 @@ const make = Effect.gen(function*() {
   >()
 
   const limited = Effect.gen(function*() {
-    const p = yield* CurrentPrincipal
     const key = yield* CurrentApiKey
-    const taken = yield* limits.take(`ask:${p.workspaceId}:${p.id}`, "questions", QUESTIONS_PER_MINUTE, 60)
+    const taken = yield* takeQuestion.pipe(Effect.provideService(RateLimits, limits))
     if (taken.ok) return
     return yield* Effect.fail({
       error: {
         code: "RateLimitedV1" as const,
-        message: `Too many questions for this key. Retry after ${taken.retryAfterSeconds} s.`,
+        message: `Too many questions for this key or workspace. Retry after ${taken.retryAfterSeconds} s.`,
         request_id: key.requestId,
         retry_after: taken.retryAfterSeconds
       }
@@ -104,7 +101,8 @@ const make = Effect.gen(function*() {
 
   return {
     ask: (body: { readonly question: string; readonly thread_id?: string | undefined }, key?: string) =>
-      Idempotency.once(key, ["ask", body], answer(body)).pipe(
+      // A turn ends inside `TURN_MS`; a claim older than `STALE_MS` held a run the Worker cut off.
+      Idempotency.once(key, ["ask", body], answer(body), { inFlightMs: STALE_MS }).pipe(
         Effect.catchTags({
           IdempotencyKeyReused: (e) => writeV1(e),
           IdempotencyInFlight: (e) => writeV1(e)
