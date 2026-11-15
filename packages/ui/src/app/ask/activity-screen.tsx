@@ -11,6 +11,7 @@ import { type AgentLogEntry, canUndo, RECORD_LABEL, ranUnder, STATUS_LABEL } fro
 import { CATALOGUE, ENTRY } from "../lib/autonomy";
 import { DataTable, type Facet, facetFilter } from "../table/data-table";
 import { useAgentLogSource } from "./agent-log-source";
+import { useHydrated } from "../hooks/use-hydrated";
 import { AgentLogDrawer, StatusWord, UndoControl, useNow } from "./agent-parts";
 import { InsyteMark } from "./parts";
 
@@ -43,6 +44,7 @@ export function ActivityPage() {
 	const navigate = useNavigate();
 	const { entries, today: counted, pages } = useAgentLogSource();
 	const now = useNow(15_000);
+	const hydrated = useHydrated();
 	const [openId, setOpenId] = useState<string | null>(search.row ?? null);
 	const open = openId ? (entries.find((e) => e.id === openId) ?? null) : null;
 
@@ -68,7 +70,7 @@ export function ActivityPage() {
 				accessorKey: "at",
 				header: "Tijd",
 				size: 96,
-				cell: (c) => <span className="text-ink-3 tabular-nums">{fmtTime(c.row.original.at)}</span>,
+				cell: (c) => <TimeCell iso={c.row.original.at} />,
 			},
 			{
 				id: "sentence",
@@ -108,11 +110,7 @@ export function ActivityPage() {
 				header: "",
 				size: 96,
 				enableSorting: false,
-				cell: (c) => (
-					<span className="flex justify-end">
-						<UndoControl e={c.row.original} now={Date.now()} size="xs" />
-					</span>
-				),
+				cell: (c) => <UndoCell e={c.row.original} />,
 			},
 		],
 		[],
@@ -179,10 +177,24 @@ export function ActivityPage() {
 				}}
 			/>
 			<PageGuide id="ask.activity" title="Wat Insyte deed" steps={GUIDE} />
-			{/* Keeps the windows counting down in the table's cells. */}
-			<span hidden>{now}</span>
+			{/* Keeps the windows counting down in the table's cells; after hydration, as the clock differs from the server's. */}
+			<span hidden>{hydrated ? now : null}</span>
 		</div>
 	);
+}
+
+/*
+ * The time and the way back depend on the clock and the time zone: rendered once the page has hydrated, so the
+ * server's render (in UTC) and the browser's first one agree.
+ */
+function TimeCell({ iso }: { iso: string }) {
+	const hydrated = useHydrated();
+	return <span className="text-ink-3 tabular-nums">{hydrated ? fmtTime(iso) : null}</span>;
+}
+
+function UndoCell({ e }: { e: AgentLogEntry }) {
+	const hydrated = useHydrated();
+	return <span className="flex justify-end">{hydrated ? <UndoControl e={e} now={Date.now()} size="xs" /> : null}</span>;
 }
 
 function fmtTime(iso: string) {
