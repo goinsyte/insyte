@@ -24,7 +24,7 @@ const REQUEST_ID = "insyte-request-id"
 const VERSION = "insyte-version"
 
 /** The version a key made at `at` answers in: the newest dated on or before it, or the first there was. */
-export const versionAt = (at: Date): string => {
+const versionAt = (at: Date): string => {
   const day = at.toISOString().slice(0, 10)
   return WEBHOOK_API_VERSIONS.find((v) => v <= day) ?? WEBHOOK_API_VERSIONS[WEBHOOK_API_VERSIONS.length - 1]!
 }
