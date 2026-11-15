@@ -51,8 +51,30 @@ describe("the guards", () => {
 
   it("marks a made-up figure and a broken voice in a graded answer", () => {
     const reply = CASES[0]!
-    expect(grade(reply, { text: "Hoi Sanne! Je krijgt 20% korting op bestelling #1042. Groet, Noordkust" }))
+    expect(grade(reply, {
+      text: "Hoi Sanne! Je krijgt 20% korting op bestelling #1042. Groet, Noordkust",
+      sources: [],
+      unanswered: null
+    }))
       .toEqual(["states 20, which the input does not have", "voice: exclamation", "says \"korting\""])
     expect(grade(reply, { answer: 1 })).toEqual(["does not fit the prompt's schema"])
+  })
+})
+
+describe("the reply draft's order facts (M17 step 20.1b)", () => {
+  it("gives a parcel's status in Verzending's words after \"pakket:\", and nothing where it does not show", () => {
+    const withOrder = CASES.find((c) =>
+      c.prompt === replyPrompt && (c.input as Parameters<typeof replyPrompt.render>[0]).orders.length > 0
+    )!
+    const input = withOrder.input as Parameters<typeof replyPrompt.render>[0]
+    const [first, ...rest] = input.orders
+    const told = replyPrompt.render({
+      ...input,
+      orders: [{ ...first!, parcel: "Ligt klaar bij het afhaalpunt" }, ...rest]
+    })
+    expect(told).toContain(`${first!.number}`)
+    expect(told).toMatch(/pakket: "Ligt klaar bij het afhaalpunt"/)
+    const hidden = replyPrompt.render({ ...input, orders: input.orders.map((o) => ({ ...o, parcel: null })) })
+    expect(hidden).not.toContain("pakket:")
   })
 })

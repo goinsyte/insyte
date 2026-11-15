@@ -2,7 +2,7 @@ import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import { NotFoundV1, ScopeMissingV1 } from "../../http/Errors.ts"
 import { ExportListV1, ExportV1, ImportListV1 } from "../../http/groups/DataGroup.ts"
-import { asKey } from "../Shared.ts"
+import { asKey, Needs, read } from "../Shared.ts"
 
 /* The Data hub (M14 step 5): the workspace's CSV imports and exports, as metadata. */
 
@@ -12,7 +12,7 @@ export const ListImports = Tool.make("list_imports", {
   success: ImportListV1,
   failure: ScopeMissingV1,
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("data")])
 
 export const ListExports = Tool.make("list_exports", {
   description:
@@ -20,7 +20,7 @@ export const ListExports = Tool.make("list_exports", {
   success: ExportListV1,
   failure: ScopeMissingV1,
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("data")])
 
 export const GetExport = Tool.make("get_export", {
   description: "One export and how far it is (queued, running, ready, failed, expired). Needs data.read.",
@@ -28,7 +28,7 @@ export const GetExport = Tool.make("get_export", {
   success: ExportV1,
   failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("data")])
 
 export const DataTools = Toolkit.make(
   ListImports,

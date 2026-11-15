@@ -5,6 +5,7 @@ import { HEADROOM_LOW } from "../domain/Health.ts"
 import { addLine, changedQuery, emptyBatch, flatten, type MirrorKind } from "../domain/Mirror.ts"
 import { ShopifyGraphql } from "../domain/Ports.ts"
 import { applyBatch } from "./mirror.ts"
+import { retireCompletedDrafts } from "./webhooks.ts"
 
 /*
  * The reconcile sweep (M6.3; integrations.md §1.6): every fifteen minutes, per connected store and resource, what
@@ -17,6 +18,9 @@ import { applyBatch } from "./mirror.ts"
  * through, one that failed and why, how close Shopify's bucket came to empty, the orders' watermark), so the check runs
  * on its own and never waits for a sweep. While a webhook gap is open on the store the orders are read with more pages,
  * out of an allowance the whole run shares (`gapPages`), since the sweep is then the store's only feed of orders.
+ *
+ * Last, the drafts Insyte made (M7.1) that Shopify completed but whose webhook never got through are retired into the
+ * orders they became (`retireCompletedDrafts`); that look failing is logged and leaves the sweep's outcome alone.
  */
 
 const RESOURCES: ReadonlyArray<{ readonly kind: MirrorKind; readonly resource: string; readonly field: string }> = [
@@ -125,6 +129,9 @@ export const reconcileStore = Effect.fn("Stores.reconcile")(function*(storeId: s
               where connection_id = ${store.connectionId} and resource = ${resource}`
     )
   }
+  yield* retireCompletedDrafts({ id: storeId, ...store }).pipe(
+    Effect.catchCause((cause) => Effect.logWarning("completed drafts were not looked at", { storeId, cause }))
+  )
   return { read, headroom, gapPages: extra } satisfies Reconciled as Reconciled | null
 })
 

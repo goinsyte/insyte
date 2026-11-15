@@ -2,6 +2,7 @@ import { ConsoleRpcs, RPC_PATH } from "@insyte/api/ConsoleRpcs"
 import { Access } from "@insyte/modules/access/Access"
 import { AgentLogService, AiBudgetService, AutonomyService } from "@insyte/modules/agent/Agent"
 import { AnalyticsService } from "@insyte/modules/analytics/Analytics"
+import { AskService } from "@insyte/modules/ask/Ask"
 import { AuditService } from "@insyte/modules/audit/Audit"
 import { AutomationsService } from "@insyte/modules/automations/Automations"
 import { RunsService } from "@insyte/modules/automations/Runs"
@@ -17,11 +18,13 @@ import { FirstAnalysisService } from "@insyte/modules/first-analysis/FirstAnalys
 import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
 import { HomeService } from "@insyte/modules/home/Home"
 import { InboxService } from "@insyte/modules/inbox/Inbox"
+import { KnowledgeService } from "@insyte/modules/knowledge/Knowledge"
 import { LiveService } from "@insyte/modules/live/Live"
 import { MarketingService } from "@insyte/modules/marketing/Marketing"
 import { MarketplaceService } from "@insyte/modules/marketplace/Marketplace"
 import { Landing } from "@insyte/modules/members/Landing"
 import { Members } from "@insyte/modules/members/Members"
+import { Memberships } from "@insyte/modules/members/Memberships"
 import { NotificationsService } from "@insyte/modules/notifications/NotificationsService"
 import { Onboarding } from "@insyte/modules/onboarding/Onboarding"
 import { OrdersService } from "@insyte/modules/orders/Orders"
@@ -51,6 +54,7 @@ import { RpcSerialization } from "effect/rpc"
 import { AccessHandlers } from "./handlers/access.ts"
 import { AgentHandlers } from "./handlers/agent.ts"
 import { AnalyticsHandlers } from "./handlers/analytics.ts"
+import { AskHandlers } from "./handlers/ask.ts"
 import { AuditHandlers } from "./handlers/audit.ts"
 import { AutomationsHandlers } from "./handlers/automations.ts"
 import { BillingHandlers } from "./handlers/billing.ts"
@@ -65,6 +69,7 @@ import { DraftsHandlers } from "./handlers/drafts.ts"
 import { FirstAnalysisHandlers } from "./handlers/first-analysis.ts"
 import { ForwardingHandlers } from "./handlers/forwarding.ts"
 import { HomeHandlers } from "./handlers/home.ts"
+import { KnowledgeHandlers } from "./handlers/knowledge.ts"
 import { LandingHandlers } from "./handlers/landing.ts"
 import { LiveHandlers } from "./handlers/live.ts"
 import { MarketingHandlers } from "./handlers/marketing.ts"
@@ -108,7 +113,7 @@ export const RpcContext = Layer.mergeAll(
   SystemHandlers,
   SessionHandlers.pipe(Layer.provide([Workspaces.layer, ActiveSessions.layer, SupplierPortalService.layer])),
   OnboardingHandlers.pipe(
-    Layer.provide(Onboarding.layer),
+    Layer.provide(Layer.mergeAll(Onboarding.layer, Workspaces.layer)),
     Layer.provide(Layer.mergeAll(Workspaces.founder, Workspaces.setup))
   ),
   MembersHandlers.pipe(Layer.provide(Members.layer)),
@@ -146,11 +151,33 @@ export const RpcContext = Layer.mergeAll(
   // Insyte AI's drafts and summaries (M15 step 2): the slice and `effect/ai` load with the first AI call
   // (`platform/Ai.ts`), never with this layer, so no other RPC waits on them or fails with them (ADR-0041 §3).
   DraftsHandlers,
+  // Vraag Insyte (M15 step 3): its conversations here; the loop, the tools and the model load with a question.
+  AskHandlers.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        AskService.layer,
+        OrdersService.layer,
+        TicketsService.layer,
+        ChargebacksService.layer,
+        QueueService.layer,
+        AnalyticsService.layer,
+        CustomersService.layer,
+        KnowledgeService.layer
+      )
+    )
+  ),
   ChatsHandlers.pipe(Layer.provide(Layer.mergeAll(ChatsService.layer, UndoService.layer))),
   SheetsHandlers.pipe(Layer.provide(SheetsService.layer)),
+  KnowledgeHandlers.pipe(Layer.provide(KnowledgeService.layer)),
   DataHandlers.pipe(Layer.provide(DataService.layer)),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
-  WorkspacesHandlers.pipe(Layer.provide(WorkspaceSettings.layer)),
+  // …with the switcher's (M3.1): the list and switching, leaving and invitations, and a new workspace (onboarding's).
+  WorkspacesHandlers.pipe(
+    Layer.provide(
+      Layer.mergeAll(WorkspaceSettings.layer, Members.layer, Workspaces.layer, Memberships.layer, Onboarding.layer)
+    ),
+    Layer.provide(Layer.mergeAll(Workspaces.founder, Workspaces.setup))
+  ),
   CostsHandlers.pipe(Layer.provide(CostsService.layer)),
   // Facturatie (M13 step 1): the slice loads with the first billing call (`handlers/billing.ts`).
   BillingHandlers,

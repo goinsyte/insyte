@@ -10,7 +10,20 @@ import {
   ValidationFailedV1
 } from "../../http/Errors.ts"
 import { Return, ReturnDetailV1, ReturnPageV1, ReturnStatusFilter } from "../../http/groups/ReturnsGroup.ts"
-import { asKey, Governed, IdempotencyKey, OrderId, WriteFailure } from "../Shared.ts"
+import {
+  asKey,
+  ForAgents,
+  Governed,
+  governedAs,
+  IdempotencyKey,
+  Needs,
+  OrderId,
+  read,
+  refusedToAgents,
+  special,
+  write,
+  WriteFailure
+} from "../Shared.ts"
 
 /* Returns and claims (M9): the queue, one return, and every move from starting one to settling it. */
 
@@ -25,7 +38,7 @@ export const ListReturns = Tool.make("list_returns", {
   success: ReturnPageV1,
   failure: ScopeMissingV1,
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("returns")])
 
 export const GetReturn = Tool.make("get_return", {
   description:
@@ -34,7 +47,7 @@ export const GetReturn = Tool.make("get_return", {
   success: ReturnDetailV1,
   failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("returns")])
 
 export const StartReturn = Tool.make("start_return", {
   description:
@@ -52,7 +65,7 @@ export const StartReturn = Tool.make("start_return", {
   success: Return,
   failure: Schema.Union([...ReturnMoveFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("returns")]).annotate(ForAgents, refusedToAgents)
 
 export const ApproveReturn = Tool.make("approve_return", {
   description:
@@ -65,7 +78,10 @@ export const ApproveReturn = Tool.make("approve_return", {
   success: Governed(Return),
   failure: Schema.Union([...ReturnMoveFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("returns"), special("returns.approve")]).annotate(
+  ForAgents,
+  governedAs("ApproveReturn")
+)
 
 export const RejectReturn = Tool.make("reject_return", {
   description:
@@ -74,7 +90,10 @@ export const RejectReturn = Tool.make("reject_return", {
   success: Return,
   failure: Schema.Union([...ReturnMoveFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("returns"), special("returns.approve")]).annotate(
+  ForAgents,
+  refusedToAgents
+)
 
 export const AddReturnTracking = Tool.make("add_return_tracking", {
   description:
@@ -88,7 +107,7 @@ export const AddReturnTracking = Tool.make("add_return_tracking", {
   success: Return,
   failure: Schema.Union([...ReturnMoveFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("returns")]).annotate(ForAgents, refusedToAgents)
 
 export const SendReturnLabel = Tool.make("send_return_label", {
   description:
@@ -97,7 +116,10 @@ export const SendReturnLabel = Tool.make("send_return_label", {
   success: Governed(Return),
   failure: Schema.Union([...ReturnMoveFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true).annotate(Tool.Destructive, true)
+}).annotate(Tool.Idempotent, true).annotate(Tool.Destructive, true).annotate(Needs, [write("returns")]).annotate(
+  ForAgents,
+  governedAs("SendReturnLabel")
+)
 
 export const ReceiveReturn = Tool.make("receive_return", {
   description: "Marks a return's parcel received. Refused for an agent's key. Needs returns.write.",
@@ -105,7 +127,7 @@ export const ReceiveReturn = Tool.make("receive_return", {
   success: Return,
   failure: Schema.Union([...ReturnMoveFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("returns")]).annotate(ForAgents, refusedToAgents)
 
 export const InspectReturn = Tool.make("inspect_return", {
   description:
@@ -122,11 +144,11 @@ export const InspectReturn = Tool.make("inspect_return", {
   success: Return,
   failure: Schema.Union([...ReturnMoveFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("returns")]).annotate(ForAgents, refusedToAgents)
 
 export const ResolveReturn = Tool.make("resolve_return", {
   description:
-    "Settles a return that is ready, with one of its allowed resolutions (get_return). A refund is IRREVERSIBLE: money goes back through the order's payments; confirm it with the person first and pass an idempotency_key. Needs returns.write, and refunds.write within the key's limit for a refund.",
+    "Settles a return that is ready, with one of its allowed resolutions (get_return). A refund is IRREVERSIBLE: money goes back through the order's payments; confirm it with the person first and pass an idempotency_key. Needs returns.write and returns.approve, and refunds.write within the key's limit for a refund.",
   parameters: Schema.Struct({ return_id: ReturnId, resolution: ResolutionKind, idempotency_key: IdempotencyKey }),
   success: Governed(Return),
   failure: Schema.Union([
@@ -139,7 +161,10 @@ export const ResolveReturn = Tool.make("resolve_return", {
     RefundOverLimitV1
   ]),
   dependencies: asKey()
-}).annotate(Tool.Destructive, true)
+}).annotate(Tool.Destructive, true).annotate(Needs, [write("returns"), special("returns.approve")]).annotate(
+  ForAgents,
+  governedAs("RefundOrder", "ApproveReturn")
+)
 
 export const ReturnsTools = Toolkit.make(
   ListReturns,

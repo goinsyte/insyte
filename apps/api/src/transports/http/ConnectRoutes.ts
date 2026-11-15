@@ -1,9 +1,7 @@
 import { CurrentPrincipal } from "@insyte/domain/Principal"
-import { CurrentUser } from "@insyte/domain/Session"
 import { MarketingService } from "@insyte/modules/marketing/Marketing"
 import { NotificationsService } from "@insyte/modules/notifications/NotificationsService"
 import { StoresService } from "@insyte/modules/stores/Stores"
-import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Config, Effect, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { withRequestDb } from "../../platform/RequestDb.ts"
@@ -11,6 +9,7 @@ import { userFrom } from "../../platform/Sessions.ts"
 import { KLAVIYO_CALLBACK_PATH } from "../rpc/handlers/marketing.ts"
 import { SLACK_CALLBACK_PATH } from "../rpc/handlers/notifications.ts"
 import { CALLBACK_PATH } from "../rpc/handlers/stores.ts"
+import { activeMemberOf, MISMATCH, workspaceMismatch } from "./ActiveMember.ts"
 
 /*
  * `GET /api/connect/shopify/callback` (M6.2): Shopify's way back after the operator approved the app, on the console's
@@ -30,12 +29,11 @@ export const ConnectRoutes = HttpRouter.add(
   Effect.gen(function*() {
     const request = yield* HttpServerRequest.HttpServerRequest
     const query = Object.fromEntries(new URL(request.url, "http://api").searchParams)
-    const user = yield* userFrom(new Headers(request.headers as Record<string, string>))
+    const headers = new Headers(request.headers as Record<string, string>)
+    const user = yield* userFrom(headers)
     if (Option.isNone(user)) return back("/login", { redirect: "/settings/stores" })
-    const [active] = yield* Effect.flatMap(Effect.service(Workspaces), (w) => w.memberships).pipe(
-      Effect.provideService(CurrentUser, user.value),
-      Effect.provide(Workspaces.layer)
-    )
+    const active = yield* activeMemberOf(user.value, headers)
+    if (active === MISMATCH) return workspaceMismatch()
     if (active === undefined) return back("/onboarding", {})
     return yield* Effect.flatMap(Effect.service(StoresService), (stores) => stores.callback(query)).pipe(
       Effect.map((connected) => back(connected.returnPath, { connected: "shopify", store: connected.storeId })),
@@ -59,12 +57,11 @@ export const KlaviyoConnectRoutes = HttpRouter.add(
   Effect.gen(function*() {
     const request = yield* HttpServerRequest.HttpServerRequest
     const query = Object.fromEntries(new URL(request.url, "http://api").searchParams)
-    const user = yield* userFrom(new Headers(request.headers as Record<string, string>))
+    const headers = new Headers(request.headers as Record<string, string>)
+    const user = yield* userFrom(headers)
     if (Option.isNone(user)) return back("/login", { redirect: "/customers" })
-    const [active] = yield* Effect.flatMap(Effect.service(Workspaces), (w) => w.memberships).pipe(
-      Effect.provideService(CurrentUser, user.value),
-      Effect.provide(Workspaces.layer)
-    )
+    const active = yield* activeMemberOf(user.value, headers)
+    if (active === MISMATCH) return workspaceMismatch()
     if (active === undefined) return back("/onboarding", {})
     const origin = yield* Config.String("CONSOLE_ORIGIN")
     return yield* Effect.flatMap(
@@ -93,12 +90,11 @@ export const SlackConnectRoutes = HttpRouter.add(
   Effect.gen(function*() {
     const request = yield* HttpServerRequest.HttpServerRequest
     const query = Object.fromEntries(new URL(request.url, "http://api").searchParams)
-    const user = yield* userFrom(new Headers(request.headers as Record<string, string>))
+    const headers = new Headers(request.headers as Record<string, string>)
+    const user = yield* userFrom(headers)
     if (Option.isNone(user)) return back("/login", { redirect: "/settings/notifications" })
-    const [active] = yield* Effect.flatMap(Effect.service(Workspaces), (w) => w.memberships).pipe(
-      Effect.provideService(CurrentUser, user.value),
-      Effect.provide(Workspaces.layer)
-    )
+    const active = yield* activeMemberOf(user.value, headers)
+    if (active === MISMATCH) return workspaceMismatch()
     if (active === undefined) return back("/onboarding", {})
     const origin = yield* Config.String("CONSOLE_ORIGIN")
     return yield* Effect.flatMap(

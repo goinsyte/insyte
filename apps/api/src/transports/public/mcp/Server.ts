@@ -10,7 +10,7 @@ export const McpServerOptions = {
   name: "Insyte",
   version: "1.0.0",
   instructions:
-    "Insyte for dropshipping operators. Read the workspace's team and roles, and its orders, products, customers and suppliers; tag orders, note them, change their address, cancel and refund them; forward paid orders to their suppliers and move them to another supplier; start, approve, reject, label, receive, inspect and settle returns; write, change, move, assign and comment on tickets; read chargebacks with their evidence and timeline; read the costs and the months' net profit, with the key's scopes. Cancelling, refunding, forwarding and settling a return with a refund cannot be undone: confirm them with the person first.",
+    "Insyte for dropshipping operators. Read the workspace's team and roles, and its orders, products, customers and suppliers; tag orders, note them, change their address, cancel and refund them; forward paid orders to their suppliers and move them to another supplier; start, approve, reject, label, receive, inspect and settle returns; write, change, move, assign and comment on tickets; read chargebacks with their evidence and timeline; read the costs and the months' net profit, with the key's scopes. Cancelling, refunding, forwarding and settling a return with a refund cannot be undone: confirm them with the person first. Read insyte://workspace for the workspace, its plan and the key's stores, and insyte://orders/{id} for one order.",
   path: "/mcp",
   protocols: [McpProtocol.v2026_07_28]
 } as const

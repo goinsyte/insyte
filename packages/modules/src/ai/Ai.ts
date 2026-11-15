@@ -4,20 +4,26 @@ import type { CurrentPrincipal, CurrentWorkspace } from "@insyte/domain/Principa
 import { Effect } from "effect"
 import { LanguageModel } from "effect/ai"
 import { SqlError } from "effect/sql"
+import type { AskStep, StepInput } from "../ask/domain/Steps.ts"
 import {
   AiModel,
   type BudgetExceeded,
   type Draft,
   type DraftSubject,
   type KnowledgeAnswer,
+  type KnowledgeAnswerInput,
   type LatestDraft,
   type ModelUnavailable,
   type ReplyInput,
   type ThreadSummary,
   type TicketSummary
 } from "./domain/Ai.ts"
+import { askPrompt } from "./prompts/ask.ts"
 import * as Background from "./use-cases/background.ts"
+import * as Call from "./use-cases/call.ts"
 import * as Drafts from "./use-cases/drafts.ts"
+
+export type { Caller, InTx } from "./use-cases/call.ts"
 
 /*
  * Insyte AI for the console (M15 steps 1 and 2; ADR-0015, ADR-0027): reply drafts and their rewrites, summaries, the
@@ -36,7 +42,9 @@ export interface DraftsApi {
   readonly forSubject: (subject: DraftSubject) => Effect.Effect<LatestDraft, Forbidden | NotFound, R>
   readonly summarizeTicket: (ticketId: string) => Effect.Effect<TicketSummary, Forbidden | NotFound | Model, R>
   readonly summarizeThread: (threadId: string) => Effect.Effect<ThreadSummary, Forbidden | NotFound | Model, R>
-  readonly knowledgeAnswer: Effect.Effect<KnowledgeAnswer, Forbidden, R>
+  readonly knowledgeAnswer: (
+    input: KnowledgeAnswerInput
+  ) => Effect.Effect<KnowledgeAnswer, Forbidden | NotFound | Invalid | Model, R>
 }
 
 /** The drafts over the model in context. */
@@ -69,7 +77,10 @@ export const drafts: Effect.Effect<DraftsApi, never, AiModel | LanguageModel.Lan
       withModel(Effect.flatMap(Effect.service(Db), (db) => Drafts.summarizeThread(db.scoped, threadId))).pipe(
         Effect.catchIf(SqlError.isSqlError, Effect.die)
       ),
-    knowledgeAnswer: Drafts.knowledgeAnswer()
+    knowledgeAnswer: (input) =>
+      withModel(Effect.flatMap(Effect.service(Db), (db) => Drafts.knowledgeAnswer(db.scoped, input))).pipe(
+        Effect.catchIf(SqlError.isSqlError, Effect.die)
+      )
   } satisfies DraftsApi
 })
 
@@ -89,3 +100,20 @@ export const writeNarrative = (
   runId: string
 ): Effect.Effect<"skipped" | "kept" | "written", SqlError.SqlError, BackgroundR> =>
   Background.writeNarrative(chargebackId, runId)
+
+/**
+ * One step of Vraag Insyte's loop (M15 step 3): reserved against the month's budget before the model is asked, metered
+ * in `model_calls` whatever the outcome. The loop itself is the `ask` slice's.
+ */
+export const askStep = <X>(
+  inTx: Call.InTx<X>,
+  caller: Call.Caller,
+  input: StepInput
+): Effect.Effect<
+  Call.Called<AskStep>,
+  BudgetExceeded | ModelUnavailable | SqlError.SqlError,
+  X | AiModel | LanguageModel.LanguageModel
+> => Call.call(inTx, caller, askPrompt, input)
+
+/** The prompt's `id@version`, as an answer keeps it. */
+export const ASK_PROMPT_VERSION = `${askPrompt.id}@${askPrompt.version}`

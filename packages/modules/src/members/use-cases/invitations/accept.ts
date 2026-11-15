@@ -6,8 +6,9 @@ import { Relay } from "../../../shared/domain/Outbox.ts"
 import * as Audit from "../../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../../shared/use-cases/Outbox.ts"
 import { Accepted, type LandingRef, NotAcceptable } from "../../domain/Landing.ts"
+import { revokeKeysOf } from "../access-ended.ts"
 import { classify } from "./landing.ts"
-import { route, sha256 } from "./route.ts"
+import { type Route, route, sha256 } from "./route.ts"
 
 /*
  * Accepting from the landing (M3.4), as the signed-in person, inside the invitation's workspace: the seats and the
@@ -17,13 +18,22 @@ import { route, sha256 } from "./route.ts"
  */
 
 export const accept = Effect.fn("Landing.accept")(function*(ref: LandingRef) {
+  return yield* acceptRouted(ref, yield* route(ref))
+})
+
+/**
+ * Accepting an invitation whose workspace is already known: from its link (`route`), or from the switcher, where the
+ * signed-in address is the proof (`Workspaces.acceptInvite`).
+ */
+export const acceptRouted = Effect.fn("Landing.acceptRouted")(function*(ref: LandingRef, found: Route | undefined) {
   const user = yield* CurrentUser
   const relay = yield* Relay
   const db = yield* Db
-  const found = yield* route(ref)
   if (found === undefined) return yield* new NotAcceptable({ state: "missing" })
 
-  const { result, outboxIds } = yield* db.asUserIn(found.workspaceId as WorkspaceId)((sql) =>
+  // A link names no invitation; a team or supplier invitation is the one handled (`app.invitation_id`, 0096).
+  const handled = found.link ? undefined : ref.id
+  const { result, outboxIds } = yield* db.asNewcomerIn(found.workspaceId as WorkspaceId, handled)((sql) =>
     Effect.gen(function*() {
       const landing = yield* classify(sql, ref, found, user)
       if (landing.state === "sso") {
@@ -73,11 +83,13 @@ export const accept = Effect.fn("Landing.accept")(function*(ref: LandingRef) {
                 ${invitation?.invitedBy ?? null})
         on conflict (workspace_id, user_id) do update set
           role_id = excluded.role_id, stores = excluded.stores, invited_by = excluded.invited_by,
-          removed_at = null, deactivated_at = null, joined_at = now()
+          removed_at = null, deactivated_at = null, left_at = null, joined_at = now()
         where members.removed_at is not null or members.deactivated_at is not null
         returning id`
       const memberId = member?.id ??
         (yield* sql<{ id: string }>`select id from members where user_id = ${user.id}`)[0]!.id
+      // Back through a new invitation: the keys they made before they left or were removed stay revoked.
+      if (member !== undefined) yield* revokeKeysOf(sql, member.id)
 
       if (found.link) yield* sql`update invite_links set joined_count = joined_count + 1`
       else yield* sql`update invitations set accepted_at = now(), accepted_by_user = ${user.id} where id = ${ref.id}`
@@ -111,13 +123,17 @@ export const accept = Effect.fn("Landing.accept")(function*(ref: LandingRef) {
 
 /** "Weigeren": the invitee says no; the link stops working and the seat frees up. */
 export const decline = Effect.fn("Landing.decline")(function*(ref: LandingRef) {
+  return yield* declineRouted(ref, yield* route(ref))
+})
+
+/** Declining an invitation whose workspace is already known (the landing's, or the switcher's "Weigeren"). */
+export const declineRouted = Effect.fn("Landing.declineRouted")(function*(ref: LandingRef, found: Route | undefined) {
   const user = yield* CurrentUser
   const db = yield* Db
-  const found = yield* route(ref)
   if (found === undefined || found.link) {
     return yield* new NotAcceptable({ state: found === undefined ? "missing" : "link" })
   }
-  return yield* db.asUserIn(found.workspaceId as WorkspaceId)((sql) =>
+  return yield* db.asNewcomerIn(found.workspaceId as WorkspaceId, ref.id)((sql) =>
     Effect.gen(function*() {
       const landing = yield* classify(sql, ref, found, user)
       if (landing.state !== "existing" && landing.state !== "full" && landing.state !== "sso") {

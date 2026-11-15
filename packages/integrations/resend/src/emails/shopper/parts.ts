@@ -1,5 +1,6 @@
 import type { ReturnMailFacts } from "@insyte/modules/shared/domain/Mailer"
 import type { Urls } from "../../MailUrls.ts"
+import type { Branded } from "../components/layout.tsx"
 
 /*
  * What the shopper's return mails share (M9.3): the facts the relay read, with the portal's address written out from
@@ -7,7 +8,7 @@ import type { Urls } from "../../MailUrls.ts"
  * return. In the store's name: the shopper knows the store, not Insyte.
  */
 
-export type ReturnProps = ReturnMailFacts & {
+export type ReturnProps = ReturnMailFacts & Branded & {
   /** The store's returns portal, where it is on: the one link a return mail carries. */
   readonly portalUrl: string | null
 }

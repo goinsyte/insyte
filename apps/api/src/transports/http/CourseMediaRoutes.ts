@@ -1,11 +1,10 @@
 import { CurrentPrincipal } from "@insyte/domain/Principal"
-import { CurrentUser } from "@insyte/domain/Session"
 import { CoursesService } from "@insyte/modules/courses/Courses"
-import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect, Option } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 import { userFrom } from "../../platform/Sessions.ts"
+import { activeMemberOf, MISMATCH, workspaceMismatch } from "./ActiveMember.ts"
 
 /*
  * `PUT /api/courses/:courseId/media` (M17 step 4): one image for a course's image block, from the editor, for a
@@ -29,10 +28,8 @@ export const CourseMediaRoutes = HttpRouter.add(
     const user = yield* userFrom(headers)
     if (Option.isNone(user)) return refusal(401, "unauthenticated")
     if (Number(headers.get("content-length") ?? 0) > MAX_BYTES) return refusal(413, "too_large")
-    const [active] = yield* Effect.flatMap(Effect.service(Workspaces), (w) => w.memberships).pipe(
-      Effect.provideService(CurrentUser, user.value),
-      Effect.provide(Workspaces.layer)
-    )
+    const active = yield* activeMemberOf(user.value, headers)
+    if (active === MISMATCH) return workspaceMismatch()
     if (active === undefined) return refusal(404, "not_found")
     const bytes = new Uint8Array(yield* Effect.orDie(request.arrayBuffer))
     if (bytes.byteLength > MAX_BYTES) return refusal(413, "too_large")

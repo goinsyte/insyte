@@ -1,17 +1,18 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { type ReactNode, useMemo, useRef, useState } from "react";
+import { createContext, type ReactNode, useContext, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, Image as ImageIcon, Lock, RotateCcw, X } from "../../../icons";
 import { createHumanCheck, HumanCheck } from "../../auth/human-check";
 import { formatCurrency } from "../../lib/format";
 import { RESOLUTION_DETAIL, RESOLUTION_LABEL, type Resolution, resolutionsFor, type ReturnKind, STATUS_LABEL } from "../../lib/returns";
 import { cn } from "../../lib/utils";
-import { type LineRefusal, type PortalLine, type PortalMade, type PortalOrderView, type PortalPhoto, type PortalReason, usePortalSource } from "./source";
+import { type LineRefusal, type PortalLine, type PortalMade, type PortalOrderView, type PortalPhoto, type PortalReason, type PortalStoreView, usePortalSource } from "./source";
 
 /*
  * The public returns portal (`/retour/$storeHandle`, PLAN 25, design §1): where a shopper starts a
  * return or reports a problem, on their phone, without an account. It is the store's page, not
- * Insyte's: the store's name at the head, its words from Instellingen → Retouren, and only "Mogelijk
- * gemaakt door Insyte" at the foot. Its own small shell — nothing from the console's chrome.
+ * Insyte's: the store's logo or name at the head and its colour on the buttons (Huisstijl), its words
+ * from Instellingen → Retouren, and only "Mogelijk gemaakt door Insyte" at the foot. Its own small
+ * shell — nothing from the console's chrome.
  *
  * The rules are the console's (`lib/returns.ts`): the window from delivery, the product rules, the
  * resolutions on offer. Every refusal says why and what the shopper can still do. What may go back
@@ -86,7 +87,7 @@ export function ReturnPortal() {
 
 	if (!store.on) {
 		return (
-			<PortalShell storeName={store.name}>
+			<PortalShell storeName={store.name} look={store.look}>
 				<Card>
 					<span className="flex size-10 items-center justify-center rounded-lg bg-mist text-ink-2">
 						<Lock className="size-5" strokeWidth={1.75} />
@@ -161,7 +162,7 @@ export function ReturnPortal() {
 	const claimStep = (i: number) => (kind === "claim" ? <p className="text-ink-3 text-sm">Stap {i} van {store.claimSteps.length} · {store.claimSteps[i - 1]}</p> : null);
 
 	return (
-		<PortalShell storeName={store.name}>
+		<PortalShell storeName={store.name} look={store.look}>
 			<div ref={top} className="scroll-mt-4" />
 			<AnimatePresence mode="wait" initial={false}>
 				<motion.div
@@ -460,15 +461,20 @@ export function ReturnPortal() {
 
 /* ── the portal's own small shell ──────────────────────────────────────────────────────────── */
 
-function PortalShell({ storeName, children }: { storeName: string; children: ReactNode }) {
+/** The store's Huisstijl, for the buttons inside the shell. */
+const LookContext = createContext<PortalStoreView["look"]>(undefined);
+
+function PortalShell({ storeName, look, children }: { storeName: string; look?: PortalStoreView["look"]; children: ReactNode }) {
 	return (
-		<div className="flex min-h-svh flex-col bg-glacier text-base text-ink">
-			<header className="flex h-16 items-center justify-center px-4">
-				<span className="font-medium text-ink text-lg tracking-tight">{storeName}</span>
-			</header>
-			<main className="mx-auto flex w-full max-w-[480px] flex-1 flex-col px-4 pb-10">{children}</main>
-			<footer className="flex justify-center px-4 pb-6 text-ink-3 text-xs">Mogelijk gemaakt door Insyte</footer>
-		</div>
+		<LookContext.Provider value={look}>
+			<div className="flex min-h-svh flex-col bg-glacier text-base text-ink">
+				<header className="flex h-16 items-center justify-center px-4">
+					{look?.logo ? <img src={look.logo} alt={storeName} className="max-h-10 max-w-48 object-contain" /> : <span className="font-medium text-ink text-lg tracking-tight">{storeName}</span>}
+				</header>
+				<main className="mx-auto flex w-full max-w-[480px] flex-1 flex-col px-4 pb-10">{children}</main>
+				<footer className="flex justify-center px-4 pb-6 text-ink-3 text-xs">Mogelijk gemaakt door Insyte</footer>
+			</div>
+		</LookContext.Provider>
 	);
 }
 
@@ -491,8 +497,10 @@ function Labeled({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function Primary({ children, disabled, onClick, type = "button" }: { children: ReactNode; disabled?: boolean; onClick?: () => void; type?: "button" | "submit" }) {
+	// The store's colour where Huisstijl has one that white text reads on; the portal's own blue otherwise.
+	const color = useContext(LookContext)?.color;
 	return (
-		<button type={type} disabled={disabled} onClick={onClick} className="flex h-12 items-center justify-center gap-2 rounded-md bg-abyss font-medium text-mesh-ink transition-colors hover:bg-abyss-2 disabled:cursor-not-allowed disabled:bg-ink/8 disabled:text-ink-3">
+		<button type={type} disabled={disabled} onClick={onClick} style={color && !disabled ? { backgroundColor: color } : undefined} className={cn("flex h-12 items-center justify-center gap-2 rounded-md bg-abyss font-medium text-mesh-ink transition-colors hover:bg-abyss-2 disabled:cursor-not-allowed disabled:bg-ink/8 disabled:text-ink-3", color && "hover:brightness-110")}>
 			{children}
 			{disabled ? null : <ArrowRight className="size-4" strokeWidth={2} />}
 		</button>

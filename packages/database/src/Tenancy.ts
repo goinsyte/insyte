@@ -148,7 +148,17 @@ export const TENANT_TABLES = [
   "fact_disputes_day",
   // Billing (M13 step 1): the workspace's Stripe subscription and invoices, as Stripe last said.
   "subscriptions",
-  "invoices"
+  "invoices",
+  // Vraag Insyte (M15 step 3): a person's conversations and their turns, the owner's alone.
+  "ask_threads",
+  "ask_turns",
+  // The knowledge base (M15 step 7): chapters, their versions, the published text in pieces, the questions Insyte could
+  // not answer, and every answer that used a chapter.
+  "knowledge_articles",
+  "knowledge_versions",
+  "knowledge_chunks",
+  "knowledge_gaps",
+  "knowledge_citations"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 
@@ -165,6 +175,75 @@ export const tenantTable = (table: TenantTable, options: { readonly membersOnly?
   ...(options.membersOnly === true
     ? [`create policy ${table}_members on ${table} as restrictive for all using (app_is_member_side())`]
     : [])
+]
+
+/** The principal kind of a person inside a workspace they are not a member of (`Db.asNewcomerIn`, 0096). */
+export const NEWCOMER_KIND = "newcomer"
+
+/** The tables founding and the invitations touch, each with what the newcomer may do there (`newcomerMay`, 0096). */
+export const NEWCOMER_TABLES = [
+  "workspaces",
+  "roles",
+  "members",
+  "workspace_counters",
+  "ai_budgets",
+  "audit_events",
+  "outbox",
+  "onboarding_progress",
+  "invitations",
+  "invite_links",
+  "api_keys"
+] as const
+
+/** Any principal but the newcomer. */
+export const NOT_NEWCOMER = `app_principal_kind() is distinct from '${NEWCOMER_KIND}'`
+
+/**
+ * A table the newcomer never reads or writes (0096): every table with row level security but the few founding and
+ * invitations touch (`newcomerMay`). A migration that makes a table adds this with its `tenantTable`; `tenancy.test.ts`
+ * checks that every one has it.
+ */
+export const newcomerBlind = (table: string): string =>
+  `create policy ${table}_no_newcomer on ${table} as restrictive for all
+     using (${NOT_NEWCOMER}) with check (${NOT_NEWCOMER})`
+
+/** A newcomer's rows on one statement: none, any, or those a predicate names. */
+const newcomerRows = (rows: true | string | undefined) =>
+  rows === undefined ? NOT_NEWCOMER : rows === true ? "true" : `${NOT_NEWCOMER} or (${rows})`
+
+/**
+ * What the newcomer may do on one of the tables founding and invitations touch (0096): per statement, nothing (left
+ * out), any row the other policies let through (`true`), or the rows a predicate names. One restrictive policy per
+ * statement, so the table's other policies still hold.
+ */
+export const newcomerMay = (
+  table: (typeof NEWCOMER_TABLES)[number],
+  may: {
+    readonly select?: true | string
+    readonly insert?: true | string
+    readonly update?: true | string
+    readonly delete?: true | string
+  }
+): Array<string> => [
+  `create policy ${table}_newcomer_select on ${table} as restrictive for select using (${newcomerRows(may.select)})`,
+  `create policy ${table}_newcomer_insert on ${table} as restrictive for insert with check (${
+    newcomerRows(may.insert)
+  })`,
+  `create policy ${table}_newcomer_update on ${table} as restrictive for update
+       using (${newcomerRows(may.update)}) with check (${newcomerRows(may.update)})`,
+  `create policy ${table}_newcomer_delete on ${table} as restrictive for delete using (${newcomerRows(may.delete)})`
+]
+
+/**
+ * The statements that close one partition of a partitioned tenant table to direct use (0097): row level security on
+ * and forced, with no policy, so `insyte_app` naming the partition itself reads and writes nothing. A query through
+ * the parent is held to the parent's policies alone (Postgres does not apply a partition's own), so it sees what it
+ * did. Every partition gets these when it is made: the default ones, and each month's once the job that makes them
+ * lands (M18); `tenancy.test.ts` checks every partition has them.
+ */
+export const sealedPartition = (partition: string): Array<string> => [
+  `alter table ${partition} enable row level security`,
+  `alter table ${partition} force row level security`
 ]
 
 /** A supplier contact acting for its own supplier, whose rows `own` (a predicate over the table's columns) names. */

@@ -1,0 +1,167 @@
+{
+  "return.received": {
+    "props": {
+      "shop": "Northwind",
+      "customer": "Anna de Vries",
+      "number": "R-1042",
+      "kind": "return",
+      "orderNumber": "#1002",
+      "items": [
+        {
+          "title": "Linnen overhemd",
+          "variant": "M",
+          "qty": 1
+        }
+      ],
+      "portal": "northwind",
+      "portalUrl": "https://console.stage.example/retour/northwind",
+      "via": "portal",
+      "requested": "refund"
+    },
+    "subject": "We hebben je retour R-1042 ontvangen",
+    "html": "98d0c58e16eb0d5b669c191f5865b78c8b64f210565617200dbf4f7bae2e2dc9",
+    "text": "Northwind\n\nRetour ontvangen\n\nHallo Anna, we hebben je retour R-1042 ontvangen. We bekijken hem binnen twee werkdagen en laten je per mail weten wat er gebeurt.\n\nNummer         R-1042\nBestelling     #1002\nJe vraagt om   je geld terug\n\nArtikelen\n\n–1 × Linnen overhemd (M)\n\nNaar het retourportaal: https://console.stage.example/retour/northwind\n\nStuur nog niets op: je hoort eerst of de retour is goedgekeurd en hoe je hem verstuurt.\n\nJe krijgt deze mail omdat je bij Northwind iets terugstuurt of een probleem hebt gemeld.\n\nNorthwind · verstuurd met Insyte"
+  },
+  "return.approved": {
+    "props": {
+      "shop": "Northwind",
+      "customer": "Anna de Vries",
+      "number": "R-1042",
+      "kind": "return",
+      "orderNumber": "#1002",
+      "items": [
+        {
+          "title": "Linnen overhemd",
+          "variant": "M",
+          "qty": 1
+        }
+      ],
+      "portal": "northwind",
+      "portalUrl": "https://console.stage.example/retour/northwind",
+      "keepItem": false,
+      "address": "Northwind Retouren, Distributieweg 12, 3045 AB Rotterdam"
+    },
+    "subject": "Je retour R-1042 is goedgekeurd",
+    "html": "591bc2744c87b3dc03b0c7543d9bc175246d346aaa73e2a33f775e308a87b312",
+    "text": "Northwind\n\nGoedgekeurd\n\nHallo Anna, Northwind heeft je retour R-1042 goedgekeurd.\n\nPak het artikel goed in en stuur het terug. Zet het nummer R-1042 op of in het pakket, dan weten we meteen van wie het is.\n\nRetouradres\n\nNorthwind Retouren, Distributieweg 12, 3045 AB Rotterdam\n\nNummer       R-1042\nBestelling   #1002\n\nNaar het retourportaal: https://console.stage.example/retour/northwind\n\nKrijg je van ons een retourlabel? Dan komt dat in een aparte mail. Bewaar je verzendbewijs.\n\nJe krijgt deze mail omdat je bij Northwind iets terugstuurt of een probleem hebt gemeld.\n\nNorthwind · verstuurd met Insyte"
+  },
+  "return.rejected": {
+    "props": {
+      "shop": "Northwind",
+      "customer": "Anna de Vries",
+      "number": "R-1042",
+      "kind": "return",
+      "orderNumber": "#1002",
+      "items": [
+        {
+          "title": "Linnen overhemd",
+          "variant": "M",
+          "qty": 1
+        }
+      ],
+      "portal": "northwind",
+      "portalUrl": "https://console.stage.example/retour/northwind",
+      "reason": "Buiten de retourtermijn"
+    },
+    "subject": "Je retour R-1042 is niet goedgekeurd",
+    "html": "296a19029e41ab983f8a3b99721a56e026be72ffc7ffa8da73022662b4b930f2",
+    "text": "Northwind\n\nNiet goedgekeurd\n\nHallo Anna, Northwind kan je retour R-1042 niet goedkeuren. De reden:\n\n“Buiten de retourtermijn”\n\nNummer       R-1042\nBestelling   #1002\n\nNaar het retourportaal: https://console.stage.example/retour/northwind\n\nDenk je dat dit niet klopt? Neem dan contact op met Northwind en noem het nummer R-1042.\n\nJe krijgt deze mail omdat je bij Northwind iets terugstuurt of een probleem hebt gemeld.\n\nNorthwind · verstuurd met Insyte"
+  },
+  "return.label": {
+    "props": {
+      "shop": "Northwind",
+      "customer": "Anna de Vries",
+      "number": "R-1042",
+      "kind": "return",
+      "orderNumber": "#1002",
+      "items": [
+        {
+          "title": "Linnen overhemd",
+          "variant": "M",
+          "qty": 1
+        }
+      ],
+      "portal": "northwind",
+      "portalUrl": "https://console.stage.example/retour/northwind",
+      "label": {
+        "carrier": "PostNL",
+        "tracking": "3SRET1042"
+      }
+    },
+    "subject": "Je retourlabel voor R-1042",
+    "html": "00b0926fb58292644d92919e643c5f48096e4075e329e1bdd66fd086a37a821c",
+    "text": "Northwind\n\nJe retourlabel\n\nHallo Anna, het retourlabel voor je retour R-1042 zit als PDF bij deze mail.\n\n1\n\nPrint het label\n\nPlak het op het pakket, over oude labels heen.\n\n2\n\nBreng het weg\n\nLever het pakket in bij een punt van PostNL.\n\n3\n\nBewaar je bewijs\n\nHoud het verzendbewijs tot je retour is afgehandeld.\n\nVervoerder       PostNL\nTrackingnummer   3SRET1042\nNummer           R-1042\n\nNaar het retourportaal: https://console.stage.example/retour/northwind\n\nZodra we het pakket binnen hebben en hebben bekeken, hoor je wat je krijgt.\n\nJe krijgt deze mail omdat je bij Northwind iets terugstuurt of een probleem hebt gemeld.\n\nNorthwind · verstuurd met Insyte"
+  },
+  "return.resolved": {
+    "props": {
+      "shop": "Northwind",
+      "customer": "Anna de Vries",
+      "number": "R-1042",
+      "kind": "return",
+      "orderNumber": "#1002",
+      "items": [
+        {
+          "title": "Linnen overhemd",
+          "variant": "M",
+          "qty": 1
+        }
+      ],
+      "portal": "northwind",
+      "portalUrl": "https://console.stage.example/retour/northwind",
+      "resolution": {
+        "kind": "gift_card",
+        "amountMinor": 5495,
+        "currency": "EUR",
+        "code": "K7QMW2XR9PTB4HNA",
+        "order": null
+      }
+    },
+    "subject": "Je retour R-1042 is afgehandeld",
+    "html": "ab9530d7ef99982cbb09e45f767a75b6c450d42a04516036da860aab56c216d3",
+    "text": "Northwind\n\nAfgehandeld\n\nHallo Anna, Northwind heeft je retour R-1042 afgehandeld.\n\nJe krijgt een cadeaubon van € 54,95. Gebruik de code hieronder bij je volgende bestelling.\n\nCadeaubon    K7QMW2XR9PTB4HNA\nNummer       R-1042\nBestelling   #1002\n\nNaar het retourportaal: https://console.stage.example/retour/northwind\n\nVragen? Neem contact op met Northwind en noem het nummer R-1042.\n\nJe krijgt deze mail omdat je bij Northwind iets terugstuurt of een probleem hebt gemeld.\n\nNorthwind · verstuurd met Insyte"
+  },
+  "order.delayed": {
+    "props": {
+      "shop": "Northwind",
+      "number": "#1003",
+      "subject": "Je bestelling #1003 is later dan verwacht",
+      "paragraphs": [
+        "Hallo Anna,",
+        "Je bestelling #1003 bij Northwind is later dan verwacht. We verwachten hem nu op dinsdag 18 november bij je.",
+        "Het gaat om 1 × Linnen overhemd (M).",
+        "Je hoeft niets te doen. Heb je een vraag, neem dan contact op met de winkel en noem je bestelnummer."
+      ],
+      "items": [
+        {
+          "title": "Linnen overhemd",
+          "variant": "M",
+          "qty": 1
+        }
+      ]
+    },
+    "subject": "Je bestelling #1003 is later dan verwacht",
+    "html": "d070a270c0d8542db985ee5742e2a9e42cae75e713db3462ad5d72440bd5a1e5",
+    "text": "Northwind\n\nLater dan verwacht\n\nHallo Anna, Je bestelling #1003 bij Northwind is later dan verwacht. We verwachten hem nu op dinsdag 18 november bij je.\n\nBestelling   #1003\n\nHet gaat om 1 × Linnen overhemd (M).\n\nJe hoeft niets te doen. Heb je een vraag, neem dan contact op met de winkel en noem je bestelnummer.\n\nJe krijgt deze mail omdat je bij Northwind iets hebt besteld.\n\nNorthwind · verstuurd met Insyte"
+  },
+  "order.message": {
+    "props": {
+      "shop": "Northwind",
+      "number": "#1003",
+      "subject": "Je bestelling #1003 is onderweg",
+      "paragraphs": [
+        "Hallo Anna,",
+        "Je bestelling #1003 bij Northwind is onderweg met PostNL.",
+        "Met het track & trace-nummer volg je het pakket tot het bij je is.",
+        "Heb je een vraag, neem dan contact op met de winkel en noem je bestelnummer."
+      ],
+      "tracking": {
+        "carrier": "PostNL",
+        "number": "3SABCD1234567",
+        "url": null
+      }
+    },
+    "subject": "Je bestelling #1003 is onderweg",
+    "html": "a288a22c11d0a87efa857f936b71bbe4e20883effc6ba215f18f3048433bcd7d",
+    "text": "Northwind\n\nJe bestelling is onderweg\n\nHallo Anna, Je bestelling #1003 bij Northwind is onderweg met PostNL.\n\nBestelling      #1003\nVervoerder      PostNL\nTrack & trace   3SABCD1234567\n\nMet het track & trace-nummer volg je het pakket tot het bij je is.\n\nHeb je een vraag, neem dan contact op met de winkel en noem je bestelnummer.\n\nJe krijgt deze mail omdat je bij Northwind iets hebt besteld.\n\nNorthwind · verstuurd met Insyte"
+  }
+}

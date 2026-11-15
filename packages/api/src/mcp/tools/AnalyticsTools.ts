@@ -2,7 +2,7 @@ import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import { InvalidRequestV1, ScopeMissingV1 } from "../../http/Errors.ts"
 import { AnalyticsFiguresV1, AnalyticsOverviewV1 } from "../../http/groups/AnalyticsGroup.ts"
-import { asKey } from "../Shared.ts"
+import { asKey, Needs, read } from "../Shared.ts"
 
 /* Analyse (M19.3): one month against another; and INSYTE()'s figures (M14 step 4). */
 
@@ -16,7 +16,7 @@ export const GetAnalyticsOverview = Tool.make("get_analytics_overview", {
   success: AnalyticsOverviewV1,
   failure: Schema.Union([ScopeMissingV1, InvalidRequestV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("analytics")])
 
 export const GetFigures = Tool.make("get_figures", {
   description:
@@ -30,7 +30,7 @@ export const GetFigures = Tool.make("get_figures", {
   success: AnalyticsFiguresV1,
   failure: Schema.Union([ScopeMissingV1, InvalidRequestV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("analytics")])
 
 export const AnalyticsTools = Toolkit.make(
   GetAnalyticsOverview,

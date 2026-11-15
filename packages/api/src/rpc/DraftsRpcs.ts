@@ -59,7 +59,7 @@ export class DraftsRpcs extends RpcGroup.make(
   Rpc.make("Drafts.knowledgeAnswer", {
     payload: KnowledgeAnswerInput,
     success: KnowledgeAnswer,
-    error: Schema.Union([Forbidden, ModelUnavailable])
+    error: Schema.Union([Forbidden, NotFound, Invalid, BudgetExceeded, AiRateLimited, ModelUnavailable])
   })
 )
   .middleware(Member)

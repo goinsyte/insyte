@@ -20,6 +20,7 @@ import { AsyncResult } from "effect/reactivity"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { DATA, dataWrites, importRowsAtom, NO_ROWS } from "../data/data.ts"
+import { fetchInTab } from "../data/tab-workspace.ts"
 import { failureOf, type RefusalCopy, sayRefusal, useGate } from "../frame/refusals.ts"
 import { orderOf } from "../orders/orders-source.ts"
 
@@ -268,7 +269,7 @@ export function useConsoleDataSource(input: {
     setRead(null)
     setReading({ fileName: file.name })
     void (async () => {
-      const response = await fetch("/api/data/imports", {
+      const response = await fetchInTab("/api/data/imports", {
         method: "PUT",
         headers: { "content-type": file.type || "text/csv", "x-file-name": encodeURIComponent(file.name) },
         body: file

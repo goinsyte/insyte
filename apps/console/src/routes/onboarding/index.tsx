@@ -24,8 +24,10 @@ import { toast } from "sonner"
 import { autonomyAtom } from "../../data/agent.ts"
 import { firstAnalysisAtom } from "../../data/first-analysis.ts"
 import { advanceOnboardingAtom, ONBOARDING, onboardingMeAtom } from "../../data/onboarding.ts"
+import { sessionMeAtom } from "../../data/session.ts"
 import { storesAtom, syncStatusAtom } from "../../data/stores.ts"
 import { AnalysisLive, ConsoleReadyCard, useConsoleAnalysis } from "../../onboarding/analysis.tsx"
+import { ORGANIZATION_STEP, useAnotherWorkspace } from "../../onboarding/another-workspace.ts"
 import { OFFLINE_WAIT_MS, type OfflineReady, offlineReady } from "../../onboarding/offline-ready.ts"
 import { LiveUpdates } from "../../realtime/live-updates.tsx"
 import { useBeginConnect } from "../../stores/begin-connect.ts"
@@ -48,11 +50,20 @@ import { notConnected } from "../../stores/stores-source.tsx"
 export const Route = createFileRoute("/onboarding/")({
   validateSearch: search,
   head: () => ({ meta: [{ title: "Aan de slag · Insyte" }] }),
-  loader: async ({ context }) => {
+  loaderDeps: ({ search: { workspace } }) => ({ workspace }),
+  loader: async ({ context, deps }) => {
     // Mounted so the value survives until the registry is dehydrated into the document.
     context.registry.mount(onboardingMeAtom)
     const me = await Effect.runPromise(Effect.option(AtomRegistry.getResult(context.registry, onboardingMeAtom)))
-    if (Option.isSome(me) && me.value.completed) throw redirect({ to: "/dashboard" })
+    // Done with onboarding: Start, unless they are here for one more workspace ("Nieuwe werkruimte", M3.1), or have
+    // none left to go to (they left every one), when the organisation step is where they go on.
+    if (Option.isSome(me) && me.value.completed && deps.workspace !== "new") {
+      const session = await Effect.runPromise(Effect.option(AtomRegistry.getResult(context.registry, sessionMeAtom)))
+      const none = Option.isSome(session) && !session.value.principals.some((p) => p.kind === "member")
+      throw none
+        ? redirect({ to: "/onboarding", search: { step: 3, workspace: "new" } })
+        : redirect({ to: "/dashboard" })
+    }
     // The sync step reads the store it imports: in the document too.
     if (Option.isSome(me) && me.value.step === "sync") {
       context.registry.mount(storesAtom)
@@ -161,21 +172,25 @@ const NOT_YET: StepDef = {
 }
 
 function ConsoleOnboarding() {
-  const { step, connected, error } = Route.useSearch()
+  const { step, connected, error, workspace } = Route.useSearch()
   // Shopify's way back, as the page arrived: the address is rewritten to the step at once.
   const arrival = useRef({ connected, error })
   const navigate = Route.useNavigate()
   const me = useAtomValue(onboardingMeAtom)
   const server = AsyncResult.isSuccess(me) ? me.value : undefined
   const advance = useAtomSet(advanceOnboardingAtom, { mode: "promiseExit" })
+  // One more workspace for someone whose onboarding is done: the organisation step again, then the rest of the track
+  // for the new workspace, which the server resumes on its own row.
+  const another = workspace === "new" && server?.completed === true
+  const more = useAnotherWorkspace()
   const state = useOnboardingState({
-    persona: server?.answers.persona ?? null,
-    stepIndex: server?.index ?? step ?? 0
+    persona: another ? "admin" : server?.answers.persona ?? null,
+    stepIndex: another ? ORGANIZATION_STEP : server?.index ?? step ?? 0
   })
 
   // The server decides where a signed-in person is: on arrival, and after every step it records.
   useEffect(() => {
-    if (server === undefined) return
+    if (server === undefined || another) return
     const persona = server.answers.persona ?? null
     if (persona !== state.persona) state.resumeTo(persona, server.index)
     else if (server.index !== state.stepIndex) state.setStepIndex(server.index)
@@ -184,8 +199,11 @@ function ConsoleOnboarding() {
 
   // The step in the address, so the back button and a shared link land where the person was.
   useEffect(() => {
-    void navigate({ search: { step: state.stepIndex }, replace: true })
-  }, [navigate, state.stepIndex])
+    void navigate({
+      search: another ? { step: state.stepIndex, workspace: "new" } : { step: state.stepIndex },
+      replace: true
+    })
+  }, [navigate, state.stepIndex, another])
 
   const head = sharedHeadSteps({
     data: state.data,
@@ -234,7 +252,7 @@ function ConsoleOnboarding() {
     ? []
     : state.persona === "admin"
     ? [
-      organizationStep({ data, patch, next, onCreate: create }),
+      organizationStep({ data, patch, next, onCreate: another ? more.create : create }),
       planStep({
         data,
         patch,
@@ -357,9 +375,11 @@ function ConsoleOnboarding() {
       persona={state.persona}
       steps={steps}
       stepIndex={state.stepIndex}
-      onBack={() => state.back()}
+      onBack={() => (another ? void navigate({ to: "/dashboard" }) : state.back())}
       onChangeRole={() => state.setStepIndex(2)}
       onExit={async () => {
+        // Someone with another workspace goes back to it rather than signing out.
+        if (await more.leaveToAnother(another)) return
         // Leaving the flow signs out: there is nothing else to go to yet. No reset first: the step would be written back
         // into the address over this navigation, and leaving the route drops the state anyway.
         await authClient.signOut()

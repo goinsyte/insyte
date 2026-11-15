@@ -12,7 +12,9 @@ type Of<E> = (id: string, event: E) => ProductEvent | undefined
 const none = (): undefined => undefined
 
 /** Handling an order in Insyte is an activation moment (M7): counted by what was done and to how many. */
-const orderHandled: Of<EventOf<"order.updated" | "order.cancelled" | "refund.requested">> = (id, event) =>
+const orderHandled: Of<
+  EventOf<"order.updated" | "order.cancelled" | "refund.requested" | "order.draft_created">
+> = (id, event) =>
   // A supplier's own parcel (M8.3) is not a person handling an order.
   event.userId.startsWith("supplier:") ? undefined : {
     outboxId: id,
@@ -24,6 +26,8 @@ const orderHandled: Of<EventOf<"order.updated" | "order.cancelled" | "refund.req
         ? "cancel"
         : event.type === "refund.requested"
         ? "refund"
+        : event.type === "order.draft_created"
+        ? "draft"
         : event.change,
       count: event.orderIds.length
     }
@@ -107,6 +111,7 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
       properties: { plan: event.plan ?? "unknown", cycle: event.cycle ?? "unknown" }
     },
   "product.updated": none,
+  "product.created": none,
   "customer.updated": none,
   "customer.created": none,
   // A return's mails and its Shopify side are not a person's moment; starting and settling one are counted elsewhere.
@@ -179,6 +184,10 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
   "order.updated": orderHandled,
   "order.cancelled": orderHandled,
   "refund.requested": orderHandled,
+  "order.draft_created": orderHandled,
+  // Removing a draft, and Shopify refusing one or a product, are not a person's moment; making a product is the edit's.
+  "order.draft_removed": none,
+  "shopify.create_refused": none,
   // Tickets, chats, courses, the inbox's queued mail and sheets: not product events.
   "ticket.assigned": none,
   "ticket.mentioned": none,
@@ -190,10 +199,13 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
   "course.answered": none,
   "thread.message_queued": none,
   "sheet.changed": none,
+  // A chapter's publication is the jobs Worker's cue to embed it (`Relay.ts`), not a product event.
+  "knowledge.published": none,
   "supplier.problem_reported": none,
   "supplier.shipment_refused": none,
   "partner.changed": none,
-  "supplier.contact_revoked": none
+  "supplier.contact_revoked": none,
+  "member.access_ended": none
 }
 
 const productEventOf = (id: string, event: OutboxEvent): ProductEvent | undefined =>

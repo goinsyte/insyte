@@ -9,6 +9,7 @@ import type { SqlClient } from "effect/sql"
  * the orders that are theirs or carry their address (plus any the caller names). What: their personal fields emptied
  * wherever the slices keep them (the customer, the orders and their notes and mails, a supplier's note on their parcel,
  * returns and their shopper events, chargebacks and their evidence, tickets and comments, mail threads and messages,
+ * the questions of theirs the knowledge base could not answer,
  * earlier requests about them and their packages), the files that hold them marked deleted (the caller removes them
  * from the bucket after the commit), then every text left in the workspace, the log and the chat included, scrubbed of
  * their address, name and phone (`scrub_workspace`, 0076). That last pass reaches the Data hub's imported rows (0073)
@@ -156,7 +157,7 @@ export const eraseShopper = (sql: SqlClient.SqlClient, seeds: ShopperSeeds) =>
     fileIds.push(...returnFiles.map((f) => f.id))
 
     const chargebacks = yield* sql<{ id: string }>`
-      update chargebacks set customer_name = '', raw = null, note = ''
+      update chargebacks set customer_name = '[verwijderd]', raw = null, note = ''
       where customer_id = any(${ids}::text[]) or order_id = any(${orderIds}::text[])
       returning id`
     const chargebackIds = chargebacks.map((c) => c.id)
@@ -201,6 +202,10 @@ export const eraseShopper = (sql: SqlClient.SqlClient, seeds: ShopperSeeds) =>
     yield* sql`update email_threads set subject = '[verwijderd]', participants = '[]'::jsonb,
                  last_message_preview = ''
                where id = any(${threadIds}::text[])`
+    // Kennisbank's questions nothing answered yet (0099): their words and the first name beside them.
+    yield* sql`update knowledge_gaps set question = '[verwijderd]', question_key = 'verwijderd ' || id,
+                 customer_label = ''
+               where thread_id = any(${threadIds}::text[]) or ticket_id = any(${tickets.map((t) => t.id)}::text[])`
     const attachments = yield* sql<{ id: string }>`
       select id from files where owner_type = 'email_message' and owner_id = any(${messageIds}::text[])
         and deleted_at is null`

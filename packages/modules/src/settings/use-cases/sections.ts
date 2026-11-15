@@ -4,6 +4,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
+import { SHIP_STATUSES } from "../../shared/domain/CustomerFacing.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import {
@@ -26,7 +27,6 @@ import {
   RetentionValue,
   type SaveSection,
   type SettingsSectionId,
-  SHIP_STATUSES,
   ShippingValue,
   VAT_CURRENCIES,
   type VatStore,
@@ -304,6 +304,13 @@ export const writeSection = Effect.fn("WorkspaceSettings.writeSection")(function
     yield* sql`update workspace_settings set value = ${json}::jsonb, version = version + 1, updated_by = ${principal.id},
                  updated_at = now()
                where section = ${section}`
+  }
+  // A logo saved at Huisstijl, now or by an undo, is the shop's to show anyone from now on, and stays so for the mails
+  // that carried it (`files.published_at`, read by `GET /api/brand/…`).
+  const logo = section === "brand" ? (next as { readonly logoFileId?: unknown }).logoFileId : undefined
+  if (typeof logo === "string") {
+    yield* sql`update files set published_at = coalesce(published_at, now())
+               where id = ${logo} and kind = 'logo' and deleted_at is null`
   }
   for (const c of changes(section, before, next)) {
     yield* Audit.write(sql, principal.workspaceId, { kind: principal.kind, id: principal.id }, {

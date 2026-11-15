@@ -16,43 +16,9 @@ import { useWorkspace } from "../../stores/workspace-store";
  * leading slash command, or a mentioned record, and says plainly when it has nothing to go on.
  */
 
-export type RefKind = "order" | "chargeback" | "ticket" | "customer" | "supplier" | "store";
-export type Token = { t: string } | { ref: string; to: string; kind: RefKind };
-
-export type ProposalAction =
-	| { kind: "file-queue"; queueId: string; label: string }
-	| { kind: "supplier-ticket"; supplier: string; orders: ReadonlyArray<string> }
-	| { kind: "send-reply"; to: string; body: string }
-	| { kind: "open"; to: string };
-
-export type Proposal = {
-	title: string;
-	body: string;
-	/** 0–100. Shown as a measured bar, never as a bare percentage. */
-	confidence: number;
-	why: string;
-	fileLabel: string;
-	action: ProposalAction;
-};
-
-export type Source = { kind: RefKind | "queue"; title: string; detail: string; to: string };
-export type Tool = { verb: string; object: string };
-
-export type Script = {
-	steps: ReadonlyArray<string>;
-	tools: ReadonlyArray<Tool>;
-	answer: ReadonlyArray<Token>;
-	sources: ReadonlyArray<Source>;
-	proposal?: Proposal;
-	followUps: ReadonlyArray<string>;
-};
-
-export const COMMANDS: ReadonlyArray<{ name: string; hint: string; prompt: string }> = [
-	{ name: "samenvatten", hint: "Wat vandaag op jou wacht", prompt: "Vat de open zaken van vandaag samen" },
-	{ name: "vertragingen", hint: "Bestellingen die te laat dreigen te komen", prompt: "Welke bestellingen dreigen te laat te komen?" },
-	{ name: "opstellen", hint: "Een antwoord aan een klant", prompt: "Stel een antwoord op aan Daniel over zijn vertraagde levering" },
-	{ name: "chargebacks", hint: "Zaken die op bewijs wachten", prompt: "Welke chargebacks hebben bewijs nodig?" },
-];
+export { COMMANDS, plainOf } from "./types";
+export type { Proposal, ProposalAction, RefKind, Script, Source, Token, Tool } from "./types";
+import { COMMANDS, type RefKind, type Script, type Token } from "./types";
 
 /** `[[label|/to|kind]]` in a sentence becomes a record chip; the rest is words. */
 function say(text: string): Token[] {

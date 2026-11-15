@@ -1,6 +1,7 @@
 import { AccessRpcs } from "./rpc/AccessRpcs.ts"
 import { AgentRpcs } from "./rpc/AgentRpcs.ts"
 import { AnalyticsRpcs } from "./rpc/AnalyticsRpcs.ts"
+import { AskRpcs } from "./rpc/AskRpcs.ts"
 import { AuditRpcs } from "./rpc/AuditRpcs.ts"
 import { AutomationsRpcs } from "./rpc/AutomationsRpcs.ts"
 import { BillingRpcs } from "./rpc/BillingRpcs.ts"
@@ -15,6 +16,7 @@ import { DraftsRpcs } from "./rpc/DraftsRpcs.ts"
 import { FirstAnalysisRpcs } from "./rpc/FirstAnalysisRpcs.ts"
 import { ForwardingRpcs } from "./rpc/ForwardingRpcs.ts"
 import { HomeRpcs } from "./rpc/HomeRpcs.ts"
+import { KnowledgeRpcs } from "./rpc/KnowledgeRpcs.ts"
 import { InvitationRpcs, LandingRpcs } from "./rpc/LandingRpcs.ts"
 import { LiveRpcs } from "./rpc/LiveRpcs.ts"
 import { MarketingRpcs } from "./rpc/MarketingRpcs.ts"
@@ -44,7 +46,7 @@ import { ThreadsRpcs } from "./rpc/ThreadsRpcs.ts"
 import { TicketsRpcs } from "./rpc/TicketsRpcs.ts"
 import { TrackingRpcs } from "./rpc/TrackingRpcs.ts"
 import { TrashRpcs } from "./rpc/TrashRpcs.ts"
-import { WorkspacesRpcs } from "./rpc/WorkspacesRpcs.ts"
+import { WorkspaceChoiceRpcs, WorkspacesRpcs } from "./rpc/WorkspacesRpcs.ts"
 
 /** Where the console calls every RPC. The client and the server name the same path. */
 export const RPC_PATH = "/api/rpc/v1"
@@ -82,6 +84,7 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(AnalyticsRpcs)
   .merge(ProposalsRpcs)
   .merge(WorkspacesRpcs)
+  .merge(WorkspaceChoiceRpcs)
   .merge(ChatsRpcs)
   .merge(AutomationsRpcs)
   .merge(RunsRpcs)
@@ -98,3 +101,5 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(DataRpcs)
   .merge(AgentRpcs)
   .merge(DraftsRpcs)
+  .merge(AskRpcs)
+  .merge(KnowledgeRpcs)

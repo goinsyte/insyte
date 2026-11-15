@@ -1,6 +1,8 @@
 import { NotFound } from "@insyte/domain/Errors"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import { parcelStatusOf } from "../../shared/domain/CustomerFacing.ts"
+import * as CustomerFacing from "../../shared/use-cases/CustomerFacing.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import { firstName } from "../domain/Guards.ts"
 import type { ReplyContext, ReplyMessage, ReplyOrder } from "../prompts/reply.ts"
@@ -65,21 +67,35 @@ const ordersOf = Effect.fn("Ai.ordersOf")(function*(
     carrier: string | null
     trackingNumber: string | null
     deliveredAt: Date | null
+    tracked: string | null
+    stage: string | null
+    shopify: string | null
+    shipped: boolean
   }>`
-    select o.number, o.status, o.placed_at, f.carrier, f.tracking_number, f.delivered_at
+    select o.number, o.status, o.placed_at, f.carrier, f.tracking_number, f.delivered_at, d.status as tracked, d.stage,
+           f.tracking_status as shopify, f.id is not null as shipped
     from orders o
-    left join lateral (select carrier, tracking_number, delivered_at from fulfilments
+    left join lateral (select id, carrier, tracking_number, delivered_at, tracking_status from fulfilments
                        where order_id = o.id order by shipped_at desc nulls last limit 1) f on true
+    left join deliveries d on d.fulfilment_id = f.id
     where not o.is_draft and (o.id = ${ids.orderId} or o.customer_id = ${ids.customerId}) and ${scope}
     order by (o.id = ${ids.orderId}) desc nulls last, o.placed_at desc limit 3`
   const day = dayIn(tz)
+  // The parcel's status as the shop words it for the customer (Verzending), where it shows at all.
+  const worded = yield* CustomerFacing.wordings(sql)
+  const parcelOf = (r: (typeof rows)[number]) => {
+    if (!r.shipped) return null
+    const w = worded(parcelStatusOf(r.tracked, r.shopify, r.stage), r.carrier)
+    return w.show === "hidden" ? null : w.text
+  }
   return rows.map((r): ReplyOrder => ({
     number: r.number,
     status: STATUS[r.status] ?? r.status,
     placedOn: day(r.placedAt) ?? "",
     carrier: r.carrier,
     trackingNumber: r.trackingNumber,
-    deliveredOn: day(r.deliveredAt)
+    deliveredOn: day(r.deliveredAt),
+    parcel: parcelOf(r)
   }))
 })
 
@@ -90,7 +106,7 @@ const brandOf = (sql: SqlClient.SqlClient, customerId: string | null, workspace:
   )
 
 export interface ThreadFacts {
-  readonly context: Omit<ReplyContext, "rewrite">
+  readonly context: Omit<ReplyContext, "rewrite" | "knowledge">
   /** When the last inbound message arrived: a draft older than it answers an earlier question. */
   readonly lastInboundAt: number | null
 }
@@ -173,7 +189,7 @@ export const ticketFacts = Effect.fn("Ai.ticketFacts")(function*(sql: SqlClient.
       text: cut(m.bodyText)
     })),
     orders: yield* ordersOf(sql, { orderId: t.orderId, customerId: t.customerId }, tz)
-  } satisfies Omit<ReplyContext, "rewrite">
+  } satisfies Omit<ReplyContext, "rewrite" | "knowledge">
 })
 
 /** A ticket as its summary reads it: everything the team wrote on it too, newest last. */

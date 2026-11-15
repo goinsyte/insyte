@@ -52,7 +52,7 @@ describe("the MCP server", () => {
   let agent = { id: "", secret: "" }
   let narrow = ""
 
-  it("lists the tools to an agent's key", async () => {
+  it("lists the tools to a key, and to an agent's key those it may call", async () => {
     owner = await person("mcp-owner", "Agenten B.V.")
     const made = ok(
       await rpc("ApiKeys.create", {
@@ -76,12 +76,24 @@ describe("the MCP server", () => {
       }, owner.cookie)
     ).secret
 
-    const listed = await mcp(agent.secret, "tools/list")
+    // A script's key that may do everything a key may is named the whole catalogue (M19.3: per key, `tools/list`).
+    const full = ok(
+      await rpc("ApiKeys.create", {
+        label: "Alles",
+        access: { kind: "role", roleId: "admin" },
+        stores: "all",
+        expiresInDays: 30,
+        ips: [],
+        agent: false
+      }, owner.cookie)
+    ).secret
+    const listed = await mcp(full, "tools/list")
     expect(listed.status).toBe(200)
     const tools = listed.message.result.tools as Array<{ name: string; annotations?: { readOnlyHint?: boolean } }>
     expect(tools.map((t) => t.name).toSorted()).toEqual([
       "add_return_tracking",
       "approve_return",
+      "ask_insyte",
       "assign_ticket",
       "cancel_order",
       "clear_order_delay",
@@ -113,6 +125,7 @@ describe("the MCP server", () => {
       "list_exports",
       "list_forwarding",
       "list_imports",
+      "list_knowledge",
       "list_low_stock",
       "list_members",
       "list_orders",
@@ -129,6 +142,7 @@ describe("the MCP server", () => {
       "reject_return",
       "reroute_leg",
       "resolve_return",
+      "search_knowledge",
       "send_return_label",
       "set_order_note",
       "set_ticket_status",
@@ -139,6 +153,25 @@ describe("the MCP server", () => {
       "update_ticket",
       "whoami"
     ])
+    // The agent's key, which only reads: every read, and the writes it may ask a person for (a proposal), not the ones
+    // refused to agents.
+    const refused = [
+      "add_return_tracking",
+      "clear_order_delay",
+      "email_order_customer",
+      "flag_order_delayed",
+      "inspect_return",
+      "receive_return",
+      "reject_return",
+      "reroute_leg",
+      "start_return",
+      "trigger_automation",
+      "update_shipping_address"
+    ]
+    const agents = await mcp(agent.secret, "tools/list")
+    expect((agents.message.result.tools as Array<{ name: string }>).map((t) => t.name).toSorted()).toEqual(
+      tools.map((t) => t.name).filter((n) => !refused.includes(n)).toSorted()
+    )
     // The reads say they only read; cancelling and refunding say they cannot be taken back (M7).
     const hints = Object.fromEntries(tools.map((t) => [t.name, t.annotations as Record<string, boolean> | undefined]))
     for (
@@ -174,7 +207,10 @@ describe("the MCP server", () => {
         "get_sheet",
         "list_imports",
         "list_exports",
-        "get_export"
+        "get_export",
+        "ask_insyte",
+        "list_knowledge",
+        "search_knowledge"
       ]
     ) {
       expect(hints[read]?.["readOnlyHint"]).toBe(true)

@@ -1,5 +1,6 @@
 import { Toolkit } from "effect/ai"
 import { AnalyticsTools } from "./tools/AnalyticsTools.ts"
+import { AskToolkit } from "./tools/AskTools.ts"
 import { AutomationsTools } from "./tools/AutomationsTools.ts"
 import { ChargebacksTools } from "./tools/ChargebacksTools.ts"
 import { CommerceTools } from "./tools/CommerceTools.ts"
@@ -8,6 +9,7 @@ import { CostsTools } from "./tools/CostsTools.ts"
 import { DataTools } from "./tools/DataTools.ts"
 import { ForwardingTools } from "./tools/ForwardingTools.ts"
 import { KeyTools } from "./tools/KeyTools.ts"
+import { KnowledgeTools } from "./tools/KnowledgeTools.ts"
 import { OrdersTools } from "./tools/OrdersTools.ts"
 import { ProposalsTools } from "./tools/ProposalsTools.ts"
 import { QueueTools } from "./tools/QueueTools.ts"
@@ -33,6 +35,7 @@ export const InsyteTools = Toolkit.merge(
   ForwardingTools,
   AnalyticsTools,
   SheetsTools,
+  KnowledgeTools,
   QueueTools,
   ProposalsTools,
   ReturnsTools,
@@ -41,5 +44,6 @@ export const InsyteTools = Toolkit.merge(
   ChargebacksTools,
   CostsTools,
   ConnectionsTools,
-  DataTools
+  DataTools,
+  AskToolkit
 )

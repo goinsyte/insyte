@@ -213,7 +213,7 @@ export function StoreSelector({
 							className="h-8 gap-2.5 px-2"
 							onClick={() => {
 								team.setCreatingWorkspace(true);
-								void navigate({ to: "/onboarding", search: { persona: "admin", step: 3 } });
+								void navigate({ to: "/onboarding", search: { persona: "admin", step: 3, workspace: "new" } });
 							}}
 						>
 							<Plus />

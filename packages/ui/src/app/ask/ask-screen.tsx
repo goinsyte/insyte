@@ -1,11 +1,9 @@
 import { MessageSquare, Plus, Sparkle, Trash2 } from "../../icons";
 import { Link } from "@tanstack/react-router";
-import { useAgentEntries } from "../stores/agent-log-store";
 import { InsyteMark, SourceList } from "./parts";
 import { Thread } from "./thread";
-import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { useAsk } from "../stores/ask-store";
+import { useAskSource } from "./ask-source";
 
 /**
  * Ask Insyte, full page: conversations on the left, the thread in the middle at a reading measure,
@@ -13,14 +11,8 @@ import { useAsk } from "../stores/ask-store";
  * shows; the page is where an operator works a longer question through.
  */
 export function AskPage() {
-	const conversations = useAsk((s) => s.conversations);
-	const active = useAsk((s) => s.active);
-	const open = useAsk((s) => s.open);
-	const start = useAsk((s) => s.start);
-	const remove = useAsk((s) => s.remove);
-	const conv = conversations.find((c) => c.id === active);
-	const actions = useAgentEntries().length;
-	const last = [...(conv?.turns ?? [])].reverse().find((t) => t.role === "assistant");
+	const { conversations, active, open, start, remove, turns, note, actions = 0 } = useAskSource();
+	const last = [...(turns ?? [])].reverse().find((t) => t.role === "assistant");
 	const settled = last?.role === "assistant" && last.settled ? last : undefined;
 
 	return (
@@ -60,10 +52,7 @@ export function AskPage() {
 						<button
 							type="button"
 							aria-label={`“${c.title}” verwijderen`}
-							onClick={() => {
-								remove(c.id);
-								undoable("Gesprek verwijderd", () => useAsk.setState((s) => ({ conversations: [c, ...s.conversations] })));
-							}}
+							onClick={() => remove(c.id)}
 							className="absolute top-1.5 right-1.5 hidden size-5 cursor-pointer items-center justify-center rounded-sm text-ink-3 hover:bg-ink/8 hover:text-ink group-hover/conv:flex"
 						>
 							<Trash2 className="size-3" strokeWidth={1.75} />
@@ -97,7 +86,8 @@ export function AskPage() {
 					</div>
 				) : null}
 				<p className="mt-auto text-xs text-ink-3 leading-relaxed">
-					Antwoorden in deze demo zijn gescript op basis van de werkruimte op het scherm. Een voorstel uitvoeren wijzigt de werkruimte, met Ongedaan maken.
+					{note ??
+						"Antwoorden in deze demo zijn gescript op basis van de werkruimte op het scherm. Een voorstel uitvoeren wijzigt de werkruimte, met Ongedaan maken."}
 				</p>
 			</aside>
 		</div>

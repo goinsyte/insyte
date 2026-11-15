@@ -1,4 +1,5 @@
 import { restoreAutonomy, restoreBudgets } from "@insyte/modules/agent/Agent"
+import { restore as restoreAsk } from "@insyte/modules/ask/Ask"
 import { restore as restoreAutomations } from "@insyte/modules/automations/use-cases/commands"
 import { restore as restoreChargebacks } from "@insyte/modules/chargebacks/Chargebacks"
 import { restore as restoreChats } from "@insyte/modules/chats/use-cases/commands"
@@ -10,6 +11,7 @@ import { restore as restoreWebhooks } from "@insyte/modules/developer/use-cases/
 import { restore as restoreForwarding } from "@insyte/modules/forwarding/use-cases/commands"
 import { ThreadTickets } from "@insyte/modules/inbox/domain/Ports"
 import { restore as restoreInbox } from "@insyte/modules/inbox/use-cases/commands"
+import { restore as restoreKnowledge, restoreGap as restoreKnowledgeGap } from "@insyte/modules/knowledge/Knowledge"
 import { restore as restoreMarketing } from "@insyte/modules/marketing/use-cases/klaviyo"
 import { AppKeys } from "@insyte/modules/marketplace/domain/Ports"
 import { rescope as rescopeApp, restore as restoreApp } from "@insyte/modules/marketplace/use-cases/marketplace"
@@ -67,8 +69,11 @@ export const compensations: Record<string, Compensation> = {
   "retention.restore": restoreErasing,
   "webhooks.restore": restoreWebhooks,
   "sheets.restore": restoreSheets,
+  "knowledge.restore": restoreKnowledge,
+  "knowledge_gaps.restore": restoreKnowledgeGap,
   "data.restore": restoreData,
   "courses.restore": restoreCourses,
+  "ask.restore": restoreAsk,
   "marketplace.restore": (sql, compensation) =>
     restoreApp(sql, compensation).pipe(Effect.provideService(AppKeys, undoKeys)),
   "marketplace.rescope": (sql, compensation) =>

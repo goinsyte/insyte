@@ -36,7 +36,8 @@ export const EXCLUDED: Readonly<Partial<Record<TenantTable, string>>> = {
   inbound_events: "webhooks as received, applied to the tables that are exported",
   push_subscriptions: "a browser's push address and keys",
   sync_cursors: "where an import left off",
-  fact_dirty_days: "days the figures still have to be counted again"
+  fact_dirty_days: "days the figures still have to be counted again",
+  knowledge_chunks: "the published chapters cut into pieces for the search; the chapters are in knowledge_versions"
 }
 
 /** The tenant tables an export holds, in the catalogue's order. */
@@ -209,6 +210,30 @@ const SHOPPER_PARTS: ReadonlyArray<readonly [string, string]> = [
          or (t.subject_type = 'ticket' and t.subject_id in ${BY_TICKET})
          or (t.subject_type = 'chargeback' and t.subject_id in
                (select c.id from chargebacks c where c.customer_id = any($1::text[]) or c.order_id in ${BY_ORDER}))`
+  ],
+  // A question of theirs the knowledge base could not answer (0099), from their thread or ticket.
+  [
+    "knowledge_gaps",
+    `select to_jsonb(t)::text as row from knowledge_gaps t
+      where t.thread_id in ${BY_THREAD} or t.ticket_id in ${BY_TICKET}`
+  ],
+  // What Vraag Insyte answered about them (0098): an answer that named their order, return, ticket, case or customer
+  // record, as the question and the answer said it, with the dates and only their own records. Whom the asker was,
+  // what page they asked from, and which model calls answered are the workspace's, not the shopper's.
+  [
+    "ask_turns",
+    `select jsonb_build_object(
+              'asked_at', q.created_at, 'question', q.text, 'answered_at', a.created_at, 'answer', a.text,
+              'records', array(select unnest(a.refs) intersect select unnest(m.ids)))::text as row
+       from (select $1::text[] || array${BY_ORDER} || array${BY_RETURN} || array${BY_TICKET}
+                    || array(select c.id from chargebacks c where c.customer_id = any($1::text[]) or c.order_id in ${BY_ORDER})
+                    as ids) m
+       join ask_turns a on a.role = 'assistant' and a.refs && m.ids
+       left join lateral (
+         select u.text, u.created_at from ask_turns u
+          where u.thread_id = a.thread_id and u.role = 'user' and u.seq < a.seq
+          order by u.seq desc limit 1
+       ) q on true`
   ],
   // A row of an imported CSV (0073) with their address in a cell. Imports are the workspace's, not a store's: only for
   // an asker who reaches every store, as the threads by address.

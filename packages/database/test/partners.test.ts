@@ -502,7 +502,7 @@ describe("partners", () => {
     const join = (token: string) =>
       run(
         Effect.flatMap(Effect.service(Db), (db) =>
-          db.asUserIn(ws)((sql) =>
+          db.asNewcomerIn(ws)((sql) =>
             sql<{ id: string | null }>`select supplier_contact_join(${ids.invitation}, sha256(${token}::bytea),
                                                                     ${mintId("sct")}) as id`
           )).pipe(asUserB)

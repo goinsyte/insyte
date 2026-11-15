@@ -5,19 +5,22 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import { cite, citedBy, fileGap, search as searchKnowledge } from "../../knowledge/Knowledge.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import {
   AiModel,
   Draft,
   type DraftSubject,
   type KnowledgeAnswer,
+  type KnowledgeAnswerInput,
   LatestDraft,
   ModelUnavailable,
   type ReplyInput,
   ThreadSummary,
   TicketSummary
 } from "../domain/Ai.ts"
-import { replyPrompt } from "../prompts/reply.ts"
+import { knowledgeAnswerPrompt } from "../prompts/knowledge.ts"
+import { type ReplyContext, replyPrompt, type ReplySource } from "../prompts/reply.ts"
 import { threadSummaryPrompt, ticketSummaryPrompt } from "../prompts/summary.ts"
 import { call, type Caller, type InTx } from "./call.ts"
 import { threadFacts, ticketFacts, ticketSummaryFacts } from "./context.ts"
@@ -39,7 +42,7 @@ const COOL_DOWN_SECONDS = 120
 
 type Row = {
   id: string
-  subjectType: "thread" | "ticket"
+  subjectType: "thread" | "ticket" | "knowledge_gap" | "knowledge_article"
   subjectId: string
   kind: "reply" | "summary" | "knowledge_answer"
   text: string
@@ -69,6 +72,16 @@ const draftOf = (r: Row) =>
     flags: r.flags
   })
 
+/** The draft with the knowledge base chapters it used. */
+const withSources = (sql: SqlClient.SqlClient, d: Draft) =>
+  Effect.map(citedBy(sql, { kind: "draft", id: d.id }), (sources) =>
+    sources.length === 0
+      ? d
+      : new Draft({
+        ...d,
+        sources: sources.map((s) => ({ articleId: s.articleId, version: s.version, title: s.title }))
+      }))
+
 const select = (sql: SqlClient.SqlClient) =>
   sql`select d.id, d.subject_type, d.subject_id, d.kind, d.text, d.tone, d.parent_draft_id, d.used_at, d.created_at,
              m.provider, m.model, d.prompt_version, d.flags
@@ -76,7 +89,7 @@ const select = (sql: SqlClient.SqlClient) =>
 
 const callerOf = Effect.gen(function*() {
   const p = yield* CurrentPrincipal
-  return (subject: DraftSubject): Caller => ({
+  return (subject: { readonly type: string; readonly id: string }): Caller => ({
     memberId: p.kind === "member" ? p.id : null,
     principalKind: p.kind,
     subject
@@ -118,7 +131,7 @@ const subjectFacts = (sql: SqlClient.SqlClient, subject: DraftSubject) =>
 const insert = (
   sql: SqlClient.SqlClient,
   d: {
-    readonly subject: DraftSubject
+    readonly subject: { readonly type: Row["subjectType"]; readonly id: string }
     readonly kind: Row["kind"]
     readonly text: string
     readonly tone: Row["tone"]
@@ -187,25 +200,84 @@ export const reply = Effect.fn("Ai.reply")(function*(inTx: InTx<CurrentPrincipal
       return { context: facts, previous: parent.text, existing: undefined, dedupeKey: undefined }
     })
   )
-  if (existing !== undefined) return existing
+  if (existing !== undefined) return yield* inTx((sql) => withSources(sql, existing))
   const rewrite = input.tone === undefined || previous === null ? null : { tone: input.tone, previous }
-  const called = yield* call(inTx, callerFor(input.subject), replyPrompt, { ...context, rewrite }, {
+  // What the published knowledge base says about the customer's question (M15 step 7); a rewrite keeps its parent's.
+  const found = rewrite === null ? yield* knowledgeFor(inTx, context) : []
+  const knowledge: ReadonlyArray<ReplySource> = found.map((h, i) => ({ ref: i + 1, title: h.title, text: h.text }))
+  const called = yield* call(inTx, callerFor(input.subject), replyPrompt, { ...context, knowledge, rewrite }, {
     guard: (o) => o.text.trim() !== "",
     dedupeKey
   })
   return yield* inTx((sql) =>
-    insert(sql, {
-      subject: input.subject,
-      kind: "reply",
-      text: called.value.text.trim(),
-      tone: input.tone ?? null,
-      parentDraftId: input.parentDraftId ?? null,
-      callId: called.callId,
-      promptId: replyPrompt.id,
-      promptVersion: replyPrompt.version
+    Effect.gen(function*() {
+      const draft = yield* insert(sql, {
+        subject: input.subject,
+        kind: "reply",
+        text: called.value.text.trim(),
+        tone: input.tone ?? null,
+        parentDraftId: input.parentDraftId ?? null,
+        callId: called.callId,
+        promptId: replyPrompt.id,
+        promptVersion: replyPrompt.version
+      })
+      if (input.parentDraftId !== undefined) {
+        // Warmer and Korter say what the draft they rewrite said: its sources are theirs.
+        yield* cite(sql, yield* citedBy(sql, { kind: "draft", id: input.parentDraftId }), {
+          kind: "draft",
+          id: draft.id
+        })
+      } else {
+        const used = called.value.sources.flatMap((ref) => (found[ref - 1] === undefined ? [] : [found[ref - 1]!]))
+        yield* cite(sql, used, { kind: "draft", id: draft.id })
+        const unanswered = called.value.unanswered?.trim() ?? ""
+        if (unanswered !== "") yield* fileGap(sql, yield* gapSource(sql, input.subject, context, unanswered, draft.id))
+      }
+      return yield* withSources(sql, draft)
     })
   )
 })
+
+/** The question a reply answers, as the knowledge base is searched for it: the subject and the customer's last words. */
+const questionOf = (context: Omit<ReplyContext, "rewrite" | "knowledge">) => {
+  // A fresh array (`findLast` is past this package's `lib`).
+  // oxlint-disable-next-line unicorn/no-array-reverse
+  const last = [...context.messages].reverse().find((m) => m.from === "klant")
+  return `${context.subject}\n${last?.text.slice(0, 1000) ?? ""}`.trim()
+}
+
+/** The published chapters for the customer agent that answer the question, best first; none when nothing does. */
+const knowledgeFor = (inTx: InTx<CurrentPrincipal>, context: Omit<ReplyContext, "rewrite" | "knowledge">) =>
+  Effect.gen(function*() {
+    const query = questionOf(context)
+    if (query === "") return []
+    const result = yield* searchKnowledge(inTx, { query, audience: "customer_agent", limit: 3 })
+    return result.hits
+  })
+
+/** Where a question a reply could not answer came from: the thread's mail, or the ticket and its store. */
+const gapSource = (
+  sql: SqlClient.SqlClient,
+  subject: DraftSubject,
+  context: Omit<ReplyContext, "rewrite" | "knowledge">,
+  question: string,
+  draftId: string
+) =>
+  Effect.gen(function*() {
+    const [store] = subject.type === "ticket"
+      ? yield* sql<{ storeId: string | null }>`select store_id from tickets where id = ${subject.id}`
+      : [{ storeId: null }]
+    return {
+      question,
+      channel: "email" as const,
+      customerLabel: context.firstName,
+      threadId: subject.type === "thread" ? subject.id : null,
+      ticketId: subject.type === "ticket" ? subject.id : null,
+      storeId: store?.storeId ?? null,
+      sourceKind: "draft" as const,
+      sourceId: draftId
+    }
+  })
 
 /** The draft went into the composer ("Gebruiken"): counted as taken. Taking it twice is taking it once. */
 export const use = Effect.fn("Ai.use")(function*(sql: SqlClient.SqlClient, id: string) {
@@ -224,7 +296,7 @@ export const use = Effect.fn("Ai.use")(function*(sql: SqlClient.SqlClient, id: s
     ${select(sql)} where d.id in (select id from used)`
   const [row] = rows
   if (row === undefined) return yield* new NotFound({ entity: "draft", id })
-  return draftOf({ ...row, usedAt: row.usedAt ?? new Date() })
+  return yield* withSources(sql, draftOf({ ...row, usedAt: row.usedAt ?? new Date() }))
 })
 
 /**
@@ -262,7 +334,10 @@ export const latest = Effect.fn("Ai.latest")(function*(sql: SqlClient.SqlClient,
     where d.subject_type = ${subject.type} and d.subject_id = ${subject.id} and d.kind = 'reply'
       and (${since}::timestamptz is null or d.created_at >= ${since})
     order by d.created_at desc limit 1`
-  return new LatestDraft({ draft: row === undefined ? null : draftOf(row), canDraft: may && !answered })
+  return new LatestDraft({
+    draft: row === undefined ? null : yield* withSources(sql, draftOf(row)),
+    canDraft: may && !answered
+  })
 })
 
 /** "Samenvatten" on a ticket: two or three sentences in its activity, as Insyte's line. */
@@ -318,10 +393,70 @@ export const summarizeThread = Effect.fn("Ai.summarizeThread")(
 )
 
 /**
- * "Laat Insyte een eerste tekst schrijven" for a knowledge gap or article. Until the knowledge base exists there is
- * nothing to write from: Insyte says so (`no_knowledge`) and calls no model, rather than inventing an answer.
+ * "Laat Insyte een eerste tekst schrijven" for a knowledge gap (or a chapter): a first answer from the published
+ * chapters, returned into the editor and never published by itself. When nothing published is about the question
+ * (`no_knowledge`), or what is does not answer it (`not_covered`), Insyte says so rather than inventing an answer; it
+ * calls no model when there is nothing to read.
  */
-export const knowledgeAnswer = Effect.fn("Ai.knowledgeAnswer")(function*() {
-  yield* Policy.require("settings", 2)
-  return { _tag: "Nothing", reason: "no_knowledge" } satisfies KnowledgeAnswer as KnowledgeAnswer
+export const knowledgeAnswer = Effect.fn("Ai.knowledgeAnswer")(function*(
+  inTx: InTx<CurrentPrincipal>,
+  input: KnowledgeAnswerInput
+) {
+  // Whoever may write the chapter (Kennisbank's editor: Instellingen · Beheren).
+  yield* Policy.require("settings", 3)
+  const callerFor = yield* callerOf
+  const { question, chapter, subject } = yield* inTx((sql) =>
+    Effect.gen(function*() {
+      const scope = yield* inScope(sql, "a.store_id")
+      const [article] = input.articleId === undefined ? [] : yield* sql<{ id: string; title: string }>`
+        select a.id, a.title from knowledge_articles a
+        where a.id = ${input.articleId} and a.archived_at is null and (a.store_id is null or ${scope})`
+      if (input.articleId !== undefined && article === undefined) {
+        return yield* new NotFound({ entity: "knowledge_article", id: input.articleId })
+      }
+      const gapScope = yield* inScope(sql, "g.store_id")
+      const [gap] = input.gapId === undefined ? [] : yield* sql<{ id: string; question: string }>`
+        select g.id, g.question from knowledge_gaps g where g.id = ${input.gapId} and (g.store_id is null or ${gapScope})`
+      if (input.gapId !== undefined && gap === undefined) {
+        return yield* new NotFound({ entity: "knowledge_gap", id: input.gapId })
+      }
+      if (gap === undefined && article === undefined) return yield* new Invalid({ fields: { gapId: "required" } })
+      return {
+        question: gap?.question ?? article!.title,
+        chapter: article?.title ?? "",
+        subject: gap === undefined
+          ? { type: "knowledge_article" as const, id: article!.id }
+          : { type: "knowledge_gap" as const, id: gap.id }
+      }
+    })
+  )
+  const found = (yield* searchKnowledge(inTx, { query: question, audience: "any", limit: 4 })).hits
+  if (found.length === 0) {
+    return { _tag: "Nothing", reason: "no_knowledge" } satisfies KnowledgeAnswer as KnowledgeAnswer
+  }
+  const sources = found.map((h, i) => ({ ref: i + 1, title: h.title, text: h.text }))
+  const called = yield* call(inTx, callerFor(subject), knowledgeAnswerPrompt, { question, chapter, sources }, {
+    guard: (o) => !o.answered || o.text.trim() !== ""
+  })
+  if (!called.value.answered || called.value.text.trim() === "") {
+    return { _tag: "Nothing", reason: "not_covered" } satisfies KnowledgeAnswer as KnowledgeAnswer
+  }
+  const draft = yield* inTx((sql) =>
+    Effect.gen(function*() {
+      const made = yield* insert(sql, {
+        subject,
+        kind: "knowledge_answer",
+        text: called.value.text.trim(),
+        tone: null,
+        parentDraftId: null,
+        callId: called.callId,
+        promptId: knowledgeAnswerPrompt.id,
+        promptVersion: knowledgeAnswerPrompt.version
+      })
+      const used = called.value.sources.flatMap((ref) => (found[ref - 1] === undefined ? [] : [found[ref - 1]!]))
+      yield* cite(sql, used, { kind: "draft", id: made.id })
+      return yield* withSources(sql, made)
+    })
+  )
+  return { _tag: "Written", draft } satisfies KnowledgeAnswer as KnowledgeAnswer
 })

@@ -1,7 +1,7 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react"
 import type { Frame } from "@insyte/api/rpc/ShellRpcs"
 import { Forbidden } from "@insyte/domain/Errors"
-import type { AnalyticsOverview, AnalyticsPeriods } from "@insyte/modules/analytics/domain/Analytics"
+import { type AnalyticsOverview, type AnalyticsPeriods, ExplainRef } from "@insyte/modules/analytics/domain/Analytics"
 import { DeniedPanel } from "@insyte/ui/app/access/denied"
 import { AnalyticsPage } from "@insyte/ui/app/analytics/analytics-screen"
 import { AnalyticsSourceProvider } from "@insyte/ui/app/analytics/analytics-source"
@@ -22,7 +22,12 @@ import { frameAtom } from "../data/frame.ts"
  * their gridlines standing in. A role without Analyse · Bekijken is told so; a read that failed says so and offers to
  * try again. Changing a month keeps the figures it had until the new ones are in.
  */
+const isExplainRef = Schema.is(ExplainRef)
+
 export const Route = createFileRoute("/_frame/analytics")({
+  // `explain`: an explanation to open over the page, as a Vraag Insyte figure links it.
+  validateSearch: (s: Record<string, unknown>): { explain?: ExplainRef } =>
+    isExplainRef(s["explain"]) ? { explain: s["explain"] } : {},
   head: () => ({ meta: [{ title: "Analyse · Insyte" }] }),
   loader: async ({ context }) => {
     // Mounted so the values survive until the registry is dehydrated into the document.
@@ -123,8 +128,9 @@ function Paired({ frame, periods }: { frame: Frame; periods: AnalyticsPeriods })
   return <Pending />
 }
 
-function Loaded(props: Parameters<typeof useConsoleAnalyticsSource>[0]) {
-  const source = useConsoleAnalyticsSource(props)
+function Loaded(props: Omit<Parameters<typeof useConsoleAnalyticsSource>[0], "explain">) {
+  const { explain } = Route.useSearch()
+  const source = useConsoleAnalyticsSource({ ...props, explain })
   return (
     <AnalyticsSourceProvider value={source}>
       <AnalyticsPage />

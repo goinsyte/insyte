@@ -14,6 +14,7 @@ import { useMemo } from "react"
 import { firstInput, usePaged } from "../data/paged.ts"
 import { productsPageAtom } from "../data/products.ts"
 import { suppliersAtom } from "../data/suppliers.ts"
+import { useGate } from "../frame/refusals.ts"
 import { useProductCommands } from "./product-writes.ts"
 import { useRestock } from "./restock.ts"
 
@@ -25,7 +26,8 @@ import { useRestock } from "./restock.ts"
  * The supplier is the primary one (M8.1), the delivery time the average over the product's delivered orders (M8.4).
  * What the server does not hold yet is hidden, not made up: stock until Shopify reported any, the supplier until one
  * is assigned, the delivery time until an order arrived, the rating (no reviews source), the margin until any product
- * has a cost. The category is Shopify's product type. "Nieuw product" waits for `Products.create`.
+ * has a cost. The category is Shopify's product type. "Nieuw product" makes one through `Products.create` (M7.3,
+ * `routes/_frame.products.tsx`).
  * The Aandacht flags are the server's (`Products.list`'s `attention`), drawn as the panel's badges count them and as a
  * cut pages them (`products/use-cases/attention.ts`). "Bijbestelling aanvragen" files a restock ticket per product
  * that runs low (`restock.ts`) where the role may open tickets.
@@ -220,6 +222,7 @@ export function useConsoleProductsSource(first: ProductPage, open: (product: Pro
   const products = useMemo(() => page.rows.map(productOf), [page.rows])
   const server = useMemo(() => new Map(page.rows.map((p) => [p.id, p])), [page.rows])
   const commands = useProductCommands()
+  const create = useGate("products", 2)
   const restock = useRestock()
   const summary = first.summary ?? NO_SUMMARY
   const { costed, supplied, stocked, delivered } = summary
@@ -279,7 +282,7 @@ export function useConsoleProductsSource(first: ProductPage, open: (product: Pro
     facets,
     hidden,
     actions: actionsOf(commands, restock),
-    canCreate: { ok: false, reason: "Producten toevoegen kan hier nog niet" },
+    canCreate: create,
     currencyOf: (p) => p.currency,
     categories: false,
     open,

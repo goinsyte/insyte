@@ -2,6 +2,7 @@ import { PublicApi } from "@insyte/api/http/PublicApi"
 import { Layer } from "effect"
 import { HttpApiBuilder, HttpApiScalar } from "effect/http-api"
 import { AnalyticsHttp } from "./analytics/http.ts"
+import { AskHttp } from "./ask/http.ts"
 import { AutomationsHttp } from "./automations/http.ts"
 import { ChargebacksHttp } from "./chargebacks/http.ts"
 import { CommerceHttp } from "./commerce/http.ts"
@@ -11,6 +12,7 @@ import { DataHttp } from "./data/http.ts"
 import { ForwardingHttp } from "./forwarding/http.ts"
 import { ApiKeyAuthLive } from "./http/KeyAuth.ts"
 import { KeyHttp } from "./key/http.ts"
+import { KnowledgeHttp } from "./knowledge/http.ts"
 import { OrdersHttp } from "./orders/http.ts"
 import { ProposalsHttp } from "./proposals/http.ts"
 import { QueueHttp } from "./queue/http.ts"
@@ -45,12 +47,14 @@ export const PublicApiLive = Layer.mergeAll(
       AutomationsHttp,
       AnalyticsHttp,
       SheetsHttp,
+      KnowledgeHttp,
       QueueHttp,
       ProposalsHttp,
       ChargebacksHttp,
       CostsHttp,
       ConnectionsHttp,
-      DataHttp
+      DataHttp,
+      AskHttp
     )
   ),
   Layer.provide(ApiKeyAuthLive)

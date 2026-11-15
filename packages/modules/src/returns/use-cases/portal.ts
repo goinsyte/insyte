@@ -8,6 +8,7 @@ import { FileStore } from "../../shared/domain/Documents.ts"
 import { PendingEvents } from "../../shared/domain/Outbox.ts"
 import { Sealer } from "../../shared/domain/Sealer.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import * as CustomerFacing from "../../shared/use-cases/CustomerFacing.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import {
   type LineRefusal,
@@ -111,6 +112,7 @@ export const store = Effect.fn("Portal.store")(function*(handle: string) {
   return yield* inWorkspace(routed.workspaceId, (sql) =>
     Effect.gen(function*() {
       const s = yield* load(sql)
+      const look = yield* CustomerFacing.look(sql, "page")
       return new PortalStore({
         handle,
         name: yield* storeName(sql),
@@ -127,7 +129,8 @@ export const store = Effect.fn("Portal.store")(function*(handle: string) {
         })),
         offered: [...s.offered],
         giftCardBonusPct: s.giftCardBonusPct,
-        claimSteps: [...s.claimSteps]
+        claimSteps: [...s.claimSteps],
+        look: { color: look.color, logoUrl: look.logoPath }
       })
     }))
 })
@@ -256,6 +259,7 @@ export const lookup = Effect.fn("Portal.lookup")(function*(input: {
         from orders o
         where lower(o.customer_email) = ${email}
           and regexp_replace(upper(o.number), '^(#|SO-) *', '') = ${number}
+          and not o.is_draft
         order by o.placed_at desc limit 1`
       if (order === undefined) return yield* new OrderNotFound()
       const s = yield* load(sql)

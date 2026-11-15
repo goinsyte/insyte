@@ -1,6 +1,7 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
 import { AgentRpcs } from "@insyte/api/rpc/AgentRpcs"
 import { AnalyticsRpcs } from "@insyte/api/rpc/AnalyticsRpcs"
+import { AskRpcs } from "@insyte/api/rpc/AskRpcs"
 import { AuditRpcs } from "@insyte/api/rpc/AuditRpcs"
 import { AutomationsRpcs } from "@insyte/api/rpc/AutomationsRpcs"
 import { BillingRpcs } from "@insyte/api/rpc/BillingRpcs"
@@ -14,6 +15,7 @@ import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
 import { HomeRpcs } from "@insyte/api/rpc/HomeRpcs"
+import { KnowledgeRpcs } from "@insyte/api/rpc/KnowledgeRpcs"
 import { LiveRpcs } from "@insyte/api/rpc/LiveRpcs"
 import { MarketingRpcs } from "@insyte/api/rpc/MarketingRpcs"
 import { MarketplaceRpcs } from "@insyte/api/rpc/MarketplaceRpcs"
@@ -37,7 +39,7 @@ import { ThreadsRpcs } from "@insyte/api/rpc/ThreadsRpcs"
 import { TicketsRpcs } from "@insyte/api/rpc/TicketsRpcs"
 import { TrackingRpcs } from "@insyte/api/rpc/TrackingRpcs"
 import { TrashRpcs } from "@insyte/api/rpc/TrashRpcs"
-import { WorkspacesRpcs } from "@insyte/api/rpc/WorkspacesRpcs"
+import { WorkspaceChoiceRpcs, WorkspacesRpcs } from "@insyte/api/rpc/WorkspacesRpcs"
 import { recordedPixelSettings } from "@insyte/integrations-shopify/ShopifyRecorded"
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
@@ -46,7 +48,7 @@ import { beforeAll, describe, expect, it } from "vitest"
 import expected from "./authz.expected.json" with { type: "json" }
 import { failure, join, ok, pastUndo, person, relay, run } from "./journeys.ts"
 import { anotherStore, importedStore } from "./shops.ts"
-import { call, rpc, sessionMe } from "./support.ts"
+import { call, rpc, rpcStream, sessionMe } from "./support.ts"
 
 /*
  * The authorisation matrix (07 §3.4, step 5.4): every team, invitation, access, roles and API-key RPC as each of the five system
@@ -169,6 +171,15 @@ const PAYLOADS: Record<string, unknown> = {
   "Orders.get": { id: "ord_none" },
   "Orders.tags": undefined,
   "Orders.tag": { ids: ["ord_none"], add: ["x"], remove: [] },
+  // A store that is not there: `NotFound` for every role that may, never a draft made.
+  "Orders.createDraft": {
+    storeId: "sto_none",
+    customer: { name: "Iemand", email: "iemand@example.com" },
+    payment: "manual",
+    lines: [{ sku: "", title: "x", quantity: 1, unitPriceMinor: 100 }],
+    note: ""
+  },
+  "Orders.removeDraft": { id: "ord_none" },
   "Orders.markFulfilled": { ids: ["ord_none"] },
   "Orders.updateShipping": {
     id: "ord_none",
@@ -184,6 +195,17 @@ const PAYLOADS: Record<string, unknown> = {
   "Products.list": {},
   "Products.get": { id: "prd_none" },
   "Products.lowStock": {},
+  // A store that is not there: `NotFound` for every role that may, never a product made.
+  "Products.create": {
+    storeId: "sto_none",
+    title: "x",
+    sku: "",
+    priceMinor: 100,
+    costMinor: null,
+    supplierId: null,
+    status: "draft",
+    description: ""
+  },
   "Products.edit": { id: "prd_none", title: "x" },
   "Products.setStatus": { ids: ["prd_none"], status: "draft" },
   "Products.reprice": { ids: ["prd_none"], targetMargin: 0.5, apply: false },
@@ -386,6 +408,23 @@ const PAYLOADS: Record<string, unknown> = {
   "Sheets.markOpened": { id: "sh_none" },
   "Sheets.createFolder": { name: "" },
   "Sheets.export": { id: "sh_none", format: "csv" },
+  // Kennisbank (M15 step 7): Instellingen · Bekijken reads, Beheren writes (as the design gates it); a chapter or a gap that is not there, and a
+  // blank title, are refused after the gate.
+  "Knowledge.list": {},
+  "Knowledge.get": { id: "kb_none" },
+  "Knowledge.versions": { id: "kb_none" },
+  "Knowledge.version": { id: "kb_none", version: 1 },
+  "Knowledge.create": { title: "   ", audience: "assistant", body: "" },
+  "Knowledge.saveDraft": { id: "kb_none", title: "Iets", audience: "assistant", body: "" },
+  "Knowledge.publish": { id: "kb_none", title: "Iets", audience: "assistant", body: "" },
+  "Knowledge.restoreVersion": { id: "kb_none", version: 1 },
+  "Knowledge.archive": { id: "kb_none" },
+  "Knowledge.search": { query: "retour" },
+  "Knowledge.gaps": {},
+  "Knowledge.gap": { gapId: "kgp_none" },
+  "Knowledge.dismissGap": { gapId: "kgp_none" },
+  "Knowledge.restoreGap": { gapId: "kgp_none" },
+  "Knowledge.linkGap": { gapId: "kgp_none", articleId: "kb_none" },
   "Proposals.get": { id: "prp_none" },
   "Proposals.file": { id: "prp_none" },
   "Proposals.discard": { id: "prp_none" },
@@ -398,6 +437,15 @@ const PAYLOADS: Record<string, unknown> = {
   "Workspaces.setRetention": { days: 7 },
   "Workspaces.getRegional": undefined,
   "Workspaces.getSecurity": undefined,
+  "Workspaces.transferOwnership": { memberId: "mem_none" },
+  "Workspaces.list": undefined,
+  "Workspaces.create": { name: " ", slug: "", country: "NL", teamSize: "1" },
+  "Workspaces.switch": { workspaceId: "ws_00000000000000000000000000" },
+  "Workspaces.leave": { workspaceId: "ws_00000000000000000000000000" },
+  "Workspaces.listInvites": undefined,
+  "Workspaces.acceptInvite": NONE,
+  "Workspaces.declineInvite": NONE,
+  "Workspaces.restoreInvite": NONE,
   "Workspaces.saveRegional": {
     language: "xx",
     currencyDisplay: "EUR",
@@ -616,8 +664,18 @@ const PAYLOADS: Record<string, unknown> = {
   "Billing.removeSeats": { n: 1 },
   "Billing.cancel": { reason: "other" },
   "Billing.resume": undefined,
-  "Billing.portalSession": undefined
+  "Billing.portalSession": undefined,
+  // Vraag Insyte (M15 step 3): every member asks; what an answer reads is each tool's own area, as the person asking
+  // (`ask.worker.test.ts`). A conversation that is not there is `NotFound` before a question is kept or a model called.
+  "Ask.list": {},
+  "Ask.get": { id: "ask_none" },
+  "Ask.send": { text: "Wat wacht er?", threadId: "ask_none" },
+  "Ask.retry": { turnId: "ask_none" },
+  "Ask.remove": { id: "ask_none" }
 }
+
+/** The RPCs that stream: called as a stream, and refused as any other. */
+const STREAMS = new Set(["Ask.send", "Ask.retry"])
 
 const manifest = [
   ...MembersRpcs.requests.keys(),
@@ -643,9 +701,11 @@ const manifest = [
   ...AnalyticsRpcs.requests.keys(),
   ...ProposalsRpcs.requests.keys(),
   ...WorkspacesRpcs.requests.keys(),
+  ...WorkspaceChoiceRpcs.requests.keys(),
   ...ChatsRpcs.requests.keys(),
   ...CoursesRpcs.requests.keys(),
   ...SheetsRpcs.requests.keys(),
+  ...KnowledgeRpcs.requests.keys(),
   ...NotificationsRpcs.requests.keys(),
   ...SessionRpcs.requests.keys(),
   ...ShellRpcs.requests.keys(),
@@ -659,7 +719,8 @@ const manifest = [
   ...AgentRpcs.requests.keys(),
   ...PrivacyRpcs.requests.keys(),
   ...DataRpcs.requests.keys(),
-  ...BillingRpcs.requests.keys()
+  ...BillingRpcs.requests.keys(),
+  ...AskRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {
@@ -690,7 +751,9 @@ describe("the authorisation matrix", () => {
 
   for (const name of Object.keys(table)) {
     it.each(ROLES)(`${name} as %s`, async (role) => {
-      const exit = await rpc(name as never, PAYLOADS[name] as never, cookies[role])
+      const exit = STREAMS.has(name) ?
+        await rpcStream(name as never, PAYLOADS[name] as never, cookies[role]) :
+        await rpc(name as never, PAYLOADS[name] as never, cookies[role])
       const forbidden = Exit.isFailure(exit) &&
         exit.cause.reasons.some((r) => r._tag === "Fail" && (r.error as { _tag?: string })._tag === "Forbidden")
       expect(forbidden ? "deny" : "allow").toBe(table[name]![role])

@@ -9,7 +9,17 @@ import {
   AutomationRunV1,
   AutomationStatusFilter
 } from "../../http/groups/AutomationsGroup.ts"
-import { asKey, IdempotencyKey, OrderId, WriteFailure } from "../Shared.ts"
+import {
+  asKey,
+  ForAgents,
+  IdempotencyKey,
+  Needs,
+  OrderId,
+  read,
+  refusedToAgents,
+  write,
+  WriteFailure
+} from "../Shared.ts"
 
 /* Automations (M12): the flows, one flow, its runs, and running it for an order now. */
 
@@ -20,7 +30,7 @@ export const ListAutomations = Tool.make("list_automations", {
   success: AutomationPageV1,
   failure: ScopeMissingV1,
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("automations")])
 
 export const GetAutomation = Tool.make("get_automation", {
   description:
@@ -31,7 +41,7 @@ export const GetAutomation = Tool.make("get_automation", {
   success: AutomationDetailV1,
   failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("automations")])
 
 const AutomationId = Schema.String.annotate({ description: "The flow's id (auto_…), as list_automations gives it." })
 
@@ -46,7 +56,7 @@ export const ListAutomationRuns = Tool.make("list_automation_runs", {
   success: AutomationRunPageV1,
   failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("automations")])
 
 export const TriggerAutomation = Tool.make("trigger_automation", {
   description:
@@ -55,7 +65,7 @@ export const TriggerAutomation = Tool.make("trigger_automation", {
   success: AutomationRunV1,
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-})
+}).annotate(Needs, [write("automations")]).annotate(ForAgents, refusedToAgents)
 
 export const AutomationsTools = Toolkit.make(
   ListAutomations,

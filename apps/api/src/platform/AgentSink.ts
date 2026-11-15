@@ -18,7 +18,8 @@ import { firstName } from "@insyte/modules/ai/domain/Guards"
 import { replyOn, RESTORE as INBOX_RESTORE } from "@insyte/modules/inbox/use-cases/commands"
 import { notifyDelay } from "@insyte/modules/orders/use-cases/delay-mail"
 import { draftFor } from "@insyte/modules/proposals/use-cases/proposer"
-import { SHIP_STATUSES, ShippingValue } from "@insyte/modules/settings/domain/Settings"
+import { ShippingValue } from "@insyte/modules/settings/domain/Settings"
+import { SHIP_STATUSES } from "@insyte/modules/shared/domain/CustomerFacing"
 import { Relay } from "@insyte/modules/shared/domain/Outbox"
 import { UndoWindow } from "@insyte/modules/shared/domain/Undo"
 import * as Undo from "@insyte/modules/shared/use-cases/Undo"
@@ -242,7 +243,11 @@ const reply = (task: AgentTask, t: Extract<AgentTask["trigger"], { kind: "thread
             Effect.flatMap(ai.drafts, (d) => d.reply({ subject: { type: "thread", id: t.threadId } }))
           ).pipe(Effect.result)
           if (draft._tag === "Failure") {
-            return { _tag: "Held", reason: draft.failure._tag === "BudgetExceeded" ? "budget" : "unknown" } as const
+            const e = draft.failure
+            // The same draft being written already: by the thread's other trigger, at the same moment (the queue's
+            // delivery and a redelivery). The person finds that one, and the row keeps why it is theirs.
+            if (e._tag === "ModelUnavailable" && e.reason === "busy") return { _tag: "Drafted", model: null } as const
+            return { _tag: "Held", reason: e._tag === "BudgetExceeded" ? "budget" : "unknown" } as const
           }
           const flags = draftFlags(draft.success.text, r.given)
           if (flags.length > 0) {

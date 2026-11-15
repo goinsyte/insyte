@@ -23,6 +23,7 @@ import * as SupplierInvites from "./use-cases/invite-supplier.ts"
 import { send } from "./use-cases/invite.ts"
 import * as Link from "./use-cases/link.ts"
 import * as People from "./use-cases/members.ts"
+import { transferOwnership } from "./use-cases/ownership.ts"
 import { get } from "./use-cases/team.ts"
 
 /**
@@ -86,6 +87,10 @@ export class Members extends Context.Service<Members, {
   readonly setLink: (patch: SetLink) => Effect.Effect<Team, Forbidden | Invalid, Db | CurrentPrincipal>
   readonly regenerateLink: Effect.Effect<Team, Forbidden | Invalid, Db | CurrentPrincipal>
   readonly undoRegenerateLink: Effect.Effect<Team, Forbidden | Invalid | Conflict, Db | CurrentPrincipal>
+  /** "Eigendom overdragen": the owner only, to an active member; irreversible, so no undo. */
+  readonly transferOwnership: (
+    id: string
+  ) => Effect.Effect<Team, Forbidden | NotFound | Conflict, Db | CurrentPrincipal>
 }>()("modules/Members") {
   // A database that does not answer is a defect: the RPC answers it as one, and the request is in the traces.
   static readonly layer = Layer.effect(
@@ -119,7 +124,8 @@ export class Members extends Context.Service<Members, {
         restoreMember: (id) => run(People.restore(id)),
         setLink: (patch) => run(Link.set(patch)),
         regenerateLink: run(Link.regenerate()),
-        undoRegenerateLink: run(Link.undoRegenerate())
+        undoRegenerateLink: run(Link.undoRegenerate()),
+        transferOwnership: (id) => run(transferOwnership(id))
       }
     })
   )

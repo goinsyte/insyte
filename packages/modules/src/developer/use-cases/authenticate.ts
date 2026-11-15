@@ -33,6 +33,7 @@ interface KeyRow {
   readonly agent: boolean
   /** The member who made the key: it never reaches past their stores as they are now. */
   readonly createdBy: string
+  readonly createdAt: Date
 }
 
 interface RoleRow {
@@ -104,6 +105,8 @@ export interface Authenticated {
   readonly principal: Principal
   readonly label: string
   readonly workspaceName: string
+  /** When the key was made: the API version it answers in unless a call names one (`Insyte-Version`, ADR-0024). */
+  readonly createdAt: Date
 }
 
 export const authenticate = Effect.fn("ApiKeys.authenticate")(function*(token: string, ip: string | null) {
@@ -123,7 +126,7 @@ export const authenticate = Effect.fn("ApiKeys.authenticate")(function*(token: s
       const [key] = yield* sql<KeyRow>`
         select id, label, lookup, previous_lookup, encode(secret_hash, 'hex') as hash,
                encode(previous_hash, 'hex') as previous_hash, grace_until, access, stores, expires_at, revoked_at, ips,
-               agent, created_by
+               agent, created_by, created_at
         from api_keys where id = ${route.keyId}`
       if (key === undefined) return yield* new KeyRefused({ reason: "unknown" })
       const current = key.lookup === lookup
@@ -181,7 +184,12 @@ export const authenticate = Effect.fn("ApiKeys.authenticate")(function*(token: s
         // never past its maker's.
         storeScope: bothOf(fenceOf(key.stores, role?.stores ?? "all"), makers)
       }
-      const authenticated: Authenticated = { principal, label: key.label, workspaceName: workspace?.name ?? "" }
+      const authenticated: Authenticated = {
+        principal,
+        label: key.label,
+        workspaceName: workspace?.name ?? "",
+        createdAt: key.createdAt
+      }
       return authenticated
     })
   ).pipe(Effect.provideService(CurrentWorkspace, { id: route.workspaceId }))
