@@ -4,6 +4,7 @@ import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
 import type { Relay } from "../shared/domain/Outbox.ts"
+import { inStore } from "../shared/use-cases/StoreScope.ts"
 import type { CustomerDraft } from "./domain/CustomerDraft.ts"
 import type {
   ForwardingChange,
@@ -26,7 +27,8 @@ type R = Db | CurrentPrincipal
  * @effect-expect-leaking Db CurrentPrincipal Relay
  */
 export class ForwardingService extends Context.Service<ForwardingService, {
-  readonly list: (view: ForwardView | undefined) => Effect.Effect<LegList, Forbidden, R>
+  /** `storeId`: one of the principal's stores' legs only (the store switch). */
+  readonly list: (view: ForwardView | undefined, storeId?: string) => Effect.Effect<LegList, Forbidden, R>
   readonly forOrder: (orderId: string) => Effect.Effect<ReadonlyArray<LegRow>, Forbidden, R>
   readonly forward: (
     input: typeof ForwardInput.Type
@@ -40,7 +42,7 @@ export class ForwardingService extends Context.Service<ForwardingService, {
   readonly customerDraft: (legId: string) => Effect.Effect<CustomerDraft, Forbidden | NotFound, R>
 }>()("modules/ForwardingService") {
   static readonly layer = Layer.succeed(ForwardingService, {
-    list: (view) => Legs.list(view).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    list: (view, storeId) => Legs.list(view).pipe(inStore(storeId), Effect.catchIf(SqlError.isSqlError, Effect.die)),
     forOrder: (orderId) => Legs.forOrder(orderId).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     forward: (input) => Commands.forward(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     markConfirmed: (input) => Commands.markConfirmed(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),

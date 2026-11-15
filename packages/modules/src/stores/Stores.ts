@@ -34,6 +34,8 @@ type R = Db | CurrentPrincipal
  */
 export class StoresService extends Context.Service<StoresService, {
   readonly list: Effect.Effect<ReadonlyArray<StoreView>, Forbidden, R>
+  /** The stores the principal reaches, whatever their role may open: what the store switch offers. */
+  readonly reachable: Effect.Effect<ReadonlyArray<StoreView>, never, R>
   readonly beginConnect: (
     input: BeginConnect,
     redirectUri: string
@@ -66,6 +68,7 @@ export class StoresService extends Context.Service<StoresService, {
         )
       return {
         list: run(Stores.list()),
+        reachable: run(Stores.reachable()),
         beginConnect: (input, redirectUri) => run(Connect.beginConnect(input, redirectUri)),
         callback: (query) => run(Connect.callback(query)),
         disconnect: (id) => run(Stores.disconnect(id)),

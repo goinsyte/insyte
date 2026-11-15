@@ -34,7 +34,7 @@ export const CommerceHandlers = CommerceRpcs.toLayer(Effect.gen(function*() {
     "Customers.tag": (input) => customers.tag(input),
     "Customers.create": (input) => customers.create(input),
     "Customers.merge": (input) => customers.merge(input),
-    "Customers.duplicates": () => customers.duplicates,
+    "Customers.duplicates": (input) => customers.duplicates(input?.storeId),
     "Customers.markNotDuplicate": ({ key }) => customers.markNotDuplicate(key)
   })
 }))

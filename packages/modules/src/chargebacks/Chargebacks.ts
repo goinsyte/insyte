@@ -7,6 +7,7 @@ import { SqlError } from "effect/sql"
 import { FileStore } from "../shared/domain/Documents.ts"
 import { Relay } from "../shared/domain/Outbox.ts"
 import type { SearchHit } from "../shared/domain/Search.ts"
+import { inStore } from "../shared/use-cases/StoreScope.ts"
 import type {
   AddEvidenceInput,
   AssemblePackInput,
@@ -93,7 +94,7 @@ export class ChargebacksService extends Context.Service<ChargebacksService, {
           Effect.catchIf(SqlError.isSqlError, Effect.die)
         )
       return {
-        list: (input) => run(Read.list(input)),
+        list: (input) => run(Read.list(input).pipe(inStore(input.storeId))),
         counts: run(Read.counts()),
         get: (id) => run(Read.get(id)),
         stats: run(Read.stats()),

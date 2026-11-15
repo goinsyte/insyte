@@ -5,6 +5,7 @@ import { type CurrentPrincipal, CurrentWorkspace } from "@insyte/domain/Principa
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
 import type { SqlClient } from "effect/sql"
+import { inStore } from "../shared/use-cases/StoreScope.ts"
 import type { ListInput, QueueChange, QueueItemClosed, QueueList } from "./domain/Queue.ts"
 import * as Queue from "./use-cases/queue.ts"
 
@@ -23,7 +24,7 @@ export class QueueService extends Context.Service<QueueService, {
 }>()("modules/QueueService") {
   // A database that does not answer is a defect, as everywhere.
   static readonly layer = Layer.succeed(QueueService)({
-    list: (input) => Queue.list(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+    list: (input) => Queue.list(input).pipe(inStore(input.storeId), Effect.catchIf(SqlError.isSqlError, Effect.die)),
     markSeen: (id) => Queue.markSeen(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
     reopen: (id) => Queue.reopen(id).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die))
   })

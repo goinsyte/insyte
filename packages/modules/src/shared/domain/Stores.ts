@@ -20,3 +20,13 @@ export class StoreChoice extends Schema.Class<StoreChoice>("shared/StoreChoice")
   id: Schema.String,
   name: Schema.String
 }) {}
+
+/**
+ * A read narrowed to one of the principal's stores (the console's store switch, M6): absent, every store they reach.
+ * A store outside their stores reads as empty (`inStore`), never as more.
+ */
+export const StoreFilter = { storeId: Schema.optional(Schema.String) }
+export const InStore = Schema.Struct(StoreFilter)
+export type InStore = typeof InStore.Type
+/** As `InStore`, for a read that took no input before the switch: no input is every store. */
+export const MaybeInStore = Schema.UndefinedOr(InStore)
