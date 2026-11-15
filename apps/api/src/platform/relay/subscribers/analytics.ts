@@ -199,6 +199,8 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
   "course.answered": none,
   "thread.message_queued": none,
   "sheet.changed": none,
+  // A chapter's publication is the jobs Worker's cue to embed it (`Relay.ts`), not a product event.
+  "knowledge.published": none,
   "supplier.problem_reported": none,
   "supplier.shipment_refused": none,
   "partner.changed": none,

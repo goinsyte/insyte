@@ -10,6 +10,7 @@ import { CostsGroup } from "./groups/CostsGroup.ts"
 import { DataGroup } from "./groups/DataGroup.ts"
 import { ForwardingGroup } from "./groups/ForwardingGroup.ts"
 import { KeyGroup } from "./groups/KeyGroup.ts"
+import { KnowledgeGroup } from "./groups/KnowledgeGroup.ts"
 import { OrdersGroup } from "./groups/OrdersGroup.ts"
 import { ProposalsGroup } from "./groups/ProposalsGroup.ts"
 import { QueueGroup } from "./groups/QueueGroup.ts"
@@ -52,6 +53,7 @@ export class PublicApi extends HttpApi.make("insyte")
     AutomationsGroup,
     AnalyticsGroup,
     SheetsGroup,
+    KnowledgeGroup,
     QueueGroup,
     ProposalsGroup,
     ChargebacksGroup,

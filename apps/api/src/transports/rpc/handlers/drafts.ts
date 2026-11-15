@@ -45,6 +45,7 @@ export const DraftsHandlers = DraftsRpcs.toLayer(Effect.gen(function*() {
       Effect.andThen(limited, withAi((ai) => Effect.flatMap(ai.drafts, (d) => d.summarizeTicket(ticketId)))),
     "Drafts.summarizeThread": ({ threadId }) =>
       Effect.andThen(limited, withAi((ai) => Effect.flatMap(ai.drafts, (d) => d.summarizeThread(threadId)))),
-    "Drafts.knowledgeAnswer": () => withAi((ai) => Effect.flatMap(ai.drafts, (d) => d.knowledgeAnswer))
+    "Drafts.knowledgeAnswer": (input) =>
+      Effect.andThen(limited, withAi((ai) => Effect.flatMap(ai.drafts, (d) => d.knowledgeAnswer(input))))
   })
 }))

@@ -27,7 +27,11 @@ export type Article = {
 	uses7d: number;
 };
 
-export type Gap = { id: string; question: string; at: string; customer: string; threadId?: string | undefined; channel: "webchat" | "email" | "whatsapp"; state: "open" | "answered" | "dismissed"; articleId?: string | undefined };
+export type GapChannel = "webchat" | "email" | "whatsapp" | "instagram" | "ask";
+
+export type Gap = { id: string; question: string; at: string; customer: string; threadId?: string | undefined; channel: GapChannel; state: "open" | "answered" | "dismissed"; articleId?: string | undefined };
+
+export const CHANNEL_LABEL: Record<GapChannel, string> = { webchat: "Websitechat", email: "E-mail", whatsapp: "WhatsApp", instagram: "Instagram", ask: "Vraag Insyte" };
 
 export type KnowledgeSeed = { articles: Article[]; gaps: Gap[] };
 

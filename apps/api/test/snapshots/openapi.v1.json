@@ -7307,6 +7307,153 @@
         "description": "One sheet with every tab as typed (cells, formats, column widths). Needs `data.read`; a sheet the key's member cannot open is not found."
       }
     },
+    "/v1/knowledge_articles": {
+      "get": {
+        "tags": [
+          "Knowledge"
+        ],
+        "operationId": "knowledge.list",
+        "parameters": [],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "KnowledgeArticleList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeArticleList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedV1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ScopeMissingV1 | IpNotAllowedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ScopeMissingV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IpNotAllowedV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RateLimitedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedV1"
+                }
+              }
+            }
+          }
+        },
+        "description": "Kennisbank: the published chapters, by title. A draft, a change not yet published and an archived chapter are never here. Needs `support.read`."
+      }
+    },
+    "/v1/knowledge_articles/{id}": {
+      "get": {
+        "tags": [
+          "Knowledge"
+        ],
+        "operationId": "knowledge.get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "KnowledgeArticle",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeArticle"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedV1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ScopeMissingV1 | IpNotAllowedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ScopeMissingV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IpNotAllowedV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundV1"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RateLimitedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedV1"
+                }
+              }
+            }
+          }
+        },
+        "description": "One published chapter with its published text. A chapter never published, archived, or for a store the key does not reach is not found. Needs `support.read`."
+      }
+    },
     "/v1/queue": {
       "get": {
         "tags": [
@@ -10695,6 +10842,138 @@
         ],
         "additionalProperties": false
       },
+      "KnowledgeArticle": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "audience": {
+            "type": "string",
+            "enum": [
+              "customer_agent",
+              "assistant",
+              "both"
+            ],
+            "description": "Who reads it: the customer agent (answers to customers), the assistant (Vraag Insyte, for the team), or both."
+          },
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The store it is for; `null` for every store."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "The published version."
+          },
+          "length": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "The published text's length in characters."
+          },
+          "published_at": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "description": "The published text, in Markdown."
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "audience",
+          "store_id",
+          "version",
+          "length",
+          "published_at",
+          "body"
+        ],
+        "additionalProperties": false
+      },
+      "KnowledgeArticleList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeArticleSummary"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "KnowledgeArticleSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "audience": {
+            "type": "string",
+            "enum": [
+              "customer_agent",
+              "assistant",
+              "both"
+            ],
+            "description": "Who reads it: the customer agent (answers to customers), the assistant (Vraag Insyte, for the team), or both."
+          },
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The store it is for; `null` for every store."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "The published version."
+          },
+          "length": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "The published text's length in characters."
+          },
+          "published_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "audience",
+          "store_id",
+          "version",
+          "length",
+          "published_at"
+        ],
+        "additionalProperties": false
+      },
       "Sheet": {
         "type": "object",
         "properties": {
@@ -13979,6 +14258,9 @@
     },
     {
       "name": "Sheets"
+    },
+    {
+      "name": "Knowledge"
     },
     {
       "name": "Queue"

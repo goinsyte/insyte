@@ -151,7 +151,14 @@ export const TENANT_TABLES = [
   "invoices",
   // Vraag Insyte (M15 step 3): a person's conversations and their turns, the owner's alone.
   "ask_threads",
-  "ask_turns"
+  "ask_turns",
+  // The knowledge base (M15 step 7): chapters, their versions, the published text in pieces, the questions Insyte could
+  // not answer, and every answer that used a chapter.
+  "knowledge_articles",
+  "knowledge_versions",
+  "knowledge_chunks",
+  "knowledge_gaps",
+  "knowledge_citations"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

@@ -34,7 +34,7 @@ export function useAiEnabled(): boolean | undefined {
 }
 
 /** Why Insyte wrote nothing, said once. */
-const sayAiRefusal = (error: unknown) => {
+export const sayAiRefusal = (error: unknown) => {
   const tagged = error as { _tag?: string; [field: string]: unknown }
   switch (tagged._tag) {
     case "BudgetExceeded":

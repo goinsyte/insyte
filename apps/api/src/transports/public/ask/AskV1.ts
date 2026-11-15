@@ -4,6 +4,7 @@ import { AskService } from "@insyte/modules/ask/Ask"
 import { type AskThread, type AskTurn, STALE_MS } from "@insyte/modules/ask/domain/Ask"
 import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
 import { CustomersService } from "@insyte/modules/customers/Customers"
+import { KnowledgeService } from "@insyte/modules/knowledge/Knowledge"
 import { OrdersService } from "@insyte/modules/orders/Orders"
 import { QueueService } from "@insyte/modules/queue/Queue"
 import * as Idempotency from "@insyte/modules/shared/use-cases/Idempotency"
@@ -47,7 +48,13 @@ const make = Effect.gen(function*() {
   const ask = yield* AskService
   const limits = yield* RateLimits
   const slices = yield* Effect.context<
-    OrdersService | TicketsService | ChargebacksService | QueueService | AnalyticsService | CustomersService
+    | OrdersService
+    | TicketsService
+    | ChargebacksService
+    | QueueService
+    | AnalyticsService
+    | CustomersService
+    | KnowledgeService
   >()
 
   const limited = Effect.gen(function*() {
@@ -133,7 +140,8 @@ export class AskV1 extends Context.Service<AskV1, Effect.Success<typeof make>>()
         ChargebacksService.layer,
         QueueService.layer,
         AnalyticsService.layer,
-        CustomersService.layer
+        CustomersService.layer,
+        KnowledgeService.layer
       )
     )
   )

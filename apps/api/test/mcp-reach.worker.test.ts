@@ -112,6 +112,8 @@ const argsFor = (r: { order: string; line: string; ret: string; ticket: string; 
     list_sheets: {},
     get_sheet: { sheet_id: "sht_none" },
     list_queue: {},
+    list_knowledge: {},
+    search_knowledge: { query: "retourneren" },
     get_proposal: { proposal_id: r.proposal },
     file_proposal: { proposal_id: r.proposal },
     list_returns: {},
@@ -209,7 +211,7 @@ describe("per-key tools/list", () => {
     }
 
     const catalogue = await names(full)
-    expect(catalogue).toHaveLength(59)
+    expect(catalogue).toHaveLength(61)
     const real = argsFor(records)
     const none = argsFor(NONE)
     expect(Object.keys(real).toSorted()).toEqual(catalogue)

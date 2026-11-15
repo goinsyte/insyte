@@ -36,6 +36,8 @@ export default defineConfig({
           SENDING_DOMAINS_ADAPTER: "recorded",
           // Insyte AI's fake: the tests never call a model, whatever `.dev.vars` holds.
           AI_ADAPTER: "fake",
+          // The knowledge base's fake embedder: no vector is asked of Workers AI.
+          EMBEDDINGS_ADAPTER: "fake",
           // Stripe's fake, and a signing secret made up for the tests: they sign their own webhook deliveries.
           BILLING_ADAPTER: "fake",
           STRIPE_WEBHOOK_SECRET: "whsec_test_insyte_worker_tests",

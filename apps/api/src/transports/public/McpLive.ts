@@ -12,6 +12,7 @@ import { DataMcp } from "./data/mcp.ts"
 import { ForwardingMcp } from "./forwarding/mcp.ts"
 import { KeyMcp } from "./key/mcp.ts"
 import { WorkspaceResource } from "./key/resources.ts"
+import { KnowledgeMcp } from "./knowledge/mcp.ts"
 import { McpAuth } from "./mcp/KeyAuth.ts"
 import { ToolReach } from "./mcp/Reach.ts"
 import { McpServerOptions } from "./mcp/Server.ts"
@@ -42,6 +43,7 @@ const Tools = McpServer.toolkit(InsyteTools).pipe(
       ForwardingMcp,
       AnalyticsMcp,
       SheetsMcp,
+      KnowledgeMcp,
       QueueMcp,
       ProposalsMcp,
       ReturnsMcp,

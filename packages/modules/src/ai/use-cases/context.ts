@@ -106,7 +106,7 @@ const brandOf = (sql: SqlClient.SqlClient, customerId: string | null, workspace:
   )
 
 export interface ThreadFacts {
-  readonly context: Omit<ReplyContext, "rewrite">
+  readonly context: Omit<ReplyContext, "rewrite" | "knowledge">
   /** When the last inbound message arrived: a draft older than it answers an earlier question. */
   readonly lastInboundAt: number | null
 }
@@ -189,7 +189,7 @@ export const ticketFacts = Effect.fn("Ai.ticketFacts")(function*(sql: SqlClient.
       text: cut(m.bodyText)
     })),
     orders: yield* ordersOf(sql, { orderId: t.orderId, customerId: t.customerId }, tz)
-  } satisfies Omit<ReplyContext, "rewrite">
+  } satisfies Omit<ReplyContext, "rewrite" | "knowledge">
 })
 
 /** A ticket as its summary reads it: everything the team wrote on it too, newest last. */

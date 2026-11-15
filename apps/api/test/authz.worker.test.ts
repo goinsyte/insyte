@@ -15,6 +15,7 @@ import { DeveloperRpcs } from "@insyte/api/rpc/DeveloperRpcs"
 import { FirstAnalysisRpcs } from "@insyte/api/rpc/FirstAnalysisRpcs"
 import { ForwardingRpcs } from "@insyte/api/rpc/ForwardingRpcs"
 import { HomeRpcs } from "@insyte/api/rpc/HomeRpcs"
+import { KnowledgeRpcs } from "@insyte/api/rpc/KnowledgeRpcs"
 import { LiveRpcs } from "@insyte/api/rpc/LiveRpcs"
 import { MarketingRpcs } from "@insyte/api/rpc/MarketingRpcs"
 import { MarketplaceRpcs } from "@insyte/api/rpc/MarketplaceRpcs"
@@ -407,6 +408,23 @@ const PAYLOADS: Record<string, unknown> = {
   "Sheets.markOpened": { id: "sh_none" },
   "Sheets.createFolder": { name: "" },
   "Sheets.export": { id: "sh_none", format: "csv" },
+  // Kennisbank (M15 step 7): Instellingen · Bekijken reads, Beheren writes (as the design gates it); a chapter or a gap that is not there, and a
+  // blank title, are refused after the gate.
+  "Knowledge.list": {},
+  "Knowledge.get": { id: "kb_none" },
+  "Knowledge.versions": { id: "kb_none" },
+  "Knowledge.version": { id: "kb_none", version: 1 },
+  "Knowledge.create": { title: "   ", audience: "assistant", body: "" },
+  "Knowledge.saveDraft": { id: "kb_none", title: "Iets", audience: "assistant", body: "" },
+  "Knowledge.publish": { id: "kb_none", title: "Iets", audience: "assistant", body: "" },
+  "Knowledge.restoreVersion": { id: "kb_none", version: 1 },
+  "Knowledge.archive": { id: "kb_none" },
+  "Knowledge.search": { query: "retour" },
+  "Knowledge.gaps": {},
+  "Knowledge.gap": { gapId: "kgp_none" },
+  "Knowledge.dismissGap": { gapId: "kgp_none" },
+  "Knowledge.restoreGap": { gapId: "kgp_none" },
+  "Knowledge.linkGap": { gapId: "kgp_none", articleId: "kb_none" },
   "Proposals.get": { id: "prp_none" },
   "Proposals.file": { id: "prp_none" },
   "Proposals.discard": { id: "prp_none" },
@@ -687,6 +705,7 @@ const manifest = [
   ...ChatsRpcs.requests.keys(),
   ...CoursesRpcs.requests.keys(),
   ...SheetsRpcs.requests.keys(),
+  ...KnowledgeRpcs.requests.keys(),
   ...NotificationsRpcs.requests.keys(),
   ...SessionRpcs.requests.keys(),
   ...ShellRpcs.requests.keys(),

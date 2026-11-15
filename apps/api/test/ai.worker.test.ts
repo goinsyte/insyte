@@ -132,7 +132,13 @@ describe("Insyte AI drafts", () => {
   })
 
   it("says the knowledge base has nothing to write from yet", async () => {
-    expect(ok(await rpc("Drafts.knowledgeAnswer", {}, owner))).toEqual({ _tag: "Nothing", reason: "no_knowledge" })
+    // A first text is for a gap or a chapter.
+    expect(failure(await rpc("Drafts.knowledgeAnswer", {}, owner))).toMatchObject({ _tag: "Invalid" })
+    const chapter = ok(
+      await rpc("Knowledge.create", { title: "Verzending", audience: "customer_agent", body: "" }, owner)
+    ).article
+    expect(ok(await rpc("Drafts.knowledgeAnswer", { articleId: chapter.id }, owner)))
+      .toEqual({ _tag: "Nothing", reason: "no_knowledge" })
   })
 
   it("limits one person's model calls a minute", async () => {

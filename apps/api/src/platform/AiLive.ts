@@ -1,8 +1,10 @@
 import { FAKE_INFO, makeAnthropic, makeFake, MODEL_INFO, NO_MODEL } from "@insyte/integrations-anthropic/Anthropic"
 import { AiModel } from "@insyte/modules/ai/domain/Ai"
+import { Embedder } from "@insyte/modules/knowledge/domain/Knowledge"
 import { Context, Effect, Option } from "effect"
 import { LanguageModel } from "effect/ai"
 import { aiModeOf, AiSettings, askModeOf, filled } from "./AiSettings.ts"
+import { embedder } from "./Embeddings.ts"
 
 /*
  * Insyte AI's model (M15 step 1; ADR-0015), chosen per call by configuration:
@@ -14,6 +16,8 @@ import { aiModeOf, AiSettings, askModeOf, filled } from "./AiSettings.ts"
  * - Otherwise (previews, a stage not set up yet) no model: `ready: false`, so no call is made and the console says
  *   Insyte AI is not switched on yet. The fake's template text is never shown there as Insyte's draft.
  * - Vraag Insyte (`AskModelChoice`) takes the fake on a preview or a local run without a model (`AiSettings.ts`).
+ *
+ * A reply reads the knowledge base by meaning with the stage's embedder (`Embeddings.ts`), which comes with it.
  *
  * The choice itself is `AiSettings.ts`, which `Drafts.status` reads without loading this module.
  *
@@ -42,8 +46,12 @@ const choose = (modeOf: (c: AiSettings) => "fake" | "anthropic" | "off") =>
     return of(MODEL_INFO, model)
   })
 
-/** The stage's model and what it is, as the context an AI call runs in. */
-export const services = choose(aiModeOf)
+/** With the stage's embedder (`Embeddings.ts`), which reads the knowledge base by meaning. */
+const withEmbedderOf = (model: ReturnType<typeof choose>) =>
+  Effect.map(Effect.all([model, embedder]), ([context, e]) => Context.add(context, Embedder, e))
+
+/** The stage's model and what it is, and its embedder, as the context an AI call runs in. */
+export const services = withEmbedderOf(choose(aiModeOf))
 
 /** Vraag Insyte's model (`askModeOf`): the stage's, or the fake where a preview or a local run has none. */
-export const AskModelChoice = choose(askModeOf)
+export const AskModelChoice = withEmbedderOf(choose(askModeOf))

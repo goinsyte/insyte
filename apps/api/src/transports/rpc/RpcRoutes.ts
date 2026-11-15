@@ -18,6 +18,7 @@ import { FirstAnalysisService } from "@insyte/modules/first-analysis/FirstAnalys
 import { ForwardingService } from "@insyte/modules/forwarding/Forwarding"
 import { HomeService } from "@insyte/modules/home/Home"
 import { InboxService } from "@insyte/modules/inbox/Inbox"
+import { KnowledgeService } from "@insyte/modules/knowledge/Knowledge"
 import { LiveService } from "@insyte/modules/live/Live"
 import { MarketingService } from "@insyte/modules/marketing/Marketing"
 import { MarketplaceService } from "@insyte/modules/marketplace/Marketplace"
@@ -68,6 +69,7 @@ import { DraftsHandlers } from "./handlers/drafts.ts"
 import { FirstAnalysisHandlers } from "./handlers/first-analysis.ts"
 import { ForwardingHandlers } from "./handlers/forwarding.ts"
 import { HomeHandlers } from "./handlers/home.ts"
+import { KnowledgeHandlers } from "./handlers/knowledge.ts"
 import { LandingHandlers } from "./handlers/landing.ts"
 import { LiveHandlers } from "./handlers/live.ts"
 import { MarketingHandlers } from "./handlers/marketing.ts"
@@ -159,12 +161,14 @@ export const RpcContext = Layer.mergeAll(
         ChargebacksService.layer,
         QueueService.layer,
         AnalyticsService.layer,
-        CustomersService.layer
+        CustomersService.layer,
+        KnowledgeService.layer
       )
     )
   ),
   ChatsHandlers.pipe(Layer.provide(Layer.mergeAll(ChatsService.layer, UndoService.layer))),
   SheetsHandlers.pipe(Layer.provide(SheetsService.layer)),
+  KnowledgeHandlers.pipe(Layer.provide(KnowledgeService.layer)),
   DataHandlers.pipe(Layer.provide(DataService.layer)),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
   // …with the switcher's (M3.1): the list and switching, leaving and invitations, and a new workspace (onboarding's).
