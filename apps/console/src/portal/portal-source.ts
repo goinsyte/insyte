@@ -76,7 +76,11 @@ export function useConsolePortalSource(handle: string, store: PortalStore | null
         reasons: store.reasons,
         offered: store.offered,
         giftCardBonus: store.giftCardBonusPct,
-        claimSteps: store.claimSteps
+        claimSteps: store.claimSteps,
+        look: {
+          color: store.look.color ?? undefined,
+          logo: store.look.logoUrl ?? undefined
+        }
       },
     numberPlaceholder: "#1042",
     lookup: async (number, email, human) => {

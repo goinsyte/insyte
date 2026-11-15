@@ -1,4 +1,5 @@
 import { Context, type Effect, Schema } from "effect"
+import type { Look, Worded } from "./CustomerFacing.ts"
 
 /*
  * Sending one transactional mail, as a port (16 §3). Adapters: capture (local, tests, previews: the mail lands in a
@@ -121,7 +122,13 @@ export interface OrderMessageFacts {
   readonly paragraphs: ReadonlyArray<string>
   /** A track-and-trace update's parcel; absent for the team's own words. */
   readonly tracking?:
-    | { readonly carrier: string | null; readonly number: string; readonly url: string | null }
+    | {
+      readonly carrier: string | null
+      readonly number: string
+      readonly url: string | null
+      /** The parcel's carrier status as Verzending words it, read when the mail goes; absent, the mail's own title. */
+      readonly status?: Worded | undefined
+    }
     | undefined
 }
 
@@ -201,6 +208,11 @@ export interface Mail {
   readonly from?: string | undefined
   /** Where an answer goes (E-mail en domein's "Antwoorden naar"), where the kind has no reply address of its own. */
   readonly replyTo?: string | undefined
+  /**
+   * Huisstijl's colour and logo, for a shopper's mail in a template (`use-cases/Senders.ts`); absent, Insyte's own look.
+   * The logo is a console path the adapter makes absolute.
+   */
+  readonly look?: Look | undefined
   /** What makes two mails of one kind to one address different (a leg's id), for the sender's idempotency. */
   readonly reference?: string | undefined
   /** Files sent with it (a packing slip, M8.5). */

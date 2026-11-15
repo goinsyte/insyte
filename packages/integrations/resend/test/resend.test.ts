@@ -208,6 +208,72 @@ describe("ResendMailer", () => {
     expect(Exit.isFailure(none) && JSON.stringify(none.cause)).toContain("order.message needs its order")
   })
 
+  it("says the parcel's status as Verzending words it: the title where it shows everywhere, the line unless hidden", async () => {
+    const seen: Array<Seen> = []
+    const http = fakeResend(() => Promise.resolve(Response.json({ id: "re_st" })), seen)
+    const send = (status?: { text: string; show: "all" | "line" | "hidden" }) =>
+      sendWith(http, {
+        kind: "order.message",
+        to: "anna@example.com",
+        sender: "Northwind",
+        orderMessage: {
+          shop: "Northwind",
+          number: "#1003",
+          subject: "Onderweg",
+          paragraphs: ["Hallo Anna,", "Hij is onderweg."],
+          tracking: { carrier: "DHL", number: "3S9", url: null, ...(status === undefined ? {} : { status }) }
+        }
+      })
+    await send({ text: "Bijna bij je, met DHL", show: "all" })
+    await send({ text: "Bijna bij je, met DHL", show: "line" })
+    await send({ text: "Bijna bij je, met DHL", show: "hidden" })
+    await send()
+    const texts = seen.map((s) => String(s.body["text"]))
+    expect(texts[0]).toMatch(/^Northwind\s+Bijna bij je, met DHL/)
+    expect(texts[0]).toMatch(/Status\s+Bijna bij je, met DHL/)
+    expect(texts[1]).toContain("Je bestelling is onderweg")
+    expect(texts[1]).toMatch(/Status\s+Bijna bij je, met DHL/)
+    expect(texts[2]).not.toContain("Bijna bij je")
+    expect(texts[3]).toContain("Je bestelling is onderweg")
+    expect(texts[3]).not.toContain("Status")
+  })
+
+  it("wears Huisstijl on a shopper's mail: the logo from the console's origin and the colour on the button", async () => {
+    const seen: Array<Seen> = []
+    const http = fakeResend(() => Promise.resolve(Response.json({ id: "re_look" })), seen)
+    const returnMail = {
+      shop: "Northwind",
+      customer: "Anna de Vries",
+      number: "R-1042",
+      kind: "return" as const,
+      orderNumber: "#1002",
+      items: [{ title: "Linnen overhemd", variant: "M", qty: 1 }],
+      portal: "northwind"
+    }
+    const look = { color: "#7A1F3D", logoPath: "/api/brand/wks_1/logo/fil_2" }
+    await sendWith(http, { kind: "return.received", to: "anna@example.com", sender: "Northwind", returnMail, look })
+    await sendWith(http, { kind: "return.received", to: "anna@example.com", sender: "Northwind", returnMail })
+    const [branded, plain] = seen.map((s) => String(s.body["html"]))
+    expect(branded).toContain("src=\"https://console.stage.example/api/brand/wks_1/logo/fil_2\"")
+    expect(branded).toContain("alt=\"Northwind\"")
+    expect(branded).toMatch(/background-color:#7A1F3D/i)
+    // Unset, Insyte's own look: no logo, the button in `abyss`.
+    expect(plain).not.toContain("/api/brand/")
+    expect(plain).not.toMatch(/#7A1F3D/i)
+    expect(plain.toLowerCase()).toContain(`background-color:${light.abyss}`)
+    // A colour without a logo: the store's name in it at the head.
+    await sendWith(http, {
+      kind: "return.received",
+      to: "anna@example.com",
+      sender: "Northwind",
+      returnMail,
+      look: { color: "#7A1F3D", logoPath: null }
+    })
+    const named = String(seen[2]?.body["html"])
+    expect(named).not.toContain("<img")
+    expect(named.match(/#7A1F3D/gi)?.length).toBe(2)
+  })
+
   it("sends from the brand's own address where the mail says one, still in the store's name (20.1c)", async () => {
     const seen: Array<Seen> = []
     const http = fakeResend(() => Promise.resolve(Response.json({ id: "re_7" })), seen)

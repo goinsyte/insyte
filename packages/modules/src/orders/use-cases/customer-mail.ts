@@ -9,6 +9,7 @@ import { type MailTry, retryAfter } from "../../shared/domain/MailRetry.ts"
 import { Relay } from "../../shared/domain/Outbox.ts"
 import { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
+import * as CustomerFacing from "../../shared/use-cases/CustomerFacing.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import * as Senders from "../../shared/use-cases/Senders.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
@@ -40,6 +41,10 @@ import { cancelMails } from "./delay-mail.ts"
  * - `sendTrackingUpdate`: "Track & trace-update sturen", bulk at Bestellingen · Bewerken. Each order's newest parcel is
  *   told once per tracking number: a selection sent twice tells no one twice, a new parcel is told again. What is left
  *   out says why (closed, delivered, no parcel, no address, told already); one undo for the selection.
+ *
+ * What the shopper sees of the settings pages (`shared/use-cases/CustomerFacing.ts`): the team's words carry
+ * Sjablonen' links, put in with the words; a tracking mail says the parcel's status as Verzending words it, read when
+ * it goes; and every mail wears Huisstijl (`Senders.ts`).
  */
 
 const RESTORE = "orders.unsend"
@@ -110,7 +115,6 @@ export const emailCustomer = Effect.fn("Orders.emailCustomer")(function*(input: 
   const refused = refusedFields(input.subject, input.body)
   if (Object.keys(refused).length > 0) return yield* new Invalid({ fields: refused })
   const subject = input.subject.trim()
-  const paragraphs = paragraphsOf(input.body)
   const relay = yield* Relay
   const db = yield* Db
   const { answer, outboxId } = yield* db.scoped((sql) =>
@@ -131,6 +135,9 @@ export const emailCustomer = Effect.fn("Orders.emailCustomer")(function*(input: 
         }
       }
       if (order.email === null) return yield* new CustomerMailRefused({ orderId: order.id, reason: "no_email" })
+      // Sjablonen' links in, as the shopper will read them; nothing left once the empty ones' sentences are out.
+      const paragraphs = paragraphsOf(yield* CustomerFacing.withLinks(sql, input.body))
+      if (paragraphs.length === 0) return yield* new Invalid({ fields: { body: "required" } })
       const id = input.id ?? mintId("oml")
       const held = yield* queue(sql, {
         id,
@@ -370,6 +377,8 @@ export const sendCustomerMail = Effect.fn("Orders.sendCustomerMail")(
     where order_id = ${m.orderId} and tracking_number = ${m.ref} order by shipped_at desc nulls last limit 1`
     const [mailbox] = yield* sql<{ address: string }>`
     select address from mailboxes where status = 'connected' order by is_default desc, created_at limit 1`
+    // Verzending's sentence for the parcel as it stands now, not when the mail was put in line.
+    const status = m.ref === null ? undefined : yield* CustomerFacing.parcelWording(sql, m.orderId, m.ref)
     const tried = yield* Senders.trySendToCustomer(sql, {
       kind: "order.message",
       to: m.address,
@@ -383,7 +392,14 @@ export const sendCustomerMail = Effect.fn("Orders.sendCustomerMail")(
         paragraphs: m.paragraphs,
         ...(m.ref === null
           ? {}
-          : { tracking: { carrier: parcel?.carrier ?? null, number: m.ref, url: safeUrl(parcel?.url ?? null) } })
+          : {
+            tracking: {
+              carrier: parcel?.carrier ?? null,
+              number: m.ref,
+              url: safeUrl(parcel?.url ?? null),
+              ...(status === undefined ? {} : { status })
+            }
+          })
       }
     }, { from: retry.from })
     // A try again keeps the sender this one used: after the brand's was refused, Insyte's.

@@ -1,7 +1,9 @@
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
+import { NO_LOOK } from "../domain/CustomerFacing.ts"
 import { type Mail, Mailer, type MailKind, type MailNotSent } from "../domain/Mailer.ts"
 import { sendersFor } from "../domain/Senders.ts"
+import { look } from "./CustomerFacing.ts"
 
 /*
  * The sender of a shopper's mail (M17 step 20.1c), read on the caller's transaction in its workspace's scope: the one
@@ -44,7 +46,10 @@ export const trySendToCustomer = Effect.fn("Senders.trySendToCustomer")(function
   options?: { readonly from?: string | null | undefined }
 ) {
   const mailer = yield* Mailer
-  const { from: now, ...rest } = yield* customerSender(sql, mail.kind)
+  const { from: now, ...replying } = yield* customerSender(sql, mail.kind)
+  // Huisstijl on every templated shopper's mail; the inbox's own messages are the team's words, plain.
+  const shown = mail.kind === "support.message" ? NO_LOOK : yield* look(sql)
+  const rest = { ...replying, ...(shown === NO_LOOK ? {} : { look: shown }) }
   const from = options?.from === undefined ? now : options.from ?? undefined
   const senders = { ...rest, ...(from === undefined ? {} : { from }) }
   const sent = (m: Mail) =>
