@@ -26,12 +26,20 @@ export type AskCall =
   & ({ readonly kind: "send"; readonly payload: SendInput } | { readonly kind: "retry"; readonly turnId: string })
   & { readonly onFrame: (frame: AskFrame) => void }
 
-export const askStream = ConsoleClient.runtime.fn((call: AskCall) =>
-  Effect.gen(function*() {
-    const client = yield* ConsoleClient
-    const frames = call.kind === "send" ?
-      client("Ask.send", call.payload) :
-      client("Ask.retry", { turnId: call.turnId })
-    yield* Stream.runForEach(frames, (frame) => Effect.sync(() => call.onFrame(frame)))
-  }).pipe(Effect.ensuring(Reactivity.invalidate(ASK)))
+/**
+ * Where a question is asked from. The page and the top bar's panel each have their own call: a function atom runs one
+ * call at a time and a new one interrupts the last, so a question on one never stops an answer streaming on the other.
+ */
+export type AskPlace = "page" | "panel"
+
+export const askStream = Atom.family((_place: AskPlace) =>
+  ConsoleClient.runtime.fn((call: AskCall) =>
+    Effect.gen(function*() {
+      const client = yield* ConsoleClient
+      const frames = call.kind === "send" ?
+        client("Ask.send", call.payload) :
+        client("Ask.retry", { turnId: call.turnId })
+      yield* Stream.runForEach(frames, (frame) => Effect.sync(() => call.onFrame(frame)))
+    }).pipe(Effect.ensuring(Reactivity.invalidate(ASK)))
+  )
 )

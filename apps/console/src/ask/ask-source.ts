@@ -8,7 +8,7 @@ import { Exit, Option } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
 import { useCallback, useMemo, useState } from "react"
 import { toast } from "sonner"
-import { ASK, askListAtom, askStream, askThreadAtom, askWrites } from "../data/ask.ts"
+import { ASK, askListAtom, type AskPlace, askStream, askThreadAtom, askWrites } from "../data/ask.ts"
 import { frameAtom } from "../data/frame.ts"
 import { viewStoreAtom } from "../data/store-view.ts"
 import { failureOf, sayRefusal } from "../frame/refusals.ts"
@@ -152,7 +152,7 @@ function useThread(id: string | null): AskThread | undefined {
  * Vraag Insyte where it is drawn: the page (`/ask`), whose open conversation is the address's `?c=`, or the top bar's
  * panel, which keeps its own beside whatever page is open. Both ask and read over the same `Ask.*`.
  */
-export function useConsoleAskSource(place: "page" | "panel" = "page"): AskSource {
+export function useConsoleAskSource(place: AskPlace = "page"): AskSource {
   const navigate = useNavigate()
   const search = useRouterState({ select: (s) => s.location.search as Record<string, unknown> })
   const route = useRouterState({ select: (s) => s.location.pathname })
@@ -162,7 +162,7 @@ export function useConsoleAskSource(place: "page" | "panel" = "page"): AskSource
   const thread = useThread(active)
   const frame = Option.getOrUndefined(AsyncResult.value(useAtomValue(frameAtom)))
   const storeId = useAtomValue(viewStoreAtom) ?? undefined
-  const send = useAtomSet(askStream, { mode: "promiseExit" })
+  const send = useAtomSet(askStream(place), { mode: "promiseExit" })
   const remove = useAtomSet(askWrites.remove, { mode: "promiseExit" })
   const undo = useAtomSet(askWrites.undo, { mode: "promiseExit" })
   const [pending, setPending] = useState<Pending | null>(null)
