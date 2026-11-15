@@ -3,10 +3,10 @@ import { admit, onPreview, previewRequest } from "./access.ts"
 
 /*
  * The agent acting on its own (M15 step 6, W10.1): a new admin puts "Klant beantwoorden" on Zelf doen, connects a
- * mailbox by forwarding, and a customer mails asking where her order is. Insyte answers it by itself, held for five
- * minutes, and "Wat Insyte deed" lists it with Ongedaan maken, which takes the reply back before it leaves. On the fake
- * model locally; where Insyte AI is not switched on (a preview has no model), there is nothing to answer with and the
- * journey is skipped. One person per run, as in `auth.spec.ts`.
+ * mailbox by forwarding, and a customer of the seeded store mails asking where her order is. Insyte answers it by
+ * itself, held for five minutes, and "Wat Insyte deed" lists it with Ongedaan maken, which takes the reply back before
+ * it leaves. On the fake model locally; where Insyte AI is not switched on (a preview has no model), there is nothing
+ * to answer with and the journey is skipped. One person per run, as in `auth.spec.ts`.
  */
 
 const test = base.extend<{ page: Page }>({
@@ -67,6 +67,8 @@ test("@ai Insyte answers a mail asking where an order is on Zelf doen, and the a
   await expect(page.getByRole("heading", { name: "Je bent binnen." })).toBeVisible()
   await page.getByRole("button", { name: "Dashboard openen" }).click()
   await expect(page).toHaveURL(/\/dashboard$/)
+  // The recorded store: Anna de Vries is its customer, and the agent answers a thread's own customer only.
+  expect((await page.request.post("/api/__dev/stores/seed", onPreview())).ok()).toBe(true)
 
   // Zelfstandigheid: "Klant beantwoorden" on Zelf doen, saved. Without a model there is nothing to answer with.
   await page.goto("/settings/ai/autonomy")
@@ -96,7 +98,7 @@ test("@ai Insyte answers a mail asking where an order is on Zelf doen, and the a
 
   // The customer asks where her order is.
   const raw = mime({
-    From: `Sanne de Vries <sanne-${tag}@voorbeeld.nl>`,
+    From: "Anna de Vries <klant1@example.com>",
     To: `support-${tag}@agent-e2e.nl`,
     Subject: "Waar is mijn pakket?",
     "Message-ID": `<e2e-${tag}@voorbeeld.nl>`
@@ -121,5 +123,5 @@ test("@ai Insyte answers a mail asking where an order is on Zelf doen, and the a
   await page.goto("/inbox")
   await hydrated(page)
   await page.getByText("Waar is mijn pakket?").first().click()
-  await expect(page.getByText(/^Hoi Sanne,/)).toHaveCount(0)
+  await expect(page.getByText(/^Hoi Anna,/)).toHaveCount(0)
 })
