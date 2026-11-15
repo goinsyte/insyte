@@ -10,7 +10,18 @@ import {
   TicketStatusV1,
   TicketViewFilter
 } from "../../http/groups/TicketsGroup.ts"
-import { asKey, Governed, IdempotencyKey, OrderId, WriteFailure } from "../Shared.ts"
+import {
+  asKey,
+  ForAgents,
+  Governed,
+  governedAs,
+  IdempotencyKey,
+  Needs,
+  OrderId,
+  read,
+  write,
+  WriteFailure
+} from "../Shared.ts"
 
 /* Tickets (M11): the board, one ticket, and writing, changing, moving, assigning and commenting. */
 
@@ -24,7 +35,7 @@ export const ListTickets = Tool.make("list_tickets", {
   success: TicketPageV1,
   failure: ScopeMissingV1,
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("support")])
 
 export const GetTicket = Tool.make("get_ticket", {
   description: "One ticket with its comments, newest first. Needs support.read.",
@@ -32,7 +43,7 @@ export const GetTicket = Tool.make("get_ticket", {
   success: TicketDetailV1,
   failure: Schema.Union([ScopeMissingV1, NotFoundV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("support")])
 
 export const CreateTicket = Tool.make("create_ticket", {
   description:
@@ -52,7 +63,7 @@ export const CreateTicket = Tool.make("create_ticket", {
   success: Governed(Ticket),
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("support")]).annotate(ForAgents, governedAs("CreateTicket"))
 
 export const UpdateTicket = Tool.make("update_ticket", {
   description:
@@ -69,7 +80,10 @@ export const UpdateTicket = Tool.make("update_ticket", {
   success: Governed(Ticket),
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("support")]).annotate(
+  ForAgents,
+  governedAs("SetPriority", "ApplyLabel")
+)
 
 export const SetTicketStatus = Tool.make("set_ticket_status", {
   description: "Moves a ticket to intake, in_progress, awaiting_reply or done. Needs support.write.",
@@ -77,7 +91,10 @@ export const SetTicketStatus = Tool.make("set_ticket_status", {
   success: Governed(Ticket),
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("support")]).annotate(
+  ForAgents,
+  governedAs("SetTicketStatus")
+)
 
 export const AssignTicket = Tool.make("assign_ticket", {
   description: "Puts a teammate on a ticket (they hear of it), or takes them off with unassign. Needs support.write.",
@@ -90,7 +107,7 @@ export const AssignTicket = Tool.make("assign_ticket", {
   success: Governed(Ticket),
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("support")]).annotate(ForAgents, governedAs("AssignTicket"))
 
 export const CommentOnTicket = Tool.make("comment_on_ticket", {
   description:
@@ -104,7 +121,7 @@ export const CommentOnTicket = Tool.make("comment_on_ticket", {
   success: Governed(TicketComment),
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true)
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("support")]).annotate(ForAgents, governedAs("AddNote"))
 
 export const TicketsTools = Toolkit.make(
   ListTickets,

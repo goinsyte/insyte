@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import { QueuePageV1, QueueTabV1 } from "../../http/groups/QueueGroup.ts"
-import { asKey } from "../Shared.ts"
+import { asKey, Needs } from "../Shared.ts"
 
 /* What needs the team on Start (M19.3). */
 
@@ -11,7 +11,7 @@ export const ListQueue = Tool.make("list_queue", {
   parameters: Schema.Struct({ tab: Schema.optional(QueueTabV1) }),
   success: QueuePageV1,
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [])
 
 export const QueueTools = Toolkit.make(
   ListQueue

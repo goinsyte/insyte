@@ -2,7 +2,7 @@ import { Schema } from "effect"
 import { Tool, Toolkit } from "effect/ai"
 import { InvalidRequestV1, ScopeMissingV1 } from "../../http/Errors.ts"
 import { CostFiguresV1, CostsV1 } from "../../http/groups/CostsGroup.ts"
-import { asKey } from "../Shared.ts"
+import { asKey, Needs, read } from "../Shared.ts"
 
 /* Kosten (M13 step 5): the cost lines per month, and the months' figures. */
 
@@ -17,7 +17,7 @@ export const GetCosts = Tool.make("get_costs", {
   success: CostsV1,
   failure: Schema.Union([ScopeMissingV1, InvalidRequestV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("analytics")])
 
 export const GetCostFigures = Tool.make("get_cost_figures", {
   description:
@@ -26,7 +26,7 @@ export const GetCostFigures = Tool.make("get_cost_figures", {
   success: CostFiguresV1,
   failure: Schema.Union([ScopeMissingV1, InvalidRequestV1]),
   dependencies: asKey()
-}).annotate(Tool.Readonly, true)
+}).annotate(Tool.Readonly, true).annotate(Needs, [read("analytics")])
 
 export const CostsTools = Toolkit.make(
   GetCosts,

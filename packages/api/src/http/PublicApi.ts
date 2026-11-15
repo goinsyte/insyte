@@ -1,3 +1,4 @@
+import { WEBHOOK_API_VERSIONS } from "@insyte/domain/Webhooks"
 import { HttpApi, OpenApi } from "effect/http-api"
 import { AnalyticsGroup } from "./groups/AnalyticsGroup.ts"
 import { AutomationsGroup } from "./groups/AutomationsGroup.ts"
@@ -17,6 +18,15 @@ import { TeamGroup } from "./groups/TeamGroup.ts"
 import { TicketsGroup } from "./groups/TicketsGroup.ts"
 import { ApiKeyAuth } from "./Security.ts"
 import { WEBHOOKS_DESCRIPTION, webhooksSection } from "./Webhooks.ts"
+
+/** The dated versions (ADR-0024), as the key door answers them (`Insyte-Version`). */
+const VERSIONS_DESCRIPTION = [
+  "## Versions",
+  "",
+  "Every answer carries `Insyte-Version`, the dated version it is in: the one the call names in an `Insyte-Version` " +
+  `header (${WEBHOOK_API_VERSIONS.join(", ")}), or else the key's own, the newest on or before the day it was made. ` +
+  "A version there is none of is refused with `InvalidRequestV1` (`field: insyte-version`)."
+].join("\n")
 
 /*
  * The public API (M19.2, api.md §6): REST under `/v1`, a bearer API key, JSON in snake_case English. What a key may do
@@ -52,6 +62,6 @@ export class PublicApi extends HttpApi.make("insyte")
   .prefix("/v1")
   .annotate(OpenApi.Title, "Insyte API")
   .annotate(OpenApi.Version, "1")
-  .annotate(OpenApi.Description, WEBHOOKS_DESCRIPTION)
+  .annotate(OpenApi.Description, `${VERSIONS_DESCRIPTION}\n\n${WEBHOOKS_DESCRIPTION}`)
   .annotate(OpenApi.Transform, webhooksSection)
 {}
