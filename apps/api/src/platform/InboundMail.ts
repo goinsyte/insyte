@@ -1,4 +1,4 @@
-import type { Address, InboundMail } from "@insyte/modules/inbox/domain/Inbox"
+import { type Address, automatedMail, type InboundMail } from "@insyte/modules/inbox/domain/Inbox"
 import PostalMime, { type Address as Parsed, type Attachment } from "postal-mime"
 
 /*
@@ -57,6 +57,7 @@ export const parseMail = async (raw: string | ArrayBuffer | Uint8Array): Promise
     text: (email.text ?? (html === null ? "" : textOfHtml(html))).trim().slice(0, 200_000),
     html,
     date: date === null || Number.isNaN(date.getTime()) ? null : date,
+    automated: automatedMail(email.headers),
     attachments: email.attachments.map((a) => ({
       filename: a.filename ?? "bijlage",
       mime: a.mimeType || "application/octet-stream",

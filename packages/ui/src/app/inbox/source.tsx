@@ -19,6 +19,8 @@ export interface ThreadDraft {
   rewrite: (style: "warmer" | "shorter") => Promise<string | undefined>
   /** "Concept gebruiken": the draft went into the composer. */
   use: () => void
+  /** What the person must check before it goes, in one Dutch sentence; absent when there is nothing to check. */
+  check?: string | undefined
 }
 
 /** Insyte AI in the inbox (M15 step 2): a hook, called once per render with the open thread. */

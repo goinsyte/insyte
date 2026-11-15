@@ -1,14 +1,16 @@
 import { Db } from "@insyte/database/Db"
 import { AGENT_ACTION, AGENT_UNDO_SECONDS, type AgentActionId } from "@insyte/domain/AgentActions"
-import { CurrentPrincipal } from "@insyte/domain/Principal"
-import { Effect } from "effect"
+import { mintId } from "@insyte/domain/Ids"
+import { CurrentPrincipal, CurrentWorkspace } from "@insyte/domain/Principal"
+import { Effect, Exit } from "effect"
 import type { SqlClient, SqlError } from "effect/sql"
 import type { ProposalAction } from "../../proposals/domain/Proposals.ts"
 import { proposeIn } from "../../proposals/Proposals.ts"
-import { IssuedUndo } from "../../shared/domain/Undo.ts"
+import { IssuedUndo, logUntil, UndoWindow } from "../../shared/domain/Undo.ts"
 import { ActionNotAllowed, type AgentEffect } from "../domain/AgentLog.ts"
 import { decide } from "./autonomy.ts"
 import { record, seen } from "./log.ts"
+import { daySlot, freeSlot } from "./triggers.ts"
 
 /*
  * An agent's action under the workspace's autonomy rules (M15 step 6; ADR-0027): `Autonomy.decide` first, then one
@@ -135,7 +137,15 @@ export const govern = <A, E, R>(
       }
       return { _tag: "Ran" as const, value: (yield* g.run).value }
     }
-    const d = first.decision!
+    const decided = first.decision!
+    // A run of the day, claimed as the agent's own triggers claim it (`daySlot`): the day's limit holds for MCP calls
+    // and triggers together, however many come at once. None left: the call is asked, as `decide` would have.
+    const id = mintId("aga")
+    const workspace = { id: principal.workspaceId }
+    const d = decided.decision === "run" &&
+        !(yield* daySlot(g.action, id).pipe(Effect.provideService(CurrentWorkspace, workspace)))
+      ? { ...decided, decision: "propose" as const, reason: "limit" }
+      : decided
 
     if (d.decision === "refuse") {
       yield* db.scoped((sql) =>
@@ -202,14 +212,17 @@ export const govern = <A, E, R>(
       )
     }
 
-    // Zelf doen: the command as the agent, its undo token kept for the log.
-    const issued: Array<{ readonly hash: string; readonly command: string }> = []
+    // Zelf doen: the command as the agent, its undo token kept for the log, with the log's window, so its sends wait
+    // that long and the log can still call them off.
+    const issued: Array<{ readonly hash: string; readonly command: string; readonly until: number }> = []
     const ran = yield* g.run.pipe(
       Effect.provideService(IssuedUndo, { add: (t) => void issued.push(t) }),
+      Effect.provideService(UndoWindow, AGENT_UNDO_SECONDS),
       Effect.tapError((e) =>
         db.scoped((sql) =>
           record(sql, {
             ...base,
+            id,
             policyVersion: d.policyVersion,
             level: d.level,
             decision: "run",
@@ -221,12 +234,19 @@ export const govern = <A, E, R>(
             undo: null
           })
         ).pipe(Effect.orDie)
+      ),
+      // However it did not happen (an error, a defect, the call dropped), the day's slot goes back.
+      Effect.onExit((exit) =>
+        Exit.isFailure(exit)
+          ? freeSlot(id).pipe(Effect.provideService(CurrentWorkspace, workspace), Effect.ignore)
+          : Effect.void
       )
     )
     const token = issued[0]
     yield* db.scoped((sql) =>
       record(sql, {
         ...base,
+        id,
         policyVersion: d.policyVersion,
         level: d.level,
         decision: "run",
@@ -235,7 +255,7 @@ export const govern = <A, E, R>(
         outcome: "done",
         error: null,
         proposalId: null,
-        undo: token === undefined ? null : { hash: token.hash, until: new Date(Date.now() + AGENT_UNDO_SECONDS * 1000) }
+        undo: token === undefined ? null : { hash: token.hash, until: logUntil(token) }
       })
     )
     return { _tag: "Ran" as const, value: ran.value }

@@ -50,6 +50,7 @@ type Row = {
   provider: "anthropic" | "fake" | null
   model: string | null
   promptVersion: string
+  flags: ReadonlyArray<"money" | "figure" | "link">
 }
 
 const draftOf = (r: Row) =>
@@ -64,12 +65,13 @@ const draftOf = (r: Row) =>
     createdAt: r.createdAt.getTime(),
     provider: r.provider ?? "fake",
     model: r.model ?? "",
-    promptVersion: r.promptVersion
+    promptVersion: r.promptVersion,
+    flags: r.flags
   })
 
 const select = (sql: SqlClient.SqlClient) =>
   sql`select d.id, d.subject_type, d.subject_id, d.kind, d.text, d.tone, d.parent_draft_id, d.used_at, d.created_at,
-             m.provider, m.model, d.prompt_version
+             m.provider, m.model, d.prompt_version, d.flags
       from drafts d left join model_calls m on m.id = d.model_call_id`
 
 const callerOf = Effect.gen(function*() {

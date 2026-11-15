@@ -30,7 +30,10 @@ const senderRefused = (mail: Mail) =>
  * The address and the answer address the capture adapter was asked to send a record's newest mail with (E-mail en
  * domein, M17 step 20.1c), by its reference, for the dev route: `captured_mail` predates them. Only this isolate's.
  */
-export const capturedSenders = new Map<string, { readonly from: string | null; readonly replyTo: string | null }>()
+export const capturedSenders = new Map<
+  string,
+  { readonly from: string | null; readonly replyTo: string | null; readonly autoSubmitted: string | null }
+>()
 
 /** What a member's mail says on top, so a test can read it: a note's sentence, a digest's count. */
 const subjectOf = (mail: Mail): string | null =>
@@ -64,7 +67,11 @@ export const MailerCapture = Layer.effect(
           )
           : Effect.sync(() => {
             if (mail.reference !== undefined) {
-              capturedSenders.set(mail.reference, { from: mail.from ?? null, replyTo: mail.replyTo ?? null })
+              capturedSenders.set(mail.reference, {
+                from: mail.from ?? null,
+                replyTo: mail.replyTo ?? null,
+                autoSubmitted: mail.autoSubmitted ?? null
+              })
             }
           }).pipe(
             Effect.andThen(withConnection(Effect.flatMap(Effect.service(SqlClient.SqlClient), (sql) =>
