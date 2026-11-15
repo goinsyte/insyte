@@ -1,7 +1,6 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { Frame } from "@insyte/api/rpc/ShellRpcs"
 import type { StoreView } from "@insyte/modules/stores/domain/Stores"
-import type { ActiveStore } from "@insyte/ui/app/hooks/use-active-store"
 import type { ShellSource } from "@insyte/ui/app/shell/source"
 import { ConnectStoreFlow, type ConnectStoreProps } from "@insyte/ui/app/shops/connect-store-flow"
 import { useMemo } from "react"
@@ -17,6 +16,8 @@ import { usePrefSection } from "./prefs.ts"
  * in view (`data/store-view.ts`). Connecting another store from the menu is Shopify's approval, as on Winkels, and comes
  * back there.
  */
+
+type ActiveStore = ShellSource["activeStore"]["stores"][number]
 
 const EVERY: StoreChoice = { id: null }
 

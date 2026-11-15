@@ -16,9 +16,9 @@ import { storeHealthOf } from "./health-of.ts"
  * goes to Shopify's approval page and comes back through the API's callback, `routes/_frame.settings.stores.tsx`), and
  * disconnecting as `Stores.disconnect`. A disconnect drops the token, so it has no undo: the row connects again. A
  * refusal is said once, in Dutch. A connected store's Live pixel (M14 step 3) is installed or repaired from its menu as
- * `Live.installPixel`, where this environment can (`Live.pixels`). Which store is in view is the top bar's switch. Each row's sync health is `Connections.health` (M17
- * step 6), with the incidents open on it and what Insyte already tried; a role that may not read it sees the rows
- * without.
+ * `Live.installPixel`, where this environment can (`Live.pixels`). Which store is in view is the top bar's switch.
+ * Each row's sync health is `Connections.health` (M17 step 6), with the incidents open on it and what Insyte already
+ * tried; a role that may not read it sees the rows without.
  */
 
 /** Where Shopify sends the person back to once they approved. */
