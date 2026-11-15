@@ -1,19 +1,16 @@
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../../components/sheet";
-import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Clock, Eye, Hash, List, RotateCcw, Sparkles, X } from "../../icons";
-import { ReadOnlyNotice } from "../access/route-gate";
-import { useMyName } from "../ask/agent-demo";
+import { Archive, ChevronLeft, Clock, Eye, Hash, List, RotateCcw, Sparkles, X } from "../../icons";
+import { ReadOnlyNotice } from "../access/read-only-notice";
 import { EmptyState } from "../common/empty-state";
 import { Markdown } from "../common/markdown";
 import { UnsavedBar } from "../settings/form";
 import { StatusPill } from "../settings/setting-card";
-import { type Article, type Audience, diffLines, LIMIT, publishedVersion, STATUS_LABEL, statusOf } from "../lib/knowledge";
+import { type Article, type ArticleVersion, type Audience, diffLines, LIMIT, publishedVersion, STATUS_LABEL, statusOf } from "../lib/knowledge";
 import { formatDateTime } from "../lib/format";
-import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { useGate } from "../stores/access-store";
-import { useKnowledge } from "../stores/knowledge-store";
+import { type ArticleSource, useArticleSource } from "./knowledge-source";
 import { AudiencePicker } from "./knowledge-screen";
 
 export type ArticleSearch = { gap?: string | undefined };
@@ -27,18 +24,15 @@ type Draft = Pick<Article, "title" | "audience" | "body">;
  * when, and what changed; Terugzetten publishes an earlier one again, with Undo.
  */
 export function ArticlePage() {
-	const { articleId } = useParams({ strict: false }) as { articleId?: string };
-	const a = useKnowledge((s) => s.articles.find((x) => x.id === articleId));
-	if (!a) return <EmptyState kind="knowledge" title="Dit hoofdstuk bestaat niet (meer)." body="Ga terug naar de kennisbank." />;
-	return <Editor a={a} />;
+	const source = useArticleSource();
+	if (!source) return <EmptyState kind="knowledge" title="Dit hoofdstuk bestaat niet (meer)." body="Ga terug naar de kennisbank." />;
+	return <Editor key={source.article.id} source={source} />;
 }
 
-function Editor({ a }: { a: Article }) {
+function Editor({ source }: { source: ArticleSource }) {
+	const { article: a, gap, gate } = source;
 	const search = useSearch({ strict: false }) as ArticleSearch;
 	const navigate = useNavigate();
-	const gap = useKnowledge((s) => (search.gap ? s.gaps.find((g) => g.id === search.gap) : undefined));
-	const gate = useGate("settings", 3);
-	const me = useMyName();
 	const saved: Draft = { title: a.title, audience: a.audience, body: a.body };
 	const savedKey = JSON.stringify(saved);
 	const [draft, setDraft] = useState<Draft>(() => (gap && gap.state === "open" && !a.body.includes(gap.question) ? { ...saved, body: `${a.body.trimEnd()}\n\n## ${gap.question}\n\n` } : saved));
@@ -56,10 +50,13 @@ function Editor({ a }: { a: Article }) {
 	const over = draft.body.length > LIMIT;
 	const area = useRef<HTMLTextAreaElement>(null);
 
+	const publishGate = source.publishGate(draft.audience);
+	const [writing, setWriting] = useState(false);
+
 	const keep = (publish: boolean) => {
-		const undo = useKnowledge.getState().save(a.id, draft, me, publish);
-		undoable(publish ? `“${draft.title}” gepubliceerd` : `Concept van “${draft.title}” opgeslagen`, undo, publish ? "De klantagent en Vraag Insyte gebruiken vanaf nu deze versie." : "De agents lezen nog de gepubliceerde versie.");
-		if (publish && search.gap) void navigate({ to: "/settings/ai/knowledge/$articleId", params: { articleId: a.id }, search: {} as never, replace: true });
+		void source.save(draft, publish).then((kept) => {
+			if (kept && publish && search.gap) void navigate({ to: "/settings/ai/knowledge/$articleId", params: { articleId: a.id }, search: {} as never, replace: true });
+		});
 	};
 
 	/** Puts a heading or list marker at the start of the line the caret is on. */
@@ -77,10 +74,21 @@ function Editor({ a }: { a: Article }) {
 
 	/** Insyte's first text for a gap: a draft in the well, never published by itself (design §6, question 6). */
 	const suggest = () => {
-		if (!gap) return;
-		const text = SUGGESTIONS[gap.id] ?? "Schrijf hier het antwoord. Houd het kort: twee of drie zinnen, met de termijn of het bedrag erin.";
-		setDraft((d) => ({ ...d, body: d.body.endsWith("\n\n") ? `${d.body}${text}\n` : `${d.body}\n${text}\n` }));
+		if (!gap || writing) return;
+		setWriting(true);
+		void source.firstText().then((text) => {
+			setWriting(false);
+			if (text !== null) setDraft((d) => ({ ...d, body: d.body.endsWith("\n\n") ? `${d.body}${text}\n` : `${d.body}\n${text}\n` }));
+		});
 	};
+
+	const archive = source.archive;
+	const toArchive = archive
+		? () =>
+				void archive().then((gone) => {
+					if (gone) void navigate({ to: "/settings/ai/knowledge" });
+				})
+		: undefined;
 
 	return (
 		<>
@@ -95,9 +103,9 @@ function Editor({ a }: { a: Article }) {
 						<span className="font-medium">Je beantwoordt: “{gap.question}”</span> Publiceer het hoofdstuk, dan gebruikt de klantagent het antwoord en sluit de vraag.
 					</span>
 					{gate.ok ? (
-						<button type="button" onClick={suggest} className="flex h-8 items-center gap-1.5 rounded-md bg-paper px-2.5 font-medium text-arc-ink text-sm hover:bg-paper/80">
+						<button type="button" onClick={suggest} disabled={writing} className="flex h-8 items-center gap-1.5 rounded-md bg-paper px-2.5 font-medium text-arc-ink text-sm hover:bg-paper/80 disabled:opacity-60">
 							<Sparkles className="size-3.5" strokeWidth={1.75} />
-							Laat Insyte een eerste tekst schrijven
+							{writing ? "Insyte schrijft…" : "Laat Insyte een eerste tekst schrijven"}
 						</button>
 					) : null}
 				</p>
@@ -118,6 +126,12 @@ function Editor({ a }: { a: Article }) {
 						Gepubliceerd: {publishedVersion(a) ? `versie ${publishedVersion(a)?.n}` : "nog niet"} · {a.uses7d}× gebruikt deze week
 					</span>
 					<span className="flex-1" />
+					{gate.ok && toArchive ? (
+						<button type="button" onClick={toArchive} className="flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-ink-2 text-sm hover:bg-ink/6 hover:text-ink">
+							<Archive className="size-3.5" strokeWidth={1.75} />
+							Archiveren
+						</button>
+					) : null}
 					<button type="button" onClick={() => setVersions(true)} className="field flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-ink text-sm hover:field-hover">
 						<Clock className="size-3.5" strokeWidth={1.75} />
 						Versies · {a.versions.length}
@@ -170,7 +184,7 @@ function Editor({ a }: { a: Article }) {
 							<button type="button" disabled={over || (!dirty && st !== "changed" && st !== "draft")} onClick={() => keep(false)} className="flex h-8 items-center rounded-md px-3 font-medium text-ink-2 text-sm hover:bg-ink/6 hover:text-ink disabled:opacity-45">
 								Opslaan als concept
 							</button>
-							<button type="button" disabled={over || (!dirty && st === "published")} onClick={() => keep(true)} className="flex h-8 items-center rounded-md bg-abyss px-3 font-medium text-mesh-ink text-sm shadow-primary hover:bg-abyss-2 disabled:opacity-45">
+							<button type="button" disabled={over || !publishGate.ok || (!dirty && st === "published")} title={publishGate.ok ? undefined : publishGate.reason} onClick={() => keep(true)} className="flex h-8 items-center rounded-md bg-abyss px-3 font-medium text-mesh-ink text-sm shadow-primary hover:bg-abyss-2 disabled:opacity-45">
 								Publiceren
 							</button>
 						</>
@@ -179,7 +193,7 @@ function Editor({ a }: { a: Article }) {
 			</section>
 
 			<UnsavedBar visible={dirty && gate.ok} onDiscard={() => setDraft(saved)} onSave={() => keep(false)} />
-			<VersionDrawer open={versions} a={a} canRevert={gate.ok} onClose={() => setVersions(false)} />
+			<VersionDrawer open={versions} source={source} canRevert={gate.ok} onClose={() => setVersions(false)} />
 		</>
 	);
 }
@@ -193,12 +207,26 @@ function Tool({ children, onClick, disabled, label, pressed }: { children: React
 }
 
 /** Every version, newest first, with who and when; one opens with what changed against the one before. */
-function VersionDrawer({ open, a, canRevert, onClose }: { open: boolean; a: Article; canRevert: boolean; onClose: () => void }) {
-	const me = useMyName();
-	const list = useMemo(() => [...a.versions].reverse(), [a.versions]);
+function VersionDrawer({ open, source, canRevert, onClose }: { open: boolean; source: ArticleSource; canRevert: boolean; onClose: () => void }) {
+	const a = source.article;
+	// Every version's text, read when the drawer opens (the host may hold only the published one's).
+	const [loaded, setLoaded] = useState<ReadonlyArray<ArticleVersion> | null>(null);
+	const count = a.versions.length;
+	useEffect(() => {
+		if (!open) return;
+		let live = true;
+		void source.versions().then((all) => {
+			if (live) setLoaded(all);
+		});
+		return () => {
+			live = false;
+		};
+	}, [open, count, source]);
+	const all = loaded ?? a.versions;
+	const list = useMemo(() => [...all].reverse(), [all]);
 	const [pick, setPick] = useState<number | null>(null);
-	const chosen = a.versions.find((v) => v.n === (pick ?? list[0]?.n));
-	const before = chosen ? a.versions.find((v) => v.n === chosen.n - 1) : undefined;
+	const chosen = all.find((v) => v.n === (pick ?? list[0]?.n));
+	const before = chosen ? all.find((v) => v.n === chosen.n - 1) : undefined;
 	const diff = useMemo(() => (chosen ? diffLines(before?.body ?? "", chosen.body) : []), [chosen, before]);
 	const current = publishedVersion(a)?.n;
 	const ref = useRef<HTMLDivElement>(null);
@@ -236,9 +264,9 @@ function VersionDrawer({ open, a, canRevert, onClose }: { open: boolean; a: Arti
 									<button
 										type="button"
 										onClick={() => {
-											const undo = useKnowledge.getState().revert(a.id, chosen.n, me);
-											undoable(`Versie ${chosen.n} staat weer gepubliceerd`, undo, "Als een nieuwe versie, zodat de oude blijven bestaan.");
-											onClose();
+											void source.revert(chosen.n).then((done) => {
+												if (done) onClose();
+											});
 										}}
 										className="field flex h-8 items-center gap-1.5 rounded-md px-2.5 font-medium text-ink text-sm hover:field-hover"
 									>
@@ -264,12 +292,3 @@ function VersionDrawer({ open, a, canRevert, onClose }: { open: boolean; a: Arti
 		</Sheet>
 	);
 }
-
-/* Insyte's first texts for the seeded gaps, drafted from the rest of the knowledge base and the settings. */
-const SUGGESTIONS: Record<string, string> = {
-	gap_1: "Sale-artikelen kun je niet retourneren voor je geld terug. Ruilen voor een andere maat kan wel, binnen 30 dagen na bezorging, via het retourportaal.",
-	gap_2: "We versturen nog niet naar Zwitserland. Bestellen kan wel met een adres in Duitsland of Oostenrijk.",
-	gap_3: "Een cadeaubon en een kortingscode kun je samen gebruiken: vul eerst de code in en betaal de rest met je cadeaubon.",
-	gap_4: "Binnen een uur na het betalen kunnen we je bestelling nog aanpassen. Stuur ons dan meteen een bericht met je bestelnummer.",
-	gap_5: "In Duitsland kun je bij het afrekenen een DHL-Packstation of -punt kiezen. In Nederland en België bezorgt PostNL ook bij een afhaalpunt.",
-};
