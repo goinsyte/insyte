@@ -166,6 +166,8 @@ const SettingsBefore = Schema.Struct({
 export const AutomationsRestore = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("created"), id: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("removed"), id: Schema.String }),
+  // Put back from the Prullenbak: the undo removes it again.
+  Schema.Struct({ kind: Schema.Literal("restored"), id: Schema.String }),
   Schema.Struct({
     kind: Schema.Literal("published"),
     id: Schema.String,

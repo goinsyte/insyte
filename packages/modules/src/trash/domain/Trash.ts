@@ -1,4 +1,4 @@
-import type { AreaId } from "@insyte/domain/Permissions"
+import type { AreaId, SpecialId } from "@insyte/domain/Permissions"
 import { Schema } from "effect"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
 
@@ -11,12 +11,41 @@ import { UndoTicket } from "../../shared/domain/Undo.ts"
 /** Days an item stays in the Prullenbak before the daily sweep purges it (`TRASH_DAYS` in the design). */
 export const TRASH_DAYS = 30
 
-/** The kinds the view holds. A kind joins with its `select` in the view and its entry in `TrashKinds`. */
-export const TrashKind = Schema.Literals(["ticket"])
+/**
+ * The kinds the view holds, and what each takes. **Adding a kind** (the Kennisbank's items, say) is: its name here, its
+ * rule in `TRASH_KINDS`, its `select` in the view (a migration over `trashView`, see `0101_trash_kinds.ts`), its
+ * put-back and purge in `TrashKindsLive` (`apps/api/src/platform/links/TrashKinds.ts`), and its word and icon on the
+ * page (`KIND` in the console's `trash-source.tsx` and `trash-screen.tsx`). Nothing in the use cases names a kind.
+ */
+export const TrashKind = Schema.Literals(["ticket", "automation", "sheet", "course", "webhook", "cost_line"])
 export type TrashKind = typeof TrashKind.Type
 
-/** The area each kind belongs to: listing it takes Bekijken there, putting it back Bewerken, purging Beheren. */
-export const KIND_AREA: Readonly<Record<TrashKind, AreaId>> = { ticket: "support" }
+/** What a kind takes: the area it belongs to, and the level there to see it, put it back, and purge it. */
+export interface TrashKindRule {
+  readonly area: AreaId
+  readonly see: 1 | 2 | 3
+  readonly restore: 1 | 2 | 3
+  readonly purge: 1 | 2 | 3
+  /** A special action putting it back and purging it also take, as its slice's own commands do. */
+  readonly action?: SpecialId
+  /** Only its owner (`trash_items_v.owner_id`) sees, puts back and purges it: a sheet is personal. */
+  readonly ownerOnly?: true
+}
+
+/**
+ * Each kind's rule, as its slice already has it: a ticket is seen at Bekijken, put back at Bewerken, purged at Beheren
+ * (Tickets' own put-back of a deleted one takes Beheren too); an automation and a course are removed at Beheren, so
+ * they come back and go for good there; a webhook endpoint is removed at Bewerken; a cost line and a sheet are made
+ * and removed at Bekijken (cost lines with the `costs.write` action), a sheet by its owner only.
+ */
+export const TRASH_KINDS: Readonly<Record<TrashKind, TrashKindRule>> = {
+  ticket: { area: "support", see: 1, restore: 2, purge: 3 },
+  automation: { area: "automations", see: 1, restore: 3, purge: 3 },
+  sheet: { area: "data", see: 1, restore: 1, purge: 1, ownerOnly: true },
+  course: { area: "courses", see: 2, restore: 3, purge: 3 },
+  webhook: { area: "integrations", see: 1, restore: 2, purge: 3 },
+  cost_line: { area: "analytics", see: 1, restore: 1, purge: 1, action: "costs.write" }
+}
 
 export const TrashItem = Schema.Struct({
   id: Schema.String,

@@ -1,5 +1,5 @@
 import type { Db } from "@insyte/database/Db"
-import type { Forbidden, NotFound } from "@insyte/domain/Errors"
+import type { Conflict, Forbidden, NotFound } from "@insyte/domain/Errors"
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
@@ -16,7 +16,7 @@ type R = Db | CurrentPrincipal
  */
 export class TrashService extends Context.Service<TrashService, {
   readonly list: Effect.Effect<TrashList, Forbidden, R>
-  readonly restore: (input: TrashIds) => Effect.Effect<TrashRestored, Forbidden | NotFound, R>
+  readonly restore: (input: TrashIds) => Effect.Effect<TrashRestored, Conflict | Forbidden | NotFound, R>
   readonly purge: (input: TrashIds) => Effect.Effect<TrashPurged, Forbidden | NotFound, R>
   readonly empty: Effect.Effect<TrashPurged, Forbidden, R>
 }>()("modules/TrashService") {

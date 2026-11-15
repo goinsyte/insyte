@@ -1,13 +1,16 @@
 import { useState } from "react"
 import {
   Archive,
+  BadgePercent,
   FileText,
+  GraduationCap,
   MessageSquareText,
   RotateCcw,
   Sheet as SheetIcon,
   Ticket,
   Trash2,
   User,
+  Webhook,
   Workflow
 } from "../../../icons"
 import type { IconComponent } from "../../../icons"
@@ -25,16 +28,25 @@ const KIND: Record<TrashItem["kind"], { icon: IconComponent; label: string }> = 
   automatisering: { icon: Workflow, label: "Automatisering" },
   rekenblad: { icon: SheetIcon, label: "Rekenblad" },
   sjabloon: { icon: MessageSquareText, label: "Sjabloon" },
-  notitie: { icon: FileText, label: "Notitie" }
+  notitie: { icon: FileText, label: "Notitie" },
+  cursus: { icon: GraduationCap, label: "Cursus" },
+  webhook: { icon: Webhook, label: "Webhook" },
+  kostenpost: { icon: BadgePercent, label: "Kostenpost" }
 }
 
-const left = (at: string) => Math.max(0, TRASH_DAYS - Math.floor((Date.now() - Date.parse(at)) / 86_400_000))
+const DAY = 86_400_000
+
+/** Days until it goes for good: from when it was deleted, or from the host's own `purgeAt`. */
+const left = (t: TrashItem) => {
+  const from = t.purgeAt === undefined ? Date.parse(t.at) : Date.parse(t.purgeAt) - TRASH_DAYS * DAY
+  return Math.max(0, TRASH_DAYS - Math.floor((Date.now() - from) / DAY))
+}
 
 /**
  * Prullenbak (`/settings/trash`, PLAN 43): what was deleted, for 30 days. Terugzetten puts it back
  * where it was (with Undo); Definitief verwijderen asks first, because after that it is gone.
  * Customers, orders and invoices follow Gegevens en privacy instead. The items and what is done
- * with them are the host's (`trash-source.tsx`).
+ * with them are the host's (`trash-source.tsx`); a kind is its word and icon in `KIND`.
  */
 export function TrashPage() {
   const source = useTrashSource()
@@ -74,7 +86,7 @@ export function TrashPage() {
             <BandedList>
               {trash.map((t) => {
                 const K = KIND[t.kind]
-                const days = left(t.at)
+                const days = left(t)
                 return (
                   <li key={t.id} className="flex min-h-14 flex-wrap items-center gap-3 px-3.5 py-2.5">
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-mist text-ink-2">

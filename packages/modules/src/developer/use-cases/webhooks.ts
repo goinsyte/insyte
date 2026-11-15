@@ -396,6 +396,8 @@ const Compensation = Schema.Union([
     })
   }),
   Schema.Struct({ op: Schema.Literal("remove"), id: Schema.String }),
+  // Put back from the Prullenbak: the undo removes it again.
+  Schema.Struct({ op: Schema.Literal("put_back"), id: Schema.String }),
   Schema.Struct({
     op: Schema.Literal("secret"),
     id: Schema.String,
@@ -425,6 +427,13 @@ export const restore = Effect.fn("Webhooks.restore")(function*(sql: SqlClient.Sq
       if (back.length === 0) return yield* new Conflict({ entity: "webhook_endpoint", reason: "not_removed" })
       break
     }
+    case "put_back": {
+      const gone = yield* sql`update webhook_endpoints set deleted_at = now()
+                              where id = ${c.id} and deleted_at is null returning id`
+      if (gone.length === 0) return yield* new Conflict({ entity: "webhook_endpoint", reason: "not_restored" })
+      yield* audit(sql, "webhook.removed", c.id)
+      return
+    }
     case "secret": {
       // The new secret goes; the one it replaced signs again, and the overlap it had (if any) with it.
       yield* sql`update webhook_endpoints set secret_sealed = previous_secret_sealed,
@@ -435,4 +444,69 @@ export const restore = Effect.fn("Webhooks.restore")(function*(sql: SqlClient.Sq
     }
   }
   yield* audit(sql, "webhook.restored", c.id, { op: c.op })
+})
+
+/**
+ * The Prullenbak's "Terugzetten": removed endpoints back as they were, each with an Undo that removes it again. One
+ * that cannot go back as it was is a `Conflict`, and none goes back: a store it was for is gone (`store_gone`), it
+ * reaches a store the person does not (`out_of_reach`, as making one would be refused), or its address is one Insyte
+ * no longer posts to (`url_refused`).
+ */
+export const putBack = Effect.fn("Webhooks.putBack")(function*(input: { readonly ids: ReadonlyArray<string> }) {
+  yield* Policy.require("integrations", 2)
+  const reach = reachOf(yield* CurrentPrincipal)
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const ids = [...new Set(input.ids)]
+      const rows = yield* sql<{ id: string; url: string; stores: StoreAccess }>`
+        select id, url, stores from webhook_endpoints
+        where id in ${sql.in(ids)} and deleted_at is not null order by id for update`
+      const missing = ids.find((id) => !rows.some((r) => r.id === id))
+      if (missing !== undefined) return yield* new NotFound({ entity: "webhook_endpoint", id: missing })
+      const listed = [...new Set(rows.flatMap((r) => r.stores === "all" ? [] : r.stores))]
+      const known = new Set(
+        (yield* sql<{ id: string }>`select id from stores where id in ${sql.in([...listed, ""])}`).map((r) => r.id)
+      )
+      for (const r of rows) {
+        const refusal = r.stores !== "all" && r.stores.some((s) => !known.has(s))
+          ? "store_gone"
+          : reach !== "all" && (r.stores === "all" || r.stores.some((s) => !reach.includes(s)))
+          ? "out_of_reach"
+          : urlRefusal(r.url) !== undefined
+          ? "url_refused"
+          : undefined
+        if (refusal !== undefined) return yield* new Conflict({ entity: "webhook_endpoint", reason: refusal })
+      }
+      return yield* Effect.forEach(rows, (r) =>
+        Effect.gen(function*() {
+          yield* sql`update webhook_endpoints set deleted_at = null, updated_at = now() where id = ${r.id}`
+          yield* audit(sql, "webhook.restored", r.id, { op: "put_back" })
+          return yield* Undo.issue(sql, { command: RESTORE, compensation: { op: "put_back", id: r.id } })
+        }))
+    })
+  )
+})
+
+/**
+ * The Prullenbak's purge, on the caller's transaction: removed endpoints gone for good, with their sealed secrets,
+ * headers and deliveries (`on delete cascade`), an audit line each as `actor`. One not removed is left alone.
+ */
+export const purgeIn = Effect.fn("Webhooks.purge")(function*(
+  sql: SqlClient.SqlClient,
+  workspaceId: string,
+  ids: ReadonlyArray<string>,
+  actor: Audit.Actor
+) {
+  if (ids.length === 0) return
+  const gone = yield* sql<{ id: string }>`
+    delete from webhook_endpoints where id in ${sql.in([...new Set(ids)])} and deleted_at is not null returning id`
+  for (const e of gone) {
+    yield* Audit.write(sql, workspaceId, actor, {
+      action: "webhook.purged",
+      subjectType: "webhook_endpoint",
+      subjectId: e.id,
+      section: "webhooks"
+    })
+  }
 })

@@ -6,6 +6,7 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
+import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import {
   type Audience,
@@ -421,6 +422,33 @@ export const restore = Effect.fn("Courses.restore")(function*(input: { readonly 
       return yield* change(sql, null, { kind: "courses", courses: rows.map(snapshotOf) })
     })
   )
+})
+
+/**
+ * The Prullenbak's purge, on the caller's transaction: removed courses gone for good, with their progress and questions
+ * (`on delete cascade`); their uploaded images marked deleted, so nothing serves them any more. An audit line each as
+ * `actor`. A course not removed is left alone.
+ */
+export const purgeIn = Effect.fn("Courses.purge")(function*(
+  sql: SqlClient.SqlClient,
+  workspaceId: string,
+  ids: ReadonlyArray<string>,
+  actor: Audit.Actor
+) {
+  if (ids.length === 0) return
+  const gone = yield* sql<{ id: string; title: string }>`
+    delete from courses where id in ${sql.in([...new Set(ids)])} and deleted_at is not null returning id, title`
+  if (gone.length === 0) return
+  yield* sql`update files set deleted_at = now()
+             where owner_type = 'course' and owner_id in ${sql.in(gone.map((c) => c.id))} and deleted_at is null`
+  for (const c of gone) {
+    yield* Audit.write(sql, workspaceId, actor, {
+      action: "course.purged",
+      subjectType: "course",
+      subjectId: c.id,
+      diff: { title: c.title }
+    })
+  }
 })
 
 /** "Herinneren": one teammate who has the live course to do hears of it, once the undo window has passed. */

@@ -289,6 +289,55 @@ export const remove = Effect.fn("Costs.remove")(function*(id: string) {
   )
 })
 
+/**
+ * The Prullenbak's "Terugzetten": removed lines back with their typed months, each with an Undo that removes it again
+ * (the line as it was, `deleted_at` and all).
+ */
+export const putBack = Effect.fn("Costs.putBack")(function*(input: { readonly ids: ReadonlyArray<string> }) {
+  yield* require
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const lines: Array<Locked> = []
+      for (const id of new Set(input.ids)) {
+        const l = yield* lock(sql, id, true)
+        if (l.deletedAt === null) return yield* new NotFound({ entity: "cost_line", id })
+        lines.push(l)
+      }
+      return yield* Effect.forEach(lines, (l) =>
+        Effect.gen(function*() {
+          const before = yield* snapshot(sql, l)
+          yield* sql`update cost_lines set deleted_at = null where id = ${l.id}`
+          yield* audit(sql, "cost_line.restored", l.id, { name: l.name })
+          return yield* Undo.issue(sql, { command: RESTORE, compensation: before })
+        }))
+    })
+  )
+})
+
+/**
+ * The Prullenbak's purge, on the caller's transaction: removed lines gone for good, with their typed months
+ * (`on delete cascade`), an audit line each as `actor`. A line not removed is left alone.
+ */
+export const purgeIn = Effect.fn("Costs.purge")(function*(
+  sql: SqlClient.SqlClient,
+  workspaceId: string,
+  ids: ReadonlyArray<string>,
+  actor: Audit.Actor
+) {
+  if (ids.length === 0) return
+  const gone = yield* sql<{ id: string; name: string }>`
+    delete from cost_lines where id in ${sql.in([...new Set(ids)])} and deleted_at is not null returning id, name`
+  for (const l of gone) {
+    yield* Audit.write(sql, workspaceId, actor, {
+      action: "cost_line.purged",
+      subjectType: "cost_line",
+      subjectId: l.id,
+      diff: { name: l.name }
+    })
+  }
+})
+
 const decodeRestore = Schema.decodeUnknownEffect(CostsRestore)
 
 /** `Shared.undo`'s compensation: a new line taken away again, or a line and its typed months as they were. */
