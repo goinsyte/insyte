@@ -25,16 +25,19 @@ const OrderMessage = (props: OrderMessageFacts & Branded) => {
     )
   }
   const [hello, news, ...rest] = props.paragraphs
-  // Verzending's sentence for the parcel's status: the title where it shows everywhere, the status line unless hidden.
+  // Verzending's sentence for the parcel's status: the title where it shows everywhere, the status line unless hidden
+  // or the title says it already. Never saved, there is none, and the mail is as it always was.
   const status = tracking.status
+  const title = status?.show === "all" ? status.text : "Je bestelling is onderweg"
+  const line = status === undefined || status.show === "hidden" || status.text === title ? undefined : status.text
   return (
     <ShopLetter shop={props.shop} look={props.look} preview={news ?? props.subject} footer={footer}>
-      <Title>{status?.show === "all" ? status.text : "Je bestelling is onderweg"}</Title>
+      <Title>{title}</Title>
       <Lead>{[hello, news].filter((p) => p !== undefined).join(" ")}</Lead>
       <Facts
         rows={[
           ["Bestelling", props.number],
-          ...(status === undefined || status.show === "hidden" ? [] : [["Status", status.text] as const]),
+          ...(line === undefined ? [] : [["Status", line] as const]),
           ...(tracking.carrier === null ? [] : [["Vervoerder", tracking.carrier] as const]),
           ["Track & trace", tracking.number]
         ]}

@@ -82,6 +82,12 @@ export interface Branded {
 /** The letter's look, for the parts inside it (`Action`). */
 export const LookContext = createContext<ShopLook | undefined>(undefined)
 
+/**
+ * The logo's width in pixels, written on the image too: Outlook draws with Word, which ignores `width: auto` and would
+ * show the file at its own size. The height follows the logo's shape.
+ */
+const LOGO_WIDTH = 160
+
 const ShopHead = (props: { readonly shop: string; readonly look: ShopLook | undefined }) =>
   props.look?.logoUrl ?
     (
@@ -89,8 +95,8 @@ const ShopHead = (props: { readonly shop: string; readonly look: ShopLook | unde
         <Img
           src={props.look.logoUrl}
           alt={props.shop}
-          height={40}
-          style={{ display: "block", height: "40px", width: "auto", maxWidth: "200px", border: "0" }}
+          width={LOGO_WIDTH}
+          style={{ display: "block", width: `${LOGO_WIDTH}px`, maxWidth: "100%", height: "auto", border: "0" }}
         />
       </Section>
     ) :

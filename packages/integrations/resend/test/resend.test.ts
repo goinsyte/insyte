@@ -1,6 +1,8 @@
 import { type Mail, Mailer } from "@insyte/modules/shared/domain/Mailer"
 import { ConfigProvider, Effect, Exit, Layer } from "effect"
 import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http"
+import { createHash } from "node:crypto"
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { type EmailKind, EMAILS } from "../src/emails/index.ts"
 import { dark, light, mix } from "../src/emails/theme.ts"
@@ -208,7 +210,7 @@ describe("ResendMailer", () => {
     expect(Exit.isFailure(none) && JSON.stringify(none.cause)).toContain("order.message needs its order")
   })
 
-  it("says the parcel's status as Verzending words it: the title where it shows everywhere, the line unless hidden", async () => {
+  it("says the parcel's status as Verzending words it: the title where it shows everywhere, else the line unless hidden", async () => {
     const seen: Array<Seen> = []
     const http = fakeResend(() => Promise.resolve(Response.json({ id: "re_st" })), seen)
     const send = (status?: { text: string; show: "all" | "line" | "hidden" }) =>
@@ -230,7 +232,9 @@ describe("ResendMailer", () => {
     await send()
     const texts = seen.map((s) => String(s.body["text"]))
     expect(texts[0]).toMatch(/^Northwind\s+Bijna bij je, met DHL/)
-    expect(texts[0]).toMatch(/Status\s+Bijna bij je, met DHL/)
+    // The title says it already: no status line saying it again.
+    expect(texts[0]).not.toContain("Status")
+    expect(texts[0]?.match(/Bijna bij je, met DHL/g)?.length).toBe(1)
     expect(texts[1]).toContain("Je bestelling is onderweg")
     expect(texts[1]).toMatch(/Status\s+Bijna bij je, met DHL/)
     expect(texts[2]).not.toContain("Bijna bij je")
@@ -256,6 +260,9 @@ describe("ResendMailer", () => {
     const [branded, plain] = seen.map((s) => String(s.body["html"]))
     expect(branded).toContain("src=\"https://console.stage.example/api/brand/wks_1/logo/fil_2\"")
     expect(branded).toContain("alt=\"Northwind\"")
+    // A width in pixels on the image itself, which Outlook keeps (it ignores `width: auto`).
+    expect(branded).toMatch(/<img[^>]*width="160"/)
+    expect(branded).not.toMatch(/<img[^>]*width:auto/)
     expect(branded).toMatch(/background-color:#7A1F3D/i)
     // Unset, Insyte's own look: no logo, the button in `abyss`.
     expect(plain).not.toContain("/api/brand/")
@@ -588,5 +595,29 @@ describe("the templates' content", () => {
       "order.message"
     ])
     expect(KINDS.filter((kind) => EMAILS[kind].group === "marketing").every((kind) => !EMAILS[kind].wired)).toBe(true)
+  })
+})
+
+/*
+ * Settings that take effect (M17 step 20.1b) leave a store that saved nothing as it was: each shopper's mail, rendered
+ * from staging's templates before Huisstijl and Verzending reached them (`fixtures/shopper-unbranded.json`: the facts,
+ * the subject, the HTML's SHA-256 and the plain text), renders the same now when it carries no look and no status.
+ */
+describe("a shopper's mail with nothing saved", () => {
+  const golden = JSON.parse(
+    readFileSync(new URL("./fixtures/shopper-unbranded.json", import.meta.url), "utf8")
+  ) as Record<string, { props: unknown; subject: string; html: string; text: string }>
+
+  it.each(Object.keys(golden))("%s is the mail staging sent", async (kind) => {
+    const was = golden[kind]!
+    const now = await renderEmail(kind as EmailKind, was.props as never)
+    expect(now.subject).toBe(was.subject)
+    expect(now.text).toBe(was.text)
+    expect(createHash("sha256").update(now.html).digest("hex")).toBe(was.html)
+  })
+
+  it("covers every shopper's mail", () => {
+    const shopper = (Object.keys(EMAILS) as Array<EmailKind>).filter((k) => EMAILS[k].group === "shopper")
+    expect(new Set(Object.keys(golden))).toEqual(new Set(shopper))
   })
 })
