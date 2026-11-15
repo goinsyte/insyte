@@ -88,6 +88,8 @@ describe("an agent's key and the MCP write tools", () => {
     // The same role for both: what differs is only that one is an agent's.
     const person = await make("Script", false)
     const agent = await make("Claude", true)
+    // The walk shares the calls out over three agents' keys, each under its 10 a second.
+    const agents = [agent, await make("Claude 2", true), await make("Claude 3", true)]
 
     // Records to act on, made by the script's key.
     const order = ok(await rpc("Orders.list", { limit: 50 }, store.cookie)).rows.find((o) => o.number === "#1002")!
@@ -159,8 +161,8 @@ describe("an agent's key and the MCP write tools", () => {
     // A new write tool gets its case here, and with it the check below.
     expect(writes).toEqual(Object.keys(CASES).toSorted())
 
-    for (const name of writes) {
-      const answer = await tool(agent, name, CASES[name]!)
+    for (const [i, name] of writes.entries()) {
+      const answer = await tool(agents[i % agents.length]!, name, CASES[name]!)
       const governed = !answer.isError && answer.value?.object === "agent_proposal"
       const refused = answer.isError && answer.value?.error?.code === "ActionNotAllowedV1"
       expect(governed || refused, `${name}: ${JSON.stringify(answer)}`).toBe(true)
@@ -170,5 +172,5 @@ describe("an agent's key and the MCP write tools", () => {
     expect((await tool(person, "get_order", { order_id: order.id })).value).toEqual(before.order)
     expect((await tool(person, "get_return", { return_id: started.value.id })).value).toEqual(before.ret)
     expect((await tool(person, "get_ticket", { ticket_id: ticket.value.id })).value).toEqual(before.ticket)
-  })
+  }, 120_000)
 })
