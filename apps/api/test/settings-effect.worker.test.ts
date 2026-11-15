@@ -103,10 +103,14 @@ describe("settings that take effect", () => {
     const first = (await ordersOf(store.cookie)).find((o) => o.number === "#1003")!
     const to = first.customerEmail!
 
-    // Never saved: the order's mail drops the question that led up to the empty review link and wears Insyte's look;
+    // Never saved: the order's mail drops the empty review link, keeps the team's words and wears Insyte's look;
     // the tracking mail carries no status of Verzending's, so it is the mail it always was.
     const plain = await mailed(store, first.id, to, "Je bestelling")
-    expect(plain).toMatchObject({ kind: "order.message", bodyText: "Hoi,\n\nGroet", look: null })
+    expect(plain).toMatchObject({
+      kind: "order.message",
+      bodyText: "Hoi,\n\nVertel je ons wat je ervan vindt?\n\nGroet",
+      look: null
+    })
     expect(await trackingMail(store, first.id, to)).toMatchObject({ kind: "order.message", status: null, look: null })
 
     // The portal in its own look.
@@ -134,7 +138,8 @@ describe("settings that take effect", () => {
     const served = await call(`http://api.test${logoPath}`)
     expect(served.status).toBe(200)
     expect(served.headers.get("content-type")).toBe("image/png")
-    expect(served.headers.get("cache-control")).toContain("public")
+    // Five minutes, at the edge and in the browser: what bounds a logo refused or deleted since.
+    expect(served.headers.get("cache-control")).toBe("public, max-age=300")
     expect(served.headers.get("content-security-policy")).toContain("sandbox")
     await expect.poll(async () =>
       (await caches.default.match(`https://brand-logo.cache${logoPath}`))?.headers.get("content-type")
@@ -172,8 +177,11 @@ describe("settings that take effect", () => {
     )
     expect((await mailed(store, first.id, to, "Je bestelling")).look).toEqual({ color: "#7A1F3D", logoPath: null })
     expect((await call(`http://api.test/api/brand/${store.workspace}/logo/${earlier.fileId}`)).status).toBe(200)
-    // A logo a scan refused is never served.
+    // A logo a scan refused is not served again: the verdict takes it out of the edge cache too.
     const refused = `/api/brand/${store.workspace}/logo/${svg.fileId}`
+    expect((await call(`http://api.test${refused}`)).status).toBe(200)
+    await expect.poll(async () => (await caches.default.match(`https://brand-logo.cache${refused}`)) !== undefined)
+      .toBe(true)
     await call(`http://api.test/api/__dev/files/scan?workspace=${store.workspace}&file=${svg.fileId}&state=rejected`, {
       method: "POST"
     })
@@ -241,6 +249,10 @@ describe("settings that take effect", () => {
         body: "Hoi,\n\nHij is er weer: {voorraad_link}"
       }, store.cookie)
     )
+    // A subject that was only an empty link is none.
+    expect(failure(
+      await rpc("Threads.compose", { to: customer, subject: "{review_link}", body: "Hoi" }, store.cookie)
+    )).toMatchObject({ _tag: "Invalid", fields: { subject: "required" } })
     expect(failure(
       await rpc("Threads.compose", {
         to: customer,
@@ -251,7 +263,9 @@ describe("settings that take effect", () => {
     await sentMail(store.workspace)
     const [mail] = await captured(customer, replied.message.id)
     expect(mail?.kind).toBe("support.message")
-    expect(mail?.bodyText).toBe(`Hoi,\n\nJe hoort het hier: https://effect-${run}.example/terug.`)
+    expect(mail?.bodyText).toBe(
+      `Hoi,\n\nJe hoort het hier: https://effect-${run}.example/terug. Laat een review achter`
+    )
     expect(mail?.look ?? null).toBeNull()
     const fresh = (await captured(customer)).find((m) => m.reference !== replied.message.id)
     expect(fresh?.subject).toBe(`Weer binnen: https://effect-${run}.example/terug`)
