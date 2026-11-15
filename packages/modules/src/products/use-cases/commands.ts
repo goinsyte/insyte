@@ -1,5 +1,6 @@
 import { Db } from "@insyte/database/Db"
-import { Conflict, NotFound } from "@insyte/domain/Errors"
+import { Conflict, Invalid, NotFound } from "@insyte/domain/Errors"
+import { mintId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal, CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
@@ -13,6 +14,7 @@ import * as Undo from "../../shared/use-cases/Undo.ts"
 import { gidOf } from "../../stores/domain/Mirror.ts"
 import { StoreMirror } from "../../stores/Mirror.ts"
 import {
+  type CreateInput,
   type EditInput,
   htmlOf,
   priceAt,
@@ -165,6 +167,96 @@ export const edit = Effect.fn("Products.edit")(function*(input: typeof EditInput
   return change
 })
 
+/** Shopify's handle for a title: lower case, words joined by hyphens. */
+/**
+ * The product's handle in Shopify: its title as a slug, and the end of Insyte's id, so a create tried again finds the
+ * product it made before by it (`productByIdentifier`) and no product of the store's own has it.
+ */
+const handleOf = (title: string, id: string) =>
+  `${
+    title.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "").slice(0, 80) || "product"
+  }-${id.slice(-6).toLowerCase()}`
+
+/**
+ * "Nieuw product": in Insyte at once with its one variant ("Standaard"), its cost price and its supplier, in the store
+ * named (the one in view, once the console has a store switch) or else the first the principal reaches; in Shopify
+ * once the window has passed (`productSet`, its variant's price and SKU with it); the row takes Shopify's ids, and the
+ * `products/create` echo gives way to it. Undo removes it before Shopify hears of it.
+ */
+export const create = Effect.fn("Products.create")(function*(input: typeof CreateInput.Type) {
+  yield* Policy.require("products", 2)
+  const title = input.title.trim()
+  const sku = input.sku.trim()
+  const wrong: Record<string, string> = {}
+  if (title === "") wrong["title"] = "required"
+  if (input.priceMinor <= 0) wrong["priceMinor"] = "required"
+  if (Object.keys(wrong).length > 0) return yield* new Invalid({ fields: wrong })
+  const principal = yield* CurrentPrincipal
+  const relay = yield* Relay
+  const db = yield* Db
+  const { change, outboxId: sent } = yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const [store] = yield* sql<{ id: string; status: string }>`
+        select s.id, s.status from stores s where ${yield* inScope(sql, "s.id", input.storeId)}
+        order by s.status = 'disconnected', s.created_at, s.id limit 1`
+      if (store === undefined) {
+        return yield* input.storeId === undefined
+          ? new Conflict({ entity: "store", reason: "no_store" })
+          : new NotFound({ entity: "store", id: input.storeId })
+      }
+      if (store.status !== "connected" && store.status !== "connecting") {
+        return yield* new Conflict({ entity: "store", reason: "disconnected" })
+      }
+      if (sku !== "") {
+        const [taken] = yield* sql<{ id: string }>`
+          select v.id from variants v where v.store_id = ${store.id} and lower(v.sku) = lower(${sku}) limit 1`
+        if (taken !== undefined) return yield* new Invalid({ fields: { sku: "taken" } })
+      }
+      const supplier = input.supplierId === null ? undefined : (yield* sql<{ id: string; leadDays: number }>`
+        select id, default_lead_days as lead_days from suppliers
+        where id = ${input.supplierId} and deleted_at is null`)[0]
+      if (input.supplierId !== null && supplier === undefined) {
+        return yield* new Invalid({ fields: { supplierId: "unknown" } })
+      }
+      const id = mintId("prd")
+      const variantId = mintId("var")
+      const handle = handleOf(title, id)
+      yield* sql`
+        insert into products (id, workspace_id, store_id, shopify_id, title, handle, description_html, status,
+                              cost_minor, shopify_created_at, external_updated_at)
+        values (${id}, ${principal.workspaceId}, ${store.id}, ${`insyte-${id}`}, ${title}, ${handle},
+                ${htmlOf(input.description)}, ${input.status}, ${input.costMinor}, now(), now())`
+      yield* sql`
+        insert into variants (id, workspace_id, store_id, product_id, shopify_id, sku, title, price_minor, position)
+        values (${variantId}, ${principal.workspaceId}, ${store.id}, ${id}, ${`insyte-${variantId}`}, ${sku || null},
+                'Standaard', ${input.priceMinor}, 1)`
+      if (supplier !== undefined) {
+        yield* sql`
+          insert into product_supply (workspace_id, product_id, supplier_id, is_primary, lead_days)
+          values (${principal.workspaceId}, ${id}, ${supplier.id}, true, ${supplier.leadDays})`
+      }
+      yield* audit(sql, "product.created", id, { status: input.status, priceMinor: input.priceMinor })
+      const outboxId = yield* Outbox.write(sql, principal.workspaceId, {
+        type: "product.created",
+        workspaceId: principal.workspaceId,
+        userId: principal.userId ?? principal.id,
+        productIds: [id],
+        storeId: store.id,
+        handle
+      }, { afterSeconds: UNDO_SECONDS })
+      const undo = yield* Undo.issue(sql, {
+        command: RESTORE,
+        compensation: { products: [], created: id },
+        outboxIds: [outboxId]
+      })
+      return { change: new ProductChange({ products: yield* rowsOf(sql, [id]), undo }), outboxId }
+    })
+  )
+  yield* relay.kick([sent], { afterSeconds: UNDO_SECONDS })
+  return change
+})
+
 /** Active, concept or archived, for many at once (archiving at Beheren). */
 export const setStatus = Effect.fn("Products.setStatus")(function*(input: typeof StatusInput.Type) {
   yield* Policy.require("products", input.status === "archived" ? 3 : 2)
@@ -265,8 +357,15 @@ const decodeRestore = Schema.decodeUnknownEffect(ProductsRestore)
 
 /** `Shared.undo` of a product command: each product's fields as they were, before Shopify heard of the change. */
 export const restore = Effect.fn("Products.restore")(function*(sql: SqlClient.SqlClient, compensation: unknown) {
-  const { products } = yield* decodeRestore(compensation).pipe(Effect.orDie)
+  const { products, created } = yield* decodeRestore(compensation).pipe(Effect.orDie)
   yield* Policy.require("products", products.some((p) => p.status === "archived") ? 3 : 2)
+  // Made a moment ago and not yet in Shopify: no order can name it.
+  if (created !== undefined) {
+    const gone = yield* sql`delete from products where id = ${created} and shopify_id = ${`insyte-${created}`}
+                            returning id`
+    if (gone.length === 0) return yield* new Conflict({ entity: "product", reason: "gone" })
+    return yield* audit(sql, "product.create_undone", created)
+  }
   yield* lock(sql, products.map((p) => p.id)).pipe(
     Effect.catchTag("NotFound", () => Effect.fail(new Conflict({ entity: "product", reason: "gone" })))
   )

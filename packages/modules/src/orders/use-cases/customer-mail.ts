@@ -116,10 +116,12 @@ export const emailCustomer = Effect.fn("Orders.emailCustomer")(function*(input: 
   const { answer, outboxId } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const scope = yield* inScope(sql, "o.store_id")
-      const [order] = yield* sql<{ id: string; email: string | null }>`
-        select o.id, nullif(btrim(o.customer_email), '') as email from orders o
+      const [order] = yield* sql<{ id: string; email: string | null; isDraft: boolean }>`
+        select o.id, nullif(btrim(o.customer_email), '') as email, o.is_draft from orders o
         where o.id = ${input.orderId} and ${scope} for update of o`
       if (order === undefined) return yield* new NotFound({ entity: "order", id: input.orderId })
+      // A draft is not an order the shopper placed (M7.1): nothing to tell them about yet.
+      if (order.isDraft) return yield* new Conflict({ entity: "order", reason: "draft" })
       if (input.id !== undefined) {
         const [was] = yield* sql<MailRow>`
           select id, order_id, kind, state, to_address as to, subject from order_mails where id = ${input.id}`
