@@ -1,3 +1,4 @@
+import { CREATE_REFUSED, type CreateRefusal } from "../../shared/domain/ShopifyCreates.ts"
 import { triedSummary } from "../../stores/domain/Health.ts"
 /*
  * A note's words outside the app (M11 step 13.5): the mail's subject and lead, the record it is about and where its
@@ -53,6 +54,19 @@ const disputed = (data: Record<string, unknown>) =>
   new Intl.NumberFormat("nl-NL", { style: "currency", currency: text(data["currency"]) || "EUR" }).format(
     Number(data["amountMinor"] ?? 0) / 100
   )
+
+/** Shopify would not make a draft order or a product made in Insyte (M7): which, and why. */
+export const createRefusedWords = (data: Record<string, unknown>): NoteWords => {
+  const order = data["subject"] === "order"
+  const reason = CREATE_REFUSED[text(data["reason"]) as CreateRefusal] ?? CREATE_REFUSED.other
+  return {
+    title: `Shopify heeft ${order ? "conceptbestelling" : "product"} ${text(data["label"])} niet aangemaakt`,
+    detail: `${reason} ${order ? "De conceptbestelling" : "Het product"} staat niet meer in Insyte.`,
+    record: text(data["label"]) || undefined,
+    actionLabel: order ? "Bestellingen openen" : "Producten openen",
+    path: order ? "/orders" : "/products"
+  }
+}
 
 /** "november 2026" for `2026-11`; the input as it is when it is not a month. */
 export const monthName = (month: string) =>
@@ -256,6 +270,7 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
     case "integration.sync":
     case "integration.disconnected":
       if (note.subjectType === "connection_incident") return incidentWords(data)
+      if (note.subjectType === "shopify_create") return createRefusedWords(data)
       if (note.kind === "integration.sync") break
       // A webhook endpoint Insyte switched off (M19.4).
       return {

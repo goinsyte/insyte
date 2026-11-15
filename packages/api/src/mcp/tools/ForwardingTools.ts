@@ -47,10 +47,10 @@ export const ForwardOrders = Tool.make("forward_orders", {
 
 export const RerouteLeg = Tool.make("reroute_leg", {
   description:
-    "Moves a leg not yet sent (to forward, or failed) to another supplier that is not paused; it then waits to be forwarded there. Find suppliers with list_suppliers. Needs orders.write.",
+    "Moves a leg not yet sent (to forward, or failed) to another supplier that is not paused; it then waits to be forwarded there. Find suppliers with list_suppliers. Refused for an agent's key. Needs orders.write.",
   parameters: Schema.Struct({ leg_id: Schema.String, supplier_id: Schema.String, idempotency_key: IdempotencyKey }),
   success: Leg,
-  failure: WriteFailure,
+  failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 

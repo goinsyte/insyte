@@ -218,6 +218,32 @@ describe("autonomy and the agent log", () => {
     expect(assigned.body.assignees).toEqual(expect.arrayContaining([expect.objectContaining({ id: memberId })]))
   })
 
+  it("holds the day's limit for calls at the same moment: one runs, the other is asked", async () => {
+    // The day's runs so far, and room for one more.
+    const actions = ((await (await call(`http://api.test/api/__dev/agent/actions?workspace=${workspace}`)).json()) as {
+      actions: Array<{ action: string; decision: string; outcome: string }>
+    }).actions
+    const today = actions.filter((a) =>
+      a.action === "SetTicketStatus" && a.decision === "run" && a.outcome !== "failed"
+    )
+    const { version } = ok(await rpc("Autonomy.get", {}, owner.cookie))
+    ok(
+      await rpc("Autonomy.set", {
+        levels: { SetTicketStatus: "auto" },
+        limits: { SetTicketStatus: { perDay: today.length + 1 } },
+        baseVersion: version
+      }, owner.cookie)
+    )
+    const both = await Promise.all([
+      tool(agent, "set_ticket_status", { ticket_id: ticket, status: "in_progress" }),
+      tool(agent, "set_ticket_status", { ticket_id: ticket, status: "done" })
+    ])
+    expect(both.every((r) => !r.isError)).toBe(true)
+    const asked = both.filter((r) => r.body.object === "agent_proposal")
+    expect(asked).toHaveLength(1)
+    expect(asked[0]!.body).toMatchObject({ reason: "limit" })
+  })
+
   it("takes back a save of the rules by writing the previous version as a new one", async () => {
     const now = ok(await rpc("Autonomy.get", {}, owner.cookie))
     const saved = ok(await rpc("Autonomy.resetDefaults", { baseVersion: now.version }, owner.cookie))

@@ -122,7 +122,11 @@ export class ThreadDetail extends Schema.Class<ThreadDetail>("inbox/ThreadDetail
 
 const Ids = Schema.Array(Schema.String).check(Schema.isMinLength(1), Schema.isMaxLength(500))
 const Email = Schema.String.check(Schema.isMaxLength(320), Schema.isPattern(/^[^\s@]+@[^\s@]+\.[^\s@]+$/))
-const Body = Schema.String.check(Schema.isMaxLength(100_000))
+/** The limits of what the team writes, held again after Sjablonen' links are put in (`use-cases/commands.ts`). */
+export const BODY_MAX = 100_000
+export const SUBJECT_MAX = 255
+export const NOTE_MAX = 2000
+const Body = Schema.String.check(Schema.isMaxLength(BODY_MAX))
 
 export const IdsInput = Schema.Struct({ ids: Ids })
 export const ReadInput = Schema.Struct({ ids: Ids, read: Schema.Boolean })
@@ -142,13 +146,13 @@ export const ReplyInput = Schema.Struct({ threadId: Schema.String, body: Body })
 export const ForwardInput = Schema.Struct({
   threadId: Schema.String,
   to: Email,
-  note: Schema.optional(Schema.String.check(Schema.isMaxLength(2000)))
+  note: Schema.optional(Schema.String.check(Schema.isMaxLength(NOTE_MAX)))
 })
 export const ComposeInput = Schema.Struct({
   /** Absent: the workspace's default mailbox. */
   mailboxId: Schema.optional(Schema.String),
   to: Email,
-  subject: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(255)),
+  subject: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(SUBJECT_MAX)),
   body: Body
 })
 
@@ -243,6 +247,8 @@ export interface InboundMail {
   readonly text: string
   readonly html: string | null
   readonly date: Date | null
+  /** Sent by a machine, by its own headers (`automatedMail`): never answered by the agent. */
+  readonly automated: boolean
   readonly attachments: ReadonlyArray<{
     readonly filename: string
     readonly mime: string
@@ -251,6 +257,31 @@ export interface InboundMail {
     readonly contentId: string | null
   }>
 }
+
+/**
+ * Whether a mail's headers say a machine sent it (RFC 3834 and the lists' own headers): an out-of-office or a
+ * helpdesk's receipt (`Auto-Submitted` other than `no`, `X-Autoreply`, `X-Autorespond`), a newsletter or a list
+ * (`Precedence: bulk/list/junk`, `List-Id`), or a bounce (an empty `Return-Path`). Header names in lower case.
+ */
+export const automatedMail = (headers: ReadonlyArray<{ readonly key: string; readonly value: string }>): boolean =>
+  headers.some(({ key, value }) => {
+    const v = value.trim().toLowerCase()
+    switch (key.toLowerCase()) {
+      case "auto-submitted":
+        return v !== "" && v !== "no" && !v.startsWith("no;")
+      case "precedence":
+        return /^(bulk|list|junk|auto_reply)\b/.test(v)
+      case "list-id":
+      case "x-autoreply":
+      case "x-autorespond":
+      case "x-autoresponse":
+        return true
+      case "return-path":
+        return v === "<>" || v === ""
+      default:
+        return false
+    }
+  })
 
 /** 25 MB per attachment (domain.md §6.2); a larger one is left out and the thread says so. */
 export const ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024

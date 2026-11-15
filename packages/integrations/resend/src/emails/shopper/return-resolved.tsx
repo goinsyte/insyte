@@ -38,6 +38,7 @@ const ReturnResolved = (props: ReturnProps) => {
   return (
     <ShopLetter
       shop={props.shop}
+      look={props.look}
       preview={`${props.shop} heeft ${what(props)} afgehandeld.`}
       footer={{ reason: reason(props) }}
     >

@@ -1,6 +1,6 @@
 import { ForwardingTools } from "@insyte/api/mcp/tools/ForwardingTools"
 import { Effect, Layer } from "effect"
-import { governed, type Plan, token } from "../mcp/Governance.ts"
+import { governed, notForAgents, type Plan, token } from "../mcp/Governance.ts"
 import { kicker } from "../mcp/Outbox.ts"
 import { ForwardingV1 } from "./ForwardingV1.ts"
 
@@ -32,6 +32,9 @@ export const ForwardingMcp = ForwardingTools.toLayer(Effect.gen(function*() {
         }),
         kicking(read.forwardLegs(body, idempotency_key))
       ),
-    reroute_leg: ({ leg_id, idempotency_key, supplier_id }) => read.rerouteLeg(leg_id, { supplier_id }, idempotency_key)
+    // No agent action names moving a leg to another supplier yet: an agent's key is refused, any other runs it as the
+    // key may.
+    reroute_leg: ({ leg_id, idempotency_key, supplier_id }) =>
+      notForAgents("reroute_leg", read.rerouteLeg(leg_id, { supplier_id }, idempotency_key))
   }
 })).pipe(Layer.provide(ForwardingV1.layer))

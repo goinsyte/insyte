@@ -72,7 +72,9 @@ export const ingest = Effect.fn("Tracking.ingest")(function*(
   snapshot: TrackingSnapshot
 ) {
   const [row] = yield* sql<{ orderId: string }>`
-    update deliveries set status = ${snapshot.status}, checkpoint = ${snapshot.checkpoint},
+    update deliveries set status = ${snapshot.status}, stage = ${
+    snapshot.stage ?? null
+  }, checkpoint = ${snapshot.checkpoint},
       exception = ${snapshot.exception}, estimated_delivery = ${snapshot.estimatedDelivery},
       delivered_at = coalesce(${snapshot.deliveredAt}, case when ${snapshot.status} = 'delivered' then coalesce(delivered_at, now()) end),
       last_event_at = coalesce(${snapshot.lastEventAt}, last_event_at), polled_at = now(), error = null

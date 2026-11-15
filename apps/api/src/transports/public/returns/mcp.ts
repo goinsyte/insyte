@@ -1,6 +1,6 @@
 import { ReturnsTools } from "@insyte/api/mcp/tools/ReturnsTools"
 import { Effect, Layer } from "effect"
-import { governed, type Plan, token } from "../mcp/Governance.ts"
+import { governed, notForAgents, type Plan, token } from "../mcp/Governance.ts"
 import { kicker } from "../mcp/Outbox.ts"
 import { ReturnsV1 } from "./ReturnsV1.ts"
 
@@ -16,7 +16,10 @@ export const ReturnsMcp = ReturnsTools.toLayer(Effect.gen(function*() {
   return {
     list_returns: ({ status }) => read.returns(status),
     get_return: ({ return_id }) => read.returnOne(return_id),
-    start_return: ({ idempotency_key, ...body }) => kicking(read.startReturn(body, idempotency_key)),
+    // No agent action names starting, rejecting, tracking, receiving or inspecting a return yet: an agent's key is
+    // refused, any other runs them as the key may.
+    start_return: ({ idempotency_key, ...body }) =>
+      notForAgents("start_return", kicking(read.startReturn(body, idempotency_key))),
     approve_return: ({ return_id, idempotency_key, keep_item }) =>
       governed(
         "approve_return",
@@ -36,7 +39,7 @@ export const ReturnsMcp = ReturnsTools.toLayer(Effect.gen(function*() {
         kicking(read.moveReturn(return_id, { kind: "approve", keep_item }, idempotency_key))
       ),
     reject_return: ({ return_id, idempotency_key, reason }) =>
-      kicking(read.moveReturn(return_id, { kind: "reject", reason }, idempotency_key)),
+      notForAgents("reject_return", kicking(read.moveReturn(return_id, { kind: "reject", reason }, idempotency_key))),
     send_return_label: ({ return_id, idempotency_key }) =>
       governed(
         "send_return_label",
@@ -52,11 +55,11 @@ export const ReturnsMcp = ReturnsTools.toLayer(Effect.gen(function*() {
         kicking(read.labelReturn(return_id, idempotency_key))
       ),
     add_return_tracking: ({ return_id, idempotency_key, carrier, tracking }) =>
-      read.trackReturn(return_id, { carrier, tracking }, idempotency_key),
+      notForAgents("add_return_tracking", read.trackReturn(return_id, { carrier, tracking }, idempotency_key)),
     receive_return: ({ return_id, idempotency_key }) =>
-      kicking(read.moveReturn(return_id, { kind: "receive" }, idempotency_key)),
+      notForAgents("receive_return", kicking(read.moveReturn(return_id, { kind: "receive" }, idempotency_key))),
     inspect_return: ({ return_id, idempotency_key, lines }) =>
-      kicking(read.moveReturn(return_id, { kind: "inspect", lines }, idempotency_key)),
+      notForAgents("inspect_return", kicking(read.moveReturn(return_id, { kind: "inspect", lines }, idempotency_key))),
     resolve_return: ({ return_id, idempotency_key, resolution }) =>
       governed(
         "resolve_return",

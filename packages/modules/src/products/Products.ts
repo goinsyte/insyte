@@ -1,5 +1,5 @@
 import type { Db } from "@insyte/database/Db"
-import type { Conflict, Forbidden, NotFound } from "@insyte/domain/Errors"
+import type { Conflict, Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
@@ -9,7 +9,14 @@ import type { SearchHit } from "../shared/domain/Search.ts"
 import { inStore } from "../shared/use-cases/StoreScope.ts"
 import type { ConnectionGate, ShopifyGraphql } from "../stores/domain/Ports.ts"
 import { StoreMirror } from "../stores/Mirror.ts"
-import type { EditInput, ProductChange, RepriceInput, RepriceResult, StatusInput } from "./domain/Commands.ts"
+import type {
+  CreateInput,
+  EditInput,
+  ProductChange,
+  RepriceInput,
+  RepriceResult,
+  StatusInput
+} from "./domain/Commands.ts"
 import type {
   LowStockInput,
   LowStockPage,
@@ -40,6 +47,10 @@ export class ProductsService extends Context.Service<ProductsService, {
   readonly lowStock: (input: LowStockInput) => Effect.Effect<LowStockPage, Forbidden, R>
   /** Matches for `Search.records`; none where the role cannot see the area. */
   readonly search: (q: string, limit: number) => Effect.Effect<ReadonlyArray<SearchHit>, never, R>
+  /** "Nieuw product": in one of the principal's stores, with Undo; Shopify's after the window (M7.3). */
+  readonly create: (
+    input: typeof CreateInput.Type
+  ) => Effect.Effect<ProductChange, Forbidden | NotFound | Invalid | Conflict, W>
   readonly edit: (input: typeof EditInput.Type) => Effect.Effect<ProductChange, Forbidden | NotFound | Conflict, W>
   readonly setStatus: (input: typeof StatusInput.Type) => Effect.Effect<ProductChange, Forbidden | NotFound, W>
   readonly reprice: (input: typeof RepriceInput.Type) => Effect.Effect<RepriceResult, Forbidden | NotFound, W>
@@ -59,6 +70,7 @@ export class ProductsService extends Context.Service<ProductsService, {
         counts: Products.counts().pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         lowStock: (input) => Products.lowStock(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         search: (q, limit) => Products.search(q, limit).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
+        create: (input) => Commands.create(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         edit: (input) => Commands.edit(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         setStatus: (input) => Commands.setStatus(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),
         reprice: (input) => Commands.reprice(input).pipe(Effect.catchIf(SqlError.isSqlError, Effect.die)),

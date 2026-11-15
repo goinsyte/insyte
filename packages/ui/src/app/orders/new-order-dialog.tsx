@@ -3,7 +3,16 @@ import { toast } from "sonner"
 import { Plus, Trash2 } from "../../icons"
 import { Field, FormDialog, SelectField, TextAreaField, TextField } from "../common/form-dialog"
 
-const STORES = ["Allure DE", "Allure FR", "Allure UK", "Allure US"] as const
+/** A store an order can be made in: its id, its name, and the currency its prices are in. */
+export type OrderStore = { value: string; label: string; currency: string }
+
+const STORES: ReadonlyArray<OrderStore> = ["Allure DE", "Allure FR", "Allure UK", "Allure US"].map((s) => ({
+  value: s,
+  label: s,
+  currency: "USD"
+}))
+
+const DESCRIPTION = "Leg een handmatige bestelling vast. Betaling en afhandeling starten zodra je hem aanmaakt."
 
 const PAYMENTS = ["Stripe", "PayPal", "Klarna", "Manual"] as const
 
@@ -18,18 +27,27 @@ export type NewOrderInput = {
   items: LineItem[]
 }
 
+/**
+ * "Nieuwe bestelling" (widgets/03). The host names the stores it may make one in (the demo's own by default) and, where
+ * it does something else with it than the demo, what the dialog says it does.
+ */
 export function NewOrderDialog({
   open,
   onOpenChange,
-  onCreate
+  onCreate,
+  stores = STORES,
+  description = DESCRIPTION
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   onCreate: (input: NewOrderInput) => void
+  stores?: ReadonlyArray<OrderStore>
+  description?: string
 }) {
+  const fallback = stores === STORES ? "Allure US" : (stores[0]?.value ?? "")
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
-  const [store, setStore] = useState<(typeof STORES)[number]>("Allure US")
+  const [store, setStore] = useState(fallback)
   const [payment, setPayment] = useState<(typeof PAYMENTS)[number]>("Stripe")
   const [notes, setNotes] = useState("")
   const [items, setItems] = useState<LineItem[]>([
@@ -39,7 +57,7 @@ export function NewOrderDialog({
   function reset() {
     setName("")
     setEmail("")
-    setStore("Allure US")
+    setStore(fallback)
     setPayment("Stripe")
     setNotes("")
     setItems([{ sku: "", title: "", qty: 1, price: 0 }])
@@ -57,6 +75,9 @@ export function NewOrderDialog({
     setItems((xs) => xs.filter((_, k) => k !== i))
   }
 
+  // The stores may have changed since the dialog opened: one no longer offered is the first again.
+  const chosen = stores.some((s) => s.value === store) ? store : fallback
+  const currency = stores.find((s) => s.value === chosen)?.currency ?? "USD"
   const itemsTotal = items.reduce((sum, it) => sum + it.qty * it.price, 0)
 
   function submit() {
@@ -64,7 +85,7 @@ export function NewOrderDialog({
       toast.error("Naam en e-mailadres van de klant zijn verplicht")
       return
     }
-    const validItems = items.filter((i) => i.title.trim() && i.qty > 0)
+    const validItems = items.filter((i) => (i.title.trim() || i.sku.trim()) && i.qty > 0)
     if (validItems.length === 0) {
       toast.error("Voeg minstens één artikel toe")
       return
@@ -72,7 +93,7 @@ export function NewOrderDialog({
     onCreate({
       customer_name: name,
       customer_email: email,
-      store,
+      store: chosen,
       payment_method: payment,
       notes,
       items: validItems
@@ -89,7 +110,7 @@ export function NewOrderDialog({
         onOpenChange(v)
       }}
       title="Nieuwe bestelling"
-      description="Leg een handmatige bestelling vast. Betaling en afhandeling starten zodra je hem aanmaakt."
+      description={description}
       primaryLabel="Conceptbestelling aanmaken"
       onSubmit={submit}
       width={680}
@@ -113,7 +134,12 @@ export function NewOrderDialog({
       </div>
       <div className="grid grid-cols-2 gap-4">
         <Field label="Winkel">
-          <SelectField value={store} onChange={setStore} options={STORES} />
+          <SelectField
+            value={chosen}
+            onChange={setStore}
+            options={stores.map((s) => s.value)}
+            renderLabel={(v) => stores.find((s) => s.value === v)?.label ?? v}
+          />
         </Field>
         <Field label="Betaalmethode">
           <SelectField
@@ -185,10 +211,10 @@ export function NewOrderDialog({
       </Field>
       <div className="flex items-center justify-between rounded-lg bg-mist p-3">
         <span className="font-medium text-sm text-ink-3">
-          Subtotaal ({items.filter((i) => i.title.trim()).length} artikelen)
+          Subtotaal ({items.filter((i) => i.title.trim() || i.sku.trim()).length} artikelen)
         </span>
         <span className="font-medium text-lg text-ink">
-          {new Intl.NumberFormat("nl-NL", { style: "currency", currency: "USD" }).format(itemsTotal)}
+          {new Intl.NumberFormat("nl-NL", { style: "currency", currency }).format(itemsTotal)}
         </span>
       </div>
     </FormDialog>
