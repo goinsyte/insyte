@@ -8,7 +8,7 @@ import type { SqlClient } from "effect/sql"
 import { actorKey, actorNames } from "../../shared/use-cases/Actors.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import {
-  KIND_AREA,
+  TRASH_KINDS,
   type TrashIds,
   type TrashItem,
   type TrashKind,
@@ -20,8 +20,9 @@ import { TrashKinds } from "../TrashKinds.ts"
 
 /*
  * The Prullenbak's commands (M17 step 20.1a; api.md §2.34). Every one takes Instellingen · Bewerken; an item is listed
- * where the role sees its kind's area (and its store), put back through its own slice's command at that slice's level,
- * and purged at Beheren there. Purging and emptying are irreversible: the console asks first and offers no undo.
+ * where the role sees its kind's area (and its store, and it is theirs where the kind is personal), put back through
+ * its own slice's command at that slice's level, and purged at the kind's purge level (`TRASH_KINDS`). Purging and
+ * emptying are irreversible: the console asks first and offers no undo.
  */
 
 interface Row {
@@ -34,23 +35,33 @@ interface Row {
   readonly deletedById: string | null
 }
 
-const KNOWN = new Set<string>(Object.keys(KIND_AREA))
+const KNOWN = new Set<string>(Object.keys(TRASH_KINDS))
 
-/** Whether the principal's role reaches `level` in the kind's area. */
-const reaches = (kind: TrashKind, level: 1 | 2 | 3) =>
-  Policy.require(KIND_AREA[kind], level).pipe(
+/** Whether the principal's role reaches the kind's level to see it. */
+const sees = (kind: TrashKind) =>
+  Policy.require(TRASH_KINDS[kind].area, TRASH_KINDS[kind].see).pipe(
     Effect.as(true),
     Effect.catchTag("Forbidden", () => Effect.succeed(false))
   )
+
+/** The kind's level (and action) to put it back or purge it, or `Forbidden`. */
+const may = Effect.fn("Trash.may")(function*(kind: TrashKind, what: "restore" | "purge") {
+  const rule = TRASH_KINDS[kind]
+  yield* Policy.require(rule.area, rule[what])
+  if (rule.action !== undefined) yield* Policy.requireAction(rule.action)
+})
 
 /** The items the principal sees, still inside their 30 days: all of them, or those of `ids`. */
 const visible = Effect.fn("Trash.visible")(function*(sql: SqlClient.SqlClient, ids?: ReadonlyArray<string>) {
   const principal = yield* CurrentPrincipal
   const scope = yield* inScope(sql, "t.store_id")
+  // A personal item (a sheet) is its owner's alone: a key or the system has none.
+  const me = principal.kind === "member" ? principal.id : null
   const parts = [
     sql`t.workspace_id = ${principal.workspaceId}`,
     sql`t.purge_at > now()`,
     sql`(t.store_id is null or ${scope})`,
+    me === null ? sql`t.owner_id is null` : sql`(t.owner_id is null or t.owner_id = ${me})`,
     ...(ids === undefined ? [] : [sql`t.id in ${sql.in([...ids])}`])
   ]
   const rows = yield* sql<Row>`
@@ -58,7 +69,7 @@ const visible = Effect.fn("Trash.visible")(function*(sql: SqlClient.SqlClient, i
     from trash_items_v t where ${sql.and(parts)}
     order by t.deleted_at desc, t.id limit 1000`
   const seen: Array<Row> = []
-  for (const r of rows) if (KNOWN.has(r.kind) && (yield* reaches(r.kind, 1))) seen.push(r)
+  for (const r of rows) if (KNOWN.has(r.kind) && (yield* sees(r.kind))) seen.push(r)
   return seen
 })
 
@@ -108,20 +119,20 @@ export const restore = Effect.fn("Trash.restore")(function*(input: TrashIds) {
   const ids = [...new Set(input.ids)]
   const rows = yield* db.scoped((sql) => visible(sql, ids))
   yield* found(rows, ids)
+  const groups = byKind(rows)
+  // Every kind's level first: a refusal puts nothing back.
+  for (const kind of groups.keys()) yield* may(kind, "restore")
   const undo: Array<TrashRestored["undo"][number]> = []
-  for (const [kind, of] of byKind(rows)) {
-    yield* Policy.require(KIND_AREA[kind], 2)
-    undo.push(...(yield* kinds[kind].restore(of)))
-  }
+  for (const [kind, of] of groups) undo.push(...(yield* kinds[kind].restore(of)))
   return { restored: ids, undo } satisfies TrashRestored
 })
 
-/** Purges `rows` on the transaction, kind by kind, each at Beheren in its area. */
+/** Purges `rows` on the transaction, kind by kind, each at its kind's purge level. */
 const purgeRows = Effect.fn("Trash.purgeRows")(function*(sql: SqlClient.SqlClient, rows: ReadonlyArray<Row>) {
   const principal = yield* CurrentPrincipal
   const kinds = yield* TrashKinds
   const groups = byKind(rows)
-  for (const kind of groups.keys()) yield* Policy.require(KIND_AREA[kind], 3)
+  for (const kind of groups.keys()) yield* may(kind, "purge")
   const actor = { kind: principal.kind, id: principal.id }
   for (const [kind, of] of groups) yield* kinds[kind].purge(sql, principal.workspaceId, of, actor)
   return { purged: rows.length } satisfies TrashPurged
