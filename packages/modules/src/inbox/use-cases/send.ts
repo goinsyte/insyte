@@ -48,6 +48,11 @@ export const sendQueued = Effect.fn("Inbox.sendQueued")(function*(
   retry: MailTry = {}
 ) {
   const attempt = retry.attempt ?? 1
+  // The message and its thread locked first, on a statement of their own: the read below then sees a reply or a mail
+  // that a writer holding the thread committed meanwhile (one `for update` read would wait, then read the thread's
+  // other messages as they were before the wait).
+  yield* sql`select e.id from email_messages e join email_threads t on t.id = e.thread_id
+             where e.id = ${messageId} and e.direction = 'outbound' for update of e, t`
   const [m] = yield* sql<Queued>`
     select e.id, e.workspace_id, e.thread_id, e.rfc822_message_id, e.in_reply_to, e."references", e."to"::text as to,
            e.subject, e.body_text, e.send_state, b.label, b.address, b.status,
@@ -61,7 +66,7 @@ export const sendQueued = Effect.fn("Inbox.sendQueued")(function*(
                        and o.created_at > e.created_at
                        and (o.direction = 'inbound' or o.send_state is distinct from 'failed'))) as taken
     from email_messages e join email_threads t on t.id = e.thread_id join mailboxes b on b.id = t.mailbox_id
-    where e.id = ${messageId} and e.direction = 'outbound' for update of e, t`
+    where e.id = ${messageId} and e.direction = 'outbound'`
   if (m === undefined || m.sendState !== "scheduled") return
   const [to] = JSON.parse(m.to) as Array<{ name: string; email: string }>
   const failed = (reason: string) =>

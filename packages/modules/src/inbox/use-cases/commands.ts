@@ -383,15 +383,18 @@ const queueMessage = Effect.fn("Threads.queueMessage")(function*(
   const principal = yield* CurrentPrincipal
   const domain = yield* mailDomain
   const id = input.id ?? mintId("eml")
+  // Stamped when written, the thread locked (every caller holds it), not when the transaction began: a team's reply
+  // that waited on the lock while the agent queued its own is newer than the agent's, and calls it off at the send
+  // (`Inbox.sendQueued`), as an inbound mail does (`Inbox.store`).
   const made = yield* sql<{ id: string }>`
     insert into email_messages (id, workspace_id, thread_id, rfc822_message_id, in_reply_to, "references", direction,
-                                kind, from_name, from_address, "to", subject, body_text, sent_by, send_state)
+                                kind, from_name, from_address, "to", subject, body_text, sent_by, send_state, created_at)
     values (${id}, ${principal.workspaceId}, ${input.threadId}, ${`${id}@${domain}`}, ${input.inReplyTo},
             ${[...input.references]}::text[], 'outbound', ${input.kind}, ${input.mailbox.label},
             ${input.mailbox.address.toLowerCase()}, ${JSON.stringify([input.to])}::jsonb, ${
     input.subject.slice(0, 998)
   },
-            ${input.text}, ${principal.id}, 'scheduled')
+            ${input.text}, ${principal.id}, 'scheduled', clock_timestamp())
     on conflict (id) do nothing returning id`
   // The caller's id is another message's already (another thread's, another workspace's): this one is not sent.
   if (made.length === 0) return yield* new Conflict({ entity: "email_message", reason: "mail_id_taken" })
@@ -429,8 +432,8 @@ export interface Queued {
  * ticket's "Klant informeren" holds one token for the mail and the ticket together.
  *
  * Mail is in the order Insyte received it (`created_at`): a `Date:` header is the sender's to set. The agent names who
- * it answers and which message (`to`, `answering`): its reply goes to the thread's own customer, threaded under the
- * mail it heard.
+ * it answers and which message (`to`, `answering`), and its subject (`subject`): its reply goes to the thread's own
+ * customer, threaded under the mail it heard, under a subject that is not the shopper's.
  */
 export const replyOn = Effect.fn("Threads.replyOn")(function*(
   sql: SqlClient.SqlClient,
@@ -438,6 +441,8 @@ export const replyOn = Effect.fn("Threads.replyOn")(function*(
     readonly messageId?: string | undefined
     readonly to?: { readonly name: string; readonly email: string } | undefined
     readonly answering?: string | undefined
+    /** A subject of its own: the agent's, from the order's facts, never the thread's (the shopper's words). */
+    readonly subject?: string | undefined
   }
 ) {
   const [l] = yield* lock(sql, [input.threadId])
@@ -460,7 +465,7 @@ export const replyOn = Effect.fn("Threads.replyOn")(function*(
     mailbox,
     kind: "reply",
     to,
-    subject: reSubject(l!.subject, "Re"),
+    subject: input.subject ?? reSubject(l!.subject, "Re"),
     text,
     // Kept bare, as the inbound ones are; the sink puts the brackets on.
     inReplyTo: last === undefined ? null : last.rfc822,
