@@ -266,7 +266,10 @@ export const remove = Effect.fn("Automations.remove")(function*(id: string) {
   )
 })
 
-/** "Terugzetten" on a removed flow: back in the list as it was. The toast's Undo does the same by its token. */
+/**
+ * "Terugzetten" on a removed flow (the Prullenbak's): back in the list as it was. The toast's Undo does the same by its
+ * token; this one's Undo removes it again.
+ */
 export const restoreRemoved = Effect.fn("Automations.restoreRemoved")(function*(id: string) {
   yield* Policy.require("automations", 3)
   const db = yield* Db
@@ -276,9 +279,32 @@ export const restoreRemoved = Effect.fn("Automations.restoreRemoved")(function*(
       yield* sql`update automations set deleted_at = null where id = ${id}`
       yield* syncAccount(sql, id)
       yield* audit(sql, "automation.restored", id)
-      return yield* answer(sql, id, null)
+      return yield* answer(sql, id, { kind: "restored", id })
     })
   )
+})
+
+/**
+ * The Prullenbak's purge, on the caller's transaction: removed flows gone for good, with their versions, settings,
+ * account and runs (all `on delete cascade`), an audit line each as `actor`. A flow not removed is left alone.
+ */
+export const purgeIn = Effect.fn("Automations.purge")(function*(
+  sql: SqlClient.SqlClient,
+  workspaceId: string,
+  ids: ReadonlyArray<string>,
+  actor: Audit.Actor
+) {
+  if (ids.length === 0) return
+  const gone = yield* sql<{ id: string; name: string }>`
+    delete from automations where id in ${sql.in([...new Set(ids)])} and deleted_at is not null returning id, name`
+  for (const a of gone) {
+    yield* Audit.write(sql, workspaceId, actor, {
+      action: "automation.purged",
+      subjectType: "automation",
+      subjectId: a.id,
+      diff: { name: a.name }
+    })
+  }
 })
 
 /**
@@ -472,6 +498,12 @@ const undoOf = Effect.fn("Automations.undoOf")(function*(sql: SqlClient.SqlClien
       yield* Policy.require("automations", 3)
       yield* sql`update automations set deleted_at = null where id = ${undo.id}`
       yield* audit(sql, "automation.restored", undo.id)
+      return
+    }
+    case "restored": {
+      yield* Policy.require("automations", 3)
+      yield* sql`update automations set deleted_at = now() where id = ${undo.id} and deleted_at is null`
+      yield* audit(sql, "automation.removed", undo.id)
       return
     }
     case "published": {

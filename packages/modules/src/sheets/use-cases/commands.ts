@@ -406,6 +406,29 @@ export const restoreSheets = Effect.fn("Sheets.restore")(function*(input: { read
   )
 })
 
+/**
+ * The Prullenbak's purge, on the caller's transaction: removed sheets gone for good, with their tabs, shares and
+ * members' state (all `on delete cascade`), an audit line each as `actor`. A sheet not removed is left alone.
+ */
+export const purgeIn = Effect.fn("Sheets.purge")(function*(
+  sql: SqlClient.SqlClient,
+  workspaceId: string,
+  ids: ReadonlyArray<string>,
+  actor: Audit.Actor
+) {
+  if (ids.length === 0) return
+  const gone = yield* sql<{ id: string; title: string }>`
+    delete from sheets where id in ${sql.in([...new Set(ids)])} and deleted_at is not null returning id, title`
+  for (const s of gone) {
+    yield* Audit.write(sql, workspaceId, actor, {
+      action: "sheets.purged",
+      subjectType: "sheet",
+      subjectId: s.id,
+      diff: { title: s.title }
+    })
+  }
+})
+
 /** Opening a sheet puts it at the top of the reader's "Recent". */
 export const markOpened = Effect.fn("Sheets.markOpened")(function*(input: { readonly id: string }) {
   yield* Policy.require("data", 1)
