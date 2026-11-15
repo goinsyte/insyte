@@ -233,7 +233,7 @@ export const authOptions = (config: AuthConfig, database: BetterAuthOptions["dat
       updateAge: 24 * 60 * 60,
       freshAge: 10 * 60,
       cookieCache: { enabled: true, maxAge: 5 * 60, strategy: "compact" },
-      // Which workspace and principal the session acts as: written only by the server (Session.switchPrincipal, M3).
+      // Which workspace the session acts in, as a member: written only by the server (`Workspaces.switch`, M3.1).
       additionalFields: {
         activeWorkspaceId: { type: "string", required: false, input: false, fieldName: "active_workspace_id" },
         activePrincipalKind: { type: "string", required: false, input: false, fieldName: "active_principal_kind" },

@@ -506,6 +506,13 @@ export const OutboxEvent = Schema.Union([
     supplierId: Schema.String,
     contactId: Schema.String
   }),
+  // A member's access to the workspace ended (M3.1): they left it, or were removed. Their open tabs' sockets in the
+  // workspace's room are closed at once; reconnecting is refused, as every call is.
+  Schema.Struct({
+    type: Schema.Literal("member.access_ended"),
+    workspaceId: Schema.String,
+    memberId: Schema.String
+  }),
   // A record a supplier's portal shows changed (M16 step 1): the realtime sink tells that supplier's room
   // (`sup:<workspace>:<supplier>`) to refetch it. Ids only, as `records.changed`.
   Schema.Struct({

@@ -1,4 +1,4 @@
-import { tenantTable } from "@insyte/database/Tenancy"
+import { newcomerBlind, tenantTable } from "@insyte/database/Tenancy"
 import { statements } from "../statements.ts"
 
 /*
@@ -26,14 +26,8 @@ import { statements } from "../statements.ts"
  * - `knowledge_citations`: one row each time an answer used a chapter (a draft now; Vraag Insyte's turns and the
  *   customer agent later), which backs "{n}× gebruikt" over seven days.
  *
- * Every table is members-only and refuses the newcomer (0096), as every table with row level security does.
+ * Every table is members-only and refuses the newcomer (`newcomerBlind`, 0096), as every table with row level security does.
  */
-
-const NO_NEWCOMER = `app_principal_kind() is distinct from 'newcomer'`
-
-const noNewcomer = (table: string) =>
-  `create policy ${table}_no_newcomer on ${table} as restrictive for all
-     using (${NO_NEWCOMER}) with check (${NO_NEWCOMER})`
 
 export default statements(
   "create extension if not exists vector",
@@ -56,7 +50,7 @@ export default statements(
    )`,
   "create index knowledge_articles_list on knowledge_articles (workspace_id, updated_at desc) where archived_at is null",
   tenantTable("knowledge_articles", { membersOnly: true }),
-  noNewcomer("knowledge_articles"),
+  newcomerBlind("knowledge_articles"),
   "revoke delete on knowledge_articles from insyte_app",
   //
   `create table knowledge_versions (
@@ -73,7 +67,7 @@ export default statements(
    )`,
   "create index knowledge_versions_workspace on knowledge_versions (workspace_id, article_id, version desc)",
   tenantTable("knowledge_versions", { membersOnly: true }),
-  noNewcomer("knowledge_versions"),
+  newcomerBlind("knowledge_versions"),
   "revoke update, delete on knowledge_versions from insyte_app",
   //
   `create table knowledge_chunks (
@@ -96,7 +90,7 @@ export default statements(
   "create index knowledge_chunks_words on knowledge_chunks using gin (workspace_id, tsv)",
   "create index knowledge_chunks_unembedded on knowledge_chunks (workspace_id, article_id) where embedding is null",
   tenantTable("knowledge_chunks", { membersOnly: true }),
-  noNewcomer("knowledge_chunks"),
+  newcomerBlind("knowledge_chunks"),
   //
   `create table knowledge_gaps (
      id                  text primary key,
@@ -125,7 +119,7 @@ export default statements(
   "create index knowledge_gaps_list on knowledge_gaps (workspace_id, state, last_seen_at desc)",
   "create index knowledge_gaps_target on knowledge_gaps (workspace_id, target_article_id) where state = 'open'",
   tenantTable("knowledge_gaps", { membersOnly: true }),
-  noNewcomer("knowledge_gaps"),
+  newcomerBlind("knowledge_gaps"),
   "revoke delete on knowledge_gaps from insyte_app",
   //
   `create table knowledge_citations (
@@ -140,6 +134,6 @@ export default statements(
    )`,
   "create index knowledge_citations_uses on knowledge_citations (workspace_id, article_id, at desc)",
   tenantTable("knowledge_citations", { membersOnly: true }),
-  noNewcomer("knowledge_citations"),
+  newcomerBlind("knowledge_citations"),
   "revoke update, delete on knowledge_citations from insyte_app"
 )

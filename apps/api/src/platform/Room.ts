@@ -89,7 +89,10 @@ export class RoomDurableObject extends DurableObject<Cloudflare.Env> {
     }
   }
 
-  /** Closes one member's sockets: a supplier contact whose access was revoked (M16). The others hear them leave. */
+  /**
+   * Closes one member's sockets: a supplier contact whose access was revoked (M16), a member who left or was removed
+   * (M3.1). The others hear them leave.
+   */
   closeMember(memberId: string): void {
     for (const ws of this.ctx.getWebSockets()) {
       if ((ws.deserializeAttachment() as Attachment).memberId !== memberId) continue

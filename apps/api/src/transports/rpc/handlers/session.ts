@@ -4,7 +4,7 @@ import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
 import { countryOf } from "@insyte/integrations-better-auth/Country"
 import { ActiveSessions } from "@insyte/modules/sessions/ActiveSessions"
 import { SupplierPortalService } from "@insyte/modules/supplier-portal/SupplierPortal"
-import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
+import { landingOf, Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect } from "effect"
 import { currentSessionId } from "../../../platform/Sessions.ts"
 
@@ -20,10 +20,10 @@ export const SessionHandlers = SessionRpcs.toLayer(Effect.gen(function*() {
   return SessionRpcs.of({
     "Session.me": Effect.fn("Session.me")(function*() {
       const user = yield* CurrentUser
-      const memberships = yield* workspaces.memberships
+      const memberships = yield* workspaces.current
       const contacts = yield* portal.held
       // Members first: a person who is both a member and a supplier's contact lands in the console; the portal is
-      // theirs at /supplier (`Session.switchPrincipal` will choose between them).
+      // theirs at /supplier.
       const principals = [
         ...memberships.map((m): PrincipalSummary => ({
           kind: "member",
@@ -44,15 +44,21 @@ export const SessionHandlers = SessionRpcs.toLayer(Effect.gen(function*() {
       // Start once the active workspace finished onboarding, or at once for whoever joined it; until then the founder
       // goes on with onboarding (which resumes where they were).
       const active = memberships[0]
-      const onboarded = active !== undefined && (active.onboarded || active.principal.role.id !== "owner")
       return new SessionMe({
-        user,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          emailVerified: user.emailVerified,
+          image: user.image,
+          twoFactorEnabled: user.twoFactorEnabled
+        },
         principals,
         activePrincipal: principals[0] ?? null,
         landing: active === undefined && contacts.length > 0
           ? "/supplier/dashboard"
-          : onboarded
-          ? "/dashboard"
+          : active !== undefined
+          ? landingOf(active)
           : "/onboarding"
       })
     }),
