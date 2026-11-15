@@ -100,6 +100,7 @@ interface HitRow {
   readonly version: number
   readonly title: string
   readonly audience: Hit["audience"]
+  readonly storeId: string | null
   readonly text: string
   readonly score: number
 }
@@ -119,7 +120,7 @@ const byMeaning = (sql: SqlClient.SqlClient, vector: ReadonlyArray<number>, audi
     yield* sql`set local hnsw.iterative_scan = relaxed_order`
     const v = vectorLiteral(vector)
     return yield* sql<HitRow>`
-      select c.article_id, c.version, c.title, c.audience, c.text, 1 - (c.embedding <=> ${v}::vector) as score
+      select c.article_id, c.version, c.title, c.audience, c.store_id, c.text, 1 - (c.embedding <=> ${v}::vector) as score
       from knowledge_chunks c
       join knowledge_articles a on a.id = c.article_id and a.archived_at is null and a.published_version = c.version
       where c.workspace_id = app_workspace_id() and c.embedding is not null
@@ -141,7 +142,7 @@ const byWords = (sql: SqlClient.SqlClient, query: string, audiences: ReadonlyArr
                                              (select string_agg(quote_literal(w), ' | ') from unnest(q.words) w))
                          as query
                   from q where cardinality(q.words) > 0)
-      select c.article_id, c.version, c.title, c.audience, c.text,
+      select c.article_id, c.version, c.title, c.audience, c.store_id, c.text,
              (s.shared::float8 / cardinality(tq.words)) + ts_rank(c.tsv, tq.query) / 10 as score
       from tq
       join knowledge_chunks c on c.workspace_id = app_workspace_id() and c.tsv @@ tq.query
@@ -181,6 +182,7 @@ const bestPerChapter = (rows: ReadonlyArray<HitRow>, limit: number): ReadonlyArr
     version: r.version,
     title: r.title,
     audience: r.audience,
+    storeId: r.storeId,
     text: r.text,
     score: Math.round(r.score * 1000) / 1000
   }))

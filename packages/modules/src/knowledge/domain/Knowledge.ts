@@ -127,6 +127,8 @@ export const Hit = Schema.Struct({
   version: Schema.Int,
   title: Schema.String,
   audience: Audience,
+  /** The chapter's store; `null` for every store. */
+  storeId: Schema.NullOr(Schema.String),
   text: Schema.String,
   score: Schema.Finite
 })

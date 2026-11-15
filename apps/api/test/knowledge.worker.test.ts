@@ -1,13 +1,14 @@
 import { beforeAll, describe, expect, it } from "vitest"
 import { failure, join, ok, outboxOf, pastUndo, person, relay, run } from "./journeys.ts"
-import { call, rpc, sessionMe } from "./support.ts"
+import { call, rpc, rpcStream, sessionMe } from "./support.ts"
 
 /*
  * Kennisbank (M15 step 7, W11.2), on the fake embedder (`EMBEDDINGS_ADAPTER=fake`) and the fake model: chapters are
  * written as drafts, published as versions the agents read, and undone; publishing a chapter the customer agent reads
  * needs `ai.autonomy`; a chapter for one store is read only by who reaches it; a reply draft reads the published
  * chapters, cites the one it used and files the question nothing answered as a gap; the jobs Worker embeds a published
- * chapter; an archived one is read by nothing. A key reads the published chapters only, over `/v1` and MCP.
+ * chapter; an archived one is read by nothing. A key reads the published chapters only, over `/v1` and MCP, and Vraag
+ * Insyte answers from them (`search_knowledge`) as the person asking.
  */
 
 type Call = { purpose: string; provider: string; outcome: string; subjectId: string | null }
@@ -399,5 +400,43 @@ describe("Kennisbank", () => {
     expect(ok(await rpc("Knowledge.list", {}, people.owner)).rows.map((r) => r.id)).toContain(returns)
     const again = ok(await rpc("Knowledge.search", { query: "binnen hoeveel dagen retourneren" }, people.owner))
     expect(again.hits[0]?.articleId).toBe(returns)
+  })
+  it("lets Vraag Insyte answer from the published chapters only, as the person asking reads them", async () => {
+    const BODY = "Retourneren en terugsturen kan via het retourportaal, met het label uit de bevestiging."
+    const make = async (title: string, body: string, extra: Record<string, unknown> = {}) =>
+      ok(await rpc("Knowledge.create", { title, audience: "assistant", body, ...extra }, people.owner)).article
+    const publish = async (a: { id: string; title: string }, body: string) =>
+      ok(await rpc("Knowledge.publish", { id: a.id, title: a.title, audience: "assistant", body }, people.owner))
+    const policy = await make("Retourbeleid voor het team", BODY)
+    await publish(policy, BODY)
+    // A draft, an archived chapter, and one for the store `held` does not reach: all about the same question.
+    const draft = await make("Concept retourneren", `${BODY} Concepttekst.`)
+    const old = await make("Oud retourbeleid", `${BODY} Oude tekst.`)
+    await publish(old, `${BODY} Oude tekst.`)
+    ok(await rpc("Knowledge.archive", { id: old.id }, people.owner))
+    const local = await make("Retourneren in deze winkel", `${BODY} Winkeltekst.`, { storeId })
+    await publish(local, `${BODY} Winkeltekst.`)
+
+    const askOf = async (cookie: string) => {
+      const frames = ok(
+        await rpcStream("Ask.send", { text: "Hoe lang kan ik retourneren en terugsturen?" }, cookie)
+      ) as Array<{ _tag: string; turn?: { sources: Array<{ title: string; to: string }>; tokens: Array<unknown> } }>
+      const settled = frames.find((f) => f._tag === "settled")!.turn!
+      return settled.sources.map((src) => src.to)
+    }
+    const cites = (id: string) => `/settings/ai/knowledge/${id}`
+
+    const owner = await askOf(people.owner)
+    expect(owner).toContain(cites(policy.id))
+    expect(owner).toContain(cites(local.id))
+    expect(owner).not.toContain(cites(draft.id))
+    expect(owner).not.toContain(cites(old.id))
+
+    // Held to another store: the workspace's chapter, never the store's.
+    const held = await askOf(people.held)
+    expect(held).toContain(cites(policy.id))
+    expect(held).not.toContain(cites(local.id))
+    expect(held).not.toContain(cites(draft.id))
+    expect(held).not.toContain(cites(old.id))
   })
 })

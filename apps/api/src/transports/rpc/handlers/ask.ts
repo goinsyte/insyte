@@ -4,6 +4,7 @@ import type { AnalyticsService } from "@insyte/modules/analytics/Analytics"
 import { AskService } from "@insyte/modules/ask/Ask"
 import type { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
 import type { CustomersService } from "@insyte/modules/customers/Customers"
+import type { KnowledgeService } from "@insyte/modules/knowledge/Knowledge"
 import type { OrdersService } from "@insyte/modules/orders/Orders"
 import type { QueueService } from "@insyte/modules/queue/Queue"
 import type { TicketsService } from "@insyte/modules/tickets/Tickets"
@@ -24,7 +25,13 @@ export const AskHandlers = AskRpcs.toLayer(Effect.gen(function*() {
   const limits = yield* RateLimits
   // The slices the tools read through, provided to each answer.
   const slices = yield* Effect.context<
-    OrdersService | TicketsService | ChargebacksService | QueueService | AnalyticsService | CustomersService
+    | OrdersService
+    | TicketsService
+    | ChargebacksService
+    | QueueService
+    | AnalyticsService
+    | CustomersService
+    | KnowledgeService
   >()
   const limited = takeQuestion.pipe(
     Effect.provideService(RateLimits, limits),
