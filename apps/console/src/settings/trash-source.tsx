@@ -5,8 +5,13 @@ import { undoable } from "@insyte/ui/app/lib/undo"
 import type { TrashSource } from "@insyte/ui/app/settings/trash-source"
 import { Exit } from "effect"
 import { useState } from "react"
+import { AUTOMATIONS } from "../data/automations.ts"
+import { COSTS } from "../data/costs.ts"
+import { COURSES } from "../data/courses.ts"
 import { TRASH, trashWrites } from "../data/settings-log.ts"
+import { SHEETS } from "../data/sheets.ts"
 import { TICKETS } from "../data/tickets.ts"
+import { WEBHOOKS } from "../data/webhooks.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 
 /*
@@ -16,7 +21,17 @@ import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
  */
 
 /** The design's word for each kind the server holds. */
-const KIND: Record<TrashKind, TrashItem["kind"]> = { ticket: "ticket" }
+const KIND: Record<TrashKind, TrashItem["kind"]> = {
+  ticket: "ticket",
+  automation: "automatisering",
+  sheet: "rekenblad",
+  course: "cursus",
+  webhook: "webhook",
+  cost_line: "kostenpost"
+}
+
+/** What an item without a title is called, as its own page calls it. */
+const UNTITLED: Partial<Record<TrashKind, string>> = { course: "Naamloze cursus", sheet: "Naamloos rekenblad" }
 
 const LATE: [string, string] = [
   "Te laat om ongedaan te maken",
@@ -25,10 +40,16 @@ const LATE: [string, string] = [
 
 const COPY: RefusalCopy = {
   gone: "Dat staat niet meer in de prullenbak",
-  conflicts: { expired: LATE, already_sent: LATE }
+  conflicts: {
+    expired: LATE,
+    already_sent: LATE,
+    store_gone: ["Kan niet terug", "Een winkel van dit endpoint is niet meer gekoppeld. Maak het opnieuw aan."],
+    out_of_reach: ["Kan niet terug", "Dit endpoint hoort ook bij winkels waar je rol niet bij kan."],
+    url_refused: ["Kan niet terug", "Naar dit adres stuurt Insyte geen events meer. Maak het opnieuw aan."]
+  }
 }
 
-const keys = { reactivityKeys: [...TRASH, ...TICKETS] }
+const keys = { reactivityKeys: [...TRASH, ...TICKETS, ...AUTOMATIONS, ...SHEETS, ...COURSES, ...WEBHOOKS, ...COSTS] }
 
 export function useConsoleTrashSource(list: TrashList, canEdit: boolean): TrashSource {
   const write = {
@@ -45,7 +66,7 @@ export function useConsoleTrashSource(list: TrashList, canEdit: boolean): TrashS
   const items = list.items.filter((i) => !hidden.has(i.id)).map((i): TrashItem => ({
     id: i.id,
     kind: KIND[i.kind],
-    title: i.title,
+    title: i.title.trim() === "" ? UNTITLED[i.kind] ?? "Zonder titel" : i.title,
     by: i.deletedBy ?? "iemand",
     at: new Date(i.deletedAt).toISOString()
   }))

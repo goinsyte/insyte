@@ -1,13 +1,16 @@
 import { useState } from "react"
 import {
   Archive,
+  BadgePercent,
   FileText,
+  GraduationCap,
   MessageSquareText,
   RotateCcw,
   Sheet as SheetIcon,
   Ticket,
   Trash2,
   User,
+  Webhook,
   Workflow
 } from "../../../icons"
 import type { IconComponent } from "../../../icons"
@@ -25,7 +28,10 @@ const KIND: Record<TrashItem["kind"], { icon: IconComponent; label: string }> = 
   automatisering: { icon: Workflow, label: "Automatisering" },
   rekenblad: { icon: SheetIcon, label: "Rekenblad" },
   sjabloon: { icon: MessageSquareText, label: "Sjabloon" },
-  notitie: { icon: FileText, label: "Notitie" }
+  notitie: { icon: FileText, label: "Notitie" },
+  cursus: { icon: GraduationCap, label: "Cursus" },
+  webhook: { icon: Webhook, label: "Webhook" },
+  kostenpost: { icon: BadgePercent, label: "Kostenpost" }
 }
 
 const left = (at: string) => Math.max(0, TRASH_DAYS - Math.floor((Date.now() - Date.parse(at)) / 86_400_000))
@@ -34,7 +40,7 @@ const left = (at: string) => Math.max(0, TRASH_DAYS - Math.floor((Date.now() - D
  * Prullenbak (`/settings/trash`, PLAN 43): what was deleted, for 30 days. Terugzetten puts it back
  * where it was (with Undo); Definitief verwijderen asks first, because after that it is gone.
  * Customers, orders and invoices follow Gegevens en privacy instead. The items and what is done
- * with them are the host's (`trash-source.tsx`).
+ * with them are the host's (`trash-source.tsx`); a kind is its word and icon in `KIND`.
  */
 export function TrashPage() {
   const source = useTrashSource()

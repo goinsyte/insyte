@@ -22,7 +22,7 @@ export type Retention = { id: string; label: string; detail: string; months: num
 export type Privacy = { classes: Retention[]; erasing: boolean; countedAt?: string };
 
 export type AuditEntry = { id: string; at: string; who: string; page: string; to: string; field: string; before: string; after: string };
-export type TrashItem = { id: string; kind: "ticket" | "klant" | "automatisering" | "rekenblad" | "sjabloon" | "notitie"; title: string; by: string; at: string };
+export type TrashItem = { id: string; kind: "ticket" | "klant" | "automatisering" | "rekenblad" | "sjabloon" | "notitie" | "cursus" | "webhook" | "kostenpost"; title: string; by: string; at: string };
 
 export type GoTo = { id: string; label: string; to: string; key: string };
 
