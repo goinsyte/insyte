@@ -6,7 +6,7 @@ import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import { type MailTry, retryAfter } from "../../shared/domain/MailRetry.ts"
 import { Relay } from "../../shared/domain/Outbox.ts"
-import { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
+import { UndoWindow } from "../../shared/domain/Undo.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import * as Senders from "../../shared/use-cases/Senders.ts"
@@ -30,6 +30,8 @@ export const notifyDelay = Effect.fn("Orders.notifyDelay")(function*(input: { re
   const principal = yield* CurrentPrincipal
   const relay = yield* Relay
   const db = yield* Db
+  // Eight seconds for a person's toast; the agent log's five minutes for a mail the agent put in line.
+  const hold = yield* UndoWindow
   const queued = yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const scope = yield* inScope(sql, "o.store_id")
@@ -59,7 +61,7 @@ export const notifyDelay = Effect.fn("Orders.notifyDelay")(function*(input: { re
         workspaceId: principal.workspaceId,
         userId: principal.userId ?? principal.id,
         mailId
-      }, { afterSeconds: UNDO_SECONDS })
+      }, { afterSeconds: hold })
       const ticket = yield* Undo.issue(sql, {
         command: RESTORE,
         compensation: { orders: [], mails: [mailId] } satisfies OrdersRestore,
@@ -68,7 +70,7 @@ export const notifyDelay = Effect.fn("Orders.notifyDelay")(function*(input: { re
       return { undo: ticket, outboxId: event }
     })
   )
-  yield* relay.kick([queued.outboxId], { afterSeconds: UNDO_SECONDS })
+  yield* relay.kick([queued.outboxId], { afterSeconds: hold })
   return { undo: queued.undo }
 })
 

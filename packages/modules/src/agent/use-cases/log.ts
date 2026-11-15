@@ -55,6 +55,10 @@ export interface NewAction {
   readonly proposalId: string | null
   readonly undo: { readonly hash: string; readonly until: Date } | null
   readonly dedupeKey: string | null
+  /** What it read, as a plate's evidence (`{ kind, title, detail, to }`); none where it read nothing. */
+  readonly sources?: ReadonlyArray<{ kind: string; title: string; detail: string; to: string | null }>
+  /** The model and prompt that wrote what it sent, where one did. */
+  readonly model?: { readonly name: string; readonly promptVersion: string } | null
 }
 
 /** Writes one row of the log on the caller's transaction, with its touchpoint where it has one; its id. */
@@ -66,7 +70,7 @@ export const record = Effect.fn("AgentLog.record")(function*(sql: SqlClient.SqlC
                (id, workspace_id, store_id, action, input, subject_type, subject_id, subject_label, principal_kind,
                 principal_id, trigger, trigger_label, policy_version, level, decision, refuse_reason, reason, sentence,
                 before_text, after_text, effect, compensation, dedupe_key, outcome, error, proposal_id, undo_token_hash,
-                undo_principal, undo_until)
+                undo_principal, undo_until, sources, model, prompt_version)
              values (${id}, app_workspace_id(), ${row.storeId}, ${row.action}, ${
     JSON.stringify(row.input ?? null)
   }::jsonb,
@@ -81,7 +85,10 @@ export const record = Effect.fn("AgentLog.record")(function*(sql: SqlClient.SqlC
                      decode(${row.undo === null ? null : row.undo.hash}, 'hex'), ${
     row.undo === null ? null : principal.id
   },
-                     ${row.undo?.until ?? null})`
+                     ${row.undo?.until ?? null}, ${JSON.stringify(row.sources ?? [])}::jsonb, ${
+    row.model?.name ?? null
+  },
+                     ${row.model?.promptVersion ?? null})`
   // Who did what, as every change is recorded; the log's open tabs read again by it (`records.changed`).
   yield* Audit.write(sql, principal.workspaceId, { kind: principal.kind, id: principal.id }, {
     action: `agent_action.${row.outcome}`,

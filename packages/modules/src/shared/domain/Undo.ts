@@ -9,6 +9,13 @@ import { Context, Schema } from "effect"
 /** How long a write that reaches outside Insyte waits, so "Ongedaan maken" (six seconds) can still cancel it. */
 export const UNDO_SECONDS = 8
 
+/**
+ * The window a command's undo token keeps, and what it sends waits out in the outbox before it leaves: a toast's
+ * `UNDO_SECONDS`, or the five minutes the agent log gives an action the agent ran on its own (M15 step 6, ADR-0027: a
+ * send is written with `not_before = now + window`, so taking it back from the log means it never left).
+ */
+export const UndoWindow = Context.Reference<number>("shared/UndoWindow", { defaultValue: () => UNDO_SECONDS })
+
 /** What a reversible write answers: the token for `Shared.undo`, and until when it holds. */
 export const UndoTicket = Schema.Struct({ token: Schema.String, until: Schema.Finite })
 export type UndoTicket = typeof UndoTicket.Type

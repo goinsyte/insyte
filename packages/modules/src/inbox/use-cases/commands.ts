@@ -6,7 +6,7 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import { PendingEvents, Relay } from "../../shared/domain/Outbox.ts"
-import { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
+import { UNDO_SECONDS, UndoWindow } from "../../shared/domain/Undo.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
@@ -400,7 +400,7 @@ const queueMessage = Effect.fn("Threads.queueMessage")(function*(
     workspaceId: principal.workspaceId,
     userId: principal.userId ?? "system",
     messageId: id
-  }, { afterSeconds: UNDO_SECONDS })
+  }, { afterSeconds: yield* UndoWindow })
   return { id, outboxId }
 })
 
