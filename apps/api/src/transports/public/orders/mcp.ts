@@ -56,9 +56,10 @@ export const OrdersMcp = OrdersTools.toLayer(Effect.gen(function*() {
         })),
         kicking(read.noteOrder(order_id, { body }, idempotency_key))
       ),
+    // No agent action names an address change or a delay yet: an agent's key is refused, any other runs them as the
+    // key may.
     update_shipping_address: ({ order_id, idempotency_key, ...address }) =>
-      kicking(read.shipOrderTo(order_id, address, idempotency_key)),
-    // No agent action names a delay yet: an agent's key is refused, any other runs them as the key may.
+      notForAgents("update_shipping_address", kicking(read.shipOrderTo(order_id, address, idempotency_key))),
     flag_order_delayed: ({ order_id, idempotency_key }) =>
       notForAgents("flag_order_delayed", kicking(read.delayOrder(order_id, idempotency_key))),
     clear_order_delay: ({ order_id, idempotency_key }) =>
