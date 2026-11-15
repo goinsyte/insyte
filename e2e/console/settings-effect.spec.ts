@@ -29,9 +29,18 @@ const test = base.extend<{ page: Page }>({
 type Captured = {
   kind: string
   url: string | null
+  sentAt: string
   look?: { color: string | null; logoPath: string | null } | null
   status?: { text: string; show: string } | null
 }
+
+/*
+ * The look and the status a mail went with are kept by the capture adapter's isolate only (`capturedSenders`), not in
+ * `captured_mail`. Locally that is the one isolate the dev route answers from; on a deployed stage the mail may have
+ * gone from another, so there the journey checks the mail arrived and leaves its look to the Worker test
+ * (`settings-effect.worker.test.ts`) and the template test (`resend.test.ts`).
+ */
+const oneIsolate = process.env.CONSOLE_URL === undefined
 
 const mails = async (request: APIRequestContext, to: string) =>
   ((await (await request.get(`/api/__dev/mail?to=${encodeURIComponent(to)}`)).json()) as { mails: Array<Captured> })
@@ -122,13 +131,16 @@ test("@settings-effect Huisstijl reaches the returns portal and a shopper's trac
   await hydrated(page)
   await page.getByRole("row", { name: /#1003/ }).getByRole("checkbox", { name: "Rij selecteren" }).click()
   await page.getByRole("button", { name: "Acties" }).click()
+  const sent = Date.now() - 5_000
   await page.getByText("Track & trace-update sturen").click()
   await expect(page.getByText(/Track & trace-update gestuurd/)).toBeVisible()
   await expect.poll(
     async () =>
       (await mails(request, "klant2@example.com")).some((m) =>
-        m.kind === "order.message" && m.look?.logoPath === logoSrc && m.look.color === COLOR &&
-        typeof m.status?.text === "string" && m.status.text !== ""
+        m.kind === "order.message" && Date.parse(m.sentAt) >= sent &&
+        (!oneIsolate ||
+          (m.look?.logoPath === logoSrc && m.look.color === COLOR && typeof m.status?.text === "string" &&
+            m.status.text !== ""))
       ),
     { message: "the tracking mail in the store's look", timeout: 60_000 }
   ).toBe(true)
