@@ -401,6 +401,18 @@ const getMetrics: AskTool<AnalyticsService | Base> = {
     })
 }
 
+/** The month before `YYYY-MM`. */
+const before = (m: string) => monthBefore(new Date(`${m}-01T00:00:00Z`))
+
+/**
+ * The Analyse explanation a month figure opens: the paid orders it counts, the disputes it sums. The others (revenue,
+ * the costs, profit, margin, ROAS) have no explanation of their own in Analyse yet and open Kosten.
+ */
+const LOOKUP_EXPLAINS: Readonly<Record<string, "paid_orders" | "disputes">> = {
+  bestellingen: "paid_orders",
+  chargebacks: "disputes"
+}
+
 const METRIC_LABEL: Readonly<Record<string, { label: string; fmt: "money" | "integer" | "percent" | "number" }>> = {
   omzet: { label: "Omzet", fmt: "money" },
   bestellingen: { label: "Betaalde bestellingen", fmt: "integer" },
@@ -441,7 +453,16 @@ const getFigures: AskTool<AnalyticsService | Base> = {
           meta.fmt === "integer" ?
           INT.format(f.value) :
           ONE.format(f.value)
-        return [{ label: `${meta.label} ${f.resolved ?? ""}`.trim(), display, to: "/costs", explain: null }]
+        const explains = LOOKUP_EXPLAINS[f.metric]
+        const explain: ExplainRef | null = explains === undefined || f.resolved === null ?
+          null :
+          { a: f.resolved, b: before(f.resolved), key: { _tag: explains } }
+        return [{
+          label: `${meta.label} ${f.resolved ?? ""}`.trim(),
+          display,
+          to: explain === null ? "/costs" : "/analytics",
+          explain
+        }]
       })
       const refused = read.figures.filter((f) => f.value === null).map((f) => `${f.metric} (${f.error ?? "geen"})`)
       return {
@@ -493,11 +514,13 @@ const searchRecords: AskTool<OrdersService | TicketsService | ChargebacksService
         (yield* CustomersService).search(q, 2)
       ], { concurrency: "unbounded" })
       const hits = [...orders, ...tickets, ...chargebacks, ...customers].slice(0, RESULT_ROWS)
+      // A shopper is never named to the model: an order's and a case's line under it is the customer's name, a
+      // customer's own the address and its title the name, so a customer is "Klant" and only a ticket keeps its subject.
       const records = hits.flatMap((h) => {
         const kind = HIT_KIND[h.kind]
-        return kind === undefined ?
-          [] :
-          [record(kind, h.id, h.title, h.href, h.subtitle === null ? "" : dataBlock("omschrijving", h.subtitle), null)]
+        if (kind === undefined) return []
+        const facts = kind === "ticket" && h.subtitle !== null ? `onderwerp ${dataBlock("onderwerp", h.subtitle)}` : ""
+        return [record(kind, h.id, kind === "customer" ? "Klant" : h.title, h.href, facts, null)]
       })
       return {
         chip: { verb: "Zocht", object: q },

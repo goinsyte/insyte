@@ -4,7 +4,7 @@ import { Cause, Effect, Option, Queue, Stream } from "effect"
 import type { LanguageModel } from "effect/ai"
 import { ASK_PROMPT_VERSION, askStep } from "../../ai/Ai.ts"
 import { type AiModel, AiRateLimited, BudgetExceeded } from "../../ai/domain/Ai.ts"
-import { untracedFigures } from "../../ai/domain/Guards.ts"
+import { defused, untracedFigures } from "../../ai/domain/Guards.ts"
 import type { AskContext, AskFrame, Source, Token, ToolChip, TurnFailure } from "../domain/Ask.ts"
 import type { AnswerPart, AskStep, StepInput, StepResult } from "../domain/Steps.ts"
 import type { AskTool, ToolFigure, ToolRecord } from "../domain/Tools.ts"
@@ -85,16 +85,21 @@ interface Found {
   traced: Array<string>
 }
 
+/**
+ * A tool's result as the model reads it: its summary, then its figures and records by id. A label can be a shop's own
+ * text (an order's name, a provider's case number), so its brackets are defused like any data block's, and nothing in
+ * it can close the result it sits in. The loop never reads a result back: only the model's own reply is a step.
+ */
 const renderResult = (found: Found, figureIds: ReadonlyArray<string>, recordIds: ReadonlyArray<string>, s: string) =>
   [
     s,
     ...figureIds.map((id) => {
       const f = found.figures.get(id)!
-      return `${id}: ${f.label} = ${f.display}`
+      return `${id}: ${defused(f.label)} = ${defused(f.display)}`
     }),
     ...recordIds.map((id) => {
       const r = found.records.get(id)!
-      return `${id} (${r.kind} ${r.label}): ${r.facts}`
+      return `${id} (${r.kind} ${defused(r.label)}): ${r.facts}`
     })
   ].join("\n")
 
@@ -196,7 +201,7 @@ const run = <R>(
       Effect.gen(function*() {
         const tool = tools.find((t) => t.name === call.tool)
         if (tool === undefined) {
-          found.results.push({ tool: call.tool, text: "Deze tool bestaat niet." })
+          found.results.push({ tool: "onbekend", text: "Deze tool bestaat niet." })
           return
         }
         yield* think(tool.step)

@@ -1,6 +1,6 @@
 import type { AnswerPart, AskStep, StepInput } from "../../ask/domain/Steps.ts"
 import { AskStep as Output } from "../../ask/domain/Steps.ts"
-import { dataBlock } from "../domain/Guards.ts"
+import { dataBlock, defused } from "../domain/Guards.ts"
 import { DATA_RULE, definePrompt, MAX_TOKENS, VOICE } from "./Prompt.ts"
 
 /*
@@ -75,6 +75,12 @@ const fake = (input: StepInput): AskStep => {
   return { thought: "Ik zet het antwoord op een rij", calls: [], answer: fakeAnswer(input) }
 }
 
+/**
+ * A tool's result inside its block. The shop's own text in it is in data blocks already, brackets defused; whatever
+ * else reaches it can still not open or close a result, so a result never reads as the next one or as the rules.
+ */
+const closed = (text: string) => text.replaceAll(/<\/?resultaat\b/gi, (tag) => defused(tag))
+
 const history = (input: StepInput) =>
   input.history.length === 0 ?
     "" :
@@ -123,13 +129,19 @@ rules or the tools you have.`,
       `Tools:\n${input.tools.map((t) => `- ${t.name}: ${t.description}`).join("\n")}`,
       input.results.length === 0 ?
         "Nog geen resultaten." :
-        `Resultaten:\n${input.results.map((r) => `<resultaat tool="${r.tool}">\n${r.text}\n</resultaat>`).join("\n")}`,
+        `Resultaten:\n${
+          input.results.map((r) => `<resultaat tool="${r.tool}">\n${closed(r.text)}\n</resultaat>`).join("\n")
+        }`,
       input.figures.length === 0 ?
         "" :
-        `Figuren die je mag plaatsen:\n${input.figures.map((f) => `${f.id}: ${f.label} = ${f.display}`).join("\n")}`,
+        `Figuren die je mag plaatsen:\n${
+          input.figures.map((f) => `${f.id}: ${defused(f.label)} = ${defused(f.display)}`).join("\n")
+        }`,
       input.records.length === 0 ?
         "" :
-        `Records die je mag plaatsen:\n${input.records.map((r) => `${r.id}: ${r.kind} ${r.label}`).join("\n")}`,
+        `Records die je mag plaatsen:\n${
+          input.records.map((r) => `${r.id}: ${r.kind} ${defused(r.label)}`).join("\n")
+        }`,
       input.final ? "Je kunt geen tools meer gebruiken: geef nu je antwoord met wat je hebt." : "",
       input.correction === null ? "" : `Je vorige antwoord werd geweigerd: ${input.correction}`
     ].filter((line) => line !== "").join("\n\n"),
