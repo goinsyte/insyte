@@ -260,7 +260,7 @@ describe("ResendMailer", () => {
     // Unset, Insyte's own look: no logo, the button in `abyss`.
     expect(plain).not.toContain("/api/brand/")
     expect(plain).not.toMatch(/#7A1F3D/i)
-    expect(plain.toLowerCase()).toContain(`background-color:${light.abyss}`)
+    expect((plain ?? "").toLowerCase()).toContain(`background-color:${light.abyss}`)
     // A colour without a logo: the store's name in it at the head.
     await sendWith(http, {
       kind: "return.received",
