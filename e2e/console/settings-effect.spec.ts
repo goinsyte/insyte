@@ -2,10 +2,10 @@ import { type APIRequestContext, expect, type Page, test as base } from "@playwr
 import { admit, onPreview, previewRequest } from "./access.ts"
 
 /*
- * Settings that take effect (M17 step 20.1b): a new admin's recorded store, its returns portal turned on, and
- * Huisstijl saved with a logo and a colour. The shopper's portal is headed with that logo and its button wears that
- * colour; a track-and-trace update sent from Bestellingen reaches the shopper with the same look and the parcel's
- * status as Verzending words it. Mail is read from the capture adapter (`/api/__dev/mail`).
+ * Settings that take effect (M17 step 20.1b): a new admin's recorded store, its returns portal turned on, Huisstijl
+ * saved with a logo and a colour, and Verzending's sentence for a parcel in transit. The shopper's portal is headed with
+ * that logo and its button wears that colour; a track-and-trace update sent from Bestellingen reaches the shopper with
+ * the same look and the parcel's status in that sentence. Mail is read from the capture adapter (`/api/__dev/mail`).
  */
 
 const test = base.extend<{ page: Page }>({
@@ -64,6 +64,7 @@ const PNG = Buffer.from(
   "base64"
 )
 const COLOR = "#7A1F3D"
+const WORDING = "Onderweg naar je toe met {vervoerder}"
 
 test("@settings-effect Huisstijl reaches the returns portal and a shopper's tracking mail", async ({ page, request }) => {
   test.setTimeout(240_000)
@@ -109,6 +110,13 @@ test("@settings-effect Huisstijl reaches the returns portal and a shopper's trac
   await page.getByRole("button", { name: "Wijzigingen opslaan" }).click()
   await expect(page.getByText("Huisstijl opgeslagen")).toBeVisible()
 
+  // Verzending: the sentence a shopper reads while the parcel is on its way (#1003's, at PostNL).
+  await page.goto("/settings/shipping")
+  await hydrated(page)
+  await page.getByLabel("Wat de klant leest bij Onderweg", { exact: true }).fill(WORDING)
+  await page.getByRole("button", { name: "Wijzigingen opslaan" }).click()
+  await expect(page.getByText("Verzendstatussen opgeslagen")).toBeVisible()
+
   // The shopper's portal: the store's logo at the head, its colour on the button.
   await page.goto(portal!)
   await hydrated(page)
@@ -139,8 +147,8 @@ test("@settings-effect Huisstijl reaches the returns portal and a shopper's trac
       (await mails(request, "klant2@example.com")).some((m) =>
         m.kind === "order.message" && Date.parse(m.sentAt) >= sent &&
         (!oneIsolate ||
-          (m.look?.logoPath === logoSrc && m.look.color === COLOR && typeof m.status?.text === "string" &&
-            m.status.text !== ""))
+          (m.look?.logoPath === logoSrc && m.look.color === COLOR &&
+            m.status?.text === "Onderweg naar je toe met PostNL"))
       ),
     { message: "the tracking mail in the store's look", timeout: 60_000 }
   ).toBe(true)
