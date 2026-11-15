@@ -122,7 +122,11 @@ export class ThreadDetail extends Schema.Class<ThreadDetail>("inbox/ThreadDetail
 
 const Ids = Schema.Array(Schema.String).check(Schema.isMinLength(1), Schema.isMaxLength(500))
 const Email = Schema.String.check(Schema.isMaxLength(320), Schema.isPattern(/^[^\s@]+@[^\s@]+\.[^\s@]+$/))
-const Body = Schema.String.check(Schema.isMaxLength(100_000))
+/** The limits of what the team writes, held again after Sjablonen' links are put in (`use-cases/commands.ts`). */
+export const BODY_MAX = 100_000
+export const SUBJECT_MAX = 255
+export const NOTE_MAX = 2000
+const Body = Schema.String.check(Schema.isMaxLength(BODY_MAX))
 
 export const IdsInput = Schema.Struct({ ids: Ids })
 export const ReadInput = Schema.Struct({ ids: Ids, read: Schema.Boolean })
@@ -142,13 +146,13 @@ export const ReplyInput = Schema.Struct({ threadId: Schema.String, body: Body })
 export const ForwardInput = Schema.Struct({
   threadId: Schema.String,
   to: Email,
-  note: Schema.optional(Schema.String.check(Schema.isMaxLength(2000)))
+  note: Schema.optional(Schema.String.check(Schema.isMaxLength(NOTE_MAX)))
 })
 export const ComposeInput = Schema.Struct({
   /** Absent: the workspace's default mailbox. */
   mailboxId: Schema.optional(Schema.String),
   to: Email,
-  subject: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(255)),
+  subject: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(SUBJECT_MAX)),
   body: Body
 })
 

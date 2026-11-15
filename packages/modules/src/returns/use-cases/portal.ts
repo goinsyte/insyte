@@ -112,7 +112,7 @@ export const store = Effect.fn("Portal.store")(function*(handle: string) {
   return yield* inWorkspace(routed.workspaceId, (sql) =>
     Effect.gen(function*() {
       const s = yield* load(sql)
-      const look = yield* CustomerFacing.look(sql)
+      const look = yield* CustomerFacing.look(sql, "page")
       return new PortalStore({
         handle,
         name: yield* storeName(sql),

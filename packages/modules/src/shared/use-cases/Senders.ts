@@ -48,7 +48,7 @@ export const trySendToCustomer = Effect.fn("Senders.trySendToCustomer")(function
   const mailer = yield* Mailer
   const { from: now, ...replying } = yield* customerSender(sql, mail.kind)
   // Huisstijl on every templated shopper's mail; the inbox's own messages are the team's words, plain.
-  const shown = mail.kind === "support.message" ? NO_LOOK : yield* look(sql)
+  const shown = mail.kind === "support.message" ? NO_LOOK : yield* look(sql, "mail")
   const rest = { ...replying, ...(shown === NO_LOOK ? {} : { look: shown }) }
   const from = options?.from === undefined ? now : options.from ?? undefined
   const senders = { ...rest, ...(from === undefined ? {} : { from }) }

@@ -68,10 +68,11 @@ const ordersOf = Effect.fn("Ai.ordersOf")(function*(
     trackingNumber: string | null
     deliveredAt: Date | null
     tracked: string | null
+    stage: string | null
     shopify: string | null
     shipped: boolean
   }>`
-    select o.number, o.status, o.placed_at, f.carrier, f.tracking_number, f.delivered_at, d.status as tracked,
+    select o.number, o.status, o.placed_at, f.carrier, f.tracking_number, f.delivered_at, d.status as tracked, d.stage,
            f.tracking_status as shopify, f.id is not null as shipped
     from orders o
     left join lateral (select id, carrier, tracking_number, delivered_at, tracking_status from fulfilments
@@ -84,7 +85,7 @@ const ordersOf = Effect.fn("Ai.ordersOf")(function*(
   const worded = yield* CustomerFacing.wordings(sql)
   const parcelOf = (r: (typeof rows)[number]) => {
     if (!r.shipped) return null
-    const w = worded(parcelStatusOf(r.tracked, r.shopify), r.carrier)
+    const w = worded(parcelStatusOf(r.tracked, r.shopify, r.stage), r.carrier)
     return w.show === "hidden" ? null : w.text
   }
   return rows.map((r): ReplyOrder => ({

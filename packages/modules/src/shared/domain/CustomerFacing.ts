@@ -46,13 +46,22 @@ export type ShipStatusId = (typeof SHIP_STATUS_IDS)[number]
 export const SHIP_SHOWS = ["all", "line", "hidden"] as const
 export type ShipShow = (typeof SHIP_SHOWS)[number]
 
+/** What AfterShip says beyond a parcel's status (`deliveries.stage`): ready at a pickup point, or a missed delivery. */
+export type ParcelStage = "available_for_pickup" | "failed_attempt"
+
 /**
  * A parcel's carrier status, by its newest word: AfterShip's once it has one (`deliveries.status`), Shopify's until then
- * (`fulfilments.tracking_status`). The same reading as Verzending's "Nu" column (`Shipping.statusCounts`): Insyte does
- * not tell "onderweg naar het land", "bij de lokale vervoerder", "klaar om op te halen" and "bezorging mislukt" apart
- * from the statuses around them yet (AfterShip's subtags).
+ * (`fulfilments.tracking_status`). The same reading as Verzending's "Nu" column (`Shipping.statusCounts`). AfterShip's
+ * "klaar om op te halen" and "bezorging mislukt" (`stage`) keep their own wording; Insyte does not tell "onderweg naar
+ * het land" and "bij de lokale vervoerder" apart from the statuses around them yet.
  */
-export const parcelStatusOf = (tracked: string | null, shopify: string | null): ShipStatusId => {
+export const parcelStatusOf = (
+  tracked: string | null,
+  shopify: string | null,
+  stage: string | null = null
+): ShipStatusId => {
+  if (tracked === "in_transit" && stage === "available_for_pickup") return "pickup"
+  if (tracked === "exception" && stage === "failed_attempt") return "failed"
   switch ((tracked === "pending" ? null : tracked) ?? shopify) {
     case "delivered":
       return "delivered"
@@ -80,7 +89,7 @@ const isRecord = (u: unknown): u is Record<string, unknown> => typeof u === "obj
 
 /** "Onderweg met {vervoerder}" with the carrier's name, or "de vervoerder" where the parcel names none. */
 const filled = (label: string, carrier: string | null) =>
-  label.replace(/\{vervoerder\}/gi, carrier === null || carrier.trim() === "" ? "de vervoerder" : carrier.trim())
+  label.replace(/\{vervoerder\}/gi, () => carrier === null || carrier.trim() === "" ? "de vervoerder" : carrier.trim())
 
 /** Status `id` of a parcel with `carrier`, as Verzending says it (`stored`: the section's value; none: the defaults). */
 export const wordingFor = (stored: unknown, id: ShipStatusId, carrier: string | null): Worded => {
@@ -113,34 +122,102 @@ export const linksOf = (stored: unknown): Links =>
   })) as Links
 
 /**
- * A line's sentences, each with the space after it, so taking one out leaves the rest as written. A sentence ends at
- * its stop before a space or the line's end: the dots of an address (`northwind.store`) do not end one.
+ * Abbreviations whose dot does not end a sentence ("Kijk bijv. op …"), without their last dot. Not "zo" or "do", which
+ * are words too ("Tot zo.").
  */
-const sentences = (line: string) => (line.match(/.*?(?:[.!?…]+(?=\s|$)|$)\s*/g) ?? []).filter((s) => s !== "")
+const ABBREVIATIONS = new Set([
+  "bijv",
+  "bv",
+  "b.v",
+  "o.a",
+  "d.w.z",
+  "i.p.v",
+  "m.b.t",
+  "t.a.v",
+  "t.z.t",
+  "z.s.m",
+  "a.u.b",
+  "s.v.p",
+  "etc",
+  "enz",
+  "evt",
+  "incl",
+  "excl",
+  "ca",
+  "nl",
+  "nr",
+  "tel",
+  "dhr",
+  "mevr",
+  "ma",
+  "di",
+  "wo",
+  "vr",
+  "za"
+])
 
-/** A sentence that is only a variable (`… vindt? {review_link}`): it is the end of the one before it. */
-const bare = (sentence: string, variable: string) => sentence.replace(variable, "").replace(/[\s.!?…:]/g, "") === ""
+const STOP = /[.!?…]/
+
+/** Where the sentence holding position `at` of `line` starts: after the last stop before it that ends a sentence. */
+const sentenceStart = (line: string, at: number) => {
+  for (let i = at - 1; i >= 0; i--) {
+    if (!STOP.test(line[i]!) || !/\s/.test(line[i + 1] ?? "")) continue
+    const word = /([\p{L}.]+)$/u.exec(line.slice(0, i))?.[1]?.toLowerCase() ?? ""
+    if (line[i] === "." && ABBREVIATIONS.has(word)) continue
+    return i + 1
+  }
+  return 0
+}
+
+/** The words that lead up to a link ("via", "op", "hier:"), which go with it. */
+const LEAD_IN = /\s*(?:\b(?:via|op|naar|bij|hier|of)\b\s*:?\s*)?$/iu
 
 /**
- * The reply's words with the links in: each variable becomes its link, and a sentence holding a variable whose link is
- * empty is taken out (with the sentence before it, where the variable stands alone after it), its line too when
- * nothing is left of it. Words without a variable come back as they were.
+ * `line` without the first `variable` in it, whose link is empty. Where the variable ends a sentence and follows a
+ * question or a colon ("Vertel je ons wat je ervan vindt? {review_link}", "Je review: {review_link}."), that sentence
+ * goes with it: it only led up to the link. Otherwise only the variable goes, with the word that led up to it ("Schrijf
+ * je uit via {uitschrijf_link}" is "Schrijf je uit"); the sentences around it stay as written.
+ */
+const withoutVariable = (line: string, variable: string) => {
+  const at = line.indexOf(variable)
+  const after = at + variable.length
+  const before = line.slice(0, at).trimEnd()
+  const closing = /^[.!?…]*(?=\s|$)/.exec(line.slice(after))
+  if (closing !== null && /[?:]$/.test(before)) {
+    const from = sentenceStart(line, before.length - 1)
+    const head = line.slice(0, from).trimEnd()
+    const tail = line.slice(after + closing[0].length)
+    return head === "" ? tail.trimStart() : head + tail
+  }
+  const lead = LEAD_IN.exec(line.slice(0, at))![0]
+  const kept = line.slice(0, at - lead.length)
+  const rest = line.slice(after)
+  return kept === "" ? rest.trimStart() : kept + rest
+}
+
+/** Each variable with its link: a function, so a `$` in a link is the link's, not a replacement pattern. */
+const putIn = (text: string, links: Links) =>
+  LINK_KEYS.reduce((t, k) => links[k] === "" ? t : t.replaceAll(LINK_VARIABLES[k], () => links[k]), text)
+
+/**
+ * The team's words with the links in. Each variable becomes its link. A variable whose link is empty goes, with what
+ * only led up to it (`withoutVariable`); a line left empty goes too. Words without a variable come back as they were,
+ * and words that were not empty never come back empty: then only the variables go.
  */
 export const fillLinks = (text: string, links: Links): string => {
   if (!LINK_KEYS.some((k) => text.includes(LINK_VARIABLES[k]))) return text
   const empty = LINK_KEYS.filter((k) => links[k] === "").map((k) => LINK_VARIABLES[k])
   const kept = text.split("\n").flatMap((line) => {
     if (!empty.some((v) => line.includes(v))) return [line]
-    const parts = sentences(line)
-    const out = parts.filter((s, i) => {
-      if (empty.some((v) => s.includes(v))) return false
-      const next = parts[i + 1]
-      return next === undefined || !empty.some((v) => next.includes(v) && bare(next, v))
-    })
-    const left = out.join("").trimEnd()
-    return left.trim() === "" ? [] : [left]
+    let left = line
+    for (let v = empty.find((e) => left.includes(e)); v !== undefined; v = empty.find((e) => left.includes(e))) {
+      left = withoutVariable(left, v)
+    }
+    return left.trim() === "" ? [] : [left.trimEnd()]
   }).join("\n").replace(/\n{3,}/g, "\n\n").trim()
-  return LINK_KEYS.reduce((t, k) => links[k] === "" ? t : t.replaceAll(LINK_VARIABLES[k], links[k]), kept)
+  if (kept !== "" || text.trim() === "") return putIn(kept, links)
+  const bare = empty.reduce((t, v) => t.replaceAll(v, ""), text).replace(/[ \t]+$/gm, "").trim()
+  return putIn(bare, links)
 }
 
 /* ── Huisstijl ────────────────────────────────────────────────────────────────────────────────── */

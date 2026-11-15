@@ -112,9 +112,8 @@ const queue = Effect.fn("Orders.queueMail")(function*(sql: SqlClient.SqlClient, 
 export const emailCustomer = Effect.fn("Orders.emailCustomer")(function*(input: EmailCustomerInput) {
   yield* Policy.require("support", 2)
   yield* Policy.require("orders", 1)
-  const refused = refusedFields(input.subject, input.body)
-  if (Object.keys(refused).length > 0) return yield* new Invalid({ fields: refused })
-  const subject = input.subject.trim()
+  const asTyped = refusedFields(input.subject, input.body)
+  if (Object.keys(asTyped).length > 0) return yield* new Invalid({ fields: asTyped })
   const relay = yield* Relay
   const db = yield* Db
   const { answer, outboxId } = yield* db.scoped((sql) =>
@@ -135,9 +134,13 @@ export const emailCustomer = Effect.fn("Orders.emailCustomer")(function*(input: 
         }
       }
       if (order.email === null) return yield* new CustomerMailRefused({ orderId: order.id, reason: "no_email" })
-      // Sjablonen' links in, as the shopper will read them; nothing left once the empty ones' sentences are out.
-      const paragraphs = paragraphsOf(yield* CustomerFacing.withLinks(sql, input.body))
-      if (paragraphs.length === 0) return yield* new Invalid({ fields: { body: "required" } })
+      // Sjablonen' links in, subject and body, as the shopper will read them; the limits hold for what goes out.
+      const fill = yield* CustomerFacing.linkFiller(sql)
+      const filled = { subject: fill(input.subject), body: fill(input.body) }
+      const refused = refusedFields(filled.subject, filled.body)
+      if (Object.keys(refused).length > 0) return yield* new Invalid({ fields: refused })
+      const subject = filled.subject.trim()
+      const paragraphs = paragraphsOf(filled.body)
       const id = input.id ?? mintId("oml")
       const held = yield* queue(sql, {
         id,

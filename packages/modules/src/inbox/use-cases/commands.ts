@@ -14,6 +14,7 @@ import * as Undo from "../../shared/use-cases/Undo.ts"
 import {
   type AssignInput,
   type Before,
+  BODY_MAX,
   type ComposeInput,
   type ForwardInput,
   InboxRestore,
@@ -22,10 +23,12 @@ import {
   MailboxDisconnected,
   MessageQueued,
   NoMailbox,
+  NOTE_MAX,
   type ReadInput,
   type ReplyInput,
   type SnoozeInput,
   type StarInput,
+  SUBJECT_MAX,
   ThreadChange,
   TicketLinked
 } from "../domain/Inbox.ts"
@@ -443,9 +446,9 @@ export const replyOn = Effect.fn("Threads.replyOn")(function*(
         where thread_id = ${l!.id} and direction = 'inbound' order by sent_at desc limit 1`
   const to = otherSide(l!, lastInbound)
   if (to === undefined) return yield* new Invalid({ fields: { to: "none" } })
-  // Sjablonen' links in; a reply that was only sentences with an empty link has nothing left to send.
+  // Sjablonen' links in; the limit holds for what goes out.
   const body = yield* CustomerFacing.withLinks(sql, input.body)
-  if (body.trim() === "") return yield* new Invalid({ fields: { body: "required" } })
+  if (body.length > BODY_MAX) return yield* new Invalid({ fields: { body: "too_long" } })
   const text = withSignature(body, mailbox.signature)
   const { id, outboxId: held } = yield* queueMessage(sql, {
     threadId: l!.id,
@@ -509,6 +512,7 @@ export const forward = Effect.fn("Threads.forward")(function*(input: typeof Forw
         ].join("\n")
       ).join("\n\n")
       const note = (yield* CustomerFacing.withLinks(sql, input.note ?? "")).trim()
+      if (note.length > NOTE_MAX) return yield* new Invalid({ fields: { note: "too_long" } })
       const text = withSignature(note === "" ? quoted : `${note}\n\n${quoted}`, mailbox.signature)
       const { id, outboxId: held } = yield* queueMessage(sql, {
         threadId: l!.id,
@@ -548,8 +552,12 @@ export const composeOn = Effect.fn("Threads.composeOn")(function*(
                                      order by is_default desc, created_at limit 1`
   if (chosen === undefined) return yield* new NoMailbox()
   const mailbox = yield* mailboxFor(sql, chosen.id)
-  const body = yield* CustomerFacing.withLinks(sql, input.body)
-  if (body.trim() === "") return yield* new Invalid({ fields: { body: "required" } })
+  // Sjablonen' links in, subject and body; the limits hold for what goes out.
+  const fill = yield* CustomerFacing.linkFiller(sql)
+  const body = fill(input.body)
+  const subject = fill(input.subject).trim()
+  if (body.length > BODY_MAX) return yield* new Invalid({ fields: { body: "too_long" } })
+  if (subject.length > SUBJECT_MAX) return yield* new Invalid({ fields: { subject: "too_long" } })
   const to = { name: "", email: input.to.trim().toLowerCase() }
   const threadId = mintId("thr")
   const [customer] = yield* sql<{ id: string }>`
@@ -565,7 +573,7 @@ export const composeOn = Effect.fn("Threads.composeOn")(function*(
   yield* sql`
         insert into email_threads (id, workspace_id, mailbox_id, subject, participants, last_message_at,
                                    last_message_preview, unread, assignee_id, customer_id, ticket_id)
-        values (${threadId}, ${principal.workspaceId}, ${mailbox.id}, ${input.subject.trim().slice(0, 998)},
+        values (${threadId}, ${principal.workspaceId}, ${mailbox.id}, ${subject.slice(0, 998)},
                 ${JSON.stringify(participants)}::jsonb, now(), ${previewOf(body)}, false, ${principal.id},
                 ${customer?.id ?? null}, ${input.ticketId ?? null})`
   const { id, outboxId: held } = yield* queueMessage(sql, {
@@ -573,7 +581,7 @@ export const composeOn = Effect.fn("Threads.composeOn")(function*(
     mailbox,
     kind: "message",
     to,
-    subject: input.subject.trim(),
+    subject,
     text: withSignature(body, mailbox.signature),
     inReplyTo: null,
     references: [],
