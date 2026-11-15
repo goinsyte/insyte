@@ -1,4 +1,9 @@
-import { completeRecordedDraft, recordedDrafts, recordedProducts } from "@insyte/integrations-shopify/ShopifyRecorded"
+import {
+  completeRecordedDraft,
+  copyRecordedDraft,
+  recordedDrafts,
+  recordedProducts
+} from "@insyte/integrations-shopify/ShopifyRecorded"
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
@@ -267,21 +272,28 @@ describe("draft orders", () => {
       .toBe(`draft-${numeric(inShopify[0]!.id)}`)
   })
 
-  it("deletes, a few minutes on, the twin a lagging search let a retry make", async () => {
-    // Shopify's search misses a draft on its first search after it was made: the retry makes a second.
+  it("deletes, a few minutes on, the twin a lagging search let a retry make, never a copy made after", async () => {
+    // Shopify's search misses a draft on its first search after it was made: the retry, five seconds on, makes a second.
     const store = await importedStore("draft-lag", "lost")
     await using writes = await writesOf()
-    await writes.modifyAll(async (m) => {
-      await m.disableRetryDelays()
-    })
     const draft = ok(await rpc("Orders.createDraft", draftOf(store.storeId), store.cookie)).orders[0]!
+    // The last look is held back once, five seconds, for the merchant to copy the draft in Shopify's admin.
+    await writes.modifyAll(async (m) => {
+      await m.mockStepError({ name: `order ${draft.id} twins` }, new Error("the isolate went away"), 1)
+    })
     await pastUndo(store.workspace)
     await relay(store.workspace)
+    const adopted = async () => ok(await rpc("Orders.get", { id: draft.id }, store.cookie)).order.shopifyId
+    await until(async () => (await adopted()).startsWith("draft-"), "the draft took Shopify's id")
+    const kept = `gid://shopify/DraftOrder/${(await adopted()).slice("draft-".length)}`
+    const tagged = () => recordedDrafts(store.shop).filter((d) => d.tags.includes(draft.number))
+    expect(tagged().find((d) => d.id !== kept)).toBeDefined()
+    // The merchant's copy carries the number too, and was made two minutes after the draft took its id.
+    const copy = copyRecordedDraft(kept, new Date(Date.now() + 120_000))
+
     expect((await written(writes)).map((o) => o.outcome)).toEqual(["sent"])
-    const left = recordedDrafts(store.shop).filter((d) => d.tags.includes(draft.number))
-    expect(left).toHaveLength(1)
-    expect(ok(await rpc("Orders.get", { id: draft.id }, store.cookie)).order.shopifyId)
-      .toBe(`draft-${numeric(left[0]!.id)}`)
+    // The twin from before the adopt step is gone; Insyte's draft and the merchant's copy stay.
+    expect(tagged().map((d) => d.id).toSorted()).toEqual([kept, copy].toSorted())
   })
 
   it("deletes the draft a lost answer left in Shopify when it is removed before the retry", async () => {

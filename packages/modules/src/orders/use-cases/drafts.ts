@@ -364,9 +364,16 @@ export const draftSend = Effect.fn("Orders.draftSend")(function*(write: DraftCre
   return { outcome: outcome("refused", sent.refused.reason) } satisfies CreateSent<DraftMade>
 })
 
+/** The adopt step's answer: what became of the draft, and when the step ended (the twins' cut-off). */
+export interface DraftAdopted {
+  readonly outcome: WriteOutcome
+  readonly adoptedAt: string
+}
+
 /**
  * The second step: the draft takes Shopify's id. Removed while Shopify made it (Verwijderen, an undo from the agent
- * log), it is deleted there as well, so no draft is left in Shopify that Insyte no longer knows.
+ * log), it is deleted there as well, so no draft is left in Shopify that Insyte no longer knows. Its answer keeps when
+ * it ended, so the last look for twins, replayed or not, judges by the same moment.
  */
 export const draftAdopt = Effect.fn("Orders.draftAdopt")(function*(
   _write: DraftCreated,
@@ -386,8 +393,10 @@ export const draftAdopt = Effect.fn("Orders.draftAdopt")(function*(
       return true
     })
   )
-  if (kept) return outcomeOf(orderId)("sent")
-  return yield* dropInShopify(orderId, made.storeId, gidId(made.id), "removed")
+  const outcome = kept
+    ? outcomeOf(orderId)("sent")
+    : yield* dropInShopify(orderId, made.storeId, gidId(made.id), "removed")
+  return { outcome, adoptedAt: new Date().toISOString() } satisfies DraftAdopted
 })
 
 /**
@@ -407,13 +416,22 @@ const dropEarlier = (write: DraftCreated, orderId: string) =>
   })
 
 /**
- * The last look, a few minutes after the draft took Shopify's id: Shopify's search caught up, any other open draft with
- * its number is a twin a lagging search let a retry make, and is deleted. Answers how many.
+ * Shopify's clock against Insyte's: a twin made by a send before the adopt step ended may read as made up to this much
+ * later.
+ */
+const TWIN_MARGIN_MS = 60_000
+
+/**
+ * The last look, a few minutes after the draft took Shopify's id: Shopify's search caught up, and another open draft
+ * with its number made before the adopt step ended is a twin a lagging search let a retry make, and is deleted. One
+ * made later is not Insyte's (a merchant's copy in Shopify's admin carries the tag too) and stays, as does one whose
+ * making Shopify does not say. Answers how many were deleted.
  */
 export const draftTwins = Effect.fn("Orders.draftTwins")(function*(
   write: DraftCreated,
   orderId: string,
-  made: DraftMade
+  made: DraftMade,
+  adoptedAt: string
 ) {
   const db = yield* Db
   const number = write.number ??
@@ -422,7 +440,10 @@ export const draftTwins = Effect.fn("Orders.draftTwins")(function*(
   if (number === undefined) return 0
   const target = yield* targetOf(made.storeId)
   if (target === undefined || !live(target)) return 0
-  const twins = (yield* taggedOrNone(target, number)).filter((d) => d.id !== made.id)
+  const cutoff = Date.parse(adoptedAt) + TWIN_MARGIN_MS
+  const twins = (yield* taggedOrNone(target, number)).filter((d) =>
+    d.id !== made.id && d.createdAt !== undefined && Date.parse(d.createdAt) <= cutoff
+  )
   for (const d of twins) yield* dropInShopify(orderId, made.storeId, gidId(d.id), "twin")
   return twins.length
 })

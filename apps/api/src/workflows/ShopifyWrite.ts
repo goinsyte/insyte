@@ -71,13 +71,20 @@ export class ShopifyWriteWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Sho
             outcomes.push(sent.outcome)
             continue
           }
-          outcomes.push(
-            await step.do(`${kind} ${id} adopt`, RETRY, () => run(workspaceId, draftAdopt(write, id, sent.made)))
+          const adopted = await step.do(
+            `${kind} ${id} adopt`,
+            RETRY,
+            () => run(workspaceId, draftAdopt(write, id, sent.made))
           )
-          // The last look changes nothing Insyte holds; it failing leaves the outcome as it is.
+          outcomes.push(adopted.outcome)
+          // The last look changes nothing Insyte holds; it failing leaves the outcome as it is. It deletes only drafts
+          // made before the adopt step ended, as its answer recorded.
           await step.sleep(`${kind} ${id} settle`, TWINS_AFTER)
-          await step.do(`${kind} ${id} twins`, RETRY, () => run(workspaceId, draftTwins(write, id, sent.made)))
-            .catch(() => undefined)
+          await step.do(
+            `${kind} ${id} twins`,
+            RETRY,
+            () => run(workspaceId, draftTwins(write, id, sent.made, adopted.adoptedAt))
+          ).catch(() => undefined)
           continue
         }
         const effect = write.type === "product.updated"

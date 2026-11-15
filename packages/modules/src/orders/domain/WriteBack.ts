@@ -75,13 +75,14 @@ export const DRAFT_CREATE = `mutation($input: DraftOrderInput!) {
  * can delete the twins a lagging search let through, and one of a record Insyte no longer holds.
  */
 export const DRAFT_FIND = `query($query: String!) {
-  draftOrders(first: 25, query: $query) { nodes { id status } }
+  draftOrders(first: 25, query: $query) { nodes { id status createdAt } }
 }`
 
 /** A draft Shopify found by its tag: a completed one is an order now, never deleted. */
 export interface DraftFound {
   readonly id: string
   readonly status: string
+  readonly createdAt?: string
 }
 
 /** The open drafts in a `DRAFT_FIND` answer. */

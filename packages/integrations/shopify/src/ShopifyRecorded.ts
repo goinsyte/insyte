@@ -132,6 +132,7 @@ interface RecordedDraft {
   order: { id: string; name: string } | null
   /** Searches still to miss it, while Shopify's search index has not caught up. */
   unindexed: number
+  readonly createdAt: string
 }
 const drafts = new Map<string, RecordedDraft>()
 let made = 0
@@ -188,6 +189,18 @@ export const completeRecordedDraft = (id: string) => {
   return order
 }
 
+/**
+ * A draft copied in Shopify's admin, as a merchant would ("Dupliceren"): the same tags and lines, made at `createdAt`,
+ * and already in the search index. Its gid.
+ */
+export const copyRecordedDraft = (id: string, createdAt: Date) => {
+  const draft = drafts.get(id)
+  if (draft === undefined) throw new Error(`no recorded draft ${id}`)
+  const copy = `gid://shopify/DraftOrder/${++made}`
+  drafts.set(copy, { ...draft, order: null, unindexed: 0, createdAt: createdAt.toISOString() })
+  return copy
+}
+
 /** Shops whose answer to a create is lost once: Shopify made it, the call failed on the way back. */
 const lostOnce = new Set<string>()
 
@@ -230,7 +243,8 @@ const returnWrite = (
         email: typeof input["email"] === "string" ? input["email"] : null,
         lines: (input["lineItems"] as ReadonlyArray<Record<string, unknown>> | undefined) ?? [],
         order: null,
-        unindexed: shop.includes("-lag-") ? 1 : 0
+        unindexed: shop.includes("-lag-") ? 1 : 0,
+        createdAt: new Date().toISOString()
       })
       return { draftOrder: { id, name: `#D${made}` } }
     }
@@ -373,7 +387,11 @@ const recordedQuery = (shop: string, query: string, variables: Record<string, un
     })
     return {
       draftOrders: {
-        nodes: indexed.slice(0, first).map(([id, d]) => ({ id, status: d.order === null ? "OPEN" : "COMPLETED" }))
+        nodes: indexed.slice(0, first).map(([id, d]) => ({
+          id,
+          status: d.order === null ? "OPEN" : "COMPLETED",
+          createdAt: d.createdAt
+        }))
       }
     }
   }
