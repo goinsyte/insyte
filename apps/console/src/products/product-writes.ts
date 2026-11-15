@@ -11,7 +11,7 @@ import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 /*
  * The product commands in the console (M7.3): each the server's, refreshing what names `PRODUCTS`, with "Ongedaan
  * maken" spending the command's undo token inside the window, before Shopify hears of it. The cost price is Insyte's
- * own, so a change to it alone is said without Shopify.
+ * own, so a change to it alone is said without Shopify. "Nieuw product" makes one the same way (M7.3).
  */
 
 const COPY: RefusalCopy = {
@@ -22,14 +22,38 @@ const COPY: RefusalCopy = {
       "Pas de prijzen per variant aan in Shopify; hier geldt één prijs voor het hele product."
     ],
     disconnected: ["De winkel is niet verbonden", "Verbind de winkel opnieuw om vanuit Shopify te synchroniseren."],
+    no_store: ["Nog geen winkel", "Verbind eerst een winkel; daar komt het product in."],
     shopify_unreachable: ["Shopify reageert niet", "Probeer het zo nog eens."],
     shopify_busy: ["Shopify heeft het druk", "Probeer het over een minuut nog eens."]
+  },
+  invalid: {
+    title: "Geef het product een titel.",
+    priceMinor: "Geef het product een prijs boven nul.",
+    sku: "Deze SKU heeft al een product in deze winkel.",
+    supplierId: "Die leverancier bestaat niet meer. Kies een andere."
+  },
+  other: (tagged) => {
+    if (tagged._tag !== "NotFound" || tagged["entity"] !== "store") return false
+    toast.error("Die winkel kun je niet bereiken", { description: "Kies een winkel waar je rol bij kan." })
+    return true
   }
 }
 
 const refused = (error: unknown) => sayRefusal(error, COPY)
 
 const minor = (units: number) => Math.round(units * 100)
+
+/** "Nieuw product" as the dialog fills it in: amounts in the store's units, no supplier as `null`. */
+export interface NewProduct {
+  readonly storeId: string | undefined
+  readonly title: string
+  readonly sku: string
+  readonly price: number
+  readonly cost: number
+  readonly supplierId: string | null
+  readonly status: "active" | "draft" | "archived"
+  readonly description: string
+}
 
 /** Every product command, as the screens call them. */
 export function useProductCommands() {
@@ -39,6 +63,7 @@ export function useProductCommands() {
     setStatus: useAtomSet(productWrites.setStatus, { mode: "promiseExit" }),
     reprice: useAtomSet(productWrites.reprice, { mode: "promiseExit" }),
     sync: useAtomSet(productWrites.sync, { mode: "promiseExit" }),
+    create: useAtomSet(productWrites.create, { mode: "promiseExit" }),
     undo: useAtomSet(productWrites.undo, { mode: "promiseExit" })
   }
   const undo = (token: string) =>
@@ -53,6 +78,31 @@ export function useProductCommands() {
   }
 
   return {
+    /**
+     * "Nieuw product": in Insyte at once, in Shopify once the undo window has passed. A cost price of 0 is none; an
+     * archived product is not made, so the dialog offers active or concept only. Answers the product's id, to open it.
+     */
+    create: async (input: NewProduct): Promise<string | undefined> => {
+      const exit = await write.create({
+        payload: {
+          ...(input.storeId === undefined ? {} : { storeId: input.storeId }),
+          title: input.title,
+          sku: input.sku,
+          priceMinor: minor(input.price),
+          costMinor: input.cost > 0 ? minor(input.cost) : null,
+          supplierId: input.supplierId,
+          status: input.status === "active" ? "active" : "draft",
+          description: input.description
+        },
+        ...keys
+      })
+      said(
+        exit,
+        `${input.title.trim()} aangemaakt`,
+        "Shopify krijgt het product zodra je het niet meer ongedaan kunt maken."
+      )
+      return Exit.isSuccess(exit) ? exit.value.products[0]?.id : undefined
+    },
     /** The page's draft against what is saved: only what changed is sent. */
     save: async (saved: Product, draft: ProductDraft) => {
       const changed = {

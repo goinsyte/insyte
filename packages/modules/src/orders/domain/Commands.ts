@@ -51,6 +51,31 @@ export const CancelInput = Schema.Struct({
   notify: Schema.Boolean
 })
 
+/** How the shopper will pay a draft order, as the dialog asks it; kept on the draft (Shopify asks at checkout). */
+export const DraftPayment = Schema.Literals(["stripe", "paypal", "klarna", "manual"])
+
+/** One line of a draft: a variant of the store where its SKU is one, else a line of its own. */
+export const DraftLine = Schema.Struct({
+  sku: Schema.String.check(Schema.isMaxLength(100)),
+  title: Schema.String.check(Schema.isMaxLength(255)),
+  quantity: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(999)),
+  /** In the store's currency; 0 takes the variant's own price. */
+  unitPriceMinor: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+})
+
+/** "Nieuwe bestelling": a draft order in one of the principal's stores (widgets/03 "Nieuwe bestelling"). */
+export const CreateDraftInput = Schema.Struct({
+  storeId: Schema.String,
+  customer: Schema.Struct({
+    name: Schema.String.check(Schema.isMaxLength(120)),
+    email: Schema.String.check(Schema.isMaxLength(254))
+  }),
+  payment: DraftPayment,
+  lines: Schema.Array(DraftLine).check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+  /** The team's internal note (`order_notes`): never sent to Shopify. */
+  note: Schema.String.check(Schema.isMaxLength(2000))
+})
+
 /** What a command changed, and where it can be taken back, its undo (none for a cancellation). */
 export class OrderChange extends Schema.Class<OrderChange>("orders/OrderChange")({
   orders: Schema.Array(OrderRow),
@@ -75,6 +100,8 @@ export const OrdersRestore = Schema.Struct({
     /** `Orders.flagDelayed` / `clearDelay`: when it was delayed, or null for not. */
     delayedAt: Schema.optional(Schema.NullOr(Schema.String))
   })),
-  mails: Schema.optional(Schema.Array(Schema.String))
+  mails: Schema.optional(Schema.Array(Schema.String)),
+  /** `Orders.createDraft`: the draft made, removed again before Shopify heard of it. */
+  draft: Schema.optional(Schema.String)
 })
 export type OrdersRestore = typeof OrdersRestore.Type
