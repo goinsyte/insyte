@@ -1,4 +1,11 @@
-import { Forbidden, Invalid } from "@insyte/domain/Errors"
+import { Conflict, Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
+import { Switched } from "@insyte/domain/Session"
+import { InviteRef, LeaveWorkspace, WorkspaceInvite } from "@insyte/modules/members/domain/Choice"
+import { Accepted, NotAcceptable } from "@insyte/modules/members/domain/Landing"
+import { Team } from "@insyte/modules/members/domain/Team"
+import { NotCurrentStep } from "@insyte/modules/onboarding/domain/Onboarding"
+import { CreateWorkspaceInput } from "@insyte/modules/shared/domain/Workspaces"
+import { SwitchWorkspace, WorkspaceSummary } from "@insyte/modules/workspaces/domain/Choice"
 import { SecurityPolicy } from "@insyte/modules/workspaces/domain/Security"
 import {
   Regional,
@@ -28,10 +35,36 @@ export class WorkspacesRpcs extends RpcGroup.make(
   Rpc.make("Workspaces.setRetention", { payload: SetRetention, success: WorkspaceAccount, error: Refused }),
   Rpc.make("Workspaces.getRegional", { success: Regional, error: Forbidden }),
   Rpc.make("Workspaces.saveRegional", { payload: SaveRegional, success: Regional, error: Refused }),
-  Rpc.make("Workspaces.getSecurity", { success: SecurityPolicy, error: Forbidden })
+  Rpc.make("Workspaces.getSecurity", { success: SecurityPolicy, error: Forbidden }),
+  // Owner only, to an active member; the former owner becomes Beheerder. Irreversible: no undo (M3).
+  Rpc.make("Workspaces.transferOwnership", {
+    payload: Schema.Struct({ memberId: Schema.String }),
+    success: Team,
+    error: Schema.Union([Forbidden, NotFound, Conflict])
+  })
 )
   // Innermost first: `Member` needs the person (`Authenticated`) and the connection (`WithDb`) around it.
   .middleware(Member)
   .middleware(Authenticated)
   .middleware(WithDb)
 {}
+
+/**
+ * The person's workspaces (M3.1, M3.4): the switcher's list, making another, switching, leaving one, and the
+ * invitations to another one with what is done with them there. The person's own, before and beside any workspace, so
+ * no role gates them; each refuses a workspace or invitation that is not theirs as no such thing.
+ */
+export class WorkspaceChoiceRpcs extends RpcGroup.make(
+  Rpc.make("Workspaces.list", { success: Schema.Array(WorkspaceSummary) }),
+  Rpc.make("Workspaces.create", {
+    payload: CreateWorkspaceInput,
+    success: Switched,
+    error: Schema.Union([Invalid, NotCurrentStep])
+  }),
+  Rpc.make("Workspaces.switch", { payload: SwitchWorkspace, success: Switched, error: NotFound }),
+  Rpc.make("Workspaces.leave", { payload: LeaveWorkspace, error: Schema.Union([NotFound, Conflict]) }),
+  Rpc.make("Workspaces.listInvites", { success: Schema.Array(WorkspaceInvite) }),
+  Rpc.make("Workspaces.acceptInvite", { payload: InviteRef, success: Accepted, error: NotAcceptable }),
+  Rpc.make("Workspaces.declineInvite", { payload: InviteRef, error: NotAcceptable }),
+  Rpc.make("Workspaces.restoreInvite", { payload: InviteRef, error: Schema.Union([NotFound, Conflict]) })
+).middleware(Authenticated).middleware(WithDb) {}

@@ -25,9 +25,10 @@ const target = (sql: SqlClient.SqlClient, id: string) =>
   Effect.gen(function*() {
     const principal = yield* CurrentPrincipal
     const [row] = yield* sql<
-      { roleId: string; stores: "all" | ReadonlyArray<string>; deactivated: boolean; removed: boolean }
+      { roleId: string; stores: "all" | ReadonlyArray<string>; deactivated: boolean; removed: boolean; left: boolean }
     >`
-      select role_id, stores, deactivated_at is not null as deactivated, removed_at is not null as removed
+      select role_id, stores, deactivated_at is not null as deactivated, removed_at is not null as removed,
+             left_at is not null as left
       from members where id = ${id} for update`
     if (row === undefined) return yield* new NotFound({ entity: "member", id })
     if (row.roleId === "owner") return yield* new Conflict({ entity: "member", reason: "owner" })
@@ -127,13 +128,17 @@ export const remove = Effect.fn("Members.remove")(function*(id: string) {
   )
 })
 
-/** Undo of a remove: back in the team as they were, if a seat is free. */
+/**
+ * Undo of a remove: back in the team as they were, if a seat is free. Someone who left on their own
+ * (`Workspaces.leave`) is not brought back this way: only a new invitation does that.
+ */
 export const restore = Effect.fn("Members.restore")(function*(id: string) {
   yield* Policy.require("team", 3)
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const before = yield* target(sql, id)
+      if (before.left) return yield* new Conflict({ entity: "member", reason: "left" })
       if (before.removed) {
         const seats = yield* seatsIn(sql)
         if (!before.deactivated && seats.free < 1) {

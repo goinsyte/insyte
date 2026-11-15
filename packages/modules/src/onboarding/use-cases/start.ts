@@ -11,15 +11,27 @@ import { loadProgress } from "./progress.ts"
  * connectable yet, so it stays open. The rest are the operator's word, in `setup_tasks`.
  */
 
-/** The workspace this person's onboarding founded; only someone past the organisation step has one. */
-const workspaceOf = Effect.fn("Onboarding.workspaceOf")(function*() {
+/**
+ * The workspace whose checklist this is: the one the session acts in (`active`), where this person's onboarding
+ * founded it; else, with no workspace chosen, the one their onboarding founded. Someone who did not found the active
+ * workspace (they joined it) has no checklist there, and never sees another workspace's.
+ */
+const workspaceOf = Effect.fn("Onboarding.workspaceOf")(function*(active: WorkspaceId | null) {
   const row = yield* loadProgress()
+  if (active !== null) {
+    const db = yield* Db
+    const founded = yield* db.forUser((sql) =>
+      sql<{ workspaceId: string }>`select workspace_id from onboarding_progress where workspace_id = ${active}`
+    )
+    if (founded.length === 0) return yield* new NotCurrentStep({ step: "ready", current: row.step })
+    return active
+  }
   if (row.workspaceId === null) return yield* new NotCurrentStep({ step: "ready", current: row.step })
   return row.workspaceId as WorkspaceId
 })
 
-export const start = Effect.fn("Onboarding.start")(function*() {
-  const workspaceId = yield* workspaceOf()
+export const start = Effect.fn("Onboarding.start")(function*(active: WorkspaceId | null) {
+  const workspaceId = yield* workspaceOf(active)
   const db = yield* Db
   return yield* db.asUserIn(workspaceId)((sql) =>
     Effect.gen(function*() {
@@ -40,14 +52,16 @@ export const start = Effect.fn("Onboarding.start")(function*() {
 })
 
 /** Ticks a task the operator does themselves, or takes the tick back. */
-export const completeTask = Effect.fn("Onboarding.completeTask")(function*(input: CompleteTaskInput) {
-  const user = yield* CurrentUser
-  const workspaceId = yield* workspaceOf()
-  const db = yield* Db
-  yield* db.asUserIn(workspaceId)((sql) =>
-    sql`insert into setup_tasks (workspace_id, task, done_at, done_by)
+export const completeTask = Effect.fn("Onboarding.completeTask")(
+  function*(input: CompleteTaskInput, active: WorkspaceId | null) {
+    const user = yield* CurrentUser
+    const workspaceId = yield* workspaceOf(active)
+    const db = yield* Db
+    yield* db.asUserIn(workspaceId)((sql) =>
+      sql`insert into setup_tasks (workspace_id, task, done_at, done_by)
         values (${workspaceId}, ${input.task}, case when ${input.done} then now() end, ${input.done ? user.id : null})
         on conflict (workspace_id, task) do update set done_at = excluded.done_at, done_by = excluded.done_by`
-  )
-  return yield* start()
-})
+    )
+    return yield* start(workspaceId)
+  }
+)
