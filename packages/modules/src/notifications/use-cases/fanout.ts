@@ -42,6 +42,8 @@ const URGENT_INCIDENTS: ReadonlySet<string> = new Set([
  * - `export.finished`: the member who asked for an export hears its file is ready (with its link), or that it failed;
  * - `supplier.problem_reported` / `supplier.shipment_refused`: whoever handles orders hears a supplier reported a problem
  *   in its portal (with the ticket it opened), or that Shopify refused a parcel it marked shipped (M16 step 2).
+ * - `shopify.create_refused`: who made a draft order or a product in Insyte hears that Shopify would not make it, and why
+ *   (M7).
  * - `ai.budget_crossed`: an AI budget at its warning or its limit; the workspace's to whoever may set the limits, a
  *   person's to that person and the owner (M15 step 1).
  *
@@ -615,6 +617,22 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
             limit: event.limit
           },
           dataFor: (id) => ({ canSet: setters.has(id) })
+        }
+      }
+      case "shopify.create_refused": {
+        // Shopify would not make a draft order or a product made in Insyte (M7): who made it, and only they, hear why.
+        // The record left Insyte again, so the note carries its label.
+        const recipients = yield* sql<{ id: string }>`
+          select id from members where (id = ${event.userId} or user_id = ${event.userId})
+            and deactivated_at is null and removed_at is null`
+        return {
+          kind: "integration.sync",
+          recipients: recipients.map((r) => r.id),
+          direct: recipients.map((r) => r.id),
+          subjectType: "shopify_create",
+          subjectId: event.subjectId,
+          actor: null,
+          data: { subject: event.subject, label: event.label, reason: event.reason }
         }
       }
       default:

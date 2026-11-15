@@ -299,6 +299,45 @@ describe("ResendMailer", () => {
     })
   })
 
+  it("says a mail the agent sent on its own was sent by a machine, threading a support mail as before (M15.6)", async () => {
+    const seen: Array<Seen> = []
+    const http = fakeResend(() => Promise.resolve(Response.json({ id: "re_8" })), seen)
+    const support = {
+      subject: "Re: Waar is mijn pakket?",
+      text: "Hoi Anna,\n\nHij is onderweg.",
+      replyTo: "support@northwind.store",
+      messageId: "<eml_1@in.goinsyte.com>",
+      inReplyTo: "<vraag@voorbeeld.nl>",
+      references: ["<vraag@voorbeeld.nl>"]
+    }
+    await sendWith(http, { kind: "support.message", to: "anna@example.com", sender: "Northwind", support })
+    await sendWith(http, {
+      kind: "support.message",
+      to: "anna@example.com",
+      sender: "Northwind",
+      autoSubmitted: "auto-replied",
+      support
+    })
+    await sendWith(http, {
+      kind: "order.delayed",
+      to: "anna@example.com",
+      sender: "Northwind",
+      reference: "ord_1",
+      autoSubmitted: "auto-generated",
+      orderDelay: { shop: "Northwind", number: "#1002", subject: "Later", paragraphs: ["Het duurt langer."], items: [] }
+    })
+    expect(seen[0]?.body["headers"]).toEqual({
+      "Message-ID": "<eml_1@in.goinsyte.com>",
+      "In-Reply-To": "<vraag@voorbeeld.nl>",
+      References: "<vraag@voorbeeld.nl>"
+    })
+    expect(seen[1]?.body["headers"]).toMatchObject({
+      "Message-ID": "<eml_1@in.goinsyte.com>",
+      "Auto-Submitted": "auto-replied"
+    })
+    expect(seen[2]?.body["headers"]).toEqual({ "Auto-Submitted": "auto-generated" })
+  })
+
   it("says when Resend refuses the brand's own sender, and keys that mail apart from Insyte's (20.1c)", async () => {
     const seen: Array<Seen> = []
     const notVerified = {

@@ -1,6 +1,6 @@
 import { type AreaId, type Level } from "@insyte/domain/Permissions"
 import type { Note as ServerNote } from "@insyte/modules/notifications/domain/Notifications"
-import { budgetWords, dayName, money, monthName } from "@insyte/modules/notifications/domain/Words"
+import { budgetWords, createRefusedWords, dayName, money, monthName } from "@insyte/modules/notifications/domain/Words"
 import { triedSummary } from "@insyte/modules/stores/domain/Health"
 import type { EventKey, Note } from "@insyte/ui/app/lib/notifications"
 import { permissionName } from "@insyte/ui/app/lib/permissions"
@@ -228,6 +228,18 @@ const sentence = (note: ServerNote): Sentence => {
           source: "integration",
           to: "/settings/stores",
           search: { store: String(data["storeId"] ?? "") }
+        }
+      }
+      if (note.subjectType === "shopify_create") {
+        // Shopify would not make a draft order or a product made here (M7): it left Insyte again, and why.
+        const words = createRefusedWords(data)
+        return {
+          title: "Niet aangemaakt in Shopify:",
+          record: words.record ?? "",
+          ...(words.detail === undefined ? {} : { detail: words.detail }),
+          tone: "amber",
+          source: "integration",
+          to: words.path
         }
       }
       if (note.kind === "integration.sync") return { title: "heeft iets voor je", to: "/dashboard" }

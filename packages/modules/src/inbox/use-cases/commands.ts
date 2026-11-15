@@ -6,7 +6,7 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import { PendingEvents, Relay } from "../../shared/domain/Outbox.ts"
-import { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
+import { UNDO_SECONDS, UndoWindow } from "../../shared/domain/Undo.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as CustomerFacing from "../../shared/use-cases/CustomerFacing.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
@@ -308,7 +308,7 @@ export const linkTicket = Effect.fn("Threads.linkTicket")(function*(input: typeo
       } else {
         const [last] = yield* sql<{ name: string; email: string }>`
           select from_name as name, from_address as email from email_messages
-          where thread_id = ${l!.id} and direction = 'inbound' order by sent_at desc limit 1`
+          where thread_id = ${l!.id} and direction = 'inbound' order by created_at desc, id desc limit 1`
         const from = otherSide(l!, last)
         ticket = yield* tickets.make(sql, {
           title: (l!.subject.trim() || "Mail zonder onderwerp").slice(0, 200),
@@ -387,15 +387,18 @@ const queueMessage = Effect.fn("Threads.queueMessage")(function*(
   const principal = yield* CurrentPrincipal
   const domain = yield* mailDomain
   const id = input.id ?? mintId("eml")
+  // Stamped when written, the thread locked (every caller holds it), not when the transaction began: a team's reply
+  // that waited on the lock while the agent queued its own is newer than the agent's, and calls it off at the send
+  // (`Inbox.sendQueued`), as an inbound mail does (`Inbox.store`).
   const made = yield* sql<{ id: string }>`
     insert into email_messages (id, workspace_id, thread_id, rfc822_message_id, in_reply_to, "references", direction,
-                                kind, from_name, from_address, "to", subject, body_text, sent_by, send_state)
+                                kind, from_name, from_address, "to", subject, body_text, sent_by, send_state, created_at)
     values (${id}, ${principal.workspaceId}, ${input.threadId}, ${`${id}@${domain}`}, ${input.inReplyTo},
             ${[...input.references]}::text[], 'outbound', ${input.kind}, ${input.mailbox.label},
             ${input.mailbox.address.toLowerCase()}, ${JSON.stringify([input.to])}::jsonb, ${
     input.subject.slice(0, 998)
   },
-            ${input.text}, ${principal.id}, 'scheduled')
+            ${input.text}, ${principal.id}, 'scheduled', clock_timestamp())
     on conflict (id) do nothing returning id`
   // The caller's id is another message's already (another thread's, another workspace's): this one is not sent.
   if (made.length === 0) return yield* new Conflict({ entity: "email_message", reason: "mail_id_taken" })
@@ -404,7 +407,7 @@ const queueMessage = Effect.fn("Threads.queueMessage")(function*(
     workspaceId: principal.workspaceId,
     userId: principal.userId ?? "system",
     messageId: id
-  }, { afterSeconds: UNDO_SECONDS })
+  }, { afterSeconds: yield* UndoWindow })
   return { id, outboxId }
 })
 
@@ -431,20 +434,34 @@ export interface Queued {
 /**
  * A reply in `threadId` on the caller's transaction (the caller checked the seat), without an undo token of its own: a
  * ticket's "Klant informeren" holds one token for the mail and the ticket together.
+ *
+ * Mail is in the order Insyte received it (`created_at`): a `Date:` header is the sender's to set. The agent names who
+ * it answers and which message (`to`, `answering`), and its subject (`subject`): its reply goes to the thread's own
+ * customer, threaded under the mail it heard, under a subject that is not the shopper's.
  */
 export const replyOn = Effect.fn("Threads.replyOn")(function*(
   sql: SqlClient.SqlClient,
-  input: typeof ReplyInput.Type & { readonly messageId?: string | undefined }
+  input: typeof ReplyInput.Type & {
+    readonly messageId?: string | undefined
+    readonly to?: { readonly name: string; readonly email: string } | undefined
+    readonly answering?: string | undefined
+    /** A subject of its own: the agent's, from the order's facts, never the thread's (the shopper's words). */
+    readonly subject?: string | undefined
+  }
 ) {
   const [l] = yield* lock(sql, [input.threadId])
   const mailbox = yield* mailboxFor(sql, l!.mailboxId)
-  const [last] = yield* sql<{ name: string; email: string; rfc822: string; references: ReadonlyArray<string> }>`
+  const [last] = input.answering === undefined
+    ? yield* sql<{ name: string; email: string; rfc822: string; references: ReadonlyArray<string> }>`
         select from_name as name, from_address as email, rfc822_message_id as rfc822, "references"
-        from email_messages where thread_id = ${l!.id} order by sent_at desc, created_at desc limit 1`
-  const [lastInbound] = yield* sql<{ name: string; email: string }>`
+        from email_messages where thread_id = ${l!.id} order by created_at desc, id desc limit 1`
+    : yield* sql<{ name: string; email: string; rfc822: string; references: ReadonlyArray<string> }>`
+        select from_name as name, from_address as email, rfc822_message_id as rfc822, "references"
+        from email_messages where thread_id = ${l!.id} and id = ${input.answering}`
+  const [lastInbound] = input.to !== undefined ? [] : yield* sql<{ name: string; email: string }>`
         select from_name as name, from_address as email from email_messages
-        where thread_id = ${l!.id} and direction = 'inbound' order by sent_at desc limit 1`
-  const to = otherSide(l!, lastInbound)
+        where thread_id = ${l!.id} and direction = 'inbound' order by created_at desc, id desc limit 1`
+  const to = input.to ?? otherSide(l!, lastInbound)
   if (to === undefined) return yield* new Invalid({ fields: { to: "none" } })
   // Sjablonen' links in; the limit holds for what goes out.
   const body = yield* CustomerFacing.withLinks(sql, input.body)
@@ -456,7 +473,7 @@ export const replyOn = Effect.fn("Threads.replyOn")(function*(
     mailbox,
     kind: "reply",
     to,
-    subject: reSubject(l!.subject, "Re"),
+    subject: input.subject ?? reSubject(l!.subject, "Re"),
     text,
     // Kept bare, as the inbound ones are; the sink puts the brackets on.
     inReplyTo: last === undefined ? null : last.rfc822,

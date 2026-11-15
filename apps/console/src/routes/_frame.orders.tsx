@@ -7,15 +7,18 @@ import { OPEN_AS_MODAL, useOpenedAsModal } from "@insyte/ui/app/common/detail-sh
 import { isForwardView } from "@insyte/ui/app/lib/forwarding"
 import type { Level, Permission } from "@insyte/ui/app/lib/permissions"
 import { PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
+import { NewOrderDialog } from "@insyte/ui/app/orders/new-order-dialog"
 import { OrdersList } from "@insyte/ui/app/orders/orders-screen"
 import { OrdersSourceProvider } from "@insyte/ui/app/orders/source"
 import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
+import { useMemo, useRef } from "react"
 import { forwardingAtom } from "../data/forwarding.ts"
 import { ordersPageAtom } from "../data/orders.ts"
 import { storesAtom } from "../data/stores.ts"
 import { ConsoleForwarding } from "../orders/forwarding-source.tsx"
+import { useOrderCommands } from "../orders/order-writes.ts"
 import { FIRST_ORDERS, useConsoleOrdersSource } from "../orders/orders-source.ts"
 
 /**
@@ -114,8 +117,51 @@ function Loaded({ page, stores }: { page: OrderPage; stores: ReadonlyArray<Store
     stores,
     (order) => navigate({ to: "/orders/$orderId", params: { orderId: order.id }, state: OPEN_AS_MODAL })
   )
+  // "Nieuwe bestelling" in the design's dialog, made a draft by `Orders.createDraft` (M7.1) in a store the role reaches
+  // and that is connected. One component for the page's life, so a refetch behind an open dialog does not remount it.
+  const commands = useOrderCommands()
+  const latest = useRef(commands)
+  latest.current = commands
+  const choices = useMemo(
+    () =>
+      stores.filter((s) => s.status === "connected" || s.status === "connecting").map((s) => ({
+        value: s.id,
+        label: s.name,
+        currency: s.currency ?? "EUR"
+      })),
+    [stores]
+  )
+  const NewOrder = useMemo(
+    () => ({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) => (
+      <NewOrderDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        stores={choices}
+        description="Leg een handmatige bestelling vast als concept. Het concept gaat naar Shopify; daar rond je het af en wordt het een bestelling."
+        onCreate={(input) =>
+          void latest.current.createDraft({
+            storeId: input.store,
+            name: input.customer_name,
+            email: input.customer_email,
+            payment: input.payment_method,
+            note: input.notes,
+            lines: input.items
+          }).then((id) => {
+            if (id !== undefined) {
+              void navigate({ to: "/orders/$orderId", params: { orderId: id }, state: OPEN_AS_MODAL })
+            }
+          })}
+      />
+    ),
+    [choices, navigate]
+  )
+  const canCreate = source.canCreate.ok && choices.length === 0
+    ? { ok: false, reason: "Verbind eerst een winkel; daar komt het concept in" }
+    : source.canCreate
   return (
-    <OrdersSourceProvider value={{ ...source, Forwarding: ConsoleForwarding }}>
+    <OrdersSourceProvider
+      value={{ ...source, canCreate, Forwarding: ConsoleForwarding, ...(canCreate.ok ? { NewOrder } : {}) }}
+    >
       <OrdersList />
     </OrdersSourceProvider>
   )

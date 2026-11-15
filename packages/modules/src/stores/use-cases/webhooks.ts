@@ -8,7 +8,7 @@ import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { eraseShopper } from "../../shared/use-cases/ShopperErasure.ts"
 import { dropped, levelsOf } from "../../shared/use-cases/StockDrop.ts"
 import { throughGate } from "../domain/Gate.ts"
-import { addLine, emptyBatch, flatten, gidOf, type MirrorKind, NODE_QUERY } from "../domain/Mirror.ts"
+import { addLine, emptyBatch, flatten, gidId, gidOf, type MirrorKind, NODE_QUERY } from "../domain/Mirror.ts"
 import { ConnectionGate, IngestQueue, ShopifyAdmin, ShopifyGraphql } from "../domain/Ports.ts"
 import { ShopifyReturns } from "../ShopifyReturns.ts"
 import { applyBatch } from "./mirror.ts"
@@ -68,6 +68,11 @@ export const receive = Effect.fn("Stores.webhooks.receive")(function*(delivery: 
   return { status: 200 } satisfies Received
 })
 
+/** A completed draft whose order Insyte does not hold yet: the delivery is tried again, the draft kept until then. */
+class DraftNotCompleted extends Schema.TaggedError<DraftNotCompleted>()("DraftNotCompleted", {
+  draft: Schema.String
+}) {}
+
 /** The topics whose object is read again and mirrored; the value says which object, from the payload. */
 const READS: Record<string, { readonly kind: MirrorKind; readonly id: (body: Record<string, unknown>) => unknown }> = {
   "orders/create": { kind: "Order", id: (b) => b["id"] },
@@ -116,7 +121,7 @@ export const apply = Effect.fn("Stores.webhooks.apply")(function*(inboundEventId
     )
   }
   // A mirrored kind changed: the workspace's open lists of it read again (M5.1's realtime).
-  const kind = READS[event.topic]?.kind
+  const kind = READS[event.topic]?.kind ?? (event.topic === "draft_orders/update" ? "Order" : undefined)
   const outboxIds = yield* db.scopedFor((sql) =>
     Effect.gen(function*() {
       yield* sql`update inbound_events set processed_at = now(), error = null where id = ${inboundEventId}`
@@ -240,12 +245,95 @@ const applyTopic = Effect.fn("Stores.webhooks.topic")(
       case "returns/decline":
       case "returns/close":
         return yield* (yield* ShopifyReturns).applied(store.id, topic, body)
+      // A draft made in Insyte (M7.1) that Shopify completed into an order: the order mirrored as Shopify holds it, the
+      // team's internal note and chosen payment moved to it, and the draft gives way. Until the order is in Insyte the
+      // draft stays and the delivery is tried again, so the note is never lost. Any other draft's change is Shopify's.
+      case "draft_orders/update": {
+        const order = body["order_id"]
+        if (body["status"] !== "completed" || (typeof order !== "string" && typeof order !== "number")) return
+        if (store.status === "connected" || store.status === "connecting") {
+          yield* mirrorOne(store, "Order", gidOf("Order", order))
+        }
+        const retired = yield* retireDraft(store.id, String(body["id"]), String(order))
+        if (retired !== "waiting") return
+        return yield* new DraftNotCompleted({ draft: String(body["id"]) })
+      }
       default:
-        // `bulk_operations/finish` (the backfill polls), `draft_orders/update` (drafts arrive with M7): nothing to do.
+        // `bulk_operations/finish` (the backfill polls): nothing to do.
         return
     }
   }
 )
+
+/**
+ * A draft made in Insyte that Shopify completed (M7.1) gives way to the order it became: the team's internal note and
+ * chosen payment move to it, and the draft row goes. `waiting` while Insyte does not hold that order yet, the draft
+ * kept as it is; `none` when no such draft is Insyte's (already retired, or never made here).
+ */
+const retireDraft = (storeId: string, draftId: string, orderId: string) =>
+  Effect.flatMap(Effect.service(Db), (db) =>
+    db.scopedFor((sql) =>
+      Effect.gen(function*() {
+        const [draft] = yield* sql<{ id: string; draftPayment: string | null }>`
+          select id, draft_payment from orders
+          where store_id = ${storeId} and shopify_id = ${`draft-${draftId}`} and is_draft
+          for update`
+        if (draft === undefined) return "none" as const
+        const [real] = yield* sql<{ id: string }>`
+          select id from orders where store_id = ${storeId} and shopify_id = ${orderId} and not is_draft`
+        if (real === undefined) return "waiting" as const
+        yield* sql`
+          insert into order_notes (order_id, workspace_id, body, updated_by, updated_at)
+          select ${real.id}, n.workspace_id, n.body, n.updated_by, n.updated_at
+          from order_notes n where n.order_id = ${draft.id}
+          on conflict (order_id) do nothing`
+        if (draft.draftPayment !== null) {
+          yield* sql`update orders set draft_payment = ${draft.draftPayment}
+                     where id = ${real.id} and draft_payment is null`
+        }
+        yield* sql`delete from orders where id = ${draft.id}`
+        return "retired" as const
+      })
+    ))
+
+/** The drafts Insyte made that one sweep asks Shopify about, the longest waiting first (`nodes` takes 250). */
+const DRAFTS_PER_SWEEP = 50
+
+/** Drafts Insyte made, as Shopify holds them now: completed ones name the order they became. */
+const DRAFT_STATES = `query($ids: [ID!]!) {
+  nodes(ids: $ids) { ... on DraftOrder { id status order { id } } }
+}`
+
+type DraftState = { readonly id?: string; readonly status?: string; readonly order?: { readonly id: string } | null }
+
+/**
+ * The reconcile sweep's look at the drafts Insyte made that Shopify holds (M7.1): one Shopify completed whose
+ * `draft_orders/update` never got through (its order not yet in Insyte for all eight tries, or the delivery lost) is
+ * retired here, its order mirrored first. Answers how many it retired.
+ */
+export const retireCompletedDrafts = Effect.fn("Stores.retireCompletedDrafts")(function*(
+  store: Pick<StoreRow, "id" | "connectionId" | "shop" | "currency">
+) {
+  const db = yield* Db
+  const drafts = yield* db.scopedFor((sql) =>
+    sql<{ shopifyId: string }>`
+      select shopify_id from orders where store_id = ${store.id} and is_draft and shopify_id like 'draft-%'
+      order by placed_at, id limit ${DRAFTS_PER_SWEEP}`
+  )
+  if (drafts.length === 0) return 0
+  const graphql = yield* ShopifyGraphql
+  const ids = drafts.map((d) => `gid://shopify/DraftOrder/${d.shopifyId.slice("draft-".length)}`)
+  const { data } = yield* throughGate(store, 10, (token) => graphql.query(store.shop, token, DRAFT_STATES, { ids }))
+  let retired = 0
+  for (const node of (data as { nodes?: ReadonlyArray<DraftState | null> } | null)?.nodes ?? []) {
+    if (node?.id === undefined || node.status !== "COMPLETED" || node.order === null || node.order === undefined) {
+      continue
+    }
+    yield* mirrorOne(store, "Order", node.order.id)
+    if ((yield* retireDraft(store.id, gidId(node.id), gidId(node.order.id))) === "retired") retired++
+  }
+  return retired
+})
 
 const str = (value: unknown) => (typeof value === "string" && value !== "" ? value : null)
 

@@ -34,11 +34,13 @@ const textOf = (html: string) =>
     .replaceAll(/\n{3,}/g, "\n\n")
     .trim()
 
-/** The product in its store's Shopify admin. */
-const adminUrl = (shopDomain: string | undefined, shopifyId: string) =>
-  shopDomain === undefined
-    ? `https://admin.shopify.com/products/${shopifyId}`
-    : `https://admin.shopify.com/store/${shopDomain.replace(/\.myshopify\.com$/, "")}/products/${shopifyId}`
+/** The product in its store's Shopify admin; one made here that Shopify has not made yet (M7.3), its products. */
+const adminUrl = (shopDomain: string | undefined, shopifyId: string) => {
+  const path = shopifyId.startsWith("insyte-") ? "products" : `products/${shopifyId}`
+  return shopDomain === undefined
+    ? `https://admin.shopify.com/${path}`
+    : `https://admin.shopify.com/store/${shopDomain.replace(/\.myshopify\.com$/, "")}/${path}`
+}
 
 type Levels = ProductDetail["variants"][number]["levels"]
 

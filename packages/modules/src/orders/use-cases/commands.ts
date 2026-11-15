@@ -39,20 +39,27 @@ export interface Locked {
   readonly shippingAddress: unknown
   readonly shippedAt: Date | null
   readonly delayedAt: Date | null
+  readonly isDraft: boolean
 }
 
-/** The orders, locked, inside the role's stores; any one missing is `NotFound`. */
-export const lock = Effect.fn("Orders.lock")(function*(sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) {
-  const scope = yield* inScope(sql, "o.store_id")
-  const rows = yield* sql<Locked>`
-    select o.id, o.tags, o.status, o.fulfillment_status, o.shipping_address, o.shipped_at, o.delayed_at
-    from orders o
-    where o.id in ${sql.in([...new Set(ids)])} and ${scope} order by o.id for update`
-  const found = new Set(rows.map((r) => r.id))
-  const missing = ids.find((id) => !found.has(id))
-  if (missing !== undefined) return yield* new NotFound({ entity: "order", id: missing })
-  return rows
-})
+/**
+ * The orders, locked, inside the role's stores; any one missing is `NotFound`. A draft (M7.1) is not yet an order in
+ * Shopify, so the commands that change one there refuse it (`Conflict{ draft }`) unless `drafts` says it may be one.
+ */
+export const lock = Effect.fn("Orders.lock")(
+  function*(sql: SqlClient.SqlClient, ids: ReadonlyArray<string>, drafts = false) {
+    const scope = yield* inScope(sql, "o.store_id")
+    const rows = yield* sql<Locked>`
+      select o.id, o.tags, o.status, o.fulfillment_status, o.shipping_address, o.shipped_at, o.delayed_at, o.is_draft
+      from orders o
+      where o.id in ${sql.in([...new Set(ids)])} and ${scope} order by o.id for update`
+    const found = new Set(rows.map((r) => r.id))
+    const missing = ids.find((id) => !found.has(id))
+    if (missing !== undefined) return yield* new NotFound({ entity: "order", id: missing })
+    if (!drafts && rows.some((r) => r.isDraft)) return yield* new Conflict({ entity: "order", reason: "draft" })
+    return rows
+  }
+)
 
 /** The orders as the list shows them, after the change. */
 export const rowsOf = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) =>
@@ -258,7 +265,7 @@ export const setNote = Effect.fn("Orders.setNote")(function*(id: string, body: s
   const db = yield* Db
   yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      yield* lock(sql, [id])
+      yield* lock(sql, [id], true)
       const text = body.trim()
       if (text === "") yield* sql`delete from order_notes where order_id = ${id}`
       else {
@@ -287,6 +294,14 @@ export const tags = Effect.fn("Orders.tags")(function*() {
   return rows.filter((r) => !SYSTEM_TAGS.has(r.tag))
 })
 
+/** A draft Shopify has not heard of yet, gone again: its lines and note go with it. */
+const dropDraft = Effect.fn("Orders.dropDraft")(function*(sql: SqlClient.SqlClient, id: string) {
+  const gone = yield* sql<{ id: string }>`
+    delete from orders where id = ${id} and is_draft and shopify_id = ${`insyte-${id}`} returning id`
+  if (gone.length === 0) return yield* new Conflict({ entity: "order", reason: "gone" })
+  yield* audit(sql, "order.draft_undone", id)
+})
+
 const decodeRestore = Schema.decodeUnknownEffect(OrdersRestore)
 
 /**
@@ -295,7 +310,9 @@ const decodeRestore = Schema.decodeUnknownEffect(OrdersRestore)
  */
 export const restore = Effect.fn("Orders.restore")(function*(sql: SqlClient.SqlClient, compensation: unknown) {
   yield* Policy.require("orders", 2)
-  const { orders, mails } = yield* decodeRestore(compensation).pipe(Effect.orDie)
+  const { orders, mails, draft } = yield* decodeRestore(compensation).pipe(Effect.orDie)
+  // A draft made a moment ago (`Orders.createDraft`): gone again, and Shopify never hears of it.
+  if (draft !== undefined) return yield* dropDraft(sql, draft)
   // A shopper mail put in line (the delay mail, M10.2) is called off; one already gone cannot be.
   if (mails !== undefined && mails.length > 0 && (yield* cancelMails(sql, mails)) < mails.length) {
     return yield* new Conflict({ entity: "order_mail", reason: "already_sent" })

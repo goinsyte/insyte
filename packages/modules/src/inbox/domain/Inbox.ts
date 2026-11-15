@@ -247,6 +247,8 @@ export interface InboundMail {
   readonly text: string
   readonly html: string | null
   readonly date: Date | null
+  /** Sent by a machine, by its own headers (`automatedMail`): never answered by the agent. */
+  readonly automated: boolean
   readonly attachments: ReadonlyArray<{
     readonly filename: string
     readonly mime: string
@@ -255,6 +257,31 @@ export interface InboundMail {
     readonly contentId: string | null
   }>
 }
+
+/**
+ * Whether a mail's headers say a machine sent it (RFC 3834 and the lists' own headers): an out-of-office or a
+ * helpdesk's receipt (`Auto-Submitted` other than `no`, `X-Autoreply`, `X-Autorespond`), a newsletter or a list
+ * (`Precedence: bulk/list/junk`, `List-Id`), or a bounce (an empty `Return-Path`). Header names in lower case.
+ */
+export const automatedMail = (headers: ReadonlyArray<{ readonly key: string; readonly value: string }>): boolean =>
+  headers.some(({ key, value }) => {
+    const v = value.trim().toLowerCase()
+    switch (key.toLowerCase()) {
+      case "auto-submitted":
+        return v !== "" && v !== "no" && !v.startsWith("no;")
+      case "precedence":
+        return /^(bulk|list|junk|auto_reply)\b/.test(v)
+      case "list-id":
+      case "x-autoreply":
+      case "x-autorespond":
+      case "x-autoresponse":
+        return true
+      case "return-path":
+        return v === "<>" || v === ""
+      default:
+        return false
+    }
+  })
 
 /** 25 MB per attachment (domain.md §6.2); a larger one is left out and the thread says so. */
 export const ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024

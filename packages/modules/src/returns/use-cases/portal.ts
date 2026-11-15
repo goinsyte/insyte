@@ -259,6 +259,7 @@ export const lookup = Effect.fn("Portal.lookup")(function*(input: {
         from orders o
         where lower(o.customer_email) = ${email}
           and regexp_replace(upper(o.number), '^(#|SO-) *', '') = ${number}
+          and not o.is_draft
         order by o.placed_at desc limit 1`
       if (order === undefined) return yield* new OrderNotFound()
       const s = yield* load(sql)

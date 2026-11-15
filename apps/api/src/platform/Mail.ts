@@ -35,6 +35,7 @@ const senderRefused = (mail: Mail) =>
 export const capturedSenders = new Map<string, {
   readonly from: string | null
   readonly replyTo: string | null
+  readonly autoSubmitted: string | null
   readonly look: Look | null
   readonly status: Worded | null
 }>()
@@ -74,6 +75,7 @@ export const MailerCapture = Layer.effect(
               capturedSenders.set(mail.reference, {
                 from: mail.from ?? null,
                 replyTo: mail.replyTo ?? null,
+                autoSubmitted: mail.autoSubmitted ?? null,
                 look: mail.look ?? null,
                 status: mail.orderMessage?.tracking?.status ?? null
               })

@@ -101,6 +101,7 @@ function useThreadDraft(t: InboxThread | null): ThreadDraft | undefined {
   const draft = current.draft
   return {
     reply: draft?.text,
+    check: draft === null ? undefined : checkOf(draft.flags),
     rewrite: async (style) => {
       if (draft === null) return undefined
       const exit = await reply({
@@ -119,6 +120,18 @@ function useThreadDraft(t: InboxThread | null): ThreadDraft | undefined {
       void use({ payload: { id: draft.id }, reactivityKeys: [...DRAFTS] })
     }
   }
+}
+
+/** What the person must check in a draft the agent wrote for them, said as one sentence; nothing to check, none. */
+const checkOf = (flags: Draft["flags"]): string | undefined => {
+  if (flags.length === 0) return undefined
+  const what = [
+    ...(flags.includes("money") ? ["geld, een vergoeding of een nieuwe zending"] : []),
+    ...(flags.includes("figure") ? ["een getal dat niet in de bestelling staat"] : []),
+    ...(flags.includes("link") ? ["een link of adres dat Insyte niet kent"] : [])
+  ]
+  const list = what.length === 1 ? what[0] : `${what.slice(0, -1).join(", ")} en ${what.at(-1)}`
+  return `Lees dit concept goed na: het noemt ${list}.`
 }
 
 /** Samenvatten and Antwoord voorstellen (AI) on a ticket, over `Drafts.*`. */
