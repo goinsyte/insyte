@@ -49,7 +49,7 @@ export const SetOrderNote = Tool.make("set_order_note", {
 
 export const UpdateShippingAddress = Tool.make("update_shipping_address", {
   description:
-    "Changes the order's shipping address (the name and phone stay); Shopify hears it a few seconds later. country is ISO 3166 alpha-2. Needs orders.write.",
+    "Changes the order's shipping address (the name and phone stay); Shopify hears it a few seconds later. country is ISO 3166 alpha-2. Refused for an agent's key. Needs orders.write.",
   parameters: Schema.Struct({
     order_id: OrderId,
     line1: Schema.String,
@@ -61,7 +61,7 @@ export const UpdateShippingAddress = Tool.make("update_shipping_address", {
     idempotency_key: IdempotencyKey
   }),
   success: Order,
-  failure: WriteFailure,
+  failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
 }).annotate(Tool.Idempotent, true)
 
