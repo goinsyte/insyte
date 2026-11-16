@@ -1,5 +1,6 @@
-import type { MailboxView, MessageView, ThreadRow } from "@insyte/modules/inbox/domain/Inbox"
+import type { ChatEntry, MailboxView, MessageView, ThreadRow } from "@insyte/modules/inbox/domain/Inbox"
 import type { InboxMailbox, InboxThread, LetterEntry, Place } from "@insyte/ui/app/inbox/source"
+import type { ChatMessage } from "@insyte/ui/app/lib/channels"
 
 /*
  * The inbox's rows as the design's screen reads them (M11 step 2): epoch milliseconds as ISO strings, the server's
@@ -51,9 +52,27 @@ export const threadOf = (r: ThreadRow, now: number): InboxThread => {
     ticket_id: r.ticketId ?? undefined,
     place: placeOf(r, now),
     hasAttachments: r.hasAttachments,
-    hasInbound: r.hasInbound
+    hasInbound: r.hasInbound,
+    ...(r.channel === null ? {} : { channel: r.channel }),
+    ...(r.agentState === null ? {} : { agent: { state: r.agentState } })
   }
 }
+
+/**
+ * A website chat's message as a bubble (M15 step 8): the shopper's on the left; the team's, the agent's and Insyte's
+ * greeting on the right, the agent's and the greeting marked as Insyte's. The widget does not say whether the shopper
+ * read a message, so no bubble claims it.
+ */
+export const bubbleOf = (
+  m: ChatEntry,
+  who: (memberId: string) => string | undefined
+): ChatMessage => ({
+  id: m.id,
+  from: m.author === "shopper" ? "customer" : m.author === "team" ? "team" : "insyte",
+  ...(m.author === "team" ? { name: (m.sentBy === null ? undefined : who(m.sentBy)) ?? "Team" } : {}),
+  at: iso(m.at),
+  text: m.text
+})
 
 /** A forward carries the whole thread below its note; the letter shows the note, as the design did. */
 const FORWARDED = "---------- Doorgestuurd bericht ----------"

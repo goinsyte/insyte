@@ -1,3 +1,4 @@
+import type { ChannelStatus } from "@insyte/modules/inbox/domain/Chat"
 import type { ConnectionList, ConnectionRow } from "@insyte/modules/stores/domain/Connections"
 import type { IntegrationItem, IntegrationsSource } from "@insyte/ui/app/settings/integrations-source"
 
@@ -9,8 +10,10 @@ import type { IntegrationItem, IntegrationsSource } from "@insyte/ui/app/setting
  * - Klaviyo under Apps (installed from the Marketplace); Slack at Meldingen; Insyte AI at Limieten.
  *
  * What the design shows and Insyte does not connect yet says Binnenkort: Stripe, Klarna and PayPal (M13.2), Gmail and
- * Outlook (M11 step 1b), Meta Ads and Google Ads (M13.5), and the chat channels (M15). So does Insyte AI on a stage
- * that has not switched it on: nothing the operator can do turns it on.
+ * Outlook (M11 step 1b), Meta Ads and Google Ads (M13.5), and WhatsApp and Instagram (M15). So does Insyte AI on a
+ * stage that has not switched it on, and the website chat on one without its key: nothing the operator can do turns
+ * them on. The website chat (M15 step 8) connects here, in the console's own dialog (`./webchat.tsx`), each connected
+ * store with its own row whose Beheren opens it (`?chat=`).
  */
 
 type Row = typeof ConnectionRow.Type
@@ -36,13 +39,6 @@ const SOON: ReadonlyArray<IntegrationItem> = [
     status: "soon"
   },
   { key: "instagram", name: "Instagram", description: "Berichten en reacties", category: "Channels", status: "soon" },
-  {
-    key: "webchat",
-    name: "Websitechat",
-    description: "Een chatvenster op je winkel",
-    category: "Channels",
-    status: "soon"
-  },
   {
     key: "meta",
     name: "Meta Ads",
@@ -160,12 +156,45 @@ const itemOf = (row: Row): IntegrationItem => {
   }
 }
 
-/** The design's rows: what the server knows, then what is not built yet, in the design's place. */
-const integrationsOf = (list: ConnectionList): ReadonlyArray<IntegrationItem> => [
-  ...list.connections.map(itemOf),
-  ...SOON
-]
+const WEBCHAT = { name: "Websitechat", category: "Channels", brand: "webchat" } as const
 
-export const consoleIntegrationsSource = (list: ConnectionList): IntegrationsSource => ({
-  integrations: integrationsOf(list)
+/**
+ * The website chat's rows: each store that has it, and "Koppelen" for one more while a store is without; Binnenkort
+ * where the stage has no key for it, or the role may not read it.
+ */
+const webchatOf = (chat: ChannelStatus | undefined, stores: number): ReadonlyArray<IntegrationItem> => {
+  if (chat === undefined || !chat.available) {
+    return [{ key: "webchat", ...WEBCHAT, description: "Een chatvenster op je winkel", status: "soon" }]
+  }
+  const on = chat.channels.filter((c) => c.status === "connected")
+  return [
+    ...on.map((c): IntegrationItem => ({
+      key: `webchat:${c.id}`,
+      ...WEBCHAT,
+      description: `Een chatvenster op ${c.storeName}`,
+      status: "connected",
+      manage: { to: "/settings/integrations", search: { chat: c.id } }
+    })),
+    ...(on.length === 0 || on.length < stores
+      ? [{ key: "webchat", ...WEBCHAT, description: "Een chatvenster op je winkel", status: "disconnected" as const }]
+      : [])
+  ]
+}
+
+/**
+ * The design's rows: what the server knows, then what is not built yet, then the website chat (the page groups them by
+ * category, so it stays last of Kanalen, as the design lists it).
+ */
+const integrationsOf = (
+  list: ConnectionList,
+  chat: ChannelStatus | undefined,
+  stores: number
+): ReadonlyArray<IntegrationItem> => [...list.connections.map(itemOf), ...SOON, ...webchatOf(chat, stores)]
+
+export const consoleIntegrationsSource = (
+  list: ConnectionList,
+  chat?: ChannelStatus | undefined,
+  stores = 1
+): IntegrationsSource => ({
+  integrations: integrationsOf(list, chat, stores)
 })

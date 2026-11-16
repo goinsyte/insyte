@@ -31,6 +31,16 @@ const COPY: RefusalCopy = {
       })
       return true
     }
+    if (tagged._tag === "TakenOver") {
+      toast.error("Een collega heeft dit gesprek overgenomen", { description: "Alleen die collega antwoordt nu." })
+      return true
+    }
+    if (tagged._tag === "ChatClosed") {
+      toast.error("Dit gesprek is beëindigd", {
+        description: "De klant begint een nieuw gesprek als die weer schrijft."
+      })
+      return true
+    }
     if (tagged._tag === "NoMailbox") {
       toast.error("Er is nog geen mailbox", { description: "Koppel eerst een mailbox om vanaf te versturen." })
       return true
@@ -40,7 +50,16 @@ const COPY: RefusalCopy = {
 }
 
 /** What the server says it refused; anything else (the network, a hiccup) as a send that did not go. */
-const KNOWN = new Set(["Forbidden", "Invalid", "NotFound", "Conflict", "MailboxDisconnected", "NoMailbox"])
+const KNOWN = new Set([
+  "Forbidden",
+  "Invalid",
+  "NotFound",
+  "Conflict",
+  "MailboxDisconnected",
+  "NoMailbox",
+  "TakenOver",
+  "ChatClosed"
+])
 
 const refused = (error: unknown) => sayRefusal(error, COPY)
 

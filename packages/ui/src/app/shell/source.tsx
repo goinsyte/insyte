@@ -58,6 +58,14 @@ export type PanelMailbox = {
 	count: number | undefined;
 };
 
+/** A chat channel as the inbox's panel lists it, from a host that has them (the website chat, M15 step 8). */
+export type PanelChat = {
+	channel: "whatsapp" | "instagram" | "webchat";
+	live: boolean;
+	/** Its threads in the inbox. */
+	count: number | undefined;
+};
+
 export interface ShellSource {
 	panel: PanelState;
 	pins: PinsState;
@@ -115,7 +123,11 @@ export interface ShellSource {
 	 * The inbox's threads, for the panel to count; or, from a host that counts on the server, its mailboxes with
 	 * their threads in the inbox, and the panel keeps the server's folder counts.
 	 */
-	inbox: Pick<InboxState, "threads"> & { mailboxes?: ReadonlyArray<PanelMailbox> | undefined };
+	inbox: Pick<InboxState, "threads"> & {
+		mailboxes?: ReadonlyArray<PanelMailbox> | undefined;
+		/** The chat channels it has; with one, the customer agent's views (Overgedragen) are listed too. */
+		chats?: ReadonlyArray<PanelChat> | undefined;
+	};
 	/** What Insyte did, newest first (the agent log's rows). */
 	agentEntries: ReadonlyArray<AgentLogEntry>;
 	/** The forwarding queue's rows as of this minute. */
