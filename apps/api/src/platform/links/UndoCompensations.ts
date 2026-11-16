@@ -11,7 +11,7 @@ import { restore as restoreData } from "@insyte/modules/data/Data"
 import { restore as restoreWebhooks } from "@insyte/modules/developer/use-cases/webhooks"
 import { restore as restoreForwarding } from "@insyte/modules/forwarding/use-cases/commands"
 import { ThreadTickets } from "@insyte/modules/inbox/domain/Ports"
-import { restore as restoreChat } from "@insyte/modules/inbox/use-cases/chat/chat"
+import { withChat } from "@insyte/modules/inbox/use-cases/chat/lazy"
 import { restore as restoreInbox } from "@insyte/modules/inbox/use-cases/commands"
 import { restore as restoreKnowledge, restoreGap as restoreKnowledgeGap } from "@insyte/modules/knowledge/Knowledge"
 import { restore as restoreMarketing } from "@insyte/modules/marketing/use-cases/klaviyo"
@@ -62,7 +62,8 @@ export const compensations: Record<string, Compensation> = {
   "chargebacks.restore": restoreChargebacks,
   "inbox.restore": (sql, compensation) =>
     restoreInbox(sql, compensation).pipe(Effect.provideService(ThreadTickets, threadTickets)),
-  "chat.restore": restoreChat,
+  // The website chat's code loads with its first undo (`lazy.ts`).
+  "chat.restore": (sql, compensation) => withChat((c) => c.restore(sql, compensation)),
   "quality.restore": (sql, compensation) =>
     restoreQuality(sql, compensation).pipe(Effect.provideService(QualityTickets, qualityTickets)),
   "queue.restore": restoreQueue,
