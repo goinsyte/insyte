@@ -40,7 +40,7 @@ function value<A>(result: AsyncResult.AsyncResult<A, unknown>): A | undefined {
 }
 
 /** The stores' chat channels, once `Channels.list` is in; nothing for a role that may not read them. */
-export function useChatChannels(): ChannelStatus | undefined {
+function useChatChannels(): ChannelStatus | undefined {
   return value(useAtomValue(channelsAtom))
 }
 

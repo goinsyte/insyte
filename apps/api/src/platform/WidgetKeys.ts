@@ -53,7 +53,7 @@ export const widgetKeys = async (root: string) => {
   return { token: await derive("insyte/webchat/token/v1"), visitor: await derive("insyte/webchat/visitor/v1") }
 }
 
-export const makeWidgetKeys = (keys: Awaited<ReturnType<typeof widgetKeys>> | undefined) =>
+const makeWidgetKeys = (keys: Awaited<ReturnType<typeof widgetKeys>> | undefined) =>
   keys === undefined
     ? WidgetKeys.of({
       available: false,
