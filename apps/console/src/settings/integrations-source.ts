@@ -173,6 +173,8 @@ const webchatOf = (chat: ChannelStatus | undefined, stores: number): ReadonlyArr
       ...WEBCHAT,
       description: `Een chatvenster op ${c.storeName}`,
       status: "connected",
+      // On, but Shopify was not told where the embed loads the widget from: the storefront shows nothing yet.
+      ...(c.themeUpdated ? {} : { attention: "Chat staat aan, maar je thema kon niet worden bijgewerkt" }),
       manage: { to: "/settings/integrations", search: { chat: c.id } }
     })),
     ...(on.length === 0 || on.length < stores

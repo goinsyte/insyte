@@ -112,7 +112,8 @@ const MUTATIONS: Record<string, { readonly field?: string; readonly ok: Record<s
   webPixelCreate: { ok: { webPixel: { id: "gid://shopify/WebPixel/1" } } },
   webPixelUpdate: { ok: { webPixel: { id: "gid://shopify/WebPixel/1" } } },
   // The website chat's embed (M15 step 8): the app installation's own metafield, which says where Insyte's API is.
-  metafieldsSet: { ok: { metafields: [] } }
+  metafieldsSet: { ok: { metafields: [] } },
+  metafieldsDelete: { ok: { deletedMetafields: [] } }
 }
 
 /** The calls a `noscope-*` shop's token may not make, and the scope each needs. */
@@ -355,6 +356,16 @@ const recordedMutation = (shop: string, query: string, variables: Record<string,
       if (f.ownerId === "gid://shopify/AppInstallation/1") held.set(`${f.namespace}.${f.key}`, String(f.value))
     }
     recordedAppMetafields.set(shop, held)
+  }
+  if (name === "metafieldsDelete" && !shop.startsWith("refuse-")) {
+    const fields = (variables["metafields"] ?? []) as ReadonlyArray<
+      { ownerId?: string; namespace?: string; key?: string }
+    >
+    for (const f of fields) {
+      if (f.ownerId === "gid://shopify/AppInstallation/1") {
+        recordedAppMetafields.get(shop)?.delete(`${f.namespace}.${f.key}`)
+      }
+    }
   }
   // A `pixeltaken-*` shop already has the app's pixel, whose id Insyte lost: Shopify refuses a second one.
   if (name === "webPixelCreate" && shop.startsWith("pixeltaken-")) {

@@ -74,17 +74,8 @@ test("@webchat a shopper chats from the storefront and the team answers, takes o
   expect(seeded.ok()).toBe(true)
   const { shop, workspaceId } = await seeded.json() as { shop: string; workspaceId: string }
 
-  // Koppelingen: Websitechat, in the design's two steps.
-  await page.goto("/settings/integrations")
-  await hydrated(page)
-  const row = page.getByRole("listitem").filter({ hasText: "Een chatvenster op je winkel" })
-  await row.getByRole("button", { name: "Koppelen" }).click()
-  const dialog = page.getByRole("dialog")
-  await dialog.getByRole("button", { name: "Volgende" }).click()
-  await dialog.getByRole("button", { name: "Koppelen" }).click()
-  await expect(page.getByText(/Websitechat gekoppeld aan/)).toBeVisible()
-
-  // The storefront, as the theme's app embed writes it, and the widget's host handed on to the API under test.
+  // The storefront, as the theme's app embed writes it, and the widget's host handed on to the API under test; the chat
+  // is connected on Koppelingen, in the design's two steps, once the storefront showed nothing without it.
   const storefront = `https://${shop}`
   const api = new URL(baseURL!).origin
   const shopper = await context.newPage()
@@ -109,6 +100,20 @@ test("@webchat a shopper chats from the storefront and the team answers, takes o
     const answer = await route.fetch({ url: `${api}${path}`, headers, maxRedirects: 0 })
     await route.fulfill({ response: answer })
   })
+  // Before the chat is connected the embed's script finds no chat: no bubble at all, rather than one that does nothing.
+  const unopened = shopper.waitForResponse((r) => r.url().endsWith("/api/public/chat/session"))
+  await shopper.goto(`${storefront}/`)
+  expect((await unopened).status()).toBe(404)
+  await expect(shopper.locator("[data-insyte-chat]")).toHaveCount(0)
+  await page.goto("/settings/integrations")
+  await hydrated(page)
+  const row = page.getByRole("listitem").filter({ hasText: "Een chatvenster op je winkel" })
+  await row.getByRole("button", { name: "Koppelen" }).click()
+  const dialog = page.getByRole("dialog")
+  await dialog.getByRole("button", { name: "Volgende" }).click()
+  await dialog.getByRole("button", { name: "Koppelen" }).click()
+  await expect(page.getByText(/Websitechat gekoppeld aan/)).toBeVisible()
+
   await shopper.goto(`${storefront}/`)
   await shopper.getByRole("button", { name: "Chat met ons" }).click()
   await shopper.getByLabel("Je bericht").fill("Waar blijft mijn pakket?")

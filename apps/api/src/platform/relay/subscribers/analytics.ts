@@ -195,6 +195,7 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
   "chat.posted": none,
   "chat.received": none,
   "chat.handed_over": none,
+  "webchat.changed": none,
   "chat.mentioned": none,
   "course.assigned": none,
   "course.question": none,

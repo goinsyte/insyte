@@ -348,6 +348,17 @@ describe("webchat", () => {
       _tag: "Invalid"
     })
 
+    // Undo of a reply nobody wrote after: the thread's preview and time are back as they were.
+    const listed = async () => ok(await rpc("Threads.list", { channel: "webchat" }, shop.cookie)).rows[0]!
+    const was = await listed()
+    expect(was.preview).toContain("Regel een")
+    const unsent = ok(await rpc("Threads.reply", { threadId: row!.id, body: "Toch niet." }, shop.cookie))
+    expect((await listed()).preview).toBe("Toch niet.")
+    ok(await rpc("Shared.undo", { token: unsent.undo!.token }, shop.cookie))
+    const undone = await listed()
+    expect(undone.preview).toBe(was.preview)
+    expect(undone.lastMessageAt).toBe(was.lastMessageAt)
+
     // Undo of a reply after the shopper wrote again: the shopper's word stays the thread's last.
     const reply = ok(await rpc("Threads.reply", { threadId: row!.id, body: "Even kijken." }, shop.cookie))
     expect(await write("Nog iets")).toBe(200)
@@ -433,7 +444,7 @@ describe("webchat", () => {
 
     // IPv6: one /56 is one address, whichever of its /64s a request comes from.
     const opens = []
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 120; i++) {
       opens.push((await send("/session", { origin, ip: "2001:db8:7:1200::1", body: { shop: shop.shop } })).status)
     }
     expect(opens.every((s) => s === 200)).toBe(true)
@@ -441,10 +452,30 @@ describe("webchat", () => {
     expect((await send("/session", { origin, ip: "2001:db8:7:1300::1", body: { shop: shop.shop } })).status).toBe(200)
   })
 
+  it("holds one address to three new conversations an hour with a store, before the store's own caps", async () => {
+    const shop = await importedStore("one-ip", "webchat")
+    const origin = storefrontOf(shop.shop)
+    ok(await rpc("Channels.connect", { kind: "webchat" }, shop.cookie))
+    const start = async (ip: string) => {
+      const s = await session(shop.shop)
+      return (await send(`/${shop.storeId}/messages`, { origin, token: s.token, ip, body: { text: "hoi" } })).status
+    }
+    const one = "192.0.2.77"
+    const mine = []
+    for (let i = 0; i < 8; i++) mine.push(await start(one))
+    expect(mine).toEqual([200, 200, 200, 429, 429, 429, 429, 429])
+    // Its refusals spent nothing of the store's ten a minute: seven other shoppers still begin theirs.
+    const others = []
+    for (let i = 0; i < 7; i++) others.push(await start(`192.0.2.${i + 1}`))
+    expect(others.every((s) => s === 200)).toBe(true)
+  })
+
   it("tells Shopify where the embed loads the widget from, and lets only the agent or a teammate bind a shopper", async () => {
     const shop = await importedStore("embed", "webchat")
-    ok(await rpc("Channels.connect", { kind: "webchat" }, shop.cookie))
-    expect(recordedAppMetafields.get(shop.shop)?.get("insyte.api_origin")).toBe("https://api.public.test")
+    const first = ok(await rpc("Channels.connect", { kind: "webchat" }, shop.cookie))
+    const pointed = () => recordedAppMetafields.get(shop.shop)?.get("insyte.api_origin")
+    expect(pointed()).toBe("https://api.public.test")
+    expect(first.channel.themeUpdated).toBe(true)
 
     const opened = await session(shop.shop)
     await send(`/${shop.storeId}/messages`, {
@@ -464,5 +495,30 @@ describe("webchat", () => {
     expect(ok(await rpc("Threads.get", { id: row!.id }, shop.cookie)).thread.customerId).toBeNull()
     expect((await bind()).ok).toBeNull()
     expect(ok(await rpc("Threads.get", { id: row!.id }, shop.cookie)).thread.customerId).toBe(customer.id)
+
+    // Switched off: once the relay has heard, the theme's embed has no API to load the widget from, and Undo puts it back.
+    const off = ok(await rpc("Channels.disconnect", { id: first.channel.id }, shop.cookie))
+    await relay(shop.workspace)
+    expect(pointed()).toBeUndefined()
+    expect(ok(await rpc("Channels.list", undefined, shop.cookie)).channels[0]!.themeUpdated).toBe(false)
+    ok(await rpc("Shared.undo", { token: off.undo!.token }, shop.cookie))
+    await relay(shop.workspace)
+    expect(pointed()).toBe("https://api.public.test")
+    expect(ok(await rpc("Channels.list", undefined, shop.cookie)).channels[0]!.themeUpdated).toBe(true)
+  })
+
+  it("lets the embed go on Undo of a first connect, and says so when Shopify would not take it", async () => {
+    const shop = await importedStore("undo-embed", "webchat")
+    const made = ok(await rpc("Channels.connect", { kind: "webchat" }, shop.cookie))
+    expect(recordedAppMetafields.get(shop.shop)?.get("insyte.api_origin")).toBe("https://api.public.test")
+    ok(await rpc("Shared.undo", { token: made.undo!.token }, shop.cookie))
+    await relay(shop.workspace)
+    expect(recordedAppMetafields.get(shop.shop)?.get("insyte.api_origin")).toBeUndefined()
+
+    // A store whose Shopify refuses the write: the chat is on, and the answer says the theme was not updated.
+    const refused = await importedStore("embed", "refuse")
+    const on = ok(await rpc("Channels.connect", { kind: "webchat" }, refused.cookie))
+    expect(on.channel).toMatchObject({ status: "connected", themeUpdated: false })
+    expect(recordedAppMetafields.get(refused.shop)?.get("insyte.api_origin")).toBeUndefined()
   })
 })

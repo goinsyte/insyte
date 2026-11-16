@@ -18,6 +18,10 @@ const APP_INSTALLATION = `query { currentAppInstallation { id } }`
 const SET_METAFIELDS = `mutation SetMetafields($metafields: [MetafieldsSetInput!]!) {
   metafieldsSet(metafields: $metafields) { metafields { id } userErrors { field message } }
 }`
+const DELETE_METAFIELDS = `mutation DeleteMetafields($metafields: [MetafieldIdentifierInput!]!) {
+  metafieldsDelete(metafields: $metafields) { deletedMetafields { key } userErrors { field message } }
+}`
+const EMBED_FIELD = { namespace: "insyte", key: "api_origin" } as const
 /** The app embed block's file name in the theme app extension. */
 const EMBED_HANDLE = "chat"
 
@@ -48,6 +52,24 @@ export const WebchatStoresLive = Layer.effect(
         Effect.provideService(ConnectionGate, gate),
         Effect.provideService(ShopifyGraphql, graphql)
       )
+    /** A write on the app installation's own metafields: its id first, then the write; `false` on any failure. */
+    const onInstallation = <E, R2>(
+      store: WebchatStore,
+      write: (
+        target: { readonly connectionId: string; readonly shop: string },
+        ownerId: string
+      ) => Effect.Effect<boolean, E, R2>
+    ) => {
+      const target = { connectionId: store.connectionId, shop: store.shopDomain }
+      return through(
+        store,
+        Effect.gen(function*() {
+          const read = yield* mutate(target, APP_INSTALLATION, {}, "currentAppInstallation")
+          const ownerId = (read.data as { currentAppInstallation?: { id?: string } } | null)?.currentAppInstallation?.id
+          return ownerId === undefined ? false : yield* write(target, ownerId)
+        }) as Effect.Effect<boolean, unknown, ConnectionGate | ShopifyGraphql | CurrentWorkspace>
+      ).pipe(Effect.catchCause(() => Effect.succeed(false)))
+    }
     return WebchatStores.of({
       primaryOrigin: (store) =>
         through(
@@ -63,28 +85,20 @@ export const WebchatStoresLive = Layer.effect(
           // Without Shopify's word the myshopify domain is the only origin, until the next connect.
           Effect.catchCause(() => Effect.succeed(null))
         ),
-      pointEmbed: (store) => {
-        if (apiHost === "") return Effect.succeed(false)
-        const target = { connectionId: store.connectionId, shop: store.shopDomain }
-        return through(
-          store,
-          Effect.gen(function*() {
-            const read = yield* mutate(target, APP_INSTALLATION, {}, "currentAppInstallation")
-            const ownerId = (read.data as { currentAppInstallation?: { id?: string } } | null)?.currentAppInstallation
-              ?.id
-            if (ownerId === undefined) return false
-            const metafields = [{
-              ownerId,
-              namespace: "insyte",
-              key: "api_origin",
-              type: "single_line_text_field",
-              value: `https://${apiHost}`
-            }]
-            const set = yield* mutate(target, SET_METAFIELDS, { metafields }, "metafieldsSet")
-            return set.errors.length === 0
-          })
-        ).pipe(Effect.catchCause(() => Effect.succeed(false)))
-      },
+      pointEmbed: (store) =>
+        apiHost === "" ? Effect.succeed(false) : onInstallation(store, (target, ownerId) =>
+          Effect.map(
+            mutate(target, SET_METAFIELDS, {
+              metafields: [{ ownerId, ...EMBED_FIELD, type: "single_line_text_field", value: `https://${apiHost}` }]
+            }, "metafieldsSet"),
+            (set) => set.errors.length === 0
+          )),
+      clearEmbed: (store) =>
+        onInstallation(store, (target, ownerId) =>
+          Effect.map(
+            mutate(target, DELETE_METAFIELDS, { metafields: [{ ownerId, ...EMBED_FIELD }] }, "metafieldsDelete"),
+            (gone) => gone.errors.length === 0
+          )),
       embedUrl: (shop) => {
         const base = `https://${shop}/admin/themes/current/editor?context=apps`
         return clientId === "" ? base : `${base}&activateAppId=${encodeURIComponent(`${clientId}/${EMBED_HANDLE}`)}`

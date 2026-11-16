@@ -56,12 +56,14 @@ export interface WidgetClaims {
  * What the website chat needs to know of a store from Shopify (M15 step 8), through the stores slice's gate: the
  * storefront's primary origin (its own domain, which the widget's requests come from; `null` where Shopify did not
  * say), where the app's chat embed loads the widget from (`pointEmbed`: this stage's API, in the app installation's
- * own metafield `insyte.api_origin`, which the embed reads; `false` where Shopify did not take it), and the theme
- * editor's link that turns the embed on in the store's live theme.
+ * own metafield `insyte.api_origin`, which the embed reads; `clearEmbed` takes it away, so the embed renders nothing;
+ * each `false` where Shopify did not take it), and the theme editor's link that turns the embed on in the store's live
+ * theme.
  */
 type WebchatStore = { readonly workspaceId: string; readonly connectionId: string; readonly shopDomain: string }
 export class WebchatStores extends Context.Service<WebchatStores, {
   readonly primaryOrigin: (store: WebchatStore) => Effect.Effect<string | null>
   readonly pointEmbed: (store: WebchatStore) => Effect.Effect<boolean>
+  readonly clearEmbed: (store: WebchatStore) => Effect.Effect<boolean>
   readonly embedUrl: (shopDomain: string) => string
 }>()("inbox/WebchatStores") {}

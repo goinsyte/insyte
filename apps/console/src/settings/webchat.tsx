@@ -46,6 +46,13 @@ function value<A>(result: AsyncResult.AsyncResult<A, unknown>): A | undefined {
   return Option.getOrUndefined(AsyncResult.value(result))
 }
 
+/** Shopify did not take where the embed loads the widget from: on, but nothing shows on the storefront yet. */
+const THEME_NOT_UPDATED = "Chat staat aan, maar je thema kon niet worden bijgewerkt"
+const themeNotUpdated = () =>
+  void toast.warning(THEME_NOT_UPDATED, {
+    description: "Je winkel toont de chat pas als dat gelukt is. Probeer het zo nog eens bij Beheren."
+  })
+
 /** Opens the store's theme editor on the app embed, in a tab of its own. */
 const openTheme = (url: string) => void window.open(url, "_blank", "noopener,noreferrer")
 
@@ -111,6 +118,7 @@ export function WebchatConnectDialog({ channel, onClose }: { channel: ChatChanne
         if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), COPY)
         close()
         done(exit.value, `Websitechat gekoppeld aan ${exit.value.channel.storeName}`)
+        if (!exit.value.channel.themeUpdated) return themeNotUpdated()
         toast("Zet de chat nog aan in je thema", {
           description: "Shopify vraagt je de app-embed van Insyte aan te zetten.",
           action: { label: "Thema openen", onClick: () => openTheme(exit.value.channel.activateUrl) }
@@ -178,9 +186,21 @@ export function WebchatConnectDialog({ channel, onClose }: { channel: ChatChanne
 export function WebchatManageDialog({ id, onClose }: { id: string | undefined; onClose: () => void }) {
   const status = value(useAtomValue(channelsAtom))
   const disconnect = useAtomSet(inboxWrites.disconnectChannel, { mode: "promiseExit" })
+  const connect = useAtomSet(inboxWrites.connectChannel, { mode: "promiseExit" })
   const done = useDone()
   const [busy, setBusy] = useState(false)
   const channel: ChannelView | undefined = status?.channels.find((c) => c.id === id)
+  // The same connect again, greeting and colour kept: Shopify is asked once more where the embed loads the widget.
+  const retryTheme = async (c: ChannelView) => {
+    setBusy(true)
+    const exit = await connect({ payload: { kind: "webchat", storeId: c.storeId }, ...keys })
+    setBusy(false)
+    if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), COPY)
+    if (!exit.value.channel.themeUpdated) return themeNotUpdated()
+    toast.success("Je thema is bijgewerkt", {
+      description: "De chat staat nu op je winkel, als de app-embed aan staat."
+    })
+  }
   return (
     <FormDialog
       open={id !== undefined && channel !== undefined}
@@ -210,6 +230,22 @@ export function WebchatManageDialog({ id, onClose }: { id: string | undefined; o
       {channel === undefined ? null : (
         <div className="flex flex-col gap-4">
           <WidgetPreview greeting={channel.greeting} store={channel.storeName} />
+          {channel.themeUpdated ? null : (
+            <div className="flex flex-col gap-2 rounded-md bg-paper p-3">
+              <p className="font-medium text-ink text-sm">{THEME_NOT_UPDATED}</p>
+              <p className="text-ink-2 text-sm leading-relaxed">
+                Je winkel toont de chat pas als Shopify weet waar Insyte staat.
+              </p>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void retryTheme(channel)}
+                className="flex h-8 w-fit items-center rounded-md bg-ink/6 px-3 font-medium text-ink text-sm hover:bg-ink/10"
+              >
+                Opnieuw proberen
+              </button>
+            </div>
+          )}
           <p className="text-ink-2 text-sm leading-relaxed">
             Staat de chat nog niet op je winkel? Zet de app-embed van Insyte aan in je thema.
           </p>

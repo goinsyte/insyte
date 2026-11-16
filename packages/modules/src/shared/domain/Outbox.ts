@@ -584,6 +584,13 @@ export const OutboxEvent = Schema.Union([
   // message. The customer agent hears it; the team hears of a new chat. Ids only, never the words.
   // The seam's own (`ChatChannel.ts`), so the chat and the agent cannot drift apart on it.
   ChatReceived,
+  // A store's website chat was switched off, or an Undo put it back as it was (M15 step 8): the theme's embed is told
+  // Insyte's API again, or let go of it, as the channel now stands. Ids only.
+  Schema.Struct({
+    type: Schema.Literal("webchat.changed"),
+    workspaceId: Schema.String,
+    storeId: Schema.String
+  }),
   // The agent passed a chat to a person (M15 step 8, `ChatChannel.handOver`): the team that reaches its store hears.
   Schema.Struct({
     type: Schema.Literal("chat.handed_over"),

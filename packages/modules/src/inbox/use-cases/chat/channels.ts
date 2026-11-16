@@ -6,6 +6,7 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient, Statement } from "effect/sql"
 import * as Audit from "../../../shared/use-cases/Audit.ts"
+import * as Outbox from "../../../shared/use-cases/Outbox.ts"
 import { inScope } from "../../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../../shared/use-cases/Undo.ts"
 import {
@@ -40,11 +41,13 @@ interface Row {
   readonly color: string | null
   readonly threads: number
   readonly connectedAt: Date
+  readonly themePointed: boolean
 }
 
 const read = (sql: SqlClient.SqlClient, where: Statement.Fragment) =>
   sql<Row>`
     select c.id, c.store_id, s.name as store_name, s.shop_domain, c.status, c.greeting, c.color, c.connected_at,
+           c.theme_pointed,
            (select count(*)::int from channel_threads t where t.channel_id = c.id and t.archived_at is null
               and t.spam_at is null and t.deleted_at is null) as threads
     from channels c join stores s on s.id = c.store_id
@@ -62,7 +65,8 @@ const viewOf = (embed: (shop: string) => string) => (r: Row) =>
     color: r.color,
     threads: r.threads,
     activateUrl: embed(r.shopDomain),
-    connectedAt: r.connectedAt.getTime()
+    connectedAt: r.connectedAt.getTime(),
+    themeUpdated: r.themePointed
   })
 
 const audit = (sql: SqlClient.SqlClient, action: string, id: string, diff?: Record<string, unknown>) =>
@@ -119,8 +123,10 @@ export const connect = Effect.fn("Channels.connect")(function*(input: typeof Con
   // Shopify's word on the storefront's own domain, read outside the transaction; without it the myshopify domain is
   // the only origin, until the next connect.
   const primary = yield* stores.primaryOrigin({ ...store, workspaceId: principal.workspaceId })
-  // Where the embed loads the widget from, told to Shopify on every connect; the widget stays off without it.
-  if (!(yield* stores.pointEmbed({ ...store, workspaceId: principal.workspaceId }))) {
+  // Where the embed loads the widget from, told to Shopify on every connect; the widget stays off without it, and
+  // Koppelingen says so (`themeUpdated`) rather than only "verbonden".
+  const pointed = yield* stores.pointEmbed({ ...store, workspaceId: principal.workspaceId })
+  if (!pointed) {
     yield* Effect.logWarning("webchat: the app embed's API origin was not set").pipe(
       Effect.annotateLogs({ storeId: store.id })
     )
@@ -136,11 +142,13 @@ export const connect = Effect.fn("Channels.connect")(function*(input: typeof Con
       const origins = primary === null ? [] : [primary.toLowerCase()]
       const id = before?.id ?? mintId("chn")
       if (before === undefined) {
-        yield* sql`insert into channels (id, workspace_id, store_id, kind, greeting, color, origins, created_by)
+        yield* sql`insert into channels (id, workspace_id, store_id, kind, greeting, color, origins, theme_pointed,
+                                         created_by)
                    values (${id}, ${principal.workspaceId}, ${store.id}, 'webchat', ${greeting}, ${color}, ${origins},
-                           ${principal.id})`
+                           ${pointed}, ${principal.id})`
       } else {
         yield* sql`update channels set status = 'connected', greeting = ${greeting}, color = ${color},
+                     theme_pointed = ${pointed},
                      origins = case when ${primary === null} then origins else ${origins} end,
                      connected_at = case when status = 'connected' then connected_at else now() end,
                      disconnected_at = null
@@ -178,6 +186,7 @@ export const disconnect = Effect.fn("Channels.disconnect")(function*(input: { re
       }
       yield* sql`update channels set status = 'disconnected', disconnected_at = now() where id = ${before.id}`
       yield* audit(sql, "channel.disconnected", before.id, { kind: "webchat" })
+      yield* embedChanged(sql, before.id)
       const undo = yield* Undo.issue(sql, {
         command: CHAT_RESTORE,
         compensation: {
@@ -200,7 +209,8 @@ export const restoreChannel = Effect.fn("Channels.restore")(function*(
   sql: SqlClient.SqlClient,
   undo: Extract<ChatRestore, { readonly kind: "channel" }>
 ) {
-  const [channel] = yield* sql<{ storeId: string }>`select store_id from channels where id = ${undo.channelId}`
+  const [channel] = yield* sql<{ storeId: string; workspaceId: string }>`
+    select store_id, workspace_id from channels where id = ${undo.channelId}`
   if (undo.status === null) {
     // Made by the connect: taken away while no chat came in on it; one that has chats is only switched off.
     const [chat] = yield* sql`select 1 from channel_threads where channel_id = ${undo.channelId} limit 1`
@@ -212,6 +222,50 @@ export const restoreChannel = Effect.fn("Channels.restore")(function*(
                where id = ${undo.channelId}`
   }
   yield* audit(sql, "channel.restored", undo.channelId)
-  // This isolate's widget reads the channel again at once, as after a connect or a disconnect.
-  if (channel !== undefined) forgetChatRoute(channel.storeId)
+  // This isolate's widget reads the channel again at once, as after a connect or a disconnect; the theme's embed is
+  // told Insyte's API again, or let go of it, as the channel now stands (taken away, it lets go).
+  if (channel !== undefined) {
+    forgetChatRoute(channel.storeId)
+    yield* Outbox.write(sql, channel.workspaceId, {
+      type: "webchat.changed",
+      workspaceId: channel.workspaceId,
+      storeId: channel.storeId
+    })
+  }
+})
+
+/** The channel's store hears, after this transaction, that its embed is to follow the channel (`syncEmbed`). */
+const embedChanged = (sql: SqlClient.SqlClient, channelId: string) =>
+  Effect.gen(function*() {
+    const [c] = yield* sql<{ storeId: string; workspaceId: string }>`
+      select store_id, workspace_id from channels where id = ${channelId}`
+    if (c === undefined) return
+    yield* Outbox.write(sql, c.workspaceId, { type: "webchat.changed", workspaceId: c.workspaceId, storeId: c.storeId })
+  })
+
+/**
+ * The relay's side of `webchat.changed`: the app installation's metafield as the store's chat now stands, this stage's
+ * API while it is on and nothing once it is off or gone, so a theme with the embed on shows no dead chat button.
+ * Shopify's answer is kept on the channel (`theme_pointed`); a failure is only logged: the next connect writes again.
+ */
+export const syncEmbed = Effect.fn("Channels.syncEmbed")(function*(
+  sql: SqlClient.SqlClient,
+  event: { readonly workspaceId: string; readonly storeId: string }
+) {
+  const stores = yield* WebchatStores
+  const [row] = yield* sql<{ connectionId: string; shopDomain: string; channelId: string | null; live: boolean }>`
+    select s.connection_id, s.shop_domain, c.id as channel_id, coalesce(c.status = 'connected', false) as live
+    from stores s left join channels c on c.store_id = s.id and c.kind = 'webchat'
+    where s.id = ${event.storeId}`
+  if (row === undefined) return
+  const store = { workspaceId: event.workspaceId, connectionId: row.connectionId, shopDomain: row.shopDomain }
+  const done = row.live ? yield* stores.pointEmbed(store) : yield* stores.clearEmbed(store)
+  if (!done) {
+    yield* Effect.logWarning("webchat: the app embed's metafield could not follow the channel").pipe(
+      Effect.annotateLogs({ storeId: event.storeId })
+    )
+  }
+  if (row.channelId !== null) {
+    yield* sql`update channels set theme_pointed = ${row.live && done} where id = ${row.channelId}`
+  }
 })

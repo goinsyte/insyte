@@ -10,6 +10,9 @@
  * the panel is open the widget asks for news every 4 seconds, and every 30 while a conversation exists and the panel is
  * closed, with the last answer's ETag, so "nothing new" costs a 304. It stops asking once the tab is hidden.
  *
+ * The bubble is put on the page only once the session opened: where the store's chat is off, or the page is not one
+ * of its storefronts, the widget shows nothing at all rather than a button that does nothing.
+ *
  * Dutch only, as the console is.
  */
 export const WIDGET_SCRIPT = String.raw`(() => {
@@ -217,9 +220,14 @@ export const WIDGET_SCRIPT = String.raw`(() => {
   });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
 
+  // The bubble only once the store's chat answers: a chat switched off, or not this storefront's, shows nothing.
+  const had = !!session;
   const mount = () => document.body.appendChild(host);
-  if (document.body) mount(); else document.addEventListener("DOMContentLoaded", mount);
   host.style.setProperty("--c", "#1f2937");
-  if (session) start().then(() => poll());
+  start().then((ok) => {
+    if (!ok) return;
+    if (document.body) mount(); else document.addEventListener("DOMContentLoaded", mount);
+    if (had) poll();
+  });
 })();
 `

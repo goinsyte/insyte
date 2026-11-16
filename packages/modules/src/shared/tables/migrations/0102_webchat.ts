@@ -43,6 +43,9 @@ export default statements(
      greeting        text not null default '' check (char_length(greeting) <= 200),
      color           text check (color ~ '^#[0-9a-f]{6}$'),
      origins         text[] not null default '{}',
+     -- Whether Shopify holds this stage's API in the app's metafield insyte.api_origin, which the theme's embed
+     -- loads the widget from: false until a connect wrote it, and again once a write failed.
+     theme_pointed   boolean not null default false,
      created_by      text not null,
      created_at      timestamptz not null default now(),
      updated_at      timestamptz not null default now(),
