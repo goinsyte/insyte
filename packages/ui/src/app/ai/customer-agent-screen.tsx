@@ -3,22 +3,17 @@ import { Switch } from "../../components/switch";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, Clock, Lock, MessageCircle, Plus, Send, Shield, Sparkles, Users, X } from "../../icons";
-import { ReadOnlyNotice } from "../access/route-gate";
+import { ReadOnlyNotice } from "../access/read-only-notice";
 import { InsyteMark } from "../ask/parts";
 import { EmptyPage } from "../common/empty-page";
 import { PageGuide } from "../common/page-guide";
 import { Notice } from "../developer/bits";
-import { WidgetPreview } from "../inbox/channel-parts";
+import { WidgetPreview } from "../inbox/widget-preview";
 import { FieldRow, UnsavedBar } from "../settings/form";
 import { SettingCard } from "../settings/setting-card";
 import { type ChannelMode, type CustomerAgentSettings, DAYS, isOpen, MODE_LABEL, nextOpenLabel } from "../lib/customer-agent";
-import { type Article, publishedVersion } from "../lib/knowledge";
-import { undoable } from "../lib/undo";
 import { cn } from "../lib/utils";
-import { useGate } from "../stores/access-store";
-import { useAutonomy, workspaceSpent } from "../stores/autonomy-store";
-import { AGENT_TODAY, useCustomerAgent } from "../stores/customer-agent-store";
-import { useKnowledge } from "../stores/knowledge-store";
+import { type TestMsg, useCustomerAgentSource } from "./customer-agent-source";
 
 /**
  * Instellingen → Insyte AI → Klantagent (`/settings/ai/customer-agent`, PLAN 28, ADR-0027): the agent
@@ -37,11 +32,11 @@ const GUIDE = [
 
 export function CustomerAgentPage() {
 	const navigate = useNavigate();
-	const saved = useCustomerAgent((s) => s.settings);
-	const spent = useAutonomy(workspaceSpent);
-	const settingsGate = useGate("settings", 3);
-	const aiGate = useGate("ai.autonomy");
-	const readOnly = !settingsGate.ok || !aiGate.ok;
+	const source = useCustomerAgentSource();
+	const saved = source.settings;
+	const spent = source.spent;
+	const today = source.today;
+	const readOnly = !source.gate.ok;
 	const savedKey = JSON.stringify(saved);
 	const [draft, setDraft] = useState<CustomerAgentSettings>(saved);
 	const last = useRef(savedKey);
@@ -57,15 +52,12 @@ export function CustomerAgentPage() {
 	const open = isOpen(draft.hours, now);
 	const [testing, setTesting] = useState(false);
 
-	const save = (next = draft, said = "Klantagent opgeslagen") => {
-		const undo = useCustomerAgent.getState().save(next);
-		undoable(said, undo, next.on ? "Nieuwe gesprekken volgen deze regels." : "Nieuwe gesprekken gaan naar de inbox.");
-	};
+	const save = (next = draft, said = "Klantagent opgeslagen") => void source.save(next, said);
 
 	if (!saved.on) {
 		return (
 			<>
-				{readOnly ? <ReadOnlyNotice reason={!settingsGate.ok ? settingsGate.reason : aiGate.reason} /> : null}
+				{readOnly ? <ReadOnlyNotice reason={source.gate.reason} /> : null}
 				<EmptyPage
 					kind="chats"
 					count="Uit"
@@ -87,7 +79,7 @@ export function CustomerAgentPage() {
 
 	return (
 		<>
-			{readOnly ? <ReadOnlyNotice reason={!settingsGate.ok ? settingsGate.reason : aiGate.reason} /> : null}
+			{readOnly ? <ReadOnlyNotice reason={source.gate.reason} /> : null}
 			{spent ? (
 				<Notice tone="amber" action={<Link to="/settings/ai/limits" className="font-medium text-sm hover:underline">Limieten openen</Link>}>
 					<span className="font-medium">Limiet bereikt.</span> Alle nieuwe gesprekken gaan naar het team tot de maand omslaat of je de limiet verhoogt.
@@ -102,11 +94,11 @@ export function CustomerAgentPage() {
 			<dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-ink/5 sm:grid-cols-5">
 				{(
 					[
-						["Gesprekken vandaag", AGENT_TODAY.conversations],
-						["Zelf afgehandeld", AGENT_TODAY.handled],
-						["Overgedragen", AGENT_TODAY.handedOver],
-						["Wachten", AGENT_TODAY.waiting],
-						["Eerste reactie", `${AGENT_TODAY.avgSeconds} s`],
+						["Gesprekken vandaag", today.conversations],
+						["Zelf afgehandeld", today.handled],
+						["Overgedragen", today.handedOver],
+						["Wachten", today.waiting],
+						["Eerste reactie", `${today.avgSeconds} s`],
 					] as const
 				).map(([k, v]) => (
 					<div key={k} className="flex flex-col gap-0.5 bg-paper px-4 py-3">
@@ -122,7 +114,7 @@ export function CustomerAgentPage() {
 						<ul className="flex flex-col overflow-hidden rounded-xl bg-paper shadow-[0_1px_2px_rgb(0_0_0/0.04)] [&>li+li]:shadow-[inset_0_1px_0_color-mix(in_oklch,var(--ink)_7%,transparent)]">
 							{(
 								[
-									["webchat", "Websitechat", "Northwind EU", true],
+									["webchat", "Websitechat", source.webchatDetail, true],
 									["whatsapp", "WhatsApp", "", false],
 									["instagram", "Instagram", "", false],
 									["email", "E-mail", "", false],
@@ -139,6 +131,12 @@ export function CustomerAgentPage() {
 								</li>
 							))}
 						</ul>
+						{draft.channels.webchat === "auto" && source.sendReply !== "auto" ? (
+							<Notice tone="amber" action={<Link to="/settings/ai/autonomy" search={{ actie: "SendReply" }} className="font-medium text-sm hover:underline">Zelfstandigheid openen</Link>}>
+								<span className="font-medium">Zelf antwoorden werkt nog niet.</span>{" "}
+								{source.sendReply === "ask" ? "Klant beantwoorden staat in Zelfstandigheid op Eerst vragen, dus Insyte zet op de websitechat alleen concepten klaar." : "Klant beantwoorden staat in Zelfstandigheid op Nooit, dus Insyte geeft elk gesprek op de websitechat aan je team."}
+							</Notice>
+						) : null}
 					</SettingCard>
 
 					<SettingCard title="Openingstijden" icon={Clock} action={<span className="text-ink-3 text-sm">{open ? "Nu open" : "Nu gesloten"}</span>}>
@@ -341,35 +339,8 @@ function Topics({ topics, onChange }: { topics: string[]; onChange: (t: string[]
 
 /* ── the test chat ─────────────────────────────────────────────────────────────────────────── */
 
-type TestMsg = { from: "shopper" | "insyte"; text: string; source?: string; handover?: boolean };
-
-const words = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[^a-z0-9]+/).filter((w) => w.length > 3);
-
-/** The answer the agent would give from the published chapters, with the one it used; or a handover. */
-function answer(q: string, articles: ReadonlyArray<Article>, s: CustomerAgentSettings): TestMsg {
-	const when = nextOpenLabel(s.hours, new Date());
-	const handover = (why: string): TestMsg => ({ from: "insyte", text: s.handoverMessage.replace("{wanneer}", when === "nu" ? "vandaag nog" : when), source: why, handover: true });
-	if (/geld terug|terugbetal|refund|korting krijg/i.test(q)) return handover("Overgedragen: geld beloven doet Insyte nooit");
-	if (s.handover.asksPerson && /mens|medewerker|collega|iemand spreken|bellen/i.test(q)) return handover("Overgedragen: de klant vraagt om een mens");
-	const topic = s.handover.topics.find((t) => q.toLowerCase().includes(t.replace(/en$/, "")));
-	if (topic) return handover(`Overgedragen: ${topic} is altijd voor een collega`);
-	const qw = new Set(words(q));
-	let best: { a: Article; score: number; section: string } | null = null;
-	for (const a of articles) {
-		const pub = publishedVersion(a);
-		if (!pub || a.audience === "assistant") continue;
-		for (const section of pub.body.split(/\n(?=## )/)) {
-			const score = words(`${a.title} ${section}`).filter((w) => qw.has(w)).length;
-			if (score > (best?.score ?? 1)) best = { a, score, section };
-		}
-	}
-	if (!best) return handover("Overgedragen: niet in de kennisbank, de vraag staat bij Nog niet beantwoord");
-	const text = best.section.replace(/^## .*\n+/, "").replace(/^- /gm, "• ").trim();
-	return { from: "insyte", text, source: `Uit Kennisbank: ${best.a.title} · versie ${publishedVersion(best.a)?.n}` };
-}
-
 function TestChat({ settings }: { settings: CustomerAgentSettings }) {
-	const articles = useKnowledge((s) => s.articles);
+	const source = useCustomerAgentSource();
 	const [msgs, setMsgs] = useState<TestMsg[]>([]);
 	const [q, setQ] = useState("");
 	const end = useRef<HTMLDivElement>(null);
@@ -379,8 +350,9 @@ function TestChat({ settings }: { settings: CustomerAgentSettings }) {
 	const greeting = useMemo(() => "Hoi! Waar kunnen we je mee helpen?", []);
 	const send = (text: string) => {
 		if (!text.trim()) return;
-		setMsgs((m) => [...m, { from: "shopper", text }, answer(text, articles, settings)]);
+		setMsgs((m) => [...m, { from: "shopper", text }]);
 		setQ("");
+		void source.test(text, settings).then((reply) => setMsgs((m) => [...m, reply]));
 	};
 	return (
 		<section aria-label="Klantagent proberen" className="flex h-full flex-col gap-2 rounded-xl bg-paper p-3 shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
@@ -388,7 +360,7 @@ function TestChat({ settings }: { settings: CustomerAgentSettings }) {
 				<h2 className="font-medium text-base text-ink">Proberen</h2>
 				<span className="rounded-sm bg-mist px-1.5 py-px text-ink-3 text-xs">Test</span>
 			</header>
-			<WidgetPreview greeting={greeting} agent />
+			<WidgetPreview greeting={greeting} agent {...(source.webchatDetail ? { store: source.webchatDetail.split(", ")[0] } : {})} />
 			<ol className="flex max-h-[380px] min-h-[120px] flex-col gap-2 overflow-y-auto px-1 lg:max-h-[380px]">
 				{msgs.length === 0 ? <li className="text-ink-3 text-sm">Stel een vraag zoals een klant.</li> : null}
 				{msgs.map((m, i) => (

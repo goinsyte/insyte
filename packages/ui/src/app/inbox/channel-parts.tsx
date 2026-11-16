@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router"
 import { useEffect, useRef, useState } from "react"
 import { channelsSeed } from "../../data-source"
-import { AlertTriangle, Check, Clock, Lock, MessageCircle, Send, Sparkle } from "../../icons"
+import { AlertTriangle, Check, Clock, Lock, Send } from "../../icons"
 import { InsyteMark } from "../ask/parts"
 import { FormDialog } from "../common/form-dialog"
 import {
@@ -18,6 +18,9 @@ import { cn } from "../lib/utils"
 import type { ThreadState } from "../stores/inbox-store"
 import { useWorkspace } from "../stores/workspace-store"
 import { ChannelMark } from "./channel-mark"
+import { WidgetPreview } from "./widget-preview"
+
+export { WidgetPreview }
 
 /*
  * The inbox's chat channels (PLAN 27, design §4): their mark, their group head, the letter drawn as
@@ -390,22 +393,3 @@ export function ChannelConnectDialog(
 }
 
 /** A static drawing of the shopper's side of the website chat, with the store's greeting. */
-export function WidgetPreview({ greeting, agent = false }: { greeting: string; agent?: boolean }) {
-  return (
-    <div aria-hidden className="flex flex-col gap-2 rounded-lg bg-mist p-3">
-      <div className="flex items-center gap-2 rounded-md bg-abyss px-3 py-2 text-mesh-ink text-sm">
-        <MessageCircle className="size-3.5" strokeWidth={1.75} />
-        Northwind EU
-        {agent
-          ? (
-            <span className="ml-auto flex items-center gap-1 text-mesh-ink-2 text-xs">
-              <Sparkle className="size-3" strokeWidth={1.75} />antwoordt meteen
-            </span>
-          )
-          : null}
-      </div>
-      <p className="max-w-[80%] rounded-lg bg-paper px-3 py-2 text-ink text-sm">{greeting}</p>
-      <div className="rounded-md bg-paper px-3 py-2 text-ink-3 text-sm">Typ een bericht</div>
-    </div>
-  )
-}
