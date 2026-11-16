@@ -8,6 +8,7 @@ import { agentPrincipal, daySlot, decideAutonomy, freeSlot, recordAction, teamHo
 import { shipStage, type WismoOrder } from "../../agent/domain/Triggers.ts"
 import type { Caller, CustomerAgentContext, CustomerAgentOutput } from "../../ai/Ai.ts"
 import type { BudgetExceeded, ModelUnavailable } from "../../ai/domain/Ai.ts"
+import { CHAT_TEXT_MAX } from "../../inbox/domain/ChatKinds.ts"
 import type { Hit } from "../../knowledge/domain/Knowledge.ts"
 import { cite, fileGap } from "../../knowledge/Knowledge.ts"
 import { ShippingValue } from "../../settings/domain/Settings.ts"
@@ -39,7 +40,6 @@ import {
   PROOF_OFFERED,
   PROOF_SHOWN,
   redactContact,
-  REPLY_MAX,
   replyFaults,
   STORE_VERIFY_CAP,
   triggerOf,
@@ -78,7 +78,7 @@ import { read, timezoneOf } from "./settings.ts"
  *    store's calls this hour (the plan's `PLAN_CHAT_CALLS_PER_HOUR`, each one counted as it starts, under a lock, so
  *    chats at once see each other) and the agent's share of the month's budget (`AGENT_BUDGET_SHARE`); past any, a
  *    person, and no model is asked. The model never reads an e-mail address, a phone number, a postcode or a street
- *    and house number, nor the message that proved an order. A reply over the chat's `REPLY_MAX` is a person's.
+ *    and house number, nor the message that proved an order. A reply over the chat's `CHAT_TEXT_MAX` is a person's.
  * 7. Right before anything goes (a reply or the handover's words), everything is asked again: the settings, the
  *    policy, the offline plan's hours and the opening hours, the thread, and whether this is still the shopper's
  *    newest message. Then `ChatChannel.reply` as the agent.
@@ -219,7 +219,7 @@ export const think = <E = never, R = never>(brain: Brain, t: Thinking<E, R>) =>
     const text = out.text.trim()
     if (!out.answered || text === "") return handover("no_knowledge", true)
     if (!out.sure && t.settings.handover.unsure) return handover("unsure")
-    if (text.length > REPLY_MAX) return handover("guard")
+    if (text.length > CHAT_TEXT_MAX) return handover("guard")
     const facts = [...knowledge.map((k) => `${k.title}\n${k.text}`), t.order ?? "", t.brand].join("\n")
     // A promise is read from what the chapters and the order say, never from a chapter's title.
     const statements = [...knowledge.map((k) => k.text), t.order ?? ""].join("\n")
@@ -518,12 +518,14 @@ const newestOfShopper = (history: ReadonlyArray<ChatMessage>) =>
 /**
  * The shopper's messages since the agent or the team last wrote, oldest first: what one turn answers. `whole`: all of
  * them are in `history` (it reached the last word, or the thread's start), not only the newest `limit` of the chat.
+ * `answered`: the newest message the agent's last reply answered, a last word too, as the chat hides that reply until
+ * its undo window has passed.
  */
-const sinceLastWord = (history: ReadonlyArray<ChatMessage>, limit: number) => {
+export const sinceLastWord = (history: ReadonlyArray<ChatMessage>, limit: number, answered: string | null) => {
   const pending: Array<ChatMessage> = []
   for (let i = history.length - 1; i >= 0; i--) {
     const m = history[i]!
-    if (m.author === "agent" || m.author === "team") return { pending, whole: true }
+    if (m.author === "agent" || m.author === "team" || m.id === answered) return { pending, whole: true }
     if (m.author === "shopper") pending.unshift(m)
   }
   return { pending, whole: history.length < limit }
@@ -622,7 +624,11 @@ const turn = (brain: Brain, task: ChatTask, settings: CustomerAgentSettings) =>
     }
     // Every message of the shopper's since the agent or the team last wrote: each is screened and counted, and the turn
     // answers all. More than it reads at once: a person.
-    const { pending, whole } = sinceLastWord(history, READ)
+    const [kept] = yield* db.scoped((sql) =>
+      sql<{ answeredMessageId: string | null }>`
+        select answered_message_id from customer_agent_threads where thread_id = ${task.threadId}`
+    )
+    const { pending, whole } = sinceLastWord(history, READ, kept?.answeredMessageId ?? null)
     const asked = pending.map((m) => m.text).join("\n")
     const row = yield* db.scoped((sql) => turnOn(sql, task, pending, thread.handedBackAt))
 
@@ -697,7 +703,15 @@ const turn = (brain: Brain, task: ChatTask, settings: CustomerAgentSettings) =>
                            proved_order_ids = case when ${order.id} = any(proved_order_ids) then proved_order_ids
                                                    else array_append(proved_order_ids, ${order.id}::text) end
                        where thread_id = ${task.threadId}`
-            if (order.customerId !== null) yield* chat.bindCustomer(task.threadId, order.customerId)
+            // The chat named after its customer; one gone from the store meanwhile leaves it unnamed, the proof standing.
+            if (order.customerId !== null) {
+              yield* chat.bindCustomer(task.threadId, order.customerId).pipe(
+                Effect.catchIf(
+                  (e) => e.entity === "customer",
+                  () => Effect.logWarning("the customer agent's proved order has no customer to bind")
+                )
+              )
+            }
             const facts = yield* factsOf(sql, order.id, task.storeId, tz)
             const said = facts === null ? null : orderStatusReply(facts, settings.tone === "formal")
             return said === null
@@ -748,44 +762,50 @@ const turn = (brain: Brain, task: ChatTask, settings: CustomerAgentSettings) =>
       })
     })
 
-    if (thought._tag === "Handover") {
-      yield* release()
-      if (thought.gap) {
+    // To a person: the question filed where nothing covered it, the shopper told so on Zelf antwoorden (asked again
+    // right before), the chat handed over and the row marked.
+    const handOff = (reason: string, gap: boolean, model: ModelRef | null) =>
+      Effect.gen(function*() {
+        yield* release()
+        if (gap) {
+          yield* db.scoped((sql) =>
+            fileGap(sql, {
+              question: redactContact(asked),
+              channel: "webchat",
+              customerLabel: "Websitebezoeker",
+              threadId: task.threadId,
+              ticketId: null,
+              storeId: task.storeId,
+              sourceKind: "channel_message",
+              sourceId: task.messageId
+            })
+          )
+        }
+        // Zelf antwoorden tells the shopper a colleague takes it and when, asked again right before it goes; Nooit and
+        // the drafts say nothing.
+        if (mode === "auto" && reason !== "policy" && reason !== "disabled") {
+          const still = yield* recheck(task, "handover")
+          if (still === "taken" || still === "scope") return yield* taken(still)
+          if (still === null) yield* Effect.ignore(chat.reply(task.threadId, handoverText(settings, tz, now)))
+        }
+        yield* chat.handOver(task.threadId, reason)
         yield* db.scoped((sql) =>
-          fileGap(sql, {
-            question: redactContact(asked),
-            channel: "webchat",
-            customerLabel: "Websitebezoeker",
-            threadId: task.threadId,
-            ticketId: null,
-            storeId: task.storeId,
-            sourceKind: "channel_message",
-            sourceId: task.messageId
-          })
+          sql`update customer_agent_threads
+              set handed_over_at = now(), handover_reason = ${reason},
+                  held_at = case when ${reason === "runaway"} then now() else held_at end
+              where thread_id = ${task.threadId}`
         )
-      }
-      // Zelf antwoorden tells the shopper a colleague takes it and when, asked again right before it goes; Nooit and
-      // the drafts say nothing.
-      if (mode === "auto" && thought.reason !== "policy" && thought.reason !== "disabled") {
-        const still = yield* recheck(task, "handover")
-        if (still === "taken" || still === "scope") return yield* taken(still)
-        if (still === null) yield* Effect.ignore(chat.reply(task.threadId, handoverText(settings, tz, now)))
-      }
-      yield* chat.handOver(task.threadId, thought.reason)
-      yield* db.scoped((sql) =>
-        sql`update customer_agent_threads
-            set handed_over_at = now(), handover_reason = ${thought.reason},
-                held_at = case when ${thought.reason === "runaway"} then now() else held_at end
-            where thread_id = ${task.threadId}`
-      )
-      yield* write({
-        decision: d.decision === "refuse" ? "refuse" : "propose",
-        outcome: d.decision === "refuse" ? "refused" : "proposed",
-        refuseReason: d.decision === "refuse" ? d.reason ?? "policy" : thought.reason,
-        ...LOG.Handover
+        yield* write({
+          decision: d.decision === "refuse" ? "refuse" : "propose",
+          outcome: d.decision === "refuse" ? "refused" : "proposed",
+          refuseReason: d.decision === "refuse" ? d.reason ?? "policy" : reason,
+          model,
+          ...LOG.Handover
+        })
+        return "handed_over" as Turn
       })
-      return "handed_over" as Turn
-    }
+
+    if (thought._tag === "Handover") return yield* handOff(thought.reason, thought.gap, null)
 
     const sentence = thought.kind === "knowledge" ? LOG.Reply.sentence : SENTENCE[thought.kind]
     if (mode !== "auto") {
@@ -831,13 +851,16 @@ const turn = (brain: Brain, task: ChatTask, settings: CustomerAgentSettings) =>
     }
     const sent = yield* Effect.result(chat.reply(task.threadId, thought.text))
     if (sent._tag === "Failure") {
+      // Words the chat refuses (`Invalid`: too long, a control character) never went: a person answers instead.
+      if (sent.failure._tag === "Invalid") return yield* handOff("guard", false, thought.model)
       yield* release()
       return yield* taken(sent.failure._tag === "NotFound" ? "scope" : "taken")
     }
     yield* db.scoped((sql) =>
       Effect.gen(function*() {
         yield* sql`update customer_agent_threads
-                   set replies = replies + 1, first_reply_at = coalesce(first_reply_at, now()), last_reply_at = now()
+                   set replies = replies + 1, first_reply_at = coalesce(first_reply_at, now()), last_reply_at = now(),
+                       answered_message_id = ${task.messageId}
                    where thread_id = ${task.threadId}`
         yield* cite(sql, thought.hits, { kind: "channel_message", id: sent.success.messageId })
       })

@@ -1,6 +1,7 @@
 import type { AutonomyLevel } from "@insyte/domain/AgentActions"
 import { defanged, namesAmount, promisesMoney, untracedLinks } from "../../agent/domain/Triggers.ts"
 import { untracedFigures } from "../../ai/domain/Guards.ts"
+import { CHAT_TEXT_MAX } from "../../inbox/domain/ChatKinds.ts"
 import {
   CHANNEL_KINDS,
   type ChannelMode,
@@ -283,9 +284,6 @@ export const MAX_TURNS = 30
  */
 export const MAX_PENDING = 20
 
-/** The longest message the website chat takes (`CHAT_TEXT_MAX` of the chat's contract): a longer reply is a person's. */
-export const REPLY_MAX = 1000
-
 /**
  * The customer agent's share of the workspace's monthly AI budget: past it, chats go to the team and every other AI
  * feature still has the rest.
@@ -360,13 +358,13 @@ const statusLines = (o: OrderFacts, formal: boolean, link: boolean) =>
 
 /**
  * The fixed reply with a proved order's status: nothing in it is the model's or the shopper's. Over the chat's
- * `REPLY_MAX` with its tracking link, it points to the shipping mail instead; still over it, `null` (a person says it).
+ * `CHAT_TEXT_MAX` with its tracking link, it points to the shipping mail instead; still over it, `null` (a person says it).
  */
 export const orderStatusReply = (o: OrderFacts, formal: boolean): string | null => {
   const full = statusLines(o, formal, true)
-  if (full.length <= REPLY_MAX) return full
+  if (full.length <= CHAT_TEXT_MAX) return full
   const short = statusLines(o, formal, false)
-  return short.length <= REPLY_MAX ? short : null
+  return short.length <= CHAT_TEXT_MAX ? short : null
 }
 
 /* ── what a reply may say ─────────────────────────────────────────────────────────────────────────────────── */

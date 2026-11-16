@@ -5,20 +5,22 @@ import { env } from "cloudflare:workers"
 import { beforeAll, describe, expect, it } from "vitest"
 import worker from "../src/Local.ts"
 import type { EventsMessage } from "../src/platform/Relay.ts"
-import { failure, join, ok, pastUndo, relay, run } from "./journeys.ts"
+import { failure, join, ok, outboxOf, pastUndo, relay, run } from "./journeys.ts"
 import { anotherStore, importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"
 
 /*
- * The customer agent at work (M15 step 8; ADR-0027), on the fake model and the local chat (`platform/chat/LocalChat.ts`)
- * until the website chat lands: a shopper's message on the website chat becomes the agent's task, and the workspace's
- * agent answers it from the published knowledge base, or a proved order, or hands it to the team. Klant beantwoorden is
+ * The customer agent at work (M15 step 8; ADR-0027), on the fake model and the website chat itself (W12.1): a shopper's
+ * message on the store's chat becomes the agent's task, and the workspace's agent answers it from the published
+ * knowledge base, or a proved order, or hands it to the team. Klant beantwoorden is
  * the master and the channel's mode only narrows it; the hours, a person asked for, money, anger, a topic, too many
  * turns, nothing in the knowledge base and a spent budget hand over; an order is never named before the shopper proves
  * it, and guessing ends with a person; a thread a person has is left alone until it is handed back. Every message is
  * one row in the agent's log.
  *
- * Each test runs the agent's task itself and waits for it (`turn`), as the agent sink's tests do.
+ * Each test runs the agent's task itself and waits for it (`turn`), as the agent sink's tests do. A shopper writes
+ * through the widget's own path without its rate limits (`__dev/webchat/shopper`), so a test may send a burst; what the
+ * agent said is read as the inbox shows it, a reply still waiting out its undo window included.
  */
 
 type Action = {
@@ -83,6 +85,7 @@ const chatStore = async (tag: string) => {
       baseRevision: created.article.revision
     }, store.cookie)
   )
+  ok(await rpc("Channels.connect", { kind: "webchat", greeting: "Hoi!" }, store.cookie))
   const configure = async (patch: Record<string, unknown> = {}, sendReply: "auto" | "ask" | "never" = "auto") => {
     const { version, levels } = ok(await rpc("Autonomy.get", {}, store.cookie))
     if (levels.SendReply !== sendReply) {
@@ -90,15 +93,21 @@ const chatStore = async (tag: string) => {
     }
     ok(await rpc("ChannelAgent.set", { ...SETTINGS, ...patch } as never, store.cookie))
   }
+  /** Each conversation's shopper session, to write on it again. */
+  const sessions = new Map<string, string>()
   /** A shopper's message, on a new thread or that one, on the store's chat or another store's. */
-  const say = async (text: string, threadId?: string, storeId = store.storeId) => ({
-    ...(await (await post(`http://api.test/api/__dev/chat/message?workspace=${store.workspace}`, {
+  const say = async (text: string, threadId?: string, storeId = store.storeId) => {
+    const response = await post("http://api.test/api/__dev/webchat/shopper", {
       storeId,
       text,
-      ...(threadId === undefined ? {} : { threadId })
-    })).json()) as { threadId: string; messageId: string },
-    storeId
-  })
+      ...(threadId === undefined ? {} : { token: sessions.get(threadId) })
+    })
+    expect(response.status).toBe(200)
+    const said = (await response.json()) as { token: string; threadId: string; messageId: string }
+    if (threadId !== undefined) expect(said.threadId).toBe(threadId)
+    sessions.set(said.threadId, said.token)
+    return { threadId: said.threadId, messageId: said.messageId, storeId }
+  }
   /** The agent's turn on that message, run and waited for. */
   const turn = async (m: { threadId: string; messageId: string; storeId?: string }) => {
     const result = await deliver({
@@ -116,18 +125,44 @@ const chatStore = async (tag: string) => {
     return m
   }
   const chat = async (text: string, threadId?: string, storeId?: string) => turn(await say(text, threadId, storeId))
-  const threadOf = async (threadId: string) =>
-    (await (await call(`http://api.test/api/__dev/chat/thread?workspace=${store.workspace}&thread=${threadId}`))
-      .json()) as Thread
+  /** The thread as the chat's port tells the agent, and its messages as the inbox shows them. */
+  const threadOf = async (threadId: string): Promise<Thread> => {
+    const told = (await (await post(`http://api.test/api/__dev/webchat/agent?workspace=${store.workspace}`, {
+      op: "thread",
+      threadId
+    })).json()) as { ok: Thread["thread"] }
+    return { thread: told.ok, messages: await messagesOf(threadId) }
+  }
+  const messagesOf = async (threadId: string) =>
+    ok(await rpc("Threads.get", { id: threadId }, store.cookie)).chat.map((m) => ({
+      id: m.id,
+      author: m.author,
+      text: m.text
+    }))
   const agentSaid = async (threadId: string) =>
-    (await threadOf(threadId)).messages.filter((m) => m.author === "agent").map((m) => m.text)
+    (await messagesOf(threadId)).filter((m) => m.author === "agent").map((m) => m.text)
   const rowsOf = async (threadId: string) =>
     ((await (await call(`http://api.test/api/__dev/agent/actions?workspace=${store.workspace}`)).json()) as {
       actions: Array<Action>
     }).actions.filter((a) => a.subjectId === threadId)
-  const person = (threadId: string, act: Record<string, unknown>) =>
-    post(`http://api.test/api/__dev/chat/thread?workspace=${store.workspace}&thread=${threadId}`, act)
-  return { ...store, configure, say, turn, chat, threadOf, agentSaid, rowsOf, person }
+  /** The owner on the thread in the inbox: "Overnemen", or "Teruggeven aan Insyte". */
+  const person = async (threadId: string, act: { takeOver: true } | { handBack: true }) =>
+    ok(await rpc("takeOver" in act ? "Threads.takeOver" : "Threads.handBack", { threadId }, store.cookie))
+  /** The agent's turn with the owner taking the thread over right before its `read`-th read of it. */
+  const turnTakenAt = (m: { threadId: string; messageId: string }, read: number) =>
+    post(`http://api.test/api/__dev/webchat/turn?workspace=${store.workspace}`, {
+      storeId: store.storeId,
+      threadId: m.threadId,
+      messageId: m.messageId,
+      takeOverOnRead: read
+    })
+  /** Another store of the workspace, with its chat connected. */
+  const otherStore = async (tag: string) => {
+    const b = await anotherStore(store, tag)
+    ok(await rpc("Channels.connect", { kind: "webchat", greeting: "Hoi!", storeId: b.storeId }, store.cookie))
+    return b
+  }
+  return { ...store, configure, say, turn, chat, threadOf, agentSaid, rowsOf, person, turnTakenAt, otherStore }
 }
 
 describe("the customer agent", () => {
@@ -251,12 +286,12 @@ describe("the customer agent", () => {
     await s.configure()
     const first = await s.chat("Kan ik een sale-artikel nog retourneren?")
     expect(await s.agentSaid(first.threadId)).toHaveLength(1)
-    await s.person(first.threadId, { takeOver: "mem_someone" })
+    await s.person(first.threadId, { takeOver: true })
     const during = await s.chat("Kan ik een sale-artikel ook ruilen?", first.threadId)
     expect(await s.agentSaid(first.threadId)).toHaveLength(1)
     expect((await s.rowsOf(first.threadId)).at(-1)).toMatchObject({ decision: "refuse", refuseReason: "taken" })
     void during
-    await s.person(first.threadId, { takeOver: null })
+    await s.person(first.threadId, { handBack: true })
     await s.chat("Kan ik een sale-artikel nog retourneren na een week?", first.threadId)
     expect(await s.agentSaid(first.threadId)).toHaveLength(2)
   })
@@ -478,7 +513,7 @@ describe("the customer agent, after review", () => {
 
   it("never answers a store's chat from a chapter published for another store only", async () => {
     await s.configure()
-    const b = await anotherStore(s, "chat-review-b")
+    const b = await s.otherStore("chat-review-b")
     const SECRET = "Bij winkel B pakken we elk pakket in als cadeau met code WINKELB."
     const created = ok(
       await rpc("Knowledge.create", {
@@ -614,9 +649,9 @@ describe("the customer agent, after review", () => {
     ).toBe(200)
     const m = await s.chat(`Bestelling #7201, ${address}`)
     expect((await s.agentSaid(m.threadId)).at(-1)).toContain("#7201")
-    await s.person(m.threadId, { takeOver: "mem_someone" })
+    await s.person(m.threadId, { takeOver: true })
     await s.chat("Bedankt, ik wacht even.", m.threadId)
-    await s.person(m.threadId, { takeOver: null })
+    await s.person(m.threadId, { handBack: true })
     await s.chat("Waar blijft mijn bestelling?", m.threadId)
     expect((await s.agentSaid(m.threadId)).at(-1)).toBe(ASK_PROOF)
   })
@@ -642,8 +677,8 @@ describe("the customer agent, after review", () => {
     ).toBe(200)
     const m = await s.chat(`Bestelling #7203, ${address}`)
     expect((await s.agentSaid(m.threadId)).at(-1)).toContain("#7203")
-    await s.person(m.threadId, { takeOver: "mem_someone" })
-    await s.person(m.threadId, { takeOver: null })
+    await s.person(m.threadId, { takeOver: true })
+    await s.person(m.threadId, { handBack: true })
     await s.chat("Waar blijft mijn bestelling?", m.threadId)
     expect((await s.agentSaid(m.threadId)).at(-1)).toBe(ASK_PROOF)
   })
@@ -652,9 +687,10 @@ describe("the customer agent, after review", () => {
     await s.configure()
     const m = await s.say("Ik wil een mens spreken")
     // The turn reads the thread once at its start; a person has it by the read right before the words go.
-    await s.person(m.threadId, { takeOverOnRead: { reads: 2, by: "mem_someone" } })
-    await s.turn(m)
+    const turned = await s.turnTakenAt(m, 2)
+    expect(await turned.json()).toMatchObject({ ok: true, reads: 2 })
     expect(await s.agentSaid(m.threadId)).toEqual([])
+    expect(await s.rowsOf(m.threadId)).toMatchObject([{ refuseReason: "taken" }])
   })
 
   it("files a chat's question without the shopper's postcode, and an erasure reaches it", async () => {
@@ -711,8 +747,8 @@ describe("the customer agent, after review", () => {
     const filed = ok(await rpc("Knowledge.gaps", {}, s.cookie)).rows.find((g) => g.question.includes("Monaco"))
     expect(filed).toBeDefined()
     // A person takes it and hands it back; the shopper writes on, and the proof is gone.
-    await s.person(proved.threadId, { takeOver: "mem_someone" })
-    await s.person(proved.threadId, { takeOver: null })
+    await s.person(proved.threadId, { takeOver: true })
+    await s.person(proved.threadId, { handBack: true })
     await s.chat("Waar blijft mijn bestelling?", proved.threadId)
     expect((await s.agentSaid(proved.threadId)).at(-1)).toBe(ASK_PROOF)
     ok(await rpc("Privacy.requestErasure", { email: address }, s.cookie))
@@ -852,10 +888,69 @@ describe("the customer agent's day, after review", () => {
 
       const taken = await s.chat("Ik wil een mens spreken")
       expect(ok(await rpc("ChannelAgent.today", undefined, s.cookie)).waiting).toBe(2)
-      await s.person(taken.threadId, { takeOver: "mem_someone" })
+      await s.person(taken.threadId, { takeOver: true })
       await s.chat("Hallo?", taken.threadId)
       expect(ok(await rpc("ChannelAgent.today", undefined, s.cookie)).waiting).toBe(1)
     },
     180_000
   )
+})
+
+/*
+ * On the website chat itself (W12.1), where it is not as the local chat was: a reply waits out the chat's undo window
+ * before anyone reads it, the chat refuses words of its own, and a chat the team marked as spam tells nobody.
+ */
+describe("the customer agent on the website chat", () => {
+  let s: Awaited<ReturnType<typeof chatStore>>
+
+  beforeAll(async () => {
+    s = await chatStore("chat-live")
+  }, 180_000)
+
+  it("answers the shopper's next message alone while its last reply still waits out the undo window", async () => {
+    await s.configure()
+    const first = await s.chat("Kan ik een sale-artikel nog retourneren?")
+    expect(await s.agentSaid(first.threadId)).toEqual([ANSWERED])
+    // The reply is not in the chat's history yet: the first question is still answered, and not again.
+    await s.chat("Hebben jullie ook een winkel in Utrecht?", first.threadId)
+    const said = await s.agentSaid(first.threadId)
+    expect(said).toHaveLength(2)
+    expect(said[1]).toContain("Hier kijkt een collega")
+    expect((await s.threadOf(first.threadId)).thread.handover).toMatchObject({ reason: "no_knowledge" })
+  })
+
+  it("hands over words the chat refuses, rather than leaving the shopper unanswered", async () => {
+    await s.configure()
+    // A tab in the chapter: the fake model's answer keeps it, and the chat takes no control character but the newline.
+    const body = "Wij verzenden\telke werkdag vanuit Rotterdam."
+    const created = ok(
+      await rpc("Knowledge.create", { title: "Verzending", audience: "customer_agent", body }, s.cookie)
+    )
+    ok(
+      await rpc("Knowledge.publish", {
+        id: created.article.id,
+        title: "Verzending",
+        audience: "customer_agent",
+        body,
+        baseRevision: created.article.revision
+      }, s.cookie)
+    )
+    const m = await s.chat("Vanuit welke plaats verzenden jullie?")
+    const said = await s.agentSaid(m.threadId)
+    expect(said).toHaveLength(1)
+    expect(said[0]).toContain("Hier kijkt een collega")
+    expect((await s.threadOf(m.threadId)).thread.handover).toMatchObject({ reason: "guard" })
+    expect(await s.rowsOf(m.threadId)).toMatchObject([{ outcome: "proposed", refuseReason: "guard" }])
+    expect((await s.rowsOf(m.threadId))[0]!.model).not.toBeNull()
+  })
+
+  it("is never asked about a chat the team marked as spam", async () => {
+    await s.configure()
+    const first = await s.say("Kan ik een sale-artikel nog retourneren?")
+    ok(await rpc("Threads.spam", { ids: [first.threadId] }, s.cookie))
+    const next = await s.say("Kan ik een sale-artikel nog retourneren?", first.threadId)
+    const heard = (await outboxOf(s.workspace)).filter((e) => e.event === "chat.received").map((e) => e.payload)
+    expect(heard).toContainEqual(expect.objectContaining({ messageId: first.messageId }))
+    expect(heard).not.toContainEqual(expect.objectContaining({ messageId: next.messageId }))
+  })
 })

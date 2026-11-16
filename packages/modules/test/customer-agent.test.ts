@@ -20,12 +20,12 @@ import {
   nextOpenLabel,
   orderStatusReply,
   redactContact,
-  REPLY_MAX,
   replyFaults,
   triggerOf,
   widens
 } from "../src/channel-agent/domain/Rules.ts"
 import { type Brain, historyForModel, think } from "../src/channel-agent/use-cases/engine.ts"
+import { CHAT_TEXT_MAX } from "../src/inbox/domain/ChatKinds.ts"
 import type { Hit } from "../src/knowledge/domain/Knowledge.ts"
 
 /*
@@ -174,7 +174,7 @@ describe("the order's status, as the chat takes it", () => {
   it("points to the shipping mail when the tracking link makes it too long, and is a person's when still too long", () => {
     const long = { ...order, trackingUrl: `https://postnl.nl/t/${"x".repeat(1200)}` }
     const said = orderStatusReply(long, false)!
-    expect(said.length).toBeLessThanOrEqual(REPLY_MAX)
+    expect(said.length).toBeLessThanOrEqual(CHAT_TEXT_MAX)
     expect(said).toContain("Volg je pakket met de link in je verzendmail.")
     expect(said).not.toContain("xxx")
     expect(orderStatusReply({ ...long, label: "y".repeat(1200) }, false)).toBeNull()

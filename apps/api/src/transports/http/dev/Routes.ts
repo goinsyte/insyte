@@ -6,7 +6,6 @@ import { AuthEventsOf } from "./auth.ts"
 import { AutomationRunsOf, AutomationScheduleTick, AutomationUncheckedVersion } from "./automations.ts"
 import { BillingCheckouts } from "./billing.ts"
 import { ChargebackRemind } from "./chargebacks.ts"
-import { ChatRoutes } from "./chat.ts"
 import { CostsRoutes } from "./costs.ts"
 import { DataRoutes } from "./data.ts"
 import { FactsRoutes } from "./facts.ts"
@@ -63,7 +62,6 @@ const Routes = Layer.mergeAll(
   PrivacyRoutes,
   AiRoutes,
   AgentRoutes,
-  ChatRoutes,
   IdempotencyRoutes,
   WebchatRoutes
 )
