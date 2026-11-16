@@ -4,7 +4,7 @@ import { mintId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
-import type { SqlClient } from "effect/sql"
+import { type SqlClient, SqlError } from "effect/sql"
 import { PendingEvents, Relay } from "../../shared/domain/Outbox.ts"
 import { UNDO_SECONDS, UndoWindow } from "../../shared/domain/Undo.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
@@ -71,6 +71,29 @@ interface Locked {
 
 const COLUMNS = `subject, participants::text as participants, unread, starred, labels, assignee_id,
   ticket_id, customer_id, archived_at, snoozed_until, spam_at, deleted_at, last_message_at, last_message_preview`
+
+/**
+ * A chat back out of the Prullenbak while its session has a newer open one: it comes back closed, since a session holds
+ * one open conversation (`channel_threads_visitor`). Mail keeps its own closed state, which it does not have.
+ */
+const reopening = (sql: SqlClient.SqlClient, l: { readonly chat: boolean }, deletedAt: Date | null) =>
+  l.chat
+    ? sql`, closed_at = case
+        when ${deletedAt}::timestamptz is null and t.closed_at is null and exists (
+          select 1 from channel_threads o
+          where o.store_id = t.store_id and o.visitor_hash = t.visitor_hash and o.id <> t.id
+            and o.closed_at is null and o.deleted_at is null)
+        then now() else t.closed_at end`
+    : sql``
+
+const isUnique = (e: unknown): e is SqlError.SqlError =>
+  SqlError.isSqlError(e) &&
+  ((e.reason as { readonly _tag?: string })._tag === "UniqueViolation" ||
+    String((e.reason.cause as { readonly code?: unknown } | undefined)?.code) === "23505")
+
+/** A thread that cannot be put back as it was, said as a conflict rather than a failure of the database. */
+export const uniqueAsConflict = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(Effect.catchIf(isUnique, () => Effect.fail(new Conflict({ entity: "thread", reason: "open_elsewhere" }))))
 
 /** The table a locked thread is in. */
 export const tableOf = (sql: SqlClient.SqlClient, l: { readonly chat: boolean }) =>
@@ -234,7 +257,7 @@ export const snooze = Effect.fn("Threads.snooze")(function*(input: typeof Snooze
 export const putBack = Effect.fn("Threads.restore")(function*(input: { readonly ids: ReadonlyArray<string> }) {
   yield* Policy.require("support", 2)
   const db = yield* Db
-  return yield* db.scoped((sql) =>
+  return yield* uniqueAsConflict(db.scoped((sql) =>
     Effect.gen(function*() {
       const locked = yield* lock(sql, input.ids)
       const going = locked.filter((l) =>
@@ -242,13 +265,13 @@ export const putBack = Effect.fn("Threads.restore")(function*(input: { readonly 
       )
       if (going.length === 0) return none()
       for (const l of going) {
-        yield* sql`update ${tableOf(sql, l)} set archived_at = null, spam_at = null, deleted_at = null,
-                     snoozed_until = null where id = ${l.id}`
+        yield* sql`update ${tableOf(sql, l)} t set archived_at = null, spam_at = null, deleted_at = null,
+                     snoozed_until = null ${reopening(sql, l, null)} where t.id = ${l.id}`
         yield* audit(sql, "thread.put_back", l.id)
       }
       return yield* answer(sql, going.map((l) => l.id), { kind: "fields", threads: going.map(before) })
     })
-  )
+  ))
 })
 
 /** "Deze mail toewijzen": one teammate, active in the team. */
@@ -652,12 +675,14 @@ const putFields = (sql: SqlClient.SqlClient, t: Before) =>
   Effect.forEach(["email_threads", "channel_threads"], (table) => putFieldsIn(sql, table, t), { discard: true })
 
 const putFieldsIn = (sql: SqlClient.SqlClient, table: string, t: Before) =>
-  sql`update ${sql.literal(table)} set unread = ${t.unread}, starred = ${t.starred}, labels = ${[...t.labels]}::text[],
+  sql`update ${sql.literal(table)} t set unread = ${t.unread}, starred = ${t.starred},
+        labels = ${[...t.labels]}::text[],
         assignee_id = (select id from members where id = ${t.assigneeId}), ticket_id = ${t.ticketId},
         archived_at = ${at(t.archivedAt)}, snoozed_until = ${at(t.snoozedUntil)}, spam_at = ${at(t.spamAt)},
         deleted_at = ${at(t.deletedAt)}, last_message_at = ${new Date(t.lastMessageAt)},
         last_message_preview = ${t.preview}
-      where id = ${t.id}`
+        ${reopening(sql, { chat: table === "channel_threads" }, at(t.deletedAt))}
+      where t.id = ${t.id}`
 
 /** `Shared.undo`'s compensation: the threads as they were, a message that never left, a ticket made taken away. */
 export const restore = Effect.fn("Inbox.restore")(function*(sql: SqlClient.SqlClient, compensation: unknown) {

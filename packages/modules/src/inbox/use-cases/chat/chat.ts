@@ -18,7 +18,7 @@ import * as Outbox from "../../../shared/use-cases/Outbox.ts"
 import { inScope } from "../../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../../shared/use-cases/Undo.ts"
 import { ChatRestore, HandoverChange } from "../../domain/Chat.ts"
-import { CHAT_TEXT_MAX } from "../../domain/ChatKinds.ts"
+import { textRefused } from "../../domain/ChatKinds.ts"
 import { MessageQueued, type MessageView } from "../../domain/Inbox.ts"
 import { previewOf } from "../inbound.ts"
 import { rowsOf } from "../threads.ts"
@@ -86,9 +86,8 @@ const authorOf = (p: Principal): ChatAuthor => p.kind === "agent" ? "agent" : p.
 /** A text as either side may write it: trimmed, not empty, not too long. */
 export const checkText = (text: string) => {
   const t = text.trim()
-  if (t === "") return Effect.fail(new Invalid({ fields: { body: "required" } }))
-  if (t.length > CHAT_TEXT_MAX) return Effect.fail(new Invalid({ fields: { body: "too_long" } }))
-  return Effect.succeed(t)
+  const why = textRefused(t)
+  return why === undefined ? Effect.succeed(t) : Effect.fail(new Invalid({ fields: { body: why } }))
 }
 
 /**
@@ -348,6 +347,13 @@ export const handOver = Effect.fn("Chat.handOver")(function*(threadId: string, r
 
 /** The chat is a verified customer's of its own store: their name in the inbox, and their order on the chip. */
 export const bindCustomer = Effect.fn("Chat.bindCustomer")(function*(threadId: string, customerId: string) {
+  // Binding says who the shopper is: the workspace's agent, once it proved it, or a person who may answer chats.
+  const principal = yield* CurrentPrincipal
+  if (principal.kind !== "agent") {
+    yield* Policy.require("support", 2).pipe(
+      Effect.catchTag("Forbidden", () => Effect.fail(new NotFound({ entity: "thread", id: threadId })))
+    )
+  }
   const db = yield* Db
   yield* reading(
     threadId,
@@ -380,11 +386,14 @@ export const restore = Effect.fn("Chat.restore")(function*(sql: SqlClient.SqlCli
   switch (undo.kind) {
     case "unsent": {
       // Only while it still waits: once the shopper may have read it, it stays.
-      yield* sql`delete from channel_messages where id = ${undo.messageId} and visible_at > now()`
-      yield* sql`update channel_threads set last_message_at = ${new Date(undo.lastMessageAt)},
-                   last_message_preview = ${undo.preview}
-                 where id = ${undo.threadId}
-                   and not exists (select 1 from channel_messages m where m.id = ${undo.messageId})`
+      const [gone] = yield* sql<{ createdAt: Date }>`
+        delete from channel_messages where id = ${undo.messageId} and visible_at > now() returning created_at`
+      // The preview goes back only while the reply is still the thread's last word: one the shopper wrote since stays.
+      if (gone !== undefined) {
+        yield* sql`update channel_threads set last_message_at = ${new Date(undo.lastMessageAt)},
+                     last_message_preview = ${undo.preview}
+                   where id = ${undo.threadId} and last_message_at = ${gone.createdAt}`
+      }
       yield* audit(sql, "thread.unsent", undo.threadId, { messageId: undo.messageId })
       return
     }

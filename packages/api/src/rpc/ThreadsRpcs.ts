@@ -62,7 +62,11 @@ export class ThreadsRpcs extends RpcGroup.make(
     success: ThreadChange,
     error: Schema.Union([Forbidden, NotFound, Invalid])
   }),
-  Rpc.make("Threads.putBack", { payload: IdsInput, success: ThreadChange, error: Changed }),
+  Rpc.make("Threads.putBack", {
+    payload: IdsInput,
+    success: ThreadChange,
+    error: Schema.Union([Forbidden, NotFound, Conflict])
+  }),
   Rpc.make("Threads.assign", { payload: AssignInput, success: ThreadChange, error: Changed }),
   Rpc.make("Threads.unassign", { payload: IdInput, success: ThreadChange, error: Changed }),
   Rpc.make("Threads.linkTicket", { payload: LinkTicketInput, success: TicketLinked, error: Changed }),

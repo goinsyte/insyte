@@ -72,7 +72,8 @@ export class InboxService extends Context.Service<InboxService, {
   readonly spam: (input: Ids) => Effect.Effect<ThreadChange, Forbidden | NotFound, R>
   readonly trash: (input: Ids) => Effect.Effect<ThreadChange, Forbidden | NotFound, R>
   readonly snooze: (input: typeof SnoozeInput.Type) => Effect.Effect<ThreadChange, Forbidden | NotFound | Invalid, R>
-  readonly putBack: (input: Ids) => Effect.Effect<ThreadChange, Forbidden | NotFound, R>
+  /** `Conflict` (`open_elsewhere`) only where a chat could not come back beside its session's open one. */
+  readonly putBack: (input: Ids) => Effect.Effect<ThreadChange, Forbidden | NotFound | Conflict, R>
   readonly assign: (input: typeof AssignInput.Type) => Effect.Effect<ThreadChange, Forbidden | NotFound, R>
   readonly unassign: (input: Id) => Effect.Effect<ThreadChange, Forbidden | NotFound, R>
   readonly linkTicket: (input: typeof LinkTicketInput.Type) => Effect.Effect<TicketLinked, Forbidden | NotFound, R>
