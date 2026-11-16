@@ -20,6 +20,7 @@ import {
   nextOpenLabel,
   orderStatusReply,
   redactContact,
+  REPLY_MAX,
   replyFaults,
   triggerOf,
   widens
@@ -160,6 +161,27 @@ describe("proving an order", () => {
   })
 })
 
+describe("the order's status, as the chat takes it", () => {
+  const order = {
+    number: "#1042",
+    label: "Onderweg met PostNL",
+    carrier: "PostNL",
+    trackingUrl: "https://postnl.nl/t/3S1",
+    expectedOn: "14 november 2026",
+    deliveredOn: null,
+    delivered: false
+  }
+  it("points to the shipping mail when the tracking link makes it too long, and is a person's when still too long", () => {
+    const long = { ...order, trackingUrl: `https://postnl.nl/t/${"x".repeat(1200)}` }
+    const said = orderStatusReply(long, false)!
+    expect(said.length).toBeLessThanOrEqual(REPLY_MAX)
+    expect(said).toContain("Volg je pakket met de link in je verzendmail.")
+    expect(said).not.toContain("xxx")
+    expect(orderStatusReply({ ...long, label: "y".repeat(1200) }, false)).toBeNull()
+    expect(orderStatusReply(order, false)).toContain("https://postnl.nl/t/3S1")
+  })
+})
+
 describe("what a reply may say", () => {
   const facts = "Retourneren\nJe kunt binnen 30 dagen retourneren. Stuur een mail naar hulp@noordkust.nl."
   it("passes what the sources say", () => {
@@ -242,11 +264,79 @@ describe("what a reply may say", () => {
         "De verzendkosten zijn € 4,95. Vanaf 50 euro verzenden we gratis.",
         true
       ],
-      ["Verzenden kost € 4,95 en is gratis.", "De verzendkosten zijn € 4,95. Vanaf 50 euro verzenden we gratis.", false]
+      [
+        "Verzenden kost € 4,95 en is gratis.",
+        "De verzendkosten zijn € 4,95. Vanaf 50 euro verzenden we gratis.",
+        false
+      ],
+      // A figure is its unit's and its bound's: the 2 of "2 werkdagen" is no amount.
+      ["Vanaf 2 euro verzenden we gratis.", "Vanaf 50 euro verzenden we gratis, binnen 2 werkdagen.", false],
+      // What a sentence that goes on adds is in the fact too, or a person.
+      ["Retourneren is gratis. Ook voor sale-artikelen.", "Retourneren is gratis.", false],
+      ["Retourneren is gratis, ook voor sale-artikelen.", "Retourneren is gratis.", false],
+      // Two sentences about different things are not one promise.
+      [
+        "Je krijgt een cadeaubon als je binnen 30 dagen retourneert.",
+        "Je kunt binnen 30 dagen retourneren. Een cadeaubon is 1 jaar geldig.",
+        false
+      ],
+      ["Onder 50 euro rekenen we geen verzendkosten.", "Vanaf 50 euro verzenden we gratis.", false],
+      // An order's state said as done is never a chapter's to say.
+      ["Je bestelling is geannuleerd.", "Je bestelling wordt geannuleerd als je de betaling afbreekt.", false]
     ]
     for (const [reply, fact, goes] of pairs) {
       expect(replyFaults(reply, { facts: `Beleid\n${fact}` }).length === 0, `${reply} | ${fact}`).toBe(goes)
     }
+  })
+  it("ties each figure to its unit and bound, and reads a promise with all it adds, against a whole chapter", () => {
+    const chapter = [
+      "Je kunt binnen 30 dagen na bezorging retourneren.",
+      "Je krijgt je geld terug binnen 14 dagen na ontvangst van je retour.",
+      "Retourneren is gratis, behalve voor sale-artikelen.",
+      "We verzenden binnen 2 werkdagen.",
+      "De verzendkosten zijn € 4,95.",
+      "Vanaf 50 euro verzenden we gratis.",
+      "Je betaalt met iDEAL, creditcard of PayPal.",
+      "Een cadeaubon is 1 jaar geldig.",
+      "Een bestelling wordt geannuleerd als je niet binnen 7 dagen betaalt."
+    ].join(" ")
+    const facts = `Retourneren en verzenden\n${chapter}`
+    const goes = (reply: string) => replyFaults(reply, { facts, statements: chapter }).length === 0
+    // [the reply, whether it may go]
+    const rows: ReadonlyArray<readonly [string, boolean]> = [
+      ["Je krijgt je geld terug binnen 14 dagen na ontvangst van je retour.", true],
+      ["Je geld staat binnen 14 dagen weer op je rekening.", true],
+      ["Verzenden kost € 4,95, vanaf 50 euro is het gratis.", true],
+      ["Retourneren is gratis, behalve voor sale-artikelen.", true],
+      ["Een bestelling wordt geannuleerd als je niet binnen 7 dagen betaalt.", true],
+      // A figure from another sentence, or another unit, or another bound: a person.
+      ["Je krijgt je geld terug binnen 30 dagen na ontvangst.", false],
+      ["Je geld staat binnen 30 dagen weer op je rekening.", false],
+      ["Vanaf 2 euro verzenden we gratis.", false],
+      ["Verzending is gratis vanaf 4,95 euro.", false],
+      ["Je krijgt je geld terug na 14 dagen.", false],
+      ["Je krijgt je geld terug binnen een paar dagen.", false],
+      ["Onder 50 euro verzenden we gratis.", false],
+      // What it adds to a promise, in a clause or a sentence that goes on: in the fact too, or a person.
+      ["Retourneren is gratis. Ook voor sale-artikelen.", false],
+      ["Retourneren is gratis. Dat geldt ook voor sale-artikelen.", false],
+      ["Je krijgt je geld terug binnen 14 dagen na ontvangst van je retour, ook voor sale-artikelen.", false],
+      // Two facts about different things are not one promise.
+      ["Je krijgt een cadeaubon als je binnen 30 dagen retourneert.", false],
+      // An order's state said as done: only the proved order says that.
+      ["Je bestelling is geannuleerd.", false],
+      ["We hebben het bedrag terugbetaald.", false],
+      ["Je adres is aangepast.", false],
+      ["Je pakket is verzonden.", false],
+      // Known: other words than the chapter's bound and negation ("boven", "geen kosten" for "vanaf", "gratis") go to
+      // a person; reading them as the same would let "boven" pass for "vanaf" too.
+      ["Boven de 50 euro betaal je geen verzendkosten.", false]
+    ]
+    for (const [reply, may] of rows) expect(goes(reply), reply).toBe(may)
+    // The proved order's facts say its state.
+    const order = "De status van je bestelling #1042: Verzonden met PostNL."
+    expect(replyFaults("Je bestelling is verzonden met PostNL.", { facts: `${facts}\n${order}`, order })).toEqual([])
+    expect(replyFaults("Je bestelling is geannuleerd.", { facts: `${facts}\n${order}`, order })).toEqual(["promise"])
   })
   it("reads no promise from a heading", () => {
     expect(replyFaults("We verzenden gratis.", { facts: "## Gratis verzending\nVanaf 50 euro verzenden we gratis." }))
@@ -412,6 +502,36 @@ const thought = (
   )
 
 describe("thinking", () => {
+  it("asks its limits before the search, and gives the call back when nothing is found", async () => {
+    const run = (hits: ReadonlyArray<Hit>, gate: "limit" | null) => {
+      const brain = brainOf(hits)
+      const log: Array<string> = []
+      const searched = { ...brain, search: (q: string, st: string | null) => (log.push("search"), brain.search(q, st)) }
+      return Effect.runPromise(
+        think(searched, {
+          text: "Kan ik een sale-artikel retourneren?",
+          storeId: "sto_a",
+          before: [],
+          settings,
+          brand: "Noordkust",
+          order: null,
+          caller: { memberId: null, principalKind: "agent", subject: null },
+          gate: Effect.sync(() => (log.push("gate"), gate)),
+          ungate: Effect.sync(() => void log.push("ungate"))
+        }).pipe(Effect.provideService(Db, {} as never), Effect.provideService(CurrentPrincipal, {} as never))
+      ).then((t) => ({ t, log, calls: brain.calls }))
+    }
+    // Past a limit: no embedding, no model.
+    const capped = await run([RETURNS], "limit")
+    expect(capped.t).toEqual({ _tag: "Handover", reason: "limit", gap: false })
+    expect(capped.log).toEqual(["gate"])
+    // Nothing found: the counted call is given back.
+    const none = await run([], null)
+    expect(none.log).toEqual(["gate", "search", "ungate"])
+    expect(none.calls).toBe(0)
+    expect((await run([RETURNS], null)).log).toEqual(["gate", "search"])
+  })
+
   it("answers from the chapter, citing it", async () => {
     const t = await thought(brainOf([RETURNS]), "Kan ik een sale-artikel retourneren?")
     expect(t._tag).toBe("Reply")

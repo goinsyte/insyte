@@ -341,15 +341,33 @@ export interface OrderFacts {
   readonly delivered: boolean
 }
 
-/** The fixed reply with a proved order's status: nothing in it is the model's or the shopper's. */
-export const orderStatusReply = (o: OrderFacts, formal: boolean): string =>
+const statusLines = (o: OrderFacts, formal: boolean, link: boolean) =>
   [
     `De status van ${formal ? "uw" : "je"} bestelling ${o.number}: ${o.label}.`,
     ...(o.carrier === null || o.delivered ? [] : [`Vervoerder: ${o.carrier}.`]),
-    ...(o.trackingUrl === null ? [] : [`${formal ? "Volg uw" : "Volg je"} pakket: ${o.trackingUrl}`]),
+    ...(o.trackingUrl === null
+      ? []
+      : [
+        link
+          ? `${formal ? "Volg uw" : "Volg je"} pakket: ${o.trackingUrl}`
+          : formal
+          ? "Volg uw pakket met de link in uw verzendmail."
+          : "Volg je pakket met de link in je verzendmail."
+      ]),
     ...(o.expectedOn === null ? [] : [`Verwachte bezorging: ${o.expectedOn}.`]),
     ...(o.deliveredOn === null ? [] : [`Bezorgd op ${o.deliveredOn}.`])
   ].join("\n")
+
+/**
+ * The fixed reply with a proved order's status: nothing in it is the model's or the shopper's. Over the chat's
+ * `REPLY_MAX` with its tracking link, it points to the shipping mail instead; still over it, `null` (a person says it).
+ */
+export const orderStatusReply = (o: OrderFacts, formal: boolean): string | null => {
+  const full = statusLines(o, formal, true)
+  if (full.length <= REPLY_MAX) return full
+  const short = statusLines(o, formal, false)
+  return short.length <= REPLY_MAX ? short : null
+}
 
 /* ── what a reply may say ─────────────────────────────────────────────────────────────────────────────────── */
 
@@ -523,12 +541,21 @@ const asFigures = (text: string) =>
 
 /* ── whether a fact says what a reply's sentence says ── */
 
-/** Words that change what a sentence says when one is missing or added: a negation, a condition. */
+/** Words that change what a sentence says when one is missing or added: a negation, a condition, a vague time. */
 const NEGATIONS = ["niet", "geen", "nooit", "niets", "niks"]
 const CONDITIONS = ["vanaf", "boven", "onder", "alleen", "behalve", "tenzij", "mits", "uitgezonderd", "uitsluitend"]
-const MARKERS = new Set([...NEGATIONS, ...CONDITIONS])
+const VAGUE = ["paar", "enkele", "snel", "sneller", "direct", "meteen", "morgen", "vandaag"]
+const MARKERS = new Set([...NEGATIONS, ...CONDITIONS, ...VAGUE])
 
-/** Words that carry no fact of their own: who, the verbs that only help, the small words between. */
+/** The words that say how a figure counts ("binnen 14 dagen", "vanaf 50 euro"): a figure's own, matched exactly. */
+const BOUNDS = new Set(["binnen", "na", "voor", "vanaf", "boven", "onder", "tot", "uiterlijk"])
+
+/** What a figure counts, as stems: days, weeks, money, a share. */
+const UNITS = new Set(
+  ["dag", "werkdag", "wek", "week", "maand", "jar", "ur", "euro", "cent", "procent", "stuk", "artikel"]
+)
+
+/** Words that carry no fact of their own: who, the verbs that only help, the small words between, a greeting. */
 const STOP = new Set([
   "de",
   "het",
@@ -612,11 +639,32 @@ const STOP = new Set([
   "natuurlijk",
   "gewoon",
   "hoor",
-  "toch"
+  "toch",
+  "staat",
+  "staan",
+  "bedankt",
+  "dank",
+  "vraag",
+  "goed",
+  "nieuws",
+  "hoi",
+  "hallo",
+  "prima",
+  "fijn",
+  "zeker",
+  "ja",
+  "helaas",
+  "oké",
+  "ok",
+  "top",
+  "super"
 ])
 
 /** One word for two that say the same here, as stems: "retour" and "terug", "ontvangen" and "krijgen". */
 const SAME: Readonly<Record<string, string>> = { retour: "terug", ontvang: "krijg", verstur: "verzend", stur: "zend" }
+
+/** Phrases that say one word's thing, read as that word: "weer op je rekening" is "terug". */
+const PHRASES: ReadonlyArray<readonly [RegExp, string]> = [[/\b(weer\s+)?op\s+(je|jouw|uw)\s+rekening\b/gi, "terug"]]
 
 /**
  * A word's simple Dutch stem: one ending off ("-en", "-e", "-s", a "-t" not after "s"), then doubled vowels and a
@@ -641,72 +689,162 @@ const alike = (a: string, b: string) => {
   return n >= 6
 }
 
+const tokensOf = (text: string) => text.toLowerCase().match(/\d+(?:[.,]\d+)?|[\p{L}]+/gu) ?? []
+
+const isFigure = (t: string) => /^\d/.test(t)
+
+/** "4,95", "4.95" and "4,950" as one figure; "5,00" as "5". */
+const figureOf = (t: string) => String(Number(t.replace(",", ".")))
+
+/**
+ * Every figure of a text with what it counts and how: "binnen 14 dagen" `binnen 14 dag`, "vanaf € 50" `vanaf 50 euro`,
+ * "€ 4,95" ` 4.95 euro`. The bound is the nearest of `BOUNDS` up to four words before it, short of another figure.
+ */
+const quantitiesOf = (tokens: ReadonlyArray<string>) =>
+  tokens.flatMap((t, i) => {
+    if (!isFigure(t)) return []
+    const next = tokens[i + 1] === undefined ? null : stemOf(tokens[i + 1]!)
+    const unit = next !== null && UNITS.has(next) ? next : tokens[i - 1] === "euro" ? "euro" : ""
+    let bound = ""
+    for (let j = i - 1; j >= Math.max(0, i - 4) && !isFigure(tokens[j]!); j--) {
+      if (BOUNDS.has(tokens[j]!)) {
+        bound = tokens[j]!
+        break
+      }
+    }
+    return [`${bound} ${figureOf(t)} ${unit}`]
+  })
+
 interface Reading {
   readonly content: ReadonlyArray<string>
-  readonly figures: ReadonlySet<string>
+  readonly quantities: ReadonlySet<string>
   readonly markers: ReadonlySet<string>
   readonly lower: string
 }
 
-const readingOf = (sentence: string): Reading => {
-  const words = wordsOf(sentence)
+/** A text as `statedIn` compares it: its words of substance as stems, its figures with their units and bounds. */
+const readingOf = (text: string): Reading => {
+  const read = PHRASES.reduce((t, [re, word]) => t.replaceAll(re, word), text)
+  const tokens = tokensOf(read)
+  const words = tokens.filter((t) => !isFigure(t))
   return {
-    content: words.filter((w) => !STOP.has(w) && !MARKERS.has(w) && !/^\d+$/.test(w)).map(stemOf),
-    figures: new Set(words.filter((w) => /^\d+$/.test(w)).map((w) => w.replace(/^0+(?=\d)/, ""))),
+    content: words.filter((w) => !STOP.has(w) && !MARKERS.has(w) && !BOUNDS.has(w)).map(stemOf).filter((w) =>
+      !UNITS.has(w)
+    ),
+    quantities: new Set(quantitiesOf(tokens)),
     markers: new Set(words.filter((w) => MARKERS.has(w))),
-    lower: sentence.toLowerCase()
+    lower: text.toLowerCase()
   }
 }
 
 /** The promise words a sentence holds, and whether it makes a promise at all. */
 const promiseWords = (lower: string) => PROMISES.filter((p) => lower.includes(p))
 
+/**
+ * An order's state said as done ("je bestelling is geannuleerd", "we hebben het bedrag teruggestort"): only the proved
+ * order's facts can say it, never a chapter. "Zodra je bestelling verzonden is, …" is not one.
+ */
+const STATE =
+  /\b(geannuleerd|terugbetaald|teruggestort|verzonden|verstuurd|aangepast|gewijzigd|omgeruild|gecrediteerd|bezorgd)\b/i
+const CONDITIONAL = /\b(zodra|als|wanneer|nadat|voordat|indien|mits|tenzij)\b/i
+
+const claimsState = (sentence: string) => STATE.test(sentence) && !CONDITIONAL.test(sentence)
+
 const promises = (sentence: string) =>
   PROMISE_TO_SHOPPER.test(sentence) || KEEPS.test(sentence) || promiseWords(sentence.toLowerCase()).length > 0 ||
-  promisesMoney(sentence) || namesAmount(sentence)
+  promisesMoney(sentence) || namesAmount(sentence) || STATE.test(sentence)
 
 const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>) => a.size === b.size && [...a].every((x) => b.has(x))
 
-/** How much of a reply's sentence must be in the fact's own words (as stems) for it to say the same. */
+/** How much of a promise's own clause must be in the fact's words (as stems) for it to say the same. */
 const COVERED = 0.75
 
-/**
- * Whether one sentence of the facts states the promise a reply's sentence makes: itself a promise, with the reply's
- * promise words and figures, most of the reply's words (as stems, a number in words as its digits), and the same
- * negations and conditions. "Sale-artikelen zijn gratis te retourneren" is not what "… zijn niet gratis te
- * retourneren" says, nor "We verzenden gratis" what "Vanaf 50 euro verzenden we gratis" says, either way round.
- */
-const statedIn = (sentence: string, facts: ReadonlyArray<string>) => {
-  const said = readingOf(sentence)
-  const words = promiseWords(said.lower)
-  return facts.some((f) => {
-    if (!promises(f)) return false
-    const fact = readingOf(f)
-    if (fact.content.length < 2 || !sameSet(said.markers, fact.markers)) return false
-    if ([...said.figures].some((n) => !fact.figures.has(n))) return false
-    if (words.some((p) => !fact.lower.includes(p))) return false
-    const covered = said.content.filter((w) => fact.content.some((k) => alike(w, k))).length
-    return said.content.length === 0 || covered / said.content.length >= COVERED
-  })
+/** A sentence's clauses: split at a comma, a colon or a semicolon, and before "ook", "maar", "zelfs", "inclusief". */
+const clausesOf = (sentence: string) =>
+  sentence.split(/\s*[,;:]\s+|\s+(?=(?:ook|maar|zelfs|inclusief)\b)/i).filter((c) => c.trim() !== "")
+
+/** A sentence that goes on with the one before it: "Ook voor sale-artikelen.", "Dat geldt ook voor …". */
+const CONTINUES =
+  /^(ook|zelfs|inclusief|incl|en|of|maar|behalve|tenzij|alleen|uitgezonderd|mits|zowel|evenals|net als|dat geldt|dit geldt|geldt)\b/i
+const continues = (sentence: string) =>
+  CONTINUES.test(sentence.trim()) ||
+  (wordsOf(sentence).length <= 6 && /\b(ook|eveneens|evenals|zelfs)\b/i.test(sentence))
+
+/** A promise as the reply makes it: its own clause, every other clause of its sentence, and a sentence that goes on. */
+interface Promise {
+  readonly main: string
+  readonly rest: ReadonlyArray<string>
+  readonly whole: string
 }
 
+const promiseIn = (sentence: string, next: string | undefined): Promise => {
+  const clauses = clausesOf(sentence)
+  const at = Math.max(0, clauses.findIndex((c) => promises(c)))
+  const attached = next !== undefined && continues(next) ? [next] : []
+  return {
+    main: clauses[at] ?? sentence,
+    rest: [...clauses.filter((_, i) => i !== at), ...attached],
+    whole: [sentence, ...attached].join(" ")
+  }
+}
+
+/** Whether two readings share a word of substance. */
+const related = (a: Reading, b: Reading) => a.content.some((w) => b.content.some((k) => alike(w, k)))
+
 /**
- * What a promise may be read from: each sentence of the facts, and each two that follow each other (a reply often says
- * two in one: "Verzenden kost € 4,95, vanaf 50 euro is het gratis"). A heading (a `#` line) states nothing.
+ * What a promise may be read from: each sentence of the facts, and each two that follow each other and are about one
+ * thing (they share a word of substance: "De verzendkosten zijn € 4,95. Vanaf 50 euro verzenden we gratis."), as a
+ * reply often says two in one. A heading (a `#` line) states nothing.
  */
 const statementsOf = (facts: string) => {
   const lines = sentencesOf(facts).filter((l) => !l.startsWith("#"))
-  return [...lines, ...lines.slice(1).map((l, i) => `${lines[i]} ${l}`)]
+  const read = lines.map(readingOf)
+  return [
+    ...lines,
+    ...lines.slice(1).flatMap((l, i) => (related(read[i]!, read[i + 1]!) ? [`${lines[i]} ${l}`] : []))
+  ]
+}
+
+/**
+ * Whether a sentence of the facts states the promise a reply makes: itself a promise, with the reply's promise words;
+ * every figure of the reply with the same unit and bound ("binnen 14 dagen" is not "na 14 dagen", nor "vanaf 2 euro"
+ * what "binnen 2 werkdagen" says); the same negations, conditions and vague times, either way round; most words of the
+ * promise's own clause (as stems, a number in words as its digits), and every word of what the reply adds to it (a
+ * clause, "ook voor sale-artikelen", or a sentence that goes on).
+ */
+const statedIn = (promise: Promise, facts: ReadonlyArray<string>) => {
+  const whole = readingOf(promise.whole)
+  const main = readingOf(promise.main)
+  const rest = promise.rest.map(readingOf)
+  const words = promiseWords(whole.lower)
+  return facts.some((f) => {
+    if (!promises(f)) return false
+    const fact = readingOf(f)
+    // A fact of one word is a heading's, not a statement: "Gratis verzending" says nothing of when.
+    if (fact.content.length + fact.quantities.size < 2 || !sameSet(whole.markers, fact.markers)) return false
+    if ([...whole.quantities].some((q) => !fact.quantities.has(q))) return false
+    if (words.some((p) => !fact.lower.includes(p))) return false
+    const known = (w: string) => fact.content.some((k) => alike(w, k))
+    if (rest.some((r) => !r.content.every(known))) return false
+    // Its figures count as words it shares (each matched above): "Bestellingen vanaf 50 euro …" is that fact's.
+    const covered = main.content.filter(known).length + main.quantities.size
+    const all = main.content.length + main.quantities.size
+    return all === 0 || covered / all >= COVERED
+  })
 }
 
 /**
  * What is wrong with a reply before it may go, read folded (`fold`) and every number in words as its digits: a figure
  * the facts the model was given do not have (a shopper's own digits are not facts: "ik las 60 dagen?" is not
- * confirmed); a promise (money, goods, a change to an order, an amount, keeping the goods) in a sentence no sentence of
- * the facts states the same (`statedIn`; `statements`, the facts without the chapters' titles, as the caller has
- * them); a link or an address the facts never had, or one written to slip past; or nothing to say. None: it may go.
+ * confirmed); a promise (money, goods, a change to an order, an amount, keeping the goods) no sentence of the facts
+ * states the same (`statedIn`; `statements`, the facts without the chapters' titles, as the caller has them); an
+ * order's state said as done that the proved order's facts (`order`) do not state; a link or an address the facts never
+ * had, or one written to slip past; or nothing to say. None: it may go.
  */
-export const replyFaults = (raw: string, given: { readonly facts: string; readonly statements?: string }) => {
+export const replyFaults = (
+  raw: string,
+  given: { readonly facts: string; readonly statements?: string; readonly order?: string | null }
+) => {
   const text = asFigures(fold(raw))
   const facts = asFigures(fold(given.facts))
   const faults: Array<ReplyFault> = []
@@ -717,9 +855,14 @@ export const replyFaults = (raw: string, given: { readonly facts: string; readon
     [...text.matchAll(NUMBER_WORDS)].some((m) => !knownWords.has(m[0].toLowerCase()))
   ) faults.push("figure")
   const statements = statementsOf(given.statements === undefined ? facts : asFigures(fold(given.statements)))
-  if (sentencesOf(text).some((sentence) => promises(sentence) && !statedIn(sentence, statements))) {
-    faults.push("promise")
-  }
+  const order = given.order == null ? [] : statementsOf(asFigures(fold(given.order)))
+  const sentences = sentencesOf(text)
+  const broken = sentences.some((sentence, i) => {
+    const promise = promiseIn(sentence, sentences[i + 1])
+    if (claimsState(promise.whole)) return !statedIn(promise, order)
+    return promises(promise.whole) && !statedIn(promise, statements)
+  })
+  if (broken) faults.push("promise")
   if (untracedLinks(text, facts).length > 0 || defanged(text) || SPACED_DOMAIN.test(text)) faults.push("link")
   return faults
 }

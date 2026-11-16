@@ -173,10 +173,12 @@ export interface Thinking<E = never, R = never> {
   readonly order: string | null
   readonly caller: Caller
   /**
-   * Asked right before the model is (a real chat's limits, its call counted): a reason, and a person answers without
-   * the model. None: the test chat's, which is a person's own call.
+   * Asked before the knowledge search and the model (a real chat's limits, its call counted): a reason, and a person
+   * answers without either. None: the test chat's, which is a person's own call.
    */
   readonly gate?: Effect.Effect<HandoverReason | null, E, R>
+  /** The call the gate counted, given back: nothing was found, so no model was asked. */
+  readonly ungate?: Effect.Effect<void, E, R>
 }
 
 /**
@@ -188,14 +190,18 @@ export const think = <E = never, R = never>(brain: Brain, t: Thinking<E, R>) =>
     const trigger = triggerOf(t.text, t.settings.handover)
     if (trigger !== null) return handover(trigger.trigger)
     const question = redactContact(t.text)
+    // A chat past its limits costs neither the search's embedding nor a model call.
+    const held = t.gate === undefined ? null : yield* t.gate
+    if (held !== null) return handover(held)
     // Another store's chapter is never this store's answer, whatever the search returned.
     const hits = (yield* brain.search(question, t.storeId))
       .filter((h) => t.storeId === null || h.storeId === null || h.storeId === t.storeId)
       .slice(0, SOURCES_READ)
-    if (hits.length === 0 && t.order === null) return handover("no_knowledge", true)
+    if (hits.length === 0 && t.order === null) {
+      if (t.ungate !== undefined) yield* t.ungate
+      return handover("no_knowledge", true)
+    }
     const knowledge = hits.map((h, i) => ({ ref: i + 1, title: h.title, text: h.text }))
-    const held = t.gate === undefined ? null : yield* t.gate
-    if (held !== null) return handover(held)
     const asked = yield* Effect.result(
       brain.answer({
         brand: t.brand,
@@ -217,7 +223,8 @@ export const think = <E = never, R = never>(brain: Brain, t: Thinking<E, R>) =>
     const facts = [...knowledge.map((k) => `${k.title}\n${k.text}`), t.order ?? "", t.brand].join("\n")
     // A promise is read from what the chapters and the order say, never from a chapter's title.
     const statements = [...knowledge.map((k) => k.text), t.order ?? ""].join("\n")
-    if (replyFaults(text, { facts, statements }).length > 0) return handover("guard")
+    // An order's state said as done only from the proved order's facts.
+    if (replyFaults(text, { facts, statements, order: t.order }).length > 0) return handover("guard")
     const used = out.sources.flatMap((ref) => (hits[ref - 1] === undefined ? [] : [hits[ref - 1]!]))
     return { _tag: "Reply", text, kind: "knowledge", hits: used, model: asked.success.model } satisfies Thought
   })
@@ -323,8 +330,20 @@ const startCall = (storeId: string, id: string) =>
         if (yield* shareSpent(sql)) return "budget" as const
         yield* sql`insert into agent_touchpoints (workspace_id, dedupe_key, agent_action_id)
                    values (app_workspace_id(), ${`chat-call:${storeId}:${id}`}, ${id}) on conflict do nothing`
+        // What counts is the hour's: older calls go (two hours, for a clock between the counts).
+        yield* sql`delete from agent_touchpoints
+                   where workspace_id = app_workspace_id() and dedupe_key like 'chat-call:%'
+                     and created_at < now() - interval '2 hours'`
         return null
       })
+    ))
+
+/** A call `startCall` counted that was never made: nothing was found to ask the model about. */
+const freeCall = (storeId: string, id: string) =>
+  Effect.flatMap(Effect.service(Db), (db) =>
+    db.scopedFor((sql) =>
+      Effect.asVoid(sql`delete from agent_touchpoints
+                        where workspace_id = app_workspace_id() and dedupe_key = ${`chat-call:${storeId}:${id}`}`)
     ))
 
 /**
@@ -680,29 +699,19 @@ const turn = (brain: Brain, task: ChatTask, settings: CustomerAgentSettings) =>
                        where thread_id = ${task.threadId}`
             if (order.customerId !== null) yield* chat.bindCustomer(task.threadId, order.customerId)
             const facts = yield* factsOf(sql, order.id, task.storeId, tz)
-            return facts === null
+            const said = facts === null ? null : orderStatusReply(facts, settings.tone === "formal")
+            return said === null
               ? handover("order_complex")
-              : ({
-                _tag: "Reply",
-                text: orderStatusReply(facts, settings.tone === "formal"),
-                kind: "order",
-                hits: [],
-                model: null
-              } satisfies Thought)
+              : ({ _tag: "Reply", text: said, kind: "order", hits: [], model: null } satisfies Thought)
           })
         )
       }
       if (ownOrder && row.verifiedOrderId !== null && claim.number === null) {
         const facts = yield* db.scoped((sql) => factsOf(sql, row.verifiedOrderId!, task.storeId, tz))
-        return facts === null
+        const said = facts === null ? null : orderStatusReply(facts, settings.tone === "formal")
+        return said === null
           ? handover("order_complex")
-          : ({
-            _tag: "Reply",
-            text: orderStatusReply(facts, settings.tone === "formal"),
-            kind: "order",
-            hits: [],
-            model: null
-          } satisfies Thought)
+          : ({ _tag: "Reply", text: said, kind: "order", hits: [], model: null } satisfies Thought)
       }
       if (ownOrder) {
         return row.verifyFailures >= VERIFY_CAP
@@ -733,6 +742,7 @@ const turn = (brain: Brain, task: ChatTask, settings: CustomerAgentSettings) =>
         settings,
         brand: brand?.name ?? "",
         order: orderFacts === null ? null : orderStatusReply(orderFacts, false),
+        ungate: freeCall(task.storeId, id),
         caller: { memberId: null, principalKind: "agent", subject: { type: "chat", id: task.threadId } },
         gate
       })
