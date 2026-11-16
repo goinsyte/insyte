@@ -208,7 +208,10 @@ export default Alchemy.Stack(
      * a stage serves no chat and Koppelingen says so; previews and local runs derive one from the auth secret.
      */
     const webchatSecret = Option.filter(yield* Config.Redacted("WEBCHAT_TOKEN_SECRET").pipe(Config.option), set)
-    const webchat = Option.isSome(webchatSecret) ? { WEBCHAT_TOKEN_SECRET: webchatSecret.value } : {}
+    // One shape either way: a union here beside Stripe's is more than the Worker's env type can compare.
+    const webchat: { WEBCHAT_TOKEN_SECRET?: Redacted.Redacted<string> } = Option.isSome(webchatSecret)
+      ? { WEBCHAT_TOKEN_SECRET: webchatSecret.value }
+      : {}
 
     /*
      * Insyte AI (M15 step 1, ADR-0015): Claude through the account's AI Gateway, which is made by hand per stage in the
