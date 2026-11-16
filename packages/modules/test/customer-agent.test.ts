@@ -19,10 +19,12 @@ import {
   narrow,
   nextOpenLabel,
   orderStatusReply,
+  redactContact,
   replyFaults,
-  triggerOf
+  triggerOf,
+  widens
 } from "../src/channel-agent/domain/Rules.ts"
-import { type Brain, think } from "../src/channel-agent/use-cases/engine.ts"
+import { type Brain, historyForModel, think } from "../src/channel-agent/use-cases/engine.ts"
 import type { Hit } from "../src/knowledge/domain/Knowledge.ts"
 
 /*
@@ -161,24 +163,100 @@ describe("proving an order", () => {
 describe("what a reply may say", () => {
   const facts = "Retourneren\nJe kunt binnen 30 dagen retourneren. Stuur een mail naar hulp@noordkust.nl."
   it("passes what the sources say", () => {
-    expect(replyFaults("Je kunt binnen 30 dagen retourneren.", { shopper: "Kan ik retourneren?", facts })).toEqual([])
-    expect(replyFaults("Mail naar hulp@noordkust.nl.", { shopper: "Hoe?", facts })).toEqual([])
+    expect(replyFaults("Je kunt binnen 30 dagen retourneren.", { facts })).toEqual([])
+    expect(replyFaults("Mail naar hulp@noordkust.nl.", { facts })).toEqual([])
   })
   it("refuses a figure, a promise and a link it was not given", () => {
-    expect(replyFaults("Je krijgt 15% korting.", { shopper: "Kan ik retourneren?", facts })).toEqual([
-      "figure",
-      "promise"
-    ])
-    expect(replyFaults("Binnen 60 dagen.", { shopper: "Kan ik retourneren?", facts })).toEqual(["figure"])
-    expect(replyFaults("Kijk op https://elders.example/korting", { shopper: "?", facts })).toContain("link")
-    expect(replyFaults("We sturen een nieuw pakket op.", { shopper: "?", facts })).toEqual(["promise"])
-    expect(replyFaults("  ", { shopper: "?", facts })).toEqual(["empty"])
+    expect(replyFaults("Je krijgt 15% korting.", { facts })).toEqual(["figure", "promise"])
+    expect(replyFaults("Binnen 60 dagen.", { facts })).toEqual(["figure"])
+    expect(replyFaults("Kijk op https://elders.example/korting", { facts })).toContain("link")
+    expect(replyFaults("We sturen een nieuw pakket op.", { facts })).toEqual(["promise"])
+    expect(replyFaults("  ", { facts })).toEqual(["empty"])
   })
-  it("lets a digit the shopper wrote through", () => {
-    expect(replyFaults("Over bestelling 1042 kan ik je meer vertellen als je hem bevestigt.", {
-      shopper: "Waar is 1042?",
-      facts
-    })).toEqual([])
+  it("confirms no digit only the shopper wrote", () => {
+    // "Ik las 60 dagen?": the shopper's own figure is not a fact.
+    expect(replyFaults("Klopt, binnen 60 dagen.", { facts })).toEqual(["figure"])
+    expect(replyFaults("Over bestelling 1042 kan ik je meer vertellen als je hem bevestigt.", { facts }))
+      .toEqual(["figure"])
+  })
+  it("refuses a promise to the shopper, even beside a chapter that names money", () => {
+    const policy = "Retourneren\nJe krijgt je geld terug binnen 14 dagen na ontvangst. Korting geven we niet."
+    for (
+      const reply of ["Ik stort het bedrag vandaag terug.", "Je mag het artikel houden.", "Je krijgt 50 euro terug."]
+    ) {
+      expect(replyFaults(reply, { facts: policy }), reply).toContain("promise")
+    }
+    // A sentence of the chapter's own, said as it says it, may go; another sentence with a money word may not.
+    expect(replyFaults("Korting geven we niet.", { facts: policy })).toEqual([])
+    expect(replyFaults("Je kunt retourneren en daarna krijg je korting.", { facts: policy })).toContain("promise")
+  })
+  it("reads full-width digits, other scripts' digits, numbers in words and hidden characters", () => {
+    expect(replyFaults("Binnen ６０ dagen.", { facts })).toEqual(["figure"])
+    expect(replyFaults("Binnen ٦٠ dagen.", { facts })).toEqual(["figure"])
+    expect(replyFaults("Binnen zestig dagen.", { facts })).toEqual(["figure"])
+    expect(replyFaults("Je krijgt ko\u200brting.", { facts })).toContain("promise")
+    expect(replyFaults("Binnen dertig dagen.", { facts: "Je kunt binnen dertig dagen retourneren." })).toEqual([])
+  })
+  it("refuses a link written to slip past", () => {
+    for (
+      const reply of ["Kijk op evil dot nl.", "Mail hulp at evil punt nl.", "Kijk op evil。com.", "Kijk op evil . com"]
+    ) {
+      expect(replyFaults(reply, { facts }), reply).toContain("link")
+    }
+  })
+})
+
+describe("what widens what the agent says by itself", () => {
+  const was = {
+    on: true,
+    channels: { webchat: "auto", whatsapp: "off", instagram: "off", email: "off" },
+    hours: office,
+    outside: "take",
+    handover: DEFAULT_RULES,
+    tone: "brand",
+    handoverMessage: DEFAULT_HANDOVER_MESSAGE
+  } as const satisfies CustomerAgentSettingsInput
+  it("counts handover rules that hand over less, and the handover's words", () => {
+    expect(widens(was, { ...was, tone: "formal" })).toBe(false)
+    expect(widens(was, { ...was, handover: { ...DEFAULT_RULES, unsure: false } })).toBe(true)
+    expect(widens(was, { ...was, handover: { ...DEFAULT_RULES, asksPerson: false } })).toBe(true)
+    expect(widens(was, { ...was, handover: { ...DEFAULT_RULES, topics: ["klachten"] } })).toBe(true)
+    expect(widens(was, { ...was, handover: { ...DEFAULT_RULES, afterMessages: null } })).toBe(true)
+    expect(widens(was, { ...was, handover: { ...DEFAULT_RULES, afterMessages: 20 } })).toBe(true)
+    expect(widens(was, { ...was, handover: { ...DEFAULT_RULES, afterMessages: 4 } })).toBe(false)
+    expect(widens(was, { ...was, handover: { ...DEFAULT_RULES, topics: [...DEFAULT_RULES.topics, "groothandel"] } }))
+      .toBe(false)
+    expect(widens(was, { ...was, handoverMessage: "Een collega neemt het over." })).toBe(true)
+  })
+  it("never counts switching it off or a change while it is off", () => {
+    expect(widens(was, { ...was, on: false })).toBe(false)
+    expect(widens({ ...was, on: false }, { ...was, on: false, handover: { ...DEFAULT_RULES, unsure: false } }))
+      .toBe(false)
+    expect(widens({ ...was, on: false }, was)).toBe(true)
+  })
+})
+
+describe("what the model reads of the shopper", () => {
+  it("reads the message that proved an order as only that", () => {
+    const at = new Date()
+    const history = [
+      { id: "m1", author: "shopper", text: "Waar blijft mijn bestelling?", at },
+      { id: "m2", author: "agent", text: "Stuur je bestelnummer.", at },
+      { id: "m3", author: "shopper", text: "#1042, jan@voorbeeld.nl", at },
+      { id: "m4", author: "shopper", text: "Hoe lang duurt het nog?", at }
+    ] as const
+    expect(historyForModel(history, "m4", true)).toEqual([
+      { from: "klant", text: "Waar blijft mijn bestelling?" },
+      { from: "insyte", text: "Stuur je bestelnummer." },
+      { from: "klant", text: "[bestelling bewezen]" }
+    ])
+    expect(historyForModel(history, "m4", false).at(-1)).toEqual({ from: "klant", text: "[bestelgegevens weggelaten]" })
+  })
+
+  it("has no e-mail address, phone number or postcode", () => {
+    expect(redactContact("Mail me op jan@voorbeeld.nl of bel 06 12345678, ik woon op 1234 AB"))
+      .toBe("Mail me op [e-mail] of bel [telefoon], ik woon op [postcode]")
+    expect(redactContact("Bestelling 1042 en verder")).toBe("Bestelling 1042 en verder")
   })
 })
 
@@ -208,12 +286,14 @@ const RETURNS: Hit = {
 const brainOf = (
   hits: ReadonlyArray<Hit>,
   answer?: { text: string; answered?: boolean; sure?: boolean } | BudgetExceeded | ModelUnavailable
-): Brain & { calls: number } => {
+): Brain & { calls: number; seen: Array<Parameters<Brain["answer"]>[0]> } => {
   const brain = {
     calls: 0,
+    seen: [] as Array<Parameters<Brain["answer"]>[0]>,
     search: () => Effect.succeed(hits),
     answer: (input: Parameters<Brain["answer"]>[0]) => {
       brain.calls += 1
+      brain.seen.push(input)
       if (answer instanceof BudgetExceeded || answer instanceof ModelUnavailable) return Effect.fail(answer)
       const value = answer === undefined
         ? customerAgentPrompt.fake(input)
@@ -224,10 +304,16 @@ const brainOf = (
   return brain
 }
 
-const thought = (brain: Brain, text: string, s: CustomerAgentSettingsInput = settings) =>
+const thought = (
+  brain: Brain,
+  text: string,
+  s: CustomerAgentSettingsInput = settings,
+  storeId: string | null = "sto_a"
+) =>
   Effect.runPromise(
     think(brain, {
       text,
+      storeId,
       before: [],
       settings: s,
       brand: "Noordkust",
@@ -304,6 +390,30 @@ describe("thinking", () => {
         handover: { ...DEFAULT_RULES, unsure: false }
       }))._tag
     ).toBe("Reply")
+  })
+
+  it("never answers from another store's chapter, whatever the search returns", async () => {
+    const brain = brainOf([{ ...RETURNS, storeId: "sto_b", text: "Retourneren bij winkel B kan binnen 90 dagen." }])
+    expect(await thought(brain, "Kan ik retourneren?", settings, "sto_a")).toEqual({
+      _tag: "Handover",
+      reason: "no_knowledge",
+      gap: true
+    })
+    expect(brain.calls).toBe(0)
+    expect((await thought(brainOf([{ ...RETURNS, storeId: "sto_a" }]), "Kan ik retourneren?"))._tag).toBe("Reply")
+  })
+
+  it("does not confirm a figure the shopper offered", async () => {
+    expect(
+      await thought(brainOf([RETURNS], { text: "Klopt, je kunt binnen 60 dagen retourneren." }), "Ik las 60 dagen?")
+    )
+      .toEqual({ _tag: "Handover", reason: "guard", gap: false })
+  })
+
+  it("shows the model no e-mail address or postcode of the shopper's", async () => {
+    const brain = brainOf([RETURNS])
+    await thought(brain, "Kan ik retourneren? Ik ben jan@voorbeeld.nl uit 1234 AB")
+    expect(JSON.stringify(brain.seen)).not.toMatch(/jan@voorbeeld|1234 ?AB/)
   })
 
   it("hands over a spent budget and a model that did not answer", async () => {

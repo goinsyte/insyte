@@ -1,5 +1,6 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { ChannelAgentView } from "@insyte/modules/channel-agent/domain/ChannelAgent"
+import { widens } from "@insyte/modules/channel-agent/domain/Rules"
 import type { CustomerAgentSource, TestMsg } from "@insyte/ui/app/ai/customer-agent-source"
 import type { CustomerAgentSettings } from "@insyte/ui/app/lib/customer-agent"
 import { undoable } from "@insyte/ui/app/lib/undo"
@@ -13,6 +14,8 @@ import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
  * Klantagent in the console (M15 step 8): `ChannelAgent.get` as the design's settings, its day from
  * `ChannelAgent.today` (none for a reader without Klantenservice), saved whole through `ChannelAgent.set` with its undo,
  * and the test chat through `ChannelAgent.test`, which runs the agent's own thinking on the server and sends nothing.
+ * Saving needs Instellingen · Beheren; a save that lets Insyte say more by itself (`widens`, as the server decides it)
+ * also `ai.autonomy`, so switching it off or narrowing it is open to whoever may manage the settings.
  */
 
 const NO_DAY = { conversations: 0, handled: 0, handedOver: 0, waiting: 0, avgSeconds: 0 }
@@ -69,8 +72,15 @@ export function useConsoleCustomerAgentSource(view: ChannelAgentView): CustomerA
     sendReply: view.sendReply,
     webchatDetail: view.stores.join(", "),
     spent: view.budgetSpent,
-    gate: !settingsGate.ok ? settingsGate : aiGate,
+    gate: settingsGate,
     save: async (next, said) => {
+      if (!aiGate.ok && widens(view.settings, next)) {
+        toast.error(aiGate.reason, {
+          description:
+            "Uitzetten en minder zelf laten doen kan wel; ruimer zetten vraagt het recht om Insyte AI te beheren."
+        })
+        return false
+      }
       const exit = await set({ payload: next, reactivityKeys: [...CUSTOMER_AGENT] })
       if (Exit.isFailure(exit)) {
         notSaved(failureOf(exit))

@@ -118,4 +118,8 @@ export class AutoNotAllowedOnChannel
 export class HoursInvalid extends Schema.TaggedError<HoursInvalid>()("HoursInvalid", { day: Schema.Int }) {}
 
 /** The compensation of a save (`customer_agent.restore`): the settings before it, or none (the default). */
-export const SettingsRestore = Schema.Struct({ before: Schema.NullOr(CustomerAgentSettingsInput) })
+export const SettingsRestore = Schema.Struct({
+  before: Schema.NullOr(CustomerAgentSettingsInput),
+  /** The version the save wrote: a later save is not undone by this one's token. */
+  version: Schema.optional(Schema.Int)
+})

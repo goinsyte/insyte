@@ -1,7 +1,36 @@
 import type { AutonomyLevel } from "@insyte/domain/AgentActions"
-import { promisesMoney, untracedLinks } from "../../agent/domain/Triggers.ts"
+import { defanged, namesAmount, promisesMoney, untracedLinks } from "../../agent/domain/Triggers.ts"
 import { untracedFigures } from "../../ai/domain/Guards.ts"
-import type { ChannelMode, CustomerAgentSettingsInput, DayHours, HandoverRules } from "./ChannelAgent.ts"
+import {
+  CHANNEL_KINDS,
+  type ChannelMode,
+  type CustomerAgentSettingsInput,
+  type DayHours,
+  type HandoverRules
+} from "./ChannelAgent.ts"
+
+/* ── one reading of a text ────────────────────────────────────────────────────────────────────────────────── */
+
+/** A decimal digit of any script as its ASCII digit: its place in its run of ten. */
+const asciiDigit = (ch: string) => {
+  if (ch >= "0" && ch <= "9") return ch
+  const cp = ch.codePointAt(0)!
+  let start = cp
+  while (start > 0 && /\p{Nd}/u.test(String.fromCodePoint(start - 1))) start--
+  return String((cp - start) % 10)
+}
+
+/**
+ * A text as every check reads it: compatibility forms folded (NFKC: full-width letters and digits, ligatures), every
+ * decimal digit as ASCII, the invisible characters that split a word dropped, and the dots of other scripts as `.`. A
+ * shopper's message and a model's reply are both read so, so "１５%", "ko\u200brting" and "evil。com" are what they say.
+ */
+export const fold = (text: string) =>
+  text
+    .normalize("NFKC")
+    .replaceAll(/[\u00AD\u200B-\u200F\u2060-\u2064\uFEFF]/g, "")
+    .replaceAll(/[\u3002\uFF61\uFF0E\u2024\uFE52\u2027\u2219\u00B7]/g, ".")
+    .replaceAll(/\p{Nd}/gu, asciiDigit)
 
 /*
  * The customer agent's rules (M15 step 8; ADR-0027, domain.md §6.4), pure so they are tested without a database or a
@@ -162,9 +191,10 @@ const stem = (topic: string) => topic.toLowerCase().trim().replace(/(en|s)$/, ""
 
 /** What in the message makes it a person's, in order: a person asked for, a complaint or anger, money, a topic. */
 export const triggerOf = (
-  text: string,
+  raw: string,
   rules: HandoverRules
 ): { readonly trigger: Trigger; readonly topic?: string } | null => {
+  const text = fold(raw)
   const t = text.toLowerCase()
   if (rules.asksPerson && ASKS_PERSON.test(t)) return { trigger: "asks_person" }
   if (SENSITIVE.test(t) || shouting(text)) return { trigger: "sensitive" }
@@ -178,7 +208,7 @@ const OWN_ORDER =
   /\b(mijn|m'n|onze|ons)\s+(bestelling(en)?|order|pakket(je)?|pakje|zending|levering|aankoop)\b|\bwaar (is|blijft)\b|bestelnummer|ordernummer|\btrack|volgcode|#\s?\d{3,}/i
 
 /** Whether the message is about an order of the shopper's (its status, where it is): the agent needs it proved first. */
-export const aboutAnOrder = (text: string) => OWN_ORDER.test(text)
+export const aboutAnOrder = (text: string) => OWN_ORDER.test(fold(text))
 
 /* ── proving an order ─────────────────────────────────────────────────────────────────────────────────────── */
 
@@ -194,7 +224,7 @@ const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/
 const POSTCODE = /\b([1-9]\d{3})\s?([a-z]{2})\b/gi
 
 /** Two letters after four digits that are a word, not a postcode ("1042 en ..."); SA, SD and SS no postcode has. */
-const NOT_POSTCODE = new Set([
+export const NOT_POSTCODE = new Set([
   "EN",
   "OF",
   "IS",
@@ -222,7 +252,8 @@ const MARKED_NUMBER =
  * What a message offers as proof of an order: its number (marked, "#1042" or "bestelling 1042", or a lone number of three
  * to ten digits beside an address or a postcode) and the e-mail address or the postcode on it.
  */
-export const claimOf = (text: string): Claim => {
+export const claimOf = (raw: string): Claim => {
+  const text = fold(raw)
   const email = EMAIL.exec(text)?.[0].toLowerCase() ?? null
   const withoutEmail = text.replace(EMAIL, " ")
   const pc = postcodeIn(withoutEmail)
@@ -242,6 +273,40 @@ export const VERIFY_CAP = 3
 
 /** Failed checks in one store within the hour before every check there goes to a person (guessing across chats). */
 export const STORE_VERIFY_CAP = 30
+
+/**
+ * Model calls for the customer agent in one store within the hour before every new chat there goes to a person: an
+ * anonymous visitor's messages cost the workspace's budget, so a flood is a person's.
+ */
+export const STORE_MODEL_CAP = 60
+
+/** Shopper messages on one thread before a person takes it, whatever "Na zoveel berichten" says. */
+export const MAX_TURNS = 30
+
+/**
+ * The customer agent's share of the workspace's monthly AI budget: past it, chats go to the team and every other AI
+ * feature still has the rest.
+ */
+export const AGENT_BUDGET_SHARE = 0.25
+
+/* ── what the model reads of the shopper ──────────────────────────────────────────────────────────────────── */
+
+const EMAILS = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g
+const PHONES = /\+?\d[\d\s-]{7,}\d/g
+
+/** A shopper's words as the model reads them: no e-mail address, phone number or postcode. */
+export const redactContact = (raw: string) =>
+  fold(raw)
+    .replaceAll(EMAILS, "[e-mail]")
+    .replaceAll(PHONES, "[telefoon]")
+    .replaceAll(
+      POSTCODE,
+      (m, _d: string, letters: string) => (NOT_POSTCODE.has(letters.toUpperCase()) ? m : "[postcode]")
+    )
+
+/** In the history the model reads, a message that offered an order's proof says only that. */
+export const PROOF_SHOWN = "[bestelling bewezen]"
+export const PROOF_OFFERED = "[bestelgegevens weggelaten]"
 
 /** A proved order as the chat says it: its number and its one plain status, with its carrier, tracking and dates. */
 export interface OrderFacts {
@@ -269,8 +334,8 @@ export const orderStatusReply = (o: OrderFacts, formal: boolean): string =>
 
 /**
  * Words that promise money, goods or a change to an order (ADR-0027: the agent never refunds, cancels, changes an
- * address or promises a discount). A reply may only repeat one the facts it was given say themselves (a published
- * return policy that says "je geld terug binnen 14 dagen"); one of its own is never sent.
+ * address or promises a discount). A sentence of a reply may hold one only as a sentence of the facts it was given
+ * says it (a published return policy); one of its own is never sent.
  */
 const PROMISES = [
   "terugbetal",
@@ -300,28 +365,105 @@ const PROMISES = [
   "nieuwe bestelling",
   "nalever",
   "vervangend",
-  "credit"
+  "credit",
+  "houden"
 ]
+
+/**
+ * The agent itself promising the shopper something (money back, an amount, keeping the goods, a change to their order):
+ * never sent, whatever a chapter says, since nothing the agent is given states it for this shopper. A person does that.
+ */
+const PROMISE_TO_SHOPPER = new RegExp(
+  [
+    // "Je krijgt 50 euro terug", "u ontvangt het bedrag retour".
+    "\\b(je|jij|u)\\s+(krijgt|ontvangt|krijg)\\s+(\\S+\\s+){0,5}(terug|retour|vergoed|gecrediteerd|bijgeschreven)",
+    // "Je mag het artikel houden", "mag je houden", "houden mag".
+    "\\bmag\\s+(\\S+\\s+){0,5}houden\\b|\\bhouden\\s+mag\\b|\\bmag\\s+(je|jij|u)\\s+(\\S+\\s+){0,4}houden",
+    // "Ik stort het bedrag terug", "we maken het over", "wij annuleren", "ik pas het adres aan".
+    "\\b(ik|we|wij)\\s+(\\S+\\s+){0,4}(stort\\w*|betaal\\w*|betalen|maak\\w*\\s+(\\S+\\s+){0,3}over|crediteer\\w*|vergoed\\w*|annuleer\\w*|annuleren|wijzig\\w*|pas\\s+(\\S+\\s+){0,3}aan|passen\\s+(\\S+\\s+){0,3}aan|(ver)?stuur\\w*\\s+(\\S+\\s+){0,3}(opnieuw|nieuw\\w*)|ruil\\w*)",
+    // "Het bedrag wordt teruggestort", "wordt vergoed".
+    "\\bword(t|en)\\s+(\\S+\\s+){0,3}(teruggestort|terugbetaald|vergoed|gecrediteerd|geannuleerd|omgeruild|kwijtgescholden)",
+    "\\b(teruggestort|terugbetaald|vergoed)\\s+worden",
+    // An amount back: "€ 20 terug", "20 euro retour".
+    "(€\\s*\\d|\\b\\d+([.,]\\d+)?\\s*(euro|eur)\\b)(\\S*\\s+){0,4}(terug|retour)"
+  ].join("|"),
+  "i"
+)
+
+/** Numbers in words, Dutch and English: "zestig", "vijfenveertig", "honderdvijftig", "fifty". "Een" and "ten" are not. */
+const NUMBER_WORDS =
+  /\b(?:(?:een|twee|drie|vier|vijf|zes|zeven|acht|negen)en|honderd|duizend)?(?:twee|drie|vier|vijf|zes|zeven|acht|negen|tien|elf|twaalf|dertien|veertien|vijftien|zestien|zeventien|achttien|negentien|twintig|dertig|veertig|vijftig|zestig|zeventig|tachtig|negentig|honderd|duizend|two|three|four|five|six|seven|eight|nine|eleven|twelve|fifteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand)\b/gi
+
+/** Links and addresses written to slip past a filter that `DEFANGED` does not name: a dot spaced out before a domain. */
+const SPACED_DOMAIN =
+  /\b[\w-]+\s+\.\s*(nl|be|com|net|org|eu|de|io|shop|store|info|co|xyz|app|me|ly)\b|\b[\w-]+\s*\.\s+(nl|be|com|net|org|eu|de|io|shop|store|info|co|xyz|app|me|ly)\b|\b(apenstaart(je)?|apestaart(je)?|at-teken)\b|\b[\w.+-]+\s+(at|bij)\s+[\w-]+\s+(dot|punt)\b/i
 
 export type ReplyFault = "figure" | "promise" | "link" | "empty"
 
+const sentencesOf = (text: string) => text.split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter((x) => x !== "")
+
+const wordsOf = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
+
+/** Whether a sentence only says what one sentence of the facts says: every word of it is in that one. */
+const saidIn = (sentence: string, facts: ReadonlyArray<string>) => {
+  const words = wordsOf(sentence)
+  return facts.some((f) => {
+    const known = new Set(wordsOf(f))
+    return words.every((w) => known.has(w))
+  })
+}
+
 /**
- * What is wrong with a reply before it may go: a digit in neither the shopper's own message nor the facts the model was
- * given (an amount, a date, a tracking number it made up), a promise the facts do not make themselves, a link or an
- * address the facts never had, or nothing to say. None: it may go.
+ * What is wrong with a reply before it may go, read folded (`fold`): a digit or a number in words the facts the model
+ * was given do not have (a shopper's own digits are not facts: "ik las 60 dagen?" is not confirmed); a promise of the
+ * agent's own to the shopper; a promise word or an amount in a sentence the facts do not say themselves; a link or an
+ * address the facts never had, or one written to slip past; or nothing to say. None: it may go.
  */
-export const replyFaults = (text: string, given: { readonly shopper: string; readonly facts: string }) => {
+export const replyFaults = (raw: string, given: { readonly facts: string }) => {
+  const text = fold(raw)
+  const facts = fold(given.facts)
   const faults: Array<ReplyFault> = []
   if (text.trim() === "") return ["empty"] satisfies Array<ReplyFault>
-  if (untracedFigures(text, `${given.shopper}\n${given.facts}`).length > 0) faults.push("figure")
-  const said = text.toLowerCase()
-  const facts = given.facts.toLowerCase()
+  const knownWords = new Set(wordsOf(facts))
   if (
-    PROMISES.some((p) => said.includes(p) && !facts.includes(p)) || (promisesMoney(text) && !promisesMoney(given.facts))
-  ) faults.push("promise")
-  if (untracedLinks(text, given.facts).length > 0 || /hxxps?|\[\.\]|\[at\]|\(at\)/i.test(text)) faults.push("link")
+    untracedFigures(text, facts).length > 0 ||
+    [...text.matchAll(NUMBER_WORDS)].some((m) => !knownWords.has(m[0].toLowerCase()))
+  ) faults.push("figure")
+  const factSentences = sentencesOf(facts)
+  const promised = sentencesOf(text).some((sentence) => {
+    if (PROMISE_TO_SHOPPER.test(sentence)) return true
+    const lower = sentence.toLowerCase()
+    const promise = PROMISES.some((p) => lower.includes(p)) || promisesMoney(sentence) || namesAmount(sentence)
+    return promise && !saidIn(sentence, factSentences)
+  })
+  if (promised) faults.push("promise")
+  if (untracedLinks(text, facts).length > 0 || defanged(text) || SPACED_DOMAIN.test(text)) faults.push("link")
   return faults
 }
+
+/* ── what widens what the agent says by itself ────────────────────────────────────────────────────────────── */
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+
+const topicKey = (t: string) => t.trim().toLowerCase()
+
+/** Rules that hand fewer chats to a person: a check switched off, a topic gone, more messages allowed or no limit. */
+const relaxes = (was: HandoverRules, next: HandoverRules) =>
+  (was.unsure && !next.unsure) || (was.asksPerson && !next.asksPerson) ||
+  was.topics.some((t) => !next.topics.map(topicKey).includes(topicKey(t))) ||
+  (was.afterMessages !== null && (next.afterMessages === null || next.afterMessages > was.afterMessages))
+
+/**
+ * What a save (or an undo) changes that lets Insyte say more to shoppers by itself: these need `ai.autonomy` beside
+ * Instellingen · Beheren. Switching it on, a channel to Zelf antwoorden, other hours, answering outside them, handover
+ * rules that hand over less, or other words for the handover. Switching it off, or anything while it is off, narrows.
+ */
+export const widens = (was: CustomerAgentSettingsInput, next: CustomerAgentSettingsInput) =>
+  next.on && (
+    !was.on || CHANNEL_KINDS.some((k) => next.channels[k] === "auto" && was.channels[k] !== "auto") ||
+    !same(was.hours, next.hours) || (next.outside === "answer" && was.outside !== "answer") ||
+    relaxes(was.handover, next.handover) || was.handoverMessage.trim() !== next.handoverMessage.trim()
+  )
 
 /* ── the agent's fixed words ──────────────────────────────────────────────────────────────────────────────── */
 

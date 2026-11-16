@@ -11,8 +11,8 @@ import { sendReplyLevel, timezoneOf } from "./settings.ts"
 /*
  * "Proberen" (M15 step 8; widgets/04 the test chat): one message through the agent's own thinking (`think`), on the
  * page's unsaved settings, server-side. Nothing is sent and nothing is filed; the model call counts against the
- * person's own budget, flagged as a test. It reads the knowledge base within the person's stores, and looks up no
- * order: a question about one says what a shopper would be asked.
+ * person's own budget, flagged as a test. It reads the knowledge base as the chat of the first store the person
+ * reaches would, and looks up no order: a question about one says what a shopper would be asked.
  */
 
 /** In the test chat no order is looked up: what the shopper would be asked instead. */
@@ -24,12 +24,17 @@ export const test = (brain: Brain, inTx: InTx<CurrentPrincipal>, input: TestInpu
     yield* Policy.require("settings", 1)
     const principal = yield* CurrentPrincipal
     const s = input.settings
-    const { level, tz, brand } = yield* inTx((sql) =>
+    const { level, tz, brand, storeId } = yield* inTx((sql) =>
       Effect.gen(function*() {
-        const [store] = yield* sql<{ name: string }>`
-          select name from stores where ${yield* inScope(sql, "id")} and status <> 'disconnected'
+        const [store] = yield* sql<{ id: string; name: string }>`
+          select id, name from stores where ${yield* inScope(sql, "id")} and status <> 'disconnected'
           order by created_at, id limit 1`
-        return { level: yield* sendReplyLevel(sql), tz: yield* timezoneOf(sql), brand: store?.name ?? "" }
+        return {
+          level: yield* sendReplyLevel(sql),
+          tz: yield* timezoneOf(sql),
+          brand: store?.name ?? "",
+          storeId: store?.id ?? null
+        }
       })
     )
     const now = new Date()
@@ -57,6 +62,8 @@ export const test = (brain: Brain, inTx: InTx<CurrentPrincipal>, input: TestInpu
     }
     const thought = yield* think(brain, {
       text: input.text,
+      // As a shopper on the first store's chat would ask: that store's chapters and every store's.
+      storeId,
       before: [],
       settings: s,
       brand,

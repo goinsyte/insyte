@@ -78,11 +78,19 @@ const Thread = HttpRouter.add(
 const Act = Schema.Struct({
   /** A member taking the thread over, or `null`: handed back. */
   takeOver: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMaxLength(64)))),
-  close: Schema.optional(Schema.Boolean)
+  close: Schema.optional(Schema.Boolean),
+  /** A member taking it over on the agent's `reads`-th read of the thread from now: in the middle of its turn. */
+  takeOverOnRead: Schema.optional(Schema.Struct({
+    reads: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(10)),
+    by: Schema.String.check(Schema.isMaxLength(64))
+  }))
 })
 const decodeAct = Schema.decodeUnknownEffect(Act)
 
-/** `POST /api/__dev/chat/thread?workspace=<id>&thread=<id>` `{ takeOver?, close? }`: a person acting on the thread. */
+/**
+ * `POST /api/__dev/chat/thread?workspace=<id>&thread=<id>` `{ takeOver?, close?, takeOverOnRead? }`: a person acting on
+ * the thread, now or in the middle of the agent's next turn.
+ */
 const PersonActs = HttpRouter.add(
   "POST",
   "/api/__dev/chat/thread",
@@ -95,7 +103,8 @@ const PersonActs = HttpRouter.add(
     const act = body.value
     return personActs(yield* workspaceParam, thread, {
         ...(act.takeOver === undefined ? {} : { takeOver: act.takeOver }),
-        ...(act.close === undefined ? {} : { close: act.close })
+        ...(act.close === undefined ? {} : { close: act.close }),
+        ...(act.takeOverOnRead === undefined ? {} : { takeOverOnRead: act.takeOverOnRead })
       })
       ? HttpServerResponse.jsonUnsafe({ ok: true })
       : refused

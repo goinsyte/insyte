@@ -24,6 +24,8 @@ import { Effect, Layer } from "effect"
 interface Kept {
   thread: ChatThread
   readonly messages: Array<ChatMessage>
+  /** A person taking the thread over in the middle of the agent's turn: on its `reads`-th read of the thread from now. */
+  takeOverOnRead?: { reads: number; readonly by: string } | undefined
 }
 
 const threads = new Map<string, Kept>()
@@ -44,7 +46,15 @@ const reach = (threadId: string) =>
 const authorOf = (kind: string): ChatAuthor => (kind === "agent" ? "agent" : kind === "member" ? "team" : "system")
 
 export const LocalChat = Layer.succeed(ChatChannel, {
-  thread: (threadId) => Effect.map(reach(threadId), (k) => ({ ...k.thread })),
+  thread: (threadId) =>
+    Effect.map(reach(threadId), (k) => {
+      const t = k.takeOverOnRead
+      if (t !== undefined && --t.reads <= 0) {
+        k.thread = { ...k.thread, takenOverBy: t.by }
+        k.takeOverOnRead = undefined
+      }
+      return { ...k.thread }
+    }),
   history: (threadId, { limit }) => Effect.map(reach(threadId), (k) => k.messages.slice(-limit)),
   reply: (threadId, text) =>
     Effect.gen(function*() {
@@ -102,14 +112,22 @@ export const threadOf = (workspaceId: string, threadId: string) => {
   return kept === undefined || kept.thread.workspaceId !== workspaceId ? null : kept
 }
 
-/** A person taking the thread over (`memberId`) or handing it back (`null`), or closing it. */
+/**
+ * A person taking the thread over (`memberId`) or handing it back (`null`), or closing it; or taking it over on the
+ * agent's `reads`-th read of the thread (a person acting while the agent's turn runs).
+ */
 export const personActs = (
   workspaceId: string,
   threadId: string,
-  act: { readonly takeOver?: string | null; readonly close?: boolean }
+  act: {
+    readonly takeOver?: string | null
+    readonly close?: boolean
+    readonly takeOverOnRead?: { readonly reads: number; readonly by: string }
+  }
 ) => {
   const kept = threadOf(workspaceId, threadId)
   if (kept === null) return false
+  if (act.takeOverOnRead !== undefined) kept.takeOverOnRead = { ...act.takeOverOnRead }
   if (act.takeOver !== undefined) {
     kept.thread = {
       ...kept.thread,

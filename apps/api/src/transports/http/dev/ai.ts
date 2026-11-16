@@ -59,12 +59,17 @@ const Spent = Schema.Struct({
   /** When it was billed, up to 62 days back; absent, now. */
   at: Schema.optional(Schema.String.check(Schema.isMaxLength(40))),
   /** Still out: a reservation not settled yet instead of a billed call. */
-  open: Schema.optional(Schema.Boolean)
+  open: Schema.optional(Schema.Boolean),
+  /** The customer agent's calls on that chat thread instead of a reply draft's, `count` of them, `cents` each. */
+  chat: Schema.optional(Schema.Struct({
+    threadId: Schema.String.check(Schema.isMaxLength(64)),
+    count: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(200))
+  }))
 })
 const decodeSpent = Schema.decodeUnknownEffect(Spent)
 
 /**
- * `POST /api/__dev/ai/spent?workspace=<id>` `{ memberId, cents, at?, open? }`: a call billed against a person's budget
+ * `POST /api/__dev/ai/spent?workspace=<id>` `{ memberId, cents, at?, open?, chat? }`: a call billed against a person's budget
  * (`memberId`) or the background's (`null`), worth that many euro cents at today's rate, then the budgets' marks as a
  * settlement makes them (`noteCrossings`, their events left for the relay); or, `open`, a reservation still out. The
  * fake model bills nothing, so the budget warnings' tests spend this way. Locally and on a preview only: it writes
@@ -79,7 +84,7 @@ const AiSpent = HttpRouter.add(
     const request = yield* HttpServerRequest.HttpServerRequest
     const body = yield* request.json.pipe(Effect.flatMap(decodeSpent), Effect.option)
     if (Option.isNone(body)) return invalid
-    const { memberId, cents, at, open } = body.value
+    const { memberId, cents, at, open, chat } = body.value
     const when = at === undefined ? new Date() : new Date(at)
     if (Number.isNaN(when.getTime()) || when.getTime() > Date.now() || when.getTime() < Date.now() - 62 * DAY) {
       return invalid
@@ -91,6 +96,17 @@ const AiSpent = HttpRouter.add(
         const micros = sql`round(${cents} * 10000 / coalesce((select f.rate from fx_rates f
                                                                where f.base = 'USD' and f.quote = 'EUR'
                                                                order by f.day desc limit 1), 1))`
+        if (chat !== undefined) {
+          for (let i = 0; i < chat.count; i++) {
+            yield* sql`insert into model_calls (id, workspace_id, member_id, principal_kind, purpose, prompt_id,
+                                                prompt_version, provider, model, cost_micros, outcome, subject_type,
+                                                subject_id, created_at)
+                       values (${mintId("mcl")}, ${workspace.id}, null, 'agent', 'channel_agent', 'customer_agent',
+                               'dev', 'fake', 'fake', ${micros}, 'ok', 'chat', ${chat.threadId}, ${when})`
+          }
+          yield* noteCrossings(sql, null)
+          return
+        }
         if (open === true) {
           yield* sql`insert into ai_reservations (id, workspace_id, member_id, prompt_id, cost_micros, created_at)
                      values (${mintId("air")}, ${workspace.id}, ${memberId}, 'reply_draft', ${micros}, ${when})`

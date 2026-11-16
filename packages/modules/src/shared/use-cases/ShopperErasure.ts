@@ -206,7 +206,13 @@ export const eraseShopper = (sql: SqlClient.SqlClient, seeds: ShopperSeeds) =>
     yield* sql`update knowledge_gaps set question = '[verwijderd]', question_key = 'verwijderd ' || id,
                  customer_label = ''
                where thread_id = any(${threadIds}::text[]) or ticket_id = any(${tickets.map((t) => t.id)}::text[])`
-    // The customer agent's chats where they proved an order (0103): the proof goes, and the agent's knowledge of it.
+    // The customer agent's chats where they proved an order (0103): the questions it filed from them, the proof, and
+    // the agent's knowledge of it. (A chat bound to them in the website chat's own tables is that slice's to erase.)
+    yield* sql`update knowledge_gaps set question = '[verwijderd]', question_key = 'verwijderd ' || id,
+                 customer_label = ''
+               where channel = 'webchat'
+                 and thread_id in (select thread_id from customer_agent_threads
+                                   where verified_order_id = any(${orderIds}::text[]))`
     yield* sql`update customer_agent_threads set verified_order_id = null, verified_at = null
                where verified_order_id = any(${orderIds}::text[])`
     const attachments = yield* sql<{ id: string }>`

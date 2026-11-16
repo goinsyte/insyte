@@ -222,6 +222,12 @@ const AMOUNT = /€|\b(euro|eur|cent|procent|percent)\b|%/i
 const DEFANGED =
   /hxxps?|\[\.\]|\(\.\)|\[dot\]|\(dot\)|\{dot\}|\[at\]|\(at\)|\{at\}|\[@\]|\(@\)|\b[\w-]+\s+(dot|punt)\s+[a-z]{2,}\b|\b[\w.+-]+\s+at\s+[\w-]+\.[a-z]{2,}\b/i
 
+/** Whether a text writes a link or an address so that a filter misses it (`DEFANGED`). */
+export const defanged = (text: string) => DEFANGED.test(text)
+
+/** Whether a text names an amount, in figures or in words (`AMOUNT`). */
+export const namesAmount = (text: string) => AMOUNT.test(text)
+
 /** A link, a `www.`, an e-mail address, or a bare domain (`label.tld`, any two-plus-letter TLD), with its path. */
 const LINK =
   /\bhttps?:\/\/[^\s<>"')\]]+|\bwww\.[^\s<>"')\]]+|[\w.+-]+@[\w-]+(\.[\w-]+)+|\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b(?:\/[^\s<>"')\]]*)?/gi

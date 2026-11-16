@@ -1,3 +1,4 @@
+import { Conflict } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Option, Schema } from "effect"
@@ -20,12 +21,20 @@ import {
   HoursInvalid,
   SettingsRestore
 } from "../domain/ChannelAgent.ts"
-import { badDay, DEFAULT_HANDOVER_MESSAGE, DEFAULT_HOURS, DEFAULT_RULES, effectiveModes } from "../domain/Rules.ts"
+import {
+  badDay,
+  DEFAULT_HANDOVER_MESSAGE,
+  DEFAULT_HOURS,
+  DEFAULT_RULES,
+  effectiveModes,
+  widens
+} from "../domain/Rules.ts"
 
 /*
  * Klantagent's settings (M15 step 8; api.md §2.25): one rule set for the workspace with a mode per channel, read by the
- * team (Instellingen · Bekijken) and saved with Beheren; switching the agent on, a channel to Zelf antwoorden, or the
- * hours also need `ai.autonomy`, since each widens what Insyte says to shoppers by itself. Every save has its Undo. The
+ * team (Instellingen · Bekijken) and saved with Beheren; what widens what Insyte says to shoppers by itself (`widens`:
+ * switching it on, a channel to Zelf antwoorden, the hours, handover rules that hand over less, the handover's words)
+ * also needs `ai.autonomy`, and so does an undo that would. Every save has its Undo, which undoes only that save. The
  * hours default to the offline plan's (the onboarding's), then to Monday to Friday 9–18.
  *
  * The day's figures (`today`) are read with Klantenservice · Bekijken, within the reader's stores.
@@ -141,10 +150,9 @@ export const getForKey = Effect.fn("ChannelAgent.getForKey")(function*(sql: SqlC
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
-/** What a save changes that lets Insyte say more by itself: these need `ai.autonomy` too. */
-const widens = (was: CustomerAgentSettings, next: CustomerAgentSettingsInput) =>
-  (next.on && !was.on) || CHANNEL_KINDS.some((k) => next.channels[k] === "auto" && was.channels[k] !== "auto") ||
-  !same(was.hours, next.hours) || (next.outside === "answer" && was.outside !== "answer")
+/** One save or undo at a time per workspace, so each reads the settings it changes. */
+const lock = (sql: SqlClient.SqlClient) =>
+  sql`select pg_advisory_xact_lock(hashtextextended('customer_agent:' || app_workspace_id(), 0))`
 
 const inputOf = (s: CustomerAgentSettings): CustomerAgentSettingsInput => ({
   on: s.on,
@@ -195,14 +203,17 @@ const check = (next: CustomerAgentSettingsInput) =>
 export const set = Effect.fn("ChannelAgent.set")(function*(sql: SqlClient.SqlClient, next: CustomerAgentSettingsInput) {
   yield* Policy.require("settings", 2)
   yield* check(next)
-  yield* sql`select pg_advisory_xact_lock(hashtextextended('customer_agent:' || app_workspace_id(), 0))`
+  yield* lock(sql)
   const was = yield* read(sql)
-  if (widens(was, next)) yield* Policy.requireAction("ai.autonomy")
+  if (widens(inputOf(was), next)) yield* Policy.requireAction("ai.autonomy")
   if (!same(inputOf(was), { ...next, handoverMessage: next.handoverMessage.trim() })) {
     yield* write(sql, next)
     const undo = yield* Undo.issue(sql, {
       command: RESTORE,
-      compensation: { before: was.version === 0 ? null : inputOf(was) } satisfies typeof SettingsRestore.Type
+      compensation: {
+        before: was.version === 0 ? null : inputOf(was),
+        version: was.version + 1
+      } satisfies typeof SettingsRestore.Type
     })
     return new ChannelAgentSaved({ view: yield* viewOf(sql), undo })
   }
@@ -216,6 +227,14 @@ export const restore = Effect.fn("ChannelAgent.restore")(function*(sql: SqlClien
   const c = yield* decodeRestore(compensation).pipe(Effect.orDie)
   yield* Policy.require("settings", 2)
   const principal = yield* CurrentPrincipal
+  yield* lock(sql)
+  const now = yield* read(sql)
+  // Saved again since: this token undoes that later save too, which is not its own.
+  if (c.version !== undefined && now.version !== c.version) {
+    return yield* new Conflict({ entity: "customer_agent", reason: "changed" })
+  }
+  const back = c.before ?? { ...inputOf(now), on: false }
+  if (widens(inputOf(now), back)) yield* Policy.requireAction("ai.autonomy")
   if (c.before === null) {
     // Never saved before: back to the default, which is off.
     yield* sql`update customer_agent_settings set enabled = false, version = version + 1, updated_by = ${principal.id}`
@@ -234,8 +253,9 @@ export const restore = Effect.fn("ChannelAgent.restore")(function*(sql: SqlClien
 
 /**
  * The five figures of the customer agent's day, in the workspace's time zone, within the reader's stores: the chats it
- * heard today, those it answered and kept, those it handed over, those handed over and still waiting for a colleague
- * (not taken over since, as far as the agent saw), and its first reply's average delay.
+ * heard today, those it answered and kept, those it handed over, those handed over (a runaway thread too) and still
+ * waiting for a colleague (not taken over since, as far as the agent saw), and its first reply's average delay after
+ * the shopper's first message.
  */
 export const today = Effect.fn("ChannelAgent.today")(function*(sql: SqlClient.SqlClient) {
   yield* Policy.require("support", 1)
@@ -248,8 +268,8 @@ export const today = Effect.fn("ChannelAgent.today")(function*(sql: SqlClient.Sq
     select count(*)::int as conversations,
            count(*) filter (where t.replies > 0 and t.handed_over_at is null)::int as handled,
            count(*) filter (where t.handed_over_at >= day.start)::int as handed_over,
-           count(*) filter (where t.handed_over_at is not null and t.held_at is null
-                            and t.handover_reason is distinct from 'taken')::int as waiting,
+           count(*) filter (where (t.handed_over_at is not null or t.held_at is not null)
+                            and t.taken_over_at is null)::int as waiting,
            coalesce(round(avg(extract(epoch from t.first_reply_at - t.first_message_at))
                           filter (where t.first_reply_at is not null)), 0)::int as avg
     from customer_agent_threads t cross join day

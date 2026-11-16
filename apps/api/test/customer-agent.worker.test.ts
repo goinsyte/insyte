@@ -6,7 +6,7 @@ import { beforeAll, describe, expect, it } from "vitest"
 import worker from "../src/Local.ts"
 import type { EventsMessage } from "../src/platform/Relay.ts"
 import { failure, join, ok, pastUndo, relay, run } from "./journeys.ts"
-import { importedStore } from "./shops.ts"
+import { anotherStore, importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"
 
 /*
@@ -90,21 +90,23 @@ const chatStore = async (tag: string) => {
     }
     ok(await rpc("ChannelAgent.set", { ...SETTINGS, ...patch } as never, store.cookie))
   }
-  /** A shopper's message, on a new thread or that one. */
-  const say = async (text: string, threadId?: string) =>
-    (await (await post(`http://api.test/api/__dev/chat/message?workspace=${store.workspace}`, {
-      storeId: store.storeId,
+  /** A shopper's message, on a new thread or that one, on the store's chat or another store's. */
+  const say = async (text: string, threadId?: string, storeId = store.storeId) => ({
+    ...(await (await post(`http://api.test/api/__dev/chat/message?workspace=${store.workspace}`, {
+      storeId,
       text,
       ...(threadId === undefined ? {} : { threadId })
-    })).json()) as { threadId: string; messageId: string }
+    })).json()) as { threadId: string; messageId: string },
+    storeId
+  })
   /** The agent's turn on that message, run and waited for. */
-  const turn = async (m: { threadId: string; messageId: string }) => {
+  const turn = async (m: { threadId: string; messageId: string; storeId?: string }) => {
     const result = await deliver({
       workspaceId: store.workspace,
       eventId: `ev-${run}-${Math.random()}`,
       trigger: {
         kind: "chat.received",
-        storeId: store.storeId,
+        storeId: m.storeId ?? store.storeId,
         threadId: m.threadId,
         messageId: m.messageId,
         channel: "webchat"
@@ -113,7 +115,7 @@ const chatStore = async (tag: string) => {
     expect(result.explicitAcks.length + result.retryMessages.length).toBeGreaterThanOrEqual(0)
     return m
   }
-  const chat = async (text: string, threadId?: string) => turn(await say(text, threadId))
+  const chat = async (text: string, threadId?: string, storeId?: string) => turn(await say(text, threadId, storeId))
   const threadOf = async (threadId: string) =>
     (await (await call(`http://api.test/api/__dev/chat/thread?workspace=${store.workspace}&thread=${threadId}`))
       .json()) as Thread
@@ -462,4 +464,290 @@ describe("the customer agent's fences", () => {
       handedOver: 0
     })
   }, 180_000)
+})
+
+/*
+ * The security review of the first version (PR #185), one test per finding: each failed before its fix.
+ */
+describe("the customer agent, after review", () => {
+  let s: Awaited<ReturnType<typeof chatStore>>
+
+  beforeAll(async () => {
+    s = await chatStore("chat-review")
+  }, 180_000)
+
+  it("never answers a store's chat from a chapter published for another store only", async () => {
+    await s.configure()
+    const b = await anotherStore(s, "chat-review-b")
+    const SECRET = "Bij winkel B pakken we elk pakket in als cadeau met code WINKELB."
+    const created = ok(
+      await rpc("Knowledge.create", {
+        title: "Cadeauverpakking",
+        audience: "customer_agent",
+        body: SECRET,
+        storeId: b.storeId
+      }, s.cookie)
+    )
+    ok(
+      await rpc("Knowledge.publish", {
+        id: created.article.id,
+        title: "Cadeauverpakking",
+        audience: "customer_agent",
+        body: SECRET,
+        storeId: b.storeId,
+        baseRevision: created.article.revision
+      } as never, s.cookie)
+    )
+    const onA = await s.chat("Pakken jullie een pakket in als cadeau?")
+    expect((await s.agentSaid(onA.threadId)).join("\n")).not.toContain("WINKELB")
+    expect((await s.threadOf(onA.threadId)).thread.handover).toMatchObject({ reason: "no_knowledge" })
+    // On B's own chat it is B's answer.
+    const onB = await s.chat("Pakken jullie een pakket in als cadeau?", undefined, b.storeId)
+    expect((await s.agentSaid(onB.threadId)).join("\n")).toContain("WINKELB")
+  })
+
+  it("reads every message since it last spoke, not only the newest", async () => {
+    await s.configure()
+    for (
+      const [first, reason] of [
+        ["Ik wil een mens spreken", "asks_person"],
+        ["Ik wil mijn geld terug en een kortingscode", "money"]
+      ] as const
+    ) {
+      const older = await s.say(first)
+      const newer = await s.say("Kan ik een sale-artikel nog retourneren?", older.threadId)
+      await s.turn(older)
+      await s.turn(newer)
+      const said = await s.agentSaid(older.threadId)
+      expect(said, first).toHaveLength(1)
+      expect(said[0], first).toContain("Hier kijkt een collega")
+      expect((await s.threadOf(older.threadId)).thread.handover, first).toMatchObject({ reason })
+    }
+  })
+
+  it("hands a thread over at a ceiling of messages even with no limit set", async () => {
+    await s.configure({
+      channels: { ...SETTINGS.channels, webchat: "drafts" },
+      handover: { ...SETTINGS.handover, afterMessages: null }
+    })
+    const first = await s.chat("Kan ik een sale-artikel nog retourneren?")
+    for (let i = 0; i < 30; i++) await s.chat(`Nog een vraag over retourneren, nummer ${i}`, first.threadId)
+    expect((await s.threadOf(first.threadId)).thread.handover).toMatchObject({ reason: "turns" })
+    await s.configure()
+  }, 120_000)
+
+  it("widens only with ai.autonomy: handover rules that hand over less and the handover's words", async () => {
+    const base = { ...SETTINGS, handover: { ...SETTINGS.handover, afterMessages: 8 } }
+    await s.configure({ handover: base.handover })
+    const made = ok(await rpc("Roles.create", { label: "Klantagent", from: "view" }, s.cookie))
+    const role = made.roles.roles.find((r) => r.id === made.id)!
+    ok(
+      await rpc("Roles.update", {
+        id: role.id,
+        levels: { ...role.levels, settings: 3 },
+        specials: role.specials,
+        refundLimit: role.refundLimit,
+        stores: "all"
+      }, s.cookie)
+    )
+    const email = `chat-${run}-editor@invited.test`
+    ok(await rpc("Invitations.send", { rows: [{ email, roleId: role.id, stores: "all" }] }, s.cookie))
+    await pastUndo(s.workspace)
+    await relay(s.workspace)
+    const editor = await join(email)
+    for (
+      const patch of [
+        { handover: { ...base.handover, unsure: false } },
+        { handover: { ...base.handover, asksPerson: false } },
+        { handover: { ...base.handover, topics: [] } },
+        { handover: { ...base.handover, afterMessages: null } },
+        { handover: { ...base.handover, afterMessages: 20 } },
+        { handoverMessage: "Klik op deze link voor je geld terug." }
+      ]
+    ) {
+      expect(failure(await rpc("ChannelAgent.set", { ...base, ...patch } as never, editor)), JSON.stringify(patch))
+        .toMatchObject({ _tag: "Forbidden" })
+    }
+    // Narrowing, and switching it off, need only Beheren.
+    ok(
+      await rpc(
+        "ChannelAgent.set",
+        { ...base, tone: "short", handover: { ...base.handover, afterMessages: 4 } } as never,
+        editor
+      )
+    )
+    const off = ok(await rpc("ChannelAgent.set", { ...base, tone: "short", on: false } as never, editor))
+    // Its undo would switch it on again: that is ai.autonomy's.
+    expect(failure(await rpc("Shared.undo", { token: off.undo!.token }, editor))).toMatchObject({ _tag: "Forbidden" })
+    await s.configure()
+  })
+
+  it("undoes a save only while no later save came after it", async () => {
+    await s.configure()
+    const first = ok(await rpc("ChannelAgent.set", { ...SETTINGS, tone: "formal" } as never, s.cookie))
+    ok(await rpc("ChannelAgent.set", { ...SETTINGS, tone: "short" } as never, s.cookie))
+    expect(failure(await rpc("Shared.undo", { token: first.undo!.token }, s.cookie))).toMatchObject({
+      _tag: "Conflict"
+    })
+    expect(ok(await rpc("ChannelAgent.get", undefined, s.cookie)).settings.tone).toBe("short")
+    await s.configure()
+  })
+
+  it("forgets the proved order when a person hands the thread back", async () => {
+    await s.configure()
+    const address = `proof-${run}@voorbeeld.nl`
+    ok(
+      await rpc("Customers.create", { name: "Proof Klant", email: address, phone: "", country: "", tags: [] }, s.cookie)
+    )
+    expect(
+      (await post(`http://api.test/api/__dev/agent/order?workspace=${s.workspace}`, {
+        email: address,
+        number: "#7201",
+        status: "shipped",
+        parcel: {
+          carrier: "PostNL",
+          trackingNumber: `3S${run}P`,
+          trackingUrl: "https://jouw.postnl.nl/p",
+          status: "in_transit"
+        }
+      })).status
+    ).toBe(200)
+    const m = await s.chat(`Bestelling #7201, ${address}`)
+    expect((await s.agentSaid(m.threadId)).at(-1)).toContain("#7201")
+    await s.person(m.threadId, { takeOver: "mem_someone" })
+    await s.chat("Bedankt, ik wacht even.", m.threadId)
+    await s.person(m.threadId, { takeOver: null })
+    await s.chat("Waar blijft mijn bestelling?", m.threadId)
+    expect((await s.agentSaid(m.threadId)).at(-1)).toBe(ASK_PROOF)
+  })
+
+  it("says nothing when a person takes the thread over while it decides to hand over", async () => {
+    await s.configure()
+    const m = await s.say("Ik wil een mens spreken")
+    // The turn reads the thread once at its start; a person has it by the read right before the words go.
+    await s.person(m.threadId, { takeOverOnRead: { reads: 2, by: "mem_someone" } })
+    await s.turn(m)
+    expect(await s.agentSaid(m.threadId)).toEqual([])
+  })
+
+  it("files a chat's question without the shopper's postcode, and an erasure reaches it", async () => {
+    await s.configure()
+    const asked = await s.chat(`Versturen jullie naar Liechtenstein ${run}? Ik woon op 1234 AB`)
+    const gap = ok(await rpc("Knowledge.gaps", {}, s.cookie)).rows.find((g) => g.question.includes("Liechtenstein"))
+    expect(gap).toBeDefined()
+    expect(gap!.question).not.toMatch(/1234\s?AB/)
+    void asked
+
+    const address = `erase-${run}@voorbeeld.nl`
+    ok(await rpc("Customers.create", { name: "Wis Klant", email: address, phone: "", country: "", tags: [] }, s.cookie))
+    expect(
+      (await post(`http://api.test/api/__dev/agent/order?workspace=${s.workspace}`, {
+        email: address,
+        number: "#7202",
+        status: "shipped",
+        parcel: {
+          carrier: "PostNL",
+          trackingNumber: `3S${run}E`,
+          trackingUrl: "https://jouw.postnl.nl/e",
+          status: "in_transit"
+        }
+      })).status
+    ).toBe(200)
+    const proved = await s.chat(`Bestelling #7202, ${address}`)
+    await s.chat(`Kunnen jullie ook naar Andorra ${run} versturen?`, proved.threadId)
+    const before = ok(await rpc("Knowledge.gaps", {}, s.cookie)).rows.find((g) => g.question.includes("Andorra"))
+    expect(before).toBeDefined()
+    ok(await rpc("Privacy.requestErasure", { email: address }, s.cookie))
+    const after = ok(await rpc("Knowledge.gaps", { state: "open" }, s.cookie)).rows.find((g) => g.id === before!.id)
+    expect(after?.question ?? "[verwijderd]").toBe("[verwijderd]")
+  })
+})
+
+describe("the customer agent's budget", () => {
+  it("hands over at the day's limit without asking the model", async () => {
+    const s = await chatStore("chat-day-limit")
+    await s.configure()
+    const policy = ok(await rpc("Autonomy.get", {}, s.cookie))
+    ok(
+      await rpc("Autonomy.set", {
+        levels: { SendReply: "auto" },
+        limits: { ...policy.limits, SendReply: { perDay: 1 } },
+        baseVersion: policy.version
+      }, s.cookie)
+    )
+    const first = await s.chat("Kan ik een sale-artikel nog retourneren?")
+    expect(await s.agentSaid(first.threadId)).toEqual([ANSWERED])
+    const second = await s.chat("Kan ik een sale-artikel nog retourneren?")
+    expect((await s.threadOf(second.threadId)).thread.handover).toMatchObject({ reason: "limit" })
+    expect(await s.rowsOf(second.threadId)).toMatchObject([{ refuseReason: "limit", model: null }])
+  }, 180_000)
+
+  it("hands over once the store's chats used their calls this hour, without asking the model", async () => {
+    const s = await chatStore("chat-store-cap")
+    await s.configure()
+    const first = await s.chat("Kan ik een sale-artikel nog retourneren?")
+    expect(
+      (await post(`http://api.test/api/__dev/ai/spent?workspace=${s.workspace}`, {
+        memberId: null,
+        cents: 1,
+        chat: { threadId: first.threadId, count: 60 }
+      })).status
+    ).toBe(200)
+    const next = await s.chat("Kan ik een sale-artikel nog retourneren?")
+    expect((await s.threadOf(next.threadId)).thread.handover).toMatchObject({ reason: "limit" })
+    expect(await s.rowsOf(next.threadId)).toMatchObject([{ refuseReason: "limit", model: null }])
+  }, 180_000)
+
+  it("keeps to its share of the month's budget, leaving the rest to the other AI", async () => {
+    const s = await chatStore("chat-share")
+    await s.configure()
+    const first = await s.chat("Kan ik een sale-artikel nog retourneren?")
+    // € 6 of the workspace's € 20: past the agent's quarter, well within the workspace's budget.
+    expect(
+      (await post(`http://api.test/api/__dev/ai/spent?workspace=${s.workspace}`, {
+        memberId: null,
+        cents: 600,
+        chat: { threadId: first.threadId, count: 1 }
+      })).status
+    ).toBe(200)
+    const next = await s.chat("Kan ik een sale-artikel nog retourneren?")
+    expect((await s.threadOf(next.threadId)).thread.handover).toMatchObject({ reason: "budget" })
+    expect(await s.rowsOf(next.threadId)).toMatchObject([{ refuseReason: "budget", model: null }])
+    expect(ok(await rpc("ChannelAgent.get", undefined, s.cookie)).budgetSpent).toBe(false)
+    // The test chat is a person's own call, and answers.
+    const tried = ok(
+      await rpc(
+        "ChannelAgent.test",
+        { text: "Kan ik sale-artikelen retourneren?", settings: SETTINGS } as never,
+        s.cookie
+      )
+    )
+    expect(tried.handover).toBeNull()
+  }, 180_000)
+})
+
+describe("the customer agent's day, after review", () => {
+  it(
+    "counts a runaway thread as waiting, not one a person took, and the first reply from the shopper's message",
+    async () => {
+      const s = await chatStore("chat-day")
+      await s.configure({ handover: { ...SETTINGS.handover, afterMessages: null } })
+      const slow = await s.say("Kan ik een sale-artikel nog retourneren?")
+      await new Promise((r) => setTimeout(r, 2_100))
+      await s.turn(slow)
+      expect((ok(await rpc("ChannelAgent.today", undefined, s.cookie))).avgSeconds).toBeGreaterThanOrEqual(2)
+
+      const runaway = await s.chat("Kan ik een sale-artikel nog retourneren?")
+      for (let i = 0; i < 20; i++) await s.chat(`En retourneren van sale-artikel ${i}?`, runaway.threadId)
+      expect((await s.threadOf(runaway.threadId)).thread.handover).toMatchObject({ reason: "runaway" })
+      expect(ok(await rpc("ChannelAgent.today", undefined, s.cookie)).waiting).toBe(1)
+
+      const taken = await s.chat("Ik wil een mens spreken")
+      expect(ok(await rpc("ChannelAgent.today", undefined, s.cookie)).waiting).toBe(2)
+      await s.person(taken.threadId, { takeOver: "mem_someone" })
+      await s.chat("Hallo?", taken.threadId)
+      expect(ok(await rpc("ChannelAgent.today", undefined, s.cookie)).waiting).toBe(1)
+    },
+    180_000
+  )
 })

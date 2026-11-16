@@ -6,6 +6,7 @@ import type { TestInput } from "@insyte/modules/channel-agent/domain/ChannelAgen
 import { type Brain, onChat } from "@insyte/modules/channel-agent/use-cases/engine"
 import { test as testChat } from "@insyte/modules/channel-agent/use-cases/test"
 import { search } from "@insyte/modules/knowledge/Knowledge"
+import { inStore } from "@insyte/modules/shared/use-cases/StoreScope"
 import { Effect } from "effect"
 import { withAi } from "./Ai.ts"
 import { LocalChat } from "./chat/LocalChat.ts"
@@ -20,12 +21,14 @@ import { withEmbedder } from "./Embeddings.ts"
  */
 
 const brain: Brain = {
-  search: (query) =>
+  // Within the thread's store (and every store's chapters): the agent itself reaches all of the workspace's.
+  search: (query, storeId) =>
     Effect.flatMap(
       Effect.service(Db),
       (db) => withEmbedder(search(db.scoped, { query, audience: "customer_agent", limit: 3 }))
     ).pipe(
-      Effect.map((r) => r.hits),
+      inStore(storeId ?? undefined),
+      Effect.map((r) => r.hits.filter((h) => storeId === null || h.storeId === null || h.storeId === storeId)),
       // A search that failed finds nothing: the question goes to a person.
       Effect.catchCause((cause) =>
         Effect.as(Effect.logWarning("the customer agent's search did not answer", { cause }), [])
