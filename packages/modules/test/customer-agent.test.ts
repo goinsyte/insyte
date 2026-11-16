@@ -371,12 +371,14 @@ describe("what a reply may say", () => {
     ].join(" ")
     const given = { facts: `Retourneren en verzenden\n${chapter}`, statements: chapter }
     const goes = (reply: string) => replyFaults(reply, given).length === 0
-    // Twenty answers a shop's chat gives; before this was tuned, 14 went (8 close to the chapter, 6 in other words).
+    // Twenty answers a shop's chat gives (and the general form of two): before this was tuned, 14 went (8 close to the
+    // chapter, 6 in other words); now 16, and the two that say what will be done to the shopper's own order go to a
+    // person unless the proved order says it, as their general form does not.
     const rows: ReadonlyArray<readonly [string, boolean]> = [
       // Close to the chapter.
       ["Zodra je bestelling verzonden is, krijg je een mail.", true],
       ["Binnen 30 dagen kun je kosteloos retourneren.", true],
-      ["Je bestelling wordt binnen twee werkdagen bezorgd.", true],
+      ["Je bestelling wordt binnen twee werkdagen bezorgd.", false],
       ["Je kunt je bestelling binnen 30 dagen gratis terugsturen.", true],
       ["Als je retour bij ons binnen is, krijg je je geld binnen 14 dagen terug.", true],
       ["Bestel je op een werkdag vóór 22:00, dan verzenden we nog dezelfde dag.", true],
@@ -387,7 +389,9 @@ describe("what a reply may say", () => {
       // In other words.
       ["Wanneer je pakket verzonden is, ontvang je een mail met de track-and-trace-code.", true],
       ["Retourneren is kosteloos binnen 30 dagen na ontvangst.", true],
-      ["Je pakket wordt binnen twee werkdagen bezorgd.", true],
+      ["Je pakket wordt binnen twee werkdagen bezorgd.", false],
+      ["Bestellingen worden binnen twee werkdagen bezorgd.", true],
+      ["We bezorgen binnen twee werkdagen.", true],
       ["Je geld krijg je binnen veertien dagen terug, zodra je retour binnen is.", true],
       ["Bestellingen vanaf 50 euro verzenden we gratis.", true],
       ["Een sale-artikel kan helaas niet retour.", true],
@@ -410,6 +414,71 @@ describe("what a reply may say", () => {
       ["We hebben je geld teruggestort.", false]
     ]
     for (const [reply, may] of rows) expect(goes(reply), reply).toBe(may)
+  })
+  it("keeps what a fact narrows its promise to, lets its negation win, and leaves this order's future to its facts", () => {
+    // [the reply, the chapter, whether it may go]: both ways round where a qualifier is.
+    const pairs: ReadonlyArray<readonly [string, string, boolean]> = [
+      // "pakket" reads as the order, but "een beschadigd pakket" is not every order.
+      ["Je bestelling ruilen we gratis om.", "Een beschadigd pakket ruilen we gratis om.", false],
+      ["Je bestelling ruilen we kosteloos om.", "Een beschadigd pakket ruilen we kosteloos om.", false],
+      ["Je bestelling wordt kosteloos omgeruild.", "Een beschadigd pakket ruilen we gratis om.", false],
+      ["Je bestelling wordt omgeruild.", "Een beschadigd pakket ruilen we kosteloos om.", false],
+      ["Een beschadigd pakket ruilen we gratis om.", "Je bestelling ruilen we gratis om.", false],
+      ["Een beschadigd pakket ruilen we kosteloos om.", "Een beschadigd pakket ruilen we gratis om.", true],
+      ["Een beschadigde bestelling ruilen we gratis om.", "Een beschadigd pakket ruilen we kosteloos om.", true],
+      ["Is je pakket beschadigd, dan ruilen we het gratis om.", "Een beschadigd pakket ruilen we gratis om.", true],
+      ["Een verkeerd artikel ruilen we gratis om.", "Een beschadigd artikel ruilen we gratis om.", false],
+      ["Je kunt gratis retourneren.", "Sale-artikelen kun je gratis retourneren.", false],
+      ["Sale-artikelen kun je gratis retourneren.", "Je kunt gratis retourneren.", false],
+      // "Zonder kosten" is tied to its subject, and the fact's negation for that subject wins.
+      [
+        "Sale-artikelen retourneren gaat zonder kosten.",
+        "Retourneren gaat zonder kosten. Sale-artikelen zijn niet gratis.",
+        false
+      ],
+      [
+        "Sale-artikelen retourneren gaat zonder kosten.",
+        "Retourneren is gratis. Sale-artikelen zijn niet gratis te retourneren. Verzenden gaat zonder kosten.",
+        false
+      ],
+      [
+        "Sale-artikelen kun je gratis retourneren.",
+        "Sale-artikelen kun je gratis ruilen. Sale-artikelen zijn niet gratis te retourneren.",
+        false
+      ],
+      [
+        "Sale-artikelen kun je gratis ruilen.",
+        "Sale-artikelen kun je gratis ruilen. Sale-artikelen zijn niet gratis te retourneren.",
+        true
+      ],
+      ["Retourneren gaat zonder kosten.", "Retourneren gaat zonder kosten. Sale-artikelen zijn niet gratis.", true],
+      // What will be done to the shopper's own order is the proved order's to say; its general, conditional form not.
+      [
+        "We zullen je bestelling vandaag nog verzenden.",
+        "Zodra je bestelling verzonden is, krijg je een mail. Op werkdagen vóór 22:00 besteld, verzenden we dezelfde dag.",
+        false
+      ],
+      ["We zullen je bestelling vandaag nog verzenden.", "We verzenden je bestelling binnen 2 werkdagen.", false],
+      ["Je pakket gaan we morgen bezorgen.", "We bezorgen binnen 2 werkdagen.", false],
+      [
+        "We gaan je bestelling annuleren.",
+        "Een bestelling wordt geannuleerd als je niet binnen 7 dagen betaalt.",
+        false
+      ],
+      [
+        "Zodra je bestelling verzonden is, krijg je een mail.",
+        "Zodra je bestelling verzonden is, krijg je een mail.",
+        true
+      ]
+    ]
+    for (const [reply, fact, goes] of pairs) {
+      expect(replyFaults(reply, { facts: `Beleid\n${fact}`, statements: fact }).length === 0, `${reply} | ${fact}`)
+        .toBe(goes)
+    }
+    // The proved order's facts may say what comes next for it.
+    const order = "De status van je bestelling #1042: wordt vandaag verzonden met PostNL."
+    expect(replyFaults("Je bestelling wordt vandaag verzonden met PostNL.", { facts: order, statements: "", order }))
+      .toEqual([])
   })
   it("refuses a link written to slip past", () => {
     for (

@@ -1045,9 +1045,21 @@ describe("the customer agent, tuned", () => {
     expect(undone.chat.filter((e) => e.author === "team")).toEqual([])
     expect(undone.draft).toMatchObject({ id: d!.id })
 
-    // Aanpassen: its words go to the composer, and it leaves the letter.
+    // Aanpassen: its words go to the composer, and it leaves the letter, with its Undo.
+    const used = ok(await rpc("Threads.useDraft", input, s.cookie))
+    expect((await get()).draft).toBeNull()
+    ok(await rpc("Shared.undo", { token: used.undo!.token }, s.cookie))
+    expect((await get()).draft).toMatchObject({ id: d!.id })
     ok(await rpc("Threads.useDraft", input, s.cookie))
     expect((await get()).draft).toBeNull()
+
+    // Each is in the audit log: the words never are.
+    const audited = ((await (await call(
+      `http://api.test/api/__dev/data/audit?workspace=${s.workspace}&subject=${m.threadId}`
+    )).json()) as { actions: Array<string> }).actions
+    for (const action of ["thread.draft_discarded", "thread.draft_sent", "thread.draft_used"]) {
+      expect(audited, action).toContain(action)
+    }
   })
 
   it(

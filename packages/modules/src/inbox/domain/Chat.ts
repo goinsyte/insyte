@@ -85,11 +85,13 @@ export const ChatRestore = Schema.Union([
     /** The customer agent's draft it sent ("Versturen"): open again once the reply is taken away. */
     draftId: Schema.optional(Schema.String)
   }),
-  /** The customer agent's draft, thrown away ("Weggooien"): shown again. */
+  /** The customer agent's draft, thrown away ("Weggooien") or taken into the composer ("Aanpassen"): shown again. */
   Schema.Struct({
     kind: Schema.Literal("draft"),
     threadId: Schema.String,
-    draftId: Schema.String
+    draftId: Schema.String,
+    /** What is undone; absent is a draft thrown away. */
+    undoes: Schema.optional(Schema.Literals(["discarded", "used"]))
   }),
   /** A take-over or a hand-back: the thread's holder and assignee as they were, the handover's state too. */
   Schema.Struct({

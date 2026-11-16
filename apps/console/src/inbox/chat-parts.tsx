@@ -106,7 +106,9 @@ function useDraftActions(
     },
     onUse: () => {
       if (!allowed()) return
-      void write.use({ payload, ...keys }).then((exit) => done(exit, "", ""))
+      void write.use({ payload, ...keys }).then((exit) =>
+        done(exit, "Concept in het antwoordveld gezet", "Pas het aan en verstuur het zelf.")
+      )
     },
     onDiscard: () => {
       if (!allowed()) return

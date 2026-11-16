@@ -202,6 +202,14 @@ export const eraseShopper = (sql: SqlClient.SqlClient, seeds: ShopperSeeds) =>
     yield* sql`update email_threads set subject = '[verwijderd]', participants = '[]'::jsonb,
                  last_message_preview = ''
                where id = any(${threadIds}::text[])`
+    // The customer agent's rows of their chats first, then the chats: in the order the agent's turn takes them
+    // (`customer_agent_threads`, then `channel_threads` as it replies or binds the customer), so an erasure while the
+    // agent answers waits for it instead of deadlocking against it and leaving the shopper's message unanswered.
+    yield* sql`select thread_id from customer_agent_threads
+               where thread_id in (select id from channel_threads where customer_id = any(${ids}::text[]))
+                  or proved_order_ids && ${orderIds}::text[] or verified_order_id = any(${orderIds}::text[])
+               order by thread_id
+               for update`
     // Their website chats (0102): what they said, what was said to them, and why the agent handed it over.
     const chats = yield* sql<{ id: string }>`
       update channel_threads set subject = '', participants = '[]'::jsonb, last_message_preview = ''

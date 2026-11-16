@@ -192,6 +192,7 @@ export const sendDraft = Effect.fn("Threads.sendDraft")(function*(
       const { draft } = yield* holdDraft(sql, input)
       const made = yield* replyIn(sql, input.threadId, draft.text)
       yield* sql`update drafts set used_at = now() where id = ${draft.id}`
+      yield* audit(sql, "thread.draft_sent", input.threadId, { draftId: draft.id, messageId: made.id })
       const undo = yield* Undo.issue(sql, {
         command: CHAT_RESTORE,
         compensation: { ...made.compensation, draftId: draft.id } satisfies ChatRestore
@@ -201,7 +202,10 @@ export const sendDraft = Effect.fn("Threads.sendDraft")(function*(
   )
 })
 
-/** "Aanpassen": the draft's words go into the composer, and the draft is used, as "Concept gebruiken" is for mail. */
+/**
+ * "Aanpassen": the draft's words go into the composer, and the draft is used, as "Concept gebruiken" is for mail. Its
+ * Undo shows it again (what the composer holds stays).
+ */
 export const useDraft = Effect.fn("Threads.useDraft")(function*(
   input: { readonly threadId: string; readonly draftId: string }
 ) {
@@ -211,7 +215,17 @@ export const useDraft = Effect.fn("Threads.useDraft")(function*(
     Effect.gen(function*() {
       const { draft } = yield* holdDraft(sql, input)
       yield* sql`update drafts set used_at = now() where id = ${draft.id}`
-      return yield* changedWith(sql, input.threadId, null)
+      yield* audit(sql, "thread.draft_used", input.threadId, { draftId: draft.id })
+      const undo = yield* Undo.issue(sql, {
+        command: CHAT_RESTORE,
+        compensation: {
+          kind: "draft",
+          threadId: input.threadId,
+          draftId: draft.id,
+          undoes: "used"
+        } satisfies ChatRestore
+      })
+      return yield* changedWith(sql, input.threadId, undo)
     })
   )
 })
@@ -490,8 +504,13 @@ export const restore = Effect.fn("Chat.restore")(function*(sql: SqlClient.SqlCli
       return
     }
     case "draft": {
-      yield* sql`update drafts set discarded_at = null
-                 where id = ${undo.draftId} and subject_type = 'chat' and subject_id = ${undo.threadId}`
+      if (undo.undoes === "used") {
+        yield* sql`update drafts set used_at = null
+                   where id = ${undo.draftId} and subject_type = 'chat' and subject_id = ${undo.threadId}`
+      } else {
+        yield* sql`update drafts set discarded_at = null
+                   where id = ${undo.draftId} and subject_type = 'chat' and subject_id = ${undo.threadId}`
+      }
       yield* audit(sql, "thread.draft_restored", undo.threadId, { draftId: undo.draftId })
       return
     }
