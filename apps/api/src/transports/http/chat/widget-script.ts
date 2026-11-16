@@ -4,7 +4,9 @@
  * JavaScript with no dependencies, in a closed shadow root so the theme's styles and the widget's do not meet.
  *
  * Everything the shopper or the store wrote is put in with `textContent`, never as markup. The session's token is kept
- * in the storefront's `localStorage` under one key (and only there): it names the conversation and nothing else. While
+ * in the storefront's `localStorage` under one key (and only there): it names the conversation and nothing else, and
+ * lasts a day from the last page that opened it. "Gesprek beëindigen" ends the session with the conversation: the
+ * widget forgets what was said and keeps only the new session the server answers with. While
  * the panel is open the widget asks for news every 4 seconds, and every 30 while a conversation exists and the panel is
  * closed, with the last answer's ETag, so "nothing new" costs a 304. It stops asking once the tab is hidden.
  *
@@ -16,6 +18,7 @@ export const WIDGET_SCRIPT = String.raw`(() => {
   if (!me || window.__insyteChat) return;
   window.__insyteChat = true;
   const shop = me.getAttribute("data-shop") || "";
+  if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(shop)) return;
   const api = new URL(me.src).origin + "/api/public/chat";
   const KEY = "insyte-chat:" + shop;
   const MAX = 1000;
@@ -23,7 +26,9 @@ export const WIDGET_SCRIPT = String.raw`(() => {
   try { session = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { session = null; }
   let etag = null, messages = [], openPanel = false, timer = 0, busy = false, threadOpen = true;
 
-  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(session)); } catch (e) {} };
+  const save = () => {
+    try { session ? localStorage.setItem(KEY, JSON.stringify(session)) : localStorage.removeItem(KEY); } catch (e) {}
+  };
   const headers = (extra) => Object.assign({ "content-type": "application/json" },
     session ? { authorization: "Bearer " + session.token } : {}, extra || {});
 
@@ -167,10 +172,16 @@ export const WIDGET_SCRIPT = String.raw`(() => {
   close.addEventListener("click", () => { openPanel = false; panel.classList.remove("o"); schedule(); });
   end.addEventListener("click", async () => {
     if (!session) return;
-    await fetch(api + "/" + encodeURIComponent(session.storeId) + "/close", { method: "POST", headers: headers() })
-      .catch(() => null);
-    etag = null;
-    poll();
+    const res = await fetch(api + "/" + encodeURIComponent(session.storeId) + "/close", {
+      method: "POST", headers: headers()
+    }).catch(() => null);
+    const body = res && res.ok ? await res.json().catch(() => null) : null;
+    // The old session is over: only the new one is kept, and nothing of what was said.
+    session = body && body.token ? { token: body.token, storeId: body.storeId } : null;
+    save();
+    etag = null; messages = []; threadOpen = false;
+    render();
+    schedule();
   });
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }

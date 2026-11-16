@@ -4,7 +4,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { ipOf } from "../../../platform/EdgeGuards.ts"
 import { RateLimits } from "../../../platform/RateLimits.ts"
 import { withRequestDb } from "../../../platform/RequestDb.ts"
-import { ipKey, readCapped } from "../PixelRoutes.ts"
+import { readCapped } from "../PixelRoutes.ts"
 import { WIDGET_SCRIPT } from "./widget-script.ts"
 
 /*
@@ -13,10 +13,12 @@ import { WIDGET_SCRIPT } from "./widget-script.ts"
  * names one conversation in one store. In the order a request meets them:
  *
  * 1. A store id that is not one of ours' shape is a 404 before any I/O.
- * 2. The limit per IP (per /64 for IPv6), and per token where there is one, before anything that costs.
+ * 2. The limit per IP (per /56 for IPv6, a household's or a phone's whole range), before anything that costs. Loose on
+ *    reads, which a carrier's NAT puts many shoppers behind; the widget's own polling is held per session instead.
  * 3. The body, read with a running count and cut off past 4 KB.
  * 4. The use case: the store's chat is on, the Origin is one of its storefronts, the token is ours and the store's;
- *    only then the store's own limit on messages, so a flood without a session cannot silence a store's shoppers.
+ *    only then the limits per session, on the store's new conversations (a minute's and a day's), and on all the
+ *    store's messages, so a flood without a session cannot silence a store's shoppers.
  *
  * An answer allows the request's origin only once it is known to be the store's. Nothing a shopper wrote is logged.
  */
@@ -24,10 +26,30 @@ import { WIDGET_SCRIPT } from "./widget-script.ts"
 const MAX_BODY_BYTES = 4 * 1024
 const MINUTE = 60
 const PER_IP_SESSION = { bucket: "chat-ip-session", limit: 20, windowSeconds: MINUTE } as const
-const PER_IP_READ = { bucket: "chat-ip-read", limit: 120, windowSeconds: MINUTE } as const
+const DAY = 86_400
+const PER_IP_READ = { bucket: "chat-ip-read", limit: 600, windowSeconds: MINUTE } as const
 const PER_IP_SEND = { bucket: "chat-ip-send", limit: 30, windowSeconds: MINUTE } as const
-const PER_TOKEN_SEND = { bucket: "chat-token-send", limit: 12, windowSeconds: MINUTE } as const
-const PER_STORE_SEND = { bucket: "chat-store-send", limit: 600, windowSeconds: MINUTE } as const
+
+/** The limits the use case takes once the request is the store's and the session's (`Widget.Take`). */
+const WIDGET_LIMITS: Record<Widget.WidgetLimit, { bucket: string; limit: number; windowSeconds: number }> = {
+  // The panel open asks every 4 seconds: 15 a minute, and room for a tab coming back.
+  "session-read": { bucket: "chat-session-read", limit: 40, windowSeconds: MINUTE },
+  "session-send": { bucket: "chat-session-send", limit: 12, windowSeconds: MINUTE },
+  "store-send": { bucket: "chat-store-send", limit: 600, windowSeconds: MINUTE },
+  "store-threads-minute": { bucket: "chat-store-threads", limit: 10, windowSeconds: MINUTE },
+  "store-threads-day": { bucket: "chat-store-threads-day", limit: 300, windowSeconds: DAY }
+}
+
+/** An address's key: an IPv4 address as it is, an IPv6 one by its /56. */
+const chatIpKey = (ip: string) => {
+  if (!ip.includes(":")) return `ip:${ip}`
+  const [head = "", tail = ""] = ip.split("::")
+  const left = head === "" ? [] : head.split(":")
+  const right = tail === "" ? [] : tail.split(":")
+  const groups = ip.includes("::") ? [...left, ...Array(8 - left.length - right.length).fill("0"), ...right] : left
+  const hex = groups.slice(0, 4).map((g) => g.toLowerCase().padStart(4, "0"))
+  return `ip6:${hex.slice(0, 3).join(":")}:${hex[3]!.slice(0, 2)}00::/56`
+}
 
 const isStoreId = (id: string) => /^sto_[0-9a-hjkmnp-tv-z]{26}$/.test(id)
 const isShop = (shop: string) => /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(shop)
@@ -66,10 +88,19 @@ const limited = (key: string | null, limit: { bucket: string; limit: number; win
     return taken.ok ? undefined : empty(429, null, { "retry-after": String(taken.retryAfterSeconds) })
   })
 
+/**
+ * The use case's limits, keyed on what it has verified: the session (its visitor hash, never the token's text) or the
+ * store. They hold on every stage: a preview's tests come from one runner, but each from sessions and stores of its own.
+ */
+const takeOf = Effect.map(RateLimits, (limits): Widget.Take => (limit, key) => {
+  const { bucket, limit: n, windowSeconds } = WIDGET_LIMITS[limit]
+  return limits.take(`chat:${key}`, bucket, n, windowSeconds)
+})
+
 const ipKeyOf = (request: Request) =>
   Effect.map(RateLimits, (limits) => {
     const ip = limits.ipLimits ? ipOf(request.headers) : null
-    return ip === null ? null : ipKey(ip)
+    return ip === null ? null : chatIpKey(ip)
   })
 
 const bodyOf = (request: Request) =>
@@ -140,7 +171,8 @@ const messages = Effect.gen(function*() {
     storeId,
     origin: req.headers.get("origin"),
     token: tokenOf(req),
-    etag: req.headers.get("if-none-match")
+    etag: req.headers.get("if-none-match"),
+    take: yield* takeOf
   }).pipe(withRequestDb)
   return answer(said)
 }).pipe(Effect.withSpan("Chat.readRoute"))
@@ -149,22 +181,16 @@ const say = Effect.gen(function*() {
   const req = yield* request
   const storeId = yield* storeOf
   if (storeId === null) return empty(404, null)
-  const token = tokenOf(req)
   const overIp = yield* limited(yield* ipKeyOf(req), PER_IP_SEND)
   if (overIp !== undefined) return overIp
-  // Keyed on the token's signature: a forged one only spends its own budget, and the IP's.
-  const overToken = yield* limited(token === null ? null : `chat:${token.slice(-24)}`, PER_TOKEN_SEND)
-  if (overToken !== undefined) return overToken
   const body = yield* bodyOf(req)
   if (body === null) return empty(413, null)
-  const limits = yield* RateLimits
   const said = yield* Widget.post({
     storeId,
     origin: req.headers.get("origin"),
-    token,
+    token: tokenOf(req),
     text: typeof body === "object" && body !== null ? (body as { text?: unknown }).text : undefined,
-    admitStore: (store) =>
-      limits.take(`chat:${store}`, PER_STORE_SEND.bucket, PER_STORE_SEND.limit, PER_STORE_SEND.windowSeconds)
+    take: yield* takeOf
   }).pipe(withRequestDb)
   return answer(said)
 }).pipe(Effect.withSpan("Chat.sendRoute"))

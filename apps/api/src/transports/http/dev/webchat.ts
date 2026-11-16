@@ -1,5 +1,6 @@
+import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
-import { CurrentPrincipal, CurrentWorkspace } from "@insyte/domain/Principal"
+import { CurrentPrincipal, CurrentWorkspace, type Principal } from "@insyte/domain/Principal"
 import { agentPrincipal } from "@insyte/modules/agent/Agent"
 import { ChatChannel } from "@insyte/modules/shared/domain/ChatChannel"
 import { Effect, Layer, Option, Schema } from "effect"
@@ -15,7 +16,13 @@ const Call = Schema.Union([
   Schema.Struct({ op: Schema.Literal("history"), threadId: Schema.String, limit: Schema.Int }),
   Schema.Struct({ op: Schema.Literal("reply"), threadId: Schema.String, text: Schema.String }),
   Schema.Struct({ op: Schema.Literal("handOver"), threadId: Schema.String, reason: Schema.String }),
-  Schema.Struct({ op: Schema.Literal("bindCustomer"), threadId: Schema.String, customerId: Schema.String })
+  Schema.Struct({
+    op: Schema.Literal("bindCustomer"),
+    threadId: Schema.String,
+    customerId: Schema.String,
+    /** As a member who may only read the inbox, not the agent: what the port refuses a caller like that. */
+    as: Schema.optional(Schema.Literal("viewer"))
+  })
 ])
 const decodeCall = Schema.decodeUnknownEffect(Call)
 
@@ -23,6 +30,7 @@ const decodeCall = Schema.decodeUnknownEffect(Call)
  * `POST /api/__dev/webchat/agent?workspace=<id>` `{ op, threadId, … }`: one call of the website chat's port
  * (`ChatChannel`) as the workspace's agent, as the customer agent (W12.2) will make it: its answer, or the error it
  * ended in by tag. For the worker tests of the contract until the agent's sink calls it. Locally and on a preview only.
+ * `bindCustomer` with `as: "viewer"` runs as a member who reads the inbox (support level 1), for its refusal.
  */
 const AgentCall = HttpRouter.add(
   "POST",
@@ -35,7 +43,14 @@ const AgentCall = HttpRouter.add(
     if (Option.isNone(body)) return invalid
     const call = body.value
     const chat = yield* ChatChannel
-    const principal = yield* agentPrincipal().pipe(Effect.provideService(CurrentWorkspace, workspace))
+    const agent = yield* agentPrincipal().pipe(Effect.provideService(CurrentWorkspace, workspace))
+    const principal: Principal = call.op === "bindCustomer" && call.as === "viewer"
+      ? {
+        ...agent,
+        kind: "member",
+        role: { ...agent.role, id: "viewer", levels: { ...agent.role.levels, support: 1 } }
+      }
+      : agent
     const answer = yield* Effect.gen(function*() {
       switch (call.op) {
         case "thread":
@@ -83,4 +98,26 @@ const StorePage = HttpRouter.add(
   })
 )
 
-export const WebchatRoutes = Layer.mergeAll(AgentCall, StorePage)
+/**
+ * `POST /api/__dev/webchat/age?workspace=<id>&hours=<n>`: the workspace's chats as if their last word were `n` hours
+ * older, so a test reaches a conversation's idle end without waiting a day. Locally and on a preview only.
+ */
+const ChatAge = HttpRouter.add(
+  "POST",
+  "/api/__dev/webchat/age",
+  Effect.gen(function*() {
+    if (!(yield* devOnly)) return refused
+    const workspace = { id: (yield* workspaceParam) as WorkspaceId }
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const hours = Number(new URL(request.url, "http://local").searchParams.get("hours") ?? "0")
+    const db = yield* Db
+    const aged = yield* db.scopedFor((sql) =>
+      sql`update channel_threads set last_message_at = last_message_at - make_interval(hours => ${
+        Number.isFinite(hours) ? Math.trunc(hours) : 0
+      }) returning id`
+    ).pipe(Effect.provideService(CurrentWorkspace, workspace))
+    return HttpServerResponse.jsonUnsafe({ aged: aged.length })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+export const WebchatRoutes = Layer.mergeAll(AgentCall, StorePage, ChatAge)

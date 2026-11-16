@@ -47,7 +47,7 @@ const cors = (origin: string | null): Record<string, string> =>
 const isStoreId = (id: string) => /^sto_[0-9a-hjkmnp-tv-z]{26}$/.test(id)
 
 /** The limiter's key for an address: an IPv6 address by its /64, which one host or tenant usually holds whole. */
-export const ipKey = (ip: string) => {
+const ipKey = (ip: string) => {
   if (!ip.includes(":")) return `ip:${ip}`
   const [head = "", tail = ""] = ip.split("::")
   const left = head === "" ? [] : head.split(":")

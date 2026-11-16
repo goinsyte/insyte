@@ -79,6 +79,8 @@ export default statements(
      spam_at              timestamptz,
      deleted_at           timestamptz,
      closed_at            timestamptz,
+     -- How it ended: 'shopper' ends the widget session with it ("Gesprek beëindigen"); 'idle' after a day unanswered.
+     closed_by            text check (closed_by in ('shopper', 'idle')),
      taken_over_by        text references members(id) on delete set null,
      taken_over_at        timestamptz,
      handed_back_at       timestamptz,
@@ -91,6 +93,9 @@ export default statements(
   // One open conversation per widget session.
   `create unique index channel_threads_visitor on channel_threads (store_id, visitor_hash)
      where closed_at is null and deleted_at is null`,
+  // The widget's every request finds its session's conversation by these (`widget.ts`), newest first; led by the
+  // workspace, which the row policy adds to every query, so the planner takes this over the inbox's index.
+  "create index channel_threads_session on channel_threads (workspace_id, store_id, visitor_hash, created_at desc)",
   "create index channel_threads_customer on channel_threads (customer_id) where customer_id is not null",
   "create index channel_threads_anonymous on channel_threads (last_message_at) where customer_id is null",
   "create trigger channel_threads_touch before update on channel_threads for each row execute function touch_updated_at()",
