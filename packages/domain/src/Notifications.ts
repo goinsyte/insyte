@@ -25,6 +25,7 @@ export const NOTIFICATION_KINDS = [
   { key: "ticket.assigned", primary: true, defaults: ch(true, true, true, false) },
   { key: "ticket.reply", primary: false, defaults: ch(true, false, false, false) },
   { key: "ticket.sla", primary: true, defaults: ch(true, false, true, false) },
+  { key: "chat.handover", primary: true, defaults: ch(true, false, true, false) },
   { key: "chargeback.new", primary: true, defaults: ch(true, true, false, false) },
   { key: "chargeback.deadline", primary: true, defaults: ch(true, true, true, false) },
   { key: "chargeback.result", primary: false, defaults: ch(true, true, false, false) },

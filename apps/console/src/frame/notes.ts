@@ -121,6 +121,16 @@ const sentence = (note: ServerNote): Sentence => {
         person: String(data["customer"] ?? "") || "Een klant"
       }
     }
+    case "chat.handover":
+      // The customer agent passed a website chat to a person (M15 step 8); the row opens it in the inbox.
+      return {
+        title: "draagt een websitechat over in",
+        record: String(data["store"] ?? ""),
+        source: "insyte",
+        to: "/inbox",
+        search: { thread: note.subjectId ?? "" },
+        person: "Insyte"
+      }
     case "ticket.assigned":
       // Someone put the member on a ticket (M11 step 3), as the design writes it; the row opens it over the board.
       return {

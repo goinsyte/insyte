@@ -11,7 +11,7 @@ import { BrandLogo } from "../marketplace/brand-logos";
 import { MailboxMark } from "../inbox/channel-mark";
 import { MAILBOXES, mailboxStatus, PROVIDER_LABEL } from "../lib/mailboxes";
 import type { ThreadState } from "../stores/inbox-store";
-import type { PanelMailbox, SheetPanelCounts } from "./source";
+import type { PanelChat, PanelMailbox, SheetPanelCounts } from "./source";
 import type { WorkflowState } from "../automations/node-types";
 import { TEMPLATES } from "../lib/automation-templates";
 import { deriveCustomerStatus } from "../customers/customer-status-badge";
@@ -68,7 +68,7 @@ export function SubPanel() {
 	const pinnedChats = useChatStore((s) => s.pinned);
 	const tickets = useWorkspace((s) => s.tickets);
 	const integrations = useWorkspace((s) => s.integrations);
-	const { threads, mailboxes: inboxMailboxes } = useInboxPanel();
+	const { threads, mailboxes: inboxMailboxes, chats: inboxChats } = useInboxPanel();
 	const workflows = useWorkflows();
 	const supplierRows = useSupplierOrders();
 	const orders = useWorkspace((s) => s.orders);
@@ -111,7 +111,7 @@ export function SubPanel() {
 			: base.title === "Tickets"
 				? withTickets(base, tickets, integrations)
 				: base.title === "Inbox"
-					? withInbox(base, threads, integrations, inboxMailboxes)
+					? withInbox(base, threads, integrations, inboxMailboxes, inboxChats)
 					: pathname.startsWith("/supplier/orders")
 						? withSupplierOrders(base, supplierRows)
 						: base.title === "Automatiseringen"
@@ -419,8 +419,9 @@ function withInbox(
 	threads: ReadonlyArray<ThreadState>,
 	integrations: ReadonlyArray<{ key: string; status: string; syncedAt?: string }>,
 	mailboxes?: ReadonlyArray<PanelMailbox>,
+	chats?: ReadonlyArray<PanelChat>,
 ): SubPanelConfig {
-	if (mailboxes) return withServerMailboxes(cfg, mailboxes);
+	if (mailboxes) return withServerMailboxes(cfg, mailboxes, chats ?? []);
 	const open = threads.filter((t) => !t.archived && !t.spam);
 	const counts: Record<string, number> = {
 		all: open.length,
@@ -483,10 +484,11 @@ function withInbox(
 
 /**
  * Inbox's panel from a host that counts on the server (the console, M11): the folders keep the counts it put in, the
- * customer agent's views wait for the agent (M15), and Kanalen lists the workspace's own mailboxes.
+ * customer agent's views are listed once a chat channel is (M15 step 8), and Kanalen lists the workspace's own
+ * mailboxes and chat channels.
  */
-function withServerMailboxes(cfg: SubPanelConfig, mailboxes: ReadonlyArray<PanelMailbox>): SubPanelConfig {
-	const sections = cfg.sections.filter((section) => !section.items.some((item) => item.search?.view !== undefined));
+function withServerMailboxes(cfg: SubPanelConfig, mailboxes: ReadonlyArray<PanelMailbox>, chats: ReadonlyArray<PanelChat>): SubPanelConfig {
+	const sections = chats.length > 0 ? cfg.sections : cfg.sections.filter((section) => !section.items.some((item) => item.search?.view !== undefined));
 	return {
 		...cfg,
 		sections: [
@@ -501,6 +503,14 @@ function withServerMailboxes(cfg: SubPanelConfig, mailboxes: ReadonlyArray<Panel
 						mark: <MailboxMark logo={m.logo} />,
 						search: { mailbox: m.id },
 						count: m.count === 0 ? undefined : m.count,
+					})),
+					...chats.map((c) => ({
+						to: "/inbox",
+						label: c.live ? CHANNEL_LABEL[c.channel] : `${CHANNEL_LABEL[c.channel]} · offline`,
+						icon: List,
+						mark: <ChannelMark channel={c.channel} size={14} />,
+						search: { channel: c.channel },
+						count: c.count === 0 ? undefined : c.count,
 					})),
 					{ to: "/inbox", label: "Kanaal koppelen", icon: Plus, search: { connect: "mailbox" } },
 				],

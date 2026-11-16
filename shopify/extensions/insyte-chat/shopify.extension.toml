@@ -1,0 +1,5 @@
+# The website chat (M15 step 8): an app embed block that puts Insyte's chat widget on every storefront page. Deployed
+# with the app (`shopify app deploy --path shopify`); the operator turns it on in the theme editor (App embeds), which
+# Instellingen → Koppelingen → Websitechat opens for them. The widget's welcome text and colour are set in Insyte.
+name = "insyte-chat"
+type = "theme"

@@ -3,11 +3,15 @@ import { NotFound } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
-import type { SqlClient } from "effect/sql"
+import type { SqlClient, Statement } from "effect/sql"
 import { likePattern, prefixPattern, SearchHit } from "../../shared/domain/Search.ts"
+import { inScopeOrNone } from "../../shared/use-cases/StoreScope.ts"
 import {
   type Address,
+  type AgentState,
+  type ChatEntry,
   type Folder,
+  type HandoverView,
   type ListInput,
   type MessageView,
   type ThreadCounts,
@@ -21,11 +25,21 @@ import {
  * member who may open the inbox reads every thread. The folders are the design's (`inbox-screen.tsx` `inFolder`) with
  * the gaps closed (widgets/04 §B): the inbox is what is not archived, not spam, not in the Prullenbak and not snoozed
  * into the future; a snooze that has passed is simply back.
+ *
+ * The website chat's threads (M15 step 8) are in the same list (`inbox_threads_v`), each in its store: a member held to
+ * some stores sees the chats of those only, and every mail (a mailbox is no store's). Every read and count is fenced.
  */
 
 const SELECT = `t.id, t.mailbox_id, t.subject, t.participants::text as participants, t.last_message_at,
   t.last_message_preview, t.unread, t.starred, t.labels, t.assignee_id, t.ticket_id, t.customer_id, t.has_attachments,
-  t.has_inbound, t.archived_at, t.snoozed_until, t.spam_at, t.deleted_at`
+  t.has_inbound, t.archived_at, t.snoozed_until, t.spam_at, t.deleted_at, t.channel, t.store_id, t.agent_state,
+  t.taken_over_by, t.closed_at, t.order_number`
+
+/** The inbox's one list over mail and chat. */
+export const THREADS = "inbox_threads_v t"
+
+/** The principal's stores, as a condition on a thread: mail is no store's, a chat is its store's. */
+export const fenced = (sql: SqlClient.SqlClient) => inScopeOrNone(sql, "t.store_id")
 
 export interface Row {
   readonly id: string
@@ -46,6 +60,12 @@ export interface Row {
   readonly snoozedUntil: Date | null
   readonly spamAt: Date | null
   readonly deletedAt: Date | null
+  readonly channel: "webchat" | null
+  readonly storeId: string | null
+  readonly agentState: AgentState | null
+  readonly takenOverBy: string | null
+  readonly closedAt: Date | null
+  readonly orderNumber: string | null
 }
 
 const ms = (d: Date | null) => d?.getTime() ?? null
@@ -70,7 +90,13 @@ export const toRow = (r: Row) =>
     archivedAt: ms(r.archivedAt),
     snoozedUntil: ms(r.snoozedUntil),
     spamAt: ms(r.spamAt),
-    deletedAt: ms(r.deletedAt)
+    deletedAt: ms(r.deletedAt),
+    channel: r.channel,
+    storeId: r.storeId,
+    agentState: r.agentState,
+    takenOverBy: r.takenOverBy,
+    closedAt: ms(r.closedAt),
+    orderNumber: r.orderNumber
   })
 
 /** In the inbox: not set aside, and not snoozed into the future. */
@@ -99,14 +125,17 @@ const folderCondition = (sql: SqlClient.SqlClient, folder: Folder, me: string) =
 export const rowsOf = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) =>
   ids.length === 0
     ? Effect.succeed([] as Array<ThreadRow>)
-    : Effect.map(
-      sql<Row>`select ${sql.literal(SELECT)} from email_threads t where t.id in ${sql.in([...ids])}
-               order by t.last_message_at desc, t.id`,
-      (rows) => rows.map(toRow)
-    )
+    : Effect.flatMap(fenced(sql), (fence) =>
+      Effect.map(
+        sql<Row>`select ${sql.literal(SELECT)} from ${sql.literal(THREADS)}
+                 where t.id in ${sql.in([...ids])} and ${fence}
+                 order by t.last_message_at desc, t.id`,
+        (rows) => rows.map(toRow)
+      ))
 
 export const countsOf = Effect.fn("Threads.counts")(function*(sql: SqlClient.SqlClient, me: string) {
-  const [c] = yield* sql<Omit<ThreadCounts, "byMailbox">>`
+  const fence = yield* fenced(sql)
+  const [c] = yield* sql<Omit<ThreadCounts, "byMailbox" | "byChannel">>`
     select
       count(*) filter (where ${sql.literal(INBOX)})::int as all,
       count(*) filter (where ${sql.literal(INBOX)} and t.assignee_id is null)::int as unassigned,
@@ -114,11 +143,20 @@ export const countsOf = Effect.fn("Threads.counts")(function*(sql: SqlClient.Sql
       count(*) filter (where ${sql.literal(INBOX)} and t.ticket_id is not null)::int as linked,
       count(*) filter (where t.archived_at is not null and t.spam_at is null and t.deleted_at is null)::int as archive,
       count(*) filter (where t.deleted_at is not null)::int as trash,
-      count(*) filter (where t.spam_at is not null and t.deleted_at is null)::int as spam
-    from email_threads t`
-  const per = yield* sql<{ mailboxId: string; n: number }>`
-    select t.mailbox_id, count(*)::int as n from email_threads t where ${sql.literal(INBOX)} group by t.mailbox_id`
-  return { ...c!, byMailbox: Object.fromEntries(per.map((p) => [p.mailboxId, p.n])) } satisfies ThreadCounts
+      count(*) filter (where t.spam_at is not null and t.deleted_at is null)::int as spam,
+      count(*) filter (where ${sql.literal(INBOX)} and t.agent_state = 'handed_over')::int as handed_over,
+      count(*) filter (where ${sql.literal(INBOX)} and t.agent_state = 'handled')::int as insyte
+    from ${sql.literal(THREADS)} where ${fence}`
+  const per = yield* sql<{ mailboxId: string; channel: string | null; n: number }>`
+    select t.mailbox_id, t.channel, count(*)::int as n from ${sql.literal(THREADS)}
+    where ${sql.literal(INBOX)} and ${fence} group by t.mailbox_id, t.channel`
+  const byChannel: Record<string, number> = {}
+  for (const p of per) if (p.channel !== null) byChannel[p.channel] = (byChannel[p.channel] ?? 0) + p.n
+  return {
+    ...c!,
+    byMailbox: Object.fromEntries(per.filter((p) => p.channel === null).map((p) => [p.mailboxId, p.n])),
+    byChannel
+  } satisfies ThreadCounts
 })
 
 export const list = Effect.fn("Threads.list")(function*(input: typeof ListInput.Type) {
@@ -127,9 +165,15 @@ export const list = Effect.fn("Threads.list")(function*(input: typeof ListInput.
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      const where = [sql.literal("true")]
+      const where: Array<Statement.Fragment> = [yield* fenced(sql)]
       if (input.folder !== undefined) where.push(folderCondition(sql, input.folder, principal.id))
       if (input.mailboxId !== undefined) where.push(sql`t.mailbox_id = ${input.mailboxId}`)
+      if (input.channel !== undefined) {
+        where.push(input.channel === "email" ? sql`t.channel is null` : sql`t.channel = ${input.channel}`)
+      }
+      if (input.view !== undefined) {
+        where.push(sql`t.agent_state = ${input.view === "insyte" ? "handled" : "handed_over"}`)
+      }
       for (const f of input.filters ?? []) {
         where.push(sql.literal(
           f === "unread"
@@ -145,10 +189,11 @@ export const list = Effect.fn("Threads.list")(function*(input: typeof ListInput.
       if (q !== "") {
         const like = `%${q.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`
         where.push(sql`(t.subject ilike ${like} or t.participants::text ilike ${like}
-                        or exists (select 1 from email_messages m where m.thread_id = t.id and m.body_text ilike ${like}))`)
+                        or exists (select 1 from email_messages m where m.thread_id = t.id and m.body_text ilike ${like})
+                        or exists (select 1 from channel_messages m where m.thread_id = t.id and m.body ilike ${like}))`)
       }
       const rows = yield* sql<Row>`
-        select ${sql.literal(SELECT)} from email_threads t where ${sql.and(where)}
+        select ${sql.literal(SELECT)} from ${sql.literal(THREADS)} where ${sql.and(where)}
         order by t.last_message_at desc, t.id limit ${input.limit ?? 200}`
       return new ThreadList({ rows: rows.map(toRow), counts: yield* countsOf(sql, principal.id) })
     })
@@ -211,6 +256,48 @@ export const messagesOf = (sql: SqlClient.SqlClient, threadId: string) =>
       }))
   )
 
+/** A chat's messages, oldest first, each with whether it still waits out its undo window. */
+export const chatOf = (sql: SqlClient.SqlClient, threadId: string) =>
+  Effect.map(
+    sql<
+      { id: string; author: ChatEntry["author"]; body: string; createdAt: Date; sentBy: string | null; due: boolean }
+    >`
+      select id, author, body, created_at, sent_by, visible_at > now() as due from channel_messages
+      where thread_id = ${threadId} order by created_at, id`,
+    (rows) =>
+      rows.map((m): ChatEntry => ({
+        id: m.id,
+        author: m.author,
+        text: m.body,
+        at: m.createdAt.getTime(),
+        sentBy: m.sentBy,
+        sendState: m.due ? "scheduled" : "sent"
+      }))
+  )
+
+/** A chat's open handover, or else its last one. */
+export const handoverOf = (sql: SqlClient.SqlClient, threadId: string) =>
+  Effect.map(
+    sql<
+      {
+        reason: string
+        at: Date
+        pickedUpAt: Date | null
+        pickedUpBy: string | null
+        handedBackAt: Date | null
+      }
+    >`select reason, at, picked_up_at, picked_up_by, handed_back_at from handovers where thread_id = ${threadId}
+      order by handed_back_at is null desc, at desc limit 1`,
+    ([h]): HandoverView | null =>
+      h === undefined ? null : {
+        reason: h.reason,
+        at: h.at.getTime(),
+        pickedUpAt: ms(h.pickedUpAt),
+        pickedUpBy: h.pickedUpBy,
+        handedBackAt: ms(h.handedBackAt)
+      }
+  )
+
 export const get = Effect.fn("Threads.get")(function*(id: string) {
   yield* Policy.require("support", 1)
   const db = yield* Db
@@ -218,7 +305,15 @@ export const get = Effect.fn("Threads.get")(function*(id: string) {
     Effect.gen(function*() {
       const [thread] = yield* rowsOf(sql, [id])
       if (thread === undefined) return yield* new NotFound({ entity: "thread", id })
-      return new ThreadDetail({ thread, messages: yield* messagesOf(sql, id) })
+      if (thread.channel !== null) {
+        return new ThreadDetail({
+          thread,
+          messages: [],
+          chat: yield* chatOf(sql, id),
+          handover: yield* handoverOf(sql, id)
+        })
+      }
+      return new ThreadDetail({ thread, messages: yield* messagesOf(sql, id), chat: [], handover: null })
     })
   )
 })
@@ -242,11 +337,13 @@ export const search = Effect.fn("Threads.search")(function*(q: string, limit: nu
     Effect.gen(function*() {
       const party = sql`exists (select 1 from jsonb_array_elements(t.participants) p
                                where p ->> 'name' ilike ${pattern} or p ->> 'email' ilike ${pattern})`
+      const fence = yield* fenced(sql)
       const rows = yield* sql<{ id: string; subject: string; participants: string }>`
-        select t.id, t.subject, t.participants::text as participants from email_threads t
-        where t.deleted_at is null and t.spam_at is null
+        select t.id, t.subject, t.participants::text as participants from ${sql.literal(THREADS)}
+        where t.deleted_at is null and t.spam_at is null and ${fence}
           and (t.subject ilike ${pattern} or ${party}
-               or exists (select 1 from email_messages m where m.thread_id = t.id and m.body_text ilike ${pattern}))
+               or exists (select 1 from email_messages m where m.thread_id = t.id and m.body_text ilike ${pattern})
+               or exists (select 1 from channel_messages m where m.thread_id = t.id and m.body ilike ${pattern}))
         order by case when t.subject ilike ${prefixPattern(text)} then 0 when t.subject ilike ${pattern} then 1
                       when ${party} then 2 else 3 end,
                  t.last_message_at desc, t.id

@@ -8,7 +8,7 @@ import { InsyteMark } from "../ask/parts";
 import { EmptyPage } from "../common/empty-page";
 import { PageGuide } from "../common/page-guide";
 import { Notice } from "../developer/bits";
-import { WidgetPreview } from "../inbox/widget-preview";
+import { WidgetPreview } from "../inbox/chat-views";
 import { FieldRow, UnsavedBar } from "../settings/form";
 import { SettingCard } from "../settings/setting-card";
 import { type ChannelMode, type CustomerAgentSettings, DAYS, isOpen, MODE_LABEL, nextOpenLabel } from "../lib/customer-agent";

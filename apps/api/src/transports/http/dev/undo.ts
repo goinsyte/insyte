@@ -30,7 +30,7 @@ const UndoOf = HttpRouter.add(
 /**
  * `POST /api/__dev/undo/age?workspace=<id>&seconds=<n>`: the workspace's undo windows as if `n` seconds had passed, so
  * a test can stand between a toast's eight seconds and a chat card's five minutes without sleeping; the agent log's
- * windows age with them. Refused in production.
+ * windows age with them, and so do the chat replies that wait out theirs. Refused in production.
  */
 const UndoAge = HttpRouter.add(
   "POST",
@@ -55,6 +55,13 @@ const UndoAge = HttpRouter.add(
             Number.isFinite(seconds) ? seconds : 0
           })
               where undo_until is not null`
+        ),
+        // …and a chat reply still waiting out its window reaches the shopper as it would have (M15 step 8).
+        Effect.tap(() =>
+          sql`update channel_messages set visible_at = visible_at - make_interval(secs => ${
+            Number.isFinite(seconds) ? seconds : 0
+          })
+              where visible_at > now()`
         )
       )
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))

@@ -57,7 +57,7 @@ const ipKey = (ip: string) => {
 }
 
 /** The body as text, or `null` once it passes `max` bytes: the stream is cancelled there, never buffered whole. */
-const readCapped = async (request: Request, max: number): Promise<string | null> => {
+export const readCapped = async (request: Request, max: number): Promise<string | null> => {
   if (request.body === null) return ""
   const reader = request.body.getReader()
   const chunks: Array<Uint8Array> = []

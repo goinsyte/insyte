@@ -1,5 +1,14 @@
 import { Conflict, Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
 import {
+  ChannelChange,
+  ChannelIdInput,
+  ChannelStatus,
+  ChatUnavailable,
+  ConnectChannelInput,
+  HandoverChange,
+  ThreadIdInput
+} from "@insyte/modules/inbox/domain/Chat"
+import {
   AssignInput,
   ComposeInput,
   ConnectInput,
@@ -24,6 +33,7 @@ import {
   ThreadList,
   TicketLinked
 } from "@insyte/modules/inbox/domain/Inbox"
+import { TakenOver, ThreadClosed } from "@insyte/modules/shared/domain/ChatChannel"
 import { Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/rpc"
 import { Authenticated } from "./Authenticated.ts"
@@ -52,11 +62,20 @@ export class ThreadsRpcs extends RpcGroup.make(
     success: ThreadChange,
     error: Schema.Union([Forbidden, NotFound, Invalid])
   }),
-  Rpc.make("Threads.putBack", { payload: IdsInput, success: ThreadChange, error: Changed }),
+  Rpc.make("Threads.putBack", {
+    payload: IdsInput,
+    success: ThreadChange,
+    error: Schema.Union([Forbidden, NotFound, Conflict])
+  }),
   Rpc.make("Threads.assign", { payload: AssignInput, success: ThreadChange, error: Changed }),
   Rpc.make("Threads.unassign", { payload: IdInput, success: ThreadChange, error: Changed }),
   Rpc.make("Threads.linkTicket", { payload: LinkTicketInput, success: TicketLinked, error: Changed }),
-  Rpc.make("Threads.reply", { payload: ReplyInput, success: MessageQueued, error: Sending }),
+  // A chat's reply goes to the shopper's widget (M15 step 8): refused while another holds it, or once it closed.
+  Rpc.make("Threads.reply", {
+    payload: ReplyInput,
+    success: MessageQueued,
+    error: Schema.Union([Forbidden, NotFound, Invalid, MailboxDisconnected, TakenOver, ThreadClosed])
+  }),
   Rpc.make("Threads.forward", { payload: ForwardInput, success: MessageQueued, error: Sending }),
   Rpc.make("Threads.compose", {
     payload: ComposeInput,
@@ -75,7 +94,18 @@ export class ThreadsRpcs extends RpcGroup.make(
     success: MailboxView,
     error: Schema.Union([Forbidden, NotFound, Conflict])
   }),
-  Rpc.make("Mailboxes.setSignature", { payload: SignatureInput, success: MailboxView, error: Changed })
+  Rpc.make("Mailboxes.setSignature", { payload: SignatureInput, success: MailboxView, error: Changed }),
+  // The website chat (M15 step 8): "Overnemen" and "Teruggeven aan Insyte" at Bewerken; the stores' chat channels to
+  // read at Klantenservice or Koppelingen · Bekijken, to connect and disconnect at Koppelingen en API · Instellen.
+  Rpc.make("Threads.takeOver", { payload: ThreadIdInput, success: HandoverChange, error: Changed }),
+  Rpc.make("Threads.handBack", { payload: ThreadIdInput, success: HandoverChange, error: Changed }),
+  Rpc.make("Channels.list", { success: ChannelStatus, error: Forbidden }),
+  Rpc.make("Channels.connect", {
+    payload: ConnectChannelInput,
+    success: ChannelChange,
+    error: Schema.Union([Forbidden, NotFound, Invalid, ChatUnavailable])
+  }),
+  Rpc.make("Channels.disconnect", { payload: ChannelIdInput, success: ChannelChange, error: Changed })
 )
   .middleware(Member)
   .middleware(Authenticated)

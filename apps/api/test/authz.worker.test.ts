@@ -363,6 +363,11 @@ const PAYLOADS: Record<string, unknown> = {
   "Mailboxes.disconnect": { id: "mbx_none" },
   "Mailboxes.setDefault": { id: "mbx_none" },
   "Mailboxes.setSignature": { id: "mbx_none", signature: "" },
+  "Threads.takeOver": { threadId: "thr_none" },
+  "Threads.handBack": { threadId: "thr_none" },
+  "Channels.list": undefined,
+  "Channels.connect": { kind: "webchat", storeId: "sto_none" },
+  "Channels.disconnect": { id: "chn_none" },
   "Quality.list": { productId: "prd_none" },
   "Quality.stats": {},
   "Quality.request": {

@@ -28,7 +28,8 @@ const NAMES = [
   "VAPID_PRIVATE_KEY",
   "VAPID_SUBJECT",
   "SLACK_CLIENT_ID",
-  "SLACK_CLIENT_SECRET"
+  "SLACK_CLIENT_SECRET",
+  "WEBCHAT_TOKEN_SECRET"
 ]
 
 /** Insyte AI's, with `--ai` only. */

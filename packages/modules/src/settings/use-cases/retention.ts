@@ -25,7 +25,8 @@ import { erasingOf, lastCount, readRow, retentionOf } from "./sections.ts"
  * same statements the count ran, so the dry run and the erase agree by construction.
  *
  * Conservative on purpose: a class is erased only where Insyte holds the data itself and nothing else hangs on it.
- * Today that is Klantcontact's mail threads (their messages with them; their attachments' files marked deleted).
+ * Today that is Klantcontact's mail threads (their messages with them; their attachments' files marked deleted) and its
+ * website chats (their messages and handovers with them).
  * Bijlagen (bytes in R2), Logboeken (the audit log is append-only, kept 13 months at least), Advertentielog and
  * Cursusvoortgang (not built yet) and Klantgegevens (Shopify's mirror, kept with the orders the law keeps 7 years) are
  * counted as nothing and erased as nothing until each has its own rule.
@@ -55,7 +56,8 @@ const TARGETS: Partial<Record<RetentionClassId, Target>> = {
   contact: {
     count: (sql, months) =>
       Effect.map(
-        sql<{ n: number }>`select count(*)::int as n from email_threads t where ${threadsDue(sql, months)}`,
+        sql<{ n: number }>`select (select count(*)::int from email_threads t where ${threadsDue(sql, months)})
+                             + (select count(*)::int from channel_threads t where ${threadsDue(sql, months)}) as n`,
         one
       ),
     erase: (sql, months) =>
@@ -67,11 +69,18 @@ const TARGETS: Partial<Record<RetentionClassId, Target>> = {
                      join email_messages m on m.id = a.message_id
                      join email_threads t on t.id = m.thread_id
                      where ${threadsDue(sql, months)})`
-        return one(
+        const mail = one(
           yield* sql<{ n: number }>`
           with gone as (delete from email_threads t where ${threadsDue(sql, months)} returning 1)
           select count(*)::int as n from gone`
         )
+        // A website chat goes the same way (M15 step 8), its messages and handovers with it.
+        const chats = one(
+          yield* sql<{ n: number }>`
+          with gone as (delete from channel_threads t where ${threadsDue(sql, months)} returning 1)
+          select count(*)::int as n from gone`
+        )
+        return mail + chats
       })
   }
 }
@@ -224,3 +233,19 @@ export const dueWorkspaces = (at: Date) =>
         (rows) => rows.map((r) => r.workspaceId)
       )
     ))
+
+/**
+ * The website chat's anonymous conversations (M15 step 8): no customer and no ticket, the last message older than this,
+ * removed every night whatever a workspace's retention says. A visitor nobody tied to a customer is kept no longer than
+ * the team needs to answer them.
+ */
+export const ANONYMOUS_CHAT_DAYS = 90
+
+/** Across workspaces, as the owner (`purge_anonymous_chats`, 0102): how many went. */
+export const purgeAnonymousChats = Effect.flatMap(Effect.service(Db), (db) =>
+  db.routing((sql) =>
+    Effect.map(
+      sql<{ n: number }>`select purge_anonymous_chats(${ANONYMOUS_CHAT_DAYS}) as n`,
+      (rows) => rows[0]?.n ?? 0
+    )
+  ))

@@ -107,6 +107,11 @@ declare global {
       readonly BILLING_ADAPTER?: string
       readonly STRIPE_SECRET_KEY?: string
       readonly STRIPE_WEBHOOK_SECRET?: string
+      /**
+       * The website chat (M15 step 8): the key widget sessions are signed with. Without it a deployed stage serves no
+       * chat; local runs and previews derive one from `BETTER_AUTH_SECRET`.
+       */
+      readonly WEBCHAT_TOKEN_SECRET?: string
       /** Shopify's webhooks (M6.3): received deliveries' ids, applied by the jobs Worker's `queue` handler. */
       readonly INGEST: Queue<IngestMessage>
       /** Lines per backfill page, 2000 by default; the worker tests read small pages. */

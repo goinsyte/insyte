@@ -4,6 +4,7 @@ import type { AreaId, Level, RoleDef, SpecialId } from "@insyte/domain/Permissio
 import type { ChargebackList } from "@insyte/modules/chargebacks/domain/Chargebacks"
 import type { ChatList } from "@insyte/modules/chats/domain/Chats"
 import type { CourseCatalogue } from "@insyte/modules/courses/domain/Courses"
+import type { ChannelStatus } from "@insyte/modules/inbox/domain/Chat"
 import type { MailboxView } from "@insyte/modules/inbox/domain/Inbox"
 import type { SheetList } from "@insyte/modules/sheets/domain/Sheets"
 import { GateRoleProvider } from "@insyte/ui/app/access/gate-role"
@@ -13,7 +14,7 @@ import { navActions, navPrefsOf } from "@insyte/ui/app/lib/nav-model"
 import { DEFAULT_PREFS, type Note, type NotifyPrefs } from "@insyte/ui/app/lib/notifications"
 import { withServerCounts } from "@insyte/ui/app/lib/panel-counts"
 import type { Conversation, Member } from "@insyte/ui/app/lib/types/domain"
-import { type PanelMailbox, type ShellSource, ShellSourceProvider } from "@insyte/ui/app/shell/source"
+import { type PanelChat, type PanelMailbox, type ShellSource, ShellSourceProvider } from "@insyte/ui/app/shell/source"
 import { useMarketplaceModalStore } from "@insyte/ui/app/stores/marketplace-modal-store"
 import type { NavState } from "@insyte/ui/app/stores/nav-store"
 import type { PanelState } from "@insyte/ui/app/stores/panel-store"
@@ -40,7 +41,7 @@ import {
   VIEWS,
   viewsAtom
 } from "../data/frame.ts"
-import { inboxCountsAtom, mailboxesAtom } from "../data/inbox.ts"
+import { channelsAtom, inboxCountsAtom, mailboxesAtom } from "../data/inbox.ts"
 import { COUNTED_AREAS, navCountsAtom } from "../data/nav.ts"
 import { sheetsAtom } from "../data/sheets.ts"
 import { healthLineAtom } from "../data/stores.ts"
@@ -110,6 +111,7 @@ const NO_CHATS = Atom.make(AsyncResult.initial<ChatList, never>())
 const NO_CHARGEBACKS = Atom.make(AsyncResult.initial<ChargebackList, never>())
 const NO_COURSES = Atom.make(AsyncResult.initial<CourseCatalogue, never>())
 const NO_MAILBOXES = Atom.make(AsyncResult.initial<ReadonlyArray<MailboxView>, never>())
+const NO_CHANNELS = Atom.make(AsyncResult.initial<ChannelStatus, never>())
 const NO_SHEETS = Atom.make(AsyncResult.initial<SheetList, never>())
 
 /** What the console makes from the panel's button and the top bar's + menu. */
@@ -172,6 +174,17 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
       })),
     [mailboxes, inboxCounts]
   )
+  // The website chat's band, once a store has it (M15 step 8), counted as the mailboxes are.
+  const channels = value(useAtomValue(onInbox ? channelsAtom : NO_CHANNELS))
+  const panelChats = useMemo<ReadonlyArray<PanelChat> | undefined>(() => {
+    const webchat = channels?.channels ?? []
+    if (webchat.length === 0) return undefined
+    return [{
+      channel: "webchat",
+      live: webchat.some((c) => c.status === "connected"),
+      count: inboxCounts?.["/inbox?channel=webchat"]
+    }]
+  }, [channels, inboxCounts])
   // The Rekenbladen panel: the folders and each view's count, from `Sheets.list`, on the sheets pages only (M14 step 4).
   const onSheets = useRouterState({ select: (s) => s.location.pathname.startsWith("/sheets") })
   const sheetList = value(useAtomValue(onSheets ? sheetsAtom : NO_SHEETS))
@@ -361,7 +374,7 @@ export function ConsoleShellSource({ frame, children }: { frame: Frame; children
     navPrefs: navPrefsOf(navState),
     extensions: NO_ROWS,
     heardNotes: notes.filter((n) => prefs.events[n.event]?.app !== false),
-    inbox: { threads: [], mailboxes: onInbox ? panelMailboxes ?? [] : undefined },
+    inbox: { threads: [], mailboxes: onInbox ? panelMailboxes ?? [] : undefined, chats: panelChats },
     agentEntries: NO_ROWS,
     queueRows: NO_ROWS,
     syncLine,

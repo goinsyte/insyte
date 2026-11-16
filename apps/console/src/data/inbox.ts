@@ -1,4 +1,5 @@
 import { Forbidden, NotFound, NoWorkspace, Unauthenticated } from "@insyte/domain/Errors"
+import { ChannelStatus } from "@insyte/modules/inbox/domain/Chat"
 import { MailboxView, ThreadDetail, ThreadList } from "@insyte/modules/inbox/domain/Inbox"
 import { Schema } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
@@ -8,7 +9,7 @@ import { ConsoleClient } from "./client.ts"
 /*
  * The inbox (M11 step 2): every thread the role may see, set aside or not, primed by the route's loader, which the
  * screen sorts into folders as the server does; the workspace's mailboxes; one thread with its messages for the letter;
- * the panel's counts. Every inbox command names `INBOX`, and a `records.changed` for a thread or a mailbox refetches it.
+ * the stores' chat channels; the panel's counts. Every inbox command names `INBOX`, and a `records.changed` for a thread or a mailbox refetches it.
  */
 
 export const INBOX = ["inbox"] as const
@@ -28,6 +29,16 @@ export const mailboxesAtom = Atom.serializable(
   {
     key: "mailboxes",
     schema: AsyncResult.Schema({ success: Schema.Array(MailboxView), error: errors }),
+    skipInitialRun: true
+  }
+)
+
+/** The stores' chat channels (M15 step 8): the inbox's bands and letters, and Koppelingen's Websitechat. */
+export const channelsAtom = Atom.serializable(
+  ConsoleClient.query("Channels.list", undefined, { reactivityKeys: INBOX }),
+  {
+    key: "channels",
+    schema: AsyncResult.Schema({ success: ChannelStatus, error: errors }),
     skipInitialRun: true
   }
 )
@@ -62,5 +73,9 @@ export const inboxWrites = {
   forward: ConsoleClient.mutation("Threads.forward"),
   compose: ConsoleClient.mutation("Threads.compose"),
   connect: ConsoleClient.mutation("Mailboxes.connect"),
+  takeOver: ConsoleClient.mutation("Threads.takeOver"),
+  handBack: ConsoleClient.mutation("Threads.handBack"),
+  connectChannel: ConsoleClient.mutation("Channels.connect"),
+  disconnectChannel: ConsoleClient.mutation("Channels.disconnect"),
   undo: ConsoleClient.mutation("Shared.undo")
 } as const

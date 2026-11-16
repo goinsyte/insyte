@@ -14,14 +14,16 @@ import { frameAtom } from "../data/frame.ts"
 import { INBOX, inboxWrites, mailboxesAtom, threadAtom } from "../data/inbox.ts"
 import { ticketOptionsAtom } from "../data/tickets.ts"
 import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
+import { useConsoleChannels } from "./chat-parts.tsx"
 import { type Overlay, useInboxWrites } from "./inbox-writes.ts"
 import { entryOf, mailboxOf, threadOf, timeOf } from "./thread-of.ts"
 
 /*
  * The inbox screen's source in the console (M11 step 2): `Threads.list` as the design's threads, `Mailboxes.list` as
  * its mailbox bands, `Threads.get` for the letter, the team from the frame, and the server's commands, each shown in
- * the list at once. What the server does not do yet is left out, not made up: the chat channels and the customer agent
- * (M15), Gmail and Outlook (M11 step 1b), attachments (the file store). Insyte's drafts are Insyte AI's
+ * the list at once; the website chat's band and letter where a store has it (`./chat-parts.tsx`, M15 step 8). What the
+ * server does not do yet is left out, not made up: WhatsApp and Instagram, Gmail and Outlook (M11 step 1b),
+ * attachments (the file store). Insyte's drafts are Insyte AI's
  * (`../ai/drafts.tsx`). A mailbox is connected here, in the console's own dialog, by forwarding.
  */
 
@@ -133,6 +135,7 @@ export function useConsoleInboxSource(
     [connect]
   )
   const drafts = useInboxDrafts()
+  const channels = useConsoleChannels()
 
   return {
     threads,
@@ -147,7 +150,8 @@ export function useConsoleInboxSource(
     time: timeOf,
     connect: { onClick: connect },
     Empty,
-    drafts
+    drafts,
+    channels
   }
 }
 

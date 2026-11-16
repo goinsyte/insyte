@@ -91,7 +91,6 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
   "order.fulfilled": none,
   "inventory.dropped": none,
   "thread.received": none,
-  "chat.received": none,
   "forwarding.send_requested": (id, event) =>
     // A supplier's standing instruction is not a person handling an order.
     event.userId === "system" ? undefined : {
@@ -194,6 +193,9 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
   "ticket.mentioned": none,
   "ticket.topic_requested": none,
   "chat.posted": none,
+  "chat.received": none,
+  "chat.handed_over": none,
+  "webchat.changed": none,
   "chat.mentioned": none,
   "course.assigned": none,
   "course.question": none,
