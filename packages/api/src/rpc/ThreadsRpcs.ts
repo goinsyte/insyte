@@ -33,7 +33,7 @@ import {
   ThreadList,
   TicketLinked
 } from "@insyte/modules/inbox/domain/Inbox"
-import { ChatClosed, TakenOver } from "@insyte/modules/shared/domain/ChatChannel"
+import { TakenOver, ThreadClosed } from "@insyte/modules/shared/domain/ChatChannel"
 import { Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/rpc"
 import { Authenticated } from "./Authenticated.ts"
@@ -70,7 +70,7 @@ export class ThreadsRpcs extends RpcGroup.make(
   Rpc.make("Threads.reply", {
     payload: ReplyInput,
     success: MessageQueued,
-    error: Schema.Union([Forbidden, NotFound, Invalid, MailboxDisconnected, TakenOver, ChatClosed])
+    error: Schema.Union([Forbidden, NotFound, Invalid, MailboxDisconnected, TakenOver, ThreadClosed])
   }),
   Rpc.make("Threads.forward", { payload: ForwardInput, success: MessageQueued, error: Sending }),
   Rpc.make("Threads.compose", {

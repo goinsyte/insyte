@@ -1,6 +1,6 @@
 import { Schema } from "effect"
-import { CHAT_TEXT_MAX, ChatChannelKind } from "../../shared/domain/ChatChannel.ts"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
+import { CHAT_TEXT_MAX, ChatChannelKind } from "./ChatKinds.ts"
 import { ThreadRow } from "./Inbox.ts"
 
 /*

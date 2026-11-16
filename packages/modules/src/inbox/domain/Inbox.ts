@@ -1,6 +1,6 @@
 import { Schema } from "effect"
-import { ChatAuthor, ChatChannelKind } from "../../shared/domain/ChatChannel.ts"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
+import { ChatAuthor, ChatChannelKind } from "./ChatKinds.ts"
 
 /*
  * Mailboxes, threads and messages as the console, `/v1` and MCP read and change them (M11 steps 1–2; domain.md §6.2,

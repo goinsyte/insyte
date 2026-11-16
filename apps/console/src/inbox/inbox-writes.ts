@@ -35,7 +35,7 @@ const COPY: RefusalCopy = {
       toast.error("Een collega heeft dit gesprek overgenomen", { description: "Alleen die collega antwoordt nu." })
       return true
     }
-    if (tagged._tag === "ChatClosed") {
+    if (tagged._tag === "ThreadClosed") {
       toast.error("Dit gesprek is beëindigd", {
         description: "De klant begint een nieuw gesprek als die weer schrijft."
       })
@@ -58,7 +58,7 @@ const KNOWN = new Set([
   "MailboxDisconnected",
   "NoMailbox",
   "TakenOver",
-  "ChatClosed"
+  "ThreadClosed"
 ])
 
 const refused = (error: unknown) => sayRefusal(error, COPY)

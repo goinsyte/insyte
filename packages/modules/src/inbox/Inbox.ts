@@ -3,7 +3,7 @@ import type { Conflict, Forbidden, Invalid, NotFound } from "@insyte/domain/Erro
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
-import type { ChatClosed, TakenOver } from "../shared/domain/ChatChannel.ts"
+import type { TakenOver, ThreadClosed } from "../shared/domain/ChatChannel.ts"
 import { Relay } from "../shared/domain/Outbox.ts"
 import type { SearchHit } from "../shared/domain/Search.ts"
 import type {
@@ -79,7 +79,7 @@ export class InboxService extends Context.Service<InboxService, {
   /** A chat's reply goes to the shopper's widget: refused while another holds it, or once it closed. */
   readonly reply: (
     input: typeof ReplyInput.Type
-  ) => Effect.Effect<MessageQueued, Sending | TakenOver | ChatClosed, R>
+  ) => Effect.Effect<MessageQueued, Sending | TakenOver | ThreadClosed, R>
   readonly forward: (input: typeof ForwardInput.Type) => Effect.Effect<MessageQueued, Sending, R>
   readonly compose: (input: typeof ComposeInput.Type) => Effect.Effect<MessageQueued, Sending | NoMailbox, R>
   readonly mailboxes: Effect.Effect<ReadonlyArray<MailboxView>, Forbidden, R>

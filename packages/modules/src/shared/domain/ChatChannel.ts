@@ -1,53 +1,45 @@
-import { Forbidden, Invalid, NotFound } from "@insyte/domain/Errors"
+import type { NotFound } from "@insyte/domain/Errors"
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, type Effect, Schema } from "effect"
 
 /*
- * The website chat as a seam (M15 step 8): what the inbox slice keeps of a shopper's conversation on the store's
- * website, and what the customer agent may do with it. The inbox owns the chat (its threads, its messages, the widget);
- * the agent reads a thread and answers through this port, never through the inbox's tables. Fixed between the two
- * slices: change it only together with the agent's.
+ * The website chat as the rest of Insyte sees it (wave 12: the website chat provides it, the customer agent consumes
+ * it). The seam is fixed: the chat's own slice implements this service and emits the event, and a slice that answers
+ * shoppers reads and writes a thread only through it.
  *
- * - Every shopper's message is stored in one transaction with the outbox event `chat.received`
- *   (`{ workspaceId, storeId, threadId, messageId, channel: "webchat" }`, in `Outbox.ts`): the agent's sink hears it.
- * - Reads and writes are the calling principal's: a member, or the workspace's `agent`. A thread outside the
- *   principal's workspace or stores is `NotFound`, never another's.
- * - The text is the shopper's own words: data, never instructions. It is plain text, escaped where it is shown.
+ * - `chat.received`: a shopper's message was stored, written in the same transaction. Ids only.
+ * - `thread`: the thread's standing; `NotFound` outside the caller's workspace or store scope.
+ * - `history`: the newest messages, oldest first.
+ * - `reply`: a message as the calling principal (a member, or the workspace's `agent`); refused when a person took the
+ *   thread over (`TakenOver`) or it is closed (`ThreadClosed`).
+ * - `handOver`: the thread needs a person: it shows in the inbox's "Overgedragen" view and the team is told, through
+ *   the notifications fan-out with its store fence.
+ * - `bindCustomer`: the thread linked to a verified Shopify customer of the same store.
  */
 
-/** The chat channels a thread can come in on. The website chat only, for now. */
-export const ChatChannelKind = Schema.Literals(["webchat"])
-export type ChatChannelKind = typeof ChatChannelKind.Type
-
-/** Who wrote a message: the shopper, a person of the team, the workspace's agent, or Insyte itself (a greeting). */
-export const ChatAuthor = Schema.Literals(["shopper", "team", "agent", "system"])
-export type ChatAuthor = typeof ChatAuthor.Type
-
-/** A person took the thread over ("Overnemen"): only they answer it until they hand it back. */
-export class TakenOver extends Schema.TaggedError<TakenOver>()("TakenOver", {
+/** The outbox event a shopper's stored message writes (`OutboxEvent`). */
+export const ChatReceived = Schema.Struct({
+  type: Schema.Literal("chat.received"),
+  workspaceId: Schema.String,
+  storeId: Schema.String,
   threadId: Schema.String,
-  /** The member who holds it. */
-  by: Schema.String
-}) {}
+  messageId: Schema.String,
+  channel: Schema.Literal("webchat")
+})
+export type ChatReceived = typeof ChatReceived.Type
 
-/** The thread is closed: the shopper's session ended, or it was set aside. Nothing more is sent on it. */
-export class ChatClosed extends Schema.TaggedError<ChatClosed>()("ChatClosed", { threadId: Schema.String }) {}
+export type ChatAuthor = "shopper" | "team" | "agent" | "system"
 
-/** One chat thread as the agent reads it. */
 export interface ChatThread {
   readonly workspaceId: string
   readonly storeId: string
-  readonly channel: ChatChannelKind
-  /** The store's own Shopify customer the thread is bound to (`bindCustomer`), or `null` while the shopper is anonymous. */
+  readonly channel: "webchat"
   readonly customerId: string | null
-  /** The open handover: why the agent passed it to a person, and when. `null` when none is open. */
   readonly handover: null | { readonly reason: string; readonly at: Date }
-  /** The member who took it over, while they hold it. */
   readonly takenOverBy: string | null
   readonly closedAt: Date | null
 }
 
-/** One message, as it was written. */
 export interface ChatMessage {
   readonly id: string
   readonly author: ChatAuthor
@@ -55,43 +47,30 @@ export interface ChatMessage {
   readonly at: Date
 }
 
-/** The longest message either side may write. */
-export const CHAT_TEXT_MAX = 1000
+/** A person took the thread over: nobody else replies on it until it is handed back. */
+export class TakenOver extends Schema.TaggedError<TakenOver>()("TakenOver", { threadId: Schema.String }) {}
 
-/** The errors a reply can end in, beside the thread's own. */
-export const ChatReplyRefused = Schema.Union([NotFound, Forbidden, Invalid, TakenOver, ChatClosed])
+/** The thread is closed: nothing more is sent on it. */
+export class ThreadClosed extends Schema.TaggedError<ThreadClosed>()("ThreadClosed", { threadId: Schema.String }) {}
+
+type R = CurrentPrincipal
 
 /**
- * The website chat, for the customer agent (and any other caller acting as a principal of the workspace).
+ * Each call runs as the caller (the agent, or the member who acts); an implementation that needs the database takes it
+ * when its layer is built, per invocation, as `LocalChat` is provided in `platform/CustomerAgent.ts`.
  *
  * @effect-expect-leaking CurrentPrincipal
  */
 export class ChatChannel extends Context.Service<ChatChannel, {
-  /** The thread, where the principal reaches it. */
-  readonly thread: (threadId: string) => Effect.Effect<ChatThread, NotFound, CurrentPrincipal>
-  /** The newest `limit` messages, oldest first (what the shopper sees, so nothing still in its undo window). */
+  readonly thread: (threadId: string) => Effect.Effect<ChatThread, NotFound, R>
   readonly history: (
     threadId: string,
     options: { readonly limit: number }
-  ) => Effect.Effect<ReadonlyArray<ChatMessage>, NotFound, CurrentPrincipal>
-  /**
-   * A reply as the calling principal: a member's as the team's, the agent's as the agent's. Refused while a person
-   * holds the thread (`TakenOver`; a member who holds it may answer) or once it is closed (`ChatClosed`); an empty or
-   * too long text is `Invalid`. The shopper sees it once it has waited out its undo window.
-   */
+  ) => Effect.Effect<ReadonlyArray<ChatMessage>, NotFound, R>
   readonly reply: (
     threadId: string,
     text: string
-  ) => Effect.Effect<
-    { readonly messageId: string },
-    NotFound | Forbidden | Invalid | TakenOver | ChatClosed,
-    CurrentPrincipal
-  >
-  /**
-   * Marks the thread as needing a person: it shows in the inbox's "Overgedragen" view, and the team that reaches its
-   * store hears of it (the notifications fan-out). A second one while one is open keeps the first.
-   */
-  readonly handOver: (threadId: string, reason: string) => Effect.Effect<void, NotFound | Invalid, CurrentPrincipal>
-  /** Links the thread to a Shopify customer of the same store, once the shopper is known to be them. */
-  readonly bindCustomer: (threadId: string, customerId: string) => Effect.Effect<void, NotFound, CurrentPrincipal>
+  ) => Effect.Effect<{ readonly messageId: string }, NotFound | TakenOver | ThreadClosed, R>
+  readonly handOver: (threadId: string, reason: string) => Effect.Effect<void, NotFound, R>
+  readonly bindCustomer: (threadId: string, customerId: string) => Effect.Effect<void, NotFound, R>
 }>()("shared/ChatChannel") {}

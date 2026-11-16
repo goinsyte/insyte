@@ -6,12 +6,11 @@ import { CurrentPrincipal, type Principal } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import {
-  CHAT_TEXT_MAX,
   type ChatAuthor,
-  ChatClosed,
   type ChatMessage,
   type ChatThread,
-  TakenOver
+  TakenOver,
+  ThreadClosed
 } from "../../../shared/domain/ChatChannel.ts"
 import { UndoWindow } from "../../../shared/domain/Undo.ts"
 import * as Audit from "../../../shared/use-cases/Audit.ts"
@@ -19,6 +18,7 @@ import * as Outbox from "../../../shared/use-cases/Outbox.ts"
 import { inScope } from "../../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../../shared/use-cases/Undo.ts"
 import { ChatRestore, HandoverChange } from "../../domain/Chat.ts"
+import { CHAT_TEXT_MAX } from "../../domain/ChatKinds.ts"
 import { MessageQueued, type MessageView } from "../../domain/Inbox.ts"
 import { previewOf } from "../inbound.ts"
 import { rowsOf } from "../threads.ts"
@@ -99,10 +99,10 @@ export const replyIn = Effect.fn("Chat.replyIn")(function*(sql: SqlClient.SqlCli
   const body = yield* checkText(text)
   const held = yield* holdChat(sql, threadId)
   if (held.closedAt !== null || held.deletedAt !== null || !held.live) {
-    return yield* new ChatClosed({ threadId })
+    return yield* new ThreadClosed({ threadId })
   }
   if (held.takenOverBy !== null && !(principal.kind === "member" && principal.id === held.takenOverBy)) {
-    return yield* new TakenOver({ threadId, by: held.takenOverBy })
+    return yield* new TakenOver({ threadId })
   }
   const id = mintId("chm")
   const author = authorOf(principal)
@@ -311,10 +311,9 @@ export const replyAs = Effect.fn("Chat.replyAs")(function*(threadId: string, tex
 
 /** The agent passes the chat to a person: the Overgedragen view, and the team that reaches its store hears of it. */
 export const handOver = Effect.fn("Chat.handOver")(function*(threadId: string, reason: string) {
-  const why = reason.trim()
-  if (why === "" || why.length > 500) {
-    return yield* new Invalid({ fields: { reason: why === "" ? "required" : "too_long" } })
-  }
+  // The seam has no refusal for the reason: it is the team's note, so an empty one says so and a long one is cut.
+  const trimmed = reason.trim()
+  const why = trimmed === "" ? "Geen reden opgegeven" : trimmed.length > 500 ? `${trimmed.slice(0, 499)}…` : trimmed
   const db = yield* Db
   yield* reading(
     threadId,
