@@ -206,6 +206,8 @@ jobs:
       # Billing: Stripe's secret key and the webhook endpoint's signing secret, both or neither; previews use the fake.
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      # The website chat: the key its widget sessions are signed with; without it the stage serves no chat.
+      WEBCHAT_TOKEN_SECRET: ${{ secrets.WEBCHAT_TOKEN_SECRET }}
       # Insyte AI: Claude through the stage's AI Gateway; the fake answers until the key and the gateway are set.
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       AI_GATEWAY_ID: ${{ vars.AI_GATEWAY_ID }}
@@ -298,6 +300,8 @@ jobs:
       # Billing: Stripe's secret key and the webhook endpoint's signing secret, both or neither; previews use the fake.
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      # The website chat: the key its widget sessions are signed with; without it the stage serves no chat.
+      WEBCHAT_TOKEN_SECRET: ${{ secrets.WEBCHAT_TOKEN_SECRET }}
       # Insyte AI: Claude through the stage's AI Gateway; the fake answers until the key and the gateway are set.
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       AI_GATEWAY_ID: ${{ vars.AI_GATEWAY_ID }}

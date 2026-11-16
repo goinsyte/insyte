@@ -3,8 +3,18 @@ import type { Conflict, Forbidden, Invalid, NotFound } from "@insyte/domain/Erro
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
+import type { ChatClosed, TakenOver } from "../shared/domain/ChatChannel.ts"
 import { Relay } from "../shared/domain/Outbox.ts"
 import type { SearchHit } from "../shared/domain/Search.ts"
+import type {
+  ChannelChange,
+  ChannelIdInput,
+  ChannelStatus,
+  ChatUnavailable,
+  ConnectChannelInput,
+  HandoverChange,
+  ThreadIdInput
+} from "./domain/Chat.ts"
 import type {
   AssignInput,
   ComposeInput,
@@ -29,7 +39,9 @@ import type {
   ThreadList,
   TicketLinked
 } from "./domain/Inbox.ts"
-import { ThreadTickets } from "./domain/Ports.ts"
+import { ThreadTickets, WebchatStores, WidgetKeys } from "./domain/Ports.ts"
+import * as Channels from "./use-cases/chat/channels.ts"
+import * as Chat from "./use-cases/chat/chat.ts"
 import * as Commands from "./use-cases/commands.ts"
 import * as Mailboxes from "./use-cases/mailboxes.ts"
 import * as Threads from "./use-cases/threads.ts"
@@ -64,7 +76,10 @@ export class InboxService extends Context.Service<InboxService, {
   readonly assign: (input: typeof AssignInput.Type) => Effect.Effect<ThreadChange, Forbidden | NotFound, R>
   readonly unassign: (input: Id) => Effect.Effect<ThreadChange, Forbidden | NotFound, R>
   readonly linkTicket: (input: typeof LinkTicketInput.Type) => Effect.Effect<TicketLinked, Forbidden | NotFound, R>
-  readonly reply: (input: typeof ReplyInput.Type) => Effect.Effect<MessageQueued, Sending, R>
+  /** A chat's reply goes to the shopper's widget: refused while another holds it, or once it closed. */
+  readonly reply: (
+    input: typeof ReplyInput.Type
+  ) => Effect.Effect<MessageQueued, Sending | TakenOver | ChatClosed, R>
   readonly forward: (input: typeof ForwardInput.Type) => Effect.Effect<MessageQueued, Sending, R>
   readonly compose: (input: typeof ComposeInput.Type) => Effect.Effect<MessageQueued, Sending | NoMailbox, R>
   readonly mailboxes: Effect.Effect<ReadonlyArray<MailboxView>, Forbidden, R>
@@ -74,6 +89,17 @@ export class InboxService extends Context.Service<InboxService, {
   readonly disconnect: (input: Id) => Effect.Effect<MailboxView, Forbidden | NotFound, R>
   readonly setDefault: (input: Id) => Effect.Effect<MailboxView, Forbidden | NotFound | Conflict, R>
   readonly setSignature: (input: typeof SignatureInput.Type) => Effect.Effect<MailboxView, Forbidden | NotFound, R>
+  /** The website chat (M15 step 8): "Overnemen" and "Teruggeven aan Insyte". */
+  readonly takeOver: (input: typeof ThreadIdInput.Type) => Effect.Effect<HandoverChange, Forbidden | NotFound, R>
+  readonly handBack: (input: typeof ThreadIdInput.Type) => Effect.Effect<HandoverChange, Forbidden | NotFound, R>
+  /** The stores' chat channels, at Koppelingen and in the inbox's panel. */
+  readonly channels: Effect.Effect<ChannelStatus, Forbidden, R>
+  readonly connectChannel: (
+    input: typeof ConnectChannelInput.Type
+  ) => Effect.Effect<ChannelChange, Forbidden | NotFound | Invalid | ChatUnavailable, R>
+  readonly disconnectChannel: (
+    input: typeof ChannelIdInput.Type
+  ) => Effect.Effect<ChannelChange, Forbidden | NotFound, R>
 }>()("modules/InboxService") {
   // A database that does not answer is a defect, as everywhere. The relay and the tickets link are taken once.
   static readonly layer = Layer.effect(
@@ -81,10 +107,14 @@ export class InboxService extends Context.Service<InboxService, {
     Effect.gen(function*() {
       const relay = yield* Relay
       const tickets = yield* ThreadTickets
+      const keys = yield* WidgetKeys
+      const stores = yield* WebchatStores
       const run = <A, E, Req>(effect: Effect.Effect<A, E | SqlError.SqlError, Req>) =>
         effect.pipe(
           Effect.provideService(Relay, relay),
           Effect.provideService(ThreadTickets, tickets),
+          Effect.provideService(WidgetKeys, keys),
+          Effect.provideService(WebchatStores, stores),
           Effect.catchIf(SqlError.isSqlError, Effect.die)
         )
       return {
@@ -110,7 +140,12 @@ export class InboxService extends Context.Service<InboxService, {
         connect: (input) => run(Mailboxes.connect(input)),
         disconnect: (input) => run(Mailboxes.disconnect(input)),
         setDefault: (input) => run(Mailboxes.setDefault(input)),
-        setSignature: (input) => run(Mailboxes.setSignature(input))
+        setSignature: (input) => run(Mailboxes.setSignature(input)),
+        takeOver: (input) => run(Chat.takeOver(input)),
+        handBack: (input) => run(Chat.handBack(input)),
+        channels: run(Channels.status()),
+        connectChannel: (input) => run(Channels.connect(input)),
+        disconnectChannel: (input) => run(Channels.disconnect(input))
       }
     })
   )

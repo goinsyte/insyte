@@ -47,7 +47,7 @@ const cors = (origin: string | null): Record<string, string> =>
 const isStoreId = (id: string) => /^sto_[0-9a-hjkmnp-tv-z]{26}$/.test(id)
 
 /** The limiter's key for an address: an IPv6 address by its /64, which one host or tenant usually holds whole. */
-const ipKey = (ip: string) => {
+export const ipKey = (ip: string) => {
   if (!ip.includes(":")) return `ip:${ip}`
   const [head = "", tail = ""] = ip.split("::")
   const left = head === "" ? [] : head.split(":")
@@ -57,7 +57,7 @@ const ipKey = (ip: string) => {
 }
 
 /** The body as text, or `null` once it passes `max` bytes: the stream is cancelled there, never buffered whole. */
-const readCapped = async (request: Request, max: number): Promise<string | null> => {
+export const readCapped = async (request: Request, max: number): Promise<string | null> => {
   if (request.body === null) return ""
   const reader = request.body.getReader()
   const chunks: Array<Uint8Array> = []

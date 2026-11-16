@@ -193,6 +193,8 @@ const PRODUCT_EVENTS: { readonly [T in EventType]: ProductEventOf<T> } = {
   "ticket.mentioned": none,
   "ticket.topic_requested": none,
   "chat.posted": none,
+  "chat.received": none,
+  "chat.handed_over": none,
   "chat.mentioned": none,
   "course.assigned": none,
   "course.question": none,

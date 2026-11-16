@@ -204,6 +204,13 @@ export default Alchemy.Stack(
       : {}
 
     /*
+     * The website chat (M15 step 8): the key its widget sessions are signed with, in the GitHub environment. Without it
+     * a stage serves no chat and Koppelingen says so; previews and local runs derive one from the auth secret.
+     */
+    const webchatSecret = Option.filter(yield* Config.Redacted("WEBCHAT_TOKEN_SECRET").pipe(Config.option), set)
+    const webchat = Option.isSome(webchatSecret) ? { WEBCHAT_TOKEN_SECRET: webchatSecret.value } : {}
+
+    /*
      * Insyte AI (M15 step 1, ADR-0015): Claude through the account's AI Gateway, which is made by hand per stage in the
      * dashboard with payload logging off. The Anthropic key (a secret) and the gateway's name (a variable) in the
      * GitHub environment; the gateway's token too where it is an authenticated one. With none of them a stage deploys
@@ -425,7 +432,9 @@ export default Alchemy.Stack(
         IP_LIMITS: environment === "preview" ? "off" : "on",
         // Billing's RPCs and `/hooks/stripe` are this Worker's alone (M13 step 1).
         BILLING_ADAPTER: environment === "preview" ? "fake" : "stripe",
-        ...stripe
+        ...stripe,
+        // The website chat's widget routes are this Worker's alone (M15 step 8).
+        ...webchat
       }
     })
 

@@ -10,6 +10,7 @@ import { UNDO_SECONDS, UndoWindow } from "../../shared/domain/Undo.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import * as CustomerFacing from "../../shared/use-cases/CustomerFacing.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
+import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import {
   type AssignInput,
@@ -33,6 +34,7 @@ import {
   TicketLinked
 } from "../domain/Inbox.ts"
 import { ThreadTickets } from "../domain/Ports.ts"
+import * as Chat from "./chat/chat.ts"
 import { bare, mailDomain, mergeParticipants, previewOf } from "./inbound.ts"
 import { messagesOf, rowsOf } from "./threads.ts"
 
@@ -63,14 +65,28 @@ interface Locked {
   readonly deletedAt: Date | null
   readonly lastMessageAt: Date
   readonly lastMessagePreview: string
+  /** A website chat's (M15 step 8), in `channel_threads`; mail is in `email_threads`. */
+  readonly chat: boolean
 }
 
-const lock = Effect.fn("Threads.lock")(function*(sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) {
-  const rows = yield* sql<Locked>`
-    select id, mailbox_id, subject, participants::text as participants, unread, starred, labels, assignee_id,
-           ticket_id, customer_id, archived_at, snoozed_until, spam_at, deleted_at, last_message_at,
-           last_message_preview
-    from email_threads where id in ${sql.in([...new Set(ids)])} order by id for update`
+const COLUMNS = `subject, participants::text as participants, unread, starred, labels, assignee_id,
+  ticket_id, customer_id, archived_at, snoozed_until, spam_at, deleted_at, last_message_at, last_message_preview`
+
+/** The table a locked thread is in. */
+export const tableOf = (sql: SqlClient.SqlClient, l: { readonly chat: boolean }) =>
+  sql.literal(l.chat ? "channel_threads" : "email_threads")
+
+export const lock = Effect.fn("Threads.lock")(function*(sql: SqlClient.SqlClient, ids: ReadonlyArray<string>) {
+  const wanted = [...new Set(ids)]
+  const mail = yield* sql<Locked>`
+    select id, mailbox_id, ${sql.literal(COLUMNS)}, false as chat
+    from email_threads where id in ${sql.in(wanted)} order by id for update`
+  // A chat is its store's: one outside the principal's stores is not found.
+  const chats = mail.length === wanted.length ? [] : yield* sql<Locked>`
+    select id, channel_id as mailbox_id, ${sql.literal(COLUMNS)}, true as chat
+    from channel_threads where id in ${sql.in(wanted)} and ${yield* inScope(sql, "store_id")}
+    order by id for update`
+  const rows = [...mail, ...chats]
   const found = new Set(rows.map((r) => r.id))
   const missing = ids.find((id) => !found.has(id))
   if (missing !== undefined) return yield* new NotFound({ entity: "thread", id: missing })
@@ -123,7 +139,7 @@ export const markRead = Effect.fn("Threads.markRead")(function*(input: typeof Re
     Effect.gen(function*() {
       const locked = yield* lock(sql, input.ids)
       const changed = locked.filter((l) => l.unread === input.read)
-      for (const l of changed) yield* sql`update email_threads set unread = ${!input.read} where id = ${l.id}`
+      for (const l of changed) yield* sql`update ${tableOf(sql, l)} set unread = ${!input.read} where id = ${l.id}`
       // Reading is not audited (it would fill the log); the open tabs still hear of it.
       if (changed.length > 0) {
         const p = yield* CurrentPrincipal
@@ -148,7 +164,7 @@ export const star = Effect.fn("Threads.star")(function*(input: typeof StarInput.
     Effect.gen(function*() {
       const [l] = yield* lock(sql, [input.id])
       if (l!.starred === input.starred) return none()
-      yield* sql`update email_threads set starred = ${input.starred} where id = ${l!.id}`
+      yield* sql`update ${tableOf(sql, l!)} set starred = ${input.starred} where id = ${l!.id}`
       yield* audit(sql, input.starred ? "thread.starred" : "thread.unstarred", l!.id)
       return yield* answer(sql, [l!.id], null)
     })
@@ -166,7 +182,7 @@ export const label = Effect.fn("Threads.label")(function*(input: typeof LabelInp
       const has = l!.labels.includes(name)
       if (has === input.on || name === "") return none()
       const labels = input.on ? [...l!.labels, name] : l!.labels.filter((x) => x !== name)
-      yield* sql`update email_threads set labels = ${labels}::text[] where id = ${l!.id}`
+      yield* sql`update ${tableOf(sql, l!)} set labels = ${labels}::text[] where id = ${l!.id}`
       yield* audit(sql, "thread.labelled", l!.id, { label: name, on: input.on })
       return yield* answer(sql, [l!.id], null)
     })
@@ -189,7 +205,7 @@ export const setAside = Effect.fn("Threads.setAside")(function*(
       )
       if (going.length === 0) return none()
       for (const l of going) {
-        yield* sql`update email_threads set ${sql.literal(ASIDE[input.as])} = now() where id = ${l.id}`
+        yield* sql`update ${tableOf(sql, l)} set ${sql.literal(ASIDE[input.as])} = now() where id = ${l.id}`
         yield* audit(sql, `thread.${input.as}`, l.id)
       }
       return yield* answer(sql, going.map((l) => l.id), { kind: "fields", threads: going.map(before) })
@@ -206,7 +222,7 @@ export const snooze = Effect.fn("Threads.snooze")(function*(input: typeof Snooze
     Effect.gen(function*() {
       const locked = yield* lock(sql, input.ids)
       for (const l of locked) {
-        yield* sql`update email_threads set snoozed_until = ${new Date(input.until)} where id = ${l.id}`
+        yield* sql`update ${tableOf(sql, l)} set snoozed_until = ${new Date(input.until)} where id = ${l.id}`
         yield* audit(sql, "thread.snoozed", l.id, { until: input.until })
       }
       return yield* answer(sql, locked.map((l) => l.id), { kind: "fields", threads: locked.map(before) })
@@ -226,7 +242,7 @@ export const putBack = Effect.fn("Threads.restore")(function*(input: { readonly 
       )
       if (going.length === 0) return none()
       for (const l of going) {
-        yield* sql`update email_threads set archived_at = null, spam_at = null, deleted_at = null,
+        yield* sql`update ${tableOf(sql, l)} set archived_at = null, spam_at = null, deleted_at = null,
                      snoozed_until = null where id = ${l.id}`
         yield* audit(sql, "thread.put_back", l.id)
       }
@@ -246,7 +262,7 @@ export const assign = Effect.fn("Threads.assign")(function*(input: typeof Assign
       const [m] = yield* sql`select 1 from members where id = ${input.memberId} and deactivated_at is null
                              and removed_at is null`
       if (m === undefined) return yield* new NotFound({ entity: "member", id: input.memberId })
-      yield* sql`update email_threads set assignee_id = ${input.memberId} where id = ${l!.id}`
+      yield* sql`update ${tableOf(sql, l!)} set assignee_id = ${input.memberId} where id = ${l!.id}`
       yield* audit(sql, "thread.assigned", l!.id, { from: l!.assigneeId, to: input.memberId })
       return yield* answer(sql, [l!.id], { kind: "fields", threads: [before(l!)] })
     })
@@ -261,7 +277,7 @@ export const unassign = Effect.fn("Threads.unassign")(function*(input: { readonl
     Effect.gen(function*() {
       const [l] = yield* lock(sql, [input.id])
       if (l!.assigneeId === null) return none()
-      yield* sql`update email_threads set assignee_id = null where id = ${l!.id}`
+      yield* sql`update ${tableOf(sql, l!)} set assignee_id = null where id = ${l!.id}`
       yield* audit(sql, "thread.unassigned", l!.id, { from: l!.assigneeId })
       return yield* answer(sql, [l!.id], { kind: "fields", threads: [before(l!)] })
     })
@@ -311,7 +327,7 @@ export const linkTicket = Effect.fn("Threads.linkTicket")(function*(input: typeo
           where thread_id = ${l!.id} and direction = 'inbound' order by created_at desc, id desc limit 1`
         const from = otherSide(l!, last)
         ticket = yield* tickets.make(sql, {
-          title: (l!.subject.trim() || "Mail zonder onderwerp").slice(0, 200),
+          title: (l!.subject.trim() || (l!.chat ? "Websitechat" : "Mail zonder onderwerp")).slice(0, 200),
           description: `Van ${from?.name || from?.email || "onbekend"}${from?.email ? ` (${from.email})` : ""}: ${
             l!.lastMessagePreview
           }`.slice(0, 20_000),
@@ -320,7 +336,7 @@ export const linkTicket = Effect.fn("Threads.linkTicket")(function*(input: typeo
         })
         created = ticket.id
       }
-      yield* sql`update email_threads set ticket_id = ${ticket.id} where id = ${l!.id}`
+      yield* sql`update ${tableOf(sql, l!)} set ticket_id = ${ticket.id} where id = ${l!.id}`
       yield* audit(sql, "thread.linked", l!.id, { ticketId: ticket.id, created: created !== null })
       const undo = yield* Undo.issue(sql, {
         command: RESTORE,
@@ -503,6 +519,8 @@ export const reply = Effect.fn("Threads.reply")(function*(input: typeof ReplyInp
   yield* Policy.require("support", 2)
   if (input.body.trim() === "") return yield* new Invalid({ fields: { body: "required" } })
   const db = yield* Db
+  // A website chat's answer goes to the shopper's widget, not out by mail (M15 step 8).
+  if (yield* db.scoped((sql) => Chat.isChat(sql, input.threadId))) return yield* Chat.reply(input)
   const { change, outboxId } = yield* db.scoped((sql) =>
     Effect.flatMap(replyOn(sql, input).pipe(ownId), (q) => settled(sql, q))
   )
@@ -517,6 +535,8 @@ export const forward = Effect.fn("Threads.forward")(function*(input: typeof Forw
   const { change, outboxId } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const [l] = yield* lock(sql, [input.threadId])
+      // A chat is the shopper's words in the store's widget: it is not sent on to anyone by mail.
+      if (l!.chat) return yield* new Invalid({ fields: { threadId: "chat" } })
       const mailbox = yield* mailboxFor(sql, l!.mailboxId)
       const messages = yield* messagesOf(sql, l!.id)
       const quoted = messages.map((m) =>
@@ -629,7 +649,10 @@ export const compose = Effect.fn("Threads.compose")(function*(input: typeof Comp
 const decodeRestore = Schema.decodeUnknownEffect(InboxRestore)
 
 const putFields = (sql: SqlClient.SqlClient, t: Before) =>
-  sql`update email_threads set unread = ${t.unread}, starred = ${t.starred}, labels = ${[...t.labels]}::text[],
+  Effect.forEach(["email_threads", "channel_threads"], (table) => putFieldsIn(sql, table, t), { discard: true })
+
+const putFieldsIn = (sql: SqlClient.SqlClient, table: string, t: Before) =>
+  sql`update ${sql.literal(table)} set unread = ${t.unread}, starred = ${t.starred}, labels = ${[...t.labels]}::text[],
         assignee_id = (select id from members where id = ${t.assigneeId}), ticket_id = ${t.ticketId},
         archived_at = ${at(t.archivedAt)}, snoozed_until = ${at(t.snoozedUntil)}, spam_at = ${at(t.spamAt)},
         deleted_at = ${at(t.deletedAt)}, last_message_at = ${new Date(t.lastMessageAt)},

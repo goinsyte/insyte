@@ -84,6 +84,7 @@ import sealedPartitions from "./migrations/0097_sealed_partitions.ts"
 import ask from "./migrations/0098_ask.ts"
 import knowledge from "./migrations/0099_knowledge.ts"
 import trashKinds from "./migrations/0101_trash_kinds.ts"
+import webchat from "./migrations/0102_webchat.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 import supplierPortal from "./migrations/contract/0075_supplier_portal.ts"
 
@@ -179,5 +180,6 @@ export const Migrations = {
   "0097_sealed_partitions": sealedPartitions,
   "0098_ask": ask,
   "0099_knowledge": knowledge,
-  "0101_trash_kinds": trashKinds
+  "0101_trash_kinds": trashKinds,
+  "0102_webchat": webchat
 }
