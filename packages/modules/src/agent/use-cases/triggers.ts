@@ -73,7 +73,7 @@ export const agentPrincipal = Effect.fn("Agent.principal")(function*() {
  * Whether the offline plan keeps `action` for the team now (`heldForTeam`), read as the system: an agent's own
  * principal reads no policy table.
  */
-const teamHolds = (action: AgentActionId) =>
+export const teamHolds = (action: AgentActionId) =>
   Effect.flatMap(Effect.service(Db), (db) =>
     db.scopedFor((sql) =>
       Effect.gen(function*() {

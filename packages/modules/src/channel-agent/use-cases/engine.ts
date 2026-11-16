@@ -1,0 +1,651 @@
+import { Db } from "@insyte/database/Db"
+import type { AgentActionId } from "@insyte/domain/AgentActions"
+import { mintId } from "@insyte/domain/Ids"
+import { CurrentPrincipal } from "@insyte/domain/Principal"
+import { Effect, Option, Schema } from "effect"
+import type { SqlClient } from "effect/sql"
+import { agentPrincipal, daySlot, decideAutonomy, freeSlot, recordAction, teamHolds } from "../../agent/Agent.ts"
+import { shipStage, type WismoOrder } from "../../agent/domain/Triggers.ts"
+import type { Caller, CustomerAgentContext, CustomerAgentOutput } from "../../ai/Ai.ts"
+import type { BudgetExceeded, ModelUnavailable } from "../../ai/domain/Ai.ts"
+import type { Hit } from "../../knowledge/domain/Knowledge.ts"
+import { cite, fileGap } from "../../knowledge/Knowledge.ts"
+import { ShippingValue } from "../../settings/domain/Settings.ts"
+import { ChatChannel, type ChatMessage } from "../../shared/domain/ChatChannel.ts"
+import { wordingFor } from "../../shared/domain/CustomerFacing.ts"
+import type { CustomerAgentSettings, CustomerAgentSettingsInput } from "../domain/ChannelAgent.ts"
+import {
+  aboutAnOrder,
+  ASK_PROOF,
+  checkable,
+  claimOf,
+  handFor,
+  handoverText,
+  isOpen,
+  type OrderFacts,
+  orderStatusReply,
+  PROOF_FAILED,
+  replyFaults,
+  STORE_VERIFY_CAP,
+  triggerOf,
+  VERIFY_CAP
+} from "../domain/Rules.ts"
+import { read, timezoneOf } from "./settings.ts"
+
+/*
+ * The customer agent at work (M15 step 8; ADR-0027, widgets/04 Klantagent): a shopper's message on the website chat
+ * (`chat.received`, through the agent sink and the events queue) answered as the workspace's own agent, or handed to
+ * the team. The thinking is in `think`, which the page's test chat runs too; the rest is what only a real chat has:
+ * the thread's standing, the order the shopper proves, the reply, and its row in Wat Insyte deed.
+ *
+ * In order, for each message:
+ *
+ * 1. The agent off, or the website chat's mode Uit: silent. The chat is the team's, as without the agent.
+ * 2. Claimed once per message; a thread a person took over, closed, or already handed over is left alone (logged as
+ *    `taken`) until it is handed back.
+ * 3. Zelfstandigheid's "Klant beantwoorden" (`SendReply`) is the master, the channel's mode only narrows it: Zelf doen
+ *    and Zelf antwoorden answer; Eerst vragen, the offline plan's hours, or Alleen concepten leave a draft for the
+ *    team; Nooit hands the chat to the team without a word. A spent budget hands it over. Outside the opening hours
+ *    with "Vraag aannemen" the agent takes the question and says when a person answers.
+ * 4. A message for a person (one asked for, a complaint, a chargeback or a lawyer, anger, money, a cancellation or an
+ *    address change, a topic always for a colleague, too many turns) is handed over before anything else.
+ * 5. About the shopper's own order: nothing is said of any order until they prove one (its number, and the e-mail
+ *    address or the postcode on it, in the thread's store). A wrong guess gets the same answer however it was wrong;
+ *    three on a thread, or many in a store within the hour, and a person takes it. A proved order's status is a fixed
+ *    text from its facts, and only an order with one plain story has one; partly sent, split, sent back, refunded:
+ *    a person.
+ * 6. Anything else is answered only from the knowledge base's chapters published to the customer agent, in the
+ *    thread's store, by the model, and the answer checked: a digit, a promise or a link it was not given, and it is
+ *    not sent. Nothing found: handed over, and the question filed under "Nog niet beantwoord".
+ * 7. Right before a reply goes, everything is asked again: the settings, the policy, the thread, and whether this is
+ *    still the shopper's newest message. Then `ChatChannel.reply` as the agent.
+ *
+ * Every turn is one row in `agent_actions` with its reason. No message text is logged or kept outside the chat.
+ */
+
+export const ACTION: AgentActionId = "SendReply"
+
+/** The log's name for every chat: no shopper's words. */
+const SUBJECT_LABEL = "Chat van een websitebezoeker"
+const TRIGGER = { kind: "event:chat.received", label: "Nieuw chatbericht" } as const
+const SOURCES = [{ kind: "chat", title: "Websitechat", detail: "Bericht van een bezoeker", to: "/inbox" }]
+
+/** Replies on one thread before it ran away: a person takes it from there. */
+export const MAX_REPLIES = 20
+
+/** How much of the conversation the model reads. */
+const HISTORY = 12
+
+/** How many chapters it reads. */
+const SOURCES_READ = 3
+
+export type HandoverReason =
+  | "asks_person"
+  | "sensitive"
+  | "money"
+  | "topic"
+  | "turns"
+  | "no_knowledge"
+  | "unsure"
+  | "verify_cap"
+  | "order_complex"
+  | "outside_hours"
+  | "runaway"
+  | "error"
+  | "budget"
+  | "policy"
+  | "guard"
+  | "disabled"
+  | "limit"
+
+export type ModelRef = { readonly name: string; readonly promptVersion: string }
+
+/** What the agent would say to a message, or why a person should. */
+export type Thought =
+  | {
+    readonly _tag: "Reply"
+    readonly text: string
+    /** Where it came from: the knowledge base (with the chapters used), a proved order, or the agent's own words. */
+    readonly kind: "knowledge" | "order" | "ask_proof" | "proof_failed"
+    readonly hits: ReadonlyArray<Hit>
+    readonly model: ModelRef | null
+  }
+  | { readonly _tag: "Handover"; readonly reason: HandoverReason; readonly gap: boolean }
+
+const handover = (reason: HandoverReason, gap = false): Thought => ({ _tag: "Handover", reason, gap })
+
+/** What the agent thinks with, from whoever runs it: the knowledge base and the model, as the platform loads them. */
+export interface Brain {
+  /** The chapters published to the customer agent about the question, within the principal's stores. */
+  readonly search: (query: string) => Effect.Effect<ReadonlyArray<Hit>, never, Db | CurrentPrincipal>
+  readonly answer: (
+    input: CustomerAgentContext,
+    caller: Caller
+  ) => Effect.Effect<
+    { readonly value: CustomerAgentOutput; readonly callId: string; readonly model: ModelRef },
+    BudgetExceeded | ModelUnavailable,
+    Db | CurrentPrincipal
+  >
+}
+
+export interface Thinking {
+  /** The shopper's newest message. */
+  readonly text: string
+  /** The conversation before it, oldest first. */
+  readonly before: CustomerAgentContext["messages"]
+  readonly settings: CustomerAgentSettingsInput
+  readonly brand: string
+  /** The proved order's facts, in words; `null` until one is. */
+  readonly order: string | null
+  readonly caller: Caller
+}
+
+/**
+ * The agent's answer to one message, from the knowledge base (and a proved order's facts), or why a person answers:
+ * the same for a real chat and the page's test chat. Nothing is sent or written here but the model's row.
+ */
+export const think = (brain: Brain, t: Thinking) =>
+  Effect.gen(function*() {
+    const trigger = triggerOf(t.text, t.settings.handover)
+    if (trigger !== null) return handover(trigger.trigger)
+    const hits = (yield* brain.search(t.text)).slice(0, SOURCES_READ)
+    if (hits.length === 0 && t.order === null) return handover("no_knowledge", true)
+    const knowledge = hits.map((h, i) => ({ ref: i + 1, title: h.title, text: h.text }))
+    const asked = yield* Effect.result(
+      brain.answer({
+        brand: t.brand,
+        tone: t.settings.tone,
+        messages: [...t.before, { from: "klant", text: t.text }],
+        knowledge,
+        order: t.order
+      }, t.caller)
+    )
+    if (asked._tag === "Failure") return handover(asked.failure._tag === "BudgetExceeded" ? "budget" : "error")
+    const out = asked.success.value
+    const text = out.text.trim()
+    if (!out.answered || text === "") return handover("no_knowledge", true)
+    if (!out.sure && t.settings.handover.unsure) return handover("unsure")
+    const facts = [...knowledge.map((k) => `${k.title}\n${k.text}`), t.order ?? "", t.brand].join("\n")
+    if (replyFaults(text, { shopper: t.text, facts }).length > 0) return handover("guard")
+    const used = out.sources.flatMap((ref) => (hits[ref - 1] === undefined ? [] : [hits[ref - 1]!]))
+    return { _tag: "Reply", text, kind: "knowledge", hits: used, model: asked.success.model } satisfies Thought
+  })
+
+/* ── a real chat ──────────────────────────────────────────────────────────────────────────────────────────── */
+
+export interface ChatTask {
+  readonly eventId: string
+  readonly storeId: string
+  readonly threadId: string
+  readonly messageId: string
+}
+
+/** What became of a message, for the queue's telemetry: never its words. */
+export type Turn = "silent" | "seen" | "taken" | "answered" | "drafted" | "handed_over" | "refused"
+
+interface ThreadRow {
+  readonly replies: number
+  readonly shopperTurns: number
+  readonly verifyFailures: number
+  readonly verifiedOrderId: string | null
+}
+
+/**
+ * The agent's row for the thread, one more shopper turn on it. Called only while the chat says nobody holds the thread:
+ * a row still marked handed over was handed back since, and starts again, its proof kept.
+ */
+const turnOn = (sql: SqlClient.SqlClient, task: ChatTask) =>
+  Effect.map(
+    sql<ThreadRow>`
+      insert into customer_agent_threads (workspace_id, thread_id, store_id, shopper_turns)
+      values (app_workspace_id(), ${task.threadId}, ${task.storeId}, 1)
+      on conflict (workspace_id, thread_id) do update
+        set shopper_turns = case when customer_agent_threads.handed_over_at is not null then 1
+                                 else customer_agent_threads.shopper_turns + 1 end,
+            replies = case when customer_agent_threads.handed_over_at is not null then 0
+                           else customer_agent_threads.replies end,
+            handed_over_at = null, handover_reason = null, held_at = null
+      returning replies, shopper_turns, verify_failures, verified_order_id`,
+    ([r]) => r!
+  )
+
+const decodeShipping = Schema.decodeUnknownOption(ShippingValue)
+
+/** Only a carrier page on https goes to a shopper. */
+const httpsOnly = (url: string | null) => {
+  if (url === null) return null
+  try {
+    return new URL(url).protocol === "https:" ? url : null
+  } catch {
+    return null
+  }
+}
+
+/** A proved order's one plain status, or `null` where it has none to say (split, partly sent, refunded, returned). */
+const factsOf = (sql: SqlClient.SqlClient, orderId: string, storeId: string, tz: string) =>
+  Effect.gen(function*() {
+    const [o] = yield* sql<{
+      number: string
+      status: string
+      payment: string
+      fulfilment: string
+      parcels: number
+      parcel: string | null
+      carrier: string | null
+      trackingUrl: string | null
+      expected: Date | null
+      deliveredAt: Date | null
+      wording: unknown
+    }>`
+      select o.number, o.status, o.payment_status as payment, o.fulfillment_status as fulfilment,
+             (select count(*)::int from fulfilments a where a.order_id = o.id) as parcels,
+             coalesce(d.status, f.tracking_status) as parcel, coalesce(f.carrier, d.carrier) as carrier,
+             nullif(btrim(f.tracking_url), '') as tracking_url,
+             case when d.estimated_delivery > now() then d.estimated_delivery end as expected,
+             coalesce(d.delivered_at, f.delivered_at) as delivered_at,
+             (select v.value from workspace_settings v where v.section = 'shipping') as wording
+      from orders o
+      left join lateral (select id, carrier, tracking_url, tracking_status, delivered_at
+                         from fulfilments where order_id = o.id order by shipped_at desc nulls last limit 1) f on true
+      left join deliveries d on d.fulfilment_id = f.id
+      where o.id = ${orderId} and o.store_id = ${storeId} and not o.is_draft`
+    if (o === undefined) return null
+    const day = (d: Date | null) =>
+      d === null ? null : new Intl.DateTimeFormat("nl-NL", { timeZone: tz, dateStyle: "long" }).format(d)
+    const w: WismoOrder = {
+      number: o.number,
+      status: o.status,
+      payment: o.payment,
+      fulfilment: o.fulfilment,
+      parcels: o.parcels,
+      parcel: o.parcel,
+      carrier: o.carrier,
+      trackingUrl: httpsOnly(o.trackingUrl),
+      expectedOn: day(o.expected),
+      deliveredOn: day(o.deliveredAt)
+    }
+    const stage = shipStage(w)
+    if (stage === null) return null
+    const stored = Option.getOrNull(decodeShipping(o.wording))
+    return {
+      number: w.number,
+      label: wordingFor(stored, stage, w.carrier).text,
+      carrier: w.carrier,
+      trackingUrl: w.trackingUrl,
+      expectedOn: w.expectedOn,
+      deliveredOn: w.deliveredOn,
+      delivered: stage === "delivered"
+    } satisfies OrderFacts
+  })
+
+/** The order a claim proves: its number in the thread's store, with that e-mail address or postcode on it. One, or none. */
+const proved = (
+  sql: SqlClient.SqlClient,
+  storeId: string,
+  claim: ReturnType<typeof claimOf>
+) =>
+  Effect.map(
+    sql<{ id: string; customerId: string | null }>`
+      select o.id, o.customer_id from orders o
+      where o.store_id = ${storeId} and not o.is_draft
+        and regexp_replace(o.number, '\\D', '', 'g') = ${claim.number}
+        and ((${claim.email}::text is not null and lower(btrim(o.customer_email)) = ${claim.email})
+             or (${claim.postcode}::text is not null
+                 and upper(regexp_replace(coalesce(o.shipping_address ->> 'postcode', ''), '\\s', '', 'g'))
+                     = ${claim.postcode}))
+      limit 2`,
+    (rows) => (rows.length === 1 ? rows[0]! : null)
+  )
+
+/** Failed order checks in the store within the hour, over all its chats: guessing across threads. */
+const storeFailures = (sql: SqlClient.SqlClient, storeId: string) =>
+  Effect.map(
+    sql<{ n: number }>`
+      select coalesce(sum(verify_failures), 0)::int as n from customer_agent_threads
+      where store_id = ${storeId} and last_verify_failed_at > now() - interval '1 hour'`,
+    ([r]) => r?.n ?? 0
+  )
+
+const LOG: Record<Thought["_tag"] | "Taken" | "Draft", { reason: string; sentence: string }> = {
+  Reply: {
+    reason: "Een websitebezoeker stelde een vraag; Insyte antwoordde uit de gepubliceerde kennisbank.",
+    sentence: "Websitebezoeker geantwoord uit de kennisbank"
+  },
+  Draft: {
+    reason: "Een websitebezoeker stelde een vraag; Insyte zette een concept klaar voor het team.",
+    sentence: "Concept klaargezet voor een chat"
+  },
+  Handover: {
+    reason: "Een websitebezoeker stelde een vraag die voor een collega is; Insyte droeg de chat over.",
+    sentence: "Chat overgedragen aan het team"
+  },
+  Taken: {
+    reason: "Een collega heeft de chat; Insyte zweeg.",
+    sentence: "Chat bij het team gelaten"
+  }
+}
+
+const SENTENCE: Record<Exclude<Extract<Thought, { _tag: "Reply" }>["kind"], "knowledge">, string> = {
+  order: "Websitebezoeker de status van de bestelling gegeven",
+  ask_proof: "Websitebezoeker gevraagd de bestelling te bevestigen",
+  proof_failed: "Bestelling van een websitebezoeker niet bevestigd"
+}
+
+/** The model's words in the log's history: the shopper's, the agent's and the team's, a system line not. */
+const spoken = (history: ReadonlyArray<ChatMessage>, upTo: string): CustomerAgentContext["messages"] => {
+  const until = history.findIndex((m) => m.id === upTo)
+  return (until === -1 ? history : history.slice(0, until)).flatMap((m) =>
+    m.author === "system"
+      ? []
+      : [{ from: m.author === "shopper" ? "klant" : m.author === "agent" ? "insyte" : "team", text: m.text } as const]
+  )
+}
+
+/** The newest message of the shopper's in the history, or none. */
+const newestOfShopper = (history: ReadonlyArray<ChatMessage>) =>
+  [...history].reverse().find((m) => m.author === "shopper") ?? null
+
+/**
+ * One shopper's message, as the workspace's agent. Whatever happens is logged and nothing is thrown but a database
+ * that did not answer (the queue retries that, and the message is acted on once).
+ */
+export const onChat = (brain: Brain, task: ChatTask) =>
+  Effect.gen(function*() {
+    const db = yield* Db
+    // The settings as the system reads them; off, or Uit on the website chat: the team's, as without the agent.
+    const settings = yield* db.scopedFor(read)
+    if (!settings.on || settings.channels.webchat === "off") return "silent" as Turn
+    const agent = yield* agentPrincipal()
+    return yield* turn(brain, task, settings).pipe(Effect.provideService(CurrentPrincipal, agent))
+  })
+
+const turn = (brain: Brain, task: ChatTask, settings: CustomerAgentSettings) =>
+  Effect.gen(function*() {
+    const db = yield* Db
+    const chat = yield* ChatChannel
+    const id = mintId("aga")
+    const dedupeKey = `chat:${task.messageId}`
+    const claimed = yield* db.scoped((sql) =>
+      sql`insert into agent_touchpoints (workspace_id, dedupe_key, agent_action_id)
+          values (app_workspace_id(), ${dedupeKey}, ${id}) on conflict do nothing returning dedupe_key`
+    )
+    if (claimed.length === 0) return "seen" as Turn
+
+    const d = yield* db.scoped((sql) => decideAutonomy(sql, ACTION, null))
+    const write = (row: {
+      readonly decision: "run" | "propose" | "refuse"
+      readonly outcome: "done" | "failed" | "proposed" | "refused"
+      readonly refuseReason: string | null
+      readonly reason: string
+      readonly sentence: string
+      readonly model?: ModelRef | null
+      readonly error?: string | null
+    }) =>
+      db.scoped((sql) =>
+        recordAction(sql, {
+          id,
+          action: ACTION,
+          input: null,
+          storeId: task.storeId,
+          subject: { type: "chat", id: task.threadId, label: SUBJECT_LABEL },
+          trigger: TRIGGER,
+          policyVersion: d.policyVersion,
+          level: d.level,
+          decision: row.decision,
+          refuseReason: row.refuseReason,
+          reason: row.reason,
+          sentence: row.sentence,
+          before: null,
+          after: null,
+          effect: null,
+          outcome: row.outcome,
+          error: row.error ?? null,
+          proposalId: null,
+          undo: null,
+          dedupeKey,
+          sources: SOURCES,
+          model: row.model ?? null
+        })
+      )
+    const taken = (reason = "taken") =>
+      Effect.as(
+        write({ decision: "refuse", outcome: "refused", refuseReason: reason, ...LOG.Taken }),
+        "taken" as Turn
+      )
+
+    // The thread, as the agent may see it: out of its stores, it is not the agent's.
+    const found = yield* Effect.result(chat.thread(task.threadId))
+    if (found._tag === "Failure" || found.success.storeId !== task.storeId) {
+      yield* write({ decision: "refuse", outcome: "refused", refuseReason: "scope", ...LOG.Taken })
+      return "refused" as Turn
+    }
+    const thread = found.success
+    if (thread.closedAt !== null || thread.takenOverBy !== null || thread.handover !== null) return yield* taken()
+    const tz = yield* db.scoped(timezoneOf)
+    const row = yield* db.scoped((sql) => turnOn(sql, task))
+    const history = yield* chat.history(task.threadId, { limit: HISTORY })
+    const message = history.find((m) => m.id === task.messageId)
+    // A newer message of the shopper's came in meanwhile: that one's turn answers both.
+    if (message === undefined || message.author !== "shopper" || newestOfShopper(history)?.id !== task.messageId) {
+      return yield* taken("taken")
+    }
+
+    // The master, narrowed by the channel. Nooit, or a budget spent, or the agent switched off on Zelfstandigheid:
+    // the team's, without the agent writing anything.
+    // A spent budget or the agent switched off asks nobody for a draft: the chat goes to the team, and on Zelf doen and
+    // Zelf antwoorden the shopper is told so in the handover's fixed words.
+    const unprepared = d.decision === "propose" && ["budget", "disabled", "locked", "unknown"].includes(d.reason ?? "")
+    const holds = d.decision === "run" && (yield* teamHolds(ACTION))
+    const level = d.decision === "refuse"
+      ? "never"
+      : unprepared
+      ? d.level
+      : d.decision === "propose" || holds
+      ? "ask"
+      : "auto"
+    const now = new Date()
+    const open = isOpen(settings.hours, tz, now)
+    const { hand, mode } = handFor({
+      on: true,
+      mode: settings.channels.webchat,
+      level,
+      open,
+      outside: settings.outside
+    })
+
+    // What the agent would do, before it does it.
+    const thought: Thought = yield* Effect.gen(function*() {
+      if (hand === "silent") return handover("disabled")
+      if (level === "never") return handover("policy")
+      if (unprepared) return handover(d.reason === "budget" ? "budget" : "disabled")
+      if (hand === "handover") return handover("outside_hours")
+      if (row.replies >= MAX_REPLIES) return handover("runaway")
+      const rules = settings.handover
+      if (rules.afterMessages !== null && row.shopperTurns > rules.afterMessages) return handover("turns")
+      const trigger = triggerOf(message.text, rules)
+      if (trigger !== null) return handover(trigger.trigger)
+      const claim = claimOf(message.text)
+      const ownOrder = aboutAnOrder(message.text)
+      // A new claim of an order is checked, whatever was proved before; a question about the proved one is answered.
+      if (checkable(claim)) {
+        return yield* db.scoped((sql) =>
+          Effect.gen(function*() {
+            yield* sql`select pg_advisory_xact_lock(hashtext(app_workspace_id() || ':chat-proof:' || ${task.storeId}))`
+            if (row.verifyFailures >= VERIFY_CAP || (yield* storeFailures(sql, task.storeId)) >= STORE_VERIFY_CAP) {
+              return handover("verify_cap")
+            }
+            const order = yield* proved(sql, task.storeId, claim)
+            if (order === null) {
+              const [f] = yield* sql<{ verifyFailures: number }>`
+                update customer_agent_threads set verify_failures = verify_failures + 1, last_verify_failed_at = now()
+                where thread_id = ${task.threadId} returning verify_failures`
+              return (f?.verifyFailures ?? VERIFY_CAP) >= VERIFY_CAP
+                ? handover("verify_cap")
+                : ({ _tag: "Reply", text: PROOF_FAILED, kind: "proof_failed", hits: [], model: null } satisfies Thought)
+            }
+            yield* sql`update customer_agent_threads set verified_order_id = ${order.id}, verified_at = now()
+                       where thread_id = ${task.threadId}`
+            if (order.customerId !== null) yield* chat.bindCustomer(task.threadId, order.customerId)
+            const facts = yield* factsOf(sql, order.id, task.storeId, tz)
+            return facts === null
+              ? handover("order_complex")
+              : ({
+                _tag: "Reply",
+                text: orderStatusReply(facts, settings.tone === "formal"),
+                kind: "order",
+                hits: [],
+                model: null
+              } satisfies Thought)
+          })
+        )
+      }
+      if (ownOrder && row.verifiedOrderId !== null && claim.number === null) {
+        const facts = yield* db.scoped((sql) => factsOf(sql, row.verifiedOrderId!, task.storeId, tz))
+        return facts === null
+          ? handover("order_complex")
+          : ({
+            _tag: "Reply",
+            text: orderStatusReply(facts, settings.tone === "formal"),
+            kind: "order",
+            hits: [],
+            model: null
+          } satisfies Thought)
+      }
+      if (ownOrder) {
+        return row.verifyFailures >= VERIFY_CAP
+          ? handover("verify_cap")
+          : ({ _tag: "Reply", text: ASK_PROOF, kind: "ask_proof", hits: [], model: null } satisfies Thought)
+      }
+      const [brand] = yield* db.scoped((sql) =>
+        sql<{ name: string }>`select name from stores where id = ${task.storeId}`
+      )
+      const orderFacts = row.verifiedOrderId === null
+        ? null
+        : yield* db.scoped((sql) => factsOf(sql, row.verifiedOrderId!, task.storeId, tz))
+      return yield* think(brain, {
+        text: message.text,
+        before: spoken(history, task.messageId),
+        settings,
+        brand: brand?.name ?? "",
+        order: orderFacts === null ? null : orderStatusReply(orderFacts, false),
+        caller: { memberId: null, principalKind: "agent", subject: { type: "chat", id: task.threadId } }
+      })
+    })
+
+    if (thought._tag === "Handover") {
+      if (thought.gap) {
+        yield* db.scoped((sql) =>
+          fileGap(sql, {
+            question: message.text,
+            channel: "webchat",
+            customerLabel: "Websitebezoeker",
+            threadId: task.threadId,
+            ticketId: null,
+            storeId: task.storeId,
+            sourceKind: "channel_message",
+            sourceId: task.messageId
+          })
+        )
+      }
+      // Zelf antwoorden tells the shopper a colleague takes it and when; Nooit and the drafts say nothing.
+      if (mode === "auto" && thought.reason !== "policy" && thought.reason !== "disabled") {
+        yield* Effect.ignore(chat.reply(task.threadId, handoverText(settings, tz, now)))
+      }
+      yield* chat.handOver(task.threadId, thought.reason)
+      yield* db.scoped((sql) =>
+        sql`update customer_agent_threads
+            set handed_over_at = now(), handover_reason = ${thought.reason},
+                held_at = case when ${thought.reason === "runaway"} then now() else held_at end
+            where thread_id = ${task.threadId}`
+      )
+      yield* write({
+        decision: d.decision === "refuse" ? "refuse" : "propose",
+        outcome: d.decision === "refuse" ? "refused" : "proposed",
+        refuseReason: d.decision === "refuse" ? d.reason ?? "policy" : thought.reason,
+        ...LOG.Handover
+      })
+      return "handed_over" as Turn
+    }
+
+    const sentence = thought.kind === "knowledge" ? LOG.Reply.sentence : SENTENCE[thought.kind]
+    if (mode !== "auto") {
+      // Alleen concepten, Eerst vragen or the plan's hours: a draft on the chat for the team, nothing sent.
+      yield* db.scoped((sql) =>
+        Effect.gen(function*() {
+          const draftId = mintId("drf")
+          yield* sql`insert into drafts (id, workspace_id, subject_type, subject_id, kind, text, principal_kind,
+                                         principal_id, prompt_id, prompt_version)
+                     values (${draftId}, app_workspace_id(), 'chat', ${task.threadId}, 'reply', ${thought.text},
+                             'agent', ${(yield* CurrentPrincipal).id}, 'customer_agent',
+                             ${thought.model?.promptVersion ?? "fixed"})`
+          yield* cite(sql, thought.hits, { kind: "draft", id: draftId })
+        })
+      )
+      yield* write({
+        decision: "propose",
+        outcome: "proposed",
+        refuseReason: holds ? "hours" : d.reason ?? "policy",
+        model: thought.model,
+        ...LOG.Draft
+      })
+      return "drafted" as Turn
+    }
+
+    // Zelf antwoorden: the day's slot, then everything asked again right before it goes.
+    if (!(yield* daySlot(ACTION, id))) {
+      yield* chat.handOver(task.threadId, "limit")
+      yield* db.scoped((sql) =>
+        sql`update customer_agent_threads set handed_over_at = now(), handover_reason = 'limit'
+            where thread_id = ${task.threadId}`
+      )
+      yield* write({ decision: "propose", outcome: "proposed", refuseReason: "limit", ...LOG.Handover })
+      return "handed_over" as Turn
+    }
+    const still = yield* recheck(task)
+    if (still !== null) {
+      yield* freeSlot(id)
+      return yield* taken(still)
+    }
+    const sent = yield* Effect.result(chat.reply(task.threadId, thought.text))
+    if (sent._tag === "Failure") {
+      yield* freeSlot(id)
+      return yield* taken(sent.failure._tag === "NotFound" ? "scope" : "taken")
+    }
+    yield* db.scoped((sql) =>
+      Effect.gen(function*() {
+        yield* sql`update customer_agent_threads
+                   set replies = replies + 1, first_reply_at = coalesce(first_reply_at, now()), last_reply_at = now()
+                   where thread_id = ${task.threadId}`
+        yield* cite(sql, thought.hits, { kind: "channel_message", id: sent.success.messageId })
+      })
+    )
+    yield* write({
+      decision: "run",
+      outcome: "done",
+      refuseReason: null,
+      model: thought.model,
+      reason: thought.kind === "knowledge" ? LOG.Reply.reason : "Een websitebezoeker vroeg naar een bestelling.",
+      sentence
+    })
+    return "answered" as Turn
+  })
+
+/**
+ * Right before the reply goes (as `Inbox.sendQueued` does for mail): the agent still on with Zelf antwoorden, the
+ * master still at Zelf doen, the thread not taken, closed or handed over, and the message still the shopper's newest.
+ * `null`: it may go; else why not.
+ */
+const recheck = (task: ChatTask) =>
+  Effect.gen(function*() {
+    const db = yield* Db
+    const chat = yield* ChatChannel
+    const s = yield* db.scopedFor(read)
+    if (!s.on || s.channels.webchat !== "auto") return "disabled"
+    const d = yield* db.scoped((sql) => decideAutonomy(sql, ACTION, null))
+    if (d.decision !== "run") return d.reason === "budget" ? "budget" : "policy"
+    const t = yield* Effect.result(chat.thread(task.threadId))
+    if (t._tag === "Failure") return "scope"
+    if (t.success.closedAt !== null || t.success.takenOverBy !== null || t.success.handover !== null) return "taken"
+    const h = yield* chat.history(task.threadId, { limit: HISTORY })
+    return newestOfShopper(h)?.id === task.messageId ? null : "taken"
+  })

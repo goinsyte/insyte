@@ -136,6 +136,12 @@ export type { Governed, Outcome as GovernedOutcome } from "./use-cases/govern.ts
 export const agentPrincipal = Triggers.agentPrincipal
 export const actOnTrigger = Triggers.act
 export const standDown = Triggers.standDown
+/** For a slice that acts as the agent by its own flow (the customer agent): the rules, the log, the day's slots. */
+export const decideAutonomy = Autonomy.decide
+export const recordAction = Log.record
+export const daySlot = Triggers.daySlot
+export const freeSlot = Triggers.freeSlot
+export const teamHolds = Triggers.teamHolds
 export type { Acted, Prepared, StoodDown, Trigger } from "./use-cases/triggers.ts"
 
 /** `Shared.undo` for `autonomy.restore`. */

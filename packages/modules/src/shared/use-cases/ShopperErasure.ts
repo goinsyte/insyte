@@ -206,6 +206,9 @@ export const eraseShopper = (sql: SqlClient.SqlClient, seeds: ShopperSeeds) =>
     yield* sql`update knowledge_gaps set question = '[verwijderd]', question_key = 'verwijderd ' || id,
                  customer_label = ''
                where thread_id = any(${threadIds}::text[]) or ticket_id = any(${tickets.map((t) => t.id)}::text[])`
+    // The customer agent's chats where they proved an order (0103): the proof goes, and the agent's knowledge of it.
+    yield* sql`update customer_agent_threads set verified_order_id = null, verified_at = null
+               where verified_order_id = any(${orderIds}::text[])`
     const attachments = yield* sql<{ id: string }>`
       select id from files where owner_type = 'email_message' and owner_id = any(${messageIds}::text[])
         and deleted_at is null`

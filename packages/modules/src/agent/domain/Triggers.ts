@@ -22,7 +22,15 @@ export const AgentTask = Schema.Struct({
       messageId: Schema.String,
       reply: Schema.Boolean
     }),
-    Schema.Struct({ kind: Schema.Literal("order.delayed"), orderIds: Schema.Array(Schema.String) })
+    Schema.Struct({ kind: Schema.Literal("order.delayed"), orderIds: Schema.Array(Schema.String) }),
+    // A shopper's message on the website chat (M15 step 8): the customer agent's (`channel-agent`).
+    Schema.Struct({
+      kind: Schema.Literal("chat.received"),
+      storeId: Schema.String,
+      threadId: Schema.String,
+      messageId: Schema.String,
+      channel: Schema.Literal("webchat")
+    })
   ])
 })
 export type AgentTask = typeof AgentTask.Type
