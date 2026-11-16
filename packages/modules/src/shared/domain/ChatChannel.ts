@@ -7,15 +7,18 @@ import { Context, type Effect, Schema } from "effect"
  * it). The seam is fixed: the chat's own slice implements this service and emits the event, and a slice that answers
  * shoppers reads and writes a thread only through it.
  *
- * - `chat.received`: a shopper's message was stored, written in the same transaction. Ids only.
+ * - `chat.received`: a shopper's message was stored, written in the same transaction. Ids only. None for a thread the
+ *   team marked as spam: what comes in there is stored read, and nobody is told.
  * - `thread`: the thread's standing; `NotFound` outside the caller's workspace or store scope.
  * - `history`: the newest messages, oldest first.
  * - `reply`: a message as the calling principal (a member, or the workspace's `agent`); refused when a person took the
- *   thread over (`TakenOver`), it is closed (`ThreadClosed`), or the text is empty or longer than 1000 characters
- *   (`Invalid`). A role that may not reply is told the thread is not there (`NotFound`).
+ *   thread over (`TakenOver`), it is closed (`ThreadClosed`), or the text is empty, longer than 1000 characters or
+ *   holds a control character other than the newline (`Invalid`). A role that may not reply is told the thread is not there (`NotFound`).
  * - `handOver`: the thread needs a person: it shows in the inbox's "Overgedragen" view and the team is told, through
  *   the notifications fan-out with its store fence. The reason is free text, kept to 500 characters (cut beyond).
- * - `bindCustomer`: the thread linked to a verified Shopify customer of the same store.
+ * - `bindCustomer`: the thread linked to a Shopify customer of the same store. The caller must have verified that the
+ *   shopper is that customer first: the binding gives the thread their name and their orders. Only the workspace's
+ *   `agent` or a member who may reply binds; anyone else is told the thread is not there (`NotFound`).
  */
 
 /** The outbox event a shopper's stored message writes (`OutboxEvent`). */

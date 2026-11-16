@@ -1,3 +1,4 @@
+import { recordedAppMetafields } from "@insyte/integrations-shopify/ShopifyRecorded"
 import { describe, expect, it } from "vitest"
 import { ageUndo, failure, join, ok, outboxOf, pastUndo, relay, run } from "./journeys.ts"
 import { anotherStore, importedStore } from "./shops.ts"
@@ -132,13 +133,26 @@ describe("webchat", () => {
     const other = await session(shop.shop)
     expect((await said(shop.storeId, other.token, origin)).messages).toEqual([])
 
-    // The shopper ends it; the next message begins a new conversation.
-    expect((await send(`/${shop.storeId}/close`, { origin, token: opened.token, method: "POST" })).status).toBe(200)
-    expect((await said(shop.storeId, opened.token, origin)).open).toBe(false)
+    // The shopper ends it, and the session with it: the old token reads and sends nothing more, and opens no session;
+    // the answer is a new session, whose conversation is empty, and the next message begins a new one there.
+    const ended = await send(`/${shop.storeId}/close`, { origin, token: opened.token, method: "POST" })
+    expect(ended.status).toBe(200)
+    const next = (await ended.json()) as { closed: true; token: string; storeId: string }
+    expect(next).toMatchObject({ closed: true, storeId: shop.storeId })
+    expect(next.token).not.toBe(opened.token)
+    expect((await send(`/${shop.storeId}/messages`, { origin, token: opened.token })).status).toBe(401)
+    expect(
+      (await send(`/${shop.storeId}/messages`, { origin, token: opened.token, body: { text: "Hallo?" } })).status
+    ).toBe(401)
+    const reopened = await send("/session", { origin, token: opened.token, body: { storeId: shop.storeId } })
+    const fresh = (await reopened.json()) as { token: string }
+    expect((await said(shop.storeId, fresh.token, origin)).messages).toEqual([])
+    expect(await said(shop.storeId, next.token, origin)).toMatchObject({ open: true, messages: [] })
     expect(failure(await rpc("Threads.reply", { threadId: row!.id, body: "Nog iets?" }, shop.cookie)))
       .toMatchObject({ _tag: "ThreadClosed" })
-    await send(`/${shop.storeId}/messages`, { origin, token: opened.token, body: { text: "Nog een vraag" } })
+    await send(`/${shop.storeId}/messages`, { origin, token: next.token, body: { text: "Nog een vraag" } })
     expect(ok(await rpc("Threads.list", { channel: "webchat" }, shop.cookie)).rows).toHaveLength(2)
+    expect((await said(shop.storeId, next.token, origin)).messages.map((m) => m.text)).toEqual(["Nog een vraag"])
 
     // Disconnected: the widget answers nothing more, and Undo turns it back on.
     const off = ok(await rpc("Channels.disconnect", { id: connected.channel.id }, shop.cookie))
@@ -146,6 +160,8 @@ describe("webchat", () => {
     expect((await send("/session", { origin, body: { shop: shop.shop } })).status).toBe(404)
     ok(await rpc("Shared.undo", { token: off.undo!.token }, shop.cookie))
     expect(ok(await rpc("Channels.list", undefined, shop.cookie)).channels[0]!.status).toBe("connected")
+    // …at once: the widget's cached route is let go by the undo too.
+    expect((await send("/session", { origin, body: { shop: shop.shop } })).status).toBe(200)
   })
 
   it("keeps a token to its own store, and the chats to the members who reach their store", async () => {
@@ -282,5 +298,171 @@ describe("webchat", () => {
     expect(erased.chat.every((m) => m.text === "[verwijderd]")).toBe(true)
     expect(erased.handover!.reason).toBe("[verwijderd]")
     expect((await said(shop.storeId, opened.token, origin)).messages.every((m) => m.text === "[verwijderd]")).toBe(true)
+  })
+
+  it("forgets a conversation left for a day, and keeps a spam one quiet", async () => {
+    const shop = await importedStore("idle", "webchat")
+    const origin = storefrontOf(shop.shop)
+    ok(await rpc("Channels.connect", { kind: "webchat" }, shop.cookie))
+    const opened = await session(shop.shop)
+    const write = (text: string) =>
+      send(`/${shop.storeId}/messages`, { origin, token: opened.token, body: { text } }).then((r) => r.status)
+    expect(await write("Eerste vraag")).toBe(200)
+
+    // A day without a word: the widget reads nothing of it, and the next message begins a new conversation.
+    await call(`http://api.test/api/__dev/webchat/age?workspace=${shop.workspace}&hours=25`, { method: "POST" })
+    expect((await said(shop.storeId, opened.token, origin)).messages).toEqual([])
+    expect(await write("Tweede vraag")).toBe(200)
+    expect((await said(shop.storeId, opened.token, origin)).messages.map((m) => m.text)).toEqual(["Tweede vraag"])
+    const rows = ok(await rpc("Threads.list", { channel: "webchat" }, shop.cookie)).rows
+    expect(rows).toHaveLength(2)
+
+    // Marked as spam: the shopper's widget answers as ever, but what they send comes in read and nobody hears of it.
+    const current = rows.find((r) => r.preview.includes("Tweede"))!
+    ok(await rpc("Threads.spam", { ids: [current.id] }, shop.cookie))
+    const heard = (await outboxOf(shop.workspace)).filter((e) => e.event === "chat.received").length
+    expect(await write("Koop nu goedkoop")).toBe(200)
+    expect((await said(shop.storeId, opened.token, origin)).messages.map((m) => m.text)).toEqual([
+      "Tweede vraag",
+      "Koop nu goedkoop"
+    ])
+    expect((await outboxOf(shop.workspace)).filter((e) => e.event === "chat.received")).toHaveLength(heard)
+    const spam = ok(await rpc("Threads.list", { folder: "spam" }, shop.cookie)).rows.find((r) => r.id === current.id)
+    expect(spam).toMatchObject({ unread: false })
+  })
+
+  it("refuses control characters, puts a chat back beside a newer one, and undoes a reply only while it was last", async () => {
+    const shop = await importedStore("trash", "webchat")
+    const origin = storefrontOf(shop.shop)
+    ok(await rpc("Channels.connect", { kind: "webchat" }, shop.cookie))
+    const opened = await session(shop.shop)
+    const write = (text: string) =>
+      send(`/${shop.storeId}/messages`, { origin, token: opened.token, body: { text } }).then((r) => r.status)
+
+    // NUL and the other control characters are refused; a newline is a message's own.
+    expect(await write("a\u0000b")).toBe(400)
+    expect(await write("bel\u0007")).toBe(400)
+    expect(await write("Regel een\nRegel twee")).toBe(200)
+    const [row] = ok(await rpc("Threads.list", { channel: "webchat" }, shop.cookie)).rows
+    expect(failure(await rpc("Threads.reply", { threadId: row!.id, body: "Hoi\u0000" }, shop.cookie))).toMatchObject({
+      _tag: "Invalid"
+    })
+
+    // Undo of a reply after the shopper wrote again: the shopper's word stays the thread's last.
+    const reply = ok(await rpc("Threads.reply", { threadId: row!.id, body: "Even kijken." }, shop.cookie))
+    expect(await write("Nog iets")).toBe(200)
+    ok(await rpc("Shared.undo", { token: reply.undo!.token }, shop.cookie))
+    const after = ok(await rpc("Threads.list", { channel: "webchat" }, shop.cookie)).rows[0]!
+    expect(after.preview).toBe("Nog iets")
+
+    // In the Prullenbak, then a newer conversation from the same session: back out of the bin, the old one comes back
+    // closed, and so does Undo of the bin, instead of a failure.
+    const binned = ok(await rpc("Threads.trash", { ids: [row!.id] }, shop.cookie))
+    expect(await write("Een nieuwe vraag")).toBe(200)
+    const back = await rpc("Threads.putBack", { ids: [row!.id] }, shop.cookie)
+    expect(ok(back).threads.map((t) => t.id)).toEqual([row!.id])
+    expect(failure(await rpc("Threads.reply", { threadId: row!.id, body: "Hallo" }, shop.cookie))).toMatchObject({
+      _tag: "ThreadClosed"
+    })
+    expect((await said(shop.storeId, opened.token, origin)).messages.map((m) => m.text)).toEqual(["Een nieuwe vraag"])
+    ok(await rpc("Threads.trash", { ids: [row!.id] }, shop.cookie))
+    ok(await rpc("Shared.undo", { token: binned.undo!.token }, shop.cookie))
+    expect(ok(await rpc("Threads.list", { channel: "webchat" }, shop.cookie)).rows).toHaveLength(2)
+  })
+
+  it("holds a session's reads and sends to it, the store's new conversations to a cap, and an IPv6 range by its /56", async () => {
+    const shop = await importedStore("flood", "webchat")
+    const origin = storefrontOf(shop.shop)
+    ok(await rpc("Channels.connect", { kind: "webchat" }, shop.cookie))
+    let n = 0
+    const ip = () => `198.51.100.${(n++ % 250) + 1}`
+
+    // One session, from addresses that change: its reads are held at forty a minute.
+    const reader = await session(shop.shop)
+    const reads = []
+    for (let i = 0; i < 41; i++) {
+      reads.push((await send(`/${shop.storeId}/messages`, { origin, token: reader.token, ip: ip() })).status)
+    }
+    expect(reads.slice(0, 40).every((s) => s === 200)).toBe(true)
+    expect(reads[40]).toBe(429)
+
+    // Its sends at twelve a minute, and a renewed token is the same session's: it does not start a budget of its own.
+    const writer = await session(shop.shop)
+    for (let i = 0; i < 12; i++) {
+      const sent = await send(`/${shop.storeId}/messages`, {
+        origin,
+        token: writer.token,
+        ip: ip(),
+        body: { text: `${i}` }
+      })
+      expect(sent.status).toBe(200)
+    }
+    // A second on, so the renewed token's expiry, and so its text, is not the first one's.
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+    const renewed = (await (await send("/session", {
+      origin,
+      token: writer.token,
+      body: { storeId: shop.storeId }
+    })).json()) as { token: string }
+    expect(renewed.token).not.toBe(writer.token)
+    expect(
+      (await send(`/${shop.storeId}/messages`, { origin, token: renewed.token, ip: ip(), body: { text: "meer" } }))
+        .status
+    ).toBe(429)
+
+    // New conversations: ten a minute for the store (the writer's was the first), each from a session and an address
+    // of its own.
+    const firsts = []
+    for (let i = 0; i < 10; i++) {
+      const s = await session(shop.shop)
+      firsts.push(
+        (await send(`/${shop.storeId}/messages`, { origin, token: s.token, ip: ip(), body: { text: "hoi" } })).status
+      )
+    }
+    expect(firsts.slice(0, 9).every((s) => s === 200)).toBe(true)
+    expect(firsts[9]).toBe(429)
+
+    // A carrier's NAT: many shoppers on one address read freely, past the old 120 a minute.
+    const shared = "203.0.113.9"
+    const tokens = await Promise.all([1, 2, 3, 4].map(() => session(shop.shop).then((s) => s.token)))
+    const crowd = []
+    for (let i = 0; i < 125; i++) {
+      crowd.push((await send(`/${shop.storeId}/messages`, { origin, token: tokens[i % 4]!, ip: shared })).status)
+    }
+    expect(crowd.every((s) => s === 200)).toBe(true)
+
+    // IPv6: one /56 is one address, whichever of its /64s a request comes from.
+    const opens = []
+    for (let i = 0; i < 20; i++) {
+      opens.push((await send("/session", { origin, ip: "2001:db8:7:1200::1", body: { shop: shop.shop } })).status)
+    }
+    expect(opens.every((s) => s === 200)).toBe(true)
+    expect((await send("/session", { origin, ip: "2001:db8:7:12ff::1", body: { shop: shop.shop } })).status).toBe(429)
+    expect((await send("/session", { origin, ip: "2001:db8:7:1300::1", body: { shop: shop.shop } })).status).toBe(200)
+  })
+
+  it("tells Shopify where the embed loads the widget from, and lets only the agent or a teammate bind a shopper", async () => {
+    const shop = await importedStore("embed", "webchat")
+    ok(await rpc("Channels.connect", { kind: "webchat" }, shop.cookie))
+    expect(recordedAppMetafields.get(shop.shop)?.get("insyte.api_origin")).toBe("https://api.public.test")
+
+    const opened = await session(shop.shop)
+    await send(`/${shop.storeId}/messages`, {
+      origin: storefrontOf(shop.shop),
+      token: opened.token,
+      body: { text: "Ik ben het" }
+    })
+    const [row] = ok(await rpc("Threads.list", { channel: "webchat" }, shop.cookie)).rows
+    const customer = ok(await rpc("Customers.list", { limit: 50 }, shop.cookie)).rows[0]!
+    const bind = (as?: "viewer") =>
+      call(`http://api.test/api/__dev/webchat/agent?workspace=${shop.workspace}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ op: "bindCustomer", threadId: row!.id, customerId: customer.id, ...(as ? { as } : {}) })
+      }).then((r) => r.json() as Promise<{ ok?: unknown; error?: string }>)
+    expect(await bind("viewer")).toEqual({ error: "NotFound" })
+    expect(ok(await rpc("Threads.get", { id: row!.id }, shop.cookie)).thread.customerId).toBeNull()
+    expect((await bind()).ok).toBeNull()
+    expect(ok(await rpc("Threads.get", { id: row!.id }, shop.cookie)).thread.customerId).toBe(customer.id)
   })
 })
