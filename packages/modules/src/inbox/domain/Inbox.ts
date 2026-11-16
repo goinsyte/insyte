@@ -150,6 +150,13 @@ export const ChatEntry = Schema.Struct({
 })
 export type ChatEntry = typeof ChatEntry.Type
 
+/**
+ * The customer agent's answer to a chat, waiting for a person (Eerst vragen, Alleen concepten): its newest draft that
+ * nobody used or threw away, while nobody wrote in the chat since it was made.
+ */
+export const ChatDraft = Schema.Struct({ id: Schema.String, text: Schema.String, at: Schema.Finite })
+export type ChatDraft = typeof ChatDraft.Type
+
 /** A chat's open handover, or the last one handed back. */
 export const HandoverView = Schema.Struct({
   reason: Schema.String,
@@ -166,7 +173,9 @@ export class ThreadDetail extends Schema.Class<ThreadDetail>("inbox/ThreadDetail
   messages: Schema.Array(MessageView),
   /** A chat's messages, oldest first; empty for mail. */
   chat: Schema.Array(ChatEntry),
-  handover: Schema.NullOr(HandoverView)
+  handover: Schema.NullOr(HandoverView),
+  /** A chat's open draft by the customer agent; `null` for mail and when there is none. */
+  draft: Schema.NullOr(ChatDraft)
 }) {}
 
 /* ── commands ──────────────────────────────────────────────────────────────────────────────────── */

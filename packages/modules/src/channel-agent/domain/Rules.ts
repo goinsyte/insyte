@@ -136,13 +136,20 @@ export const nextOpenLabel = (hours: ReadonlyArray<DayHours>, timeZone: string, 
 }
 
 /** The handover sentence with `{wanneer}` filled in. */
+/** The refusal of a handover sentence the website chat would not send (a tab, a carriage return). */
+export const HANDOVER_REFUSED =
+  "Het overdrachtsbericht bevat een teken dat de websitechat niet verstuurt, zoals een tab. Haal het weg."
+
 export const handoverText = (
   s: Pick<CustomerAgentSettingsInput, "handoverMessage" | "hours">,
   timeZone: string,
   at: Date
 ) => {
   const when = nextOpenLabel(s.hours, timeZone, at)
-  return s.handoverMessage.replaceAll("{wanneer}", when === "nu" ? "vandaag nog" : when)
+  // A sentence saved before the chat's own check: what the chat would refuse is a space, so the shopper still hears.
+  // oxlint-disable-next-line no-control-regex
+  const sendable = s.handoverMessage.replaceAll("\r\n", "\n").replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, " ")
+  return sendable.replaceAll("{wanneer}", when === "nu" ? "vandaag nog" : when)
 }
 
 /** The first day whose closing is not after its opening, or none. */
@@ -527,9 +534,13 @@ export const numberOf = (word: string): number | null => {
   return times === null || rest === null ? null : times * 1000 + rest
 }
 
-/** Every number in words as its digits, and euro and percent signs as words: one reading of an amount. */
+/** Words that say "gratis" as other words: read as it, so the promise and its negation are seen ("niet kosteloos"). */
+const FREE = /\b(kosteloos|kostenloos|zonder\s+(extra\s+)?kosten)\b/gi
+
+/** Every number in words as its digits, euro and percent signs as words, and "kosteloos" as "gratis": one reading. */
 const asFigures = (text: string) =>
   text
+    .replaceAll(FREE, "gratis")
     .replaceAll(/\p{L}+/gu, (w) => {
       const n = numberOf(w)
       return n === null ? w : String(n)
@@ -659,7 +670,20 @@ const STOP = new Set([
 ])
 
 /** One word for two that say the same here, as stems: "retour" and "terug", "ontvangen" and "krijgen". */
-const SAME: Readonly<Record<string, string>> = { retour: "terug", ontvang: "krijg", verstur: "verzend", stur: "zend" }
+const SAME: Readonly<Record<string, string>> = {
+  retour: "terug",
+  ontvang: "krijg",
+  verstur: "verzend",
+  stur: "zend",
+  // A shopper's "pakket" (and "pakketje", "zending") is their order, here.
+  pakke: "bestelling",
+  pakketj: "bestelling",
+  zending: "bestelling",
+  // "Zodra", "wanneer" and "indien" as "als": one condition in other words. "Nadat" and "voordat" stay their own.
+  zodra: "als",
+  wanner: "als",
+  indi: "als"
+}
 
 /** Phrases that say one word's thing, read as that word: "weer op je rekening" is "terug". */
 const PHRASES: ReadonlyArray<readonly [RegExp, string]> = [[/\b(weer\s+)?op\s+(je|jouw|uw)\s+rekening\b/gi, "terug"]]
@@ -744,9 +768,15 @@ const promiseWords = (lower: string) => PROMISES.filter((p) => lower.includes(p)
  */
 const STATE =
   /\b(geannuleerd|terugbetaald|teruggestort|verzonden|verstuurd|aangepast|gewijzigd|omgeruild|gecrediteerd|bezorgd)\b/i
-const CONDITIONAL = /\b(zodra|als|wanneer|nadat|voordat|indien|mits|tenzij)\b/i
+const CONDITIONAL = /\b(zodra|als|wanneer|nadat|voordat|indien|mits|tenzij)\b|\bna\s+ontvangst\b/i
+/** What is still to come ("je bestelling wordt binnen 2 werkdagen bezorgd", "we zullen het verzenden"): no state yet. */
+const FUTURE = /\b(wordt|worden|zal|zullen|zult|gaat|gaan)\b/i
 
-const claimsState = (sentence: string) => STATE.test(sentence) && !CONDITIONAL.test(sentence)
+/**
+ * A state said as reached. One in a condition or still to come is the chapter's to state as any promise: it is read
+ * against the chapter (`promises` holds every `STATE` word), not let through.
+ */
+const claimsState = (sentence: string) => STATE.test(sentence) && !CONDITIONAL.test(sentence) && !FUTURE.test(sentence)
 
 const promises = (sentence: string) =>
   PROMISE_TO_SHOPPER.test(sentence) || KEEPS.test(sentence) || promiseWords(sentence.toLowerCase()).length > 0 ||

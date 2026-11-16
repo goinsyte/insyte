@@ -1,5 +1,5 @@
 import { Db } from "@insyte/database/Db"
-import { Invalid, NotFound } from "@insyte/domain/Errors"
+import { Conflict, Invalid, NotFound } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal, type Principal } from "@insyte/domain/Principal"
@@ -21,7 +21,7 @@ import { ChatRestore, HandoverChange } from "../../domain/Chat.ts"
 import { textRefused } from "../../domain/ChatKinds.ts"
 import { MessageQueued, type MessageView } from "../../domain/Inbox.ts"
 import { previewOf } from "../inbound.ts"
-import { rowsOf } from "../threads.ts"
+import { chatDraftOf, rowsOf } from "../threads.ts"
 import { restoreChannel } from "./channels.ts"
 
 /*
@@ -160,6 +160,82 @@ export const reply = Effect.fn("Chat.reply")(function*(input: { readonly threadI
   )
 })
 
+/* ── the customer agent's draft ─────────────────────────────────────────────────────────────────── */
+
+/**
+ * The chat's open draft, held, when it is `draftId`: the chat must be the principal's to reach (`holdChat`), and the
+ * draft still what its letter shows (`chatDraftOf`). One used, thrown away, answered since or replaced by a newer is a
+ * `Conflict` "gone": someone was first.
+ */
+const holdDraft = (sql: SqlClient.SqlClient, input: { readonly threadId: string; readonly draftId: string }) =>
+  Effect.gen(function*() {
+    const held = yield* holdChat(sql, input.threadId)
+    const draft = yield* chatDraftOf(sql, held.id)
+    if (draft === null || draft.id !== input.draftId) {
+      return yield* new Conflict({ entity: "draft", reason: "gone" })
+    }
+    yield* sql`select id from drafts where id = ${draft.id} for update`
+    return { held, draft }
+  })
+
+/**
+ * "Versturen" on the agent's draft: the team's reply with the draft's words, its Undo as any reply's (the draft open
+ * again once the reply is taken away), and the draft used.
+ */
+export const sendDraft = Effect.fn("Threads.sendDraft")(function*(
+  input: { readonly threadId: string; readonly draftId: string }
+) {
+  yield* Policy.require("support", 2)
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const { draft } = yield* holdDraft(sql, input)
+      const made = yield* replyIn(sql, input.threadId, draft.text)
+      yield* sql`update drafts set used_at = now() where id = ${draft.id}`
+      const undo = yield* Undo.issue(sql, {
+        command: CHAT_RESTORE,
+        compensation: { ...made.compensation, draftId: draft.id } satisfies ChatRestore
+      })
+      return yield* changedWith(sql, input.threadId, undo)
+    })
+  )
+})
+
+/** "Aanpassen": the draft's words go into the composer, and the draft is used, as "Concept gebruiken" is for mail. */
+export const useDraft = Effect.fn("Threads.useDraft")(function*(
+  input: { readonly threadId: string; readonly draftId: string }
+) {
+  yield* Policy.require("support", 2)
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const { draft } = yield* holdDraft(sql, input)
+      yield* sql`update drafts set used_at = now() where id = ${draft.id}`
+      return yield* changedWith(sql, input.threadId, null)
+    })
+  )
+})
+
+/** "Weggooien": the draft leaves the letter, with its Undo. */
+export const discardDraft = Effect.fn("Threads.discardDraft")(function*(
+  input: { readonly threadId: string; readonly draftId: string }
+) {
+  yield* Policy.require("support", 2)
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const { draft } = yield* holdDraft(sql, input)
+      yield* sql`update drafts set discarded_at = now() where id = ${draft.id}`
+      yield* audit(sql, "thread.draft_discarded", input.threadId, { draftId: draft.id })
+      const undo = yield* Undo.issue(sql, {
+        command: CHAT_RESTORE,
+        compensation: { kind: "draft", threadId: input.threadId, draftId: draft.id } satisfies ChatRestore
+      })
+      return yield* changedWith(sql, input.threadId, undo)
+    })
+  )
+})
+
 interface OpenHandover {
   readonly id: string
   readonly pickedUpAt: Date | null
@@ -193,11 +269,13 @@ const holder = (held: Held, h: OpenHandover | undefined): ChatRestore => ({
   }
 })
 
+const changedWith = (sql: SqlClient.SqlClient, threadId: string, undo: HandoverChange["undo"]) =>
+  Effect.map(rowsOf(sql, [threadId]), ([thread]) => new HandoverChange({ thread: thread!, undo }))
+
 const changed = (sql: SqlClient.SqlClient, threadId: string, compensation: ChatRestore | null) =>
   Effect.gen(function*() {
     const undo = compensation === null ? null : yield* Undo.issue(sql, { command: CHAT_RESTORE, compensation })
-    const [thread] = yield* rowsOf(sql, [threadId])
-    return new HandoverChange({ thread: thread!, undo })
+    return yield* changedWith(sql, threadId, undo)
   })
 
 /** "Overnemen": the chat is mine; the agent is silent on it until I hand it back. */
@@ -402,7 +480,19 @@ export const restore = Effect.fn("Chat.restore")(function*(sql: SqlClient.SqlCli
         from gone
         where t.id = ${undo.threadId}
           and t.last_message_at = coalesce(${undo.sentAt ?? null}::timestamptz, gone.created_at)`
+      // The agent's draft it sent is open again, once the reply is gone: the team may still send it, or not.
+      if (undo.draftId !== undefined) {
+        yield* sql`update drafts set used_at = null
+                   where id = ${undo.draftId}
+                     and not exists (select 1 from channel_messages where id = ${undo.messageId})`
+      }
       yield* audit(sql, "thread.unsent", undo.threadId, { messageId: undo.messageId })
+      return
+    }
+    case "draft": {
+      yield* sql`update drafts set discarded_at = null
+                 where id = ${undo.draftId} and subject_type = 'chat' and subject_id = ${undo.threadId}`
+      yield* audit(sql, "thread.draft_restored", undo.threadId, { draftId: undo.draftId })
       return
     }
     case "holder": {

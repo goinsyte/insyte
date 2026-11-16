@@ -1,9 +1,10 @@
-import { Conflict } from "@insyte/domain/Errors"
+import { Conflict, Invalid } from "@insyte/domain/Errors"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Option, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import { OfflinePlan } from "../../first-analysis/domain/FirstAnalysis.ts"
+import { textRefused } from "../../inbox/domain/ChatKinds.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
@@ -27,6 +28,7 @@ import {
   DEFAULT_HOURS,
   DEFAULT_RULES,
   effectiveModes,
+  HANDOVER_REFUSED,
   widens
 } from "../domain/Rules.ts"
 
@@ -197,6 +199,11 @@ const check = (next: CustomerAgentSettingsInput) =>
     const day = badDay(next.hours)
     if (day !== null) return yield* new HoursInvalid({ day })
     if (next.handoverMessage.trim() === "") return yield* new HoursInvalid({ day: -1 })
+    // The sentence goes out on the website chat as it is: what the chat refuses (a tab, a carriage return) would leave
+    // every handed-over shopper without a word.
+    if (textRefused(next.handoverMessage.trim()) !== undefined) {
+      return yield* new Invalid({ fields: { handoverMessage: HANDOVER_REFUSED } })
+    }
   })
 
 /** "Opslaan", "Aanzetten voor de websitechat", "Klantagent uitzetten": the whole form, with its Undo. */

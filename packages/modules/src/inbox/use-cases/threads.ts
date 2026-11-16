@@ -9,6 +9,7 @@ import { inScopeOrNone } from "../../shared/use-cases/StoreScope.ts"
 import {
   type Address,
   type AgentState,
+  type ChatDraft,
   type ChatEntry,
   type Folder,
   type HandoverView,
@@ -275,6 +276,23 @@ export const chatOf = (sql: SqlClient.SqlClient, threadId: string) =>
       }))
   )
 
+/**
+ * The customer agent's open draft on a chat: the newest, neither used nor thrown away, and newer than anything the
+ * team or the agent wrote there (a reply since answered it, or a person did). A closed chat has none.
+ */
+export const chatDraftOf = (sql: SqlClient.SqlClient, threadId: string) =>
+  Effect.map(
+    sql<{ id: string; text: string; createdAt: Date }>`
+      select d.id, d.text, d.created_at from drafts d
+      join channel_threads t on t.id = d.subject_id
+      where d.subject_type = 'chat' and d.subject_id = ${threadId} and d.kind = 'reply'
+        and d.used_at is null and d.discarded_at is null and t.closed_at is null and t.deleted_at is null
+        and d.created_at > coalesce((select max(m.created_at) from channel_messages m
+                                     where m.thread_id = t.id and m.author <> 'shopper'), '-infinity')
+      order by d.created_at desc, d.id desc limit 1`,
+    ([d]): ChatDraft | null => d === undefined ? null : { id: d.id, text: d.text, at: d.createdAt.getTime() }
+  )
+
 /** A chat's open handover, or else its last one. */
 export const handoverOf = (sql: SqlClient.SqlClient, threadId: string) =>
   Effect.map(
@@ -310,10 +328,11 @@ export const get = Effect.fn("Threads.get")(function*(id: string) {
           thread,
           messages: [],
           chat: yield* chatOf(sql, id),
-          handover: yield* handoverOf(sql, id)
+          handover: yield* handoverOf(sql, id),
+          draft: yield* chatDraftOf(sql, id)
         })
       }
-      return new ThreadDetail({ thread, messages: yield* messagesOf(sql, id), chat: [], handover: null })
+      return new ThreadDetail({ thread, messages: yield* messagesOf(sql, id), chat: [], handover: null, draft: null })
     })
   )
 })

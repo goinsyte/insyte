@@ -1,5 +1,5 @@
 import type { AgentTask } from "@insyte/modules/agent/domain/Triggers"
-import { ASK_PROOF, PROOF_FAILED } from "@insyte/modules/channel-agent/domain/Rules"
+import { ASK_PROOF, HANDOVER_REFUSED, PROOF_FAILED } from "@insyte/modules/channel-agent/domain/Rules"
 import { createExecutionContext, createMessageBatch, getQueueResult } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { beforeAll, describe, expect, it } from "vitest"
@@ -156,13 +156,36 @@ const chatStore = async (tag: string) => {
       messageId: m.messageId,
       takeOverOnRead: read
     })
+  /** The agent's turn through `__dev/webchat/turn`, with what happens in its middle. */
+  const turnWith = async (m: { threadId: string; messageId: string }, midway: Record<string, unknown>) =>
+    (await (await post(`http://api.test/api/__dev/webchat/turn?workspace=${store.workspace}`, {
+      storeId: store.storeId,
+      threadId: m.threadId,
+      messageId: m.messageId,
+      ...midway
+    })).json()) as { ok: boolean; reads: number; histories: number; next: string | null }
+  const sessionOf = (threadId: string) => sessions.get(threadId)!
   /** Another store of the workspace, with its chat connected. */
   const otherStore = async (tag: string) => {
     const b = await anotherStore(store, tag)
     ok(await rpc("Channels.connect", { kind: "webchat", greeting: "Hoi!", storeId: b.storeId }, store.cookie))
     return b
   }
-  return { ...store, configure, say, turn, chat, threadOf, agentSaid, rowsOf, person, turnTakenAt, otherStore }
+  return {
+    ...store,
+    configure,
+    say,
+    turn,
+    chat,
+    threadOf,
+    agentSaid,
+    rowsOf,
+    person,
+    turnTakenAt,
+    turnWith,
+    sessionOf,
+    otherStore
+  }
 }
 
 describe("the customer agent", () => {
@@ -953,4 +976,116 @@ describe("the customer agent on the website chat", () => {
     expect(heard).toContainEqual(expect.objectContaining({ messageId: first.messageId }))
     expect(heard).not.toContainEqual(expect.objectContaining({ messageId: next.messageId }))
   })
+})
+
+/*
+ * The tuning after the merge (follow-up to PR #185), one test per finding: each failed before its fix.
+ */
+describe("the customer agent, tuned", () => {
+  let s: Awaited<ReturnType<typeof chatStore>>
+
+  beforeAll(async () => {
+    s = await chatStore("chat-tuned")
+  }, 180_000)
+
+  it("answers a question once when the shopper writes again while its reply is going out", async () => {
+    await s.configure()
+    const first = await s.say("Kan ik een sale-artikel nog retourneren?")
+    // Right after the agent's last look before it replies, the shopper writes again and that turn runs to its end.
+    const turned = await s.turnWith(first, {
+      shopperOnRead: { read: 2, token: s.sessionOf(first.threadId), text: "En binnen hoeveel dagen kan dat?" }
+    })
+    expect(turned).toMatchObject({ ok: true, histories: expect.any(Number) })
+    expect(turned.next).not.toBeNull()
+    expect(await s.agentSaid(first.threadId)).toEqual([ANSWERED])
+  })
+
+  it("refuses a handover sentence the website chat would not send", async () => {
+    await s.configure()
+    for (
+      const handoverMessage of [
+        "Een collega\tkijkt mee. Je hoort {wanneer} van ons.",
+        "Een collega kijkt mee.\r\nTot zo."
+      ]
+    ) {
+      expect(
+        failure(await rpc("ChannelAgent.set", { ...SETTINGS, handoverMessage } as never, s.cookie)),
+        handoverMessage
+      )
+        .toMatchObject({ _tag: "Invalid", fields: { handoverMessage: HANDOVER_REFUSED } })
+    }
+    expect(ok(await rpc("ChannelAgent.get", undefined, s.cookie)).settings.handoverMessage).toBe(
+      SETTINGS.handoverMessage
+    )
+  })
+
+  it("shows its chat draft in the inbox, and the team sends, takes or throws it away, each with its Undo", async () => {
+    await s.configure({}, "ask")
+    const m = await s.chat("Kan ik een sale-artikel nog retourneren?")
+    const get = async () => ok(await rpc("Threads.get", { id: m.threadId }, s.cookie))
+    const d = (await get()).draft
+    expect(d).toMatchObject({ text: ANSWERED })
+    const input = { threadId: m.threadId, draftId: d!.id }
+
+    // Weggooien, and back.
+    const thrown = ok(await rpc("Threads.discardDraft", input, s.cookie))
+    expect((await get()).draft).toBeNull()
+    ok(await rpc("Shared.undo", { token: thrown.undo!.token }, s.cookie))
+    expect((await get()).draft).toMatchObject({ id: d!.id })
+
+    // Versturen: the team's reply in the draft's words, waiting out its window; once is all.
+    const sent = ok(await rpc("Threads.sendDraft", input, s.cookie))
+    const after = await get()
+    expect(after.draft).toBeNull()
+    expect(after.chat.at(-1)).toMatchObject({ author: "team", text: ANSWERED, sendState: "scheduled" })
+    expect(failure(await rpc("Threads.sendDraft", input, s.cookie))).toMatchObject({ _tag: "Conflict", reason: "gone" })
+    // Its Undo takes the reply away before the shopper saw it, and the draft is there again.
+    ok(await rpc("Shared.undo", { token: sent.undo!.token }, s.cookie))
+    const undone = await get()
+    expect(undone.chat.filter((e) => e.author === "team")).toEqual([])
+    expect(undone.draft).toMatchObject({ id: d!.id })
+
+    // Aanpassen: its words go to the composer, and it leaves the letter.
+    ok(await rpc("Threads.useDraft", input, s.cookie))
+    expect((await get()).draft).toBeNull()
+  })
+
+  it(
+    "drops a draft the team answered since, and keeps each draft to its chat, its workspace and its stores",
+    async () => {
+      await s.configure({}, "ask")
+      const m = await s.chat("Kan ik een sale-artikel nog retourneren?")
+      const draftOf = async (threadId: string, cookie = s.cookie) =>
+        ok(await rpc("Threads.get", { id: threadId }, cookie)).draft
+      const d = await draftOf(m.threadId)
+      expect(d).not.toBeNull()
+      ok(await rpc("Threads.reply", { threadId: m.threadId, body: "Ik kijk even voor je." }, s.cookie))
+      expect(await draftOf(m.threadId)).toBeNull()
+      expect(failure(await rpc("Threads.sendDraft", { threadId: m.threadId, draftId: d!.id }, s.cookie)))
+        .toMatchObject({ _tag: "Conflict" })
+
+      const other = await s.chat("Kan ik een sale-artikel nog retourneren?")
+      const o = await draftOf(other.threadId)
+      expect(o).not.toBeNull()
+      // Another chat's draft, sent on this one: not this chat's.
+      expect(failure(await rpc("Threads.sendDraft", { threadId: m.threadId, draftId: o!.id }, s.cookie)))
+        .toMatchObject({ _tag: "Conflict" })
+      // Another workspace reaches neither the chat nor its draft.
+      const stranger = await importedStore("chat-tuned-stranger")
+      for (const name of ["Threads.sendDraft", "Threads.useDraft", "Threads.discardDraft"] as const) {
+        expect(failure(await rpc(name, { threadId: other.threadId, draftId: o!.id }, stranger.cookie)), name)
+          .toMatchObject({ _tag: "NotFound" })
+      }
+      // A member held to another store neither.
+      const email = `chat-${run}-tuned-held@invited.test`
+      ok(await rpc("Invitations.send", { rows: [{ email, roleId: "admin", stores: ["sto_elsewhere"] }] }, s.cookie))
+      await pastUndo(s.workspace)
+      await relay(s.workspace)
+      const held = await join(email)
+      expect(failure(await rpc("Threads.discardDraft", { threadId: other.threadId, draftId: o!.id }, held)))
+        .toMatchObject({ _tag: "NotFound" })
+      expect(await draftOf(other.threadId)).toMatchObject({ id: o!.id })
+    },
+    180_000
+  )
 })

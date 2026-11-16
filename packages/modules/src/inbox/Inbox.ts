@@ -10,6 +10,7 @@ import type {
   ChannelChange,
   ChannelIdInput,
   ChannelStatus,
+  ChatDraftInput,
   ChatUnavailable,
   ConnectChannelInput,
   HandoverChange,
@@ -93,6 +94,16 @@ export class InboxService extends Context.Service<InboxService, {
   /** The website chat (M15 step 8): "Overnemen" and "Teruggeven aan Insyte". */
   readonly takeOver: (input: typeof ThreadIdInput.Type) => Effect.Effect<HandoverChange, Forbidden | NotFound, R>
   readonly handBack: (input: typeof ThreadIdInput.Type) => Effect.Effect<HandoverChange, Forbidden | NotFound, R>
+  /** The customer agent's draft in a chat: "Versturen" (a reply, with its Undo), "Aanpassen", "Weggooien". */
+  readonly sendDraft: (
+    input: typeof ChatDraftInput.Type
+  ) => Effect.Effect<HandoverChange, Forbidden | NotFound | Conflict | Invalid | TakenOver | ThreadClosed, R>
+  readonly useDraft: (
+    input: typeof ChatDraftInput.Type
+  ) => Effect.Effect<HandoverChange, Forbidden | NotFound | Conflict, R>
+  readonly discardDraft: (
+    input: typeof ChatDraftInput.Type
+  ) => Effect.Effect<HandoverChange, Forbidden | NotFound | Conflict, R>
   /** The stores' chat channels, at Koppelingen and in the inbox's panel. */
   readonly channels: Effect.Effect<ChannelStatus, Forbidden, R>
   readonly connectChannel: (
@@ -144,6 +155,9 @@ export class InboxService extends Context.Service<InboxService, {
         setSignature: (input) => run(Mailboxes.setSignature(input)),
         takeOver: (input) => run(Chat.takeOver(input)),
         handBack: (input) => run(Chat.handBack(input)),
+        sendDraft: (input) => run(Chat.sendDraft(input)),
+        useDraft: (input) => run(Chat.useDraft(input)),
+        discardDraft: (input) => run(Chat.discardDraft(input)),
         channels: run(Channels.status()),
         connectChannel: (input) => run(Channels.connect(input)),
         disconnectChannel: (input) => run(Channels.disconnect(input))

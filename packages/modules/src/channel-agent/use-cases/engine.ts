@@ -626,7 +626,7 @@ const turn = (brain: Brain, task: ChatTask, settings: CustomerAgentSettings) =>
     // answers all. More than it reads at once: a person.
     const [kept] = yield* db.scoped((sql) =>
       sql<{ answeredMessageId: string | null }>`
-        select answered_message_id from customer_agent_threads where thread_id = ${task.threadId}`
+        select answered_message_id from customer_agent_threads where thread_id = ${task.threadId} for share`
     )
     const { pending, whole } = sinceLastWord(history, READ, kept?.answeredMessageId ?? null)
     const asked = pending.map((m) => m.text).join("\n")
@@ -849,22 +849,34 @@ const turn = (brain: Brain, task: ChatTask, settings: CustomerAgentSettings) =>
       yield* release()
       return yield* taken(still)
     }
-    const sent = yield* Effect.result(chat.reply(task.threadId, thought.text))
-    if (sent._tag === "Failure") {
-      // Words the chat refuses (`Invalid`: too long, a control character) never went: a person answers instead.
-      if (sent.failure._tag === "Invalid") return yield* handOff("guard", false, thought.model)
-      yield* release()
-      return yield* taken(sent.failure._tag === "NotFound" ? "scope" : "taken")
-    }
-    yield* db.scoped((sql) =>
+    // The reply and what it answered, in one transaction under the agent's row: a turn on the shopper's next message
+    // reads what was answered (`for share`) only once this has committed, and a message that came in since makes this
+    // reply stand down, that message's turn answering both.
+    const sent = yield* db.scoped((sql) =>
       Effect.gen(function*() {
+        yield* sql`select 1 from customer_agent_threads where thread_id = ${task.threadId} for update`
+        const latest = yield* chat.history(task.threadId, { limit: HISTORY })
+        if (newestOfShopper(latest)?.id !== task.messageId) return { _tag: "Newer" } as const
+        const said = yield* Effect.result(chat.reply(task.threadId, thought.text))
+        if (said._tag === "Failure") return { _tag: "Refused", error: said.failure } as const
         yield* sql`update customer_agent_threads
                    set replies = replies + 1, first_reply_at = coalesce(first_reply_at, now()), last_reply_at = now(),
                        answered_message_id = ${task.messageId}
                    where thread_id = ${task.threadId}`
-        yield* cite(sql, thought.hits, { kind: "channel_message", id: sent.success.messageId })
+        yield* cite(sql, thought.hits, { kind: "channel_message", id: said.success.messageId })
+        return { _tag: "Sent", messageId: said.success.messageId } as const
       })
     )
+    if (sent._tag === "Newer") {
+      yield* release()
+      return yield* taken("taken")
+    }
+    if (sent._tag === "Refused") {
+      // Words the chat refuses (`Invalid`: too long, a control character) never went: a person answers instead.
+      if (sent.error._tag === "Invalid") return yield* handOff("guard", false, thought.model)
+      yield* release()
+      return yield* taken(sent.error._tag === "NotFound" ? "scope" : "taken")
+    }
     yield* write({
       decision: "run",
       outcome: "done",

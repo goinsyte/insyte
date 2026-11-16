@@ -2,7 +2,13 @@ import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { ChannelStatus, HandoverChange } from "@insyte/modules/inbox/domain/Chat"
 import type { ThreadDetail } from "@insyte/modules/inbox/domain/Inbox"
 import { useNow } from "@insyte/ui/app/hooks/use-now"
-import { AgentBand, AgentHandled, ChannelHeaderView, ChatLetterView } from "@insyte/ui/app/inbox/chat-views"
+import {
+  AgentBand,
+  AgentHandled,
+  ChannelHeaderView,
+  type ChatDraftView,
+  ChatLetterView
+} from "@insyte/ui/app/inbox/chat-views"
 import {
   type ChatChannel,
   type InboxSource,
@@ -34,6 +40,82 @@ const LIVE_MS = 5_000
 const COPY = {
   gone: "Dat gesprek bestaat niet meer"
 } as const
+
+/** What a draft's refusal says: someone was first with it, or the chat moved on. */
+const DRAFT_COPY = {
+  gone: "Dat gesprek bestaat niet meer",
+  conflicts: {
+    gone: ["Dat concept is er niet meer", "Iemand anders was je voor, of er kwam een nieuw bericht."]
+  },
+  other: (tagged: { readonly _tag?: string }) => {
+    if (tagged._tag === "TakenOver") {
+      toast.error("Een collega heeft dit gesprek overgenomen", { description: "Alleen die collega antwoordt nu." })
+      return true
+    }
+    if (tagged._tag === "ThreadClosed") {
+      toast.error("Dit gesprek is gesloten", { description: "De klant ziet geen nieuwe berichten meer." })
+      return true
+    }
+    return false
+  }
+} satisfies Parameters<typeof sayRefusal>[1]
+
+/** The customer agent's draft on the letter: Versturen and Weggooien with their Undo, Aanpassen into the composer. */
+function useDraftActions(
+  thread: InboxThread,
+  detail: ThreadDetail,
+  gate: TeamGate,
+  refresh: () => void
+): ChatDraftView | undefined {
+  const write = {
+    send: useAtomSet(inboxWrites.sendDraft, { mode: "promiseExit" }),
+    use: useAtomSet(inboxWrites.useDraft, { mode: "promiseExit" }),
+    discard: useAtomSet(inboxWrites.discardDraft, { mode: "promiseExit" }),
+    undo: useAtomSet(inboxWrites.undo, { mode: "promiseExit" })
+  }
+  const draft = detail.draft
+  if (draft === null) return undefined
+  const payload = { threadId: thread.id, draftId: draft.id }
+  const done = (exit: Exit.Exit<HandoverChange, unknown>, label: string, line: string) => {
+    refresh()
+    if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), DRAFT_COPY)
+    const ticket = exit.value.undo
+    if (ticket === null) return
+    undoable(
+      label,
+      () =>
+        void write.undo({ payload: { token: ticket.token }, ...keys }).then((undone) => {
+          refresh()
+          if (Exit.isFailure(undone)) sayRefusal(failureOf(undone), DRAFT_COPY)
+        }),
+      line
+    )
+  }
+  const allowed = () => {
+    if (gate.ok) return true
+    toast.error(gate.reason)
+    return false
+  }
+  return {
+    text: draft.text,
+    onSend: () => {
+      if (!allowed()) return
+      void write.send({ payload, ...keys }).then((exit) =>
+        done(exit, "Antwoord verstuurd", "Het concept van Insyte gaat over een paar seconden naar de klant.")
+      )
+    },
+    onUse: () => {
+      if (!allowed()) return
+      void write.use({ payload, ...keys }).then((exit) => done(exit, "", ""))
+    },
+    onDiscard: () => {
+      if (!allowed()) return
+      void write.discard({ payload, ...keys }).then((exit) =>
+        done(exit, "Concept weggegooid", "De klant krijgt dit antwoord niet.")
+      )
+    }
+  }
+}
 
 function value<A>(result: AsyncResult.AsyncResult<A, unknown>): A | undefined {
   return Option.getOrUndefined(AsyncResult.value(result))
@@ -142,6 +224,21 @@ function ConsoleChatLetter({ thread }: { thread: InboxThread }) {
     return () => clearInterval(timer)
   }, [refresh])
   if (detail === undefined) return <div className="flex min-h-0 flex-1" />
+  return <ChatLetterOf thread={thread} detail={detail} source={source} status={status} now={now} refresh={refresh} />
+}
+
+/** The letter once its thread is read: the hooks of its draft need it there. */
+function ChatLetterOf(
+  { thread, detail, source, status, now, refresh }: {
+    thread: InboxThread
+    detail: ThreadDetail
+    source: InboxSource
+    status: ChannelStatus | undefined
+    now: number
+    refresh: () => void
+  }
+) {
+  const draft = useDraftActions(thread, detail, source.gate, refresh)
   const who = namer(source.me, source.people)
   const meName = source.people.find((p) => p.id === source.me)?.name ?? ""
   const channel = thread.channel ?? "webchat"
@@ -160,6 +257,7 @@ function ConsoleChatLetter({ thread }: { thread: InboxThread }) {
         <Banner thread={thread} detail={detail} me={source.me} meName={meName} gate={source.gate} refresh={refresh} />
       }
       composerDisabled={shut(detail, source.me, source.gate, who)}
+      draft={draft}
       onSend={(text) =>
         void Promise.resolve(source.writes.reply(thread, text, { label: "Antwoord verstuurd" })).then(() => refresh())}
     />

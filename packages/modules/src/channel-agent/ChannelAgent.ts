@@ -1,5 +1,5 @@
 import { Db } from "@insyte/database/Db"
-import type { Forbidden } from "@insyte/domain/Errors"
+import type { Forbidden, Invalid } from "@insyte/domain/Errors"
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, Effect, Layer } from "effect"
 import { type SqlClient, SqlError } from "effect/sql"
@@ -39,7 +39,7 @@ export class ChannelAgentService extends Context.Service<ChannelAgentService, {
   readonly getForKey: Effect.Effect<ChannelAgentView, Forbidden, R>
   readonly set: (
     input: CustomerAgentSettingsInput
-  ) => Effect.Effect<ChannelAgentSaved, Forbidden | AutoNotAllowedOnChannel | HoursInvalid, R>
+  ) => Effect.Effect<ChannelAgentSaved, Forbidden | AutoNotAllowedOnChannel | HoursInvalid | Invalid, R>
   readonly today: Effect.Effect<AgentDay, Forbidden, R>
 }>()("modules/ChannelAgentService") {
   static readonly layer = Layer.succeed(ChannelAgentService, {

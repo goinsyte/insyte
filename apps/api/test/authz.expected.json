@@ -1700,6 +1700,27 @@
     "finance": "deny",
     "view": "deny"
   },
+  "Threads.sendDraft": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Threads.useDraft": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Threads.discardDraft": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
   "Channels.list": {
     "owner": "allow",
     "admin": "allow",

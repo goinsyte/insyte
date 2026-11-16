@@ -1,6 +1,6 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { ChannelAgentView } from "@insyte/modules/channel-agent/domain/ChannelAgent"
-import { widens } from "@insyte/modules/channel-agent/domain/Rules"
+import { HANDOVER_REFUSED, widens } from "@insyte/modules/channel-agent/domain/Rules"
 import type { CustomerAgentSource, TestMsg } from "@insyte/ui/app/ai/customer-agent-source"
 import type { CustomerAgentSettings } from "@insyte/ui/app/lib/customer-agent"
 import { undoable } from "@insyte/ui/app/lib/undo"
@@ -36,6 +36,7 @@ const DAY_NAMES = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "za
 const notSaved = (error: unknown) =>
   sayRefusal(error, {
     gone: "De klantagent is niet meer te vinden",
+    invalid: { handoverMessage: HANDOVER_REFUSED },
     other: (tagged) => {
       if (tagged._tag === "HoursInvalid") {
         const day = tagged["day"] as number

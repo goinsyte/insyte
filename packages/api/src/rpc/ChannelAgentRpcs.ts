@@ -1,4 +1,4 @@
-import { Forbidden } from "@insyte/domain/Errors"
+import { Forbidden, Invalid } from "@insyte/domain/Errors"
 import { BudgetExceeded, ModelUnavailable } from "@insyte/modules/ai/domain/Ai"
 import {
   AgentDay,
@@ -28,7 +28,7 @@ export class ChannelAgentRpcs extends RpcGroup.make(
   Rpc.make("ChannelAgent.set", {
     payload: CustomerAgentSettingsInput,
     success: ChannelAgentSaved,
-    error: Schema.Union([Forbidden, AutoNotAllowedOnChannel, HoursInvalid])
+    error: Schema.Union([Forbidden, AutoNotAllowedOnChannel, HoursInvalid, Invalid])
   }),
   Rpc.make("ChannelAgent.today", { success: AgentDay, error: Forbidden }),
   Rpc.make("ChannelAgent.test", {

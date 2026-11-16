@@ -75,6 +75,9 @@ export const inboxWrites = {
   connect: ConsoleClient.mutation("Mailboxes.connect"),
   takeOver: ConsoleClient.mutation("Threads.takeOver"),
   handBack: ConsoleClient.mutation("Threads.handBack"),
+  sendDraft: ConsoleClient.mutation("Threads.sendDraft"),
+  useDraft: ConsoleClient.mutation("Threads.useDraft"),
+  discardDraft: ConsoleClient.mutation("Threads.discardDraft"),
   connectChannel: ConsoleClient.mutation("Channels.connect"),
   disconnectChannel: ConsoleClient.mutation("Channels.disconnect"),
   undo: ConsoleClient.mutation("Shared.undo")
