@@ -5,6 +5,7 @@ import { AskRpcs } from "@insyte/api/rpc/AskRpcs"
 import { AuditRpcs } from "@insyte/api/rpc/AuditRpcs"
 import { AutomationsRpcs } from "@insyte/api/rpc/AutomationsRpcs"
 import { BillingRpcs } from "@insyte/api/rpc/BillingRpcs"
+import { ChannelAgentRpcs } from "@insyte/api/rpc/ChannelAgentRpcs"
 import { ChargebacksRpcs } from "@insyte/api/rpc/ChargebacksRpcs"
 import { ChatsRpcs } from "@insyte/api/rpc/ChatsRpcs"
 import { CommerceRpcs } from "@insyte/api/rpc/CommerceRpcs"
@@ -415,6 +416,31 @@ const PAYLOADS: Record<string, unknown> = {
   "Sheets.export": { id: "sh_none", format: "csv" },
   // Kennisbank (M15 step 7): Instellingen · Bekijken reads, Beheren writes (as the design gates it); a chapter or a gap that is not there, and a
   // blank title, are refused after the gate.
+  // Klantagent (M15 step 8): a save only an unknown channel's Zelf antwoorden refuses after the policy, and a test that
+  // hands over before any model is asked.
+  "ChannelAgent.get": undefined,
+  "ChannelAgent.set": {
+    on: false,
+    channels: { webchat: "off", whatsapp: "auto", instagram: "off", email: "off" },
+    hours: Array.from({ length: 7 }, () => ({ open: true, from: "09:00", to: "18:00" })),
+    outside: "take",
+    handover: { unsure: true, asksPerson: true, topics: [], afterMessages: null },
+    tone: "brand",
+    handoverMessage: "Een collega neemt het over."
+  },
+  "ChannelAgent.today": undefined,
+  "ChannelAgent.test": {
+    text: "Ik wil een mens spreken",
+    settings: {
+      on: true,
+      channels: { webchat: "auto", whatsapp: "off", instagram: "off", email: "off" },
+      hours: Array.from({ length: 7 }, () => ({ open: true, from: "00:00", to: "24:00" })),
+      outside: "answer",
+      handover: { unsure: true, asksPerson: true, topics: [], afterMessages: null },
+      tone: "brand",
+      handoverMessage: "Een collega neemt het over."
+    }
+  },
   "Knowledge.list": {},
   "Knowledge.get": { id: "kb_none" },
   "Knowledge.versions": { id: "kb_none" },
@@ -711,6 +737,7 @@ const manifest = [
   ...CoursesRpcs.requests.keys(),
   ...SheetsRpcs.requests.keys(),
   ...KnowledgeRpcs.requests.keys(),
+  ...ChannelAgentRpcs.requests.keys(),
   ...NotificationsRpcs.requests.keys(),
   ...SessionRpcs.requests.keys(),
   ...ShellRpcs.requests.keys(),

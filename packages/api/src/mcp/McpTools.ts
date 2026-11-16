@@ -6,6 +6,7 @@ import { ChargebacksTools } from "./tools/ChargebacksTools.ts"
 import { CommerceTools } from "./tools/CommerceTools.ts"
 import { ConnectionsTools } from "./tools/ConnectionsTools.ts"
 import { CostsTools } from "./tools/CostsTools.ts"
+import { CustomerAgentTools } from "./tools/CustomerAgentTools.ts"
 import { DataTools } from "./tools/DataTools.ts"
 import { ForwardingTools } from "./tools/ForwardingTools.ts"
 import { KeyTools } from "./tools/KeyTools.ts"
@@ -36,6 +37,7 @@ export const InsyteTools = Toolkit.merge(
   AnalyticsTools,
   SheetsTools,
   KnowledgeTools,
+  CustomerAgentTools,
   QueueTools,
   ProposalsTools,
   ReturnsTools,

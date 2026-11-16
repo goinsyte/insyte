@@ -53,11 +53,34 @@ const gapOf = (r: Row) =>
 const COLUMNS = `g.id, g.question, g.customer_label, g.channel, g.thread_id, g.ticket_id, g.state, g.target_article_id,
   g.count, g.last_seen_at, g.first_seen_at`
 
-/** The question without an e-mail address or a phone number in it, on one line, at most 500 characters. */
+/** A Dutch postcode ("1234 AB"), and the words after four digits that are not one ("2026 en"). */
+const POSTCODE = /\b[1-9]\d{3}\s?([a-z]{2})\b/gi
+const NOT_POSTCODE = new Set([
+  "EN",
+  "OF",
+  "IS",
+  "OP",
+  "IN",
+  "TE",
+  "OM",
+  "IK",
+  "JE",
+  "NU",
+  "DE",
+  "ER",
+  "AL",
+  "SA",
+  "SD",
+  "SS"
+])
+
+/** The question without an e-mail address, a phone number or a postcode in it, on one line, at most 500 characters. */
 export const cleanQuestion = (text: string) =>
   text
+    .normalize("NFKC")
     .replaceAll(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, "[e-mail]")
     .replaceAll(/\+?\d[\d\s-]{7,}\d/g, "[telefoon]")
+    .replaceAll(POSTCODE, (m, letters: string) => (NOT_POSTCODE.has(letters.toUpperCase()) ? m : "[postcode]"))
     .replaceAll(/\s+/g, " ")
     .trim()
     .slice(0, 500)

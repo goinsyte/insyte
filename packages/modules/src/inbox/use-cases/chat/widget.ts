@@ -1,8 +1,9 @@
 import { Db } from "@insyte/database/Db"
 import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import type { SqlClient } from "effect/sql"
+import { PendingEvents, Relay } from "../../../shared/domain/Outbox.ts"
 import * as Outbox from "../../../shared/use-cases/Outbox.ts"
 import type { WidgetMessage } from "../../domain/Chat.ts"
 import { textRefused } from "../../domain/ChatKinds.ts"
@@ -307,7 +308,9 @@ export const post = Effect.fn("Chat.post")(function*(input: {
   }
   const store = over<WidgetMessage>(allowOrigin, yield* input.take("store-send", route.storeId))
   if (store !== undefined) return store
-  return yield* inWorkspace(route, (sql) =>
+  // The message's event goes onto the relay once it is committed, so the customer agent hears it now, not at the sweep.
+  const pending: Array<string> = []
+  const said = yield* inWorkspace(route, (sql) =>
     Effect.gen(function*() {
       const id = mintId("chm")
       const party = JSON.stringify([{ name: "Websitebezoeker", email: "", team: false }])
@@ -334,7 +337,7 @@ export const post = Effect.fn("Chat.post")(function*(input: {
       yield* sql`insert into channel_messages (id, workspace_id, thread_id, author, body)
                  values (${id}, ${route.workspaceId}, ${thread!.id}, 'shopper', ${text})`
       if (!thread!.spam) {
-        yield* Outbox.write(sql, route.workspaceId, {
+        const outboxId = yield* Outbox.write(sql, route.workspaceId, {
           type: "chat.received",
           workspaceId: route.workspaceId,
           storeId: route.storeId,
@@ -342,6 +345,7 @@ export const post = Effect.fn("Chat.post")(function*(input: {
           messageId: id,
           channel: "webchat"
         })
+        ;(yield* PendingEvents)?.add(outboxId)
       }
       const [m] = yield* sql<{ createdAt: Date }>`select created_at from channel_messages where id = ${id}`
       return {
@@ -349,7 +353,10 @@ export const post = Effect.fn("Chat.post")(function*(input: {
         allowOrigin,
         body: { id, from: "shopper", text, at: m!.createdAt.getTime() } satisfies WidgetMessage
       } as const
-    }))
+    })).pipe(Effect.provideService(PendingEvents, { add: (id) => void pending.push(id) }))
+  const relay = yield* Effect.serviceOption(Relay)
+  if (pending.length > 0 && Option.isSome(relay)) yield* relay.value.kick(pending)
+  return said
 })
 
 /**

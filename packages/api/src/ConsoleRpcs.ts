@@ -5,6 +5,7 @@ import { AskRpcs } from "./rpc/AskRpcs.ts"
 import { AuditRpcs } from "./rpc/AuditRpcs.ts"
 import { AutomationsRpcs } from "./rpc/AutomationsRpcs.ts"
 import { BillingRpcs } from "./rpc/BillingRpcs.ts"
+import { ChannelAgentRpcs } from "./rpc/ChannelAgentRpcs.ts"
 import { ChargebacksRpcs } from "./rpc/ChargebacksRpcs.ts"
 import { ChatsRpcs } from "./rpc/ChatsRpcs.ts"
 import { CommerceRpcs } from "./rpc/CommerceRpcs.ts"
@@ -103,3 +104,4 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(DraftsRpcs)
   .merge(AskRpcs)
   .merge(KnowledgeRpcs)
+  .merge(ChannelAgentRpcs)

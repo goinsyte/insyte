@@ -27,6 +27,7 @@ import { Cause, Effect, Option, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import { withAi } from "./Ai.ts"
 import { aiMode } from "./AiSettings.ts"
+import type * as CustomerAgent from "./CustomerAgent.ts"
 
 /*
  * What the agent does on its own for each trigger the agent sink heard (M15 step 6; ADR-0027), on the events queue
@@ -334,6 +335,20 @@ const delayed = (task: AgentTask, t: Extract<AgentTask["trigger"], { kind: "orde
     }
   })
 
+let customerAgent: Promise<typeof CustomerAgent> | undefined
+
+/**
+ * A shopper's message on the website chat (M15 step 8): the customer agent's (`CustomerAgent.ts`), loaded on the first
+ * chat an isolate sees.
+ */
+const chat = (task: AgentTask, t: Extract<AgentTask["trigger"], { kind: "chat.received" }>) =>
+  Effect.promise(() =>
+    customerAgent ??= import("./CustomerAgent.ts").catch((error: unknown) => {
+      customerAgent = undefined
+      throw error
+    })
+  ).pipe(Effect.flatMap((m) => m.answerChat(task, t)), Effect.asVoid)
+
 /**
  * The database failed the task: it could not run, and is the queue's to hand over again, at most five times and then
  * to its dead letters (`infra/app.ts`), so a fault that does not pass is seen there rather than acked away.
@@ -348,12 +363,15 @@ const unreached = (cause: Cause.Cause<unknown>) => {
  * not answer: that fails, so the queue retries it (a trigger already claimed is "seen" then, and acts once).
  */
 export const act = (task: AgentTask) =>
-  (task.trigger.kind === "thread.received"
-    ? reply(task, task.trigger)
-    : delayed(task, task.trigger)).pipe(
-      Effect.provideService(CurrentWorkspace, { id: task.workspaceId as WorkspaceId }),
-      Effect.catchCauseIf(
-        (cause) => !unreached(cause),
-        (cause) => Effect.logWarning("the agent did not act on a trigger", { cause })
-      )
+  Effect.gen(function*() {
+    const t = task.trigger
+    if (t.kind === "thread.received") return yield* reply(task, t)
+    if (t.kind === "chat.received") return yield* chat(task, t)
+    return yield* delayed(task, t)
+  }).pipe(
+    Effect.provideService(CurrentWorkspace, { id: task.workspaceId as WorkspaceId }),
+    Effect.catchCauseIf(
+      (cause) => !unreached(cause),
+      (cause) => Effect.logWarning("the agent did not act on a trigger", { cause })
     )
+  )

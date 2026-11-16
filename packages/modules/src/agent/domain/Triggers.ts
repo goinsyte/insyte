@@ -22,7 +22,15 @@ export const AgentTask = Schema.Struct({
       messageId: Schema.String,
       reply: Schema.Boolean
     }),
-    Schema.Struct({ kind: Schema.Literal("order.delayed"), orderIds: Schema.Array(Schema.String) })
+    Schema.Struct({ kind: Schema.Literal("order.delayed"), orderIds: Schema.Array(Schema.String) }),
+    // A shopper's message on the website chat (M15 step 8): the customer agent's (`channel-agent`).
+    Schema.Struct({
+      kind: Schema.Literal("chat.received"),
+      storeId: Schema.String,
+      threadId: Schema.String,
+      messageId: Schema.String,
+      channel: Schema.Literal("webchat")
+    })
   ])
 })
 export type AgentTask = typeof AgentTask.Type
@@ -213,6 +221,12 @@ const AMOUNT = /€|\b(euro|eur|cent|procent|percent)\b|%/i
 /** Links and addresses written so that a filter misses them: `hxxps://`, `x[.]nl`, `hulp [at] x.nl`, `x dot nl`. */
 const DEFANGED =
   /hxxps?|\[\.\]|\(\.\)|\[dot\]|\(dot\)|\{dot\}|\[at\]|\(at\)|\{at\}|\[@\]|\(@\)|\b[\w-]+\s+(dot|punt)\s+[a-z]{2,}\b|\b[\w.+-]+\s+at\s+[\w-]+\.[a-z]{2,}\b/i
+
+/** Whether a text writes a link or an address so that a filter misses it (`DEFANGED`). */
+export const defanged = (text: string) => DEFANGED.test(text)
+
+/** Whether a text names an amount, in figures or in words (`AMOUNT`). */
+export const namesAmount = (text: string) => AMOUNT.test(text)
 
 /** A link, a `www.`, an e-mail address, or a bare domain (`label.tld`, any two-plus-letter TLD), with its path. */
 const LINK =

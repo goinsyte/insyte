@@ -1,0 +1,71 @@
+import type { Connect } from "@insyte/database/Connect"
+import { Db } from "@insyte/database/Db"
+import type { WorkspaceId } from "@insyte/domain/Ids"
+import { type CurrentPrincipal, CurrentWorkspace } from "@insyte/domain/Principal"
+import type { AgentTask } from "@insyte/modules/agent/domain/Triggers"
+import type { TestInput } from "@insyte/modules/channel-agent/domain/ChannelAgent"
+import { type Brain, onChat } from "@insyte/modules/channel-agent/use-cases/engine"
+import { test as testChat } from "@insyte/modules/channel-agent/use-cases/test"
+import { search } from "@insyte/modules/knowledge/Knowledge"
+import type { ChatChannel } from "@insyte/modules/shared/domain/ChatChannel"
+import { inStore } from "@insyte/modules/shared/use-cases/StoreScope"
+import { Effect, type Layer } from "effect"
+import { withAi } from "./Ai.ts"
+import { withEmbedder } from "./Embeddings.ts"
+import { ChatChannelLive } from "./links/ChatChannel.ts"
+
+/*
+ * The customer agent's platform side (M15 step 8): what it thinks with (the stage's knowledge-base search and model,
+ * loaded on first use as every AI call is, `Ai.ts`) and the chat it answers on: the website chat's own port
+ * (`links/ChatChannel.ts`), on the task's connection. Loaded by the agent sink's queue consumer for a `chat.received`
+ * task (`AgentSink.ts`) and by the test chat's RPC, never when a Worker starts.
+ */
+
+const brain: Brain = {
+  // Within the thread's store (and every store's chapters): the agent itself reaches all of the workspace's.
+  search: (query, storeId) =>
+    Effect.flatMap(
+      Effect.service(Db),
+      (db) => withEmbedder(search(db.scoped, { query, audience: "customer_agent", limit: 3 }))
+    ).pipe(
+      inStore(storeId ?? undefined),
+      Effect.map((r) => r.hits.filter((h) => storeId === null || h.storeId === null || h.storeId === storeId)),
+      // A search that failed finds nothing: the question goes to a person.
+      Effect.catchCause((cause) =>
+        Effect.as(Effect.logWarning("the customer agent's search did not answer", { cause }), [])
+      )
+    ),
+  answer: (input, caller) =>
+    withAi((ai) =>
+      Effect.flatMap(Effect.service(Db), (db) => ai.customerAgentStep<CurrentPrincipal>(db.scoped, caller, input)).pipe(
+        Effect.map((called) => ({
+          value: called.value,
+          callId: called.callId,
+          model: { name: called.model.model || called.model.provider, promptVersion: ai.CUSTOMER_AGENT_PROMPT_VERSION }
+        }))
+      )
+    ).pipe(Effect.catchTag("SqlError", Effect.die))
+}
+
+type ChatTrigger = Extract<AgentTask["trigger"], { kind: "chat.received" }>
+
+/**
+ * A shopper's message, as the workspace's agent: what became of it, never its words. `chat` is the website chat's
+ * port; a dev route passes it wrapped, to act as a person in the middle of the turn.
+ */
+export const answerChat = (
+  task: AgentTask,
+  t: ChatTrigger,
+  chat: Layer.Layer<ChatChannel, never, Connect> = ChatChannelLive
+) =>
+  onChat(brain, { eventId: task.eventId, storeId: t.storeId, threadId: t.threadId, messageId: t.messageId }).pipe(
+    Effect.tap((turn) => Effect.logInfo("customer agent", { turn })),
+    // The thread gone from the chat meanwhile (deleted, out of the agent's stores): nothing to answer.
+    Effect.catchTag("NotFound", () => Effect.logWarning("the customer agent's chat was gone")),
+    Effect.provide(chat),
+    Effect.provideService(CurrentWorkspace, { id: task.workspaceId as WorkspaceId })
+  )
+
+/** "Proberen": one message through the agent's thinking, as the person on the page. */
+export const tryChat = (input: TestInput) =>
+  Effect.flatMap(Effect.service(Db), (db) => testChat(brain, db.scoped, input))

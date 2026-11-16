@@ -19,6 +19,7 @@ import {
   type TicketSummary
 } from "./domain/Ai.ts"
 import { askPrompt } from "./prompts/ask.ts"
+import { type CustomerAgentContext, type CustomerAgentOutput, customerAgentPrompt } from "./prompts/customer-agent.ts"
 import * as Background from "./use-cases/background.ts"
 import * as Call from "./use-cases/call.ts"
 import * as Drafts from "./use-cases/drafts.ts"
@@ -117,3 +118,20 @@ export const askStep = <X>(
 
 /** The prompt's `id@version`, as an answer keeps it. */
 export const ASK_PROMPT_VERSION = `${askPrompt.id}@${askPrompt.version}`
+
+/**
+ * The customer agent's answer on the website chat (M15 step 8): reserved against the month's budget, metered in
+ * `model_calls` whatever the outcome. What becomes of it is the `channel-agent` slice's; nothing here sends it.
+ */
+export const customerAgentStep = <X>(
+  inTx: Call.InTx<X>,
+  caller: Call.Caller,
+  input: CustomerAgentContext
+): Effect.Effect<
+  Call.Called<CustomerAgentOutput>,
+  BudgetExceeded | ModelUnavailable | SqlError.SqlError,
+  X | AiModel | LanguageModel.LanguageModel
+> => Call.call(inTx, caller, customerAgentPrompt, input)
+
+export type { CustomerAgentContext, CustomerAgentOutput } from "./prompts/customer-agent.ts"
+export { CUSTOMER_AGENT_PROMPT_VERSION } from "./prompts/customer-agent.ts"

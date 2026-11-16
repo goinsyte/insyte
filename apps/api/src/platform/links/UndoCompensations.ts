@@ -1,6 +1,7 @@
 import { restoreAutonomy, restoreBudgets } from "@insyte/modules/agent/Agent"
 import { restore as restoreAsk } from "@insyte/modules/ask/Ask"
 import { restore as restoreAutomations } from "@insyte/modules/automations/use-cases/commands"
+import { restore as restoreChannelAgent } from "@insyte/modules/channel-agent/ChannelAgent"
 import { restore as restoreChargebacks } from "@insyte/modules/chargebacks/Chargebacks"
 import { restore as restoreChats } from "@insyte/modules/chats/use-cases/commands"
 import { restore as restoreCosts } from "@insyte/modules/costs/use-cases/commands"
@@ -72,6 +73,7 @@ export const compensations: Record<string, Compensation> = {
   "webhooks.restore": restoreWebhooks,
   "sheets.restore": restoreSheets,
   "knowledge.restore": restoreKnowledge,
+  "customer_agent.restore": restoreChannelAgent,
   "knowledge_gaps.restore": restoreKnowledgeGap,
   "data.restore": restoreData,
   "courses.restore": restoreCourses,

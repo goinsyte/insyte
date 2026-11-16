@@ -2603,6 +2603,34 @@
     "finance": "allow",
     "view": "deny"
   },
+  "ChannelAgent.get": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "ChannelAgent.set": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "ChannelAgent.today": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "ChannelAgent.test": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "allow"
+  },
   "Knowledge.list": {
     "owner": "allow",
     "admin": "allow",

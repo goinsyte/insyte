@@ -99,6 +99,7 @@ describe("the MCP server", () => {
       "clear_order_delay",
       "comment_on_ticket",
       "create_ticket",
+      "customer_agent_today",
       "email_order_customer",
       "file_proposal",
       "flag_order_delayed",
@@ -109,6 +110,7 @@ describe("the MCP server", () => {
       "get_connection_health",
       "get_cost_figures",
       "get_costs",
+      "get_customer_agent",
       "get_export",
       "get_figures",
       "get_order",
@@ -210,7 +212,9 @@ describe("the MCP server", () => {
         "get_export",
         "ask_insyte",
         "list_knowledge",
-        "search_knowledge"
+        "search_knowledge",
+        "get_customer_agent",
+        "customer_agent_today"
       ]
     ) {
       expect(hints[read]?.["readOnlyHint"]).toBe(true)

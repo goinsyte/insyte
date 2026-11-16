@@ -225,6 +225,13 @@ const SHOPPER_PARTS: ReadonlyArray<readonly [string, string]> = [
     `select to_jsonb(t)::text as row from knowledge_gaps t
       where t.thread_id in ${BY_THREAD} or t.ticket_id in ${BY_TICKET}`
   ],
+  // A website chat where they proved an order of theirs to the customer agent (0103), now or before a hand-back: the
+  // agent's counts and dates.
+  [
+    "customer_agent_threads",
+    `select to_jsonb(t)::text as row from customer_agent_threads t where t.verified_order_id in ${BY_ORDER}
+       or exists (select 1 from unnest(t.proved_order_ids) p where p in ${BY_ORDER})`
+  ],
   // What Vraag Insyte answered about them (0098): an answer that named their order, return, ticket, case or customer
   // record, as the question and the answer said it, with the dates and only their own records. Whom the asker was,
   // what page they asked from, and which model calls answered are the workspace's, not the shopper's.

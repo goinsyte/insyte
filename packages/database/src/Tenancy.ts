@@ -163,7 +163,10 @@ export const TENANT_TABLES = [
   "channels",
   "channel_threads",
   "channel_messages",
-  "handovers"
+  "handovers",
+  // The customer agent (M15 step 8): its settings, and what it keeps per website chat thread.
+  "customer_agent_settings",
+  "customer_agent_threads"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 
