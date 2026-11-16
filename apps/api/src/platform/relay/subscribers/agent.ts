@@ -8,7 +8,7 @@ import { subscriber } from "../Subscriber.ts"
  * The agent sink (M15 step 6; ADR-0027 "started by an event"): what may make the workspace's agent act on its own, put
  * on the events queue as a task, so the model and the use cases run after the event's transaction and hold none of it
  * (`transports/jobs/Queue.ts` → `platform/AgentSink.ts`, loaded there on first use). Here only what is cheap to tell:
- * whether a mail asks where an order is. Whether the agent may act, and what it does, is decided there, every time.
+ * whether a mail asks where an order is; every website chat message goes. Whether the agent may act, and what it does, is decided there, every time.
  */
 
 /** Onto the queue; a task that does not get there leaves the trigger to the team, and the event is delivered anyway. */
@@ -33,6 +33,19 @@ export const Agent = subscriber("agent", {
         trigger: { kind: "thread.received", threadId: event.threadId, messageId: event.messageId, reply: event.reply }
       })
     }).pipe(Effect.orDie),
+  // A shopper's message on the website chat (M15 step 8): the customer agent answers it, or hands it to the team.
+  "chat.received": (id, event) =>
+    ask({
+      workspaceId: event.workspaceId,
+      eventId: id,
+      trigger: {
+        kind: "chat.received",
+        storeId: event.storeId,
+        threadId: event.threadId,
+        messageId: event.messageId,
+        channel: event.channel
+      }
+    }),
   // An order delayed (M8.4, M10.2): the agent tells its shopper, as the queue's plate would.
   "order.delayed": (id, event) =>
     event.orderIds.length === 0

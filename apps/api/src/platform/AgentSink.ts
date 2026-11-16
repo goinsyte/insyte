@@ -27,6 +27,7 @@ import { Cause, Effect, Option, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import { withAi } from "./Ai.ts"
 import { aiMode } from "./AiSettings.ts"
+import type * as CustomerAgent from "./CustomerAgent.ts"
 
 /*
  * What the agent does on its own for each trigger the agent sink heard (M15 step 6; ADR-0027), on the events queue
@@ -334,6 +335,20 @@ const delayed = (task: AgentTask, t: Extract<AgentTask["trigger"], { kind: "orde
     }
   })
 
+let customerAgent: Promise<typeof CustomerAgent> | undefined
+
+/**
+ * A shopper's message on the website chat (M15 step 8): the customer agent's (`CustomerAgent.ts`), loaded on the first
+ * chat an isolate sees.
+ */
+const chat = (task: AgentTask, t: Extract<AgentTask["trigger"], { kind: "chat.received" }>) =>
+  Effect.promise(() =>
+    customerAgent ??= import("./CustomerAgent.ts").catch((error: unknown) => {
+      customerAgent = undefined
+      throw error
+    })
+  ).pipe(Effect.flatMap((m) => m.answerChat(task, t)), Effect.asVoid)
+
 /**
  * The database failed the task: it could not run, and is the queue's to hand over again, at most five times and then
  * to its dead letters (`infra/app.ts`), so a fault that does not pass is seen there rather than acked away.
@@ -350,6 +365,8 @@ const unreached = (cause: Cause.Cause<unknown>) => {
 export const act = (task: AgentTask) =>
   (task.trigger.kind === "thread.received"
     ? reply(task, task.trigger)
+    : task.trigger.kind === "chat.received"
+    ? chat(task, task.trigger)
     : delayed(task, task.trigger)).pipe(
       Effect.provideService(CurrentWorkspace, { id: task.workspaceId as WorkspaceId }),
       Effect.catchCauseIf(

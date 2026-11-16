@@ -115,7 +115,9 @@ const Order = Schema.Struct({
   /** Its parcel: the carrier, its tracking, AfterShip's state and when it expects it. */
   parcel: Schema.optional(Parcel),
   /** More parcels of the same order, each sent after the one before. */
-  more: Schema.optional(Schema.Array(Parcel).check(Schema.isMaxLength(5)))
+  more: Schema.optional(Schema.Array(Parcel).check(Schema.isMaxLength(5))),
+  /** The postcode on its shipping address (the customer agent's proof of an order). */
+  postcode: Schema.optional(Schema.String.check(Schema.isMaxLength(10)))
 })
 const decodeOrder = Schema.decodeUnknownEffect(Order)
 
@@ -147,10 +149,11 @@ const AgentOrder = HttpRouter.add(
         yield* sql`
           insert into orders (id, workspace_id, store_id, shopify_id, number, customer_id, customer_name, customer_email,
                               status, payment_status, fulfillment_status, total_minor, subtotal_minor, shipping_minor,
-                              tax_minor, discounts_minor, currency, placed_at, external_updated_at)
+                              tax_minor, discounts_minor, currency, placed_at, external_updated_at, shipping_address)
           values (${orderId}, ${workspace.id}, ${c.storeId}, ${`dev-${orderId}`}, ${o.number}, ${c.id}, ${c.name},
                   ${o.email}, ${o.status}, ${o.payment ?? "paid"}, ${fulfilment}, 4995, 4995, 0, 0, 0,
-                  'EUR', now() - interval '3 days', now())`
+                  'EUR', now() - interval '3 days', now(),
+                  ${o.postcode === undefined ? null : JSON.stringify({ postcode: o.postcode })}::jsonb)`
         for (const [i, p] of parcels.entries()) {
           const fulfilmentId = mintId("ful")
           yield* sql`

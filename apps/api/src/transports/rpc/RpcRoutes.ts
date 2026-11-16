@@ -6,6 +6,7 @@ import { AskService } from "@insyte/modules/ask/Ask"
 import { AuditService } from "@insyte/modules/audit/Audit"
 import { AutomationsService } from "@insyte/modules/automations/Automations"
 import { RunsService } from "@insyte/modules/automations/Runs"
+import { ChannelAgentService } from "@insyte/modules/channel-agent/ChannelAgent"
 import { ChargebacksService } from "@insyte/modules/chargebacks/Chargebacks"
 import { ChatsService } from "@insyte/modules/chats/Chats"
 import { CostsService } from "@insyte/modules/costs/Costs"
@@ -58,6 +59,7 @@ import { AskHandlers } from "./handlers/ask.ts"
 import { AuditHandlers } from "./handlers/audit.ts"
 import { AutomationsHandlers } from "./handlers/automations.ts"
 import { BillingHandlers } from "./handlers/billing.ts"
+import { ChannelAgentHandlers } from "./handlers/channel-agent.ts"
 import { ChargebacksHandlers } from "./handlers/chargebacks.ts"
 import { ChatsHandlers } from "./handlers/chats.ts"
 import { CommerceHandlers } from "./handlers/commerce.ts"
@@ -169,6 +171,7 @@ export const RpcContext = Layer.mergeAll(
   ChatsHandlers.pipe(Layer.provide(Layer.mergeAll(ChatsService.layer, UndoService.layer))),
   SheetsHandlers.pipe(Layer.provide(SheetsService.layer)),
   KnowledgeHandlers.pipe(Layer.provide(KnowledgeService.layer)),
+  ChannelAgentHandlers.pipe(Layer.provide(ChannelAgentService.layer)),
   DataHandlers.pipe(Layer.provide(DataService.layer)),
   QualityHandlers.pipe(Layer.provide(Layer.mergeAll(QualityService.layer, QualityLinkService.layer))),
   // …with the switcher's (M3.1): the list and switching, leaving and invitations, and a new workspace (onboarding's).
