@@ -1,7 +1,9 @@
+import type { Connect } from "@insyte/database/Connect"
 import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentPrincipal, CurrentWorkspace, type Principal } from "@insyte/domain/Principal"
 import { agentPrincipal } from "@insyte/modules/agent/Agent"
+import type { WidgetKeys } from "@insyte/modules/inbox/domain/Ports"
 import * as Widget from "@insyte/modules/inbox/use-cases/chat/widget"
 import { ChatChannel } from "@insyte/modules/shared/domain/ChatChannel"
 import { Effect, Layer, Option, Schema } from "effect"
@@ -176,15 +178,26 @@ const Turn = Schema.Struct({
   threadId: Schema.String.check(Schema.isMaxLength(64)),
   messageId: Schema.String.check(Schema.isMaxLength(64)),
   /** The agent's read of the thread (1: at the turn's start) at which a member of the workspace takes it over. */
-  takeOverOnRead: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(10))
+  takeOverOnRead: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(10))),
+  /**
+   * The agent's read of the thread's history (1: at the turn's start) after which the shopper writes `text` on their
+   * session (`token`), and that message's turn runs to its end, before this turn goes on.
+   */
+  shopperOnRead: Schema.optional(Schema.Struct({
+    read: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(10)),
+    token: Schema.String.check(Schema.isMaxLength(2048)),
+    text: Schema.String.check(Schema.isMaxLength(4000))
+  }))
 })
 const decodeTurn = Schema.decodeUnknownEffect(Turn)
 
 /**
- * `POST /api/__dev/webchat/turn?workspace=<id>` `{ storeId, threadId, messageId, takeOverOnRead }`: the customer
- * agent's turn on a shopper's message as its task runs it (`platform/CustomerAgent.ts`), over the chat's port, with a
- * member of the workspace taking the thread over right before the agent's `takeOverOnRead`-th read of it: a person in
- * the middle of the turn, which no timing in a test reaches. Locally and on a preview only.
+ * `POST /api/__dev/webchat/turn?workspace=<id>` `{ storeId, threadId, messageId, takeOverOnRead?, shopperOnRead? }`:
+ * the customer agent's turn on a shopper's message as its task runs it (`platform/CustomerAgent.ts`), over the chat's
+ * port, with a member of the workspace taking the thread over right before the agent's `takeOverOnRead`-th read of
+ * it, or the shopper writing again (and the agent answering that) right after its `shopperOnRead.read`-th read of the
+ * history: what happens in the middle of a turn, which no timing in a test reaches. `{ ok, reads, histories, next }`,
+ * `next` the shopper's new message. Locally and on a preview only.
  */
 const AgentTurn = HttpRouter.add(
   "POST",
@@ -198,30 +211,56 @@ const AgentTurn = HttpRouter.add(
     const t = body.value
     const db = yield* Db
     const chat = yield* ChatChannel
+    const agent = yield* Effect.promise(() => import("../../../platform/CustomerAgent.ts"))
+    const turnOn = (messageId: string, layer: Layer.Layer<ChatChannel>) => {
+      const trigger = {
+        kind: "chat.received",
+        storeId: t.storeId,
+        threadId: t.threadId,
+        messageId,
+        channel: "webchat"
+      } as const
+      return agent.answerChat({ workspaceId: workspace.id, eventId: `dev-${messageId}`, trigger }, trigger, layer)
+    }
     let reads = 0
+    let histories = 0
+    let next: string | null = null
     const person = db.scopedFor((sql) =>
       sql`update channel_threads set taken_over_by = m.id, taken_over_at = now(), assignee_id = m.id
           from (select id from members order by id limit 1) m
           where channel_threads.id = ${t.threadId}`
     ).pipe(Effect.provideService(CurrentWorkspace, workspace), Effect.orDie)
+    const shopperAgain = (s: NonNullable<typeof t.shopperOnRead>) =>
+      Effect.gen(function*() {
+        const route = yield* Widget.routeOf({ storeId: t.storeId })
+        const origin = route?.origins[0] ?? null
+        if (origin === null) return yield* Effect.die(new Error("the store has no chat"))
+        const said = yield* Widget.post({ storeId: t.storeId, origin, token: s.token, text: s.text, take: unlimited })
+        if (said.status !== 200) {
+          return yield* Effect.die(new Error(`the shopper's message was refused: ${said.status}`))
+        }
+        next = said.body.id
+        yield* turnOn(said.body.id, Layer.succeed(ChatChannel, chat))
+      })
+    const services = yield* Effect.context<Connect | Db | WidgetKeys>()
     const midway = Layer.succeed(
       ChatChannel,
       ChatChannel.of({
         ...chat,
         thread: (threadId) =>
-          Effect.andThen(++reads === t.takeOverOnRead ? Effect.asVoid(person) : Effect.void, chat.thread(threadId))
+          Effect.andThen(++reads === t.takeOverOnRead ? Effect.asVoid(person) : Effect.void, chat.thread(threadId)),
+        history: (threadId, options) =>
+          Effect.tap(
+            chat.history(threadId, options),
+            () =>
+              ++histories === t.shopperOnRead?.read
+                ? shopperAgain(t.shopperOnRead).pipe(Effect.provide(services), Effect.orDie)
+                : Effect.void
+          )
       })
     )
-    const agent = yield* Effect.promise(() => import("../../../platform/CustomerAgent.ts"))
-    const trigger = {
-      kind: "chat.received",
-      storeId: t.storeId,
-      threadId: t.threadId,
-      messageId: t.messageId,
-      channel: "webchat"
-    } as const
-    yield* agent.answerChat({ workspaceId: workspace.id, eventId: `dev-${t.messageId}`, trigger }, trigger, midway)
-    return HttpServerResponse.jsonUnsafe({ ok: true, reads })
+    yield* turnOn(t.messageId, midway)
+    return HttpServerResponse.jsonUnsafe({ ok: true, reads, histories, next })
   }).pipe(Effect.orDie, withRequestDb)
 )
 

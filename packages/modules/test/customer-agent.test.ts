@@ -25,6 +25,7 @@ import {
   widens
 } from "../src/channel-agent/domain/Rules.ts"
 import { type Brain, historyForModel, think } from "../src/channel-agent/use-cases/engine.ts"
+import { textRefused } from "../src/inbox/domain/ChatKinds.ts"
 import { CHAT_TEXT_MAX } from "../src/inbox/domain/ChatKinds.ts"
 import type { Hit } from "../src/knowledge/domain/Knowledge.ts"
 
@@ -103,6 +104,13 @@ describe("the opening hours", () => {
     const s = { handoverMessage: DEFAULT_HANDOVER_MESSAGE, hours: office }
     expect(handoverText(s, AMS, tuesdayMorning)).toContain("Je hoort vandaag nog van ons")
     expect(handoverText(s, AMS, tuesdayEvening)).toContain("Je hoort morgen vanaf 9:00 van ons")
+  })
+
+  it("sends a handover sentence saved before the chat's check, its tab and carriage return as spaces", () => {
+    const s = { handoverMessage: "Een collega\tkijkt mee.\r\nJe hoort {wanneer} van ons.", hours: office }
+    const said = handoverText(s, AMS, tuesdayMorning)
+    expect(said).toBe("Een collega kijkt mee.\nJe hoort vandaag nog van ons.")
+    expect(textRefused(said)).toBeUndefined()
   })
 
   it("refuses a day that closes before it opens", () => {
@@ -348,6 +356,129 @@ describe("what a reply may say", () => {
         statements: "Vanaf 50 euro verzenden we gratis."
       })
     ).toEqual(["promise"])
+  })
+  it("lets normal answers from a returns and shipping chapter go, said close to it or in other words", () => {
+    const chapter = [
+      "Je kunt je bestelling binnen 30 dagen na ontvangst gratis retourneren.",
+      "Zodra je retour bij ons binnen is, krijg je je geld binnen 14 dagen terug.",
+      "Sale-artikelen kun je niet retourneren.",
+      "Op werkdagen vóór 22:00 besteld, verzenden we dezelfde dag.",
+      "Je bestelling wordt binnen 2 werkdagen bezorgd.",
+      "Zodra je bestelling verzonden is, krijg je een mail met de track-and-trace-code.",
+      "De verzendkosten zijn € 4,95.",
+      "Vanaf 50 euro verzenden we gratis.",
+      "Je betaalt met iDEAL, creditcard of PayPal."
+    ].join(" ")
+    const given = { facts: `Retourneren en verzenden\n${chapter}`, statements: chapter }
+    const goes = (reply: string) => replyFaults(reply, given).length === 0
+    // Twenty answers a shop's chat gives (and the general form of two): before this was tuned, 14 went (8 close to the
+    // chapter, 6 in other words); now 16, and the two that say what will be done to the shopper's own order go to a
+    // person unless the proved order says it, as their general form does not.
+    const rows: ReadonlyArray<readonly [string, boolean]> = [
+      // Close to the chapter.
+      ["Zodra je bestelling verzonden is, krijg je een mail.", true],
+      ["Binnen 30 dagen kun je kosteloos retourneren.", true],
+      ["Je bestelling wordt binnen twee werkdagen bezorgd.", false],
+      ["Je kunt je bestelling binnen 30 dagen gratis terugsturen.", true],
+      ["Als je retour bij ons binnen is, krijg je je geld binnen 14 dagen terug.", true],
+      ["Bestel je op een werkdag vóór 22:00, dan verzenden we nog dezelfde dag.", true],
+      ["Sale-artikelen kun je helaas niet retourneren.", true],
+      ["Verzenden kost € 4,95, vanaf 50 euro is het gratis.", true],
+      ["Je ontvangt een mail met de track-and-trace-code zodra je pakket verzonden is.", true],
+      ["Je kunt betalen met iDEAL, creditcard of PayPal.", true],
+      // In other words.
+      ["Wanneer je pakket verzonden is, ontvang je een mail met de track-and-trace-code.", true],
+      ["Retourneren is kosteloos binnen 30 dagen na ontvangst.", true],
+      ["Je pakket wordt binnen twee werkdagen bezorgd.", false],
+      ["Bestellingen worden binnen twee werkdagen bezorgd.", true],
+      ["We bezorgen binnen twee werkdagen.", true],
+      ["Je geld krijg je binnen veertien dagen terug, zodra je retour binnen is.", true],
+      ["Bestellingen vanaf 50 euro verzenden we gratis.", true],
+      ["Een sale-artikel kan helaas niet retour.", true],
+      ["Je ontvangt de track-and-trace-code per mail zodra je bestelling verzonden is.", true],
+      ["Betalen kan met iDEAL, creditcard of PayPal.", true],
+      // Known: a figure without the chapter's bound, and a bound the chapter does not use, still go to a person.
+      ["Je hebt 30 dagen om je bestelling gratis terug te sturen.", false],
+      ["Onder de 50 euro betaal je € 4,95 verzendkosten.", false],
+      // What reading "kosteloos" as "gratis", a state to come as no state yet, "pakket" as the order and "wanneer"
+      // as "als" must not let through: another figure, a dropped negation, a vague time, a state said as reached.
+      ["Sale-artikelen kun je kosteloos retourneren.", false],
+      ["Retourneren is binnen 60 dagen kosteloos.", false],
+      ["Je geld wordt binnen 30 dagen teruggestort.", false],
+      ["Je pakket wordt morgen bezorgd.", false],
+      ["Je bestelling wordt vandaag nog verzonden.", false],
+      ["Je bestelling wordt geannuleerd.", false],
+      ["Wanneer je retour binnen is, krijg je je geld binnen 30 dagen terug.", false],
+      ["Je pakket is verzonden.", false],
+      ["Je pakket is bezorgd.", false],
+      ["We hebben je geld teruggestort.", false]
+    ]
+    for (const [reply, may] of rows) expect(goes(reply), reply).toBe(may)
+  })
+  it("keeps what a fact narrows its promise to, lets its negation win, and leaves this order's future to its facts", () => {
+    // [the reply, the chapter, whether it may go]: both ways round where a qualifier is.
+    const pairs: ReadonlyArray<readonly [string, string, boolean]> = [
+      // "pakket" reads as the order, but "een beschadigd pakket" is not every order.
+      ["Je bestelling ruilen we gratis om.", "Een beschadigd pakket ruilen we gratis om.", false],
+      ["Je bestelling ruilen we kosteloos om.", "Een beschadigd pakket ruilen we kosteloos om.", false],
+      ["Je bestelling wordt kosteloos omgeruild.", "Een beschadigd pakket ruilen we gratis om.", false],
+      ["Je bestelling wordt omgeruild.", "Een beschadigd pakket ruilen we kosteloos om.", false],
+      ["Een beschadigd pakket ruilen we gratis om.", "Je bestelling ruilen we gratis om.", false],
+      ["Een beschadigd pakket ruilen we kosteloos om.", "Een beschadigd pakket ruilen we gratis om.", true],
+      ["Een beschadigde bestelling ruilen we gratis om.", "Een beschadigd pakket ruilen we kosteloos om.", true],
+      ["Is je pakket beschadigd, dan ruilen we het gratis om.", "Een beschadigd pakket ruilen we gratis om.", true],
+      ["Een verkeerd artikel ruilen we gratis om.", "Een beschadigd artikel ruilen we gratis om.", false],
+      ["Je kunt gratis retourneren.", "Sale-artikelen kun je gratis retourneren.", false],
+      ["Sale-artikelen kun je gratis retourneren.", "Je kunt gratis retourneren.", false],
+      // "Zonder kosten" is tied to its subject, and the fact's negation for that subject wins.
+      [
+        "Sale-artikelen retourneren gaat zonder kosten.",
+        "Retourneren gaat zonder kosten. Sale-artikelen zijn niet gratis.",
+        false
+      ],
+      [
+        "Sale-artikelen retourneren gaat zonder kosten.",
+        "Retourneren is gratis. Sale-artikelen zijn niet gratis te retourneren. Verzenden gaat zonder kosten.",
+        false
+      ],
+      [
+        "Sale-artikelen kun je gratis retourneren.",
+        "Sale-artikelen kun je gratis ruilen. Sale-artikelen zijn niet gratis te retourneren.",
+        false
+      ],
+      [
+        "Sale-artikelen kun je gratis ruilen.",
+        "Sale-artikelen kun je gratis ruilen. Sale-artikelen zijn niet gratis te retourneren.",
+        true
+      ],
+      ["Retourneren gaat zonder kosten.", "Retourneren gaat zonder kosten. Sale-artikelen zijn niet gratis.", true],
+      // What will be done to the shopper's own order is the proved order's to say; its general, conditional form not.
+      [
+        "We zullen je bestelling vandaag nog verzenden.",
+        "Zodra je bestelling verzonden is, krijg je een mail. Op werkdagen vóór 22:00 besteld, verzenden we dezelfde dag.",
+        false
+      ],
+      ["We zullen je bestelling vandaag nog verzenden.", "We verzenden je bestelling binnen 2 werkdagen.", false],
+      ["Je pakket gaan we morgen bezorgen.", "We bezorgen binnen 2 werkdagen.", false],
+      [
+        "We gaan je bestelling annuleren.",
+        "Een bestelling wordt geannuleerd als je niet binnen 7 dagen betaalt.",
+        false
+      ],
+      [
+        "Zodra je bestelling verzonden is, krijg je een mail.",
+        "Zodra je bestelling verzonden is, krijg je een mail.",
+        true
+      ]
+    ]
+    for (const [reply, fact, goes] of pairs) {
+      expect(replyFaults(reply, { facts: `Beleid\n${fact}`, statements: fact }).length === 0, `${reply} | ${fact}`)
+        .toBe(goes)
+    }
+    // The proved order's facts may say what comes next for it.
+    const order = "De status van je bestelling #1042: wordt vandaag verzonden met PostNL."
+    expect(replyFaults("Je bestelling wordt vandaag verzonden met PostNL.", { facts: order, statements: "", order }))
+      .toEqual([])
   })
   it("refuses a link written to slip past", () => {
     for (

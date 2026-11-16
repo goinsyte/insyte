@@ -5,7 +5,8 @@ import { admit, onPreview, previewRequest } from "./access.ts"
  * The customer agent's journey (M15 step 8): an owner lets Insyte answer customers (Zelfstandigheid), publishes a
  * chapter, connects the website chat and switches the Klantagent on for it. A shopper on the storefront asks a question
  * the chapter answers, proves an order and is told its status, then asks for a person: the chat is in Overgedragen. The
- * owner takes it over and the agent is silent; handed back, the agent answers again and asks for the proof anew.
+ * owner takes it over and the agent is silent; handed back, the agent answers again and asks for the proof anew. On
+ * Eerst vragen it only drafts, and the owner sends its draft from the chat's letter.
  *
  * The storefront and the widget's host are stood in for as in `webchat.spec.ts`. On the fake model locally; where
  * Insyte AI is not switched on (a preview has no model), there is nothing to answer with and the journey is skipped.
@@ -220,4 +221,23 @@ test("@customer-agent the agent answers a shopper, gives a proved order's status
   await expect(band.getByText("Insyte voert dit gesprek weer.")).toBeVisible()
   await say("Is mijn pakket al onderweg?")
   await expect(shopper.getByText(/Stuur je bestelnummer en het e-mailadres/)).toHaveCount(2, REPLY)
+
+  // On Eerst vragen the agent only drafts: its answer waits in the chat's letter, and the owner sends it.
+  await page.goto("/settings/ai/autonomy")
+  await hydrated(page)
+  const ask = page.getByRole("radio", { name: "Klant beantwoorden: Eerst vragen" })
+  await ask.click()
+  await unsaved.getByRole("button", { name: "Wijzigingen opslaan" }).click()
+  await expect(unsaved).toHaveCount(0)
+  await expect(ask).toHaveAttribute("aria-checked", "true")
+  const drafted = (await agentRows()).length
+  await say("Kan ik ook na een week nog retourneren?")
+  await expect.poll(async () => (await agentRows()).length, REPLY).toBe(drafted + 1)
+  await page.goto(`/inbox?thread=${threadId}`)
+  await hydrated(page)
+  const card = page.getByRole("region", { name: "Concept van Insyte" })
+  await expect(card.getByText(/binnen 30 dagen retourneren/)).toBeVisible(REPLY)
+  await card.getByRole("button", { name: "Versturen" }).click()
+  await expect(card).toHaveCount(0)
+  await expect(shopper.getByText(/binnen 30 dagen retourneren/)).toHaveCount(2, REPLY)
 })

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import { useEffect, useRef, useState } from "react"
-import { AlertTriangle, Check, Clock, Lock, MessageCircle, Send, Sparkle, UserPlus } from "../../icons"
+import { AlertTriangle, Check, Clock, Lock, MessageCircle, Send, Sparkle, Sparkles, UserPlus } from "../../icons"
 import { InsyteMark } from "../ask/parts"
 import {
   CHANNEL_LABEL,
@@ -128,6 +128,64 @@ function Bubble({ m, customer, at }: { m: ChatMessage; customer: string; at: (is
   )
 }
 
+/** The customer agent's answer, waiting for a person (Eerst vragen, Alleen concepten): Versturen, Aanpassen, Weggooien. */
+export interface ChatDraftView {
+  text: string
+  /** "Versturen": the draft goes as the team's reply, with its Undo. */
+  onSend: () => void
+  /** "Aanpassen": its words go into the composer below. */
+  onUse: () => void
+  /** "Weggooien", with its Undo. */
+  onDiscard: () => void
+}
+
+/**
+ * Insyte's draft in a chat, as the mail letter's "Insyte stelde een antwoord op": on the dark ground, on the team's
+ * side, with its three ways on. `blocked` (the composer's reason) keeps them shut.
+ */
+function ChatDraftCard(
+  { draft, blocked, onUse }: { draft: ChatDraftView; blocked: string | undefined; onUse: () => void }
+) {
+  return (
+    <section aria-label="Concept van Insyte" className="mt-3 flex max-w-[78%] flex-col gap-2 self-end">
+      <div className="flex flex-col gap-3 rounded-xl bg-abyss px-5 py-4">
+        <div className="flex items-center gap-2">
+          <Sparkles className="size-3.5 text-mesh-ink" strokeWidth={1.75} />
+          <span className="font-medium text-mesh-ink text-sm leading-none">Insyte stelde een antwoord op</span>
+        </div>
+        <p className="whitespace-pre-wrap text-base text-mesh-ink-2 leading-[1.65]">{draft.text}</p>
+      </div>
+      <div className="flex items-center justify-end gap-2" title={blocked}>
+        <button
+          type="button"
+          disabled={!!blocked}
+          onClick={onUse}
+          className="flex h-8 items-center rounded-md px-3 text-base text-ink-2 leading-none transition-colors hover:bg-ink/6 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Aanpassen
+        </button>
+        <button
+          type="button"
+          disabled={!!blocked}
+          onClick={draft.onDiscard}
+          className="flex h-8 items-center rounded-md px-3 text-base text-ink-2 leading-none transition-colors hover:bg-ink/6 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Weggooien
+        </button>
+        <button
+          type="button"
+          disabled={!!blocked}
+          onClick={draft.onSend}
+          className="flex h-8 items-center gap-2 rounded-md bg-abyss px-3.5 font-medium text-base text-mesh-ink leading-none shadow-primary transition-colors hover:bg-abyss-2 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Send className="size-3.5" strokeWidth={2} />
+          Versturen
+        </button>
+      </div>
+    </section>
+  )
+}
+
 /**
  * The chat letter itself, for a host that reads the conversation on its own (the console's website chat, M15 step 8):
  * who and where, the bubbles, and the composer.
@@ -145,7 +203,8 @@ export function ChatLetterView({
   banner,
   composerDisabled,
   reconnect = "/settings/integrations",
-  clock = time
+  clock = time,
+  draft
 }: {
   channel: Exclude<ChannelId, "email">
   customer: string
@@ -163,6 +222,8 @@ export function ChatLetterView({
   reconnect?: string
   /** A time of day as the bubbles print it; the host's zone, so its server and the browser agree. */
   clock?: (iso: string) => string
+  /** The customer agent's draft, after the last bubble; absent when there is none. */
+  draft?: ChatDraftView | undefined
 }) {
   const st = { live }
   const thread = { handle, orderRef }
@@ -173,7 +234,7 @@ export function ChatLetterView({
   const end = useRef<HTMLDivElement>(null)
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end" })
-  }, [messages.length])
+  }, [messages.length, draft?.text])
   const blocked = composerDisabled ??
     (!st.live
       ? `${CHANNEL_LABEL[channel]} is ontkoppeld. Koppel het opnieuw om te antwoorden.`
@@ -200,6 +261,20 @@ export function ChatLetterView({
         <ol className="flex flex-col gap-3 pt-2">
           {messages.map((m) => <Bubble key={m.id} m={m} customer={customer} at={clock} />)}
         </ol>
+        {draft ?
+          (
+            <div className="flex flex-col">
+              <ChatDraftCard
+                draft={draft}
+                blocked={blocked}
+                onUse={() => {
+                  setText(draft.text)
+                  draft.onUse()
+                }}
+              />
+            </div>
+          ) :
+          null}
         <div ref={end} />
       </div>
       <ReplyWindowNotice channel={channel} messages={messages} now={now} />

@@ -136,13 +136,20 @@ export const nextOpenLabel = (hours: ReadonlyArray<DayHours>, timeZone: string, 
 }
 
 /** The handover sentence with `{wanneer}` filled in. */
+/** The refusal of a handover sentence the website chat would not send (a tab, a carriage return). */
+export const HANDOVER_REFUSED =
+  "Het overdrachtsbericht bevat een teken dat de websitechat niet verstuurt, zoals een tab. Haal het weg."
+
 export const handoverText = (
   s: Pick<CustomerAgentSettingsInput, "handoverMessage" | "hours">,
   timeZone: string,
   at: Date
 ) => {
   const when = nextOpenLabel(s.hours, timeZone, at)
-  return s.handoverMessage.replaceAll("{wanneer}", when === "nu" ? "vandaag nog" : when)
+  // A sentence saved before the chat's own check: what the chat would refuse is a space, so the shopper still hears.
+  // oxlint-disable-next-line no-control-regex
+  const sendable = s.handoverMessage.replaceAll("\r\n", "\n").replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, " ")
+  return sendable.replaceAll("{wanneer}", when === "nu" ? "vandaag nog" : when)
 }
 
 /** The first day whose closing is not after its opening, or none. */
@@ -527,9 +534,13 @@ export const numberOf = (word: string): number | null => {
   return times === null || rest === null ? null : times * 1000 + rest
 }
 
-/** Every number in words as its digits, and euro and percent signs as words: one reading of an amount. */
+/** Words that say "gratis" as other words: read as it, so the promise and its negation are seen ("niet kosteloos"). */
+const FREE = /\b(kosteloos|kostenloos|zonder\s+(extra\s+)?kosten)\b/gi
+
+/** Every number in words as its digits, euro and percent signs as words, and "kosteloos" as "gratis": one reading. */
 const asFigures = (text: string) =>
   text
+    .replaceAll(FREE, "gratis")
     .replaceAll(/\p{L}+/gu, (w) => {
       const n = numberOf(w)
       return n === null ? w : String(n)
@@ -659,7 +670,20 @@ const STOP = new Set([
 ])
 
 /** One word for two that say the same here, as stems: "retour" and "terug", "ontvangen" and "krijgen". */
-const SAME: Readonly<Record<string, string>> = { retour: "terug", ontvang: "krijg", verstur: "verzend", stur: "zend" }
+const SAME: Readonly<Record<string, string>> = {
+  retour: "terug",
+  ontvang: "krijg",
+  verstur: "verzend",
+  stur: "zend",
+  // A shopper's "pakket" (and "pakketje", "zending") is their order, here.
+  pakke: "bestelling",
+  pakketj: "bestelling",
+  zending: "bestelling",
+  // "Zodra", "wanneer" and "indien" as "als": one condition in other words. "Nadat" and "voordat" stay their own.
+  zodra: "als",
+  wanner: "als",
+  indi: "als"
+}
 
 /** Phrases that say one word's thing, read as that word: "weer op je rekening" is "terug". */
 const PHRASES: ReadonlyArray<readonly [RegExp, string]> = [[/\b(weer\s+)?op\s+(je|jouw|uw)\s+rekening\b/gi, "terug"]]
@@ -713,10 +737,42 @@ const quantitiesOf = (tokens: ReadonlyArray<string>) =>
     return [`${bound} ${figureOf(t)} ${unit}`]
   })
 
+/**
+ * Words that narrow what a promise is about ("een beschadigd pakket", "sale-artikelen", "een verkeerd artikel"), as
+ * stems: a fact that has one is about that thing only, so a reply makes the same promise only with the same ones. "Je
+ * bestelling ruilen we gratis om" is not what "Een beschadigd pakket ruilen we gratis om" says, now that "pakket" reads
+ * as the order (`SAME`).
+ */
+const QUALIFIERS: ReadonlySet<string> = new Set(
+  [
+    "beschadigd",
+    "kapot",
+    "defect",
+    "verkeerd",
+    "fout",
+    "sale",
+    "afgeprijsd",
+    "uitverkoop",
+    "outlet",
+    "gebruikt",
+    "gedragen",
+    "geopend",
+    "ongeopend",
+    "gepersonaliseerd",
+    "maatwerk",
+    "incompleet",
+    "onvolledig",
+    "vermist",
+    "kwijt"
+  ].map((w) => stemOf(w))
+)
+
 interface Reading {
   readonly content: ReadonlyArray<string>
   readonly quantities: ReadonlySet<string>
   readonly markers: ReadonlySet<string>
+  /** What it narrows its promise to (`QUALIFIERS`), as stems. */
+  readonly qualifiers: ReadonlySet<string>
   readonly lower: string
 }
 
@@ -731,6 +787,7 @@ const readingOf = (text: string): Reading => {
     ),
     quantities: new Set(quantitiesOf(tokens)),
     markers: new Set(words.filter((w) => MARKERS.has(w))),
+    qualifiers: new Set(words.map(stemOf).filter((w) => QUALIFIERS.has(w))),
     lower: text.toLowerCase()
   }
 }
@@ -744,9 +801,38 @@ const promiseWords = (lower: string) => PROMISES.filter((p) => lower.includes(p)
  */
 const STATE =
   /\b(geannuleerd|terugbetaald|teruggestort|verzonden|verstuurd|aangepast|gewijzigd|omgeruild|gecrediteerd|bezorgd)\b/i
-const CONDITIONAL = /\b(zodra|als|wanneer|nadat|voordat|indien|mits|tenzij)\b/i
+const CONDITIONAL = /\b(zodra|als|wanneer|nadat|voordat|indien|mits|tenzij)\b|\bna\s+ontvangst\b/i
+/** What is still to come ("je bestelling wordt binnen 2 werkdagen bezorgd", "we zullen het verzenden"): no state yet. */
+const FUTURE = /\b(wordt|worden|zal|zullen|zult|gaat|gaan)\b/i
 
-const claimsState = (sentence: string) => STATE.test(sentence) && !CONDITIONAL.test(sentence)
+/**
+ * A state said as reached. One in a condition or still to come is the chapter's to state as any promise: it is read
+ * against the chapter (`promises` holds every `STATE` word), not let through.
+ */
+const claimsState = (sentence: string) => STATE.test(sentence) && !CONDITIONAL.test(sentence) && !FUTURE.test(sentence)
+
+/** The shopper's own order, as a reply names it: "je bestelling", "jouw pakket", "uw zending". */
+const OUR_ORDER = String.raw`(je|jouw|uw)\s+(bestelling|pakket|pakketje|order|zending)`
+/** What is done to an order, in any form: "verzenden", "bezorgd", "annuleren", "omruilen", "aanpassen". */
+const ORDER_VERB =
+  /\b(verzend\w*|verzond\w*|verstu\w*|bezorg\w*|annule\w*|terugbeta\w*|terugstort\w*|omruil\w*|omgeruild|ruil\w*|aanpass\w*|aangepast|wijzig\w*|gewijzigd|lever\w*|geleverd)\b/i
+/** "We zullen je bestelling …", "je pakket gaan we …", "je bestelling wordt …": what is still to be done to it. */
+const OUR_ORDER_TO_COME = new RegExp(
+  [
+    String.raw`\b(we|wij|ik)\s+(zullen|zal|gaan|ga)\b[^.!?]*\b${OUR_ORDER}\b`,
+    String.raw`\b${OUR_ORDER}\b[^.!?]*\b(zullen|zal|gaan|ga)\s+(we|wij|ik)\b`,
+    String.raw`\b${OUR_ORDER}\s+(wordt|zal|gaat)\b`
+  ].join("|"),
+  "i"
+)
+
+/**
+ * A promise of what will be done to the shopper's own order ("We zullen je bestelling vandaag nog verzenden", "Je
+ * bestelling wordt omgeruild"): an action on this order, which only the proved order's facts can promise, never a
+ * chapter. The general form in a condition ("Zodra je bestelling verzonden is, …") is the chapter's to say.
+ */
+const promisesOrderAction = (sentence: string) =>
+  !CONDITIONAL.test(sentence) && OUR_ORDER_TO_COME.test(sentence) && ORDER_VERB.test(sentence)
 
 const promises = (sentence: string) =>
   PROMISE_TO_SHOPPER.test(sentence) || KEEPS.test(sentence) || promiseWords(sentence.toLowerCase()).length > 0 ||
@@ -820,6 +906,8 @@ const statedIn = (promise: Promise, facts: ReadonlyArray<string>) => {
     const fact = readingOf(f)
     // A fact of one word is a heading's, not a statement: "Gratis verzending" says nothing of when.
     if (fact.content.length + fact.quantities.size < 2 || !sameSet(whole.markers, fact.markers)) return false
+    // About the same thing: "een beschadigd pakket" is not every order, nor a sale-artikel every article.
+    if (!sameSet(whole.qualifiers, fact.qualifiers)) return false
     if ([...whole.quantities].some((q) => !fact.quantities.has(q))) return false
     if (words.some((p) => !fact.lower.includes(p))) return false
     const known = (w: string) => fact.content.some((k) => alike(w, k))
@@ -828,6 +916,31 @@ const statedIn = (promise: Promise, facts: ReadonlyArray<string>) => {
     const covered = main.content.filter(known).length + main.quantities.size
     const all = main.content.length + main.quantities.size
     return all === 0 || covered / all >= COVERED
+  })
+}
+
+const NEGATION_SET: ReadonlySet<string> = new Set(NEGATIONS)
+const negationsOf = (r: Reading) => new Set([...r.markers].filter((m) => NEGATION_SET.has(m)))
+
+/**
+ * Whether a sentence of the facts says the opposite of the promise, about the same thing: the same qualifiers, one of
+ * the promise's words ("gratis") and another of its words ("retourneren"), and a negation the reply has not, or the
+ * other way round. "Sale-artikelen zijn niet gratis te retourneren" wins over any other sentence a reply that sale
+ * articles return for free could be read from. One sentence at a time: two side by side are two subjects.
+ */
+const contradicted = (promise: Promise, facts: ReadonlyArray<string>) => {
+  const whole = readingOf(promise.whole)
+  const words = promiseWords(whole.lower)
+  if (words.length === 0) return false
+  const others = whole.content.filter((w) =>
+    !QUALIFIERS.has(w) && !words.some((p) => p.startsWith(w) || w.startsWith(p))
+  )
+  return facts.some((f) => {
+    const fact = readingOf(f)
+    if (!sameSet(whole.qualifiers, fact.qualifiers)) return false
+    if (!words.some((p) => fact.lower.includes(p))) return false
+    if (!others.some((w) => fact.content.some((k) => alike(w, k)))) return false
+    return !sameSet(negationsOf(whole), negationsOf(fact))
   })
 }
 
@@ -852,13 +965,15 @@ export const replyFaults = (
     untracedFigures(text, facts).length > 0 ||
     [...text.matchAll(NUMBER_WORDS)].some((m) => !knownWords.has(m[0].toLowerCase()))
   ) faults.push("figure")
-  const statements = statementsOf(given.statements === undefined ? facts : asFigures(fold(given.statements)))
+  const stated = given.statements === undefined ? facts : asFigures(fold(given.statements))
+  const statements = statementsOf(stated)
+  const singles = sentencesOf(stated).filter((l) => !l.startsWith("#"))
   const order = given.order == null ? [] : statementsOf(asFigures(fold(given.order)))
   const sentences = sentencesOf(text)
   const broken = sentences.some((sentence, i) => {
     const promise = promiseIn(sentence, sentences[i + 1])
-    if (claimsState(promise.whole)) return !statedIn(promise, order)
-    return promises(promise.whole) && !statedIn(promise, statements)
+    if (claimsState(promise.whole) || promisesOrderAction(promise.whole)) return !statedIn(promise, order)
+    return promises(promise.whole) && (!statedIn(promise, statements) || contradicted(promise, singles))
   })
   if (broken) faults.push("promise")
   if (untracedLinks(text, facts).length > 0 || defanged(text) || SPACED_DOMAIN.test(text)) faults.push("link")

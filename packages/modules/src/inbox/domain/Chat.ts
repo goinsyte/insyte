@@ -65,6 +65,9 @@ export class HandoverChange extends Schema.Class<HandoverChange>("inbox/Handover
   undo: Schema.NullOr(UndoTicket)
 }) {}
 
+/** Versturen, Aanpassen and Weggooien on the customer agent's draft in a chat. */
+export const ChatDraftInput = Schema.Struct({ threadId: Schema.String, draftId: Schema.String })
+
 /** The chat as `Shared.undo` puts it back. */
 export const ChatRestore = Schema.Union([
   /** A reply still in its undo window: taken away, the thread's preview as it was. */
@@ -78,7 +81,17 @@ export const ChatRestore = Schema.Union([
      * The reply's own time as Postgres wrote it (its text, to the microsecond), which the thread's `last_message_at`
      * holds while the reply is its last word. Absent from an undo issued before it was kept.
      */
-    sentAt: Schema.optional(Schema.String)
+    sentAt: Schema.optional(Schema.String),
+    /** The customer agent's draft it sent ("Versturen"): open again once the reply is taken away. */
+    draftId: Schema.optional(Schema.String)
+  }),
+  /** The customer agent's draft, thrown away ("Weggooien") or taken into the composer ("Aanpassen"): shown again. */
+  Schema.Struct({
+    kind: Schema.Literal("draft"),
+    threadId: Schema.String,
+    draftId: Schema.String,
+    /** What is undone; absent is a draft thrown away. */
+    undoes: Schema.optional(Schema.Literals(["discarded", "used"]))
   }),
   /** A take-over or a hand-back: the thread's holder and assignee as they were, the handover's state too. */
   Schema.Struct({

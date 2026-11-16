@@ -3,6 +3,7 @@ import {
   ChannelChange,
   ChannelIdInput,
   ChannelStatus,
+  ChatDraftInput,
   ChatUnavailable,
   ConnectChannelInput,
   HandoverChange,
@@ -99,6 +100,23 @@ export class ThreadsRpcs extends RpcGroup.make(
   // read at Klantenservice or Koppelingen · Bekijken, to connect and disconnect at Koppelingen en API · Instellen.
   Rpc.make("Threads.takeOver", { payload: ThreadIdInput, success: HandoverChange, error: Changed }),
   Rpc.make("Threads.handBack", { payload: ThreadIdInput, success: HandoverChange, error: Changed }),
+  // The customer agent's draft in a chat (Eerst vragen, Alleen concepten), at Bewerken: one someone was first with
+  // is a `Conflict` "gone". "Versturen" is a reply, refused as one is.
+  Rpc.make("Threads.sendDraft", {
+    payload: ChatDraftInput,
+    success: HandoverChange,
+    error: Schema.Union([Forbidden, NotFound, Conflict, Invalid, TakenOver, ThreadClosed])
+  }),
+  Rpc.make("Threads.useDraft", {
+    payload: ChatDraftInput,
+    success: HandoverChange,
+    error: Schema.Union([Forbidden, NotFound, Conflict])
+  }),
+  Rpc.make("Threads.discardDraft", {
+    payload: ChatDraftInput,
+    success: HandoverChange,
+    error: Schema.Union([Forbidden, NotFound, Conflict])
+  }),
   Rpc.make("Channels.list", { success: ChannelStatus, error: Forbidden }),
   Rpc.make("Channels.connect", {
     payload: ConnectChannelInput,
