@@ -26,8 +26,10 @@ import { readLines } from "./ShopifyGraphql.ts"
  * scopes, so Shopify denies those calls (`ACCESS_DENIED`). Insyte's drafts and new products (M7): a draft order is made
  * and deleted as asked, and found by its tag, but one for an address with `invalid` in it is refused on its email; a
  * product is made through `productSet` with its one variant, found by its handle and read back, but one titled with
- * `Geweigerd` is refused on its title. A `lost-*` shop makes its first draft or product and then fails the call, as
- * an answer lost on the way back. In a shop whose name holds `-lag-`, Shopify's search lags: a new draft is not found
+ * `Geweigerd` is refused on its title. `productSet` with `identifier: { handle }` updates the shop's product with that
+ * handle, or makes it; without one, a handle the shop already has is suffixed (`-1`), as Shopify does. A `lost-*` shop
+ * makes its first draft or product and then fails the call, as an answer lost on the way back. A `slow-*` shop's first
+ * product is still being made when the call times out: it fails the call, and the next read by its handle misses it. In a shop whose name holds `-lag-`, Shopify's search lags: a new draft is not found
  * by its tag on the first search after it was made. A test completes a draft as the merchant would (`completeRecordedDraft`).
  */
 
@@ -149,14 +151,23 @@ export interface RecordedProduct {
   readonly price: string
   readonly sku: string | null
 }
-const products = new Map<string, RecordedProduct & { readonly shop: string }>()
+const products = new Map<string, RecordedProduct & { readonly shop: string; unread: number }>()
 
 /** Objects made here (products, completed drafts' orders), as a single read answers them. */
 const madeNodes = new Map<string, Record<string, unknown>>()
 
 /** The products a shop holds that were made through the twin: a worker test reads what Shopify was sent. */
 export const recordedProducts = (shop: string): ReadonlyArray<RecordedProduct> =>
-  [...products.values()].filter((p) => p.shop === shop)
+  [...products.values()].filter((p) => p.shop === shop).map((p) => ({
+    id: p.id,
+    variant: p.variant,
+    item: p.item,
+    handle: p.handle,
+    title: p.title,
+    status: p.status,
+    price: p.price,
+    sku: p.sku
+  }))
 
 /** The draft orders a shop holds that were made through the twin, with their tags and lines. */
 export const recordedDrafts = (shop: string) =>
@@ -261,22 +272,32 @@ const returnWrite = (
       }
       const variant = ((product["variants"] as ReadonlyArray<Record<string, unknown>> | undefined) ?? [])[0] ?? {}
       const sku = (variant["inventoryItem"] as { sku?: string } | undefined)?.sku ?? null
-      const n = ++made
-      const ids = {
-        id: `gid://shopify/Product/${8000 + n}`,
-        variant: `gid://shopify/ProductVariant/${8500 + n}`,
-        item: `gid://shopify/InventoryItem/${8700 + n}`
-      }
+      const handle = String(product["handle"] ?? "")
+      const held = [...products.values()].filter((p) => p.shop === shop)
+      // By its handle, Shopify's upsert: the product with it, updated in place.
+      const by = (variables["identifier"] as { handle?: string } | undefined)?.handle
+      const same = by === undefined ? undefined : held.find((p) => p.handle === by)
+      const n = same === undefined ? ++made : 0
+      const ids = same === undefined
+        ? {
+          id: `gid://shopify/Product/${8000 + n}`,
+          variant: `gid://shopify/ProductVariant/${8500 + n}`,
+          item: `gid://shopify/InventoryItem/${8700 + n}`
+        }
+        : { id: same.id, variant: same.variant, item: same.item }
+      const used = same === undefined && held.some((p) => p.handle === handle)
       const kept = {
         shop,
         id: ids.id,
         variant: ids.variant,
         item: ids.item,
-        handle: String(product["handle"] ?? ""),
+        handle: used ? `${handle}-1` : handle,
         title: String(product["title"] ?? ""),
         status: String(product["status"] ?? "DRAFT"),
         price: String(variant["price"] ?? "0.00"),
-        sku
+        sku,
+        // A `slow-*` shop's first product is not read back by its handle once.
+        unread: same === undefined && shop.startsWith("slow-") && held.length === 0 ? 1 : (same?.unread ?? 0)
       }
       products.set(ids.id, kept)
       const base = parsed.find((l) => l["id"] === "gid://shopify/Product/3")!
@@ -408,7 +429,12 @@ const recordedQuery = (shop: string, query: string, variables: Record<string, un
     }
   }
   if (query.includes("productByIdentifier(")) {
-    const found = recordedProducts(shop).find((p) => p.handle === variables["handle"])
+    const found = [...products.values()].find((p) => {
+      if (p.shop !== shop || p.handle !== variables["handle"]) return false
+      if (p.unread <= 0) return true
+      p.unread -= 1
+      return false
+    })
     return {
       productByIdentifier: found === undefined
         ? null
@@ -475,7 +501,7 @@ export const ShopifyGraphqlRecorded = Layer.succeed(ShopifyGraphql)(ShopifyGraph
     const data = recordedQuery(shop, query, variables)
     // A `lost-*` shop makes its first draft or product, and the answer never arrives: a gateway error, tried again.
     const create = query.includes("draftOrderCreate(") || query.includes("productSet(")
-    if (create && shop.startsWith("lost-") && !lostOnce.has(shop)) {
+    if (create && (shop.startsWith("lost-") || shop.startsWith("slow-")) && !lostOnce.has(shop)) {
       lostOnce.add(shop)
       return Effect.fail(new ShopifyRefused({ status: 502, reason: "Bad Gateway" }))
     }
