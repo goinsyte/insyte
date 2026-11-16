@@ -1,4 +1,5 @@
 import { Context, type Effect, Schema } from "effect"
+import { ChatReceived } from "./ChatChannel.ts"
 import { RetryFields } from "./MailRetry.ts"
 
 /*
@@ -607,6 +608,8 @@ export const OutboxEvent = Schema.Union([
     articleId: Schema.String,
     version: Schema.Int
   }),
+  // A shopper's message on the website chat was stored (wave 12, `ChatChannel.ts`): the customer agent hears it.
+  ChatReceived,
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

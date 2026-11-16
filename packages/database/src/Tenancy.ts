@@ -158,7 +158,10 @@ export const TENANT_TABLES = [
   "knowledge_versions",
   "knowledge_chunks",
   "knowledge_gaps",
-  "knowledge_citations"
+  "knowledge_citations",
+  // The customer agent (M15 step 8): its settings, and what it keeps per website chat thread.
+  "customer_agent_settings",
+  "customer_agent_threads"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 
