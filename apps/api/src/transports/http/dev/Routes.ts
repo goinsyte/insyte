@@ -27,6 +27,7 @@ import { StoreRoutes } from "./stores.ts"
 import { TrackingSweep } from "./tracking.ts"
 import { TrashSweep } from "./trash.ts"
 import { UndoRoutes } from "./undo.ts"
+import { WebchatRoutes } from "./webchat.ts"
 
 /*
  * Every `__dev` route, one file per concern. Loaded by `../DevRoutes.ts` on the first request under `/api/__dev/`,
@@ -61,7 +62,8 @@ const Routes = Layer.mergeAll(
   PrivacyRoutes,
   AiRoutes,
   AgentRoutes,
-  IdempotencyRoutes
+  IdempotencyRoutes,
+  WebchatRoutes
 )
 
 /**

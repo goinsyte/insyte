@@ -180,6 +180,8 @@ const BY_RETURN = `(select r.id from returns r where r.customer_id = any($1::tex
 const BY_TICKET = `(select k.id from tickets k where k.customer_id = any($1::text[]) or k.order_id in ${BY_ORDER})`
 const BY_THREAD = `(select h.id from email_threads h where h.customer_id = any($1::text[])
   or ($2::text is not null and $3::text[] is null and strpos(lower(h.participants::text), $2) > 0))`
+/** Their website chats (0102): bound to them once they were known to be the store's customer. */
+const BY_CHAT = `(select c.id from channel_threads c where c.customer_id = any($1::text[]))`
 const SHOPPER_PARTS: ReadonlyArray<readonly [string, string]> = [
   ["customers", "select to_jsonb(t)::text as row from customers t where t.id = any($1::text[])"],
   ["orders", `select to_jsonb(t)::text as row from orders t where t.id in ${BY_ORDER}`],
@@ -197,6 +199,12 @@ const SHOPPER_PARTS: ReadonlyArray<readonly [string, string]> = [
   ["ticket_comments", `select to_jsonb(t)::text as row from ticket_comments t where t.ticket_id in ${BY_TICKET}`],
   ["email_threads", `select to_jsonb(t)::text as row from email_threads t where t.id in ${BY_THREAD}`],
   ["email_messages", `select to_jsonb(t)::text as row from email_messages t where t.thread_id in ${BY_THREAD}`],
+  // What they said in the store's website chat, and what was said to them (the session's hash is Insyte's own).
+  [
+    "channel_threads",
+    `select (to_jsonb(t) - 'visitor_hash')::text as row from channel_threads t where t.id in ${BY_CHAT}`
+  ],
+  ["channel_messages", `select to_jsonb(t)::text as row from channel_messages t where t.thread_id in ${BY_CHAT}`],
   [
     "chargebacks",
     `select to_jsonb(t)::text as row from chargebacks t where t.customer_id = any($1::text[])

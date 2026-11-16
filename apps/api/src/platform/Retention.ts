@@ -1,6 +1,6 @@
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
-import { dueWorkspaces, eraseWorkspace } from "@insyte/modules/settings/use-cases/retention"
+import { dueWorkspaces, eraseWorkspace, purgeAnonymousChats } from "@insyte/modules/settings/use-cases/retention"
 import { Effect } from "effect"
 
 /*
@@ -17,4 +17,6 @@ export const retentionSweep = Effect.fn("Retention.sweep")(function*(at: Date) {
   for (const workspaceId of yield* dueWorkspaces(at)) {
     yield* retentionWorkspace(workspaceId as WorkspaceId).pipe(Effect.catchCause(Effect.logError))
   }
+  // The website chat's anonymous conversations past their days, whatever each workspace's retention (M15 step 8).
+  yield* purgeAnonymousChats.pipe(Effect.catchCause(Effect.logError))
 }, Effect.orDie)
