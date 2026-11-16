@@ -43,6 +43,7 @@ interface Held {
   readonly assigneeId: string | null
   readonly takenOverBy: string | null
   readonly takenOverAt: Date | null
+  readonly handedBackAt: Date | null
   readonly closedAt: Date | null
   readonly deletedAt: Date | null
   readonly lastMessageAt: Date
@@ -54,7 +55,7 @@ interface Held {
 export const holdChat = Effect.fn("Chat.hold")(function*(sql: SqlClient.SqlClient, threadId: string) {
   const [row] = yield* sql<Held>`
     select t.id, t.workspace_id, t.store_id, t.customer_id, t.assignee_id, t.taken_over_by, t.taken_over_at,
-           t.closed_at, t.deleted_at, t.last_message_at, t.last_message_preview,
+           t.handed_back_at, t.closed_at, t.deleted_at, t.last_message_at, t.last_message_preview,
            (select c.status = 'connected' from channels c where c.id = t.channel_id) as live
     from channel_threads t where t.id = ${threadId} and ${yield* inScope(sql, "t.store_id")} for update of t`
   if (row === undefined) return yield* new NotFound({ entity: "thread", id: threadId })
@@ -177,6 +178,7 @@ const holder = (held: Held, h: OpenHandover | undefined): ChatRestore => ({
   threadId: held.id,
   takenOverBy: held.takenOverBy,
   takenOverAt: ms(held.takenOverAt),
+  handedBackAt: ms(held.handedBackAt),
   assigneeId: held.assigneeId,
   handover: h === undefined ? null : {
     id: h.id,
@@ -226,7 +228,9 @@ export const handBack = Effect.fn("Threads.handBack")(function*(input: { readonl
       const held = yield* holdChat(sql, input.threadId)
       const h = yield* openHandover(sql, held.id)
       if (held.takenOverBy === null && h === undefined) return yield* changed(sql, held.id, null)
-      yield* sql`update channel_threads set taken_over_by = null, taken_over_at = null, assignee_id = null
+      // Kept on the thread, not only on a handover: a take-over and hand-back with none open leave their mark too.
+      yield* sql`update channel_threads set taken_over_by = null, taken_over_at = null, assignee_id = null,
+                   handed_back_at = now()
                  where id = ${held.id}`
       if (h !== undefined) {
         yield* sql`update handovers set handed_back_at = now(), handed_back_by = ${principal.id} where id = ${h.id}`
@@ -258,11 +262,13 @@ export const thread = Effect.fn("Chat.thread")(function*(threadId: string) {
           kind: "webchat"
           customerId: string | null
           takenOverBy: string | null
+          handedBackAt: Date | null
           closedAt: Date | null
           reason: string | null
           at: Date | null
         }>`
-          select t.workspace_id, t.store_id, t.kind, t.customer_id, t.taken_over_by, t.closed_at, h.reason, h.at
+          select t.workspace_id, t.store_id, t.kind, t.customer_id, t.taken_over_by, t.handed_back_at, t.closed_at, h.reason,
+                 h.at
           from channel_threads t left join handovers h on h.thread_id = t.id and h.handed_back_at is null
           where t.id = ${threadId} and ${yield* inScope(sql, "t.store_id")}`
         if (row === undefined) return yield* new NotFound({ entity: "thread", id: threadId })
@@ -273,6 +279,7 @@ export const thread = Effect.fn("Chat.thread")(function*(threadId: string) {
           customerId: row.customerId,
           handover: row.reason === null || row.at === null ? null : { reason: row.reason, at: row.at },
           takenOverBy: row.takenOverBy,
+          handedBackAt: row.handedBackAt,
           closedAt: row.closedAt
         } satisfies ChatThread
       })
@@ -383,7 +390,7 @@ export const restore = Effect.fn("Chat.restore")(function*(sql: SqlClient.SqlCli
     }
     case "holder": {
       yield* sql`update channel_threads set taken_over_by = (select id from members where id = ${undo.takenOverBy}),
-                   taken_over_at = ${at(undo.takenOverAt)},
+                   taken_over_at = ${at(undo.takenOverAt)}, handed_back_at = ${at(undo.handedBackAt)},
                    assignee_id = (select id from members where id = ${undo.assigneeId})
                  where id = ${undo.threadId}`
       if (undo.handover !== null) {

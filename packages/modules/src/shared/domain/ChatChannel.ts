@@ -37,6 +37,8 @@ export interface ChatThread {
   readonly customerId: string | null
   readonly handover: null | { readonly reason: string; readonly at: Date }
   readonly takenOverBy: string | null
+  /** The last time a person handed the thread back to Insyte ("Teruggeven"), or `null` while none has. */
+  readonly handedBackAt: Date | null
   readonly closedAt: Date | null
 }
 

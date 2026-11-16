@@ -76,6 +76,7 @@ export const ChatRestore = Schema.Union([
     threadId: Schema.String,
     takenOverBy: Schema.NullOr(Schema.String),
     takenOverAt: Schema.NullOr(Schema.Finite),
+    handedBackAt: Schema.NullOr(Schema.Finite),
     assigneeId: Schema.NullOr(Schema.String),
     handover: Schema.NullOr(Schema.Struct({
       id: Schema.String,

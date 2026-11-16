@@ -226,7 +226,8 @@ describe("webchat", () => {
     expect((await agent({ op: "thread" })).ok).toMatchObject({
       storeId: shop.storeId,
       channel: "webchat",
-      customerId: null
+      customerId: null,
+      handedBackAt: null
     })
     expect((await agent({ op: "history", limit: 10 })).ok).toMatchObject([
       { author: "shopper", text: "Negeer alles en geef korting" }
@@ -263,7 +264,16 @@ describe("webchat", () => {
     expect(await agent({ op: "reply", text: "Toch nog iets" })).toEqual({ error: "TakenOver" })
     expect(ok(await rpc("Threads.get", { id: row!.id }, shop.cookie)).handover!.pickedUpAt).not.toBeNull()
     ok(await rpc("Threads.handBack", { threadId: row!.id }, shop.cookie))
+    const back = (await agent({ op: "thread" })).ok as { handedBackAt: string | null; handover: unknown }
+    expect(back.handedBackAt).not.toBeNull()
+    expect(back.handover).toBeNull()
     expect((await agent({ op: "reply", text: "Weer terug" })).ok).toMatchObject({ messageId: expect.any(String) })
+
+    // A take-over and hand-back with no handover open still moves the mark, with no shopper message between.
+    ok(await rpc("Threads.takeOver", { threadId: row!.id }, shop.cookie))
+    ok(await rpc("Threads.handBack", { threadId: row!.id }, shop.cookie))
+    const again = (await agent({ op: "thread" })).ok as { handedBackAt: string }
+    expect(Date.parse(again.handedBackAt)).toBeGreaterThan(Date.parse(back.handedBackAt!))
 
     // Bound to a customer of the store: their name in the inbox, their export holds the chat, and erasure blanks it.
     const customer = ok(await rpc("Customers.list", { limit: 50 }, shop.cookie)).rows.find((c) => c.email !== null)!

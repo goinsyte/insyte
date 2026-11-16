@@ -81,6 +81,7 @@ export default statements(
      closed_at            timestamptz,
      taken_over_by        text references members(id) on delete set null,
      taken_over_at        timestamptz,
+     handed_back_at       timestamptz,
      agent_spoke_at       timestamptz,
      created_at           timestamptz not null default now(),
      updated_at           timestamptz not null default now()
