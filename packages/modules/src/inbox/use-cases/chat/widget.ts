@@ -47,10 +47,13 @@ export interface ChatRoute {
 const routes = new Map<string, ChatRoute>()
 const unknown = new Map<string, number>()
 
-/** A channel changed (connected, disconnected, its greeting): this isolate reads its route again. */
+/**
+ * A channel changed (connected, disconnected, its greeting): this isolate reads its route again, by store and by shop,
+ * and forgets which stores it found no chat at. Another isolate may answer as before until its copy is half a minute old.
+ */
 export const forgetChatRoute = (storeId: string) => {
-  routes.delete(storeId)
-  unknown.delete(storeId)
+  for (const [key, route] of routes) if (key === storeId || route.storeId === storeId) routes.delete(key)
+  unknown.clear()
 }
 
 /** The store's chat as the widget's requests need it, or `undefined` when it is not on. */
