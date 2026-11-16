@@ -12,9 +12,8 @@ import { withRequestDb } from "../RequestDb.ts"
  * chat use cases. A caller with a database in context (a relay sink, an RPC) uses its connection; one without gets one
  * of its own for the call. A database that does not answer is a defect, as everywhere.
  *
- * The seam's reply knows `NotFound`, `TakenOver` and `ThreadClosed` only: a principal whose role may not answer in the
- * inbox (`Forbidden`) is told the thread is not there for it, and a text the chat refuses (empty, or longer than
- * `CHAT_TEXT_MAX`) is a defect: the caller keeps its replies within the chat's length.
+ * A principal whose role may not answer in the inbox (`Forbidden`) is told by the seam that the thread is not there for
+ * it (`NotFound`); a text the chat refuses (empty, or longer than `CHAT_TEXT_MAX`) is `Invalid`.
  */
 export const ChatChannelLive = Layer.effect(
   ChatChannel,
@@ -32,10 +31,7 @@ export const ChatChannelLive = Layer.effect(
       history: (threadId, { limit }) => run(Chat.history(threadId, limit)),
       reply: (threadId, text) =>
         run(Chat.replyAs(threadId, text)).pipe(
-          Effect.catchTags({
-            Forbidden: () => Effect.fail(new NotFound({ entity: "thread", id: threadId })),
-            Invalid: (invalid) => Effect.die(invalid)
-          })
+          Effect.catchTag("Forbidden", () => Effect.fail(new NotFound({ entity: "thread", id: threadId })))
         ),
       handOver: (threadId, reason) => run(Chat.handOver(threadId, reason)),
       bindCustomer: (threadId, customerId) => run(Chat.bindCustomer(threadId, customerId))

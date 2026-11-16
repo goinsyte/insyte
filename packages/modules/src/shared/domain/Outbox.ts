@@ -1,4 +1,5 @@
 import { Context, type Effect, Schema } from "effect"
+import { ChatReceived } from "./ChatChannel.ts"
 import { RetryFields } from "./MailRetry.ts"
 
 /*
@@ -581,14 +582,8 @@ export const OutboxEvent = Schema.Union([
   }),
   // A shopper wrote in the website chat (M15 step 8; `ChatChannel.ts`): written on the transaction that stores the
   // message. The customer agent hears it; the team hears of a new chat. Ids only, never the words.
-  Schema.Struct({
-    type: Schema.Literal("chat.received"),
-    workspaceId: Schema.String,
-    storeId: Schema.String,
-    threadId: Schema.String,
-    messageId: Schema.String,
-    channel: Schema.Literal("webchat")
-  }),
+  // The seam's own (`ChatChannel.ts`), so the chat and the agent cannot drift apart on it.
+  ChatReceived,
   // The agent passed a chat to a person (M15 step 8, `ChatChannel.handOver`): the team that reaches its store hears.
   Schema.Struct({
     type: Schema.Literal("chat.handed_over"),

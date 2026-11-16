@@ -1,4 +1,4 @@
-import type { NotFound } from "@insyte/domain/Errors"
+import type { Invalid, NotFound } from "@insyte/domain/Errors"
 import type { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Context, type Effect, Schema } from "effect"
 
@@ -11,9 +11,10 @@ import { Context, type Effect, Schema } from "effect"
  * - `thread`: the thread's standing; `NotFound` outside the caller's workspace or store scope.
  * - `history`: the newest messages, oldest first.
  * - `reply`: a message as the calling principal (a member, or the workspace's `agent`); refused when a person took the
- *   thread over (`TakenOver`) or it is closed (`ThreadClosed`).
+ *   thread over (`TakenOver`), it is closed (`ThreadClosed`), or the text is empty or longer than 1000 characters
+ *   (`Invalid`). A role that may not reply is told the thread is not there (`NotFound`).
  * - `handOver`: the thread needs a person: it shows in the inbox's "Overgedragen" view and the team is told, through
- *   the notifications fan-out with its store fence.
+ *   the notifications fan-out with its store fence. The reason is free text, kept to 500 characters (cut beyond).
  * - `bindCustomer`: the thread linked to a verified Shopify customer of the same store.
  */
 
@@ -72,7 +73,7 @@ export class ChatChannel extends Context.Service<ChatChannel, {
   readonly reply: (
     threadId: string,
     text: string
-  ) => Effect.Effect<{ readonly messageId: string }, NotFound | TakenOver | ThreadClosed, R>
+  ) => Effect.Effect<{ readonly messageId: string }, NotFound | Invalid | TakenOver | ThreadClosed, R>
   readonly handOver: (threadId: string, reason: string) => Effect.Effect<void, NotFound, R>
   readonly bindCustomer: (threadId: string, customerId: string) => Effect.Effect<void, NotFound, R>
 }>()("shared/ChatChannel") {}
