@@ -579,6 +579,23 @@ export const OutboxEvent = Schema.Union([
     messageId: Schema.String,
     reply: Schema.Boolean
   }),
+  // A shopper wrote in the website chat (M15 step 8; `ChatChannel.ts`): written on the transaction that stores the
+  // message. The customer agent hears it; the team hears of a new chat. Ids only, never the words.
+  Schema.Struct({
+    type: Schema.Literal("chat.received"),
+    workspaceId: Schema.String,
+    storeId: Schema.String,
+    threadId: Schema.String,
+    messageId: Schema.String,
+    channel: Schema.Literal("webchat")
+  }),
+  // The agent passed a chat to a person (M15 step 8, `ChatChannel.handOver`): the team that reaches its store hears.
+  Schema.Struct({
+    type: Schema.Literal("chat.handed_over"),
+    workspaceId: Schema.String,
+    storeId: Schema.String,
+    threadId: Schema.String
+  }),
   // A variant's stock went down (M12 step 3), from Shopify or a supplier's feed, in a workspace with a "Lage
   // voorraad" flow on: what it was and what it is, summed over its locations, so each flow checks its own threshold.
   Schema.Struct({
