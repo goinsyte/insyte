@@ -73,7 +73,8 @@ function Banner(
     handBack: useAtomSet(inboxWrites.handBack, { mode: "promiseExit" }),
     undo: useAtomSet(inboxWrites.undo, { mode: "promiseExit" })
   }
-  const state = thread.agent?.state
+  // The letter's own read, every five seconds: the list's row may be older.
+  const state = detail.thread.agentState ?? undefined
   if (state === undefined) return null
   if (state === "handled") return <AgentHandled />
   const done = (exit: Exit.Exit<HandoverChange, unknown>, label: string, detailLine: string) => {
@@ -154,6 +155,7 @@ function ConsoleChatLetter({ thread }: { thread: InboxThread }) {
       messages={detail.chat.map((m) => bubbleOf(m, who))}
       live={store === undefined || store.status === "connected"}
       now={now}
+      clock={source.time}
       banner={
         <Banner thread={thread} detail={detail} me={source.me} meName={meName} gate={source.gate} refresh={refresh} />
       }

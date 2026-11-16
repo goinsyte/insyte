@@ -98,14 +98,14 @@ export function ReplyWindowNotice(
 }
 
 /** One bubble. The customer on the left on `mist`; the team and Insyte on the right, Insyte marked. */
-function Bubble({ m, customer }: { m: ChatMessage; customer: string }) {
+function Bubble({ m, customer, at }: { m: ChatMessage; customer: string; at: (iso: string) => string }) {
   const ours = m.from !== "customer"
   return (
     <li className={cn("flex max-w-[78%] flex-col gap-1", ours ? "items-end self-end" : "items-start self-start")}>
       <span className="flex items-center gap-1.5 text-ink-3 text-xs">
         {m.from === "insyte" ? <InsyteMark size={14} /> : null}
         {m.from === "insyte" ? "Insyte · automatisch" : m.from === "team" ? (m.name ?? "Team") : customer}
-        <span className="tabular-nums">{time(m.at)}</span>
+        <span className="tabular-nums">{at(m.at)}</span>
       </span>
       <p
         className={cn(
@@ -144,7 +144,8 @@ export function ChatLetterView({
   onSend,
   banner,
   composerDisabled,
-  reconnect = "/settings/integrations"
+  reconnect = "/settings/integrations",
+  clock = time
 }: {
   channel: Exclude<ChannelId, "email">
   customer: string
@@ -160,6 +161,8 @@ export function ChatLetterView({
   composerDisabled?: string | undefined
   /** Where "Opnieuw koppelen" leads. */
   reconnect?: string
+  /** A time of day as the bubbles print it; the host's zone, so its server and the browser agree. */
+  clock?: (iso: string) => string
 }) {
   const st = { live }
   const thread = { handle, orderRef }
@@ -195,7 +198,7 @@ export function ChatLetterView({
         </div>
         {banner}
         <ol className="flex flex-col gap-3 pt-2">
-          {messages.map((m) => <Bubble key={m.id} m={m} customer={customer} />)}
+          {messages.map((m) => <Bubble key={m.id} m={m} customer={customer} at={clock} />)}
         </ol>
         <div ref={end} />
       </div>
