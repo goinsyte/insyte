@@ -30,6 +30,14 @@ export const PLAN_STORES: Record<PlanId, number> = { starter: 1, growth: 3, scal
 /** AI answers a period, per plan. */
 export const PLAN_AI_REPLIES: Record<PlanId, number> = { starter: 1000, growth: 2500, scale: 5000 }
 
+/**
+ * The customer agent's model calls one store's website chat may make within an hour, per plan: anonymous visitors spend
+ * the workspace's budget, so a flood goes to a person. Scaled as the plan's AI answers; before a plan is picked, and
+ * for a plan not listed, the default.
+ */
+export const CHAT_CALLS_PER_HOUR = 60
+export const PLAN_CHAT_CALLS_PER_HOUR: Record<PlanId, number> = { starter: 60, growth: 150, scale: 300 }
+
 /** Active automations, the same for every plan (the design's "/ 50"). */
 export const ACTIVE_AUTOMATIONS = 50
 

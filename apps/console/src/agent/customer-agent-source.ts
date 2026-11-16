@@ -9,6 +9,7 @@ import { AsyncResult } from "effect/reactivity"
 import { toast } from "sonner"
 import { agentDayAtom, agentWrites, CUSTOMER_AGENT } from "../data/agent.ts"
 import { failureOf, sayRefusal, useGate } from "../frame/refusals.ts"
+import { undoRefusal } from "./customer-agent-undo.ts"
 
 /*
  * Klantagent in the console (M15 step 8): `ChannelAgent.get` as the design's settings, its day from
@@ -92,7 +93,9 @@ export function useConsoleCustomerAgentSource(view: ChannelAgentView): CustomerA
         said,
         () =>
           void undo({ payload: { token }, reactivityKeys: [...CUSTOMER_AGENT] }).then((done) => {
-            if (Exit.isFailure(done)) toast.error("Te laat om ongedaan te maken")
+            if (Exit.isSuccess(done)) return
+            const said = undoRefusal(failureOf(done))
+            toast.error(said.title, said.description === undefined ? undefined : { description: said.description })
           }),
         next.on ? "Nieuwe gesprekken volgen deze regels." : "Nieuwe gesprekken gaan naar de inbox."
       )

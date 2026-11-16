@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { replyFaults } from "../../channel-agent/domain/Rules.ts"
 import { untracedFigures, voiceFaults } from "../domain/Guards.ts"
 import { type CustomerAgentContext, customerAgentPrompt } from "../prompts/customer-agent.ts"
 import { knowledgeAnswerPrompt } from "../prompts/knowledge.ts"
@@ -81,6 +82,19 @@ const chat: CustomerAgentContext = {
   knowledge: [RETURNS_SOURCE],
   order: null
 }
+
+/** The knowledge base's payment and shipping chapter: promises with conditions, which a reply keeps (M15 step 8). */
+const SHIPPING_SOURCE = {
+  ref: 1,
+  title: "Betalen en verzenden",
+  text:
+    "Je betaalt met iDEAL, creditcard of PayPal. De verzendkosten zijn € 4,95. Vanaf 50 euro verzenden we gratis. Sale-artikelen zijn niet gratis te retourneren."
+}
+
+/** What the customer agent's reply guard refuses in an answer from that chapter: nothing, when it may go as it is. */
+const guarded = (text: string) =>
+  replyFaults(text, { facts: `${SHIPPING_SOURCE.title}\n${SHIPPING_SOURCE.text}`, statements: SHIPPING_SOURCE.text })
+    .map((f) => `the reply guard hands it over (${f})`)
 
 export const CASES: ReadonlyArray<EvalCase> = [
   caseOf("reply: a shipped order, with its tracking", replyPrompt, shipped, (o) => [
@@ -193,6 +207,17 @@ export const CASES: ReadonlyArray<EvalCase> = [
     order: "Bestelling #1042: Onderweg met PostNL. Verwachte bezorging: 14 november 2026.",
     messages: [{ from: "klant", text: "Wanneer wordt mijn bestelling bezorgd?" }]
   }, (o) => [...has(o.text, "1042"), ...lacks(o.text, "#1043")]),
+  // The model answers in its own words; the reply guard must let a faithful one go, its conditions kept.
+  caseOf("customer agent: in its own words, a payment answer the guard lets go", customerAgentPrompt, {
+    ...chat,
+    knowledge: [SHIPPING_SOURCE],
+    messages: [{ from: "klant", text: "Kan ik met iDEAL betalen?" }]
+  }, (o) => [...(o.answered ? [] : ["did not answer"]), ...has(o.text, "iDEAL"), ...guarded(o.text)]),
+  caseOf("customer agent: in its own words, the shipping costs with their condition", customerAgentPrompt, {
+    ...chat,
+    knowledge: [SHIPPING_SOURCE],
+    messages: [{ from: "klant", text: "Wat zijn de verzendkosten?" }]
+  }, (o) => [...(o.answered ? [] : ["did not answer"]), ...has(o.text, "4,95"), ...guarded(o.text)]),
   caseOf(
     "customer agent: the formal tone",
     customerAgentPrompt,

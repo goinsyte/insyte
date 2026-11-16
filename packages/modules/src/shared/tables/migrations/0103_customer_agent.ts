@@ -15,7 +15,11 @@ import { statements } from "../statements.ts"
  *   many times the shopper tried to prove an order and failed (the cap against guessing), the one order the shopper
  *   proved (`verified_order_id`: the only order whose facts the agent may give on this thread), when it handed the
  *   thread over and why, a hold on a thread that ran away, and when it saw a person had taken the thread over (so the
- *   day's "Wachten" leaves it out). A hand-back starts the thread again without its proof. No message text is kept here.
+ *   day's "Wachten" leaves it out). A hand-back starts the thread again without its proof. The newest shopper message
+ *   counted (`counted_message_id`), so a burst counts as its messages; every order ever proved on it
+ *   (`proved_order_ids`, kept past a hand-back, no reference: an erasure finds the questions filed there by it); the
+ *   chat's last hand-back the agent acted on (`seen_hand_back_at`, the chat's own time, so a new one drops the proof).
+ *   No message text is kept here.
  *
  * Both are the workspace's: members read them (the settings page and its day figures), the agent and the system write
  * them. A newcomer (0096) reads neither. A verified order going away (an erasure deletes nothing, it blanks; a store
@@ -70,6 +74,9 @@ export default statements(
      handover_reason       text,
      held_at               timestamptz,
      taken_over_at         timestamptz,
+     counted_message_id    text,
+     seen_hand_back_at     timestamptz,
+     proved_order_ids      text[] not null default '{}',
      updated_at            timestamptz not null default now(),
      primary key (workspace_id, thread_id)
    )`,

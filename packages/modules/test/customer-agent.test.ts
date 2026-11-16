@@ -197,6 +197,68 @@ describe("what a reply may say", () => {
     expect(replyFaults("Je krijgt ko\u200brting.", { facts })).toContain("promise")
     expect(replyFaults("Binnen dertig dagen.", { facts: "Je kunt binnen dertig dagen retourneren." })).toEqual([])
   })
+  it("passes a promise a fact states in other words, and refuses one whose negation or condition changed", () => {
+    // [the reply, the fact it was written from, whether it may go]
+    const pairs: ReadonlyArray<readonly [string, string, boolean]> = [
+      // The same promise, said as the chapter says it or in other words: it may go.
+      [
+        "Je krijgt je geld terug binnen 14 dagen na ontvangst van je retour.",
+        "Je krijgt je geld terug binnen 14 dagen na ontvangst van je retour.",
+        true
+      ],
+      [
+        "Je ontvangt je geld retour binnen veertien dagen na ontvangst van je retour.",
+        "Je krijgt je geld terug binnen 14 dagen na ontvangst van je retour.",
+        true
+      ],
+      ["Je kunt betalen met iDEAL.", "Je betaalt met iDEAL, creditcard of PayPal.", true],
+      ["Betalen kan met iDEAL of PayPal.", "Je betaalt met iDEAL, creditcard of PayPal.", true],
+      ["Verzenden kost € 4,95.", "De verzendkosten zijn 4,95 euro.", true],
+      ["Het verzenden kost 4,95 euro.", "De verzendkosten zijn € 4,95.", true],
+      ["Vanaf vijftig euro verzenden we gratis.", "Vanaf 50 euro verzenden we gratis.", true],
+      ["Bestellingen vanaf 50 euro verzenden we gratis.", "Vanaf 50 euro verzenden we gratis.", true],
+      ["Sale-artikelen kun je niet gratis retourneren.", "Sale-artikelen zijn niet gratis te retourneren.", true],
+      ["Retourneren is gratis, behalve voor grote artikelen.", "Retourneren is gratis, behalve grote artikelen.", true],
+      ["We versturen binnen twee werkdagen.", "We verzenden binnen 2 werkdagen.", true],
+      ["We verzenden binnen 2 werkdagen.", "We verzenden binnen twee werkdagen.", true],
+      ["We houden je op de hoogte.", "We verzenden binnen 2 werkdagen.", true],
+      // A negation or a condition dropped or added, either way round, or a promise the fact does not make: a person.
+      ["Sale-artikelen zijn gratis te retourneren.", "Sale-artikelen zijn niet gratis te retourneren.", false],
+      ["Sale-artikelen zijn niet gratis te retourneren.", "Sale-artikelen zijn gratis te retourneren.", false],
+      ["We verzenden gratis.", "Vanaf 50 euro verzenden we gratis.", false],
+      ["Vanaf 50 euro verzenden we gratis.", "We verzenden gratis.", false],
+      ["Retourneren is gratis.", "Retourneren is gratis, behalve grote artikelen.", false],
+      ["Je krijgt je geld terug.", "Je krijgt je geld niet terug voor sale-artikelen.", false],
+      ["Je krijgt geen geld terug voor sale-artikelen.", "Je krijgt je geld terug voor sale-artikelen.", false],
+      ["Je krijgt je geld terug binnen 30 dagen.", "Je krijgt je geld terug binnen 14 dagen.", false],
+      ["Je krijgt korting op je volgende bestelling.", "Je krijgt een bevestiging van je volgende bestelling.", false],
+      ["We betalen de verzendkosten terug.", "De verzendkosten zijn 4,95 euro.", false],
+      ["Verzenden is gratis.", "De verzendkosten zijn 4,95 euro.", false],
+      ["Je mag het artikel houden.", "Je kunt het artikel binnen 30 dagen retourneren.", false],
+      ["Alleen boven 50 euro verzenden we gratis.", "Vanaf 50 euro verzenden we gratis.", false],
+      // Two sentences of the fact said as one, every condition kept: it may go; one dropped: a person.
+      [
+        "Verzenden kost € 4,95, vanaf 50 euro is het gratis.",
+        "De verzendkosten zijn € 4,95. Vanaf 50 euro verzenden we gratis.",
+        true
+      ],
+      ["Verzenden kost € 4,95 en is gratis.", "De verzendkosten zijn € 4,95. Vanaf 50 euro verzenden we gratis.", false]
+    ]
+    for (const [reply, fact, goes] of pairs) {
+      expect(replyFaults(reply, { facts: `Beleid\n${fact}` }).length === 0, `${reply} | ${fact}`).toBe(goes)
+    }
+  })
+  it("reads no promise from a heading", () => {
+    expect(replyFaults("We verzenden gratis.", { facts: "## Gratis verzending\nVanaf 50 euro verzenden we gratis." }))
+      .toEqual(["promise"])
+    // The chapter's title is a fact for its words and figures, never a statement of a promise.
+    expect(
+      replyFaults("We verzenden gratis.", {
+        facts: "Gratis verzending\nVanaf 50 euro verzenden we gratis.",
+        statements: "Vanaf 50 euro verzenden we gratis."
+      })
+    ).toEqual(["promise"])
+  })
   it("refuses a link written to slip past", () => {
     for (
       const reply of ["Kijk op evil dot nl.", "Mail hulp at evil punt nl.", "Kijk op evil。com.", "Kijk op evil . com"]
@@ -257,6 +319,30 @@ describe("what the model reads of the shopper", () => {
     expect(redactContact("Mail me op jan@voorbeeld.nl of bel 06 12345678, ik woon op 1234 AB"))
       .toBe("Mail me op [e-mail] of bel [telefoon], ik woon op [postcode]")
     expect(redactContact("Bestelling 1042 en verder")).toBe("Bestelling 1042 en verder")
+  })
+  it("redacts an address spelled around a filter, and a street with its house number, not a name", () => {
+    for (
+      const [said, hidden] of [
+        ["Mail jan (at) voorbeeld.nl graag", "voorbeeld"],
+        ["Mail jan [at] voorbeeld punt nl graag", "voorbeeld"],
+        ["Mail jan at voorbeeld.nl graag", "voorbeeld"],
+        ["Mail jan.de.vries {at} voorbeeld (dot) com", "voorbeeld"],
+        ["Ik woon op de Kerkstraat 12a in Utrecht", "Kerkstraat"],
+        ["Stuur het naar Prins Hendrikkade 104-2", "Hendrikkade"],
+        ["Mijn adres is Laan van Meerdervoort 55 bis", "Meerdervoort"],
+        ["Bezorgd op Dorpsweg 3", "Dorpsweg"]
+      ] as const
+    ) {
+      const read = redactContact(said)
+      expect(read, said).not.toContain(hidden)
+      expect(read, said).toMatch(/\[(e-mail|adres)\]/)
+    }
+    expect(redactContact("Ik ben Jan de Vries, waar is mijn pakket?")).toBe("Ik ben Jan de Vries, waar is mijn pakket?")
+    for (
+      const said of ["Ik ben er om 3 uur, kom op de weg 2 dagen", "Mijn pakket is al onderweg 3 dagen", "Levering 2"]
+    ) {
+      expect(redactContact(said), said).toBe(said)
+    }
   })
 })
 

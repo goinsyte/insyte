@@ -274,14 +274,17 @@ export const VERIFY_CAP = 3
 /** Failed checks in one store within the hour before every check there goes to a person (guessing across chats). */
 export const STORE_VERIFY_CAP = 30
 
-/**
- * Model calls for the customer agent in one store within the hour before every new chat there goes to a person: an
- * anonymous visitor's messages cost the workspace's budget, so a flood is a person's.
- */
-export const STORE_MODEL_CAP = 60
-
 /** Shopper messages on one thread before a person takes it, whatever "Na zoveel berichten" says. */
 export const MAX_TURNS = 30
+
+/**
+ * The shopper's messages since the agent or the team last wrote that one turn reads: more at once, and a person takes
+ * the thread (every one of them is screened, so a long burst cannot hide what it asked first).
+ */
+export const MAX_PENDING = 20
+
+/** The longest message the website chat takes (`CHAT_TEXT_MAX` of the chat's contract): a longer reply is a person's. */
+export const REPLY_MAX = 1000
 
 /**
  * The customer agent's share of the workspace's monthly AI budget: past it, chats go to the team and every other AI
@@ -294,10 +297,28 @@ export const AGENT_BUDGET_SHARE = 0.25
 const EMAILS = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g
 const PHONES = /\+?\d[\d\s-]{7,}\d/g
 
-/** A shopper's words as the model reads them: no e-mail address, phone number or postcode. */
+/** An address written around a filter: "jan (at) voorbeeld.nl", "jan [at] voorbeeld punt nl", "jan at voorbeeld.nl". */
+const SPELLED_EMAILS =
+  /[\w.+-]+\s*(?:\(at\)|\[at\]|\{at\}|\(@\)|\[@\]|\s(?:at|apenstaartje|apestaartje)\s)\s*[\w-]+(?:\s*(?:\.|\(dot\)|\[dot\]|\(punt\)|\[punt\]|\s(?:dot|punt)\s)\s*[\w-]+)+/gi
+
+const STREET_WORDS =
+  "straat|weg|laan|plein|gracht|kade|dijk|singel|hof|park|pad|steeg|dreef|markt|plantsoen|veld|kanaal|haven|burgwal|boulevard|allee|hoven|polder"
+
+/** A street and its house number: "Kerkstraat 12a", "Prins Hendrikkade 104-2", "Laan van Meerdervoort 55 bis". */
+const STREETS = new RegExp(
+  `\\b(?:(?!(?:onder|half)weg\\b)[\\p{L}'-]+(?:${STREET_WORDS})|(?:${STREET_WORDS})\\s+(?:van|der|de|den|het|ter|ten|op|aan|in|bij)(?:\\s+[\\p{L}'-]+){1,3})\\s+\\d{1,5}(?:\\s?[a-z]\\b)?(?:\\s?[-/]\\s?\\d{1,4}|\\s(?:bis|hs|huis|boven|rood)\\b)?`,
+  "giu"
+)
+
+/**
+ * A shopper's words as the model reads them: no e-mail address (also one spelled out), phone number, postcode, or
+ * street and house number. Names stay.
+ */
 export const redactContact = (raw: string) =>
   fold(raw)
     .replaceAll(EMAILS, "[e-mail]")
+    .replaceAll(SPELLED_EMAILS, "[e-mail]")
+    .replaceAll(STREETS, "[adres]")
     .replaceAll(PHONES, "[telefoon]")
     .replaceAll(
       POSTCODE,
@@ -365,13 +386,16 @@ const PROMISES = [
   "nieuwe bestelling",
   "nalever",
   "vervangend",
-  "credit",
-  "houden"
+  "credit"
 ]
 
+/** Keeping the goods: "je mag het artikel houden", "het product houden", not "we houden je op de hoogte". */
+const KEEPS =
+  /\b(houd|houdt|houden|hou)\s+(\S+\s+){0,2}(het|je|jouw|uw|dit|dat|de|die)\s+(artikel|product|bestelling|pakket|item|spullen|kledingstuk)|\b(artikel|product|bestelling|pakket|item|spullen|kledingstuk)\w*\s+(\S+\s+){0,4}(houden|houdt|houd|hou)\b/i
+
 /**
- * The agent itself promising the shopper something (money back, an amount, keeping the goods, a change to their order):
- * never sent, whatever a chapter says, since nothing the agent is given states it for this shopper. A person does that.
+ * The agent promising the shopper something (money back, an amount, keeping the goods, a change to their order): sent
+ * only as a sentence of the facts states the same promise (a published return policy, `statedIn`), never of its own.
  */
 const PROMISE_TO_SHOPPER = new RegExp(
   [
@@ -404,24 +428,287 @@ const sentencesOf = (text: string) => text.split(/(?<=[.!?])\s+|\n+/).map((x) =>
 
 const wordsOf = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
 
-/** Whether a sentence only says what one sentence of the facts says: every word of it is in that one. */
-const saidIn = (sentence: string, facts: ReadonlyArray<string>) => {
+/* Numbers in words as digits, so "twee werkdagen" and "2 werkdagen" are one figure. "Een" is an article, not a one. */
+const UNIT: Readonly<Record<string, number>> = {
+  twee: 2,
+  drie: 3,
+  vier: 4,
+  vijf: 5,
+  zes: 6,
+  zeven: 7,
+  acht: 8,
+  negen: 9
+}
+const SMALL: Readonly<Record<string, number>> = {
+  ...UNIT,
+  "één": 1,
+  tien: 10,
+  elf: 11,
+  twaalf: 12,
+  dertien: 13,
+  veertien: 14,
+  vijftien: 15,
+  zestien: 16,
+  zeventien: 17,
+  achttien: 18,
+  negentien: 19,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  eleven: 11,
+  twelve: 12,
+  fifteen: 15
+}
+const TENS: Readonly<Record<string, number>> = {
+  twintig: 20,
+  dertig: 30,
+  veertig: 40,
+  vijftig: 50,
+  zestig: 60,
+  zeventig: 70,
+  tachtig: 80,
+  negentig: 90,
+  twenty: 20,
+  thirty: 30,
+  forty: 40,
+  fifty: 50,
+  sixty: 60,
+  seventy: 70,
+  eighty: 80,
+  ninety: 90
+}
+const COMPOUND = new RegExp(
+  `^(een|${Object.keys(UNIT).join("|")})(?:en|ën)(${Object.keys(TENS).filter((t) => t.endsWith("ig")).join("|")})$`
+)
+
+const below100 = (w: string): number | null => {
+  if (w in SMALL) return SMALL[w]!
+  if (w in TENS) return TENS[w]!
+  const m = COMPOUND.exec(w)
+  return m === null ? null : (m[1] === "een" ? 1 : UNIT[m[1]!]!) + TENS[m[2]!]!
+}
+
+const below1000 = (w: string): number | null => {
+  const m = /^(.*?)(honderd|hundred)(?:en)?(.*)$/.exec(w)
+  if (m === null) return below100(w)
+  const times = m[1] === "" ? 1 : (UNIT[m[1]!] ?? null)
+  const rest = m[3] === "" ? 0 : below100(m[3]!)
+  return times === null || rest === null ? null : times * 100 + rest
+}
+
+/** A number written as one word, Dutch or English, or `null`: "vijfenveertig" 45, "honderdvijftig" 150. */
+export const numberOf = (word: string): number | null => {
+  const w = word.toLowerCase()
+  const m = /^(.*?)(duizend|thousand)(?:en)?(.*)$/.exec(w)
+  if (m === null) return below1000(w)
+  const times = m[1] === "" ? 1 : below1000(m[1]!)
+  const rest = m[3] === "" ? 0 : below1000(m[3]!)
+  return times === null || rest === null ? null : times * 1000 + rest
+}
+
+/** Every number in words as its digits, and euro and percent signs as words: one reading of an amount. */
+const asFigures = (text: string) =>
+  text
+    .replaceAll(/\p{L}+/gu, (w) => {
+      const n = numberOf(w)
+      return n === null ? w : String(n)
+    })
+    .replaceAll("€", " euro ")
+    .replaceAll("%", " procent ")
+
+/* ── whether a fact says what a reply's sentence says ── */
+
+/** Words that change what a sentence says when one is missing or added: a negation, a condition. */
+const NEGATIONS = ["niet", "geen", "nooit", "niets", "niks"]
+const CONDITIONS = ["vanaf", "boven", "onder", "alleen", "behalve", "tenzij", "mits", "uitgezonderd", "uitsluitend"]
+const MARKERS = new Set([...NEGATIONS, ...CONDITIONS])
+
+/** Words that carry no fact of their own: who, the verbs that only help, the small words between. */
+const STOP = new Set([
+  "de",
+  "het",
+  "een",
+  "je",
+  "jij",
+  "jou",
+  "jouw",
+  "u",
+  "uw",
+  "jullie",
+  "we",
+  "wij",
+  "ons",
+  "onze",
+  "ik",
+  "mij",
+  "me",
+  "mijn",
+  "hij",
+  "zij",
+  "ze",
+  "dat",
+  "dit",
+  "die",
+  "deze",
+  "er",
+  "hier",
+  "daar",
+  "is",
+  "zijn",
+  "ben",
+  "bent",
+  "was",
+  "waren",
+  "wordt",
+  "worden",
+  "werd",
+  "kan",
+  "kun",
+  "kunt",
+  "kunnen",
+  "mag",
+  "mogen",
+  "moet",
+  "moeten",
+  "zal",
+  "zult",
+  "zullen",
+  "wil",
+  "wilt",
+  "willen",
+  "heb",
+  "hebt",
+  "heeft",
+  "hebben",
+  "had",
+  "van",
+  "voor",
+  "met",
+  "op",
+  "in",
+  "aan",
+  "bij",
+  "naar",
+  "om",
+  "te",
+  "en",
+  "of",
+  "maar",
+  "ook",
+  "nog",
+  "wel",
+  "dan",
+  "als",
+  "zo",
+  "dus",
+  "want",
+  "even",
+  "graag",
+  "natuurlijk",
+  "gewoon",
+  "hoor",
+  "toch"
+])
+
+/** One word for two that say the same here, as stems: "retour" and "terug", "ontvangen" and "krijgen". */
+const SAME: Readonly<Record<string, string>> = { retour: "terug", ontvang: "krijg", verstur: "verzend", stur: "zend" }
+
+/**
+ * A word's simple Dutch stem: one ending off ("-en", "-e", "-s", a "-t" not after "s"), then doubled vowels and a
+ * doubled last letter as one, so "betalen", "betaalt" and "betaal" are one word, and "dagen" is "dag".
+ */
+const stemOf = (word: string) => {
+  let w = word.toLowerCase().replaceAll("ë", "e").replaceAll("ï", "i")
+  if (/^\d/.test(w) || w.length <= 3) return w
+  w = w.replace(/(en|e|s|(?<!s)t)$/, "")
+  w = w.replaceAll(/([aeou])\1/g, "$1").replace(/(\p{L})\1$/u, "$1")
+  return SAME[w] ?? w
+}
+
+/** Whether two stems are one word: the same, one the other's start or inside it (a compound), or a long shared start. */
+const alike = (a: string, b: string) => {
+  if (a === b) return true
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a]
+  if (short.length < 4) return false
+  if (long.startsWith(short) || long.includes(short)) return true
+  let n = 0
+  while (n < short.length && short[n] === long[n]) n++
+  return n >= 6
+}
+
+interface Reading {
+  readonly content: ReadonlyArray<string>
+  readonly figures: ReadonlySet<string>
+  readonly markers: ReadonlySet<string>
+  readonly lower: string
+}
+
+const readingOf = (sentence: string): Reading => {
   const words = wordsOf(sentence)
+  return {
+    content: words.filter((w) => !STOP.has(w) && !MARKERS.has(w) && !/^\d+$/.test(w)).map(stemOf),
+    figures: new Set(words.filter((w) => /^\d+$/.test(w)).map((w) => w.replace(/^0+(?=\d)/, ""))),
+    markers: new Set(words.filter((w) => MARKERS.has(w))),
+    lower: sentence.toLowerCase()
+  }
+}
+
+/** The promise words a sentence holds, and whether it makes a promise at all. */
+const promiseWords = (lower: string) => PROMISES.filter((p) => lower.includes(p))
+
+const promises = (sentence: string) =>
+  PROMISE_TO_SHOPPER.test(sentence) || KEEPS.test(sentence) || promiseWords(sentence.toLowerCase()).length > 0 ||
+  promisesMoney(sentence) || namesAmount(sentence)
+
+const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>) => a.size === b.size && [...a].every((x) => b.has(x))
+
+/** How much of a reply's sentence must be in the fact's own words (as stems) for it to say the same. */
+const COVERED = 0.75
+
+/**
+ * Whether one sentence of the facts states the promise a reply's sentence makes: itself a promise, with the reply's
+ * promise words and figures, most of the reply's words (as stems, a number in words as its digits), and the same
+ * negations and conditions. "Sale-artikelen zijn gratis te retourneren" is not what "… zijn niet gratis te
+ * retourneren" says, nor "We verzenden gratis" what "Vanaf 50 euro verzenden we gratis" says, either way round.
+ */
+const statedIn = (sentence: string, facts: ReadonlyArray<string>) => {
+  const said = readingOf(sentence)
+  const words = promiseWords(said.lower)
   return facts.some((f) => {
-    const known = new Set(wordsOf(f))
-    return words.every((w) => known.has(w))
+    if (!promises(f)) return false
+    const fact = readingOf(f)
+    if (fact.content.length < 2 || !sameSet(said.markers, fact.markers)) return false
+    if ([...said.figures].some((n) => !fact.figures.has(n))) return false
+    if (words.some((p) => !fact.lower.includes(p))) return false
+    const covered = said.content.filter((w) => fact.content.some((k) => alike(w, k))).length
+    return said.content.length === 0 || covered / said.content.length >= COVERED
   })
 }
 
 /**
- * What is wrong with a reply before it may go, read folded (`fold`): a digit or a number in words the facts the model
- * was given do not have (a shopper's own digits are not facts: "ik las 60 dagen?" is not confirmed); a promise of the
- * agent's own to the shopper; a promise word or an amount in a sentence the facts do not say themselves; a link or an
- * address the facts never had, or one written to slip past; or nothing to say. None: it may go.
+ * What a promise may be read from: each sentence of the facts, and each two that follow each other (a reply often says
+ * two in one: "Verzenden kost € 4,95, vanaf 50 euro is het gratis"). A heading (a `#` line) states nothing.
  */
-export const replyFaults = (raw: string, given: { readonly facts: string }) => {
-  const text = fold(raw)
-  const facts = fold(given.facts)
+const statementsOf = (facts: string) => {
+  const lines = sentencesOf(facts).filter((l) => !l.startsWith("#"))
+  return [...lines, ...lines.slice(1).map((l, i) => `${lines[i]} ${l}`)]
+}
+
+/**
+ * What is wrong with a reply before it may go, read folded (`fold`) and every number in words as its digits: a figure
+ * the facts the model was given do not have (a shopper's own digits are not facts: "ik las 60 dagen?" is not
+ * confirmed); a promise (money, goods, a change to an order, an amount, keeping the goods) in a sentence no sentence of
+ * the facts states the same (`statedIn`; `statements`, the facts without the chapters' titles, as the caller has
+ * them); a link or an address the facts never had, or one written to slip past; or nothing to say. None: it may go.
+ */
+export const replyFaults = (raw: string, given: { readonly facts: string; readonly statements?: string }) => {
+  const text = asFigures(fold(raw))
+  const facts = asFigures(fold(given.facts))
   const faults: Array<ReplyFault> = []
   if (text.trim() === "") return ["empty"] satisfies Array<ReplyFault>
   const knownWords = new Set(wordsOf(facts))
@@ -429,14 +716,10 @@ export const replyFaults = (raw: string, given: { readonly facts: string }) => {
     untracedFigures(text, facts).length > 0 ||
     [...text.matchAll(NUMBER_WORDS)].some((m) => !knownWords.has(m[0].toLowerCase()))
   ) faults.push("figure")
-  const factSentences = sentencesOf(facts)
-  const promised = sentencesOf(text).some((sentence) => {
-    if (PROMISE_TO_SHOPPER.test(sentence)) return true
-    const lower = sentence.toLowerCase()
-    const promise = PROMISES.some((p) => lower.includes(p)) || promisesMoney(sentence) || namesAmount(sentence)
-    return promise && !saidIn(sentence, factSentences)
-  })
-  if (promised) faults.push("promise")
+  const statements = statementsOf(given.statements === undefined ? facts : asFigures(fold(given.statements)))
+  if (sentencesOf(text).some((sentence) => promises(sentence) && !statedIn(sentence, statements))) {
+    faults.push("promise")
+  }
   if (untracedLinks(text, facts).length > 0 || defanged(text) || SPACED_DOMAIN.test(text)) faults.push("link")
   return faults
 }

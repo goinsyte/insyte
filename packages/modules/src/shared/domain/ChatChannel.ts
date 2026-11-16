@@ -37,6 +37,8 @@ export interface ChatThread {
   readonly customerId: string | null
   readonly handover: null | { readonly reason: string; readonly at: Date }
   readonly takenOverBy: string | null
+  /** When a person last handed the thread back to the agent, or `null`: what the agent knew before it is stale. */
+  readonly handedBackAt: Date | null
   readonly closedAt: Date | null
 }
 

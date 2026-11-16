@@ -96,6 +96,7 @@ export const shopperWrites = (
       customerId: null,
       handover: null,
       takenOverBy: null,
+      handedBackAt: null,
       closedAt: null
     },
     messages: []
@@ -133,7 +134,8 @@ export const personActs = (
       ...kept.thread,
       takenOverBy: act.takeOver,
       // Handed back: the agent's again, its handover done.
-      handover: act.takeOver === null ? null : kept.thread.handover
+      handover: act.takeOver === null ? null : kept.thread.handover,
+      handedBackAt: act.takeOver === null ? new Date() : kept.thread.handedBackAt
     }
   }
   if (act.close === true) kept.thread = { ...kept.thread, closedAt: new Date() }

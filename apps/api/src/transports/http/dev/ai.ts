@@ -60,7 +60,10 @@ const Spent = Schema.Struct({
   at: Schema.optional(Schema.String.check(Schema.isMaxLength(40))),
   /** Still out: a reservation not settled yet instead of a billed call. */
   open: Schema.optional(Schema.Boolean),
-  /** The customer agent's calls on that chat thread instead of a reply draft's, `count` of them, `cents` each. */
+  /**
+   * The customer agent's calls on that chat thread instead of a reply draft's, `count` of them, `cents` each, each
+   * counted against its store's calls this hour as the agent counts one.
+   */
   chat: Schema.optional(Schema.Struct({
     threadId: Schema.String.check(Schema.isMaxLength(64)),
     count: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(200))
@@ -97,7 +100,15 @@ const AiSpent = HttpRouter.add(
                                                                where f.base = 'USD' and f.quote = 'EUR'
                                                                order by f.day desc limit 1), 1))`
         if (chat !== undefined) {
+          // Each counted as the agent counts a call it starts, in the thread's store.
+          const [t] = yield* sql<{ storeId: string }>`
+            select store_id from customer_agent_threads where thread_id = ${chat.threadId}`
           for (let i = 0; i < chat.count; i++) {
+            if (t !== undefined) {
+              const action = mintId("aga")
+              yield* sql`insert into agent_touchpoints (workspace_id, dedupe_key, agent_action_id, created_at)
+                         values (${workspace.id}, ${`chat-call:${t.storeId}:${action}`}, ${action}, ${when})`
+            }
             yield* sql`insert into model_calls (id, workspace_id, member_id, principal_kind, purpose, prompt_id,
                                                 prompt_version, provider, model, cost_micros, outcome, subject_type,
                                                 subject_id, created_at)

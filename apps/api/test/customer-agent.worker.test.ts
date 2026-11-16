@@ -621,6 +621,33 @@ describe("the customer agent, after review", () => {
     expect((await s.agentSaid(m.threadId)).at(-1)).toBe(ASK_PROOF)
   })
 
+  it("forgets the proved order on a hand-back it never saw, with no message of the shopper's in between", async () => {
+    await s.configure()
+    const address = `quiet-${run}@voorbeeld.nl`
+    ok(
+      await rpc("Customers.create", { name: "Stil Klant", email: address, phone: "", country: "", tags: [] }, s.cookie)
+    )
+    expect(
+      (await post(`http://api.test/api/__dev/agent/order?workspace=${s.workspace}`, {
+        email: address,
+        number: "#7203",
+        status: "shipped",
+        parcel: {
+          carrier: "PostNL",
+          trackingNumber: `3S${run}Q`,
+          trackingUrl: "https://jouw.postnl.nl/q",
+          status: "in_transit"
+        }
+      })).status
+    ).toBe(200)
+    const m = await s.chat(`Bestelling #7203, ${address}`)
+    expect((await s.agentSaid(m.threadId)).at(-1)).toContain("#7203")
+    await s.person(m.threadId, { takeOver: "mem_someone" })
+    await s.person(m.threadId, { takeOver: null })
+    await s.chat("Waar blijft mijn bestelling?", m.threadId)
+    expect((await s.agentSaid(m.threadId)).at(-1)).toBe(ASK_PROOF)
+  })
+
   it("says nothing when a person takes the thread over while it decides to hand over", async () => {
     await s.configure()
     const m = await s.say("Ik wil een mens spreken")
@@ -661,6 +688,65 @@ describe("the customer agent, after review", () => {
     const after = ok(await rpc("Knowledge.gaps", { state: "open" }, s.cookie)).rows.find((g) => g.id === before!.id)
     expect(after?.question ?? "[verwijderd]").toBe("[verwijderd]")
   })
+
+  it("erases the questions of a chat whose proof a hand-back cleared", async () => {
+    await s.configure()
+    const address = `erase-back-${run}@voorbeeld.nl`
+    ok(await rpc("Customers.create", { name: "Wis Terug", email: address, phone: "", country: "", tags: [] }, s.cookie))
+    expect(
+      (await post(`http://api.test/api/__dev/agent/order?workspace=${s.workspace}`, {
+        email: address,
+        number: "#7204",
+        status: "shipped",
+        parcel: {
+          carrier: "PostNL",
+          trackingNumber: `3S${run}W`,
+          trackingUrl: "https://jouw.postnl.nl/w",
+          status: "in_transit"
+        }
+      })).status
+    ).toBe(200)
+    const proved = await s.chat(`Bestelling #7204, ${address}`)
+    await s.chat(`Kunnen jullie ook naar Monaco ${run} versturen?`, proved.threadId)
+    const filed = ok(await rpc("Knowledge.gaps", {}, s.cookie)).rows.find((g) => g.question.includes("Monaco"))
+    expect(filed).toBeDefined()
+    // A person takes it and hands it back; the shopper writes on, and the proof is gone.
+    await s.person(proved.threadId, { takeOver: "mem_someone" })
+    await s.person(proved.threadId, { takeOver: null })
+    await s.chat("Waar blijft mijn bestelling?", proved.threadId)
+    expect((await s.agentSaid(proved.threadId)).at(-1)).toBe(ASK_PROOF)
+    ok(await rpc("Privacy.requestErasure", { email: address }, s.cookie))
+    const after = ok(await rpc("Knowledge.gaps", { state: "open" }, s.cookie)).rows.find((g) => g.id === filed!.id)
+    expect(after?.question ?? "[verwijderd]").toBe("[verwijderd]")
+  })
+
+  it("screens every message of a burst, more than the model reads", async () => {
+    await s.configure()
+    const first = await s.say("Ik wil een mens spreken")
+    let last = first
+    for (let i = 0; i < 12; i++) {
+      last = await s.say(`Kan ik een sale-artikel nog retourneren, vraag ${i}?`, first.threadId)
+    }
+    await s.turn(last)
+    expect((await s.threadOf(first.threadId)).thread.handover).toMatchObject({ reason: "asks_person" })
+    expect((await s.agentSaid(first.threadId)).every((t) => t.includes("Hier kijkt een collega"))).toBe(true)
+  })
+
+  it("counts a burst as its messages, and hands over one longer than a turn reads", async () => {
+    await s.configure({ handover: { ...SETTINGS.handover, afterMessages: 3 } })
+    const first = await s.say("Kan ik een sale-artikel nog retourneren?")
+    let last = first
+    for (let i = 0; i < 3; i++) last = await s.say(`En sale-artikelen retourneren, vraag ${i}?`, first.threadId)
+    await s.turn(last)
+    expect((await s.threadOf(first.threadId)).thread.handover).toMatchObject({ reason: "turns" })
+
+    await s.configure()
+    const long = await s.say("Kan ik een sale-artikel nog retourneren?")
+    let newest = long
+    for (let i = 0; i < 20; i++) newest = await s.say(`En sale-artikelen retourneren, vraag ${i}?`, long.threadId)
+    await s.turn(newest)
+    expect((await s.threadOf(long.threadId)).thread.handover).toMatchObject({ reason: "turns" })
+  })
 })
 
 describe("the customer agent's budget", () => {
@@ -696,6 +782,28 @@ describe("the customer agent's budget", () => {
     const next = await s.chat("Kan ik een sale-artikel nog retourneren?")
     expect((await s.threadOf(next.threadId)).thread.handover).toMatchObject({ reason: "limit" })
     expect(await s.rowsOf(next.threadId)).toMatchObject([{ refuseReason: "limit", model: null }])
+  }, 180_000)
+
+  it("counts a call as it starts, so chats at once cannot pass the store's calls this hour together", async () => {
+    const s = await chatStore("chat-store-race")
+    await s.configure()
+    const first = await s.chat("Kan ik een sale-artikel nog retourneren?")
+    // One call short of the store's 60 this hour (a trial's).
+    expect(
+      (await post(`http://api.test/api/__dev/ai/spent?workspace=${s.workspace}`, {
+        memberId: null,
+        cents: 1,
+        chat: { threadId: first.threadId, count: 58 }
+      })).status
+    ).toBe(200)
+    const both = [
+      await s.say("Kan ik een sale-artikel nog retourneren?"),
+      await s.say("Kan ik een sale-artikel nog retourneren?")
+    ]
+    await Promise.all(both.map((m) => s.turn(m)))
+    const handed = await Promise.all(both.map(async (m) => (await s.threadOf(m.threadId)).thread.handover))
+    expect(handed.filter((h) => h === null)).toHaveLength(1)
+    expect(handed.filter((h) => h !== null)).toMatchObject([{ reason: "limit" }])
   }, 180_000)
 
   it("keeps to its share of the month's budget, leaving the rest to the other AI", async () => {
