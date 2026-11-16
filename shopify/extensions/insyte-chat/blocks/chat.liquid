@@ -1,0 +1,18 @@
+{%- comment -%}
+  Insyte's website chat (M15 step 8). The widget itself comes from the Insyte API, which also checks that the page
+  is one of this shop's storefronts; the shop's myshopify domain tells it which store's chat to open. Staging's API
+  for now; production gets its own app config when it goes live.
+{%- endcomment -%}
+<script
+  src="https://insyte-api-staging.ishak-73d.workers.dev/api/public/chat/widget.js"
+  data-shop="{{ shop.permanent_domain | escape }}"
+  defer
+></script>
+
+{% schema %}
+{
+  "name": "Insyte websitechat",
+  "target": "body",
+  "settings": []
+}
+{% endschema %}

@@ -17,6 +17,8 @@ embedded = false
 # settled with a gift card. A store connected before approves the new scopes once, on its next visit to the app.
 # `read_pixels`, `write_pixels`, `read_customer_events` (M14 step 3): Live's Web Pixel (`extensions/insyte-live`),
 # installed per store from Instellingen → Winkels.
+# The website chat's app embed (`extensions/insyte-chat`, M15 step 8) needs no scope: the operator turns it on in the
+# theme editor.
 scopes = "read_orders,write_orders,read_customers,write_customers,read_products,write_products,read_inventory,write_inventory,read_locations,read_fulfillments,write_merchant_managed_fulfillment_orders,read_returns,write_returns,write_draft_orders,write_discounts,write_gift_cards,read_legal_policies,read_pixels,write_pixels,read_customer_events"
 
 [auth]
