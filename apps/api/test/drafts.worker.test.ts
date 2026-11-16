@@ -450,6 +450,25 @@ describe("new products", () => {
       .toBe(String(numeric(inShopify[0]!.id)))
   })
 
+  it("updates the product a timed-out try made, by its handle, when the next try cannot read it yet", async () => {
+    const store = await importedStore("product-slow", "slow")
+    await using writes = await writesOf()
+    await writes.modifyAll(async (m) => {
+      await m.disableRetryDelays()
+    })
+    const product = ok(await rpc("Products.create", productOf("Wollen trui", "WOL-T"), store.cookie)).products[0]!
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    expect((await written(writes, store.workspace)).map((o) => o.outcome)).toEqual(["sent"])
+    // Shopify made it on the first try and the call timed out; the retry's read missed it, its upsert found it.
+    const inShopify = recordedProducts(store.shop)
+    expect(inShopify).toHaveLength(1)
+    expect(inShopify[0]!.handle).toMatch(/^wollen-trui-[a-z0-9]{6}$/)
+    expect(inShopify[0]).toMatchObject({ title: "Wollen trui", price: "29.95", sku: "WOL-T", status: "DRAFT" })
+    expect(ok(await rpc("Products.get", { id: product.id }, store.cookie)).product.shopifyId)
+      .toBe(String(numeric(inShopify[0]!.id)))
+  })
+
   it("deletes the product a lost answer left in Shopify when it is gone before the retry", async () => {
     const store = await importedStore("product-gone", "lost")
     await using writes = await writesOf()

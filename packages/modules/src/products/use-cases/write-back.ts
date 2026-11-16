@@ -181,8 +181,8 @@ const outcomeOf = (id: string) => (o: WriteOutcome["outcome"], reason: string | 
 
 /**
  * A product made in Insyte, made in Shopify (M7.3) once the undo window has passed, the first step of two: the one a
- * try before made, found by the handle Insyte gave it, else `productSet` with its title, description, status and its
- * one variant's price and SKU, in one call. Gone from Insyte (removed between a try whose answer was lost and the
+ * try before made, found by the handle Insyte gave it, else `productSet` by that handle with its title, description,
+ * status and its one variant's price and SKU, in one call, so a try whose answer was lost leaves one product. Gone from Insyte (removed between a try whose answer was lost and the
  * next), what that try made is found by the handle the event carries and deleted. Shopify refusing the product removes
  * it from Insyte, since it never existed there, and whoever made it hears why.
  */
@@ -220,7 +220,14 @@ export const productCreateSend = Effect.fn("Products.createSend")(function*(
     const found = yield* mutate(t, PRODUCT_FIND, { handle: t.handle }, "productByIdentifier")
     const earlier = (found.data as { productByIdentifier?: Node } | null)?.productByIdentifier
     if (earlier !== null && earlier !== undefined) return { made: madeOf(t.storeId, earlier) }
-    const answered = yield* mutate(t, PRODUCT_SET, { input, synchronous: true }, "productSet")
+    // By its handle: a product a try before made that the read above missed (still being made) is updated, not made
+    // again under a suffixed handle.
+    const answered = yield* mutate(
+      t,
+      PRODUCT_SET,
+      { identifier: { handle: t.handle }, input, synchronous: true },
+      "productSet"
+    )
     const errors = answered.errors as Errors
     if (errors.length > 0) {
       return { refused: { reason: refusalOf(errors), text: errors.map((e) => e.message).join("; ") } }

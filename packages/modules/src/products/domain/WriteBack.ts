@@ -16,10 +16,13 @@ export const STATUS: Record<string, string> = { active: "ACTIVE", draft: "DRAFT"
 
 /**
  * A product made in Insyte ("Nieuw product"): `productSet` makes it with its one variant's price and SKU in the same
- * call, so it is never in Shopify (on sale, or echoed back) without them.
+ * call, so it is never in Shopify (on sale, or echoed back) without them. Its `identifier` is the handle Insyte gave
+ * it, so the call is an upsert: tried again after an answer that never came, it updates the product that try made
+ * instead of making a second one (Shopify would give that one the handle with `-1`).
  */
-export const PRODUCT_SET = `mutation($input: ProductSetInput!, $synchronous: Boolean!) {
-  productSet(input: $input, synchronous: $synchronous) {
+export const PRODUCT_SET =
+  `mutation($identifier: ProductSetIdentifiers, $input: ProductSetInput!, $synchronous: Boolean!) {
+  productSet(identifier: $identifier, input: $input, synchronous: $synchronous) {
     product { id variants(first: 1) { nodes { id inventoryItem { id } } } }
     userErrors { field message }
   }
