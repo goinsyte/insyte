@@ -102,9 +102,16 @@ export type WidgetAnswer<A> =
 
 /**
  * The limits taken once a request is known to be the store's and the session's: what one session reads and sends, what
- * the store's shoppers send together, and how many new conversations the store takes a minute and a day.
+ * the store's shoppers send together, and how many new conversations the store takes from one address an hour (keyed
+ * by the route on the request's address and this store), and from everyone a minute and a day.
  */
-export type WidgetLimit = "session-read" | "session-send" | "store-send" | "store-threads-minute" | "store-threads-day"
+export type WidgetLimit =
+  | "session-read"
+  | "session-send"
+  | "store-send"
+  | "ip-threads-hour"
+  | "store-threads-minute"
+  | "store-threads-day"
 export type Take = (
   limit: WidgetLimit,
   key: string
@@ -287,12 +294,13 @@ export const post = Effect.fn("Chat.post")(function*(input: {
   const { route, allowOrigin, visitor } = admitted
   const text = typeof input.text === "string" ? input.text.trim() : ""
   if (textRefused(text) !== undefined) return refused<WidgetMessage>(400, allowOrigin)
-  // The session first, then a new conversation against the store's caps, then the store's whole.
+  // The session first, then a new conversation against its address's cap and then the store's (so one address spends
+  // none of the store's once it is over its own), then the store's whole.
   const session = over<WidgetMessage>(allowOrigin, yield* input.take("session-send", visitor))
   if (session !== undefined) return session
   const current = yield* inWorkspace(route, (sql) => threadOf(sql, route, visitor))
   if (current === undefined) {
-    for (const cap of ["store-threads-minute", "store-threads-day"] as const) {
+    for (const cap of ["ip-threads-hour", "store-threads-minute", "store-threads-day"] as const) {
       const capped = over<WidgetMessage>(allowOrigin, yield* input.take(cap, route.storeId))
       if (capped !== undefined) return capped
     }

@@ -25,7 +25,9 @@ import { WIDGET_SCRIPT } from "./widget-script.ts"
 
 const MAX_BODY_BYTES = 4 * 1024
 const MINUTE = 60
-const PER_IP_SESSION = { bucket: "chat-ip-session", limit: 20, windowSeconds: MINUTE } as const
+// Every page load opens the session (the bubble shows only once it did): many shoppers behind one carrier's NAT.
+const PER_IP_SESSION = { bucket: "chat-ip-session", limit: 120, windowSeconds: MINUTE } as const
+const HOUR = 3_600
 const DAY = 86_400
 const PER_IP_READ = { bucket: "chat-ip-read", limit: 600, windowSeconds: MINUTE } as const
 const PER_IP_SEND = { bucket: "chat-ip-send", limit: 30, windowSeconds: MINUTE } as const
@@ -36,6 +38,8 @@ const WIDGET_LIMITS: Record<Widget.WidgetLimit, { bucket: string; limit: number;
   "session-read": { bucket: "chat-session-read", limit: 40, windowSeconds: MINUTE },
   "session-send": { bucket: "chat-session-send", limit: 12, windowSeconds: MINUTE },
   "store-send": { bucket: "chat-store-send", limit: 600, windowSeconds: MINUTE },
+  // One address's new conversations with one store: before the store's own caps, which it would otherwise use up.
+  "ip-threads-hour": { bucket: "chat-ip-threads", limit: 3, windowSeconds: HOUR },
   "store-threads-minute": { bucket: "chat-store-threads", limit: 10, windowSeconds: MINUTE },
   "store-threads-day": { bucket: "chat-store-threads-day", limit: 300, windowSeconds: DAY }
 }
@@ -92,10 +96,17 @@ const limited = (key: string | null, limit: { bucket: string; limit: number; win
  * The use case's limits, keyed on what it has verified: the session (its visitor hash, never the token's text) or the
  * store. They hold on every stage: a preview's tests come from one runner, but each from sessions and stores of its own.
  */
-const takeOf = Effect.map(RateLimits, (limits): Widget.Take => (limit, key) => {
-  const { bucket, limit: n, windowSeconds } = WIDGET_LIMITS[limit]
-  return limits.take(`chat:${key}`, bucket, n, windowSeconds)
-})
+const takeOf = (ip: string | null) =>
+  Effect.map(RateLimits, (limits): Widget.Take => (limit, key) => {
+    const { bucket, limit: n, windowSeconds } = WIDGET_LIMITS[limit]
+    // Per address and store: where IP limits are off (a preview) or the address is unknown, there is nothing to hold.
+    if (limit === "ip-threads-hour") {
+      return ip === null
+        ? Effect.succeed({ ok: true, retryAfterSeconds: 0 })
+        : limits.take(`chat:${key}:${ip}`, bucket, n, windowSeconds)
+    }
+    return limits.take(`chat:${key}`, bucket, n, windowSeconds)
+  })
 
 const ipKeyOf = (request: Request) =>
   Effect.map(RateLimits, (limits) => {
@@ -172,7 +183,7 @@ const messages = Effect.gen(function*() {
     origin: req.headers.get("origin"),
     token: tokenOf(req),
     etag: req.headers.get("if-none-match"),
-    take: yield* takeOf
+    take: yield* takeOf(null)
   }).pipe(withRequestDb)
   return answer(said)
 }).pipe(Effect.withSpan("Chat.readRoute"))
@@ -181,7 +192,8 @@ const say = Effect.gen(function*() {
   const req = yield* request
   const storeId = yield* storeOf
   if (storeId === null) return empty(404, null)
-  const overIp = yield* limited(yield* ipKeyOf(req), PER_IP_SEND)
+  const ip = yield* ipKeyOf(req)
+  const overIp = yield* limited(ip, PER_IP_SEND)
   if (overIp !== undefined) return overIp
   const body = yield* bodyOf(req)
   if (body === null) return empty(413, null)
@@ -190,7 +202,7 @@ const say = Effect.gen(function*() {
     origin: req.headers.get("origin"),
     token: tokenOf(req),
     text: typeof body === "object" && body !== null ? (body as { text?: unknown }).text : undefined,
-    take: yield* takeOf
+    take: yield* takeOf(ip)
   }).pipe(withRequestDb)
   return answer(said)
 }).pipe(Effect.withSpan("Chat.sendRoute"))
