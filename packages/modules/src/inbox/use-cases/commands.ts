@@ -34,7 +34,7 @@ import {
   TicketLinked
 } from "../domain/Inbox.ts"
 import { ThreadTickets } from "../domain/Ports.ts"
-import * as Chat from "./chat/chat.ts"
+import { withChat } from "./chat/lazy.ts"
 import { bare, mailDomain, mergeParticipants, previewOf } from "./inbound.ts"
 import { messagesOf, rowsOf } from "./threads.ts"
 
@@ -537,13 +537,20 @@ const settled = (sql: SqlClient.SqlClient, q: Queued) =>
     return { change: yield* queued(sql, q.threadId, q.messageId, undo), outboxId: q.outboxId }
   })
 
+/** Whether a thread is a website chat's (`channel_threads`), read here so a mail's reply loads no chat code. */
+const isChat = (sql: SqlClient.SqlClient, threadId: string) =>
+  Effect.map(
+    sql<{ id: string }>`select id from channel_threads where id = ${threadId}`,
+    (rows) => rows.length > 0
+  )
+
 /** "Antwoord versturen": to who wrote last, in their thread, from the mailbox it came in at. */
 export const reply = Effect.fn("Threads.reply")(function*(input: typeof ReplyInput.Type) {
   yield* Policy.require("support", 2)
   if (input.body.trim() === "") return yield* new Invalid({ fields: { body: "required" } })
   const db = yield* Db
   // A website chat's answer goes to the shopper's widget, not out by mail (M15 step 8).
-  if (yield* db.scoped((sql) => Chat.isChat(sql, input.threadId))) return yield* Chat.reply(input)
+  if (yield* db.scoped((sql) => isChat(sql, input.threadId))) return yield* withChat((c) => c.reply(input))
   const { change, outboxId } = yield* db.scoped((sql) =>
     Effect.flatMap(replyOn(sql, input).pipe(ownId), (q) => settled(sql, q))
   )

@@ -34,7 +34,7 @@ export const bundleWorker = (name: WorkerName, outDir: string): Promise<BuiltWor
       // A plain module Worker, as `app.ts` declares it (no Effect implementation): no virtual entry.
       entry: { kind: "external" },
       stack: { name: "insyte", stage: "startup-check" },
-      extraOptions: undefined
+      extraOptions: worker.build
     })
     rmSync(outDir, { recursive: true, force: true })
     for (const file of files) {
