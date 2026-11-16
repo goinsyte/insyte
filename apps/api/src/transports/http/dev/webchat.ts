@@ -92,11 +92,14 @@ const StorePage = HttpRouter.add(
     const shop = url.searchParams.get("shop") ?? ""
     if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(shop)) return invalid
     const src = `${url.origin}/api/public/chat/widget.js`
-    return HttpServerResponse.html(
+    // As text with its type, not `HttpServerResponse.html`: that one keeps effect's template module in the Worker's
+    // startup graph for a page only a person trying the chat opens.
+    return HttpServerResponse.text(
       `<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">` +
         `<title>Winkel (proef)</title></head><body><h1>Proefwinkel</h1>` +
         `<p>De websitechat van ${shop.replace(/[^a-z0-9.-]/gi, "")} staat rechtsonder.</p>` +
-        `<script src="${src}" data-shop="${shop.toLowerCase()}" defer></script></body></html>`
+        `<script src="${src}" data-shop="${shop.toLowerCase()}" defer></script></body></html>`,
+      { contentType: "text/html; charset=utf-8" }
     )
   })
 )

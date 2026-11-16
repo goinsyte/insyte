@@ -36,7 +36,6 @@ import { KeyHasherLive } from "./KeyHasher.ts"
 import { KlaviyoChoice } from "./Klaviyo.ts"
 import { LabelsChoice } from "./Labels.ts"
 import { AppKeysLive } from "./links/AppKeys.ts"
-import { WebchatStoresLive } from "./links/WebchatStores.ts"
 import { LiveRoomsLive } from "./LiveRooms.ts"
 import { NoteRepliesLive, SlackChoice, WebPushChoice } from "./Notify.ts"
 import { ObservabilityLive } from "./Observability.ts"
@@ -48,7 +47,6 @@ import { ShopifyAdminChoice, ShopifyGraphqlChoice } from "./Shopify.ts"
 import { SliceLinks } from "./SliceLinks.ts"
 import { TrackingChoice } from "./Tracking.ts"
 import { WebhookRunsLive } from "./Webhooks.ts"
-import { WidgetKeysLive } from "./WidgetKeys.ts"
 
 /*
  * The services a request may need (16 §5, ADR-0041): every implementation is chosen here, under the routes a Worker
@@ -137,8 +135,15 @@ const onCore = <A, E, R>(layer: Layer.Layer<A, E, R>) =>
         // …and the Marketplace's recipe apps' keys, under the same hasher (M17).
         AppKeysLive.pipe(Layer.provide(KeyHasherLive)),
         // …and the website chat's widget keys, and what it reads of a store from Shopify (M15 step 8).
-        WidgetKeysLive,
-        WebchatStoresLive.pipe(Layer.provide(Layer.mergeAll(ConnectionGateLive, ShopifyGraphqlChoice)))
+        // Imported when the layer is built, on the first request, not when the Worker starts (ADR-0041 §3).
+        Layer.unwrap(Effect.promise(() => import("./WidgetKeys.ts")).pipe(Effect.map((m) => m.WidgetKeysLive))),
+        Layer.unwrap(
+          Effect.promise(() => import("./links/WebchatStores.ts")).pipe(
+            Effect.map((m) =>
+              m.WebchatStoresLive.pipe(Layer.provide(Layer.mergeAll(ConnectionGateLive, ShopifyGraphqlChoice)))
+            )
+          )
+        )
       )
     ),
     Layer.provideMerge(MailerLive),

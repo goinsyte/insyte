@@ -1,4 +1,4 @@
-import { syncEmbed } from "@insyte/modules/inbox/use-cases/chat/channels"
+import { withChannels } from "@insyte/modules/inbox/use-cases/chat/lazy"
 import { sendQueued } from "@insyte/modules/inbox/use-cases/send"
 import { Relay } from "@insyte/modules/shared/domain/Outbox"
 import { Effect } from "effect"
@@ -13,5 +13,5 @@ export const Support = subscriber("support", {
       if (retry !== undefined) yield* (yield* Relay).kick([retry.outboxId], { afterSeconds: retry.afterSeconds })
     }).pipe(Effect.orDie),
   // A store's website chat switched off, or put back by an Undo (M15 step 8): its theme's embed follows it.
-  "webchat.changed": (_id, event, sql) => syncEmbed(sql, event).pipe(Effect.orDie)
+  "webchat.changed": (_id, event, sql) => withChannels((c) => c.syncEmbed(sql, event)).pipe(Effect.orDie)
 })

@@ -1,7 +1,7 @@
 import { Connect } from "@insyte/database/Connect"
 import { Db } from "@insyte/database/Db"
 import { NotFound } from "@insyte/domain/Errors"
-import * as Chat from "@insyte/modules/inbox/use-cases/chat/chat"
+import { withChat } from "@insyte/modules/inbox/use-cases/chat/lazy"
 import { ChatChannel } from "@insyte/modules/shared/domain/ChatChannel"
 import { Effect, Layer } from "effect"
 import { SqlError } from "effect/sql"
@@ -27,14 +27,15 @@ export const ChatChannelLive = Layer.effect(
           Effect.catchIf(SqlError.isSqlError, Effect.die)
         ) as Effect.Effect<A, Exclude<E, SqlError.SqlError>, Exclude<R, Db>>
     return ChatChannel.of({
-      thread: (threadId) => run(Chat.thread(threadId)),
-      history: (threadId, { limit }) => run(Chat.history(threadId, limit)),
+      // The chat's use cases load with the first call (`lazy.ts`), not with the layer.
+      thread: (threadId) => run(withChat((c) => c.thread(threadId))),
+      history: (threadId, { limit }) => run(withChat((c) => c.history(threadId, limit))),
       reply: (threadId, text) =>
-        run(Chat.replyAs(threadId, text)).pipe(
+        run(withChat((c) => c.replyAs(threadId, text))).pipe(
           Effect.catchTag("Forbidden", () => Effect.fail(new NotFound({ entity: "thread", id: threadId })))
         ),
-      handOver: (threadId, reason) => run(Chat.handOver(threadId, reason)),
-      bindCustomer: (threadId, customerId) => run(Chat.bindCustomer(threadId, customerId))
+      handOver: (threadId, reason) => run(withChat((c) => c.handOver(threadId, reason))),
+      bindCustomer: (threadId, customerId) => run(withChat((c) => c.bindCustomer(threadId, customerId)))
     })
   })
 )

@@ -41,8 +41,7 @@ import type {
   TicketLinked
 } from "./domain/Inbox.ts"
 import { ThreadTickets, WebchatStores, WidgetKeys } from "./domain/Ports.ts"
-import * as Channels from "./use-cases/chat/channels.ts"
-import * as Chat from "./use-cases/chat/chat.ts"
+import { withChannels, withChat } from "./use-cases/chat/lazy.ts"
 import * as Commands from "./use-cases/commands.ts"
 import * as Mailboxes from "./use-cases/mailboxes.ts"
 import * as Threads from "./use-cases/threads.ts"
@@ -153,14 +152,15 @@ export class InboxService extends Context.Service<InboxService, {
         disconnect: (input) => run(Mailboxes.disconnect(input)),
         setDefault: (input) => run(Mailboxes.setDefault(input)),
         setSignature: (input) => run(Mailboxes.setSignature(input)),
-        takeOver: (input) => run(Chat.takeOver(input)),
-        handBack: (input) => run(Chat.handBack(input)),
-        sendDraft: (input) => run(Chat.sendDraft(input)),
-        useDraft: (input) => run(Chat.useDraft(input)),
-        discardDraft: (input) => run(Chat.discardDraft(input)),
-        channels: run(Channels.status()),
-        connectChannel: (input) => run(Channels.connect(input)),
-        disconnectChannel: (input) => run(Channels.disconnect(input))
+        // The website chat's own code loads with its first call (`lazy.ts`).
+        takeOver: (input) => run(withChat((c) => c.takeOver(input))),
+        handBack: (input) => run(withChat((c) => c.handBack(input))),
+        sendDraft: (input) => run(withChat((c) => c.sendDraft(input))),
+        useDraft: (input) => run(withChat((c) => c.useDraft(input))),
+        discardDraft: (input) => run(withChat((c) => c.discardDraft(input))),
+        channels: run(withChannels((c) => c.status())),
+        connectChannel: (input) => run(withChannels((c) => c.connect(input))),
+        disconnectChannel: (input) => run(withChannels((c) => c.disconnect(input)))
       }
     })
   )

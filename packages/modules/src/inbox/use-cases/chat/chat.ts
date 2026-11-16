@@ -62,13 +62,6 @@ export const holdChat = Effect.fn("Chat.hold")(function*(sql: SqlClient.SqlClien
   return row
 })
 
-/** Whether `threadId` is a chat the principal reaches. */
-export const isChat = (sql: SqlClient.SqlClient, threadId: string) =>
-  Effect.map(
-    sql<{ id: string }>`select id from channel_threads where id = ${threadId}`,
-    (rows) => rows.length > 0
-  )
-
 const audit = (sql: SqlClient.SqlClient, action: string, id: string, diff?: Record<string, unknown>) =>
   Effect.flatMap(
     Effect.service(CurrentPrincipal),
