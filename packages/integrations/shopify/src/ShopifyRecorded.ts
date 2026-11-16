@@ -112,7 +112,10 @@ const MUTATIONS: Record<string, { readonly field?: string; readonly ok: Record<s
   returnDeclineRequest: { ok: {} },
   // The Live pixel (M14 step 3): created once per store, updated with a new key on a repair.
   webPixelCreate: { ok: { webPixel: { id: "gid://shopify/WebPixel/1" } } },
-  webPixelUpdate: { ok: { webPixel: { id: "gid://shopify/WebPixel/1" } } }
+  webPixelUpdate: { ok: { webPixel: { id: "gid://shopify/WebPixel/1" } } },
+  // The website chat's embed (M15 step 8): the app installation's own metafield, which says where Insyte's API is.
+  metafieldsSet: { ok: { metafields: [] } },
+  metafieldsDelete: { ok: { deletedMetafields: [] } }
 }
 
 /** The calls a `noscope-*` shop's token may not make, and the scope each needs. */
@@ -359,9 +362,32 @@ const refundsTaken = (key: string) => {
 /** The Live pixel's settings each shop was last given (M14 step 3): a worker test reads the ingest key from here. */
 export const recordedPixelSettings = new Map<string, string>()
 
+/** The app installation's metafields each shop was last given (`namespace.key` → value), for the worker tests. */
+export const recordedAppMetafields = new Map<string, Map<string, string>>()
+
 const recordedMutation = (shop: string, query: string, variables: Record<string, unknown>): unknown | undefined => {
   const name = Object.keys(MUTATIONS).find((m) => query.includes(`${m}(`))
   if (name === undefined) return undefined
+  if (name === "metafieldsSet" && !shop.startsWith("refuse-")) {
+    const fields = (variables["metafields"] ?? []) as ReadonlyArray<
+      { ownerId?: string; namespace?: string; key?: string; value?: string }
+    >
+    const held = recordedAppMetafields.get(shop) ?? new Map<string, string>()
+    for (const f of fields) {
+      if (f.ownerId === "gid://shopify/AppInstallation/1") held.set(`${f.namespace}.${f.key}`, String(f.value))
+    }
+    recordedAppMetafields.set(shop, held)
+  }
+  if (name === "metafieldsDelete" && !shop.startsWith("refuse-")) {
+    const fields = (variables["metafields"] ?? []) as ReadonlyArray<
+      { ownerId?: string; namespace?: string; key?: string }
+    >
+    for (const f of fields) {
+      if (f.ownerId === "gid://shopify/AppInstallation/1") {
+        recordedAppMetafields.get(shop)?.delete(`${f.namespace}.${f.key}`)
+      }
+    }
+  }
   // A `pixeltaken-*` shop already has the app's pixel, whose id Insyte lost: Shopify refuses a second one.
   if (name === "webPixelCreate" && shop.startsWith("pixeltaken-")) {
     return { webPixelCreate: { userErrors: [{ field: ["webPixel"], code: "TAKEN", message: "Pixel already exists" }] } }
@@ -480,6 +506,9 @@ const recordedQuery = (shop: string, query: string, variables: Record<string, un
   if (query.includes("shipsToCountries")) return { shop: { shipsToCountries: RECORDED_SHOP.shipsToCountries } }
   if (query.includes("primaryDomain")) {
     return { shop: { primaryDomain: { url: `https://www.${shop.replace(".myshopify.com", "")}.test` } } }
+  }
+  if (query.includes("currentAppInstallation")) {
+    return { currentAppInstallation: { id: "gid://shopify/AppInstallation/1" } }
   }
   if (query.includes("webPixel {")) return { webPixel: { id: "gid://shopify/WebPixel/7" } }
   if (query.includes("shopPolicies")) return { shop: { shopPolicies: RECORDED_SHOP.shopPolicies } }

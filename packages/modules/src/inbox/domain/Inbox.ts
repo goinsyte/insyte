@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { UndoTicket } from "../../shared/domain/Undo.ts"
+import { ChatAuthor, ChatChannelKind } from "./ChatKinds.ts"
 
 /*
  * Mailboxes, threads and messages as the console, `/v1` and MCP read and change them (M11 steps 1–2; domain.md §6.2,
@@ -34,6 +35,10 @@ export type ThreadFilter = typeof ThreadFilter.Type
 export const Address = Schema.Struct({ name: Schema.String, email: Schema.String })
 export type Address = typeof Address.Type
 
+/** What the customer agent did on a chat: handled it, handed it over (or a person took it over), or holds it. */
+export const AgentState = Schema.Literals(["handled", "handed_over", "active"])
+export type AgentState = typeof AgentState.Type
+
 export class ThreadRow extends Schema.Class<ThreadRow>("inbox/ThreadRow")({
   id: Schema.String,
   mailboxId: Schema.String,
@@ -53,7 +58,18 @@ export class ThreadRow extends Schema.Class<ThreadRow>("inbox/ThreadRow")({
   archivedAt: Schema.NullOr(Schema.Finite),
   snoozedUntil: Schema.NullOr(Schema.Finite),
   spamAt: Schema.NullOr(Schema.Finite),
-  deletedAt: Schema.NullOr(Schema.Finite)
+  deletedAt: Schema.NullOr(Schema.Finite),
+  /**
+   * A chat's (M15 step 8): its channel (`null` for mail, whose `mailboxId` is its mailbox; a chat's is its channel's
+   * id), the store it came in at, what the customer agent did on it, who took it over, when it closed, and the number of
+   * the bound customer's latest order in that store, for the order chip.
+   */
+  channel: Schema.NullOr(ChatChannelKind),
+  storeId: Schema.NullOr(Schema.String),
+  agentState: Schema.NullOr(AgentState),
+  takenOverBy: Schema.NullOr(Schema.String),
+  closedAt: Schema.NullOr(Schema.Finite),
+  orderNumber: Schema.NullOr(Schema.String)
 }) {}
 
 /** One count per folder, and the threads in the inbox per mailbox, for the area panel. */
@@ -65,7 +81,12 @@ export const ThreadCounts = Schema.Struct({
   archive: Schema.Int,
   trash: Schema.Int,
   spam: Schema.Int,
-  byMailbox: Schema.Record(Schema.String, Schema.Int)
+  /** The agent's views (M15 step 8): handed over to a person, and handled by Insyte. */
+  handedOver: Schema.Int,
+  insyte: Schema.Int,
+  byMailbox: Schema.Record(Schema.String, Schema.Int),
+  /** The chats in the inbox per channel kind (`webchat`). */
+  byChannel: Schema.Record(Schema.String, Schema.Int)
 })
 export type ThreadCounts = typeof ThreadCounts.Type
 
@@ -73,6 +94,10 @@ export const ListInput = Schema.Struct({
   /** Absent: every thread, set aside or not, as the console sorts them into folders itself. */
   folder: Schema.optional(Folder),
   mailboxId: Schema.optional(Schema.String),
+  /** `email` for mail only, a chat kind for its chats. */
+  channel: Schema.optional(Schema.Literals(["email", "webchat"])),
+  /** The agent's views: handed over, and handled by Insyte. */
+  view: Schema.optional(Schema.Literals(["handed_over", "insyte"])),
   /** Over the subject, the participants and the bodies. */
   q: Schema.optional(Schema.String.check(Schema.isMaxLength(200))),
   filters: Schema.optional(Schema.Array(ThreadFilter)),
@@ -112,10 +137,36 @@ export const MessageView = Schema.Struct({
 })
 export type MessageView = typeof MessageView.Type
 
+/** One message of a chat, as the letter's bubbles show it. */
+export const ChatEntry = Schema.Struct({
+  id: Schema.String,
+  author: ChatAuthor,
+  text: Schema.String,
+  at: Schema.Finite,
+  /** The member who wrote it, for the team's. */
+  sentBy: Schema.NullOr(Schema.String),
+  /** `scheduled` while it waits out its undo window: the shopper does not see it yet. */
+  sendState: Schema.Literals(["scheduled", "sent"])
+})
+export type ChatEntry = typeof ChatEntry.Type
+
+/** A chat's open handover, or the last one handed back. */
+export const HandoverView = Schema.Struct({
+  reason: Schema.String,
+  at: Schema.Finite,
+  pickedUpAt: Schema.NullOr(Schema.Finite),
+  pickedUpBy: Schema.NullOr(Schema.String),
+  handedBackAt: Schema.NullOr(Schema.Finite)
+})
+export type HandoverView = typeof HandoverView.Type
+
 export class ThreadDetail extends Schema.Class<ThreadDetail>("inbox/ThreadDetail")({
   thread: ThreadRow,
-  /** Oldest first, as the letter reads. */
-  messages: Schema.Array(MessageView)
+  /** Oldest first, as the letter reads. Empty for a chat. */
+  messages: Schema.Array(MessageView),
+  /** A chat's messages, oldest first; empty for mail. */
+  chat: Schema.Array(ChatEntry),
+  handover: Schema.NullOr(HandoverView)
 }) {}
 
 /* ── commands ──────────────────────────────────────────────────────────────────────────────────── */

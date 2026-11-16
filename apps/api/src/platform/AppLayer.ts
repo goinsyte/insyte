@@ -1,6 +1,7 @@
 import { Layer } from "effect"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
 import { BrandRoutes } from "../transports/http/BrandRoutes.ts"
+import { ChatRoutes } from "../transports/http/ChatRoutes.ts"
 import { ConnectRoutes, KlaviyoConnectRoutes, SlackConnectRoutes } from "../transports/http/ConnectRoutes.ts"
 import { CourseMediaRoutes } from "../transports/http/CourseMediaRoutes.ts"
 import { DataImportRoutes } from "../transports/http/DataImportRoutes.ts"
@@ -53,6 +54,8 @@ const Transports = Layer.mergeAll(
   CourseMediaRoutes,
   DataImportRoutes,
   PixelRoutes,
+  // The website chat's widget, from a storefront (M15 step 8); loaded on its first request.
+  ChatRoutes,
   RequestContext,
   NotFound
 )

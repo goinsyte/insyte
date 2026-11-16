@@ -25,6 +25,11 @@ export const ThreadsHandlers = ThreadsRpcs.toLayer(Effect.gen(function*() {
     "Mailboxes.connect": (input) => inbox.connect(input),
     "Mailboxes.disconnect": (input) => inbox.disconnect(input),
     "Mailboxes.setDefault": (input) => inbox.setDefault(input),
-    "Mailboxes.setSignature": (input) => inbox.setSignature(input)
+    "Mailboxes.setSignature": (input) => inbox.setSignature(input),
+    "Threads.takeOver": (input) => inbox.takeOver(input),
+    "Threads.handBack": (input) => inbox.handBack(input),
+    "Channels.list": () => inbox.channels,
+    "Channels.connect": (input) => inbox.connectChannel(input),
+    "Channels.disconnect": (input) => inbox.disconnectChannel(input)
   })
 }))

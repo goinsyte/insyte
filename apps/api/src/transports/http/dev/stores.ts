@@ -81,7 +81,8 @@ const StoreMirror = HttpRouter.add(
  * products, three customers, five orders across their lifecycle), as a first import would leave it. Shopify is not
  * reached: the store has a connection without credentials, so it is for reading only. For the console's journey,
  * which has no Shopify to connect (previews never get one), and for a person trying a preview. `?tag=<a-z0-9>&name=`
- * seeds another store beside it, named so (the store switch's journey). Refused in production.
+ * seeds another store beside it, named so (the store switch's journey). It answers with the store, its shop domain and the
+ * workspace. Refused in production.
  */
 const StoreSeed = HttpRouter.add(
   "POST",
@@ -131,7 +132,8 @@ const StoreSeed = HttpRouter.add(
     const written = yield* applyBatch(storeId, batch, { live: false }).pipe(
       Effect.provideService(CurrentWorkspace, workspace)
     )
-    return HttpServerResponse.jsonUnsafe({ storeId, written })
+    // The shop and the workspace too: the website chat's journey loads the widget as this shop's storefront would.
+    return HttpServerResponse.jsonUnsafe({ storeId, shop, workspaceId: active.workspaceId, written })
   }).pipe(withRequestDb)
 )
 

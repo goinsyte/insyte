@@ -55,7 +55,10 @@ const INBOX_CUTS = {
   "/inbox?folder=linked": "linked",
   "/inbox?folder=archive": "archive",
   "/inbox?folder=trash": "trash",
-  "/inbox?folder=spam": "spam"
+  "/inbox?folder=spam": "spam",
+  // The customer agent's views over the website chat (M15 step 8).
+  "/inbox?view=handed_over": "handedOver",
+  "/inbox?view=insyte": "insyte"
 } as const
 
 /** Returns (M9.1): each view of the panel by its link, and all of them; the list's own counts. */
@@ -162,7 +165,8 @@ export const ShellHandlers = ShellRpcs.toLayer(Effect.gen(function*() {
       return inbox.counts.pipe(
         Effect.map((counts) => ({
           ...Object.fromEntries(Object.entries(INBOX_CUTS).map(([key, folder]) => [key, counts[folder]])),
-          ...Object.fromEntries(Object.entries(counts.byMailbox).map(([id, n]) => [`/inbox?mailbox=${id}`, n]))
+          ...Object.fromEntries(Object.entries(counts.byMailbox).map(([id, n]) => [`/inbox?mailbox=${id}`, n])),
+          ...Object.fromEntries(Object.entries(counts.byChannel).map(([kind, n]) => [`/inbox?channel=${kind}`, n]))
         })),
         Effect.catchTag("Forbidden", () => Effect.succeed({} as Record<string, number>))
       )

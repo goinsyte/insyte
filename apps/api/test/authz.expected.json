@@ -1686,6 +1686,41 @@
     "finance": "deny",
     "view": "deny"
   },
+  "Threads.takeOver": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Threads.handBack": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Channels.list": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "deny",
+    "view": "allow"
+  },
+  "Channels.connect": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Channels.disconnect": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
   "Home.work": {
     "owner": "allow",
     "admin": "allow",

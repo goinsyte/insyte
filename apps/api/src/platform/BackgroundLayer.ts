@@ -74,7 +74,15 @@ const BackgroundLayer = onInfra(Layer.mergeAll(
   // The ECB's reference rates, into `fx_rates` on the cron's nightly turn (§0.4).
   RatesChoice,
   // The sending domains' daily re-check (M17 step 20.1c).
-  SendingDomainsChoice
+  SendingDomainsChoice,
+  // A store's website chat switched off or put back: the theme's embed follows it (M15 step 8). Imported on first use.
+  Layer.unwrap(
+    Effect.promise(() => import("./links/WebchatStores.ts")).pipe(
+      Effect.map((m) =>
+        m.WebchatStoresLive.pipe(Layer.provide(Layer.mergeAll(ConnectionGateLive, ShopifyGraphqlChoice)))
+      )
+    )
+  )
 ))
 
 /**

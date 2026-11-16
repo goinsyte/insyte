@@ -1,6 +1,7 @@
 import { StoreMirror } from "@insyte/modules/stores/Mirror"
 import { Layer } from "effect"
 import { AgentLinksLive } from "./links/AgentLinks.ts"
+import { ChatChannelLive } from "./links/ChatChannel.ts"
 import { ChatCommandsLive } from "./links/ChatCommands.ts"
 import { CostFiguresLive } from "./links/CostFigures.ts"
 import { FirstAnalysisMakersLive } from "./links/FirstAnalysisMakers.ts"
@@ -58,6 +59,8 @@ export const SliceLinks = StoreMirror.layer.pipe(
       ReturnParcelsLive,
       ShopifyReturnsLive,
       ThreadTicketsLive,
+      // The website chat's port for the customer agent (M15 step 8).
+      ChatChannelLive,
       TicketMailLive,
       QualityTicketsLive,
       TrashKindsLive,

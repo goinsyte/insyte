@@ -1,12 +1,14 @@
 import { Link } from "@tanstack/react-router"
-import { ArrowRight, Sparkle, UserPlus } from "../../icons"
+import { ArrowRight } from "../../icons"
 import { AgentSuggestion, useMyName } from "../ask/agent-demo"
-import { InsyteMark } from "../ask/parts"
 import { ME } from "../lib/assignees"
 import { formatCurrency } from "../lib/format"
 import { undoable } from "../lib/undo"
 import { type ThreadState, useInbox } from "../stores/inbox-store"
 import { useWorkspace } from "../stores/workspace-store"
+import { AgentBand, AgentHandled } from "./chat-views"
+
+export { AgentBand, AgentHandled }
 
 /**
  * What the customer agent did on a chat (PLAN 28, ADR-0027 "handover is a first-class result"). A
@@ -21,16 +23,7 @@ export function AgentBanner({ thread }: { thread: ThreadState }) {
   const a = thread.agent
   if (!a) return null
 
-  if (a.state === "handled") {
-    return (
-      <p className="mb-2 flex items-start gap-2 rounded-lg bg-mist px-3 py-2 text-ink-2 text-sm">
-        <InsyteMark size={18} />
-        <span>
-          <span className="font-medium text-ink">Door Insyte afgehandeld.</span> {a.summary}
-        </span>
-      </p>
-    )
-  }
+  if (a.state === "handled") return <AgentHandled summary={a.summary} />
 
   const taken = a.state === "handed_over" && thread.assignee !== undefined
   const takeOver = () => {
@@ -53,49 +46,15 @@ export function AgentBanner({ thread }: { thread: ThreadState }) {
 
   return (
     <div className="mb-3 flex flex-col gap-3">
-      <section aria-label="Overdracht" className="flex flex-col gap-2 rounded-lg bg-arc-tint px-4 py-3">
-        <p className="flex items-start gap-2 text-ink text-sm">
-          <InsyteMark size={18} />
-          <span>
-            {a.state === "active" ? <span className="font-medium">Insyte voert dit gesprek weer.</span> : (
-              <>
-                <span className="font-medium">Insyte heeft dit overgedragen:</span> {a.reason?.toLowerCase()}
-              </>
-            )}
-          </span>
-        </p>
-        {a.summary ? <p className="pl-[26px] text-ink-2 text-sm leading-relaxed">{a.summary}</p> : null}
-        <div className="flex flex-wrap gap-2 pl-[26px]">
-          {a.state === "active" || !taken ?
-            (
-              <button
-                type="button"
-                onClick={takeOver}
-                className="flex h-8 items-center gap-1.5 rounded-md bg-abyss px-3 font-medium text-mesh-ink text-sm shadow-primary hover:bg-abyss-2"
-              >
-                <UserPlus className="size-3.5" strokeWidth={1.75} />
-                Overnemen
-              </button>
-            ) :
-            (
-              <span className="flex h-8 items-center text-ink-2 text-sm">
-                Jij hebt het overgenomen, {me.split(" ")[0]}.
-              </span>
-            )}
-          {a.state !== "active" ?
-            (
-              <button
-                type="button"
-                onClick={giveBack}
-                className="flex h-8 items-center gap-1.5 rounded-md bg-paper px-3 font-medium text-ink text-sm hover:bg-paper/80"
-              >
-                <Sparkle className="size-3.5" strokeWidth={1.75} />
-                Teruggeven aan Insyte
-              </button>
-            ) :
-            null}
-        </div>
-      </section>
+      <AgentBand
+        state={a.state}
+        reason={a.reason}
+        summary={a.summary}
+        taken={taken}
+        me={me}
+        onTakeOver={takeOver}
+        onGiveBack={giveBack}
+      />
       {refund && order && line && a.state !== "active" ?
         (
           <AgentSuggestion

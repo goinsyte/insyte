@@ -37,6 +37,8 @@ const NOTIFIED = [
   "ticket.assigned",
   "ticket.mentioned",
   "chat.mentioned",
+  // The customer agent passed a website chat to a person (M15 step 8).
+  "chat.handed_over",
   "quality_check.submitted",
   "chargeback.opened",
   "chargeback.deadline_near",

@@ -158,7 +158,12 @@ export const TENANT_TABLES = [
   "knowledge_versions",
   "knowledge_chunks",
   "knowledge_gaps",
-  "knowledge_citations"
+  "knowledge_citations",
+  // The website chat (M15 step 8): a store's chat channel, its conversations and messages, and the handovers to a person.
+  "channels",
+  "channel_threads",
+  "channel_messages",
+  "handovers"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

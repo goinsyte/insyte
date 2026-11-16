@@ -202,6 +202,14 @@ export const eraseShopper = (sql: SqlClient.SqlClient, seeds: ShopperSeeds) =>
     yield* sql`update email_threads set subject = '[verwijderd]', participants = '[]'::jsonb,
                  last_message_preview = ''
                where id = any(${threadIds}::text[])`
+    // Their website chats (0102): what they said, what was said to them, and why the agent handed it over.
+    const chats = yield* sql<{ id: string }>`
+      update channel_threads set subject = '', participants = '[]'::jsonb, last_message_preview = ''
+      where customer_id = any(${ids}::text[])
+      returning id`
+    const chatIds = chats.map((c) => c.id)
+    yield* sql`update channel_messages set body = '[verwijderd]' where thread_id = any(${chatIds}::text[])`
+    yield* sql`update handovers set reason = '[verwijderd]' where thread_id = any(${chatIds}::text[])`
     // Kennisbank's questions nothing answered yet (0099): their words and the first name beside them.
     yield* sql`update knowledge_gaps set question = '[verwijderd]', question_key = 'verwijderd ' || id,
                  customer_label = ''
