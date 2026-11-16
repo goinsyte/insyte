@@ -107,10 +107,14 @@ export const replyIn = Effect.fn("Chat.replyIn")(function*(sql: SqlClient.SqlCli
   const id = mintId("chm")
   const author = authorOf(principal)
   const window = yield* UndoWindow
-  yield* sql`insert into channel_messages (id, workspace_id, thread_id, author, sent_by, body, visible_at)
-             values (${id}, ${principal.workspaceId}, ${threadId}, ${author}, ${principal.id}, ${body},
-                     now() + make_interval(secs => ${window}))`
-  yield* sql`update channel_threads set last_message_at = now(), last_message_preview = ${previewOf(body)},
+  // The thread's last word is the message's own time, as Postgres wrote it: Undo knows the reply is still last by it.
+  const [sent] = yield* sql<{ at: string }>`
+    insert into channel_messages (id, workspace_id, thread_id, author, sent_by, body, visible_at)
+    values (${id}, ${principal.workspaceId}, ${threadId}, ${author}, ${principal.id}, ${body},
+            now() + make_interval(secs => ${window}))
+    returning created_at::text as at`
+  yield* sql`update channel_threads set last_message_at = ${sent!.at}::timestamptz,
+               last_message_preview = ${previewOf(body)},
                unread = false, agent_spoke_at = case when ${author} = 'agent' then now() else agent_spoke_at end
              where id = ${threadId}`
   yield* audit(sql, "thread.replied", threadId, { messageId: id })
@@ -119,7 +123,8 @@ export const replyIn = Effect.fn("Chat.replyIn")(function*(sql: SqlClient.SqlCli
     messageId: id,
     threadId,
     lastMessageAt: held.lastMessageAt.getTime(),
-    preview: held.lastMessagePreview
+    preview: held.lastMessagePreview,
+    sentAt: sent!.at
   }
   return { id, body, compensation }
 })
@@ -386,14 +391,17 @@ export const restore = Effect.fn("Chat.restore")(function*(sql: SqlClient.SqlCli
   switch (undo.kind) {
     case "unsent": {
       // Only while it still waits: once the shopper may have read it, it stays.
-      const [gone] = yield* sql<{ createdAt: Date }>`
-        delete from channel_messages where id = ${undo.messageId} and visible_at > now() returning created_at`
       // The preview goes back only while the reply is still the thread's last word: one the shopper wrote since stays.
-      if (gone !== undefined) {
-        yield* sql`update channel_threads set last_message_at = ${new Date(undo.lastMessageAt)},
-                     last_message_preview = ${undo.preview}
-                   where id = ${undo.threadId} and last_message_at = ${gone.createdAt}`
-      }
+      // Compared in Postgres, to the microsecond: a time through JavaScript keeps only milliseconds.
+      yield* sql`
+        with gone as (
+          delete from channel_messages where id = ${undo.messageId} and visible_at > now() returning created_at
+        )
+        update channel_threads t set last_message_at = ${new Date(undo.lastMessageAt)},
+          last_message_preview = ${undo.preview}
+        from gone
+        where t.id = ${undo.threadId}
+          and t.last_message_at = coalesce(${undo.sentAt ?? null}::timestamptz, gone.created_at)`
       yield* audit(sql, "thread.unsent", undo.threadId, { messageId: undo.messageId })
       return
     }

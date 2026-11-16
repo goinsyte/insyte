@@ -27,7 +27,12 @@ export class ChannelView extends Schema.Class<ChannelView>("inbox/ChannelView")(
   threads: Schema.Int,
   /** The theme editor's page that turns the app embed on in the store's live theme (Shopify's own deep link). */
   activateUrl: Schema.String,
-  connectedAt: Schema.Finite
+  connectedAt: Schema.Finite,
+  /**
+   * Whether Shopify was told where the theme's embed loads the widget from. False on a connected chat: it is on, but
+   * the storefront shows nothing until a connect ("Opslaan") gets through.
+   */
+  themeUpdated: Schema.Boolean
 }) {}
 
 /** What Koppelingen and the inbox read: the stores' chat channels, and whether this stage can run the chat at all. */
@@ -68,7 +73,12 @@ export const ChatRestore = Schema.Union([
     messageId: Schema.String,
     threadId: Schema.String,
     lastMessageAt: Schema.Finite,
-    preview: Schema.String
+    preview: Schema.String,
+    /**
+     * The reply's own time as Postgres wrote it (its text, to the microsecond), which the thread's `last_message_at`
+     * holds while the reply is its last word. Absent from an undo issued before it was kept.
+     */
+    sentAt: Schema.optional(Schema.String)
   }),
   /** A take-over or a hand-back: the thread's holder and assignee as they were, the handover's state too. */
   Schema.Struct({
