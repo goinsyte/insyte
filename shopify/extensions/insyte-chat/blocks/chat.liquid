@@ -1,13 +1,21 @@
 {%- comment -%}
   Insyte's website chat (M15 step 8). The widget itself comes from the Insyte API, which also checks that the page
-  is one of this shop's storefronts; the shop's myshopify domain tells it which store's chat to open. Staging's API
-  for now; production gets its own app config when it goes live.
+  is one of this shop's storefronts; the shop's myshopify domain tells it which store's chat to open. Which API: the
+  app installation's own metafield `insyte.api_origin`, which Insyte writes when the store's chat is connected, so
+  each stage's app loads its own API. Without it, or with anything but a bare https origin in it, the page gets nothing.
 {%- endcomment -%}
-<script
-  src="https://insyte-api-staging.ishak-73d.workers.dev/api/public/chat/widget.js"
-  data-shop="{{ shop.permanent_domain | escape }}"
-  defer
-></script>
+{%- assign api = app.metafields.insyte.api_origin.value | strip -%}
+{%- assign scheme = api | slice: 0, 8 -%}
+{%- assign host = api | remove_first: 'https://' -%}
+{%- if scheme == 'https://' and host != blank -%}
+  {%- unless host contains '/' or host contains '"' or host contains '<' or host contains ' ' -%}
+    <script
+      src="https://{{ host | escape }}/api/public/chat/widget.js"
+      data-shop="{{ shop.permanent_domain | escape }}"
+      defer
+    ></script>
+  {%- endunless -%}
+{%- endif -%}
 
 {% schema %}
 {

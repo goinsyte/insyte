@@ -119,6 +119,12 @@ export const connect = Effect.fn("Channels.connect")(function*(input: typeof Con
   // Shopify's word on the storefront's own domain, read outside the transaction; without it the myshopify domain is
   // the only origin, until the next connect.
   const primary = yield* stores.primaryOrigin({ ...store, workspaceId: principal.workspaceId })
+  // Where the embed loads the widget from, told to Shopify on every connect; the widget stays off without it.
+  if (!(yield* stores.pointEmbed({ ...store, workspaceId: principal.workspaceId }))) {
+    yield* Effect.logWarning("webchat: the app embed's API origin was not set").pipe(
+      Effect.annotateLogs({ storeId: store.id })
+    )
+  }
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const [before] = yield* sql<
@@ -194,6 +200,7 @@ export const restoreChannel = Effect.fn("Channels.restore")(function*(
   sql: SqlClient.SqlClient,
   undo: Extract<ChatRestore, { readonly kind: "channel" }>
 ) {
+  const [channel] = yield* sql<{ storeId: string }>`select store_id from channels where id = ${undo.channelId}`
   if (undo.status === null) {
     // Made by the connect: taken away while no chat came in on it; one that has chats is only switched off.
     const [chat] = yield* sql`select 1 from channel_threads where channel_id = ${undo.channelId} limit 1`
@@ -205,4 +212,6 @@ export const restoreChannel = Effect.fn("Channels.restore")(function*(
                where id = ${undo.channelId}`
   }
   yield* audit(sql, "channel.restored", undo.channelId)
+  // This isolate's widget reads the channel again at once, as after a connect or a disconnect.
+  if (channel !== undefined) forgetChatRoute(channel.storeId)
 })
