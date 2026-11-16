@@ -207,6 +207,13 @@ export const wordsOf = (note: NoteFacts): NoteWords => {
         actionLabel: "Ticket openen",
         path: `/tickets${query({ ticket: id })}`
       }
+    case "chat.handover":
+      return {
+        title: "Insyte heeft een websitechat aan het team overgedragen",
+        record: text(data["store"]) || undefined,
+        actionLabel: "Gesprek openen",
+        path: `/inbox${query({ thread: id })}`
+      }
     case "chat.mention":
       // In a chat (M11 step 4): `#kanaal` or a DM, which the button opens.
       if (note.subjectType === "conversation") {

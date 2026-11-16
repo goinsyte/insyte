@@ -89,6 +89,7 @@ export type EventKey =
 	| "ticket.assigned"
 	| "ticket.reply"
 	| "ticket.sla"
+	| "chat.handover"
 	| "chargeback.new"
 	| "chargeback.deadline"
 	| "chargeback.result"
@@ -144,6 +145,7 @@ export const EVENTS: ReadonlyArray<EventDef> = [
 	{ key: "ticket.assigned", group: "Klantenservice", label: "Ticket aan jou toegewezen", detail: "Iemand legt een ticket bij jou neer.", primary: true, defaults: ch(true, true, true, false) },
 	{ key: "ticket.reply", group: "Klantenservice", label: "Klant antwoordt", detail: "Een nieuw bericht in een open ticket.", primary: false, mine: true, defaults: ch(true, false, false, false) },
 	{ key: "ticket.sla", group: "Klantenservice", label: "Termijn dreigt te verlopen", detail: "Een ticket heeft binnen 4 uur een eerste antwoord nodig.", primary: true, mine: true, defaults: ch(true, false, true, false) },
+	{ key: "chat.handover", group: "Klantenservice", label: "Websitechat overgedragen", detail: "Insyte geeft een gesprek op de website door aan het team.", primary: true, defaults: ch(true, false, true, false) },
 	{ key: "chargeback.new", group: "Chargebacks", label: "Nieuwe chargeback", detail: "Een klant betwist een betaling.", primary: true, threshold: "disputeAmount", defaults: ch(true, true, false, false) },
 	{ key: "chargeback.deadline", group: "Chargebacks", label: "Bewijsdeadline nadert", detail: "Nog 24 uur om bewijs in te dienen.", primary: true, defaults: ch(true, true, true, false) },
 	{ key: "chargeback.result", group: "Chargebacks", label: "Uitspraak", detail: "Een geschil is gewonnen of verloren.", primary: false, defaults: ch(true, true, false, false) },

@@ -223,6 +223,28 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
           }
         }
       }
+      case "chat.handed_over": {
+        // The customer agent passed a website chat to a person (M15 step 8): whoever may answer it in its store hears
+        // of it, as long as it is still open and nobody took it over. Ids and the store's name only: the shopper's
+        // words and the agent's reason stay in the thread.
+        const [chat] = yield* sql<{ store: string }>`
+          select s.name as store from channel_threads t join stores s on s.id = t.store_id
+          where t.id = ${event.threadId} and t.taken_over_by is null and t.closed_at is null
+            and exists (select 1 from handovers h where h.thread_id = t.id and h.handed_back_at is null)`
+        if (chat === undefined) return undefined
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'support')::int, 0) >= 2) and ${reaching(sql, event.storeId)}`
+        return {
+          kind: "chat.handover",
+          recipients: recipients.map((r) => r.id),
+          subjectType: "thread",
+          subjectId: event.threadId,
+          actor: null,
+          data: { store: chat.store }
+        }
+      }
       case "automation.notify": {
         // A run (M12 step 3): its flow by name; who may not see automations hears nothing.
         const [flow] = yield* sql<{ name: string }>`select name from automations where id = ${event.automationId}`

@@ -245,6 +245,11 @@ describe("webchat", () => {
     expect(handed.thread.agentState).toBe("handed_over")
     expect(handed.handover).toMatchObject({ reason: "Vraagt om korting", pickedUpAt: null })
     expect((await outboxOf(shop.workspace)).filter((e) => e.event === "chat.handed_over")).toHaveLength(1)
+    await relay(shop.workspace)
+    const notes = ok(await rpc("Notifications.list", { tab: "inbox", cursor: null }, shop.cookie)).items
+    const note = notes.find((n) => n.kind === "chat.handover")
+    expect(note).toMatchObject({ subjectType: "thread", subjectId: row!.id })
+    expect(JSON.stringify(note)).not.toContain("korting")
 
     // A person takes it over: the agent is refused, and the handover is picked up.
     ok(await rpc("Threads.takeOver", { threadId: row!.id }, shop.cookie))
