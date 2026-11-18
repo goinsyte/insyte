@@ -189,7 +189,9 @@ interface MessageSql {
 }
 
 const SELECT = (me: string) =>
-  `m.id, m.conversation_id, m.author_kind, m.author_id, coalesce(au.name, '') as author_name, m.body, m.mentions,
+  `m.id, m.conversation_id, m.author_kind, m.author_id,
+  coalesce(au.name, case when m.author_kind in ('api_key', 'agent') then 'API-sleutel “' || ak.label || '”' end, '')
+    as author_name, m.body, m.mentions,
   m.records::text as records, m.reply_to, m.also_in_channel, m.pinned_at, m.edited_at, m.deleted_at, m.created_at,
   (select count(*)::int from messages r where r.reply_to = m.id and r.deleted_at is null) as reply_count,
   (select max(r.created_at) from messages r where r.reply_to = m.id and r.deleted_at is null) as last_reply_at,
@@ -207,6 +209,7 @@ const SELECT = (me: string) =>
 
 const FROM = `messages m
   left join members am on am.id = m.author_id left join auth."user" au on au.id = am.user_id
+  left join api_keys ak on ak.id = m.author_id
   left join chat_actions a on a.message_id = m.id
   left join members dm on dm.id = a.decided_by left join auth."user" du on du.id = dm.user_id`
 

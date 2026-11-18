@@ -31,7 +31,7 @@ import {
  * some stores sees the chats of those only, and every mail (a mailbox is no store's). Every read and count is fenced.
  */
 
-const SELECT = `t.id, t.mailbox_id, t.subject, t.participants::text as participants, t.last_message_at,
+export const SELECT = `t.id, t.mailbox_id, t.subject, t.participants::text as participants, t.last_message_at,
   t.last_message_preview, t.unread, t.starred, t.labels, t.assignee_id, t.ticket_id, t.customer_id, t.has_attachments,
   t.has_inbound, t.archived_at, t.snoozed_until, t.spam_at, t.deleted_at, t.channel, t.store_id, t.agent_state,
   t.taken_over_by, t.closed_at, t.order_number`
@@ -104,7 +104,7 @@ export const toRow = (r: Row) =>
 const INBOX = `t.archived_at is null and t.spam_at is null and t.deleted_at is null
   and (t.snoozed_until is null or t.snoozed_until <= now())`
 
-const folderCondition = (sql: SqlClient.SqlClient, folder: Folder, me: string) => {
+export const folderCondition = (sql: SqlClient.SqlClient, folder: Folder, me: string) => {
   switch (folder) {
     case "all":
       return sql.literal(INBOX)
@@ -160,6 +160,14 @@ export const countsOf = Effect.fn("Threads.counts")(function*(sql: SqlClient.Sql
   } satisfies ThreadCounts
 })
 
+/** The search box over a thread: its subject, who is on it, and what any of its messages say. */
+export const matching = (sql: SqlClient.SqlClient, q: string) => {
+  const like = `%${q.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`
+  return sql`(t.subject ilike ${like} or t.participants::text ilike ${like}
+              or exists (select 1 from email_messages m where m.thread_id = t.id and m.body_text ilike ${like})
+              or exists (select 1 from channel_messages m where m.thread_id = t.id and m.body ilike ${like}))`
+}
+
 export const list = Effect.fn("Threads.list")(function*(input: typeof ListInput.Type) {
   yield* Policy.require("support", 1)
   const principal = yield* CurrentPrincipal
@@ -187,12 +195,7 @@ export const list = Effect.fn("Threads.list")(function*(input: typeof ListInput.
         ))
       }
       const q = input.q?.trim() ?? ""
-      if (q !== "") {
-        const like = `%${q.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`
-        where.push(sql`(t.subject ilike ${like} or t.participants::text ilike ${like}
-                        or exists (select 1 from email_messages m where m.thread_id = t.id and m.body_text ilike ${like})
-                        or exists (select 1 from channel_messages m where m.thread_id = t.id and m.body ilike ${like}))`)
-      }
+      if (q !== "") where.push(matching(sql, q))
       const rows = yield* sql<Row>`
         select ${sql.literal(SELECT)} from ${sql.literal(THREADS)} where ${sql.and(where)}
         order by t.last_message_at desc, t.id limit ${input.limit ?? 200}`

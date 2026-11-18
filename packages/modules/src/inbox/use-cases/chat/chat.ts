@@ -285,24 +285,49 @@ const changed = (sql: SqlClient.SqlClient, threadId: string, compensation: ChatR
     return yield* changedWith(sql, threadId, undo)
   })
 
+/** The chat held by `memberId` (the person, or the teammate a key names), the agent silent on it until handed back. */
+const holdFor = (sql: SqlClient.SqlClient, threadId: string, memberId: string) =>
+  Effect.gen(function*() {
+    const held = yield* holdChat(sql, threadId)
+    if (held.takenOverBy === memberId) return yield* changed(sql, held.id, null)
+    const h = yield* openHandover(sql, held.id)
+    yield* sql`update channel_threads set taken_over_by = ${memberId}, taken_over_at = now(),
+                 assignee_id = ${memberId} where id = ${held.id}`
+    if (h !== undefined) {
+      yield* sql`update handovers set picked_up_at = now(), picked_up_by = ${memberId} where id = ${h.id}`
+    }
+    yield* audit(sql, "thread.taken_over", held.id, { from: held.takenOverBy })
+    return yield* changed(sql, held.id, holder(held, h))
+  })
+
 /** "Overnemen": the chat is mine; the agent is silent on it until I hand it back. */
 export const takeOver = Effect.fn("Threads.takeOver")(function*(input: { readonly threadId: string }) {
   yield* Policy.require("support", 2)
   const principal = yield* CurrentPrincipal
   if (principal.kind !== "member") return yield* new NotFound({ entity: "thread", id: input.threadId })
   const db = yield* Db
+  return yield* db.scoped((sql) => holdFor(sql, input.threadId, principal.id))
+})
+
+/**
+ * "Overnemen" by a person's API key (`/v1`, MCP): the chat goes to the active teammate it names, as if they took it
+ * over. A key holds no chat itself, and an agent's key never takes one over: a person answers what was handed over.
+ */
+export const takeOverFor = Effect.fn("Threads.takeOverFor")(function*(
+  input: { readonly threadId: string; readonly memberId: string }
+) {
+  yield* Policy.require("support", 2)
+  const principal = yield* CurrentPrincipal
+  if (principal.kind !== "member" && principal.kind !== "api_key") {
+    return yield* new NotFound({ entity: "thread", id: input.threadId })
+  }
+  const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      const held = yield* holdChat(sql, input.threadId)
-      if (held.takenOverBy === principal.id) return yield* changed(sql, held.id, null)
-      const h = yield* openHandover(sql, held.id)
-      yield* sql`update channel_threads set taken_over_by = ${principal.id}, taken_over_at = now(),
-                   assignee_id = ${principal.id} where id = ${held.id}`
-      if (h !== undefined) {
-        yield* sql`update handovers set picked_up_at = now(), picked_up_by = ${principal.id} where id = ${h.id}`
-      }
-      yield* audit(sql, "thread.taken_over", held.id, { from: held.takenOverBy })
-      return yield* changed(sql, held.id, holder(held, h))
+      const [m] = yield* sql`select 1 from members where id = ${input.memberId} and deactivated_at is null
+                             and removed_at is null`
+      if (m === undefined) return yield* new NotFound({ entity: "member", id: input.memberId })
+      return yield* holdFor(sql, input.threadId, input.memberId)
     })
   )
 })
