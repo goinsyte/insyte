@@ -1,4 +1,7 @@
 import { AccessRpcs } from "./rpc/AccessRpcs.ts"
+import { AffiliateApplyRpcs } from "./rpc/AffiliateApplyRpcs.ts"
+import { AffiliatePortalRpcs } from "./rpc/AffiliatePortalRpcs.ts"
+import { AffiliatesRpcs } from "./rpc/AffiliatesRpcs.ts"
 import { AgentRpcs } from "./rpc/AgentRpcs.ts"
 import { AnalyticsRpcs } from "./rpc/AnalyticsRpcs.ts"
 import { AskRpcs } from "./rpc/AskRpcs.ts"
@@ -107,3 +110,6 @@ export const ConsoleRpcs = SystemRpcs.merge(SessionRpcs).merge(OnboardingRpcs).m
   .merge(AskRpcs)
   .merge(KnowledgeRpcs)
   .merge(ChannelAgentRpcs)
+  .merge(AffiliatesRpcs)
+  .merge(AffiliatePortalRpcs)
+  .merge(AffiliateApplyRpcs)

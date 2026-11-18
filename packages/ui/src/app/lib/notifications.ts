@@ -97,6 +97,7 @@ export type EventKey =
 	| "supplier.message"
 	| "supplier.stock"
 	| "supplier.statement"
+	| "affiliate.application"
 	| "automation.failed"
 	| "automation.done"
 	| "automation.alert"
@@ -117,7 +118,7 @@ export type EventKey =
 	| "partner.work"
 	| "partner.money";
 
-export type EventGroup = "Bestellingen" | "Retouren" | "Klantenservice" | "Chargebacks" | "Leveranciers" | "Automatiseringen" | "Team" | "Data" | "Koppelingen" | "Insyte";
+export type EventGroup = "Bestellingen" | "Retouren" | "Klantenservice" | "Chargebacks" | "Leveranciers" | "Affiliates" | "Automatiseringen" | "Team" | "Data" | "Koppelingen" | "Insyte";
 
 export type EventDef = {
 	key: EventKey;
@@ -153,6 +154,7 @@ export const EVENTS: ReadonlyArray<EventDef> = [
 	{ key: "supplier.message", group: "Leveranciers", label: "Bericht van een leverancier", detail: "In het gedeelde kanaal met die leverancier.", primary: false, defaults: ch(true, false, false, true) },
 	{ key: "supplier.stock", group: "Leveranciers", label: "Voorraad bijna op", detail: "Een product raakt op binnen een week, op het huidige tempo.", primary: false, defaults: ch(true, false, false, false) },
 	{ key: "supplier.statement", group: "Leveranciers", label: "Afrekeningen klaar", detail: "Op de 1e: wat elke leverancier voor de maand ervoor krijgt.", primary: false, defaults: ch(true, false, false, false) },
+	{ key: "affiliate.application", group: "Affiliates", label: "Nieuwe aanmelding", detail: "Iemand meldt zich aan voor je affiliateprogramma.", primary: true, defaults: ch(true, true, false, false) },
 	{ key: "automation.failed", group: "Automatiseringen", label: "Uitvoering mislukt", detail: "Een stap in een flow kon niet worden uitgevoerd.", primary: true, defaults: ch(true, true, false, true) },
 	{ key: "automation.done", group: "Automatiseringen", label: "Flow aangezet of gepauzeerd", detail: "Iemand verandert een flow die voor de werkruimte draait.", primary: false, defaults: ch(true, false, false, false) },
 	{ key: "automation.alert", group: "Automatiseringen", label: "Waarschuwing uit een flow", detail: "Een flow vraagt met “Team waarschuwen” jouw aandacht.", primary: true, defaults: ch(true, true, true, false) },
@@ -185,6 +187,7 @@ export const EVENT_GROUPS: ReadonlyArray<{ group: EventGroup; icon: IconComponen
 	{ group: "Klantenservice", icon: Ticket },
 	{ group: "Chargebacks", icon: CornerDownLeft },
 	{ group: "Leveranciers", icon: Truck },
+	{ group: "Affiliates", icon: Wallet },
 	{ group: "Automatiseringen", icon: Workflow },
 	{ group: "Team", icon: Users },
 	{ group: "Data", icon: Database },

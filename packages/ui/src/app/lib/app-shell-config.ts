@@ -692,6 +692,7 @@ const AFFILIATES_PANEL: SubPanelConfig = {
 				{ to: "/affiliates", label: "Aanmeldingen", icon: Inbox, search: { view: "aanmeldingen" } },
 				{ to: "/affiliates", label: "Uitbetalingen", icon: Wallet, search: { view: "uitbetalingen" } },
 				{ to: "/affiliates", label: "Uitnodigingen", icon: UserPlus, search: { view: "uitnodigingen" } },
+				{ to: "/affiliates", label: "Materiaal", icon: FileText, search: { view: "materiaal" } },
 			],
 		},
 	],

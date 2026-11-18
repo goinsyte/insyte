@@ -53,6 +53,7 @@ import { WorkspaceSettings } from "@insyte/modules/workspaces/WorkspaceSettings"
 import { Layer } from "effect"
 import { RpcSerialization } from "effect/rpc"
 import { AccessHandlers } from "./handlers/access.ts"
+import { AffiliateApplyHandlers, AffiliatePortalHandlers, AffiliatesHandlers } from "./handlers/affiliates.ts"
 import { AgentHandlers } from "./handlers/agent.ts"
 import { AnalyticsHandlers } from "./handlers/analytics.ts"
 import { AskHandlers } from "./handlers/ask.ts"
@@ -185,6 +186,10 @@ export const RpcContext = Layer.mergeAll(
   CostsHandlers.pipe(Layer.provide(CostsService.layer)),
   // Facturatie (M13 step 1): the slice loads with the first billing call (`handlers/billing.ts`).
   BillingHandlers,
+  // Affiliates (M16 steps 3–5): the slice loads with its first call (`handlers/affiliates.ts`).
+  AffiliatesHandlers,
+  AffiliatePortalHandlers.pipe(Layer.provide(UndoService.layer)),
+  AffiliateApplyHandlers,
   // Insyte-support's consent and banner (M18): the slice loads with the first call (`handlers/support.ts`).
   SupportHandlers,
   AuditHandlers.pipe(Layer.provide(AuditService.layer)),

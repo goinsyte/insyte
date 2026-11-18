@@ -47,6 +47,15 @@ describe("migrations:check", () => {
     ])
   })
 
+  it("fails a truncate outside contract/, but not a trigger that guards against one", () => {
+    expect(checkMigrations(base, [...base, m("0003_x", `"truncate outbox"`)], [])).toEqual([
+      `0003_x: "truncate" is destructive; it belongs in a contract/ migration`
+    ])
+    const guard = `"create trigger kept before truncate on ledger for each statement execute function frozen()",
+      "create trigger kept_too before update or delete or truncate on ledger execute function frozen()"`
+    expect(checkMigrations(base, [...base, m("0003_x", guard)], [])).toEqual([])
+  })
+
   it("allows a destructive statement in contract/", () => {
     expect(
       checkMigrations(

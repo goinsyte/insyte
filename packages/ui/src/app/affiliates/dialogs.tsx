@@ -1,19 +1,17 @@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../components/dialog";
-import { Pause, Play, Send } from "../../icons";
+import { Pause, Play, RotateCcw, Send } from "../../icons";
 import { useEffect, useState } from "react";
 import { Field, TextAreaField, TextField } from "../common/form-dialog";
 import { StatusPill } from "../settings/setting-card";
 import { GHOST_BTN, PersonDisc, PRIMARY_BTN, Segmented } from "../team/bits";
-import { TIERS } from "../../data-source";
-import { formatCurrency, formatDate } from "../lib/format";
-import { type Application, REJECT_REASONS, type Tier, tierOf } from "../../data-source";
-import { EMAIL, token } from "../lib/team";
-import { undoable } from "../lib/undo";
+import { formatDate } from "../lib/format";
+import { EMAIL } from "../lib/team";
 import { cn } from "../lib/utils";
-import { useProgram } from "../stores/affiliate-program-store";
+import { type ApplicationRow, type Tier, type TierView, tierIn, useAffiliatesSource } from "./source";
 
-const DAY = 86_400_000;
-export const TIER_OPTIONS = TIERS.map((t) => ({ id: t.id as Tier, label: `${t.label} · ${t.rate}%` }));
+type Application = ApplicationRow;
+
+export const tierOptions = (tiers: ReadonlyArray<TierView>) => tiers.map((t) => ({ id: t.id as Tier, label: `${t.label} · ${t.rate}%` }));
 
 /** Invite someone straight into the programme, past the application. */
 export function AffiliateInviteDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
@@ -22,8 +20,11 @@ export function AffiliateInviteDialog({ open, onOpenChange }: { open: boolean; o
 	const [tier, setTier] = useState<Tier>("bronze");
 	const [message, setMessage] = useState("");
 	const [tried, setTried] = useState(false);
-	const invites = useProgram((s) => s.invites);
-	const affiliates = useProgram((s) => s.affiliates);
+	const { tiers, useInvites, useAffiliates, invite: send } = useAffiliatesSource();
+	const invites = useInvites();
+	const affiliates = useAffiliates();
+	const TIER_OPTIONS = tierOptions(tiers);
+	const tierOf = (id: Tier) => tierIn(tiers, id);
 
 	useEffect(() => {
 		if (!open) return;
@@ -48,9 +49,8 @@ export function AffiliateInviteDialog({ open, onOpenChange }: { open: boolean; o
 	function submit() {
 		setTried(true);
 		if (problem) return;
-		const invite = { id: `inv_aff_${token()}`, name: name.trim(), email: e, tier, message: message.trim() || undefined, sentAt: Date.now(), expiresAt: Date.now() + 14 * DAY };
-		useProgram.getState().addInvite(invite);
-		undoable(`${invite.name} uitgenodigd voor het partnerprogramma`, () => useProgram.getState().removeInvite(invite.id), `Op ${tierOf(tier).label}, ${tierOf(tier).rate}% commissie. De link is 14 dagen geldig.`);
+		const invite = { name: name.trim(), email: e, tier, message: message.trim() || undefined };
+		send(invite, { message: `${invite.name} uitgenodigd voor het partnerprogramma`, description: `Op ${tierOf(tier).label}, ${tierOf(tier).rate}% commissie. De link is 14 dagen geldig.` });
 		onOpenChange(false);
 	}
 
@@ -93,14 +93,18 @@ export function AffiliateInviteDialog({ open, onOpenChange }: { open: boolean; o
 
 /** Approve with a tier, or reject with a reason the applicant will read. */
 export function DecideDialog({ app, mode, onClose }: { app: Application | null; mode: "approve" | "reject"; onClose: () => void }) {
+	const { tiers, rejectReasons: REJECT_REASONS, useProposedCode, approve, reject } = useAffiliatesSource();
+	const TIER_OPTIONS = tierOptions(tiers);
+	const tierOf = (id: Tier) => tierIn(tiers, id);
+	const code = useProposedCode(mode === "approve" ? app : null);
 	const [tier, setTier] = useState<Tier>("bronze");
-	const [reason, setReason] = useState<string>(REJECT_REASONS[0]);
+	const [reason, setReason] = useState<string>(REJECT_REASONS[0] ?? "custom");
 	const [custom, setCustom] = useState("");
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: reset when another application opens.
 	useEffect(() => {
 		setTier("bronze");
-		setReason(REJECT_REASONS[0]);
+		setReason(REJECT_REASONS[0] ?? "custom");
 		setCustom("");
 	}, [app?.id, mode]);
 
@@ -123,7 +127,7 @@ export function DecideDialog({ app, mode, onClose }: { app: Application | null; 
 					<div className="flex flex-col gap-3">
 						<Segmented label="Niveau" value={tier} onChange={setTier} options={TIER_OPTIONS} />
 						<p className="text-ink-2 text-sm">
-							{t.rate}% commissie op elke bestelling via hun code{t.from > 0 ? `, het niveau dat normaal vanaf ${t.from} conversies geldt` : ""}. Code: <span className="font-medium text-ink">{(app.name.split(" ")[0] ?? "").toUpperCase()}</span>.
+							{t.rate}% commissie op elke bestelling via hun code{t.from > 0 ? `, het niveau dat normaal vanaf ${t.from} conversies geldt` : ""}. Code: <span className="font-medium text-ink">{code || "…"}</span>.
 						</p>
 					</div>
 				) : (
@@ -144,12 +148,10 @@ export function DecideDialog({ app, mode, onClose }: { app: Application | null; 
 					</button>
 					<button
 						type="button"
-						disabled={mode === "reject" && !text}
+						disabled={mode === "reject" ? !text : !code}
 						onClick={() => {
-							const before = useProgram.getState().snapshot();
-							if (mode === "approve") useProgram.getState().approve(app.id, tier);
-							else useProgram.getState().reject(app.id, text);
-							undoable(mode === "approve" ? `${app.name} doet mee op ${t.label}` : `${app.name} afgewezen`, () => useProgram.getState().restore(before), mode === "approve" ? "De welkomstmail met de code is verstuurd." : text);
+							if (mode === "approve") approve(app, tier, code, { message: `${app.name} doet mee op ${t.label}`, description: "De welkomstmail met de code is verstuurd." });
+							else reject(app, text, { message: `${app.name} afgewezen`, description: text });
 							onClose();
 						}}
 						className={mode === "reject" ? cn(PRIMARY_BTN, "bg-signal-red hover:bg-signal-red/90") : PRIMARY_BTN}
@@ -164,8 +166,11 @@ export function DecideDialog({ app, mode, onClose }: { app: Application | null; 
 
 /** One affiliate: their figures, their tier, and pausing their links. */
 export function AffiliateDialog({ id, onClose }: { id: string | null; onClose: () => void }) {
-	const a = useProgram((s) => s.affiliates.find((x) => x.id === id));
-	const payout = useProgram((s) => s.payouts.find((p) => p.affiliateId === id));
+	const { money: formatCurrency, tiers, useAffiliates, useThisMonth, setTier, setPaused, retryDiscount } = useAffiliatesSource();
+	const TIER_OPTIONS = tierOptions(tiers);
+	const tierOf = (t: Tier) => tierIn(tiers, t);
+	const a = useAffiliates().find((x) => x.id === id);
+	const thisMonth = useThisMonth(id ?? "");
 	return (
 		<Dialog open={a !== undefined} onOpenChange={(v) => !v && onClose()}>
 			<DialogContent className="sm:max-w-[580px]">
@@ -189,7 +194,7 @@ export function AffiliateDialog({ id, onClose }: { id: string | null; onClose: (
 							{[
 								["Conversies", a.conversions.toLocaleString("nl-NL")],
 								["Verdiend", formatCurrency(a.earned)],
-								["Deze maand", payout ? formatCurrency(payout.approvable + payout.inWindow) : "—"],
+								["Deze maand", thisMonth !== undefined ? formatCurrency(thisMonth) : "—"],
 							].map(([k, v]) => (
 								<div key={k} className="flex flex-col gap-0.5 px-3 py-2.5">
 									<dt className="text-ink-3 text-xs">{k}</dt>
@@ -197,6 +202,20 @@ export function AffiliateDialog({ id, onClose }: { id: string | null; onClose: (
 								</div>
 							))}
 						</dl>
+						{a.discount?.state === "failed" ? (
+							<section className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-signal-amber-bg px-3 py-2.5">
+								<span className="flex min-w-0 flex-col">
+									<span className="font-medium text-ink text-sm">Kortingscode kon niet in Shopify worden aangemaakt</span>
+									{a.discount.error ? <span className="text-ink-2 text-sm">{a.discount.error}</span> : null}
+								</span>
+								{retryDiscount ? (
+									<button type="button" onClick={() => retryDiscount(a)} className={GHOST_BTN}>
+										<RotateCcw className="size-3.5" strokeWidth={1.75} />
+										Opnieuw proberen
+									</button>
+								) : null}
+							</section>
+						) : null}
 						<section className="flex flex-col gap-2">
 							<h3 className="font-medium text-ink-3 text-xs">Niveau en commissie</h3>
 							<Segmented
@@ -205,9 +224,7 @@ export function AffiliateDialog({ id, onClose }: { id: string | null; onClose: (
 								options={TIER_OPTIONS}
 								onChange={(tier) => {
 									if (tier === a.tier) return;
-									const before = a.tier;
-									useProgram.getState().setTier(a.id, tier);
-									undoable(`${a.name} is nu ${tierOf(tier).label}`, () => useProgram.getState().setTier(a.id, before), `${tierOf(tier).rate}% vanaf de volgende bestelling. Wat al binnen is, houdt het oude percentage.`);
+									setTier(a, tier, { message: `${a.name} is nu ${tierOf(tier).label}`, description: `${tierOf(tier).rate}% vanaf de volgende bestelling. Wat al binnen is, houdt het oude percentage.` });
 								}}
 							/>
 						</section>
@@ -215,10 +232,7 @@ export function AffiliateDialog({ id, onClose }: { id: string | null; onClose: (
 							<span className="text-ink-3 text-sm">{a.paused ? "Hun links werken, maar leveren geen commissie op." : "Hun links en code werken."}</span>
 							<button
 								type="button"
-								onClick={() => {
-									useProgram.getState().togglePause(a.id);
-									undoable(a.paused ? `${a.name} hervat` : `${a.name} gepauzeerd`, () => useProgram.getState().togglePause(a.id));
-								}}
+								onClick={() => setPaused([a], { message: a.paused ? `${a.name} hervat` : `${a.name} gepauzeerd` })}
 								className={GHOST_BTN}
 							>
 								{a.paused ? <Play className="size-3.5" strokeWidth={1.75} /> : <Pause className="size-3.5" strokeWidth={1.75} />}

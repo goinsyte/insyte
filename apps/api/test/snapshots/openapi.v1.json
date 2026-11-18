@@ -8047,6 +8047,169 @@
         "description": "One chargeback with its evidence pack and its timeline. Needs `chargebacks.read`."
       }
     },
+    "/v1/affiliates": {
+      "get": {
+        "tags": [
+          "Affiliates"
+        ],
+        "operationId": "affiliates.affiliates",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "paused"
+              ]
+            },
+            "required": false
+          },
+          {
+            "name": "tier",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "bronze",
+                "silver",
+                "gold"
+              ]
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AffiliatePage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AffiliatePage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedV1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ScopeMissingV1 | IpNotAllowedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ScopeMissingV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IpNotAllowedV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RateLimitedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedV1"
+                }
+              }
+            }
+          }
+        },
+        "description": "The programme's affiliates, with their codes, tiers, conversions and commission to date. Needs `affiliates.read`; a key held to some stores reads no money (only a key over every store does)."
+      }
+    },
+    "/v1/affiliate-payouts": {
+      "get": {
+        "tags": [
+          "Affiliates"
+        ],
+        "operationId": "affiliates.affiliatePayouts",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AffiliatePayouts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AffiliatePayouts"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedV1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ScopeMissingV1 | IpNotAllowedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ScopeMissingV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IpNotAllowedV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RateLimitedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedV1"
+                }
+              }
+            }
+          }
+        },
+        "description": "One month's payouts (the last ended month by default): per affiliate what is past its return window, what is still in it, reversals and the status. Nothing moves money here. Needs `affiliates.read`."
+      }
+    },
     "/v1/costs": {
       "get": {
         "tags": [
@@ -12822,6 +12985,310 @@
         ],
         "additionalProperties": false
       },
+      "AffiliatePayouts": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "description": "YYYY-MM, UTC."
+          },
+          "closed": {
+            "type": "boolean",
+            "description": "The month ended and was closed; a running month has no payouts."
+          },
+          "pay_day": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "affiliate_id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "payout_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "orders": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "approvable": {
+                  "type": "object",
+                  "properties": {
+                    "amount_minor": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "amount_minor",
+                    "currency"
+                  ],
+                  "additionalProperties": false
+                },
+                "in_window": {
+                  "type": "object",
+                  "properties": {
+                    "amount_minor": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "amount_minor",
+                    "currency"
+                  ],
+                  "additionalProperties": false
+                },
+                "reversed": {
+                  "type": "object",
+                  "properties": {
+                    "amount_minor": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "amount_minor",
+                    "currency"
+                  ],
+                  "additionalProperties": false
+                },
+                "total": {
+                  "type": "object",
+                  "properties": {
+                    "amount_minor": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "amount_minor",
+                    "currency"
+                  ],
+                  "additionalProperties": false
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "approvable",
+                    "approved",
+                    "paid",
+                    "nothing"
+                  ]
+                }
+              },
+              "required": [
+                "affiliate_id",
+                "name",
+                "payout_id",
+                "orders",
+                "approvable",
+                "in_window",
+                "reversed",
+                "total",
+                "status"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "months": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "month",
+          "closed",
+          "pay_day",
+          "data",
+          "months"
+        ],
+        "additionalProperties": false
+      },
+      "AffiliatePage": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Affiliate"
+            }
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "active": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "paused": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "pending_applications": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "active",
+              "paused",
+              "pending_applications"
+            ],
+            "additionalProperties": false
+          },
+          "to_approve": {
+            "type": "object",
+            "properties": {
+              "amount_minor": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "currency": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "amount_minor",
+              "currency"
+            ],
+            "additionalProperties": false,
+            "description": "Ended months' payouts past their return window, not approved yet."
+          }
+        },
+        "required": [
+          "data",
+          "counts",
+          "to_approve"
+        ],
+        "additionalProperties": false
+      },
+      "Affiliate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "description": "The affiliate's discount code at the store."
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "bronze",
+              "silver",
+              "gold"
+            ]
+          },
+          "rate": {
+            "type": "number",
+            "description": "Commission in percent of an order's subtotal."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused"
+            ]
+          },
+          "conversions": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Orders attributed and not reversed."
+          },
+          "earned": {
+            "type": "object",
+            "properties": {
+              "amount_minor": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "currency": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "amount_minor",
+              "currency"
+            ],
+            "additionalProperties": false,
+            "description": "Commission to date, reversals taken off, pending included."
+          },
+          "discount": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "made",
+              "failed",
+              "off"
+            ],
+            "description": "Whether the code exists as a Shopify discount: made, pending (being made), failed or off (no store)."
+          },
+          "joined_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "code",
+          "tier",
+          "rate",
+          "status",
+          "conversions",
+          "earned",
+          "discount",
+          "joined_at"
+        ],
+        "additionalProperties": false
+      },
       "ChargebackDetail": {
         "type": "object",
         "properties": {
@@ -17417,6 +17884,9 @@
     },
     {
       "name": "Chargebacks"
+    },
+    {
+      "name": "Affiliates"
     },
     {
       "name": "Costs"

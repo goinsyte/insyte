@@ -2,6 +2,7 @@ import type { OutboxEvent } from "@insyte/modules/shared/domain/Outbox"
 import type { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import type { ServicesOf, Subscriber } from "./Subscriber.ts"
+import { Affiliates } from "./subscribers/affiliates.ts"
 import { Agent } from "./subscribers/agent.ts"
 import { Analytics } from "./subscribers/analytics.ts"
 import { Automations } from "./subscribers/automations.ts"
@@ -52,7 +53,8 @@ const SUBSCRIBERS = [
   Webhooks,
   Data,
   Analytics,
-  Agent
+  Agent,
+  Affiliates
 ] as const
 
 /** What the sinks need between them: the background layer provides it. */

@@ -15,7 +15,9 @@ export const Shopify = subscriber("shopify", {
       "product.created",
       "customer.updated",
       "customer.created",
-      "return.resolution_requested"
+      "return.resolution_requested",
+      // An affiliate's code as a Shopify discount (M16 step 5), once the approval's undo window has passed.
+      "affiliate.discount_requested"
     ],
     (id, event) =>
       Effect.flatMap(

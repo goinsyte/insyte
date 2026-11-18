@@ -17,7 +17,8 @@ const DESTRUCTIVE = [
   /\bdrop\s+(table|column|schema|type|function|view|policy)\b/i,
   /\balter\s+table\b[^;`]*\balter\s+column\b[^;`]*\btype\b/i,
   /\brename\s+(?:(?:column\s+)?\w+\s+)?to\b/i,
-  /\btruncate\b/i
+  // A truncate, but not a trigger's event (`before truncate`, `or truncate`): that one guards against it.
+  /(?<!\b(?:before|after|or)\s+)\btruncate\b/i
 ]
 
 export const checkMigrations = (

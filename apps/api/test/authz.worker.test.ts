@@ -1,4 +1,7 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { AffiliateApplyRpcs } from "@insyte/api/rpc/AffiliateApplyRpcs"
+import { AffiliatePortalRpcs } from "@insyte/api/rpc/AffiliatePortalRpcs"
+import { AffiliatesRpcs } from "@insyte/api/rpc/AffiliatesRpcs"
 import { AgentRpcs } from "@insyte/api/rpc/AgentRpcs"
 import { AnalyticsRpcs } from "@insyte/api/rpc/AnalyticsRpcs"
 import { AskRpcs } from "@insyte/api/rpc/AskRpcs"
@@ -710,7 +713,57 @@ const PAYLOADS: Record<string, unknown> = {
   "Ask.get": { id: "ask_none" },
   "Ask.send": { text: "Wat wacht er?", threadId: "ask_none" },
   "Ask.retry": { turnId: "ask_none" },
-  "Ask.remove": { id: "ask_none" }
+  "Ask.remove": { id: "ask_none" },
+  // Affiliates (M16 steps 3–5): records that are not there, an address refused after the permission check, a month
+  // with nothing to approve or pay. Level 1 sees, 2 reviews and updates, 3 runs the programme and its payouts.
+  "Affiliates.program": undefined,
+  "Affiliates.program.update": {},
+  "Affiliates.list": {},
+  "Affiliates.get": { affiliateId: "aff_none" },
+  "Affiliates.setTier": { affiliateId: "aff_none", tier: "gold" },
+  "Affiliates.setPaused": { affiliateId: "aff_none", paused: true },
+  "Affiliates.applications.list": {},
+  "Affiliates.applications.approve": { applicationId: "afa_none", tier: "bronze", code: "AUTHZ" },
+  "Affiliates.applications.reject": { applicationId: "afa_none", reason: "x" },
+  "Affiliates.proposeCode": { name: "Iemand" },
+  "Affiliates.retryDiscount": { affiliateId: "aff_none" },
+  "Affiliates.payouts.list": {},
+  "Affiliates.approvePayouts": { month: "2020-01", affiliateIds: ["aff_none"] },
+  "Affiliates.markPaid": { month: "2020-01", affiliateIds: ["aff_none"] },
+  "Affiliates.invites": undefined,
+  "Affiliates.invite": { email: "geen-adres", tier: "bronze" },
+  "Affiliates.invites.resend": { invitationId: NONE.id },
+  "Affiliates.invites.revoke": { invitationId: NONE.id },
+  "Affiliates.inviteLink": undefined,
+  "Affiliates.resources.list": undefined,
+  "Affiliates.resources.remove": { resourceId: "ars_none" },
+  "Affiliates.setCode": { affiliateId: "aff_none", code: "AUTHZ" },
+  "Affiliates.conversions.flagged": undefined,
+  "Affiliates.conversions.review": { conversionId: "acv_none", accept: true },
+  "Affiliates.erase": { affiliateId: "aff_none" },
+  // The affiliate's portal: a member is no affiliate, so every call is refused (\`NotAffiliate\`).
+  "AffiliatePortal.dashboard": undefined,
+  "AffiliatePortal.links.list": undefined,
+  "AffiliatePortal.links.get": { linkId: "alk_none" },
+  "AffiliatePortal.links.destinations": undefined,
+  "AffiliatePortal.links.create": { label: "x", destinationId: "home", medium: "social", campaign: "x" },
+  "AffiliatePortal.links.archive": { linkId: "alk_none" },
+  "AffiliatePortal.conversions.list": {},
+  "AffiliatePortal.payouts.list": undefined,
+  "AffiliatePortal.payouts.get": { month: "2020-01" },
+  "AffiliatePortal.resources": undefined,
+  "AffiliatePortal.notifications": undefined,
+  "AffiliatePortal.notifications.read": {},
+  "AffiliatePortal.profile": undefined,
+  "AffiliatePortal.profile.update": { name: "x" },
+  "AffiliatePortal.payment": undefined,
+  "AffiliatePortal.payment.update": { method: "paypal", account: "x@example.com" },
+  "AffiliatePortal.undo": { token: "none" },
+  // Applying is any signed-in person's; what they read back is only their own application.
+  "AffiliateApply.landing": { program: "nonenonenone" },
+  "AffiliateApply.me": undefined,
+  "AffiliateApply.apply": { program: "nonenonenone", name: "x" },
+  "AffiliateApply.reapply": { applicationId: "afa_none" }
 }
 
 /** The RPCs that stream: called as a stream, and refused as any other. */
@@ -761,8 +814,14 @@ const manifest = [
   ...DataRpcs.requests.keys(),
   ...BillingRpcs.requests.keys(),
   ...AskRpcs.requests.keys(),
+  ...AffiliatesRpcs.requests.keys(),
+  ...AffiliatePortalRpcs.requests.keys(),
+  ...AffiliateApplyRpcs.requests.keys(),
   ...SupportRpcs.requests.keys()
 ]
+
+/** A refusal before the use case: the role's level, or a portal that is not the caller's (no affiliate of theirs). */
+const REFUSALS = new Set(["Forbidden", "NotAffiliate"])
 
 describe("the authorisation matrix", () => {
   const cookies = {} as Record<Role, string>
@@ -796,10 +855,38 @@ describe("the authorisation matrix", () => {
         await rpcStream(name as never, PAYLOADS[name] as never, cookies[role]) :
         await rpc(name as never, PAYLOADS[name] as never, cookies[role])
       const forbidden = Exit.isFailure(exit) &&
-        exit.cause.reasons.some((r) => r._tag === "Fail" && (r.error as { _tag?: string })._tag === "Forbidden")
+        exit.cause.reasons.some((r) => r._tag === "Fail" && REFUSALS.has((r.error as { _tag?: string })._tag ?? ""))
       expect(forbidden ? "deny" : "allow").toBe(table[name]![role])
     })
   }
+})
+
+describe("an affiliate", () => {
+  // The other side of the matrix: an affiliate (a partner principal) reaches every call of its portal and none of the
+  // brand's, whatever the role table says of the brand's members.
+  let cookie = ""
+  beforeAll(async () => {
+    const store = await importedStore("authz-aff")
+    const slug = ok(await rpc("Affiliates.program.update", {}, store.cookie)).applyPath.split("/").pop()!
+    const affiliate = await person("authz-affiliate")
+    const { applicationId } = ok(await rpc("AffiliateApply.apply", { program: slug, name: "Authz" }, affiliate.cookie))
+    ok(await rpc("Affiliates.applications.approve", { applicationId, tier: "bronze", code: "AUTHZAFF" }, store.cookie))
+    cookie = affiliate.cookie
+  }, 120_000)
+
+  const refused = (exit: Exit.Exit<unknown, unknown>) =>
+    Exit.isFailure(exit) && exit.cause.reasons.some((r) =>
+      r._tag === "Fail" &&
+      ["Forbidden", "NotAffiliate", "NoWorkspace"].includes((r.error as { _tag?: string })._tag ?? "")
+    )
+
+  it.each([...AffiliatePortalRpcs.requests.keys()])("reaches %s", async (name) => {
+    expect(refused(await rpc(name as never, PAYLOADS[name] as never, cookie))).toBe(false)
+  })
+
+  it.each([...AffiliatesRpcs.requests.keys()])("is refused %s", async (name) => {
+    expect(refused(await rpc(name as never, PAYLOADS[name] as never, cookie))).toBe(true)
+  })
 })
 
 describe("a member held to some stores", () => {

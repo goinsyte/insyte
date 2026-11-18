@@ -53,6 +53,8 @@ export class Landing extends Schema.Class<Landing>("members/Landing")({
   requested: Schema.Boolean,
   /** A supplier portal invitation (M16): the supplier it is for; no role, no seat. */
   supplier: Schema.optional(Schema.NullOr(Schema.String)),
+  /** An affiliate invitation (M16 step 5): the tier it starts on; no role, no seat. */
+  affiliateTier: Schema.optional(Schema.NullOr(Schema.String)),
   /** And the parts of its portal the invitation opens (`orders` always). */
   scopes: Schema.optional(Schema.NullOr(Schema.Array(Schema.String)))
 }) {}

@@ -4,6 +4,7 @@ import { ApplicationPending } from "@insyte/ui/app/affiliate/application-pending
 import { ApplicationRejected } from "@insyte/ui/app/affiliate/application-rejected";
 import { AppShell } from "@insyte/ui/app/shell/app-shell";
 import { usePersonaSelection } from "@insyte/ui/app/hooks/use-persona";
+import { currentAffiliateByState } from "@insyte/ui/data-source";
 
 export const Route = createFileRoute("/_aff")({
 	beforeLoad: () => {
@@ -25,7 +26,7 @@ function AffiliateLayout() {
 	if (affiliateState === "rejected") {
 		return (
 			<AppShell persona="affiliate">
-				<ApplicationRejected />
+				<ApplicationRejected reason={currentAffiliateByState.rejected.rejection_reason ?? ""} />
 			</AppShell>
 		);
 	}

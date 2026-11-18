@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { currentAffiliateByState } from "../../data-source";
 import type { ReferralLink } from "../lib/types/domain";
+import type { PayoutMethod } from "../affiliate/source";
 
 /*
  * What the affiliate changes in the demo: links it made, where payouts go and its profile. The
@@ -9,22 +10,10 @@ import type { ReferralLink } from "../lib/types/domain";
  * browser.
  */
 
-export type PayoutMethod = "paypal" | "bank" | "wise";
+export type { PayoutMethod } from "../affiliate/source";
+export { METHOD_LABEL, TIER_LABEL } from "../affiliate/source";
 export type PaymentSettings = { method: PayoutMethod; account: string; tax_id: string };
 export type AffiliateProfile = { name: string; email: string; referral_code: string };
-
-export const METHOD_LABEL: Record<PayoutMethod, string> = {
-	paypal: "PayPal",
-	bank: "Bankoverschrijving",
-	wise: "Wise",
-};
-
-export const TIER_LABEL: Record<"bronze" | "silver" | "gold", string> = {
-	bronze: "Brons",
-	silver: "Zilver",
-	gold: "Goud",
-};
-
 
 const SEED = currentAffiliateByState.approved;
 

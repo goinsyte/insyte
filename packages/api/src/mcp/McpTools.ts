@@ -1,4 +1,5 @@
 import { Toolkit } from "effect/ai"
+import { AffiliatesTools } from "./tools/AffiliatesTools.ts"
 import { AnalyticsTools } from "./tools/AnalyticsTools.ts"
 import { AskToolkit } from "./tools/AskTools.ts"
 import { AutomationsTools } from "./tools/AutomationsTools.ts"
@@ -44,6 +45,7 @@ export const InsyteTools = Toolkit.merge(
   TicketsTools,
   AutomationsTools,
   ChargebacksTools,
+  AffiliatesTools,
   CostsTools,
   ConnectionsTools,
   DataTools,

@@ -4,19 +4,15 @@ import { Input } from "../../components/input";
 import { Label } from "../../components/label";
 import { useState } from "react";
 import { toast } from "sonner";
-import { currentAffiliateByState } from "../../data-source";
-import { type AffiliateProfile, TIER_LABEL, useAffiliate } from "../stores/affiliate-store";
+import { TIER_LABEL, useAffiliatePortal } from "./source";
 
+/** The affiliate's name is theirs to change; the address is their sign-in, and the code and tier are the brand's. */
 export function AffProfile() {
-	const aff = currentAffiliateByState.approved;
-	const saved = useAffiliate((s) => s.profile);
-	const saveProfile = useAffiliate((s) => s.saveProfile);
-	const [form, setForm] = useState<AffiliateProfile>(saved);
-	const dirty =
-		form.name !== saved.name ||
-		form.email !== saved.email ||
-		form.referral_code !== saved.referral_code;
-	const set = (p: Partial<AffiliateProfile>) => setForm((f) => ({ ...f, ...p }));
+	const { useProfile, saveName } = useAffiliatePortal();
+	const saved = useProfile();
+	const [form, setForm] = useState({ name: saved.name });
+	const dirty = form.name !== saved.name;
+	const set = (p: Partial<{ name: string }>) => setForm((f) => ({ ...f, ...p }));
 
 	return (
 		<Card className="p-6">
@@ -24,16 +20,13 @@ export function AffProfile() {
 			<form
 				onSubmit={(e) => {
 					e.preventDefault();
-					// Codes ride in URLs, so they are kept to letters and digits.
-					const referral_code = form.referral_code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-					if (!form.name.trim() || !referral_code) {
-						toast.error("Naam en doorverwijscode zijn verplicht");
+					if (!form.name.trim()) {
+						toast.error("Vul je naam in");
 						return;
 					}
-					const next = { name: form.name.trim(), email: form.email.trim(), referral_code };
+					const next = { name: form.name.trim() };
 					setForm(next);
-					saveProfile(next);
-					toast.success("Profiel opgeslagen");
+					saveName(next.name, () => toast.success("Profiel opgeslagen"));
 				}}
 			>
 				<div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -43,25 +36,15 @@ export function AffProfile() {
 					</div>
 					<div className="grid gap-1.5">
 						<Label htmlFor="a-email">E-mail</Label>
-						<Input
-							id="a-email"
-							type="email"
-							value={form.email}
-							onChange={(e) => set({ email: e.target.value })}
-						/>
+						<Input id="a-email" type="email" value={saved.email} disabled />
 					</div>
 					<div className="grid gap-1.5">
 						<Label htmlFor="a-code">Doorverwijscode</Label>
-						<Input
-							id="a-code"
-							value={form.referral_code}
-							onChange={(e) => set({ referral_code: e.target.value })}
-							spellCheck={false}
-						/>
+						<Input id="a-code" value={saved.code} disabled spellCheck={false} />
 					</div>
 					<div className="grid gap-1.5">
 						<Label htmlFor="a-tier">Niveau</Label>
-						<Input id="a-tier" defaultValue={TIER_LABEL[aff.tier]} disabled />
+						<Input id="a-tier" value={TIER_LABEL[saved.tier]} disabled readOnly />
 					</div>
 				</div>
 				<div className="mt-4 flex justify-end">
