@@ -138,6 +138,37 @@ const decodeShopper = Schema.decodeUnknownEffect(Shopper)
 const unlimited: Widget.Take = () => Effect.succeed({ ok: true, retryAfterSeconds: 0 })
 
 /**
+ * `POST /api/__dev/webchat/earlier?workspace=<id>&seconds=<n>`: the workspace's chat messages as if written `n` seconds
+ * earlier, their threads' last word with them, so a test measures a delay without waiting it out. Locally and on a
+ * preview only.
+ */
+const ChatEarlier = HttpRouter.add(
+  "POST",
+  "/api/__dev/webchat/earlier",
+  Effect.gen(function*() {
+    if (!(yield* devOnly)) return refused
+    const workspace = { id: (yield* workspaceParam) as WorkspaceId }
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const n = Number(new URL(request.url, "http://local").searchParams.get("seconds") ?? "0")
+    const seconds = Number.isFinite(n) ? Math.trunc(n) : 0
+    const db = yield* Db
+    const moved = yield* db.scopedFor((sql) =>
+      Effect.gen(function*() {
+        const messages = yield* sql`update channel_messages
+                                    set created_at = created_at - make_interval(secs => ${seconds}),
+                                        visible_at = visible_at - make_interval(secs => ${seconds})
+                                    returning id`
+        yield* sql`update channel_threads
+                   set last_message_at = last_message_at - make_interval(secs => ${seconds}),
+                       last_inbound_at = last_inbound_at - make_interval(secs => ${seconds})`
+        return messages.length
+      })
+    ).pipe(Effect.provideService(CurrentWorkspace, workspace))
+    return HttpServerResponse.jsonUnsafe({ moved })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+/**
  * `POST /api/__dev/webchat/shopper` `{ storeId, token?, text }`: a shopper's message as the widget sends it (a session
  * on one of the store's origins, the chat's own checks, the thread and its `chat.received`), without the widget's rate
  * limits, so a test writes a burst on one conversation or many conversations in a minute. `{ token, threadId,
@@ -264,4 +295,4 @@ const AgentTurn = HttpRouter.add(
   }).pipe(Effect.orDie, withRequestDb)
 )
 
-export const WebchatRoutes = Layer.mergeAll(AgentCall, StorePage, ChatAge, ShopperSays, AgentTurn)
+export const WebchatRoutes = Layer.mergeAll(AgentCall, StorePage, ChatAge, ChatEarlier, ShopperSays, AgentTurn)
