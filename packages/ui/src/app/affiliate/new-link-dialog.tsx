@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Field, FormDialog, SelectField, TextField } from "../common/form-dialog";
-import { DESTINATIONS } from "../../data-source";
-import { undoable } from "../lib/undo";
-import { useAffiliate } from "../stores/affiliate-store";
 import { QrCode } from "./qr";
+import { type Medium, useAffiliatePortal } from "./source";
 
 const MEDIUM: Record<string, string> = { social: "Social media", video: "Video", email: "Nieuwsbrief", blog: "Blog of website", print: "Print" };
 
@@ -20,9 +18,8 @@ const slug = (s: string) =>
  * the click came from. The finished address and its QR code are shown before it is made.
  */
 export function NewLinkDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-	const add = useAffiliate((s) => s.addLink);
-	const remove = useAffiliate((s) => s.removeLink);
-	const code = useAffiliate((s) => s.profile.referral_code);
+	const { useDestinations, previewUrl, createLink } = useAffiliatePortal();
+	const DESTINATIONS = useDestinations();
 	const [label, setLabel] = useState("");
 	const [dest, setDest] = useState<string>("home");
 	const [medium, setMedium] = useState("social");
@@ -35,11 +32,7 @@ export function NewLinkDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 		}
 	}, [open]);
 
-	const url = useMemo(() => {
-		const d = DESTINATIONS.find((x) => x.id === dest);
-		const params = new URLSearchParams({ ref: code, utm_source: "affiliate", utm_medium: medium, utm_campaign: slug(label) || "link" });
-		return `northwind.co/${d?.path ? `${d.path}` : ""}?${params.toString()}`;
-	}, [dest, code, medium, label]);
+	const url = useMemo(() => previewUrl(dest, medium as Medium, slug(label) || "link"), [previewUrl, dest, medium, label]);
 
 	return (
 		<FormDialog
@@ -51,10 +44,8 @@ export function NewLinkDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 			disabled={label.trim() === ""}
 			width={560}
 			onSubmit={() => {
-				const id = `ref_new_${Date.now().toString(36)}`;
-				add({ id, affiliate_id: "aff_priya", label: label.trim(), url, clicks: 0, conversions: 0, revenue: 0, created_at: new Date().toISOString() });
+				createLink({ label: label.trim(), destinationId: dest, medium: medium as Medium, campaign: slug(label) || "link" }, { message: `Link “${label.trim()}” gemaakt` });
 				onOpenChange(false);
-				undoable(`Link “${label.trim()}” gemaakt`, () => remove(id));
 			}}
 		>
 			<Field label="Waar gebruik je hem">

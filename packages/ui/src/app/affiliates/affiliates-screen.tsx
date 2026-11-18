@@ -1,7 +1,7 @@
-import { Check, Copy, ExternalLink, Pause, RotateCcw, UserPlus, X } from "../../icons";
-import { useNavigate, getRouteApi } from "@tanstack/react-router";
+import { Check, Copy, Download, ExternalLink, FileText, Pause, RotateCcw, Upload, UserPlus, X } from "../../icons";
+import { useSearch } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AffiliateDialog, AffiliateInviteDialog, DecideDialog } from "./dialogs";
 import { EmptyState } from "../common/empty-state";
@@ -10,28 +10,27 @@ import { PageHeader } from "../common/page-header";
 import { StatusPill } from "../settings/setting-card";
 import { DataTable, type RowAction } from "../table/data-table";
 import { AddressDisc, PersonDisc, WELL_BTN } from "../team/bits";
-import { counted } from "../lib/bulk";
-import { formatCurrency, formatDate, formatRelative } from "../lib/format";
-import { type Application, PAYOUT_MONTH, type PayoutLine, type ProgramAffiliate, tierOf } from "../../data-source";
-import { inviteUrl } from "../lib/team";
-import { undoable } from "../lib/undo";
+import { counted } from "../lib/counted";
+import { formatDate, formatRelative } from "../lib/format";
 import { cn } from "../lib/utils";
-import { useProgram } from "../stores/affiliate-program-store";
 import { type View } from "./affiliates-search";
+import { type ApplicationRow, type PayoutRow, type ProgramAffiliateRow, tierIn, useAffiliatesSource } from "./source";
 
-const Route = getRouteApi("/_admin/affiliates");
+type Application = ApplicationRow;
+type ProgramAffiliate = ProgramAffiliateRow;
 
 const TITLE: Record<View, string> = {
 	actief: "Affiliates",
 	aanmeldingen: "Aanmeldingen",
 	uitbetalingen: "Uitbetalingen",
 	uitnodigingen: "Uitnodigingen",
+	materiaal: "Materiaal",
 };
 
 const GUIDE = [
 	{ title: "Affiliates", body: "Mensen die al over je producten praten. Ze verdienen een percentage van elke bestelling via hun code.", art: "people" },
 	{ title: "Aanmeldingen", body: "Wie zich aanmeldt voor het partnerprogramma staat hier met kanaal, bereik en waarom, tot je goedkeurt of afwijst.", art: "roles" },
-	{ title: "Uitbetalingen", body: "Commissie staat hier per maand, klaar om goed te keuren na de retourtermijn van 14 dagen.", art: "budget" },
+	{ title: "Uitbetalingen", body: "Commissie staat hier per maand, klaar om goed te keuren na de retourtermijn.", art: "budget" },
 	{ title: "Uitnodigingen", body: "Wie je uitnodigt, slaat de aanmelding over en begint op het niveau dat je kiest.", art: "link" },
 ] as const;
 
@@ -44,14 +43,14 @@ const dated = (t: number) => formatDate(new Date(t), { day: "numeric", month: "s
  * figures; approving here is what moves a month from "in the window" to "approved" over there.
  */
 export function AffiliatesPage() {
-	const { view = "actief" } = Route.useSearch();
-	const affiliates = useProgram((s) => s.affiliates);
-	const applications = useProgram((s) => s.applications);
-	const payouts = useProgram((s) => s.payouts);
-	const approved = useProgram((s) => s.approved);
+	const { view = "actief" } = useSearch({ strict: false }) as { view?: View };
+	const { money: formatCurrency, useAffiliates, useApplications, usePayouts } = useAffiliatesSource();
+	const affiliates = useAffiliates();
+	const applications = useApplications();
+	const month = usePayouts();
 	const [inviting, setInviting] = useState(false);
 	const pending = applications.filter((a) => a.status === "pending");
-	const toApprove = payouts.filter((p) => !approved[p.affiliateId] && p.approvable > 0).reduce((n, p) => n + p.approvable, 0);
+	const toApprove = month.running ? 0 : month.lines.filter((p) => !p.approvedAt && p.approvable > 0).reduce((n, p) => n + p.approvable, 0);
 
 	const meta =
 		view === "actief"
@@ -59,7 +58,7 @@ export function AffiliatesPage() {
 			: view === "aanmeldingen"
 				? `${pending.length} te beoordelen`
 				: view === "uitbetalingen"
-					? `${PAYOUT_MONTH.label} · uitbetaling op ${day(PAYOUT_MONTH.payDay)}`
+					? month.running ? `${month.label} · loopt nog` : `${month.label} · uitbetaling op ${day(month.payDay)}`
 					: undefined;
 
 	return (
@@ -80,6 +79,7 @@ export function AffiliatesPage() {
 				{view === "aanmeldingen" ? <Applications /> : null}
 				{view === "uitbetalingen" ? <Payouts /> : null}
 				{view === "uitnodigingen" ? <Invites onInvite={() => setInviting(true)} /> : null}
+				{view === "materiaal" ? <Resources /> : null}
 			</div>
 			<AffiliateInviteDialog open={inviting} onOpenChange={setInviting} />
 			<PageGuide id="affiliates" title="Affiliates" steps={GUIDE} />
@@ -89,25 +89,25 @@ export function AffiliatesPage() {
 
 /* ── active ────────────────────────────────────────────────────────────────────────────────────── */
 
-const ACTIVE_ACTIONS: ReadonlyArray<RowAction<ProgramAffiliate>> = [
-	{
-		id: "pause",
-		label: "Commissie pauzeren of hervatten",
-		icon: Pause,
-		group: "Programma",
-		shortcut: "p",
-		bar: true,
-		run: (rows) => {
-			const before = useProgram.getState().snapshot();
-			for (const r of rows) useProgram.getState().togglePause(r.id);
-			undoable(rows.length === 1 ? `${rows[0]?.name} ${rows[0]?.paused ? "hervat" : "gepauzeerd"}` : `${counted(rows.length, "affiliate", "affiliates")} omgezet`, () => useProgram.getState().restore(before));
-		},
-	},
-];
-
 function Active({ onInvite }: { onInvite: () => void }) {
-	const affiliates = useProgram((s) => s.affiliates);
+	const { money: formatCurrency, tiers, useAffiliates, setPaused } = useAffiliatesSource();
+	const affiliates = useAffiliates();
 	const [open, setOpen] = useState<string | null>(null);
+	const ACTIVE_ACTIONS = useMemo<ReadonlyArray<RowAction<ProgramAffiliate>>>(
+		() => [
+			{
+				id: "pause",
+				label: "Commissie pauzeren of hervatten",
+				icon: Pause,
+				group: "Programma",
+				shortcut: "p",
+				bar: true,
+				run: (rows) =>
+					setPaused(rows, { message: rows.length === 1 ? `${rows[0]?.name} ${rows[0]?.paused ? "hervat" : "gepauzeerd"}` : `${counted(rows.length, "affiliate", "affiliates")} omgezet` }),
+			},
+		],
+		[setPaused],
+	);
 	const columns = useMemo<Array<ColumnDef<ProgramAffiliate, unknown>>>(
 		() => [
 			{
@@ -129,8 +129,19 @@ function Active({ onInvite }: { onInvite: () => void }) {
 					);
 				},
 			},
-			{ id: "code", accessorKey: "code", header: "Code", size: 110, cell: (c) => <span className="font-medium text-ink">{c.row.original.code}</span> },
-			{ id: "tier", accessorFn: (a) => tierOf(a.tier).label, header: "Niveau", size: 100 },
+			{
+				id: "code",
+				accessorKey: "code",
+				header: "Code",
+				size: 110,
+				cell: (c) => (
+					<span className="flex items-center gap-1.5">
+						<span className="font-medium text-ink">{c.row.original.code}</span>
+						{c.row.original.discount?.state === "failed" ? <StatusPill tone="warning" label="Niet in Shopify" /> : null}
+					</span>
+				),
+			},
+			{ id: "tier", accessorFn: (a) => tierIn(tiers, a.tier).label, header: "Niveau", size: 100 },
 			{ id: "rate", accessorKey: "rate", header: "Commissie", size: 100, cell: (c) => <span className="tabular-nums">{c.row.original.rate}%</span> },
 			{ id: "conversions", accessorKey: "conversions", header: "Conversies", size: 110, cell: (c) => <span className="tabular-nums">{c.row.original.conversions.toLocaleString("nl-NL")}</span> },
 			{ id: "earned", accessorKey: "earned", header: "Verdiend", size: 120, cell: (c) => <span className="font-medium text-ink tabular-nums">{formatCurrency(c.row.original.earned)}</span> },
@@ -143,7 +154,7 @@ function Active({ onInvite }: { onInvite: () => void }) {
 				cell: (c) => <StatusPill tone={c.row.original.paused ? "warning" : "success"} label={c.row.original.paused ? "Gepauzeerd" : "Actief"} />,
 			},
 		],
-		[],
+		[formatCurrency, tiers],
 	);
 	return (
 		<>
@@ -173,6 +184,7 @@ function Active({ onInvite }: { onInvite: () => void }) {
 /* ── applications ──────────────────────────────────────────────────────────────────────────────── */
 
 function handleOf(a: Application) {
+	if (a.url) return a.url.replace(/^https?:\/\//, "").replace(/\/$/, "");
 	const h = a.name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z]+/g, "");
 	const site = a.email.split("@")[1] ?? "";
 	if (a.channel.startsWith("Instagram")) return `instagram.com/${h}`;
@@ -188,7 +200,8 @@ function handleOf(a: Application) {
  * history on the right. J and K walk the list.
  */
 function Applications() {
-	const applications = useProgram((s) => s.applications);
+	const { useApplications } = useAffiliatesSource();
+	const applications = useApplications();
 	const [deciding, setDeciding] = useState<{ app: Application; mode: "approve" | "reject" } | null>(null);
 	const pending = applications.filter((a) => a.status === "pending").sort((a, b) => b.appliedAt - a.appliedAt);
 	const decided = applications.filter((a) => a.status !== "pending").sort((a, b) => (b.decidedAt ?? 0) - (a.decidedAt ?? 0));
@@ -316,6 +329,8 @@ function Applications() {
 }
 
 function ApplicationPane({ app, onClose, onDecide }: { app: Application; onClose: () => void; onDecide: (m: "approve" | "reject") => void }) {
+	const { tiers } = useAffiliatesSource();
+	const start = tiers[0];
 	const link = handleOf(app);
 	const history = [
 		{ at: app.appliedAt, label: `Aangemeld via ${app.channel}` },
@@ -344,7 +359,7 @@ function ApplicationPane({ app, onClose, onDecide }: { app: Application; onClose
 						["Kanaal", app.channel],
 						["Bereik", app.audience],
 						["Aangemeld", day(app.appliedAt)],
-						["Start op", app.status === "approved" ? "Goedgekeurd" : "Brons · 10%"],
+						["Start op", app.status === "approved" ? "Goedgekeurd" : `${start?.label ?? "Brons"} · ${start?.rate ?? 10}%`],
 					].map(([k, v]) => (
 						<div key={k} className="flex min-w-0 flex-col gap-0.5 px-3 py-2.5">
 							<dt className="text-ink-3 text-xs">{k}</dt>
@@ -358,7 +373,7 @@ function ApplicationPane({ app, onClose, onDecide }: { app: Application; onClose
 				</section>
 				<section className="flex flex-col gap-1.5">
 					<h3 className="font-medium text-ink-3 text-xs">Links</h3>
-					<a href={`https://${link}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-arc-ink text-base hover:underline">
+					<a href={`https://${link}`} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1.5 text-arc-ink text-base hover:underline">
 						<ExternalLink className="size-3.5" strokeWidth={1.75} />
 						{link}
 					</a>
@@ -403,30 +418,34 @@ function ApplicationPane({ app, onClose, onDecide }: { app: Application; onClose
 
 /* ── payouts ───────────────────────────────────────────────────────────────────────────────────── */
 
-type PayoutRow = PayoutLine & { approvedAt?: number };
-
-function approve(rows: ReadonlyArray<PayoutRow>) {
-	const ready = rows.filter((r) => !r.approvedAt && r.approvable > 0);
-	if (ready.length === 0) return;
-	const before = useProgram.getState().snapshot();
-	useProgram.getState().approvePayouts(ready.map((r) => r.affiliateId));
-	const sum = ready.reduce((n, r) => n + r.approvable, 0);
-	undoable(
-		ready.length === 1 ? `${formatCurrency(sum)} voor ${ready[0]?.name} goedgekeurd` : `${formatCurrency(sum)} voor ${counted(ready.length, "affiliate", "affiliates")} goedgekeurd`,
-		() => useProgram.getState().restore(before),
-		`Wordt uitbetaald op ${day(PAYOUT_MONTH.payDay)}. Wat nog in de retourtermijn zit, volgt vanzelf.`,
-	);
-}
-
-const PAYOUT_ACTIONS: ReadonlyArray<RowAction<PayoutRow>> = [
-	{ id: "approve", label: "Goedkeuren", icon: Check, group: "Uitbetaling", shortcut: "g", bar: true, applies: (r) => !r.approvedAt && r.approvable > 0, run: (rows) => approve(rows) },
-];
-
 function Payouts() {
-	const payouts = useProgram((s) => s.payouts);
-	const approved = useProgram((s) => s.approved);
-	const rows = useMemo<PayoutRow[]>(() => payouts.map((p) => ({ ...p, approvedAt: approved[p.affiliateId] })), [payouts, approved]);
-	const open = rows.filter((r) => !r.approvedAt && r.approvable > 0);
+	const { money: formatCurrency, usePayouts, approvePayouts, markPaid, canManagePayouts } = useAffiliatesSource();
+	const month = usePayouts();
+	const PAYOUT_MONTH = month;
+	const payouts = month.lines;
+	const rows = useMemo<PayoutRow[]>(() => [...month.lines], [month.lines]);
+	const can = canManagePayouts && !month.running;
+	const approve = (list: ReadonlyArray<PayoutRow>) => {
+		const ready = list.filter((r) => !r.approvedAt && r.approvable > 0);
+		if (ready.length === 0 || !can) return;
+		const sum = ready.reduce((n, r) => n + r.approvable, 0);
+		approvePayouts(ready, {
+			message: ready.length === 1 ? `${formatCurrency(sum)} voor ${ready[0]?.name} goedgekeurd` : `${formatCurrency(sum)} voor ${counted(ready.length, "affiliate", "affiliates")} goedgekeurd`,
+			description: `Wordt uitbetaald op ${day(PAYOUT_MONTH.payDay)}. Wat nog in de retourtermijn zit, volgt vanzelf.`,
+		});
+	};
+	const pay = (list: ReadonlyArray<PayoutRow>) => {
+		const ready = list.filter((r) => r.approvedAt && !r.paidAt);
+		if (ready.length === 0 || !markPaid || !canManagePayouts) return;
+		markPaid(ready, { message: ready.length === 1 ? `${ready[0]?.name} gemarkeerd als betaald` : `${counted(ready.length, "uitbetaling", "uitbetalingen")} gemarkeerd als betaald` });
+	};
+	const PAYOUT_ACTIONS: ReadonlyArray<RowAction<PayoutRow>> = [
+		{ id: "approve", label: "Goedkeuren", icon: Check, group: "Uitbetaling", shortcut: "g", bar: true, applies: (r) => can && !r.approvedAt && r.approvable > 0, run: (list) => approve(list) },
+		...(markPaid && canManagePayouts
+			? [{ id: "paid", label: "Markeren als betaald", icon: Check, group: "Uitbetaling", shortcut: "b", bar: true, applies: (r: PayoutRow) => Boolean(r.approvedAt) && !r.paidAt, run: (list: ReadonlyArray<PayoutRow>) => pay(list) }]
+			: []),
+	];
+	const open = can ? rows.filter((r) => !r.approvedAt && r.approvable > 0) : [];
 	const openSum = open.reduce((n, r) => n + r.approvable, 0);
 	const doneSum = rows.filter((r) => r.approvedAt).reduce((n, r) => n + r.approvable, 0);
 	const window = rows.reduce((n, r) => n + r.inWindow, 0);
@@ -464,8 +483,11 @@ function Payouts() {
 				size: 170,
 				cell: (c) => {
 					const r = c.row.original;
+					if (r.paidAt) return <StatusPill tone="success" label="Uitbetaald" />;
 					if (r.approvedAt) return <StatusPill tone="success" label="Goedgekeurd" />;
+					if (month.running) return <StatusPill tone="info" label="Loopt nog" />;
 					if (r.approvable === 0) return <StatusPill tone="neutral" label="Niets te keuren" />;
+					if (!can) return <StatusPill tone="warning" label="Te keuren" />;
 					return (
 						<button
 							type="button"
@@ -482,7 +504,7 @@ function Payouts() {
 				},
 			},
 		],
-		[],
+		[formatCurrency, month.running, can],
 	);
 
 	if (payouts.length === 0) {
@@ -494,7 +516,7 @@ function Payouts() {
 			<section className="flex flex-wrap items-end justify-between gap-4 rounded-xl bg-mist px-5 py-4">
 				<div className="flex flex-col gap-1">
 					<span className="text-ink-2 text-sm">
-						{PAYOUT_MONTH.label} · {open.length === 0 ? "alles goedgekeurd" : `${counted(open.length, "affiliate", "affiliates")} te keuren`}
+						{PAYOUT_MONTH.label} · {month.running ? "loopt nog" : open.length === 0 ? "alles goedgekeurd" : `${counted(open.length, "affiliate", "affiliates")} te keuren`}
 					</span>
 					<span className="font-medium text-3xl text-ink tabular-nums">{formatCurrency(open.length === 0 ? doneSum : openSum)}</span>
 					<span className="text-ink-3 text-sm tabular-nums">
@@ -509,7 +531,7 @@ function Payouts() {
 					className="flex h-9 items-center gap-1.5 rounded-lg bg-abyss px-3.5 font-medium text-base text-mesh-ink shadow-primary hover:bg-abyss-2 disabled:cursor-not-allowed disabled:opacity-50"
 				>
 					<Check className="size-4" strokeWidth={2} />
-					{open.length === 0 ? "Alles goedgekeurd" : `Alles goedkeuren · ${formatCurrency(openSum)}`}
+					{month.running ? "Loopt nog" : open.length === 0 ? "Alles goedgekeurd" : `Alles goedkeuren · ${formatCurrency(openSum)}`}
 				</button>
 			</section>
 			<DataTable columns={columns} data={rows} actions={PAYOUT_ACTIONS} label={["uitbetaling", "uitbetalingen"]} getRowId={(r) => r.affiliateId} searchPlaceholder="Affiliates zoeken" initialSorting={[{ id: "approvable", desc: true }]} />
@@ -520,8 +542,8 @@ function Payouts() {
 /* ── invitations ───────────────────────────────────────────────────────────────────────────────── */
 
 function Invites({ onInvite }: { onInvite: () => void }) {
-	const invites = useProgram((s) => s.invites);
-	const navigate = useNavigate();
+	const { tiers, useInvites, resendInvite, revokeInvite, inviteUrl: urlOf, viewInvite } = useAffiliatesSource();
+	const invites = useInvites();
 	if (invites.length === 0) {
 		return (
 			<EmptyState
@@ -537,7 +559,7 @@ function Invites({ onInvite }: { onInvite: () => void }) {
 			<ul className="flex flex-col gap-1 [&>li]:rounded-lg [&>li]:bg-mist">
 				{invites.map((i) => {
 					const expired = i.expiresAt <= Date.now();
-					const t = tierOf(i.tier);
+					const t = tierIn(tiers, i.tier);
 					return (
 						<li key={i.id} className="flex min-h-14 flex-wrap items-center gap-3 px-3.5 py-2.5 sm:flex-nowrap">
 							<AddressDisc email={i.email} />
@@ -553,11 +575,7 @@ function Invites({ onInvite }: { onInvite: () => void }) {
 							<div className="ml-auto flex shrink-0 gap-1.5">
 								<button
 									type="button"
-									onClick={() => {
-										const before = useProgram.getState().snapshot();
-										useProgram.getState().resendInvite(i.id);
-										undoable(`Opnieuw verstuurd naar ${i.email}`, () => useProgram.getState().restore(before));
-									}}
+									onClick={() => resendInvite(i, { message: `Opnieuw verstuurd naar ${i.email}` })}
 									className={WELL_BTN}
 								>
 									<RotateCcw className="size-3.5" strokeWidth={1.75} />
@@ -568,31 +586,29 @@ function Invites({ onInvite }: { onInvite: () => void }) {
 									aria-label="Link kopiëren"
 									title="Link kopiëren"
 									onClick={() =>
-										void navigator.clipboard.writeText(inviteUrl(i.id)).then(
+										void navigator.clipboard.writeText(urlOf(i)).then(
 											() => toast.success("Link gekopieerd"),
-											() => toast.error("Kopiëren lukte niet", { description: inviteUrl(i.id) }),
+											() => toast.error("Kopiëren lukte niet", { description: urlOf(i) }),
 										)
 									}
 									className={cn(WELL_BTN, "w-8 px-0")}
 								>
 									<Copy className="size-3.5" strokeWidth={1.75} />
 								</button>
+								{viewInvite ? (
+									<button
+										type="button"
+										aria-label="Bekijken zoals zij het zien"
+										title="Bekijken zoals zij het zien"
+										onClick={() => viewInvite(i)}
+										className={cn(WELL_BTN, "w-8 px-0")}
+									>
+										<ExternalLink className="size-3.5" strokeWidth={1.75} />
+									</button>
+								) : null}
 								<button
 									type="button"
-									aria-label="Bekijken zoals zij het zien"
-									title="Bekijken zoals zij het zien"
-									onClick={() => void navigate({ to: "/invitations/$invitationId", params: { invitationId: i.id } })}
-									className={cn(WELL_BTN, "w-8 px-0")}
-								>
-									<ExternalLink className="size-3.5" strokeWidth={1.75} />
-								</button>
-								<button
-									type="button"
-									onClick={() => {
-										const before = useProgram.getState().snapshot();
-										useProgram.getState().removeInvite(i.id);
-										undoable(`Uitnodiging aan ${i.name} ingetrokken`, () => useProgram.getState().restore(before));
-									}}
+									onClick={() => revokeInvite(i, { message: `Uitnodiging aan ${i.name} ingetrokken` })}
 									className="flex h-8 items-center rounded-md px-2.5 font-medium text-signal-red text-sm hover:bg-signal-red-bg"
 								>
 									Intrekken
@@ -601,6 +617,84 @@ function Invites({ onInvite }: { onInvite: () => void }) {
 						</li>
 					);
 				})}
+			</ul>
+		</div>
+	);
+}
+
+/* ── material ──────────────────────────────────────────────────────────────────────────────────── */
+
+/** What the affiliates download in their portal: logos, photos, guides. Uploading is the programme's editors'. */
+function Resources() {
+	const { resources } = useAffiliatesSource();
+	const list = resources.useList();
+	const input = useRef<HTMLInputElement>(null);
+	const pick = () => input.current?.click();
+	const picker = (
+		<input
+			ref={input}
+			type="file"
+			className="hidden"
+			accept="image/png,image/jpeg,image/webp,image/svg+xml,application/pdf,video/mp4,application/zip"
+			onChange={(e) => {
+				const file = e.target.files?.[0];
+				e.target.value = "";
+				if (file) resources.upload(file, { message: `${file.name} geüpload`, description: "Je affiliates zien het nu bij Materiaal." });
+			}}
+		/>
+	);
+	if (list.length === 0) {
+		return (
+			<>
+				{picker}
+				<EmptyState
+					kind="knowledge"
+					title="Nog geen materiaal."
+					body="Logo's, productfoto's en richtlijnen die je hier zet, kunnen je affiliates downloaden."
+					{...(resources.canEdit ? { action: { label: "Bestand uploaden", onClick: pick } } : {})}
+				/>
+			</>
+		);
+	}
+	return (
+		<div className="flex max-w-[880px] flex-col gap-3">
+			{picker}
+			{resources.canEdit ? (
+				<div className="flex justify-end">
+					<button type="button" onClick={pick} className={WELL_BTN}>
+						<Upload className="size-3.5" strokeWidth={1.75} />
+						Bestand uploaden
+					</button>
+				</div>
+			) : null}
+			<ul className="flex flex-col gap-1 [&>li]:rounded-lg [&>li]:bg-mist">
+				{list.map((r) => (
+					<li key={r.id} className="flex min-h-14 flex-wrap items-center gap-3 px-3.5 py-2.5 sm:flex-nowrap">
+						<span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-paper text-ink-2">
+							<FileText className="size-4" strokeWidth={1.75} />
+						</span>
+						<div className="flex min-w-0 flex-1 basis-[220px] flex-col">
+							<span className="truncate font-medium text-base text-ink">{r.name}</span>
+							<span className="truncate text-ink-2 text-sm">
+								{r.size} · bijgewerkt {formatDate(r.updated_at)}
+							</span>
+						</div>
+						<div className="ml-auto flex shrink-0 gap-1.5">
+							<button type="button" aria-label="Downloaden" title="Downloaden" onClick={() => resources.open(r)} className={cn(WELL_BTN, "w-8 px-0")}>
+								<Download className="size-3.5" strokeWidth={1.75} />
+							</button>
+							{resources.canEdit ? (
+								<button
+									type="button"
+									onClick={() => resources.remove(r, { message: `${r.name} verwijderd` })}
+									className="flex h-8 items-center rounded-md px-2.5 font-medium text-signal-red text-sm hover:bg-signal-red-bg"
+								>
+									Verwijderen
+								</button>
+							) : null}
+						</div>
+					</li>
+				))}
 			</ul>
 		</div>
 	);

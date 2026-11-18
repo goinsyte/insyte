@@ -3,6 +3,7 @@ import { LiveService } from "@insyte/modules/live/Live"
 import { Effect, Layer } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { ipOf } from "../../platform/EdgeGuards.ts"
+import { ipKey } from "../../platform/IpKey.ts"
 import { RateLimits } from "../../platform/RateLimits.ts"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 
@@ -45,16 +46,6 @@ const cors = (origin: string | null): Record<string, string> =>
 
 /** A store id as `connect.ts` mints it: `sto_` and a TypeID's 26 characters. */
 const isStoreId = (id: string) => /^sto_[0-9a-hjkmnp-tv-z]{26}$/.test(id)
-
-/** The limiter's key for an address: an IPv6 address by its /64, which one host or tenant usually holds whole. */
-const ipKey = (ip: string) => {
-  if (!ip.includes(":")) return `ip:${ip}`
-  const [head = "", tail = ""] = ip.split("::")
-  const left = head === "" ? [] : head.split(":")
-  const right = tail === "" ? [] : tail.split(":")
-  const groups = ip.includes("::") ? [...left, ...Array(8 - left.length - right.length).fill("0"), ...right] : left
-  return `ip6:${groups.slice(0, 4).map((g) => g.toLowerCase().replace(/^0+(?=.)/, "")).join(":")}::/64`
-}
 
 /** The body as text, or `null` once it passes `max` bytes: the stream is cancelled there, never buffered whole. */
 export const readCapped = async (request: Request, max: number): Promise<string | null> => {

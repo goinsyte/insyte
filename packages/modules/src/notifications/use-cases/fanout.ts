@@ -525,6 +525,25 @@ const plan = (sql: SqlClient.SqlClient, event: OutboxEvent): Effect.Effect<Plann
           }
         }
       }
+      case "affiliate.applied": {
+        // Someone applied to the affiliate programme (M16 step 3): whoever decides applications hears of it. An
+        // application belongs to no store.
+        const [application] = yield* sql<{ name: string }>`
+          select name from affiliate_applications where id = ${event.applicationId} and status = 'pending'`
+        if (application === undefined) return undefined
+        const recipients = yield* sql<{ id: string }>`
+          select m.id from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+          where m.deactivated_at is null and m.removed_at is null
+            and (r.id = 'owner' or coalesce((r.levels ->> 'affiliates')::int, 0) >= 2)`
+        return {
+          kind: "affiliate.application",
+          recipients: recipients.map((r) => r.id),
+          subjectType: "affiliate_application",
+          subjectId: event.applicationId,
+          actor: null,
+          data: { name: application.name, reapplied: event.reapplied }
+        }
+      }
       case "statements.closed": {
         // The month's supplier statements are closed (M13 step 6): whoever may mark them paid hears they are ready.
         const [sum] = yield* sql<{ count: number; totalMinor: string; currency: string; payDay: string }>`

@@ -310,6 +310,18 @@ const sentence = (note: ServerNote): Sentence => {
         org: String(data["supplier"] ?? "")
       }
     }
+    case "affiliate.application": {
+      // Someone applied to the affiliate programme (M16 step 3): who, and whether it is a second try.
+      return {
+        title: data["reapplied"] === true
+          ? "Opnieuw aangemeld voor je affiliateprogramma:"
+          : "Nieuwe aanmelding voor je affiliateprogramma:",
+        record: String(data["name"] ?? ""),
+        detail: "Beoordeel de aanmelding bij Affiliates.",
+        source: "team",
+        to: "/affiliates"
+      }
+    }
     case "supplier.statement": {
       // The month's supplier statements closed (M13 step 6): what is to be paid, and when.
       const count = Number(data["count"] ?? 0)

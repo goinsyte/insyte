@@ -36,9 +36,12 @@ export type SessionUser = typeof SessionUser.Type
 /** Provided by the `Authenticated` RPC middleware from the session cookie. */
 export class CurrentUser extends Context.Service<CurrentUser, SessionUser>()("domain/CurrentUser") {}
 
-/** One way the person may act, as the session lists it: a membership, or a supplier's contact for a brand (M16). */
+/**
+ * One way the person may act, as the session lists it: a membership, a supplier's contact for a brand, or an
+ * affiliate of a brand's programme (M16).
+ */
 export const PrincipalSummary = Schema.Struct({
-  kind: Schema.Literals(["member", "supplier_contact"]),
+  kind: Schema.Literals(["member", "supplier_contact", "affiliate"]),
   id: Schema.String,
   workspaceId: WorkspaceId,
   workspaceName: Schema.String,

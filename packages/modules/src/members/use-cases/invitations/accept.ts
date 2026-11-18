@@ -48,6 +48,32 @@ export const acceptRouted = Effect.fn("Landing.acceptRouted")(function*(ref: Lan
       // Decided by the invitation's kind, never by whether its supplier is still there: one whose supplier went is
       // refused, not turned into a member.
       const [kind] = found.link ? [] : yield* sql<{ kind: string }>`select kind from invitations where id = ${ref.id}`
+      // An affiliate (M16 step 5): through `affiliate_join` (0108), on the invitation's tier, with a proposed code: the
+      // first word of their name and a random part, never a name alone (a name can be any code the store already
+      // has). The brand can change it; its Shopify discount is asked for there. They land in the affiliate portal.
+      if (!found.link && kind?.kind === "affiliate") {
+        const hash = yield* sha256(ref.k ?? "")
+        const name = (user.name ?? "").trim() || user.email.split("@")[0] || "PARTNER"
+        const code = proposedCode(name)
+        const [joined] = yield* sql<{ affiliateId: string | null }>`
+          select affiliate_join(${ref.id}, decode(${hash}, 'hex'), ${mintId("aff")}, ${code}, ${mintId("obx")})
+            as affiliate_id`
+        if (joined?.affiliateId == null) return yield* new NotAcceptable({ state: "missing" })
+        yield* Audit.write(sql, found.workspaceId, { kind: "affiliate", id: joined.affiliateId }, {
+          action: "affiliate.joined",
+          subjectType: "affiliate",
+          subjectId: joined.affiliateId,
+          diff: { via: "invitation" }
+        })
+        return {
+          result: new Accepted({
+            workspaceId: found.workspaceId,
+            workspace: landing.workspace ?? "",
+            landing: "/affiliate/dashboard"
+          }),
+          outboxIds: []
+        }
+      }
       if (!found.link && kind?.kind !== "team") {
         if (kind?.kind !== "supplier_portal") return yield* new NotAcceptable({ state: "missing" })
         const hash = yield* sha256(ref.k ?? "")
@@ -152,3 +178,16 @@ export const declineRouted = Effect.fn("Landing.declineRouted")(function*(ref: L
     })
   )
 })
+
+/** Capitals and digits that cannot be misread (no 0/O, 1/I/L). */
+const SUFFIX_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+/** An affiliate's first code: their name's first word (eight at most, capitals and digits) and four random ones. */
+export const proposedCode = (name: string) => {
+  const word = (name.split(/\s+/)[0] ?? "").normalize("NFD").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 8)
+  const suffix = Array.from(
+    crypto.getRandomValues(new Uint8Array(4)),
+    (b) => SUFFIX_ALPHABET[b % SUFFIX_ALPHABET.length]
+  ).join("")
+  return `${word}${suffix}`
+}

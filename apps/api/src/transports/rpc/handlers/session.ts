@@ -2,11 +2,19 @@ import { SessionRpcs } from "@insyte/api/rpc/SessionRpcs"
 import { CurrentUser, type PrincipalSummary, SessionMe } from "@insyte/domain/Session"
 import { BetterAuth } from "@insyte/integrations-better-auth/BetterAuth"
 import { countryOf } from "@insyte/integrations-better-auth/Country"
+import type * as AffiliateApplicant from "@insyte/modules/affiliates/use-cases/applicant"
 import { ActiveSessions } from "@insyte/modules/sessions/ActiveSessions"
 import { SupplierPortalService } from "@insyte/modules/supplier-portal/SupplierPortal"
 import { landingOf, Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Effect } from "effect"
 import { currentSessionId } from "../../../platform/Sessions.ts"
+
+let applicantLoad: Promise<typeof AffiliateApplicant> | undefined
+const applicantPart = () =>
+  applicantLoad ??= import("@insyte/modules/affiliates/use-cases/applicant").catch((error: unknown) => {
+    applicantLoad = undefined
+    throw error
+  })
 
 /** An RPC's headers as the Fetch API's, for better-auth and Cloudflare's own. */
 const webHeaders = (headers: unknown) => new Headers(headers as Record<string, string>)
@@ -22,6 +30,12 @@ export const SessionHandlers = SessionRpcs.toLayer(Effect.gen(function*() {
       const user = yield* CurrentUser
       const memberships = yield* workspaces.current
       const contacts = yield* portal.held
+      // An affiliate's, and an application that waits or was turned down (M16 step 3): read through the slice's
+      // small applicant part, loaded with the first session in an isolate, not with the Worker.
+      const { held, applications } = yield* Effect.promise(() => applicantPart())
+      const affiliates = yield* held().pipe(Effect.orDie)
+      const applicant = affiliates.length > 0 ||
+        (yield* applications.pipe(Effect.orDie)).some((a) => a.status !== "approved")
       // Members first: a person who is both a member and a supplier's contact lands in the console; the portal is
       // theirs at /supplier.
       const principals = [
@@ -39,6 +53,13 @@ export const SessionHandlers = SessionRpcs.toLayer(Effect.gen(function*() {
           workspaceName: c.contact.workspaceName,
           roleLabel: c.principal.role.label,
           partnerName: c.contact.supplierName
+        })),
+        ...affiliates.map((a): PrincipalSummary => ({
+          kind: "affiliate",
+          id: a.affiliate.affiliateId,
+          workspaceId: a.principal.workspaceId,
+          workspaceName: a.affiliate.workspaceName,
+          roleLabel: a.principal.role.label
         }))
       ]
       // Start once the active workspace finished onboarding, or at once for whoever joined it; until then the founder
@@ -57,6 +78,8 @@ export const SessionHandlers = SessionRpcs.toLayer(Effect.gen(function*() {
         activePrincipal: principals[0] ?? null,
         landing: active === undefined && contacts.length > 0
           ? "/supplier/dashboard"
+          : active === undefined && applicant
+          ? "/affiliate/dashboard"
           : active !== undefined
           ? landingOf(active)
           : "/onboarding"

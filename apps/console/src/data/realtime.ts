@@ -3,6 +3,7 @@ import { Effect, Option, Schedule, Schema } from "effect"
 import { Reactivity } from "effect/reactivity"
 import { Socket } from "effect/socket"
 import { ACCESS } from "./access.ts"
+import { AFFILIATES } from "./affiliates.ts"
 import { AGENT_LOG, AI_BUDGETS, AUTONOMY } from "./agent.ts"
 import { ANALYTICS } from "./analytics.ts"
 import { BILLING } from "./billing.ts"
@@ -93,9 +94,21 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   cost_line: COSTS,
   // The Data hub (M14 step 5): an uploaded file read on the jobs Worker.
   import: DATA,
+  // The affiliate programme (M16 steps 3–5): an affiliate, an application, a payout, a link, a resource, the
+  // programme itself, or a conversion followed by the daily approval.
+  affiliate: AFFILIATES,
+  affiliate_application: AFFILIATES,
+  affiliate_payout: AFFILIATES,
+  affiliate_link: AFFILIATES,
+  affiliate_resource: AFFILIATES,
+  affiliate_program: AFFILIATES,
+  affiliate_conversion: AFFILIATES,
+  affiliate_portal: AFFILIATES,
   // Insyte-support mag meekijken (M18): the owner's consent, a session started or ended (the frame's line).
   support: SUPPORT
 }
+// An affiliate invitation is an invitation: the list of invites reads it too.
+REFETCH["invitation"] = [...(REFETCH["invitation"] ?? []), ...AFFILIATES]
 // Kosten works its shares and per-order amounts out from revenue and orders (M13 step 5).
 for (const kind of ["order", "store"]) REFETCH[kind] = [...(REFETCH[kind] ?? []), ...COSTS]
 // Start's figures (M10.3) sum over every one of these.

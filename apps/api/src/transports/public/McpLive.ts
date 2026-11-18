@@ -1,6 +1,7 @@
 import { InsyteTools } from "@insyte/api/mcp/McpTools"
 import { Effect, Layer } from "effect"
 import { McpServer } from "effect/ai"
+import { AffiliatesMcp } from "./affiliates/mcp.ts"
 import { AnalyticsMcp } from "./analytics/mcp.ts"
 import { AskMcp } from "./ask/mcp.ts"
 import { AutomationsMcp } from "./automations/mcp.ts"
@@ -52,6 +53,7 @@ const Tools = McpServer.toolkit(InsyteTools).pipe(
       TicketsMcp,
       AutomationsMcp,
       ChargebacksMcp,
+      AffiliatesMcp,
       CostsMcp,
       ConnectionsMcp,
       DataMcp,

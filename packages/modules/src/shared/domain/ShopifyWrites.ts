@@ -3,7 +3,8 @@ import type { OutboxEvent } from "./Outbox.ts"
 
 /**
  * A change made in Insyte on its way to Shopify (M7): the outbox event as the relay delivered it. A return's (M9.3): a
- * Shopify return approved or declined, a resolution made as a gift card, a discount code or a new order.
+ * Shopify return approved or declined, a resolution made as a gift card, a discount code or a new order. An
+ * affiliate's code as a discount (M16 step 5).
  */
 export type ShopifyWrite = Extract<
   OutboxEvent,
@@ -21,6 +22,7 @@ export type ShopifyWrite = Extract<
       | "return.approved"
       | "return.rejected"
       | "return.resolution_requested"
+      | "affiliate.discount_requested"
   }
 >
 
@@ -34,6 +36,8 @@ export const idsOf = (write: ShopifyWrite): ReadonlyArray<string> =>
     ? write.toShopify
     : write.type === "return.resolution_requested"
     ? write.returnIds
+    : write.type === "affiliate.discount_requested"
+    ? write.affiliateIds
     : write.orderIds
 
 /** What became of one record's change: sent, refused by Shopify (the reason is Shopify's), or not sent at all. */

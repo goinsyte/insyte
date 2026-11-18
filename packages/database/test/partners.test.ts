@@ -492,6 +492,36 @@ describe("partners", () => {
     expect(left!.n).toBe(1)
   })
 
+  it("lets a contact only cancel a frame of its own, never turn it into another", async () => {
+    const id = mintId("obx")
+    await run(
+      Effect.flatMap(
+        Effect.service(Db),
+        (db) =>
+          db.scopedPartner((sql) =>
+            sql`insert into outbox (id, workspace_id, event, payload) values (${id}, ${ws}, 'partner.changed',
+                ${JSON.stringify({ supplierId: ids.supA })}::jsonb)`
+          )
+      ).pipe(asA)
+    )
+    const change = (statement: string) =>
+      run(
+        Effect.flatMap(Effect.service(Db), (db) => db.scopedPartner((sql) => sql.unsafe(statement, [id]))).pipe(
+          asA,
+          Effect.exit
+        )
+      ).then((e) => e._tag)
+    expect(await change(`update outbox set payload = '{"supplierId":"${ids.supB}"}'::jsonb where id = $1`)).toBe(
+      "Failure"
+    )
+    expect(
+      await change(`update outbox set event = 'member.invited',
+                      payload = '{"invitationId":"${ids.invitation}"}'::jsonb where id = $1`)
+    ).toBe("Failure")
+    expect(await change("update outbox set cancelled_at = now() where id = $1")).toBe("Success")
+    expect(await change("update outbox set cancelled_at = null where id = $1")).toBe("Failure")
+  })
+
   it("joins nobody on an invitation's id without its token", async () => {
     const asUserB = Effect.provideService(CurrentUser, {
       id: ids.userB,

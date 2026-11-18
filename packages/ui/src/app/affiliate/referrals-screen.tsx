@@ -7,11 +7,9 @@ import { NewLinkDialog } from "./new-link-dialog";
 import { downloadQr } from "./qr";
 import { PageHeader } from "../common/page-header";
 import { DataTable, type RowAction } from "../table/data-table";
-import { COMMISSION } from "../../data-source";
-import { formatCurrency } from "../lib/format";
-import { referralLinks } from "../../data-source";
-import type { ReferralLink } from "../lib/types/domain";
-import { useAffiliate } from "../stores/affiliate-store";
+import { type PortalLink, useAffiliatePortal } from "./source";
+
+type ReferralLink = PortalLink;
 
 const since = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short", year: "numeric" });
 const rate = (l: ReferralLink) => (l.clicks === 0 ? 0 : (l.conversions / l.clicks) * 100);
@@ -28,8 +26,8 @@ export function copyLink(l: ReferralLink) {
  */
 export function AffiliateLinks() {
 	const navigate = useNavigate();
-	const made = useAffiliate((s) => s.links);
-	const links = useMemo(() => [...made, ...referralLinks], [made]);
+	const { money: formatCurrency, useLinks } = useAffiliatePortal();
+	const links = useLinks();
 	const [open, setOpen] = useState(false);
 
 	const totals = links.reduce((t, l) => ({ clicks: t.clicks + l.clicks, conversions: t.conversions + l.conversions, revenue: t.revenue + l.revenue }), { clicks: 0, conversions: 0, revenue: 0 });
@@ -51,10 +49,10 @@ export function AffiliateLinks() {
 			{ id: "conversions", accessorKey: "conversions", header: "Conversies", size: 120, cell: (c) => <span className="tabular-nums">{c.row.original.conversions.toLocaleString("nl-NL")}</span> },
 			{ id: "rate", accessorFn: rate, header: "Ratio", size: 90, cell: (c) => <span className="text-ink-2 tabular-nums">{pct(Number(c.getValue()))}</span> },
 			{ id: "revenue", accessorKey: "revenue", header: "Omzet", size: 120, cell: (c) => <span className="tabular-nums">{formatCurrency(c.row.original.revenue)}</span> },
-			{ id: "earned", accessorFn: (l) => l.revenue * COMMISSION, header: "Commissie", size: 120, cell: (c) => <span className="font-medium text-ink tabular-nums">{formatCurrency(Number(c.getValue()))}</span> },
+			{ id: "earned", accessorFn: (l) => l.commission, header: "Commissie", size: 120, cell: (c) => <span className="font-medium text-ink tabular-nums">{formatCurrency(Number(c.getValue()))}</span> },
 			{ id: "created", accessorKey: "created_at", header: "Sinds", size: 120, cell: (c) => <span className="text-ink-3 tabular-nums">{since.format(new Date(c.row.original.created_at))}</span> },
 		],
-		[],
+		[formatCurrency],
 	);
 
 	const actions = useMemo<ReadonlyArray<RowAction<ReferralLink>>>(

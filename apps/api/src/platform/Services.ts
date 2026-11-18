@@ -12,6 +12,7 @@ import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
 import { Config, Effect, Layer } from "effect"
 import { FetchHttpClient, type HttpClient, HttpServer } from "effect/http"
 import { KeyDoor } from "../transports/public/KeyDoor.ts"
+import { AffiliateMemberLive } from "../transports/rpc/AffiliateMemberLive.ts"
 import { AuthenticatedLive } from "../transports/rpc/AuthenticatedLive.ts"
 import { MemberLive } from "../transports/rpc/MemberLive.ts"
 import { ShopperLive } from "../transports/rpc/ShopperLive.ts"
@@ -171,6 +172,7 @@ export const onServices = <A, E, R>(routes: Layer.Layer<A, E, R>) =>
     Layer.provideMerge(Layer.mergeAll(ViewerLive, ShopperLive)),
     Layer.provideMerge(MemberLive.pipe(Layer.provide(Workspaces.layer))),
     Layer.provideMerge(SupplierContactLive.pipe(Layer.provide(SupplierPortalService.layer))),
+    Layer.provideMerge(AffiliateMemberLive),
     // better-auth, built per request by the auth routes and the session check, over the app's hooks.
     Layer.provideMerge(BetterAuth.layer),
     Layer.provideMerge(AuthHooksLive),

@@ -1,3 +1,4 @@
+import { restore as restoreAffiliates, restorePortal as restoreAffiliatePortal } from "@insyte/modules/affiliates/lazy"
 import { restoreAutonomy, restoreBudgets } from "@insyte/modules/agent/Agent"
 import { restore as restoreAsk } from "@insyte/modules/ask/Ask"
 import { restore as restoreAutomations } from "@insyte/modules/automations/use-cases/commands"
@@ -75,6 +76,9 @@ export const compensations: Record<string, Compensation> = {
   "sheets.restore": restoreSheets,
   "knowledge.restore": restoreKnowledge,
   "customer_agent.restore": restoreChannelAgent,
+  // Affiliates (M16 step 5): the brand's, and the affiliate portal's own; the slice loads with the first undo.
+  "affiliates.restore": restoreAffiliates,
+  "affiliate_portal.restore": restoreAffiliatePortal,
   "knowledge_gaps.restore": restoreKnowledgeGap,
   "data.restore": restoreData,
   "courses.restore": restoreCourses,

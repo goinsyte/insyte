@@ -76,7 +76,8 @@ export const isMember = (sql: SqlClient.SqlClient, userId: string) =>
   )
 
 interface InvitationRow {
-  readonly kind: "team" | "supplier_portal"
+  readonly kind: "team" | "supplier_portal" | "affiliate"
+  readonly affiliateTier: string | null
   readonly supplier: string | null
   readonly portalScopes: ReadonlyArray<string> | null
   readonly email: string
@@ -132,14 +133,14 @@ export const classify = Effect.fn("Landing.classify")(function*(
   }
 
   const [inv] = yield* sql<InvitationRow>`
-    select i.kind, supplier_name_in_workspace(i.supplier_id) as supplier, i.portal_scopes, i.email, i.name, i.role_id, i.stores, i.message, i.invited_by, i.expires_at,
+    select i.kind, i.affiliate_tier, supplier_name_in_workspace(i.supplier_id) as supplier, i.portal_scopes, i.email, i.name, i.role_id, i.stores, i.message, i.invited_by, i.expires_at,
            i.accepted_at, i.revoked_at is not null or i.declined_at is not null as gone, i.expires_at <= now() as lapsed,
            i.requested_new_at is not null as requested_new, i.seat_requested_at is not null as seat_requested
     from invitations i
-    where i.id = ${ref.id} and i.kind in ('team', 'supplier_portal')`
+    where i.id = ${ref.id} and i.kind in ('team', 'supplier_portal', 'affiliate')`
   if (inv === undefined) return MISSING
   // Only the seats beyond those already taken: an open invitation holds its own seat until it lapses. A supplier's
-  // person takes none (M16).
+  // person takes none (M16), nor an affiliate.
   const full = inv.kind === "team" && seats.active >= seats.total
   const exists = signedInAs === inv.email ||
     (yield* sql<{ id: string }>`select id from auth."user" where email = ${inv.email}`).length > 0
@@ -176,6 +177,7 @@ export const classify = Effect.fn("Landing.classify")(function*(
       ? inv.requestedNew
       : false,
     supplier: inv.kind === "supplier_portal" ? inv.supplier : null,
-    scopes: inv.kind === "supplier_portal" ? inv.portalScopes ?? ["orders"] : null
+    scopes: inv.kind === "supplier_portal" ? inv.portalScopes ?? ["orders"] : null,
+    affiliateTier: inv.kind === "affiliate" ? inv.affiliateTier ?? "bronze" : null
   })
 })

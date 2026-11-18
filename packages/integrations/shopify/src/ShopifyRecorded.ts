@@ -22,8 +22,8 @@ import { readLines } from "./ShopifyGraphql.ts"
  * order has one open fulfillment order until it is fulfilled. A refund (M7.2) splits over one sale; the same
  * idempotency key answers the same refund. A return's writes (M9.3): a gift card or a discount code under a code made
  * before is taken; a draft order completes into one new order, the same one when completed again; a Shopify return is
- * approved or declined. A `noscope-*` shop approved the app before `write_gift_cards` and `write_returns` joined its
- * scopes, so Shopify denies those calls (`ACCESS_DENIED`). Insyte's drafts and new products (M7): a draft order is made
+ * approved or declined. A `noscope-*` shop approved the app before `write_gift_cards`, `write_discounts` and
+ * `write_returns` joined its scopes, so Shopify denies those calls (`ACCESS_DENIED`). Insyte's drafts and new products (M7): a draft order is made
  * and deleted as asked, and found by its tag, but one for an address with `invalid` in it is refused on its email; a
  * product is made through `productSet` with its one variant, found by its handle and read back, but one titled with
  * `Geweigerd` is refused on its title. `productSet` with `identifier: { handle }` updates the shop's product with that
@@ -103,6 +103,7 @@ const MUTATIONS: Record<string, { readonly field?: string; readonly ok: Record<s
   customerCreate: { ok: { customer: { id: "gid://shopify/Customer/7001" } } },
   giftCardCreate: { ok: {} },
   discountCodeBasicCreate: { ok: {} },
+  discountCodeDeactivate: { ok: {} },
   draftOrderCreate: { ok: {} },
   draftOrderComplete: { ok: {} },
   draftOrderDelete: { ok: {} },
@@ -121,13 +122,17 @@ const MUTATIONS: Record<string, { readonly field?: string; readonly ok: Record<s
 /** The calls a `noscope-*` shop's token may not make, and the scope each needs. */
 const NEWER_SCOPES: Record<string, string> = {
   giftCardCreate: "write_gift_cards",
+  // An affiliate's code (M16 step 5) on a store that approved the app before `write_discounts`.
+  discountCodeBasicCreate: "write_discounts",
+  codeDiscountNodeByCode: "write_discounts",
+  discountCodeDeactivate: "write_discounts",
   returnApproveRequest: "write_returns",
   returnDeclineRequest: "write_returns",
   webPixelCreate: "write_pixels",
   webPixelUpdate: "write_pixels"
 }
 
-/** Codes made (gift cards, discounts), draft orders made and what each completed into. */
+/** Gift card codes made, draft orders made and what each completed into. */
 const codes = new Set<string>()
 interface RecordedDraft {
   readonly shop: string
@@ -141,6 +146,35 @@ interface RecordedDraft {
 }
 const drafts = new Map<string, RecordedDraft>()
 let made = 0
+
+/** The code discounts each shop holds (\`shop|CODE\`), made through the twin or there before (\`seedRecordedDiscount\`). */
+const discounts = new Map<string, { readonly id: string; readonly title: string; ended: boolean }>()
+
+/** A code discount as the twin holds it: a worker test reads whether Insyte made, kept or ended it. */
+export const recordedDiscount = (shop: string, code: string) => discounts.get(`${shop}|${code.toUpperCase()}`)
+
+/** Creates of a code held back until the test lets them go: a step caught mid-write (\`holdRecordedDiscount\`). */
+const holding = new Map<string, { readonly reached: () => void; readonly released: Promise<void> }>()
+
+/**
+ * The next \`discountCodeBasicCreate\` of \`code\` in \`shop\` waits until \`release\`: \`reached\` resolves once the step
+ * is there, having read what it makes, so a test can change the affiliate under it.
+ */
+export const holdRecordedDiscount = (shop: string, code: string) => {
+  let reached!: () => void
+  let release!: () => void
+  const atCreate = new Promise<void>((resolve) => (reached = resolve))
+  const released = new Promise<void>((resolve) => (release = resolve))
+  holding.set(`${shop}|${code.toUpperCase()}`, { reached, released })
+  return { reached: atCreate, release }
+}
+
+/** A code discount the merchant made in Shopify's admin before Insyte came: a worker test's brand-owned code. */
+export const seedRecordedDiscount = (shop: string, code: string, title: string) => {
+  const id = `gid://shopify/DiscountCodeNode/${++made}`
+  discounts.set(`${shop}|${code.toUpperCase()}`, { id, title, ended: false })
+  return id
+}
 
 /** A product made through `productSet` (M7.3), as Shopify holds it. */
 export interface RecordedProduct {
@@ -241,10 +275,18 @@ const returnWrite = (
       }
     }
     case "discountCodeBasicCreate": {
-      const code = String(input["code"] ?? "")
-      if (codes.has(code)) return taken("basicCodeDiscount")
-      codes.add(code)
-      return { codeDiscountNode: { id: `gid://shopify/DiscountCodeNode/${++made}` } }
+      const key = `${shop}|${String(input["code"] ?? "").toUpperCase()}`
+      if (discounts.has(key)) return taken("basicCodeDiscount")
+      const id = `gid://shopify/DiscountCodeNode/${++made}`
+      discounts.set(key, { id, title: String(input["title"] ?? ""), ended: false })
+      return { codeDiscountNode: { id } }
+    }
+    case "discountCodeDeactivate": {
+      const id = String(variables["id"] ?? "")
+      const found = [...discounts.entries()].find(([key, d]) => key.startsWith(`${shop}|`) && d.id === id)
+      if (found === undefined) return { codeDiscountNode: null, userErrors: [{ field: ["id"], message: "Not found" }] }
+      found[1].ended = true
+      return { codeDiscountNode: { id } }
     }
     case "draftOrderCreate": {
       if (String(input["email"] ?? "").includes("invalid")) {
@@ -421,6 +463,13 @@ const deniedFor = (shop: string, query: string): ShopifyRefused | undefined => {
 const recordedQuery = (shop: string, query: string, variables: Record<string, unknown>): unknown => {
   const mutation = recordedMutation(shop, query, variables)
   if (mutation !== undefined) return mutation
+  // The discount a code belongs to in this shop, if any.
+  if (query.includes("codeDiscountNodeByCode(")) {
+    const found = discounts.get(`${shop}|${String(variables["code"] ?? "").toUpperCase()}`)
+    return {
+      codeDiscountNodeByCode: found === undefined ? null : { id: found.id, codeDiscount: { title: found.title } }
+    }
+  }
   // A draft by the tag Insyte gave it (`tag:'SO-10001'`), and a product by its handle: what a create tried again finds.
   if (query.includes("draftOrders(")) {
     const tag = /tag:'([^']*)'/.exec(String(variables["query"] ?? ""))?.[1]
@@ -527,6 +576,21 @@ export const ShopifyGraphqlRecorded = Layer.succeed(ShopifyGraphql)(ShopifyGraph
   query: (shop, _token, query, variables) => {
     const denied = deniedFor(shop, query)
     if (denied !== undefined) return Effect.fail(denied)
+    const held = query.includes("discountCodeBasicCreate(")
+      ? holding.get(
+        `${shop}|${String((variables["basicCodeDiscount"] as { code?: string })?.code ?? "").toUpperCase()}`
+      )
+      : undefined
+    if (held !== undefined) {
+      holding.delete(`${shop}|${String((variables["basicCodeDiscount"] as { code?: string }).code).toUpperCase()}`)
+      held.reached()
+      return Effect.promise(() => held.released).pipe(
+        Effect.map(() => ({
+          data: recordedQuery(shop, query, variables),
+          throttle: { maximumAvailable: 2000, currentlyAvailable: 1990, restoreRate: 100 }
+        }))
+      )
+    }
     const data = recordedQuery(shop, query, variables)
     // A `lost-*` shop makes its first draft or product, and the answer never arrives: a gateway error, tried again.
     const create = query.includes("draftOrderCreate(") || query.includes("productSet(")
