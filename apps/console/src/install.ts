@@ -4,9 +4,12 @@
  */
 import { installAuthClient } from "@insyte/ui/app/lib/auth-client"
 import { configureHumanCheck } from "@insyte/ui/app/lib/human-check"
+import { parseWithoutEval } from "@insyte/ui/app/lib/zod-jitless"
 import { configureHrefs } from "@insyte/ui/data-source/hrefs"
 import { consoleAuthClient } from "./auth/client.ts"
 
+// Before any schema parses: the CSP allows no eval, so zod is told not to probe for it (`security-headers.ts`).
+parseWithoutEval()
 installAuthClient(consoleAuthClient)
 // The product is this origin's root; the terms and the privacy statement are the marketing site's (ADR-0038).
 configureHrefs({ app: "", site: "https://goinsyte.com" })

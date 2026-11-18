@@ -3,7 +3,8 @@ import { sentryVitePlugin } from "@sentry/vite-plugin"
 import tailwindcss from "@tailwindcss/vite"
 import { tanstackStart } from "@tanstack/react-start/plugin/vite"
 import viteReact from "@vitejs/plugin-react"
-import { defineConfig } from "vite"
+import { mkdirSync, writeFileSync } from "node:fs"
+import { defineConfig, type Plugin } from "vite"
 
 /**
  * The console, as TanStack Start on a Cloudflare Worker (ADR-0033, 11 §3).
@@ -34,6 +35,30 @@ const sourceMaps = sentryAuthToken === undefined || sentryAuthToken === ""
     })
   ]
 
+/**
+ * The source modules each environment's bundle actually carries (rendered, after tree-shaking), written beside the
+ * build as `dist/modules.<environment>.json`, outside the served `dist/client`. `bun run bundle:check` reads it to hold
+ * fixtures, demo sources and the data seam's bindings out of the product (M18, "Demo seam").
+ */
+const moduleList = (): Plugin => ({
+  name: "insyte:module-list",
+  apply: "build",
+  writeBundle(_options, bundle) {
+    if (this.environment.name !== "client" && this.environment.name !== "ssr") return
+    const ids = new Set<string>()
+    for (const output of Object.values(bundle)) {
+      if (output.type !== "chunk") continue
+      for (const [id, module] of Object.entries(output.modules)) if (module.renderedLength > 0) ids.add(id)
+    }
+    const root = new URL("./", import.meta.url).pathname
+    mkdirSync(`${root}dist`, { recursive: true })
+    writeFileSync(
+      `${root}dist/modules.${this.environment.name}.json`,
+      JSON.stringify([...ids].map((id) => id.replace(/^\0/, "").split("?")[0]!).toSorted(), null, 1)
+    )
+  }
+})
+
 export default defineConfig({
   build: { emptyOutDir: true, sourcemap: sourceMaps.length > 0 ? "hidden" : false },
   plugins: [
@@ -44,6 +69,7 @@ export default defineConfig({
     tanstackStart(),
     viteReact(),
     tailwindcss(),
+    moduleList(),
     ...sourceMaps
   ],
   // 02 §5.1: console 4300, marketing 4301, api 8787.
