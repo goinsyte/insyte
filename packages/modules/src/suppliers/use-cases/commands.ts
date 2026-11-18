@@ -349,9 +349,10 @@ const PURGED_NAME = "Verwijderde leverancier"
 /**
  * The Prullenbak's purge, on the caller's transaction (0106): a removed supplier never comes back, and what is theirs
  * alone goes (its name and vendor, the contact details on the row, its contacts and their invitations, its
- * integrations, the products it supplied). The row stays, `purged_at` and named "Verwijderde leverancier", for the
- * statements, quality checks and conversations that point at it. An audit line each as `actor`, without the name. A
- * supplier not removed is left alone.
+ * integrations, the products it supplied). The row stays, `purged_at`
+ * and named "Verwijderde leverancier", for the statements, quality checks and conversations that point at it; its
+ * vendor stays blocked by a hash, so the next import does not make it again. An audit line each as `actor`, without
+ * the name. A supplier not removed is left alone.
  */
 export const purgeIn = Effect.fn("Suppliers.purge")(function*(
   sql: SqlClient.SqlClient,
@@ -363,6 +364,8 @@ export const purgeIn = Effect.fn("Suppliers.purge")(function*(
   // A sole trader's name is a person's: the row keeps a placeholder, and so does every line that names it from now on.
   const gone = yield* sql<{ id: string }>`
     update suppliers set purged_at = now(), updated_at = now(), name = ${PURGED_NAME}, vendor = null,
+                         purged_vendor_hash = case when vendor is null then null
+                                                   else supplier_vendor_hash(workspace_id, vendor) end,
                          contact_email = null, contact_phone = null, forward_email = null, description = '', bio = ''
     where id in ${sql.in([...new Set(ids)])} and deleted_at is not null and purged_at is null
     returning id`

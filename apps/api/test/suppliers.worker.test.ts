@@ -122,5 +122,11 @@ describe("suppliers", () => {
     ok(await rpc("Products.sync", { id: wool.id }, store.cookie))
     expect(await names(store.cookie)).toEqual(["Atelier Noord"])
     expect((await productNamed(store.cookie, "Wollen trui")).supplierName).toBeNull()
+
+    // Purged for good, its vendor kept only as a hash (0106): the next sync does not make it again either.
+    expect(ok(await rpc("Trash.purge", { ids: [wolhuis.id] }, store.cookie))).toEqual({ purged: 1 })
+    ok(await rpc("Products.sync", { id: wool.id }, store.cookie))
+    expect(await names(store.cookie)).toEqual(["Atelier Noord"])
+    expect((await productNamed(store.cookie, "Wollen trui")).supplierName).toBeNull()
   })
 })

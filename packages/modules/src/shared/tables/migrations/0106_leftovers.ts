@@ -29,6 +29,10 @@ import { KINDS, trashView } from "./0101_trash_kinds.ts"
  *   it. It marks the supplier `purged_at` (out of the trash, never back), and takes out what is theirs alone: the
  *   contact details on the row, its contacts and their invitations, its integrations, and the products it supplied;
  *   its name becomes "Verwijderde leverancier" and its vendor is cleared, since a sole trader's name is a person's.
+ *   The vendor stays blocked, so the next Shopify import does not make it again (0028's "a removed one is not made
+ *   again" holds for a purged one too; 0028 itself is merged and stays as written): `purged_vendor_hash` keeps
+ *   `supplier_vendor_hash(workspace, vendor)`, a hash of it within the workspace, and the import skips a vendor whose
+ *   hash a purged supplier holds.
  * - Shopify's erasures are seen through: `customers/redact` writes its request first, open, and an erasure that
  *   cannot finish leaves it `failed` with the columns that held the shopper in `error` (names only).
  *   `privacy_redacts_open()` counts the open, failed and overdue ones across workspaces for `/api/health/deep`;
@@ -202,6 +206,13 @@ export default statements(
        perform set_config('app.scrubbing', '', true);
        return n;
      end $$`,
+  // A purged vendor stays blocked (see above).
+  "alter table suppliers add column purged_vendor_hash text",
+  `create function supplier_vendor_hash(ws text, vendor text) returns text language sql immutable as $$
+     select encode(sha256(convert_to(ws || ':' || lower(btrim(vendor)), 'UTF8')), 'hex')
+   $$`,
+  `create index suppliers_purged_vendor on suppliers (workspace_id, purged_vendor_hash)
+     where purged_vendor_hash is not null`,
   // Shopify's erasures, seen through (see above).
   `create function privacy_redacts_open() returns table (open bigint, failed bigint, overdue bigint)
      language plpgsql security definer set search_path = public as $$
