@@ -12517,7 +12517,7 @@
     },
     {
       "name": "post_chat_message",
-      "description": "Posts in one of the team's chats (not to a shopper), as the key; reply_to answers a message in its thread. Needs support.read.",
+      "description": "Posts in one of the team's chats (not to a shopper), as the key; reply_to answers a message in its thread. In a channel shared with a supplier, the supplier reads it. Needs support.write.",
       "inputSchema": {
         "type": "object",
         "properties": {

@@ -12,8 +12,10 @@ import { iso } from "../shared/time.ts"
  * Words someone outside the team controls (a shopper's mail and chat, the names and addresses they send, a supplier's
  * message, what a teammate quotes of them) are data for whoever reads them, never instructions. An agent reads them
  * through `Untrusted.marked` (MCP, and an agent's key on `/v1`): each longer text inside an `<untrusted_text>` block and
- * every angle bracket defused (‹ ›), as Insyte's own model reads a shopper's words (ai.md §6.3), so nothing in a mail can
- * close the block or pose as the tool's own answer. A script reads the words as they came (`Untrusted.plain`).
+ * every angle bracket defused (‹ ›, look-alike brackets first made plain), as Insyte's own model reads a shopper's words
+ * (ai.md §6.3), so nothing in a mail can close the block or pose as the tool's own answer; a short field (a name, an
+ * address, a label, a chat's name and topic) is cut at `WORD_MAX`. A script reads the words as they came
+ * (`Untrusted.plain`).
  */
 
 export interface Untrusted {
@@ -25,11 +27,25 @@ export interface Untrusted {
 
 const BLOCK = "untrusted_text"
 
+/** The most a short field carries to an agent: a name, an address, a label is never a page of instructions. */
+const WORD_MAX = 100
+
+/** Brackets that read as `<` and `>` (fullwidth, small, angle, CJK), made plain first so `defused` defuses them too. */
+const LOOKALIKE = /[\uFF1C\uFE64\u2329\u3008]|[\uFF1E\uFE65\u232A\u3009]/g
+const plainBrackets = (s: string) => s.replace(LOOKALIKE, (c) => ("\uFF1C\uFE64\u2329\u3008".includes(c) ? "<" : ">"))
+
+/** A short field as an agent reads it: brackets defused, cut at `WORD_MAX` characters (not halfway a surrogate pair). */
+const word = (s: string) => {
+  const d = defused(plainBrackets(s))
+  const chars = Array.from(d)
+  return chars.length > WORD_MAX ? `${chars.slice(0, WORD_MAX - 1).join("")}…` : d
+}
+
 export const Untrusted = {
   plain: { text: (s: string) => s, word: (s: string) => s } satisfies Untrusted,
   marked: {
-    text: (s: string) => (s === "" ? "" : dataBlock(BLOCK, s)),
-    word: defused
+    text: (s: string) => (s === "" ? "" : dataBlock(BLOCK, plainBrackets(s))),
+    word
   } satisfies Untrusted
 }
 
@@ -47,7 +63,7 @@ const threadV1 = (t: ThreadRow, u: Untrusted) => ({
   last_message_at: iso(t.lastMessageAt)!,
   unread: t.unread,
   starred: t.starred,
-  labels: [...t.labels],
+  labels: t.labels.map(u.word),
   assignee_id: t.assigneeId,
   ticket_id: t.ticketId,
   customer_id: t.customerId,
@@ -126,8 +142,8 @@ export const queuedReplyV1 = (q: MessageQueued) => ({
 export const chatV1 = (c: ConversationRow, u: Untrusted) => ({
   id: c.id,
   kind: c.kind,
-  name: c.name,
-  topic: c.topic,
+  name: u.word(c.name),
+  topic: u.word(c.topic),
   supplier_id: c.supplierId,
   member_count: c.memberCount,
   last_message_at: iso(c.lastMessageAt),

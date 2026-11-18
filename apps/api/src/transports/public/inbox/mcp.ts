@@ -14,18 +14,18 @@ import { Untrusted } from "./present.ts"
  *
  * Every word a shopper, supplier or teammate wrote reaches the client marked as data (`Untrusted.marked`), so an agent
  * reading the mail cannot be steered by it. An agent's key replies and posts only through the workspace's autonomy
- * rules (`governed`: SendReply, PostChatMessage); assigning, archiving and handing back name no agent action yet, and
+ * rules (`governed`: SendReply; PostChatMessage, or MessageSupplier in a supplier's channel); assigning, archiving and handing back name no agent action yet, and
  * taking a chat over is a person's, so an agent's key is refused those.
  */
 
 const u = Untrusted.marked
 
-/** A thread's label on a plate and in the agent log: its subject, or the chat it is. */
-const labelOf = (t: { readonly channel: string; readonly subject: string }) => {
-  if (t.channel === "webchat") return "Websitechat"
-  const s = t.subject.trim()
-  return s === "" ? "(geen onderwerp)" : s.length > 60 ? `${s.slice(0, 59)}…` : s
-}
+/**
+ * A thread's label on a plate and in the agent's log: what it is and its id, never its subject. A shopper's words do not
+ * go into a proposal or the log, which outlive the thread's erasure (as `AgentSink.ts` labels a mail).
+ */
+const labelOf = (t: { readonly channel: string; readonly id: string }) =>
+  `${t.channel === "webchat" ? "Websitechat" : "Mail"} ${t.id}`
 
 const Handlers = InboxTools.toLayer(Effect.gen(function*() {
   const inbox = yield* InboxV1
@@ -41,9 +41,7 @@ const Handlers = InboxTools.toLayer(Effect.gen(function*() {
           action: "SendReply",
           storeId: t.store_id,
           subject: { type: "thread", id: t.id, label: labelOf(t) },
-          sentence: t.channel === "webchat"
-            ? "Antwoord gestuurd in de websitechat"
-            : `Antwoord gestuurd op ${labelOf(t)}`,
+          sentence: t.channel === "webchat" ? "Antwoord gestuurd in de websitechat" : "Antwoord gestuurd op een mail",
           after: body,
           ask: { _tag: "ReplyThread", threadId: t.id, body },
           effect: token
@@ -69,10 +67,18 @@ const Handlers = InboxTools.toLayer(Effect.gen(function*() {
       governed(
         "post_chat_message",
         idempotency_key,
+        // A channel shared with a supplier is a message to that supplier: governed as MessageSupplier, not as a post
+        // in the team's own chat.
         Effect.map(inbox.chatMessages(chat_id, { limit: 1 }, Untrusted.plain), (m): Plan<unknown> => ({
-          action: "PostChatMessage",
-          subject: { type: "conversation", id: m.chat.id, label: `#${m.chat.name}` },
-          sentence: `Bericht geplaatst in #${m.chat.name}`,
+          action: m.chat.kind === "supplier_channel" ? "MessageSupplier" : "PostChatMessage",
+          subject: {
+            type: m.chat.kind === "supplier_channel" ? "supplier_channel" : "conversation",
+            id: m.chat.id,
+            label: `#${m.chat.name}`
+          },
+          sentence: m.chat.kind === "supplier_channel"
+            ? `Bericht aan de leverancier in #${m.chat.name}`
+            : `Bericht geplaatst in #${m.chat.name}`,
           after: body,
           ask: { _tag: "PostChatMessage", conversationId: m.chat.id, body, replyTo: reply_to ?? null },
           effect: token

@@ -337,7 +337,7 @@ describe("per-key tools/list", () => {
         assign_ticket: ["AssignTicket"],
         comment_on_ticket: ["AddNote"],
         reply_to_thread: ["SendReply"],
-        post_chat_message: ["PostChatMessage"]
+        post_chat_message: ["PostChatMessage", "MessageSupplier"]
       }
       let version = ok(await rpc("Autonomy.get", {}, store.cookie)).version
       const misses: Array<string> = []

@@ -144,7 +144,7 @@ export const ListChatMessages = Tool.make("list_chat_messages", {
 
 export const PostChatMessage = Tool.make("post_chat_message", {
   description:
-    "Posts in one of the team's chats (not to a shopper), as the key; reply_to answers a message in its thread. Needs support.read.",
+    "Posts in one of the team's chats (not to a shopper), as the key; reply_to answers a message in its thread. In a channel shared with a supplier, the supplier reads it. Needs support.write.",
   parameters: Schema.Struct({
     chat_id: ChatId,
     body: Schema.String,
@@ -154,9 +154,9 @@ export const PostChatMessage = Tool.make("post_chat_message", {
   success: Governed(ChatMessage),
   failure: Schema.Union([...WriteFailure.members, ActionNotAllowedV1]),
   dependencies: asKey()
-}).annotate(Tool.Idempotent, true).annotate(Needs, [read("support")]).annotate(
+}).annotate(Tool.Idempotent, true).annotate(Needs, [write("support")]).annotate(
   ForAgents,
-  governedAs("PostChatMessage")
+  governedAs("PostChatMessage", "MessageSupplier")
 )
 
 export const ListChannels = Tool.make("list_channels", {

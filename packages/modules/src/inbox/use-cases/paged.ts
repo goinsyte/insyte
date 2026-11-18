@@ -4,7 +4,7 @@ import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import { SqlError, type Statement } from "effect/sql"
-import { decodeCursor, encodeCursor } from "../../shared/tables/FilterSql.ts"
+import { brokenText, decodeCursor, encodeCursor, validDate } from "../../shared/tables/FilterSql.ts"
 import type { Folder, ThreadRow } from "../domain/Inbox.ts"
 import { fenced, folderCondition, matching, type Row, SELECT, THREADS, toRow } from "./threads.ts"
 
@@ -35,20 +35,27 @@ export interface ThreadPage {
 }
 
 const LIMIT = 50
-/** A time as Postgres writes `timestamptz::text`: a forged cursor is refused before it reaches a cast. */
-const AT = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2})?$/
+/** The first input Postgres could not take as text (a NUL, a lone surrogate): refused by its field, not a 500. */
+const broken = (input: PageInput) =>
+  (["folder", "mailboxId", "channel", "storeId", "q"] as const).find((f) => {
+    const v = input[f]
+    return v !== undefined && brokenText(v)
+  })
 
 export const page = Effect.fn("Threads.page")(function*(input: PageInput) {
   yield* Policy.require("support", 1)
   const principal = yield* CurrentPrincipal
+  const bad = broken(input)
+  if (bad !== undefined) return yield* new Invalid({ fields: { [bad]: "invalid" } })
   const key = yield* decodeCursor(input.cursor).pipe(
     Effect.mapError(() => new Invalid({ fields: { cursor: "invalid" } }))
   )
   // The cursor is the last row's time as Postgres wrote it (to the microsecond) and its id.
   if (
     key !== undefined &&
-    (key.length !== 2 || typeof key[0] !== "string" || !AT.test(key[0]) || typeof key[1] !== "string" ||
-      key[1].length > 64)
+    (key.length !== 2 || typeof key[0] !== "string" || key[0].includes("infinity") || !validDate(key[0]) ||
+      typeof key[1] !== "string" ||
+      key[1].length > 64 || brokenText(key[1]))
   ) {
     return yield* new Invalid({ fields: { cursor: "invalid" } })
   }

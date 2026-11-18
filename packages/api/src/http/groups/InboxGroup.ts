@@ -9,6 +9,7 @@ import { ApiKeyAuth } from "../Security.ts"
  * The inbox (M11, M15 step 8): mail threads and website chats with their messages, the team's chat channels, and the
  * stores' chat channels; a reply, an assignment, archiving, and taking a chat over or handing it back. Every text a
  * shopper wrote is personal data, so every endpoint needs `support.read`, and a page holds only what the inbox shows.
+ * Every write needs `support.write`, a post in a team chat too (a person posts at Bekijken in the console).
  *
  * Not in `PublicApi.ts`: the public Worker loads this group with its first request (ADR-0041 §3), and the documents at
  * `/v1/openapi.json` and `/v1/docs` add it to the API there (`DocumentedApi`). So it carries the prefix and the key
@@ -308,7 +309,10 @@ export class InboxGroup extends HttpApiGroup.make("inbox")
       }),
       success: ChatMessage,
       error: WriteErrors
-    }).annotate(OpenApi.Description, `Posts in one of the team's chats, as the key. ${READ}`),
+    }).annotate(
+      OpenApi.Description,
+      `Posts in one of the team's chats, as the key; in a channel shared with a supplier, the supplier reads it. ${WRITE}`
+    ),
     HttpApiEndpoint.get("channels", "/channels", {
       success: ChannelsV1,
       error: [ScopeMissingV1]

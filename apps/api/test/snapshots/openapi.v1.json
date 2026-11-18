@@ -10312,7 +10312,7 @@
             }
           }
         },
-        "description": "Posts in one of the team's chats, as the key. Needs `support.read`.",
+        "description": "Posts in one of the team's chats, as the key; in a channel shared with a supplier, the supplier reads it. Needs `support.write`.",
         "requestBody": {
           "content": {
             "application/json": {

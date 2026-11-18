@@ -1,4 +1,5 @@
 import type { ChatMessagesQuery, ThreadsQuery } from "@insyte/api/http/groups/InboxGroup"
+import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { ChatsService } from "@insyte/modules/chats/Chats"
 import { InboxService } from "@insyte/modules/inbox/Inbox"
@@ -55,6 +56,16 @@ const inboxV1 = (e: Refusal) => {
   }
 }
 
+/** A page's refused input by its `/v1` name. */
+const V1_FIELD: Readonly<Record<string, string>> = {
+  cursor: "cursor",
+  folder: "folder",
+  mailboxId: "mailbox_id",
+  channel: "channel",
+  storeId: "store_id",
+  q: "q"
+}
+
 /** How the words are marked for whoever reads them: an agent's key reads them as data (`present.ts`). */
 export const untrustedFor = Effect.map(
   CurrentPrincipal,
@@ -81,7 +92,10 @@ const make = Effect.gen(function*() {
         limit: query.limit
       }).pipe(
         Effect.map((p) => threadPageV1(p, u)),
-        Effect.catchTags({ Forbidden: scopeMissing, Invalid: () => invalid("cursor") })
+        Effect.catchTags({
+          Forbidden: scopeMissing,
+          Invalid: (e) => invalid(V1_FIELD[Object.keys(e.fields)[0]!] ?? "cursor")
+        })
       ),
     thread: (id: string, u: Untrusted) =>
       inbox.get(id).pipe(
@@ -149,9 +163,10 @@ const make = Effect.gen(function*() {
       Idempotency.once(
         key,
         ["chat.post", id, body, replyTo ?? null],
-        Effect.map(
-          chats.send({ conversationId: id, body, ...(replyTo === undefined ? {} : { replyTo }) }),
-          (c) => chatMessageV1(c.message, u)
+        // A key writes at Bewerken, a post too: the console's Bekijken is for the person reading along.
+        Policy.require("support", 2).pipe(
+          Effect.andThen(chats.send({ conversationId: id, body, ...(replyTo === undefined ? {} : { replyTo }) })),
+          Effect.map((c) => chatMessageV1(c.message, u))
         )
       ).pipe(Effect.catch(inboxV1)),
     channels: inbox.channels.pipe(Effect.map(channelsV1), Effect.catchTag("Forbidden", scopeMissing))

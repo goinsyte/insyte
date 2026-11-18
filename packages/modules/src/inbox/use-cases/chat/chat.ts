@@ -285,10 +285,9 @@ const changed = (sql: SqlClient.SqlClient, threadId: string, compensation: ChatR
     return yield* changedWith(sql, threadId, undo)
   })
 
-/** The chat held by `memberId` (the person, or the teammate a key names), the agent silent on it until handed back. */
-const holdFor = (sql: SqlClient.SqlClient, threadId: string, memberId: string) =>
+/** The chat (`holdChat`, fenced) held by `memberId`, the agent silent on it until handed back. */
+const holdFor = (sql: SqlClient.SqlClient, held: Held, memberId: string) =>
   Effect.gen(function*() {
-    const held = yield* holdChat(sql, threadId)
     if (held.takenOverBy === memberId) return yield* changed(sql, held.id, null)
     const h = yield* openHandover(sql, held.id)
     yield* sql`update channel_threads set taken_over_by = ${memberId}, taken_over_at = now(),
@@ -306,12 +305,20 @@ export const takeOver = Effect.fn("Threads.takeOver")(function*(input: { readonl
   const principal = yield* CurrentPrincipal
   if (principal.kind !== "member") return yield* new NotFound({ entity: "thread", id: input.threadId })
   const db = yield* Db
-  return yield* db.scoped((sql) => holdFor(sql, input.threadId, principal.id))
+  return yield* db.scoped((sql) =>
+    Effect.flatMap(holdChat(sql, input.threadId), (held) => holdFor(sql, held, principal.id))
+  )
 })
+
+type StoreAccess = "all" | ReadonlyArray<string>
+const reaches = (access: StoreAccess, storeId: string | null) =>
+  access === "all" || (storeId !== null && access.includes(storeId))
 
 /**
  * "Overnemen" by a person's API key (`/v1`, MCP): the chat goes to the active teammate it names, as if they took it
  * over. A key holds no chat itself, and an agent's key never takes one over: a person answers what was handed over.
+ * The chat is the key's to give (its stores) before the teammate is looked at; the teammate answers it only where they
+ * could have taken it themselves: Klantenservice · Bewerken, and the chat's store among their role's and their own.
  */
 export const takeOverFor = Effect.fn("Threads.takeOverFor")(function*(
   input: { readonly threadId: string; readonly memberId: string }
@@ -324,10 +331,17 @@ export const takeOverFor = Effect.fn("Threads.takeOverFor")(function*(
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      const [m] = yield* sql`select 1 from members where id = ${input.memberId} and deactivated_at is null
-                             and removed_at is null`
+      const held = yield* holdChat(sql, input.threadId)
+      const [m] = yield* sql<{ support: number | null; roleStores: StoreAccess; memberStores: StoreAccess }>`
+        select (r.levels ->> 'support')::int as support, r.stores as role_stores, m.stores as member_stores
+        from members m join roles r on r.workspace_id = m.workspace_id and r.id = m.role_id
+        where m.id = ${input.memberId} and m.deactivated_at is null and m.removed_at is null`
       if (m === undefined) return yield* new NotFound({ entity: "member", id: input.memberId })
-      return yield* holdFor(sql, input.threadId, input.memberId)
+      if ((m.support ?? 0) < 2) return yield* new Invalid({ fields: { member_id: "cannot_answer_chats" } })
+      if (!reaches(m.roleStores, held.storeId) || !reaches(m.memberStores, held.storeId)) {
+        return yield* new Invalid({ fields: { member_id: "outside_store" } })
+      }
+      return yield* holdFor(sql, held, input.memberId)
     })
   )
 })
