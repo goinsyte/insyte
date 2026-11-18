@@ -74,13 +74,14 @@ describe("the MCP server's resources", () => {
     const one = await make("Eén winkel", { kind: "role", roleId: "view" }, [store.storeId])
     const team = await make("Alleen het team", { kind: "custom", scopes: { team: 1 } }, "all")
 
-    // Every key is named the workspace; the order's template only a key that reads orders.
+    // Every key is named the workspace; the order's template only a key that reads orders, the thread's one that reads
+    // the inbox (support.read: the view role has it, a key for the team only has not).
     const listed = await mcp(all, "resources/list")
     expect(listed.result.resources).toMatchObject([{ uri: "insyte://workspace", mimeType: "application/json" }])
     const templates = async (token: string) =>
       ((await mcp(token, "resources/templates/list")).result.resourceTemplates as Array<{ uriTemplate: string }>)
         .map((t) => t.uriTemplate)
-    expect(await templates(all)).toEqual(["insyte://orders/{id}"])
+    expect((await templates(all)).toSorted()).toEqual(["insyte://orders/{id}", "insyte://threads/{id}"])
     expect(await templates(team)).toEqual([])
 
     // The workspace, with the stores the key reaches.
@@ -102,5 +103,6 @@ describe("the MCP server's resources", () => {
     expect((await read(all, `insyte://orders/${theirs.id}`)).value).toMatchObject({ id: theirs.id })
     expect((await read(one, `insyte://orders/${theirs.id}`)).error).toContain("NotFoundV1")
     expect((await read(team, `insyte://orders/${mine.id}`)).error).toContain("ScopeMissingV1")
+    expect((await read(team, "insyte://threads/thr_none")).error).toContain("ScopeMissingV1")
   }, 180_000)
 })
