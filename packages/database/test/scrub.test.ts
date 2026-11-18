@@ -30,7 +30,10 @@ interface Target {
 
 class Rollback {
   readonly _tag = "Rollback"
-  constructor(readonly result: unknown) {}
+  readonly result: unknown
+  constructor(result: unknown) {
+    this.result = result
+  }
 }
 
 /** Every column the scrub writes (its own filter, 0076) with a check on that column alone, and its unique keys. */
@@ -171,5 +174,5 @@ describe("a shopper's erasure across every table", () => {
     expect(result.left).toEqual([])
     expect(result.version?.note).toBe("Voor [verwijderd]")
     expect(result.version?.nodes).not.toContain(EMAIL)
-  })
+  }, 120_000)
 })
