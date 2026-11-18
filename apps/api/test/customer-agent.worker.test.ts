@@ -898,14 +898,9 @@ describe("the customer agent's day, after review", () => {
     "counts a runaway thread as waiting, not one a person took, and the first reply from the shopper's message",
     async () => {
       const s = await chatStore("chat-day")
-      const settings = { handover: { ...SETTINGS.handover, afterMessages: null } }
-      // The shopper writes while the agent is off: the queue's own turn on the message (the relay kicks it within a
-      // second) stays silent, and the turn below answers it two seconds on. Should the queue's turn come later than
-      // that, it answers as late.
-      await s.configure({ ...settings, on: false })
+      await s.configure({ handover: { ...SETTINGS.handover, afterMessages: null } })
       const slow = await s.say("Kan ik een sale-artikel nog retourneren?")
       await new Promise((r) => setTimeout(r, 2_100))
-      await s.configure(settings)
       await s.turn(slow)
       expect((ok(await rpc("ChannelAgent.today", undefined, s.cookie))).avgSeconds).toBeGreaterThanOrEqual(2)
 
