@@ -41,116 +41,15 @@
     "**/worker-configuration.d.ts",
     "**/routeTree.gen.ts",
     /*
-     * Ported code: the dashboard and legacy's component library, byte-identical to the legacy repo.
-     * (The brand book left this list on 1 November 2026, when it was rebuilt; ADR-0026's addendum.)
-     * Since ADR-0026 the dashboard lives in
-     * `packages/ui/src/app/`, its route statements and fixtures in `apps/design/src/app/`.
-     *
-     * Not linted, for the same reason the vendored sources above are not: upstream's code, upstream's
-     * rules, and advice nobody here can act on — every fix would be an edit to a port. The one thing
-     * it would have caught in this repo is style (shadowed names, `sort` vs `toSorted`), which is not
-     * what these files are held to. `packages/ui/src/app/lib/{env,auth-client,api}.ts` are written here
-     * and sit under one of these paths because the ported code imports them by it; they are linted
-     * through the exception below.
+     * Ported code that still reads as legacy wrote it: the component library, byte-identical to the legacy repo, and the
+     * reference's fixtures with the seam's record types lifted from them. Everything else under `packages/ui/src/app/`
+     * and the reference's route statements graduated in M18 (08 §3): linted like code written here.
      */
     "packages/ui/src/components/**",
-    "packages/ui/src/app/**",
     "packages/ui/src/data-source/types.ts",
-    "apps/design/src/app/routes/_admin/**",
-    "apps/design/src/app/routes/_aff/**",
-    "apps/design/src/app/routes/_supplier/**",
-    "apps/design/src/app/routes/onboarding/**",
-    "apps/design/src/app/routes/invitations.$invitationId.tsx",
-    "apps/design/src/app/routes/register.tsx",
     "apps/design/src/app/fixtures/mock-data/**",
     "apps/design/src/app/fixtures/scenario.ts",
-    "apps/design/src/app/fixtures/affiliate-data.ts",
-    "!packages/ui/src/app/lib/env.ts",
-    "!packages/ui/src/app/lib/auth-client.ts",
-    "!packages/ui/src/app/lib/api.ts",
-    // Graduated (08 §3): the order, product and customer screens, wired to their commands in M7.
-    "!packages/ui/src/app/orders/**",
-    "!packages/ui/src/app/products/**",
-    "!packages/ui/src/app/customers/**",
-    // Graduated (08 §3): the suppliers screen, wired to its commands in M8.
-    "!packages/ui/src/app/suppliers/**",
-    // Graduated (08 §3): the supplier statements, wired to Suppliers.statements in M13 (step 15.6).
-    "!packages/ui/src/app/supplier/statements-screen.tsx",
-    "!packages/ui/src/app/supplier/statement-screen.tsx",
-    "!packages/ui/src/app/supplier/statements-source.tsx",
-    "!packages/ui/src/app/supplier/statements-demo.tsx",
-    "!packages/ui/src/app/supplier/dashboard-screen.tsx",
-    "!packages/ui/src/app/supplier/orders-screen.tsx",
-    "!packages/ui/src/app/supplier/order-screen.tsx",
-    "!packages/ui/src/app/supplier/products-screen.tsx",
-    "!packages/ui/src/app/supplier/product-screen.tsx",
-    "!packages/ui/src/app/supplier/ship-dialog.tsx",
-    "!packages/ui/src/app/supplier/problem-dialog.tsx",
-    "!packages/ui/src/app/supplier/packing-slip.ts",
-    "!packages/ui/src/app/supplier/status.tsx",
-    "!packages/ui/src/app/supplier/source.tsx",
-    "!packages/ui/src/app/supplier/demo-source.tsx",
-    "!packages/ui/src/app/hooks/use-supplier-orders.ts",
-    // Graduated (08 §3): returns, the returns portal and quality, wired in M9.
-    "!packages/ui/src/app/returns/**",
-    "!packages/ui/src/app/quality/**",
-    "!packages/ui/src/app/lib/returns.ts",
-    "!packages/ui/src/app/lib/quality.ts",
-    // Graduated (08 §3): Start's screens, the queue panel and the home store, wired to Home.* and the queue in M10.
-    "!packages/ui/src/app/dashboard/**",
-    "!packages/ui/src/app/stores/home-store.ts",
-    // Graduated (08 §3): Instellingen → Meldingen, wired to Notifications.* in M11 (step 13.5).
-    "!packages/ui/src/app/settings/notifications-screen.tsx",
-    "!packages/ui/src/app/settings/notifications-source.tsx",
-    "!packages/ui/src/app/settings/notifications-demo-source.tsx",
-    // Graduated (08 §3): the day's kinds and the demo's day, split for Mijn werk, Agenda and Activiteit (12.3b).
-    "!packages/ui/src/app/lib/home/day.ts",
-    "!packages/ui/src/app/lib/home/kinds.ts",
-    // Graduated (08 §3): Analyse, wired to Analytics.* in M14 (step 16.2).
-    "!packages/ui/src/app/analytics/**",
-    // Graduated (08 §3): Rekenbladen, wired to Sheets.* and Analytics.figures in M14 (step 16.4).
-    "!packages/ui/src/app/sheets/**",
-    // Graduated (08 §3): Chats, wired to Chats.* in M11 (step 13.4b).
-    "!packages/ui/src/app/chats/**",
-    // Graduated (08 §3): the Inbox, wired to Threads.* and Mailboxes.* in M11 (step 13.2b).
-    "!packages/ui/src/app/inbox/**",
-    // Graduated (08 §3): Chargebacks, wired to Chargebacks.* in M13 (steps 15.3 and 15.4).
-    "!packages/ui/src/app/chargebacks/**",
-    // Graduated (08 §3): Automatiseringen, wired to Automations.* in M12 (step 14.1b).
-    "!packages/ui/src/app/automations/**",
-    // Graduated (08 §3): Kosten, wired to Costs.* in M13 (step 15.5).
-    "!packages/ui/src/app/costs/**",
-    // Graduated (08 §3): the Data hub, wired to Data.* in M14 (step 5).
-    "!packages/ui/src/app/data/**",
-    // Graduated (08 §3): Cursussen, wired to Courses.* in M17 (step 20.4).
-    "!packages/ui/src/app/courses/**",
-    "!packages/ui/src/app/lib/courses.ts",
-    "!packages/ui/src/app/stores/courses-store.ts",
-    // Graduated (08 §3): wired to the API, so held to this repo's rules.
-    "!packages/ui/src/app/auth/login-screen.tsx",
-    "!packages/ui/src/app/onboarding/shared-steps.tsx",
-    "!packages/ui/src/app/onboarding/admin-steps.tsx",
-    "!packages/ui/src/app/lib/form-errors.ts",
-    // Graduated (08 §3): Account and Regio, wired to Workspaces.* in M3.1, with the settings form kit.
-    "!packages/ui/src/app/settings/form.tsx",
-    "!packages/ui/src/app/settings/profile-screen.tsx",
-    "!packages/ui/src/app/settings/regional-screen.tsx",
-    // Graduated (08 §3): Beveiliging, wired to Session.* and Workspaces.getSecurity in M3.3.
-    "!packages/ui/src/app/settings/security-screen.tsx",
-    "!packages/ui/src/app/settings/security-source.tsx",
-    "!packages/ui/src/app/settings/security-demo-source.tsx",
-    // Graduated (08 §3): Verzending, Sjablonen, Huisstijl, Btw, Gegevens en privacy and Sneltoetsen, wired to
-    // WorkspaceSettings.* and Retention.* in M17 (step 20.1b), and E-mail en domein to SendingDomain.* (20.1c); Logboek
-    // and Prullenbak in 20.1a.
-    "!packages/ui/src/app/settings/depth/**",
-    // Graduated (08 §3): Instellingen → Webhooks, wired to Webhooks.* in step 19a (M19.4).
-    "!packages/ui/src/app/settings/webhooks-screen.tsx",
-    "!packages/ui/src/app/settings/webhooks-page.tsx",
-    "!packages/ui/src/app/developer/webhook-dialog.tsx",
-    "!packages/ui/src/app/developer/delivery-drawer.tsx",
-    "!packages/ui/src/app/developer/webhooks-source.tsx",
-    "!packages/ui/src/app/developer/webhooks-demo-source.tsx",
-    "!packages/ui/src/app/lib/webhooks-core.ts"
+    "apps/design/src/app/fixtures/affiliate-data.ts"
   ],
   "rules": {
     "no-console": "warn",
