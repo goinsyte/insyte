@@ -287,6 +287,34 @@ describe("more kinds in the Prullenbak", () => {
     expect((await trash(people.owner)).map((i) => i.id)).not.toContain(atelier)
     expect(failure(await rpc("Trash.restore", { ids: [atelier] }, people.owner))).toMatchObject({ _tag: "NotFound" })
     expect(failure(await rpc("Suppliers.get", { id: atelier }, people.owner))).toMatchObject({ _tag: "NotFound" })
+    // Purged: its name is a placeholder, its vendor and address gone; the row stays for the history that names it.
+    const row = async (id: string) =>
+      ((await (await call(`http://api.test/api/__dev/trash/supplier?workspace=${workspace}&id=${id}`)).json()) as {
+        supplier: {
+          name: string
+          vendor: string | null
+          contactEmail: string | null
+          purged: boolean
+          supplies: number
+        }
+      }).supplier
+    expect(await row(atelier)).toMatchObject({
+      name: "Verwijderde leverancier",
+      vendor: null,
+      contactEmail: null,
+      purged: true
+    })
+
+    // A removal's Undo spent after the purge brings back neither the supplier nor the products it supplied.
+    const wol = await supplier("Wol Prullenbak")
+    const product = ok(await rpc("Products.list", { limit: 5 }, people.owner)).rows[0]!
+    ok(await rpc("Suppliers.assignProducts", { supplierId: wol, productIds: [product.id] }, people.owner))
+    const removal = ok(await rpc("Suppliers.remove", { id: wol }, people.owner)).undo!
+    expect(ok(await rpc("Trash.purge", { ids: [wol] }, people.owner))).toEqual({ purged: 1 })
+    await rpc("Shared.undo", { token: removal.token }, people.owner)
+    expect(await row(wol)).toMatchObject({ purged: true, deleted: true, supplies: 0 })
+    expect(await listed()).not.toContain(wol)
+
     // The sweep takes one past its 30 days too.
     try {
       expect(await sweep(workspace, { age: 31, joined: 60 })).toEqual({ purged: 1 })

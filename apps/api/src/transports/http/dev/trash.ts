@@ -6,7 +6,7 @@ import { Effect } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { TrashKindsLive } from "../../../platform/links/TrashKinds.ts"
 import { withRequestDb } from "../../../platform/RequestDb.ts"
-import { notInProduction, workspaceParam } from "./shared.ts"
+import { devOnly, notInProduction, workspaceParam } from "./shared.ts"
 
 /** The tables whose removed rows the Prullenbak holds (`trash_items_v`). */
 const TRASHED = ["tickets", "automations", "sheets", "courses", "webhook_endpoints", "cost_lines", "suppliers"] as const
@@ -51,5 +51,39 @@ export const TrashSweep = HttpRouter.add(
       Effect.provide(TrashKindsLive)
     )
     return HttpServerResponse.jsonUnsafe({ purged })
+  }).pipe(Effect.orDie, withRequestDb)
+)
+
+/**
+ * `GET /api/__dev/trash/supplier?workspace=<id>&id=<supplier>`: what a supplier's row still holds, removed or purged,
+ * with how many products it supplies: for the Prullenbak's tests of a purge. Only where nothing real lives.
+ */
+export const TrashSupplier = HttpRouter.add(
+  "GET",
+  "/api/__dev/trash/supplier",
+  Effect.gen(function*() {
+    if (!(yield* devOnly)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = (yield* workspaceParam) as WorkspaceId
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const id = new URL(request.url, "http://local").searchParams.get("id") ?? ""
+    const db = yield* Db
+    const [row] = yield* db.scopedFor((sql) =>
+      sql<
+        {
+          name: string
+          vendor: string | null
+          contactEmail: string | null
+          purged: boolean
+          deleted: boolean
+          supplies: number
+        }
+      >`
+        select name, vendor, contact_email, purged_at is not null as purged, deleted_at is not null as deleted,
+               (select count(*)::int from product_supply p where p.supplier_id = s.id) as supplies
+        from suppliers s where id = ${id}`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace }))
+    return HttpServerResponse.jsonUnsafe({ supplier: row ?? null })
   }).pipe(Effect.orDie, withRequestDb)
 )

@@ -290,8 +290,11 @@ export const restore = Effect.fn("Suppliers.restore")(function*(sql: SqlClient.S
       yield* audit(sql, "supplier.restored", undo.supplierId)
       return
     case "removed":
-      // A supplier purged from the Prullenbak meanwhile stays gone.
-      yield* sql`update suppliers set deleted_at = null, updated_at = now() where id = ${undo.id} and purged_at is null`
+      // A supplier purged from the Prullenbak meanwhile stays gone, with no products and no line of its return.
+      const back = yield* sql<{ id: string }>`
+        update suppliers set deleted_at = null, updated_at = now() where id = ${undo.id} and purged_at is null
+        returning id`
+      if (back.length === 0) return
       for (const s of undo.supply) {
         yield* sql`insert into product_supply (workspace_id, product_id, supplier_id, is_primary, lead_days)
                    values (${principal.workspaceId}, ${s.productId}, ${undo.id}, ${s.isPrimary}, ${s.leadDays})
@@ -340,11 +343,15 @@ export const putBack = Effect.fn("Suppliers.putBack")(function*(input: { readonl
   )
 })
 
+/** What a purged supplier is called from then on (0106). */
+const PURGED_NAME = "Verwijderde leverancier"
+
 /**
  * The Prullenbak's purge, on the caller's transaction (0106): a removed supplier never comes back, and what is theirs
- * alone goes (the contact details on the row, its contacts and their invitations, its integrations, the products it
- * supplied). The row stays, `purged_at`, for the statements, quality checks and conversations that name it. An audit
- * line each as `actor`. A supplier not removed is left alone.
+ * alone goes (its name and vendor, the contact details on the row, its contacts and their invitations, its
+ * integrations, the products it supplied). The row stays, `purged_at` and named "Verwijderde leverancier", for the
+ * statements, quality checks and conversations that point at it. An audit line each as `actor`, without the name. A
+ * supplier not removed is left alone.
  */
 export const purgeIn = Effect.fn("Suppliers.purge")(function*(
   sql: SqlClient.SqlClient,
@@ -353,11 +360,12 @@ export const purgeIn = Effect.fn("Suppliers.purge")(function*(
   actor: Audit.Actor
 ) {
   if (ids.length === 0) return
-  const gone = yield* sql<{ id: string; name: string }>`
-    update suppliers set purged_at = now(), updated_at = now(), contact_email = null, contact_phone = null,
-                         forward_email = null, description = '', bio = ''
+  // A sole trader's name is a person's: the row keeps a placeholder, and so does every line that names it from now on.
+  const gone = yield* sql<{ id: string }>`
+    update suppliers set purged_at = now(), updated_at = now(), name = ${PURGED_NAME}, vendor = null,
+                         contact_email = null, contact_phone = null, forward_email = null, description = '', bio = ''
     where id in ${sql.in([...new Set(ids)])} and deleted_at is not null and purged_at is null
-    returning id, name`
+    returning id`
   if (gone.length === 0) return
   const of = gone.map((s) => s.id)
   yield* sql`delete from invitations where supplier_id in ${sql.in(of)}`
@@ -368,8 +376,7 @@ export const purgeIn = Effect.fn("Suppliers.purge")(function*(
     yield* Audit.write(sql, workspaceId, actor, {
       action: "supplier.purged",
       subjectType: "supplier",
-      subjectId: s.id,
-      diff: { name: s.name }
+      subjectId: s.id
     })
   }
 })
