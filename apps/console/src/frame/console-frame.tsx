@@ -15,6 +15,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { useConsoleAskSource } from "../ask/ask-source.ts"
 import { LiveUpdates } from "../realtime/live-updates.tsx"
 import { ConsoleShellSource } from "./shell-source.tsx"
+import { ConsoleSupportBanner } from "./support-banner.tsx"
 
 /**
  * The console's frame (step 7.4c, M5): the design's `Frame` over the server's `ShellSource`, with what the console opens
@@ -50,6 +51,7 @@ function Inside() {
       <Frame
         persona="admin"
         main={main}
+        above={<ConsoleSupportBanner />}
         onAskInsyte={ask}
         onOpenPalette={() => palette.setOpen(true)}
         onOpenManage={(tab) => void navigate({ to: (tab === "people" ? "/settings/team" : "/settings/apps") as never })}

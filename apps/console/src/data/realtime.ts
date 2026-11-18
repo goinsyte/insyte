@@ -29,6 +29,7 @@ import { ACCESS_LIST, ROLES } from "./roles.ts"
 import { sheetKey, SHEETS } from "./sheets.ts"
 import { HEALTH, STORE_SYNC, STORES } from "./stores.ts"
 import { SUPPLIERS } from "./suppliers.ts"
+import { SUPPORT } from "./support.ts"
 import { TEAM } from "./team.ts"
 import { TICKETS } from "./tickets.ts"
 import { WEBHOOKS } from "./webhooks.ts"
@@ -91,7 +92,9 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   // Kosten (M13 step 5): a line or a month changed.
   cost_line: COSTS,
   // The Data hub (M14 step 5): an uploaded file read on the jobs Worker.
-  import: DATA
+  import: DATA,
+  // Insyte-support mag meekijken (M18): the owner's consent, a session started or ended (the frame's line).
+  support: SUPPORT
 }
 // Kosten works its shares and per-order amounts out from revenue and orders (M13 step 5).
 for (const kind of ["order", "store"]) REFETCH[kind] = [...(REFETCH[kind] ?? []), ...COSTS]
