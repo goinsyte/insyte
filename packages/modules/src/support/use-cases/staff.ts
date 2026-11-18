@@ -40,6 +40,12 @@ const iso = (d: Date | null | undefined) => (d === null || d === undefined ? nul
 const clip = (text: string | null | undefined, max: number) =>
   text === null || text === undefined ? null : text.length > max ? text.slice(0, max) : text
 
+/**
+ * What the team's audit keeps of a search: the words, but not an address. `staff_audit` is Insyte's own trail and
+ * outlives a workspace's erasure, so a person's address searched for is not kept in it.
+ */
+const searched = (q: string) => (q.includes("@") ? "[e-mailadres]" : q)
+
 const auditLine = (sql: SqlClient.SqlClient, staff: string, line: StaffAuditLine) =>
   sql`insert into staff_audit (id, staff_email, action, workspace_id, session_id, rpc, outcome, code, detail)
       values (${mintId("sta")}, ${staff}, ${line.action}, ${line.workspaceId ?? null}, ${line.sessionId ?? null},
@@ -110,7 +116,7 @@ export const find = Effect.fn("Staff.find")(function*(staff: string, query: stri
     : yield* db.asStaff(staff, null)((sql) => sql<HitRow>`select * from staff_find_workspaces(${q})`)
   // The query is kept as typed: who looked for whom is the point of the audit.
   yield* db.recordAsStaff(staff, null)((sql) =>
-    auditLine(sql, staff, { action: "workspaces.search", outcome: "ok", detail: q, code: `${rows.length}` })
+    auditLine(sql, staff, { action: "workspaces.search", outcome: "ok", detail: searched(q), code: `${rows.length}` })
   )
   return rows.map(hitOf)
 })
