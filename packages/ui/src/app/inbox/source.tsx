@@ -21,6 +21,8 @@ export interface ThreadDraft {
   use: () => void
   /** What the person must check before it goes, in one Dutch sentence; absent when there is nothing to check. */
   check?: string | undefined
+  /** The Kennisbank chapters it answers from, as the test chat names them ("Uit Kennisbank: …"); absent, none. */
+  chapters?: ReadonlyArray<{ readonly title: string; readonly to: string }> | undefined
 }
 
 /** Insyte AI in the inbox (M15 step 2): a hook, called once per render with the open thread. */

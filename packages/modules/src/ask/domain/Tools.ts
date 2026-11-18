@@ -51,6 +51,8 @@ export interface ToolResult {
   readonly storeIds: ReadonlyArray<string>
   /** It read every store the person reaches, whatever store the page is on (the month figures, a search). */
   readonly wide?: boolean | undefined
+  /** The Kennisbank chapters it read: cited once the turn is answered, for their "gebruikt (7 d)". */
+  readonly cited?: ReadonlyArray<{ readonly articleId: string; readonly version: number }> | undefined
 }
 
 /** Where the person asked from, as the tools narrow by it. */

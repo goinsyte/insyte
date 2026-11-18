@@ -666,7 +666,8 @@ const searchKnowledge: AskTool<KnowledgeService | Base> = {
           detail: "Kennisbank",
           to: `/settings/ai/knowledge/${h.articleId}`
         })),
-        storeIds: [...new Set(hits.flatMap((h) => (h.storeId === null ? [] : [h.storeId])))]
+        storeIds: [...new Set(hits.flatMap((h) => (h.storeId === null ? [] : [h.storeId])))],
+        cited: hits.map((h) => ({ articleId: h.articleId, version: h.version }))
       } satisfies ToolResult
     })
 }
