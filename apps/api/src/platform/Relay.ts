@@ -3,9 +3,9 @@ import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import type { AgentTask } from "@insyte/modules/agent/domain/Triggers"
 import { isWebhookSource, startFor as startWebhookRuns } from "@insyte/modules/developer/use-cases/deliveries"
-import { type OutboxEvent, Relay } from "@insyte/modules/shared/domain/Outbox"
+import { eventOf, Relay } from "@insyte/modules/shared/domain/Outbox"
 import { env, waitUntil } from "cloudflare:workers"
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Layer } from "effect"
 import type * as Registry from "./relay/registry.ts"
 
 /*
@@ -82,8 +82,6 @@ export const RelayLive = Layer.succeed(Relay, {
     )
 })
 
-const decodeEvent = Schema.decodeUnknownEffect(Schema.toType(Schema.Struct({ type: Schema.String })))
-
 /**
  * Delivers these events, each in its workspace's scope, each sink once; then, outside the event's transaction, the
  * runs of the webhook deliveries it made (a run that started inside it could look for a row not yet committed). An
@@ -118,8 +116,17 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
         if (row === undefined || row.relayedAt !== null || row.cancelled) return undefined
         // Still inside its undo window: back onto the queue for the rest of it (below, after the transaction).
         if (row.early) return { early: row.waitSeconds } as const
-        yield* decodeEvent({ type: row.event })
-        const event = { type: row.event, ...row.payload } as OutboxEvent
+        const event = eventOf(row.event, row.payload)
+        // Not its event's shape (a row written by hand, an old one): dead-lettered, marked relayed with no sink run,
+        // so it neither breaks a sink nor comes back every minute. The line names the row and its kind, never the payload.
+        if (event === undefined) {
+          yield* Effect.logWarning("outbox: a row does not match its event's schema; dead-lettered", {
+            outboxId: id,
+            event: row.event
+          })
+          yield* sql`update outbox set relayed_at = now(), attempts = attempts + 1 where id = ${id}`
+          return undefined
+        }
         for (const route of ROUTES.get(event.type) ?? []) {
           const run = route.run(id, event, sql)
           if (run === undefined) continue
