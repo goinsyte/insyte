@@ -24,7 +24,8 @@ const Health = HttpRouter.add(
 
 /**
  * `GET /api/health/deep`: proof that the Worker connects as `insyte_app`, which cannot bypass row level security, and
- * which migration the database is at. Behind Access in every deployed environment (`/api/__dev/*` and this path).
+ * which migration the database is at, and how many outbox rows wait on someone (dead letters, rows held back). Behind
+ * Access in every deployed environment (`/api/__dev/*` and this path).
  */
 const DeepHealth = HttpRouter.add(
   "GET",
@@ -38,8 +39,14 @@ const DeepHealth = HttpRouter.add(
                (select lpad(migration_id::text, 4, '0') || '_' || name from ${sql(MIGRATIONS_TABLE)}
                  order by migration_id desc limit 1) as migrated_to`
     )
+    // The outbox's dead letters and the rows held back (`Relay.deliver`), across workspaces, counts only: someone
+    // has to read them, but neither makes the Worker unhealthy.
+    const [letters] = yield* db.routing((sql) =>
+      sql<{ deadLettered: string; held: string }>`select dead_lettered, held from outbox_dead_letters()`
+    )
     const ok = row?.role === "insyte_app" && row.bypassesRls === false
-    return HttpServerResponse.jsonUnsafe({ ok, ...row }, { status: ok ? 200 : 500 })
+    const outbox = { deadLettered: Number(letters?.deadLettered ?? 0), held: Number(letters?.held ?? 0) }
+    return HttpServerResponse.jsonUnsafe({ ok, ...row, outbox }, { status: ok ? 200 : 500 })
   }).pipe(
     Effect.catchTag("SqlError", (error) =>
       Effect.logError("deep health: the database did not answer", error).pipe(

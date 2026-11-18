@@ -1,8 +1,8 @@
 import { Db } from "@insyte/database/Db"
-import { type WorkspaceId } from "@insyte/domain/Ids"
+import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect, Layer } from "effect"
-import { HttpRouter, HttpServerResponse } from "effect/http"
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { withRequestDb } from "../../../platform/RequestDb.ts"
 import { devOnly, notInProduction, workspaceParam } from "./shared.ts"
 
@@ -28,14 +28,42 @@ const OutboxOf = HttpRouter.add(
           relayedAt: Date | null
           cancelled: boolean
           due: boolean
+          attempts: number
+          deadLetteredAt: Date | null
+          deadLetterReason: string | null
         }
       >`
         select id, event, payload, relayed_at, cancelled_at is not null as cancelled,
-               coalesce(not_before, created_at) <= now() as due
+               coalesce(not_before, created_at) <= now() as due, attempts, dead_lettered_at, dead_letter_reason
         from outbox order by created_at`
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
     return HttpServerResponse.jsonUnsafe({ events })
   }).pipe(withRequestDb)
+)
+
+/**
+ * `POST /api/__dev/outbox/raw?workspace=<id>&event=<type>`: an outbox row as a raw insert writes one, with the body as
+ * its payload, whatever its shape: for the relay's tests of a row that is not its event's. Only where nothing real lives.
+ */
+const OutboxRaw = HttpRouter.add(
+  "POST",
+  "/api/__dev/outbox/raw",
+  Effect.gen(function*() {
+    if (!(yield* devOnly)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const event = new URL(request.url, "http://local").searchParams.get("event") ?? ""
+    const payload = yield* request.json
+    const db = yield* Db
+    const [row] = yield* db.scopedFor((sql) =>
+      sql<{ id: string }>`insert into outbox (id, workspace_id, event, payload)
+                          values (${mintId("obx")}, ${workspace}, ${event}, ${JSON.stringify(payload)}::jsonb)
+                          returning id`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe({ id: row!.id })
+  }).pipe(Effect.orDie, withRequestDb)
 )
 
 /**
@@ -104,4 +132,4 @@ const AuditOf = HttpRouter.add(
   }).pipe(withRequestDb)
 )
 
-export const OutboxRoutes = Layer.mergeAll(OutboxOf, OutboxDue, ProductEventsOf, AuditOf)
+export const OutboxRoutes = Layer.mergeAll(OutboxOf, OutboxDue, OutboxRaw, ProductEventsOf, AuditOf)

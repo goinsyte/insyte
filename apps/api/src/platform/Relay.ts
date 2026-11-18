@@ -2,7 +2,11 @@ import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import type { AgentTask } from "@insyte/modules/agent/domain/Triggers"
-import { isWebhookSource, startFor as startWebhookRuns } from "@insyte/modules/developer/use-cases/deliveries"
+import {
+  isWebhookSource,
+  startFor as startWebhookRuns,
+  WEBHOOK_SOURCE_EVENTS
+} from "@insyte/modules/developer/use-cases/deliveries"
 import { eventOf, Relay } from "@insyte/modules/shared/domain/Outbox"
 import { env, waitUntil } from "cloudflare:workers"
 import { Effect, Layer } from "effect"
@@ -22,6 +26,16 @@ import type * as Registry from "./relay/registry.ts"
  */
 
 let loading: Promise<typeof Registry> | undefined
+
+/**
+ * The events a row that does not read as its event is never set aside for: a shopper's privacy request, the workspace's
+ * billing, and what an endpoint subscribes to. Such a row stays due, waits longer each time (up to an hour), and is an
+ * error in the log each time, until a fix reads it.
+ */
+const neverSetAside = (event: string) =>
+  event.startsWith("privacy.") || event.startsWith("billing.") || WEBHOOK_SOURCE_EVENTS.has(event)
+
+const NOT_ITS_EVENT = "the payload does not match its event's schema"
 
 /** The sinks by event type (`relay/registry.ts`), loaded once per isolate; a load that fails is tried again. */
 const routes = Effect.promise(() =>
@@ -104,27 +118,42 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
             payload: Record<string, unknown>
             relayedAt: Date | null
             cancelled: boolean
+            deadLettered: boolean
             early: boolean
             waitSeconds: number
           }
         >`
           select event, payload, relayed_at, cancelled_at is not null as cancelled,
+                 dead_lettered_at is not null as dead_lettered,
                  coalesce(not_before, created_at) > now() as early,
                  greatest(1, ceil(extract(epoch from coalesce(not_before, created_at) - now())))::int as wait_seconds
           from outbox where id = ${id} for update skip locked`
-        // Relayed already, or undone: nothing to do.
-        if (row === undefined || row.relayedAt !== null || row.cancelled) return undefined
+        // Relayed already, undone, or set aside: nothing to do.
+        if (row === undefined || row.relayedAt !== null || row.cancelled || row.deadLettered) return undefined
         // Still inside its undo window: back onto the queue for the rest of it (below, after the transaction).
         if (row.early) return { early: row.waitSeconds } as const
         const event = eventOf(row.event, row.payload)
-        // Not its event's shape (a row written by hand, an old one): dead-lettered, marked relayed with no sink run,
-        // so it neither breaks a sink nor comes back every minute. The line names the row and its kind, never the payload.
+        // Not its event's shape (a row written by hand, an old one). The line names the row and its kind, never the
+        // payload. Never marked relayed: set aside as a dead letter (`outbox_dead_letters()` counts it for
+        // `/api/health/deep`), or, for an event that must not be lost, held back and tried again later.
         if (event === undefined) {
+          if (neverSetAside(row.event)) {
+            yield* Effect.logError("outbox: a row does not match its event's schema; held back, tried again later", {
+              outboxId: id,
+              event: row.event
+            })
+            yield* sql`update outbox set attempts = attempts + 1, dead_letter_reason = ${NOT_ITS_EVENT},
+                         not_before = now() + make_interval(mins => least(60, power(2, least(attempts, 6))::int))
+                       where id = ${id}`
+            return undefined
+          }
           yield* Effect.logWarning("outbox: a row does not match its event's schema; dead-lettered", {
             outboxId: id,
             event: row.event
           })
-          yield* sql`update outbox set relayed_at = now(), attempts = attempts + 1 where id = ${id}`
+          yield* sql`update outbox set dead_lettered_at = now(), dead_letter_reason = ${NOT_ITS_EVENT},
+                       attempts = attempts + 1
+                     where id = ${id}`
           return undefined
         }
         for (const route of ROUTES.get(event.type) ?? []) {
@@ -134,7 +163,8 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
                                      on conflict do nothing returning sink`
           if (claimed.length > 0) yield* run
         }
-        yield* sql`update outbox set relayed_at = now(), attempts = attempts + 1 where id = ${id}`
+        yield* sql`update outbox set relayed_at = now(), attempts = attempts + 1, dead_letter_reason = null
+                   where id = ${id}`
         return { event }
       })
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId }))

@@ -19,6 +19,10 @@ import { KINDS, trashView } from "./0101_trash_kinds.ts"
  * - `automation_versions_frozen()` (0056) lets that scrub through: a published version is immutable, except for a
  *   shopper's erasure, which may blank their words in its `note` and `nodes` and nothing else. Only inside the scrub:
  *   as `insyte_owner` (its definer, which the app never is) with the scrub's own setting, as `system`.
+ * - The outbox's dead letters (`dead_lettered_at`, `dead_letter_reason`): a row the relay cannot read as its event is
+ *   set aside there, never marked relayed, and `outbox_dead_letters()` counts them, and the rows held back, for
+ *   `/api/health/deep` (counts only, across workspaces). A privacy, billing or webhook event is never set aside: it
+ *   stays due, waits longer each time, and is logged as an error until someone reads it (`Relay.deliver`).
  * - Suppliers join the Prullenbak (`supplier`, 0101's pattern). A removed supplier is listed for 30 days (from now for
  *   one removed before), put back through Leveranciers, and purged. A purge does not delete the row: its statements,
  *   quality checks, conversations and supplier work are bookkeeping history that `on delete cascade` would take with
@@ -50,6 +54,26 @@ export default statements(
        end if;
        raise exception 'automation_versions rows are immutable';
      end $$`,
+  `alter table outbox add column dead_lettered_at timestamptz,
+                     add column dead_letter_reason text
+                       check (dead_letter_reason is null or char_length(dead_letter_reason) <= 200)`,
+  `create or replace function outbox_due(lim int) returns table (id text, workspace_id text)
+     language sql security definer set search_path = public as $$
+       select id, workspace_id from outbox
+       where relayed_at is null and cancelled_at is null and dead_lettered_at is null
+         and coalesce(not_before, created_at) <= now()
+       order by created_at limit least(lim, 500)
+       for update skip locked
+     $$`,
+  `create function outbox_dead_letters() returns table (dead_lettered bigint, held bigint)
+     language sql security definer set search_path = public as $$
+       select count(*) filter (where dead_lettered_at is not null),
+              count(*) filter (where dead_lettered_at is null and relayed_at is null and dead_letter_reason is not null)
+       from outbox where dead_letter_reason is not null
+     $$`,
+  "create index outbox_dead_letters on outbox (created_at) where dead_letter_reason is not null",
+  "revoke all on function outbox_dead_letters() from public",
+  "grant execute on function outbox_dead_letters() to insyte_app",
   `create or replace function scrub_workspace(patterns text[]) returns integer
      language plpgsql security definer set search_path = public as $$
      declare

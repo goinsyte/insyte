@@ -14,7 +14,9 @@ describe("the API Worker", () => {
       ok: true,
       role: "insyte_app",
       bypassesRls: false,
-      migratedTo: expect.stringMatching(/^\d{4}_[a-z_]+$/)
+      migratedTo: expect.stringMatching(/^\d{4}_[a-z_]+$/),
+      // The outbox rows that wait on someone (dead letters, rows held back), counted across workspaces.
+      outbox: { deadLettered: expect.any(Number), held: expect.any(Number) }
     })
   })
 

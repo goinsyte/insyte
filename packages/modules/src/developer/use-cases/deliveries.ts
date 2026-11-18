@@ -36,6 +36,22 @@ interface Source {
   readonly id: string
 }
 
+/**
+ * The outbox events that can be public events (`sourcesOf`'s cases): the relay never sets one of them aside, since an
+ * endpoint would miss it (`Relay.deliver`).
+ */
+export const WEBHOOK_SOURCE_EVENTS: ReadonlySet<string> = new Set([
+  "order.cancelled",
+  "order.delayed",
+  "order.updated",
+  "order.placed",
+  "order.fulfilled",
+  "customer.created",
+  "customer.updated",
+  "product.updated",
+  "ticket.assigned"
+])
+
 /** The public events an outbox event is, record by record; most outbox events are none (api.md §7). */
 export const sourcesOf = (event: OutboxEvent): ReadonlyArray<Source> => {
   switch (event.type) {
