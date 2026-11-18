@@ -32,8 +32,6 @@ const OWN = (column: string) => `${column} = app_partner_id()`
 /** Anyone but a partner principal. */
 const NOT_PARTNER = "(app_principal_kind() is null or app_principal_kind() not in ('supplier_contact', 'affiliate'))"
 
-const table = (name: Parameters<typeof tenantTable>[0]) => [...tenantTable(name), newcomerBlind(name)]
-
 export default statements(
   // The programme: one per workspace, made with its defaults on first use (`ensureProgram`).
   `create table affiliate_programs (
@@ -55,7 +53,8 @@ export default statements(
      updated_at          timestamptz not null default now()
    )`,
   "create trigger affiliate_programs_touch before update on affiliate_programs for each row execute function touch_updated_at()",
-  ...table("affiliate_programs"),
+  ...tenantTable("affiliate_programs"),
+  newcomerBlind("affiliate_programs"),
   // An affiliate reads its programme (tiers, FAQ, payout day), never changes it.
   ...affiliateProjection("affiliate_programs", "true"),
   `create table affiliate_tiers (
@@ -66,7 +65,8 @@ export default statements(
      position     int not null,
      primary key (workspace_id, tier)
    )`,
-  ...table("affiliate_tiers"),
+  ...tenantTable("affiliate_tiers"),
+  newcomerBlind("affiliate_tiers"),
   ...affiliateProjection("affiliate_tiers", "true"),
   //
   `create table affiliate_applications (
@@ -94,7 +94,8 @@ export default statements(
   // One open application per person per programme.
   `create unique index affiliate_applications_open on affiliate_applications (workspace_id, user_id)
      where status = 'pending'`,
-  ...table("affiliate_applications"),
+  ...tenantTable("affiliate_applications"),
+  newcomerBlind("affiliate_applications"),
   ...affiliateProjection("affiliate_applications", OWN("affiliate_id")),
   //
   `create table affiliates (
@@ -129,7 +130,8 @@ export default statements(
   "create unique index affiliates_code on affiliates (workspace_id, code)",
   "create unique index affiliates_person on affiliates (workspace_id, user_id)",
   "create index affiliates_list on affiliates (workspace_id, joined_at desc, id desc)",
-  ...table("affiliates"),
+  ...tenantTable("affiliates"),
+  newcomerBlind("affiliates"),
   ...affiliateProjection("affiliates", OWN("id"), { update: "true" }),
   // Its name, address, code and where its money goes; never its tier, rate, status or who approved it.
   // Its name and how it is paid; never its code, tier, rate, status or its discount (the brand's, PLAN item 22).
@@ -152,7 +154,8 @@ export default statements(
      primary key (workspace_id, code)
    )`,
   "create index affiliate_codes_affiliate on affiliate_codes (affiliate_id)",
-  ...table("affiliate_codes"),
+  ...tenantTable("affiliate_codes"),
+  newcomerBlind("affiliate_codes"),
   // Read only for the affiliate: a code is what attributes an order, so only the brand makes or ends one.
   ...affiliateProjection("affiliate_codes", OWN("affiliate_id")),
   //
@@ -172,7 +175,8 @@ export default statements(
      archived_at      timestamptz
    )`,
   "create index affiliate_links_list on affiliate_links (workspace_id, affiliate_id, created_at desc, id desc)",
-  ...table("affiliate_links"),
+  ...tenantTable("affiliate_links"),
+  newcomerBlind("affiliate_links"),
   ...affiliateProjection("affiliate_links", OWN("affiliate_id"), { insert: "true", update: "true" }),
   partnerGuard("affiliate_links", ["label", "archived_at"]),
   // Clicks through the redirect, by month (domain.md §18.2: 13 months online). The address and the browser only as
@@ -193,7 +197,8 @@ export default statements(
   ...sealedPartition("affiliate_clicks_default"),
   "create index affiliate_clicks_link on affiliate_clicks (workspace_id, link_id, at)",
   "create index affiliate_clicks_affiliate on affiliate_clicks (workspace_id, affiliate_id, at)",
-  ...table("affiliate_clicks"),
+  ...tenantTable("affiliate_clicks"),
+  newcomerBlind("affiliate_clicks"),
   partnerClosed("affiliate_clicks"),
   // An order that came through an affiliate: one per order, the commission at the rate of its moment.
   `create table affiliate_conversions (
@@ -227,7 +232,8 @@ export default statements(
   "create index affiliate_conversions_list on affiliate_conversions (workspace_id, affiliate_id, placed_at desc, id desc)",
   "create index affiliate_conversions_due on affiliate_conversions (workspace_id, window_ends_at) where status = 'pending'",
   "create index affiliate_conversions_payout on affiliate_conversions (payout_id) where payout_id is not null",
-  ...table("affiliate_conversions"),
+  ...tenantTable("affiliate_conversions"),
+  newcomerBlind("affiliate_conversions"),
   partnerClosed("affiliate_conversions"),
   // The money, append-only (domain.md §14.1): never updated, never deleted by the app.
   `create table affiliate_ledger_entries (
@@ -252,7 +258,8 @@ export default statements(
   "create index affiliate_ledger_affiliate on affiliate_ledger_entries (workspace_id, affiliate_id, at)",
   "create index affiliate_ledger_conversion on affiliate_ledger_entries (conversion_id) where conversion_id is not null",
   "create index affiliate_ledger_payout on affiliate_ledger_entries (payout_id) where payout_id is not null",
-  ...table("affiliate_ledger_entries"),
+  ...tenantTable("affiliate_ledger_entries"),
+  newcomerBlind("affiliate_ledger_entries"),
   ...affiliateProjection("affiliate_ledger_entries", OWN("affiliate_id")),
   "revoke update, delete on affiliate_ledger_entries from insyte_app",
   `create function affiliate_ledger_frozen() returns trigger language plpgsql as $$
@@ -285,7 +292,8 @@ export default statements(
      unique (affiliate_id, month)
    )`,
   "create index affiliate_payouts_month on affiliate_payouts (workspace_id, month, affiliate_id)",
-  ...table("affiliate_payouts"),
+  ...tenantTable("affiliate_payouts"),
+  newcomerBlind("affiliate_payouts"),
   ...affiliateProjection("affiliate_payouts", OWN("affiliate_id")),
   `alter table affiliate_conversions add constraint affiliate_conversions_payout_fk foreign key (payout_id)
      references affiliate_payouts(id) on delete set null`,
@@ -309,13 +317,13 @@ export default statements(
      archived_at  timestamptz
    )`,
   "create index affiliate_resources_list on affiliate_resources (workspace_id, updated_at desc, id desc)",
-  ...table("affiliate_resources"),
+  ...tenantTable("affiliate_resources"),
+  newcomerBlind("affiliate_resources"),
   ...affiliateProjection("affiliate_resources", "archived_at is null"),
   // The order's link from the storefront: the cart attribute `insyte_ref` (the redirect's, carried by the store).
   "alter table orders add column affiliate_ref text check (length(affiliate_ref) <= 64)",
   // An affiliate's outbox rows: only its own, and only what the portal sends (its tab's frame, its code re-made).
-  "drop policy outbox_partner_write on outbox",
-  `create policy outbox_partner_write on outbox as restrictive for insert to insyte_app
+  `alter policy outbox_partner_write on outbox
      with check (${NOT_PARTNER} or (
        app_principal_kind() = 'supplier_contact' and app_partner_id() is not null
        and created_by_principal = app_principal_id() and (

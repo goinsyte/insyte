@@ -6,15 +6,33 @@ import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import { InvitationLinks } from "../../members/domain/Ports.ts"
-import { cancelMail, mailLater } from "../../members/use-cases/invite.ts"
 import { FileStore } from "../../shared/domain/Documents.ts"
 import { Relay } from "../../shared/domain/Outbox.ts"
 import { UNDO_SECONDS } from "../../shared/domain/Undo.ts"
+import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import { AffiliatesChange, InviteRow, type ResourceKind, ResourceRow, type Tier } from "../domain/Affiliates.ts"
 import type { InviteInput } from "../domain/Inputs.ts"
 import { audit, RESTORE } from "./operator.ts"
 import { ensureProgram } from "./program.ts"
+
+/** The invitation's mail (`member.invited`, the team's own mail sink), held back by the undo window. */
+const mailLater = (sql: SqlClient.SqlClient, invitationId: string, round: number) =>
+  Effect.flatMap(Effect.service(CurrentPrincipal), (p) =>
+    Outbox.write(sql, p.workspaceId, {
+      type: "member.invited",
+      workspaceId: p.workspaceId,
+      invitationId,
+      invitedBy: p.id,
+      userId: p.userId ?? p.id,
+      round
+    }, { afterSeconds: UNDO_SECONDS }))
+
+/** The invitation's mail that has not gone yet, cancelled. */
+const cancelMail = (sql: SqlClient.SqlClient, invitationIds: ReadonlyArray<string>) =>
+  sql`update outbox set cancelled_at = now()
+      where event = 'member.invited' and payload ->> 'invitationId' in ${sql.in([...invitationIds])}
+        and relayed_at is null and cancelled_at is null`
 
 /*
  * Inviting affiliates and the material the brand shares (M16 step 5; widgets/06 Part C). An invitation is the team's
