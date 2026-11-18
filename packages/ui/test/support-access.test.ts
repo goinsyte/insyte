@@ -1,8 +1,16 @@
-import { createElement } from "react"
+import { createElement, type FunctionComponent } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import { SupportAccessCard } from "../src/app/settings/depth/support-access-card"
-import { SupportBanner } from "../src/app/shell/support-banner"
+
+// Loaded the way `agent-rows.test.ts` loads its parts: the components' own imports are written for the bundler.
+const cardPath = "../src/app/settings/depth/support-access-card.tsx"
+const bannerPath = "../src/app/shell/support-banner.tsx"
+const { SupportAccessCard } = (await import(/* @vite-ignore */ cardPath)) as {
+  SupportAccessCard: FunctionComponent<{ support: Record<string, unknown> }>
+}
+const { SupportBanner } = (await import(/* @vite-ignore */ bannerPath)) as {
+  SupportBanner: FunctionComponent<{ endsAt: string }>
+}
 
 /*
  * Insyte-support mag meekijken (M18): the line every member sees over the top bar while support looks along, and the
