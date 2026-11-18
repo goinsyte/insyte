@@ -3,11 +3,13 @@ import { ChevronRight, Copy } from "../../icons";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { EmptyPage } from "../common/empty-page";
+import { useHydrated } from "../hooks/use-hydrated";
 import { getGreeting } from "../lib/greetings";
 import { cn } from "../lib/utils";
 import { METHOD_LABEL, tierAndNext, useAffiliatePortal } from "./source";
 
-const when = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short" });
+// One clock for the server's render and the browser's, so the two agree on a day.
+const when = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short", timeZone: "Europe/Amsterdam" });
 
 /* ─────────────────────────────────────────────────────────────────────
    The affiliate's start: what it has earned and when it is paid, on the
@@ -29,6 +31,8 @@ export function AffiliateDashboard() {
 	const rate = clicks30 === 0 ? 0 : (last30.length / clicks30) * 100;
 	const quarter = d.quarter;
 	const { tier, next } = tierAndNext(TIERS, aff.tier);
+	// The greeting is the reader's clock, which the server does not have: it waits for hydration (as the brand's hero).
+	const hydrated = useHydrated();
 	const greeting = getGreeting(aff.name.split(" ")[0] ?? aff.name);
 	const fresh = d.fresh;
 	const Closing = parts.Closing;
@@ -46,7 +50,7 @@ export function AffiliateDashboard() {
 					<header className="flex flex-wrap items-end justify-between gap-4 px-7 pt-6">
 						<div className="flex flex-col gap-1.5">
 							<h1 id="aff-title" className="font-medium text-mesh-ink text-xl">
-								{greeting.salutation}
+								{hydrated ? greeting.salutation : "\u00a0"}
 							</h1>
 							<p className="text-base text-mesh-ink-2">
 								{d.linksCount === 0
