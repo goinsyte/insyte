@@ -117,7 +117,12 @@ export const ShopperRequest = Schema.Struct({
   dueAt: Schema.Finite,
   completedAt: Schema.NullOr(Schema.Finite),
   /** The access package, once made. */
-  fileId: Schema.NullOr(Schema.String)
+  fileId: Schema.NullOr(Schema.String),
+  /**
+   * Why an erasure did not finish: the tables and columns that held the shopper and take no placeholder
+   * (`orders.note, webhooks.url`), names only, or `unexpected`; null otherwise. It is tried again every hour.
+   */
+  error: Schema.NullOr(Schema.String)
 })
 export type ShopperRequest = typeof ShopperRequest.Type
 

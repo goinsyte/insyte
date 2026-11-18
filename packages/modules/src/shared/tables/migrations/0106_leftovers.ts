@@ -29,6 +29,11 @@ import { KINDS, trashView } from "./0101_trash_kinds.ts"
  *   it. It marks the supplier `purged_at` (out of the trash, never back), and takes out what is theirs alone: the
  *   contact details on the row, its contacts and their invitations, its integrations, and the products it supplied;
  *   its name becomes "Verwijderde leverancier" and its vendor is cleared, since a sole trader's name is a person's.
+ * - Shopify's erasures are seen through: `customers/redact` writes its request first, open, and an erasure that
+ *   cannot finish leaves it `failed` with the columns that held the shopper in `error` (names only).
+ *   `privacy_redacts_open()` counts the open, failed and overdue ones across workspaces for `/api/health/deep`;
+ *   `privacy_redacts_due()` lists those to try again on the hour (failed, or stalled a quarter of an hour, within
+ *   their 30 days). Ids and counts only, as 0076's routing reads.
  */
 
 const SUPPLIER = `select workspace_id, 'supplier'::text, id, name, null::text, null::text, deleted_at,
@@ -196,5 +201,36 @@ export default statements(
        end if;
        perform set_config('app.scrubbing', '', true);
        return n;
-     end $$`
+     end $$`,
+  // Shopify's erasures, seen through (see above).
+  `create function privacy_redacts_open() returns table (open bigint, failed bigint, overdue bigint)
+     language plpgsql security definer set search_path = public as $$
+     declare prior text := current_setting('app.principal_kind', true);
+     begin
+       perform set_config('app.principal_kind', 'system', true);
+       return query
+       select count(*) filter (where g.state <> 'failed' and g.due_at > now()),
+              count(*) filter (where g.state = 'failed' and g.due_at > now()),
+              count(*) filter (where g.due_at <= now())
+         from gdpr_requests g
+        where g.kind = 'customer_redact' and g.completed_at is null;
+       perform set_config('app.principal_kind', coalesce(prior, ''), true);
+     end $$`,
+  "revoke all on function privacy_redacts_open() from public",
+  "grant execute on function privacy_redacts_open() to insyte_app",
+  `create function privacy_redacts_due() returns table (workspace_id text, request_id text)
+     language plpgsql security definer set search_path = public as $$
+     declare prior text := current_setting('app.principal_kind', true);
+     begin
+       perform set_config('app.principal_kind', 'system', true);
+       return query
+       select g.workspace_id, g.id from gdpr_requests g
+        where g.kind = 'customer_redact' and g.source = 'shopify' and g.completed_at is null and g.due_at > now()
+          and (g.state = 'failed' or coalesce(g.started_at, g.received_at) < now() - interval '15 minutes')
+        order by g.received_at, g.id
+        limit 200;
+       perform set_config('app.principal_kind', coalesce(prior, ''), true);
+     end $$`,
+  "revoke all on function privacy_redacts_due() from public",
+  "grant execute on function privacy_redacts_due() to insyte_app"
 )

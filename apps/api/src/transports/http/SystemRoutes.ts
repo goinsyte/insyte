@@ -24,7 +24,8 @@ const Health = HttpRouter.add(
 
 /**
  * `GET /api/health/deep`: proof that the Worker connects as `insyte_app`, which cannot bypass row level security, and
- * which migration the database is at, and how many outbox rows wait on someone (dead letters, rows held back). Behind
+ * which migration the database is at, how many outbox rows wait on someone (dead letters, rows held back), and how many
+ * of Shopify's erasures are not done (open, failed, overdue). Behind
  * Access in every deployed environment (`/api/__dev/*` and this path).
  */
 const DeepHealth = HttpRouter.add(
@@ -44,9 +45,19 @@ const DeepHealth = HttpRouter.add(
     const [letters] = yield* db.routing((sql) =>
       sql<{ deadLettered: string; held: string }>`select dead_lettered, held from outbox_dead_letters()`
     )
+    // Shopify's erasures not done yet (0106): open, failed (each failure is an error in the log too), past their 30
+    // days. Counts only, across workspaces.
+    const [redacts] = yield* db.routing((sql) =>
+      sql<{ open: string; failed: string; overdue: string }>`select open, failed, overdue from privacy_redacts_open()`
+    )
     const ok = row?.role === "insyte_app" && row.bypassesRls === false
     const outbox = { deadLettered: Number(letters?.deadLettered ?? 0), held: Number(letters?.held ?? 0) }
-    return HttpServerResponse.jsonUnsafe({ ok, ...row, outbox }, { status: ok ? 200 : 500 })
+    const privacy = {
+      redactsOpen: Number(redacts?.open ?? 0),
+      redactsFailed: Number(redacts?.failed ?? 0),
+      redactsOverdue: Number(redacts?.overdue ?? 0)
+    }
+    return HttpServerResponse.jsonUnsafe({ ok, ...row, outbox, privacy }, { status: ok ? 200 : 500 })
   }).pipe(
     Effect.catchTag("SqlError", (error) =>
       Effect.logError("deep health: the database did not answer", error).pipe(

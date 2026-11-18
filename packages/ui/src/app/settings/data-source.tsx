@@ -64,6 +64,8 @@ export interface ShopperRequestEntry {
   dueAt: number
   completedAt: number | null
   href: string | null
+  /** Why an erasure did not finish: the columns that held the shopper (`tabel.kolom`, comma-separated), or `unexpected`. */
+  error?: string | null
 }
 
 export interface DataRequests {

@@ -76,6 +76,17 @@ const Sweep = HttpRouter.add(
   }).pipe(withRequestDb)
 )
 
+/** `POST /api/__dev/privacy/redacts`: the hourly retry of Shopify's erasures now (0106). */
+const Redacts = HttpRouter.add(
+  "POST",
+  "/api/__dev/privacy/redacts",
+  Effect.gen(function*() {
+    if (!(yield* devOnly)) return refused
+    const { redactSweep } = yield* Effect.promise(() => import("../../../platform/RedactSweep.ts"))
+    return HttpServerResponse.jsonUnsafe(yield* redactSweep())
+  }).pipe(withRequestDb)
+)
+
 /**
  * `GET /api/__dev/privacy/census?workspace=<id>[&find=<text>]`: every table that holds a workspace's rows, with how
  * many it holds; with `find`, every table and column whose text holds it (any case). What an export and an erasure
@@ -123,4 +134,4 @@ const Census = HttpRouter.add(
   }).pipe(Effect.orDie, withRequestDb)
 )
 
-export const PrivacyRoutes = Layer.mergeAll(DeletionDue, Age, Sweep, Census)
+export const PrivacyRoutes = Layer.mergeAll(DeletionDue, Age, Sweep, Redacts, Census)
