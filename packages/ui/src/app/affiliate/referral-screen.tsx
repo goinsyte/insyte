@@ -1,4 +1,4 @@
-import { notFound, getRouteApi } from "@tanstack/react-router";
+import { notFound, useNavigate, useParams } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Copy, Download, Trash2 } from "../../icons";
 import { useMemo } from "react";
@@ -8,13 +8,9 @@ import { downloadQr, QrCode } from "./qr";
 import { PageHeader } from "../common/page-header";
 import { StatusPill } from "../settings/setting-card";
 import { DataTable } from "../table/data-table";
-import { COMMISSION, type Conversion, CONVERSION_STATUS, CONVERSIONS, weeklyFor } from "../../data-source";
-import { formatCurrency } from "../lib/format";
-import { referralLinks } from "../../data-source";
-import { undoable } from "../lib/undo";
-import { useAffiliate } from "../stores/affiliate-store";
+import { CONVERSION_STATUS, type PortalConversion, useAffiliatePortal } from "./source";
 
-const Route = getRouteApi("/_aff/affiliate/referrals/$linkId");
+type Conversion = PortalConversion;
 /* The list route's handle, which this screen imported from the list's route file: only its `to`
    is read, and a screen cannot import a host's route file. */
 const Links = { to: "/affiliate/referrals" } as const;
@@ -26,15 +22,13 @@ const when = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short", 
  * in through it. A link made in this browser can be removed; the seeded ones are the record.
  */
 export function LinkDetail() {
-	const { linkId } = Route.useParams();
-	const navigate = Route.useNavigate();
-	const made = useAffiliate((s) => s.links);
-	const add = useAffiliate((s) => s.addLink);
-	const remove = useAffiliate((s) => s.removeLink);
-	const all = useMemo(() => [...made, ...referralLinks], [made]);
-	const link = all.find((l) => l.id === linkId);
-	const weeks = useMemo(() => weeklyFor(all, linkId), [all, linkId]);
-	const rows = useMemo(() => CONVERSIONS.filter((c) => c.link === linkId), [linkId]);
+	const { linkId } = useParams({ strict: false }) as { linkId: string };
+	const navigate = useNavigate();
+	const { money: formatCurrency, useLink, canRemove, removeLink } = useAffiliatePortal();
+	const view = useLink(linkId);
+	const link = view?.link;
+	const weeks = view?.weeks ?? [];
+	const rows = view?.rows ?? [];
 
 	const columns = useMemo<Array<ColumnDef<Conversion, unknown>>>(
 		() => [
@@ -50,17 +44,17 @@ export function LinkDetail() {
 				cell: (c) => <StatusPill tone={CONVERSION_STATUS[c.row.original.status].tone} label={CONVERSION_STATUS[c.row.original.status].label} />,
 			},
 		],
-		[],
+		[formatCurrency],
 	);
 
 	if (!link) throw notFound();
 	const url = `https://${link.url}`;
-	const own = made.some((l) => l.id === link.id);
+	const own = canRemove(link);
 	const figures = [
 		{ label: "Klikken", value: link.clicks.toLocaleString("nl-NL") },
 		{ label: "Conversies", value: link.conversions.toLocaleString("nl-NL") },
 		{ label: "Ratio", value: `${(link.clicks === 0 ? 0 : (link.conversions / link.clicks) * 100).toLocaleString("nl-NL", { maximumFractionDigits: 1 })}%` },
-		{ label: "Commissie", value: formatCurrency(link.revenue * COMMISSION) },
+		{ label: "Commissie", value: formatCurrency(link.commission) },
 	];
 
 	return (
@@ -75,9 +69,8 @@ export function LinkDetail() {
 							<button
 								type="button"
 								onClick={() => {
-									remove(link.id);
+									removeLink(link, { message: `Link “${link.label}” verwijderd` });
 									void navigate({ to: Links.to });
-									undoable(`Link “${link.label}” verwijderd`, () => add(link));
 								}}
 								className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-3 font-medium text-ink-2 text-sm hover:bg-ink/6 hover:text-ink"
 							>

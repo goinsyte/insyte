@@ -11,12 +11,9 @@ import {
 } from "../../components/select";
 import { useState } from "react";
 import { toast } from "sonner";
-import {
-	METHOD_LABEL,
-	type PaymentSettings,
-	type PayoutMethod,
-	useAffiliate,
-} from "../stores/affiliate-store";
+import { METHOD_LABEL, type PayoutMethod, useAffiliatePortal } from "./source";
+
+type PaymentSettings = { method: PayoutMethod; account: string; tax_id: string };
 
 /** What the account field asks for, by method. */
 const ACCOUNT_LABEL: Record<PayoutMethod, string> = {
@@ -25,19 +22,23 @@ const ACCOUNT_LABEL: Record<PayoutMethod, string> = {
 	wise: "Wise-e-mailadres",
 };
 
+/** Where payouts go. The account is never shown back whole: the field holds a new one, the saved one masked above it. */
 export function AffPayment() {
-	const saved = useAffiliate((s) => s.payment);
-	const savePayment = useAffiliate((s) => s.savePayment);
-	const [form, setForm] = useState<PaymentSettings>(saved);
+	const { usePayment, savePayment } = useAffiliatePortal();
+	const saved = usePayment();
+	const [form, setForm] = useState<PaymentSettings>({ method: saved.method ?? "paypal", account: "", tax_id: saved.taxId });
 	const dirty =
 		form.method !== saved.method ||
-		form.account !== saved.account ||
-		form.tax_id !== saved.tax_id;
+		form.account !== "" ||
+		form.tax_id !== saved.taxId;
 	const set = (p: Partial<PaymentSettings>) => setForm((f) => ({ ...f, ...p }));
 
 	return (
 		<Card className="p-6">
 			<h2 className="font-medium text-sm">Betaalmethode</h2>
+			<p className="mt-1 text-ink-3 text-sm">
+				{saved.method ? `Nu naar ${METHOD_LABEL[saved.method]}${saved.accountHint ? `, ${saved.accountHint}` : ""}. Vul je rekening opnieuw in om iets te wijzigen.` : "Nog geen betaalgegevens. Zonder kunnen we je commissie niet uitbetalen."}
+			</p>
 			<form
 				onSubmit={(e) => {
 					e.preventDefault();
@@ -45,8 +46,11 @@ export function AffPayment() {
 						toast.error(`Vul je ${ACCOUNT_LABEL[form.method]} in`);
 						return;
 					}
-					savePayment({ ...form, account: form.account.trim(), tax_id: form.tax_id.trim() });
-					toast.success(`Uitbetalingen gaan naar ${METHOD_LABEL[form.method]}`);
+					const method = form.method;
+					savePayment({ method, account: form.account.trim(), taxId: form.tax_id.trim() }, () => {
+						setForm((f) => ({ ...f, account: "" }));
+						toast.success(`Uitbetalingen gaan naar ${METHOD_LABEL[method]}`);
+					});
 				}}
 			>
 				<div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -74,6 +78,8 @@ export function AffPayment() {
 							type={form.method === "bank" ? "text" : "email"}
 							value={form.account}
 							onChange={(e) => set({ account: e.target.value })}
+							placeholder={saved.method === form.method && saved.accountHint ? saved.accountHint : undefined}
+							autoComplete="off"
 							spellCheck={false}
 						/>
 					</div>

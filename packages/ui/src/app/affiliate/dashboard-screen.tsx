@@ -1,19 +1,12 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronRight, Copy } from "../../icons";
-import { useMemo } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { EmptyPage } from "../common/empty-page";
-import { AffiliateClosing } from "../marketing-sections/closings";
-import { AFF_TODAY, CONVERSIONS, TIERS, weeklyFor } from "../../data-source";
-import { formatCurrency } from "../lib/format";
 import { getGreeting } from "../lib/greetings";
-import { currentAffiliateByState } from "../../data-source";
-import { referralLinks } from "../../data-source";
 import { cn } from "../lib/utils";
-import { METHOD_LABEL, useAffiliate } from "../stores/affiliate-store";
+import { METHOD_LABEL, tierAndNext, useAffiliatePortal } from "./source";
 
-const DAY = 86_400_000;
 const when = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short" });
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -25,23 +18,20 @@ const when = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short" }
    ───────────────────────────────────────────────────────────────────── */
 
 export function AffiliateDashboard() {
-	const aff = currentAffiliateByState.approved;
-	const payment = useAffiliate((s) => s.payment);
-	const code = useAffiliate((s) => s.profile.referral_code);
-	const made = useAffiliate((s) => s.links);
-	const links = useMemo(() => [...made, ...referralLinks], [made]);
-	const weeks = useMemo(() => weeklyFor(referralLinks), []);
-
-	const unpaid = CONVERSIONS.filter((c) => c.status === "pending" || c.status === "approved");
-	const owed = unpaid.reduce((n, c) => n + c.commission, 0);
-	const last30 = CONVERSIONS.filter((c) => c.status !== "reversed" && Date.parse(c.at) > AFF_TODAY - 30 * DAY);
-	const clicks30 = weeks.slice(-4).reduce((n, w) => n + w.clicks, 0);
+	const { brand, money: formatCurrency, tiers: TIERS, useProfile, useDashboard, parts } = useAffiliatePortal();
+	const aff = useProfile();
+	const d = useDashboard();
+	const code = aff.code;
+	const links = d.links;
+	const weeks = d.weeks;
+	const last30 = { length: d.conversions30 };
+	const clicks30 = d.clicks30;
 	const rate = clicks30 === 0 ? 0 : (last30.length / clicks30) * 100;
-	const quarter = CONVERSIONS.filter((c) => Date.parse(c.at) > AFF_TODAY - 90 * DAY).length;
-	const tier = TIERS.find((t) => t.id === aff.tier) ?? TIERS[0];
-	const next = TIERS[TIERS.findIndex((t) => t.id === tier.id) + 1];
+	const quarter = d.quarter;
+	const { tier, next } = tierAndNext(TIERS, aff.tier);
 	const greeting = getGreeting(aff.name.split(" ")[0] ?? aff.name);
-	const fresh = links.length === 0 && CONVERSIONS.length === 0;
+	const fresh = d.fresh;
+	const Closing = parts.Closing;
 	const navigate = useNavigate();
 	const copyCode = () => {
 		void navigator.clipboard?.writeText(code);
@@ -59,7 +49,7 @@ export function AffiliateDashboard() {
 								{greeting.salutation}
 							</h1>
 							<p className="text-base text-mesh-ink-2">
-								{links.length === 0
+								{d.linksCount === 0
 									? "Welkom in het partnerprogramma. Maak een link of deel je kortingscode om te beginnen."
 									: `${last30.length} ${last30.length === 1 ? "bestelling kwam" : "bestellingen kwamen"} de afgelopen 30 dagen via jouw links binnen.`}
 							</p>
@@ -75,8 +65,8 @@ export function AffiliateDashboard() {
 					</header>
 					{fresh ? <div className="h-6" /> : <dl className="grid grid-cols-2 px-3 pt-6 pb-4 sm:grid-cols-4">
 						{[
-							{ label: "Nog uit te betalen", value: formatCurrency(owed), to: "/affiliate/payouts" },
-							{ label: "Volgende uitbetaling", value: "15 juni", note: `naar ${METHOD_LABEL[payment.method]}`, to: "/affiliate/payouts" },
+							{ label: "Nog uit te betalen", value: formatCurrency(d.owed), to: "/affiliate/payouts" },
+							{ label: "Volgende uitbetaling", value: d.nextPayout, note: d.method ? `naar ${METHOD_LABEL[d.method]}` : "nog geen betaalgegevens", to: "/affiliate/payouts" },
 							{ label: "Conversies, 30 dagen", value: last30.length.toLocaleString("nl-NL"), to: "/affiliate/referrals" },
 							{ label: "Conversieratio, 30 dagen", value: clicks30 === 0 ? "—" : `${rate.toLocaleString("nl-NL", { maximumFractionDigits: 1 })}%`, to: "/affiliate/referrals" },
 						].map((it, i) => (
@@ -103,7 +93,7 @@ export function AffiliateDashboard() {
 						action={{ label: "Link maken", onClick: () => void navigate({ to: "/affiliate/referrals" }) }}
 						secondary={{ label: `Code ${code} kopiëren`, onClick: copyCode }}
 						starts={[
-							{ id: "resources", label: "Materiaal om te delen", body: "Productfoto's, teksten en de huisstijl van Northwind.", to: "/affiliate/resources" },
+							{ id: "resources", label: "Materiaal om te delen", body: `Productfoto's, teksten en de huisstijl van ${brand}.`, to: "/affiliate/resources" },
 							{ id: "payment", label: "Je betaalgegevens", body: "Waar je commissie heen gaat. Uitbetaling op de 15e van de maand.", to: "/affiliate/settings/payment" },
 							{ id: "tiers", label: "Hoe je niveau stijgt", body: next ? `Vanaf ${next.from} conversies per kwartaal verdien je ${next.rate}%.` : "Je zit op het hoogste niveau.", to: "/affiliate/payouts" },
 						]}
@@ -116,7 +106,7 @@ export function AffiliateDashboard() {
 							<h2 id="weeks-title" className="font-medium text-ink text-xl">
 								Wat je links deden
 							</h2>
-							<p className="text-ink-3 text-sm">Verdiende commissie per week, acht weken tot 26 mei.</p>
+							<p className="text-ink-3 text-sm">Verdiende commissie per week, acht weken tot {weeks.at(-1)?.label ?? "vandaag"}.</p>
 						</div>
 						<div className="h-[220px]">
 							<ResponsiveContainer width="100%" height="100%">
@@ -156,15 +146,15 @@ export function AffiliateDashboard() {
 								<ChevronRight className="size-3.5" strokeWidth={2} />
 							</Link>
 						</div>
-						{CONVERSIONS.length === 0 ? (
+						{d.recent.length === 0 ? (
 							<p className="py-2 text-ink-3 text-sm">Nog geen bestellingen via je links.</p>
 						) : null}
 						<ul className="flex flex-col">
-							{CONVERSIONS.slice(0, 6).map((c) => (
+							{d.recent.map((c) => (
 								<li key={c.id} className="flex items-center gap-4 py-2.5 text-sm shadow-[inset_0_-1px_0_color-mix(in_oklch,var(--ink)_7%,transparent)]">
 									<span className="w-14 shrink-0 text-ink-3 tabular-nums">{when.format(new Date(c.at))}</span>
 									<span className="min-w-0 flex-1 truncate text-ink">{c.title}</span>
-									<span className="hidden truncate text-ink-3 sm:inline">{links.find((l) => l.id === c.link)?.label}</span>
+									<span className="hidden truncate text-ink-3 sm:inline">{c.via}</span>
 									<span className="w-20 shrink-0 text-right font-medium text-ink tabular-nums">+{formatCurrency(c.commission)}</span>
 								</li>
 							))}
@@ -211,9 +201,7 @@ export function AffiliateDashboard() {
 								</Link>
 							) : null}
 							<ul className="flex flex-col">
-								{[...links]
-									.sort((a, b) => b.revenue - a.revenue)
-									.slice(0, 3)
+								{links
 									.map((l) => (
 										<li key={l.id}>
 											<Link
@@ -225,7 +213,7 @@ export function AffiliateDashboard() {
 													<span className="truncate font-medium text-ink">{l.label}</span>
 													<span className="truncate text-ink-3 text-xs">{l.conversions} conversies</span>
 												</span>
-												<span className="shrink-0 font-medium text-ink tabular-nums">{formatCurrency(l.revenue * (tier.rate / 100))}</span>
+												<span className="shrink-0 font-medium text-ink tabular-nums">{formatCurrency(l.commission)}</span>
 											</Link>
 										</li>
 									))}
@@ -234,7 +222,7 @@ export function AffiliateDashboard() {
 					</aside>
 				</div>
 
-				<AffiliateClosing tier={tier} next={next} quarter={quarter} />
+				{Closing ? <Closing tier={tier} next={next} quarter={quarter} resources={d.resourcesCount} /> : null}
 				</>
 				)}
 			</div>

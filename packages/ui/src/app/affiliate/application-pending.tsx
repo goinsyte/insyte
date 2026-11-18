@@ -1,7 +1,8 @@
 import { Card, CardContent } from "../../components/card";
 import { Clock } from "../../icons";
 
-export function ApplicationPending() {
+/** The application waits for the brand: its name where the host knows it. */
+export function ApplicationPending({ brand = "Northwind" }: { brand?: string | undefined }) {
 	return (
 		<div className="flex flex-1 items-center justify-center p-8">
 			<Card className="max-w-md">
@@ -13,7 +14,7 @@ export function ApplicationPending() {
 						Aanmelding wordt beoordeeld
 					</h2>
 					<p className="text-muted-foreground font-medium text-xs">
-						Bedankt voor je aanmelding bij het affiliateprogramma van Northwind. Ons team
+						Bedankt voor je aanmelding bij het affiliateprogramma van {brand}. Ons team
 						beoordeelt aanmeldingen wekelijks · je krijgt een e-mail zodra er
 						een besluit is.
 					</p>
