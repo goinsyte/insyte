@@ -489,6 +489,20 @@ describe("the staff admin's tables", () => {
       expect(refusalOf(blank)).toContain("staff_sessions_staff_update")
     })
 
+    it("cannot wipe the Logboek through the purged suppliers' redaction (0106), which a member's request may", async () => {
+      const asStaff = await exitOf(
+        writingAsTeam((sql) => sql`select redact_purged_supplier_audit(array[${mintId("sup")}])`)
+      )
+      expect(refusalOf(asStaff)).toContain("redact_purged_supplier_audit: not for Insyte's support team")
+      const asOwner = await exitOf(
+        Effect.flatMap(
+          Effect.service(Db),
+          (db) => db.scoped((sql) => sql`select redact_purged_supplier_audit(array[${mintId("sup")}])`)
+        ).pipe(asOwnerOf(wsA, alice))
+      )
+      expect(refusalOf(asOwner)).toBe("accepted")
+    })
+
     it("has the guard on every table with row level security", async () => {
       const rows = await run(
         Effect.flatMap(Effect.service(Db), (db) =>

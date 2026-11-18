@@ -216,7 +216,33 @@ const schema = statements(
      end $$`,
   "revoke all on function staff_audit_forget_workspace() from public",
   `create trigger workspaces_forget_staff_audit before delete on workspaces
-     for each row execute function staff_audit_forget_workspace()`
+     for each row execute function staff_audit_forget_workspace()`,
+  //
+  // 0106's redaction of a purged supplier's Logboek lines runs as `system` whoever calls it: never the team, whose
+  // `staffHeld` it would step past. As 0106 wrote it, with the refusal first.
+  `create or replace function redact_purged_supplier_audit(ids text[]) returns integer
+     language plpgsql security definer set search_path = public as $$
+     declare
+       ws text := app_workspace_id();
+       prior text := current_setting('app.principal_kind', true);
+       n integer;
+     begin
+       if coalesce(prior, '') in ('staff', 'staff_viewer') then
+         raise exception 'redact_purged_supplier_audit: not for Insyte''s support team';
+       end if;
+       if ws is null then
+         raise exception 'redact_purged_supplier_audit: only the workspace in scope';
+       end if;
+       perform set_config('app.principal_kind', 'system', true);
+       update audit_events a set diff = '{}'::jsonb
+        where a.workspace_id = ws and a.subject_type = 'supplier' and a.subject_id = any(ids)
+          and a.diff <> '{}'::jsonb
+          and exists (select 1 from suppliers s
+                       where s.id = a.subject_id and s.workspace_id = ws and s.purged_at is not null);
+       get diagnostics n = row_count;
+       perform set_config('app.principal_kind', coalesce(prior, ''), true);
+       return n;
+     end $$`
 )
 
 /** Every table with row level security there is now, held as `staffHeld` says (a partition by its parent's). */
