@@ -414,7 +414,8 @@ export default Alchemy.Stack(
       ...WORKERS.api,
       placement: { region: "aws:eu-central-1" },
       // The public API and the MCP server (M19.2, M19.3) on the Worker's own hostname; the rest only through the console.
-      workersDev: true,
+      // No version preview URLs: they would serve the whole app outside Access (`Main.ts` refuses them too).
+      workersDev: { enabled: true, previewsEnabled: false },
       observability: OBSERVABILITY,
       env: {
         ...shared,
@@ -472,6 +473,9 @@ export default Alchemy.Stack(
       assets: { directory: "../apps/console/dist/client" },
       compatibility: { date: COMPATIBILITY_DATE, flags: ["nodejs_compat"] },
       placement: { region: "aws:eu-central-1" },
+      // Its stable URL only: the API answers on the console's origin and no other (`Main.ts`), so a version preview URL
+      // would be a console whose every call fails.
+      workersDev: { enabled: true, previewsEnabled: false },
       observability: OBSERVABILITY,
       // Every stage behind Access until the cut-over decides what is public (18 §5).
       access: {
