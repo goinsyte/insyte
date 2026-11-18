@@ -71,7 +71,7 @@ export function diffLines(before: string, after: string): DiffLine[] {
 	const b = after.split("\n");
 	const m = a.length;
 	const n = b.length;
-	const lcs: number[][] = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0));
+	const lcs: number[][] = Array.from({ length: m + 1 }, () => Array.from({ length: n + 1 }, () => 0));
 	for (let i = m - 1; i >= 0; i--) for (let j = n - 1; j >= 0; j--) lcs[i]![j] = a[i] === b[j] ? lcs[i + 1]![j + 1]! + 1 : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!);
 	const out: DiffLine[] = [];
 	let i = 0;

@@ -4,6 +4,7 @@ import { ConfirmDialog } from "../common/confirm-dialog";
 import { useNow } from "../hooks/use-now";
 import { type AgentLogEntry, canUndo } from "../lib/agent-log";
 import { ME } from "../lib/assignees";
+import type { Proposal } from "../lib/ask/scripts";
 import { applyEffect, useAgentEntries, useAgentLog } from "../stores/agent-log-store";
 import { useAutonomy, useDecide } from "../stores/autonomy-store";
 import { useWorkspace } from "../stores/workspace-store";
@@ -72,7 +73,7 @@ export function AgentSuggestion({
 	confirmFirst?: { title: string; description: string; confirmLabel: string } | undefined;
 	id: string;
 	action: AgentLogEntry["action"];
-	proposal: import("../lib/ask/scripts").Proposal;
+	proposal: Proposal;
 	evidence?: ReactNode;
 	draft: AgentDraft;
 	perform: () => Partial<Pick<AgentLogEntry, "effect" | "before" | "after" | "sentence">> | null;
