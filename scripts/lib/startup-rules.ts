@@ -106,7 +106,7 @@ export const checkStartup = (worker: string, runsMs: ReadonlyArray<number>, budg
  * so these only reach the startup graph through a static import of the app's code from the entry, or from a module the
  * entry imports. Each was the bulk of that startup before it moved (2026-11-18, the API Worker's 2.1 MB startup chunk):
  */
-export const HEAVY_AT_STARTUP: ReadonlyArray<{ readonly name: string; readonly source: RegExp }> = [
+const HEAVY_AT_STARTUP: ReadonlyArray<{ readonly name: string; readonly source: RegExp }> = [
   // The runtime, the router, Schema, the RPC and MCP servers: a third of the startup chunk.
   { name: "effect", source: /(^|\/)node_modules\/(\.bun\/[^/]+\/node_modules\/)?(effect|@effect\/[^/]+)\// },
   // Every slice's use cases, the contracts (RPC, `/v1`, MCP tools), the domain and the adapters: the other two thirds.
