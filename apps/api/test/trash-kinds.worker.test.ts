@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers"
 import { beforeAll, describe, expect, it } from "vitest"
 import { failure, join, ok, pastUndo, person, relay, run } from "./journeys.ts"
 import { call, rpc, sessionMe } from "./support.ts"
@@ -41,6 +42,10 @@ describe("more kinds in the Prullenbak", () => {
   const people = { owner: "", tidy: "", admin: "" }
   let workspace = ""
 
+  /** A course's images in the bucket. */
+  const images = async (course: string) =>
+    (await env.FILES.list({ prefix: `${workspace}/courses/${course}/` })).objects.map((o) => o.key)
+
   /** One of each new kind, removed by the owner on its own page. */
   const removedSet = async (tag: string) => {
     const automation = ok(await rpc("Automations.create", { name: `Flow ${tag}` }, people.owner)).automation!
@@ -55,6 +60,13 @@ describe("more kinds in the Prullenbak", () => {
       await rpc("Courses.create", { title: `Cursus ${tag}`, chapterId: chapter, moduleId }, people.owner)
     )
       .id!
+    // An image of its own, which a purge takes out of the bucket too.
+    const image = await call(`http://api.test/api/courses/${course}/media`, {
+      method: "PUT",
+      headers: { cookie: people.owner, "content-type": "image/png", "x-file-name": "pakbon.png" },
+      body: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
+    })
+    expect(image.status).toBe(201)
     ok(await rpc("Courses.remove", { ids: [course] }, people.owner))
     const webhook = ok(
       await rpc("Webhooks.create", endpoint(`https://trash.webhooks.example/${tag}?token=geheim`), people.owner)
@@ -178,8 +190,10 @@ describe("more kinds in the Prullenbak", () => {
       _tag: "Forbidden"
     })
 
-    // The owner purges them all: gone from their pages, and from the trash.
+    // The owner purges them all: gone from their pages, and from the trash; the course's image from the bucket.
+    expect(await images(set.course)).toHaveLength(1)
     expect(ok(await rpc("Trash.purge", { ids: Object.values(set) }, people.owner))).toEqual({ purged: 5 })
+    expect(await images(set.course)).toEqual([])
     expect(failure(await rpc("Automations.get", { id: set.automation }, people.owner))).toMatchObject({
       _tag: "NotFound"
     })
@@ -193,7 +207,9 @@ describe("more kinds in the Prullenbak", () => {
   it("sweeps every kind past its 30 days, and keeps what did not pass them", async () => {
     const old = await removedSet("oud")
     // The kinds joined long before: these count from their removal, 31 days ago.
+    expect(await images(old.course)).toHaveLength(1)
     expect(await sweep(workspace, { age: 31, joined: 60 })).toEqual({ purged: 5 })
+    expect(await images(old.course)).toEqual([])
     expect(failure(await rpc("Automations.get", { id: old.automation }, people.owner))).toMatchObject({
       _tag: "NotFound"
     })
