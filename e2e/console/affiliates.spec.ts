@@ -58,7 +58,7 @@ test("@affiliate a person applies to a brand's programme, is approved and opens 
   test.setTimeout(240_000)
   const run = Date.now().toString(36)
   const email = `e2e-${run}-brand@example.com`
-  const applicant = `e2e-${run}-femke@creator.example`
+  const applicant = `e2e-${run}-femke@example.com`
 
   // A new admin.
   await signUp(page, request, email, "Bram Merk")
@@ -79,7 +79,7 @@ test("@affiliate a person applies to a brand's programme, is approved and opens 
   await page.getByRole("button", { name: "Affiliate uitnodigen" }).first().click()
   const invite = page.getByRole("dialog", { name: "Affiliate uitnodigen" })
   await invite.getByPlaceholder("Femke Jansen").fill("Sanne")
-  await invite.getByPlaceholder("naam@kanaal.nl").fill(`e2e-${run}-sanne@creator.example`)
+  await invite.getByPlaceholder("naam@kanaal.nl").fill(`e2e-${run}-sanne@example.com`)
   await invite.getByRole("button", { name: "Uitnodiging versturen" }).click()
   await expect(page.getByText("Sanne uitgenodigd voor het partnerprogramma")).toBeVisible()
   await page.goto("/affiliates?view=uitnodigingen")
@@ -129,11 +129,11 @@ test("@affiliate a person applies to a brand's programme, is approved and opens 
   await expect(portal.locator("#a-code")).toBeDisabled()
   await portal.goto("/affiliate/settings/payment")
   await hydrated(portal)
-  await portal.locator("#account").fill("femke@creator.example")
+  await portal.locator("#account").fill("femke@example.com")
   await portal.getByRole("button", { name: "Opslaan" }).click()
   await expect(portal.getByText("Uitbetalingen gaan naar PayPal")).toBeVisible()
-  await expect(portal.getByText(/Nu naar PayPal, f•+@creator\.example/)).toBeVisible()
-  await expect(portal.getByText("femke@creator.example", { exact: true })).toHaveCount(0)
+  await expect(portal.getByText(/Nu naar PayPal, f•+@example\.com/)).toBeVisible()
+  await expect(portal.getByText("femke@example.com", { exact: true })).toHaveCount(0)
 
   // The brand's list has them, and the running month approves nothing.
   await page.goto("/affiliates")

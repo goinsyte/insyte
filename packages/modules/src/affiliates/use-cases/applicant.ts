@@ -122,7 +122,7 @@ export const me = Effect.fn("AffiliateApply.me")(function*() {
       application: null
     })
   }
-  const [app] = (yield* applications).filter((r) => r.status !== "approved")
+  const app = (yield* applications).find((r) => r.status !== "approved")
   if (app === undefined) return yield* new NotAffiliate()
   return new AffiliateMe({
     state: app.status === "pending" ? "pending" : "rejected",
