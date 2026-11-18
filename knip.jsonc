@@ -20,9 +20,11 @@
     "@secretlint/secretlint-rule-preset-recommend",
   ],
   "workspaces": {
-    // The Claude Code hook is run by .claude/settings.json, which knip does not read.
+    // The Claude Code hook is run by .claude/settings.json, which knip does not read. The load test is run by hand
+    // (`bun load/prepare.ts`, `k6 run load/rpc.k6.ts`); `k6/*` are k6's own modules, not packages.
     ".": {
-      "entry": [".claude/hooks/*.ts"],
+      "entry": [".claude/hooks/*.ts", "load/*.ts"],
+      "ignoreDependencies": ["k6"],
     },
     "packages/domain": {
       "entry": ["test/**/*.ts"],

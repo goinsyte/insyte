@@ -177,6 +177,8 @@
     {
       "files": [
         "scripts/**/*.ts",
+        // The load test's data step, run by hand, says what it wrote.
+        "load/*.ts",
         // Package build scripts: a generator that says what it wrote is doing its job.
         "packages/*/build.ts"
       ],
