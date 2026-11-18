@@ -2,7 +2,7 @@ import { PgClient } from "@effect/sql-pg"
 import { mintId, UserId, WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentPrincipal, CurrentWorkspace, type Principal } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
-import { Effect, Layer, Redacted, Schema } from "effect"
+import { Cause, Effect, Layer, Redacted, Schema } from "effect"
 import { beforeAll, describe, expect, it } from "vitest"
 import { Db, DbLive } from "../src/Db.ts"
 import { TENANT_TABLES } from "../src/Tenancy.ts"
@@ -395,6 +395,30 @@ describe("affiliates", () => {
       ).pipe(Effect.exit)
     )
     expect(relayed._tag).toBe("Success")
+  })
+
+  it("refuses Insyte's support team every definer that acts as the system", async () => {
+    const staff = `staff-${runId}@example.com`
+    for (
+      const call of [
+        "select count(*) from affiliate_workspaces()",
+        `select affiliate_click('${ids.slugA}', '${mintId("akc")}', null, null, 'NL')`,
+        "select affiliate_storefront()",
+        "select count(*) from affiliate_destinations()",
+        "select count(*) from affiliate_principals()",
+        "select count(*) from affiliate_applications_mine()",
+        `select count(*) from affiliate_program_landing('prog${runId}')`
+      ]
+    ) {
+      const exit = await run(
+        Effect.flatMap(
+          Effect.service(Db),
+          (db) => db.recordAsStaff(staff, WorkspaceId.make(ws))((sql) => sql.unsafe(call))
+        )
+          .pipe(Effect.exit)
+      )
+      expect([call, exit._tag === "Failure" && Cause.pretty(exit.cause).includes("support team")]).toEqual([call, true])
+    }
   })
 
   it("keeps the ledger from a truncate, which has no row to tell the purge by", async () => {

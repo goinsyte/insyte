@@ -4,6 +4,7 @@ import {
   partnerClosed,
   partnerGuard,
   sealedPartition,
+  staffHeld,
   tenantTable
 } from "@insyte/database/Tenancy"
 import { statements } from "../statements.ts"
@@ -56,6 +57,7 @@ export default statements(
   "create trigger affiliate_programs_touch before update on affiliate_programs for each row execute function touch_updated_at()",
   ...tenantTable("affiliate_programs"),
   newcomerBlind("affiliate_programs"),
+  ...staffHeld("affiliate_programs"),
   // An affiliate reads its programme (tiers, FAQ, payout day), never changes it.
   ...affiliateProjection("affiliate_programs", "true"),
   `create table affiliate_tiers (
@@ -68,6 +70,7 @@ export default statements(
    )`,
   ...tenantTable("affiliate_tiers"),
   newcomerBlind("affiliate_tiers"),
+  ...staffHeld("affiliate_tiers"),
   ...affiliateProjection("affiliate_tiers", "true"),
   //
   `create table affiliate_applications (
@@ -97,6 +100,7 @@ export default statements(
      where status = 'pending'`,
   ...tenantTable("affiliate_applications"),
   newcomerBlind("affiliate_applications"),
+  ...staffHeld("affiliate_applications"),
   ...affiliateProjection("affiliate_applications", OWN("affiliate_id")),
   //
   `create table affiliates (
@@ -133,6 +137,7 @@ export default statements(
   "create index affiliates_list on affiliates (workspace_id, joined_at desc, id desc)",
   ...tenantTable("affiliates"),
   newcomerBlind("affiliates"),
+  ...staffHeld("affiliates"),
   ...affiliateProjection("affiliates", OWN("id"), { update: "true" }),
   // Its name, address, code and where its money goes; never its tier, rate, status or who approved it.
   // Its name and how it is paid; never its code, tier, rate, status or its discount (the brand's, PLAN item 22).
@@ -157,6 +162,7 @@ export default statements(
   "create index affiliate_codes_affiliate on affiliate_codes (affiliate_id)",
   ...tenantTable("affiliate_codes"),
   newcomerBlind("affiliate_codes"),
+  ...staffHeld("affiliate_codes"),
   // Read only for the affiliate: a code is what attributes an order, so only the brand makes or ends one.
   ...affiliateProjection("affiliate_codes", OWN("affiliate_id")),
   //
@@ -178,6 +184,7 @@ export default statements(
   "create index affiliate_links_list on affiliate_links (workspace_id, affiliate_id, created_at desc, id desc)",
   ...tenantTable("affiliate_links"),
   newcomerBlind("affiliate_links"),
+  ...staffHeld("affiliate_links"),
   ...affiliateProjection("affiliate_links", OWN("affiliate_id"), { insert: "true", update: "true" }),
   partnerGuard("affiliate_links", ["label", "archived_at"]),
   // Clicks through the redirect, by month (domain.md §18.2: 13 months online). The address and the browser only as
@@ -200,6 +207,7 @@ export default statements(
   "create index affiliate_clicks_affiliate on affiliate_clicks (workspace_id, affiliate_id, at)",
   ...tenantTable("affiliate_clicks"),
   newcomerBlind("affiliate_clicks"),
+  ...staffHeld("affiliate_clicks"),
   partnerClosed("affiliate_clicks"),
   // An address as one person's: lower case, without a \`+tag\`, and Gmail's without its dots (\`a.b+x@googlemail.com\` is
   // \`ab@gmail.com\`). What the self-referral check compares (M16 step 4).
@@ -250,6 +258,7 @@ export default statements(
   "create index affiliate_conversions_payout on affiliate_conversions (payout_id) where payout_id is not null",
   ...tenantTable("affiliate_conversions"),
   newcomerBlind("affiliate_conversions"),
+  ...staffHeld("affiliate_conversions"),
   partnerClosed("affiliate_conversions"),
   // The money, append-only (domain.md §14.1): never updated, never deleted by the app.
   `create table affiliate_ledger_entries (
@@ -279,6 +288,7 @@ export default statements(
   "create index affiliate_ledger_payout on affiliate_ledger_entries (payout_id) where payout_id is not null",
   ...tenantTable("affiliate_ledger_entries"),
   newcomerBlind("affiliate_ledger_entries"),
+  ...staffHeld("affiliate_ledger_entries"),
   ...affiliateProjection("affiliate_ledger_entries", OWN("affiliate_id")),
   "revoke update, delete on affiliate_ledger_entries from insyte_app",
   // For every role, cascades included (they run as the table's owner): the one way out is the workspace's own purge
@@ -323,6 +333,7 @@ export default statements(
   "create index affiliate_payouts_month on affiliate_payouts (workspace_id, month, affiliate_id)",
   ...tenantTable("affiliate_payouts"),
   newcomerBlind("affiliate_payouts"),
+  ...staffHeld("affiliate_payouts"),
   ...affiliateProjection("affiliate_payouts", OWN("affiliate_id")),
   `alter table affiliate_conversions add constraint affiliate_conversions_payout_fk foreign key (payout_id)
      references affiliate_payouts(id) on delete set null`,
@@ -348,6 +359,7 @@ export default statements(
   "create index affiliate_resources_list on affiliate_resources (workspace_id, updated_at desc, id desc)",
   ...tenantTable("affiliate_resources"),
   newcomerBlind("affiliate_resources"),
+  ...staffHeld("affiliate_resources"),
   ...affiliateProjection("affiliate_resources", "archived_at is null"),
   // The order's link from the storefront: the cart attribute `insyte_ref` (the redirect's, carried by the store).
   "alter table orders add column affiliate_ref text check (length(affiliate_ref) <= 64)",
@@ -410,6 +422,9 @@ export default statements(
      language plpgsql security definer set search_path = public, pg_temp as $$
      declare prior text := current_setting('app.principal_kind', true);
      begin
+       if coalesce(current_setting('app.principal_kind', true), '') in ('staff', 'staff_viewer') then
+         raise exception 'affiliate_destinations: not for Insyte''s support team' using errcode = '42501';
+       end if;
        if prior is distinct from 'affiliate' or app_partner_id() is null then return; end if;
        if not exists (select 1 from affiliates a where a.id = app_partner_id() and a.workspace_id = app_workspace_id())
        then return; end if;
@@ -427,6 +442,9 @@ export default statements(
      declare prior text := current_setting('app.principal_kind', true);
              base text;
      begin
+       if coalesce(current_setting('app.principal_kind', true), '') in ('staff', 'staff_viewer') then
+         raise exception 'affiliate_storefront: not for Insyte''s support team' using errcode = '42501';
+       end if;
        if prior is distinct from 'affiliate' or app_partner_id() is null then return null; end if;
        perform set_config('app.principal_kind', 'system', true);
        select coalesce(p.storefront_base_url,
@@ -462,6 +480,9 @@ export default statements(
      declare prior text := current_setting('app.principal_kind', true);
              who text := nullif(current_setting('app.user_id', true), '');
      begin
+       if coalesce(current_setting('app.principal_kind', true), '') in ('staff', 'staff_viewer') then
+         raise exception 'affiliate_principals: not for Insyte''s support team' using errcode = '42501';
+       end if;
        if who is null then return; end if;
        perform set_config('app.principal_kind', 'system', true);
        return query
@@ -480,6 +501,9 @@ export default statements(
      declare prior text := current_setting('app.principal_kind', true);
              who text := nullif(current_setting('app.user_id', true), '');
      begin
+       if coalesce(current_setting('app.principal_kind', true), '') in ('staff', 'staff_viewer') then
+         raise exception 'affiliate_applications_mine: not for Insyte''s support team' using errcode = '42501';
+       end if;
        if who is null then return; end if;
        perform set_config('app.principal_kind', 'system', true);
        return query
@@ -497,6 +521,9 @@ export default statements(
      language plpgsql security definer set search_path = public, pg_temp as $$
      declare prior text := current_setting('app.principal_kind', true);
      begin
+       if coalesce(current_setting('app.principal_kind', true), '') in ('staff', 'staff_viewer') then
+         raise exception 'affiliate_program_landing: not for Insyte''s support team' using errcode = '42501';
+       end if;
        perform set_config('app.principal_kind', 'system', true);
        return query
          select p.workspace_id, w.name, p.enabled from affiliate_programs p join workspaces w on w.id = p.workspace_id
@@ -521,6 +548,9 @@ export default statements(
              mail text;
              refused text;
      begin
+       if coalesce(current_setting('app.principal_kind', true), '') in ('staff', 'staff_viewer') then
+         raise exception 'affiliate_apply: not for Insyte''s support team' using errcode = '42501';
+       end if;
        if who is null then return; end if;
        perform set_config('app.principal_kind', 'system', true);
        if p_from is not null then
@@ -587,6 +617,9 @@ export default statements(
              tier_rate numeric;
              person text;
      begin
+       if coalesce(current_setting('app.principal_kind', true), '') in ('staff', 'staff_viewer') then
+         raise exception 'affiliate_join: not for Insyte''s support team' using errcode = '42501';
+       end if;
        if who is null or ws is null or p_token_hash is null then return null; end if;
        perform set_config('app.principal_kind', 'system', true);
        select i.* into inv from invitations i
@@ -632,6 +665,9 @@ export default statements(
              l affiliate_links%rowtype;
              base text;
      begin
+       if coalesce(current_setting('app.principal_kind', true), '') in ('staff', 'staff_viewer') then
+         raise exception 'affiliate_click: not for Insyte''s support team' using errcode = '42501';
+       end if;
        perform set_config('app.principal_kind', 'system', true);
        select k.* into l from affiliate_links k
        where k.short_slug = p_slug and k.archived_at is null
@@ -662,6 +698,9 @@ export default statements(
      language plpgsql security definer set search_path = public, pg_temp as $$
      declare prior text := current_setting('app.principal_kind', true);
      begin
+       if coalesce(current_setting('app.principal_kind', true), '') in ('staff', 'staff_viewer') then
+         raise exception 'affiliate_workspaces: not for Insyte''s support team' using errcode = '42501';
+       end if;
        perform set_config('app.principal_kind', 'system', true);
        return query select p.workspace_id from affiliate_programs p join workspaces w on w.id = p.workspace_id
                     where w.deleted_at is null;

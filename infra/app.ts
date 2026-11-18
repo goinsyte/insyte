@@ -409,6 +409,37 @@ export default Alchemy.Stack(
       }
     })
 
+    /*
+     * The staff admin (M18, `/api/__admin` on the console's host): its own Access application, a host-and-path one
+     * that takes the path over from the console's, with its own staff-only policy (not "Insyte reference"). The API
+     * Worker verifies the JWT that application signs against its `aud` and the team's keys, and checks the address on
+     * the same allowlist. With no addresses (`STAFF_EMAILS` unset, as on previews) there is no application, the Worker
+     * gets no audience, and it refuses everyone.
+     */
+    const staffEmails = (yield* Config.String("STAFF_EMAILS").pipe(Config.withDefault("")))
+      .split(/[\s,]+/)
+      .map((email) => email.trim().toLowerCase())
+      .filter((email) => email.includes("@"))
+    const staffAdmin = staffEmails.length === 0 ? undefined : yield* Cloudflare.Access.Application("StaffAdmin", {
+      type: "self_hosted",
+      name: `Insyte staff admin · ${stage}`,
+      domain: `${consoleHost}/api/__admin`,
+      sessionDuration: "1h",
+      policies: [
+        yield* Cloudflare.Access.Policy("Staff", {
+          name: `insyte-staff-${stage}`,
+          decision: "allow",
+          include: staffEmails.map((email) => ({ email }))
+        })
+      ]
+    })
+    const staff = {
+      STAFF_EMAILS: staffEmails.join(","),
+      STAFF_ACCESS_AUD: staffAdmin?.aud ?? "",
+      // `<team>.cloudflareaccess.com`: where the keys are, and the JWT's issuer.
+      STAFF_ACCESS_TEAM: yield* Config.String("STAFF_ACCESS_TEAM").pipe(Config.withDefault(""))
+    }
+
     const api = yield* Cloudflare.Worker("Api", {
       name: `insyte-api-${stage}`,
       ...WORKERS.api,
@@ -438,7 +469,9 @@ export default Alchemy.Stack(
         BILLING_ADAPTER: environment === "preview" ? "fake" : "stripe",
         ...stripe,
         // The website chat's widget routes are this Worker's alone (M15 step 8).
-        ...webchat
+        ...webchat,
+        // The staff admin's gate (M18): the allowlist, and what verifies Access's JWT.
+        ...staff
       }
     })
 

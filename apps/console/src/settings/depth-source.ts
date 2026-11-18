@@ -1,4 +1,4 @@
-import { useAtomRefresh, useAtomSet } from "@effect/atom-react"
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
 import type { LinkUsage, RetentionValue, SettingsSection, StatusCounts } from "@insyte/modules/settings/domain/Settings"
 import {
   type Brand,
@@ -8,11 +8,19 @@ import {
   type ShipStatus
 } from "@insyte/ui/app/lib/settings-depth"
 import { undoable } from "@insyte/ui/app/lib/undo"
-import type { DepthSection, PrivacyHere, Said, SettingsDepthSource } from "@insyte/ui/app/settings/depth/source"
+import type {
+  DepthSection,
+  PrivacyHere,
+  Said,
+  SettingsDepthSource,
+  SupportAccessHere
+} from "@insyte/ui/app/settings/depth/source"
 import { Exit } from "effect"
+import { AsyncResult } from "effect/reactivity"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 import { DEPTH, depthSections, depthWrites } from "../data/settings-depth.ts"
+import { SUPPORT, supportAtom, supportWrites } from "../data/support.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
 
 /*
@@ -165,6 +173,36 @@ function usePrivacy(section: SettingsSection | undefined, refresh: () => void): 
   }
 }
 
+/** Insyte-support mag meekijken (M18), on Gegevens en privacy only: the owner's switch, and whether support is in. */
+function useSupport(section: SettingsSection | undefined): SupportAccessHere | undefined {
+  const result = useAtomValue(supportAtom)
+  const set = useAtomSet(supportWrites.setAccess, { mode: "promiseExit" })
+  const [changing, setChanging] = useState(false)
+  if (section?.section !== "retention" || !AsyncResult.isSuccess(result)) return undefined
+  const access = result.value
+  const iso = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString())
+  return {
+    until: iso(access.until),
+    sessionEndsAt: iso(access.session?.endsAt ?? null),
+    days: access.days,
+    canChange: access.canChange,
+    changing,
+    setOn: (on) => {
+      if (changing) return
+      setChanging(true)
+      void set({ payload: { on }, reactivityKeys: [...SUPPORT] }).then((exit) => {
+        setChanging(false)
+        if (Exit.isFailure(exit)) return sayRefusal(failureOf(exit), COPY)
+        toast.success(on ? "Insyte-support mag meekijken" : "Insyte-support kan niet meer meekijken", {
+          description: on
+            ? `Alleen lezen, ${access.days} dagen lang. Je ziet het wanneer support meekijkt.`
+            : "Een sessie die nog liep, is gestopt."
+        })
+      })
+    }
+  }
+}
+
 export function useConsoleDepthSource(
   section: SettingsSection,
   extra: { counts?: StatusCounts | undefined; usage?: LinkUsage | undefined } = {}
@@ -174,6 +212,7 @@ export function useConsoleDepthSource(
   const undo = useAtomSet(depthWrites.undo, { mode: "promiseExit" })
   const refresh = useAtomRefresh(depthSections[section.section])
   const privacy = usePrivacy(section, refresh)
+  const support = useSupport(section)
   const key = (Object.keys(SERVER) as Array<keyof typeof SERVER>).find((k) => SERVER[k] === section.section)!
   const saved = useMemo(() => designOf(section, extra.counts), [section, extra.counts])
   return {
@@ -204,6 +243,7 @@ export function useConsoleDepthSource(
     ...(extra.usage === undefined ? {} : { linkUsage: extra.usage }),
     ...(section.section === "vat" ? { stores: section.stores } : {}),
     ...(privacy === undefined ? {} : { privacy }),
+    ...(support === undefined ? {} : { support }),
     // 17TRACK is not linkable from the console yet (no marketplace): said, not offered.
     trackingUnavailable: true,
     uploadLogo: async (file) => {

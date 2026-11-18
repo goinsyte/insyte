@@ -36,6 +36,24 @@ export interface PrivacyHere {
 }
 
 /**
+ * Gegevens en privacy's "Insyte-support mag meekijken" (M18): the owner's consent for Insyte's team to look along,
+ * read-only, for a few days, and whether someone is looking along now. Absent, the page shows no such card.
+ */
+export interface SupportAccessHere {
+  /** The consent holds until then (ISO); none is off. */
+  until: string | null
+  /** A session of looking along right now ends at the latest then (ISO). */
+  sessionEndsAt: string | null
+  /** How many days the consent lasts once turned on. */
+  days: number
+  /** Only the owner may turn it on or off. */
+  canChange: boolean
+  /** A change is out: the switch waits for it. */
+  changing: boolean
+  setOn: (on: boolean) => void
+}
+
+/**
  * E-mail en domein beyond its senders: where the domain stands and the check again. `ready` shows the records; the rest
  * say honestly why there are none: sending from your own domain is not available here, no domain is set up yet, the
  * domain is in use elsewhere, or its records could not be fetched. A host that can set the domain up and take it away
@@ -72,6 +90,7 @@ export interface SettingsDepthSource {
   /** The stores Btw lists, by id and name. */
   stores?: ReadonlyArray<{ id: string; name: string }> | undefined
   privacy?: PrivacyHere | undefined
+  support?: SupportAccessHere | undefined
   domain?: DomainHere | undefined
   /**
    * Keeps a picked logo and answers where it is now shown from, or nothing when it was refused (the host said why);

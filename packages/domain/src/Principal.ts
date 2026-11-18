@@ -20,7 +20,11 @@ export const RoleSnapshot = Schema.Struct({
 })
 export type RoleSnapshot = typeof RoleSnapshot.Type
 
-/** Who is acting (domain.md §1, principal refs). `insyte` drafts but never changes anything, so it is no principal. */
+/**
+ * Who is acting (domain.md §1, principal refs). `insyte` drafts but never changes anything, so it is no principal.
+ * `staff_viewer` is a session of Insyte's support team looking along in one workspace, with its owner's consent (M18,
+ * the staff admin at `/api/__admin`): it only ever reads, which `Policy` and `Db` (a read-only transaction) both hold.
+ */
 export const PrincipalKind = Schema.Literals([
   "member",
   "supplier_contact",
@@ -28,7 +32,8 @@ export const PrincipalKind = Schema.Literals([
   "api_key",
   "service_account",
   "agent",
-  "system"
+  "system",
+  "staff_viewer"
 ])
 export type PrincipalKind = typeof PrincipalKind.Type
 

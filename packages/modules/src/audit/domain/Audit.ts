@@ -128,7 +128,9 @@ const SECTIONS: Readonly<Record<string, SectionLabels>> = {
   domain_senders: { page: PAGE.domain },
   vat: { page: PAGE.vat },
   // Je gegevens' automatic export (M17 step 5).
-  data: { page: PAGE.data, whole: "Automatisch exporteren" }
+  data: { page: PAGE.data, whole: "Automatisch exporteren" },
+  // Insyte-support's read-only look along (M18): the owner's consent, and each session's start, reads and end.
+  support: { page: PAGE.privacy, whole: "Insyte-support mag meekijken" }
 }
 
 /** `settings.retention.*` is Gegevens en privacy's; the older `workspace.retention_updated` is Account's. */
@@ -152,7 +154,7 @@ export const pagesOf = (sections: ReadonlyArray<{ readonly section: string; read
 
 /** The sections a page's lines may have, for narrowing in SQL; the page is checked again per line. */
 export const sectionsOfPage = (page: string): ReadonlyArray<string> => {
-  if (page === PAGE.privacy.id) return ["retention"]
+  if (page === PAGE.privacy.id) return ["retention", "support"]
   const known = Object.entries(SECTIONS).filter(([, labels]) => labels.page.id === page).map(([section]) => section)
   return known.length > 0 ? known : [page]
 }
@@ -214,6 +216,8 @@ export const changesOf = (
   const labels = labelsOf(row.section, row.action)
   const diff = isRecord(row.diff) ? row.diff : {}
   const depthField = row.action.startsWith("settings.") ? row.action.split(".").slice(2).join(".") : ""
+  // What Insyte-support did while looking along, as one sentence (`support.session_started`, `.read`, `.session_ended`).
+  if (typeof diff["said"] === "string") return [{ field: "Insyte-support", before: "—", after: diff["said"] }]
   if ("before" in diff || "after" in diff) {
     const field = depthField || row.section
     return [{

@@ -11,7 +11,14 @@ export default defineConfig({
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
       // A deployed stage must have an auth secret (local falls back to a fixed one): made up, as the tests sign nothing.
-      miniflare: { bindings: { ENVIRONMENT: "staging", BETTER_AUTH_SECRET: "not-a-real-secret-for-the-staging-tests" } }
+      // The staff allowlist holds an address, so a refusal there is the stage's, not an empty list's.
+      miniflare: {
+        bindings: {
+          ENVIRONMENT: "staging",
+          BETTER_AUTH_SECRET: "not-a-real-secret-for-the-staging-tests",
+          STAFF_EMAILS: "staff@example.com"
+        }
+      }
     })
   ],
   test: {

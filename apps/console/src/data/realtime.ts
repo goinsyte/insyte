@@ -30,6 +30,7 @@ import { ACCESS_LIST, ROLES } from "./roles.ts"
 import { sheetKey, SHEETS } from "./sheets.ts"
 import { HEALTH, STORE_SYNC, STORES } from "./stores.ts"
 import { SUPPLIERS } from "./suppliers.ts"
+import { SUPPORT } from "./support.ts"
 import { TEAM } from "./team.ts"
 import { TICKETS } from "./tickets.ts"
 import { WEBHOOKS } from "./webhooks.ts"
@@ -102,7 +103,9 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   affiliate_resource: AFFILIATES,
   affiliate_program: AFFILIATES,
   affiliate_conversion: AFFILIATES,
-  affiliate_portal: AFFILIATES
+  affiliate_portal: AFFILIATES,
+  // Insyte-support mag meekijken (M18): the owner's consent, a session started or ended (the frame's line).
+  support: SUPPORT
 }
 // An affiliate invitation is an invitation: the list of invites reads it too.
 REFETCH["invitation"] = [...(REFETCH["invitation"] ?? []), ...AFFILIATES]

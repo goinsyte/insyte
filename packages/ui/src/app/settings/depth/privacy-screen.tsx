@@ -8,6 +8,7 @@ import { UnsavedBar } from "../form"
 import { SettingCard } from "../setting-card"
 import { useSection } from "./kit"
 import { useSettingsDepthSource } from "./source"
+import { SupportAccessCard } from "./support-access-card"
 
 const PERIODS: ReadonlyArray<{ months: number | null; label: string }> = [
   { months: 3, label: "3 maanden" },
@@ -33,7 +34,8 @@ export function PrivacyPage() {
         ? [[`Bewaren: ${c.label}`, label(o.months), label(c.months)] as [string, string, string]]
         : []
     }), 3)
-  const privacy = useSettingsDepthSource().privacy!
+  const source = useSettingsDepthSource()
+  const privacy = source.privacy!
   const live = { erasing: privacy.erasing }
   const counted = privacy.countedAt
   const [confirm, setConfirm] = useState(false)
@@ -148,6 +150,7 @@ export function PrivacyPage() {
           </div>
         </div>
       </SettingCard>
+      {source.support ? <SupportAccessCard support={source.support} /> : null}
       <ConfirmDialog
         open={confirm}
         onOpenChange={setConfirm}

@@ -179,7 +179,9 @@ export const TENANT_TABLES = [
   "affiliate_conversions",
   "affiliate_ledger_entries",
   "affiliate_payouts",
-  "affiliate_resources"
+  "affiliate_resources",
+  // The staff admin (M18, Support): a staff session of looking along in the workspace, read-only, with consent.
+  "staff_sessions"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 
@@ -254,6 +256,39 @@ export const newcomerMay = (
        using (${newcomerRows(may.update)}) with check (${newcomerRows(may.update)})`,
   `create policy ${table}_newcomer_delete on ${table} as restrictive for delete using (${newcomerRows(may.delete)})`
 ]
+
+/** The kinds of Insyte's support team (M18, 0107), set only by `Db.asStaff`, `Db.recordAsStaff` and a staff read. */
+const NOT_STAFF = "coalesce(app_principal_kind(), '') not in ('staff', 'staff_viewer')"
+
+/**
+ * Insyte's support team held to what it may do in a table with row level security (M18, 0107), whatever else lets it
+ * in: `staff_viewer` (a session looking along) reads a row only while its session is live and the owner's consent
+ * holds (`app_staff_session_live()`, checked by the database on every statement), and neither staff kind inserts,
+ * changes or removes a row, but where `may` names what `staff` may write (its sessions, its audit, the Logboek's
+ * support lines). Four restrictive policies on `insyte_app`. A migration that makes a table adds this with its
+ * `tenantTable`; `staff.test.ts` checks that every table with row level security has it.
+ */
+export const staffHeld = (
+  table: string,
+  may: {
+    readonly insert?: string
+    /** The rows `staff` may change, and what they may become (`to`, when not the same predicate). */
+    readonly update?: string | { readonly rows: string; readonly to: string }
+  } = {}
+): Array<string> => {
+  const writes = (rows: string | undefined) =>
+    rows === undefined ? NOT_STAFF : `${NOT_STAFF} or (app_principal_kind() = 'staff' and (${rows}))`
+  const update = typeof may.update === "string" ? { rows: may.update, to: may.update } : may.update
+  return [
+    `create policy ${table}_staff_select on ${table} as restrictive for select to insyte_app
+       using (app_principal_kind() is distinct from 'staff_viewer' or (select app_staff_session_live()))`,
+    `create policy ${table}_staff_insert on ${table} as restrictive for insert to insyte_app
+       with check (${writes(may.insert)})`,
+    `create policy ${table}_staff_update on ${table} as restrictive for update to insyte_app
+       using (${writes(update?.rows)}) with check (${writes(update?.to)})`,
+    `create policy ${table}_staff_delete on ${table} as restrictive for delete to insyte_app using (${NOT_STAFF})`
+  ]
+}
 
 /**
  * The statements that close one partition of a partitioned tenant table to direct use (0097): row level security on

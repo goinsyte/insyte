@@ -3456,5 +3456,19 @@
     "service": "allow",
     "finance": "allow",
     "view": "allow"
+  },
+  "Support.status": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Support.setAccess": {
+    "owner": "allow",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
   }
 }

@@ -97,6 +97,7 @@ import { ShellHandlers } from "./handlers/shell.ts"
 import { StoresHandlers } from "./handlers/stores.ts"
 import { SupplierPortalHandlers } from "./handlers/supplier-portal.ts"
 import { SuppliersHandlers } from "./handlers/suppliers.ts"
+import { SupportHandlers } from "./handlers/support.ts"
 import { SystemHandlers } from "./handlers/system.ts"
 import { ThreadsHandlers } from "./handlers/threads.ts"
 import { TicketsHandlers } from "./handlers/tickets.ts"
@@ -189,6 +190,8 @@ export const RpcContext = Layer.mergeAll(
   AffiliatesHandlers,
   AffiliatePortalHandlers.pipe(Layer.provide(UndoService.layer)),
   AffiliateApplyHandlers,
+  // Insyte-support's consent and banner (M18): the slice loads with the first call (`handlers/support.ts`).
+  SupportHandlers,
   AuditHandlers.pipe(Layer.provide(AuditService.layer)),
   TrashHandlers.pipe(Layer.provide(TrashService.layer)),
   PrivacyHandlers.pipe(Layer.provide(PrivacyService.layer)),

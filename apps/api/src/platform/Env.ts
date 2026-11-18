@@ -166,6 +166,14 @@ declare global {
       readonly MAIL_FROM?: string
       /** A secret: Resend's sending key, where `MAIL_ADAPTER=resend`. */
       readonly RESEND_API_KEY?: string
+      /**
+       * The staff admin (M18, `/api/__admin`): the Cloudflare Access team's domain (`<team>.cloudflareaccess.com`) and
+       * the audience tag of the staff Access application, whose JWT (`Cf-Access-Jwt-Assertion`) the Worker verifies;
+       * and the staff allowlist, comma-separated addresses. Either absent or empty refuses everyone.
+       */
+      readonly STAFF_ACCESS_TEAM?: string
+      readonly STAFF_ACCESS_AUD?: string
+      readonly STAFF_EMAILS?: string
       /** `off` turns off the limits per IP (previews, behind Access); anything else, or absent, keeps them (M2.3). */
       readonly IP_LIMITS?: string
       /** A secret: PostHog's project key. Absent: product events are captured for the dev route instead (17 §5). */

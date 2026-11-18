@@ -24,6 +24,9 @@ import { requireOwner } from "./reads.ts"
  *
  * What is left out, and why, is `EXCLUDED`: every tenant table is either exported or named there, so a table added
  * later is a failing test until someone decides. Columns that hold a secret or its hash never leave (`withoutSecrets`).
+ * Insyte-support looking along (M18) is the workspace's: its consent is on its `workspaces` row and its sessions (who
+ * of the team, when, why) are `staff_sessions`, both exported; the team's own `staff_audit` is Insyte's, not a tenant
+ * table, and not in it.
  */
 
 /** Tenant tables not in the export: secrets, or the machinery that runs requests, which holds nothing of the business. */
