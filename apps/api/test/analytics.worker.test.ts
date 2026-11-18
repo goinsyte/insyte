@@ -189,6 +189,42 @@ describe("Analyse", () => {
     expect(numbers).not.toContain(`#A${id(3)}`)
     expect(page.rows.find((r) => r.number === `#A${id(1)}`)).toMatchObject({ outcome: "late", country: "DE" })
 
+    // Omzet, the average order and Terugbetaald, taken apart by store: the same numbers as the figures and lookups.
+    const explainOf = (tag: string) =>
+      rpc("Analytics.explain", { ...pair, key: { _tag: tag } as { _tag: "revenue" } }, owner.cookie).then(ok)
+    const revenue = await explainOf("revenue")
+    // Read again: the dollar order's rate may have come in since (`unconverted` above).
+    const now = ok(await rpc("Analytics.overview", pair, owner.cookie))
+    expect(revenue.a).toBe(figure(now.figures, "revenue").a)
+    expect(revenue.drivers.map((d) => d.key)).toContain(storeId)
+    expect(revenue.drivers.reduce((n, d) => n + d.a, 0)).toBe(revenue.a)
+    expect(revenue.recordCount).toBe(paid.recordCount)
+    const average = await explainOf("average_order")
+    expect(average.a).toBe(Math.round(revenue.a / (paid.a || 1)))
+    // Terugbetaald counts by the day an order was placed, as its figure does: the order placed in B, refunded in A.
+    const refundedA = await explainOf("refunded")
+    expect(refundedA.b).toBeGreaterThanOrEqual(4000)
+    const refundedB = ok(await rpc("Analytics.explain", { a: B, b: month(2), key: { _tag: "refunded" } }, owner.cookie))
+    expect(refundedB.a).toBe(refundedA.b)
+    expect(refundedB.recordCount).toBeGreaterThanOrEqual(1)
+    // Kosten's figures: as Kosten (and Vraag Insyte's month figures) read them, with what they are made of.
+    const looked = ok(
+      await rpc(
+        "Analytics.figures",
+        { requests: ["nettowinst", "marge", "kosten"].map((metric) => ({ metric })) },
+        owner.cookie
+      )
+    ).figures
+    const net = await explainOf("net_profit")
+    expect(net.a).toBe(Math.round((looked.find((f) => f.metric === "nettowinst")!.value ?? 0) * 100))
+    expect(net.drivers.map((d) => d.dim)).toEqual(["part", "part", "part"])
+    expect(net.drivers.map((d) => d.key)).toEqual(["revenue", "ads", "other"])
+    const margin = await explainOf("margin")
+    expect(margin.a).toBeCloseTo((looked.find((f) => f.metric === "marge")!.value ?? 0) * 100, 1)
+    const costs = await explainOf("costs")
+    expect(costs.a).toBe(Math.round((looked.find((f) => f.metric === "kosten")!.value ?? 0) * 100))
+    expect((await explainOf("roas")).drivers.map((d) => d.key)).toEqual(["revenue", "ads"])
+
     // The refund's rows: the order placed in B, refunded in A.
     const refunded = ok(
       await rpc(
