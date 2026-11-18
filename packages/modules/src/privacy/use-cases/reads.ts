@@ -114,6 +114,7 @@ interface RequestRow {
   readonly receivedAt: Date
   readonly dueAt: Date
   readonly completedAt: Date | null
+  readonly error: string | null
   readonly fileId: string | null
   readonly sizeBytes: string | null
 }
@@ -125,7 +126,7 @@ export const requestRows = (sql: SqlClient.SqlClient) =>
   sql<RequestRow>`
     select g.id, g.kind, g.source, g.state, g.subject, c.name as customer_name, c.email as customer_email,
            g.customer_shopify_id, c.store_id as customer_store, g.store_id, g.requested_by, g.received_at, g.due_at,
-           g.completed_at,
+           g.completed_at, g.error,
            case when f.deleted_at is null then g.file_id end as file_id, f.size_bytes::text as size_bytes
     from gdpr_requests g
     left join customers c on c.id = g.customer_id
@@ -182,7 +183,8 @@ export const requests = Effect.fn("Privacy.requests")(function*() {
           receivedAt: r.receivedAt.getTime(),
           dueAt: r.dueAt.getTime(),
           completedAt: r.completedAt?.getTime() ?? null,
-          fileId: r.fileId
+          fileId: r.fileId,
+          error: r.kind === "customer_redact" && r.state === "failed" ? r.error : null
         }))
       const waiting = rows.find((r) =>
         r.kind === "workspace_delete" && (r.state === "waiting" || r.state === "purging")

@@ -9,6 +9,7 @@ import { toast } from "sonner"
 import { aiStatusAtom, DRAFTS, draftWrites, latestDraftAtom } from "../data/drafts.ts"
 import { TICKETS } from "../data/tickets.ts"
 import { failureOf, sayRefusal } from "../frame/refusals.ts"
+import { chaptersOf } from "./draft-chapters.ts"
 
 /*
  * Insyte AI in the console's inbox and tickets (M15 step 2; ADR-0027): Insyte writes, a person reads, edits and sends.
@@ -102,6 +103,7 @@ function useThreadDraft(t: InboxThread | null): ThreadDraft | undefined {
   return {
     reply: draft?.text,
     check: draft === null ? undefined : checkOf(draft.flags),
+    chapters: chaptersOf(draft),
     rewrite: async (style) => {
       if (draft === null) return undefined
       const exit = await reply({

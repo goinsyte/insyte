@@ -171,7 +171,21 @@ export const ExplainKey = Schema.Union([
   /** Disputes opened in A, against B, by reason; the rows are the orders they name. */
   Schema.TaggedStruct("disputes", {}),
   /** Disputes opened for one reason in A, against B, by store; the rows are the orders they name. */
-  Schema.TaggedStruct("dispute_reason", { reason: Schema.String.check(Schema.isMaxLength(40)) })
+  Schema.TaggedStruct("dispute_reason", { reason: Schema.String.check(Schema.isMaxLength(40)) }),
+  /** Omzet: the counted orders' revenue in A, against B, by store; the rows are those orders. */
+  Schema.TaggedStruct("revenue", {}),
+  /** Gemiddelde bestelling: revenue over the counted orders in A, against B, by store. */
+  Schema.TaggedStruct("average_order", {}),
+  /** Terugbetaald: what was refunded in A, against B, by store; the rows are the refunded orders. */
+  Schema.TaggedStruct("refunded", {}),
+  /**
+   * Kosten's month figures (`Costs.figures`, the whole calendar month, the month under way to today), each taken apart
+   * into what it is made of (revenue, ad spend, the other costs); the rows are the counted orders.
+   */
+  Schema.TaggedStruct("costs", {}),
+  Schema.TaggedStruct("net_profit", {}),
+  Schema.TaggedStruct("margin", {}),
+  Schema.TaggedStruct("roas", {})
 ])
 export type ExplainKey = typeof ExplainKey.Type
 
@@ -195,7 +209,9 @@ export const Driver = Schema.Struct({
     "topic",
     "channel",
     "volume",
-    "size"
+    "size",
+    /** A part of a month figure: `revenue`, `ads`, `other`, `costs`, `net`. */
+    "part"
   ]),
   key: Schema.String,
   /** A record's own name where it has one (a store, a product and its store, a supplier); else null. */

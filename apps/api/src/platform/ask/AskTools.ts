@@ -479,12 +479,21 @@ const getMetrics: AskTool<AnalyticsService | Base> = {
 const before = (m: string) => monthBefore(new Date(`${m}-01T00:00:00Z`))
 
 /**
- * The Analyse explanation a month figure opens: the paid orders it counts, the disputes it sums. The others (revenue,
- * the costs, profit, margin, ROAS) have no explanation of their own in Analyse yet and open Kosten.
+ * The Analyse explanation a month figure opens: the orders it counts, the revenue and refunds by store, the disputes it
+ * sums, and Kosten's figures (costs, net profit, margin, ROAS) taken apart into what they are made of.
  */
-const LOOKUP_EXPLAINS: Readonly<Record<string, "paid_orders" | "disputes">> = {
+const LOOKUP_EXPLAINS: Readonly<Record<string, ExplainRef["key"]["_tag"]>> = {
+  omzet: "revenue",
   bestellingen: "paid_orders",
-  chargebacks: "disputes"
+  gemiddelde_bestelling: "average_order",
+  terugbetaald: "refunded",
+  chargebacks: "disputes",
+  advertentiekosten: "costs",
+  overige_kosten: "costs",
+  kosten: "costs",
+  nettowinst: "net_profit",
+  marge: "margin",
+  roas: "roas"
 }
 
 const METRIC_LABEL: Readonly<Record<string, { label: string; fmt: "money" | "integer" | "percent" | "number" }>> = {
@@ -530,7 +539,7 @@ const getFigures: AskTool<AnalyticsService | Base> = {
         const explains = LOOKUP_EXPLAINS[f.metric]
         const explain: ExplainRef | null = explains === undefined || f.resolved === null ?
           null :
-          { a: f.resolved, b: before(f.resolved), key: { _tag: explains } }
+          { a: f.resolved, b: before(f.resolved), key: { _tag: explains } as ExplainRef["key"] }
         return [{
           label: `${meta.label} ${f.resolved ?? ""}`.trim(),
           display,
@@ -666,7 +675,8 @@ const searchKnowledge: AskTool<KnowledgeService | Base> = {
           detail: "Kennisbank",
           to: `/settings/ai/knowledge/${h.articleId}`
         })),
-        storeIds: [...new Set(hits.flatMap((h) => (h.storeId === null ? [] : [h.storeId])))]
+        storeIds: [...new Set(hits.flatMap((h) => (h.storeId === null ? [] : [h.storeId])))],
+        cited: hits.map((h) => ({ articleId: h.articleId, version: h.version }))
       } satisfies ToolResult
     })
 }

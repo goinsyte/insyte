@@ -5,6 +5,7 @@ import type { LanguageModel } from "effect/ai"
 import { ASK_PROMPT_VERSION, askStep } from "../../ai/Ai.ts"
 import { type AiModel, AiRateLimited, BudgetExceeded } from "../../ai/domain/Ai.ts"
 import { defused, untracedFigures } from "../../ai/domain/Guards.ts"
+import { cite } from "../../knowledge/Knowledge.ts"
 import {
   type AskContext,
   type AskFrame,
@@ -98,6 +99,8 @@ interface Found {
   readonly sources: Array<Source>
   readonly chips: Array<ToolChip>
   readonly storeIds: Set<string>
+  /** The Kennisbank chapters the tools read, by chapter. */
+  readonly cited: Map<string, number>
 }
 
 /**
@@ -163,7 +166,8 @@ const run = <R>(
       recordIds: new Map(),
       sources: [],
       chips: [],
-      storeIds: new Set()
+      storeIds: new Set(),
+      cited: new Map()
     }
     let settled = false
 
@@ -179,14 +183,22 @@ const run = <R>(
     ) =>
       Effect.gen(function*() {
         const turn = yield* db.scoped((sql) =>
-          Threads.settle(sql, begun.turnId, {
-            ...s,
-            thinking,
-            thinkingMs: Date.now() - started,
-            storeIds: [...found.storeIds],
-            refs: [...found.records.values()].map((r) => r.id),
-            promptVersion: ASK_PROMPT_VERSION,
-            modelCallIds: modelCalls
+          Effect.gen(function*() {
+            const kept = yield* Threads.settle(sql, begun.turnId, {
+              ...s,
+              thinking,
+              thinkingMs: Date.now() - started,
+              storeIds: [...found.storeIds],
+              refs: [...found.records.values()].map((r) => r.id),
+              promptVersion: ASK_PROMPT_VERSION,
+              modelCallIds: modelCalls
+            })
+            // An answer that read Kennisbank chapters used them: each counts in its "gebruikt (7 d)", as a draft's do.
+            if (s.state === "settled" && found.cited.size > 0) {
+              const hits = [...found.cited].map(([articleId, version]) => ({ articleId, version }))
+              yield* cite(sql, hits, { kind: "ask_turn", id: begun.turnId })
+            }
+            return kept
           })
         )
         settled = true
@@ -249,6 +261,7 @@ const run = <R>(
         for (const s of result.wide === true || store === undefined ? yield* reach : [store]) found.storeIds.add(s)
         for (const s of result.storeIds) found.storeIds.add(s)
         for (const r of result.records) if (r.storeId !== null) found.storeIds.add(r.storeId)
+        for (const c of result.cited ?? []) found.cited.set(c.articleId, c.version)
         found.chips.push(result.chip)
         yield* emit({ _tag: "tool", tool: result.chip })
         for (const source of result.sources) {

@@ -2,6 +2,7 @@ import { PgClient } from "@effect/sql-pg"
 import { Effect, Redacted } from "effect"
 import { SqlClient } from "effect/sql"
 import { describe, expect, it } from "vitest"
+import { APP_URL } from "./urls.ts"
 
 /*
  * The role the Workers connect as (M18, "Security"; 06 §1): `insyte_app` bypasses no row level security, holds no
@@ -9,7 +10,6 @@ import { describe, expect, it } from "vitest"
  * could do either. And the catalogue's side: every table with row level security forces it, so the owner is held too,
  * and every table that holds a `workspace_id` has it. Read from the catalogue as `insyte_app`, which may read it.
  */
-const APP_URL = process.env["DATABASE_URL_APP"] ?? "postgres://insyte_app:insyte_app_local@localhost:55443/insyte"
 
 const query = <A extends object>(text: string) =>
   Effect.runPromise(

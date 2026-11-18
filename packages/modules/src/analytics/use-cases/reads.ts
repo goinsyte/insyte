@@ -370,6 +370,18 @@ export const countedOrderIds = (
         and (o.placed_at at time zone z.tz)::date between ${from}::date and ${to}::date
         and ${sql.literal(COUNTED)} and ${scope} and ${extra}`
 
+/** Orders placed in `[from, to]` with money refunded on them since: the rows of Terugbetaald, as the facts count it. */
+export const placedRefundedOrderIds = (
+  sql: SqlClient.SqlClient,
+  scope: Statement.Fragment,
+  from: string,
+  to: string
+) =>
+  sql`select o.id from orders o ${sql.literal(TZ)}
+      where o.placed_at >= (${from}::date - 1)::timestamptz and o.placed_at < (${to}::date + 2)::timestamptz
+        and (o.placed_at at time zone z.tz)::date between ${from}::date and ${to}::date
+        and exists (select 1 from refunds r where r.order_id = o.id and r.status = 'succeeded') and ${scope}`
+
 /**
  * Orders delivered in `[from, to]` (the day their last live parcel arrived, in the store's timezone; B.0.4, as the
  * facts count them), with their first line's supplier, country, and days past the promise: 0 on time, and an order

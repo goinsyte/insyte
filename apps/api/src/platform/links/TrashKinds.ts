@@ -20,6 +20,9 @@ import { Effect, Layer } from "effect"
 const tokens = <A extends { readonly undo: unknown }>(change: A) =>
   change.undo === null ? [] : [change.undo as NonNullable<A["undo"]>]
 
+/** Leveranciers' commands, loaded with the first put-back or purge, not with the daily sweep's Worker. */
+const suppliers = () => Effect.promise(() => import("@insyte/modules/suppliers/use-cases/commands"))
+
 /** The Prullenbak's kinds, also for the daily sweep (`TrashSweep.ts`). */
 export const TrashKindsLive = Layer.succeed(TrashKinds, {
   ticket: {
@@ -55,5 +58,10 @@ export const TrashKindsLive = Layer.succeed(TrashKinds, {
   cost_line: {
     restore: (ids) => putBackCostLines({ ids }),
     purge: purgeCostLines
+  },
+  supplier: {
+    restore: (ids) => Effect.flatMap(suppliers(), (m) => m.putBack({ ids })),
+    purge: (sql, workspaceId, ids, actor) =>
+      ids.length === 0 ? Effect.void : Effect.flatMap(suppliers(), (m) => m.purgeIn(sql, workspaceId, ids, actor))
   }
 })

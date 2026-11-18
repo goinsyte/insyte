@@ -10,6 +10,7 @@ import { COSTS } from "../data/costs.ts"
 import { COURSES } from "../data/courses.ts"
 import { TRASH, trashWrites } from "../data/settings-log.ts"
 import { SHEETS } from "../data/sheets.ts"
+import { SUPPLIERS } from "../data/suppliers.ts"
 import { TICKETS } from "../data/tickets.ts"
 import { WEBHOOKS } from "../data/webhooks.ts"
 import { failureOf, type RefusalCopy, sayRefusal } from "../frame/refusals.ts"
@@ -27,7 +28,8 @@ const KIND: Record<TrashKind, TrashItem["kind"]> = {
   sheet: "rekenblad",
   course: "cursus",
   webhook: "webhook",
-  cost_line: "kostenpost"
+  cost_line: "kostenpost",
+  supplier: "leverancier"
 }
 
 /** What an item without a title is called, as its own page calls it. */
@@ -45,11 +47,14 @@ const COPY: RefusalCopy = {
     already_sent: LATE,
     store_gone: ["Kan niet terug", "Een winkel van dit endpoint is niet meer gekoppeld. Maak het opnieuw aan."],
     out_of_reach: ["Kan niet terug", "Dit endpoint hoort ook bij winkels waar je rol niet bij kan."],
-    url_refused: ["Kan niet terug", "Naar dit adres stuurt Insyte geen events meer. Maak het opnieuw aan."]
+    url_refused: ["Kan niet terug", "Naar dit adres stuurt Insyte geen events meer. Maak het opnieuw aan."],
+    name_taken: ["Kan niet terug", "Een andere leverancier heeft deze naam nu. Geef die eerst een andere naam."]
   }
 }
 
-const keys = { reactivityKeys: [...TRASH, ...TICKETS, ...AUTOMATIONS, ...SHEETS, ...COURSES, ...WEBHOOKS, ...COSTS] }
+const keys = {
+  reactivityKeys: [...TRASH, ...TICKETS, ...AUTOMATIONS, ...SHEETS, ...COURSES, ...WEBHOOKS, ...COSTS, ...SUPPLIERS]
+}
 
 export function useConsoleTrashSource(list: TrashList, canEdit: boolean): TrashSource {
   const write = {

@@ -425,6 +425,8 @@ describe("Kennisbank", () => {
       return settled.sources.map((src) => src.to)
     }
     const cites = (id: string) => `/settings/ai/knowledge/${id}`
+    const uses = async (id: string) => ok(await rpc("Knowledge.get", { id }, people.owner)).uses7d
+    expect(await uses(policy.id)).toBe(0)
 
     const owner = await askOf(people.owner)
     expect(owner).toContain(cites(policy.id))
@@ -438,5 +440,10 @@ describe("Kennisbank", () => {
     expect(held).not.toContain(cites(local.id))
     expect(held).not.toContain(cites(draft.id))
     expect(held).not.toContain(cites(old.id))
+
+    // Each answer that read a chapter used it: "gebruikt (7 d)" counts both turns on the team's chapter, one on the store's.
+    expect(await uses(policy.id)).toBe(2)
+    expect(await uses(local.id)).toBe(1)
+    expect(await uses(draft.id)).toBe(0)
   })
 })

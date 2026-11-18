@@ -1,7 +1,7 @@
 import { Db } from "@insyte/database/Db"
 import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
-import { Effect, Option, Schema } from "effect"
+import { Cause, Effect, Option, Schema } from "effect"
 import { FileStore } from "../../shared/domain/Documents.ts"
 import { PendingEvents, Relay } from "../../shared/domain/Outbox.ts"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
@@ -234,8 +234,7 @@ const applyTopic = Effect.fn("Stores.webhooks.topic")(
       case "customers/data_request":
         return yield* gdpr(store, "data_request", body, false)
       case "customers/redact":
-        yield* redactCustomer(store, body)
-        return yield* gdpr(store, "customer_redact", body, true)
+        return yield* redact(store, body)
       case "shop/redact":
         yield* purgeShop(store)
         return yield* gdpr(store, "shop_redact", body, true)
@@ -361,58 +360,179 @@ export const mirrorOne = Effect.fn("Stores.webhooks.mirror")(
 )
 
 const gdpr = Effect.fn("Stores.webhooks.gdpr")(
-  function*(store: StoreRow, kind: "data_request" | "customer_redact" | "shop_redact", body: unknown, done: boolean) {
+  function*(store: StoreRow, kind: "data_request" | "shop_redact", body: unknown, done: boolean) {
     const db = yield* Db
     const customer = (body as { customer?: { id?: unknown } }).customer?.id
-    // An erasure keeps no trace of whom it erased beyond Shopify's ids.
-    const kept = kind === "customer_redact"
-      ? {
-        shop_id: (body as { shop_id?: unknown }).shop_id,
-        customer: { id: customer },
-        orders_to_redact: (body as { orders_to_redact?: unknown }).orders_to_redact
-      }
-      : body
     yield* db.scopedFor((sql) =>
       sql`insert into gdpr_requests (id, workspace_id, store_id, kind, customer_shopify_id, payload, due_at, completed_at)
           values (${mintId("gdpr")}, app_workspace_id(), ${kind === "shop_redact" ? null : store.id}, ${kind},
-                  ${customer === undefined ? null : String(customer)}, ${JSON.stringify(kept)}::jsonb,
+                  ${customer === undefined ? null : String(customer)}, ${JSON.stringify(body)}::jsonb,
                   now() + interval '30 days', case when ${done} then now() end)`
     )
+  }
+)
+
+/** What a `customers/redact` names: Shopify's ids, and the address it was sent for. */
+interface RedactBody {
+  readonly shop_id?: unknown
+  readonly customer?: { readonly id?: unknown; readonly email?: unknown }
+  readonly orders_to_redact?: ReadonlyArray<unknown>
+}
+
+/**
+ * Shopify's `customers/redact` (0106): the request is written first, open, with its 30 days, and then the shopper is
+ * erased. Until it is done the request keeps the address it was sent for, as the erasure needs it again; once done,
+ * only Shopify's ids. An erasure that cannot finish leaves the request failed, with the columns that held the shopper
+ * (names only), for Je gegevens, `/api/health/deep` and the hourly retry (`retryRedact`). The same request sent again
+ * while one is open is that one.
+ */
+const redact = Effect.fn("Stores.webhooks.redact")(function*(store: StoreRow, body: unknown) {
+  const db = yield* Db
+  const payload = body as RedactBody
+  const customer = payload.customer?.id === undefined ? null : String(payload.customer.id)
+  const id = yield* db.scopedFor((sql) =>
+    Effect.gen(function*() {
+      const [open] = yield* sql<{ id: string }>`
+        update gdpr_requests set payload = ${JSON.stringify(payload)}::jsonb
+        where kind = 'customer_redact' and source = 'shopify' and completed_at is null and store_id = ${store.id}
+          and customer_shopify_id is not distinct from ${customer}
+        returning id`
+      if (open !== undefined) return open.id
+      const id = mintId("gdpr")
+      yield* sql`
+        insert into gdpr_requests (id, workspace_id, store_id, kind, customer_shopify_id, payload, due_at, state)
+        values (${id}, app_workspace_id(), ${store.id}, 'customer_redact', ${customer},
+                ${JSON.stringify(payload)}::jsonb, now() + interval '30 days', 'open')`
+      return id
+    })
+  )
+  yield* attemptRedact(id, store.id, payload)
+})
+
+/** The columns `scrub_workspace` names when no placeholder fits them (0106), or null for any other failure. */
+const unfitted = (cause: Cause.Cause<unknown>) => {
+  const seen = new Set<unknown>()
+  const walk = (e: unknown): string | null => {
+    if (typeof e !== "object" || e === null || seen.has(e)) return null
+    seen.add(e)
+    const message = (e as { message?: unknown }).message
+    const found = typeof message === "string"
+      ? /no placeholder fits (.+?), the erasure is not complete/.exec(message)
+      : null
+    if (found !== null) return found[1]!.slice(0, 500)
+    return walk((e as { cause?: unknown }).cause) ?? walk((e as { reason?: unknown }).reason)
+  }
+  return walk(Cause.squash(cause))
+}
+
+/**
+ * One attempt at a Shopify erasure: done with the request in one transaction, or the request failed with why. A
+ * database that does not answer fails here (the queue, or the next sweep, tries again).
+ */
+const attemptRedact = Effect.fn("Stores.webhooks.attemptRedact")(
+  function*(id: string, storeId: string, payload: RedactBody) {
+    const db = yield* Db
+    yield* db.scopedFor((sql) =>
+      sql`update gdpr_requests set state = 'running', attempts = attempts + 1, started_at = now() where id = ${id}`
+    )
+    const done = yield* redactCustomer(id, storeId, payload).pipe(
+      Effect.as(true),
+      Effect.catchCause((cause) =>
+        Effect.gen(function*() {
+          const columns = unfitted(cause)
+          if (columns === null && (Cause.hasDies(cause) || Cause.hasInterrupts(cause))) {
+            return yield* Effect.failCause(cause)
+          }
+          const failed = yield* db.scopedFor((sql) =>
+            sql`update gdpr_requests set state = 'failed', error = ${columns ?? "unexpected"}
+              where id = ${id} and completed_at is null returning id`
+          )
+          // Erased and done, and only the bucket's copies were not removed: the files sweep's to finish.
+          if (failed.length === 0) {
+            yield* Effect.logError("privacy: an erased shopper's files were not removed from the bucket", {
+              requestId: id,
+              cause
+            })
+            return true
+          }
+          yield* Effect.logError("privacy: a shopper's erasure from Shopify did not complete", {
+            requestId: id,
+            columns,
+            ...(columns === null ? { cause } : {})
+          })
+          return false
+        })
+      )
+    )
+    return done
   }
 )
 
 /**
  * Shopify's `customers/redact`: the shopper erased in the store everywhere Insyte holds them, as "Gegevens wissen"
  * does (`shared/use-cases/ShopperErasure.ts`): the customer, their orders and those Shopify names, and what the
- * other slices keep about them. Amounts, dates and statuses stay for the figures.
+ * other slices keep about them. Amounts, dates and statuses stay for the figures. The request is done in the same
+ * transaction, keeping only Shopify's ids.
  */
-const redactCustomer = Effect.fn("Stores.webhooks.redactCustomer")(function*(store: StoreRow, body: unknown) {
-  const db = yield* Db
-  const files = yield* FileStore
-  const payload = body as {
-    customer?: { id?: unknown; email?: unknown }
-    orders_to_redact?: ReadonlyArray<unknown>
-  }
-  const customer = payload.customer?.id === undefined ? "" : String(payload.customer.id)
-  const email = typeof payload.customer?.email === "string" ? payload.customer.email : null
-  const orders = (payload.orders_to_redact ?? []).map(String)
-  const keys = yield* db.scopedFor((sql) =>
-    Effect.gen(function*() {
-      const customers = yield* sql<{ id: string }>`
-        select id from customers where store_id = ${store.id} and shopify_id = ${customer}`
-      const named = yield* sql<{ id: string }>`
-        select id from orders where store_id = ${store.id} and shopify_id = any(${orders}::text[])`
-      const erased = yield* eraseShopper(sql, {
-        customerIds: customers.map((c) => c.id),
-        emails: email === null ? [] : [email],
-        orderIds: named.map((o) => o.id),
-        stores: [store.id]
+const redactCustomer = Effect.fn("Stores.webhooks.redactCustomer")(
+  function*(requestId: string, storeId: string, payload: RedactBody) {
+    const db = yield* Db
+    const files = yield* FileStore
+    const customer = payload.customer?.id === undefined ? "" : String(payload.customer.id)
+    const email = typeof payload.customer?.email === "string" ? payload.customer.email : null
+    const orders = (payload.orders_to_redact ?? []).map(String)
+    // An erasure keeps no trace of whom it erased beyond Shopify's ids.
+    const kept = {
+      shop_id: payload.shop_id,
+      customer: { id: payload.customer?.id },
+      orders_to_redact: payload.orders_to_redact
+    }
+    const keys = yield* db.scopedFor((sql) =>
+      Effect.gen(function*() {
+        const customers = yield* sql<{ id: string }>`
+          select id from customers where store_id = ${storeId} and shopify_id = ${customer}`
+        const named = yield* sql<{ id: string }>`
+          select id from orders where store_id = ${storeId} and shopify_id = any(${orders}::text[])`
+        const erased = yield* eraseShopper(sql, {
+          customerIds: customers.map((c) => c.id),
+          emails: email === null ? [] : [email],
+          orderIds: named.map((o) => o.id),
+          stores: [storeId]
+        })
+        yield* sql`
+          update gdpr_requests set state = 'done', completed_at = now(), error = null,
+                                   payload = ${JSON.stringify(kept)}::jsonb
+          where id = ${requestId}`
+        return erased.keys
       })
-      return erased.keys
-    })
+    )
+    for (let i = 0; i < keys.length; i += 1000) yield* files.remove(keys.slice(i, i + 1000))
+  }
+)
+
+/**
+ * The hourly retry (0106 `privacy_redacts_due()`): a Shopify erasure that failed, or stalled a quarter of an hour, is
+ * tried again until it is done or its 30 days have passed. Answers whether it is done now.
+ */
+export const retryRedact = Effect.fn("Stores.retryRedact")(function*(requestId: string) {
+  const db = yield* Db
+  const [row] = yield* db.scopedFor((sql) =>
+    sql<{ storeId: string | null; payload: string }>`
+      select store_id, payload::text as payload from gdpr_requests
+      where id = ${requestId} and kind = 'customer_redact' and completed_at is null and due_at > now()`
   )
-  for (let i = 0; i < keys.length; i += 1000) yield* files.remove(keys.slice(i, i + 1000))
+  if (row === undefined || row.storeId === null) return false
+  return yield* attemptRedact(requestId, row.storeId, JSON.parse(row.payload) as RedactBody)
 })
+
+/** Across workspaces, the Shopify erasures to try again (ids only). */
+export const redactsDue = Effect.flatMap(
+  Effect.service(Db),
+  (db) =>
+    db.unscopedForCron((sql) =>
+      sql<{ workspaceId: WorkspaceId; requestId: string }>`select workspace_id, request_id from privacy_redacts_due()`
+    )
+)
 
 /** Shopify's `shop/redact`, 48 hours after an uninstall: the store's mirror goes; the store row stays, disconnected. */
 const purgeShop = Effect.fn("Stores.webhooks.purgeShop")(function*(store: StoreRow) {

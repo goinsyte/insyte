@@ -20,6 +20,7 @@ import {
   type ShopperRequestEntry,
   useDataSource
 } from "./data-source"
+import { erasureStuck } from "./erasure-stuck"
 import { FieldRow, INPUT_CLASS, SelectInput, UnsavedBar } from "./form"
 import { BandedList, BandedRow, SectionAction, SettingCard, StatusPill } from "./setting-card"
 
@@ -342,6 +343,7 @@ function StateWord({ state }: { state: ExportEntry["state"] }) {
 const shopperDetail = (r: ShopperRequestEntry) => {
   const what = r.kind === "access" ? "Inzage" : "Wissen"
   const via = r.source === "shopify" ? "via Shopify" : "in Insyte"
+  if (r.kind === "erasure" && r.state === "failed" && r.error) return `${what} · ${via} · ${erasureStuck(r.error)}`
   const when = r.completedAt !== null
     ? `afgehandeld op ${day(r.completedAt)}`
     : `uiterlijk ${day(r.dueAt)} beantwoorden`

@@ -5,12 +5,12 @@ import { Effect, Layer, Redacted, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import { afterAll, describe, expect, it } from "vitest"
 import { Db, DbLive } from "../src/Db.ts"
+import { APP_URL } from "./urls.ts"
 
 /*
  * Against the compose database (`bun run db:up && bun run db:migrate --local`), connected as `insyte_app`: the role the
  * Workers use, which owns nothing and bypasses nothing. CI starts the same container before the tests.
  */
-const APP_URL = process.env["DATABASE_URL_APP"] ?? "postgres://insyte_app:insyte_app_local@localhost:55443/insyte"
 
 const run = <A, E>(effect: Effect.Effect<A, E, Db>) =>
   Effect.runPromise(
