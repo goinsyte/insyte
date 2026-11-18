@@ -57,6 +57,17 @@ export interface DbService {
    * anything then done with a row re-enters `scopedFor` with that row's workspace. `rg unscopedForCron` lists them all.
    */
   readonly unscopedForCron: InTransaction<never>
+  /**
+   * Insyte's support team (the staff admin, M18; `staff`, 0107), as the person `staff` names (their address, from
+   * Cloudflare Access): across workspaces through `staff_find_workspaces`, or inside `workspaceId` for its health.
+   * Always a read-only transaction. Called only from the support slice (`bun run boundaries` checks).
+   */
+  readonly asStaff: (staff: string, workspaceId: WorkspaceId | null) => InTransaction<never>
+  /**
+   * The same person writing down what they do: the session of looking along and both audit trails (0107 lets `staff`
+   * write those and refuses it the sealed secrets). Called only from the support slice's recording.
+   */
+  readonly recordAsStaff: (staff: string, workspaceId: WorkspaceId | null) => InTransaction<never>
 }
 
 export class Db extends Context.Service<Db, DbService>()("database/Db") {}
@@ -88,14 +99,51 @@ const asPerson = (
   sql`select set_config('app.user_id', ${userId}, true), set_config('app.workspace_id', ${workspaceId}, true),
              set_config('app.principal_kind', ${kind}, true), set_config('app.invitation_id', ${invitationId}, true)`
 
+/** First in a transaction, before any query: Postgres then refuses every write in it, and switching back. */
+const READ_ONLY = "set transaction read only"
+
 /**
  * `Db` over one connection, given as the effect that yields it: `WithDb` passes one that opens the request's
  * connection on first use and reuses it after, so a request that never queries opens no socket, and a connection that
  * fails surfaces as a `SqlError` where the query is.
+ *
+ * `readOnly`: every transaction, whatever door opened it, is read-only (a staff session looking along, M18). A
+ * `staff_viewer` principal's transactions are read-only in any `Db`.
  */
-export const makeDb = (connection: Effect.Effect<SqlClient.SqlClient, SqlError.SqlError>): DbService => {
+export const makeDb = (
+  connection: Effect.Effect<SqlClient.SqlClient, SqlError.SqlError>,
+  options: { readonly readOnly?: boolean } = {}
+): DbService => {
+  /** `f` in a transaction of its own, read-only when asked or when this `Db` is. */
+  const transaction = <A, E, R>(
+    sql: SqlClient.SqlClient,
+    readOnly: boolean,
+    f: Effect.Effect<A, E, R>
+  ) =>
+    sql.withTransaction(
+      readOnly || options.readOnly === true ? Effect.andThen(sql.unsafe(READ_ONLY), f) : f
+    )
   const inContext = <A, E, R>(c: RlsContext, f: (sql: SqlClient.SqlClient) => Effect.Effect<A, E, R>) =>
-    Effect.flatMap(connection, (sql) => sql.withTransaction(Effect.andThen(setContext(sql, c), f(sql))))
+    Effect.flatMap(
+      connection,
+      (sql) => transaction(sql, c.kind === "staff_viewer", Effect.andThen(setContext(sql, c), f(sql)))
+    )
+  const asStaff =
+    (staff: string, workspaceId: WorkspaceId | null, readOnly: boolean) =>
+    <A, E, R>(f: (sql: SqlClient.SqlClient) => Effect.Effect<A, E, R>) =>
+      Effect.flatMap(connection, (sql) =>
+        transaction(
+          sql,
+          readOnly,
+          Effect.andThen(
+            sql`select set_config('app.workspace_id', ${workspaceId ?? ""}, true),
+                     set_config('app.principal_id', ${staff}, true),
+                     set_config('app.principal_kind', 'staff', true),
+                     set_config('app.partner_id', '', true),
+                     set_config('app.user_id', '', true)`,
+            f(sql)
+          )
+        ))
   return Db.of({
     scoped: (f) =>
       Effect.flatMap(Effect.service(CurrentPrincipal), (p) =>
@@ -125,24 +173,28 @@ export const makeDb = (connection: Effect.Effect<SqlClient.SqlClient, SqlError.S
         Effect.service(CurrentUser),
         (user) =>
           Effect.flatMap(connection, (sql) =>
-            sql.withTransaction(Effect.andThen(sql`select set_config('app.user_id', ${user.id}, true)`, f(sql))))
+            transaction(sql, false, Effect.andThen(sql`select set_config('app.user_id', ${user.id}, true)`, f(sql))))
       ),
     asUserIn: (workspaceId) => <A, E, R>(f: (sql: SqlClient.SqlClient) => Effect.Effect<A, E, R>) =>
       Effect.flatMap(
         Effect.service(CurrentUser),
         (user) =>
           Effect.flatMap(connection, (sql) =>
-            sql.withTransaction(Effect.andThen(
-              asPerson(sql, user.id, workspaceId, "member"),
-              Effect.flatMap(
-                sql`select 1 from members where workspace_id = ${workspaceId} and user_id = ${user.id}
+            transaction(
+              sql,
+              false,
+              Effect.andThen(
+                asPerson(sql, user.id, workspaceId, "member"),
+                Effect.flatMap(
+                  sql`select 1 from members where workspace_id = ${workspaceId} and user_id = ${user.id}
                       and removed_at is null and deactivated_at is null`,
-                (rows): Effect.Effect<A, E | NotFound, R> =>
-                  rows.length === 0
-                    ? Effect.fail(new NotFound({ entity: "workspace", id: workspaceId }))
-                    : f(sql)
+                  (rows): Effect.Effect<A, E | NotFound, R> =>
+                    rows.length === 0
+                      ? Effect.fail(new NotFound({ entity: "workspace", id: workspaceId }))
+                      : f(sql)
+                )
               )
-            )))
+            ))
       ),
     asNewcomerIn: (workspaceId, invitationId) => (f) =>
       Effect.flatMap(
@@ -151,7 +203,11 @@ export const makeDb = (connection: Effect.Effect<SqlClient.SqlClient, SqlError.S
           Effect.flatMap(
             connection,
             (sql) =>
-              sql.withTransaction(Effect.andThen(asPerson(sql, user.id, workspaceId, "newcomer", invitationId), f(sql)))
+              transaction(
+                sql,
+                false,
+                Effect.andThen(asPerson(sql, user.id, workspaceId, "newcomer", invitationId), f(sql))
+              )
           )
       ),
     scopedFor: (f) =>
@@ -160,8 +216,13 @@ export const makeDb = (connection: Effect.Effect<SqlClient.SqlClient, SqlError.S
         (ws) =>
           inContext({ workspaceId: ws.id, principalId: "system", kind: "system", partnerId: null, userId: null }, f)
       ),
-    routing: (f) => Effect.flatMap(connection, f),
-    unscopedForCron: (f) => Effect.flatMap(connection, f)
+    // Outside a transaction, as before, unless this `Db` is read-only: then in one, so nothing they run writes.
+    routing: (f) =>
+      Effect.flatMap(connection, (sql) => options.readOnly === true ? transaction(sql, true, f(sql)) : f(sql)),
+    unscopedForCron: (f) =>
+      Effect.flatMap(connection, (sql) => options.readOnly === true ? transaction(sql, true, f(sql)) : f(sql)),
+    asStaff: (staff, workspaceId) => asStaff(staff, workspaceId, true),
+    recordAsStaff: (staff, workspaceId) => asStaff(staff, workspaceId, false)
   })
 }
 

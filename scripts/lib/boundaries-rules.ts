@@ -117,7 +117,18 @@ const NARROW_DOORS: ReadonlyArray<
       "packages/modules/src/members/use-cases/choice.ts"
     ],
     because: "only founding a workspace and an invitation to one act as a newcomer (Db.asNewcomerIn)"
-  }
+  },
+  // The staff admin (M18): only the support slice's staff use cases act as Insyte's team (and its dev-only test door,
+  // which ages a session for the expiry test).
+  ...["asStaff", "recordAsStaff"].map((call) => ({
+    call,
+    files: [
+      "packages/database/src/Db.ts",
+      "packages/modules/src/support/use-cases/staff.ts",
+      "apps/api/src/transports/http/dev/staff.ts"
+    ],
+    because: `only the staff admin's use cases act as Insyte's team (Db.${call})`
+  }))
 ]
 
 /** Each file that calls a narrow door it may not open. Tests under `packages/database/test/` may open any. */

@@ -128,6 +128,9 @@ describe("Je gegevens", () => {
     expect(entries.has("LEESMIJ.txt")).toBe(true)
     const manifest = JSON.parse(entries.get("manifest.json")!) as { counts: Record<string, number> }
     expect(manifest.counts["connection_credentials"]).toBeUndefined()
+    // Who of Insyte's support looked along, when and why, is the workspace's (M18); the team's own audit is not.
+    expect(manifest.counts["staff_sessions"]).toBeDefined()
+    expect(manifest.counts["staff_audit"]).toBeUndefined()
     // The tests read pages of three rows: a table of more is in parts.
     expect(manifest.counts["orders"]).toBeGreaterThan(3)
     expect(entries.has("json/orders-0002.json")).toBe(true)
@@ -138,6 +141,9 @@ describe("Je gegevens", () => {
     for (const [table, n] of Object.entries(held.counts)) {
       // A person's own onboarding answers: theirs, not the workspace's (its policy shows them to that person only).
       if (table === "onboarding_progress") continue
+      // Insyte's own audit of its support team (M18): ours, not the workspace's, and not readable as the workspace. The
+      // workspace's side of it is in the export: its consent (on `workspaces`), its staff sessions, its Logboek lines.
+      if (table === "staff_audit") continue
       if (table in EXCLUDED) {
         expect(manifest.counts[table], table).toBeUndefined()
         continue

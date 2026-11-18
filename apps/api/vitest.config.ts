@@ -42,6 +42,8 @@ export default defineConfig({
           BILLING_ADAPTER: "fake",
           STRIPE_WEBHOOK_SECRET: "whsec_test_insyte_worker_tests",
           DOCUMENTS_ADAPTER: "html",
+          // The staff admin's allowlist (M18): one made-up address; Access is not configured, so only the dev header.
+          STAFF_EMAILS: "staff@example.com",
           SYNC_PAGE_LINES: "4",
           PRIVACY_EXPORT_PAGE_ROWS: "3"
         }
