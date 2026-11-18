@@ -16,7 +16,7 @@ export default defineConfig({
       "apps/api/vitest.configured.config.ts",
       // The same Worker with span export on, against a faked OTLP intake: each entry point's spans.
       "apps/api/vitest.telemetry.config.ts",
-      // The same Worker as staging runs it: what it refuses there (the `__dev` routes).
+      // The same Worker as staging runs it: what it refuses there (the `__dev` routes, any host but its two).
       "apps/api/vitest.staging.config.ts",
       {
         // The gate scripts' rules, as pure functions with a planted violation each.
