@@ -66,7 +66,7 @@ const rotating = Effect.gen(function*() {
   })
 }).pipe(Effect.provide(ShopifyRecorded))
 
-const plain = Sealer.of({
+const openSealer = Sealer.of({
   seal: (plain) => Effect.succeed({ sealed: plain, kid: "k1" }),
   open: (sealed) => Effect.succeed(Redacted.make(sealed))
 })
@@ -75,7 +75,7 @@ const refreshed = (db: Db["Service"]) =>
   Effect.flatMap(rotating, (shopify) =>
     accessToken("con_rotating").pipe(
       Effect.provideService(Db, db),
-      Effect.provideService(Sealer, plain),
+      Effect.provideService(Sealer, openSealer),
       Effect.provideService(ShopifyAdmin, shopify),
       Effect.provideService(CurrentWorkspace, { id: "ws_rotating" as WorkspaceId })
     ))
