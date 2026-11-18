@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { ok } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"
+import { mailThread } from "./threads.ts"
 
 /*
  * Every MCP write tool, for an agent's key (ADR-0027, M15 step 6): it goes through the workspace's autonomy rules
@@ -110,7 +111,13 @@ describe("an agent's key and the MCP write tools", () => {
     expect(asked.value).toMatchObject({ object: "agent_proposal" })
     const proposal = asked.value.proposal_id as string
 
+    // A shopper's mail and the team's channel, to reply to and post in.
+    const { threadId } = await mailThread(store.cookie)
+    const chat = (await tool(person, "list_chats", {})).value.data[0].id as string
+
     const before = {
+      thread: (await tool(person, "get_thread", { thread_id: threadId })).value,
+      chat: (await tool(person, "list_chat_messages", { chat_id: chat })).value.data,
       order: (await tool(person, "get_order", { order_id: order.id })).value,
       ret: (await tool(person, "get_return", { return_id: started.value.id })).value,
       ticket: (await tool(person, "get_ticket", { ticket_id: ticket.value.id })).value
@@ -119,6 +126,7 @@ describe("an agent's key and the MCP write tools", () => {
     const o = { order_id: order.id }
     const r = { return_id: started.value.id }
     const t = { ticket_id: ticket.value.id }
+    const th = { thread_id: threadId }
     /** Each write tool with arguments a person's key could run it with. */
     const CASES: Record<string, Record<string, unknown>> = {
       tag_order: { ...o, add: ["Agent"] },
@@ -150,7 +158,13 @@ describe("an agent's key and the MCP write tools", () => {
       update_ticket: { ...t, title: "Door de agent" },
       set_ticket_status: { ...t, status: "done" },
       assign_ticket: { ...t, member_id: member },
-      comment_on_ticket: { ...t, body: "Door de agent" }
+      comment_on_ticket: { ...t, body: "Door de agent" },
+      reply_to_thread: { ...th, body: "Van de agent" },
+      assign_thread: { ...th, member_id: member },
+      archive_thread: th,
+      take_over_thread: { ...th, member_id: member },
+      hand_back_thread: th,
+      post_chat_message: { chat_id: chat, body: "Van de agent" }
     }
 
     const listed = await mcp(person, "tools/list")
@@ -168,7 +182,9 @@ describe("an agent's key and the MCP write tools", () => {
       expect(governed || refused, `${name}: ${JSON.stringify(answer)}`).toBe(true)
     }
 
-    // And nothing moved: the order, the return and the ticket are as they were.
+    // And nothing moved: the thread, the channel, the order, the return and the ticket are as they were.
+    expect((await tool(person, "get_thread", { thread_id: threadId })).value).toEqual(before.thread)
+    expect((await tool(person, "list_chat_messages", { chat_id: chat })).value.data).toEqual(before.chat)
     expect((await tool(person, "get_order", { order_id: order.id })).value).toEqual(before.order)
     expect((await tool(person, "get_return", { return_id: started.value.id })).value).toEqual(before.ret)
     expect((await tool(person, "get_ticket", { ticket_id: ticket.value.id })).value).toEqual(before.ticket)
