@@ -7,7 +7,6 @@ import { purgeIn as purgeCostLines, putBack as putBackCostLines } from "@insyte/
 import { purgeIn as purgeCourses, restore as restoreCourses } from "@insyte/modules/courses/use-cases/commands"
 import { purgeIn as purgeWebhooks, putBack as putBackWebhooks } from "@insyte/modules/developer/use-cases/webhooks"
 import { purgeIn as purgeSheets, restoreSheets } from "@insyte/modules/sheets/use-cases/commands"
-import { purgeIn as purgeSuppliers, putBack as putBackSuppliers } from "@insyte/modules/suppliers/use-cases/commands"
 import { purgeIn as purgeTickets, putBack as putBackTickets } from "@insyte/modules/tickets/use-cases/commands"
 import { TrashKinds } from "@insyte/modules/trash/TrashKinds"
 import { Effect, Layer } from "effect"
@@ -20,6 +19,9 @@ import { Effect, Layer } from "effect"
 /** A put-back's one undo, or none where nothing changed. */
 const tokens = <A extends { readonly undo: unknown }>(change: A) =>
   change.undo === null ? [] : [change.undo as NonNullable<A["undo"]>]
+
+/** Leveranciers' commands, loaded with the first put-back or purge, not with the daily sweep's Worker. */
+const suppliers = () => Effect.promise(() => import("@insyte/modules/suppliers/use-cases/commands"))
 
 /** The Prullenbak's kinds, also for the daily sweep (`TrashSweep.ts`). */
 export const TrashKindsLive = Layer.succeed(TrashKinds, {
@@ -58,7 +60,8 @@ export const TrashKindsLive = Layer.succeed(TrashKinds, {
     purge: purgeCostLines
   },
   supplier: {
-    restore: (ids) => putBackSuppliers({ ids }),
-    purge: purgeSuppliers
+    restore: (ids) => Effect.flatMap(suppliers(), (m) => m.putBack({ ids })),
+    purge: (sql, workspaceId, ids, actor) =>
+      ids.length === 0 ? Effect.void : Effect.flatMap(suppliers(), (m) => m.purgeIn(sql, workspaceId, ids, actor))
   }
 })
