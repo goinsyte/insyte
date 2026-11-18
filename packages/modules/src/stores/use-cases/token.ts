@@ -1,5 +1,5 @@
 import { Db } from "@insyte/database/Db"
-import { Effect, Option, Redacted, Schema } from "effect"
+import { Effect, Option, Redacted, Schedule, Schema } from "effect"
 import { Sealer } from "../../shared/domain/Sealer.ts"
 import { ShopifyAdmin, TokenRefused } from "../domain/Ports.ts"
 
@@ -20,6 +20,9 @@ const decodeSealed = Schema.decodeUnknownEffect(Schema.fromJsonString(Sealed))
 
 /** Refresh this long before the access token lapses: a backfill step must not start on a token about to go. */
 const MARGIN_MS = 5 * 60_000
+
+/** A refreshed pair's write, tried again this often (200 ms, doubling: about six seconds in all) before it is lost. */
+const SAVE_TRIES = 5
 
 export interface CurrentToken {
   readonly token: Redacted.Redacted<string>
@@ -52,33 +55,47 @@ export const accessToken = Effect.fn("Stores.accessToken")(function*(connectionI
   if (current.refreshToken === null) return yield* refused(connectionId)
 
   const shopify = yield* ShopifyAdmin
-  const fresh = yield* shopify.refresh(row.shop, Redacted.make(current.refreshToken)).pipe(
-    Effect.asSome,
-    // The grant gone (`grantGone`): refused for good. Anything else is Shopify's moment, a 429 among them: the step
-    // retries, and the grant stays.
-    Effect.catchTag("ShopifyRefused", (e) => grantGone(e.status) ? Effect.succeedNone : Effect.die(e))
-  )
-  if (Option.isNone(fresh)) return yield* refused(connectionId)
-  const tokens = fresh.value
-  const refreshExpiresAt = tokens.refreshExpiresAt?.toISOString() ?? current.refreshExpiresAt
-  const sealed = yield* sealer.seal(JSON.stringify({
-    accessToken: Redacted.value(tokens.accessToken),
-    refreshToken: tokens.refreshToken === null ? current.refreshToken : Redacted.value(tokens.refreshToken),
-    expiresAt: tokens.expiresAt?.toISOString() ?? null,
-    refreshExpiresAt
+  const refreshToken = current.refreshToken
+  // From Shopify's answer to the write, one piece (W13.6): Shopify spends the old refresh token the moment it issues
+  // the new pair, so the pair must land before anything uses it, and nothing may stop it halfway. A write that fails
+  // (the database's moment) is tried again; only a database away for longer loses the pair, an error in the log.
+  return yield* Effect.uninterruptible(Effect.gen(function*() {
+    const fresh = yield* shopify.refresh(row.shop, Redacted.make(refreshToken)).pipe(
+      Effect.asSome,
+      // The grant gone (`grantGone`): refused for good. Anything else is Shopify's moment, a 429 among them: the step
+      // retries, and the grant stays.
+      Effect.catchTag("ShopifyRefused", (e) => grantGone(e.status) ? Effect.succeedNone : Effect.die(e))
+    )
+    if (Option.isNone(fresh)) return yield* refused(connectionId)
+    const tokens = fresh.value
+    const refreshExpiresAt = tokens.refreshExpiresAt?.toISOString() ?? current.refreshExpiresAt
+    const sealed = yield* sealer.seal(JSON.stringify({
+      accessToken: Redacted.value(tokens.accessToken),
+      refreshToken: tokens.refreshToken === null ? refreshToken : Redacted.value(tokens.refreshToken),
+      expiresAt: tokens.expiresAt?.toISOString() ?? null,
+      refreshExpiresAt
+    }))
+    yield* db.scopedFor((sql) =>
+      Effect.gen(function*() {
+        yield* sql`update connection_credentials set sealed = ${sealed.sealed}, kid = ${sealed.kid},
+              token_expires_at = ${tokens.expiresAt}, refreshed_at = now()
+            where connection_id = ${connectionId}`
+        // When the grant lapses is no secret: the health check warns a week ahead (M17 step 6).
+        yield* sql`update connections set health = health || ${JSON.stringify({ refreshExpiresAt })}::jsonb
+                   where id = ${connectionId}`
+      })
+    ).pipe(
+      Effect.retry({ times: SAVE_TRIES, schedule: Schedule.exponential("200 millis") }),
+      Effect.tapCause((cause) =>
+        Effect.logError("shopify: a refreshed token was not saved; the store will need to reconnect", {
+          connectionId,
+          cause
+        })
+      )
+    )
+    const until = tokens.expiresAt === null ? null : tokens.expiresAt.getTime() - MARGIN_MS
+    return { token: tokens.accessToken, until } satisfies CurrentToken
   }))
-  yield* db.scopedFor((sql) =>
-    Effect.gen(function*() {
-      yield* sql`update connection_credentials set sealed = ${sealed.sealed}, kid = ${sealed.kid},
-            token_expires_at = ${tokens.expiresAt}, refreshed_at = now()
-          where connection_id = ${connectionId}`
-      // When the grant lapses is no secret: the health check warns a week ahead (M17 step 6).
-      yield* sql`update connections set health = health || ${JSON.stringify({ refreshExpiresAt })}::jsonb
-                 where id = ${connectionId}`
-    })
-  )
-  const until = tokens.expiresAt === null ? null : tokens.expiresAt.getTime() - MARGIN_MS
-  return { token: tokens.accessToken, until } satisfies CurrentToken
 })
 
 const refused = Effect.fn("Stores.tokenRefused")(function*(connectionId: string) {
