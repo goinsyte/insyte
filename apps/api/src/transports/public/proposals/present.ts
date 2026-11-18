@@ -42,6 +42,10 @@ const actionV1 = (a: ProposalView["action"]) => {
       return { kind: "assign_ticket" as const, subject_id: a.ticketId }
     case "CommentTicket":
       return { kind: "comment_on_ticket" as const, subject_id: a.ticketId }
+    case "ReplyThread":
+      return { kind: "reply_to_thread" as const, subject_id: a.threadId }
+    case "PostChatMessage":
+      return { kind: "post_chat_message" as const, subject_id: a.conversationId }
   }
 }
 

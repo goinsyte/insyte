@@ -5,7 +5,8 @@ import { call } from "./support.ts"
  * The `__dev` routes on a Worker configured as staging (`vitest.staging.config.ts`): every one answers 404, without a
  * session and whatever it is asked, as a path no route claims does. The guard is the prefix's (`DevRoutes.ts`), so a
  * route added to `dev/` later is refused there without a line of its own; this lists them from their sources, so a new
- * one is checked without a line here either.
+ * one is checked without a line here either. On the console's origin (`CONSOLE_ORIGIN`), the one host staging serves
+ * them on, so the 404 is the guard's and not the host check's (`hosts.staging.test.ts`).
  */
 
 declare global {
@@ -43,7 +44,7 @@ describe("the __dev routes on staging", () => {
     "refuses %s with a 404",
     async (_, route) => {
       const method = route.method === "*" ? "GET" : route.method
-      const response = await call(`http://api.test${route.path.replaceAll(/:\w+/g, "x")}?workspace=ws_any`, {
+      const response = await call(`http://localhost:4300${route.path.replaceAll(/:\w+/g, "x")}?workspace=ws_any`, {
         method,
         ...(method === "GET" ? {} : { headers: { "content-type": "application/json" }, body: "{}" })
       })

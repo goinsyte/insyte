@@ -898,11 +898,27 @@ describe("the customer agent's day, after review", () => {
     "counts a runaway thread as waiting, not one a person took, and the first reply from the shopper's message",
     async () => {
       const s = await chatStore("chat-day")
-      await s.configure({ handover: { ...SETTINGS.handover, afterMessages: null } })
+      const settings = { handover: { ...SETTINGS.handover, afterMessages: null } }
+      // The Worker's own queue consumer runs the agent's turn on a message too, whenever its batch goes. Off while the
+      // shopper's message is moved a minute back, that turn stays silent, so whichever turn answers, it answers the
+      // message as written a minute ago, and the reply's own time is now.
+      await s.configure({ ...settings, on: false })
       const slow = await s.say("Kan ik een sale-artikel nog retourneren?")
-      await new Promise((r) => setTimeout(r, 2_100))
+      expect(
+        (await call(`http://api.test/api/__dev/webchat/earlier?workspace=${s.workspace}&seconds=60`, {
+          method: "POST"
+        })).status
+      ).toBe(200)
+      await s.configure(settings)
       await s.turn(slow)
-      expect((ok(await rpc("ChannelAgent.today", undefined, s.cookie))).avgSeconds).toBeGreaterThanOrEqual(2)
+      // The consumer's turn may have claimed the message first ("seen" here): its reply is logged once it went.
+      for (let i = 0; i < 50 && (await s.rowsOf(slow.threadId)).length === 0; i++) {
+        await new Promise((r) => setTimeout(r, 100))
+      }
+      expect(await s.rowsOf(slow.threadId)).toMatchObject([{ decision: "run", outcome: "done" }])
+      const day = ok(await rpc("ChannelAgent.today", undefined, s.cookie))
+      expect(day.avgSeconds).toBeGreaterThanOrEqual(60)
+      expect(day.avgSeconds).toBeLessThan(90)
 
       const runaway = await s.chat("Kan ik een sale-artikel nog retourneren?")
       for (let i = 0; i < 20; i++) await s.chat(`En retourneren van sale-artikel ${i}?`, runaway.threadId)

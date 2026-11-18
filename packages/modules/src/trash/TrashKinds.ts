@@ -26,13 +26,16 @@ export interface TrashKindLinks {
     Conflict | Forbidden | NotFound | SqlError.SqlError,
     Db | CurrentPrincipal
   >
-  /** Gone for good, on the caller's transaction: the rows, what hangs off them, an audit line each, as `actor`. */
+  /**
+   * Gone for good, on the caller's transaction: the rows, what hangs off them, an audit line each, as `actor`. Answers
+   * the bucket objects that were theirs (a course's images), which the Prullenbak removes once the purge has committed.
+   */
   readonly purge: (
     sql: SqlClient.SqlClient,
     workspaceId: string,
     ids: ReadonlyArray<string>,
     actor: Actor
-  ) => Effect.Effect<void, SqlError.SqlError>
+  ) => Effect.Effect<ReadonlyArray<string> | void, SqlError.SqlError>
 }
 
 /**

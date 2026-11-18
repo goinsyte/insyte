@@ -435,12 +435,15 @@ export const purgeIn = Effect.fn("Courses.purge")(function*(
   ids: ReadonlyArray<string>,
   actor: Audit.Actor
 ) {
-  if (ids.length === 0) return
+  if (ids.length === 0) return []
   const gone = yield* sql<{ id: string; title: string }>`
     delete from courses where id in ${sql.in([...new Set(ids)])} and deleted_at is not null returning id, title`
-  if (gone.length === 0) return
-  yield* sql`update files set deleted_at = now()
-             where owner_type = 'course' and owner_id in ${sql.in(gone.map((c) => c.id))} and deleted_at is null`
+  if (gone.length === 0) return []
+  // Its images: their rows marked gone here, their objects removed by the caller once this has committed.
+  const files = yield* sql<{ r2Key: string }>`
+    update files set deleted_at = now()
+    where owner_type = 'course' and owner_id in ${sql.in(gone.map((c) => c.id))} and deleted_at is null
+    returning r2_key`
   for (const c of gone) {
     yield* Audit.write(sql, workspaceId, actor, {
       action: "course.purged",
@@ -449,6 +452,7 @@ export const purgeIn = Effect.fn("Courses.purge")(function*(
       diff: { title: c.title }
     })
   }
+  return files.map((f) => f.r2Key)
 })
 
 /** "Herinneren": one teammate who has the live course to do hears of it, once the undo window has passed. */

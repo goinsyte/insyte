@@ -2,6 +2,7 @@ import { PgClient } from "@effect/sql-pg"
 import { Effect, Layer, Redacted } from "effect"
 import { SqlClient } from "effect/sql"
 import { describe, expect, it } from "vitest"
+import { APP_URL } from "./urls.ts"
 
 /*
  * The website chat's widget lookups (M15 step 8, `inbox/use-cases/chat/widget.ts`): every widget request finds its
@@ -10,7 +11,6 @@ import { describe, expect, it } from "vitest"
  * the visitor, and holds closed conversations as well, so the partial index of open ones is not all there is. Read from
  * the catalogue: which index the planner takes on a table of a test's size is noise (the PR has its plan at 200,000).
  */
-const APP_URL = process.env["DATABASE_URL_APP"] ?? "postgres://insyte_app:insyte_app_local@localhost:55443/insyte"
 
 const indexesOf = (table: string) =>
   Effect.runPromise(

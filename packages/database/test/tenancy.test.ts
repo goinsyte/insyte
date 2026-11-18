@@ -6,6 +6,7 @@ import { Cause, Effect, type Exit, Layer, Redacted, Schema } from "effect"
 import { describe, expect, it } from "vitest"
 import { Db, DbLive } from "../src/Db.ts"
 import { NEWCOMER_TABLES, TENANT_TABLES } from "../src/Tenancy.ts"
+import { APP_URL } from "./urls.ts"
 
 /*
  * The tenancy suite (step 3, 06 §2): two people, each with a workspace, and the proof that a member of A reads nothing of
@@ -13,7 +14,6 @@ import { NEWCOMER_TABLES, TENANT_TABLES } from "../src/Tenancy.ts"
  * owns nothing and bypasses nothing. Plus the catalogue check: every tenant table has its policy, forced, so a table
  * added without the helper fails here.
  */
-const APP_URL = process.env["DATABASE_URL_APP"] ?? "postgres://insyte_app:insyte_app_local@localhost:55443/insyte"
 const run = <A, E>(effect: Effect.Effect<A, E, Db>) =>
   Effect.runPromise(
     effect.pipe(Effect.provide(DbLive.pipe(Layer.provide(PgClient.layer({ url: Redacted.make(APP_URL) })))))

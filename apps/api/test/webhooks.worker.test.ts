@@ -170,6 +170,82 @@ describe("Shopify's webhooks", () => {
   })
 })
 
+// Shopify's erasure that cannot finish (0106): the shopper is left in a column no placeholder fits (an endpoint's URL
+// must start with `https://`, and theirs is where it starts). The request is kept failed with that column, never with
+// the value, counted on `/api/health/deep`, and tried again on the hour until it is done or its 30 days have passed.
+describe("a Shopify erasure that cannot finish", () => {
+  const endpoint = (url: string) => ({
+    url,
+    description: "",
+    events: ["order.cancelled"],
+    apiVersion: "2026-10-01",
+    stores: "all" as const,
+    headers: [],
+    retry: 3 as const,
+    active: true
+  })
+  const deep = async () =>
+    ((await (await call("http://api.test/api/health/deep")).json()) as {
+      privacy: { redactsOpen: number; redactsFailed: number; redactsOverdue: number }
+    }).privacy
+  const shoppers = async (cookie: string) => ok(await rpc("Privacy.requests", undefined, cookie)).shoppers
+  const retry = () => call("http://api.test/api/__dev/privacy/redacts", { method: "POST" })
+  /** A store whose shopper (Shopify's customer 2) is also the start of a webhook endpoint's URL. */
+  const stuck = async (tag: string) => {
+    const own = await imported(tag)
+    const site = `https://${tag}-${run}.example`.toLowerCase()
+    const id = ok(await rpc("Webhooks.create", endpoint(`${site}/hook`), own.cookie)).endpoint.id
+    const body = { shop_domain: own.shop, customer: { id: 2, email: site }, orders_to_redact: [3] }
+    expect((await hook(own.shop, "customers/redact", body)).status).toBe(200)
+    return { own, site, id, body, mirror: await settled(own) }
+  }
+
+  it("is kept failed with the column, counted, and done by the hourly retry once the column fits", async () => {
+    const before = await deep()
+    const { own, site, id, body, mirror } = await stuck("redact-kept")
+    // Nothing of the erasure stayed: the shopper is still there, and the request is open.
+    expect(mirror.customers[1]).not.toEqual({ name: "", email: null })
+    expect(mirror.gdpr).toEqual([{ kind: "customer_redact", completed: false }])
+    const [request] = await shoppers(own.cookie)
+    expect(request).toMatchObject({
+      kind: "erasure",
+      source: "shopify",
+      state: "failed",
+      error: "webhook_endpoints.url",
+      completedAt: null
+    })
+    expect(JSON.stringify(request)).not.toContain(site)
+    expect((await deep()).redactsFailed).toBeGreaterThanOrEqual(before.redactsFailed + 1)
+
+    // Shopify sends it again meanwhile: the same request, not a second one.
+    expect((await hook(own.shop, "customers/redact", body)).status).toBe(200)
+    expect((await settled(own)).gdpr).toEqual([{ kind: "customer_redact", completed: false }])
+
+    // The endpoint moved elsewhere: the next retry erases the shopper and the request is done.
+    ok(await rpc("Webhooks.update", { id, ...endpoint(`https://elsewhere-${run}.example/hook`) }, own.cookie))
+    expect((await retry()).status).toBe(200)
+    const done = await mirrorOf(own)
+    expect(done.customers[1]).toEqual({ name: "", email: null })
+    expect(done.gdpr).toEqual([{ kind: "customer_redact", completed: true }])
+    expect((await shoppers(own.cookie))[0]).toMatchObject({ state: "done", error: null })
+  })
+
+  it("is not tried again past its 30 days, and is counted overdue", async () => {
+    const { own, id } = await stuck("redact-late")
+    const [request] = await shoppers(own.cookie)
+    expect(request).toMatchObject({ state: "failed", error: "webhook_endpoints.url" })
+    const aged = await call(
+      `http://api.test/api/__dev/privacy/age?workspace=${own.workspace}&request=${request!.id}&days=31`,
+      { method: "POST" }
+    )
+    expect(((await aged.json()) as { aged: number }).aged).toBe(1)
+    ok(await rpc("Webhooks.update", { id, ...endpoint(`https://elsewhere-late-${run}.example/hook`) }, own.cookie))
+    expect((await retry()).status).toBe(200)
+    expect((await mirrorOf(own)).gdpr).toEqual([{ kind: "customer_redact", completed: false }])
+    expect((await deep()).redactsOverdue).toBeGreaterThanOrEqual(1)
+  })
+})
+
 describe("the reconcile sweep", () => {
   it("repairs what changed in Shopify without a webhook, on the fifteenth minute", async () => {
     const store = await imported("sweep")

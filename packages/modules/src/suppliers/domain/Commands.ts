@@ -87,6 +87,8 @@ export const SuppliersRestore = Schema.Union([
     products: Schema.Array(Schema.Struct({ productId: Schema.String, was: Schema.NullOr(Schema.String) }))
   }),
   Schema.Struct({ kind: Schema.Literal("removed"), id: Schema.String, supply: Schema.Array(Supply) }),
+  /** Put back from the Prullenbak: its undo removes it again. */
+  Schema.Struct({ kind: Schema.Literal("put_back"), id: Schema.String }),
   StatementRestore
 ])
 export type SuppliersRestore = typeof SuppliersRestore.Type

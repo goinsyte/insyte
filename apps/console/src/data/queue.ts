@@ -28,6 +28,9 @@ export const queueAtom = inView((storeId) =>
   )
 )
 
+/** Vraag Insyte's welcome: how many open rows are red or amber (the hero's "needs you"); null while unread or refused. */
+export const needsOf = (list: QueueList | undefined): number | null => list?.counts.needsYou ?? null
+
 export const queueWrites = {
   markSeen: ConsoleClient.mutation("Queue.markSeen"),
   // The plate on a row (M10.2): filed as the person, or drawn again.

@@ -26,6 +26,7 @@ import {
   type Span,
   type WeekdayRow
 } from "../domain/Analytics.ts"
+import { CostFigures, type CostMonth } from "../domain/Ports.ts"
 import * as Detect from "./findings.ts"
 import {
   type Context,
@@ -42,6 +43,7 @@ import {
   monthsBetween,
   namesOf,
   ordersBy,
+  placedRefundedOrderIds,
   recordsOf,
   refundedOrderIds,
   refundsBy,
@@ -403,8 +405,41 @@ const idsOf = Effect.fn("Analytics.ids")(function*(sql: SqlClient.SqlClient, A: 
       return disputedOrderIds(sql, scope, A.from, A.to, key.reason)
     case "weekday":
       return undefined
+    case "refunded":
+      return placedRefundedOrderIds(sql, scope, A.from, A.to)
+    case "revenue":
+    case "average_order":
+    case "costs":
+    case "net_profit":
+    case "margin":
+    case "roas":
+      return counted(sql`true`)
   }
 })
+
+/** A Kosten figure (`CostFigures`), as the explanation's `a`/`b`: money in minor units, margin in %, ROAS as a ratio. */
+const COSTED_VALUE = {
+  costs: (m: CostMonth) => m.costsMinor,
+  net_profit: (m: CostMonth) => m.netMinor,
+  margin: (m: CostMonth) => round1(m.margin * 100),
+  roas: (m: CostMonth) => round1(m.roas)
+} as const
+
+/** What each Kosten figure is made of, as its drivers (`part`), in minor units. */
+const COSTED_PARTS: Readonly<Record<keyof typeof COSTED_VALUE, ReadonlyArray<keyof CostMonth>>> = {
+  costs: ["adsMinor", "otherMinor"],
+  net_profit: ["revenueMinor", "adsMinor", "otherMinor"],
+  margin: ["revenueMinor", "costsMinor", "netMinor"],
+  roas: ["revenueMinor", "adsMinor"]
+}
+
+const PART_KEY: Readonly<Partial<Record<keyof CostMonth, string>>> = {
+  revenueMinor: "revenue",
+  adsMinor: "ads",
+  otherMinor: "other",
+  costsMinor: "costs",
+  netMinor: "net"
+}
 
 const countOf = Effect.fn("Analytics.count")(function*(sql: SqlClient.SqlClient, A: Span, key: ExplainKey) {
   const ids = yield* idsOf(sql, A, key)
@@ -538,6 +573,53 @@ export const explain = Effect.fn("Analytics.explain")(function*(ref: ExplainRef)
         case "channel":
           // A finding's own rows: the finding already carries its numbers and what moved it.
           break
+        case "revenue":
+        case "average_order":
+        case "refunded": {
+          const [ca, cb] = [yield* ordersBy(sql, A, ["store_id"]), yield* ordersBy(sql, B, ["store_id"])]
+          const names = yield* namesOf(sql, { stores: [...ca, ...cb].map(store) })
+          const avg = (cells: typeof ca) => {
+            const n = sumOf(cells, (c) => c.counted)
+            return n === 0 ? 0 : Math.round(sumOf(cells, (c) => c.revenue) / n)
+          }
+          const value = key._tag === "revenue" ?
+            (cells: typeof ca) => sumOf(cells, (c) => c.revenue) :
+            key._tag === "refunded" ?
+            (cells: typeof ca) => sumOf(cells, (c) => c.refunded) :
+            avg
+          a = value(ca)
+          b = value(cb)
+          // Revenue and refunds: how many orders they are; an average: how many it is taken over.
+          of = key._tag === "refunded" ? sumOf(ca, (c) => c.refunds) : sumOf(ca, (c) => c.counted)
+          const byStore = (cells: typeof ca) => {
+            const m = new Map<string, Array<(typeof ca)[number]>>()
+            for (const c of cells) m.set(store(c), [...(m.get(store(c)) ?? []), c])
+            return m
+          }
+          const [sa, sb] = [byStore(ca), byStore(cb)]
+          drivers = [...new Set([...sa.keys(), ...sb.keys()])]
+            .map((k) => driver("store", k, names.stores.get(k) ?? null, value(sa.get(k) ?? []), value(sb.get(k) ?? [])))
+            .sort((x, y) => Math.abs(y.a - y.b) - Math.abs(x.a - x.b))
+          break
+        }
+        case "costs":
+        case "net_profit":
+        case "margin":
+        case "roas": {
+          // Kosten's own months, so the drawer and the figure it opens from agree to the cent.
+          const until = `${ctx.current}-${String(ctx.today).padStart(2, "0")}`
+          const months = yield* (yield* CostFigures).months(sql, [A.month, B.month], until)
+          const ma = months.find((m) => m.month === A.month)
+          const mb = months.find((m) => m.month === B.month)
+          const pick = COSTED_VALUE[key._tag]
+          a = ma === undefined ? 0 : pick(ma)
+          b = mb === undefined ? 0 : pick(mb)
+          of = ma?.orders ?? 0
+          drivers = COSTED_PARTS[key._tag].map((part) =>
+            driver("part", PART_KEY[part] ?? part, null, Number(ma?.[part] ?? 0), Number(mb?.[part] ?? 0))
+          )
+          break
+        }
       }
       return new Explanation({
         ref,

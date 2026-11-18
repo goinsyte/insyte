@@ -26,7 +26,7 @@ import { StaffRoutes } from "./staff.ts"
 import { StatementsClose } from "./statements.ts"
 import { StoreRoutes } from "./stores.ts"
 import { TrackingSweep } from "./tracking.ts"
-import { TrashSweep } from "./trash.ts"
+import { TrashSupplier, TrashSweep } from "./trash.ts"
 import { UndoRoutes } from "./undo.ts"
 import { WebchatRoutes } from "./webchat.ts"
 
@@ -38,6 +38,7 @@ const Routes = Layer.mergeAll(
   CostsRoutes,
   DataRoutes,
   TrashSweep,
+  TrashSupplier,
   SendingDomainRoutes,
   RetentionRoutes,
   FactsRoutes,
