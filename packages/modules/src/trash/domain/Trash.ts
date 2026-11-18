@@ -17,7 +17,15 @@ export const TRASH_DAYS = 30
  * put-back and purge in `TrashKindsLive` (`apps/api/src/platform/links/TrashKinds.ts`), and its word and icon on the
  * page (`KIND` in the console's `trash-source.tsx` and `trash-screen.tsx`). Nothing in the use cases names a kind.
  */
-export const TrashKind = Schema.Literals(["ticket", "automation", "sheet", "course", "webhook", "cost_line"])
+export const TrashKind = Schema.Literals([
+  "ticket",
+  "automation",
+  "sheet",
+  "course",
+  "webhook",
+  "cost_line",
+  "supplier"
+])
 export type TrashKind = typeof TrashKind.Type
 
 /** What a kind takes: the area it belongs to, and the level there to see it, put it back, and purge it. */
@@ -36,7 +44,8 @@ export interface TrashKindRule {
  * Each kind's rule, as its slice already has it: a ticket is seen at Bekijken, put back at Bewerken, purged at Beheren
  * (Tickets' own put-back of a deleted one takes Beheren too); an automation and a course are removed at Beheren, so
  * they come back and go for good there; a webhook endpoint is removed at Bewerken; a cost line and a sheet are made
- * and removed at Bekijken (cost lines with the `costs.write` action), a sheet by its owner only.
+ * and removed at Bekijken (cost lines with the `costs.write` action), a sheet by its owner only; a supplier is removed
+ * at Leveranciers · Beheren.
  */
 export const TRASH_KINDS: Readonly<Record<TrashKind, TrashKindRule>> = {
   ticket: { area: "support", see: 1, restore: 2, purge: 3 },
@@ -44,7 +53,8 @@ export const TRASH_KINDS: Readonly<Record<TrashKind, TrashKindRule>> = {
   sheet: { area: "data", see: 1, restore: 1, purge: 1, ownerOnly: true },
   course: { area: "courses", see: 2, restore: 3, purge: 3 },
   webhook: { area: "integrations", see: 1, restore: 2, purge: 3 },
-  cost_line: { area: "analytics", see: 1, restore: 1, purge: 1, action: "costs.write" }
+  cost_line: { area: "analytics", see: 1, restore: 1, purge: 1, action: "costs.write" },
+  supplier: { area: "suppliers", see: 1, restore: 3, purge: 3 }
 }
 
 export const TrashItem = Schema.Struct({

@@ -1,4 +1,5 @@
 import { statements } from "../statements.ts"
+import { KINDS, trashView } from "./0101_trash_kinds.ts"
 
 /*
  * Leftovers of earlier waves (W13.4).
@@ -14,12 +15,27 @@ import { statements } from "../statements.ts"
  *   was, with a warning that names the table and column, never the value.
  * - `automation_versions_frozen()` (0056) lets that scrub through: a published version is immutable, except for a
  *   shopper's erasure, as `system`, which may blank their words in its note or steps.
+ * - Suppliers join the Prullenbak (`supplier`, 0101's pattern). A removed supplier is listed for 30 days (from now for
+ *   one removed before), put back through Leveranciers, and purged. A purge does not delete the row: its statements,
+ *   quality checks, conversations and supplier work are bookkeeping history that `on delete cascade` would take with
+ *   it. It marks the supplier `purged_at` (out of the trash, never back), and takes out what is theirs alone: the
+ *   contact details on the row, its contacts and their invitations, its integrations, and the products it supplied.
  */
+
+const SUPPLIER = `select workspace_id, 'supplier'::text, id, name, null::text, null::text, deleted_at,
+                          'supplier'::text, 'supplier.removed'::text
+                   from suppliers where deleted_at is not null and purged_at is null`
 
 /** The errors a cell's value can cause against its column: a check, not-null, unique or key (23), or its type (22). */
 const BROKEN = "integrity_constraint_violation or data_exception"
 
 export default statements(
+  "alter table suppliers add column purged_at timestamptz",
+  "alter table suppliers add constraint suppliers_purged_removed check (purged_at is null or deleted_at is not null)",
+  `create index suppliers_trash on suppliers (workspace_id, deleted_at)
+     where deleted_at is not null and purged_at is null`,
+  "insert into trash_kind_joins (kind) values ('supplier')",
+  `create or replace view trash_items_v with (security_invoker = true) as ${trashView([...KINDS, SUPPLIER])}`,
   `create or replace function automation_versions_frozen() returns trigger language plpgsql as $$
      begin
        if current_setting('app.scrubbing', true) = 'on' and app_principal_kind() = 'system' then

@@ -9,6 +9,7 @@ import {
   Sheet as SheetIcon,
   Ticket,
   Trash2,
+  Truck,
   User,
   Webhook,
   Workflow
@@ -31,7 +32,8 @@ const KIND: Record<TrashItem["kind"], { icon: IconComponent; label: string }> = 
   notitie: { icon: FileText, label: "Notitie" },
   cursus: { icon: GraduationCap, label: "Cursus" },
   webhook: { icon: Webhook, label: "Webhook" },
-  kostenpost: { icon: BadgePercent, label: "Kostenpost" }
+  kostenpost: { icon: BadgePercent, label: "Kostenpost" },
+  leverancier: { icon: Truck, label: "Leverancier" }
 }
 
 const DAY = 86_400_000

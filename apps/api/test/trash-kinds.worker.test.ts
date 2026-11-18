@@ -242,4 +242,57 @@ describe("more kinds in the Prullenbak", () => {
       await sweep(workspace, { age: 0, joined: 0 })
     }
   })
+
+  it("holds a removed supplier: put back with its undo, refused under a name taken meanwhile, purged for good", async () => {
+    const supplier = async (name: string) =>
+      ok(
+        await rpc("Suppliers.create", {
+          name,
+          contactEmail: `${name.toLowerCase().replaceAll(" ", "-")}-${run}@supplier.example`,
+          contactPhone: "",
+          description: ""
+        }, people.owner)
+      ).suppliers[0]!.id
+    const listed = async () => ok(await rpc("Suppliers.list", {}, people.owner)).rows.map((r) => r.id)
+    const atelier = await supplier("Atelier Prullenbak")
+    ok(await rpc("Suppliers.remove", { id: atelier }, people.owner))
+    expect(await listed()).not.toContain(atelier)
+    expect((await trash(people.owner)).find((i) => i.id === atelier)).toMatchObject({
+      kind: "supplier",
+      title: "Atelier Prullenbak",
+      deletedBy: expect.any(String)
+    })
+    // Opruimer cannot see Leveranciers, so not their removed ones either; the admin can.
+    expect((await trash(people.tidy)).map((i) => i.id)).not.toContain(atelier)
+    expect((await trash(people.admin)).map((i) => i.id)).toContain(atelier)
+
+    // Put back: on Leveranciers again; its undo removes it again, into the trash.
+    const back = ok(await rpc("Trash.restore", { ids: [atelier] }, people.owner))
+    expect(back.undo).toHaveLength(1)
+    expect(await listed()).toContain(atelier)
+    for (const ticket of back.undo) ok(await rpc("Shared.undo", { token: ticket.token }, people.owner))
+    expect(await listed()).not.toContain(atelier)
+    expect((await trash(people.owner)).map((i) => i.id)).toContain(atelier)
+
+    // Another supplier took its name meanwhile: it cannot come back as it was.
+    const twin = await supplier("Atelier Prullenbak")
+    expect(failure(await rpc("Trash.restore", { ids: [atelier] }, people.owner))).toMatchObject({
+      _tag: "Conflict",
+      reason: "name_taken"
+    })
+    ok(await rpc("Suppliers.remove", { id: twin }, people.owner))
+
+    // Purged: out of the trash, and never back.
+    expect(ok(await rpc("Trash.purge", { ids: [atelier] }, people.owner))).toEqual({ purged: 1 })
+    expect((await trash(people.owner)).map((i) => i.id)).not.toContain(atelier)
+    expect(failure(await rpc("Trash.restore", { ids: [atelier] }, people.owner))).toMatchObject({ _tag: "NotFound" })
+    expect(failure(await rpc("Suppliers.get", { id: atelier }, people.owner))).toMatchObject({ _tag: "NotFound" })
+    // The sweep takes one past its 30 days too.
+    try {
+      expect(await sweep(workspace, { age: 31, joined: 60 })).toEqual({ purged: 1 })
+      expect(await trash(people.owner)).toEqual([])
+    } finally {
+      await sweep(workspace, { age: 0, joined: 0 })
+    }
+  })
 })

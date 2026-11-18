@@ -7,6 +7,7 @@ import { purgeIn as purgeCostLines, putBack as putBackCostLines } from "@insyte/
 import { purgeIn as purgeCourses, restore as restoreCourses } from "@insyte/modules/courses/use-cases/commands"
 import { purgeIn as purgeWebhooks, putBack as putBackWebhooks } from "@insyte/modules/developer/use-cases/webhooks"
 import { purgeIn as purgeSheets, restoreSheets } from "@insyte/modules/sheets/use-cases/commands"
+import { purgeIn as purgeSuppliers, putBack as putBackSuppliers } from "@insyte/modules/suppliers/use-cases/commands"
 import { purgeIn as purgeTickets, putBack as putBackTickets } from "@insyte/modules/tickets/use-cases/commands"
 import { TrashKinds } from "@insyte/modules/trash/TrashKinds"
 import { Effect, Layer } from "effect"
@@ -55,5 +56,9 @@ export const TrashKindsLive = Layer.succeed(TrashKinds, {
   cost_line: {
     restore: (ids) => putBackCostLines({ ids }),
     purge: purgeCostLines
+  },
+  supplier: {
+    restore: (ids) => putBackSuppliers({ ids }),
+    purge: purgeSuppliers
   }
 })

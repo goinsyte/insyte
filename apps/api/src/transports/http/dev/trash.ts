@@ -9,7 +9,7 @@ import { withRequestDb } from "../../../platform/RequestDb.ts"
 import { notInProduction, workspaceParam } from "./shared.ts"
 
 /** The tables whose removed rows the Prullenbak holds (`trash_items_v`). */
-const TRASHED = ["tickets", "automations", "sheets", "courses", "webhook_endpoints", "cost_lines"] as const
+const TRASHED = ["tickets", "automations", "sheets", "courses", "webhook_endpoints", "cost_lines", "suppliers"] as const
 
 /**
  * `POST /api/__dev/trash/sweep?workspace=<id>&age=<days>[&joined=<days>]`: the workspace's trashed items as if deleted
