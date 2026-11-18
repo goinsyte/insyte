@@ -54,7 +54,10 @@ const ENTITY: Record<string, string> = {
   automation: "automation",
   run: "run",
   sheet: "sheet",
-  export: "export"
+  export: "export",
+  thread: "thread",
+  conversation: "chat",
+  message: "message"
 }
 export const notFound = (e?: { readonly entity?: string }) =>
   fail("NotFoundV1" as const, `No such ${ENTITY[e?.entity ?? ""] ?? "order"} in this key's stores.`, {})
