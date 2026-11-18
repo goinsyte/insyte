@@ -35,28 +35,23 @@ export const queue: ExportedHandlerQueueHandler<Env, EventsMessage | IngestMessa
     // are waited for, whatever the deliveries beside them do.
     const settle = (m: (typeof messages)[number], run: Promise<unknown>) => run.then(() => m.ack(), () => m.retry())
     // Each, once it ran, leaves `pending_tasks` (W13.6), so the cron does not send it again.
-    const task = <E>(
-      m: (typeof messages)[number],
-      run: Effect.Effect<unknown, E, Effect.Services<ReturnType<typeof classify>>>,
-      kind: PendingKind,
-      workspaceId: string,
-      ref: string | undefined
-    ) =>
-      settle(
-        m,
-        background.runPromise(spans.provide(withRequestDb(Effect.andThen(run, ranTask(kind, workspaceId, ref)))))
-      )
     const beside = Promise.allSettled(messages.flatMap((m) => {
       const b = m.body
-      return "classifyTicket" in b
-        ? [
-          task(m, classify(b.classifyTicket), "classify_ticket", b.classifyTicket.workspaceId, b.classifyTicket.eventId)
-        ]
-        : "agent" in b
-        ? [task(m, agentAct(b.agent), "agent", b.agent.workspaceId, b.agent.eventId)]
-        : "embedKnowledge" in b
-        ? [task(m, embed(b.embedKnowledge), "embed_knowledge", b.embedKnowledge.workspaceId, b.embedKnowledge.eventId)]
-        : []
+      if ("classifyTicket" in b) {
+        const { workspaceId, eventId } = b.classifyTicket
+        const run = Effect.andThen(classify(b.classifyTicket), ranTask("classify_ticket", workspaceId, eventId))
+        return [settle(m, background.runPromise(spans.provide(withRequestDb(run))))]
+      }
+      if ("agent" in b) {
+        const run = Effect.andThen(agentAct(b.agent), ranTask("agent", b.agent.workspaceId, b.agent.eventId))
+        return [settle(m, background.runPromise(spans.provide(withRequestDb(run))))]
+      }
+      if ("embedKnowledge" in b) {
+        const { workspaceId, eventId } = b.embedKnowledge
+        const run = Effect.andThen(embed(b.embedKnowledge), ranTask("embed_knowledge", workspaceId, eventId))
+        return [settle(m, background.runPromise(spans.provide(withRequestDb(run))))]
+      }
+      return []
     }))
     // Each message's events on their own: an event that fails waits for its own try again (`Relay.deliver`), so a
     // message goes back to the queue only when the database could not be reached for it.

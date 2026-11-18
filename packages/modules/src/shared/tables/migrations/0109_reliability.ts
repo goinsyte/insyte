@@ -140,7 +140,7 @@ export default statements(
        return null;
      end $$`,
   UNGUARDED.flatMap((table) => [
-    `create trigger ${triggerOf(table)} before insert or update or delete or truncate on ${table}
+    `create trigger ${triggerOf(table)} before insert or update or delete on ${table}
        for each statement execute function refuse_staff_writes()`
   ])
 )
