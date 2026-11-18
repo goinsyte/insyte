@@ -58,7 +58,15 @@ describe("pages", () => {
   it("puts settings.retention on Gegevens en privacy, the older retention on Account", () => {
     expect(pageOf("retention", "settings.retention.days").id).toBe("privacy")
     expect(pageOf("retention", "workspace.retention_updated").id).toBe("account")
-    expect(sectionsOfPage("privacy")).toEqual(["retention"])
+    expect(sectionsOfPage("privacy")).toEqual(["retention", "support"])
+  })
+
+  it("puts Insyte-support's consent and its looking along on Gegevens en privacy, as one sentence each", () => {
+    expect(pageOf("support", "support.access_changed").id).toBe("privacy")
+    expect(changesOf({ section: "support", action: "support.access_changed", diff: { from: false, to: true } }))
+      .toEqual([{ field: "Insyte-support mag meekijken", before: "Uit", after: "Aan" }])
+    expect(changesOf({ section: "support", action: "support.read", diff: { said: "Bekeken: Team" } }))
+      .toEqual([{ field: "Insyte-support", before: "—", after: "Bekeken: Team" }])
   })
 
   it("lists each page once, by its Dutch name, and an unknown section under its own name", () => {

@@ -36,6 +36,7 @@ import { SheetsRpcs } from "@insyte/api/rpc/SheetsRpcs"
 import { ShellRpcs } from "@insyte/api/rpc/ShellRpcs"
 import { StoresRpcs } from "@insyte/api/rpc/StoresRpcs"
 import { SuppliersRpcs } from "@insyte/api/rpc/SuppliersRpcs"
+import { SupportRpcs } from "@insyte/api/rpc/SupportRpcs"
 import { ThreadsRpcs } from "@insyte/api/rpc/ThreadsRpcs"
 import { TicketsRpcs } from "@insyte/api/rpc/TicketsRpcs"
 import { TrackingRpcs } from "@insyte/api/rpc/TrackingRpcs"
@@ -698,6 +699,10 @@ const PAYLOADS: Record<string, unknown> = {
   "Billing.removeSeats": { n: 1 },
   "Billing.cancel": { reason: "other" },
   "Billing.resume": undefined,
+  // Insyte-support mag meekijken (M18): every member reads it (the banner), only the owner turns it on or off. Off, so
+  // the run leaves it as it found it.
+  "Support.status": undefined,
+  "Support.setAccess": { on: false },
   "Billing.portalSession": undefined,
   // Vraag Insyte (M15 step 3): every member asks; what an answer reads is each tool's own area, as the person asking
   // (`ask.worker.test.ts`). A conversation that is not there is `NotFound` before a question is kept or a model called.
@@ -755,7 +760,8 @@ const manifest = [
   ...PrivacyRpcs.requests.keys(),
   ...DataRpcs.requests.keys(),
   ...BillingRpcs.requests.keys(),
-  ...AskRpcs.requests.keys()
+  ...AskRpcs.requests.keys(),
+  ...SupportRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {
