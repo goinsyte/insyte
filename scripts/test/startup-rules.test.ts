@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest"
-import { activeMs, budgetFor, checkStartup, median } from "../lib/startup-rules.ts"
+import {
+  activeMs,
+  budgetFor,
+  checkStartup,
+  checkStartupGraph,
+  median,
+  newestVersion,
+  startupGraph
+} from "../lib/startup-rules.ts"
 
 describe("startup:check", () => {
   it("counts every sample but idle, garbage collection included", () => {
@@ -31,5 +39,48 @@ describe("startup:check", () => {
     const budget = { budgetMs: { "AMD EPYC 7763": 480, "AMD EPYC 9V74": 360 }, wranglerConfig: "wrangler.jsonc" }
     expect(budgetFor(budget, "AMD EPYC 9V74 80-Core Processor")).toEqual({ cpu: "AMD EPYC 9V74", ms: 360 })
     expect(budgetFor(budget, "Apple M1 Pro")).toEqual({ ms: 480 })
+  })
+
+  it("follows a chunk's static imports and re-exports, not its lazy ones", () => {
+    const chunks: Record<string, string> = {
+      "Main.js": `import{n as e,t}from"./startup-A.js";e();export{t as default};`,
+      "startup-A.js": `import{i as t}from"./rolldown-runtime-B.js";import{env as a}from"cloudflare:workers";` +
+        `var n=()=>import(\`./MainApp-C.js\`);export*from"./shared-D.js";`,
+      "rolldown-runtime-B.js": `var e=1;export{e as i};`,
+      "shared-D.js": `import"./rolldown-runtime-B.js";`,
+      "MainApp-C.js": `import"./heavy-E.js";`
+    }
+    expect(startupGraph("Main.js", (file) => chunks[file])).toEqual([
+      "Main.js",
+      "startup-A.js",
+      "rolldown-runtime-B.js",
+      "shared-D.js"
+    ])
+  })
+
+  it("fails a startup graph that evaluates effect, a workspace package or the app's layer", () => {
+    expect(checkStartupGraph("api", ["../src/Main.ts", "../src/platform/OnFirstRequest.ts"])).toEqual([])
+    const planted = checkStartupGraph("api", [
+      "../src/Main.ts",
+      "../../../node_modules/.bun/effect@4.1.2/node_modules/effect/dist/Effect.js",
+      "../../../node_modules/.bun/@effect+sql-pg@4.1.2/node_modules/@effect/sql-pg/dist/PgClient.js",
+      "../../../packages/modules/src/orders/use-cases/drafts.ts",
+      "../src/platform/AppLayer.ts"
+    ])
+    expect(planted).toHaveLength(3)
+    expect(planted[0]).toContain("api: its startup graph evaluates effect (2 modules")
+    expect(planted[1]).toContain("@insyte/* (packages/) (1 modules")
+    expect(planted[2]).toContain("the app's layer (1 modules, e.g. ../src/platform/AppLayer.ts)")
+  })
+
+  it("reads Cloudflare's startup time from the version uploaded last", () => {
+    expect(
+      newestVersion([
+        { id: "a", number: 7, startup_time_ms: 808 },
+        { id: "b", number: 9, startup_time_ms: 41 },
+        { id: "c", number: 8, startup_time_ms: 500 }
+      ])?.id
+    ).toBe("b")
+    expect(newestVersion([])).toBeUndefined()
   })
 })
