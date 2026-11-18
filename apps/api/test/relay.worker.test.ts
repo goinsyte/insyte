@@ -7,7 +7,7 @@ import {
 } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { Exit } from "effect"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import worker from "../src/Local.ts"
 import type { EventsMessage } from "../src/platform/Relay.ts"
 import { call, onboarding, sessionMe } from "./support.ts"
@@ -151,5 +151,42 @@ describe("the outbox relay", () => {
     // Delivered again (a kick, the sweep): the dead letter stays as it was.
     expect((await consume([stray])).ackAll).toBe(true)
     expect((await outboxOf(workspace)).events.find((e) => e.id === stray)!.attempts).toBe(1)
+  })
+
+  it("relays the rest of a batch when one event's sink fails, and holds that one back on its own (W13.6)", async () => {
+    // An import whose Workflow cannot start (an id no Workflow takes): the data sink fails on every try.
+    const bad = await raw(workspace, "import.uploaded", {
+      workspaceId: workspace,
+      importId: "no such id!",
+      userId: "u"
+    })
+    const good = await raw(workspace, "workspace.created", { workspaceId: workspace, userId: `u-${run}` })
+    const result = await consume([bad, good])
+    // The message is done with: the failing event waits for its own try again, nothing else goes back to the queue.
+    expect(result.ackAll).toBe(true)
+    expect(result.retryBatch.retry).toBe(false)
+    const rows = new Map((await outboxOf(workspace)).events.map((e) => [e.id, e]))
+    expect(rows.get(good)!.relayedAt).not.toBeNull()
+    expect(rows.get(bad)).toMatchObject({ relayedAt: null, deadLetteredAt: null, attempts: 1, due: false })
+    // The reason names the sink and the error's kind, never the payload.
+    expect(rows.get(bad)!.deadLetterReason).toMatch(/^sink data failed: \w+/)
+    expect(rows.get(bad)!.deadLetterReason).not.toContain("no such id")
+  })
+
+  it("delivers an event whose room cannot be reached: a realtime frame is best-effort (W13.6)", async () => {
+    // The room's object failing (a reset after a deploy, an overload): the broadcast rejects.
+    const rooms = vi.spyOn(env.ROOMS, "getByName").mockReturnValue(
+      { broadcast: () => Promise.reject(new Error("Durable Object reset because its code was updated.")) } as never
+    )
+    try {
+      const frame = await raw(workspace, "records.changed", { workspaceId: workspace, kind: "note", ids: ["n_1"] })
+      expect((await consume([frame])).ackAll).toBe(true)
+      const row = (await outboxOf(workspace)).events.find((e) => e.id === frame)!
+      expect(row).toMatchObject({ deadLetteredAt: null, deadLetterReason: null })
+      expect(row.relayedAt).not.toBeNull()
+      expect(rooms).toHaveBeenCalled()
+    } finally {
+      rooms.mockRestore()
+    }
   })
 })

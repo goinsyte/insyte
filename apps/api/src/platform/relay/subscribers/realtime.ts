@@ -2,30 +2,36 @@ import type { OutboxEvent } from "@insyte/modules/shared/domain/Outbox"
 import { Effect } from "effect"
 import { roomOf, supplierRoomOf } from "../../Room.ts"
 import { subscriber } from "../Subscriber.ts"
+import { told } from "../told.ts"
 
 /** The realtime sink (M5.1): a changed record's kind and ids to its workspace's room; the tabs refetch. */
 const realtime = (event: Extract<OutboxEvent, { type: "records.changed" }>) =>
-  Effect.promise(() =>
-    roomOf(event.workspaceId).broadcast({ v: 1, type: "records.changed", kind: event.kind, ids: [...event.ids] })
-  ).pipe(Effect.withSpan("Relay.realtime"))
+  told(
+    "Relay.realtime",
+    () => roomOf(event.workspaceId).broadcast({ v: 1, type: "records.changed", kind: event.kind, ids: [...event.ids] })
+  )
 
 /** The workspace's subscription changed (M13 step 1): the billing page and the team's seats refetch. */
 const billing = (event: Extract<OutboxEvent, { type: "billing.changed" }>) =>
-  Effect.promise(() => roomOf(event.workspaceId).broadcast({ v: 1, type: "records.changed", kind: "billing", ids: [] }))
-    .pipe(Effect.withSpan("Relay.realtime.billing"))
+  told(
+    "Relay.realtime.billing",
+    () => roomOf(event.workspaceId).broadcast({ v: 1, type: "records.changed", kind: "billing", ids: [] })
+  )
 
 /** A supplier portal's record changed (M16): the same frame, to that supplier's room only. */
 const partner = (event: Extract<OutboxEvent, { type: "partner.changed" }>) =>
-  Effect.promise(() =>
+  told("Relay.realtime.partner", () =>
     supplierRoomOf(event.workspaceId, event.supplierId).broadcast({
       v: 1,
       type: "records.changed",
       kind: event.kind,
       ids: [...event.ids]
-    })
-  ).pipe(Effect.withSpan("Relay.realtime.partner"))
+    }))
 
-/** A contact's access revoked (M16): its portal tabs closed; reconnecting is refused, as every call is. */
+/**
+ * A contact's access revoked (M16): its portal tabs closed; reconnecting is refused, as every call is. Not best-effort
+ * (`told`): an access that ended fails the event until its sockets are closed, and the relay tries it again alone.
+ */
 const revoked = (event: Extract<OutboxEvent, { type: "supplier.contact_revoked" }>) =>
   Effect.promise(() => supplierRoomOf(event.workspaceId, event.supplierId).closeMember(event.contactId)).pipe(
     Effect.withSpan("Relay.realtime.revoked")

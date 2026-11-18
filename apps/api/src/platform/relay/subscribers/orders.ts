@@ -7,6 +7,7 @@ import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import { roomOf } from "../../Room.ts"
 import { subscriber } from "../Subscriber.ts"
+import { told } from "../told.ts"
 
 /**
  * The shopper's delay mail (M10.2), once the filing's undo window has passed: sent with the words the plate showed, and
@@ -29,8 +30,9 @@ const delayMail = Effect.fn("Relay.delayMail")(
     )
     for (const row of failed) yield* reopenRowIn(sql, row)
     yield* refreshIn(sql)
-    yield* Effect.promise(() =>
-      roomOf(event.workspaceId).broadcast({ v: 1, type: "records.changed", kind: "queue_item", ids: [] })
+    yield* told(
+      "Relay.orders.told",
+      () => roomOf(event.workspaceId).broadcast({ v: 1, type: "records.changed", kind: "queue_item", ids: [] })
     )
   },
   Effect.orDie

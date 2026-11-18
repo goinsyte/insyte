@@ -1,7 +1,7 @@
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import type { AgentTask } from "@insyte/modules/agent/domain/Triggers"
-import { Effect } from "effect"
+import { Effect, Exit } from "effect"
 import type * as AgentSink from "../../platform/AgentSink.ts"
 import { withAi } from "../../platform/Ai.ts"
 import { BackgroundRuntime as background } from "../../platform/BackgroundLayer.ts"
@@ -12,7 +12,8 @@ import { deliver, type EventsMessage } from "../../platform/Relay.ts"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 
 /**
- * The outbox relay's consumer (M1.4): a throw leaves the batch to the queue's retries, then its dead letters. And
+ * The outbox relay's consumer (M1.4): each message acked, or retried when the database could not be reached for it,
+ * then its dead letters (an event that fails is held back by the relay itself, W13.6). And
  * Shopify's webhooks (M6.3), each delivery acked or retried on its own.
  *
  * A ticket to classify (M15 step 2), a trigger the agent sink heard (M15 step 6) and a chapter to embed (M15 step 7) run beside the batch's deliveries,
@@ -38,16 +39,31 @@ export const queue: ExportedHandlerQueueHandler<Env, EventsMessage | IngestMessa
         ? [settle(m, background.runPromise(spans.provide(withRequestDb(embed(m.body.embedKnowledge)))))]
         : []
     ))
+    // Each message's events on their own: an event that fails waits for its own try again (`Relay.deliver`), so a
+    // message goes back to the queue only when the database could not be reached for it.
     const deliveries = messages.filter((m) => "outboxIds" in m.body)
-    const outboxIds = deliveries.flatMap((m) => ("outboxIds" in m.body ? m.body.outboxIds : []))
+    const unreached = new Set<(typeof messages)[number]>()
     try {
-      if (outboxIds.length > 0) await background.runPromise(spans.provide(withRequestDb(deliver(outboxIds))))
+      for (const m of deliveries) {
+        const outboxIds = "outboxIds" in m.body ? m.body.outboxIds : []
+        if (outboxIds.length === 0) continue
+        const delivered = deliver(outboxIds).pipe(
+          Effect.tapCause((cause) =>
+            Effect.logError("outbox: a message's events were not reached; the queue tries it again", { cause })
+          )
+        )
+        const exit = await background.runPromiseExit(spans.provide(withRequestDb(delivered)))
+        if (Exit.isFailure(exit)) unreached.add(m)
+      }
     } finally {
       await beside
     }
-    // The deliveries acked; a task beside them has said for itself, and a batch of tasks is not acked whole over it.
-    if (deliveries.length === messages.length) batch.ackAll()
-    else for (const m of deliveries) m.ack()
+    // A task beside the deliveries has said for itself, and a batch of tasks is not acked whole over it.
+    if (deliveries.length === messages.length && unreached.size === 0) return batch.ackAll()
+    for (const m of deliveries) {
+      if (unreached.has(m)) m.retry()
+      else m.ack()
+    }
   } finally {
     ctx.waitUntil(spans.flush())
   }
