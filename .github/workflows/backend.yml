@@ -123,6 +123,10 @@ jobs:
         working-directory: infra
       - run: bunx alchemy deploy app.ts --stage "$STAGE" --yes --no-input
         working-directory: infra
+      # Cloudflare's own startup CPU for the versions just uploaded (ADR-0041 §3); warns above 750 ms, never fails.
+      - name: startup CPU on Cloudflare
+        run: bun scripts/startup-reported.ts "$STAGE"
+        continue-on-error: true
       # Throwaway: every run starts from preview-base, so a migration numbered below one this branch applied earlier
       # (it landed on staging later) still applies. Only `pr-<n>` branches whose parent is preview-base are reset.
       - name: reset the preview's branch to preview-base
@@ -239,6 +243,10 @@ jobs:
           DATABASE_URL_OWNER: ${{ secrets.DATABASE_URL_OWNER }}
       - run: bunx alchemy deploy app.ts --stage staging --yes --no-input
         working-directory: infra
+      # Cloudflare's own startup CPU for the versions just uploaded (ADR-0041 §3); warns above 750 ms, never fails.
+      - name: startup CPU on Cloudflare
+        run: bun scripts/startup-reported.ts staging
+        continue-on-error: true
       - name: smoke staging
         # Past Access with the CI service token.
         env:

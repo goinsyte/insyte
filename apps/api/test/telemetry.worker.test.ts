@@ -79,11 +79,11 @@ it("exports each invocation's spans in that invocation, the second as well as th
   expect(posted).toEqual([["first"], ["second"]])
 })
 
-/** A handler as `Main.ts` and `Public.ts` make theirs: the request's spans told when its scope closes. */
+/** A handler as `MainApp.ts` and `PublicApp.ts` make theirs: the request's spans told when its scope closes. */
 const handlerOf = (app: Layer.Layer<never, never, HttpRouter.HttpRouter>) =>
   HttpRouter.toWebHandler(app.pipe(Layer.provideMerge(SyncScheduler)), { middleware: flushAtRequestEnd })
 
-/** One request through `web`, as `Main.ts` serves it, with the body read to its end. */
+/** One request through `web`, as `MainApp.ts` serves it, with the body read to its end. */
 const serve = async (web: ReturnType<typeof handlerOf>, path: string) => {
   const spans = telemetry.open()
   const response = await web.handler(new Request(`http://api.test${path}`), spans.context)
