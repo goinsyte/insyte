@@ -1,37 +1,24 @@
 import { env } from "cloudflare:workers"
-import { HttpRouter } from "effect/http"
-import { AppLayer } from "./platform/AppLayer.ts"
 import type { Env } from "./platform/Env.ts"
-import { flushAtRequestEnd, Telemetry } from "./platform/Observability.ts"
-import { continueTrace } from "./platform/Tracing.ts"
+import { onFirstRequest } from "./platform/OnFirstRequest.ts"
 import { isPublicPath } from "./transports/public/Paths.ts"
 
 /*
  * The API Worker, `insyte-api` (ADR-0041): the HTTP app and inbound mail. The queue consumers, the cron, the Workflows
  * and every Durable Object run in the jobs Worker (`Jobs.ts`), reached through cross-script bindings;
  * the public API and the MCP server in the public Worker (`Public.ts`), which this one hands `/v1` and `/mcp`.
+ *
+ * The app itself (`MainApp.ts`) loads with the first request this Worker serves, not at startup (ADR-0041 §3).
  */
 
-/** Module scope: the layer is built once per isolate, and building it does no request-time I/O. */
-const web = HttpRouter.toWebHandler(AppLayer, { middleware: flushAtRequestEnd })
+const app = onFirstRequest(() => import("./MainApp.ts"))
 
 export default {
-  async fetch(request, _env, ctx) {
+  async fetch(request, bindings, ctx) {
     if (!servedHere(request)) return Response.json({ error: { code: "not_found" } }, { status: 404 })
     // The public API and the MCP server: the public Worker's, on this Worker's hostname (ADR-0041 step 5).
     if (isPublicPath(new URL(request.url).pathname)) return env.PUBLIC.fetch(request)
-    // This request's own exporter (`Observability.ts`); its spans leave once the response, streamed or not, is out
-    // (17 §1).
-    const spans = Telemetry.open()
-    let response: Response
-    try {
-      response = await web.handler(continueTrace(request), spans.context)
-    } catch (error) {
-      ctx.waitUntil(spans.flush())
-      throw error
-    }
-    ctx.waitUntil(spans.flushAfterRequest())
-    return response
+    return (await app()).fetch(request, bindings, ctx)
   },
   // A support mail (M11 step 1): its handler and the background layer load on the first one, not at startup.
   email: (message, bindings, ctx) =>
