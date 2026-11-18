@@ -195,6 +195,7 @@ const COLUMNS = [
 	{ label: "Klaar · vandaag", cards: 1 },
 ] as const;
 
+// oxlint-disable-next-line no-unused-vars -- every entry of the skeleton map takes a title; this one draws none
 function BoardSkeleton(_: { title?: string }) {
 	return (
 		<>

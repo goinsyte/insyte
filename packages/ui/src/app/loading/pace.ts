@@ -85,7 +85,7 @@ function hash(s: string): number {
 }
 
 /** How long `key` takes, at the current pace: its base, give or take a fifth, the same every time. */
-export function costOf(key: string, base: number): number {
+function costOf(key: string, base: number): number {
 	const jitter = ((hash(key) % 41) - 20) / 100;
 	return Math.round(base * (1 + jitter) * FACTOR[useLoading.getState().pace]);
 }

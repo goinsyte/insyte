@@ -44,6 +44,24 @@ const hook = (shop: string, topic: string, body: unknown, options: { hmac?: stri
     body: JSON.stringify(body)
   })
 
+/** Shopify's privacy topics with the payloads its docs print (shopify.dev, "Privacy law compliance"). */
+const documented = (shop: string) => ({
+  "customers/data_request": {
+    shop_id: 954889,
+    shop_domain: shop,
+    orders_requested: [1, 2],
+    customer: { id: 1, email: "klant1@example.com", phone: "555-625-1199" },
+    data_request: { id: 9999 }
+  },
+  "customers/redact": {
+    shop_id: 954889,
+    shop_domain: shop,
+    customer: { id: 1, email: "klant1@example.com", phone: "555-625-1199" },
+    orders_to_redact: [1, 2]
+  },
+  "shop/redact": { shop_id: 954889, shop_domain: shop }
+})
+
 /** Until every delivery of the store is applied (the queue consumer runs on its own). */
 const settled = async (store: { workspace: string; storeId: string }) => {
   for (let i = 0; i < 100; i++) {
@@ -117,6 +135,38 @@ describe("Shopify's webhooks", () => {
       customers: []
     })
     expect(mirror.gdpr.at(-1)).toEqual({ kind: "shop_redact", completed: true })
+  })
+
+  // What Shopify's compliance check sends (shopify.dev, "Privacy law compliance"): each privacy topic with its documented
+  // payload. A forged or missing signature is 401 on every topic; a shop Insyte does not know is 200 and kept nowhere;
+  // a known shop's request is answered and kept with its 30 days.
+  it("answers Shopify's compliance check on each privacy topic, with Shopify's documented payloads", async () => {
+    const own = await imported("gdpr")
+    for (const [topic, body] of Object.entries(documented(own.shop))) {
+      expect((await hook(own.shop, topic, body, { hmac: "forged" })).status).toBe(401)
+      expect((await hook(own.shop, topic, body, { hmac: "" })).status).toBe(401)
+    }
+    const nobody = `nobody-${run}.myshopify.com`
+    for (const [topic, body] of Object.entries(documented(nobody))) {
+      expect((await hook(nobody, topic, body)).status).toBe(200)
+    }
+    expect((await mirrorOf(own)).inbound).toEqual([])
+
+    const asked = documented(own.shop)
+    expect((await hook(own.shop, "customers/data_request", asked["customers/data_request"])).status).toBe(200)
+    expect((await hook(own.shop, "customers/redact", asked["customers/redact"])).status).toBe(200)
+    const redacted = await settled(own)
+    expect(redacted.customers[0]).toEqual({ name: "", email: null })
+    expect(redacted.orders.filter((o) => o.number === "#1001" || o.number === "#1002").map((o) => o.customerName))
+      .toEqual(["", ""])
+    expect(redacted.gdpr).toEqual([
+      { kind: "data_request", completed: false },
+      { kind: "customer_redact", completed: true }
+    ])
+    expect((await hook(own.shop, "shop/redact", asked["shop/redact"])).status).toBe(200)
+    const purged = await settled(own)
+    expect({ orders: purged.orders, customers: purged.customers }).toEqual({ orders: [], customers: [] })
+    expect(purged.gdpr.at(-1)).toEqual({ kind: "shop_redact", completed: true })
   })
 })
 
