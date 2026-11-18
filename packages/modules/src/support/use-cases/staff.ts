@@ -21,9 +21,10 @@ import {
  * unrecorded.
  *
  * Reads go through `Db.asStaff`, a read-only transaction; writes through `Db.recordAsStaff`. The database holds
- * `staff` to what this file writes, whatever it asks (0107 `staffHeld`): its own sessions (begun, and ended), its own
- * audit lines, the Logboek's support lines and the realtime nudge; nothing else of a workspace, and never the sealed
- * secrets. A session's reads (`staff_viewer`) see rows only while the database finds that session live and the
+ * `staff` to what this file writes, whatever it asks (0107 `staffHeld`): its own sessions (begun, and ended once),
+ * its own audit lines, the Logboek's support lines exactly as `logbook` writes them (0107 `LOGBOOK_LINE`: change one
+ * here, change it there) and the banner's nudge in the workspace's own room; nothing else of a workspace, and never
+ * the sealed secrets. A session's reads (`staff_viewer`) see rows only while the database finds that session live and the
  * consent on, checked again on every statement of the read.
  */
 
@@ -420,6 +421,8 @@ export const end = Effect.fn("Staff.end")(function*(staff: string, sessionId: st
       const [done] = yield* sql<SessionRow>`
         update staff_sessions set ended_at = now() where id = ${sessionId} and ended_at is null
         returning id, workspace_id, reason, started_at, expires_at, ended_at`
+      // Ended meanwhile, by another request of theirs: that one said so (the Logboek's end is only this ending's).
+      if (done === undefined) return row
       yield* auditLine(sql, staff, {
         action: "session.end",
         workspaceId: row.workspaceId,
@@ -427,7 +430,7 @@ export const end = Effect.fn("Staff.end")(function*(staff: string, sessionId: st
         outcome: "ok"
       })
       yield* logbook(sql, row.workspaceId, sessionId, "support.session_ended", "Meekijken beëindigd")
-      return done ?? row
+      return done
     })
   )
   return sessionOf(ended)

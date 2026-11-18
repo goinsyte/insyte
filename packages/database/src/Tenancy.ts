@@ -257,17 +257,22 @@ const NOT_STAFF = "coalesce(app_principal_kind(), '') not in ('staff', 'staff_vi
  */
 export const staffHeld = (
   table: string,
-  may: { readonly insert?: string; readonly update?: string } = {}
+  may: {
+    readonly insert?: string
+    /** The rows `staff` may change, and what they may become (`to`, when not the same predicate). */
+    readonly update?: string | { readonly rows: string; readonly to: string }
+  } = {}
 ): Array<string> => {
   const writes = (rows: string | undefined) =>
     rows === undefined ? NOT_STAFF : `${NOT_STAFF} or (app_principal_kind() = 'staff' and (${rows}))`
+  const update = typeof may.update === "string" ? { rows: may.update, to: may.update } : may.update
   return [
     `create policy ${table}_staff_select on ${table} as restrictive for select to insyte_app
        using (app_principal_kind() is distinct from 'staff_viewer' or (select app_staff_session_live()))`,
     `create policy ${table}_staff_insert on ${table} as restrictive for insert to insyte_app
        with check (${writes(may.insert)})`,
     `create policy ${table}_staff_update on ${table} as restrictive for update to insyte_app
-       using (${writes(may.update)}) with check (${writes(may.update)})`,
+       using (${writes(update?.rows)}) with check (${writes(update?.to)})`,
     `create policy ${table}_staff_delete on ${table} as restrictive for delete to insyte_app using (${NOT_STAFF})`
   ]
 }

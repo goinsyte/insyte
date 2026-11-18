@@ -392,25 +392,51 @@ describe("the staff admin's tables", () => {
     })
 
     it("writes only its sessions, its audit, the Logboek's support lines and the realtime nudge", async () => {
-      const logbook = (section: string) =>
+      const logbook = (line: { section?: string; action?: string; by?: string; said?: string }) =>
         exitOf(
           writingAsTeam((sql) =>
-            sql`insert into audit_events (id, workspace_id, actor_kind, actor_id, action, subject_type, subject_id, section)
-              values (${
-              mintId("aud")
-            }, ${wsA}, 'insyte', ${session}, 'support.read', 'support', ${session}, ${section})`
+            sql`insert into audit_events
+                  (id, workspace_id, actor_kind, actor_id, action, subject_type, subject_id, section, diff)
+                values (${mintId("aud")}, ${wsA}, 'insyte', ${line.by ?? session}, ${line.action ?? "support.read"},
+                        'support', ${line.by ?? session}, ${line.section ?? "support"},
+                        ${JSON.stringify({ said: line.said ?? "Bekeken: Team" })}::jsonb)`
           )
         )
-      expect(refusalOf(await logbook("support"))).toBe("accepted")
-      expect(refusalOf(await logbook("team"))).toContain("audit_events_staff_insert")
-      const nudge = (event: string) =>
+      expect(refusalOf(await logbook({}))).toBe("accepted")
+      expect(
+        refusalOf(
+          await logbook({ action: "support.status_viewed", by: "support", said: "Insyte-support bekeek de status" })
+        )
+      )
+        .toBe("accepted")
+      expect(refusalOf(await logbook({ section: "team" }))).toContain("audit_events_staff_insert")
+      // Not a line the support slice writes: another action, another session's name, or words of its own.
+      expect(refusalOf(await logbook({ action: "support.anything" }))).toContain("audit_events_staff_insert")
+      expect(refusalOf(await logbook({ by: mintId("sts") }))).toContain("audit_events_staff_insert")
+      expect(refusalOf(await logbook({ said: "Eigenaar heeft alles goedgekeurd" }))).toContain(
+        "audit_events_staff_insert"
+      )
+      // An end the session did not have: only the transaction that ends it says so.
+      expect(refusalOf(await logbook({ action: "support.session_ended", said: "Meekijken beëindigd" }))).toContain(
+        "audit_events_staff_insert"
+      )
+      const nudge = (event: string, payload: Record<string, unknown>) =>
         exitOf(
           writingAsTeam((sql) =>
-            sql`insert into outbox (id, workspace_id, event, payload) values (${mintId("obx")}, ${wsA}, ${event}, '{}')`
+            sql`insert into outbox (id, workspace_id, event, payload)
+                values (${mintId("obx")}, ${wsA}, ${event}, ${JSON.stringify(payload)}::jsonb)`
           )
         )
-      expect(refusalOf(await nudge("records.changed"))).toBe("accepted")
-      expect(refusalOf(await nudge("mail.send"))).toContain("outbox_staff_insert")
+      const support = { workspaceId: wsA, kind: "support", ids: [session] }
+      expect(refusalOf(await nudge("records.changed", support))).toBe("accepted")
+      expect(refusalOf(await nudge("mail.send", support))).toContain("outbox_staff_insert")
+      // Not another workspace's room, nor another kind of change.
+      expect(refusalOf(await nudge("records.changed", { ...support, workspaceId: wsB }))).toContain(
+        "outbox_staff_insert"
+      )
+      expect(refusalOf(await nudge("records.changed", { ...support, kind: "orders" }))).toContain(
+        "outbox_staff_insert"
+      )
       const forged = await exitOf(
         writingAsTeam((sql) =>
           sql`insert into staff_audit (id, staff_email, action, workspace_id, outcome)
@@ -441,6 +467,26 @@ describe("the staff admin's tables", () => {
         )
       )
       expect(someoneElses).toEqual([])
+    })
+
+    it("ends a session once, and never opens it again", async () => {
+      const once = mintId("sts")
+      await run(begin(wsA, once))
+      const end = () =>
+        run(writingAsTeam((sql) => sql`update staff_sessions set ended_at = now() where id = ${once} returning id`))
+      expect(await end()).toEqual([{ id: once }])
+      expect(await end()).toEqual([])
+      const reopened = await run(
+        writingAsTeam((sql) => sql`update staff_sessions set ended_at = null where id = ${once} returning id`)
+      )
+      expect(reopened).toEqual([])
+      // Nor is a live one "ended" with no moment.
+      const live = mintId("sts")
+      await run(begin(wsA, live))
+      const blank = await exitOf(
+        writingAsTeam((sql) => sql`update staff_sessions set ended_at = null where id = ${live} returning id`)
+      )
+      expect(refusalOf(blank)).toContain("staff_sessions_staff_update")
     })
 
     it("has the guard on every table with row level security", async () => {
@@ -481,7 +527,8 @@ describe("the staff admin's tables", () => {
     const needle = carol.name.slice(-12).toUpperCase()
     await line("workspaces.search", null, needle)
     await line("workspaces.search", null, wsC)
-    await line("session.read", wsC, "ord_00000000000000000000000000")
+    const order = mintId("ord")
+    await line("session.read", wsC, order)
     await line("workspaces.search", null, `elsewhere-${runId}`)
     await run(
       Effect.flatMap(
@@ -506,7 +553,7 @@ describe("the staff admin's tables", () => {
           db.asStaff(STAFF, null)((sql) =>
             sql<{ detail: string }>`
               select detail from staff_audit
-              where detail in (${needle}, ${wsC}, 'ord_00000000000000000000000000', ${`elsewhere-${runId}`})
+              where detail in (${needle}, ${wsC}, ${order}, ${`elsewhere-${runId}`})
                  or (workspace_id = ${wsC})
                  or (detail = '[verwijderd]' and at > now() - interval '1 minute')
               order by detail`

@@ -15,8 +15,9 @@ import { statements } from "../statements.ts"
  *   workspace, always in a read-only transaction. Both count as member side for reading, so row level security holds
  *   them to the target workspace as it holds a member; but neither writes what a member may (`staffHeld` below).
  * - `staffHeld`, on every table with row level security: neither staff kind inserts, changes or removes a row, but
- *   `staff` its own sessions (begun, and only `ended_at` changed, on its own), its own audit lines, the Logboek's
- *   support lines and the realtime nudge; and `staff_viewer` reads a row only while `app_staff_session_live()`: its
+ *   `staff` its own sessions (begun, and ended once: only `ended_at`, never cleared), its own audit lines, the
+ *   Logboek's support lines exactly as the slice writes them (`LOGBOOK_LINE`) and the banner's nudge in this
+ *   workspace's own room; and `staff_viewer` reads a row only while `app_staff_session_live()`: its
  *   session not ended, not past its hour, of the workspace in scope, and the owner's consent still on. The database
  *   checks that on every statement, not only the code before the read.
  * - `staff_sessions`: a session of looking along, one workspace, one person of the team, a reason, at most 60
@@ -36,12 +37,44 @@ import { statements } from "../statements.ts"
 const STAFF = "('staff', 'staff_viewer')"
 const NOT_STAFF = `app_principal_kind() is null or app_principal_kind() not in ${STAFF}`
 
+/** One of the caller's own sessions in the workspace in scope, named by `id`, and `state` true of it. */
+const ownSession = (id: string, state: string) =>
+  `exists (select 1 from staff_sessions s where s.id = ${id} and s.workspace_id = app_workspace_id()
+             and s.staff_email = app_principal_id() and ${state})`
+
+/**
+ * The Logboek's support lines, exactly as `support/use-cases/staff.ts` writes them: actor `insyte`, section
+ * `support`, the subject the actor, a diff of `said` alone, and per action who may say it and how it starts. A health
+ * read is `support` itself; a start and a read name a session of the caller's that is live; an end names the one this
+ * very transaction ended (its `ended_at` is this transaction's `now()`), so no end is said that did not happen.
+ */
+const LOGBOOK_LINE = `actor_kind = 'insyte' and section = 'support' and subject_type = 'support'
+  and subject_id = actor_id and jsonb_typeof(diff -> 'said') = 'string' and diff - 'said' = '{}'::jsonb and (
+    (action = 'support.status_viewed' and actor_id = 'support'
+      and diff ->> 'said' = 'Insyte-support bekeek de status')
+    or (action = 'support.session_started' and diff ->> 'said' like 'Meekijken gestart. Reden: %'
+      and ${ownSession("actor_id", "s.ended_at is null and s.expires_at > now()")})
+    or (action = 'support.read' and diff ->> 'said' like 'Bekeken: %'
+      and ${ownSession("actor_id", "s.ended_at is null and s.expires_at > now()")})
+    or (action = 'support.session_ended' and diff ->> 'said' = 'Meekijken beëindigd'
+      and ${ownSession("actor_id", "s.ended_at = now()")}))`
+
 /** What `staff` may write, where it may write anything (`staffHeld`'s `may`). */
-const STAFF_MAY: Readonly<Record<string, { readonly insert?: string; readonly update?: string }>> = {
-  staff_sessions: { insert: "staff_email = app_principal_id()", update: "staff_email = app_principal_id()" },
+const STAFF_MAY: Readonly<Record<string, Parameters<typeof staffHeld>[1]>> = {
+  // Begun as itself; ended once, by itself, and never opened again.
+  staff_sessions: {
+    insert: "staff_email = app_principal_id()",
+    update: {
+      rows: "staff_email = app_principal_id() and ended_at is null",
+      to: "staff_email = app_principal_id() and ended_at is not null"
+    }
+  },
   staff_audit: { insert: "staff_email = app_principal_id()" },
-  audit_events: { insert: "actor_kind = 'insyte' and section = 'support' and action like 'support.%'" },
-  outbox: { insert: "event = 'records.changed'" }
+  audit_events: { insert: LOGBOOK_LINE },
+  // The members' banner, nudged in this workspace's room alone (the realtime relay broadcasts to the payload's).
+  outbox: {
+    insert: `event = 'records.changed' and payload ->> 'workspaceId' = workspace_id and payload ->> 'kind' = 'support'`
+  }
 }
 
 const schema = statements(
