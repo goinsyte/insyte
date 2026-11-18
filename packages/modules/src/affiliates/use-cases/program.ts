@@ -114,14 +114,40 @@ export const currencyOf = (sql: SqlClient.SqlClient) =>
   sql<{ currency: string | null }>`select currency from affiliate_programs where workspace_id = app_workspace_id()`
     .pipe(Effect.map(([w]) => w?.currency ?? "EUR"))
 
-/** A code is free when no affiliate of the workspace holds it, now or in the last 90 days. */
+/** How long an ended code stays its affiliate's before another may have it (a shopper may still hold it). */
+export const CODE_REST_DAYS = 90
+
+/**
+ * A code is taken when another affiliate of the workspace holds it, or ended it less than 90 days ago. The table
+ * keeps one row per code (its key), so this is what \`holdCode\` can take over.
+ */
 export const codeTaken = (sql: SqlClient.SqlClient, code: string, except?: string) =>
   sql<{ taken: boolean }>`
     select exists (select 1 from affiliate_codes c where c.workspace_id = app_workspace_id() and c.code = ${code}
-                     and (c.valid_until is null or c.valid_until > now())
-                     and c.affiliate_id is distinct from ${except ?? null}) as taken`.pipe(
+                     and c.affiliate_id is distinct from ${except ?? null}
+                     and (c.valid_until is null
+                          or c.valid_until > now() - make_interval(days => ${CODE_REST_DAYS}))) as taken`.pipe(
     Effect.map(([r]) => r?.taken ?? false)
   )
+
+/**
+ * \`code\` is the affiliate's from now: a new row, its own again, or one another ended more than 90 days ago, taken
+ * over. \`Invalid\` (code taken) when someone else still has it, never the key's error nor a write that did nothing.
+ */
+export const holdCode = Effect.fn("Affiliates.holdCode")(function*(
+  sql: SqlClient.SqlClient,
+  code: string,
+  affiliateId: string
+) {
+  const held = yield* sql`
+    insert into affiliate_codes (workspace_id, code, affiliate_id) values (app_workspace_id(), ${code}, ${affiliateId})
+    on conflict (workspace_id, code) do update
+      set affiliate_id = excluded.affiliate_id, created_at = now(), valid_until = null
+      where affiliate_codes.affiliate_id = excluded.affiliate_id
+         or affiliate_codes.valid_until <= now() - make_interval(days => ${CODE_REST_DAYS})
+    returning code`
+  if (held.length === 0) return yield* new Invalid({ fields: { code: "taken" } })
+})
 
 /** The first free code from `base`: itself, else with 2, 3… */
 export const freeCode = Effect.fn("Affiliates.freeCode")(function*(sql: SqlClient.SqlClient, base: string) {

@@ -20,6 +20,14 @@ export const DISCOUNT_CODE_CREATE = `mutation($basicCodeDiscount: DiscountCodeBa
   }
 }`
 
+/** A code discount ended now: an affiliate's, once it is no longer theirs to earn under (a code changed, erased). */
+export const DISCOUNT_CODE_DEACTIVATE = `mutation($id: ID!) {
+  discountCodeDeactivate(id: $id) {
+    codeDiscountNode { id }
+    userErrors { field message code }
+  }
+}`
+
 /** The discount a code already belongs to in the store, if any (an affiliate's code is never someone else's). */
 export const CODE_DISCOUNT_BY_CODE = `query($code: String!) {
   codeDiscountNodeByCode(code: $code) {

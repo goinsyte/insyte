@@ -210,7 +210,9 @@ interface Me {
 const meOf = (sql: SqlClient.SqlClient) =>
   Effect.flatMap(
     sql<Me>`
-      select name, email, code, tier, rate, discount_state, payment_method, payment_account_hint, payment_tax_id
+      select name, email, code, tier, rate,
+             case when discount_state = 'erased' then 'off' else discount_state end as discount_state,
+             payment_method, payment_account_hint, payment_tax_id
       from affiliates where id = app_partner_id()`,
     ([me]) => me === undefined ? Effect.die(new Error("the affiliate's own row is not there")) : Effect.succeed(me)
   )

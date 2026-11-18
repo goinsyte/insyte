@@ -103,6 +103,7 @@ const MUTATIONS: Record<string, { readonly field?: string; readonly ok: Record<s
   customerCreate: { ok: { customer: { id: "gid://shopify/Customer/7001" } } },
   giftCardCreate: { ok: {} },
   discountCodeBasicCreate: { ok: {} },
+  discountCodeDeactivate: { ok: {} },
   draftOrderCreate: { ok: {} },
   draftOrderComplete: { ok: {} },
   draftOrderDelete: { ok: {} },
@@ -124,6 +125,7 @@ const NEWER_SCOPES: Record<string, string> = {
   // An affiliate's code (M16 step 5) on a store that approved the app before `write_discounts`.
   discountCodeBasicCreate: "write_discounts",
   codeDiscountNodeByCode: "write_discounts",
+  discountCodeDeactivate: "write_discounts",
   returnApproveRequest: "write_returns",
   returnDeclineRequest: "write_returns",
   webPixelCreate: "write_pixels",
@@ -146,12 +148,31 @@ const drafts = new Map<string, RecordedDraft>()
 let made = 0
 
 /** The code discounts each shop holds (\`shop|CODE\`), made through the twin or there before (\`seedRecordedDiscount\`). */
-const discounts = new Map<string, { readonly id: string; readonly title: string }>()
+const discounts = new Map<string, { readonly id: string; readonly title: string; ended: boolean }>()
+
+/** A code discount as the twin holds it: a worker test reads whether Insyte made, kept or ended it. */
+export const recordedDiscount = (shop: string, code: string) => discounts.get(`${shop}|${code.toUpperCase()}`)
+
+/** Creates of a code held back until the test lets them go: a step caught mid-write (\`holdRecordedDiscount\`). */
+const holding = new Map<string, { readonly reached: () => void; readonly released: Promise<void> }>()
+
+/**
+ * The next \`discountCodeBasicCreate\` of \`code\` in \`shop\` waits until \`release\`: \`reached\` resolves once the step
+ * is there, having read what it makes, so a test can change the affiliate under it.
+ */
+export const holdRecordedDiscount = (shop: string, code: string) => {
+  let reached!: () => void
+  let release!: () => void
+  const atCreate = new Promise<void>((resolve) => (reached = resolve))
+  const released = new Promise<void>((resolve) => (release = resolve))
+  holding.set(`${shop}|${code.toUpperCase()}`, { reached, released })
+  return { reached: atCreate, release }
+}
 
 /** A code discount the merchant made in Shopify's admin before Insyte came: a worker test's brand-owned code. */
 export const seedRecordedDiscount = (shop: string, code: string, title: string) => {
   const id = `gid://shopify/DiscountCodeNode/${++made}`
-  discounts.set(`${shop}|${code.toUpperCase()}`, { id, title })
+  discounts.set(`${shop}|${code.toUpperCase()}`, { id, title, ended: false })
   return id
 }
 
@@ -257,7 +278,14 @@ const returnWrite = (
       const key = `${shop}|${String(input["code"] ?? "").toUpperCase()}`
       if (discounts.has(key)) return taken("basicCodeDiscount")
       const id = `gid://shopify/DiscountCodeNode/${++made}`
-      discounts.set(key, { id, title: String(input["title"] ?? "") })
+      discounts.set(key, { id, title: String(input["title"] ?? ""), ended: false })
+      return { codeDiscountNode: { id } }
+    }
+    case "discountCodeDeactivate": {
+      const id = String(variables["id"] ?? "")
+      const found = [...discounts.entries()].find(([key, d]) => key.startsWith(`${shop}|`) && d.id === id)
+      if (found === undefined) return { codeDiscountNode: null, userErrors: [{ field: ["id"], message: "Not found" }] }
+      found[1].ended = true
       return { codeDiscountNode: { id } }
     }
     case "draftOrderCreate": {
@@ -548,6 +576,21 @@ export const ShopifyGraphqlRecorded = Layer.succeed(ShopifyGraphql)(ShopifyGraph
   query: (shop, _token, query, variables) => {
     const denied = deniedFor(shop, query)
     if (denied !== undefined) return Effect.fail(denied)
+    const held = query.includes("discountCodeBasicCreate(")
+      ? holding.get(
+        `${shop}|${String((variables["basicCodeDiscount"] as { code?: string })?.code ?? "").toUpperCase()}`
+      )
+      : undefined
+    if (held !== undefined) {
+      holding.delete(`${shop}|${String((variables["basicCodeDiscount"] as { code?: string }).code).toUpperCase()}`)
+      held.reached()
+      return Effect.promise(() => held.released).pipe(
+        Effect.map(() => ({
+          data: recordedQuery(shop, query, variables),
+          throttle: { maximumAvailable: 2000, currentlyAvailable: 1990, restoreRate: 100 }
+        }))
+      )
+    }
     const data = recordedQuery(shop, query, variables)
     // A `lost-*` shop makes its first draft or product, and the answer never arrives: a gateway error, tried again.
     const create = query.includes("draftOrderCreate(") || query.includes("productSet(")

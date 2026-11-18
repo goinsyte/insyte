@@ -359,6 +359,47 @@ describe("affiliates", () => {
     }
   })
 
+  it("lets an affiliate only cancel a frame of its own, never turn it into another", async () => {
+    const id = mintId("obx")
+    await run(
+      partner((sql) =>
+        sql`insert into outbox (id, workspace_id, event, payload) values (${id}, ${ws}, 'records.changed',
+              ${JSON.stringify({ workspaceId: ws, kind: "affiliate", ids: [ids.affA] })}::jsonb)`
+      ).pipe(asA)
+    )
+    const change = (statement: string) =>
+      run(partner((sql) => sql.unsafe(statement, [id])).pipe(asA, Effect.exit)).then((e) => e._tag)
+    // The reviewer's: an allowed frame, then the event and payload the relay would run as the system.
+    expect(
+      await change(`update outbox set event = 'affiliate.discount_requested',
+                      payload = '{"workspaceId":"${ws}","affiliateIds":["${ids.affB}"]}'::jsonb where id = $1`)
+    ).toBe("Failure")
+    expect(await change(`update outbox set payload = payload || '{"ids":["${ids.affB}"]}'::jsonb where id = $1`)).toBe(
+      "Failure"
+    )
+    expect(await change("update outbox set not_before = now() + interval '1 day' where id = $1")).toBe("Failure")
+    expect(await change("update outbox set cancelled_at = now() where id = $1")).toBe("Success")
+    expect(await change("update outbox set cancelled_at = null where id = $1")).toBe("Failure")
+    const [row] = await run(
+      asSystem((sql) =>
+        sql<{ event: string; cancelled: boolean }>`
+          select event, cancelled_at is not null as cancelled from outbox where id = ${id}`
+      )
+    )
+    expect(row).toEqual({ event: "records.changed", cancelled: true })
+  })
+
+  it("keeps the ledger from a truncate, which has no row to tell the purge by", async () => {
+    const [row] = await run(
+      asSystem((sql) =>
+        sql<{ guarded: boolean }>`
+          select exists (select 1 from pg_trigger
+                         where tgrelid = 'affiliate_ledger_entries'::regclass and (tgtype & 32) <> 0) as guarded`
+      )
+    )
+    expect(row!.guarded).toBe(true)
+  })
+
   it("keeps a conversion and its ledger when the order goes, and never deletes a conversion with money on it", async () => {
     const order = mintId("ord")
     const conv = mintId("acv")

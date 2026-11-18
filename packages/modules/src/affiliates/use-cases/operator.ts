@@ -42,6 +42,7 @@ import {
   currencyOf,
   DEFAULT_TIERS,
   freeCode,
+  holdCode,
   programOf,
   rateOf,
   startProgram,
@@ -163,7 +164,8 @@ const affiliateRows = Effect.fn("Affiliates.rows")(
   function*(sql: SqlClient.SqlClient, where: ReturnType<SqlClient.SqlClient["and"]>) {
     const fence = yield* inScope(sql, "c.store_id")
     return yield* sql<Row>`
-    select a.id, a.name, a.email, a.code, a.tier, a.rate, a.status, a.joined_at, a.discount_state, a.discount_error,
+    select a.id, a.name, a.email, a.code, a.tier, a.rate, a.status, a.joined_at,
+           case when a.discount_state = 'erased' then 'off' else a.discount_state end as discount_state, a.discount_error,
            coalesce(s.conversions, 0)::int as conversions, coalesce(s.earned, 0)::bigint as earned
     from affiliates a
     left join lateral (
@@ -405,8 +407,7 @@ export const approve = Effect.fn("Affiliates.approve")(function*(input: ApproveI
                                          approved_by, approved_at, payment_method)
                  values (${id}, ${principal.workspaceId}, ${app.userId}, ${app.name}, ${app.email}, ${input.code},
                          ${input.tier}, ${rate}, ${app.id}, ${principal.id}, now(), null)`
-      yield* sql`insert into affiliate_codes (workspace_id, code, affiliate_id)
-                 values (${principal.workspaceId}, ${input.code}, ${id})`
+      yield* holdCode(sql, input.code, id)
       yield* sql`update affiliate_applications set status = 'approved', decided_by = ${principal.id},
                    decided_at = now(), affiliate_id = ${id}
                  where id = ${app.id}`
@@ -512,18 +513,16 @@ export const setCode = Effect.fn("Affiliates.setCode")(function*(input: SetCodeI
   const db = yield* Db
   const outboxId = yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      const [a] = yield* sql<{ id: string; code: string; discountState: DiscountState }>`
+      const [a] = yield* sql<{ id: string; code: string; discountState: DiscountState | "erased" }>`
         select id, code, discount_state from affiliates where id = ${input.affiliateId} for update`
       if (a === undefined) return yield* new NotFound({ entity: "affiliate", id: input.affiliateId })
       if (a.discountState === "made") return yield* new Conflict({ entity: "affiliate", reason: "discount_made" })
+      if (a.discountState === "erased") return yield* new Conflict({ entity: "affiliate", reason: "erased" })
       if (a.code === input.code) return null
       if (yield* codeTaken(sql, input.code, a.id)) return yield* new Invalid({ fields: { code: "taken" } })
       yield* sql`update affiliate_codes set valid_until = now()
                  where workspace_id = app_workspace_id() and affiliate_id = ${a.id} and code = ${a.code}`
-      yield* sql`insert into affiliate_codes (workspace_id, code, affiliate_id)
-                 values (${principal.workspaceId}, ${input.code}, ${a.id})
-                 on conflict (workspace_id, code) do update set valid_until = null
-                 where affiliate_codes.affiliate_id = ${a.id}`
+      yield* holdCode(sql, input.code, a.id)
       yield* sql`update affiliates set code = ${input.code}, discount_state = 'pending', discount_error = null,
                    shopify_discount_id = null
                  where id = ${a.id}`
@@ -623,13 +622,17 @@ export const reviewConversion = Effect.fn("Affiliates.reviewConversion")(functio
  * Erasing a person on their request (GDPR art. 17), as the brand: an affiliate, or someone who only applied. What names
  * or reaches them goes (name, address, payment details, answers, their account's link, their notes and invitations);
  * their links are archived and their codes ended, so nothing earns any more. The money stays as the books need it:
- * conversions, the ledger and payouts keep their amounts, under the affiliate's id only. No undo.
+ * conversions, the ledger and payouts keep their amounts, under the affiliate's id only. Its Shopify discount is
+ * ended (deactivated) by the discount step, through the outbox: the person is gone, so nothing earns under the code any
+ * more. Its title never named them (\`titleOf\`). No undo.
  */
 export const erase = Effect.fn("Affiliates.erase")(function*(input: EraseInput) {
   yield* Policy.require("affiliates", 3)
   yield* everyStore
+  const principal = yield* CurrentPrincipal
+  const relay = yield* Relay
   const db = yield* Db
-  return yield* db.scoped((sql) =>
+  const { change, outboxId } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const [who] = "affiliateId" in input
         ? yield* sql<{ userId: string; email: string; affiliateId: string | null }>`
@@ -656,7 +659,14 @@ export const erase = Effect.fn("Affiliates.erase")(function*(input: EraseInput) 
         yield* sql`update affiliate_codes set valid_until = now()
                    where affiliate_id = ${who.affiliateId} and (valid_until is null or valid_until > now())`
         yield* sql`delete from notifications where recipient_kind = 'affiliate' and recipient_id = ${who.affiliateId}`
+        yield* sql`update affiliates set discount_state = 'erased', discount_error = null where id = ${who.affiliateId}`
       }
+      // Its discount, if Shopify has one or a step is making one, is ended by the step (\`discountWriteBack\`).
+      const outboxId = who.affiliateId === null ? null : yield* Outbox.write(sql, principal.workspaceId, {
+        type: "affiliate.discount_requested",
+        workspaceId: principal.workspaceId,
+        affiliateIds: [who.affiliateId]
+      })
       yield* sql`update affiliate_applications set
                    name = 'Gewiste aanvrager', email = ${address}, user_id = ${gone}, business_name = null,
                    country = null, channel = null, audience = null, motivation = null, main_url = null,
@@ -670,10 +680,15 @@ export const erase = Effect.fn("Affiliates.erase")(function*(input: EraseInput) 
         who.affiliateId === null ? "affiliate_application" : "affiliate",
         who.affiliateId ?? ("applicationId" in input ? input.applicationId : "")
       )
-      return new AffiliatesChange({
-        ids: [who.affiliateId ?? ("applicationId" in input ? input.applicationId : "")],
-        undo: null
-      })
+      return {
+        outboxId,
+        change: new AffiliatesChange({
+          ids: [who.affiliateId ?? ("applicationId" in input ? input.applicationId : "")],
+          undo: null
+        })
+      }
     })
   )
+  if (outboxId !== null) yield* relay.kick([outboxId])
+  return change
 })

@@ -115,7 +115,7 @@ export default statements(
      approved_at            timestamptz,
      joined_at              timestamptz not null default now(),
      -- The Shopify discount for its code (outbox, after the undo window): asked, made, refused, or no store to make it.
-     discount_state         text not null default 'pending' check (discount_state in ('pending', 'made', 'failed', 'off')),
+     discount_state         text not null default 'pending' check (discount_state in ('pending', 'made', 'failed', 'off', 'erased')),
      discount_error         text,
      shopify_discount_id    text,
      payment_method         text check (payment_method in ('paypal', 'bank', 'wise')),
@@ -285,10 +285,15 @@ export default statements(
   // (\`purge_workspace\`, 0076), where the workspace is gone already, as \`members_one_owner\` reads it (0009).
   `create function affiliate_ledger_frozen() returns trigger language plpgsql set search_path = public, pg_temp as $$
      begin
-       if tg_op = 'DELETE' and not workspace_exists(old.workspace_id) then return old; end if;
+       if tg_op = 'DELETE' then
+         if not workspace_exists(old.workspace_id) then return old; end if;
+       end if;
        raise exception 'the affiliate ledger is append-only' using errcode = '42501';
      end $$`,
   `create trigger affiliate_ledger_frozen before update or delete on affiliate_ledger_entries for each row
+     execute function affiliate_ledger_frozen()`,
+  // Emptying the table wholesale skips the row trigger and has no row to tell the purge by: refused as well.
+  `create trigger affiliate_ledger_untruncated before truncate on affiliate_ledger_entries for each statement
      execute function affiliate_ledger_frozen()`,
   // One payout per affiliate and month closed (the running month has none: it "loopt nog").
   `create table affiliate_payouts (
@@ -369,6 +374,19 @@ export default statements(
               or (payload ->> 'kind' = 'affiliate_link'
                   and exists (select 1 from affiliate_links l where l.id = payload -> 'ids' ->> 0
                                 and l.affiliate_id = app_partner_id()))))))`,
+  // A partner changes its own frames only to cancel them (its undo): an update may not turn an allowed frame into
+  // another (\`outbox_partner_change\`, 0075, checks no more than whose it is), for a supplier contact as for an affiliate.
+  `create function outbox_partner_cancel_only() returns trigger language plpgsql set search_path = public, pg_temp as $$
+     begin
+       if app_principal_kind() in ('supplier_contact', 'affiliate')
+          and (new.cancelled_at is null or to_jsonb(new) - 'cancelled_at' is distinct from to_jsonb(old) - 'cancelled_at')
+       then
+         raise exception 'a partner may only cancel its own outbox frames' using errcode = '42501';
+       end if;
+       return new;
+     end $$`,
+  `create trigger outbox_partner_cancel_only before update on outbox for each row
+     execute function outbox_partner_cancel_only()`,
   // The views the affiliate reads (06 §6): its own, never the shopper. Each runs as its owner (no superuser, no
   // BYPASSRLS, so the tenant policies still hold) because the tables are closed to partners, and each filters to the
   // calling affiliate itself, so a member reads nothing here.

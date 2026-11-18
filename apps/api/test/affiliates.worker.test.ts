@@ -1,4 +1,8 @@
-import { seedRecordedDiscount } from "@insyte/integrations-shopify/ShopifyRecorded"
+import {
+  holdRecordedDiscount,
+  recordedDiscount,
+  seedRecordedDiscount
+} from "@insyte/integrations-shopify/ShopifyRecorded"
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
@@ -33,6 +37,16 @@ const click = (slug: string, ip = "203.0.113.7", extra = "") =>
   call(`http://api.public.test/r/${slug}${extra}`, { redirect: "manual", headers: { "cf-connecting-ip": ip } })
 
 type Store = Awaited<ReturnType<typeof importedStore>>
+
+/** Waits until \`done\` holds (a step in a Workflow got that far), or fails the test. */
+const until = async (done: () => Promise<boolean> | boolean, ms = 20_000) => {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    if (await done()) return
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error("timed out")
+}
 
 /** The brand starts its programme ("Opslaan" on its settings): its apply page's slug. */
 const start = async (store: Store) =>
@@ -533,6 +547,112 @@ describe("the affiliate programme", () => {
     expect(last).toBe(429)
   })
 
+  it("keys an IPv4 address mapped into IPv6 as the IPv4 address", async () => {
+    for (let i = 0; i < 60; i++) await click("wwwwwwwwww", "::ffff:198.51.100.77")
+    expect((await click("wwwwwwwwww", "198.51.100.77")).status).toBe(429)
+  })
+
+  it("settles only the code a step made, and ends a discount Shopify made for a code changed under it", async () => {
+    const store = await importedStore("aff-race")
+    const slug = await start(store)
+    const lea = await person("aff-lea")
+    const { applicationId } = ok(await rpc("AffiliateApply.apply", { program: slug, name: "Lea" }, lea.cookie))
+    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    const before = holdRecordedDiscount(store.shop, "LEAOUD")
+    const after = holdRecordedDiscount(store.shop, "LEANIEUW")
+    const affiliateId = ok(
+      await rpc("Affiliates.applications.approve", { applicationId, tier: "bronze", code: "LEAOUD" }, store.cookie)
+    ).ids[0]!
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    // The step has read LEAOUD and is making it when the brand changes the code; the new code's step starts too.
+    await before.reached
+    ok(await rpc("Affiliates.setCode", { affiliateId, code: "LEANIEUW" }, store.cookie))
+    await relay(store.workspace)
+    await after.reached
+    // The old code's step ends first: Shopify made LEAOUD, but it is not Lea's code any more.
+    before.release()
+    await until(async () =>
+      recordedDiscount(store.shop, "LEAOUD")?.ended === true ||
+      ok(await rpc("Affiliates.get", { affiliateId }, store.cookie)).affiliate.discount === "made"
+    )
+    after.release()
+    for (const instance of await writes.get()) await instance.waitForStatus("complete")
+    expect(recordedDiscount(store.shop, "LEAOUD")).toMatchObject({ ended: true })
+    expect(recordedDiscount(store.shop, "LEANIEUW")).toMatchObject({ ended: false })
+    expect(ok(await rpc("Affiliates.get", { affiliateId }, store.cookie)).affiliate).toMatchObject({
+      code: "LEANIEUW",
+      discount: "made"
+    })
+    // Erasing her now ends the discount Insyte holds for her, the new one: so it held the new one's id.
+    ok(await rpc("Affiliates.erase", { affiliateId }, store.cookie))
+    await relay(store.workspace)
+    for (const instance of await writes.get()) await instance.waitForStatus("complete")
+    expect(recordedDiscount(store.shop, "LEANIEUW")).toMatchObject({ ended: true })
+  })
+
+  it("refuses a code another affiliate still has, ended or not, with a clear error", async () => {
+    const store = await importedStore("aff-codes")
+    const slug = await start(store)
+    const [mo, noor] = [await person("aff-mo"), await person("aff-noor")]
+    const moApp = ok(await rpc("AffiliateApply.apply", { program: slug, name: "Mo" }, mo.cookie))
+    const noorApp = ok(await rpc("AffiliateApply.apply", { program: slug, name: "Noor" }, noor.cookie))
+    const moId = ok(
+      await rpc("Affiliates.applications.approve", {
+        applicationId: moApp.applicationId,
+        tier: "bronze",
+        code: "ALPHA"
+      }, store.cookie)
+    ).ids[0]!
+    // Mo's code changes: ALPHA has ended, and stays his for 90 days (a shopper may still hold it).
+    ok(await rpc("Affiliates.setCode", { affiliateId: moId, code: "ALPHA2" }, store.cookie))
+    const taken = { _tag: "Invalid", fields: { code: "taken" } }
+    expect(
+      failure(
+        await rpc("Affiliates.applications.approve", {
+          applicationId: noorApp.applicationId,
+          tier: "bronze",
+          code: "ALPHA"
+        }, store.cookie)
+      )
+    ).toMatchObject(taken)
+    const noorId = ok(
+      await rpc("Affiliates.applications.approve", {
+        applicationId: noorApp.applicationId,
+        tier: "bronze",
+        code: "BETA"
+      }, store.cookie)
+    ).ids[0]!
+    expect(failure(await rpc("Affiliates.setCode", { affiliateId: noorId, code: "ALPHA" }, store.cookie)))
+      .toMatchObject(taken)
+    expect(ok(await rpc("Affiliates.get", { affiliateId: noorId }, store.cookie)).affiliate.code).toBe("BETA")
+    // His own again, though: it was his.
+    ok(await rpc("Affiliates.setCode", { affiliateId: moId, code: "ALPHA" }, store.cookie))
+    expect(ok(await rpc("Affiliates.get", { affiliateId: moId }, store.cookie)).affiliate.code).toBe("ALPHA")
+  })
+
+  it("never takes a brand's discount for an affiliate's by a name the affiliate chose", async () => {
+    const store = await importedStore("aff-title")
+    // The brand's own discount, titled as Insyte's once were: "Affiliate <name> (<code>)".
+    seedRecordedDiscount(store.shop, "ZOMER25", "Affiliate Pim (ZOMER25)")
+    const slug = await start(store)
+    const pim = await person("aff-pim")
+    const { applicationId } = ok(await rpc("AffiliateApply.apply", { program: slug, name: "Pim" }, pim.cookie))
+    const affiliateId = await approveMade(store, applicationId, "ZOMER25")
+    expect(ok(await rpc("Affiliates.get", { affiliateId }, store.cookie)).affiliate).toMatchObject({
+      discount: "failed",
+      discountError: "Code bestaat al in Shopify"
+    })
+    // What Insyte makes is known by the affiliate's id, which nobody picks, and names nobody.
+    {
+      await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+      ok(await rpc("Affiliates.setCode", { affiliateId, code: "PIM" }, store.cookie))
+      await relay(store.workspace)
+      for (const instance of await writes.get()) await instance.waitForStatus("complete")
+    }
+    expect(recordedDiscount(store.shop, "PIM")!.title).toBe(`Insyte affiliate PIM (${affiliateId})`)
+  })
+
   it("rate-limits an IPv6 /64 however its addresses are written", async () => {
     for (let i = 0; i < 60; i++) await click("xxxxxxxxxx", "2001:db8:7::1")
     expect((await click("xxxxxxxxxx", "2001:db8:7:0:abcd::2")).status).toBe(429)
@@ -671,7 +791,15 @@ describe("the affiliate programme", () => {
 
     // Erased on request: nothing names or reaches him any more; his portal is closed.
     ok(await rpc("AffiliatePortal.payment.update", { method: "bank", account: "NL91ABNA0417164300" }, ivo.cookie))
-    ok(await rpc("Affiliates.erase", { affiliateId: ivo.affiliateId }, store.cookie))
+    {
+      await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+      ok(await rpc("Affiliates.erase", { affiliateId: ivo.affiliateId }, store.cookie))
+      await relay(store.workspace)
+      for (const instance of await writes.get()) await instance.waitForStatus("complete")
+    }
+    // His discount ends in Shopify too: nothing earns under his code, and its title never named him.
+    expect(recordedDiscount(store.shop, "IVO")).toMatchObject({ ended: true })
+    expect(recordedDiscount(store.shop, "IVO")!.title).not.toContain("Ivo")
     const erased = ok(await rpc("Affiliates.get", { affiliateId: ivo.affiliateId }, store.cookie))
     expect(erased.affiliate).toMatchObject({ name: "Gewiste affiliate", status: "paused" })
     expect(erased.affiliate.email).toMatch(/@erased\.invalid$/)
