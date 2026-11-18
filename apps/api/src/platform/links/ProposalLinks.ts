@@ -4,7 +4,9 @@ import { mintId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { assemblePack } from "@insyte/modules/chargebacks/use-cases/pack"
+import { send as postChatMessage } from "@insyte/modules/chats/use-cases/commands"
 import { forward as forwardLegs } from "@insyte/modules/forwarding/use-cases/commands"
+import { reply as replyThread } from "@insyte/modules/inbox/use-cases/commands"
 import { cancel as cancelOrders, setNote, tag as tagOrders } from "@insyte/modules/orders/use-cases/commands"
 import { notifyDelay } from "@insyte/modules/orders/use-cases/delay-mail"
 import { refund as refundOrder } from "@insyte/modules/orders/use-cases/refund"
@@ -147,6 +149,20 @@ const agentAsked = (action: AgentAsked, labels: Labels["Service"]) => {
     case "CommentTicket":
       return staleOn(Effect.map(
         commentTicket({ id: action.ticketId, body: action.body, mentions: [...action.mentions] }),
+        () => filedRan(null)
+      ))
+    case "ReplyThread":
+      // As the person filing it: the reply waits out its undo window, then leaves (mail) or shows (chat).
+      return staleOn(
+        Effect.map(replyThread({ threadId: action.threadId, body: action.body }), (queued) => filedRan(queued.undo))
+      )
+    case "PostChatMessage":
+      return staleOn(Effect.map(
+        postChatMessage({
+          conversationId: action.conversationId,
+          body: action.body,
+          ...(action.replyTo === null ? {} : { replyTo: action.replyTo })
+        }),
         () => filedRan(null)
       ))
   }

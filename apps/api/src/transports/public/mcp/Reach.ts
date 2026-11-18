@@ -1,7 +1,7 @@
 import { InsyteTools } from "@insyte/api/mcp/McpTools"
 import { ForAgents, type Need, Needs } from "@insyte/api/mcp/Shared"
 import { Db } from "@insyte/database/Db"
-import type { AgentActionId } from "@insyte/domain/AgentActions"
+import { AGENT_ACTION_IDS, type AgentActionId } from "@insyte/domain/AgentActions"
 import { canRole } from "@insyte/domain/Permissions"
 import { CurrentPrincipal, type Principal } from "@insyte/domain/Principal"
 import { Context, Effect } from "effect"
@@ -27,14 +27,11 @@ export class AgentDecisions extends Context.Service<AgentDecisions, Effect.Effec
   "api-worker/AgentDecisions"
 ) {}
 
-const ACTIONS: ReadonlyArray<AgentActionId> = [
-  ...new Set(
-    Object.values(InsyteTools.tools).flatMap((tool) => {
-      const reach = Context.get(tool.annotations, ForAgents)
-      return reach.kind === "governed" ? reach.actions ?? [] : []
-    })
-  )
-]
+/**
+ * Every action a governed tool may go through: the catalogue's, so a toolkit registered with the first request (the
+ * inbox's) is decided for too.
+ */
+const ACTIONS: ReadonlyArray<AgentActionId> = AGENT_ACTION_IDS
 
 /**
  * For the key door: what `autonomy_decide` answers for the tools' actions, as the agent (it reads no policy table
@@ -70,16 +67,14 @@ const meets = (role: Principal["role"], need: Need) => {
   return "special" in need ? canRole(permissions, need.special) : canRole(permissions, need.area, need.level)
 }
 
-const TOOLS: Readonly<Record<string, Tool.Any>> = InsyteTools.tools
-
 /** Reading what the tool acts on: each area at read, no special. */
 const reading = (needs: ReadonlyArray<Need>): ReadonlyArray<Need> =>
   needs.flatMap((need) => "special" in need ? [] : [{ area: need.area, level: 1 as const }])
 
 /** Whether `tools/list` names the tool to this key. */
-const listed = (name: string) =>
+const listed = (tools: Readonly<Record<string, Tool.Any>>, name: string) =>
   Effect.gen(function*() {
-    const tool = TOOLS[name]
+    const tool = tools[name]
     if (tool === undefined) return true
     const principal = yield* CurrentPrincipal
     const needs = Context.get(tool.annotations, Needs)
@@ -94,7 +89,12 @@ const listed = (name: string) =>
     return decided.includes("propose") || has(needs)
   })
 
-/** The tools' visibility per key: on `tools/list` only; every other method sees every tool, as before. */
-export const ToolReach = McpServer.visibility(({ method, target }) =>
-  method === "tools/list" ? listed(target) : Effect.succeed(true)
-)
+/**
+ * The visibility of one toolkit's tools per key: on `tools/list` only; every other method sees every tool, as before.
+ * Provided to that toolkit's registration alone, so each toolkit is judged by its own tools' annotations.
+ */
+export const reachOf = (tools: Readonly<Record<string, Tool.Any>>) =>
+  McpServer.visibility(({ method, target }) => method === "tools/list" ? listed(tools, target) : Effect.succeed(true))
+
+/** The tools of `McpTools.ts`. */
+export const ToolReach = reachOf(InsyteTools.tools)

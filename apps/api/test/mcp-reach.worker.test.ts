@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 import { ok } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"
+import { mailThread } from "./threads.ts"
 
 /*
  * Per-key `tools/list` (M19.3): each key is named the tools it can call. Its role's levels and specials as the use cases
@@ -78,10 +79,22 @@ const refusal = async (token: string, name: string, args: Record<string, unknown
 }
 
 /** Arguments for every tool: real records (`real`) or ids of none (`none`), so a named write finds nothing to change. */
-const argsFor = (r: { order: string; line: string; ret: string; ticket: string; member: string; proposal: string }) => {
+const argsFor = (
+  r: {
+    order: string
+    line: string
+    ret: string
+    ticket: string
+    member: string
+    proposal: string
+    thread: string
+    chat: string
+  }
+) => {
   const o = { order_id: r.order }
   const ret = { return_id: r.ret }
   const t = { ticket_id: r.ticket }
+  const th = { thread_id: r.thread }
   return {
     whoami: {},
     // On a conversation that is not there: answered NotFound before any model call, never refused for its scope.
@@ -152,7 +165,18 @@ const argsFor = (r: { order: string; line: string; ret: string; ticket: string; 
     get_connection_health: {},
     list_imports: {},
     list_exports: {},
-    get_export: { export_id: "exp_none" }
+    get_export: { export_id: "exp_none" },
+    list_threads: {},
+    get_thread: th,
+    reply_to_thread: { ...th, body: "Bereik" },
+    assign_thread: { ...th, member_id: r.member },
+    archive_thread: th,
+    take_over_thread: { ...th, member_id: r.member },
+    hand_back_thread: th,
+    list_chats: {},
+    list_chat_messages: { chat_id: r.chat },
+    post_chat_message: { chat_id: r.chat, body: "Bereik" },
+    list_channels: {}
   } as Record<string, Record<string, unknown>>
 }
 
@@ -162,7 +186,9 @@ const NONE = {
   ret: "ret_none",
   ticket: "tkt_none",
   member: "mem_none",
-  proposal: "prp_none"
+  proposal: "prp_none",
+  thread: "thr_none",
+  chat: "cnv_none"
 }
 
 describe("per-key tools/list", () => {
@@ -203,17 +229,21 @@ describe("per-key tools/list", () => {
         .result.content[0].text
     ) as Json
     expect(asked).toMatchObject({ object: "agent_proposal" })
+    const { threadId } = await mailThread(store.cookie)
+    const chat = (await call1("list_chats", {})).data[0].id as string
     records = {
       order: order.id,
       line: line.id,
       ret: started.id,
       ticket: ticket.id,
       member,
-      proposal: asked.proposal_id
+      proposal: asked.proposal_id,
+      thread: threadId,
+      chat
     }
 
     const catalogue = await names(full)
-    expect(catalogue).toHaveLength(63)
+    expect(catalogue).toHaveLength(74)
     const real = argsFor(records)
     const none = argsFor(NONE)
     expect(Object.keys(real).toSorted()).toEqual(catalogue)
@@ -305,7 +335,9 @@ describe("per-key tools/list", () => {
         update_ticket: ["SetPriority", "ApplyLabel"],
         set_ticket_status: ["SetTicketStatus"],
         assign_ticket: ["AssignTicket"],
-        comment_on_ticket: ["AddNote"]
+        comment_on_ticket: ["AddNote"],
+        reply_to_thread: ["SendReply"],
+        post_chat_message: ["PostChatMessage", "MessageSupplier"]
       }
       let version = ok(await rpc("Autonomy.get", {}, store.cookie)).version
       const misses: Array<string> = []

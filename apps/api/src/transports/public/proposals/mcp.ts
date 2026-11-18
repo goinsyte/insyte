@@ -22,8 +22,16 @@ const FILED: Record<string, AgentActionId> = {
   update_ticket: "SetPriority",
   set_ticket_status: "SetTicketStatus",
   assign_ticket: "AssignTicket",
-  comment_on_ticket: "AddNote"
+  comment_on_ticket: "AddNote",
+  reply_to_thread: "SendReply",
+  post_chat_message: "PostChatMessage"
 }
+
+/** The catalogue action a plate's filing goes through: a post in a supplier's channel is a message to the supplier. */
+const filedAs = (prop: { readonly action: { readonly kind: string }; readonly subject_type: string }): AgentActionId =>
+  prop.action.kind === "post_chat_message" && prop.subject_type === "supplier_channel"
+    ? "MessageSupplier"
+    : FILED[prop.action.kind] ?? ("Unknown" as AgentActionId)
 
 export const ProposalsMcp = ProposalsTools.toLayer(Effect.gen(function*() {
   const read = yield* ProposalsV1
@@ -35,7 +43,7 @@ export const ProposalsMcp = ProposalsTools.toLayer(Effect.gen(function*() {
         "file_proposal",
         idempotency_key,
         Effect.map(read.proposal(proposal_id), (prop): Plan<unknown> => ({
-          action: FILED[prop.action.kind] ?? ("Unknown" as AgentActionId),
+          action: filedAs(prop),
           storeId: prop.store,
           subject: { type: prop.subject_type, id: prop.subject_id, label: prop.number },
           sentence: `Voorstel ${prop.number} uitgevoerd: ${prop.heading}`,

@@ -93,7 +93,9 @@ describe("the MCP server", () => {
     expect(tools.map((t) => t.name).toSorted()).toEqual([
       "add_return_tracking",
       "approve_return",
+      "archive_thread",
       "ask_insyte",
+      "assign_thread",
       "assign_ticket",
       "cancel_order",
       "clear_order_delay",
@@ -118,11 +120,16 @@ describe("the MCP server", () => {
       "get_proposal",
       "get_return",
       "get_sheet",
+      "get_thread",
       "get_ticket",
+      "hand_back_thread",
       "inspect_return",
       "list_automation_runs",
       "list_automations",
+      "list_channels",
       "list_chargebacks",
+      "list_chat_messages",
+      "list_chats",
       "list_customers",
       "list_exports",
       "list_forwarding",
@@ -138,10 +145,13 @@ describe("the MCP server", () => {
       "list_sheets",
       "list_supplier_statements",
       "list_suppliers",
+      "list_threads",
       "list_tickets",
+      "post_chat_message",
       "receive_return",
       "refund_order",
       "reject_return",
+      "reply_to_thread",
       "reroute_leg",
       "resolve_return",
       "search_knowledge",
@@ -150,6 +160,7 @@ describe("the MCP server", () => {
       "set_ticket_status",
       "start_return",
       "tag_order",
+      "take_over_thread",
       "trigger_automation",
       "update_shipping_address",
       "update_ticket",
@@ -159,14 +170,18 @@ describe("the MCP server", () => {
     // refused to agents.
     const refused = [
       "add_return_tracking",
+      "archive_thread",
+      "assign_thread",
       "clear_order_delay",
       "email_order_customer",
       "flag_order_delayed",
+      "hand_back_thread",
       "inspect_return",
       "receive_return",
       "reject_return",
       "reroute_leg",
       "start_return",
+      "take_over_thread",
       "trigger_automation",
       "update_shipping_address"
     ]
@@ -214,7 +229,12 @@ describe("the MCP server", () => {
         "list_knowledge",
         "search_knowledge",
         "get_customer_agent",
-        "customer_agent_today"
+        "customer_agent_today",
+        "list_threads",
+        "get_thread",
+        "list_chats",
+        "list_chat_messages",
+        "list_channels"
       ]
     ) {
       expect(hints[read]?.["readOnlyHint"]).toBe(true)
