@@ -42,8 +42,8 @@ export default {
  * On the Worker's own public hostname only the public API, the MCP server and the webhooks answer (M19.2, M19.3,
  * M6.3, M8.3, M8.4, M13): `/v1`, `/mcp`, `/hooks/shopify`, `/hooks/aftership`, `/hooks/stripe` and
  * `/hooks/supplier/:id`; and the
- * storefront's Web Pixel, `/api/public/pixel/:storeId` (M14 step 3), and its website chat, `/api/public/chat/*` (M15
- * step 8). Everything else (auth, the RPC, the dev routes) is reached through the console's service binding, on the
+ * storefront's Web Pixel, `/api/public/pixel/:storeId` (M14 step 3), an affiliate's short link `/r/:slug` (M16 step 4),
+ * and its website chat, `/api/public/chat/*` (M15 step 8). Everything else (auth, the RPC, the dev routes) is reached through the console's service binding, on the
  * console's origin.
  */
 const servedHere = (request: Request): boolean => {
@@ -52,5 +52,5 @@ const servedHere = (request: Request): boolean => {
   return url.pathname === "/mcp" || url.pathname === "/v1" || url.pathname.startsWith("/v1/") ||
     url.pathname === "/hooks/shopify" || url.pathname === "/hooks/aftership" || url.pathname === "/hooks/stripe" ||
     url.pathname.startsWith("/hooks/supplier/") || url.pathname.startsWith("/api/public/pixel/") ||
-    url.pathname.startsWith("/api/public/chat/")
+    url.pathname.startsWith("/api/public/chat/") || url.pathname.startsWith("/r/")
 }

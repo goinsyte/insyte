@@ -1,5 +1,6 @@
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
+import type * as AffiliateDiscount from "@insyte/modules/affiliates/use-cases/discount"
 import { customerWriteBack } from "@insyte/modules/customers/use-cases/write-back"
 import { draftAdopt, draftRemove, draftSend, draftTwins } from "@insyte/modules/orders/use-cases/drafts"
 import { refundFailed, writeBack } from "@insyte/modules/orders/use-cases/write-back"
@@ -21,8 +22,18 @@ import { roomOf } from "../platform/Room.ts"
  * failing (Shopify unreachable) gives up after its retries; the others still go, and a refund that never got there is
  * failed. Where Shopify refused, the record was read again, and the workspace's tabs hear it; a refund always. A
  * return's (M9.3): its resolution made there, or a return from Shopify approved or declined there; a resolution that
- * never got there is failed, so the team can ask again, and the tabs hear every one.
+ * never got there is failed, so the team can ask again, and the tabs hear every one. An affiliate's code (M16 step
+ * 5): its discount made there, or the reason it was not.
  */
+
+/** An affiliate's code (M16 step 5) loads its write-back with the first one, not with the Worker (ADR-0041 §3). */
+let discounts: Promise<typeof AffiliateDiscount> | undefined
+const affiliateDiscounts = Effect.promise(() =>
+  discounts ??= import("@insyte/modules/affiliates/use-cases/discount").catch((error: unknown) => {
+    discounts = undefined
+    throw error
+  })
+)
 
 export interface ShopifyWriteParams {
   readonly workspaceId: string
@@ -47,6 +58,8 @@ export class ShopifyWriteWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Sho
       : write.type === "return.approved" || write.type === "return.rejected" ||
           write.type === "return.resolution_requested"
       ? "return"
+      : write.type === "affiliate.discount_requested"
+      ? "affiliate"
       : "order"
     const outcomes: Array<WriteOutcome> = []
     for (const id of idsOf(write)) {
@@ -95,6 +108,8 @@ export class ShopifyWriteWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Sho
           ? customerWriteBack(write, id)
           : write.type === "return.resolution_requested"
           ? resolutionWriteBack(id)
+          : write.type === "affiliate.discount_requested"
+          ? Effect.flatMap(affiliateDiscounts, (m) => m.discountWriteBack(id))
           : write.type === "return.approved" || write.type === "return.rejected"
           ? decisionWriteBack(write.type === "return.approved" ? "approve" : "decline", id)
           : writeBack(write, id)
@@ -105,6 +120,13 @@ export class ShopifyWriteWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Sho
             `refund failed ${id}`,
             RETRY,
             () => run(workspaceId, refundFailed(write.refundId, id, "unreachable"))
+          )
+        }
+        if (write.type === "affiliate.discount_requested") {
+          await step.do(
+            `discount failed ${id}`,
+            RETRY,
+            () => run(workspaceId, Effect.flatMap(affiliateDiscounts, (m) => m.discountFailed(id)))
           )
         }
         if (write.type === "return.resolution_requested") {
@@ -119,7 +141,7 @@ export class ShopifyWriteWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Sho
     }
     // A refund changes the order whatever became of it; another change only where Shopify refused it.
     const changed = outcomes.filter((o) =>
-      write.type === "refund.requested" || kind === "return" || o.outcome === "refused"
+      write.type === "refund.requested" || kind === "return" || kind === "affiliate" || o.outcome === "refused"
     )
     if (changed.length > 0) {
       await roomOf(workspaceId).broadcast({

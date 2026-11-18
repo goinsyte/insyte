@@ -3134,5 +3134,152 @@
     "service": "allow",
     "finance": "allow",
     "view": "allow"
+  },
+  "Affiliates.program": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Affiliates.program.update": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Affiliates.list": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Affiliates.get": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Affiliates.setTier": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Affiliates.setPaused": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Affiliates.applications.list": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Affiliates.applications.approve": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Affiliates.applications.reject": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Affiliates.proposeCode": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Affiliates.retryDiscount": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Affiliates.payouts.list": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Affiliates.approvePayouts": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Affiliates.markPaid": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Affiliates.invites": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Affiliates.invite": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Affiliates.invites.resend": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Affiliates.invites.revoke": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Affiliates.inviteLink": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Affiliates.resources.list": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Affiliates.resources.remove": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
   }
 }

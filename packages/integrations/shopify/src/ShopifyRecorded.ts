@@ -22,8 +22,8 @@ import { readLines } from "./ShopifyGraphql.ts"
  * order has one open fulfillment order until it is fulfilled. A refund (M7.2) splits over one sale; the same
  * idempotency key answers the same refund. A return's writes (M9.3): a gift card or a discount code under a code made
  * before is taken; a draft order completes into one new order, the same one when completed again; a Shopify return is
- * approved or declined. A `noscope-*` shop approved the app before `write_gift_cards` and `write_returns` joined its
- * scopes, so Shopify denies those calls (`ACCESS_DENIED`). Insyte's drafts and new products (M7): a draft order is made
+ * approved or declined. A `noscope-*` shop approved the app before `write_gift_cards`, `write_discounts` and
+ * `write_returns` joined its scopes, so Shopify denies those calls (`ACCESS_DENIED`). Insyte's drafts and new products (M7): a draft order is made
  * and deleted as asked, and found by its tag, but one for an address with `invalid` in it is refused on its email; a
  * product is made through `productSet` with its one variant, found by its handle and read back, but one titled with
  * `Geweigerd` is refused on its title. `productSet` with `identifier: { handle }` updates the shop's product with that
@@ -121,6 +121,8 @@ const MUTATIONS: Record<string, { readonly field?: string; readonly ok: Record<s
 /** The calls a `noscope-*` shop's token may not make, and the scope each needs. */
 const NEWER_SCOPES: Record<string, string> = {
   giftCardCreate: "write_gift_cards",
+  // An affiliate's code (M16 step 5) on a store that approved the app before `write_discounts`.
+  discountCodeBasicCreate: "write_discounts",
   returnApproveRequest: "write_returns",
   returnDeclineRequest: "write_returns",
   webPixelCreate: "write_pixels",

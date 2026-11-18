@@ -1,5 +1,6 @@
 import { WEBHOOK_API_VERSIONS } from "@insyte/domain/Webhooks"
 import { HttpApi, OpenApi } from "effect/http-api"
+import { AffiliatesGroup } from "./groups/AffiliatesGroup.ts"
 import { AnalyticsGroup } from "./groups/AnalyticsGroup.ts"
 import { AskGroup } from "./groups/AskGroup.ts"
 import { AutomationsGroup } from "./groups/AutomationsGroup.ts"
@@ -59,6 +60,7 @@ export class PublicApi extends HttpApi.make("insyte")
     QueueGroup,
     ProposalsGroup,
     ChargebacksGroup,
+    AffiliatesGroup,
     CostsGroup,
     ConnectionsGroup,
     DataGroup,

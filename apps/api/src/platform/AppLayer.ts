@@ -1,4 +1,5 @@
 import { Layer } from "effect"
+import { AffiliateResourceRoutes } from "../transports/http/AffiliateResourceRoutes.ts"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
 import { BrandRoutes } from "../transports/http/BrandRoutes.ts"
 import { ChatRoutes } from "../transports/http/ChatRoutes.ts"
@@ -52,6 +53,8 @@ const Transports = Layer.mergeAll(
   QualityMediaRoutes,
   EvidenceRoutes,
   CourseMediaRoutes,
+  // The affiliate programme's material (M16 step 5); its handlers load on their first request.
+  AffiliateResourceRoutes,
   DataImportRoutes,
   PixelRoutes,
   // The website chat's widget, from a storefront (M15 step 8); loaded on its first request.

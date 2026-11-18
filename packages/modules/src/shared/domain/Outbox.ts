@@ -626,6 +626,39 @@ export const OutboxEvent = Schema.Union([
     articleId: Schema.String,
     version: Schema.Int
   }),
+  // Someone applied (or applied again) to the workspace's affiliate programme (M16 step 3): whoever reviews
+  // applications hears of it.
+  Schema.Struct({
+    type: Schema.Literal("affiliate.applied"),
+    workspaceId: Schema.String,
+    applicationId: Schema.String,
+    reapplied: Schema.Boolean
+  }),
+  // An application was decided, once the undo window has passed (M16 step 5): an approved affiliate hears it in its
+  // portal; a turned-down applicant reads the reason on the portal's gate.
+  Schema.Struct({
+    type: Schema.Literal("affiliate.decided"),
+    workspaceId: Schema.String,
+    applicationId: Schema.String,
+    affiliateId: Schema.NullOr(Schema.String),
+    decision: Schema.Literals(["approved", "rejected"])
+  }),
+  // Affiliates whose code wants its Shopify discount (M16 step 5), after the undo window: `discountCodeBasicCreate`
+  // through the Shopify write path, once per code.
+  Schema.Struct({
+    type: Schema.Literal("affiliate.discount_requested"),
+    workspaceId: Schema.String,
+    affiliateIds: Schema.Array(Schema.String)
+  }),
+  // A month's payouts were approved or marked paid (M16 step 5), after the undo window: the ledger's marker is
+  // written then, and each affiliate hears of it. No money moves through Insyte.
+  Schema.Struct({
+    type: Schema.Literal("affiliate.payout"),
+    workspaceId: Schema.String,
+    step: Schema.Literals(["approved", "paid"]),
+    payoutIds: Schema.Array(Schema.String),
+    userId: Schema.String
+  }),
   // A record changed (M5.1): written with every audited write, so the realtime sink tells the workspace's open tabs
   // to refetch what they show of that kind. Ids only, never the record.
   Schema.Struct({

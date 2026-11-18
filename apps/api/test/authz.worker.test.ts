@@ -1,4 +1,5 @@
 import { AccessRpcs } from "@insyte/api/rpc/AccessRpcs"
+import { AffiliatesRpcs } from "@insyte/api/rpc/AffiliatesRpcs"
 import { AgentRpcs } from "@insyte/api/rpc/AgentRpcs"
 import { AnalyticsRpcs } from "@insyte/api/rpc/AnalyticsRpcs"
 import { AskRpcs } from "@insyte/api/rpc/AskRpcs"
@@ -705,7 +706,30 @@ const PAYLOADS: Record<string, unknown> = {
   "Ask.get": { id: "ask_none" },
   "Ask.send": { text: "Wat wacht er?", threadId: "ask_none" },
   "Ask.retry": { turnId: "ask_none" },
-  "Ask.remove": { id: "ask_none" }
+  "Ask.remove": { id: "ask_none" },
+  // Affiliates (M16 steps 3–5): records that are not there, an address refused after the permission check, a month
+  // with nothing to approve or pay. Level 1 sees, 2 reviews and updates, 3 runs the programme and its payouts.
+  "Affiliates.program": undefined,
+  "Affiliates.program.update": {},
+  "Affiliates.list": {},
+  "Affiliates.get": { affiliateId: "aff_none" },
+  "Affiliates.setTier": { affiliateId: "aff_none", tier: "gold" },
+  "Affiliates.setPaused": { affiliateId: "aff_none", paused: true },
+  "Affiliates.applications.list": {},
+  "Affiliates.applications.approve": { applicationId: "afa_none", tier: "bronze", code: "AUTHZ" },
+  "Affiliates.applications.reject": { applicationId: "afa_none", reason: "x" },
+  "Affiliates.proposeCode": { name: "Iemand" },
+  "Affiliates.retryDiscount": { affiliateId: "aff_none" },
+  "Affiliates.payouts.list": {},
+  "Affiliates.approvePayouts": { month: "2020-01", affiliateIds: ["aff_none"] },
+  "Affiliates.markPaid": { month: "2020-01", affiliateIds: ["aff_none"] },
+  "Affiliates.invites": undefined,
+  "Affiliates.invite": { email: "geen-adres", tier: "bronze" },
+  "Affiliates.invites.resend": { invitationId: NONE.id },
+  "Affiliates.invites.revoke": { invitationId: NONE.id },
+  "Affiliates.inviteLink": undefined,
+  "Affiliates.resources.list": undefined,
+  "Affiliates.resources.remove": { resourceId: "ars_none" }
 }
 
 /** The RPCs that stream: called as a stream, and refused as any other. */
@@ -755,7 +779,8 @@ const manifest = [
   ...PrivacyRpcs.requests.keys(),
   ...DataRpcs.requests.keys(),
   ...BillingRpcs.requests.keys(),
-  ...AskRpcs.requests.keys()
+  ...AskRpcs.requests.keys(),
+  ...AffiliatesRpcs.requests.keys()
 ]
 
 describe("the authorisation matrix", () => {

@@ -6919,6 +6919,383 @@
       }
     },
     {
+      "name": "list_affiliate_payouts",
+      "description": "One month's affiliate payouts (YYYY-MM; the last ended month by default): per affiliate what is past its return window, what is still in it, reversals, and the status. A running month is not closed and has none. Needs affiliates.read.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "description": "YYYY-MM, UTC."
+          },
+          "closed": {
+            "type": "boolean",
+            "description": "The month ended and was closed; a running month has no payouts."
+          },
+          "pay_day": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "affiliate_id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "payout_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "orders": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "approvable": {
+                  "type": "object",
+                  "properties": {
+                    "amount_minor": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "amount_minor",
+                    "currency"
+                  ],
+                  "additionalProperties": true
+                },
+                "in_window": {
+                  "type": "object",
+                  "properties": {
+                    "amount_minor": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "amount_minor",
+                    "currency"
+                  ],
+                  "additionalProperties": true
+                },
+                "reversed": {
+                  "type": "object",
+                  "properties": {
+                    "amount_minor": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "amount_minor",
+                    "currency"
+                  ],
+                  "additionalProperties": true
+                },
+                "total": {
+                  "type": "object",
+                  "properties": {
+                    "amount_minor": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "amount_minor",
+                    "currency"
+                  ],
+                  "additionalProperties": true
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "approvable",
+                    "approved",
+                    "paid",
+                    "nothing"
+                  ]
+                }
+              },
+              "required": [
+                "affiliate_id",
+                "name",
+                "payout_id",
+                "orders",
+                "approvable",
+                "in_window",
+                "reversed",
+                "total",
+                "status"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "months": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "month",
+          "closed",
+          "pay_day",
+          "data",
+          "months"
+        ],
+        "additionalProperties": true
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "list_affiliates",
+      "description": "The affiliate programme's affiliates: code, tier and rate, status active or paused, conversions and commission to date, and whether the code exists as a Shopify discount; with counts and what ended months have to approve. Needs affiliates.read.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "paused"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "bronze",
+                  "silver",
+                  "gold"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Affiliate"
+            }
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "active": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "paused": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "pending_applications": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "active",
+              "paused",
+              "pending_applications"
+            ],
+            "additionalProperties": true
+          },
+          "to_approve": {
+            "type": "object",
+            "properties": {
+              "amount_minor": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "currency": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "amount_minor",
+              "currency"
+            ],
+            "additionalProperties": true,
+            "description": "Ended months' payouts past their return window, not approved yet."
+          }
+        },
+        "required": [
+          "data",
+          "counts",
+          "to_approve"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "Affiliate": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string",
+                "description": "The affiliate's discount code at the store."
+              },
+              "tier": {
+                "type": "string",
+                "enum": [
+                  "bronze",
+                  "silver",
+                  "gold"
+                ]
+              },
+              "rate": {
+                "type": "number",
+                "description": "Commission in percent of an order's subtotal."
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "paused"
+                ]
+              },
+              "conversions": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "description": "Orders attributed and not reversed."
+              },
+              "earned": {
+                "type": "object",
+                "properties": {
+                  "amount_minor": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "currency": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "amount_minor",
+                  "currency"
+                ],
+                "additionalProperties": true,
+                "description": "Commission to date, reversals taken off, pending included."
+              },
+              "discount": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "made",
+                  "failed",
+                  "off"
+                ],
+                "description": "Whether the code exists as a Shopify discount: made, pending (being made), failed or off (no store)."
+              },
+              "joined_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "email",
+              "code",
+              "tier",
+              "rate",
+              "status",
+              "conversions",
+              "earned",
+              "discount",
+              "joined_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
       "name": "list_automation_runs",
       "description": "One flow's runs, newest first: each with its status (running, waiting, succeeded, failed, stopped, skipped), why, the order it ran for and the version it ran on. Needs automations.read.",
       "inputSchema": {

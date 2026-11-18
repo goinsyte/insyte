@@ -49,6 +49,7 @@ const NOTIFIED = [
   "course.question",
   "course.answered",
   "statements.closed",
+  "affiliate.applied",
   "supplier.problem_reported",
   "supplier.shipment_refused",
   "export.finished",

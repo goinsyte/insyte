@@ -1,6 +1,7 @@
 import { PublicApi } from "@insyte/api/http/PublicApi"
 import { Layer } from "effect"
 import { HttpApiBuilder, HttpApiScalar } from "effect/http-api"
+import { AffiliatesHttp } from "./affiliates/http.ts"
 import { AnalyticsHttp } from "./analytics/http.ts"
 import { AskHttp } from "./ask/http.ts"
 import { AutomationsHttp } from "./automations/http.ts"
@@ -53,6 +54,7 @@ export const PublicApiLive = Layer.mergeAll(
       QueueHttp,
       ProposalsHttp,
       ChargebacksHttp,
+      AffiliatesHttp,
       CostsHttp,
       ConnectionsHttp,
       DataHttp,

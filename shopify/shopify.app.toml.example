@@ -19,6 +19,9 @@ embedded = false
 # installed per store from Instellingen → Winkels.
 # The website chat's app embed (`extensions/insyte-chat`, M15 step 8) needs no scope: the operator turns it on in the
 # theme editor.
+# `write_discounts` (step 11.3, and M16 step 5): a return settled with a discount code, and an affiliate's own code
+# made as a Shopify discount (`discountCodeBasicCreate`) once the brand approves them. A store that has not approved
+# it yet keeps its affiliates approved; their code reads "Kortingscode kon niet in Shopify worden aangemaakt".
 scopes = "read_orders,write_orders,read_customers,write_customers,read_products,write_products,read_inventory,write_inventory,read_locations,read_fulfillments,write_merchant_managed_fulfillment_orders,read_returns,write_returns,write_draft_orders,write_discounts,write_gift_cards,read_legal_policies,read_pixels,write_pixels,read_customer_events"
 
 [auth]

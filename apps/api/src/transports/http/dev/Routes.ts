@@ -1,5 +1,6 @@
 import { Effect, Layer, Scope } from "effect"
 import { HttpRouter } from "effect/http"
+import { AffiliateRoutes } from "./affiliates.ts"
 import { AgentRoutes } from "./agent.ts"
 import { AiRoutes } from "./ai.ts"
 import { AuthEventsOf } from "./auth.ts"
@@ -63,7 +64,8 @@ const Routes = Layer.mergeAll(
   AiRoutes,
   AgentRoutes,
   IdempotencyRoutes,
-  WebchatRoutes
+  WebchatRoutes,
+  AffiliateRoutes
 )
 
 /**

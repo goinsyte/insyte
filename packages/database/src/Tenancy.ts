@@ -166,7 +166,20 @@ export const TENANT_TABLES = [
   "handovers",
   // The customer agent (M15 step 8): its settings, and what it keeps per website chat thread.
   "customer_agent_settings",
-  "customer_agent_threads"
+  "customer_agent_threads",
+  // The affiliate programme (M16 step 3): the programme and its tiers, applications, affiliates and their codes, links,
+  // clicks, conversions, the money ledger, payouts and the material the brand shares.
+  "affiliate_programs",
+  "affiliate_tiers",
+  "affiliate_applications",
+  "affiliates",
+  "affiliate_codes",
+  "affiliate_links",
+  "affiliate_clicks",
+  "affiliate_conversions",
+  "affiliate_ledger_entries",
+  "affiliate_payouts",
+  "affiliate_resources"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 
@@ -288,6 +301,34 @@ export const supplierProjection = (
        using (app_is_member_side()${or(options.update)}) with check (app_is_member_side()${or(options.update)})`,
     `create policy ${table}_side_delete on ${table} as restrictive for delete
        using (app_is_member_side()${or(options.remove)})`
+  ]
+}
+
+/** An affiliate acting for itself, whose rows `own` (a predicate over the table's columns) names. */
+const asAffiliate = (own: string) => `app_principal_kind() = 'affiliate' and app_partner_id() is not null and (${own})`
+
+/**
+ * A table of the affiliate programme opened to its affiliate (06 §5 family A, domain.md §18.1): the member side reads
+ * and writes as on any tenant table, an affiliate only its own rows (`own`, over the table's columns and
+ * `app_partner_id()`), and writes only where the portal writes (`update`, `insert`, each also held to `own`). Each is
+ * one restrictive policy, so a missing `app.partner_id` yields nothing, and a supplier contact (no member side, no
+ * affiliate) reads nothing at all. Which columns an affiliate may change is `partnerGuard`'s.
+ */
+export const affiliateProjection = (
+  table: TenantTable,
+  own: string,
+  options: { readonly update?: string; readonly insert?: string } = {}
+): Array<string> => {
+  const or = (writes: string | undefined) =>
+    writes === undefined ? "" : ` or (${asAffiliate(`(${own}) and (${writes})`)})`
+  return [
+    `create policy ${table}_side on ${table} as restrictive for select using (
+       app_is_member_side() or (${asAffiliate(own)}))`,
+    `create policy ${table}_side_insert on ${table} as restrictive for insert
+       with check (app_is_member_side()${or(options.insert)})`,
+    `create policy ${table}_side_update on ${table} as restrictive for update
+       using (app_is_member_side()${or(options.update)}) with check (app_is_member_side()${or(options.update)})`,
+    `create policy ${table}_side_delete on ${table} as restrictive for delete using (app_is_member_side())`
   ]
 }
 

@@ -222,20 +222,20 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
         insert into orders (id, workspace_id, store_id, shopify_id, number, customer_id, customer_shopify_id,
                             customer_name, customer_email, status, payment_status, fulfillment_status, total_minor,
                             subtotal_minor, shipping_minor, tax_minor, discounts_minor, currency, payment_gateway,
-                            card_last4, shipping_address, tags, note, channel, referral_code, placed_at, paid_at,
-                            shipped_at, cancelled_at, refunded_at, external_updated_at, raw)
+                            card_last4, shipping_address, tags, note, channel, referral_code, affiliate_ref, placed_at,
+                            paid_at, shipped_at, cancelled_at, refunded_at, external_updated_at, raw)
         select r.id, app_workspace_id(), ${storeId}, r.shopify_id, r.number, coalesce(c.merged_into, c.id),
                r.customer_shopify_id,
                r.customer_name, r.customer_email, r.status, r.payment_status, r.fulfillment_status, r.total_minor,
                r.subtotal_minor, r.shipping_minor, r.tax_minor, r.discounts_minor, r.currency, r.payment_gateway,
-               r.card_last4, r.shipping_address, r.tags, r.note, r.channel, r.referral_code, r.placed_at, r.paid_at,
-               r.shipped_at, r.cancelled_at, r.refunded_at, r.external_updated_at, r.raw
+               r.card_last4, r.shipping_address, r.tags, r.note, r.channel, r.referral_code, r.affiliate_ref, r.placed_at,
+               r.paid_at, r.shipped_at, r.cancelled_at, r.refunded_at, r.external_updated_at, r.raw
         from jsonb_to_recordset(${withIds("ord", batch.orders)}::jsonb) as r(
           id text, shopify_id text, number text, customer_shopify_id text, customer_name text, customer_email text,
           status text, payment_status text, fulfillment_status text, total_minor bigint, subtotal_minor bigint,
           shipping_minor bigint, tax_minor bigint, discounts_minor bigint, currency text, payment_gateway text,
           card_last4 text, shipping_address jsonb, tags text[], note text, channel text, referral_code text,
-          placed_at timestamptz, paid_at timestamptz, shipped_at timestamptz, cancelled_at timestamptz,
+          affiliate_ref text, placed_at timestamptz, paid_at timestamptz, shipped_at timestamptz, cancelled_at timestamptz,
           refunded_at timestamptz, external_updated_at timestamptz, raw jsonb)
         left join customers c on c.store_id = ${storeId} and c.shopify_id = r.customer_shopify_id
         on conflict (store_id, shopify_id) do update set
@@ -251,7 +251,8 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
           discounts_minor = excluded.discounts_minor, currency = excluded.currency,
           payment_gateway = excluded.payment_gateway, card_last4 = excluded.card_last4,
           shipping_address = excluded.shipping_address, tags = excluded.tags, note = excluded.note,
-          channel = excluded.channel, referral_code = excluded.referral_code, placed_at = excluded.placed_at,
+          channel = excluded.channel, referral_code = excluded.referral_code,
+          affiliate_ref = coalesce(excluded.affiliate_ref, orders.affiliate_ref), placed_at = excluded.placed_at,
           paid_at = excluded.paid_at, shipped_at = excluded.shipped_at, cancelled_at = excluded.cancelled_at,
           refunded_at = excluded.refunded_at, external_updated_at = excluded.external_updated_at, raw = excluded.raw
         where excluded.external_updated_at >= orders.external_updated_at

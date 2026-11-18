@@ -147,6 +147,8 @@ const argsFor = (r: { order: string; line: string; ret: string; ticket: string; 
     trigger_automation: { automation_id: "aut_none", ...o },
     list_chargebacks: {},
     get_chargeback: { chargeback_id: "cb_none" },
+    list_affiliates: {},
+    list_affiliate_payouts: {},
     get_costs: {},
     get_cost_figures: { months: "2026-01" },
     get_connection_health: {},
@@ -213,7 +215,7 @@ describe("per-key tools/list", () => {
     }
 
     const catalogue = await names(full)
-    expect(catalogue).toHaveLength(63)
+    expect(catalogue).toHaveLength(65)
     const real = argsFor(records)
     const none = argsFor(NONE)
     expect(Object.keys(real).toSorted()).toEqual(catalogue)

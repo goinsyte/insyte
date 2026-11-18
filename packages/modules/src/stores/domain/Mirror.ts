@@ -12,6 +12,15 @@ import { Option, Schema } from "effect"
 /** `gid://shopify/Order/123` → `123`, the number webhooks send too. */
 export const gidId = (gid: string): string => gid.slice(gid.lastIndexOf("/") + 1)
 
+/**
+ * The affiliate link an order came through (M16 step 4): the cart attribute `insyte_ref` the storefront kept from the
+ * redirect's `?insyte_ref=`. Only a slug's shape is kept; anything else is no link.
+ */
+const refOf = (attributes: ReadonlyArray<{ readonly key: string; readonly value: string | null }> | undefined) => {
+  const value = attributes?.find((a) => a.key === "insyte_ref" || a.key === "_insyte_ref")?.value?.trim().toLowerCase()
+  return value !== undefined && /^[a-z0-9]{8,16}$/.test(value) ? value : null
+}
+
 /** `gid://shopify/ProductVariant/1` → `ProductVariant`. */
 export const gidType = (gid: string): string => gid.split("/")[3] ?? ""
 
@@ -75,7 +84,7 @@ const CUSTOMER_FIELDS = `id firstName lastName displayName tags numberOfOrders c
   amountSpent { amount currencyCode }
   defaultAddress { address1 address2 city zip province countryCodeV2 }`
 const ORDER_FIELDS = `id name email displayFinancialStatus displayFulfillmentStatus currencyCode tags note
-  processedAt createdAt cancelledAt updatedAt sourceName discountCode paymentGatewayNames
+  processedAt createdAt cancelledAt updatedAt sourceName discountCode paymentGatewayNames customAttributes { key value }
   totalPriceSet { shopMoney { amount } } subtotalPriceSet { shopMoney { amount } }
   totalShippingPriceSet { shopMoney { amount } } totalTaxSet { shopMoney { amount } }
   totalDiscountsSet { shopMoney { amount } }
@@ -250,6 +259,8 @@ export interface OrderRow {
   readonly note: string | null
   readonly channel: string | null
   readonly referral_code: string | null
+  /** The cart's `insyte_ref` (an affiliate link's, M16 step 4). */
+  readonly affiliate_ref: string | null
   readonly placed_at: string
   readonly paid_at: string | null
   readonly shipped_at: string | null
@@ -407,6 +418,7 @@ const OrderLine = Schema.Struct({
   updatedAt: Schema.String,
   sourceName: Str,
   discountCode: Str,
+  customAttributes: Schema.optional(Schema.Array(Schema.Struct({ key: Schema.String, value: Str }))),
   paymentGatewayNames: Schema.Array(Schema.String),
   totalPriceSet: Money,
   subtotalPriceSet: Schema.NullOr(Money),
@@ -647,6 +659,7 @@ export const addLine = (batch: MirrorBatch, line: unknown, storeCurrency: string
         note: o.note === "" ? null : o.note,
         channel: o.sourceName,
         referral_code: o.discountCode,
+        affiliate_ref: refOf(o.customAttributes),
         placed_at: o.processedAt ?? o.createdAt,
         paid_at: payment === "pending" || payment === "voided" ? null : o.processedAt ?? o.createdAt,
         shipped_at: firstShipped,
