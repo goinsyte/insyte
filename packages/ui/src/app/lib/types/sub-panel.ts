@@ -1,4 +1,5 @@
 import type { CreateKind } from "../../stores/create-intent";
+import type { ReactNode } from "react";
 import type { IconComponent } from "../../../icons";
 
 export type SubPanelItem = {
@@ -11,7 +12,7 @@ export type SubPanelItem = {
 	/** A count the workspace keeps, read live instead of fixed at build. */
 	liveCount?: "needs-you" | "drawn";
 	/** Drawn in the icon's place: a provider's logo, for rows that are a connected service. */
-	mark?: import("react").ReactNode;
+	mark?: ReactNode;
 };
 
 export type SubPanelSection = {

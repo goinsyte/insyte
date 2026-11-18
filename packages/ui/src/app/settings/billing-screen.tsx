@@ -427,7 +427,7 @@ function luhn(num: string) {
 }
 
 function brandOf(num: string) {
-  if (/^4/.test(num)) return "Visa"
+  if (num.startsWith("4")) return "Visa"
   if (/^(5[1-5]|2[2-7])/.test(num)) return "Mastercard"
   if (/^3[47]/.test(num)) return "Amex"
   return "Kaart"

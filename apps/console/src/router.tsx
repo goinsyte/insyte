@@ -3,7 +3,7 @@
 import "./install.ts"
 import { RegistryContext } from "@effect/atom-react"
 import { createRouter } from "@tanstack/react-router"
-import { createIsomorphicFn } from "@tanstack/react-start"
+import { createIsomorphicFn, getGlobalStartContext } from "@tanstack/react-start"
 import { AtomRegistry, Hydration } from "effect/reactivity"
 import { initialAtoms } from "./data/initial.ts"
 import { routeTree } from "./routeTree.gen"
@@ -22,11 +22,21 @@ const idleTTL = createIsomorphicFn()
   .server(() => undefined)
   .client(() => 5_000)
 
+/**
+ * This page's CSP nonce (`server.ts`, `security-headers.ts`): Start stamps it on every inline script it writes. The
+ * browser's router reads it back from `<meta property="csp-nonce">` itself.
+ */
+const cspNonce = createIsomorphicFn()
+  // Typed by the app's registered request context, which the console declares none of; `nonce` is Start's own field.
+  .server(() => (getGlobalStartContext() as unknown as { readonly nonce?: string } | undefined)?.nonce)
+  .client(() => undefined)
+
 export const getRouter = () => {
   const registry = AtomRegistry.make({ initialValues: initialAtoms(), defaultIdleTTL: idleTTL() })
   const router = createRouter({
     routeTree,
     context: { registry },
+    ssr: { nonce: cspNonce() },
     defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
     defaultPendingMs: 150,

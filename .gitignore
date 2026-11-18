@@ -68,3 +68,6 @@ playwright-report-console/
 # template is `shopify/shopify.app.toml.example`.
 shopify/shopify.app.toml
 shopify/.shopify/
+
+# The load test's local session (load/prepare.ts)
+load/.session.json
