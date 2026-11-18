@@ -1,3 +1,4 @@
+import { Db } from "@insyte/database/Db"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import type { AgentTask } from "@insyte/modules/agent/domain/Triggers"
@@ -33,15 +34,30 @@ export const queue: ExportedHandlerQueueHandler<Env, EventsMessage | IngestMessa
     // all: it is retried, and acts once however often it comes. Each is acked or retried when it is done; all of them
     // are waited for, whatever the deliveries beside them do.
     const settle = (m: (typeof messages)[number], run: Promise<unknown>) => run.then(() => m.ack(), () => m.retry())
-    const beside = Promise.allSettled(messages.flatMap((m) =>
-      "classifyTicket" in m.body
-        ? [settle(m, background.runPromise(spans.provide(withRequestDb(classify(m.body.classifyTicket)))))]
-        : "agent" in m.body
-        ? [settle(m, background.runPromise(spans.provide(withRequestDb(agentAct(m.body.agent)))))]
-        : "embedKnowledge" in m.body
-        ? [settle(m, background.runPromise(spans.provide(withRequestDb(embed(m.body.embedKnowledge)))))]
+    // Each, once it ran, leaves `pending_tasks` (W13.6), so the cron does not send it again.
+    const task = <E>(
+      m: (typeof messages)[number],
+      run: Effect.Effect<unknown, E, Effect.Services<ReturnType<typeof classify>>>,
+      kind: PendingKind,
+      workspaceId: string,
+      ref: string | undefined
+    ) =>
+      settle(
+        m,
+        background.runPromise(spans.provide(withRequestDb(Effect.andThen(run, ranTask(kind, workspaceId, ref)))))
+      )
+    const beside = Promise.allSettled(messages.flatMap((m) => {
+      const b = m.body
+      return "classifyTicket" in b
+        ? [
+          task(m, classify(b.classifyTicket), "classify_ticket", b.classifyTicket.workspaceId, b.classifyTicket.eventId)
+        ]
+        : "agent" in b
+        ? [task(m, agentAct(b.agent), "agent", b.agent.workspaceId, b.agent.eventId)]
+        : "embedKnowledge" in b
+        ? [task(m, embed(b.embedKnowledge), "embed_knowledge", b.embedKnowledge.workspaceId, b.embedKnowledge.eventId)]
         : []
-    ))
+    }))
     // Each message's events on their own: an event that fails waits for its own try again (`Relay.deliver`), so a
     // message goes back to the queue only when the database could not be reached for it.
     const deliveries = messages.filter((m) => "outboxIds" in m.body)
@@ -71,6 +87,20 @@ export const queue: ExportedHandlerQueueHandler<Env, EventsMessage | IngestMessa
     ctx.waitUntil(spans.flush())
   }
 }
+
+type PendingKind = "agent" | "classify_ticket" | "embed_knowledge"
+
+/** A task that ran, out of `pending_tasks`; one that cannot be taken out now is sent again once by the cron. */
+const ranTask = (kind: PendingKind, workspaceId: string, ref: string | undefined) =>
+  ref === undefined ?
+    Effect.void :
+    Effect.flatMap(Effect.service(Db), (db) =>
+      db.scopedFor((sql) => sql`delete from pending_tasks where kind = ${kind} and ref = ${ref}`)).pipe(
+        Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId }),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("a task that ran was not crossed off", { cause })
+        )
+      )
 
 let deadLetterModule: Promise<typeof DeadLetters> | undefined
 

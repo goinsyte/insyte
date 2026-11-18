@@ -1,7 +1,8 @@
 import { type AgentTask, asksWhereOrderIs, systemSender } from "@insyte/modules/agent/domain/Triggers"
 import { env } from "cloudflare:workers"
 import { Effect } from "effect"
-import type { EventsMessage } from "../../Relay.ts"
+import type { SqlClient } from "effect/sql"
+import { type EventsMessage, keepTask } from "../../Relay.ts"
 import { subscriber } from "../Subscriber.ts"
 
 /*
@@ -11,10 +12,18 @@ import { subscriber } from "../Subscriber.ts"
  * whether a mail asks where an order is; every website chat message goes. Whether the agent may act, and what it does, is decided there, every time.
  */
 
-/** Onto the queue; a task that does not get there leaves the trigger to the team, and the event is delivered anyway. */
-const ask = (task: AgentTask) =>
-  Effect.tryPromise(() => env.EVENTS.send({ agent: task } satisfies EventsMessage)).pipe(
-    Effect.catchCause((cause) => Effect.logWarning("an agent task was not put on the queue", { cause }))
+/**
+ * Kept on the event's transaction (`pending_tasks`, W13.6) and onto the queue: a task that does not get there, or whose
+ * message is lost, is sent again by the cron for an hour; after that the trigger is the team's.
+ */
+const ask = (task: AgentTask, sql: SqlClient.SqlClient) =>
+  keepTask(sql, task.workspaceId, "agent", task.eventId, { agent: task }).pipe(
+    Effect.orDie,
+    Effect.andThen(
+      Effect.tryPromise(() => env.EVENTS.send({ agent: task } satisfies EventsMessage)).pipe(
+        Effect.catchCause((cause) => Effect.logWarning("an agent task was not put on the queue", { cause }))
+      )
+    )
   )
 
 export const Agent = subscriber("agent", {
@@ -31,10 +40,10 @@ export const Agent = subscriber("agent", {
         workspaceId: event.workspaceId,
         eventId: id,
         trigger: { kind: "thread.received", threadId: event.threadId, messageId: event.messageId, reply: event.reply }
-      })
+      }, sql)
     }).pipe(Effect.orDie),
   // A shopper's message on the website chat (M15 step 8): the customer agent answers it, or hands it to the team.
-  "chat.received": (id, event) =>
+  "chat.received": (id, event, sql) =>
     ask({
       workspaceId: event.workspaceId,
       eventId: id,
@@ -45,14 +54,14 @@ export const Agent = subscriber("agent", {
         messageId: event.messageId,
         channel: event.channel
       }
-    }),
+    }, sql),
   // An order delayed (M8.4, M10.2): the agent tells its shopper, as the queue's plate would.
-  "order.delayed": (id, event) =>
+  "order.delayed": (id, event, sql) =>
     event.orderIds.length === 0
       ? undefined
       : ask({
         workspaceId: event.workspaceId,
         eventId: id,
         trigger: { kind: "order.delayed", orderIds: event.orderIds }
-      })
+      }, sql)
 })

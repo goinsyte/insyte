@@ -189,4 +189,46 @@ describe("the outbox relay", () => {
       rooms.mockRestore()
     }
   })
+  it("keeps a task it asks for until it ran, and the cron sends one whose message was lost again (W13.6)", async () => {
+    const tasksOf = () =>
+      dev<{ tasks: Array<{ kind: string; ref: string; attempts: number; task: EventsMessage }> }>(
+        `pending-tasks?workspace=${workspace}`
+      )
+    // The topic's message is lost on its way to the queue.
+    const send = vi.spyOn(env.EVENTS, "send").mockResolvedValue(undefined as never)
+    const sendBatch = vi.spyOn(env.EVENTS, "sendBatch").mockResolvedValue(undefined as never)
+    try {
+      const asked = await raw(workspace, "ticket.topic_requested", {
+        workspaceId: workspace,
+        userId: "u",
+        ticketId: `tkt_${run}`
+      })
+      expect((await consume([asked])).ackAll).toBe(true)
+      expect((await tasksOf()).tasks).toEqual([expect.objectContaining({ kind: "classify_ticket", ref: asked })])
+      // Ten minutes on, the cron sends it again.
+      await call(`http://api.test/api/__dev/pending-tasks/due?workspace=${workspace}`, { method: "POST" })
+      const ctx = createExecutionContext()
+      worker.scheduled(
+        createScheduledController({ cron: "* * * * *", scheduledTime: Date.UTC(2026, 10, 19, 1, 7) }),
+        env,
+        ctx
+      )
+      await waitOnExecutionContext(ctx)
+      const again = sendBatch.mock.calls.flatMap(([messages]) => [...messages]).map((m) => m.body as EventsMessage)
+      const task = again.find((body) => "classifyTicket" in body && body.classifyTicket.eventId === asked)
+      expect(task).toBeDefined()
+      expect((await tasksOf()).tasks[0]!.attempts).toBe(1)
+      // Run, it is crossed off.
+      const batch = createMessageBatch<EventsMessage>("insyte-events", [
+        { id: `t-${run}`, timestamp: new Date(), attempts: 1, body: task! }
+      ])
+      const tctx = createExecutionContext()
+      await worker.queue(batch, env, tctx)
+      await getQueueResult(batch, tctx)
+      expect((await tasksOf()).tasks).toEqual([])
+    } finally {
+      send.mockRestore()
+      sendBatch.mockRestore()
+    }
+  })
 })

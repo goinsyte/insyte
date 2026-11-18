@@ -97,6 +97,8 @@ export default statements(
    )`,
   "create index pending_tasks_due on pending_tasks (next_at)",
   tenantTable("pending_tasks"),
+  // The cron's sweep reads and moves them across workspaces, as the owner (`pending_tasks_due`), as 0010's relay does.
+  "create policy pending_tasks_sweep on pending_tasks as permissive for all to insyte_owner using (true) with check (true)",
   newcomerBlind("pending_tasks"),
   ...staffHeld("pending_tasks"),
   `create function pending_tasks_due(lim int)
