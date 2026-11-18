@@ -3,7 +3,7 @@ import { mintId } from "@insyte/domain/Ids"
 import { Effect, Layer, Redacted } from "effect"
 import { SqlClient } from "effect/sql"
 import { describe, expect, it } from "vitest"
-import { OWNER_URL } from "./urls.ts"
+import { APP_URL, OWNER_URL } from "./urls.ts"
 
 /*
  * A shopper's erasure, last step (`scrub_workspace`, 0076 and 0106): every text the workspace keeps loses their address
@@ -101,6 +101,17 @@ const inTransaction = <A>(body: (sql: SqlClient.SqlClient) => Effect.Effect<A, u
     }).pipe(Effect.provide(PgClient.layer({ url: Redacted.make(OWNER_URL) }).pipe(Layer.orDie)))
   )
 
+/** Every message along an error's causes: the database's own words are at the bottom. */
+const messageOf = (e: unknown): string => {
+  const parts: Array<string> = []
+  for (let at: unknown = e, guard = 0; at !== undefined && at !== null && guard < 8; guard++) {
+    const message = (at as { message?: unknown }).message
+    if (typeof message === "string") parts.push(message)
+    at = (at as { cause?: unknown; reason?: unknown }).cause ?? (at as { reason?: unknown }).reason
+  }
+  return parts.join(" / ")
+}
+
 /** Runs `statement` in a savepoint: answers whether it went in, and leaves the transaction usable if it did not. */
 const tryIn = (sql: SqlClient.SqlClient, statement: Effect.Effect<unknown, unknown>) =>
   sql.unsafe("savepoint seed").pipe(
@@ -149,7 +160,18 @@ describe("a shopper's erasure across every table", () => {
           seeded.push({ probe, target, rows })
         }
 
+        // A partitioned table, its partition sealed as 0097 seals them (row security forced, no policy): a cell that
+        // breaks the length check is written through the table, never the partition.
+        yield* sql.unsafe(`create table zz_scrub_parted (workspace_id text not null,
+                             title text not null check (char_length(title) <= 30)) partition by list (workspace_id)`)
+        yield* sql.unsafe(`create table zz_scrub_parted_one partition of zz_scrub_parted for values in ('${ws}')`)
+        yield* sql.unsafe("alter table zz_scrub_parted_one enable row level security")
+        yield* sql.unsafe("alter table zz_scrub_parted_one force row level security")
+        const atLimit = `${"x".repeat(30 - NAME.length - 1)} ${NAME}`
+        yield* sql`insert into zz_scrub_parted (workspace_id, title) values (${ws}, ${atLimit}), (${ws}, ${NAME})`
+
         const [scrub] = yield* sql<{ n: number }>`select scrub_workspace(${PATTERNS}::text[]) as n`
+        const parted = yield* sql<{ title: string }>`select title from zz_scrub_parted order by title`
         const left: Array<string> = []
         for (const { probe, target } of seeded) {
           const found = yield* sql.unsafe<{ v: string }>(
@@ -160,7 +182,7 @@ describe("a shopper's erasure across every table", () => {
         }
         const [version] = yield* sql<{ note: string; nodes: string }>`
           select note, nodes::text as nodes from automation_versions where automation_id = ${automation}`
-        return { scrubbed: scrub?.n ?? 0, seeded, left, version }
+        return { scrubbed: scrub?.n ?? 0, seeded, left, version, parted: parted.map((r) => r.title) }
       })
     )
     // The seeds reached the columns that matter: length limits, not-blank checks and unique keys among them.
@@ -172,7 +194,95 @@ describe("a shopper's erasure across every table", () => {
     expect(reached("sheet_folders", "name")).toBeGreaterThan(0)
     expect(result.scrubbed).toBeGreaterThan(0)
     expect(result.left).toEqual([])
+    expect(result.parted).toEqual(["[verwijderd]", `${"x".repeat(30 - NAME.length - 1)} `])
     expect(result.version?.note).toBe("Voor [verwijderd]")
     expect(result.version?.nodes).not.toContain(EMAIL)
+  }, 120_000)
+
+  it("fails the erasure, naming the column but never the value, where no placeholder fits", async () => {
+    const result = await inTransaction((sql) =>
+      Effect.gen(function*() {
+        const ws = mintId("ws")
+        yield* sql`select set_config('app.workspace_id', ${ws}, true), set_config('app.principal_kind', 'system', true)`
+        yield* sql`insert into workspaces (id, name, slug) values (${ws}, 'Scrub', ${`scrub-${ws.slice(-8)}`})`
+        // An address the column's check takes, and none of the placeholders: it can only stay or fail.
+        yield* sql.unsafe(`create table zz_scrub_kept (workspace_id text not null,
+                             address text not null check (address ~ '^[a-z.]+@voorbeeld\\.nl$'))`)
+        yield* sql`insert into zz_scrub_kept (workspace_id, address) values (${ws}, ${EMAIL})`
+        const request = mintId("gdpr")
+        // As "Gegevens wissen" does it: the erasure, then its request marked done, in one transaction.
+        yield* sql.unsafe("savepoint erase")
+        const failed = yield* sql`select scrub_workspace(${PATTERNS}::text[])`.pipe(
+          Effect.andThen(
+            sql`insert into gdpr_requests (id, workspace_id, kind, source, payload, due_at, state, completed_at)
+                values (${request}, ${ws}, 'customer_redact', 'operator', '{}', now(), 'done', now())`
+          ),
+          Effect.as(undefined),
+          Effect.catch((e) => Effect.succeed(messageOf(e)))
+        )
+        yield* sql.unsafe("rollback to savepoint erase")
+        const [done] = yield* sql<{ n: number }>`select count(*)::int as n from gdpr_requests where id = ${request}`
+        const [kept] = yield* sql<{ address: string }>`select address from zz_scrub_kept`
+        return { failed, done: done?.n ?? 0, kept: kept?.address }
+      })
+    )
+    expect(result.failed).toContain("zz_scrub_kept.address")
+    expect(result.failed).not.toContain(EMAIL)
+    expect(result.done).toBe(0)
+  }, 120_000)
+})
+
+describe("a published automation version under the erasure's bypass", () => {
+  it("takes only the scrub's own change to its words, never the app's or another column's", async () => {
+    const ws = mintId("ws")
+    const automation = mintId("aut")
+    const asOwner = <A>(body: (sql: SqlClient.SqlClient) => Effect.Effect<A, unknown>) =>
+      Effect.runPromise(
+        Effect.gen(function*() {
+          const sql = yield* SqlClient.SqlClient
+          yield* sql`select set_config('app.workspace_id', ${ws}, false), set_config('app.principal_kind', 'system', false)`
+          return yield* body(sql)
+        }).pipe(
+          Effect.scoped,
+          Effect.provide(PgClient.layer({ url: Redacted.make(OWNER_URL), maxConnections: 1 }).pipe(Layer.orDie))
+        )
+      )
+    const attempt = (url: string, change: string) =>
+      Effect.runPromise(
+        Effect.gen(function*() {
+          const sql = yield* SqlClient.SqlClient
+          return yield* sql.withTransaction(
+            Effect.gen(function*() {
+              yield* sql`select set_config('app.workspace_id', ${ws}, true),
+                                set_config('app.principal_kind', 'system', true),
+                                set_config('app.scrubbing', 'on', true)`
+              const rows = yield* sql.unsafe<{ note: string }>(
+                `update automation_versions set ${change} where automation_id = $1 returning note`,
+                [automation]
+              )
+              return rows.length === 1 ? "changed" : "unseen"
+            })
+          ).pipe(Effect.catch((e) => Effect.succeed(messageOf(e))))
+        }).pipe(Effect.provide(PgClient.layer({ url: Redacted.make(url) }).pipe(Layer.orDie)))
+      )
+    await asOwner((sql) =>
+      Effect.gen(function*() {
+        yield* sql`insert into workspaces (id, name, slug) values (${ws}, 'Bevroren', ${`frozen-${ws.slice(-8)}`})`
+        yield* sql`insert into automations (id, workspace_id, name, created_by) values (${automation}, ${ws}, 'Flow', 'mem_x')`
+        yield* sql`insert into automation_versions (workspace_id, automation_id, version, nodes, note, published_by)
+                   values (${ws}, ${automation}, 1, '[]'::jsonb, 'Voor iemand', 'mem_x')`
+      })
+    )
+    try {
+      // The app, with every setting the scrub sets: still immutable.
+      expect(await attempt(APP_URL, "note = 'tampered'")).toContain("immutable")
+      expect(await attempt(APP_URL, "note = 'tampered', version = 99")).toContain("immutable")
+      // As the scrub's definer: its words may change, nothing else.
+      expect(await attempt(OWNER_URL, "version = 99")).toContain("immutable")
+      expect(await attempt(OWNER_URL, "note = 'Voor [verwijderd]', published_by = 'mem_y'")).toContain("immutable")
+      expect(await attempt(OWNER_URL, "note = 'Voor [verwijderd]'")).toBe("changed")
+    } finally {
+      await asOwner((sql) => sql`delete from workspaces where id = ${ws}`)
+    }
   }, 120_000)
 })

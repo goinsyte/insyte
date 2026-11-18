@@ -10,16 +10,21 @@ import { KINDS, trashView } from "./0101_trash_kinds.ts"
  *   longer parsed, failed that update, and the whole erasure rolled back with it. Each table's `update` now runs on
  *   its own; when it breaks a check, the table is done again row by row and column by column, each cell with the
  *   first value its checks take: the placeholder, the text without the match, a placeholder of its own (for a unique
- *   key), null where the column allows it, and an empty value of the same JSON type. A cell none of them fits (a
- *   column whose check admits a fixed list or format only, which no person's name or address can be in) stays as it
- *   was, with a warning that names the table and column, never the value.
+ *   key), null where the column allows it, and an empty value of the same JSON type. Each cell is read and written
+ *   through its table (`ctid` and `tableoid`), never through a partition: 0097 seals the partitions themselves, so a
+ *   write there finds no row. A write that finds no row is no fit. A cell none of them fits (a column whose check
+ *   admits a fixed list or format only) fails the erasure: `scrub_workspace` raises, naming the tables and columns,
+ *   never a value, so the whole erasure rolls back and its request never reads as done. Shopify's redact is tried
+ *   again; an operator's "Gegevens wissen" answers the failure.
  * - `automation_versions_frozen()` (0056) lets that scrub through: a published version is immutable, except for a
- *   shopper's erasure, as `system`, which may blank their words in its note or steps.
+ *   shopper's erasure, which may blank their words in its `note` and `nodes` and nothing else. Only inside the scrub:
+ *   as `insyte_owner` (its definer, which the app never is) with the scrub's own setting, as `system`.
  * - Suppliers join the Prullenbak (`supplier`, 0101's pattern). A removed supplier is listed for 30 days (from now for
  *   one removed before), put back through Leveranciers, and purged. A purge does not delete the row: its statements,
  *   quality checks, conversations and supplier work are bookkeeping history that `on delete cascade` would take with
  *   it. It marks the supplier `purged_at` (out of the trash, never back), and takes out what is theirs alone: the
- *   contact details on the row, its contacts and their invitations, its integrations, and the products it supplied.
+ *   contact details on the row, its contacts and their invitations, its integrations, and the products it supplied;
+ *   its name becomes "Verwijderde leverancier" and its vendor is cleared, since a sole trader's name is a person's.
  */
 
 const SUPPLIER = `select workspace_id, 'supplier'::text, id, name, null::text, null::text, deleted_at,
@@ -38,7 +43,9 @@ export default statements(
   `create or replace view trash_items_v with (security_invoker = true) as ${trashView([...KINDS, SUPPLIER])}`,
   `create or replace function automation_versions_frozen() returns trigger language plpgsql as $$
      begin
-       if current_setting('app.scrubbing', true) = 'on' and app_principal_kind() = 'system' then
+       if current_user = 'insyte_owner' and current_setting('app.scrubbing', true) = 'on'
+          and app_principal_kind() = 'system'
+          and to_jsonb(new) - array['note', 'nodes'] = to_jsonb(old) - array['note', 'nodes'] then
          return new;
        end if;
        raise exception 'automation_versions rows are immutable';
@@ -49,7 +56,7 @@ export default statements(
        ws text := app_workspace_id();
        t record; r record; p text; n integer := 0; c integer;
        col text; sets text; hits text; hit text[]; cands text[]; cand text;
-       loc tid; moved tid; matched boolean; fitted boolean; touched boolean;
+       loc tid; part oid; moved tid; matched boolean; fitted boolean; touched boolean; kept text[] := '{}';
      begin
        if ws is null or app_principal_kind() <> 'system' then
          raise exception 'scrub_workspace: only the workspace in scope, as system';
@@ -99,14 +106,17 @@ export default statements(
            n := n + c;
          exception when ${BROKEN} then
            -- A value broke its column's checks: the table again, cell by cell, each with the first value that fits.
-           for r in execute format('select tableoid::regclass::text as part, ctid from %I where workspace_id = $1 and (%s)',
-                                   t.table_name, hits) using ws
+           -- Through the table, not the partition a row is in: the partitions are sealed (0097).
+           for r in execute format('select tableoid, ctid from %I where workspace_id = $1 and (%s)', t.table_name, hits)
+                      using ws
            loop
-             loc := r.ctid; touched := false;
+             loc := r.ctid; part := r.tableoid; touched := false;
              for i in 1 .. cardinality(t.cols) loop
                col := quote_ident(t.cols[i]);
-               execute format('select coalesce(%s, false) from %s where ctid = $1', hit[i], r.part) into matched using loc;
-               continue when not matched;
+               matched := null;
+               execute format('select %s from %I where ctid = $1 and tableoid = $2', hit[i], t.table_name)
+                 into matched using loc, part;
+               continue when not coalesce(matched, false);
                if t.types[i] = 'text' then
                  cands := array[
                    format('regexp_replace(%s, %L, ''[verwijderd]'', ''gi'')', col, p),
@@ -132,16 +142,21 @@ export default statements(
                fitted := false;
                foreach cand in array cands loop
                  begin
-                   execute format('update %s set %s = %s where ctid = $1 returning ctid', r.part, col, cand)
-                     into moved using loc;
-                   loc := moved; fitted := true; touched := true;
-                   exit;
+                   moved := null;
+                   execute format('update %I set %s = %s where ctid = $1 and tableoid = $2 returning ctid',
+                                  t.table_name, col, cand)
+                     into moved using loc, part;
+                   -- A write that found no row fitted nothing.
+                   if moved is not null then
+                     loc := moved; fitted := true; touched := true;
+                     exit;
+                   end if;
                  exception when ${BROKEN} then
                    null;
                  end;
                end loop;
-               if not fitted then
-                 raise warning 'scrub_workspace: %.% kept as it was, no placeholder fits its checks', t.table_name, t.cols[i];
+               if not fitted and not (t.table_name || '.' || t.cols[i]) = any(kept) then
+                 kept := kept || (t.table_name || '.' || t.cols[i]);
                end if;
              end loop;
              if touched then
@@ -150,6 +165,11 @@ export default statements(
            end loop;
          end;
        end loop;
+       -- A shopper left anywhere fails the erasure: names only, never a value.
+       if cardinality(kept) > 0 then
+         raise exception 'scrub_workspace: no placeholder fits %, the erasure is not complete', array_to_string(kept, ', ')
+           using hint = 'a column whose checks take no placeholder holds the shopper';
+       end if;
        perform set_config('app.scrubbing', '', true);
        return n;
      end $$`
