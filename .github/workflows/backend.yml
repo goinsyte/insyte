@@ -191,6 +191,9 @@ jobs:
       # Mail: `MAIL_ADAPTER=resend` once mail.goinsyte.com is verified in Resend; capture until then.
       MAIL_ADAPTER: ${{ vars.MAIL_ADAPTER }}
       MAIL_FROM: ${{ vars.MAIL_FROM }}
+      # The staff admin (M18): who of the team may open `/api/__admin` (comma-separated), and the Access team's domain.
+      STAFF_EMAILS: ${{ vars.STAFF_EMAILS }}
+      STAFF_ACCESS_TEAM: ${{ vars.STAFF_ACCESS_TEAM }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       # Shopify: the app's client (both as secrets) and the keyring its tokens are sealed under; connecting waits for all three.
       SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
@@ -285,6 +288,9 @@ jobs:
       # Mail: `MAIL_ADAPTER=resend` once mail.goinsyte.com is verified in Resend; capture until then.
       MAIL_ADAPTER: ${{ vars.MAIL_ADAPTER }}
       MAIL_FROM: ${{ vars.MAIL_FROM }}
+      # The staff admin (M18): who of the team may open `/api/__admin` (comma-separated), and the Access team's domain.
+      STAFF_EMAILS: ${{ vars.STAFF_EMAILS }}
+      STAFF_ACCESS_TEAM: ${{ vars.STAFF_ACCESS_TEAM }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       # Shopify: the app's client (both as secrets) and the keyring its tokens are sealed under; connecting waits for all three.
       SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
