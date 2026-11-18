@@ -56,7 +56,8 @@ export const TrashSweep = HttpRouter.add(
 
 /**
  * `GET /api/__dev/trash/supplier?workspace=<id>&id=<supplier>`: what a supplier's row still holds, removed or purged,
- * with how many products it supplies: for the Prullenbak's tests of a purge. Only where nothing real lives.
+ * with how many products it supplies and the diffs of the log's lines about it (as text): for the Prullenbak's tests of
+ * a purge. Only where nothing real lives.
  */
 export const TrashSupplier = HttpRouter.add(
   "GET",
@@ -78,10 +79,13 @@ export const TrashSupplier = HttpRouter.add(
           purged: boolean
           deleted: boolean
           supplies: number
+          audit: string
         }
       >`
         select name, vendor, contact_email, purged_at is not null as purged, deleted_at is not null as deleted,
-               (select count(*)::int from product_supply p where p.supplier_id = s.id) as supplies
+               (select count(*)::int from product_supply p where p.supplier_id = s.id) as supplies,
+               (select coalesce(string_agg(a.diff::text, ' '), '') from audit_events a
+                 where a.subject_type = 'supplier' and a.subject_id = s.id) as audit
         from suppliers s where id = ${id}`
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace }))
     return HttpServerResponse.jsonUnsafe({ supplier: row ?? null })

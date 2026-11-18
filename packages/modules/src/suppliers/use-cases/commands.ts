@@ -349,7 +349,7 @@ const PURGED_NAME = "Verwijderde leverancier"
 /**
  * The Prullenbak's purge, on the caller's transaction (0106): a removed supplier never comes back, and what is theirs
  * alone goes (its name and vendor, the contact details on the row, its contacts and their invitations, its
- * integrations, the products it supplied). The row stays, `purged_at`
+ * integrations, the products it supplied, the diffs of the log's earlier lines about it). The row stays, `purged_at`
  * and named "Verwijderde leverancier", for the statements, quality checks and conversations that point at it; its
  * vendor stays blocked by a hash, so the next import does not make it again. An audit line each as `actor`, without
  * the name. A supplier not removed is left alone.
@@ -375,6 +375,8 @@ export const purgeIn = Effect.fn("Suppliers.purge")(function*(
   yield* sql`delete from supplier_contacts where supplier_id in ${sql.in(of)}`
   yield* sql`delete from supplier_integrations where supplier_id in ${sql.in(of)}`
   yield* sql`delete from product_supply where supplier_id in ${sql.in(of)}`
+  // The log's earlier lines about it held its name and address too: their diffs go (0106).
+  yield* sql`select redact_purged_supplier_audit(${of}::text[])`
   for (const s of gone) {
     yield* Audit.write(sql, workspaceId, actor, {
       action: "supplier.purged",

@@ -255,6 +255,8 @@ describe("more kinds in the Prullenbak", () => {
       ).suppliers[0]!.id
     const listed = async () => ok(await rpc("Suppliers.list", {}, people.owner)).rows.map((r) => r.id)
     const atelier = await supplier("Atelier Prullenbak")
+    // A line in the log that names it: a change of its description, before and after.
+    ok(await rpc("Suppliers.update", { id: atelier, description: "Atelier Prullenbak, sinds 1998" }, people.owner))
     ok(await rpc("Suppliers.remove", { id: atelier }, people.owner))
     expect(await listed()).not.toContain(atelier)
     expect((await trash(people.owner)).find((i) => i.id === atelier)).toMatchObject({
@@ -296,6 +298,7 @@ describe("more kinds in the Prullenbak", () => {
           contactEmail: string | null
           purged: boolean
           supplies: number
+          audit: string
         }
       }).supplier
     expect(await row(atelier)).toMatchObject({
@@ -304,6 +307,8 @@ describe("more kinds in the Prullenbak", () => {
       contactEmail: null,
       purged: true
     })
+    // …and the log's earlier lines about it no longer hold its name or address.
+    expect((await row(atelier)).audit).not.toMatch(/Atelier|supplier\.example/)
 
     // A removal's Undo spent after the purge brings back neither the supplier nor the products it supplied.
     const wol = await supplier("Wol Prullenbak")

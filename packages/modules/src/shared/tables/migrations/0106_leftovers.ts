@@ -32,7 +32,9 @@ import { KINDS, trashView } from "./0101_trash_kinds.ts"
  *   The vendor stays blocked, so the next Shopify import does not make it again (0028's "a removed one is not made
  *   again" holds for a purged one too; 0028 itself is merged and stays as written): `purged_vendor_hash` keeps
  *   `supplier_vendor_hash(workspace, vendor)`, a hash of it within the workspace, and the import skips a vendor whose
- *   hash a purged supplier holds.
+ *   hash a purged supplier holds. The earlier audit lines about it lose their diffs, which held its name, address and
+ *   URL (`redact_purged_supplier_audit(ids)`, for a purged supplier of the workspace in scope only; the app cannot
+ *   change the log itself).
  * - Shopify's erasures are seen through: `customers/redact` writes its request first, open, and an erasure that
  *   cannot finish leaves it `failed` with the columns that held the shopper in `error` (names only).
  *   `privacy_redacts_open()` counts the open, failed and overdue ones across workspaces for `/api/health/deep`;
@@ -213,6 +215,28 @@ export default statements(
    $$`,
   `create index suppliers_purged_vendor on suppliers (workspace_id, purged_vendor_hash)
      where purged_vendor_hash is not null`,
+  `create function redact_purged_supplier_audit(ids text[]) returns integer
+     language plpgsql security definer set search_path = public as $$
+     declare
+       ws text := app_workspace_id();
+       prior text := current_setting('app.principal_kind', true);
+       n integer;
+     begin
+       if ws is null then
+         raise exception 'redact_purged_supplier_audit: only the workspace in scope';
+       end if;
+       perform set_config('app.principal_kind', 'system', true);
+       update audit_events a set diff = '{}'::jsonb
+        where a.workspace_id = ws and a.subject_type = 'supplier' and a.subject_id = any(ids)
+          and a.diff <> '{}'::jsonb
+          and exists (select 1 from suppliers s
+                       where s.id = a.subject_id and s.workspace_id = ws and s.purged_at is not null);
+       get diagnostics n = row_count;
+       perform set_config('app.principal_kind', coalesce(prior, ''), true);
+       return n;
+     end $$`,
+  "revoke all on function redact_purged_supplier_audit(text[]) from public",
+  "grant execute on function redact_purged_supplier_audit(text[]) to insyte_app",
   // Shopify's erasures, seen through (see above).
   `create function privacy_redacts_open() returns table (open bigint, failed bigint, overdue bigint)
      language plpgsql security definer set search_path = public as $$
