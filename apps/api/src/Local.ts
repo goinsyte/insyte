@@ -6,8 +6,13 @@ import type { EventsMessage } from "./platform/Relay.ts"
 import pub from "./Public.ts"
 import { email } from "./transports/email/Email.ts"
 import { isPublicPath } from "./transports/public/Paths.ts"
-// Loaded up front here: the deployed API loads the `__dev` routes on first use (`DevRoutes.ts`), and in the worker
-// tests a load still under way when a test file ends fails the run ("Closing rpc while resolve was pending").
+// Loaded up front here: the deployed Workers load their apps on the first request (`MainApp.ts`, `PublicApp.ts`) and
+// the API the `__dev` routes on first use (`DevRoutes.ts`), and in the worker tests a load still under way when a test
+// file ends fails the run ("Closing rpc while resolve was pending").
+// oxlint-disable-next-line import/no-unassigned-import
+import "./MainApp.ts"
+// oxlint-disable-next-line import/no-unassigned-import
+import "./PublicApp.ts"
 // oxlint-disable-next-line import/no-unassigned-import
 import "./transports/http/dev/Routes.ts"
 

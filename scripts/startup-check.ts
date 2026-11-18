@@ -8,16 +8,32 @@
  * `wrangler check startup` use, starts about 170 ms slower, from `Effect.fn` definition stacks: PR #135.) wrangler
  * then packages that bundle as it is (`no_bundle`) with the Worker's bindings, and `wrangler check startup` profiles
  * its module evaluation in workerd, once to warm up and then RUNS times. The fastest run is compared with the budget.
+ *
+ * A Worker that loads its app on the first request (`app` in `lib/startup-rules.ts`) is checked twice more: its
+ * startup graph (the chunks the entry imports statically) may hold none of `HEAVY_AT_STARTUP`, and the same script
+ * with the app's chunk imported up front is profiled APP_RUNS times. That is the CPU its first request pays, shown
+ * without a budget, and it proves the app's modules evaluate, as Cloudflare's validator proved them before they moved.
  */
 import { spawnSync } from "node:child_process"
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { cpus } from "node:os"
 import { join, resolve } from "node:path"
 import { bundleWorker } from "../infra/bundle.ts"
 import { parseJsonc } from "./lib/jsonc.ts"
-import { activeMs, budgetFor, checkStartup, type CpuProfile, median, STARTUP_BUDGETS } from "./lib/startup-rules.ts"
+import {
+  activeMs,
+  budgetFor,
+  checkStartup,
+  checkStartupGraph,
+  type CpuProfile,
+  median,
+  STARTUP_BUDGETS,
+  type StartupBudget,
+  startupGraph
+} from "./lib/startup-rules.ts"
 
 const RUNS = Number(process.env["STARTUP_RUNS"] ?? 7)
+const APP_RUNS = Number(process.env["STARTUP_APP_RUNS"] ?? 3)
 const WRANGLER = resolve("apps/api/node_modules/.bin/wrangler")
 const OUT = resolve(".wrangler/startup-check")
 
@@ -43,10 +59,33 @@ const wrangler = (args: ReadonlyArray<string>, cwd: string) => {
   }
 }
 
+/** The profiled runs of one packaged script, after one to warm up. */
+const profile = (dir: string, bundle: string, name: string, runs: number) => {
+  const times: Array<number> = []
+  for (let i = 0; i <= runs; i++) {
+    const out = join(dir, `${name}-${i}.cpuprofile`)
+    wrangler(["check", "startup", "--worker", join(dir, bundle), "--outfile", out], dir)
+    // The first run warms the disk and workerd's own caches; it is not counted.
+    if (i > 0) times.push(activeMs(JSON.parse(readFileSync(out, "utf8")) as CpuProfile))
+  }
+  return times
+}
+
+/** The sources of the chunks the entry loads at startup, from their source maps. */
+const startupSources = (script: string, main: string) =>
+  startupGraph(main, (file) => {
+    const path = join(script, file)
+    return existsSync(path) ? readFileSync(path, "utf8") : undefined
+  }).flatMap((file) => {
+    const map = join(script, `${file}.map`)
+    return existsSync(map) ? (JSON.parse(readFileSync(map, "utf8")) as { sources: Array<string> }).sources : []
+  })
+
 const measure = async (worker: Worker) => {
   const dir = join(OUT, worker)
   const script = join(dir, "script")
   const built = await bundleWorker(worker, script)
+  const rules: StartupBudget = STARTUP_BUDGETS[worker]
 
   // The Worker's bindings and vars from its wrangler config, around the bundle as built. The bindings workerd cannot
   // run locally (Durable Objects, Workflows, Hyperdrive) are left out of the profile, and with any of them present
@@ -71,15 +110,29 @@ const measure = async (worker: Worker) => {
     })
   )
   wrangler(["deploy", "--dry-run", "--outfile", join(dir, "worker.bundle")], script)
+  const runs = profile(dir, "worker.bundle", "startup", RUNS)
+  if (rules.app === undefined) return { runs }
 
-  const runs: Array<number> = []
-  for (let i = 0; i <= RUNS; i++) {
-    const profile = join(dir, `startup-${i}.cpuprofile`)
-    wrangler(["check", "startup", "--worker", join(dir, "worker.bundle"), "--outfile", profile], dir)
-    // The first run warms the disk and workerd's own caches; it is not counted.
-    if (i > 0) runs.push(activeMs(JSON.parse(readFileSync(profile, "utf8")) as CpuProfile))
+  const graph = checkStartupGraph(worker, startupSources(script, built.main))
+  // The same chunks, with the app's imported before the entry: what the entry's first request loads.
+  const chunks = readdirSync(script).filter((file) => new RegExp(`^${rules.app}-[\\w-]+\\.js$`).test(file))
+  if (chunks.length !== 1) {
+    return {
+      runs,
+      errors: [...graph, `${worker}: no single chunk for its app ${rules.app} (found ${chunks.join(", ")})`]
+    }
   }
-  return runs
+  writeFileSync(
+    join(script, "startup-check-first-request.js"),
+    `import "./${chunks[0]}"\nexport { default } from "./${built.main}"\n`
+  )
+  const packaged = join(script, "wrangler.json")
+  writeFileSync(
+    packaged,
+    JSON.stringify({ ...JSON.parse(readFileSync(packaged, "utf8")), main: "startup-check-first-request.js" })
+  )
+  wrangler(["deploy", "--dry-run", "--outfile", join(dir, "first-request.bundle")], script)
+  return { runs, errors: graph, firstRequest: profile(dir, "first-request.bundle", "first-request", APP_RUNS) }
 }
 
 mkdirSync(OUT, { recursive: true })
@@ -87,17 +140,22 @@ mkdirSync(OUT, { recursive: true })
 const model = cpus()[0]?.model ?? "an unknown CPU"
 console.log(`startup:check: on ${model} (${cpus().length} cores)`)
 const errors: Array<string> = []
+const shown = (runs: ReadonlyArray<number>) =>
+  `fastest ${Math.min(...runs).toFixed(0)} ms, median ${median(runs).toFixed(0)} ms of CPU (${runs.length} runs: ${
+    runs.map((r) => r.toFixed(0)).join(", ")
+  })`
 for (const worker of workers) {
-  const runs = await measure(worker)
+  const { runs, errors: graph = [], firstRequest } = await measure(worker)
   const budget = budgetFor(STARTUP_BUDGETS[worker], model)
   console.log(
-    `startup:check: ${worker}: fastest ${Math.min(...runs).toFixed(0)} ms, median ${
-      median(runs).toFixed(0)
-    } ms of CPU (${RUNS} runs: ${runs.map((r) => r.toFixed(0)).join(", ")}); budget ${budget.ms} ms${
+    `startup:check: ${worker}: ${shown(runs)}; budget ${budget.ms} ms${
       budget.cpu === undefined ? " (no budget for this CPU: the highest applies)" : ` on ${budget.cpu}`
     }`
   )
-  errors.push(...checkStartup(worker, runs, budget.ms))
+  if (firstRequest !== undefined) {
+    console.log(`startup:check: ${worker}, its app loaded as on the first request: ${shown(firstRequest)}; no budget`)
+  }
+  errors.push(...checkStartup(worker, runs, budget.ms), ...graph)
 }
 // On stdout like the measurements above, so a CI log shows them in order.
 if (errors.length > 0) {

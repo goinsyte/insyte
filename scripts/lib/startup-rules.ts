@@ -24,6 +24,13 @@ export interface StartupBudget {
   readonly budgetMs: Readonly<Record<string, number>>
   /** The wrangler config whose bindings and vars the profiled script gets; the bundle itself comes from infra. */
   readonly wranglerConfig: string
+  /**
+   * The module the entry loads on its first request (`apps/api/src/platform/OnFirstRequest.ts`), by file name without
+   * its extension, as rolldown names its chunk. Its Worker's startup graph may hold none of `HEAVY_AT_STARTUP`, and
+   * the check also profiles the script with that chunk loaded at startup: the CPU the first request pays, without a
+   * budget, and proof the app's modules evaluate before the script deploys.
+   */
+  readonly app?: string
 }
 
 export const STARTUP_BUDGETS = {
@@ -32,7 +39,8 @@ export const STARTUP_BUDGETS = {
   // about 169 ms. Was 480 / 360 (PR #135: 439 ms on an EPYC 7763).
   api: {
     budgetMs: { "AMD EPYC 7763": 320, "AMD EPYC 9V74": 305, "Intel(R) Xeon(R) 6975P-C": 215 },
-    wranglerConfig: "apps/api/wrangler.jsonc"
+    wranglerConfig: "apps/api/wrangler.jsonc",
+    app: "MainApp"
   },
   // The jobs Worker (ADR-0041 step 4), set at PR #139 (EPYC 7763: 180 ms). Raised at PR #140: it now also hosts
   // `LiveRoom` and `RateLimiter`, 188 ms on an EPYC 7763. EPYC 9V74 measured on staging at dd04a38a6: 182 ms. Xeon
@@ -46,7 +54,8 @@ export const STARTUP_BUDGETS = {
   // tools build at startup, so this is the one to watch as slices land.
   public: {
     budgetMs: { "AMD EPYC 7763": 420, "AMD EPYC 9V74": 380, "Intel(R) Xeon(R) 6975P-C": 265 },
-    wranglerConfig: "apps/api/wrangler.jsonc"
+    wranglerConfig: "apps/api/wrangler.jsonc",
+    app: "PublicApp"
   }
 } as const satisfies Record<string, StartupBudget>
 
@@ -91,3 +100,64 @@ export const checkStartup = (worker: string, runsMs: ReadonlyArray<number>, budg
     ]
     : []
 }
+
+/*
+ * What a Worker with an `app` must not evaluate at startup. Its entry answers by loading the app on the first request,
+ * so these only reach the startup graph through a static import of the app's code from the entry, or from a module the
+ * entry imports. Each was the bulk of that startup before it moved (2026-11-18, the API Worker's 2.1 MB startup chunk):
+ */
+const HEAVY_AT_STARTUP: ReadonlyArray<{ readonly name: string; readonly source: RegExp }> = [
+  // The runtime, the router, Schema, the RPC and MCP servers: a third of the startup chunk.
+  { name: "effect", source: /(^|\/)node_modules\/(\.bun\/[^/]+\/node_modules\/)?(effect|@effect\/[^/]+)\// },
+  // Every slice's use cases, the contracts (RPC, `/v1`, MCP tools), the domain and the adapters: the other two thirds.
+  { name: "@insyte/* (packages/)", source: /(^|\/)packages\/[^/]+\/src\// },
+  // The app and its layers themselves.
+  { name: "the app's layer", source: /(^|\/)src\/(MainApp|PublicApp|platform\/(AppLayer|PublicLayer|Services))\.ts$/ }
+]
+
+/** The chunks an ES module loads before it runs: its static `import` and `export … from`, transitively, itself first. */
+export const startupGraph = (entry: string, read: (file: string) => string | undefined): Array<string> => {
+  const seen = new Set<string>()
+  const visit = (file: string) => {
+    if (seen.has(file)) return
+    const code = read(file)
+    if (code === undefined) return
+    seen.add(file)
+    // A static import or re-export of a sibling chunk; `import(` (a lazy chunk) does not match.
+    for (
+      const match of code.matchAll(/(?:^|[;}\s])(?:import|export)\s*(?:[\w$*{}\s,]*?from\s*)?["']\.\/([^"']+)["']/g)
+    ) {
+      visit(match[1]!)
+    }
+  }
+  visit(entry)
+  return [...seen]
+}
+
+/** The sources in a Worker's startup graph that `HEAVY_AT_STARTUP` lists, one error per kind with an example. */
+export const checkStartupGraph = (worker: string, sources: ReadonlyArray<string>): Array<string> =>
+  HEAVY_AT_STARTUP.flatMap(({ name, source }) => {
+    const found = sources.filter((s) => source.test(s))
+    return found.length === 0 ? [] : [
+      `${worker}: its startup graph evaluates ${name} (${found.length} modules, e.g. ${
+        found[0]
+      }); the app loads on the first request (platform/OnFirstRequest.ts), so import it there, not from the entry`
+    ]
+  })
+
+/** Above this, `startup-reported.ts` warns: Cloudflare's 1 s limit, less the noise between its validator machines. */
+export const REPORTED_WARN_MS = 750
+
+/** The part of a Workers version (`GET …/workers/workers/:name/versions`) `startup-reported.ts` reads. */
+export interface ReportedVersion {
+  readonly id: string
+  readonly number?: number
+  readonly created_on?: string
+  readonly startup_time_ms?: number
+}
+
+/** The version uploaded last: the highest number, or the latest creation where there is no number. */
+export const newestVersion = (versions: ReadonlyArray<ReportedVersion>): ReportedVersion | undefined =>
+  versions.toSorted((a, b) =>
+    (b.number ?? 0) - (a.number ?? 0) || (b.created_on ?? "").localeCompare(a.created_on ?? "")
+  )[0]
