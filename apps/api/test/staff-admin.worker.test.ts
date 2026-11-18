@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest"
 import { failure, ok, person, run } from "./journeys.ts"
+import { importedStore } from "./shops.ts"
 import { call, rpc, sessionMe } from "./support.ts"
 
 /*
@@ -83,6 +84,17 @@ describe("the staff admin", () => {
       expect(response.status).toBe(403)
     })
 
+    it("refuses a read without the staff page's own header, though not the page, its script or its style", async () => {
+      for (const path of ["/me", "/workspaces?q=Meekijk", `/audit`, "/sessions/sts_none"]) {
+        const response = await call(`http://api.test/api/__admin${path}`, { headers: { "x-insyte-dev-staff": STAFF } })
+        expect(response.status, path).toBe(403)
+      }
+      for (const path of ["", "/staff.js", "/staff.css"]) {
+        const response = await call(`http://api.test/api/__admin${path}`, { headers: { "x-insyte-dev-staff": STAFF } })
+        expect(response.status, path).toBe(200)
+      }
+    })
+
     it("serves the page with a CSP that allows nothing but itself", async () => {
       const response = await call("http://api.test/api/__admin", { headers: { "x-insyte-dev-staff": STAFF } })
       expect(response.status).toBe(200)
@@ -96,6 +108,8 @@ describe("the staff admin", () => {
       expect(me.status).toBe(200)
       expect(me.body.email).toBe(STAFF)
       expect(me.body.reads.map((r: Json) => r.rpc)).toContain("Team.get")
+      // Billing is for the people of the workspace alone (`peopleOnly`): not on the list, so never offered.
+      expect(me.body.reads.map((r: Json) => r.rpc)).not.toContain("Billing.get")
     })
   })
 
@@ -122,6 +136,18 @@ describe("the staff admin", () => {
       expect(health.body.billing).toHaveProperty("plan")
       expect(health.body.ai).toHaveProperty("usedEuros")
       expect((await admin("/workspaces/ws_00000000000000000000000000/health")).status).toBe(404)
+    })
+
+    it("writes each health read in the workspace's Logboek too, consent or not", async () => {
+      const before = (await logbook(owner.cookie)).length
+      await admin(`/workspaces/${workspace}/health`)
+      const lines = await logbook(owner.cookie)
+      expect(lines).toHaveLength(before + 1)
+      expect(lines[0]).toMatchObject({
+        field: "Insyte-support",
+        after: "Insyte-support bekeek de status",
+        actor: { name: "Insyte-support" }
+      })
     })
 
     it("writes each search and health read to the team's audit", async () => {
@@ -185,6 +211,23 @@ describe("the staff admin", () => {
         rpc: "Team.get",
         outcome: "ok"
       })
+    })
+
+    it("names the record it read in both trails, and answers a failure with its code alone", async () => {
+      const order = "ord_00000000000000000000000000"
+      const missing = await read(session, "Orders.get", { id: order })
+      expect(missing.status).toBe(200)
+      expect(missing.body).toEqual({ ok: false, code: "NotFound" })
+      expect((await logbook(owner.cookie))[0]).toMatchObject({ after: `Bekeken: Een bestelling (${order})` })
+      const lines = (await trail(workspace)).filter((l) => l.action === "session.read" && l.rpc === "Orders.get")
+      expect(lines.map((l) => [l.outcome, l.detail])).toEqual([["failed", order], ["ok", order]])
+      // Only an id is named, never what was typed into a search.
+      await read(session, "Orders.list", { q: "jan@example.com" })
+      expect((await logbook(owner.cookie))[0]).toMatchObject({ after: "Bekeken: Bestellingen" })
+    })
+
+    it("does not read Billing: it is the workspace's people's alone", async () => {
+      expect((await read(session, "Billing.get")).body.error.code).toBe("not_readable")
     })
 
     it("stays in the workspace it was started for: row level security holds it there", async () => {
@@ -277,11 +320,10 @@ describe("the staff admin", () => {
     })
 
     it("expires after its hour", async () => {
-      const start = await admin("/sessions", { body: { workspaceId: workspace, reason: "Ticket 43" } })
-      const id = start.body.session.id as string
-      await call(`http://api.test/api/__dev/staff/age?staff=${STAFF}&workspace=${workspace}&session=${id}`, {
+      const expired = await call(`http://api.test/api/__dev/staff/expired?staff=${STAFF}&workspace=${workspace}`, {
         method: "POST"
       })
+      const id = ((await expired.json()) as { id: string }).id
       expect((await read(id, "Team.get")).body.error.code).toBe("session_expired")
       expect(ok(await rpc("Support.status", undefined, owner.cookie)).session).toBeNull()
       expect((await trail(workspace)).some((l) => l.sessionId === id && l.code === "session_expired")).toBe(true)
@@ -305,6 +347,22 @@ describe("the staff admin", () => {
       const start = await admin("/sessions", { body: { workspaceId: otherWorkspace, reason: "Ticket 46" } })
       expect(start.body.error.code).toBe("no_consent")
       expect(ok(await rpc("Support.status", undefined, other.cookie)).session).toBeNull()
+    })
+  })
+
+  describe("a store's health", () => {
+    it("says why a sweep failed as a code, never the text the sweep kept", async () => {
+      const store = await importedStore("staff-health")
+      const stage = async (reason: string) => {
+        await call(`http://api.test/api/__dev/stores/health?workspace=${store.workspace}&store=${store.storeId}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ stage: { failures: 2, failure: reason }, check: false })
+        })
+        return (await admin(`/workspaces/${store.workspace}/health`)).body.connections[0]
+      }
+      expect(await stage("credentials")).toMatchObject({ failures: 2, failure: "credentials" })
+      expect(await stage("Klant jan@example.com: 422 Unprocessable")).toMatchObject({ failure: "other" })
     })
   })
 })

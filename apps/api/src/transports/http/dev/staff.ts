@@ -1,5 +1,5 @@
 import { Db } from "@insyte/database/Db"
-import type { WorkspaceId } from "@insyte/domain/Ids"
+import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { StaffRefused } from "@insyte/modules/support/domain/Support"
 import { Staff } from "@insyte/modules/support/Support"
@@ -16,7 +16,8 @@ import { devOnly } from "./shared.ts"
  *   session of the team's, past the staff page's list of reads, so the worker tests prove the two locks under it on
  *   their own: `Policy` refuses `staff_viewer` every write, and the database's transaction is read-only. The session
  *   is still checked (the caller's, live, the consent on) and the read is written to both trails.
- * - `POST /api/__dev/staff/age?staff=&workspace=&session=`: a session's hour moved into the past, for its expiry.
+ * - `POST /api/__dev/staff/expired?staff=&workspace=`: a session begun as the team, whose hour is already past (the
+ *   database lets no one move a session's hour: 0107), for its expiry. Answers its id.
  * - `POST /api/__dev/staff/age-consent?workspace=`: the owner's consent run out a minute ago.
  */
 
@@ -56,20 +57,22 @@ const UncheckedRead = HttpRouter.add(
   })
 )
 
-const SessionAge = HttpRouter.add(
+const ExpiredSession = HttpRouter.add(
   "POST",
-  "/api/__dev/staff/age",
+  "/api/__dev/staff/expired",
   Effect.gen(function*() {
     if (!(yield* devOnly)) return notFound
     const request = yield* HttpServerRequest.HttpServerRequest
     const query = new URL(request.url, "http://local").searchParams
+    const staff = query.get("staff") ?? ""
     const db = yield* Db
-    yield* db.recordAsStaff(query.get("staff") ?? "", (query.get("workspace") ?? "") as WorkspaceId)((sql) =>
-      sql`update staff_sessions
-          set started_at = now() - interval '2 hours', expires_at = now() - interval '1 hour'
-          where id = ${query.get("session") ?? ""}`
+    const id = mintId("sts")
+    yield* db.recordAsStaff(staff, (query.get("workspace") ?? "") as WorkspaceId)((sql) =>
+      sql`insert into staff_sessions (id, workspace_id, staff_email, reason, started_at, expires_at)
+          values (${id}, ${query.get("workspace") ?? ""}, ${staff}, 'Verlopen',
+                  now() - interval '2 hours', now() - interval '1 hour')`
     )
-    return HttpServerResponse.jsonUnsafe({ aged: true })
+    return HttpServerResponse.jsonUnsafe({ id })
   }).pipe(Effect.orDie, withRequestDb)
 )
 
@@ -89,4 +92,4 @@ const ConsentAge = HttpRouter.add(
   }).pipe(Effect.orDie, withRequestDb)
 )
 
-export const StaffRoutes = Layer.mergeAll(UncheckedRead, SessionAge, ConsentAge)
+export const StaffRoutes = Layer.mergeAll(UncheckedRead, ExpiredSession, ConsentAge)

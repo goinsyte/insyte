@@ -1,8 +1,9 @@
 import { PgClient } from "@effect/sql-pg"
 import { mintId, UserId, WorkspaceId } from "@insyte/domain/Ids"
-import { CurrentPrincipal, type Principal } from "@insyte/domain/Principal"
+import { CurrentPrincipal, CurrentWorkspace, type Principal } from "@insyte/domain/Principal"
 import { CurrentUser, type SessionUser } from "@insyte/domain/Session"
 import { Cause, Effect, Exit, Layer, Redacted, Schema } from "effect"
+import type { SqlClient } from "effect/sql"
 import { beforeAll, describe, expect, it } from "vitest"
 import { Db, DbLive } from "../src/Db.ts"
 
@@ -95,9 +96,31 @@ const members: Record<string, string> = {}
 const asOwnerOf = (workspaceId: WorkspaceId, user: SessionUser) =>
   Effect.provideService(CurrentPrincipal, owner(workspaceId, user, members[workspaceId]!))
 
+const viewerSees = (id: string) =>
+  run(
+    Effect.flatMap(Effect.service(Db), (db) => db.scoped((sql) => sql<{ id: string }>`select id from members`)).pipe(
+      Effect.provideService(CurrentPrincipal, viewer(wsA, id))
+    )
+  )
+const setConsent = (until: string | null) =>
+  run(
+    Effect.flatMap(
+      Effect.service(Db),
+      (db) =>
+        db.scoped((sql) =>
+          sql`update workspaces set support_access_until = ${until === null ? null : sql`now() + ${until}::interval`}
+              where id = ${wsA}`
+        )
+    ).pipe(asOwnerOf(wsA, alice))
+  )
+const writingAsTeam = <A, E>(f: (sql: SqlClient.SqlClient) => Effect.Effect<A, E>) =>
+  Effect.flatMap(Effect.service(Db), (db) => db.recordAsStaff(STAFF, wsA)(f))
+
 describe("the staff admin's tables", () => {
   let session: string
 
+  const asViewer = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.provideService(effect, CurrentPrincipal, viewer(wsA, session))
   beforeAll(async () => {
     members[wsA] = await run(found(alice, wsA))
     members[wsB] = await run(found(bob, wsB))
@@ -240,8 +263,6 @@ describe("the staff admin's tables", () => {
   })
 
   describe("a session looking along (staff_viewer)", () => {
-    const asViewer = Effect.provideService(CurrentPrincipal, viewer(wsA, "sts_viewer"))
-
     it("reads only the workspace it was started for", async () => {
       const rows = await run(
         Effect.flatMap(
@@ -273,6 +294,50 @@ describe("the staff admin's tables", () => {
       expect(refusalOf(write)).toContain("read-only transaction")
     })
 
+    it("reads nothing, in SQL, for a session that never was, has ended or is past its hour (0107)", async () => {
+      expect((await viewerSees(session)).length).toBeGreaterThan(0)
+      expect(await viewerSees(mintId("sts"))).toEqual([])
+      const ended = mintId("sts")
+      await run(begin(wsA, ended))
+      expect((await viewerSees(ended)).length).toBeGreaterThan(0)
+      await run(
+        Effect.flatMap(
+          Effect.service(Db),
+          (db) =>
+            db.recordAsStaff(STAFF, wsA)((sql) => sql`update staff_sessions set ended_at = now() where id = ${ended}`)
+        )
+      )
+      expect(await viewerSees(ended)).toEqual([])
+      const past = mintId("sts")
+      await run(
+        Effect.flatMap(
+          Effect.service(Db),
+          (db) =>
+            db.recordAsStaff(STAFF, wsA)((sql) =>
+              sql`insert into staff_sessions (id, workspace_id, staff_email, reason, started_at, expires_at)
+                  values (${past}, ${wsA}, ${STAFF}, 'Ticket', now() - interval '2 hours', now() - interval '1 hour')`
+            )
+        )
+      )
+      expect(await viewerSees(past)).toEqual([])
+      // A session of A, read as though in B: nothing either.
+      const inB = await run(
+        Effect.flatMap(Effect.service(Db), (db) => db.scoped((sql) => sql`select id from members`)).pipe(
+          Effect.provideService(CurrentPrincipal, viewer(wsB, session))
+        )
+      )
+      expect(inB).toEqual([])
+    })
+
+    it("reads nothing, in SQL, once the owner's consent is withdrawn or has run out (0107)", async () => {
+      await setConsent(null)
+      expect(await viewerSees(session)).toEqual([])
+      await setConsent("-1 minute")
+      expect(await viewerSees(session)).toEqual([])
+      await setConsent("7 days")
+      expect((await viewerSees(session)).length).toBeGreaterThan(0)
+    })
+
     it("and the sealed secrets are closed to it", async () => {
       const policies = await run(
         Effect.flatMap(
@@ -291,5 +356,164 @@ describe("the staff admin's tables", () => {
         "webhook_endpoints"
       ])
     })
+  })
+
+  describe("the team, held to its own rows (0107)", () => {
+    it("changes nothing of the workspace's own, not its name, its consent or its people", async () => {
+      expect(
+        await run(writingAsTeam((sql) => sql`update workspaces set name = 'pwned' where id = ${wsA} returning id`))
+      )
+        .toEqual([])
+      expect(
+        await run(
+          writingAsTeam((sql) =>
+            sql`update workspaces set support_access_until = now() + interval '365 days' where id = ${wsA} returning id`
+          )
+        )
+      ).toEqual([])
+      expect(await run(writingAsTeam((sql) => sql`delete from members where workspace_id = ${wsA} returning id`)))
+        .toEqual([])
+      const team = await exitOf(
+        writingAsTeam((sql) => sql`insert into teams (id, workspace_id, name) values (${mintId("team")}, ${wsA}, 'X')`)
+      )
+      expect(refusalOf(team)).toContain("teams_staff_insert")
+      const [ws] = await run(
+        Effect.flatMap(
+          Effect.service(Db),
+          (db) =>
+            db.scoped((sql) =>
+              sql<{ name: string; days: number }>`
+                select name, extract(day from support_access_until - now())::int as days from workspaces
+                where id = ${wsA}`
+            )
+        ).pipe(asOwnerOf(wsA, alice))
+      )
+      expect(ws).toEqual({ name: alice.name, days: 6 })
+    })
+
+    it("writes only its sessions, its audit, the Logboek's support lines and the realtime nudge", async () => {
+      const logbook = (section: string) =>
+        exitOf(
+          writingAsTeam((sql) =>
+            sql`insert into audit_events (id, workspace_id, actor_kind, actor_id, action, subject_type, subject_id, section)
+              values (${
+              mintId("aud")
+            }, ${wsA}, 'insyte', ${session}, 'support.read', 'support', ${session}, ${section})`
+          )
+        )
+      expect(refusalOf(await logbook("support"))).toBe("accepted")
+      expect(refusalOf(await logbook("team"))).toContain("audit_events_staff_insert")
+      const nudge = (event: string) =>
+        exitOf(
+          writingAsTeam((sql) =>
+            sql`insert into outbox (id, workspace_id, event, payload) values (${mintId("obx")}, ${wsA}, ${event}, '{}')`
+          )
+        )
+      expect(refusalOf(await nudge("records.changed"))).toBe("accepted")
+      expect(refusalOf(await nudge("mail.send"))).toContain("outbox_staff_insert")
+      const forged = await exitOf(
+        writingAsTeam((sql) =>
+          sql`insert into staff_audit (id, staff_email, action, workspace_id, outcome)
+            values (${mintId("sta")}, 'someone-else@example.com', 'workspace.health', ${wsA}, 'ok')`
+        )
+      )
+      expect(refusalOf(forged)).toContain("staff_audit_staff_insert")
+    })
+
+    it("ends a session of its own and changes nothing else of it", async () => {
+      const reason = await exitOf(
+        writingAsTeam((sql) => sql`update staff_sessions set reason = 'x' where id = ${session}`)
+      )
+      expect(refusalOf(reason)).toContain("permission denied for table staff_sessions")
+      const longer = await exitOf(
+        writingAsTeam((sql) =>
+          sql`update staff_sessions set expires_at = now() + interval '1 day' where id = ${session}`
+        )
+      )
+      expect(refusalOf(longer)).toContain("permission denied for table staff_sessions")
+      const someoneElses = await run(
+        Effect.flatMap(
+          Effect.service(Db),
+          (db) =>
+            db.recordAsStaff("second@example.com", wsA)((sql) =>
+              sql`update staff_sessions set ended_at = now() where id = ${session} returning id`
+            )
+        )
+      )
+      expect(someoneElses).toEqual([])
+    })
+
+    it("has the guard on every table with row level security", async () => {
+      const rows = await run(
+        Effect.flatMap(Effect.service(Db), (db) =>
+          db.routing((sql) =>
+            sql<{ table: string; guards: number }>`
+              select c.relname as table,
+                     (select count(*)::int from pg_policy p where p.polrelid = c.oid and p.polname in
+                        (c.relname || '_staff_select', c.relname || '_staff_insert', c.relname || '_staff_update',
+                         c.relname || '_staff_delete')) as guards
+              from pg_class c
+              where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p') and c.relrowsecurity
+                and not c.relispartition
+              order by 1`
+          ))
+      )
+      expect(rows.length).toBeGreaterThan(100)
+      expect(rows.filter((r) => r.guards !== 4).map((r) => r.table)).toEqual([])
+    })
+  })
+
+  it("forgets what it searched for once the workspace it found is purged (0107)", async () => {
+    const carol = person("c")
+    const wsC = Schema.decodeSync(WorkspaceId)(mintId("ws"))
+    members[wsC] = await run(found(carol, wsC))
+    const line = (action: string, workspaceId: string | null, detail: string) =>
+      run(
+        Effect.flatMap(
+          Effect.service(Db),
+          (db) =>
+            db.recordAsStaff(STAFF, null)((sql) =>
+              sql`insert into staff_audit (id, staff_email, action, workspace_id, outcome, detail)
+                  values (${mintId("sta")}, ${STAFF}, ${action}, ${workspaceId}, 'ok', ${detail})`
+            )
+        )
+      )
+    const needle = carol.name.slice(-12).toUpperCase()
+    await line("workspaces.search", null, needle)
+    await line("workspaces.search", null, wsC)
+    await line("session.read", wsC, "ord_00000000000000000000000000")
+    await line("workspaces.search", null, `elsewhere-${runId}`)
+    await run(
+      Effect.flatMap(
+        Effect.service(Db),
+        (db) =>
+          db.scopedFor((sql) =>
+            Effect.gen(function*() {
+              yield* sql`insert into gdpr_requests (id, workspace_id, kind, source, payload, due_at, state, attempts)
+                         values (${
+                mintId("gdpr")
+              }, ${wsC}, 'workspace_delete', 'operator', '{}', now() - interval '1 minute',
+                                 'purging', 1)`
+              yield* sql`select purge_workspace(${wsC})`
+            })
+          )
+      ).pipe(Effect.provideService(CurrentWorkspace, { id: wsC }))
+    )
+    const kept = await run(
+      Effect.flatMap(
+        Effect.service(Db),
+        (db) =>
+          db.asStaff(STAFF, null)((sql) =>
+            sql<{ detail: string }>`
+              select detail from staff_audit
+              where detail in (${needle}, ${wsC}, 'ord_00000000000000000000000000', ${`elsewhere-${runId}`})
+                 or (workspace_id = ${wsC})
+                 or (detail = '[verwijderd]' and at > now() - interval '1 minute')
+              order by detail`
+          )
+      )
+    )
+    expect(kept.map((r) => r.detail).filter((d) => d !== "[verwijderd]")).toEqual([`elsewhere-${runId}`])
+    expect(kept.filter((r) => r.detail === "[verwijderd]").length).toBeGreaterThanOrEqual(3)
   })
 })

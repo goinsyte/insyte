@@ -1,4 +1,6 @@
-import { newcomerBlind, partnerBlind, tenantTable } from "@insyte/database/Tenancy"
+import { newcomerBlind, partnerBlind, staffHeld, tenantTable } from "@insyte/database/Tenancy"
+import { Effect } from "effect"
+import { SqlClient } from "effect/sql"
 import { statements } from "../statements.ts"
 
 /*
@@ -10,14 +12,22 @@ import { statements } from "../statements.ts"
  * - Two principal kinds of the database's own, set only by `Db` (`app.principal_kind`): `staff`, a person of Insyte's
  *   team as the admin acts (searching across workspaces through `staff_find_workspaces`, a workspace's health, and
  *   writing the sessions and both audit trails), and `staff_viewer`, a staff session looking along inside one
- *   workspace, always in a read-only transaction. Both count as member side, so the workspace's own policies decide
- *   what they see, as for any member: row level security still holds them to the target workspace.
+ *   workspace, always in a read-only transaction. Both count as member side for reading, so row level security holds
+ *   them to the target workspace as it holds a member; but neither writes what a member may (`staffHeld` below).
+ * - `staffHeld`, on every table with row level security: neither staff kind inserts, changes or removes a row, but
+ *   `staff` its own sessions (begun, and only `ended_at` changed, on its own), its own audit lines, the Logboek's
+ *   support lines and the realtime nudge; and `staff_viewer` reads a row only while `app_staff_session_live()`: its
+ *   session not ended, not past its hour, of the workspace in scope, and the owner's consent still on. The database
+ *   checks that on every statement, not only the code before the read.
  * - `staff_sessions`: a session of looking along, one workspace, one person of the team, a reason, at most 60
  *   minutes. Its members read it (the banner says while one is active); only `staff` writes it, and only while the
  *   workspace's consent holds, so a session the owner never allowed cannot even be written down.
- * - `staff_audit`: every search, health read, start, read and end the team did, with the workspace, the RPC and its
- *   outcome code; never a payload. The team's alone (`staff`), append-only for the app. The workspace's own Logboek
- *   gets a line for each start, read and end too (`audit_events`, actor `insyte`, section `support`).
+ * - `staff_audit`: every search, health read, start, read and end the team did, with the workspace, the RPC, the
+ *   record read and the outcome's code; never a payload. The team's alone (`staff`), append-only for the app. It
+ *   outlives a workspace's deletion, but forgets what named it: when a workspace is purged, the searches that could
+ *   have found it by its name, a shop domain or its id, and its own lines' details, read `[verwijderd]`. The
+ *   workspace's own Logboek gets a line for each health read, start, read and end too (`audit_events`, actor
+ *   `insyte`, section `support`).
  * - The sealed secrets (a connection's tokens, a webhook's signing secret, a supplier's integration secret, an OAuth
  *   flow's PKCE verifier) are closed to both staff kinds outright.
  */
@@ -26,7 +36,15 @@ import { statements } from "../statements.ts"
 const STAFF = "('staff', 'staff_viewer')"
 const NOT_STAFF = `app_principal_kind() is null or app_principal_kind() not in ${STAFF}`
 
-export default statements(
+/** What `staff` may write, where it may write anything (`staffHeld`'s `may`). */
+const STAFF_MAY: Readonly<Record<string, { readonly insert?: string; readonly update?: string }>> = {
+  staff_sessions: { insert: "staff_email = app_principal_id()", update: "staff_email = app_principal_id()" },
+  staff_audit: { insert: "staff_email = app_principal_id()" },
+  audit_events: { insert: "actor_kind = 'insyte' and section = 'support' and action like 'support.%'" },
+  outbox: { insert: "event = 'records.changed'" }
+}
+
+const schema = statements(
   "alter table workspaces add column support_access_until timestamptz",
   "alter table workspaces add column support_access_by text",
   //
@@ -55,6 +73,9 @@ export default statements(
   `create policy staff_sessions_ended on staff_sessions as restrictive for update
      using (app_principal_kind() = 'staff') with check (app_principal_kind() = 'staff')`,
   "revoke delete on staff_sessions from insyte_app",
+  // Ending one is the only change: its workspace, person, reason and hour stay as begun.
+  "revoke update on staff_sessions from insyte_app",
+  "grant update (ended_at) on staff_sessions to insyte_app",
   // A person of the team finds their own sessions before any workspace is in scope (the session's id is all they hold).
   `create policy staff_sessions_own on staff_sessions as permissive for select
      using (app_principal_kind() = 'staff' and staff_email = app_principal_id())`,
@@ -126,5 +147,54 @@ export default statements(
        perform set_config('app.connection_scan', '', true);
      end $$`,
   "revoke all on function staff_find_workspaces(text) from public",
-  "grant execute on function staff_find_workspaces(text) to insyte_app"
+  "grant execute on function staff_find_workspaces(text) to insyte_app",
+  //
+  // A session looking along may read now: the request's principal is that session, of the workspace in scope, not
+  // ended, not past its hour, and the owner's consent still on. As the owner, so it reads the session and the
+  // consent whatever the caller may (`staffHeld`'s policies are on `insyte_app`, so it does not meet itself).
+  `create function app_staff_session_live() returns boolean
+     language sql stable security definer set search_path = public, pg_temp as $$
+       select exists (
+         select 1 from staff_sessions s join workspaces w on w.id = s.workspace_id
+         where s.id = app_principal_id() and s.workspace_id = app_workspace_id()
+           and s.ended_at is null and s.expires_at > now()
+           and w.deleted_at is null and w.support_access_until > now())
+     $$`,
+  "revoke all on function app_staff_session_live() from public",
+  "grant execute on function app_staff_session_live() to insyte_app",
+  //
+  // A purged workspace's name, shop domains and id leave the team's audit: the searches that could have found it, and
+  // its own lines' details (a record's id). The lines themselves stay: who of the team looked, when, at what.
+  "create policy staff_audit_forget_read on staff_audit as permissive for select to insyte_owner using (true)",
+  `create policy staff_audit_forget on staff_audit as permissive for update to insyte_owner
+     using (true) with check (true)`,
+  `create function staff_audit_forget_workspace() returns trigger
+     language plpgsql security definer set search_path = public, pg_temp as $$
+     begin
+       update staff_audit a set detail = '[verwijderd]'
+        where a.detail is not null and a.detail <> '[verwijderd]' and (
+          a.workspace_id = old.id
+          or (a.action = 'workspaces.search' and length(a.detail) >= 2 and (
+                lower(a.detail) = lower(old.id)
+                or position(lower(a.detail) in lower(old.name)) > 0
+                or exists (select 1 from stores s
+                            where s.workspace_id = old.id and position(lower(a.detail) in lower(s.shop_domain)) > 0))));
+       return old;
+     end $$`,
+  "revoke all on function staff_audit_forget_workspace() from public",
+  `create trigger workspaces_forget_staff_audit before delete on workspaces
+     for each row execute function staff_audit_forget_workspace()`
 )
+
+/** Every table with row level security there is now, held as `staffHeld` says (a partition by its parent's). */
+const held = Effect.gen(function*() {
+  const sql = yield* SqlClient.SqlClient
+  const tables = yield* sql<{ name: string }>`
+    select c.relname as name from pg_class c
+    where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p') and c.relrowsecurity
+      and not c.relispartition
+    order by 1`
+  yield* statements(tables.flatMap((t) => staffHeld(t.name, STAFF_MAY[t.name])))
+})
+
+export default Effect.andThen(schema, held)

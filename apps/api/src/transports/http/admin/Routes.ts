@@ -7,13 +7,14 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { withRequestDb } from "../../../platform/RequestDb.ts"
 import { admitRequest, StaffIdentity } from "./Gate.ts"
 import { CSP, PAGE, SCRIPT, STYLE } from "./Page.ts"
-import { readability, readAs, rpcOf, STAFF_READS } from "./Reads.ts"
+import { readability, readAs, rpcOf, STAFF_READS, subjectOf } from "./Reads.ts"
 
 /*
  * The staff admin's routes (M18, Support), loaded by `../AdminRoutes.ts` on the first request under `/api/__admin`.
  * Every one sits behind the gate (`Gate.ts`: Cloudflare Access's JWT, then the staff allowlist), applied once to the
- * whole router below, so a route added here cannot forget it. A write (POST) also needs `x-insyte-staff`, which a
- * page on another site cannot send without asking first (no CORS here), so it cannot be made to act for the team.
+ * whole router below, so a route added here cannot forget it. Every route but the page and its script and style also
+ * needs `x-insyte-staff`, which a page on another site cannot send without asking first (no CORS here): it can
+ * neither make the team act nor read what the team's session sees (a GET is a read too).
  *
  *   GET  /api/__admin                         the staff page
  *   GET  /api/__admin/me                      who, and what may be read while looking along
@@ -150,10 +151,11 @@ const Read = HttpRouter.add(
       const code = can === "never_for_staff" ? "never_for_staff" : "not_readable"
       return yield* serve(Staff.refuseRead(email, sessionId, tag, code))
     }
+    const subject = subjectOf(input.value.payload)
     return yield* withStaffDb(Effect.gen(function*() {
-      const session = yield* Staff.beginRead(email, sessionId, tag, STAFF_READS[tag]!)
+      const session = yield* Staff.beginRead(email, sessionId, tag, STAFF_READS[tag]!, subject)
       const result = yield* readAs(session, rpc, input.value.payload)
-      if (!result.ok) yield* Staff.failedRead(email, session, tag, result.code)
+      if (!result.ok) yield* Staff.failedRead(email, session, tag, result.code, subject)
       return json(result)
     })).pipe(
       Effect.catchIf(
@@ -184,6 +186,9 @@ const Trail = HttpRouter.add(
   })
 )
 
+/** The page, its script and its style: what a browser loads without the header, and nothing that says a thing. */
+const ASSETS = new Set(["/api/__admin", "/api/__admin/staff.js", "/api/__admin/staff.css"])
+
 const Assets = Layer.mergeAll(
   HttpRouter.add("GET", "/api/__admin", Effect.succeed(asset(PAGE, "text/html; charset=utf-8"))),
   HttpRouter.add("GET", "/api/__admin/staff.js", Effect.succeed(asset(SCRIPT, "text/javascript; charset=utf-8"))),
@@ -205,6 +210,7 @@ export const handler = Effect.gen(function*() {
     return refused("forbidden")
   }
   const request = yield* HttpServerRequest.HttpServerRequest
-  if (request.method !== "GET" && request.headers[STAFF_HEADER] !== "1") return refused("forbidden")
+  const page = request.method === "GET" && ASSETS.has(new URL(request.url, "http://local").pathname)
+  if (!page && request.headers[STAFF_HEADER] !== "1") return refused("forbidden")
   return yield* router.pipe(Effect.provideService(StaffIdentity, { email: admission.email }))
 })

@@ -61,7 +61,6 @@ export const STAFF_READS: Readonly<Record<string, string>> = {
   "AiBudget.get": "AI-limieten",
   "Autonomy.get": "AI-autonomie",
   "AgentLog.list": "Wat de agent deed",
-  "Billing.get": "Facturatie",
   "Data.overview": "Data",
   "Data.imports.list": "Imports",
   "FirstAnalysis.get": "Eerste analyse"
@@ -103,18 +102,39 @@ type Json = Schema.Codec<unknown, unknown, never, never>
 
 export type ReadResult =
   | { readonly ok: true; readonly value: unknown }
-  | { readonly ok: false; readonly code: string; readonly error?: unknown }
+  | { readonly ok: false; readonly code: string }
 
-/** A failure as a code the staff page and the team's audit can say: an error's tag, or what refused it. */
-const codeOf = (cause: Cause.Cause<unknown>): { readonly code: string; readonly error?: unknown } => {
+/**
+ * A failure as a code the staff page and the team's audit can say: an error's tag, or what refused it. Never the
+ * error itself: its fields can carry what the read was not to show (an id of another workspace, a message).
+ */
+const codeOf = (cause: Cause.Cause<unknown>): string => {
   const failure = cause.reasons.find((r) => r._tag === "Fail")
   const error = failure === undefined ? undefined : (failure as { readonly error: unknown }).error
-  const text = Cause.pretty(cause)
-  if (/read-only transaction/i.test(text)) return { code: "read_only" }
+  if (/read-only transaction/i.test(Cause.pretty(cause))) return "read_only"
   if (typeof error === "object" && error !== null && "_tag" in error) {
-    return { code: String((error as { readonly _tag: unknown })._tag), error }
+    const tag = String((error as { readonly _tag: unknown })._tag)
+    if (/^[A-Za-z][A-Za-z0-9_]{0,59}$/.test(tag)) return tag
   }
-  return { code: "failed" }
+  return "failed"
+}
+
+/** An id as Insyte mints them (`ord_…`), and nothing else: what a person typed is never a record's name. */
+const ID = /^[a-z]{2,6}_[0-9a-z]{8,40}$/
+
+/**
+ * The record a read names, for both trails, so the owner sees which one was viewed: the payload's `id`, or else its
+ * one `…Id` (an order's, a store's), when that is an id. A list, a search, a filter names none.
+ */
+export const subjectOf = (payload: unknown): string | null => {
+  if (typeof payload !== "object" || payload === null) return null
+  const fields = payload as Record<string, unknown>
+  const id = fields["id"]
+  if (typeof id === "string" && ID.test(id)) return id
+  const ids = Object.entries(fields).filter(([key, value]) =>
+    key.endsWith("Id") && typeof value === "string" && ID.test(value)
+  )
+  return ids.length === 1 ? String(ids[0]![1]) : null
 }
 
 /**
@@ -157,7 +177,7 @@ export const readAs = (
       Effect.provideService(Sealer, NO_SECRETS)
     )
     const exit = yield* Effect.exit(client[rpc._tag]!(decoded))
-    if (Exit.isFailure(exit)) return { ok: false, ...codeOf(exit.cause) } satisfies ReadResult
+    if (Exit.isFailure(exit)) return { ok: false, code: codeOf(exit.cause) } satisfies ReadResult
     const value = yield* Schema.encodeUnknownEffect(rpc.successSchema as unknown as Json)(exit.value).pipe(
       Effect.orElseSucceed(() => null)
     )

@@ -15,12 +15,16 @@ import {
 /*
  * The team's side of Insyte-support (M18; the staff admin at `/api/__admin`): `staff` is the person of the team the
  * request came from, their address as Cloudflare Access vouched for it and the staff allowlist admitted (the transport
- * checks both before anything here runs). Everything they do is written to `staff_audit`; a start, a read and an end
- * of looking along also to the workspace's Logboek (`audit_events`, actor `insyte`, section `support`), in the same
- * transaction as the session's row, and before the read itself runs, so nothing is read unrecorded.
+ * checks both before anything here runs). Everything they do is written to `staff_audit`; a health read, and a start,
+ * a read and an end of looking along, also to the workspace's Logboek (`audit_events`, actor `insyte`, section
+ * `support`), in the same transaction as the team's line, and before the read itself runs, so nothing is read
+ * unrecorded.
  *
- * Reads go through `Db.asStaff`, a read-only transaction; writes through `Db.recordAsStaff`, and only to the sessions
- * and the two audit trails (0107 holds `staff` to those and refuses it the sealed secrets).
+ * Reads go through `Db.asStaff`, a read-only transaction; writes through `Db.recordAsStaff`. The database holds
+ * `staff` to what this file writes, whatever it asks (0107 `staffHeld`): its own sessions (begun, and ended), its own
+ * audit lines, the Logboek's support lines and the realtime nudge; nothing else of a workspace, and never the sealed
+ * secrets. A session's reads (`staff_viewer`) see rows only while the database finds that session live and the
+ * consent on, checked again on every statement of the read.
  */
 
 type Outcome = "ok" | "refused" | "failed"
@@ -51,21 +55,27 @@ const auditLine = (sql: SqlClient.SqlClient, staff: string, line: StaffAuditLine
       values (${mintId("sta")}, ${staff}, ${line.action}, ${line.workspaceId ?? null}, ${line.sessionId ?? null},
               ${clip(line.rpc, 120)}, ${line.outcome}, ${clip(line.code, 80)}, ${clip(line.detail, 300)})`
 
-/** One line in the workspace's Logboek, as Insyte-support, and the realtime nudge for its banner. */
+/** Who the Logboek says looked, where no session did (a health read): Insyte-support, not a person of the team. */
+const SUPPORT = "support"
+
+/**
+ * One line in the workspace's Logboek, as Insyte-support (`by`: the session, or `SUPPORT` for a health read), and for
+ * a session's start and end the realtime nudge for its banner.
+ */
 const logbook = (
   sql: SqlClient.SqlClient,
   workspaceId: string,
-  sessionId: string,
-  action: "support.session_started" | "support.read" | "support.session_ended",
+  by: string,
+  action: "support.status_viewed" | "support.session_started" | "support.read" | "support.session_ended",
   said: string
 ) =>
   Effect.gen(function*() {
     yield* sql`insert into audit_events
                (id, workspace_id, actor_kind, actor_id, action, subject_type, subject_id, section, diff)
-               values (${mintId("aud")}, ${workspaceId}, 'insyte', ${sessionId}, ${action}, 'support', ${sessionId},
+               values (${mintId("aud")}, ${workspaceId}, 'insyte', ${by}, ${action}, 'support', ${by},
                        'support', ${JSON.stringify({ said })}::jsonb)`
-    if (action !== "support.read") {
-      yield* Outbox.write(sql, workspaceId, { type: "records.changed", workspaceId, kind: "support", ids: [sessionId] })
+    if (action === "support.session_started" || action === "support.session_ended") {
+      yield* Outbox.write(sql, workspaceId, { type: "records.changed", workspaceId, kind: "support", ids: [by] })
     }
   })
 
@@ -148,7 +158,10 @@ const healthOf = (sql: SqlClient.SqlClient, workspaceId: WorkspaceId) =>
       lastSyncedAt: Date | null
     }>`
       select id, provider, status, coalesce((health ->> 'failures')::int, 0) as failures,
-             health ->> 'failure' as failure, last_synced_at
+             -- Why the last sweep failed, as its code: the sweeps write an error's tag, but anything else is "other".
+             case when health ->> 'failure' ~ '^[A-Za-z][A-Za-z0-9_]{0,39}$' then health ->> 'failure'
+                  when health ? 'failure' then 'other' end as failure,
+             last_synced_at
       from connections where workspace_id = ${workspaceId} order by created_at`
     const incidents = yield* sql<{ connectionId: string; kind: string; openedAt: Date }>`
       select connection_id, kind, opened_at from connection_incidents
@@ -231,15 +244,21 @@ const healthOf = (sql: SqlClient.SqlClient, workspaceId: WorkspaceId) =>
     } satisfies WorkspaceHealth
   })
 
-/** A workspace's health: needs no consent, it holds no shopper's data and no content. */
+/**
+ * A workspace's health: needs no consent, it holds no shopper's data and no content (codes and counts only). Each
+ * read is still the workspace's to know: a line in its Logboek, with the team's.
+ */
 export const health = Effect.fn("Staff.health")(function*(staff: string, workspaceId: WorkspaceId) {
   const db = yield* Db
   const found = yield* db.asStaff(staff, workspaceId)((sql) => healthOf(sql, workspaceId))
   if (found === undefined) {
     return yield* refuse(staff, { action: "workspace.health", workspaceId }, "workspace_not_found")
   }
-  yield* db.recordAsStaff(staff, null)((sql) =>
-    auditLine(sql, staff, { action: "workspace.health", workspaceId, outcome: "ok" })
+  yield* db.recordAsStaff(staff, workspaceId)((sql) =>
+    Effect.gen(function*() {
+      yield* auditLine(sql, staff, { action: "workspace.health", workspaceId, outcome: "ok" })
+      yield* logbook(sql, workspaceId, SUPPORT, "support.status_viewed", "Insyte-support bekeek de status")
+    })
   )
   return found
 })
@@ -336,21 +355,29 @@ const stateOf = (sql: SqlClient.SqlClient, row: SessionRow) =>
       : consent)
 
 /**
- * Before a read (`rpc`, as the staff page names it `said`): the session must be the caller's, live, and the consent
- * still on. Written to both trails before the read runs; the caller then reads as `viewerPrincipal`.
+ * Before a read (`rpc`, as the staff page names it `said`, of the record `subject` names when it is one): the session
+ * must be the caller's, live, and the consent still on. Written to both trails before the read runs, with the
+ * record's id, so the owner sees which one was viewed; the caller then reads as `viewerPrincipal`, and the database
+ * checks the session again on each statement.
  */
 export const beginRead = Effect.fn("Staff.beginRead")(
-  function*(staff: string, sessionId: string, rpc: string, said: string) {
+  function*(staff: string, sessionId: string, rpc: string, said: string, subject: string | null = null) {
     const row = yield* own(staff, sessionId)
     if (row === undefined) return yield* refuse(staff, { action: "session.read", sessionId, rpc }, "no_session")
-    const line = { action: "session.read", workspaceId: row.workspaceId, sessionId, rpc } as const
+    const line = { action: "session.read", workspaceId: row.workspaceId, sessionId, rpc, detail: subject } as const
     const db = yield* Db
     const refused = yield* db.asStaff(staff, row.workspaceId)((sql) => stateOf(sql, row))
     if (refused !== undefined) return yield* refuse(staff, line, refused)
     yield* db.recordAsStaff(staff, row.workspaceId)((sql) =>
       Effect.gen(function*() {
         yield* auditLine(sql, staff, { ...line, outcome: "ok" })
-        yield* logbook(sql, row.workspaceId, sessionId, "support.read", `Bekeken: ${said}`)
+        yield* logbook(
+          sql,
+          row.workspaceId,
+          sessionId,
+          "support.read",
+          subject === null ? `Bekeken: ${said}` : `Bekeken: ${said} (${subject})`
+        )
       })
     )
     return sessionOf(row)
@@ -366,7 +393,7 @@ export const refuseRead = (staff: string, sessionId: string, rpc: string, code: 
 
 /** A read that ran and failed, by its error's tag: the team sees why, the Logboek already has the read. */
 export const failedRead = Effect.fn("Staff.failedRead")(
-  function*(staff: string, read: StaffSession, rpc: string, code: string) {
+  function*(staff: string, read: StaffSession, rpc: string, code: string, subject: string | null = null) {
     const db = yield* Db
     yield* db.recordAsStaff(staff, null)((sql) =>
       auditLine(sql, staff, {
@@ -375,7 +402,8 @@ export const failedRead = Effect.fn("Staff.failedRead")(
         sessionId: read.id,
         rpc,
         outcome: "failed",
-        code
+        code,
+        detail: subject
       })
     )
   }
@@ -415,6 +443,8 @@ export interface StaffAuditEntry {
   readonly rpc: string | null
   readonly outcome: string
   readonly code: string | null
+  /** What a search looked for, or the id of the record a read named. */
+  readonly detail: string | null
 }
 
 /** The team's audit, newest first: of one workspace, or of everyone's latest. Itself not audited (it is the audit). */
@@ -431,9 +461,10 @@ export const trail = Effect.fn("Staff.trail")(function*(staff: string, workspace
         rpc: string | null
         outcome: string
         code: string | null
+        detail: string | null
       }
     >`
-      select at, staff_email, action, workspace_id, session_id, rpc, outcome, code from staff_audit
+      select at, staff_email, action, workspace_id, session_id, rpc, outcome, code, detail from staff_audit
       where ${workspaceId === null ? sql`true` : sql`workspace_id = ${workspaceId}`}
       order by at desc, id desc limit 200`
   )
@@ -445,6 +476,7 @@ export const trail = Effect.fn("Staff.trail")(function*(staff: string, workspace
     sessionId: r.sessionId,
     rpc: r.rpc,
     outcome: r.outcome,
-    code: r.code
+    code: r.code,
+    detail: r.detail
   }))
 })
