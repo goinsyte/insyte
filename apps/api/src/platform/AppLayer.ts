@@ -1,4 +1,5 @@
 import { Layer } from "effect"
+import { AdminRoutes } from "../transports/http/AdminRoutes.ts"
 import { AuthRoutes } from "../transports/http/AuthRoutes.ts"
 import { BrandRoutes } from "../transports/http/BrandRoutes.ts"
 import { ChatRoutes } from "../transports/http/ChatRoutes.ts"
@@ -37,6 +38,8 @@ const Transports = Layer.mergeAll(
   SystemRoutes,
   AuthRoutes,
   DevRoutes,
+  // The staff admin (M18), behind Cloudflare Access and the staff allowlist; loaded on its first request.
+  AdminRoutes,
   RpcRoutes,
   RealtimeRoutes,
   ConnectRoutes,

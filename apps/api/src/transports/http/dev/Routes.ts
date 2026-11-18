@@ -22,6 +22,7 @@ import { ProposalLapse } from "./proposals.ts"
 import { QueueRefresh } from "./queue.ts"
 import { RetentionRoutes } from "./retention.ts"
 import { SendingDomainRoutes } from "./sending-domain.ts"
+import { StaffRoutes } from "./staff.ts"
 import { StatementsClose } from "./statements.ts"
 import { StoreRoutes } from "./stores.ts"
 import { TrackingSweep } from "./tracking.ts"
@@ -63,7 +64,8 @@ const Routes = Layer.mergeAll(
   AiRoutes,
   AgentRoutes,
   IdempotencyRoutes,
-  WebchatRoutes
+  WebchatRoutes,
+  StaffRoutes
 )
 
 /**
