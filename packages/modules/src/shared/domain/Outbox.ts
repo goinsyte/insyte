@@ -670,6 +670,20 @@ export const OutboxEvent = Schema.Union([
 ])
 export type OutboxEvent = typeof OutboxEvent.Type
 
+let isEvent: ((u: unknown) => u is OutboxEvent) | undefined
+
+/**
+ * An outbox row as its event, or undefined where the payload is not that event's: a row written by hand (a test's
+ * fixture, a raw insert) or in a shape the schema has left. `Outbox.write` takes an `OutboxEvent`, so its rows always
+ * are; the relay checks every row anyway, since the table takes any JSON, and dead-letters one that is not (`deliver`).
+ * The check is made on the first row, not when a Worker starts.
+ */
+export const eventOf = (type: string, payload: Readonly<Record<string, unknown>>): OutboxEvent | undefined => {
+  isEvent ??= Schema.is(OutboxEvent)
+  const event: unknown = { type, ...payload }
+  return isEvent(event) ? event : undefined
+}
+
 /**
  * The relay, as a port: after the transaction commits, the use case hands it the outbox ids it wrote, and the relay
  * delivers them now rather than at the next sweep (the minute cron catches anything a kick missed).

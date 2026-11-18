@@ -8976,6 +8976,1618 @@
         },
         "description": "One of this key's conversations, every question and answer in order. Needs no scope: it is the key's own. An answer that read a store the key no longer reaches is withheld."
       }
+    },
+    "/v1/threads": {
+      "get": {
+        "tags": [
+          "Inbox"
+        ],
+        "operationId": "inbox.threads",
+        "parameters": [
+          {
+            "name": "folder",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "unassigned",
+                "mine",
+                "linked",
+                "archive",
+                "trash",
+                "spam"
+              ],
+              "description": "all is the inbox (not archived, spam, in the trash or snoozed); unassigned and linked (to a ticket) within it; archive, spam and trash."
+            },
+            "required": false
+          },
+          {
+            "name": "mailbox_id",
+            "in": "query",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "A mailbox's id, or a chat channel's."
+            },
+            "required": false
+          },
+          {
+            "name": "channel",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "email",
+                "webchat"
+              ]
+            },
+            "required": false
+          },
+          {
+            "name": "store_id",
+            "in": "query",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "One store's chats; mail is no store's."
+            },
+            "required": false
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "The subject, who is on it, and what it says."
+            },
+            "required": false
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "1–200, 50 by default."
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Thread"
+                      }
+                    },
+                    "next_cursor": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "next_cursor",
+                    "total"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestV1"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedV1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ScopeMissingV1 | IpNotAllowedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ScopeMissingV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IpNotAllowedV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RateLimitedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedV1"
+                }
+              }
+            }
+          }
+        },
+        "description": "The inbox's mail threads and website chats, newest first, a page at a time, with how many match. Every mail, and the chats of the key's stores. Needs `support.read`."
+      }
+    },
+    "/v1/threads/{id}": {
+      "get": {
+        "tags": [
+          "Inbox"
+        ],
+        "operationId": "inbox.thread",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ThreadDetail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedV1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ScopeMissingV1 | IpNotAllowedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ScopeMissingV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IpNotAllowedV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundV1"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RateLimitedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedV1"
+                }
+              }
+            }
+          }
+        },
+        "description": "One thread with its messages, or a chat with its messages and handover. Needs `support.read`."
+      }
+    },
+    "/v1/threads/{id}/replies": {
+      "post": {
+        "tags": [
+          "Inbox"
+        ],
+        "operationId": "inbox.reply",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "Required. A value of your own, up to 255 characters; send the same one when you retry."
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "QueuedReply",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueuedReply"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ValidationFailedV1 | InvalidRequestV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ValidationFailedV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedV1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ActionNotAllowedV1 | ScopeMissingV1 | IpNotAllowedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ActionNotAllowedV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ScopeMissingV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IpNotAllowedV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundV1"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ConflictV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictV1"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IdempotencyKeyReusedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdempotencyKeyReusedV1"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RateLimitedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedV1"
+                }
+              }
+            }
+          }
+        },
+        "description": "Replies to who wrote last, from the mailbox it came in at (mail), or in the shopper's widget (a chat). It waits out a few seconds first. A chat someone took over, or one that closed, is `ConflictV1` (`taken_over`, `closed`). Needs `support.write`.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "body": {
+                    "type": "string",
+                    "description": "Plain text; the mailbox's signature is added."
+                  }
+                },
+                "required": [
+                  "body"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/threads/{id}/assign": {
+      "post": {
+        "tags": [
+          "Inbox"
+        ],
+        "operationId": "inbox.assign",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "Required. A value of your own, up to 255 characters; send the same one when you retry."
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ThreadState",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ValidationFailedV1 | InvalidRequestV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ValidationFailedV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedV1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ActionNotAllowedV1 | ScopeMissingV1 | IpNotAllowedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ActionNotAllowedV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ScopeMissingV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IpNotAllowedV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundV1"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ConflictV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictV1"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IdempotencyKeyReusedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdempotencyKeyReusedV1"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RateLimitedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedV1"
+                }
+              }
+            }
+          }
+        },
+        "description": "Puts one teammate on the thread. Needs `support.write`.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "member_id": {
+                    "type": "string",
+                    "description": "An active member, from /members."
+                  }
+                },
+                "required": [
+                  "member_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/threads/{id}/unassign": {
+      "post": {
+        "tags": [
+          "Inbox"
+        ],
+        "operationId": "inbox.unassign",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "Required. A value of your own, up to 255 characters; send the same one when you retry."
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ThreadState",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ValidationFailedV1 | InvalidRequestV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ValidationFailedV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedV1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ActionNotAllowedV1 | ScopeMissingV1 | IpNotAllowedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ActionNotAllowedV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ScopeMissingV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IpNotAllowedV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundV1"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ConflictV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictV1"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IdempotencyKeyReusedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdempotencyKeyReusedV1"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RateLimitedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedV1"
+                }
+              }
+            }
+          }
+        },
+        "description": "Takes the teammate off the thread. Needs `support.write`."
+      }
+    },
+    "/v1/threads/{id}/archive": {
+      "post": {
+        "tags": [
+          "Inbox"
+        ],
+        "operationId": "inbox.archive",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "Required. A value of your own, up to 255 characters; send the same one when you retry."
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ThreadState",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ValidationFailedV1 | InvalidRequestV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ValidationFailedV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedV1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ActionNotAllowedV1 | ScopeMissingV1 | IpNotAllowedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ActionNotAllowedV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ScopeMissingV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IpNotAllowedV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundV1"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ConflictV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictV1"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IdempotencyKeyReusedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdempotencyKeyReusedV1"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RateLimitedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedV1"
+                }
+              }
+            }
+          }
+        },
+        "description": "Moves the thread out of the inbox into the archive. Needs `support.write`."
+      }
+    },
+    "/v1/threads/{id}/take_over": {
+      "post": {
+        "tags": [
+          "Inbox"
+        ],
+        "operationId": "inbox.takeOver",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "Required. A value of your own, up to 255 characters; send the same one when you retry."
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ThreadState",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ValidationFailedV1 | InvalidRequestV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ValidationFailedV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedV1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ActionNotAllowedV1 | ScopeMissingV1 | IpNotAllowedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ActionNotAllowedV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ScopeMissingV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IpNotAllowedV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundV1"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ConflictV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictV1"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IdempotencyKeyReusedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdempotencyKeyReusedV1"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RateLimitedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedV1"
+                }
+              }
+            }
+          }
+        },
+        "description": "Gives a website chat to a teammate, as their \"Overnemen\": Insyte's customer agent stays silent on it, and only they reply. An agent's key cannot. Needs `support.write`.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "member_id": {
+                    "type": "string",
+                    "description": "The active member who takes the chat over."
+                  }
+                },
+                "required": [
+                  "member_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/threads/{id}/hand_back": {
+      "post": {
+        "tags": [
+          "Inbox"
+        ],
+        "operationId": "inbox.handBack",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "Required. A value of your own, up to 255 characters; send the same one when you retry."
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ThreadState",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ValidationFailedV1 | InvalidRequestV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ValidationFailedV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedV1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ActionNotAllowedV1 | ScopeMissingV1 | IpNotAllowedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ActionNotAllowedV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ScopeMissingV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IpNotAllowedV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundV1"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ConflictV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictV1"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IdempotencyKeyReusedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdempotencyKeyReusedV1"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RateLimitedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedV1"
+                }
+              }
+            }
+          }
+        },
+        "description": "Gives a website chat back to Insyte's customer agent (\"Teruggeven aan Insyte\"). Needs `support.write`."
+      }
+    },
+    "/v1/chats": {
+      "get": {
+        "tags": [
+          "Inbox"
+        ],
+        "operationId": "inbox.chats",
+        "parameters": [],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Chat"
+                      }
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedV1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ScopeMissingV1 | IpNotAllowedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ScopeMissingV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IpNotAllowedV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RateLimitedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedV1"
+                }
+              }
+            }
+          }
+        },
+        "description": "The team's chat channels and the channels shared with suppliers. People's direct messages are theirs: a key reads none. Needs `support.read`."
+      }
+    },
+    "/v1/chats/{id}/messages": {
+      "get": {
+        "tags": [
+          "Inbox"
+        ],
+        "operationId": "inbox.chatMessages",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "A message id: the messages before it."
+            },
+            "required": false
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "1–100, 50 by default."
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "chat": {
+                      "$ref": "#/components/schemas/Chat"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ChatMessage"
+                      },
+                      "description": "Oldest first: the newest page, or the one before `before`."
+                    },
+                    "next_cursor": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Pass as `before` for the older messages."
+                    }
+                  },
+                  "required": [
+                    "chat",
+                    "data",
+                    "next_cursor"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedV1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ScopeMissingV1 | IpNotAllowedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ScopeMissingV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IpNotAllowedV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundV1"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RateLimitedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedV1"
+                }
+              }
+            }
+          }
+        },
+        "description": "A chat's messages, 50 at a time going back. Needs `support.read`."
+      },
+      "post": {
+        "tags": [
+          "Inbox"
+        ],
+        "operationId": "inbox.postChatMessage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "Required. A value of your own, up to 255 characters; send the same one when you retry."
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ChatMessage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatMessage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ValidationFailedV1 | InvalidRequestV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ValidationFailedV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedV1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ActionNotAllowedV1 | ScopeMissingV1 | IpNotAllowedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ActionNotAllowedV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ScopeMissingV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IpNotAllowedV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundV1"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ConflictV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictV1"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "IdempotencyKeyReusedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdempotencyKeyReusedV1"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RateLimitedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedV1"
+                }
+              }
+            }
+          }
+        },
+        "description": "Posts in one of the team's chats, as the key; in a channel shared with a supplier, the supplier reads it. Needs `support.write`.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "body": {
+                    "type": "string"
+                  },
+                  "reply_to": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "A message id: an answer in its thread."
+                  }
+                },
+                "required": [
+                  "body"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/channels": {
+      "get": {
+        "tags": [
+          "Inbox"
+        ],
+        "operationId": "inbox.channels",
+        "parameters": [],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "available": {
+                      "type": "boolean",
+                      "description": "Whether this Insyte can run the website chat at all."
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Channel"
+                      }
+                    }
+                  },
+                  "required": [
+                    "available",
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedV1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ScopeMissingV1 | IpNotAllowedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ScopeMissingV1"
+                    },
+                    {
+                      "$ref": "#/components/schemas/IpNotAllowedV1"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RateLimitedV1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitedV1"
+                }
+              }
+            }
+          }
+        },
+        "description": "The stores' website chats: on or off, and how many chats each has. Needs `support.read`."
+      }
     }
   },
   "components": {
@@ -9018,6 +10630,42 @@
         ],
         "additionalProperties": false
       },
+      "UnauthorizedV1": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "UnauthorizedV1"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "request_id",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
       "IpNotAllowedV1": {
         "type": "object",
         "properties": {
@@ -9050,7 +10698,7 @@
         ],
         "additionalProperties": false
       },
-      "UnauthorizedV1": {
+      "ScopeMissingV1": {
         "type": "object",
         "properties": {
           "error": {
@@ -9059,7 +10707,7 @@
               "code": {
                 "type": "string",
                 "enum": [
-                  "UnauthorizedV1"
+                  "ScopeMissingV1"
                 ]
               },
               "message": {
@@ -9068,7 +10716,7 @@
               "request_id": {
                 "type": "string"
               },
-              "reason": {
+              "scope": {
                 "type": "string"
               }
             },
@@ -9076,7 +10724,169 @@
               "code",
               "message",
               "request_id",
-              "reason"
+              "scope"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "Channel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "webchat"
+            ]
+          },
+          "store_id": {
+            "type": "string"
+          },
+          "store_name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "connected",
+              "disconnected"
+            ]
+          },
+          "greeting": {
+            "type": "string"
+          },
+          "threads": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "The chats in the inbox."
+          },
+          "theme_updated": {
+            "type": "boolean",
+            "description": "Whether the store's theme loads the chat; a connected chat shows nothing until it does."
+          },
+          "connected_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "store_id",
+          "store_name",
+          "status",
+          "greeting",
+          "threads",
+          "theme_updated",
+          "connected_at"
+        ],
+        "additionalProperties": false
+      },
+      "IdempotencyKeyReusedV1": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "IdempotencyKeyReusedV1"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "request_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "InvalidRequestV1": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "InvalidRequestV1"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": "string"
+              },
+              "field": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "request_id",
+              "field"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "ValidationFailedV1": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "ValidationFailedV1"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": "string"
+              },
+              "fields": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "request_id",
+              "fields"
             ],
             "additionalProperties": false
           }
@@ -9151,6 +10961,1132 @@
         },
         "required": [
           "error"
+        ],
+        "additionalProperties": false
+      },
+      "ActionNotAllowedV1": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "ActionNotAllowedV1"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "request_id",
+              "action",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "ChatMessage": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "chat_id": {
+            "type": "string"
+          },
+          "author": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "member",
+                  "supplier",
+                  "insyte",
+                  "system"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "body": {
+            "type": "string"
+          },
+          "mentions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The member ids it names."
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "reply_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reply_count": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "pinned_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "edited_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "chat_id",
+          "author",
+          "body",
+          "mentions",
+          "records",
+          "reply_to",
+          "reply_count",
+          "pinned_at",
+          "edited_at",
+          "deleted",
+          "created_at"
+        ],
+        "additionalProperties": false
+      },
+      "Chat": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "channel",
+              "dm",
+              "supplier_channel"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "supplier_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "member_count": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "last_message_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "preview": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "topic",
+          "supplier_id",
+          "member_count",
+          "last_message_at",
+          "preview",
+          "created_at"
+        ],
+        "additionalProperties": false
+      },
+      "ThreadState": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "webchat"
+            ]
+          },
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "assignee_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "agent_state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "handled",
+                  "handed_over",
+                  "active"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "taken_over_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "channel",
+          "store_id",
+          "assignee_id",
+          "archived_at",
+          "agent_state",
+          "taken_over_by",
+          "closed_at"
+        ],
+        "additionalProperties": false
+      },
+      "QueuedReply": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": [
+              "reply"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "thread_id": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "webchat"
+            ]
+          },
+          "send_state": {
+            "type": "string",
+            "enum": [
+              "scheduled"
+            ]
+          },
+          "sends_at": {
+            "type": "string",
+            "description": "When it leaves; until then a person can still call it off."
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "thread_id",
+          "channel",
+          "send_state",
+          "sends_at"
+        ],
+        "additionalProperties": false
+      },
+      "ThreadDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "webchat"
+            ]
+          },
+          "mailbox_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The mailbox a mail thread is in; null for a chat."
+          },
+          "channel_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The chat channel a chat came in on; null for mail."
+          },
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The store a chat came in at; mail is no store's."
+          },
+          "subject": {
+            "type": "string"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "team": {
+                  "type": "boolean",
+                  "description": "The team's own mailbox address."
+                }
+              },
+              "required": [
+                "name",
+                "email",
+                "team"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "preview": {
+            "type": "string",
+            "description": "The start of the last message."
+          },
+          "last_message_at": {
+            "type": "string"
+          },
+          "unread": {
+            "type": "boolean"
+          },
+          "starred": {
+            "type": "boolean"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "assignee_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ticket_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "has_attachments": {
+            "type": "boolean"
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "snoozed_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spam_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "agent_state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "handled",
+                  "handed_over",
+                  "active"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A chat's: Insyte's customer agent handled it, handed it over to the team (or a person took it over), or holds it."
+          },
+          "taken_over_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The member who took a chat over."
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "order_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A chat's customer's latest order in its store."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThreadMessage"
+            },
+            "description": "A mail thread's messages, oldest first."
+          },
+          "chat": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatEntry"
+            },
+            "description": "A website chat's messages, oldest first."
+          },
+          "handover": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "type": "string"
+                  },
+                  "picked_up_at": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "picked_up_by": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "handed_back_at": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "reason",
+                  "at",
+                  "picked_up_at",
+                  "picked_up_by",
+                  "handed_back_at"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "channel",
+          "mailbox_id",
+          "channel_id",
+          "store_id",
+          "subject",
+          "participants",
+          "preview",
+          "last_message_at",
+          "unread",
+          "starred",
+          "labels",
+          "assignee_id",
+          "ticket_id",
+          "customer_id",
+          "has_attachments",
+          "archived_at",
+          "snoozed_until",
+          "spam_at",
+          "deleted_at",
+          "agent_state",
+          "taken_over_by",
+          "closed_at",
+          "order_number",
+          "messages",
+          "chat",
+          "handover"
+        ],
+        "additionalProperties": false
+      },
+      "ChatEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string",
+            "enum": [
+              "shopper",
+              "team",
+              "agent",
+              "system"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string"
+          },
+          "sent_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "send_state": {
+            "type": "string",
+            "enum": [
+              "scheduled",
+              "sent"
+            ],
+            "description": "scheduled while its undo window lasts: the shopper does not see it yet."
+          }
+        },
+        "required": [
+          "id",
+          "author",
+          "text",
+          "at",
+          "sent_by",
+          "send_state"
+        ],
+        "additionalProperties": false
+      },
+      "ThreadMessage": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "message",
+              "reply",
+              "forward"
+            ]
+          },
+          "from": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "email"
+            ],
+            "additionalProperties": false
+          },
+          "to": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "email"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "cc": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "email"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "subject": {
+            "type": "string"
+          },
+          "body_text": {
+            "type": "string"
+          },
+          "sent_at": {
+            "type": "string"
+          },
+          "sent_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who of the team sent it."
+          },
+          "send_state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "scheduled",
+                  "sending",
+                  "sent",
+                  "failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What went out: scheduled while its undo window lasts."
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "mime": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "mime",
+                "size"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "direction",
+          "kind",
+          "from",
+          "to",
+          "cc",
+          "subject",
+          "body_text",
+          "sent_at",
+          "sent_by",
+          "send_state",
+          "attachments"
+        ],
+        "additionalProperties": false
+      },
+      "Thread": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "webchat"
+            ]
+          },
+          "mailbox_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The mailbox a mail thread is in; null for a chat."
+          },
+          "channel_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The chat channel a chat came in on; null for mail."
+          },
+          "store_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The store a chat came in at; mail is no store's."
+          },
+          "subject": {
+            "type": "string"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "team": {
+                  "type": "boolean",
+                  "description": "The team's own mailbox address."
+                }
+              },
+              "required": [
+                "name",
+                "email",
+                "team"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "preview": {
+            "type": "string",
+            "description": "The start of the last message."
+          },
+          "last_message_at": {
+            "type": "string"
+          },
+          "unread": {
+            "type": "boolean"
+          },
+          "starred": {
+            "type": "boolean"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "assignee_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ticket_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "has_attachments": {
+            "type": "boolean"
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "snoozed_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spam_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "agent_state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "handled",
+                  "handed_over",
+                  "active"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A chat's: Insyte's customer agent handled it, handed it over to the team (or a person took it over), or holds it."
+          },
+          "taken_over_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The member who took a chat over."
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "order_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A chat's customer's latest order in its store."
+          }
+        },
+        "required": [
+          "id",
+          "channel",
+          "mailbox_id",
+          "channel_id",
+          "store_id",
+          "subject",
+          "participants",
+          "preview",
+          "last_message_at",
+          "unread",
+          "starred",
+          "labels",
+          "assignee_id",
+          "ticket_id",
+          "customer_id",
+          "has_attachments",
+          "archived_at",
+          "snoozed_until",
+          "spam_at",
+          "deleted_at",
+          "agent_state",
+          "taken_over_by",
+          "closed_at",
+          "order_number"
         ],
         "additionalProperties": false
       },
@@ -9343,189 +12279,6 @@
           "id",
           "title",
           "last_turn_at"
-        ],
-        "additionalProperties": false
-      },
-      "IdempotencyKeyReusedV1": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "enum": [
-                  "IdempotencyKeyReusedV1"
-                ]
-              },
-              "message": {
-                "type": "string"
-              },
-              "request_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "code",
-              "message",
-              "request_id"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "error"
-        ],
-        "additionalProperties": false
-      },
-      "InvalidRequestV1": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "enum": [
-                  "InvalidRequestV1"
-                ]
-              },
-              "message": {
-                "type": "string"
-              },
-              "request_id": {
-                "type": "string"
-              },
-              "field": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "code",
-              "message",
-              "request_id",
-              "field"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "error"
-        ],
-        "additionalProperties": false
-      },
-      "ValidationFailedV1": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "enum": [
-                  "ValidationFailedV1"
-                ]
-              },
-              "message": {
-                "type": "string"
-              },
-              "request_id": {
-                "type": "string"
-              },
-              "fields": {
-                "type": "object",
-                "additionalProperties": {
-                  "type": "string"
-                }
-              }
-            },
-            "required": [
-              "code",
-              "message",
-              "request_id",
-              "fields"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "error"
-        ],
-        "additionalProperties": false
-      },
-      "ScopeMissingV1": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "enum": [
-                  "ScopeMissingV1"
-                ]
-              },
-              "message": {
-                "type": "string"
-              },
-              "request_id": {
-                "type": "string"
-              },
-              "scope": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "code",
-              "message",
-              "request_id",
-              "scope"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "error"
-        ],
-        "additionalProperties": false
-      },
-      "ActionNotAllowedV1": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "enum": [
-                  "ActionNotAllowedV1"
-                ]
-              },
-              "message": {
-                "type": "string"
-              },
-              "request_id": {
-                "type": "string"
-              },
-              "action": {
-                "type": "string"
-              },
-              "reason": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "code",
-              "message",
-              "request_id",
-              "action",
-              "reason"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "error"
         ],
         "additionalProperties": false
       },
@@ -11149,7 +13902,9 @@
                   "update_ticket",
                   "set_ticket_status",
                   "assign_ticket",
-                  "comment_on_ticket"
+                  "comment_on_ticket",
+                  "reply_to_thread",
+                  "post_chat_message"
                 ]
               },
               "subject_id": {
@@ -15144,6 +17899,9 @@
     },
     {
       "name": "Vraag Insyte"
+    },
+    {
+      "name": "Inbox"
     }
   ],
   "webhooks": {

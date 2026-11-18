@@ -108,8 +108,9 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
         where excluded.external_updated_at >= products.external_updated_at
         returning 1`
 
-      // Each Shopify vendor is a supplier (M8.1), made once: a removed one stays removed. A vendor equal to the shop's
-      // own name is Shopify's default, not a supplier. A product without a supplier gets its vendor's.
+      // Each Shopify vendor is a supplier (M8.1), made once: a removed one stays removed, a purged one too (its vendor
+      // is kept only as a hash, 0106). A vendor equal to the shop's own name is Shopify's default, not a supplier. A
+      // product without a supplier gets its vendor's.
       const vendors = [...new Set(batch.products.map((p) => p.vendor?.trim() ?? "").filter((v) => v !== ""))]
       if (vendors.length > 0) {
         yield* sql`
@@ -120,6 +121,9 @@ export const applyBatch = Effect.fn("Sync.applyBatch")(function*(
           join stores s on s.id = ${storeId}
           where lower(r.name) <> lower(s.name)
             and not exists (select 1 from suppliers x where lower(x.name) = lower(r.name) and x.deleted_at is null)
+            and not exists (select 1 from suppliers x
+                             where x.workspace_id = app_workspace_id()
+                               and x.purged_vendor_hash = supplier_vendor_hash(app_workspace_id(), r.name))
           on conflict do nothing`
         yield* sql`
           insert into product_supply (workspace_id, product_id, supplier_id, is_primary, lead_days)

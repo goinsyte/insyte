@@ -157,9 +157,9 @@ const keyOf = (field: SortSql) => {
 const NUMBER = /^-?\d{1,30}(\.\d{1,30})?$/
 const DATE = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2})(\.\d{1,6})?)?(Z|[+-](\d{2})(?::?(\d{2}))?)?$/
 const LONE_SURROGATE = /\p{Cs}/u
-const brokenText = (text: string) => text.includes("\u0000") || LONE_SURROGATE.test(text)
+export const brokenText = (text: string) => text.includes("\u0000") || LONE_SURROGATE.test(text)
 
-const validDate = (value: string) => {
+export const validDate = (value: string) => {
   if (value === "-infinity" || value === "infinity") return true
   const m = DATE.exec(value)
   if (m === null) return false

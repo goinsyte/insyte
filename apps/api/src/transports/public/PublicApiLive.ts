@@ -1,6 +1,6 @@
 import { PublicApi } from "@insyte/api/http/PublicApi"
-import { Layer } from "effect"
-import { HttpApiBuilder, HttpApiScalar } from "effect/http-api"
+import { Effect, Layer } from "effect"
+import { HttpApiBuilder } from "effect/http-api"
 import { AffiliatesHttp } from "./affiliates/http.ts"
 import { AnalyticsHttp } from "./analytics/http.ts"
 import { AskHttp } from "./ask/http.ts"
@@ -32,11 +32,16 @@ import { TicketsHttp } from "./tickets/http.ts"
  *
  * The assembly only (docs/adr/0041-transports-are-per-slice-layers-and-the-api-runs-as-three-workers.md): each slice's
  * group is its folder's `http.ts`; a new slice adds its folder and one line here.
+ *
+ * What the Worker's start has no room for loads with its first request (ADR-0041 §3): the documents, and the groups
+ * outside `PublicApi` (the inbox's), each a layer built once its module is in. The documents name those groups too.
  */
-export const PublicApiLive = Layer.mergeAll(
-  HttpApiBuilder.layer(PublicApi, { openapiPath: "/v1/openapi.json" }),
-  HttpApiScalar.layerCdn(PublicApi, { path: "/v1/docs" })
-).pipe(
+const Later = Layer.mergeAll(
+  Layer.unwrap(Effect.promise(() => import("./Docs.ts")).pipe(Effect.map((m) => m.DocsLive))),
+  Layer.unwrap(Effect.promise(() => import("./inbox/http.ts")).pipe(Effect.map((m) => m.InboxRoutes)))
+)
+
+export const PublicApiLive = Layer.mergeAll(HttpApiBuilder.layer(PublicApi), Later).pipe(
   Layer.provide(
     Layer.mergeAll(
       KeyHttp,

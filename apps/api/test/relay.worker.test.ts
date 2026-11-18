@@ -15,7 +15,9 @@ import { call, onboarding, sessionMe } from "./support.ts"
 /*
  * The outbox relay (step 3, M1.4) through the Worker: founding a workspace commits `workspace.created`; the queue's
  * consumer delivers it to the product-analytics sink exactly once, however often it runs; the minute sweep finds
- * nothing left; a founding that is refused emits nothing.
+ * nothing left; a founding that is refused emits nothing. A row that is not its event's (written by hand, or by an
+ * older version) is never marked relayed: set aside as a dead letter, or, for a privacy, billing or webhook event,
+ * held back and tried again later; `/api/health/deep` counts both.
  */
 
 const ORIGIN = "http://localhost:4300"
@@ -46,8 +48,26 @@ const atOrganisation = async (tag: string) => {
 
 const dev = async <A>(path: string): Promise<A> =>
   (await call(`http://api.test/api/__dev/${path}`)).json() as Promise<A>
-const outboxOf = (workspace: string) =>
-  dev<{ events: Array<{ id: string; event: string; relayedAt: string | null }> }>(`outbox?workspace=${workspace}`)
+interface OutboxRow {
+  id: string
+  event: string
+  relayedAt: string | null
+  due: boolean
+  attempts: number
+  deadLetteredAt: string | null
+  deadLetterReason: string | null
+}
+const outboxOf = (workspace: string) => dev<{ events: Array<OutboxRow> }>(`outbox?workspace=${workspace}`)
+/** An outbox row as a raw insert writes one, whatever its payload. */
+const raw = async (workspace: string, event: string, payload: unknown) =>
+  ((await (await call(`http://api.test/api/__dev/outbox/raw?workspace=${workspace}&event=${event}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  })).json()) as { id: string }).id
+const letters = async () =>
+  ((await (await call("http://api.test/api/health/deep")).json()) as { outbox: { deadLettered: number; held: number } })
+    .outbox
 const productEventsOf = (workspace: string) =>
   dev<{ events: Array<{ outboxId: string; event: string; distinctId: string; groups: Record<string, string> }> }>(
     `product-events?workspace=${workspace}`
@@ -109,5 +129,27 @@ describe("the outbox relay", () => {
     expect(Exit.isFailure(refused)).toBe(true)
     const me = await sessionMe(cookie)
     expect(Exit.isSuccess(me) && me.value.principals).toEqual([])
+  })
+
+  it("sets aside a row that is not its event's, never as relayed, and holds back one that must not be lost", async () => {
+    const before = await letters()
+    const stray = await raw(workspace, "sheet.changed", { workspaceId: workspace })
+    const privacy = await raw(workspace, "privacy.deletion_requested", { workspaceId: workspace })
+    const webhook = await raw(workspace, "order.cancelled", { workspaceId: workspace, orderIds: "ord_1" })
+    expect((await consume([stray, privacy, webhook])).ackAll).toBe(true)
+    const rows = new Map((await outboxOf(workspace)).events.map((e) => [e.id, e]))
+    // A dead letter: set aside, not relayed, and not swept again.
+    expect(rows.get(stray)).toMatchObject({ relayedAt: null, attempts: 1, deadLetterReason: expect.any(String) })
+    expect(rows.get(stray)!.deadLetteredAt).not.toBeNull()
+    // A shopper's erasure and a webhook's order: still to deliver, later, never set aside.
+    for (const id of [privacy, webhook]) {
+      expect(rows.get(id)).toMatchObject({ relayedAt: null, deadLetteredAt: null, attempts: 1, due: false })
+    }
+    const after = await letters()
+    expect(after.deadLettered - before.deadLettered).toBeGreaterThanOrEqual(1)
+    expect(after.held - before.held).toBeGreaterThanOrEqual(2)
+    // Delivered again (a kick, the sweep): the dead letter stays as it was.
+    expect((await consume([stray])).ackAll).toBe(true)
+    expect((await outboxOf(workspace)).events.find((e) => e.id === stray)!.attempts).toBe(1)
   })
 })

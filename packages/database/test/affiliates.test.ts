@@ -387,6 +387,14 @@ describe("affiliates", () => {
       )
     )
     expect(row).toEqual({ event: "records.changed", cancelled: true })
+    // The relay, as the system, still sets a partner's frame aside or marks it relayed (0106's dead letters).
+    const relayed = await run(
+      asSystem((sql) =>
+        sql`update outbox set dead_lettered_at = now(), dead_letter_reason = 'x', attempts = attempts + 1,
+                  relayed_at = now() where id = ${id}`
+      ).pipe(Effect.exit)
+    )
+    expect(relayed._tag).toBe("Success")
   })
 
   it("keeps the ledger from a truncate, which has no row to tell the purge by", async () => {

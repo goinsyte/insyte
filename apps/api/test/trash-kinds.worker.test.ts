@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers"
 import { beforeAll, describe, expect, it } from "vitest"
 import { failure, join, ok, pastUndo, person, relay, run } from "./journeys.ts"
 import { call, rpc, sessionMe } from "./support.ts"
@@ -41,6 +42,10 @@ describe("more kinds in the Prullenbak", () => {
   const people = { owner: "", tidy: "", admin: "" }
   let workspace = ""
 
+  /** A course's images in the bucket. */
+  const images = async (course: string) =>
+    (await env.FILES.list({ prefix: `${workspace}/courses/${course}/` })).objects.map((o) => o.key)
+
   /** One of each new kind, removed by the owner on its own page. */
   const removedSet = async (tag: string) => {
     const automation = ok(await rpc("Automations.create", { name: `Flow ${tag}` }, people.owner)).automation!
@@ -55,6 +60,13 @@ describe("more kinds in the Prullenbak", () => {
       await rpc("Courses.create", { title: `Cursus ${tag}`, chapterId: chapter, moduleId }, people.owner)
     )
       .id!
+    // An image of its own, which a purge takes out of the bucket too.
+    const image = await call(`http://api.test/api/courses/${course}/media`, {
+      method: "PUT",
+      headers: { cookie: people.owner, "content-type": "image/png", "x-file-name": "pakbon.png" },
+      body: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
+    })
+    expect(image.status).toBe(201)
     ok(await rpc("Courses.remove", { ids: [course] }, people.owner))
     const webhook = ok(
       await rpc("Webhooks.create", endpoint(`https://trash.webhooks.example/${tag}?token=geheim`), people.owner)
@@ -178,8 +190,10 @@ describe("more kinds in the Prullenbak", () => {
       _tag: "Forbidden"
     })
 
-    // The owner purges them all: gone from their pages, and from the trash.
+    // The owner purges them all: gone from their pages, and from the trash; the course's image from the bucket.
+    expect(await images(set.course)).toHaveLength(1)
     expect(ok(await rpc("Trash.purge", { ids: Object.values(set) }, people.owner))).toEqual({ purged: 5 })
+    expect(await images(set.course)).toEqual([])
     expect(failure(await rpc("Automations.get", { id: set.automation }, people.owner))).toMatchObject({
       _tag: "NotFound"
     })
@@ -193,7 +207,9 @@ describe("more kinds in the Prullenbak", () => {
   it("sweeps every kind past its 30 days, and keeps what did not pass them", async () => {
     const old = await removedSet("oud")
     // The kinds joined long before: these count from their removal, 31 days ago.
+    expect(await images(old.course)).toHaveLength(1)
     expect(await sweep(workspace, { age: 31, joined: 60 })).toEqual({ purged: 5 })
+    expect(await images(old.course)).toEqual([])
     expect(failure(await rpc("Automations.get", { id: old.automation }, people.owner))).toMatchObject({
       _tag: "NotFound"
     })
@@ -223,6 +239,92 @@ describe("more kinds in the Prullenbak", () => {
       })
     } finally {
       // The join moment is the stage's: back to now for whoever sweeps next.
+      await sweep(workspace, { age: 0, joined: 0 })
+    }
+  })
+
+  it("holds a removed supplier: put back with its undo, refused under a name taken meanwhile, purged for good", async () => {
+    const supplier = async (name: string) =>
+      ok(
+        await rpc("Suppliers.create", {
+          name,
+          contactEmail: `${name.toLowerCase().replaceAll(" ", "-")}-${run}@supplier.example`,
+          contactPhone: "",
+          description: ""
+        }, people.owner)
+      ).suppliers[0]!.id
+    const listed = async () => ok(await rpc("Suppliers.list", {}, people.owner)).rows.map((r) => r.id)
+    const atelier = await supplier("Atelier Prullenbak")
+    // A line in the log that names it: a change of its description, before and after.
+    ok(await rpc("Suppliers.update", { id: atelier, description: "Atelier Prullenbak, sinds 1998" }, people.owner))
+    ok(await rpc("Suppliers.remove", { id: atelier }, people.owner))
+    expect(await listed()).not.toContain(atelier)
+    expect((await trash(people.owner)).find((i) => i.id === atelier)).toMatchObject({
+      kind: "supplier",
+      title: "Atelier Prullenbak",
+      deletedBy: expect.any(String)
+    })
+    // Opruimer cannot see Leveranciers, so not their removed ones either; the admin can.
+    expect((await trash(people.tidy)).map((i) => i.id)).not.toContain(atelier)
+    expect((await trash(people.admin)).map((i) => i.id)).toContain(atelier)
+
+    // Put back: on Leveranciers again; its undo removes it again, into the trash.
+    const back = ok(await rpc("Trash.restore", { ids: [atelier] }, people.owner))
+    expect(back.undo).toHaveLength(1)
+    expect(await listed()).toContain(atelier)
+    for (const ticket of back.undo) ok(await rpc("Shared.undo", { token: ticket.token }, people.owner))
+    expect(await listed()).not.toContain(atelier)
+    expect((await trash(people.owner)).map((i) => i.id)).toContain(atelier)
+
+    // Another supplier took its name meanwhile: it cannot come back as it was.
+    const twin = await supplier("Atelier Prullenbak")
+    expect(failure(await rpc("Trash.restore", { ids: [atelier] }, people.owner))).toMatchObject({
+      _tag: "Conflict",
+      reason: "name_taken"
+    })
+    ok(await rpc("Suppliers.remove", { id: twin }, people.owner))
+
+    // Purged: out of the trash, and never back.
+    expect(ok(await rpc("Trash.purge", { ids: [atelier] }, people.owner))).toEqual({ purged: 1 })
+    expect((await trash(people.owner)).map((i) => i.id)).not.toContain(atelier)
+    expect(failure(await rpc("Trash.restore", { ids: [atelier] }, people.owner))).toMatchObject({ _tag: "NotFound" })
+    expect(failure(await rpc("Suppliers.get", { id: atelier }, people.owner))).toMatchObject({ _tag: "NotFound" })
+    // Purged: its name is a placeholder, its vendor and address gone; the row stays for the history that names it.
+    const row = async (id: string) =>
+      ((await (await call(`http://api.test/api/__dev/trash/supplier?workspace=${workspace}&id=${id}`)).json()) as {
+        supplier: {
+          name: string
+          vendor: string | null
+          contactEmail: string | null
+          purged: boolean
+          supplies: number
+          audit: string
+        }
+      }).supplier
+    expect(await row(atelier)).toMatchObject({
+      name: "Verwijderde leverancier",
+      vendor: null,
+      contactEmail: null,
+      purged: true
+    })
+    // …and the log's earlier lines about it no longer hold its name or address.
+    expect((await row(atelier)).audit).not.toMatch(/Atelier|supplier\.example/)
+
+    // A removal's Undo spent after the purge brings back neither the supplier nor the products it supplied.
+    const wol = await supplier("Wol Prullenbak")
+    const product = ok(await rpc("Products.list", { limit: 5 }, people.owner)).rows[0]!
+    ok(await rpc("Suppliers.assignProducts", { supplierId: wol, productIds: [product.id] }, people.owner))
+    const removal = ok(await rpc("Suppliers.remove", { id: wol }, people.owner)).undo!
+    expect(ok(await rpc("Trash.purge", { ids: [wol] }, people.owner))).toEqual({ purged: 1 })
+    await rpc("Shared.undo", { token: removal.token }, people.owner)
+    expect(await row(wol)).toMatchObject({ purged: true, deleted: true, supplies: 0 })
+    expect(await listed()).not.toContain(wol)
+
+    // The sweep takes one past its 30 days too.
+    try {
+      expect(await sweep(workspace, { age: 31, joined: 60 })).toEqual({ purged: 1 })
+      expect(await trash(people.owner)).toEqual([])
+    } finally {
       await sweep(workspace, { age: 0, joined: 0 })
     }
   })

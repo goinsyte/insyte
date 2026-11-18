@@ -10,6 +10,7 @@ import { useCallback, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { ASK, askListAtom, type AskPlace, askStream, askThreadAtom, askWrites } from "../data/ask.ts"
 import { frameAtom } from "../data/frame.ts"
+import { needsOf, queueAtom } from "../data/queue.ts"
 import { viewStoreAtom } from "../data/store-view.ts"
 import { failureOf, sayRefusal } from "../frame/refusals.ts"
 
@@ -161,6 +162,8 @@ export function useConsoleAskSource(place: AskPlace = "page"): AskSource {
   const list = Option.getOrUndefined(AsyncResult.value(useAtomValue(askListAtom)))
   const thread = useThread(active)
   const frame = Option.getOrUndefined(AsyncResult.value(useAtomValue(frameAtom)))
+  // "{n} zaken wachten op jou": Start's queue, in the store in view; a role that may not read it hears nothing of it.
+  const needs = needsOf(Option.getOrUndefined(AsyncResult.value(useAtomValue(queueAtom))))
   const storeId = useAtomValue(viewStoreAtom) ?? undefined
   const send = useAtomSet(askStream(place), { mode: "promiseExit" })
   const remove = useAtomSet(askWrites.remove, { mode: "promiseExit" })
@@ -247,13 +250,13 @@ export function useConsoleAskSource(place: AskPlace = "page"): AskSource {
       // A kept turn is never played; a proposal is not drawn in an answer (it has no tools that act).
       settle: () => {},
       decide: () => {},
-      welcome: { name: frame?.me.name.split(" ")[0] ?? "", needs: null, starts: STARTS },
+      welcome: { name: frame?.me.name.split(" ")[0] ?? "", needs, starts: STARTS },
       // The `@` list is the design's records on screen; the console has none of them in hand here.
       mentions: [],
       note:
         "Insyte leest alleen wat jij mag zien en verandert niets: elk getal in een antwoord komt uit je eigen gegevens en opent waar het geteld is."
     }
-  }, [list, thread, pending, active, busy, frame, run, openThread, remove, undo, navigate])
+  }, [list, thread, pending, active, busy, frame, needs, run, openThread, remove, undo, navigate])
 }
 
 const emptyPending = (threadId: string | null, question: string): Pending => ({

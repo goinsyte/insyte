@@ -5,6 +5,7 @@ import { Deferred, Effect, Fiber, Layer, Redacted, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import { describe, expect, it } from "vitest"
 import { Db, DbLive } from "../src/Db.ts"
+import { APP_URL } from "./urls.ts"
 
 /*
  * The facts kept inline by a trigger (0064 tickets, 0078 disputes), with two transactions at once and with a workspace
@@ -12,7 +13,6 @@ import { Db, DbLive } from "../src/Db.ts"
  * the same day take turns, so neither write fails on the facts' grain and the later one counts both. Against the
  * compose database as `insyte_app`.
  */
-const APP_URL = process.env["DATABASE_URL_APP"] ?? "postgres://insyte_app:insyte_app_local@localhost:55443/insyte"
 const run = <A, E>(effect: Effect.Effect<A, E, Db>) =>
   Effect.runPromise(
     effect.pipe(Effect.provide(DbLive.pipe(Layer.provide(PgClient.layer({ url: Redacted.make(APP_URL) })))))

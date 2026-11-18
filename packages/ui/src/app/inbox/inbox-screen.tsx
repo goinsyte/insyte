@@ -15,6 +15,7 @@ import {
 } from "../../components/dropdown-menu"
 import {
   Archive,
+  BookOpen,
   ChevronLeft,
   Filter,
   MoreVertical,
@@ -734,6 +735,17 @@ export function InboxPage() {
                                 </p>
                               ) :
                               null}
+                            {/* The chapter it answers from, as the customer agent's test chat says it. */}
+                            {drafts.chapters?.map((c) => (
+                              <Link
+                                key={c.to}
+                                to={c.to}
+                                className="flex items-center gap-1 text-mesh-ink-2 text-xs hover:text-mesh-ink"
+                              >
+                                <BookOpen className="size-3" strokeWidth={1.75} />
+                                Uit Kennisbank: {c.title}
+                              </Link>
+                            ))}
                           </div>
                           <div className="flex items-center gap-2">
                             <button

@@ -7,6 +7,7 @@ import type { SqlClient } from "effect/sql"
 import { beforeAll, describe, expect, it } from "vitest"
 import { Db, DbLive } from "../src/Db.ts"
 import { TENANT_TABLES } from "../src/Tenancy.ts"
+import { APP_URL } from "./urls.ts"
 
 /*
  * The partner suite (M16 step 1, 06 §5): one workspace, two suppliers on one order, each with a contact. A contact reads
@@ -14,7 +15,6 @@ import { TENANT_TABLES } from "../src/Tenancy.ts"
  * not the team or the stores, never the customer's address book or the internal note through the supplier views. As
  * `insyte_app`, which owns nothing and bypasses nothing.
  */
-const APP_URL = process.env["DATABASE_URL_APP"] ?? "postgres://insyte_app:insyte_app_local@localhost:55443/insyte"
 const run = <A, E>(effect: Effect.Effect<A, E, Db>) =>
   Effect.runPromise(
     effect.pipe(Effect.provide(DbLive.pipe(Layer.provide(PgClient.layer({ url: Redacted.make(APP_URL) })))))
@@ -453,12 +453,14 @@ describe("partners", () => {
   })
 
   it("keeps a contact to its own outbox frames, of the kinds the portal sends", async () => {
+    // Whole frames, as the portal writes them: one that lands is a real `partner.changed` to whatever relays it.
+    const changed = (supplierId: string) => ({ workspaceId: ws, supplierId, kind: "supplier_work", ids: [ids.order] })
     const frame = (event: string, payload: Record<string, unknown>) => (sql: SqlClient.SqlClient) =>
       sql`insert into outbox (id, workspace_id, event, payload) values (${mintId("obx")}, ${ws}, ${event}, ${
         JSON.stringify(payload)
       }::jsonb)`
     expect(await refused(asA, frame("member.invited", { invitationId: ids.invitation }))).toBe(true)
-    expect(await refused(asA, frame("partner.changed", { supplierId: ids.supB }))).toBe(true)
+    expect(await refused(asA, frame("partner.changed", changed(ids.supB)))).toBe(true)
     expect(
       await refused(
         asA,
@@ -466,14 +468,14 @@ describe("partners", () => {
       )
     ).toBe(true)
     await run(
-      Effect.flatMap(Effect.service(Db), (db) => db.scopedPartner(frame("partner.changed", { supplierId: ids.supB })))
+      Effect.flatMap(Effect.service(Db), (db) => db.scopedPartner(frame("partner.changed", changed(ids.supB))))
         .pipe(asB)
     )
     const [own] = await run(
       Effect.flatMap(Effect.service(Db), (db) =>
         db.scopedPartner((sql) =>
           Effect.andThen(
-            frame("partner.changed", { supplierId: ids.supA })(sql),
+            frame("partner.changed", changed(ids.supA))(sql),
             sql<{ n: number; others: number }>`select count(*)::int as n,
                      count(*) filter (where created_by_principal <> ${ids.contactA})::int as others from outbox`
           )

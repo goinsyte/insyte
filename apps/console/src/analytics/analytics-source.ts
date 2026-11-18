@@ -585,9 +585,65 @@ function explained(e: Explanation, money: (n: number) => string): Read {
         }))
       }
     }
+    case "revenue":
+    case "average_order":
+    case "refunded": {
+      const n = e.of ?? 0
+      const explain = key._tag === "revenue" ?
+        `${plural(n, "betaalde bestelling bracht", "betaalde bestellingen brachten")} in ${A.label} ${
+          money(major(e.a))
+        } op, tegenover ${money(major(e.b))} in ${B.label}.` :
+        key._tag === "average_order" ?
+        `Over ${plural(n, "betaalde bestelling", "betaalde bestellingen")} in ${A.label} was een bestelling gemiddeld ${
+          money(major(e.a))
+        }, tegenover ${money(major(e.b))} in ${B.label}.` :
+        `In ${A.label} ${n === 1 ? "werd 1 bestelling" : `werden ${int(n)} bestellingen`} terugbetaald, samen ${
+          money(major(e.a))
+        }, tegenover ${money(major(e.b))} in ${B.label}.`
+      return {
+        value: money(major(e.a)),
+        compare: `tegenover ${money(major(e.b))} in ${B.short}`,
+        explain,
+        drivers: e.drivers.map((d) =>
+          moved(storeName(d), major(d.a), major(d.b), money, `${money(major(d.b))} → ${money(major(d.a))}`)
+        )
+      }
+    }
+    case "costs":
+    case "net_profit":
+    case "margin":
+    case "roas": {
+      const shown = key._tag === "margin" ?
+        (v: number) => `${dec1(v)}%` :
+        key._tag === "roas" ?
+        (v: number) => `${dec1(v)}×` :
+        (v: number) => money(major(v))
+      const what = { costs: "De kosten", net_profit: "De nettowinst", margin: "De nettomarge", roas: "De ROAS" }[
+        key._tag
+      ]
+      return {
+        value: shown(e.a),
+        compare: `tegenover ${shown(e.b)} in ${B.short}`,
+        explain: `${what} over heel ${A.label}${e.A.inProgress ? " tot vandaag" : ""}, zoals Kosten rekent: ${
+          shown(e.a)
+        }, tegenover ${shown(e.b)} in ${B.label}.`,
+        drivers: e.drivers.map((d) =>
+          moved(PART[d.key] ?? d.key, major(d.a), major(d.b), money, `${money(major(d.b))} → ${money(major(d.a))}`)
+        )
+      }
+    }
     default:
       return { value: "", compare: "", explain: "", drivers: [] }
   }
+}
+
+/** A part of a Kosten figure, as a driver's line names it. */
+const PART: Record<string, string> = {
+  revenue: "Omzet",
+  ads: "Advertentiekosten",
+  other: "Overige kosten",
+  costs: "Alle kosten",
+  net: "Nettowinst"
 }
 
 /* ── The rows ───────────────────────────────────────────────────────────────────────────────── */
@@ -657,7 +713,14 @@ const success = <A>(r: AsyncResult.AsyncResult<A, unknown>): A | undefined =>
 /** What an explanation opened from elsewhere (`/analytics?explain=`, a Vraag Insyte figure) is called over the drawer. */
 const LINKED: Partial<Record<ExplainRef["key"]["_tag"], { title: string; open: { label: string; to: string } }>> = {
   paid_orders: { title: "Betaalde bestellingen", open: { label: "Bestellingen openen", to: "/orders" } },
-  disputes: { title: "Geschillen", open: { label: "Geschillen openen", to: "/chargebacks" } }
+  disputes: { title: "Geschillen", open: { label: "Geschillen openen", to: "/chargebacks" } },
+  revenue: { title: "Omzet", open: { label: "Bestellingen openen", to: "/orders" } },
+  average_order: { title: "Gemiddelde bestelling", open: { label: "Bestellingen openen", to: "/orders" } },
+  refunded: { title: "Terugbetaald", open: { label: "Bestellingen openen", to: "/orders" } },
+  costs: { title: "Alle kosten", open: { label: "Kosten openen", to: "/costs" } },
+  net_profit: { title: "Nettowinst", open: { label: "Kosten openen", to: "/costs" } },
+  margin: { title: "Nettomarge", open: { label: "Kosten openen", to: "/costs" } },
+  roas: { title: "ROAS", open: { label: "Kosten openen", to: "/costs" } }
 }
 
 export function useConsoleAnalyticsSource(input: {

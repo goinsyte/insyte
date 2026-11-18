@@ -3,8 +3,9 @@ import { NotFound } from "@insyte/domain/Errors"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal, CurrentWorkspace } from "@insyte/domain/Principal"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import type { SqlClient } from "effect/sql"
+import { FileStore } from "../../shared/domain/Documents.ts"
 import { actorKey, actorNames } from "../../shared/use-cases/Actors.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import {
@@ -134,29 +135,49 @@ const purgeRows = Effect.fn("Trash.purgeRows")(function*(sql: SqlClient.SqlClien
   const groups = byKind(rows)
   for (const kind of groups.keys()) yield* may(kind, "purge")
   const actor = { kind: principal.kind, id: principal.id }
-  for (const [kind, of] of groups) yield* kinds[kind].purge(sql, principal.workspaceId, of, actor)
-  return { purged: rows.length } satisfies TrashPurged
+  const objects: Array<string> = []
+  for (const [kind, of] of groups) {
+    objects.push(...((yield* kinds[kind].purge(sql, principal.workspaceId, of, actor)) ?? []))
+  }
+  return { purged: { purged: rows.length } satisfies TrashPurged, objects }
 })
+
+/**
+ * The bucket objects a purge left behind (a course's images), removed once it has committed: best effort, as
+ * `FileStore.remove` is, so an object a failed delete keeps holds nothing a row still points at.
+ */
+const removeObjects = (objects: ReadonlyArray<string>) =>
+  objects.length === 0 ? Effect.void : Effect.flatMap(Effect.serviceOption(FileStore), (store) =>
+    Option.isSome(store) ?
+      Effect.forEach(chunks(objects, 1000), (keys) => store.value.remove(keys), { discard: true }) :
+      Effect.void)
+
+const chunks = <A>(xs: ReadonlyArray<A>, size: number) =>
+  Array.from({ length: Math.ceil(xs.length / size) }, (_, i) => xs.slice(i * size, (i + 1) * size))
 
 /** "Definitief verwijderen": gone, with no way back. */
 export const purge = Effect.fn("Trash.purge")(function*(input: TrashIds) {
   yield* Policy.require("settings", 2)
   const db = yield* Db
   const ids = [...new Set(input.ids)]
-  return yield* db.scoped((sql) =>
+  const { purged, objects } = yield* db.scoped((sql) =>
     Effect.gen(function*() {
       const rows = yield* visible(sql, ids)
       yield* found(rows, ids)
       return yield* purgeRows(sql, rows)
     })
   )
+  yield* removeObjects(objects)
+  return purged
 })
 
 /** "Prullenbak legen": every item the principal sees, gone. */
 export const empty = Effect.fn("Trash.empty")(function*() {
   yield* Policy.require("settings", 2)
   const db = yield* Db
-  return yield* db.scoped((sql) => Effect.flatMap(visible(sql), (rows) => purgeRows(sql, rows)))
+  const { purged, objects } = yield* db.scoped((sql) => Effect.flatMap(visible(sql), (rows) => purgeRows(sql, rows)))
+  yield* removeObjects(objects)
+  return purged
 })
 
 /** The workspaces holding an item past its 30 days (0060), for the daily sweep. */
@@ -175,7 +196,7 @@ const SWEEP_ROWS = 500
 export const sweepWorkspace = Effect.fn("Trash.sweepWorkspace")(function*() {
   const kinds = yield* TrashKinds
   const db = yield* Db
-  return yield* db.scopedFor((sql) =>
+  const { count, objects } = yield* db.scopedFor((sql) =>
     Effect.gen(function*() {
       const workspace = yield* CurrentWorkspace
       const rows = yield* sql<{ id: string; kind: TrashKind }>`
@@ -185,10 +206,13 @@ export const sweepWorkspace = Effect.fn("Trash.sweepWorkspace")(function*() {
       for (const r of rows) {
         if (KNOWN.has(r.kind)) groups.set(r.kind, [...(groups.get(r.kind) ?? []), r.id])
       }
+      const objects: Array<string> = []
       for (const [kind, of] of groups) {
-        yield* kinds[kind].purge(sql, workspace.id, of, { kind: "system", id: "system" })
+        objects.push(...((yield* kinds[kind].purge(sql, workspace.id, of, { kind: "system", id: "system" })) ?? []))
       }
-      return rows.length
+      return { count: rows.length, objects }
     })
   )
+  yield* removeObjects(objects)
+  return count
 })

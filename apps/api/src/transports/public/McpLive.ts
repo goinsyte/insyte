@@ -1,5 +1,5 @@
 import { InsyteTools } from "@insyte/api/mcp/McpTools"
-import { Layer } from "effect"
+import { Effect, Layer } from "effect"
 import { McpServer } from "effect/ai"
 import { AffiliatesMcp } from "./affiliates/mcp.ts"
 import { AnalyticsMcp } from "./analytics/mcp.ts"
@@ -65,9 +65,13 @@ const Tools = McpServer.toolkit(InsyteTools).pipe(
 // The records a client reads by address (M19.3): one line per slice.
 const Resources = Layer.mergeAll(WorkspaceResource, OrderResource)
 
+// What the Worker's start has no room for, registered once its module is in, with the first request (ADR-0041 §3):
+// the inbox's tools and its `insyte://threads/{id}`, each key shown its tools by their own reach.
+const Later = Layer.unwrap(Effect.promise(() => import("./inbox/mcp.ts")).pipe(Effect.map((m) => m.InboxRegistrations)))
+
 export const McpLive = McpServer.layerHttpRequestScoped({
   ...McpServerOptions,
-  registrations: Layer.mergeAll(Tools, Resources)
+  registrations: Layer.mergeAll(Tools, Resources, Later)
 }).pipe(
   Layer.provide(McpAuth.layer)
 )

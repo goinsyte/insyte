@@ -58,6 +58,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = (controller, _env
       turn(background, withRequestDb(supplierLateSweep))
       // …and the flows "Op een vast moment" due at this hour in their workspace's timezone (M12 step 3).
       turn(background, withRequestDb(scheduleSweep(at)))
+      // …and Shopify's erasures that did not finish, tried again until done or past their 30 days (0106). Loaded here,
+      // not when the Worker starts.
+      turn(background, withRequestDb(Effect.flatMap(Effect.promise(loadRedactSweep), (m) => m.redactSweep())))
     }
     // The Prullenbak's items past their 30 days, once a day at 03:00 UTC (M17 step 20.1a).
     if (at.getUTCHours() === 3 && at.getUTCMinutes() === 0) {
@@ -88,6 +91,8 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = (controller, _env
     }
   }
 }
+
+const loadRedactSweep = () => import("../../platform/RedactSweep.ts")
 
 /** The affiliates' daily approval; the slice loads with it, not with the Worker (ADR-0041 §3). */
 const affiliateSweep = (at: Date) =>

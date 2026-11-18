@@ -1,11 +1,12 @@
 import { Db } from "@insyte/database/Db"
-import { Invalid, NotFound } from "@insyte/domain/Errors"
+import { Conflict, Invalid, NotFound } from "@insyte/domain/Errors"
 import { mintId } from "@insyte/domain/Ids"
 import * as Policy from "@insyte/domain/Policy"
 import { CurrentPrincipal } from "@insyte/domain/Principal"
 import { Effect, Schema } from "effect"
 import type { SqlClient } from "effect/sql"
 import { EMAIL } from "../../customers/domain/Commands.ts"
+import type { UndoTicket } from "../../shared/domain/Undo.ts"
 import * as Audit from "../../shared/use-cases/Audit.ts"
 import { inScope } from "../../shared/use-cases/StoreScope.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
@@ -289,7 +290,11 @@ export const restore = Effect.fn("Suppliers.restore")(function*(sql: SqlClient.S
       yield* audit(sql, "supplier.restored", undo.supplierId)
       return
     case "removed":
-      yield* sql`update suppliers set deleted_at = null, updated_at = now() where id = ${undo.id}`
+      // A supplier purged from the Prullenbak meanwhile stays gone, with no products and no line of its return.
+      const back = yield* sql<{ id: string }>`
+        update suppliers set deleted_at = null, updated_at = now() where id = ${undo.id} and purged_at is null
+        returning id`
+      if (back.length === 0) return
       for (const s of undo.supply) {
         yield* sql`insert into product_supply (workspace_id, product_id, supplier_id, is_primary, lead_days)
                    values (${principal.workspaceId}, ${s.productId}, ${undo.id}, ${s.isPrimary}, ${s.leadDays})
@@ -297,7 +302,86 @@ export const restore = Effect.fn("Suppliers.restore")(function*(sql: SqlClient.S
       }
       yield* audit(sql, "supplier.restored", undo.id)
       return
+    case "put_back":
+      yield* sql`delete from product_supply where supplier_id = ${undo.id}`
+      yield* sql`update suppliers set deleted_at = now(), updated_at = now() where id = ${undo.id} and deleted_at is null`
+      yield* audit(sql, "supplier.removed", undo.id)
+      return
     case "statement_paid":
       return yield* restorePaid(sql, undo)
+  }
+})
+
+/**
+ * The Prullenbak's "Terugzetten" (W13.4): removed suppliers live again, each with its undo, which removes it again.
+ * The products it supplied went with the removal and stay unassigned. A name another live supplier took meanwhile is
+ * a `Conflict` (`name_taken`), and nothing comes back.
+ */
+export const putBack = Effect.fn("Suppliers.putBack")(function*(input: { readonly ids: ReadonlyArray<string> }) {
+  yield* Policy.require("suppliers", 3)
+  const db = yield* Db
+  return yield* db.scoped((sql) =>
+    Effect.gen(function*() {
+      const ids = [...new Set(input.ids)]
+      const rows = yield* sql<{ id: string; name: string }>`
+        select id, name from suppliers
+        where id in ${sql.in(ids)} and deleted_at is not null and purged_at is null order by id for update`
+      const found = new Set(rows.map((r) => r.id))
+      const missing = ids.find((id) => !found.has(id))
+      if (missing !== undefined) return yield* new NotFound({ entity: "supplier", id: missing })
+      const undo: Array<UndoTicket> = []
+      for (const r of rows) {
+        const [taken] = yield* sql<{ id: string }>`
+          select id from suppliers where lower(name) = lower(${r.name}) and deleted_at is null and id <> ${r.id}`
+        if (taken !== undefined) return yield* new Conflict({ entity: "supplier", reason: "name_taken" })
+        yield* sql`update suppliers set deleted_at = null, updated_at = now() where id = ${r.id}`
+        yield* audit(sql, "supplier.restored", r.id)
+        undo.push(yield* Undo.issue(sql, { command: RESTORE, compensation: { kind: "put_back", id: r.id } }))
+      }
+      return undo
+    })
+  )
+})
+
+/** What a purged supplier is called from then on (0106). */
+const PURGED_NAME = "Verwijderde leverancier"
+
+/**
+ * The Prullenbak's purge, on the caller's transaction (0106): a removed supplier never comes back, and what is theirs
+ * alone goes (its name and vendor, the contact details on the row, its contacts and their invitations, its
+ * integrations, the products it supplied, the diffs of the log's earlier lines about it). The row stays, `purged_at`
+ * and named "Verwijderde leverancier", for the statements, quality checks and conversations that point at it; its
+ * vendor stays blocked by a hash, so the next import does not make it again. An audit line each as `actor`, without
+ * the name. A supplier not removed is left alone.
+ */
+export const purgeIn = Effect.fn("Suppliers.purge")(function*(
+  sql: SqlClient.SqlClient,
+  workspaceId: string,
+  ids: ReadonlyArray<string>,
+  actor: Audit.Actor
+) {
+  if (ids.length === 0) return
+  // A sole trader's name is a person's: the row keeps a placeholder, and so does every line that names it from now on.
+  const gone = yield* sql<{ id: string }>`
+    update suppliers set purged_at = now(), updated_at = now(), name = ${PURGED_NAME}, vendor = null,
+                         purged_vendor_hash = case when vendor is null then null
+                                                   else supplier_vendor_hash(workspace_id, vendor) end,
+                         contact_email = null, contact_phone = null, forward_email = null, description = '', bio = ''
+    where id in ${sql.in([...new Set(ids)])} and deleted_at is not null and purged_at is null
+    returning id`
+  if (gone.length === 0) return
+  const of = gone.map((s) => s.id)
+  yield* sql`delete from invitations where supplier_id in ${sql.in(of)}`
+  yield* sql`delete from supplier_contacts where supplier_id in ${sql.in(of)}`
+  yield* sql`delete from supplier_integrations where supplier_id in ${sql.in(of)}`
+  yield* sql`delete from product_supply where supplier_id in ${sql.in(of)}`
+  // The log's earlier lines about it held its name and address too: their diffs go (0106).
+  yield* sql`select redact_purged_supplier_audit(${of}::text[])`
+  for (const s of gone) {
+    yield* Audit.write(sql, workspaceId, actor, {
+      action: "supplier.purged",
+      subjectType: "supplier",
+      subjectId: s.id
+    })
   }
 })
