@@ -81,6 +81,14 @@ export const ProposalAction = Schema.Union([
     ticketId: Schema.String,
     body: Schema.String,
     mentions: Schema.Array(Schema.String)
+  }),
+  /** A reply in a mail thread or a website chat, in the words the agent wrote; it waits out the undo window to leave. */
+  Schema.TaggedStruct("ReplyThread", { threadId: Schema.String, body: Schema.String }),
+  /** A message in one of the team's chat channels, in the agent's words. */
+  Schema.TaggedStruct("PostChatMessage", {
+    conversationId: Schema.String,
+    body: Schema.String,
+    replyTo: Schema.NullOr(Schema.String)
   })
 ])
 export type ProposalAction = typeof ProposalAction.Type

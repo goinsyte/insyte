@@ -42,7 +42,9 @@ export const ProposalV1 = Schema.Struct({
       "update_ticket",
       "set_ticket_status",
       "assign_ticket",
-      "comment_on_ticket"
+      "comment_on_ticket",
+      "reply_to_thread",
+      "post_chat_message"
     ]),
     subject_id: Schema.String
   }).annotate({
