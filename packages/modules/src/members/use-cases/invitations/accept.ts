@@ -48,7 +48,7 @@ export const acceptRouted = Effect.fn("Landing.acceptRouted")(function*(ref: Lan
       // Decided by the invitation's kind, never by whether its supplier is still there: one whose supplier went is
       // refused, not turned into a member.
       const [kind] = found.link ? [] : yield* sql<{ kind: string }>`select kind from invitations where id = ${ref.id}`
-      // An affiliate (M16 step 5): through `affiliate_join` (0105), on the invitation's tier, with a code from their
+      // An affiliate (M16 step 5): through `affiliate_join` (0108), on the invitation's tier, with a code from their
       // name; its Shopify discount is asked for there. They land in the affiliate portal.
       if (!found.link && kind?.kind === "affiliate") {
         const hash = yield* sha256(ref.k ?? "")

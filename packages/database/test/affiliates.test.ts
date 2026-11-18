@@ -8,7 +8,7 @@ import { Db, DbLive } from "../src/Db.ts"
 import { TENANT_TABLES } from "../src/Tenancy.ts"
 
 /*
- * The affiliate projection (M16 steps 3–5, 0105): one workspace, two affiliates, each with a link, a conversion and its
+ * The affiliate projection (M16 steps 3–5, 0108): one workspace, two affiliates, each with a link, a conversion and its
  * ledger. An affiliate reads its own rows and nothing else: not the other affiliate's, never the orders, the customers
  * or the team; its conversions only through `affiliate_conversions_v`, which names no shopper. The ledger is
  * append-only for the app. As `insyte_app`, which owns nothing and bypasses nothing.
@@ -121,7 +121,7 @@ const fixture = Effect.gen(function*() {
   ).pipe(Effect.provideService(CurrentWorkspace, { id: ws }))
 })
 
-/** What an affiliate may read of a table at all, beside its own projection (0105). */
+/** What an affiliate may read of a table at all, beside its own projection (0108). */
 const PROJECTED = new Set([
   "affiliate_programs",
   "affiliate_tiers",

@@ -3,7 +3,7 @@ import { mintId } from "@insyte/domain/Ids"
 import { Effect } from "effect"
 
 /*
- * A click on an affiliate's link (M16 step 4), before any principal: `affiliate_click` (0105) finds the link by its
+ * A click on an affiliate's link (M16 step 4), before any principal: `affiliate_click` (0108) finds the link by its
  * slug, writes the click in the link's workspace (the address and the browser only as the day's keyed hashes) and
  * answers where to send the visitor: the store's own address, the link's own path and tags, never anything the
  * request named. An unknown slug, or a programme without a store, is nothing.

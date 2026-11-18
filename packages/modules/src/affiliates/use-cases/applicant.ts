@@ -19,7 +19,7 @@ import type { ApplyInput, ReapplyInput } from "../domain/Inputs.ts"
 /*
  * The person before (and beside) the affiliate (M16 step 3; PLAN item 22): the affiliates they are, the application
  * that waits or was turned down, the programme's public page, applying and applying again. Before any workspace is
- * chosen, so through definers that answer only the caller's own (`app.user_id`, 0105), as the supplier's do.
+ * chosen, so through definers that answer only the caller's own (`app.user_id`, 0108), as the supplier's do.
  */
 
 const LEVELS_OFF = Object.fromEntries(AREA_IDS.map((a) => [a, 0])) as Record<AreaId, 0>

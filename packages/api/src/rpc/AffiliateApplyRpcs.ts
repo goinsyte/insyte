@@ -9,7 +9,7 @@ import { WithDb } from "./WithDb.ts"
 /**
  * Applying to a brand's affiliate programme (M16 step 3; PLAN item 22), for the signed-in person before they are an
  * affiliate: the programme's public page, applying, where the application stands (approved, waiting, turned down
- * with the reason) and applying again. Only the person's own, through definers (0105). `Conflict` names why an
+ * with the reason) and applying again. Only the person's own, through definers (0108). `Conflict` names why an
  * application is refused: `closed`, `member`, `open`, `not_rejected`.
  */
 export class AffiliateApplyRpcs extends RpcGroup.make(

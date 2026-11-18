@@ -87,7 +87,7 @@ import trashKinds from "./migrations/0101_trash_kinds.ts"
 import webchat from "./migrations/0102_webchat.ts"
 import customerAgent from "./migrations/0103_customer_agent.ts"
 import chatDrafts from "./migrations/0104_chat_drafts.ts"
-import affiliates from "./migrations/0105_affiliates.ts"
+import affiliates from "./migrations/0108_affiliates.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 import supplierPortal from "./migrations/contract/0075_supplier_portal.ts"
 
@@ -187,5 +187,5 @@ export const Migrations = {
   "0102_webchat": webchat,
   "0103_customer_agent": customerAgent,
   "0104_chat_drafts": chatDrafts,
-  "0105_affiliates": affiliates
+  "0108_affiliates": affiliates
 }

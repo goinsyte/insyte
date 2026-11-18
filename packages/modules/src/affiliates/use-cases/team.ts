@@ -37,7 +37,7 @@ const cancelMail = (sql: SqlClient.SqlClient, invitationIds: ReadonlyArray<strin
 /*
  * Inviting affiliates and the material the brand shares (M16 step 5; widgets/06 Part C). An invitation is the team's
  * (`invitations`, kind `affiliate`), mailed once the undo window has passed; who takes it up becomes an affiliate on
- * the tier it names (`affiliate_join`, 0105). The link anyone can apply through is the programme's public page.
+ * the tier it names (`affiliate_join`, 0108). The link anyone can apply through is the programme's public page.
  * Resources are files in the bucket, uploaded at Bewerken and downloaded by the affiliates in their portal.
  */
 

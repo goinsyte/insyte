@@ -120,6 +120,8 @@ describe("the MCP server", () => {
       "get_sheet",
       "get_ticket",
       "inspect_return",
+      "list_affiliate_payouts",
+      "list_affiliates",
       "list_automation_runs",
       "list_automations",
       "list_chargebacks",
