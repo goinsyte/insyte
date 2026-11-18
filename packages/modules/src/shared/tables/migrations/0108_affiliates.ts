@@ -33,7 +33,8 @@ const OWN = (column: string) => `${column} = app_partner_id()`
 const NOT_PARTNER = "(app_principal_kind() is null or app_principal_kind() not in ('supplier_contact', 'affiliate'))"
 
 export default statements(
-  // The programme: one per workspace, made with its defaults on first use (`ensureProgram`).
+  // The programme: one per workspace, made with its defaults when the brand starts it (its first invitation, or saving
+  // its settings: `startProgram`); a workspace without one has no apply page and no conversions.
   `create table affiliate_programs (
      workspace_id        text primary key references workspaces(id) on delete cascade,
      commission_model    text not null default 'tiers' check (commission_model in ('tiers')),
@@ -200,13 +201,24 @@ export default statements(
   ...tenantTable("affiliate_clicks"),
   newcomerBlind("affiliate_clicks"),
   partnerClosed("affiliate_clicks"),
-  // An order that came through an affiliate: one per order, the commission at the rate of its moment.
+  // An address as one person's: lower case, without a \`+tag\`, and Gmail's without its dots (\`a.b+x@googlemail.com\` is
+  // \`ab@gmail.com\`). What the self-referral check compares (M16 step 4).
+  `create function affiliate_email_key(email text) returns text language sql immutable parallel safe as $$
+     select case when email is null or position('@' in email) = 0 then lower(email)
+            else (select case when d in ('gmail.com', 'googlemail.com')
+                              then replace(split_part(l, '+', 1), '.', '') || '@gmail.com'
+                              else split_part(l, '+', 1) || '@' || d end
+                  from (select lower(split_part(email, '@', 1)) as l, lower(split_part(email, '@', 2)) as d) parts)
+            end
+   $$`,
+  // An order that came through an affiliate: one per order, the commission at the rate of its moment. The order may go
+  // (Shopify's \`shop/redact\`, a shopper erased): the conversion and its ledger stay, with its number and amounts.
   `create table affiliate_conversions (
      id               text primary key,
      workspace_id     text not null references workspaces(id) on delete cascade,
      affiliate_id     text not null references affiliates(id) on delete cascade,
      link_id          text references affiliate_links(id) on delete set null,
-     order_id         text not null references orders(id) on delete cascade,
+     order_id         text references orders(id) on delete set null,
      -- The order's store, for the team's store fence (an affiliate sees every store's of its own).
      store_id         text,
      order_number     text not null,
@@ -217,14 +229,18 @@ export default statements(
      commission_minor bigint not null check (commission_minor >= 0),
      rate             numeric(5, 2) not null,
      currency         text not null,
-     status           text not null default 'pending' check (status in ('pending', 'approved', 'paid', 'reversed')),
+     -- \`flagged\`: the order looks like the affiliate's own (its address or its Shopify customer); no accrual until the
+     -- brand accepts it (then \`pending\`) or turns it down (then \`reversed\`, \`self\`).
+     status           text not null default 'pending'
+                      check (status in ('pending', 'approved', 'paid', 'reversed', 'flagged')),
+     flag_reason      text check (flag_reason in ('self')),
      placed_at        timestamptz not null,
      month            text not null check (month ~ '^[0-9]{4}-[0-9]{2}$'),
      delivered_at     timestamptz,
      window_ends_at   timestamptz,
      approved_at      timestamptz,
      reversed_at      timestamptz,
-     reversal_reason  text check (reversal_reason in ('refund', 'cancel')),
+     reversal_reason  text check (reversal_reason in ('refund', 'cancel', 'self')),
      payout_id        text,
      created_at       timestamptz not null default now()
    )`,
@@ -240,7 +256,8 @@ export default statements(
      id            text primary key,
      workspace_id  text not null references workspaces(id) on delete cascade,
      affiliate_id  text not null references affiliates(id) on delete cascade,
-     conversion_id text references affiliate_conversions(id) on delete cascade,
+     -- No cascade: a conversion with money on it is never deleted from under its lines (the workspace's purge aside).
+     conversion_id text references affiliate_conversions(id),
      payout_id     text,
      kind          text not null check (kind in ('accrual', 'reversal', 'approval', 'settlement')),
      amount_minor  bigint not null,
@@ -253,8 +270,10 @@ export default statements(
             or (kind = 'approval' and amount_minor = 0 and payout_id is not null)
             or (kind = 'settlement' and amount_minor <= 0 and payout_id is not null))
    )`,
-  // One accrual per conversion; one approval marker and one settlement per payout and round.
+  // One accrual per conversion; one approval marker and one settlement per payout.
   "create unique index affiliate_ledger_accrual on affiliate_ledger_entries (conversion_id) where kind = 'accrual'",
+  `create unique index affiliate_ledger_payout_kind on affiliate_ledger_entries (payout_id, kind)
+     where payout_id is not null`,
   "create index affiliate_ledger_affiliate on affiliate_ledger_entries (workspace_id, affiliate_id, at)",
   "create index affiliate_ledger_conversion on affiliate_ledger_entries (conversion_id) where conversion_id is not null",
   "create index affiliate_ledger_payout on affiliate_ledger_entries (payout_id) where payout_id is not null",
@@ -262,10 +281,15 @@ export default statements(
   newcomerBlind("affiliate_ledger_entries"),
   ...affiliateProjection("affiliate_ledger_entries", OWN("affiliate_id")),
   "revoke update, delete on affiliate_ledger_entries from insyte_app",
-  `create function affiliate_ledger_frozen() returns trigger language plpgsql as $$
-     begin raise exception 'the affiliate ledger is append-only' using errcode = '42501'; end $$`,
+  // For every role, cascades included (they run as the table's owner): the one way out is the workspace's own purge
+  // (\`purge_workspace\`, 0076), where the workspace is gone already, as \`members_one_owner\` reads it (0009).
+  `create function affiliate_ledger_frozen() returns trigger language plpgsql set search_path = public, pg_temp as $$
+     begin
+       if tg_op = 'DELETE' and not workspace_exists(old.workspace_id) then return old; end if;
+       raise exception 'the affiliate ledger is append-only' using errcode = '42501';
+     end $$`,
   `create trigger affiliate_ledger_frozen before update or delete on affiliate_ledger_entries for each row
-     when (current_user = 'insyte_app') execute function affiliate_ledger_frozen()`,
+     execute function affiliate_ledger_frozen()`,
   // One payout per affiliate and month closed (the running month has none: it "loopt nog").
   `create table affiliate_payouts (
      id              text primary key,
@@ -298,7 +322,7 @@ export default statements(
   `alter table affiliate_conversions add constraint affiliate_conversions_payout_fk foreign key (payout_id)
      references affiliate_payouts(id) on delete set null`,
   `alter table affiliate_ledger_entries add constraint affiliate_ledger_payout_fk foreign key (payout_id)
-     references affiliate_payouts(id) on delete cascade`,
+     references affiliate_payouts(id)`,
   // What the brand shares with its affiliates: a file in the bucket and its title.
   `create table affiliate_resources (
      id           text primary key,
@@ -322,7 +346,8 @@ export default statements(
   ...affiliateProjection("affiliate_resources", "archived_at is null"),
   // The order's link from the storefront: the cart attribute `insyte_ref` (the redirect's, carried by the store).
   "alter table orders add column affiliate_ref text check (length(affiliate_ref) <= 64)",
-  // An affiliate's outbox rows: only its own, and only what the portal sends (its tab's frame, its code re-made).
+  // An affiliate's outbox rows: only its own, and only what the portal sends: the realtime frame of its own profile
+  // (\`affiliate\`, itself) or of one of its own links (\`affiliate_link\`), one id each, in its own workspace.
   `alter policy outbox_partner_write on outbox
      with check (${NOT_PARTNER} or (
        app_principal_kind() = 'supplier_contact' and app_partner_id() is not null
@@ -337,14 +362,20 @@ export default statements(
      or (
        app_principal_kind() = 'affiliate' and app_partner_id() is not null
        and created_by_principal = app_principal_id() and app_principal_id() = app_partner_id() and (
-         (event = 'records.changed' and payload ->> 'kind' like 'affiliate%')
-         or (event = 'affiliate.discount_requested' and payload ->> 'affiliateId' = app_partner_id()))))`,
+         event = 'records.changed' and payload ->> 'workspaceId' = workspace_id
+         and not (payload ? 'affiliateIds') and jsonb_typeof(payload -> 'ids') = 'array'
+         and jsonb_array_length(payload -> 'ids') = 1
+         and ((payload ->> 'kind' = 'affiliate' and payload -> 'ids' ->> 0 = app_partner_id())
+              or (payload ->> 'kind' = 'affiliate_link'
+                  and exists (select 1 from affiliate_links l where l.id = payload -> 'ids' ->> 0
+                                and l.affiliate_id = app_partner_id()))))))`,
   // The views the affiliate reads (06 §6): its own, never the shopper. Each runs as its owner (no superuser, no
   // BYPASSRLS, so the tenant policies still hold) because the tables are closed to partners, and each filters to the
   // calling affiliate itself, so a member reads nothing here.
   `create view affiliate_conversions_v with (security_invoker = false) as
      select c.id, c.workspace_id, c.affiliate_id, c.link_id, l.label as link_label, c.order_number, c.product_title,
-            c.attributed_by, c.base_minor, c.commission_minor, c.rate, c.currency, c.status, c.placed_at, c.month,
+            c.attributed_by, c.base_minor, c.commission_minor, c.rate, c.currency,
+            case when c.status = 'flagged' then 'pending' else c.status end as status, c.placed_at, c.month,
             c.window_ends_at, c.reversed_at, c.payout_id
      from affiliate_conversions c left join affiliate_links l on l.id = c.link_id
      where app_principal_kind() = 'affiliate' and c.affiliate_id = app_partner_id()
@@ -584,7 +615,9 @@ export default statements(
              base text;
      begin
        perform set_config('app.principal_kind', 'system', true);
-       select k.* into l from affiliate_links k where k.short_slug = p_slug;
+       select k.* into l from affiliate_links k
+       where k.short_slug = p_slug and k.archived_at is null
+         and exists (select 1 from affiliates a where a.id = k.affiliate_id and a.status = 'active');
        if found then
          perform set_config('app.workspace_id', l.workspace_id, true);
          select coalesce(p.storefront_base_url,
@@ -593,7 +626,7 @@ export default statements(
                             and (p.store_id is null or s.id = p.store_id)
                           order by s.created_at limit 1))
            into base
-         from affiliate_programs p where p.workspace_id = l.workspace_id;
+         from affiliate_programs p where p.workspace_id = l.workspace_id and p.enabled;
          if base is not null then
            insert into affiliate_clicks (id, workspace_id, link_id, affiliate_id, ip_hash, ua_hash, country,
                                          landing_path)

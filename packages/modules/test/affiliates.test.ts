@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import { landingUrl } from "../src/affiliates/use-cases/click.ts"
 import { maskAccount } from "../src/affiliates/use-cases/portal.ts"
 import { codeFrom, commissionOf, monthOf, payDayOf, previousMonth } from "../src/affiliates/use-cases/program.ts"
+import { looksLike } from "../src/affiliates/use-cases/team.ts"
+import { proposedCode } from "../src/members/use-cases/invitations/accept.ts"
 
 /* The affiliate programme's pure parts (M16 steps 3–5): where a click lands, a code from a name, the months, masking. */
 
@@ -68,5 +70,35 @@ describe("the programme's arithmetic", () => {
     expect(maskAccount("bank", "NL91 ABNA 0417 1643 00")).toBe("NL•• •••• •••• 4300")
     expect(maskAccount("paypal", "anna@creator.example")).toBe("a•••@creator.example")
     expect(maskAccount("bank", "NL91ABNA0417164300")).not.toContain("ABNA")
+  })
+})
+
+describe("an invited affiliate's first code", () => {
+  it("is the name's first word and a random part, never the name alone", () => {
+    const code = proposedCode("WELCOME10")
+    expect(code).toMatch(/^WELCOME1[A-Z2-9]{4}$/)
+    expect(code).not.toBe("WELCOME10")
+    expect(proposedCode("Émile de Vries")).toMatch(/^EMILE[A-Z2-9]{4}$/)
+    expect(new Set(Array.from({ length: 20 }, () => proposedCode("Anna"))).size).toBeGreaterThan(1)
+  })
+})
+
+describe("a resource's file", () => {
+  const bytes = (...b: Array<number>) => new Uint8Array(b)
+  const text = (t: string) => new TextEncoder().encode(t)
+  it("is what its type says, by its own first bytes", () => {
+    expect(looksLike("image/png", bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0))).toBe(true)
+    expect(looksLike("image/png", text("<html><script>"))).toBe(false)
+    expect(looksLike("image/jpeg", bytes(0xff, 0xd8, 0xff, 0xe0))).toBe(true)
+    expect(looksLike("application/pdf", text("%PDF-1.7"))).toBe(true)
+    expect(looksLike("application/zip", bytes(0x50, 0x4b, 0x03, 0x04))).toBe(true)
+    expect(looksLike("image/webp", text("RIFF\u0000\u0000\u0000\u0000WEBPVP8 "))).toBe(true)
+    expect(looksLike("video/mp4", text("\u0000\u0000\u0000\u0018ftypmp42"))).toBe(true)
+    expect(looksLike("image/svg+xml", text("<?xml version=\"1.0\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>")))
+      .toBe(
+        true
+      )
+    expect(looksLike("image/svg+xml", text("<html><body><svg/></body></html>"))).toBe(false)
+    expect(looksLike("text/html", text("<html>"))).toBe(false)
   })
 })

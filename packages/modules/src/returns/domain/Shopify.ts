@@ -20,6 +20,14 @@ export const DISCOUNT_CODE_CREATE = `mutation($basicCodeDiscount: DiscountCodeBa
   }
 }`
 
+/** The discount a code already belongs to in the store, if any (an affiliate's code is never someone else's). */
+export const CODE_DISCOUNT_BY_CODE = `query($code: String!) {
+  codeDiscountNodeByCode(code: $code) {
+    id
+    codeDiscount { ... on DiscountCodeBasic { title } ... on DiscountCodeBxgy { title } ... on DiscountCodeFreeShipping { title } }
+  }
+}`
+
 export const DRAFT_ORDER_CREATE = `mutation($input: DraftOrderInput!) {
   draftOrderCreate(input: $input) { draftOrder { id } userErrors { field message } }
 }`

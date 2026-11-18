@@ -1,3 +1,4 @@
+import { seedRecordedDiscount } from "@insyte/integrations-shopify/ShopifyRecorded"
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
@@ -13,21 +14,63 @@ import { call, rpc, sessionMe } from "./support.ts"
  * shopper); a refund inside the return window takes its share back, one after it changes nothing. The month's close
  * makes payouts (the running month has none), promotes the tier, and the brand approves and marks them paid, each with
  * Undo; no money moves. A member held to some stores sees no money and approves nothing.
+ *
+ * A workspace has no programme until the brand starts one; a code attributes only once its Shopify discount is
+ * Insyte's own (never a code the store already had); an order that looks like the affiliate's own waits for the brand.
  */
 
-const dev = (path: string, query: Record<string, string>) =>
-  call(`http://api.test/api/__dev/affiliates/${path}?${new URLSearchParams(query)}`, { method: "POST" })
+const dev = async (path: string, query: Record<string, string>) => {
+  const res = await call(`http://api.test/api/__dev/affiliates/${path}?${new URLSearchParams(query)}`, {
+    method: "POST"
+  })
+  expect([path, res.status]).toEqual([path, 200])
+  return res
+}
 
 const month = (at: Date) => at.toISOString().slice(0, 7)
 
 const click = (slug: string, ip = "203.0.113.7", extra = "") =>
   call(`http://api.public.test/r/${slug}${extra}`, { redirect: "manual", headers: { "cf-connecting-ip": ip } })
 
+type Store = Awaited<ReturnType<typeof importedStore>>
+
+/** The brand starts its programme ("Opslaan" on its settings): its apply page's slug. */
+const start = async (store: Store) =>
+  ok(await rpc("Affiliates.program.update", {}, store.cookie)).applyPath.split("/").pop()!
+
+/** An application approved with `code`, past its undo window, its Shopify discount's write run to its end. */
+const approveMade = async (store: Store, applicationId: string, code: string, tier: "bronze" | "silver" = "bronze") => {
+  await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+  const affiliateId = ok(
+    await rpc("Affiliates.applications.approve", { applicationId, tier, code }, store.cookie)
+  ).ids[0]!
+  await pastUndo(store.workspace)
+  await relay(store.workspace)
+  for (const instance of await writes.get()) await instance.waitForStatus("complete")
+  return affiliateId
+}
+
+/** An approved affiliate of the brand, signed in, with its code made in Shopify. */
+const affiliateOf = async (store: Store, tag: string, name: string, code: string) => {
+  const slug = await start(store)
+  const who = await person(tag)
+  const { applicationId } = ok(await rpc("AffiliateApply.apply", { program: slug, name }, who.cookie))
+  return { ...who, affiliateId: await approveMade(store, applicationId, code) }
+}
+
 describe("the affiliate programme", () => {
   it("takes an application, a rejection and a new one, and an approval with its Shopify discount", async () => {
     const store = await importedStore("aff")
+    // Read before the brand starts it: the defaults, no page to apply on, and reading starts nothing.
+    expect(ok(await rpc("Affiliates.program", undefined, store.cookie))).toMatchObject({
+      started: false,
+      applyPath: ""
+    })
+    expect(ok(await rpc("Affiliates.inviteLink", undefined, store.cookie))).toEqual({ url: "" })
+    expect(ok(await rpc("Affiliates.program", undefined, store.cookie)).started).toBe(false)
+    ok(await rpc("Affiliates.program.update", {}, store.cookie))
     const program = ok(await rpc("Affiliates.program", undefined, store.cookie))
-    expect(program).toMatchObject({ enabled: true, returnDays: 14, payoutDay: 15, storeConnected: true })
+    expect(program).toMatchObject({ started: true, enabled: true, returnDays: 14, payoutDay: 15, storeConnected: true })
     const slug = program.applyPath.split("/").pop()!
     expect(program.applyPath).toBe(`/partners/${slug}`)
 
@@ -137,7 +180,7 @@ describe("the affiliate programme", () => {
   it("keeps the approval when the store has not granted write_discounts, and says so", async () => {
     const store = await importedStore("aff-scope", "noscope")
     const bram = await person("aff-bram")
-    const slug = ok(await rpc("Affiliates.program", undefined, store.cookie)).applyPath.split("/").pop()!
+    const slug = await start(store)
     const { applicationId } = ok(await rpc("AffiliateApply.apply", { program: slug, name: "Bram Visser" }, bram.cookie))
     await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
     const approved = ok(
@@ -156,16 +199,8 @@ describe("the affiliate programme", () => {
 
   it("redirects a click to the store's own page with insyte_ref, attributes by link and by code, and follows returns", async () => {
     const store = await importedStore("aff-flow")
-    const slugOfProgram = ok(await rpc("Affiliates.program", undefined, store.cookie)).applyPath.split("/").pop()!
-    const cas = await person("aff-cas")
-    const { applicationId } = ok(
-      await rpc("AffiliateApply.apply", { program: slugOfProgram, name: "Cas de Boer" }, cas.cookie)
-    )
-    const affiliateId = ok(
-      await rpc("Affiliates.applications.approve", { applicationId, tier: "bronze", code: "CAS" }, store.cookie)
-    ).ids[0]!
-    await pastUndo(store.workspace)
-    await relay(store.workspace)
+    const cas = await affiliateOf(store, "aff-cas", "Cas de Boer", "CAS")
+    const affiliateId = cas.affiliateId
 
     // A link to the front page, with Undo.
     expect(ok(await rpc("AffiliatePortal.links.destinations", undefined, cas.cookie)).map((d) => d.id)).toContain(
@@ -271,6 +306,13 @@ describe("the affiliate programme", () => {
     expect(ok(await rpc("AffiliatePortal.conversions.list", {}, cas.cookie)).rows).toHaveLength(2)
     ok(await rpc("Affiliates.setPaused", { affiliateId, paused: false }, store.cookie))
 
+    // Archived, the link sends nobody anywhere and earns nothing.
+    ok(await rpc("AffiliatePortal.links.archive", { linkId: made.link.id }, cas.cookie))
+    expect((await click(slug, "203.0.113.10")).status).toBe(404)
+    await dev("order", { workspace: store.workspace, number: "#1005", placed: "1", ref: slug })
+    await relay(store.workspace)
+    expect(ok(await rpc("AffiliatePortal.conversions.list", {}, cas.cookie)).rows).toHaveLength(2)
+
     // The running month does not close: it "loopt nog".
     const running = await (await dev("close", { workspace: store.workspace, month: month(now) })).json()
     expect(running).toMatchObject({ ended: false, payouts: [] })
@@ -281,14 +323,8 @@ describe("the affiliate programme", () => {
 
   it("closes a month into payouts once, promotes the tier, and approves and pays them with Undo, moving no money", async () => {
     const store = await importedStore("aff-close")
-    const slug = ok(await rpc("Affiliates.program", undefined, store.cookie)).applyPath.split("/").pop()!
-    const dee = await person("aff-dee")
-    const { applicationId } = ok(await rpc("AffiliateApply.apply", { program: slug, name: "Dee Bakker" }, dee.cookie))
-    const affiliateId = ok(
-      await rpc("Affiliates.applications.approve", { applicationId, tier: "bronze", code: "DEE" }, store.cookie)
-    ).ids[0]!
-    await pastUndo(store.workspace)
-    await relay(store.workspace)
+    const dee = await affiliateOf(store, "aff-dee", "Dee Bakker", "DEE")
+    const affiliateId = dee.affiliateId
 
     // Two orders with the code last month, #1001 delivered the day after (past its window by now).
     const now = new Date()
@@ -365,7 +401,7 @@ describe("the affiliate programme", () => {
 
   it("keeps the money from a member held to some stores, and seals the affiliate's payment details", async () => {
     const store = await importedStore("aff-fence")
-    const slug = ok(await rpc("Affiliates.program", undefined, store.cookie)).applyPath.split("/").pop()!
+    const slug = await start(store)
     const eva = await person("aff-eva")
     const { applicationId } = ok(await rpc("AffiliateApply.apply", { program: slug, name: "Eva Smit" }, eva.cookie))
     const affiliateId = ok(
@@ -411,11 +447,33 @@ describe("the affiliate programme", () => {
     })
     expect(failure(await rpc("Affiliates.approvePayouts", { month: "2026-01", affiliateIds: [affiliateId] }, held)))
       .toBeDefined()
+    // Nor how she is paid, nor any change to an affiliate, an application, an invitation or the material.
+    expect(ok(await rpc("Affiliates.get", { affiliateId }, held)).payment).toBeNull()
+    const other = await person("aff-other")
+    const pendingApp = ok(await rpc("AffiliateApply.apply", { program: slug, name: "Olaf" }, other.cookie))
+    const forbidden = { _tag: "Invalid", fields: { stores: "forbidden" } }
+    for (
+      const [name, payload] of [
+        ["Affiliates.setTier", { affiliateId, tier: "gold" }],
+        ["Affiliates.setPaused", { affiliateId, paused: true }],
+        ["Affiliates.setCode", { affiliateId, code: "HELD" }],
+        ["Affiliates.retryDiscount", { affiliateId }],
+        ["Affiliates.applications.approve", { applicationId: pendingApp.applicationId, tier: "gold", code: "OLAF" }],
+        ["Affiliates.applications.reject", { applicationId: pendingApp.applicationId, reason: "x" }],
+        ["Affiliates.invite", { email: `aff-held-invite-${run}@example.com`, tier: "gold" }],
+        ["Affiliates.resources.remove", { resourceId: "ars_none" }],
+        ["Affiliates.erase", { affiliateId }],
+        ["Affiliates.conversions.review", { conversionId: "acv_none", accept: true }]
+      ] as const
+    ) {
+      expect([name, failure(await rpc(name as never, payload as never, held))]).toMatchObject([name, forbidden])
+    }
+    expect(ok(await rpc("Affiliates.conversions.flagged", undefined, held))).toEqual([])
   })
 
   it("serves the brand's material to its affiliates, to preview or download, and nothing to anyone else", async () => {
     const store = await importedStore("aff-res")
-    const slug = ok(await rpc("Affiliates.program", undefined, store.cookie)).applyPath.split("/").pop()!
+    const slug = await start(store)
     const fien = await person("aff-fien")
     const { applicationId } = ok(await rpc("AffiliateApply.apply", { program: slug, name: "Fien Mol" }, fien.cookie))
     ok(await rpc("Affiliates.applications.approve", { applicationId, tier: "bronze", code: "FIEN" }, store.cookie))
@@ -436,6 +494,20 @@ describe("the affiliate programme", () => {
       })
     expect((await put({ "content-type": "text/html", "x-file-name": "x.html" }, "<script>")).status).toBe(415)
     expect((await put({ "x-resource-kind": "malware" })).status).toBe(422)
+    // Sent as a PNG, but not one: its own first bytes decide.
+    expect((await put({}, "<html><script>alert(1)</script></html>")).status).toBe(415)
+    // Past 25 MB without a length to say so (a chunked body): cut off while it streams.
+    const chunk = new Uint8Array(1024 * 1024)
+    let sent = 0
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent === 0) controller.enqueue(png)
+        sent += 1
+        if (sent > 27) controller.close()
+        else controller.enqueue(chunk)
+      }
+    })
+    expect((await put({}, endless)).status).toBe(413)
     const uploaded = await put({})
     expect(uploaded.status).toBe(201)
 
@@ -459,5 +531,163 @@ describe("the affiliate programme", () => {
     let last = 0
     for (let i = 0; i < 61; i++) last = (await click("yyyyyyyyyy", "198.51.100.23")).status
     expect(last).toBe(429)
+  })
+
+  it("rate-limits an IPv6 /64 however its addresses are written", async () => {
+    for (let i = 0; i < 60; i++) await click("xxxxxxxxxx", "2001:db8:7::1")
+    expect((await click("xxxxxxxxxx", "2001:db8:7:0:abcd::2")).status).toBe(429)
+  })
+
+  it("has no programme until the brand starts one: no page, no conversions, and a read starts nothing", async () => {
+    const store = await importedStore("aff-none")
+    expect(ok(await rpc("Affiliates.payouts.list", {}, store.cookie)).lines).toEqual([])
+    await dev("order", { workspace: store.workspace, number: "#1001", placed: "1", code: "IEMAND" })
+    await relay(store.workspace)
+    await dev("settle", { workspace: store.workspace })
+    expect(ok(await rpc("Affiliates.program", undefined, store.cookie))).toMatchObject({ started: false })
+    expect(ok(await rpc("Affiliates.inviteLink", undefined, store.cookie)).url).toBe("")
+  })
+
+  it("never lets an affiliate's code take one the store already has in Shopify", async () => {
+    const store = await importedStore("aff-taken")
+    // The brand's own code, made in Shopify's admin long before.
+    seedRecordedDiscount(store.shop, "WELKOM10", "Welkomstkorting")
+    const slug = await start(store)
+    const gina = await person("aff-gina")
+    const { applicationId } = ok(await rpc("AffiliateApply.apply", { program: slug, name: "Gina" }, gina.cookie))
+    const affiliateId = await approveMade(store, applicationId, "WELKOM10")
+    expect(ok(await rpc("Affiliates.get", { affiliateId }, store.cookie)).affiliate).toMatchObject({
+      code: "WELKOM10",
+      discount: "failed",
+      discountError: "Code bestaat al in Shopify"
+    })
+    // A shopper using the brand's code earns Gina nothing.
+    await dev("order", { workspace: store.workspace, number: "#1001", placed: "1", code: "WELKOM10" })
+    await relay(store.workspace)
+    expect(ok(await rpc("AffiliatePortal.conversions.list", {}, gina.cookie)).rows).toEqual([])
+
+    // The brand gives her another; Shopify makes it, and it earns.
+    {
+      await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+      ok(await rpc("Affiliates.setCode", { affiliateId, code: "GINA" }, store.cookie))
+      await relay(store.workspace)
+      for (const instance of await writes.get()) await instance.waitForStatus("complete")
+    }
+    expect(ok(await rpc("Affiliates.get", { affiliateId }, store.cookie)).affiliate).toMatchObject({
+      code: "GINA",
+      discount: "made"
+    })
+    expect(failure(await rpc("Affiliates.setCode", { affiliateId, code: "GINA2" }, store.cookie))).toMatchObject({
+      _tag: "Conflict"
+    })
+    await dev("order", { workspace: store.workspace, number: "#1002", placed: "1", code: "GINA" })
+    await relay(store.workspace)
+    expect(ok(await rpc("AffiliatePortal.conversions.list", {}, gina.cookie)).rows.map((r) => r.orderNumber)).toEqual([
+      "#1002"
+    ])
+
+    // Taking up an invitation proposes a code of the name and a random part, never the name alone.
+    const invited = `welkom10-${run}@invited.test`
+    ok(await rpc("Affiliates.invite", { email: invited, name: "WELKOM10", tier: "bronze" }, store.cookie))
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    const joined = await join(invited)
+    const code = ok(await rpc("AffiliateApply.me", undefined, joined)).affiliate!.code
+    expect(code).toMatch(/^WELKOM10[A-Z2-9]{4}$/)
+  })
+
+  it("holds an order that looks like the affiliate's own for the brand, without commission", async () => {
+    const store = await importedStore("aff-self")
+    const hana = await affiliateOf(store, "aff-hana", "Hana", "HANA")
+    // Her own address, written otherwise (capitals and a +tag), and later her Shopify customer under another address.
+    const [local, domain] = hana.email.split("@") as [string, string]
+    await dev("order", {
+      workspace: store.workspace,
+      number: "#1001",
+      placed: "1",
+      code: "HANA",
+      email: `${local.toUpperCase()}+korting@${domain}`,
+      customer: "gid://shopify/Customer/hana"
+    })
+    await dev("order", {
+      workspace: store.workspace,
+      number: "#1002",
+      placed: "1",
+      code: "HANA",
+      email: `iemand-anders-${run}@example.com`,
+      customer: "gid://shopify/Customer/hana"
+    })
+    await relay(store.workspace)
+    // She sees them waiting, earning nothing yet; the brand sees why.
+    const mine = ok(await rpc("AffiliatePortal.conversions.list", {}, hana.cookie)).rows
+    expect(mine.map((r) => [r.orderNumber, r.status, r.commissionMinor]).toSorted()).toEqual([
+      ["#1001", "pending", 0],
+      ["#1002", "pending", 0]
+    ])
+    const flagged = ok(await rpc("Affiliates.conversions.flagged", undefined, store.cookie))
+    expect(flagged.map((f) => [f.orderNumber, f.reason]).toSorted()).toEqual([["#1001", "self"], ["#1002", "self"]])
+    expect(JSON.stringify(flagged)).not.toContain("iemand-anders")
+    // Accepted, one earns; turned down, the other never does.
+    const accept = flagged.find((f) => f.orderNumber === "#1002")!
+    const refuse = flagged.find((f) => f.orderNumber === "#1001")!
+    ok(await rpc("Affiliates.conversions.review", { conversionId: accept.id, accept: true }, store.cookie))
+    ok(await rpc("Affiliates.conversions.review", { conversionId: refuse.id, accept: false }, store.cookie))
+    const after = ok(await rpc("AffiliatePortal.conversions.list", {}, hana.cookie)).rows
+    expect(after.find((r) => r.orderNumber === "#1002")).toMatchObject({
+      status: "pending",
+      commissionMinor: accept.commissionMinor
+    })
+    expect(accept.commissionMinor).toBeGreaterThan(0)
+    expect(after.find((r) => r.orderNumber === "#1001")).toMatchObject({ status: "reversed" })
+    expect(ok(await rpc("Affiliates.conversions.flagged", undefined, store.cookie))).toEqual([])
+  })
+
+  it("purges rejected applications and old clicks, and erases a person on request", async () => {
+    const store = await importedStore("aff-keep")
+    const ivo = await affiliateOf(store, "aff-ivo", "Ivo", "IVO")
+    const slug = await start(store)
+    const jet = await person("aff-jet")
+    const { applicationId } = ok(await rpc("AffiliateApply.apply", { program: slug, name: "Jet" }, jet.cookie))
+    ok(await rpc("Affiliates.applications.reject", { applicationId, reason: "Niet passend" }, store.cookie))
+    const link = ok(
+      await rpc("AffiliatePortal.links.create", {
+        label: "Bio",
+        destinationId: "home",
+        medium: "social",
+        campaign: "x"
+      }, ivo.cookie)
+    ).link
+    expect((await click(link.url.split("/r/")[1]!, "203.0.113.40")).status).toBe(302)
+
+    // 181 days on, the rejection is gone; 14 months on, the click too.
+    const day = 86_400_000
+    await dev("settle", { workspace: store.workspace, at: new Date(Date.now() + 181 * day).toISOString() })
+    expect(ok(await rpc("Affiliates.applications.list", {}, store.cookie)).rows.map((r) => r.id)).not.toContain(
+      applicationId
+    )
+    expect(ok(await rpc("AffiliatePortal.links.get", { linkId: link.id }, ivo.cookie)).link.clicks).toBe(1)
+    await dev("settle", { workspace: store.workspace, at: new Date(Date.now() + 426 * day).toISOString() })
+    expect(ok(await rpc("AffiliatePortal.links.get", { linkId: link.id }, ivo.cookie)).link.clicks).toBe(0)
+
+    // Erased on request: nothing names or reaches him any more; his portal is closed.
+    ok(await rpc("AffiliatePortal.payment.update", { method: "bank", account: "NL91ABNA0417164300" }, ivo.cookie))
+    ok(await rpc("Affiliates.erase", { affiliateId: ivo.affiliateId }, store.cookie))
+    const erased = ok(await rpc("Affiliates.get", { affiliateId: ivo.affiliateId }, store.cookie))
+    expect(erased.affiliate).toMatchObject({ name: "Gewiste affiliate", status: "paused" })
+    expect(erased.affiliate.email).toMatch(/@erased\.invalid$/)
+    expect(erased.payment).toBeNull()
+    expect(failure(await rpc("AffiliatePortal.dashboard", undefined, ivo.cookie))).toMatchObject({
+      _tag: "NotAffiliate"
+    })
+    // Someone who only applied, too.
+    const kim = await person("aff-kim")
+    const kimApp = ok(await rpc("AffiliateApply.apply", { program: slug, name: "Kim" }, kim.cookie))
+    ok(await rpc("Affiliates.erase", { applicationId: kimApp.applicationId }, store.cookie))
+    const rows = ok(await rpc("Affiliates.applications.list", {}, store.cookie)).rows
+    expect(rows.find((r) => r.id === kimApp.applicationId)).toMatchObject({
+      name: "Gewiste aanvrager",
+      motivation: null
+    })
+    expect(JSON.stringify(rows)).not.toContain(kim.email)
   })
 })

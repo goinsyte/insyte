@@ -71,7 +71,8 @@ export const decided = Effect.fn("Affiliates.decided")(function*(
 
 /**
  * A payout approved: its `approval` line (zero, the marker), and the affiliate hears it. Marked paid: its `settlement`
- * line (what was paid, taken off what is owed), and the affiliate hears it. Once per payout and step.
+ * line (what was paid, taken off what is owed), and the affiliate hears it. Once per payout and step, however often
+ * the event comes.
  */
 export const payout = Effect.fn("Affiliates.payout")(
   function*(sql: SqlClient.SqlClient, event: Of<"affiliate.payout">) {
@@ -80,15 +81,17 @@ export const payout = Effect.fn("Affiliates.payout")(
     select p.id, p.affiliate_id, p.month, coalesce(p.paid_minor, p.approvable_minor) as amount, p.currency
     from affiliate_payouts p
     where p.id in ${sql.in([...event.payoutIds, ""])}
-      and p.status = ${event.step === "approved" ? "approved" : "paid"}
-      and not exists (select 1 from affiliate_ledger_entries e where e.payout_id = p.id and e.kind = ${kind}
-                        and e.at >= coalesce(case when ${kind} = 'approval' then p.approved_at else p.paid_at end,
-                                             '-infinity'::timestamptz))`
+      and p.status = ${event.step === "approved" ? "approved" : "paid"}`
     for (const p of rows) {
-      yield* sql`insert into affiliate_ledger_entries (id, workspace_id, affiliate_id, payout_id, kind, amount_minor,
-                                                     currency, month, actor)
-               values (${mintId("ale")}, app_workspace_id(), ${p.affiliateId}, ${p.id}, ${kind},
-                       ${kind === "approval" ? 0 : -Number(p.amount)}, ${p.currency}, ${p.month}, ${event.userId})`
+      // One line per payout and kind (a unique index): the event delivered twice writes and tells it once.
+      const written = yield* sql`
+        insert into affiliate_ledger_entries (id, workspace_id, affiliate_id, payout_id, kind, amount_minor, currency,
+                                              month, actor)
+        values (${mintId("ale")}, app_workspace_id(), ${p.affiliateId}, ${p.id}, ${kind},
+                ${kind === "approval" ? 0 : -Number(p.amount)}, ${p.currency}, ${p.month}, ${event.userId})
+        on conflict (payout_id, kind) where payout_id is not null do nothing
+        returning id`
+      if (written.length === 0) continue
       yield* note(sql, p.affiliateId, "partner.money", { type: "affiliate_payout", id: p.id }, {
         type: event.step === "approved" ? "payout_approved" : "payout_paid",
         month: p.month,

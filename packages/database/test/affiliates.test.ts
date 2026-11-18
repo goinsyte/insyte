@@ -138,6 +138,19 @@ const PROJECTED = new Set([
   "undo_tokens"
 ])
 
+/** The brand's owner, reaching every store. */
+const memberOf = (): Principal => ({
+  ...affiliateOf(ids.member, ids.owner),
+  kind: "member",
+  partnerId: null,
+  role: { ...affiliateOf(ids.member, ids.owner).role, id: "owner", stores: "all" },
+  storeScope: null
+})
+const asMember = <A, E>(f: (sql: Parameters<Parameters<Db["Service"]["scoped"]>[0]>[0]) => Effect.Effect<A, E>) =>
+  Effect.flatMap(Effect.service(Db), (db) => db.scoped(f)).pipe(Effect.provideService(CurrentPrincipal, memberOf()))
+const asSystem = <A, E>(f: (sql: Parameters<Parameters<Db["Service"]["scopedFor"]>[0]>[0]) => Effect.Effect<A, E>) =>
+  Effect.flatMap(Effect.service(Db), (db) => db.scopedFor(f)).pipe(Effect.provideService(CurrentWorkspace, { id: ws }))
+
 const partner = <A, E>(f: (sql: Parameters<Parameters<Db["Service"]["scopedPartner"]>[0]>[0]) => Effect.Effect<A, E>) =>
   Effect.flatMap(Effect.service(Db), (db) => db.scopedPartner(f))
 
@@ -315,5 +328,172 @@ describe("affiliates", () => {
     expect(clicks.map((c) => c.clicks)).toEqual([1])
     const none = await run(partner((sql) => sql<{ clicks: number }>`select clicks from affiliate_clicks_v`).pipe(asB))
     expect(none).toEqual([])
+  })
+
+  it("takes from an affiliate only the realtime frames of its own profile and links, nothing that names another", async () => {
+    const write = (payload: Record<string, unknown>, event = "records.changed") =>
+      run(
+        partner((sql) =>
+          sql`insert into outbox (id, workspace_id, event, payload)
+              values (${mintId("obx")}, ${ws}, ${event}, ${JSON.stringify(payload)}::jsonb)`
+        ).pipe(asA, Effect.exit)
+      )
+    const allowed = [
+      { workspaceId: ws, kind: "affiliate", ids: [ids.affA] },
+      { workspaceId: ws, kind: "affiliate_link", ids: [ids.linkA] }
+    ]
+    for (const payload of allowed) expect([payload, (await write(payload))._tag]).toEqual([payload, "Success"])
+    const refused: Array<[string, Record<string, unknown>]> = [
+      // The reviewer's: its own id under one key, another's under the key the relay reads.
+      ["affiliate.discount_requested", { workspaceId: ws, affiliateId: ids.affA, affiliateIds: [ids.affB] }],
+      ["affiliate.discount_requested", { workspaceId: ws, affiliateIds: [ids.affA] }],
+      ["records.changed", { workspaceId: ws, kind: "affiliate", ids: [ids.affB] }],
+      ["records.changed", { workspaceId: ws, kind: "affiliate", ids: [ids.affA, ids.affB] }],
+      ["records.changed", { workspaceId: ws, kind: "affiliate_link", ids: [ids.linkB] }],
+      ["records.changed", { workspaceId: ws, kind: "affiliate_payout", ids: [ids.affA] }],
+      ["records.changed", { workspaceId: ws, kind: "affiliate", ids: [ids.affA], affiliateIds: [ids.affB] }],
+      ["records.changed", { workspaceId: "ws_other", kind: "affiliate", ids: [ids.affA] }]
+    ]
+    for (const [event, payload] of refused) {
+      expect([event, payload, (await write(payload, event))._tag]).toEqual([event, payload, "Failure"])
+    }
+  })
+
+  it("keeps a conversion and its ledger when the order goes, and never deletes a conversion with money on it", async () => {
+    const order = mintId("ord")
+    const conv = mintId("acv")
+    await run(asSystem((sql) =>
+      Effect.gen(function*() {
+        yield* sql`insert into orders (id, workspace_id, store_id, shopify_id, number, customer_email, customer_name,
+                                       status, payment_status, fulfillment_status, total_minor, subtotal_minor,
+                                       shipping_minor, tax_minor, discounts_minor, currency, placed_at, external_updated_at)
+                   values (${order}, ${ws}, ${ids.store}, ${order}, '#9001', 'k@example.com', 'K', 'paid', 'paid',
+                           'unfulfilled', 4000, 4000, 0, 0, 0, 'EUR', now(), now())`
+        yield* sql`insert into affiliate_conversions (id, workspace_id, affiliate_id, order_id, store_id, order_number,
+                                                      attributed_by, base_minor, commission_minor, rate, currency,
+                                                      placed_at, month)
+                   values (${conv}, ${ws}, ${ids.affA}, ${order}, ${ids.store}, '#9001', 'code', 4000, 400, 10, 'EUR',
+                           now(), to_char(now(), 'YYYY-MM'))`
+        yield* sql`insert into affiliate_ledger_entries (id, workspace_id, affiliate_id, conversion_id, kind,
+                                                         amount_minor, currency, month)
+                   values (${
+          mintId("ale")
+        }, ${ws}, ${ids.affA}, ${conv}, 'accrual', 400, 'EUR', to_char(now(), 'YYYY-MM'))`
+      })
+    ))
+    // Shopify's shop/redact: the store's orders go, as the system does it.
+    await run(asSystem((sql) => sql`delete from orders where id = ${order}`))
+    const left = await run(asSystem((sql) =>
+      Effect.all({
+        conversion: sql<{ orderId: string | null }>`select order_id as "orderId" from affiliate_conversions
+                                                    where id = ${conv}`,
+        ledger: sql<
+          { n: number }
+        >`select count(*)::int as n from affiliate_ledger_entries where conversion_id = ${conv}`
+      })
+    ))
+    expect(left).toEqual({ conversion: [{ orderId: null }], ledger: [{ n: 1 }] })
+    // The brand cannot delete the conversion from under its line either.
+    const gone = await run(
+      asMember((sql) => sql`delete from affiliate_conversions where id = ${conv}`).pipe(Effect.exit)
+    )
+    expect(gone._tag).toBe("Failure")
+  })
+
+  it("keeps the ledger append-only through a cascade too, until the workspace's own purge", async () => {
+    // A second brand, with one affiliate, one conversion and its line.
+    const ws2 = Schema.decodeSync(WorkspaceId)(mintId("ws"))
+    const aff = mintId("aff")
+    const conv = mintId("acv")
+    const inWs2 = Effect.provideService(CurrentWorkspace, { id: ws2 })
+    const system = <A, E>(f: (sql: Parameters<Parameters<Db["Service"]["scopedFor"]>[0]>[0]) => Effect.Effect<A, E>) =>
+      Effect.flatMap(Effect.service(Db), (db) => db.scopedFor(f)).pipe(inWs2)
+    await run(system((sql) =>
+      Effect.gen(function*() {
+        yield* sql`insert into workspaces (id, name, slug) values (${ws2}, 'Merk 2', ${`af2-${runId}`})`
+        yield* sql`insert into affiliate_programs (workspace_id, apply_slug, currency) values (${ws2}, ${`prog2${runId}`}, 'EUR')`
+        yield* sql`insert into affiliates (id, workspace_id, user_id, name, email, code, tier, rate)
+                   values (${aff}, ${ws2}, ${ids.userA}, 'C', ${email("c2")}, 'CEES', 'bronze', 10)`
+        yield* sql`insert into affiliate_conversions (id, workspace_id, affiliate_id, order_number, attributed_by,
+                                                      base_minor, commission_minor, rate, currency, placed_at, month)
+                   values (${conv}, ${ws2}, ${aff}, '#1', 'code', 1000, 100, 10, 'EUR', now(), to_char(now(), 'YYYY-MM'))`
+        yield* sql`insert into affiliate_ledger_entries (id, workspace_id, affiliate_id, conversion_id, kind,
+                                                         amount_minor, currency, month)
+                   values (${mintId("ale")}, ${ws2}, ${aff}, ${conv}, 'accrual', 100, 'EUR', to_char(now(), 'YYYY-MM'))`
+      })
+    ))
+    // Taking the affiliate away cascades to its lines as the tables' owner: refused all the same.
+    const cascaded = await run(system((sql) => sql`delete from affiliates where id = ${aff}`).pipe(Effect.exit))
+    expect(cascaded._tag).toBe("Failure")
+    // The workspace's deletion, once it is being purged, takes everything.
+    const purged = await run(system((sql) =>
+      Effect.gen(function*() {
+        yield* sql`insert into gdpr_requests (id, workspace_id, kind, payload, state, due_at, source)
+                   values (${mintId("gdp")}, ${ws2}, 'workspace_delete', '{}', 'purging', now() - interval '1 day',
+                           'insyte')`
+        yield* sql`select purge_workspace(${ws2})`
+        return yield* sql<{ n: number }>`select count(*)::int as n from affiliate_ledger_entries`
+      })
+    ))
+    expect(purged).toEqual([{ n: 0 }])
+  })
+
+  it("holds one approval and one settlement line per payout", async () => {
+    const payout = mintId("apo")
+    const line = (kind: "approval" | "settlement") =>
+      asSystem((sql) =>
+        sql`insert into affiliate_ledger_entries (id, workspace_id, affiliate_id, payout_id, kind, amount_minor,
+                                                  currency, month)
+            values (${mintId("ale")}, ${ws}, ${ids.affA}, ${payout}, ${kind}, ${kind === "approval" ? 0 : -500}, 'EUR',
+                    '2026-01')`
+      )
+    await run(
+      asSystem((sql) =>
+        sql`insert into affiliate_payouts (id, workspace_id, affiliate_id, month, currency, pay_day, status)
+          values (${payout}, ${ws}, ${ids.affA}, '2026-01', 'EUR', '2026-02-15', 'paid')`
+      )
+    )
+    await run(line("approval"))
+    await run(line("settlement"))
+    expect((await run(line("approval").pipe(Effect.exit)))._tag).toBe("Failure")
+    expect((await run(line("settlement").pipe(Effect.exit)))._tag).toBe("Failure")
+  })
+
+  it("counts no click through an archived link or a paused affiliate", async () => {
+    const tryClick = () =>
+      run(
+        Effect.flatMap(
+          Effect.service(Db),
+          (db) =>
+            db.routing((sql) =>
+              sql<{ slug: string }>`select slug from affiliate_click(${ids.slugB}, ${mintId("acl")}, null, null, null)`
+            )
+        )
+      )
+    await run(asMember((sql) => sql`update affiliate_links set archived_at = now() where id = ${ids.linkB}`))
+    expect(await tryClick()).toEqual([])
+    await run(asMember((sql) => sql`update affiliate_links set archived_at = null where id = ${ids.linkB}`))
+    await run(asMember((sql) => sql`update affiliates set status = 'paused' where id = ${ids.affB}`))
+    expect(await tryClick()).toEqual([])
+    await run(asMember((sql) => sql`update affiliates set status = 'active' where id = ${ids.affB}`))
+    expect(await tryClick()).toEqual([{ slug: ids.slugB }])
+    // Two clicks tried while it was off, one counted.
+    expect(await run(partner((sql) => sql<{ clicks: number }>`select clicks from affiliate_clicks_v`).pipe(asB)))
+      .toEqual([{ clicks: 1 }])
+  })
+
+  it("compares addresses as one person's: case, a +tag and Gmail's dots aside", async () => {
+    const keys = await run(asSystem((sql) =>
+      sql<{ k: string }>`select affiliate_email_key(e) as k
+                         from unnest(array['Anna.Jansen+promo@GoogleMail.com', 'annajansen@gmail.com',
+                                           'Anna+x@Example.com', 'anna.jansen@example.com']) with ordinality t(e, n)
+                         order by n`
+    ))
+    expect(keys.map((r) => r.k)).toEqual([
+      "annajansen@gmail.com",
+      "annajansen@gmail.com",
+      "anna@example.com",
+      "anna.jansen@example.com"
+    ])
   })
 })

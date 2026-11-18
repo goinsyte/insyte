@@ -13,8 +13,8 @@ import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import * as Undo from "../../shared/use-cases/Undo.ts"
 import { AffiliatesChange, InviteRow, type ResourceKind, ResourceRow, type Tier } from "../domain/Affiliates.ts"
 import type { InviteInput } from "../domain/Inputs.ts"
-import { audit, RESTORE } from "./operator.ts"
-import { ensureProgram } from "./program.ts"
+import { audit, everyStore, RESTORE } from "./operator.ts"
+import { programOf, startProgram } from "./program.ts"
 
 /** The invitation's mail (`member.invited`, the team's own mail sink), held back by the undo window. */
 const mailLater = (sql: SqlClient.SqlClient, invitationId: string, round: number) =>
@@ -73,6 +73,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export const invite = Effect.fn("Affiliates.invite")(function*(input: InviteInput) {
   yield* Policy.require("affiliates", 2)
+  yield* everyStore
   const principal = yield* CurrentPrincipal
   const links = yield* InvitationLinks
   const relay = yield* Relay
@@ -81,7 +82,8 @@ export const invite = Effect.fn("Affiliates.invite")(function*(input: InviteInpu
   if (!EMAIL.test(email)) return yield* new Invalid({ fields: { email: "format" } })
   const result = yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      yield* ensureProgram(sql)
+      // The brand's first invitation starts its programme.
+      yield* startProgram(sql)
       const [affiliate] = yield* sql`select 1 from affiliates where email = ${email}`
       if (affiliate !== undefined) return yield* new Invalid({ fields: { email: "affiliate" } })
       const [open] = yield* sql<{ id: string; round: number; lapsed: boolean }>`
@@ -122,6 +124,7 @@ export const invite = Effect.fn("Affiliates.invite")(function*(input: InviteInpu
 
 export const resend = Effect.fn("Affiliates.resendInvite")(function*(invitationId: string) {
   yield* Policy.require("affiliates", 2)
+  yield* everyStore
   const principal = yield* CurrentPrincipal
   const links = yield* InvitationLinks
   const relay = yield* Relay
@@ -147,6 +150,7 @@ export const resend = Effect.fn("Affiliates.resendInvite")(function*(invitationI
 
 export const revoke = Effect.fn("Affiliates.revokeInvite")(function*(invitationId: string) {
   yield* Policy.require("affiliates", 2)
+  yield* everyStore
   const principal = yield* CurrentPrincipal
   const db = yield* Db
   return yield* db.scoped((sql) =>
@@ -165,10 +169,13 @@ export const revoke = Effect.fn("Affiliates.revokeInvite")(function*(invitationI
   )
 })
 
+/** The programme's public page, once the brand started it; empty before (a read never starts one). */
 export const inviteLink = Effect.fn("Affiliates.inviteLink")(function*() {
   yield* Policy.require("affiliates", 1)
   const db = yield* Db
-  return yield* db.scoped((sql) => Effect.map(ensureProgram(sql), (p) => ({ url: `/partners/${p.applySlug}` })))
+  return yield* db.scoped((sql) =>
+    Effect.map(programOf(sql), (p) => ({ url: p === undefined ? "" : `/partners/${p.applySlug}` }))
+  )
 })
 
 // ─── Resources ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -182,6 +189,36 @@ const TYPES: Record<string, string> = {
   "application/pdf": "pdf",
   "video/mp4": "mp4",
   "application/zip": "zip"
+}
+
+const startsWith = (bytes: Uint8Array, signature: ReadonlyArray<number>, at = 0) =>
+  signature.every((b, i) => bytes[at + i] === b)
+
+const ascii = (text: string) => Array.from(text, (c) => c.charCodeAt(0))
+
+/** The file's own first bytes agree with the type it was sent as (an SVG: XML that opens with an \`<svg\` element). */
+export const looksLike = (mime: string, bytes: Uint8Array): boolean => {
+  switch (mime) {
+    case "image/png":
+      return startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    case "image/jpeg":
+      return startsWith(bytes, [0xff, 0xd8, 0xff])
+    case "image/webp":
+      return startsWith(bytes, ascii("RIFF")) && startsWith(bytes, ascii("WEBP"), 8)
+    case "application/pdf":
+      return startsWith(bytes, ascii("%PDF-"))
+    case "video/mp4":
+      return startsWith(bytes, ascii("ftyp"), 4)
+    case "application/zip":
+      return startsWith(bytes, [0x50, 0x4b, 0x03, 0x04]) || startsWith(bytes, [0x50, 0x4b, 0x05, 0x06])
+    case "image/svg+xml": {
+      const head = new TextDecoder().decode(bytes.subarray(0, 1024)).replace(/^\uFEFF/, "")
+      const body = head.replace(/^\s*(<\?xml[^>]*\?>\s*)?(<!--[\s\S]*?-->\s*)*(<!DOCTYPE[^>]*>\s*)?/i, "")
+      return /^<svg[\s>]/i.test(body)
+    }
+    default:
+      return false
+  }
 }
 
 const resourceOf = (
@@ -221,6 +258,7 @@ export const upload = Effect.fn("Affiliates.uploadResource")(function*(input: {
   readonly bytes: Uint8Array
 }) {
   yield* Policy.require("affiliates", 2)
+  yield* everyStore
   const principal = yield* CurrentPrincipal
   const mime = input.mime.toLowerCase().split(";")[0]!.trim()
   const extension = TYPES[mime]
@@ -228,6 +266,8 @@ export const upload = Effect.fn("Affiliates.uploadResource")(function*(input: {
   if (input.bytes.byteLength === 0 || input.bytes.byteLength > MAX_RESOURCE_BYTES) {
     return yield* new Invalid({ fields: { file: "size" } })
   }
+  // What the file is, by its first bytes: a type named in a header is only a claim.
+  if (!looksLike(mime, input.bytes)) return yield* new Invalid({ fields: { file: "type" } })
   const title = input.title.trim().slice(0, 120)
   if (title === "") return yield* new Invalid({ fields: { title: "required" } })
   const db = yield* Db
@@ -258,6 +298,7 @@ export const upload = Effect.fn("Affiliates.uploadResource")(function*(input: {
 
 export const removeResource = Effect.fn("Affiliates.removeResource")(function*(resourceId: string) {
   yield* Policy.require("affiliates", 2)
+  yield* everyStore
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {

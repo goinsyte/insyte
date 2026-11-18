@@ -38,6 +38,8 @@ export type TierDef = typeof TierDef.Type
 export const Faq = Schema.Struct({ q: Schema.String, a: Schema.String })
 
 export class ProgramView extends Schema.Class<ProgramView>("affiliates/ProgramView")({
+  /** The brand started its programme (its first invitation, or its settings saved); before that, the defaults. */
+  started: Schema.Boolean,
   enabled: Schema.Boolean,
   returnDays: Schema.Int,
   payoutDay: Schema.Int,
@@ -47,7 +49,7 @@ export class ProgramView extends Schema.Class<ProgramView>("affiliates/ProgramVi
   tiers: Schema.Array(TierDef),
   rejectReasons: Schema.Array(Schema.String),
   faqs: Schema.Array(Faq),
-  /** The public application page, a console path: `/partners/<slug>`. */
+  /** The public application page, a console path: `/partners/<slug>`; empty until the programme is started. */
   applyPath: Schema.String,
   currency: Schema.String,
   /** A Shopify store is there to make the codes' discounts in. */
@@ -173,6 +175,20 @@ export class ResourceRow extends Schema.Class<ResourceRow>("affiliates/ResourceR
 }) {}
 
 /** What a reversible write answers: the records it changed, and its "Ongedaan maken". */
+/** An order that looks like the affiliate's own, for the brand to accept or turn down. Never the shopper. */
+export class FlaggedConversion extends Schema.Class<FlaggedConversion>("affiliates/FlaggedConversion")({
+  id: Schema.String,
+  affiliateId: Schema.String,
+  affiliateName: Schema.String,
+  orderNumber: Schema.String,
+  baseMinor: Schema.Int,
+  /** What it earns if the brand accepts it. */
+  commissionMinor: Schema.Int,
+  currency: Schema.String,
+  placedAt: Schema.Number,
+  reason: Schema.Literal("self")
+}) {}
+
 export class AffiliatesChange extends Schema.Class<AffiliatesChange>("affiliates/AffiliatesChange")({
   ids: Schema.Array(Schema.String),
   undo: Schema.NullOr(UndoTicket)

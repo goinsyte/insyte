@@ -3281,5 +3281,180 @@
     "service": "deny",
     "finance": "allow",
     "view": "deny"
+  },
+  "Affiliates.setCode": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "deny"
+  },
+  "Affiliates.conversions.flagged": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "Affiliates.conversions.review": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "Affiliates.erase": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.dashboard": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.links.list": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.links.get": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.links.destinations": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.links.create": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.links.archive": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.conversions.list": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.payouts.list": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.payouts.get": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.resources": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.notifications": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.notifications.read": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.profile": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.profile.update": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.payment": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.payment.update": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliatePortal.undo": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliateApply.landing": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "AffiliateApply.me": {
+    "owner": "deny",
+    "admin": "deny",
+    "service": "deny",
+    "finance": "deny",
+    "view": "deny"
+  },
+  "AffiliateApply.apply": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
+  },
+  "AffiliateApply.reapply": {
+    "owner": "allow",
+    "admin": "allow",
+    "service": "allow",
+    "finance": "allow",
+    "view": "allow"
   }
 }

@@ -5,7 +5,7 @@ import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import type { Tier } from "../domain/Affiliates.ts"
 import { settle } from "./conversions.ts"
-import { currencyOf, ensureProgram, monthOf, payDayOf, tiersOf } from "./program.ts"
+import { currencyOf, monthOf, payDayOf, programOf, tiersOf } from "./program.ts"
 
 /*
  * The month's close for affiliates (M16 step 5; domain.md §14.1, §12.10), in `MonthlyCloseWorkflow` on the 1st: per
@@ -48,7 +48,8 @@ export const closeIn = Effect.fn("Affiliates.closeIn")(function*(
 ) {
   // The running month never closes.
   if (month >= monthOf(at)) return { ended: false, payouts: [] as ReadonlyArray<string>, promoted: [] }
-  const program = yield* ensureProgram(sql)
+  const program = yield* programOf(sql)
+  if (program === undefined) return { ended: false, payouts: [] as ReadonlyArray<string>, promoted: [] }
   const payDay = payDayOf(month, program.payoutDay)
   const currency = yield* currencyOf(sql)
   // Every affiliate with a conversion of the month, or an earlier one not in a payout yet.
@@ -123,9 +124,40 @@ export const closeWorkspace = Effect.fn("Affiliates.closeWorkspace")(function*(m
   )
 })
 
+/** A rejected application is kept this long after the decision, then purged (domain.md §18.2). */
+export const REJECTED_RETENTION_DAYS = 180
+/** Clicks are kept this long, then dropped (domain.md §18.2: 13 months online). */
+export const CLICK_RETENTION_MONTHS = 13
+
+/**
+ * What the programme no longer needs, gone: rejected applications 180 days after the decision, clicks after 13 months.
+ * There is no partition job yet (every partitioned table has its default partition only), so the clicks are deleted
+ * here, by date. As of \`at\`.
+ */
+export const retain = (sql: SqlClient.SqlClient, at: Date) =>
+  Effect.all({
+    applications: Effect.map(
+      sql<{ id: string }>`
+        delete from affiliate_applications
+        where workspace_id = app_workspace_id() and status = 'rejected'
+          and decided_at < ${at}::timestamptz - make_interval(days => ${REJECTED_RETENTION_DAYS})
+        returning id`,
+      (rows) => rows.length
+    ),
+    clicks: Effect.map(
+      sql<{ id: string }>`
+        delete from affiliate_clicks
+        where workspace_id = app_workspace_id()
+          and at < ${at}::timestamptz - make_interval(months => ${CLICK_RETENTION_MONTHS})
+        returning id`,
+      (rows) => rows.length
+    )
+  })
+
 /**
  * The daily approval (03:00 UTC): every conversion still in its window followed (delivery, refunds, cancels), those
- * past it approved, and the open payouts' sums read again. One workspace (`CurrentWorkspace`, as `system`).
+ * past it approved, the open payouts' sums read again, and what is past its keeping purged (\`retain\`). One workspace
+ * (\`CurrentWorkspace\`, as \`system\`).
  */
 export const settleWorkspace = Effect.fn("Affiliates.settleWorkspace")(function*(at: Date = new Date()) {
   const db = yield* Db
@@ -133,7 +165,8 @@ export const settleWorkspace = Effect.fn("Affiliates.settleWorkspace")(function*
     Effect.gen(function*() {
       const changed = yield* settle(sql, { at })
       if (changed.length > 0) yield* refreshPayouts(sql)
-      return changed.length
+      const purged = yield* retain(sql, at)
+      return { changed: changed.length, purged }
     })
   )
 })

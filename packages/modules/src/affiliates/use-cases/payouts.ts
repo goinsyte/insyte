@@ -12,7 +12,7 @@ import { AffiliatesChange, type PaymentMethod, PayoutLine, PayoutsView } from ".
 import type { ApprovePayoutsInput, MarkPaidInput, PayoutsInput } from "../domain/Inputs.ts"
 import { refreshPayouts } from "./close.ts"
 import { audit, everyStore, RESTORE } from "./operator.ts"
-import { currencyOf, ensureProgram, monthOf, payDayOf, previousMonth } from "./program.ts"
+import { currencyOf, monthOf, payDayOf, previousMonth, programOf } from "./program.ts"
 
 /*
  * The brand's monthly payouts (M16 step 5; widgets/06 Part C "Uitbetalingen"). A month has payouts once it was closed
@@ -41,7 +41,8 @@ export const list = Effect.fn("Affiliates.payouts")(function*(input: PayoutsInpu
   const db = yield* Db
   return yield* db.scoped((sql) =>
     Effect.gen(function*() {
-      const program = yield* ensureProgram(sql)
+      // A read never starts a programme: without one, the defaults' pay day and no lines.
+      const program = yield* programOf(sql)
       const running = monthOf(new Date())
       const month = input.month ?? previousMonth(running)
       const closed = month < running
@@ -51,13 +52,13 @@ export const list = Effect.fn("Affiliates.payouts")(function*(input: PayoutsInpu
       const empty = new PayoutsView({
         month,
         closed,
-        payDay: payDayOf(month, program.payoutDay),
+        payDay: payDayOf(month, program?.payoutDay ?? 15),
         lines: [],
         summary: { toApproveMinor: 0, approvedMinor: 0, inWindowMinor: 0 },
         currency,
         months: [running, ...months.map((m) => m.month).filter((m) => m !== running)]
       })
-      if (storeScope !== null) return empty
+      if (storeScope !== null || program === undefined) return empty
       const rows = closed
         ? yield* sql<Line>`
             select a.id as affiliate_id, a.name, p.id as payout_id, p.conversions as orders,
@@ -69,7 +70,7 @@ export const list = Effect.fn("Affiliates.payouts")(function*(input: PayoutsInpu
         // The running month: what its conversions come to so far, nothing to approve yet.
         : yield* sql<Line>`
             select a.id as affiliate_id, a.name, null as payout_id,
-                   count(*) filter (where c.status <> 'reversed')::int as orders,
+                   count(*) filter (where c.status not in ('reversed', 'flagged'))::int as orders,
                    coalesce(sum(c.commission_minor) filter (where c.status = 'approved'), 0) as approvable,
                    coalesce(sum(c.commission_minor) filter (where c.status = 'pending'), 0) as in_window,
                    0 as reversed, coalesce(sum(c.commission_minor), 0) as total, a.payment_method as method,

@@ -2,6 +2,7 @@ import { click } from "@insyte/modules/affiliates/use-cases/click"
 import { env } from "cloudflare:workers"
 import { Effect } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
+import { ipKey } from "../../../platform/IpKey.ts"
 import { RateLimits } from "../../../platform/RateLimits.ts"
 import { withRequestDb } from "../../../platform/RequestDb.ts"
 
@@ -19,10 +20,6 @@ const notFound = HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } },
   status: 404,
   headers: { "cache-control": "no-store" }
 })
-
-/** The address as the limiter's key: IPv6 by its /64. */
-const ipKey = (ip: string) =>
-  ip.includes(":") ? `ip6:${ip.split(":").slice(0, 4).join(":").toLowerCase()}::/64` : `ip:${ip}`
 
 const encoder = new TextEncoder()
 let hashKey: Promise<CryptoKey | null> | undefined

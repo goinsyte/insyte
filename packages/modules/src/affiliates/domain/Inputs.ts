@@ -38,6 +38,21 @@ export type ApproveInput = typeof ApproveInput.Type
 export const RejectInput = Schema.Struct({ applicationId: Schema.String, reason: Text(1000) })
 export type RejectInput = typeof RejectInput.Type
 
+/** The brand's change of an affiliate's code, before its Shopify discount is made (or after it failed). */
+export const SetCodeInput = Schema.Struct({ affiliateId: Schema.String, code: Code })
+export type SetCodeInput = typeof SetCodeInput.Type
+
+/** The brand's answer on a flagged conversion: it earns (\`accept\`), or it is the affiliate's own. */
+export const ReviewConversionInput = Schema.Struct({ conversionId: Schema.String, accept: Schema.Boolean })
+export type ReviewConversionInput = typeof ReviewConversionInput.Type
+
+/** Erasing a person on request: an affiliate, or someone who only applied. */
+export const EraseInput = Schema.Union([
+  Schema.Struct({ affiliateId: Schema.String }),
+  Schema.Struct({ applicationId: Schema.String })
+])
+export type EraseInput = typeof EraseInput.Type
+
 export const ProposeCodeInput = Schema.Struct({ name: Text(200) })
 
 export const PayoutsInput = Schema.Struct({ month: Schema.optional(Month) })

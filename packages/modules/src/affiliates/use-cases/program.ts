@@ -4,8 +4,10 @@ import type { SqlClient } from "effect/sql"
 import { type Tier, type TierDef } from "../domain/Affiliates.ts"
 
 /*
- * The programme's own (M16 step 3): its row, made with the defaults the first time anything reads it (tiers 10, 12 and
- * 15 %, 14 days to return, paid on the 15th), the month an amount falls in, and the codes.
+ * The programme's own (M16 step 3): its row, the month an amount falls in, and the codes. A workspace has no programme
+ * until the brand starts one, by its first invitation or by saving the programme's settings (\`startProgram\`, with the
+ * defaults: tiers 10, 12 and 15 %, 14 days to return, paid on the 15th). Before that it has no apply page, takes no
+ * conversions and closes nothing; a read never makes one.
  */
 
 export const DEFAULT_TIERS: ReadonlyArray<TierDef> = [
@@ -52,21 +54,36 @@ export const payDayOf = (month: string, payoutDay: number) => {
   return new Date(Date.UTC(y, m, payoutDay)).toISOString().slice(0, 10)
 }
 
+/** Capitals and digits that cannot be misread (no 0/O, 1/I/L), for a code's suffix. */
+const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+/** A code's random part: \`n\` capitals and digits. */
+export const codeSuffix = (n: number) =>
+  Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("")
+
 /** Shopify takes capitals and digits; a name becomes its first word's, ten at most. */
 export const codeFrom = (name: string) =>
   (name.trim().split(/\s+/)[0] ?? "").normalize("NFD").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 10)
     .padEnd(3, "X")
 
-/** The programme, made with its defaults if this is the first time (one row per workspace). */
-export const ensureProgram = Effect.fn("Affiliates.ensureProgram")(function*(sql: SqlClient.SqlClient) {
-  const read = () =>
-    sql<Program>`
-      select workspace_id, enabled, return_days, payout_day, attribution_days, default_tier, discount_percent,
-             apply_slug, faqs, reject_reasons, storefront_base_url, store_id
-      from affiliate_programs where workspace_id = app_workspace_id()`
-  const [found] = yield* read()
+const PROGRAM_FIELDS = (sql: SqlClient.SqlClient) =>
+  sql`workspace_id, enabled, return_days, payout_day, attribution_days, default_tier, discount_percent, apply_slug,
+      faqs, reject_reasons, storefront_base_url, store_id`
+
+/** The workspace's programme, if the brand started one. Reads only. */
+export const programOf = (sql: SqlClient.SqlClient) =>
+  Effect.map(
+    sql<Program>`select ${PROGRAM_FIELDS(sql)} from affiliate_programs where workspace_id = app_workspace_id()`,
+    ([found]) => found
+  )
+
+/**
+ * The programme, started with its defaults if this is the first time (one row per workspace). Only from what the
+ * brand does to run one: an invitation, its settings saved.
+ */
+export const startProgram = Effect.fn("Affiliates.startProgram")(function*(sql: SqlClient.SqlClient) {
+  const found = yield* programOf(sql)
   if (found !== undefined) return found
-  // In the workspace the transaction acts in, whoever asks (a member, the relay, the close).
   yield* sql`insert into affiliate_programs (workspace_id, apply_slug, currency)
              values (app_workspace_id(), ${randomSlug(12)},
                      coalesce((select currency from workspaces where id = app_workspace_id()), 'EUR'))
@@ -76,8 +93,7 @@ export const ensureProgram = Effect.fn("Affiliates.ensureProgram")(function*(sql
                values (app_workspace_id(), ${t.tier}, ${t.rate}, ${t.threshold}, ${position})
                on conflict do nothing`
   }
-  const [made] = yield* read()
-  return made!
+  return (yield* programOf(sql))!
 })
 
 export const tiersOf = (sql: SqlClient.SqlClient) =>

@@ -11,13 +11,16 @@ import { devOnly } from "./shared.ts"
 /*
  * The affiliate programme's clock and its orders, for the worker tests and a preview (M16 steps 4–5); refused outside
  * them. The recorded Shopify twin has no order with a code or a link, and no test waits a month:
- * - `POST /api/__dev/affiliates/order?workspace&number&code&ref&shipped&cancelled&refund&placed`: the order `number`
- *   as if Shopify had told of it with that discount code or cart attribute `insyte_ref`, shipped, cancelled or
- *   refunded at those times (ISO; the refund in minor units); `placed` (`1` for now, or ISO) places it then and writes
+ * - `POST /api/__dev/affiliates/order?workspace&number&code&ref&email&customer&shipped&cancelled&refund&placed`: the
+ *   order `number` as if Shopify had told of it with that discount code or cart attribute `insyte_ref`, that buyer's
+ *   address and Shopify customer id, shipped, cancelled or
+ *   refunded at those times (ISO; the refund in minor units); a number the store does not have is a copy of its
+ *   \`#1001\` (the recorded twin has two orders); `placed` (`1` for now, or ISO) places it then and writes
  *   its `order.placed` (the relay attributes it), a cancel its `order.cancelled`, anything else its `order.fulfilled`.
  *   Answers the outbox ids.
  * - `POST /api/__dev/affiliates/tiers?workspace&silver&gold`: the tiers' thresholds (a test does not sell 100 orders).
- * - `POST /api/__dev/affiliates/settle?workspace&at`: the daily approval as if it were `at`.
+ * - `POST /api/__dev/affiliates/settle?workspace&at`: the daily approval (and its purge of what is past keeping) as if
+ *   it were `at`.
  * - `POST /api/__dev/affiliates/close?workspace&month&at`: the month's close as `MonthlyCloseWorkflow`'s step runs it.
  */
 
@@ -45,14 +48,26 @@ const AffiliateOrder = HttpRouter.add(
       q,
       db.scopedFor((sql) =>
         Effect.gen(function*() {
+          const number = q.get("number") ?? ""
+          const copy = mintId("ord")
+          yield* sql`
+            insert into orders
+            select (jsonb_populate_record(null::orders, to_jsonb(o) || jsonb_build_object(
+                      'id', ${copy}::text, 'shopify_id', ${`dev-${copy}`}::text, 'number', ${number}::text))).*
+            from orders o
+            where o.number = '#1001'
+              and not exists (select 1 from orders x where x.number = ${number})
+            limit 1`
           const [order] = yield* sql<{ id: string; storeId: string; currency: string; workspaceId: string }>`
             update orders set
               referral_code = coalesce(${q.get("code")}, referral_code),
               affiliate_ref = coalesce(${q.get("ref")}, affiliate_ref),
+              customer_email = coalesce(${q.get("email")}, customer_email),
+              customer_shopify_id = coalesce(${q.get("customer")}, customer_shopify_id),
               shipped_at = coalesce(${dateOf(q.get("shipped"))}, shipped_at),
               cancelled_at = coalesce(${dateOf(q.get("cancelled"))}, cancelled_at),
               placed_at = coalesce(${placedAt(q.get("placed"))}, placed_at)
-            where number = ${q.get("number") ?? ""}
+            where number = ${number}
             returning id, store_id, currency, workspace_id`
           if (order === undefined) return []
           const refund = Number(q.get("refund") ?? 0)
@@ -82,11 +97,11 @@ const AffiliateSettle = HttpRouter.add(
   Effect.gen(function*() {
     if (!(yield* devOnly)) return refused
     const q = yield* params
-    const changed = yield* inWorkspace(
+    const outcome = yield* inWorkspace(
       q,
       Effect.flatMap(close, (m) => m.settleWorkspace(dateOf(q.get("at")) ?? new Date()))
     )
-    return HttpServerResponse.jsonUnsafe({ changed })
+    return HttpServerResponse.jsonUnsafe(outcome)
   }).pipe(Effect.orDie, withRequestDb)
 )
 

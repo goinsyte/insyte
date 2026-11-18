@@ -36,6 +36,34 @@ const disposition = (name: string, as: "inline" | "attachment") => {
   return `${as}; filename="${ascii}"; filename*=UTF-8''${encoded}`
 }
 
+/**
+ * The body's bytes, or \`null\` once they pass \`max\`: read as a stream and cancelled there, whatever
+ * \`content-length\` said (a chunked upload names none).
+ */
+const readCapped = async (body: ReadableStream<Uint8Array> | null, max: number): Promise<Uint8Array | null> => {
+  if (body === null) return new Uint8Array()
+  const reader = body.getReader()
+  const chunks: Array<Uint8Array> = []
+  let size = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > max) {
+      await reader.cancel().catch(() => undefined)
+      return null
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(size)
+  let at = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, at)
+    at += chunk.byteLength
+  }
+  return bytes
+}
+
 const stream = (file: { readonly r2Key: string; readonly name: string; readonly mime: string }, download: boolean) =>
   Effect.gen(function*() {
     const stored = yield* Effect.flatMap(Effect.service(FileStore), (s) => s.open(file.r2Key))
@@ -64,8 +92,9 @@ export const upload = Effect.gen(function*() {
   if (active === undefined) return notFound
   const kind = Schema.decodeUnknownOption(ResourceKind)(headers.get("x-resource-kind") ?? "")
   if (Option.isNone(kind)) return refusal(422, "invalid", { fields: { kind: "unknown" } })
-  const bytes = new Uint8Array(yield* Effect.orDie(request.arrayBuffer))
-  if (bytes.byteLength > MAX_BYTES) return refusal(413, "too_large")
+  const web = yield* HttpServerRequest.toWeb(request)
+  const bytes = yield* Effect.promise(() => readCapped(web.body, MAX_BYTES))
+  if (bytes === null) return refusal(413, "too_large")
   return yield* withAffiliates((m) =>
     m.operator.uploadResource({
       title: header(headers, "x-resource-title"),

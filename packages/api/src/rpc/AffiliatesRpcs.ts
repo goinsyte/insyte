@@ -4,6 +4,7 @@ import {
   AffiliateList,
   AffiliatesChange,
   ApplicationList,
+  FlaggedConversion,
   InviteLink,
   InviteRow,
   PayoutsView,
@@ -16,6 +17,7 @@ import {
   ApplicationsInput,
   ApproveInput,
   ApprovePayoutsInput,
+  EraseInput,
   InviteInput,
   InviteRef,
   ListInput,
@@ -25,6 +27,8 @@ import {
   ProposeCodeInput,
   RejectInput,
   ResourceRef,
+  ReviewConversionInput,
+  SetCodeInput,
   SetPausedInput,
   SetTierInput
 } from "@insyte/modules/affiliates/domain/Inputs"
@@ -58,6 +62,14 @@ export class AffiliatesRpcs extends RpcGroup.make(
   Rpc.make("Affiliates.applications.reject", { payload: RejectInput, success: AffiliatesChange, error: Write }),
   Rpc.make("Affiliates.proposeCode", { payload: ProposeCodeInput, success: ProposedCode, error: Write }),
   Rpc.make("Affiliates.retryDiscount", { payload: AffiliateRef, success: AffiliatesChange, error: Write }),
+  Rpc.make("Affiliates.setCode", { payload: SetCodeInput, success: AffiliatesChange, error: Write }),
+  Rpc.make("Affiliates.conversions.flagged", { success: Schema.Array(FlaggedConversion), error: Read }),
+  Rpc.make("Affiliates.conversions.review", {
+    payload: ReviewConversionInput,
+    success: AffiliatesChange,
+    error: Write
+  }),
+  Rpc.make("Affiliates.erase", { payload: EraseInput, success: AffiliatesChange, error: Write }),
   Rpc.make("Affiliates.payouts.list", { payload: PayoutsInput, success: PayoutsView, error: Read }),
   Rpc.make("Affiliates.approvePayouts", { payload: ApprovePayoutsInput, success: AffiliatesChange, error: Write }),
   Rpc.make("Affiliates.markPaid", { payload: MarkPaidInput, success: AffiliatesChange, error: Write }),

@@ -123,13 +123,14 @@ const NEWER_SCOPES: Record<string, string> = {
   giftCardCreate: "write_gift_cards",
   // An affiliate's code (M16 step 5) on a store that approved the app before `write_discounts`.
   discountCodeBasicCreate: "write_discounts",
+  codeDiscountNodeByCode: "write_discounts",
   returnApproveRequest: "write_returns",
   returnDeclineRequest: "write_returns",
   webPixelCreate: "write_pixels",
   webPixelUpdate: "write_pixels"
 }
 
-/** Codes made (gift cards, discounts), draft orders made and what each completed into. */
+/** Gift card codes made, draft orders made and what each completed into. */
 const codes = new Set<string>()
 interface RecordedDraft {
   readonly shop: string
@@ -143,6 +144,16 @@ interface RecordedDraft {
 }
 const drafts = new Map<string, RecordedDraft>()
 let made = 0
+
+/** The code discounts each shop holds (\`shop|CODE\`), made through the twin or there before (\`seedRecordedDiscount\`). */
+const discounts = new Map<string, { readonly id: string; readonly title: string }>()
+
+/** A code discount the merchant made in Shopify's admin before Insyte came: a worker test's brand-owned code. */
+export const seedRecordedDiscount = (shop: string, code: string, title: string) => {
+  const id = `gid://shopify/DiscountCodeNode/${++made}`
+  discounts.set(`${shop}|${code.toUpperCase()}`, { id, title })
+  return id
+}
 
 /** A product made through `productSet` (M7.3), as Shopify holds it. */
 export interface RecordedProduct {
@@ -243,10 +254,11 @@ const returnWrite = (
       }
     }
     case "discountCodeBasicCreate": {
-      const code = String(input["code"] ?? "")
-      if (codes.has(code)) return taken("basicCodeDiscount")
-      codes.add(code)
-      return { codeDiscountNode: { id: `gid://shopify/DiscountCodeNode/${++made}` } }
+      const key = `${shop}|${String(input["code"] ?? "").toUpperCase()}`
+      if (discounts.has(key)) return taken("basicCodeDiscount")
+      const id = `gid://shopify/DiscountCodeNode/${++made}`
+      discounts.set(key, { id, title: String(input["title"] ?? "") })
+      return { codeDiscountNode: { id } }
     }
     case "draftOrderCreate": {
       if (String(input["email"] ?? "").includes("invalid")) {
@@ -423,6 +435,13 @@ const deniedFor = (shop: string, query: string): ShopifyRefused | undefined => {
 const recordedQuery = (shop: string, query: string, variables: Record<string, unknown>): unknown => {
   const mutation = recordedMutation(shop, query, variables)
   if (mutation !== undefined) return mutation
+  // The discount a code belongs to in this shop, if any.
+  if (query.includes("codeDiscountNodeByCode(")) {
+    const found = discounts.get(`${shop}|${String(variables["code"] ?? "").toUpperCase()}`)
+    return {
+      codeDiscountNodeByCode: found === undefined ? null : { id: found.id, codeDiscount: { title: found.title } }
+    }
+  }
   // A draft by the tag Insyte gave it (`tag:'SO-10001'`), and a product by its handle: what a create tried again finds.
   if (query.includes("draftOrders(")) {
     const tag = /tag:'([^']*)'/.exec(String(variables["query"] ?? ""))?.[1]
