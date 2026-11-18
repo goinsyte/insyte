@@ -166,7 +166,9 @@ export const TENANT_TABLES = [
   "handovers",
   // The customer agent (M15 step 8): its settings, and what it keeps per website chat thread.
   "customer_agent_settings",
-  "customer_agent_threads"
+  "customer_agent_threads",
+  // The staff admin (M18, Support): a staff session of looking along in the workspace, read-only, with consent.
+  "staff_sessions"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 
