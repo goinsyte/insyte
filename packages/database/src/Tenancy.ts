@@ -168,7 +168,9 @@ export const TENANT_TABLES = [
   "customer_agent_settings",
   "customer_agent_threads",
   // The staff admin (M18, Support): a staff session of looking along in the workspace, read-only, with consent.
-  "staff_sessions"
+  "staff_sessions",
+  // The queue's tasks a person would miss (W13.6, 0109): kept until they ran, sent again by the cron.
+  "pending_tasks"
 ] as const
 export type TenantTable = (typeof TENANT_TABLES)[number]
 

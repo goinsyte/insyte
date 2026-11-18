@@ -51,7 +51,9 @@ const WORKERS_SUBDOMAIN = "ishak-73d.workers.dev"
 const OBSERVABILITY = {
   enabled: true,
   logs: { enabled: true, headSamplingRate: 1, invocationLogs: true, persist: true, destinations: [SENTRY_LOGS] },
-  traces: { enabled: true, headSamplingRate: 1, persist: true, destinations: [SENTRY_TRACES] }
+  traces: { enabled: true, headSamplingRate: 1, persist: true, destinations: [SENTRY_TRACES] },
+  // Workers Issues (W13.6): uncaught exceptions and `console.error` grouped in the dashboard, as `wrangler.jsonc` has.
+  issues: { enabled: true }
 }
 
 /**
@@ -475,7 +477,7 @@ export default Alchemy.Stack(
       }
     })
 
-    // The relay's events and Shopify's deliveries are consumed by the jobs Worker; their dead letters stay put. A batch
+    // The relay's events and Shopify's deliveries are consumed by the jobs Worker; their dead letters below. A batch
     // that throws comes back after 30 s, not at once: its retries are not spent on the same moment's outage.
     yield* Cloudflare.Queues.Consumer("EventsConsumer", {
       queueId: events.queueId,
@@ -489,6 +491,21 @@ export default Alchemy.Stack(
       scriptName: jobs.workerName,
       deadLetterQueue: deadIngest.queueName,
       settings: { batchSize: 10, maxWaitTimeMs: 1000, maxRetries: 8, retryDelay: 30 }
+    })
+
+    // What both queues gave up on (W13.6): the jobs Worker writes each message down in `dead_letters`, logs it as an
+    // error and acks it (`platform/DeadLetters.ts`); `/api/health/deep` counts them. A message it cannot write down
+    // comes back a minute later, ten times; there is no queue behind this one.
+    yield* Cloudflare.Queues.Consumer("EventsDlqConsumer", {
+      queueId: deadEvents.queueId,
+      scriptName: jobs.workerName,
+      settings: { batchSize: 10, maxWaitTimeMs: 5000, maxRetries: 10, retryDelay: 60 }
+    })
+
+    yield* Cloudflare.Queues.Consumer("IngestDlqConsumer", {
+      queueId: deadIngest.queueId,
+      scriptName: jobs.workerName,
+      settings: { batchSize: 10, maxWaitTimeMs: 5000, maxRetries: 10, retryDelay: 60 }
     })
 
     // CI's smoke test gets past Access with a service token (CF_ACCESS_CLIENT_ID / _SECRET in each environment).

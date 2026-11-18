@@ -5,9 +5,10 @@ import { Effect, Exit } from "effect"
 import type * as AgentSink from "../../platform/AgentSink.ts"
 import { withAi } from "../../platform/Ai.ts"
 import { BackgroundRuntime as background } from "../../platform/BackgroundLayer.ts"
+import type * as DeadLetters from "../../platform/DeadLetters.ts"
 import type { Env } from "../../platform/Env.ts"
 import { ingest, type IngestMessage } from "../../platform/Ingest.ts"
-import { Telemetry } from "../../platform/Observability.ts"
+import { type Spans, Telemetry } from "../../platform/Observability.ts"
 import { deliver, type EventsMessage } from "../../platform/Relay.ts"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 
@@ -24,6 +25,8 @@ export const queue: ExportedHandlerQueueHandler<Env, EventsMessage | IngestMessa
   // The batch's own exporter (`Observability.ts`), flushed after the acks, in at most three seconds.
   const spans = Telemetry.open()
   try {
+    // What the queues gave up on (W13.6): written down and acked, by a module loaded on the first such batch.
+    if (batch.queue.includes("-dlq")) return await deadLetterBatch(batch, spans)
     if (batch.queue.startsWith("insyte-ingest")) return await ingest(batch as MessageBatch<IngestMessage>, spans)
     const messages = (batch as MessageBatch<EventsMessage>).messages
     // A topic never throws (it logs and leaves the rules' topic). An agent's task throws only when it could not run at
@@ -67,6 +70,17 @@ export const queue: ExportedHandlerQueueHandler<Env, EventsMessage | IngestMessa
   } finally {
     ctx.waitUntil(spans.flush())
   }
+}
+
+let deadLetterModule: Promise<typeof DeadLetters> | undefined
+
+/** A dead-letter queue's batch (`platform/DeadLetters.ts`), loaded on the first one an isolate sees. */
+const deadLetterBatch = async (batch: MessageBatch<EventsMessage | IngestMessage>, spans: Spans) => {
+  const module = await (deadLetterModule ??= import("../../platform/DeadLetters.ts").catch((error: unknown) => {
+    deadLetterModule = undefined
+    throw error
+  }))
+  await background.runPromise(spans.provide(withRequestDb(module.deadLetters(batch))))
 }
 
 /** A ticket's topic by Insyte AI; the rules' topic stands whatever happens here, so nothing here throws. */
