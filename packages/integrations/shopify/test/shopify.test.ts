@@ -83,6 +83,46 @@ describe("the Shopify adapter", () => {
     expect(await run((s) => s.verifyCallback(query))).toBe(false)
   })
 
+  // Shopify's privacy topics as its docs print them (shopify.dev, "Privacy law compliance"), the bytes its compliance
+  // check sends: the signature is the base64 HMAC-SHA256 of the raw body with the app's secret, and anything else is
+  // refused, so the route answers 401.
+  it("trusts a privacy webhook signed over its raw bytes with the app's secret, and nothing else", async () => {
+    const documented = [
+      {
+        shop_id: 954889,
+        shop_domain: "north.myshopify.com",
+        orders_requested: [299938, 280263, 220458],
+        customer: { id: 191167, email: "john@example.com", phone: "555-625-1199" },
+        data_request: { id: 9999 }
+      },
+      {
+        shop_id: 954889,
+        shop_domain: "north.myshopify.com",
+        customer: { id: 191167, email: "john@example.com", phone: "555-625-1199" },
+        orders_to_redact: [299938, 280263, 220458]
+      },
+      { shop_id: 954889, shop_domain: "north.myshopify.com" }
+    ]
+    for (const payload of documented) {
+      const body = new TextEncoder().encode(JSON.stringify(payload))
+      const signed = createHmac("sha256", SECRET).update(body).digest("base64")
+      expect(await run((s) => s.verifyWebhook(body, signed))).toBe(true)
+      // One byte changed, a hex digest, another app's secret, no signature: refused.
+      const tampered = body.slice()
+      tampered[tampered.length - 2] = 0x30
+      expect(await run((s) => s.verifyWebhook(tampered, signed))).toBe(false)
+      expect(await run((s) => s.verifyWebhook(body, createHmac("sha256", SECRET).update(body).digest("hex"))))
+        .toBe(false)
+      expect(await run((s) => s.verifyWebhook(body, createHmac("sha256", "other").update(body).digest("base64"))))
+        .toBe(false)
+      expect(await run((s) => s.verifyWebhook(body, ""))).toBe(false)
+    }
+    // Without the app's secret nothing verifies, so an unconfigured stage answers every delivery 401.
+    const body = new TextEncoder().encode(JSON.stringify(documented[2]))
+    const signed = createHmac("sha256", "").update(body).digest("base64")
+    expect(await run((s) => s.verifyWebhook(body, signed), undefined, { SHOPIFY_CLIENT_ID: "client-1" })).toBe(false)
+  })
+
   it("knows a shop that does not exist by Shopify's 404", async () => {
     expect(await run((s) => s.exists("gone.myshopify.com"))).toBe(false)
     expect(await run((s) => s.exists("north.myshopify.com"), fakeShopify(() => new Response(null, { status: 303 }))))

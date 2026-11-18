@@ -1,6 +1,7 @@
 import { CONSOLE_ROUTES, safeRedirect } from "@insyte/domain/Redirect"
 import { createStartHandler, defaultStreamHandler } from "@tanstack/react-start/server"
 import { env } from "cloudflare:workers"
+import { newNonce, securityHeaders } from "./security-headers.ts"
 
 /*
  * The console Worker's entry (11 §3). `/api/*` (RPC, later better-auth and the realtime upgrade) goes to the API
@@ -9,31 +10,6 @@ import { env } from "cloudflare:workers"
  */
 
 const start = createStartHandler(defaultStreamHandler)
-
-/** 08 §6. `script-src 'self'` holds because Start's hydration script is served from the origin. */
-const SECURITY_HEADERS: Record<string, string> = {
-  "content-security-policy": [
-    "default-src 'self'",
-    // Cloudflare Turnstile: its script, its iframe and its calls (M2.2).
-    "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
-    "frame-src https://challenges.cloudflare.com",
-    "style-src 'self' 'unsafe-inline'",
-    // Product photographs from Shopify's CDN (M6.4); the recorded test store's from Unsplash, outside production.
-    `img-src 'self' data: blob: https://cdn.shopify.com${
-      env.ENVIRONMENT === "production" ? "" : " https://images.unsplash.com"
-    }`,
-    "font-src 'self' data:",
-    // Sentry's EU ingest, for browser errors and spans (17 §4).
-    "connect-src 'self' https://*.ingest.de.sentry.io https://challenges.cloudflare.com",
-    "frame-ancestors 'none'",
-    "base-uri 'self'",
-    "form-action 'self'"
-  ].join("; "),
-  "strict-transport-security": "max-age=63072000; includeSubDomains",
-  "x-content-type-options": "nosniff",
-  "referrer-policy": "strict-origin-when-cross-origin",
-  "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()"
-}
 
 const isApi = (pathname: string) => pathname === "/api" || pathname.startsWith("/api/")
 
@@ -63,9 +39,14 @@ const signInFirst = (request: Request): Response | undefined => {
 export default {
   async fetch(request: Request): Promise<Response> {
     if (isApi(new URL(request.url).pathname)) return env.API.fetch(request)
-    const response = signInFirst(request) ?? await start(request)
+    // One nonce per page for Start's inline scripts (`router.tsx` hands it to the router); none under `vite dev`.
+    const nonce = import.meta.env.DEV ? undefined : newNonce()
+    const response = signInFirst(request) ??
+      await start(request, nonce === undefined ? undefined : { context: { nonce } })
     const secured = new Response(response.body, response)
-    for (const [name, value] of Object.entries(SECURITY_HEADERS)) secured.headers.set(name, value)
+    for (const [name, value] of Object.entries(securityHeaders({ nonce, environment: env.ENVIRONMENT }))) {
+      secured.headers.set(name, value)
+    }
     // A page holds the visitor's data: never cached by anyone in between.
     if (!secured.headers.has("cache-control")) secured.headers.set("cache-control", "private, no-store")
     return secured

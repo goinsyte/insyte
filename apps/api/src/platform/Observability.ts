@@ -4,6 +4,7 @@ import {
   Context,
   Effect,
   Exit,
+  Formatter,
   Layer,
   Logger,
   ManagedRuntime,
@@ -13,9 +14,10 @@ import {
   Scope,
   Tracer
 } from "effect"
-import { FetchHttpClient, type HttpClient } from "effect/http"
+import { FetchHttpClient, Headers, type HttpClient, UrlParams } from "effect/http"
 import { OtlpSerialization, OtlpTracer } from "effect/observability"
 import { AppInfo, ConfigLive } from "./Bindings.ts"
+import { scrubLog } from "./LogScrub.ts"
 
 /*
  * Spans and logs (17 §1–2). Effect traces every HTTP request, RPC and SQL statement itself; use cases add theirs with
@@ -169,8 +171,31 @@ const MinimumLevel = Layer.unwrap(Effect.gen(function*() {
   return Layer.succeed(References.MinimumLogLevel, level)
 }))
 
+/** JSON on the console, as `Logger.consoleJson` writes it, through the scrubber (`LogScrub.ts`, 17 §6). */
+const scrubbedJson = Logger.withConsoleLog(
+  Logger.map(Logger.formatStructured, (line) => Formatter.formatJson(scrubLog(line)))
+)
+
+/**
+ * What Effect's HTTP spans write as `<redacted>` (17 §6): its defaults (`authorization`, `cookie`, `set-cookie`), the
+ * API key and the webhook signatures; and in a URL, the portal links' tokens and OAuth's `code` and `state`.
+ */
+const Redaction = Layer.mergeAll(
+  Layer.succeed(Headers.CurrentRedactedNames, [
+    "authorization",
+    "cookie",
+    "set-cookie",
+    "x-api-key",
+    "x-shopify-hmac-sha256",
+    "stripe-signature",
+    "svix-signature"
+  ]),
+  Layer.succeed(UrlParams.CurrentRedactedNames, ["token", "code", "state", "signature", "hmac"])
+)
+
 /** Logging for every runtime. Spans are the invocation's (`Telemetry.open`), not the runtime's. */
 export const ObservabilityLive = Layer.mergeAll(
-  Logger.layer([Logger.consoleJson]),
-  MinimumLevel
+  Logger.layer([scrubbedJson]),
+  MinimumLevel,
+  Redaction
 )
