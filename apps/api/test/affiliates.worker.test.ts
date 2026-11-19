@@ -1,4 +1,6 @@
 import { Db } from "@insyte/database/Db"
+import type { WorkspaceId } from "@insyte/domain/Ids"
+import { CurrentWorkspace } from "@insyte/domain/Principal"
 import {
   holdRecordedDiscount,
   namelessRecordedDiscount,
@@ -867,7 +869,10 @@ describe("the affiliate programme", () => {
     }) as unknown as SqlClient.SqlClient
     const db = { scopedFor: <A, E, R>(f: (s: SqlClient.SqlClient) => Effect.Effect<A, E, R>) => f(sql) }
     await Effect.runPromise(
-      discountFailed("aff_x", "OLDCODE").pipe(Effect.provideService(Db, db as unknown as Db["Service"]))
+      discountFailed("aff_x", "OLDCODE").pipe(
+        Effect.provideService(Db, db as unknown as Db["Service"]),
+        Effect.provideService(CurrentWorkspace, { id: "ws_x" as WorkspaceId })
+      )
     )
     expect(seen).toHaveLength(1)
     expect(seen[0]!.text).toMatch(/and code = \?/)
