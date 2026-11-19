@@ -11,6 +11,7 @@ import type { WriteOutcome } from "../../shared/domain/ShopifyWrites.ts"
 import { isAnswer, mutate } from "../../stores/domain/Gate.ts"
 import { gidId } from "../../stores/domain/Mirror.ts"
 import { ConnectionGate, missingScope } from "../../stores/domain/Ports.ts"
+import { UNNAMED_REASON } from "../domain/Affiliates.ts"
 
 /*
  * An affiliate's code as a Shopify discount (M16 step 5), in `ShopifyWriteWorkflow` once the approval's undo window
@@ -31,13 +32,13 @@ import { ConnectionGate, missingScope } from "../../stores/domain/Ports.ts"
 
 const SCOPE_REASON = "Insyte mag nog geen kortingscodes maken in deze winkel"
 export const TAKEN_REASON = "Code bestaat al in Shopify"
-const NO_ID_REASON = "Shopify gaf de korting geen id; probeer het opnieuw"
 
 interface Target {
   readonly id: string
   readonly shopifyDiscountId: string | null
   readonly code: string
   readonly discountState: string
+  readonly discountError: string | null
   readonly percent: number
   readonly connectionId: string | null
   readonly shop: string | null
@@ -45,7 +46,7 @@ interface Target {
 
 const targetOf = (sql: SqlClient.SqlClient, affiliateId: string) =>
   sql<Target>`
-    select a.id, a.shopify_discount_id, a.code, a.discount_state, p.discount_percent as percent, s.connection_id, s.shop_domain as shop
+    select a.id, a.shopify_discount_id, a.code, a.discount_state, a.discount_error, p.discount_percent as percent, s.connection_id, s.shop_domain as shop
     from affiliates a join affiliate_programs p on p.workspace_id = a.workspace_id
     left join lateral (select s.connection_id, s.shop_domain from stores s
                        where s.status in ('connected', 'connecting') and (p.store_id is null or s.id = p.store_id)
@@ -55,7 +56,7 @@ const targetOf = (sql: SqlClient.SqlClient, affiliateId: string) =>
 /** The outcome for the code the step read, while it is still the one asked for: \`false\` when it no longer is. */
 const settle = (
   t: Pick<Target, "id" | "code">,
-  state: "made" | "failed" | "off",
+  state: "made" | "failed" | "off" | "pending",
   error: string | null,
   shopifyId: string | null
 ) =>
@@ -101,6 +102,18 @@ const end = (store: { readonly connectionId: string; readonly shop: string }, sh
       })
     )
 
+/** The discount Shopify holds under a code, if any: its id and title. */
+const lookUp = (store: { readonly connectionId: string; readonly shop: string }, code: string) =>
+  Effect.map(
+    mutate(store, CODE_DISCOUNT_BY_CODE, { code }, "codeDiscountNodeByCode"),
+    ({ data }) => {
+      const node = (data as { codeDiscountNodeByCode?: Found | null } | null)?.codeDiscountNodeByCode
+      return node === null || node === undefined
+        ? null
+        : { id: gidId(node.id), title: node.codeDiscount?.title ?? null }
+    }
+  )
+
 export const discountWriteBack = Effect.fn("Affiliates.discountWriteBack")(function*(affiliateId: string) {
   const db = yield* Db
   const outcome = (o: WriteOutcome["outcome"], reason: string | null = null): WriteOutcome => ({
@@ -111,17 +124,26 @@ export const discountWriteBack = Effect.fn("Affiliates.discountWriteBack")(funct
   const [t] = yield* db.scopedFor((sql) => targetOf(sql, affiliateId))
   if (t === undefined) return outcome("skipped", "gone")
   if (t.discountState === "erased") {
-    if (t.shopifyDiscountId === null) return outcome("skipped", "none")
     // Erased: the discount Shopify has for them ends, and only then does Insyte forget it. A store that is not
     // connected now (or refuses its grant, or Shopify unreachable through every try) keeps it to end: the daily
     // settle asks again (`close.ts`), so it is ended once the store is back (W13.6).
     if (t.connectionId === null || t.shop === null) return outcome("skipped", "no_store")
-    if (!(yield* end({ connectionId: t.connectionId, shop: t.shop }, t.shopifyDiscountId))) {
-      return outcome("skipped", "no_store")
+    const erasedStore = { connectionId: t.connectionId, shop: t.shop }
+    // No id kept: a discount made under their code may still be Insyte's (a step mid-make, or Shopify naming none),
+    // known by the title Insyte gives it. Not found while one was made unnamed: looked for again tomorrow.
+    let shopifyId = t.shopifyDiscountId
+    if (shopifyId === null) {
+      const found = yield* lookUp(erasedStore, t.code).pipe(Effect.catchTag("TokenRefused", () => Effect.succeed(null)))
+      if (found === null || found.title !== titleOf(t)) {
+        return outcome("skipped", t.discountError === UNNAMED_REASON ? "unnamed" : "none")
+      }
+      shopifyId = found.id
     }
+    if (!(yield* end(erasedStore, shopifyId))) return outcome("skipped", "no_store")
     yield* db.scopedFor((sql) =>
-      sql`update affiliates set shopify_discount_id = null
-          where id = ${t.id} and discount_state = 'erased' and shopify_discount_id = ${t.shopifyDiscountId}`
+      sql`update affiliates set shopify_discount_id = null, discount_error = null
+          where id = ${t.id} and discount_state = 'erased'
+            and shopify_discount_id is not distinct from ${t.shopifyDiscountId}`
     )
     return outcome("sent")
   }
@@ -142,14 +164,16 @@ export const discountWriteBack = Effect.fn("Affiliates.discountWriteBack")(funct
   const store = { connectionId: t.connectionId, shop: t.shop }
   /** Whose the code is in the store now: nobody's, Insyte's for this affiliate, or someone else's. */
   const holder = Effect.map(
-    mutate(store, CODE_DISCOUNT_BY_CODE, { code: t.code }, "codeDiscountNodeByCode"),
-    ({ data }): Decided | null => {
-      const node = (data as { codeDiscountNodeByCode?: Found | null } | null)?.codeDiscountNodeByCode
-      if (node === null || node === undefined) return null
-      const id = gidId(node.id)
-      return id === t.shopifyDiscountId || node.codeDiscount?.title === title ? { made: id } : { failed: TAKEN_REASON }
-    }
+    lookUp(store, t.code),
+    (node): Decided | null =>
+      node === null
+        ? null
+        : node.id === t.shopifyDiscountId || node.title === title
+        ? { made: node.id }
+        : { failed: TAKEN_REASON }
   )
+  /** One made unnamed and not found yet (`UNNAMED_REASON`): kept to look for again, never taken for the brand's. */
+  const unnamed = { unnamed: true } as const
   const decided = Effect.gen(function*() {
     const found = yield* holder
     if (found !== null) return found
@@ -161,18 +185,16 @@ export const discountWriteBack = Effect.fn("Affiliates.discountWriteBack")(funct
     )
     // Taken between the look and the make: whose it is decides, as before.
     if (isTaken(errors as ReadonlyArray<{ code?: string | null }>)) {
-      return (yield* holder) ?? ({ failed: TAKEN_REASON } satisfies Decided)
+      return (yield* holder) ?? (t.discountError === UNNAMED_REASON ? unnamed : { failed: TAKEN_REASON })
     }
     if (errors.length > 0) return { failed: errors.map((e) => e.message).join("; ") } satisfies Decided
     const node = (data as { discountCodeBasicCreate?: { codeDiscountNode?: { id: string } | null } })
       ?.discountCodeBasicCreate?.codeDiscountNode
     if (node !== null && node !== undefined) return { made: gidId(node.id) } satisfies Decided
-    // Made, but Shopify named no node: found by its code, or it could never be ended later; not found, failed, to be
-    // asked again (W13.6).
+    // Made, but Shopify named no node: found by its code, or it could never be ended later; not found yet (its
+    // search lags), kept pending to look for again (W13.6).
     const named: Decided | null = yield* holder
-    return named !== null && "made" in named && named.made !== null
-      ? named
-      : ({ failed: NO_ID_REASON } satisfies Decided)
+    return named !== null && "made" in named && named.made !== null ? named : unnamed
   })
   const made: Decided = yield* decided.pipe(
     Effect.catchTags({
@@ -189,6 +211,10 @@ export const discountWriteBack = Effect.fn("Affiliates.discountWriteBack")(funct
       }
     })
   )
+  if ("unnamed" in made) {
+    yield* settle(t, "pending", UNNAMED_REASON, null)
+    return outcome("skipped", "unnamed")
+  }
   if ("made" in made) {
     if (yield* settle(t, "made", null, made.made)) return outcome("sent")
     // The code changed, or the affiliate was erased, while Shopify made it: not theirs to keep live.
@@ -201,6 +227,7 @@ export const discountWriteBack = Effect.fn("Affiliates.discountWriteBack")(funct
 
 type Decided =
   | { readonly made: string | null }
+  | { readonly unnamed: true }
   | { readonly failed: string; readonly scope?: true }
 
 interface Found {

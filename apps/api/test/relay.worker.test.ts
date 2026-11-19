@@ -9,6 +9,7 @@ import { env } from "cloudflare:workers"
 import { Exit } from "effect"
 import { describe, expect, it, vi } from "vitest"
 import worker from "../src/Local.ts"
+import { batchesOf } from "../src/platform/PendingTasks.ts"
 import type { EventsMessage } from "../src/platform/Relay.ts"
 import { call, onboarding, sessionMe } from "./support.ts"
 
@@ -82,6 +83,16 @@ const consume = async (outboxIds: Array<string>) => {
   await worker.queue(batch, env, ctx)
   return getQueueResult(batch, ctx)
 }
+
+/** Messages for the batch test: a bulk delay of 500 orders, and a small task. */
+const big = (i: number): EventsMessage => ({
+  agent: {
+    workspaceId: "ws",
+    eventId: `evt_${i}`,
+    trigger: { kind: "order.delayed", orderIds: Array.from({ length: 500 }, (_, j) => `ord_${i}_${j}`) }
+  }
+})
+const small = (i: number): EventsMessage => ({ classifyTicket: { workspaceId: "ws", ticketId: `t${i}` } })
 
 describe("the outbox relay", () => {
   let workspace = ""
@@ -229,6 +240,80 @@ describe("the outbox relay", () => {
     } finally {
       send.mockRestore()
       sendBatch.mockRestore()
+    }
+  })
+
+  it("keeps a bulk delay of 500 orders as a reference only, and the cron rebuilds its task from the event (W13.6)", async () => {
+    const orderIds = Array.from({ length: 500 }, (_, i) => `ord_${run}_${String(i).padStart(4, "0")}`)
+    const send = vi.spyOn(env.EVENTS, "send").mockResolvedValue(undefined as never)
+    const sendBatch = vi.spyOn(env.EVENTS, "sendBatch").mockResolvedValue(undefined as never)
+    try {
+      const delayed = await raw(workspace, "order.delayed", {
+        workspaceId: workspace,
+        userId: "u",
+        orderIds,
+        reason: "manual",
+        note: null
+      })
+      expect((await consume([delayed])).ackAll).toBe(true)
+      const row = (await outboxOf(workspace)).events.find((e) => e.id === delayed)!
+      expect(row).toMatchObject({ deadLetterReason: null })
+      expect(row.relayedAt).not.toBeNull()
+      const kept = await dev<{ tasks: Array<Record<string, unknown>> }>(`pending-tasks?workspace=${workspace}`)
+      expect(kept.tasks.filter((t) => t["ref"] === delayed)).toEqual([
+        expect.objectContaining({ kind: "agent", ref: delayed })
+      ])
+      expect(kept.tasks.find((t) => t["ref"] === delayed)).not.toHaveProperty("task")
+      await call(`http://api.test/api/__dev/pending-tasks/due?workspace=${workspace}`, { method: "POST" })
+      const ctx = createExecutionContext()
+      worker.scheduled(
+        createScheduledController({ cron: "* * * * *", scheduledTime: Date.UTC(2026, 10, 19, 2, 7) }),
+        env,
+        ctx
+      )
+      await waitOnExecutionContext(ctx)
+      const again = sendBatch.mock.calls.flatMap(([messages]) => [...messages]).map((m) => m.body as EventsMessage)
+      const task = again.find((body) => "agent" in body && body.agent.eventId === delayed)
+      expect(task).toEqual({
+        agent: { workspaceId: workspace, eventId: delayed, trigger: { kind: "order.delayed", orderIds } }
+      })
+      // No batch over the Queues' limits: a hundred messages, 256 KB.
+      for (const [messages] of sendBatch.mock.calls) {
+        expect([...messages].length).toBeLessThanOrEqual(100)
+        expect(JSON.stringify([...messages].map((m) => m.body)).length).toBeLessThan(256_000)
+      }
+    } finally {
+      send.mockRestore()
+      sendBatch.mockRestore()
+    }
+  })
+
+  it("never sets aside an access that ended: its sockets are closed however long the room fails (W13.6)", async () => {
+    const rooms = vi.spyOn(env.ROOMS, "getByName").mockReturnValue(
+      { closeMember: () => Promise.reject(new Error("Durable Object is overloaded.")) } as never
+    )
+    try {
+      const ended = await raw(workspace, "member.access_ended", { workspaceId: workspace, memberId: `mem_${run}` })
+      for (let i = 0; i < 9; i++) {
+        await call(`http://api.test/api/__dev/outbox/due?workspace=${workspace}`, { method: "POST" })
+        await consume([ended])
+      }
+      const row = (await outboxOf(workspace)).events.find((e) => e.id === ended)!
+      expect(row).toMatchObject({ relayedAt: null, deadLetteredAt: null, attempts: 9 })
+    } finally {
+      rooms.mockRestore()
+    }
+  })
+
+  it("sends tasks again in batches within the Queues' limits: a hundred messages, 256 KB (W13.6)", () => {
+    const batches = batchesOf([
+      ...Array.from({ length: 30 }, (_, i) => big(i)),
+      ...Array.from({ length: 150 }, (_, i) => small(i))
+    ])
+    expect(batches.flat()).toHaveLength(180)
+    for (const batch of batches) {
+      expect(batch.length).toBeLessThanOrEqual(100)
+      expect(JSON.stringify(batch).length).toBeLessThan(256_000)
     }
   })
 })

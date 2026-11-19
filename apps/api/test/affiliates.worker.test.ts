@@ -878,4 +878,40 @@ describe("the affiliate programme", () => {
     expect(seen[0]!.text).toMatch(/and code = \?/)
     expect(seen[0]!.values).toContain("OLDCODE")
   })
+
+  it("keeps a code Shopify made unnamed and its search has not found yet, and the daily settle finds it (W13.6)", async () => {
+    const store = await importedStore("aff-lag")
+    namelessRecordedDiscount(store.shop, "LAGKEPT", 1)
+    const kept = await affiliateOf(store, "aff-lag-kept", "Kept", "LAGKEPT")
+    // Not failed: Insyte made it, and looks again.
+    expect(ok(await rpc("Affiliates.get", { affiliateId: kept.affiliateId }, store.cookie)).affiliate.discount).toBe(
+      "pending"
+    )
+    {
+      await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+      await dev("settle", { workspace: store.workspace })
+      await relay(store.workspace)
+      for (const instance of await writes.get()) await instance.waitForStatus("complete")
+    }
+    expect(ok(await rpc("Affiliates.get", { affiliateId: kept.affiliateId }, store.cookie)).affiliate.discount).toBe(
+      "made"
+    )
+    // Found, its id is kept: erasing ends it.
+    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    ok(await rpc("Affiliates.erase", { affiliateId: kept.affiliateId }, store.cookie))
+    await relay(store.workspace)
+    for (const instance of await writes.get()) await instance.waitForStatus("complete")
+    expect(recordedDiscount(store.shop, "LAGKEPT")).toMatchObject({ ended: true })
+  })
+
+  it("ends an erased affiliate's discount that Insyte holds no id for, found by its code and title (W13.6)", async () => {
+    const store = await importedStore("aff-lag-erase")
+    namelessRecordedDiscount(store.shop, "LAGGONE", 1)
+    const gone = await affiliateOf(store, "aff-lag-gone", "Gone", "LAGGONE")
+    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    ok(await rpc("Affiliates.erase", { affiliateId: gone.affiliateId }, store.cookie))
+    await relay(store.workspace)
+    for (const instance of await writes.get()) await instance.waitForStatus("complete")
+    expect(recordedDiscount(store.shop, "LAGGONE")).toMatchObject({ ended: true })
+  })
 })

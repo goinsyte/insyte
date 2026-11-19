@@ -21,7 +21,8 @@ import {
   type DiscountState,
   FlaggedConversion,
   ProgramView,
-  type Tier
+  type Tier,
+  UNNAMED_REASON
 } from "../domain/Affiliates.ts"
 import type {
   ApplicationsInput,
@@ -659,7 +660,9 @@ export const erase = Effect.fn("Affiliates.erase")(function*(input: EraseInput) 
         yield* sql`update affiliate_codes set valid_until = now()
                    where affiliate_id = ${who.affiliateId} and (valid_until is null or valid_until > now())`
         yield* sql`delete from notifications where recipient_kind = 'affiliate' and recipient_id = ${who.affiliateId}`
-        yield* sql`update affiliates set discount_state = 'erased', discount_error = null where id = ${who.affiliateId}`
+        yield* sql`update affiliates set discount_state = 'erased',
+                     discount_error = case when discount_error = ${UNNAMED_REASON} then discount_error end
+                   where id = ${who.affiliateId}`
       }
       // Its discount, if Shopify has one or a step is making one, is ended by the step (\`discountWriteBack\`).
       const outboxId = who.affiliateId === null ? null : yield* Outbox.write(sql, principal.workspaceId, {

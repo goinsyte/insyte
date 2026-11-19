@@ -11,6 +11,7 @@ import type { Env } from "../../platform/Env.ts"
 import { ingest, type IngestMessage } from "../../platform/Ingest.ts"
 import { type Spans, Telemetry } from "../../platform/Observability.ts"
 import { deliver, type EventsMessage } from "../../platform/Relay.ts"
+import type { PendingKind } from "../../platform/relay/tasks.ts"
 import { withRequestDb } from "../../platform/RequestDb.ts"
 
 /**
@@ -82,8 +83,6 @@ export const queue: ExportedHandlerQueueHandler<Env, EventsMessage | IngestMessa
     ctx.waitUntil(spans.flush())
   }
 }
-
-type PendingKind = "agent" | "classify_ticket" | "embed_knowledge"
 
 /** A task that ran, out of `pending_tasks`; one that cannot be taken out now is sent again once by the cron. */
 const ranTask = (kind: PendingKind, workspaceId: string, ref: string | undefined) =>

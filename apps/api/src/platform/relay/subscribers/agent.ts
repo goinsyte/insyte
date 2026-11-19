@@ -1,9 +1,11 @@
-import { type AgentTask, asksWhereOrderIs, systemSender } from "@insyte/modules/agent/domain/Triggers"
+import { asksWhereOrderIs, systemSender } from "@insyte/modules/agent/domain/Triggers"
+import type { OutboxEvent } from "@insyte/modules/shared/domain/Outbox"
 import { env } from "cloudflare:workers"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import { type EventsMessage, keepTask } from "../../Relay.ts"
 import { subscriber } from "../Subscriber.ts"
+import { agentTaskOf } from "../tasks.ts"
 
 /*
  * The agent sink (M15 step 6; ADR-0027 "started by an event"): what may make the workspace's agent act on its own, put
@@ -16,8 +18,10 @@ import { subscriber } from "../Subscriber.ts"
  * Kept on the event's transaction (`pending_tasks`, W13.6) and onto the queue: a task that does not get there, or whose
  * message is lost, is sent again by the cron for an hour; after that the trigger is the team's.
  */
-const ask = (task: AgentTask, sql: SqlClient.SqlClient) =>
-  keepTask(sql, task.workspaceId, "agent", task.eventId, { agent: task }).pipe(
+const ask = (id: string, event: OutboxEvent, sql: SqlClient.SqlClient) => {
+  const task = agentTaskOf(id, event)
+  if (task === undefined) return undefined
+  return keepTask(sql, task.workspaceId, "agent", id).pipe(
     Effect.orDie,
     Effect.andThen(
       Effect.tryPromise(() => env.EVENTS.send({ agent: task } satisfies EventsMessage)).pipe(
@@ -25,6 +29,7 @@ const ask = (task: AgentTask, sql: SqlClient.SqlClient) =>
       )
     )
   )
+}
 
 export const Agent = subscriber("agent", {
   // A mail in (M11): the agent answers one that asks where an order is, from a person, never a system's or a
@@ -36,32 +41,10 @@ export const Agent = subscriber("agent", {
         where id = ${event.messageId} and direction = 'inbound'`
       if (m === undefined || m.automated || systemSender(m.sender)) return
       if (!asksWhereOrderIs({ subject: m.subject, text: m.text, reply: event.reply })) return
-      yield* ask({
-        workspaceId: event.workspaceId,
-        eventId: id,
-        trigger: { kind: "thread.received", threadId: event.threadId, messageId: event.messageId, reply: event.reply }
-      }, sql)
+      yield* ask(id, event, sql) ?? Effect.void
     }).pipe(Effect.orDie),
   // A shopper's message on the website chat (M15 step 8): the customer agent answers it, or hands it to the team.
-  "chat.received": (id, event, sql) =>
-    ask({
-      workspaceId: event.workspaceId,
-      eventId: id,
-      trigger: {
-        kind: "chat.received",
-        storeId: event.storeId,
-        threadId: event.threadId,
-        messageId: event.messageId,
-        channel: event.channel
-      }
-    }, sql),
+  "chat.received": (id, event, sql) => ask(id, event, sql),
   // An order delayed (M8.4, M10.2): the agent tells its shopper, as the queue's plate would.
-  "order.delayed": (id, event, sql) =>
-    event.orderIds.length === 0
-      ? undefined
-      : ask({
-        workspaceId: event.workspaceId,
-        eventId: id,
-        trigger: { kind: "order.delayed", orderIds: event.orderIds }
-      }, sql)
+  "order.delayed": (id, event, sql) => ask(id, event, sql)
 })

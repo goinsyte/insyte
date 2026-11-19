@@ -12,6 +12,7 @@ import { env, waitUntil } from "cloudflare:workers"
 import { Cause, Effect, Exit, Layer } from "effect"
 import type { SqlClient } from "effect/sql"
 import type * as Registry from "./relay/registry.ts"
+import { type PendingKind, taskOf } from "./relay/tasks.ts"
 
 /*
  * The outbox relay (M1.4). A use case's committed events are kicked onto the `EVENTS` queue (`RelayLive`); the minute
@@ -34,7 +35,14 @@ let loading: Promise<typeof Registry> | undefined
  * error in the log each time, until a fix reads it.
  */
 const neverSetAside = (event: string) =>
-  event.startsWith("privacy.") || event.startsWith("billing.") || WEBHOOK_SOURCE_EVENTS.has(event)
+  event.startsWith("privacy.") || event.startsWith("billing.") || WEBHOOK_SOURCE_EVENTS.has(event) ||
+  ACCESS_ENDED.has(event)
+
+/**
+ * An access that ended (W13.6): its realtime sink closes the person's sockets (`closeMember`), which must not be given
+ * up on, or a revoked contact or a removed member keeps the tabs they had open.
+ */
+const ACCESS_ENDED: ReadonlySet<string> = new Set(["supplier.contact_revoked", "member.access_ended"])
 
 const NOT_ITS_EVENT = "the payload does not match its event's schema"
 
@@ -82,18 +90,16 @@ export type EventsMessage =
 
 /**
  * A task a person would miss if its message were lost, kept in `pending_tasks` (0109) on the transaction that relays
- * its event, by the event's id; the consumer removes it once the task ran, and the cron sends again what is left
- * (`PendingTasks.ts`). Ids only.
+ * its event: a reference only (the event's outbox id and the task's kind), from which the cron builds the task again
+ * (`PendingTasks.ts`, `relay/tasks.ts`). The consumer removes it once the task ran.
  */
 export const keepTask = (
   sql: SqlClient.SqlClient,
   workspaceId: string,
-  kind: "agent" | "classify_ticket" | "embed_knowledge",
-  ref: string,
-  task: EventsMessage
+  kind: PendingKind,
+  ref: string
 ) =>
-  sql`insert into pending_tasks (workspace_id, kind, ref, task)
-      values (${workspaceId}, ${kind}, ${ref}, ${JSON.stringify(task)}::jsonb)
+  sql`insert into pending_tasks (workspace_id, kind, ref) values (${workspaceId}, ${kind}, ${ref})
       on conflict (workspace_id, kind, ref) do nothing`.pipe(Effect.asVoid)
 
 /** The longest a queue message can be delayed (Cloudflare Queues: 12 hours). */
@@ -210,14 +216,10 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
           }
           // The tasks it asks for, kept until they ran (sent below, once this commits).
           if (event.type === "ticket.topic_requested") {
-            yield* keepTask(sql, workspaceId, "classify_ticket", id, {
-              classifyTicket: { workspaceId, ticketId: event.ticketId, eventId: id }
-            })
+            yield* keepTask(sql, workspaceId, "classify_ticket", id)
           }
           if (event.type === "knowledge.published") {
-            yield* keepTask(sql, workspaceId, "embed_knowledge", id, {
-              embedKnowledge: { workspaceId, articleId: event.articleId, version: event.version, eventId: id }
-            })
+            yield* keepTask(sql, workspaceId, "embed_knowledge", id)
           }
           yield* sql`update outbox set relayed_at = now(), attempts = attempts + 1, dead_letter_reason = null
                    where id = ${id}`
@@ -246,15 +248,14 @@ export const deliver = Effect.fn("Relay.deliver")(function*(outboxIds: ReadonlyA
     // A ticket's topic by Insyte AI (M15 step 2): its own message on the queue, so a model call that takes seconds
     // holds up no other event. Sent once, when the event is relayed; the rules' topic stands until it is done.
     if (relayed.event.type === "ticket.topic_requested") {
-      const message: EventsMessage = { classifyTicket: { workspaceId, ticketId: relayed.event.ticketId, eventId: id } }
+      const message = taskOf("classify_ticket", id, relayed.event)!
       yield* Effect.tryPromise(() => env.EVENTS.send(message)).pipe(
         Effect.catchCause((cause) => Effect.logWarning("a ticket's topic was not asked for", { cause }))
       )
     }
     // A chapter published (M15 step 7): its pieces embedded on their own message, found by their words meanwhile.
     if (relayed.event.type === "knowledge.published") {
-      const { articleId, version } = relayed.event
-      const message: EventsMessage = { embedKnowledge: { workspaceId, articleId, version, eventId: id } }
+      const message = taskOf("embed_knowledge", id, relayed.event)!
       yield* Effect.tryPromise(() => env.EVENTS.send(message)).pipe(
         Effect.catchCause((cause) => Effect.logWarning("a chapter's embedding was not asked for", { cause }))
       )

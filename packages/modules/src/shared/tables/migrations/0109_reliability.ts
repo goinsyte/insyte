@@ -14,11 +14,15 @@ import { statements } from "../statements.ts"
  *   a website chat, a ticket's topic by Insyte AI, a published chapter's embedding), written on the transaction that
  *   relays the event, removed once the task ran. The cron sends again what is still there after ten minutes, waiting
  *   longer each time, until it ran or it is too late to matter (`pending_tasks_due`): an hour for the agent, a day for
- *   a topic, a week for a chapter. Each task acts once however often it comes. Ids only.
+ *   a topic, a week for a chapter. Each task acts once however often it comes. A row is a reference only (the
+ *   workspace, the kind, the event's outbox id): the sweep rebuilds the task from its event, so no task is too large
+ *   to keep (a bulk delay names up to 500 orders).
  * - The tables without row level security (better-auth's, the rates, the relay's sink claims, the migrations, the
  *   capture tables of the fakes, the beta list, the Prullenbak's kinds) refuse every write from Insyte's support team
  *   (`staff`, `staff_viewer`, 0107): a statement trigger, so the database holds it, not only the code. Better-auth and
  *   every other writer never runs as staff, and pass.
+ * - `migrations` is the Migrator's, which runs as the owner (`scripts/migrate.ts`): the app's role keeps reading it
+ *   and writes nothing there (0001's default privileges had given it every write).
  */
 
 /** The tables without row level security that a staff transaction must not write. */
@@ -49,6 +53,8 @@ export default statements(
                                                 'unknown')),
      workspace_id text,
      error_code   text check (length(error_code) <= 80),
+     -- The dead-letter queue's own delivery count of the message, as its consumer saw it (\`message.attempts\`), not how
+     -- often the work was tried before it got there (the main queue's retries).
      attempts     int not null default 0,
      dead_at      timestamptz not null default now(),
      unique (queue, message_id)
@@ -89,7 +95,6 @@ export default statements(
      workspace_id text not null references workspaces(id) on delete cascade,
      kind         text not null check (kind in ('agent', 'classify_ticket', 'embed_knowledge')),
      ref          text not null check (length(ref) between 1 and 200),
-     task         jsonb not null check (jsonb_typeof(task) = 'object' and octet_length(task::text) <= 4000),
      created_at   timestamptz not null default now(),
      next_at      timestamptz not null default now() + interval '10 minutes',
      attempts     int not null default 0,
@@ -102,7 +107,7 @@ export default statements(
   newcomerBlind("pending_tasks"),
   ...staffHeld("pending_tasks"),
   `create function pending_tasks_due(lim int)
-     returns table (workspace_id text, kind text, ref text, task jsonb, attempts int)
+     returns table (workspace_id text, kind text, ref text, attempts int, event text, payload jsonb)
      language plpgsql security definer set search_path = public as $$
      #variable_conflict use_column
      begin
@@ -125,7 +130,9 @@ export default statements(
          update pending_tasks p set attempts = p.attempts + 1, next_at = now() + make_interval(mins => (10 * power(2, least(p.attempts, 4)))::int)
          from due
          where p.workspace_id = due.workspace_id and p.kind = due.kind and p.ref = due.ref
-         returning p.workspace_id, p.kind, p.ref, p.task, p.attempts;
+         returning p.workspace_id, p.kind, p.ref, p.attempts,
+                   (select o.event from outbox o where o.id = p.ref),
+                   (select o.payload from outbox o where o.id = p.ref);
      end $$`,
   "revoke all on function pending_tasks_due(int) from public",
   "grant execute on function pending_tasks_due(int) to insyte_app",
@@ -139,6 +146,7 @@ export default statements(
        end if;
        return null;
      end $$`,
+  "revoke insert, update, delete on migrations from insyte_app",
   UNGUARDED.flatMap((table) => [
     `create trigger ${triggerOf(table)} before insert or update or delete on ${table}
        for each statement execute function refuse_staff_writes()`

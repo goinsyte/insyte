@@ -147,8 +147,8 @@ const PendingTasksOf = HttpRouter.add(
     const workspace = yield* workspaceParam
     const db = yield* Db
     const tasks = yield* db.scopedFor((sql) =>
-      sql<{ kind: string; ref: string; attempts: number; task: unknown }>`
-        select kind, ref, attempts, task from pending_tasks order by created_at`
+      sql<{ kind: string; ref: string; attempts: number }>`
+        select kind, ref, attempts from pending_tasks order by created_at`
     ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
     return HttpServerResponse.jsonUnsafe({ tasks })
   }).pipe(withRequestDb)
