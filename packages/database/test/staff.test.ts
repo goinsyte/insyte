@@ -391,6 +391,43 @@ describe("the staff admin's tables", () => {
       expect(ws).toEqual({ name: alice.name, days: 6 })
     })
 
+    it("writes nothing to the tables without row level security, which their own writers still write (0109)", async () => {
+      // Each statement finds no row: the refusal is the trigger's, before any row is looked at.
+      const writes = {
+        user: (sql: SqlClient.SqlClient) => sql`update auth."user" set name = 'pwned' where id = ${alice.id}`,
+        account: (sql: SqlClient.SqlClient) => sql`delete from auth.account where user_id = ${alice.id}`,
+        session: (sql: SqlClient.SqlClient) => sql`delete from auth.session where user_id = ${alice.id}`,
+        twoFactor: (sql: SqlClient.SqlClient) => sql`delete from auth.two_factor where user_id = ${alice.id}`,
+        verification: (sql: SqlClient.SqlClient) => sql`delete from auth.verification where identifier = ${STAFF}`,
+        rates: (sql: SqlClient.SqlClient) => sql`delete from fx_rates where false`,
+        sinks: (sql: SqlClient.SqlClient) => sql`delete from outbox_sinks where outbox_id = ${wsA}`
+      }
+      for (const [table, write] of Object.entries(writes)) {
+        expect(refusalOf(await exitOf(writingAsTeam(write))), table).toContain("support team writes nothing here")
+      }
+      // Not staff (better-auth's own writes, the relay's claims, the rates' fill): as before.
+      for (const write of Object.values(writes)) {
+        expect(Exit.isSuccess(await exitOf(Effect.flatMap(Effect.service(Db), (db) => db.routing(write))))).toBe(true)
+      }
+    })
+
+    it("leaves the migrations to the Migrator, the owner: the app's role reads them and writes nothing (0109)", async () => {
+      const writes = [
+        (sql: SqlClient.SqlClient) => sql`delete from migrations where false`,
+        (sql: SqlClient.SqlClient) => sql`update migrations set name = name where false`,
+        (sql: SqlClient.SqlClient) => sql`insert into migrations (migration_id, name) values (-1, 'x')`
+      ]
+      for (const write of writes) {
+        const exit = await exitOf(Effect.flatMap(Effect.service(Db), (db) => db.routing(write)))
+        expect(refusalOf(exit)).toContain("permission denied for table migrations")
+        expect(refusalOf(await exitOf(writingAsTeam(write)))).toContain("permission denied for table migrations")
+      }
+      const read = await exitOf(
+        Effect.flatMap(Effect.service(Db), (db) => db.routing((sql) => sql`select count(*) from migrations`))
+      )
+      expect(Exit.isSuccess(read)).toBe(true)
+    })
+
     it("writes only its sessions, its audit, the Logboek's support lines and the realtime nudge", async () => {
       const logbook = (line: { section?: string; action?: string; by?: string; said?: string }) =>
         exitOf(

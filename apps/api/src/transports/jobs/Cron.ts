@@ -39,6 +39,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = (controller, _env
   turn(background, withRequestDb(notifySweep()))
   const at = new Date(controller.scheduledTime)
   turn(background, withRequestDb(webhooksRearm(at)))
+  // The agent's, the topics' and the chapters' tasks whose message was lost (W13.6), sent again; one query when none
+  // is due. Loaded here, not when the Worker starts.
+  turn(background, withRequestDb(Effect.flatMap(Effect.promise(loadPendingTasks), (m) => m.pendingSweep())))
   if (at.getUTCMinutes() % 15 === 0) {
     const nightly = at.getUTCHours() === 2 && at.getUTCMinutes() === 0
     turn(background, withRequestDb(factsSweep(nightly)))
@@ -93,6 +96,8 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = (controller, _env
 }
 
 const loadRedactSweep = () => import("../../platform/RedactSweep.ts")
+
+const loadPendingTasks = () => import("../../platform/PendingTasks.ts")
 
 /** The affiliates' daily approval; the slice loads with it, not with the Worker (ADR-0041 §3). */
 const affiliateSweep = (at: Date) =>

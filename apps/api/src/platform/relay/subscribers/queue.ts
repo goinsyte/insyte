@@ -4,6 +4,7 @@ import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import { roomOf } from "../../Room.ts"
 import { subscriber } from "../Subscriber.ts"
+import { told } from "../told.ts"
 
 /** The record kinds whose change may open, update or close a queue row on Start (M10.1). */
 const QUEUED = new Set(["order", "return", "quality_check", "store", "product", "chargeback", "connection"])
@@ -12,8 +13,9 @@ const QUEUED = new Set(["order", "return", "quality_check", "store", "product", 
 const queue = Effect.fn("Relay.queue")(
   function*(event: Extract<OutboxEvent, { type: "records.changed" }>, sql: SqlClient.SqlClient) {
     if (!(yield* refreshIn(sql))) return
-    yield* Effect.promise(() =>
-      roomOf(event.workspaceId).broadcast({ v: 1, type: "records.changed", kind: "queue_item", ids: [] })
+    yield* told(
+      "Relay.queue.told",
+      () => roomOf(event.workspaceId).broadcast({ v: 1, type: "records.changed", kind: "queue_item", ids: [] })
     )
   },
   Effect.orDie

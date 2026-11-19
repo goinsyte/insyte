@@ -394,3 +394,10 @@ export class ProgramLanding extends Schema.Class<ProgramLanding>("affiliates/Pro
 }) {}
 
 export class Applied extends Schema.Class<Applied>("affiliates/Applied")({ applicationId: Schema.String }) {}
+
+/**
+ * Shopify made the discount but named no node, and its search did not find it yet (W13.6): the code stays `pending`
+ * with this note, and the daily settle looks it up by its code again (`close.ts`) until it is found, so it can always
+ * be ended. An erasure keeps the note, so its discount is still looked for.
+ */
+export const UNNAMED_REASON = "Shopify bevestigt de korting nog; Insyte kijkt het dagelijks opnieuw na"

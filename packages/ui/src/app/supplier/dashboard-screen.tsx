@@ -4,6 +4,7 @@ import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis
 import { ArrowRight, Check, ChevronRight, MessagesSquare, Truck } from "../../icons"
 import { EmptyPage } from "../common/empty-page"
 import { PageGuide } from "../common/page-guide"
+import { useHydrated } from "../hooks/use-hydrated"
 import { getGreeting } from "../lib/greetings"
 import { cn } from "../lib/utils"
 import { ShipDialog } from "./ship-dialog"
@@ -41,7 +42,25 @@ const guideOf = (brand: string, measure: string) =>
     }
   ] as const
 
-const day = new Intl.DateTimeFormat("nl-NL", { weekday: "short", day: "numeric", month: "short" })
+const day = new Intl.DateTimeFormat("nl-NL", {
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+  timeZone: "Europe/Amsterdam"
+})
+
+/**
+ * The greeting is the reader's clock, which the server does not have: it waits for hydration (as Start and the
+ * affiliate portal), so the server's render, and the browser's first, match (React #418 after 22:00 in Amsterdam).
+ */
+export function SupplierGreeting({ firstName }: { readonly firstName: string }) {
+  const hydrated = useHydrated()
+  return (
+    <h1 id="sup-title" className="font-medium text-mesh-ink text-xl">
+      {hydrated ? getGreeting(firstName).salutation : "\u00a0"}
+    </h1>
+  )
+}
 
 export function SupplierDashboard() {
   const navigate = useNavigate()
@@ -57,7 +76,6 @@ export function SupplierDashboard() {
   const CheckWork = parts.CheckWork
   const Closing = parts.Closing
 
-  const greeting = getGreeting(portal.firstName)
   const sentence = n.late > 0
     ? `${n.late} ${n.late === 1 ? "bestelling is" : "bestellingen zijn"} te laat en ${n.today} ${
       n.today === 1 ? "moet" : "moeten"
@@ -73,9 +91,7 @@ export function SupplierDashboard() {
         <section aria-labelledby="sup-title" className="plate overflow-hidden rounded-2xl">
           <span aria-hidden className="plate-scan" />
           <header className="flex flex-col gap-1.5 px-7 pt-6">
-            <h1 id="sup-title" className="font-medium text-mesh-ink text-xl">
-              {greeting.salutation}
-            </h1>
+            <SupplierGreeting firstName={portal.firstName} />
             <p className="text-base text-mesh-ink-2">
               {fresh
                 ? `Welkom in het portaal van ${brand}. Hier komen de bestellingen die je voor hen levert.`

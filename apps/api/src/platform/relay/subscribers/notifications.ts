@@ -8,6 +8,7 @@ import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
 import { roomOf } from "../../Room.ts"
 import { type EventType, onEach, subscriber } from "../Subscriber.ts"
+import { told } from "../told.ts"
 
 /**
  * The notifications sink (M5.2): rows for whoever should hear of the event, then each one's tabs their count; what
@@ -21,7 +22,7 @@ const notifications = Effect.fn("Relay.notifications")(
     yield* Effect.forEach(
       heard,
       ({ recipientId, unread }) =>
-        Effect.promise(() => room.sendTo(recipientId, { v: 1, type: "notes.changed", unread }))
+        told("Relay.notifications.told", () => room.sendTo(recipientId, { v: 1, type: "notes.changed", unread }))
     )
   },
   Effect.orDie

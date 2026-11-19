@@ -63,7 +63,16 @@ export class ShopifyWriteWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Sho
       : "order"
     const outcomes: Array<WriteOutcome> = []
     for (const id of idsOf(write)) {
+      // The code an affiliate's step makes, read first: its failure is said of that code only (W13.6).
+      let code: string | null = null
       try {
+        if (write.type === "affiliate.discount_requested") {
+          code = await step.do(
+            `${kind} ${id} code`,
+            RETRY,
+            () => run(workspaceId, Effect.flatMap(affiliateDiscounts, (m) => m.discountCode(id)))
+          )
+        }
         // A record made in Insyte goes in two steps: sent, then its row takes Shopify's ids (`CreateSent`).
         if (write.type === "product.created") {
           const sent = await step.do(`${kind} ${id}`, RETRY, () => run(workspaceId, productCreateSend(write, id)))
@@ -122,11 +131,12 @@ export class ShopifyWriteWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Sho
             () => run(workspaceId, refundFailed(write.refundId, id, "unreachable"))
           )
         }
-        if (write.type === "affiliate.discount_requested") {
+        if (write.type === "affiliate.discount_requested" && code !== null) {
+          const read = code
           await step.do(
             `discount failed ${id}`,
             RETRY,
-            () => run(workspaceId, Effect.flatMap(affiliateDiscounts, (m) => m.discountFailed(id)))
+            () => run(workspaceId, Effect.flatMap(affiliateDiscounts, (m) => m.discountFailed(id, read)))
           )
         }
         if (write.type === "return.resolution_requested") {

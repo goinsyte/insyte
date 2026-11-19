@@ -10,7 +10,10 @@ describe("the API Worker", () => {
 
   it("proves on GET /api/health/deep that it connects as insyte_app, without BYPASSRLS", async () => {
     const response = await call("http://api.test/api/health/deep")
-    expect(await response.json()).toEqual({
+    const body = (await response.json()) as { deadLetters?: { lastAt: unknown } }
+    // The latest dead letter's time, when there is one.
+    expect(body.deadLetters?.lastAt === null || typeof body.deadLetters?.lastAt === "string").toBe(true)
+    expect({ ...body, deadLetters: { ...body.deadLetters, lastAt: null } }).toEqual({
       ok: true,
       role: "insyte_app",
       bypassesRls: false,
@@ -21,7 +24,9 @@ describe("the API Worker", () => {
         redactsOpen: expect.any(Number),
         redactsFailed: expect.any(Number),
         redactsOverdue: expect.any(Number)
-      }
+      },
+      // The messages the queues gave up on (W13.6), written down by the jobs Worker's dead-letter consumer.
+      deadLetters: { events: expect.any(Number), ingest: expect.any(Number), lastDay: expect.any(Number), lastAt: null }
     })
   })
 

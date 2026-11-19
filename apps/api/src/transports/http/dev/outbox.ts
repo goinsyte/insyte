@@ -132,4 +132,50 @@ const AuditOf = HttpRouter.add(
   }).pipe(withRequestDb)
 )
 
-export const OutboxRoutes = Layer.mergeAll(OutboxOf, OutboxDue, OutboxRaw, ProductEventsOf, AuditOf)
+/**
+ * `GET /api/__dev/pending-tasks?workspace=<id>`: the workspace's tasks kept until they run (W13.6, `pending_tasks`);
+ * `POST /api/__dev/pending-tasks/due?workspace=<id>`: makes them due now, so a test need not wait ten minutes. Refused
+ * in production.
+ */
+const PendingTasksOf = HttpRouter.add(
+  "GET",
+  "/api/__dev/pending-tasks",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const db = yield* Db
+    const tasks = yield* db.scopedFor((sql) =>
+      sql<{ kind: string; ref: string; attempts: number }>`
+        select kind, ref, attempts from pending_tasks order by created_at`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe({ tasks })
+  }).pipe(withRequestDb)
+)
+
+const PendingTasksDue = HttpRouter.add(
+  "POST",
+  "/api/__dev/pending-tasks/due",
+  Effect.gen(function*() {
+    if (!(yield* notInProduction)) {
+      return HttpServerResponse.jsonUnsafe({ error: { code: "not_found" } }, { status: 404 })
+    }
+    const workspace = yield* workspaceParam
+    const db = yield* Db
+    const due = yield* db.scopedFor((sql) =>
+      sql<{ ref: string }>`update pending_tasks set next_at = now() - interval '1 second' returning ref`
+    ).pipe(Effect.provideService(CurrentWorkspace, { id: workspace as WorkspaceId }))
+    return HttpServerResponse.jsonUnsafe({ due: due.map((row) => row.ref) })
+  }).pipe(withRequestDb)
+)
+
+export const OutboxRoutes = Layer.mergeAll(
+  OutboxOf,
+  OutboxDue,
+  OutboxRaw,
+  ProductEventsOf,
+  AuditOf,
+  PendingTasksOf,
+  PendingTasksDue
+)

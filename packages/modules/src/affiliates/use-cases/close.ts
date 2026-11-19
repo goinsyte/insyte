@@ -3,7 +3,8 @@ import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
-import type { Tier } from "../domain/Affiliates.ts"
+import * as Outbox from "../../shared/use-cases/Outbox.ts"
+import { type Tier, UNNAMED_REASON } from "../domain/Affiliates.ts"
 import { settle } from "./conversions.ts"
 import { currencyOf, monthOf, payDayOf, programOf, tiersOf } from "./program.ts"
 
@@ -165,11 +166,34 @@ export const settleWorkspace = Effect.fn("Affiliates.settleWorkspace")(function*
     Effect.gen(function*() {
       const changed = yield* settle(sql, { at })
       if (changed.length > 0) yield* refreshPayouts(sql)
+      yield* endErased(sql)
       const purged = yield* retain(sql, at)
       return { changed: changed.length, purged }
     })
   )
 })
+
+/**
+ * An erased affiliate's discount still held (its store was not connected when they were erased, refused its grant, or
+ * Shopify was unreachable through every try) is asked to end again, once a day, while a store is connected; a code
+ * Shopify made without naming it (`UNNAMED_REASON`) is looked up by its code again, to be kept or ended (W13.6).
+ */
+const endErased = (sql: SqlClient.SqlClient) =>
+  Effect.gen(function*() {
+    const rows = yield* sql<{ id: string; workspaceId: string }>`
+      select a.id, a.workspace_id from affiliates a
+      where ((a.discount_state = 'erased' and a.shopify_discount_id is not null)
+             or (a.discount_state in ('pending', 'erased') and a.discount_error = ${UNNAMED_REASON}))
+        and exists (select 1 from stores s where s.workspace_id = a.workspace_id and s.status = 'connected')
+      order by a.id limit 100`
+    const [first] = rows
+    if (first === undefined) return
+    yield* Outbox.write(sql, first.workspaceId, {
+      type: "affiliate.discount_requested",
+      workspaceId: first.workspaceId,
+      affiliateIds: rows.map((r) => r.id)
+    })
+  })
 
 /** Every programme's daily approval, one workspace after another; one that fails is logged, the rest still run. */
 export const settleSweep = Effect.fn("Affiliates.settleSweep")(function*(at: Date = new Date()) {

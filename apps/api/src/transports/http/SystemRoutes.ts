@@ -24,8 +24,9 @@ const Health = HttpRouter.add(
 
 /**
  * `GET /api/health/deep`: proof that the Worker connects as `insyte_app`, which cannot bypass row level security, and
- * which migration the database is at, how many outbox rows wait on someone (dead letters, rows held back), and how many
- * of Shopify's erasures are not done (open, failed, overdue). Behind
+ * which migration the database is at, how many outbox rows wait on someone (dead letters, rows held back), how many
+ * of Shopify's erasures are not done (open, failed, overdue), and the messages the queues gave up on (per queue, the
+ * last day's, the latest). Behind
  * Access in every deployed environment (`/api/__dev/*` and this path).
  */
 const DeepHealth = HttpRouter.add(
@@ -50,14 +51,25 @@ const DeepHealth = HttpRouter.add(
     const [redacts] = yield* db.routing((sql) =>
       sql<{ open: string; failed: string; overdue: string }>`select open, failed, overdue from privacy_redacts_open()`
     )
+    // What the queues gave up on (0109, the jobs Worker's dead-letter consumer): per queue, the last day's, the latest.
+    const [dead] = yield* db.routing((sql) =>
+      sql<{ events: string; ingest: string; lastDay: string; lastAt: Date | null }>`
+        select events, ingest, last_day, last_at from dead_letters_counts()`
+    )
     const ok = row?.role === "insyte_app" && row.bypassesRls === false
+    const deadLetters = {
+      events: Number(dead?.events ?? 0),
+      ingest: Number(dead?.ingest ?? 0),
+      lastDay: Number(dead?.lastDay ?? 0),
+      lastAt: dead?.lastAt ?? null
+    }
     const outbox = { deadLettered: Number(letters?.deadLettered ?? 0), held: Number(letters?.held ?? 0) }
     const privacy = {
       redactsOpen: Number(redacts?.open ?? 0),
       redactsFailed: Number(redacts?.failed ?? 0),
       redactsOverdue: Number(redacts?.overdue ?? 0)
     }
-    return HttpServerResponse.jsonUnsafe({ ok, ...row, outbox, privacy }, { status: ok ? 200 : 500 })
+    return HttpServerResponse.jsonUnsafe({ ok, ...row, outbox, privacy, deadLetters }, { status: ok ? 200 : 500 })
   }).pipe(
     Effect.catchTag("SqlError", (error) =>
       Effect.logError("deep health: the database did not answer", error).pipe(

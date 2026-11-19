@@ -12,6 +12,19 @@ const bearer = (header: string | undefined) => {
 }
 
 /**
+ * A turned-away request's body is never read: cancelled, so the client's upload stops and the runtime holds nothing
+ * open for it (W13.6). Best-effort: a body already gone, or none, is nothing to cancel.
+ */
+const letGo = (request: HttpServerRequest.HttpServerRequest) =>
+  Effect.flatMap(
+    Effect.option(HttpServerRequest.toWeb(request)),
+    (web) =>
+      web._tag === "Some" && web.value.body !== null && !web.value.bodyUsed
+        ? Effect.promise(() => web.value.body!.cancel().catch(() => undefined))
+        : Effect.void
+  )
+
+/**
  * The key door in front of the MCP route: a refusal is an HTTP 401, 403 or 429 before any JSON-RPC is read. Inside, the
  * request also has what the workspace's rules decide for an agent, read only if `tools/list` asks (`Reach.ts`).
  */
@@ -27,9 +40,9 @@ export const McpAuth = HttpRouter.middleware<{ provides: CurrentPrincipal | Curr
             Effect.flatMap(agentDecisions, (decisions) => Effect.provideService(effect, AgentDecisions, decisions))
           ).pipe(
             Effect.catchTags({
-              Refused: (e) => Effect.succeed(refusal(e)),
-              Throttled: (e) => Effect.succeed(refusal(e)),
-              UnknownVersion: (e) => Effect.succeed(refusal(e))
+              Refused: (e) => Effect.as(letGo(request), refusal(e)),
+              Throttled: (e) => Effect.as(letGo(request), refusal(e)),
+              UnknownVersion: (e) => Effect.as(letGo(request), refusal(e))
             })
           )
       )

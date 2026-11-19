@@ -1,13 +1,20 @@
+import { Db } from "@insyte/database/Db"
+import type { WorkspaceId } from "@insyte/domain/Ids"
+import { CurrentWorkspace } from "@insyte/domain/Principal"
 import {
   holdRecordedDiscount,
+  namelessRecordedDiscount,
   recordedDiscount,
   seedRecordedDiscount
 } from "@insyte/integrations-shopify/ShopifyRecorded"
+import { discountFailed } from "@insyte/modules/affiliates/use-cases/discount"
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
+import { Effect } from "effect"
+import type { SqlClient } from "effect/sql"
 import { describe, expect, it } from "vitest"
 import { failure, join, ok, outboxOf, pastUndo, person, relay, run } from "./journeys.ts"
-import { importedStore } from "./shops.ts"
+import { anotherStore, importedStore } from "./shops.ts"
 import { call, rpc, sessionMe } from "./support.ts"
 
 /*
@@ -817,5 +824,94 @@ describe("the affiliate programme", () => {
       motivation: null
     })
     expect(JSON.stringify(rows)).not.toContain(kim.email)
+  })
+
+  it("keeps a discount Shopify made without naming it, found by its code, so it can be ended later (W13.6)", async () => {
+    const store = await importedStore("aff-nameless")
+    namelessRecordedDiscount(store.shop, "NINA")
+    const nina = await affiliateOf(store, "aff-nina", "Nina", "NINA")
+    expect(ok(await rpc("Affiliates.get", { affiliateId: nina.affiliateId }, store.cookie)).affiliate.discount).toBe(
+      "made"
+    )
+    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    ok(await rpc("Affiliates.erase", { affiliateId: nina.affiliateId }, store.cookie))
+    await relay(store.workspace)
+    for (const instance of await writes.get()) await instance.waitForStatus("complete")
+    expect(recordedDiscount(store.shop, "NINA")).toMatchObject({ ended: true })
+  })
+
+  it("ends an erased affiliate's discount once the store is back, never leaving it live (W13.6)", async () => {
+    const store = await importedStore("aff-gone")
+    const sam = await affiliateOf(store, "aff-sam", "Sam", "SAMGONE")
+    ok(await rpc("Stores.disconnect", { id: store.storeId }, store.cookie))
+    {
+      await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+      ok(await rpc("Affiliates.erase", { affiliateId: sam.affiliateId }, store.cookie))
+      await relay(store.workspace)
+      for (const instance of await writes.get()) await instance.waitForStatus("complete")
+    }
+    // No store to end it in: Shopify still has it live, and Insyte still knows which one it is.
+    expect(recordedDiscount(store.shop, "SAMGONE")).toMatchObject({ ended: false })
+    // The store reconnects; the daily settle asks again, and it ends.
+    await anotherStore(store, "aff-gone")
+    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    await dev("settle", { workspace: store.workspace })
+    await relay(store.workspace)
+    for (const instance of await writes.get()) await instance.waitForStatus("complete")
+    expect(recordedDiscount(store.shop, "SAMGONE")).toMatchObject({ ended: true })
+  })
+
+  it("fails only the code the Workflow read when Shopify stays unreachable (W13.6)", async () => {
+    const seen: Array<{ text: string; values: ReadonlyArray<unknown> }> = []
+    const sql = ((strings: TemplateStringsArray, ...values: ReadonlyArray<unknown>) => {
+      seen.push({ text: strings.join("?"), values })
+      return Effect.succeed([])
+    }) as unknown as SqlClient.SqlClient
+    const db = { scopedFor: <A, E, R>(f: (s: SqlClient.SqlClient) => Effect.Effect<A, E, R>) => f(sql) }
+    await Effect.runPromise(
+      discountFailed("aff_x", "OLDCODE").pipe(
+        Effect.provideService(Db, db as unknown as Db["Service"]),
+        Effect.provideService(CurrentWorkspace, { id: "ws_x" as WorkspaceId })
+      )
+    )
+    expect(seen).toHaveLength(1)
+    expect(seen[0]!.text).toMatch(/and code = \?/)
+    expect(seen[0]!.values).toContain("OLDCODE")
+  })
+
+  it("keeps a code Shopify made unnamed and its search has not found yet, and the daily settle finds it (W13.6)", async () => {
+    const store = await importedStore("aff-lag")
+    namelessRecordedDiscount(store.shop, "LAGKEPT", 1)
+    const kept = await affiliateOf(store, "aff-lag-kept", "Kept", "LAGKEPT")
+    // Not failed: Insyte made it, and looks again.
+    expect(ok(await rpc("Affiliates.get", { affiliateId: kept.affiliateId }, store.cookie)).affiliate.discount).toBe(
+      "pending"
+    )
+    {
+      await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+      await dev("settle", { workspace: store.workspace })
+      await relay(store.workspace)
+      for (const instance of await writes.get()) await instance.waitForStatus("complete")
+    }
+    expect(ok(await rpc("Affiliates.get", { affiliateId: kept.affiliateId }, store.cookie)).affiliate.discount).toBe(
+      "made"
+    )
+    // Found, its id is kept: erasing ends it.
+    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    ok(await rpc("Affiliates.erase", { affiliateId: kept.affiliateId }, store.cookie))
+    await relay(store.workspace)
+    for (const instance of await writes.get()) await instance.waitForStatus("complete")
+    expect(recordedDiscount(store.shop, "LAGKEPT")).toMatchObject({ ended: true })
+  })
+
+  it("ends an erased affiliate's discount that Insyte holds no id for, found by its code and title (W13.6)", async () => {
+    const store = await importedStore("aff-lag-erase")
+    namelessRecordedDiscount(store.shop, "LAGGONE", 1)
+    const gone = await affiliateOf(store, "aff-lag-gone", "Gone", "LAGGONE")
+    await using writes = await introspectWorkflow(env.SHOPIFY_WRITE)
+    ok(await rpc("Affiliates.erase", { affiliateId: gone.affiliateId }, store.cookie))
+    await relay(store.workspace)
+    for (const instance of await writes.get()) await instance.waitForStatus("complete")
+    expect(recordedDiscount(store.shop, "LAGGONE")).toMatchObject({ ended: true })
   })
 })

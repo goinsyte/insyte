@@ -90,6 +90,7 @@ import chatDrafts from "./migrations/0104_chat_drafts.ts"
 import leftovers from "./migrations/0106_leftovers.ts"
 import staffAdmin from "./migrations/0107_staff_admin.ts"
 import affiliates from "./migrations/0108_affiliates.ts"
+import reliability from "./migrations/0109_reliability.ts"
 import removedMembers from "./migrations/contract/0013_removed_members.ts"
 import supplierPortal from "./migrations/contract/0075_supplier_portal.ts"
 
@@ -191,5 +192,6 @@ export const Migrations = {
   "0104_chat_drafts": chatDrafts,
   "0106_leftovers": leftovers,
   "0107_staff_admin": staffAdmin,
-  "0108_affiliates": affiliates
+  "0108_affiliates": affiliates,
+  "0109_reliability": reliability
 }

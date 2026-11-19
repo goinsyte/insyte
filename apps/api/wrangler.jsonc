@@ -113,6 +113,9 @@
         "max_retries": 8,
         "dead_letter_queue": "insyte-ingest-dlq",
       },
+      // What both queues gave up on (W13.6): written down in `dead_letters` and acked (`platform/DeadLetters.ts`).
+      { "queue": "insyte-events-dlq", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 10 },
+      { "queue": "insyte-ingest-dlq", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 10 },
     ],
   },
   "triggers": { "crons": ["* * * * *"] },

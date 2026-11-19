@@ -169,6 +169,21 @@ export const holdRecordedDiscount = (shop: string, code: string) => {
   return { reached: atCreate, release }
 }
 
+/**
+ * Codes whose next make Shopify answers without naming the node (\`namelessRecordedDiscount\`), with how many lookups
+ * by code still miss it once made (Shopify's search lagging).
+ */
+const nameless = new Map<string, number>()
+const lagging = new Map<string, number>()
+
+/**
+ * The next \`discountCodeBasicCreate\` of \`code\` in \`shop\` makes it but names no node, as Shopify sometimes does;
+ * the next \`misses\` lookups of the code after that do not find it yet.
+ */
+export const namelessRecordedDiscount = (shop: string, code: string, misses = 0) => {
+  nameless.set(`${shop}|${code.toUpperCase()}`, misses)
+}
+
 /** A code discount the merchant made in Shopify's admin before Insyte came: a worker test's brand-owned code. */
 export const seedRecordedDiscount = (shop: string, code: string, title: string) => {
   const id = `gid://shopify/DiscountCodeNode/${++made}`
@@ -279,6 +294,12 @@ const returnWrite = (
       if (discounts.has(key)) return taken("basicCodeDiscount")
       const id = `gid://shopify/DiscountCodeNode/${++made}`
       discounts.set(key, { id, title: String(input["title"] ?? ""), ended: false })
+      const misses = nameless.get(key)
+      if (misses !== undefined) {
+        nameless.delete(key)
+        if (misses > 0) lagging.set(key, misses)
+        return { codeDiscountNode: null }
+      }
       return { codeDiscountNode: { id } }
     }
     case "discountCodeDeactivate": {
@@ -465,7 +486,13 @@ const recordedQuery = (shop: string, query: string, variables: Record<string, un
   if (mutation !== undefined) return mutation
   // The discount a code belongs to in this shop, if any.
   if (query.includes("codeDiscountNodeByCode(")) {
-    const found = discounts.get(`${shop}|${String(variables["code"] ?? "").toUpperCase()}`)
+    const key = `${shop}|${String(variables["code"] ?? "").toUpperCase()}`
+    const behind = lagging.get(key) ?? 0
+    if (behind > 0) {
+      lagging.set(key, behind - 1)
+      return { codeDiscountNodeByCode: null }
+    }
+    const found = discounts.get(key)
     return {
       codeDiscountNodeByCode: found === undefined ? null : { id: found.id, codeDiscount: { title: found.title } }
     }

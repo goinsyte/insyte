@@ -327,6 +327,26 @@ describe("the MCP server", () => {
     expect((await mcp("ins_live_nope", "tools/list")).message.error.reason).toBe("malformed")
   })
 
+  it("lets go of the body of a request it turns away, and answers its 401 (W13.6)", async () => {
+    // A body that never ends: unless the Worker cancels it, nobody does.
+    let cancelled = false
+    const body = new ReadableStream<Uint8Array>({
+      pull: (controller) => controller.enqueue(new TextEncoder().encode(" ".repeat(1024))),
+      cancel: () => {
+        cancelled = true
+      }
+    })
+    const response = await call(`${HOST}/mcp`, {
+      method: "POST",
+      headers: { accept: "application/json, text/event-stream", "content-type": "application/json" },
+      body,
+      duplex: "half"
+    } as RequestInit)
+    expect(response.status).toBe(401)
+    expect(await response.json()).toMatchObject({ error: { code: "UnauthorizedV1", reason: "missing" } })
+    expect(cancelled).toBe(true)
+  })
+
   it("logs each MCP call in the key's activity", async () => {
     const activity = ok(await rpc("ApiKeys.activity", { id: agent.id }, owner.cookie))
     expect(activity.requests.filter((r) => r.path === "/mcp").length).toBeGreaterThanOrEqual(4)
