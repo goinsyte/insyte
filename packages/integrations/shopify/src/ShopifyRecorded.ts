@@ -169,6 +169,14 @@ export const holdRecordedDiscount = (shop: string, code: string) => {
   return { reached: atCreate, release }
 }
 
+/** Codes whose next make Shopify answers without naming the node (\`namelessRecordedDiscount\`). */
+const nameless = new Set<string>()
+
+/** The next \`discountCodeBasicCreate\` of \`code\` in \`shop\` makes it but names no node, as Shopify sometimes does. */
+export const namelessRecordedDiscount = (shop: string, code: string) => {
+  nameless.add(`${shop}|${code.toUpperCase()}`)
+}
+
 /** A code discount the merchant made in Shopify's admin before Insyte came: a worker test's brand-owned code. */
 export const seedRecordedDiscount = (shop: string, code: string, title: string) => {
   const id = `gid://shopify/DiscountCodeNode/${++made}`
@@ -279,6 +287,7 @@ const returnWrite = (
       if (discounts.has(key)) return taken("basicCodeDiscount")
       const id = `gid://shopify/DiscountCodeNode/${++made}`
       discounts.set(key, { id, title: String(input["title"] ?? ""), ended: false })
+      if (nameless.delete(key)) return { codeDiscountNode: null }
       return { codeDiscountNode: { id } }
     }
     case "discountCodeDeactivate": {

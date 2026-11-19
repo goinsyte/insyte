@@ -31,6 +31,7 @@ import { ConnectionGate, missingScope } from "../../stores/domain/Ports.ts"
 
 const SCOPE_REASON = "Insyte mag nog geen kortingscodes maken in deze winkel"
 export const TAKEN_REASON = "Code bestaat al in Shopify"
+const NO_ID_REASON = "Shopify gaf de korting geen id; probeer het opnieuw"
 
 interface Target {
   readonly id: string
@@ -80,7 +81,10 @@ const holds = (affiliateId: string, shopifyId: string) =>
       ).pipe(Effect.map((rows) => rows.length > 0))
   )
 
-/** A discount of Insyte's ended in Shopify; one already gone there is ended as well. */
+/**
+ * A discount of Insyte's ended in Shopify; one already gone there is ended as well. `false` when the store's grant is
+ * refused: the discount may still be live there, and is ended once the store is back (W13.6).
+ */
 const end = (store: { readonly connectionId: string; readonly shop: string }, shopifyId: string) =>
   mutate(
     store,
@@ -89,11 +93,11 @@ const end = (store: { readonly connectionId: string; readonly shop: string }, sh
     "discountCodeDeactivate"
   )
     .pipe(
-      Effect.asVoid,
-      // The store gone, or Shopify's answer that there is nothing to end: nothing is left live to end.
+      Effect.as(true),
+      // Shopify's answer that there is nothing to end: nothing is left live to end.
       Effect.catchTags({
-        TokenRefused: () => Effect.void,
-        ShopifyRefused: (error) => isAnswer(error) ? Effect.void : Effect.fail(error)
+        TokenRefused: () => Effect.succeed(false),
+        ShopifyRefused: (error) => isAnswer(error) ? Effect.succeed(true) : Effect.fail(error)
       })
     )
 
@@ -107,14 +111,19 @@ export const discountWriteBack = Effect.fn("Affiliates.discountWriteBack")(funct
   const [t] = yield* db.scopedFor((sql) => targetOf(sql, affiliateId))
   if (t === undefined) return outcome("skipped", "gone")
   if (t.discountState === "erased") {
-    // Erased: the discount Shopify has for them ends (a store gone takes it along), and Insyte forgets it.
-    if (t.shopifyDiscountId !== null && t.connectionId !== null && t.shop !== null) {
-      yield* end({ connectionId: t.connectionId, shop: t.shop }, t.shopifyDiscountId)
+    if (t.shopifyDiscountId === null) return outcome("skipped", "none")
+    // Erased: the discount Shopify has for them ends, and only then does Insyte forget it. A store that is not
+    // connected now (or refuses its grant, or Shopify unreachable through every try) keeps it to end: the daily
+    // settle asks again (`close.ts`), so it is ended once the store is back (W13.6).
+    if (t.connectionId === null || t.shop === null) return outcome("skipped", "no_store")
+    if (!(yield* end({ connectionId: t.connectionId, shop: t.shop }, t.shopifyDiscountId))) {
+      return outcome("skipped", "no_store")
     }
     yield* db.scopedFor((sql) =>
-      sql`update affiliates set shopify_discount_id = null where id = ${t.id} and discount_state = 'erased'`
+      sql`update affiliates set shopify_discount_id = null
+          where id = ${t.id} and discount_state = 'erased' and shopify_discount_id = ${t.shopifyDiscountId}`
     )
-    return outcome(t.shopifyDiscountId === null ? "skipped" : "sent", t.shopifyDiscountId === null ? "none" : null)
+    return outcome("sent")
   }
   if (t.discountState !== "pending") return outcome("skipped", "gone")
   if (t.connectionId === null || t.shop === null) {
@@ -157,7 +166,13 @@ export const discountWriteBack = Effect.fn("Affiliates.discountWriteBack")(funct
     if (errors.length > 0) return { failed: errors.map((e) => e.message).join("; ") } satisfies Decided
     const node = (data as { discountCodeBasicCreate?: { codeDiscountNode?: { id: string } | null } })
       ?.discountCodeBasicCreate?.codeDiscountNode
-    return { made: node === null || node === undefined ? null : gidId(node.id) } satisfies Decided
+    if (node !== null && node !== undefined) return { made: gidId(node.id) } satisfies Decided
+    // Made, but Shopify named no node: found by its code, or it could never be ended later; not found, failed, to be
+    // asked again (W13.6).
+    const named: Decided | null = yield* holder
+    return named !== null && "made" in named && named.made !== null
+      ? named
+      : ({ failed: NO_ID_REASON } satisfies Decided)
   })
   const made: Decided = yield* decided.pipe(
     Effect.catchTags({
@@ -199,11 +214,23 @@ interface Found {
  */
 const titleOf = (t: Pick<Target, "id" | "code">) => `Insyte affiliate ${t.code} (${t.id})`
 
-/** The Workflow gave up on Shopify (unreachable through every retry): the code stays, to be asked again. */
-export const discountFailed = Effect.fn("Affiliates.discountFailed")(function*(affiliateId: string) {
+/** The code the Workflow is about to make, read before it starts, so its failure is said of that code only. */
+export const discountCode = Effect.fn("Affiliates.discountCode")(function*(affiliateId: string) {
+  const db = yield* Db
+  const [row] = yield* db.scopedFor((sql) =>
+    sql<{ code: string }>`select code from affiliates where id = ${affiliateId}`
+  )
+  return row?.code ?? null
+})
+
+/**
+ * The Workflow gave up on Shopify (unreachable through every retry): the code it read stays, to be asked again. A code
+ * the brand changed meanwhile has its own step, which this one's failure does not decide (as `settle`, W13.6).
+ */
+export const discountFailed = Effect.fn("Affiliates.discountFailed")(function*(affiliateId: string, code: string) {
   const db = yield* Db
   yield* db.scopedFor((sql) =>
     sql`update affiliates set discount_state = 'failed', discount_error = 'Shopify was niet bereikbaar'
-        where id = ${affiliateId} and discount_state = 'pending'`
+        where id = ${affiliateId} and code = ${code} and discount_state = 'pending'`
   )
 })
