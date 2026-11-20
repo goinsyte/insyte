@@ -44,7 +44,10 @@ export default defineConfig({
           DOCUMENTS_ADAPTER: "html",
           // The staff admin's allowlist (M18): one made-up address; Access is not configured, so only the dev header.
           STAFF_EMAILS: "staff@example.com",
-          SYNC_PAGE_LINES: "4",
+          // The first import a page of two, a child at a time, two pages a step: every follow-up and step boundary runs.
+          SYNC_PAGE_SIZE: "2",
+          SYNC_CHILD_PAGE: "1",
+          SYNC_STEP_PAGES: "2",
           PRIVACY_EXPORT_PAGE_ROWS: "3"
         }
       }

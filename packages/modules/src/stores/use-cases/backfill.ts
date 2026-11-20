@@ -3,24 +3,42 @@ import { mintId } from "@insyte/domain/Ids"
 import { Config, Effect, Schema } from "effect"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { throughGate } from "../domain/Gate.ts"
-import { addLine, CUSTOMERS_QUERY, emptyBatch, ordersQuery, PRODUCTS_QUERY, STOCK_QUERY } from "../domain/Mirror.ts"
-import { type BulkStatus, ShopifyGraphql } from "../domain/Ports.ts"
+import {
+  addLine,
+  backfillChildQuery,
+  backfillChildren,
+  backfillQuery,
+  type BackfillResource,
+  backfillRoot,
+  backfillVariables,
+  emptyBatch,
+  flatten,
+  FOLLOW_UP_PAGE,
+  type PageSizes
+} from "../domain/Mirror.ts"
+import { ShopifyGraphql } from "../domain/Ports.ts"
 import { applyBatch, settleStock } from "./mirror.ts"
 
 /*
- * A store's backfill (M6.3; integrations.md §2 "Backfill"), as the steps `ShopifyBackfillWorkflow` makes durable: one
- * bulk operation per resource (products first, so lines find their variants; then the stock, so each count finds its
- * variant; customers before orders, so an order finds its customer), polled until Shopify has the file, then read in pages from a byte offset, each page written
- * and checkpointed by the Workflow. Every step is safe to run again: the upserts are idempotent, and the counts are
- * read from the mirror, not added up. Each runs inside the store's workspace (`CurrentWorkspace`).
+ * A store's backfill (M6.3; integrations.md §2 "Backfill"), as the steps `ShopifyBackfillWorkflow` makes durable: per
+ * resource, plain Admin GraphQL pages by id (`backfillQuery`), each written and its cursor checkpointed before the next
+ * is read. A node with more children than its page carries (a product's variants or photographs, an item's locations,
+ * an order's lines) has the rest read right after it, a hundred at a time, and written in the same batch: a page's
+ * nodes are whole. No bulk operations: Shopify now asks an IP allowlist for those, and a Worker has no fixed address.
+ *
+ * A step reads pages until its time or its pages are spent (`readPages`), so a large store is a few hundred steps, not
+ * one per page. Every step is safe to run again: it starts from the checkpoint, the upserts are idempotent, and the
+ * counts are read from the mirror, not added up. Shopify's throttle is waited out inside the step when the wait is
+ * short, and handed to the Workflow to sleep on when not, so it never spends a step's retries. Each runs inside the
+ * store's workspace (`CurrentWorkspace`).
  */
 
 /**
- * The stock is a pass of its own: Shopify's bulk queries nest connections two deep at most, and a variant's counts per
- * location would be a third under the products. Its checkpoint is a `sync_cursors` row like the others, which the sync
- * status leaves out (there the stock is part of the products).
+ * The stock is a pass of its own after the products (each count finds its variant by its inventory item). Its
+ * checkpoint is a `sync_cursors` row like the others, which the sync status leaves out (there the stock is part of
+ * the products).
  */
-export const RESOURCES = ["products", "stock", "customers", "orders"] as const
+export const RESOURCES = ["products", "stock", "customers", "orders"] as const satisfies ReadonlyArray<BackfillResource>
 export type Resource = (typeof RESOURCES)[number]
 export const Resource = Schema.Literals(RESOURCES)
 
@@ -32,7 +50,7 @@ export interface BackfillContext {
   readonly currency: string
   /** Orders created on or after this day (ISO date). */
   readonly since: string
-  /** When the import began: the reconcile sweep reads what changed from here (bulk files are a snapshot). */
+  /** When the import began: the reconcile sweep reads what changed from here (the pages are read over time). */
   readonly startedAt: string
 }
 
@@ -46,19 +64,17 @@ export interface MirrorCounts {
 /** Two years back: `read_all_orders`' default reach; without it Shopify answers 60 days whatever is asked. */
 const HISTORY_DAYS = 730
 
-/** The bulk query each resource runs. */
-export const queryOf = (resource: Resource, since: string): string => {
-  switch (resource) {
-    case "products":
-      return PRODUCTS_QUERY
-    case "stock":
-      return STOCK_QUERY
-    case "customers":
-      return CUSTOMERS_QUERY
-    case "orders":
-      return ordersQuery(since)
-  }
-}
+/** What the gate holds back for a page: about what one costs Shopify once read (its requested cost is higher). */
+const PAGE_COST = 50
+
+/** How long a step reads pages for, and the most it reads; the Workflow's step timeout is well past both. */
+const STEP_BUDGET_MS = 30_000
+const STEP_PAGES = 50
+
+/** A throttle up to this long is waited out in the step; a longer one ends the step, and the Workflow sleeps on it. */
+const WAIT_IN_STEP_MS = 5_000
+/** Never asked again sooner than this, whatever the answer said (a `Retry-After: 0`). */
+const MIN_WAIT_MS = 500
 
 /**
  * The store is importing: `connecting` until the backfill finishes, and every resource's checkpoint cleared. `null`
@@ -90,36 +106,34 @@ export const prepare = Effect.fn("Stores.backfill.prepare")(function*(storeId: s
   )
 })
 
+/** Where a resource's import is: not begun, reading from `cursor` (Shopify's, opaque), or done. */
+type Checkpoint =
+  | { readonly phase: "queued" }
+  | { readonly phase: "reading"; readonly cursor: string }
+  | { readonly phase: "done" }
+
+const checkpointOf = Effect.fn("Stores.backfill.checkpointOf")(function*(ctx: BackfillContext, resource: Resource) {
+  const db = yield* Db
+  const [row] = yield* db.scopedFor((sql) =>
+    sql<{ state: { phase?: string; cursor?: unknown } | null }>`
+      select backfill_state as state from sync_cursors
+      where connection_id = ${ctx.connectionId} and resource = ${resource}`
+  )
+  const state = row?.state
+  if (state?.phase === "done") return { phase: "done" } satisfies Checkpoint as Checkpoint
+  if (state?.phase === "reading" && typeof state.cursor === "string") {
+    return { phase: "reading", cursor: state.cursor } satisfies Checkpoint as Checkpoint
+  }
+  return { phase: "queued" } satisfies Checkpoint as Checkpoint
+})
+
 const checkpoint = Effect.fn("Stores.backfill.checkpoint")(
-  function*(ctx: BackfillContext, resource: Resource, state: Record<string, unknown>) {
+  function*(ctx: BackfillContext, resource: Resource, state: Checkpoint) {
     const db = yield* Db
     yield* db.scopedFor((sql) =>
       sql`update sync_cursors set backfill_state = ${JSON.stringify(state)}::jsonb
           where connection_id = ${ctx.connectionId} and resource = ${resource}`
     )
-  }
-)
-
-/** Asks Shopify to run the resource's bulk query; answers its operation id. */
-export const startBulk = Effect.fn("Stores.backfill.start")(function*(ctx: BackfillContext, resource: Resource) {
-  const bulk = yield* ShopifyGraphql
-  const { id } = yield* throughGate(ctx, 10, (token) => bulk.start(ctx.shop, token, queryOf(resource, ctx.since)))
-  yield* checkpoint(ctx, resource, { phase: "running", bulkId: id })
-  return id
-})
-
-/** Where the operation is. A failed or expired one fails the step: the Workflow starts the resource again. */
-export const pollBulk = Effect.fn("Stores.backfill.poll")(
-  function*(ctx: BackfillContext, resource: Resource, bulkId: string) {
-    const bulk = yield* ShopifyGraphql
-    const status = yield* throughGate(ctx, 1, (token) => bulk.status(ctx.shop, token, bulkId))
-    if (status.status === "FAILED" || status.status === "CANCELED" || status.status === "EXPIRED") {
-      return yield* Effect.die(new Error(`bulk ${resource} ${status.status}: ${status.errorCode ?? "no code"}`))
-    }
-    return { status: status.status, url: status.url, objectCount: status.objectCount } satisfies Omit<
-      BulkStatus,
-      "errorCode"
-    >
   }
 )
 
@@ -139,24 +153,103 @@ export const countsOf = Effect.fn("Stores.backfill.counts")(function*(storeId: s
   } satisfies MirrorCounts
 })
 
-/** Reads and writes one page from `offset`; answers where the next starts, and the mirror's counts. */
-export const applyPage = Effect.fn("Stores.backfill.page")(
-  function*(ctx: BackfillContext, resource: Resource, url: string | null, offset: number) {
-    const lines = yield* Config.Int("SYNC_PAGE_LINES").pipe(Config.withDefault(2000))
-    const bulk = yield* ShopifyGraphql
-    const page = url === null ? { lines: [], next: offset, done: true } : yield* bulk.read(url, offset, lines).pipe(
-      Effect.orDie
-    )
-    const batch = emptyBatch()
-    for (const line of page.lines) addLine(batch, line, ctx.currency)
-    const written = yield* applyBatch(ctx.storeId, batch, { live: false })
-    // The last page of the stock: every count Shopify holds is in, so what it no longer holds goes.
-    if (resource === "stock" && page.done) yield* settleStock(ctx.storeId, ctx.startedAt)
-    yield* checkpoint(ctx, resource, page.done ? { phase: "done" } : { phase: "reading", offset: page.next })
-    const counts = yield* countsOf(ctx.storeId)
-    return { next: page.next, done: page.done, orphans: written.orphans, counts }
+interface Connection {
+  readonly pageInfo: { readonly hasNextPage: boolean; readonly endCursor: string | null }
+  readonly edges: ReadonlyArray<{ readonly node: Record<string, unknown> }>
+}
+
+const connectionAt = (data: unknown, path: ReadonlyArray<string>): Connection | undefined => {
+  let at: unknown = data
+  for (const key of path) at = typeof at === "object" && at !== null ? (at as Record<string, unknown>)[key] : undefined
+  return typeof at === "object" && at !== null && "edges" in at ? at as Connection : undefined
+}
+
+/** Smaller pages for the worker tests (`SYNC_PAGE_SIZE`, `SYNC_CHILD_PAGE`, `SYNC_STEP_PAGES`); `0` is the default. */
+const settings = Effect.gen(function*() {
+  const page = yield* Config.Int("SYNC_PAGE_SIZE").pipe(Config.withDefault(0))
+  const child = yield* Config.Int("SYNC_CHILD_PAGE").pipe(Config.withDefault(0))
+  const steps = yield* Config.Int("SYNC_STEP_PAGES").pipe(Config.withDefault(0))
+  return { sizes: { page, child } satisfies PageSizes, stepPages: steps || STEP_PAGES }
+}).pipe(Effect.orDie)
+
+/**
+ * One page from `cursor`, as lines: each node, then all of its children, those past the page's first read after it.
+ * Answers where the next page starts (`null`: this was the last).
+ */
+const fetchPage = Effect.fn("Stores.backfill.fetch")(
+  function*(ctx: BackfillContext, resource: Resource, cursor: string | null, sizes: PageSizes) {
+    const graphql = yield* ShopifyGraphql
+    const ask = (query: string, variables: Record<string, unknown>) =>
+      throughGate(ctx, PAGE_COST, (token) => graphql.query(ctx.shop, token, query, variables))
+    const root = backfillRoot(resource)
+    const { data } = yield* ask(backfillQuery(resource, sizes), backfillVariables(resource, ctx.since, cursor))
+    const page = connectionAt(data, [root])
+    if (page === undefined) return yield* Effect.die(new Error(`backfill ${resource}: Shopify answered no ${root}`))
+    const lines: Array<unknown> = []
+    for (const { node } of page.edges) {
+      lines.push(...flatten(node))
+      const id = node["id"]
+      if (typeof id !== "string") continue
+      for (const field of backfillChildren(resource)) {
+        let children = connectionAt(node, [field])
+        // A node gone since its page was read answers nothing: what was read of it stays.
+        while (children?.pageInfo.hasNextPage && children.pageInfo.endCursor !== null) {
+          const more = yield* ask(backfillChildQuery(resource, field, sizes.child || FOLLOW_UP_PAGE), {
+            id,
+            after: children.pageInfo.endCursor
+          })
+          children = connectionAt(more.data, ["node", field])
+          // The node without its other fields: only its children are lines.
+          if (children !== undefined) lines.push(...flatten({ id, [field]: children }).slice(1))
+        }
+      }
+    }
+    const next = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null
+    return { lines, next }
   }
 )
+
+/**
+ * Reads and writes pages of `resource` from its checkpoint until the step's time or pages are spent, each one
+ * checkpointed. Answers whether the resource is done, how long Shopify asked to wait (`0`: not throttled), and the
+ * mirror's counts.
+ */
+export const readPages = Effect.fn("Stores.backfill.pages")(function*(ctx: BackfillContext, resource: Resource) {
+  const { sizes, stepPages } = yield* settings
+  const began = Date.now()
+  let state = yield* checkpointOf(ctx, resource)
+  let read = 0
+  let waitMs = 0
+  while (state.phase !== "done" && read < stepPages && Date.now() - began < STEP_BUDGET_MS) {
+    const cursor = state.phase === "reading" ? state.cursor : null
+    const fetched = yield* fetchPage(ctx, resource, cursor, sizes).pipe(
+      Effect.map((page) => ({ page, throttled: 0 })),
+      Effect.catchTag(
+        "ShopifyThrottled",
+        (throttled) => Effect.succeed({ page: null, throttled: Math.max(MIN_WAIT_MS, throttled.retryAfterMs) })
+      )
+    )
+    if (fetched.page === null) {
+      // A short wait is had here; a long one, or one past the step's time, is the Workflow's to sleep on.
+      if (fetched.throttled <= WAIT_IN_STEP_MS && Date.now() - began + fetched.throttled < STEP_BUDGET_MS) {
+        yield* Effect.sleep(fetched.throttled)
+        continue
+      }
+      waitMs = fetched.throttled
+      break
+    }
+    const batch = emptyBatch()
+    for (const line of fetched.page.lines) addLine(batch, line, ctx.currency)
+    yield* applyBatch(ctx.storeId, batch, { live: false })
+    read++
+    const next = fetched.page.next
+    // The last page of the stock: every count Shopify holds is in, so what it no longer holds goes.
+    if (resource === "stock" && next === null) yield* settleStock(ctx.storeId, ctx.startedAt)
+    state = next === null ? { phase: "done" } : { phase: "reading", cursor: next }
+    yield* checkpoint(ctx, resource, state)
+  }
+  return { done: state.phase === "done", waitMs, pages: read, counts: yield* countsOf(ctx.storeId) }
+})
 
 /** The first import is in: the store is connected and synced, and the workspace hears it. */
 export const finish = Effect.fn("Stores.backfill.finish")(function*(ctx: BackfillContext) {

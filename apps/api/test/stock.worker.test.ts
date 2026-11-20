@@ -1,4 +1,4 @@
-import { RECORDED_STOCK } from "@insyte/integrations-shopify/RecordedBulk"
+import { RECORDED_STOCK } from "@insyte/integrations-shopify/RecordedStore"
 import { introspectWorkflowInstance } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
@@ -9,8 +9,9 @@ import { call, rpc } from "./support.ts"
 /*
  * Stock that is real (M6.3 inventory per location, M7 9.3 `Products.lowStock`), against Shopify's recorded twin. The
  * first import reads every variant's count per location, so a store's stock is there before any webhook; the shirt's
- * L is counted at two locations, on two pages, and is not sold out between them. The tote bag is not tracked in
- * Shopify, so it has no stock. A count is only overwritten by one as new: a webhook older than the import is ignored,
+ * L is counted at two locations, the second in a read of its own after the first, and is not sold out between them; the
+ * import settles the stock after its last page of it. The tote bag is not tracked in Shopify, so it has no stock. A
+ * count is only overwritten by one as new: a webhook older than the import is ignored,
  * one reported later survives the import running again, and on a tie the later writer wins. A count the import no
  * longer sees is removed. What runs low is read against the threshold, on the console's RPC, through `/v1` and MCP,
  * and never past the reader's stores.
@@ -207,7 +208,7 @@ describe("stock that is real", () => {
       ["Wollen trui", 40, "available", 5]
     ])
     expect(ok(await rpc("Products.lowStock", {}, store.cookie))).toMatchObject({ threshold: 12, rows: [] })
-    // L was at nothing at one location while its other page was still to come: no stock-out for it.
+    // L was at nothing at one location while its other count was still to be read: no stock-out for it.
     expect(await applied(store)).toEqual([])
   })
 

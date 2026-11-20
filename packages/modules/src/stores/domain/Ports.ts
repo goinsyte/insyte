@@ -69,7 +69,7 @@ export class ShopifyAdmin extends Context.Service<ShopifyAdmin, {
   readonly uninstall: (shop: string, accessToken: Redacted.Redacted<string>) => Effect.Effect<void, ShopifyRefused>
 }>()("stores/ShopifyAdmin") {}
 
-/* ─── The Admin GraphQL API (M6.3): bulk operations, single reads, the gate in front ─── */
+/* ─── The Admin GraphQL API (M6.3): reads and writes, the gate in front ─── */
 
 /** Shopify's leaky bucket after a call (`extensions.cost.throttleStatus`), in query cost points. */
 export interface ThrottleStatus {
@@ -83,21 +83,6 @@ export class ShopifyThrottled extends Schema.TaggedError<ShopifyThrottled>()("Sh
   retryAfterMs: Schema.Finite
 }) {}
 
-export interface BulkStatus {
-  readonly status: "CREATED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELED" | "CANCELING" | "EXPIRED"
-  readonly errorCode: string | null
-  readonly objectCount: number
-  /** The result file once completed; `null` for a completed query that found nothing. */
-  readonly url: string | null
-}
-
-/** Up to `maxLines` lines of a bulk result from byte `offset`, and where the next read starts. */
-export interface BulkPage {
-  readonly lines: ReadonlyArray<unknown>
-  readonly next: number
-  readonly done: boolean
-}
-
 export class ShopifyGraphql extends Context.Service<ShopifyGraphql, {
   /** One Admin GraphQL query: `data` as Shopify answered it, and the bucket after it. */
   readonly query: (
@@ -109,20 +94,6 @@ export class ShopifyGraphql extends Context.Service<ShopifyGraphql, {
     { readonly data: unknown; readonly throttle: ThrottleStatus | null },
     ShopifyRefused | ShopifyThrottled
   >
-  readonly start: (
-    shop: string,
-    token: Redacted.Redacted<string>,
-    query: string
-  ) => Effect.Effect<
-    { readonly id: string; readonly throttle: ThrottleStatus | null },
-    ShopifyRefused | ShopifyThrottled
-  >
-  readonly status: (
-    shop: string,
-    token: Redacted.Redacted<string>,
-    id: string
-  ) => Effect.Effect<BulkStatus & { readonly throttle: ThrottleStatus | null }, ShopifyRefused | ShopifyThrottled>
-  readonly read: (url: string, offset: number, maxLines: number) => Effect.Effect<BulkPage, ShopifyRefused>
 }>()("stores/ShopifyGraphql") {}
 
 /** The account cannot give a token: disconnected, or its refresh was refused (the operator reconnects). */

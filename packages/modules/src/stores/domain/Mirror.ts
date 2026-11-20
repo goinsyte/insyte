@@ -1,11 +1,11 @@
 import { Option, Schema } from "effect"
 
 /*
- * The commerce mirror's shapes (M6.3; integrations.md §2 "Backfill", domain.md §4): the bulk queries Insyte runs, and
- * one JSONL line of their result turned into the row it becomes. A bulk result flattens nested connections: a variant
- * or an order's line item is its own line, after its parent, carrying `__parentId`. So a line is classified by its
- * gid's type and keeps its parent's Shopify id; the upsert finds the parent's row by that id (the parent was written
- * first, in this page or an earlier one). Lists that are not connections (fulfilments, refunds) come inline with the
+ * The commerce mirror's shapes (M6.3; integrations.md §2 "Backfill", domain.md §4): the queries Insyte reads a store
+ * with, and one line of their answer turned into the row it becomes. An answer is flattened into lines (`flatten`), as
+ * a bulk file held them: a variant or an order's line item is its own line, after its parent, carrying `__parentId`.
+ * So a line is classified by its gid's type and keeps its parent's Shopify id; the upsert finds the parent's row by
+ * that id (the parent was written first, in this page or an earlier one). Lists that are not connections (fulfilments, refunds) come inline with the
  * order. Amounts arrive as decimal strings and are kept in minor units of the currency.
  */
 
@@ -61,21 +61,21 @@ export const fromMinor = (minor: number, currency: string): string => {
   return minor < 0 ? `-${whole}` : whole
 }
 
-/* ─── The queries (API 2026-10): one selection per object, for bulk and single reads ─── */
+/* ─── The queries (API 2026-10): one selection per object, for the import's pages and single reads ─── */
 
 const PRODUCT_FIELDS = `id title handle descriptionHtml status vendor productType tags createdAt updatedAt
   featuredMedia { preview { image { url } } }`
 const VARIANT_FIELDS = "id title sku price compareAtPrice position inventoryItem { id tracked }"
 /**
- * Stock per location, for the bulk import only (a bulk query takes a connection without `first`, a read does not): its
- * own pass after the products, because Shopify's bulk queries nest connections two deep at most, and a variant's levels
- * would be a third. Each level is its own line after its inventory item; it names that item, so its variant is found by
- * it and not by `__parentId`. "available" is what can be sold (Shopify's own `available` field is deprecated).
+ * Stock per location, read by the import's own pass after the products (a webhook reports one location at a time).
+ * Each level is its own line after its inventory item; it names that item, so its variant is found by it and not by
+ * `__parentId`. "available" is what can be sold (Shopify's own `available` field is deprecated).
  */
 const LEVEL_FIELDS = `id updatedAt item { id } location { id } quantities(names: ["available"]) { name quantity }`
 /** A product's photographs, in its own order; other media (video, 3D) are not mirrored. */
-const MEDIA_NODE = "node { ... on MediaImage { id image { url } } }"
-/** As many photographs as a product page shows; a bulk file holds them all. */
+const MEDIA_FIELDS = "... on MediaImage { id image { url } }"
+const MEDIA_NODE = `node { ${MEDIA_FIELDS} }`
+/** As many photographs as a product page shows, for a webhook's read and the sweep; the import reads them all. */
 const MEDIA_PAGE = 20
 const CUSTOMER_FIELDS = `id firstName lastName displayName tags numberOfOrders createdAt updatedAt
   defaultEmailAddress { emailAddress marketingState }
@@ -95,28 +95,123 @@ const ORDER_FIELDS = `id name email displayFinancialStatus displayFulfillmentSta
 const LINE_FIELDS =
   "id title variantTitle quantity sku originalUnitPriceSet { shopMoney { amount } } variant { id } product { id }"
 
-export const PRODUCTS_QUERY = `{
-  products { edges { node {
-    ${PRODUCT_FIELDS} variants { edges { node { ${VARIANT_FIELDS} } } } media { edges { ${MEDIA_NODE} } }
-  } } }
-}`
+/* ─── The first import's pages (M6.3): plain Admin GraphQL reads, a cursor at a time ─── */
 
-/** Every inventory item's count per location: read after the products, so each level finds its variant. */
-export const STOCK_QUERY = `{
-  inventoryItems { edges { node { id inventoryLevels { edges { node { ${LEVEL_FIELDS} } } } } } }
-}`
+/**
+ * What the import reads, in its order: the products first, so lines find their variants; then the stock, so each
+ * count finds its variant; customers before orders, so an order finds its customer. Not Shopify's bulk operations: an
+ * app's access to those now needs an IP allowlist, and a Worker has no fixed address.
+ */
+export type BackfillResource = "products" | "stock" | "customers" | "orders"
 
-export const CUSTOMERS_QUERY = `{
-  customers { edges { node { ${CUSTOMER_FIELDS} } } }
-}`
+interface ChildRead {
+  /** The connection on the node, and its node's selection. */
+  readonly field: string
+  readonly selection: string
+  /** Children read with their node; a node with more has the rest read after it (`backfillChildQuery`). */
+  readonly first: number
+}
 
-/** Orders created on or after `since` (ISO date): the history `read_all_orders` allows, else Shopify's 60 days. */
-export const ordersQuery = (since: string): string =>
-  `{
-  orders(query: "created_at:>=${since}") {
-    edges { node { ${ORDER_FIELDS} lineItems { edges { node { ${LINE_FIELDS} } } } } }
+interface PageRead {
+  /** The root connection, its node's type, and its arguments besides `first` and `after`. */
+  readonly root: string
+  readonly type: string
+  readonly args: string
+  readonly fields: string
+  readonly first: number
+  readonly children: ReadonlyArray<ChildRead>
+}
+
+/**
+ * Page sizes that keep each query's requested cost under Shopify's 1000 points a query, which it checks before running
+ * one. Counted as Shopify documents it (an object 1, a connection 2 plus `first` times its node), the dearest query
+ * here asks for under 900, and Shopify prices large connections lower than that (`stores-query-cost.test.ts`). An
+ * order is the dearest node: its fulfilments and refunds (50 each) are lists, read with it.
+ */
+const READS: Record<BackfillResource, PageRead> = {
+  products: {
+    root: "products",
+    type: "Product",
+    args: ", sortKey: ID",
+    fields: PRODUCT_FIELDS,
+    first: 10,
+    children: [
+      { field: "variants", selection: VARIANT_FIELDS, first: 20 },
+      { field: "media", selection: MEDIA_FIELDS, first: 10 }
+    ]
+  },
+  stock: {
+    root: "inventoryItems",
+    type: "InventoryItem",
+    args: "",
+    fields: "id",
+    first: 25,
+    children: [{ field: "inventoryLevels", selection: LEVEL_FIELDS, first: 5 }]
+  },
+  customers: {
+    root: "customers",
+    type: "Customer",
+    args: ", sortKey: ID",
+    fields: CUSTOMER_FIELDS,
+    first: 100,
+    children: []
+  },
+  orders: {
+    root: "orders",
+    type: "Order",
+    args: ", sortKey: ID, query: $q",
+    fields: ORDER_FIELDS,
+    first: 2,
+    children: [{ field: "lineItems", selection: LINE_FIELDS, first: 10 }]
+  }
+}
+
+/** A node's children past their first page, read a hundred at a time. */
+export const FOLLOW_UP_PAGE = 100
+
+/** Smaller pages than these (the worker tests read one or two objects a page); `0` keeps the size above. */
+export interface PageSizes {
+  readonly page: number
+  readonly child: number
+}
+
+const connection = (field: string, first: number, selection: string, after = "") =>
+  `${field}(first: ${first}${after}) { pageInfo { hasNextPage endCursor } edges { node { ${selection} } } }`
+
+/** The root connection a resource's page answers under (`products`, `inventoryItems`, …). */
+export const backfillRoot = (resource: BackfillResource): string => READS[resource].root
+
+/** The child connections a resource's nodes carry: a node with more than their first page has the rest read after. */
+export const backfillChildren = (resource: BackfillResource): ReadonlyArray<string> =>
+  READS[resource].children.map((c) => c.field)
+
+/** One page of a resource from `$after`, by id: each node with the first page of its children. */
+export const backfillQuery = (resource: BackfillResource, sizes: PageSizes = { page: 0, child: 0 }): string => {
+  const read = READS[resource]
+  const children = read.children.map((c) => connection(c.field, sizes.child || c.first, c.selection)).join(" ")
+  return `query($after: String${resource === "orders" ? ", $q: String!" : ""}) {
+  ${read.root}(first: ${sizes.page || read.first}, after: $after${read.args}) {
+    pageInfo { hasNextPage endCursor }
+    edges { node { ${read.fields} ${children} } }
   }
 }`
+}
+
+/**
+ * What a page is asked with: where it starts, and for the orders how far back (ISO date: the history
+ * `read_all_orders` allows, else Shopify's 60 days).
+ */
+export const backfillVariables = (resource: BackfillResource, since: string, after: string | null) =>
+  resource === "orders" ? { after, q: `created_at:>=${since}` } : { after }
+
+/** The next page of one node's children: `$id` is the node, `$after` where its last page of them ended. */
+export const backfillChildQuery = (resource: BackfillResource, field: string, first = FOLLOW_UP_PAGE): string => {
+  const read = READS[resource]
+  const child = read.children.find((c) => c.field === field)!
+  return `query($id: ID!, $after: String) {
+  node(id: $id) { ... on ${read.type} { ${connection(field, first, child.selection, ", after: $after")} } }
+}`
+}
 
 /** The kinds a webhook or the reconcile sweep reads one by one, by their gid's type. */
 export type MirrorKind = "Product" | "Customer" | "Order"
@@ -159,8 +254,8 @@ const isConnection = (value: unknown): value is { readonly edges: ReadonlyArray<
   typeof value === "object" && value !== null && "edges" in value && Array.isArray((value as { edges: unknown }).edges)
 
 /**
- * A node as a bulk file would hold it: the node without its connections, then each child with `__parentId`. So a
- * webhook's read and the reconcile sweep's pages go through the same `addLine` as the backfill.
+ * A node as lines: the node without its connections, then each child with `__parentId`. So a webhook's read, the
+ * reconcile sweep's pages and the import's pages all go through the same `addLine`.
  */
 export const flatten = (node: unknown): Array<unknown> => {
   if (typeof node !== "object" || node === null) return []
@@ -307,7 +402,7 @@ export interface RefundRow {
   readonly created_at: string
 }
 
-/** One page of a bulk result, as rows per table. */
+/** One page of lines, as rows per table. */
 export interface MirrorBatch {
   readonly products: Array<ProductRow>
   readonly variants: Array<VariantRow>
@@ -316,7 +411,7 @@ export interface MirrorBatch {
   readonly lines: Array<LineRow>
   readonly fulfilments: Array<FulfilmentRow>
   readonly refunds: Array<RefundRow>
-  /** Stock per variant and location (the bulk import; webhooks report one location at a time). */
+  /** Stock per variant and location (the import's stock pass; webhooks report one location at a time). */
   readonly levels: Array<LevelRow>
   /** A product's photographs beyond its featured one, in order: folded into its `images`. */
   readonly images: Array<{ readonly product_shopify_id: string; readonly url: string }>
@@ -545,7 +640,7 @@ const addressOf = (a: Schema.Schema.Type<typeof Address>) =>
       phone: a.phone ?? null
     }
 
-/** Adds one JSONL line (already parsed) to the batch: as its row, or as skipped. */
+/** Adds one line (a flattened node, or a parsed JSONL line) to the batch: as its row, or as skipped. */
 export const addLine = (batch: MirrorBatch, line: unknown, storeCurrency: string): void => {
   const id = typeof line === "object" && line !== null && "id" in line && typeof line.id === "string" ? line.id : ""
   switch (gidType(id)) {

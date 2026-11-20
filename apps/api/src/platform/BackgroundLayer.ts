@@ -95,7 +95,7 @@ const SliceLinksOnFirstUse = Layer.unwrap(
 )
 
 /**
- * What the backfill Workflow's steps run on (M6.3): the background services, Shopify's bulk operations, and the gate
+ * What the backfill Workflow's steps run on (M6.3): the background services, Shopify's Admin GraphQL, and the gate
  * every call passes (`ConnectionGate.ts`), which holds the account's token and bucket.
  */
 export const SyncLayer = onInfra(Layer.mergeAll(

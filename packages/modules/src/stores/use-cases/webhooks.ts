@@ -258,7 +258,7 @@ const applyTopic = Effect.fn("Stores.webhooks.topic")(
         return yield* new DraftNotCompleted({ draft: String(body["id"]) })
       }
       default:
-        // `bulk_operations/finish` (the backfill polls): nothing to do.
+        // Any other topic: nothing to do.
         return
     }
   }
