@@ -1,24 +1,24 @@
 import {
-  type BulkStatus,
   type ShopFacts,
   ShopifyAdmin,
   ShopifyGraphql,
   ShopifyRefused,
+  ShopifyThrottled,
   type ShopifyTokens
 } from "@insyte/modules/stores/domain/Ports"
 import { Effect, Layer, Redacted } from "effect"
-import { bulkQueryProblem } from "./BulkLimits.ts"
-import { RECORDED_BULK, RECORDED_UPDATES } from "./RecordedBulk.ts"
-import { readLines } from "./ShopifyGraphql.ts"
+import { RECORDED_LINES, RECORDED_UPDATES } from "./RecordedStore.ts"
 
 /*
  * Shopify's recorded twin (integrations.md §1.1): the worker tests and local runs without an app connect a store
  * through it, so CI never calls Shopify. Any shop exists but `missing-*`; the code `refused` is refused, like a
  * replayed one; every callback signed `valid` verifies. The facts are what a fresh development store reports. The code
  * `short` gives a token that is already due for a refresh; a refresh token from the code `revoked` is refused, as a
- * store that uninstalled the app answers. A bulk query past Shopify's limits (`BulkLimits`) is refused as Shopify
- * refuses it; the rest finish on the second poll with `RecordedBulk`'s files (an `empty-*` shop finds nothing). Single reads and the reconcile pages answer from the same files; an `upd-*` shop
- * holds `RECORDED_UPDATES` on top, as a store that changed since its import. Every webhook signed `valid` verifies.
+ * store that uninstalled the app answers. Reads answer from `RecordedStore`'s lines, a page at a time with the sizes the
+ * query asks for and offsets for cursors: the first import's pages by id (an `empty-*` shop finds nothing; a
+ * `throttle-*` shop throttles its first two, a `flaky-*` shop fails a page of orders once), a node's further children,
+ * single reads and the reconcile pages. An `upd-*` shop holds `RECORDED_UPDATES` on top, as a store that changed since
+ * its import: every read but the import's sees them. Every webhook signed `valid` verifies.
  * The order writes (M7.1) are taken as Shopify takes them; a `refuse-*` shop refuses each with a user error, and an
  * order has one open fulfillment order until it is fulfilled. A refund (M7.2) splits over one sale; the same
  * idempotency key answers the same refund. A return's writes (M9.3): a gift card or a discount code under a code made
@@ -54,38 +54,111 @@ const issued = (code: string, lifetimeMs: number): ShopifyTokens => ({
   scopes: ["read_orders", "read_products", "read_customers"]
 })
 
-const RECORDED_HOST = "https://recorded.shopify.test/bulk/"
-const resourceOf = (query: string): keyof typeof RECORDED_BULK =>
-  query.includes("products {")
-    ? "products"
-    : query.includes("inventoryItems {")
-    ? "stock"
-    : query.includes("customers {")
-    ? "customers"
-    : "orders"
-const polls = new Map<string, number>()
-
 /** The fixture's objects by gid, and each one's children, parsed once. */
-const parsed = Object.values(RECORDED_BULK).flatMap((text) =>
+const parsed = Object.values(RECORDED_LINES).flatMap((text) =>
   text.split("\n").filter((l) => l !== "").map((l) => JSON.parse(l) as Record<string, unknown>)
 )
 /** The connection each child type sits in on its parent, as a GraphQL read nests it. */
-const CONNECTION: Record<string, string> = { ProductVariant: "variants", MediaImage: "media", LineItem: "lineItems" }
+const CONNECTION: Record<string, string> = {
+  ProductVariant: "variants",
+  MediaImage: "media",
+  LineItem: "lineItems",
+  InventoryLevel: "inventoryLevels"
+}
 
-/** An object as a GraphQL read answers it: nested connections, the shop's later changes applied. */
-const nest = (shop: string, id: string): Record<string, unknown> | null => {
+/** `first` of the connection `field` in a query, if it names one. */
+const firstOf = (query: string, field: string): number | undefined => {
+  const found = new RegExp(`\\b${field}\\(first: (\\d+)`).exec(query)?.[1]
+  return found === undefined ? undefined : Number(found)
+}
+
+/** A page of `items` from `after`, `first` at most, as Shopify answers one; the twin's cursors are offsets. */
+const pageOf = (items: ReadonlyArray<unknown>, first: number, after: unknown) => {
+  const start = typeof after === "string" ? Number(after) : 0
+  const slice = items.slice(start, start + first)
+  const end = start + slice.length
+  return {
+    pageInfo: { hasNextPage: end < items.length, endCursor: end > start ? String(end) : null },
+    edges: slice.map((node) => ({ node }))
+  }
+}
+
+/** A fixture object's children in one of its connections, in the fixture's order. */
+const childrenOf = (id: string, connection: string) => {
+  const children: Array<Record<string, unknown>> = []
+  for (const { __parentId: parent, ...child } of parsed) {
+    if (parent === id && CONNECTION[String(child["id"]).split("/")[3] ?? ""] === connection) children.push(child)
+  }
+  return children
+}
+
+/**
+ * An object as a GraphQL read answers it: each connection a first page of the size the query asks for, and the shop's
+ * later changes applied where `updated` (an `upd-*` shop's reads of what changed, and its single reads).
+ */
+const nest = (shop: string, id: string, query = "", updated = true): Record<string, unknown> | null => {
   const own = madeNodes.get(id)
   if (own !== undefined) return own
   const line = parsed.find((l) => l["id"] === id)
   if (line === undefined) return null
   const { __parentId: _, ...node } = line
-  for (const { __parentId: _p, ...child } of parsed.filter((l) => l["__parentId"] === id)) {
-    const connection = CONNECTION[String(child["id"]).split("/")[3] ?? ""]
-    if (connection === undefined) continue
-    const edges = ((node[connection] ??= { edges: [] }) as { edges: Array<{ node: unknown }> }).edges
-    edges.push({ node: child })
+  for (const connection of new Set(Object.values(CONNECTION))) {
+    const children = childrenOf(id, connection)
+    if (children.length > 0) node[connection] = pageOf(children, firstOf(query, connection) ?? 250, null)
   }
-  return shop.startsWith("upd-") ? { ...node, ...RECORDED_UPDATES[id] } : node
+  return updated && shop.startsWith("upd-") ? { ...node, ...RECORDED_UPDATES[id] } : node
+}
+
+/** The root connections a page is read from, and their node's type. */
+const ROOTS: Record<string, string> = {
+  products: "Product",
+  customers: "Customer",
+  orders: "Order",
+  inventoryItems: "InventoryItem"
+}
+
+/**
+ * A page of a root connection. The first import's (by id) reads the store as it was imported, an `empty-*` shop's as
+ * nothing; the reconcile sweep's (by when it changed) reads it with the shop's later changes.
+ */
+const rootPage = (shop: string, field: string, query: string, variables: Record<string, unknown>) => {
+  const importing = query.includes("sortKey: ID") || field === "inventoryItems"
+  const ids = importing && shop.startsWith("empty-")
+    ? []
+    : parsed.filter((l) => String(l["id"]).split("/")[3] === ROOTS[field] && l["__parentId"] === undefined)
+  const nodes = ids.map((l) => nest(shop, String(l["id"]), query, !importing))
+  return { [field]: pageOf(nodes, firstOf(query, field) ?? 50, variables["after"]) }
+}
+
+/** The import's further page of one node's children: `node(id:) { ... on T { field(first:, after:) } }`. */
+const FOLLOW_UP = /node\(id: \$id\) \{ \.\.\. on \w+ \{ (\w+)\(first: (\d+), after: \$after\)/
+
+/** The first import's page reads per shop, as `<root>:<after>`, for the worker tests (`recordedPageReads`). */
+const pageReads = new Map<string, Array<string>>()
+export const recordedPageReads = (shop: string): ReadonlyArray<string> => pageReads.get(shop) ?? []
+
+/** The import's page reads a `throttle-*` or `flaky-*` shop has been asked so far. */
+const asked = new Map<string, number>()
+
+/**
+ * A `throttle-*` shop throttles the import's first page read for a minute (past what a step waits out) and its second
+ * for a moment; a `flaky-*` shop fails its first read of a later page of orders once, as a gateway would.
+ */
+const troubleFor = (shop: string, query: string, variables: Record<string, unknown>) => {
+  if (!query.includes("sortKey: ID") && !query.includes("inventoryItems(first:")) return undefined
+  if (shop.startsWith("throttle-")) {
+    const n = (asked.get(shop) ?? 0) + 1
+    asked.set(shop, n)
+    if (n === 1) return new ShopifyThrottled({ retryAfterMs: 60_000 })
+    if (n === 2) return new ShopifyThrottled({ retryAfterMs: 20 })
+  }
+  if (shop.startsWith("flaky-") && query.includes("orders(first:") && typeof variables["after"] === "string") {
+    if (!asked.has(shop)) {
+      asked.set(shop, 1)
+      return new ShopifyRefused({ status: 502, reason: "Bad Gateway" })
+    }
+  }
+  return undefined
 }
 
 /** The shop's setup as the first analysis reads it (M6.5): three countries, a long delivery, no rule for damage. */
@@ -585,7 +658,12 @@ const recordedQuery = (shop: string, query: string, variables: Record<string, un
       }
     }
   }
-  if (query.includes("node(id:")) return { node: nest(shop, String(variables["id"])) }
+  const followUp = FOLLOW_UP.exec(query)
+  if (followUp !== null) {
+    const [, field = "", first = "0"] = followUp
+    return { node: { [field]: pageOf(childrenOf(String(variables["id"]), field), Number(first), variables["after"]) } }
+  }
+  if (query.includes("node(id:")) return { node: nest(shop, String(variables["id"]), query) }
   if (query.includes("shipsToCountries")) return { shop: { shipsToCountries: RECORDED_SHOP.shipsToCountries } }
   if (query.includes("primaryDomain")) {
     return { shop: { primaryDomain: { url: `https://www.${shop.replace(".myshopify.com", "")}.test` } } }
@@ -595,15 +673,8 @@ const recordedQuery = (shop: string, query: string, variables: Record<string, un
   }
   if (query.includes("webPixel {")) return { webPixel: { id: "gid://shopify/WebPixel/7" } }
   if (query.includes("shopPolicies")) return { shop: { shopPolicies: RECORDED_SHOP.shopPolicies } }
-  const field = ["products", "customers", "orders"].find((f) => query.includes(`${f}(first:`))!
-  const type = field === "products" ? "Product" : field === "customers" ? "Customer" : "Order"
-  const ids = parsed.filter((l) => String(l["id"]).split("/")[3] === type && l["__parentId"] === undefined)
-  return {
-    [field]: {
-      pageInfo: { hasNextPage: false, endCursor: null },
-      edges: ids.map((l) => ({ node: nest(shop, String(l["id"])) }))
-    }
-  }
+  const field = Object.keys(ROOTS).find((f) => query.includes(`${f}(first:`))!
+  return rootPage(shop, field, query, variables)
 }
 
 export const ShopifyGraphqlRecorded = Layer.succeed(ShopifyGraphql)(ShopifyGraphql.of({
@@ -625,6 +696,13 @@ export const ShopifyGraphqlRecorded = Layer.succeed(ShopifyGraphql)(ShopifyGraph
         }))
       )
     }
+    // The import's page reads, each as it is asked, answered or not.
+    const root = Object.keys(ROOTS).find((f) => query.includes(`${f}(first:`))
+    if (root !== undefined && (query.includes("sortKey: ID") || root === "inventoryItems")) {
+      pageReads.set(shop, [...recordedPageReads(shop), `${root}:${String(variables["after"] ?? "start")}`])
+    }
+    const trouble = troubleFor(shop, query, variables)
+    if (trouble !== undefined) return Effect.fail(trouble)
     const data = recordedQuery(shop, query, variables)
     // A `lost-*` shop makes its first draft or product, and the answer never arrives: a gateway error, tried again.
     const create = query.includes("draftOrderCreate(") || query.includes("productSet(")
@@ -633,41 +711,7 @@ export const ShopifyGraphqlRecorded = Layer.succeed(ShopifyGraphql)(ShopifyGraph
       return Effect.fail(new ShopifyRefused({ status: 502, reason: "Bad Gateway" }))
     }
     return Effect.succeed({ data, throttle: { maximumAvailable: 2000, currentlyAvailable: 1990, restoreRate: 100 } })
-  },
-  start: (shop, _token, query) => {
-    // A query past Shopify's bulk limits is refused as Shopify refuses it: HTTP 200, a user error on the start.
-    const problem = bulkQueryProblem(query)
-    if (problem !== undefined) return Effect.fail(new ShopifyRefused({ status: 200, reason: problem }))
-    return Effect.succeed({
-      id: `gid://shopify/BulkOperation/${shop.startsWith("empty-") ? "empty" : resourceOf(query)}-${Date.now()}`,
-      throttle: { maximumAvailable: 2000, currentlyAvailable: 1990, restoreRate: 100 }
-    })
-  },
-  status: (_shop, _token, id) => {
-    const seen = (polls.get(id) ?? 0) + 1
-    polls.set(id, seen)
-    const resource = id.split("/").at(-1)!.split("-")[0]!
-    const status: BulkStatus["status"] = seen < 2 ? "RUNNING" : "COMPLETED"
-    const done = status === "COMPLETED"
-    return Effect.succeed({
-      status,
-      errorCode: null,
-      objectCount: done && resource !== "empty"
-        ? RECORDED_BULK[resource as keyof typeof RECORDED_BULK].split("\n").length - 1
-        : 0,
-      url: done && resource !== "empty" ? `${RECORDED_HOST}${resource}.jsonl` : null,
-      throttle: { maximumAvailable: 2000, currentlyAvailable: 1999, restoreRate: 100 }
-    })
-  },
-  read: (url, offset, maxLines) =>
-    Effect.tryPromise({
-      try: () => {
-        const resource = url.slice(RECORDED_HOST.length).replace(/\.jsonl$/, "") as keyof typeof RECORDED_BULK
-        const bytes = new TextEncoder().encode(RECORDED_BULK[resource]).subarray(offset)
-        return readLines(new Blob([bytes]).stream(), 0, offset, maxLines)
-      },
-      catch: (error) => new ShopifyRefused({ status: 0, reason: String(error) })
-    })
+  }
 }))
 
 export const ShopifyRecorded = Layer.succeed(ShopifyAdmin)(ShopifyAdmin.of({

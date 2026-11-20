@@ -1,12 +1,13 @@
 /*
- * A development store's bulk results, as Shopify writes them (JSONL, children after their parent with `__parentId`):
- * three products with four variants, three customers, and five orders across the lifecycle (paid and open, shipped,
+ * A development store, as lines (JSONL, children after their parent with `__parentId`, as `flatten` makes them): three
+ * products with four variants, three customers, and five orders across the lifecycle (paid and open, shipped,
  * delivered, refunded, cancelled), one of them without a customer. Two products have photographs (a featured one,
- * then the rest as `MediaImage` children); the third has none. Each variant has stock, at one location or two, in a
- * file of its own (the stock pass): each count an `InventoryLevel` line after its inventory item; none is low, so a store's import alone raises no stock-out. The
- * bag is made to order: Shopify does not track it, so its count of nothing is no stock-out either. The worker tests
- * read them in pages small enough that a line item lands in a later page than its order, and a variant's second count
- * in a later page than its first.
+ * then the rest as `MediaImage` children); the third has none. Each variant has stock, at one location or two, read by
+ * the stock pass: each count an `InventoryLevel` line after its inventory item; none is low, so a store's import alone
+ * raises no stock-out. The bag is made to order: Shopify does not track it, so its count of nothing is no stock-out
+ * either. The recorded twin answers its reads from these lines; the worker tests read them a child at a time, so the
+ * shirt's second variant, its other photographs, the L's second count and order #1005's second line each come in a
+ * read of their own after their parent.
  */
 
 const gid = (type: string, id: number) => `gid://shopify/${type}/${id}`
@@ -166,7 +167,7 @@ const parcel = (id: number, delivered: boolean) => ({
 
 const jsonl = (lines: ReadonlyArray<unknown>) => lines.map((l) => JSON.stringify(l)).join("\n") + "\n"
 
-export const RECORDED_BULK = {
+export const RECORDED_LINES = {
   products: jsonl([
     product(1, "Linnen overhemd", "2026-09-01T00:00:00Z", LINEN[0]!, "Atelier Noord"),
     media(101, 1, LINEN[0]!),
@@ -183,7 +184,7 @@ export const RECORDED_BULK = {
   stock: jsonl([
     item(11),
     level(11, 900, 24),
-    // The L's two counts land in two pages (four lines each): nothing at the shop's own location, 38 at the second.
+    // The L's two counts come in two reads (a child at a time): nothing at the shop's own location, 38 at the second.
     item(12),
     level(12, 900, 0),
     level(12, 901, 38),

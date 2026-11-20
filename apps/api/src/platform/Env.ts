@@ -114,8 +114,13 @@ declare global {
       readonly WEBCHAT_TOKEN_SECRET?: string
       /** Shopify's webhooks (M6.3): received deliveries' ids, applied by the jobs Worker's `queue` handler. */
       readonly INGEST: Queue<IngestMessage>
-      /** Lines per backfill page, 2000 by default; the worker tests read small pages. */
-      readonly SYNC_PAGE_LINES?: string
+      /**
+       * The first import's objects a page, children a read and pages a step (`Mirror.ts`'s sizes, 50 pages, by
+       * default); the worker tests read small pages.
+       */
+      readonly SYNC_PAGE_SIZE?: string
+      readonly SYNC_CHILD_PAGE?: string
+      readonly SYNC_STEP_PAGES?: string
       /** Rows per page of a privacy export (M17 step 5), 1000 by default; the worker tests read small pages. */
       readonly PRIVACY_EXPORT_PAGE_ROWS?: string
       /** Files (M8.5): packing slips now, uploads later, one bucket per stage. */

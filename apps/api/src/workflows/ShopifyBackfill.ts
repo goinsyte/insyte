@@ -4,16 +4,14 @@ import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Relay } from "@insyte/modules/shared/domain/Outbox"
 import { refusalMessage, ShopifyRefused } from "@insyte/modules/stores/domain/Ports"
 import {
-  applyPage,
   type BackfillContext,
   finish,
   giveUp,
   type MirrorCounts,
-  pollBulk,
   prepare,
+  readPages,
   type Resource,
-  RESOURCES,
-  startBulk
+  RESOURCES
 } from "@insyte/modules/stores/use-cases/backfill"
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type WorkflowStepConfig } from "cloudflare:workers"
 import { NonRetryableError } from "cloudflare:workflows"
@@ -25,11 +23,12 @@ import { roomOf } from "../platform/Room.ts"
 
 /*
  * A store's first import (M6.3; integrations.md §2 "Backfill"), as a Workflow: every step is durable, so a restart, a
- * deploy or a throttle resumes at the page it was on instead of starting over. Per resource: start the bulk query,
- * poll it every ten seconds until Shopify has the file, then read it a page at a time from the byte offset the last
- * page ended at. After every page the workspace's tabs get the counts (`job.progress`). A refused token stops at once
- * (the operator must reconnect); anything else retries with backoff, and when the retries are spent the store asks
- * for the operator (`giveUp`).
+ * deploy or a throttle resumes at the page it was on instead of starting over. Per resource, steps of pages: each
+ * reads Shopify's pages from the checkpointed cursor for up to thirty seconds (`readPages`), so 20,000 orders at two a
+ * page are a few hundred steps, far inside a Workflow's 10,000. A throttle too long to wait out in a step is slept on
+ * here (a sleep is not a step, and spends no retries). After every step the workspace's tabs get the counts
+ * (`job.progress`). A refused token stops at once (the operator must reconnect); anything else retries with backoff,
+ * and when the retries are spent the store asks for the operator (`giveUp`).
  */
 
 export interface BackfillParams {
@@ -42,13 +41,19 @@ const RETRY: WorkflowStepConfig = {
   timeout: "5 minutes"
 }
 
-/** How often a bulk operation is asked where it is, and how many times before the resource starts over. */
-const POLL_EVERY = "10 seconds"
-const MAX_POLLS = 360
+/**
+ * Steps of pages for the whole import, at most: past it the import gives up rather than run into the Workflow's own
+ * limit (10,000 steps, where `give up` could no longer run).
+ */
+const MAX_STEPS = 9_000
 
 export class ShopifyBackfillWorkflow extends WorkflowEntrypoint<Cloudflare.Env, BackfillParams> {
+  /** Steps of pages so far in this run of `run` (a replay counts them again, from the start). */
+  #steps = 0
+
   override async run(event: Readonly<WorkflowEvent<BackfillParams>>, step: WorkflowStep) {
     const { workspaceId, storeId } = event.payload
+    this.#steps = 0
     const exec = <A>(effect: Effect.Effect<A, unknown, unknown>) => run(workspaceId, effect)
     const progress = (label: JobProgress["label"], counts: MirrorCounts) =>
       roomOf(workspaceId).broadcast({ v: 1, type: "job.progress", kind: "store_backfill", storeId, label, counts })
@@ -77,23 +82,12 @@ export class ShopifyBackfillWorkflow extends WorkflowEntrypoint<Cloudflare.Env, 
   ) {
     // The stock is part of the products to whoever watches the import.
     const label = resource === "stock" ? "products" : resource
-    const bulkId = await step.do(`start ${resource}`, RETRY, () => exec(startBulk(ctx, resource)))
-    let url: string | null = null
-    for (let poll = 0;; poll++) {
-      if (poll >= MAX_POLLS) throw new Error(`bulk ${resource} did not finish`)
-      const status = await step.do(`poll ${resource} ${poll}`, RETRY, () => exec(pollBulk(ctx, resource, bulkId)))
-      if (status.status === "COMPLETED") {
-        url = status.url
-        break
-      }
-      await step.sleep(`wait ${resource} ${poll}`, POLL_EVERY)
-    }
-    let offset = 0
-    for (let page = 0;; page++) {
-      const read = await step.do(`page ${resource} ${page}`, RETRY, () => exec(applyPage(ctx, resource, url, offset)))
+    for (let n = 0;; n++) {
+      if (++this.#steps > MAX_STEPS) throw new Error(`the import took more than ${MAX_STEPS} steps`)
+      const read = await step.do(`page ${resource} ${n}`, RETRY, () => exec(readPages(ctx, resource)))
       await progress(label, read.counts)
       if (read.done) return
-      offset = read.next
+      if (read.waitMs > 0) await step.sleep(`wait ${resource} ${n}`, read.waitMs)
     }
   }
 }

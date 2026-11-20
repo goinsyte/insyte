@@ -2,7 +2,7 @@ import { Db } from "@insyte/database/Db"
 import { mintId, type WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { CurrentUser } from "@insyte/domain/Session"
-import { RECORDED_BULK } from "@insyte/integrations-shopify/RecordedBulk"
+import { RECORDED_LINES } from "@insyte/integrations-shopify/RecordedStore"
 import { addLine, emptyBatch, parseJsonl } from "@insyte/modules/stores/domain/Mirror"
 import { applyBatch } from "@insyte/modules/stores/use-cases/mirror"
 import { Workspaces } from "@insyte/modules/workspaces/Workspaces"
@@ -128,7 +128,7 @@ const StoreSeed = HttpRouter.add(
       })
     ).pipe(Effect.provideService(CurrentWorkspace, workspace))
     const batch = emptyBatch()
-    for (const text of Object.values(RECORDED_BULK)) for (const line of parseJsonl(text)) addLine(batch, line, "EUR")
+    for (const text of Object.values(RECORDED_LINES)) for (const line of parseJsonl(text)) addLine(batch, line, "EUR")
     const written = yield* applyBatch(storeId, batch, { live: false }).pipe(
       Effect.provideService(CurrentWorkspace, workspace)
     )

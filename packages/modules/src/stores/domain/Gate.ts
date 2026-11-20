@@ -12,7 +12,7 @@ import { ConnectionGate, ShopifyGraphql, type ShopifyRefused } from "./Ports.ts"
 export const throughGate = <A extends { readonly throttle: unknown }, E, R>(
   ctx: { readonly connectionId: string },
   cost: number,
-  call: (token: Parameters<ShopifyGraphql["Service"]["start"]>[1]) => Effect.Effect<A, E, R>
+  call: (token: Parameters<ShopifyGraphql["Service"]["query"]>[1]) => Effect.Effect<A, E, R>
 ) =>
   Effect.gen(function*() {
     const gate = yield* ConnectionGate

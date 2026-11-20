@@ -1,19 +1,20 @@
 import { describe, expect, it } from "vitest"
 import {
   addLine,
+  backfillChildQuery,
+  backfillQuery,
   emptyBatch,
+  flatten,
   gidId,
   gidType,
   orderStatus,
   parseJsonl,
-  PRODUCTS_QUERY,
-  STOCK_QUERY,
   toMinor
 } from "../src/stores/domain/Mirror.ts"
 
 /*
- * The mirror's pure half (M6.3): a bulk result's lines become rows, children keep their parent's Shopify id, amounts
- * are exact in minor units, and Shopify's statuses become Insyte's lifecycle.
+ * The mirror's pure half (M6.3): lines become rows, children keep their parent's Shopify id, a page's nodes flatten
+ * into the same lines, amounts are exact in minor units, and Shopify's statuses become Insyte's lifecycle.
  */
 
 const money = (amount: string) => ({ shopMoney: { amount } })
@@ -100,7 +101,7 @@ const JSONL = [
   { id: "gid://shopify/Collection/9", title: "Not mirrored" }
 ].map((line) => JSON.stringify(line)).join("\n")
 
-/** One location's count of inventory item 111, as a bulk file holds it. */
+/** One location's count of inventory item 111, as a line of the stock pass. */
 const level = (location: number, quantities: ReadonlyArray<unknown>) => ({
   id: `gid://shopify/InventoryLevel/7${location}?inventory_item_id=111`,
   updatedAt: "2026-09-15T08:00:00Z",
@@ -108,6 +109,21 @@ const level = (location: number, quantities: ReadonlyArray<unknown>) => ({
   location: { id: `gid://shopify/Location/${location}` },
   quantities,
   __parentId: "gid://shopify/InventoryItem/111"
+})
+
+/** A product's variant as a page of its variants holds it, and such a page. */
+const variant = (id: number) => ({
+  id: `gid://shopify/ProductVariant/${id}`,
+  title: String(id),
+  sku: null,
+  price: "10.00",
+  compareAtPrice: null,
+  position: id,
+  inventoryItem: { id: `gid://shopify/InventoryItem/${id}`, tracked: true }
+})
+const page = (ids: ReadonlyArray<number>, more: boolean) => ({
+  pageInfo: { hasNextPage: more, endCursor: more ? "c" : null },
+  edges: ids.map((id) => ({ node: variant(id) }))
 })
 
 describe("the commerce mirror's lines", () => {
@@ -123,7 +139,7 @@ describe("the commerce mirror's lines", () => {
     expect(toMinor("10.05", "EUR")).toBe(1005)
   })
 
-  it("turns a bulk result into rows, children pointing at their parent's Shopify id", () => {
+  it("turns lines into rows, children pointing at their parent's Shopify id", () => {
     const batch = emptyBatch()
     for (const line of parseJsonl(`${JSONL}\n\nnot json\n`)) addLine(batch, line, "EUR")
     expect(batch.products).toMatchObject([{
@@ -221,7 +237,7 @@ describe("the commerce mirror's lines", () => {
     expect(batch.refunds).toMatchObject([{ shopify_id: "71", amount_minor: 1000, note: "Te klein" }])
   })
 
-  it("reads a variant's stock per location from the bulk import's stock pass, by its inventory item", () => {
+  it("reads a variant's stock per location from the import's stock pass, by its inventory item", () => {
     const batch = emptyBatch()
     addLine(batch, level(900, [{ name: "available", quantity: 14 }]), "EUR")
     addLine(batch, level(901, [{ name: "available", quantity: -2 }]), "EUR")
@@ -232,10 +248,27 @@ describe("the commerce mirror's lines", () => {
       { inventory_item_id: "111", location_id: "901", available: -2, reported_at: "2026-09-15T08:00:00Z" }
     ])
     expect(batch.skipped).toBe(1)
-    // The counts are their own pass (a third level under the products is past Shopify's bulk limits; the recorded
-    // twin's `BulkLimits` holds every bulk query to them).
-    expect(PRODUCTS_QUERY).not.toContain("inventoryLevels")
-    expect(STOCK_QUERY).toContain("inventoryItems { edges { node { id inventoryLevels { edges")
+    // The counts are their own pass, by inventory item, after the products: each finds its variant.
+    expect(backfillQuery("products")).not.toContain("inventoryLevels")
+    expect(backfillQuery("stock")).toMatch(/inventoryItems\(first: \d+, after: \$after\)/)
+    expect(backfillQuery("stock")).toContain("inventoryLevels(first: 5) { pageInfo { hasNextPage endCursor }")
+  })
+
+  it("flattens a page's node and a later read of its children into the same lines", () => {
+    const product = JSON.parse(JSONL.split("\n")[0]!) as Record<string, unknown>
+    const batch = emptyBatch()
+    for (const line of flatten({ ...product, variants: page([1, 2], true) })) addLine(batch, line, "EUR")
+    // The next page of its variants, read by the product's id: only the children are lines.
+    for (const line of flatten({ id: product["id"], variants: page([3], false) }).slice(1)) addLine(batch, line, "EUR")
+    expect(batch.products.map((p) => p.shopify_id)).toEqual(["1"])
+    expect(batch.variants.map((v) => [v.shopify_id, v.product_shopify_id])).toEqual([["1", "1"], ["2", "1"], [
+      "3",
+      "1"
+    ]])
+    expect(batch.skipped).toBe(0)
+    expect(backfillChildQuery("products", "variants")).toContain(
+      "... on Product { variants(first: 100, after: $after) { pageInfo"
+    )
   })
 
   it("puts Shopify's statuses on Insyte's lifecycle", () => {

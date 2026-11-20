@@ -7,7 +7,7 @@ import type { HttpClient } from "effect/http"
 
 /*
  * Shopify (M6.2, M6.3): its recorded twin where the stage says `SHOPIFY_ADAPTER=recorded` (the worker tests), else the
- * Admin API. One choice for the install, the gate's refresh and the backfill's bulk operations.
+ * Admin API. One choice for the install, the gate's refresh and the backfill's pages.
  */
 
 const recorded = Effect.map(
