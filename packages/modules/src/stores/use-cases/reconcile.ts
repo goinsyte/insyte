@@ -2,17 +2,18 @@ import { Db } from "@insyte/database/Db"
 import { Cause, Effect, Exit } from "effect"
 import { throughGate } from "../domain/Gate.ts"
 import { HEADROOM_LOW } from "../domain/Health.ts"
-import { addLine, changedQuery, emptyBatch, flatten, type MirrorKind } from "../domain/Mirror.ts"
+import { addLine, changedPage, changedQuery, emptyBatch, type MirrorKind } from "../domain/Mirror.ts"
 import { ShopifyGraphql } from "../domain/Ports.ts"
 import { applyBatch } from "./mirror.ts"
+import { connectionAt, wholeNode } from "./reads.ts"
 import { retireCompletedDrafts } from "./webhooks.ts"
 
 /*
  * The reconcile sweep (M6.3; integrations.md §1.6): every fifteen minutes, per connected store and resource, what
  * changed in Shopify since the watermark, written through the same mapper as the backfill. It repairs the deliveries
  * Shopify gave up on (eight tries over four hours) and anything a webhook missed. The watermark moves to the newest
- * change seen; a minute's overlap reads a boundary twice, which the upserts make harmless. A sweep reads a few pages
- * per resource and leaves the rest for the next one.
+ * change seen; a minute's overlap reads a boundary twice, which the upserts make harmless. A sweep reads up to a
+ * hundred objects per resource, oldest change first and each whole (`wholeNode`), and leaves the rest for the next one.
  *
  * Sync health (M17 step 6) reads what each sweep saw, from the connection: the sweep writes it there (a sweep that went
  * through, one that failed and why, how close Shopify's bucket came to empty, the orders' watermark), so the check runs
@@ -29,15 +30,17 @@ const RESOURCES: ReadonlyArray<{ readonly kind: MirrorKind; readonly resource: s
   { kind: "Order", resource: "orders", field: "orders" }
 ]
 
-const PAGES_PER_SWEEP = 5
-/** While order webhooks are not coming, the orders are read with up to this many pages. */
-const PAGES_IN_GAP = 20
+/**
+ * What a sweep reads of a resource at most, in objects. A page holds as many as Shopify's cost limit lets it
+ * (`changedPage`: ten products, a hundred customers, two orders), so a resource takes as many pages as it needs for
+ * these; a store with little changed reads one.
+ */
+const OBJECTS_PER_SWEEP = 100
+/** While order webhooks are not coming, the orders are read up to this many, the extra pages out of the run's. */
+const OBJECTS_IN_GAP = 300
 const OVERLAP_MS = 60_000
-
-interface Page {
-  readonly pageInfo: { readonly hasNextPage: boolean; readonly endCursor: string | null }
-  readonly edges: ReadonlyArray<{ readonly node: { readonly updatedAt?: string } }>
-}
+/** What the gate holds back for a read: about what one costs Shopify once read (its requested cost is higher). */
+const PAGE_COST = 50
 
 /** What one store's sweep did: how many objects it read, and how many of the run's extra gap pages it used. */
 export interface Reconciled {
@@ -71,10 +74,22 @@ export const reconcileStore = Effect.fn("Stores.reconcile")(function*(storeId: s
   let read = 0
   let headroom: number | null = null
   let extra = 0
+  /** One read through the gate, noting how close Shopify's bucket came to empty. */
+  const ask = (query: string, variables: Record<string, unknown>) =>
+    throughGate(store, PAGE_COST, (token) => graphql.query(store.shop, token, query, variables)).pipe(
+      Effect.tap(({ throttle }) =>
+        Effect.sync(() => {
+          if (throttle === null || throttle.maximumAvailable <= 0) return
+          const left = throttle.currentlyAvailable / throttle.maximumAvailable
+          headroom = headroom === null ? left : Math.min(headroom, left)
+        })
+      )
+    )
   for (const { kind, resource, field } of RESOURCES) {
+    const usual = Math.ceil(OBJECTS_PER_SWEEP / changedPage(kind))
     const pages = resource === "orders" && store.gap
-      ? PAGES_PER_SWEEP + Math.max(0, Math.min(gapPages, PAGES_IN_GAP - PAGES_PER_SWEEP))
-      : PAGES_PER_SWEEP
+      ? usual + Math.max(0, Math.min(gapPages, Math.ceil(OBJECTS_IN_GAP / changedPage(kind)) - usual))
+      : usual
     const [cursor] = yield* db.scopedFor((sql) =>
       sql<{ watermarkAt: Date | null }>`
         select watermark_at from sync_cursors where connection_id = ${store.connectionId} and resource = ${resource}`
@@ -83,31 +98,20 @@ export const reconcileStore = Effect.fn("Stores.reconcile")(function*(storeId: s
     let after: string | null = null
     let newest = since
     for (let page = 0; page < pages; page++) {
-      if (page >= PAGES_PER_SWEEP) extra++
-      const { data, throttle } = yield* throughGate(
-        store,
-        50,
-        (token) =>
-          graphql.query(store.shop, token, changedQuery(kind), {
-            q: `updated_at:>='${since.toISOString()}'`,
-            after
-          })
-      )
-      if (throttle !== null && throttle.maximumAvailable > 0) {
-        const left = throttle.currentlyAvailable / throttle.maximumAvailable
-        headroom = headroom === null ? left : Math.min(headroom, left)
-      }
-      const answer = (data as Record<string, Page | undefined> | null)?.[field]
+      if (page >= usual) extra++
+      const { data } = yield* ask(changedQuery(kind), { q: `updated_at:>='${since.toISOString()}'`, after })
+      const answer = connectionAt(data, [field])
       if (answer === undefined) break
       const batch = emptyBatch()
       for (const { node } of answer.edges) {
-        for (const line of flatten(node)) addLine(batch, line, store.currency ?? "EUR")
-        const at = node.updatedAt === undefined ? undefined : new Date(node.updatedAt)
+        // Each object whole: its children past the page's first are read before the page is written.
+        for (const line of yield* wholeNode(node, ask)) addLine(batch, line, store.currency ?? "EUR")
+        const at = typeof node["updatedAt"] === "string" ? new Date(node["updatedAt"]) : undefined
         if (at !== undefined && at > newest) newest = at
       }
       yield* applyBatch(storeId, batch)
       read += answer.edges.length
-      if (!answer.pageInfo.hasNextPage || answer.pageInfo.endCursor === null) break
+      if (answer.pageInfo?.hasNextPage !== true || answer.pageInfo.endCursor === null) break
       after = answer.pageInfo.endCursor
     }
     // The orders come last: their watermark, and the sweep's outcome, go on the connection in the same statement. A

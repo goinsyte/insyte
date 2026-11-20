@@ -5,19 +5,17 @@ import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { throughGate } from "../domain/Gate.ts"
 import {
   addLine,
-  backfillChildQuery,
-  backfillChildren,
   backfillQuery,
   type BackfillResource,
   backfillRoot,
   backfillVariables,
   emptyBatch,
-  flatten,
   FOLLOW_UP_PAGE,
   type PageSizes
 } from "../domain/Mirror.ts"
 import { ShopifyGraphql } from "../domain/Ports.ts"
 import { applyBatch, settleStock } from "./mirror.ts"
+import { connectionAt, wholeNode } from "./reads.ts"
 
 /*
  * A store's backfill (M6.3; integrations.md §2 "Backfill"), as the steps `ShopifyBackfillWorkflow` makes durable: per
@@ -153,17 +151,6 @@ export const countsOf = Effect.fn("Stores.backfill.counts")(function*(storeId: s
   } satisfies MirrorCounts
 })
 
-interface Connection {
-  readonly pageInfo: { readonly hasNextPage: boolean; readonly endCursor: string | null }
-  readonly edges: ReadonlyArray<{ readonly node: Record<string, unknown> }>
-}
-
-const connectionAt = (data: unknown, path: ReadonlyArray<string>): Connection | undefined => {
-  let at: unknown = data
-  for (const key of path) at = typeof at === "object" && at !== null ? (at as Record<string, unknown>)[key] : undefined
-  return typeof at === "object" && at !== null && "edges" in at ? at as Connection : undefined
-}
-
 /** Smaller pages for the worker tests (`SYNC_PAGE_SIZE`, `SYNC_CHILD_PAGE`, `SYNC_STEP_PAGES`); `0` is the default. */
 const settings = Effect.gen(function*() {
   const page = yield* Config.Int("SYNC_PAGE_SIZE").pipe(Config.withDefault(0))
@@ -173,8 +160,8 @@ const settings = Effect.gen(function*() {
 }).pipe(Effect.orDie)
 
 /**
- * One page from `cursor`, as lines: each node, then all of its children, those past the page's first read after it.
- * Answers where the next page starts (`null`: this was the last).
+ * One page from `cursor`, as lines: each node, then all of its children, those past the page's first read after it
+ * (`wholeNode`). Answers where the next page starts (`null`: this was the last).
  */
 const fetchPage = Effect.fn("Stores.backfill.fetch")(
   function*(ctx: BackfillContext, resource: Resource, cursor: string | null, sizes: PageSizes) {
@@ -186,25 +173,8 @@ const fetchPage = Effect.fn("Stores.backfill.fetch")(
     const page = connectionAt(data, [root])
     if (page === undefined) return yield* Effect.die(new Error(`backfill ${resource}: Shopify answered no ${root}`))
     const lines: Array<unknown> = []
-    for (const { node } of page.edges) {
-      lines.push(...flatten(node))
-      const id = node["id"]
-      if (typeof id !== "string") continue
-      for (const field of backfillChildren(resource)) {
-        let children = connectionAt(node, [field])
-        // A node gone since its page was read answers nothing: what was read of it stays.
-        while (children?.pageInfo.hasNextPage && children.pageInfo.endCursor !== null) {
-          const more = yield* ask(backfillChildQuery(resource, field, sizes.child || FOLLOW_UP_PAGE), {
-            id,
-            after: children.pageInfo.endCursor
-          })
-          children = connectionAt(more.data, ["node", field])
-          // The node without its other fields: only its children are lines.
-          if (children !== undefined) lines.push(...flatten({ id, [field]: children }).slice(1))
-        }
-      }
-    }
-    const next = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null
+    for (const { node } of page.edges) lines.push(...yield* wholeNode(node, ask, sizes.child || FOLLOW_UP_PAGE))
+    const next = page.pageInfo?.hasNextPage === true ? page.pageInfo.endCursor : null
     return { lines, next }
   }
 )

@@ -74,9 +74,6 @@ const VARIANT_FIELDS = "id title sku price compareAtPrice position inventoryItem
 const LEVEL_FIELDS = `id updatedAt item { id } location { id } quantities(names: ["available"]) { name quantity }`
 /** A product's photographs, in its own order; other media (video, 3D) are not mirrored. */
 const MEDIA_FIELDS = "... on MediaImage { id image { url } }"
-const MEDIA_NODE = `node { ${MEDIA_FIELDS} }`
-/** As many photographs as a product page shows, for a webhook's read and the sweep; the import reads them all. */
-const MEDIA_PAGE = 20
 const CUSTOMER_FIELDS = `id firstName lastName displayName tags numberOfOrders createdAt updatedAt
   defaultEmailAddress { emailAddress marketingState }
   defaultPhoneNumber { phoneNumber }
@@ -95,7 +92,7 @@ const ORDER_FIELDS = `id name email displayFinancialStatus displayFulfillmentSta
 const LINE_FIELDS =
   "id title variantTitle quantity sku originalUnitPriceSet { shopMoney { amount } } variant { id } product { id }"
 
-/* ─── The first import's pages (M6.3): plain Admin GraphQL reads, a cursor at a time ─── */
+/* ─── The pages and single reads (M6.3): plain Admin GraphQL reads, a cursor at a time ─── */
 
 /**
  * What the import reads, in its order: the products first, so lines find their variants; then the stock, so each
@@ -104,11 +101,14 @@ const LINE_FIELDS =
  */
 export type BackfillResource = "products" | "stock" | "customers" | "orders"
 
+/** The kinds a webhook or the reconcile sweep reads one by one, by their gid's type. */
+export type MirrorKind = "Product" | "Customer" | "Order"
+
 interface ChildRead {
   /** The connection on the node, and its node's selection. */
   readonly field: string
   readonly selection: string
-  /** Children read with their node; a node with more has the rest read after it (`backfillChildQuery`). */
+  /** Children read with their node; a node with more has the rest read after it (`childQuery`). */
   readonly first: number
 }
 
@@ -124,9 +124,11 @@ interface PageRead {
 
 /**
  * Page sizes that keep each query's requested cost under Shopify's 1000 points a query, which it checks before running
- * one. Counted as Shopify documents it (an object 1, a connection 2 plus `first` times its node), the dearest query
- * here asks for under 900, and Shopify prices large connections lower than that (`stores-query-cost.test.ts`). An
- * order is the dearest node: its fulfilments and refunds (50 each) are lists, read with it.
+ * one (MAX_COST_EXCEEDED). Counted as Shopify documents it (an object 1, a connection 2 plus `first` times its node),
+ * the dearest query here asks for under 900, and Shopify prices large connections lower than that
+ * (`QueryCost.ts`, `stores-query-cost.test.ts`). An order is the dearest node: its fulfilments and refunds (50 each)
+ * are lists, read with it. The same selections serve the import's pages, the reconcile sweep's and a webhook's single
+ * read, so an object is written alike whichever read it.
  */
 const READS: Record<BackfillResource, PageRead> = {
   products: {
@@ -166,6 +168,9 @@ const READS: Record<BackfillResource, PageRead> = {
   }
 }
 
+/** Each kind's read, the import's for its resource. */
+const KINDS: Record<MirrorKind, PageRead> = { Product: READS.products, Customer: READS.customers, Order: READS.orders }
+
 /** A node's children past their first page, read a hundred at a time. */
 export const FOLLOW_UP_PAGE = 100
 
@@ -178,21 +183,20 @@ export interface PageSizes {
 const connection = (field: string, first: number, selection: string, after = "") =>
   `${field}(first: ${first}${after}) { pageInfo { hasNextPage endCursor } edges { node { ${selection} } } }`
 
+/** A node's own fields and the first page of each of its children. */
+const nodeSelection = (read: PageRead, child = 0) =>
+  [read.fields, ...read.children.map((c) => connection(c.field, child || c.first, c.selection))].join(" ")
+
 /** The root connection a resource's page answers under (`products`, `inventoryItems`, …). */
 export const backfillRoot = (resource: BackfillResource): string => READS[resource].root
-
-/** The child connections a resource's nodes carry: a node with more than their first page has the rest read after. */
-export const backfillChildren = (resource: BackfillResource): ReadonlyArray<string> =>
-  READS[resource].children.map((c) => c.field)
 
 /** One page of a resource from `$after`, by id: each node with the first page of its children. */
 export const backfillQuery = (resource: BackfillResource, sizes: PageSizes = { page: 0, child: 0 }): string => {
   const read = READS[resource]
-  const children = read.children.map((c) => connection(c.field, sizes.child || c.first, c.selection)).join(" ")
   return `query($after: String${resource === "orders" ? ", $q: String!" : ""}) {
   ${read.root}(first: ${sizes.page || read.first}, after: $after${read.args}) {
     pageInfo { hasNextPage endCursor }
-    edges { node { ${read.fields} ${children} } }
+    edges { node { ${nodeSelection(read, sizes.child)} } }
   }
 }`
 }
@@ -204,45 +208,40 @@ export const backfillQuery = (resource: BackfillResource, sizes: PageSizes = { p
 export const backfillVariables = (resource: BackfillResource, since: string, after: string | null) =>
   resource === "orders" ? { after, q: `created_at:>=${since}` } : { after }
 
+const readOf = (type: string): PageRead | undefined => Object.values(READS).find((r) => r.type === type)
+
+/** The child connections a node of `type` (its gid's) carries, each read a page at a time. */
+export const childFields = (type: string): ReadonlyArray<string> => readOf(type)?.children.map((c) => c.field) ?? []
+
 /** The next page of one node's children: `$id` is the node, `$after` where its last page of them ended. */
-export const backfillChildQuery = (resource: BackfillResource, field: string, first = FOLLOW_UP_PAGE): string => {
-  const read = READS[resource]
-  const child = read.children.find((c) => c.field === field)!
+export const childQuery = (type: string, field: string, first = FOLLOW_UP_PAGE): string => {
+  const child = readOf(type)?.children.find((c) => c.field === field)
+  if (child === undefined) throw new Error(`${type} has no child connection ${field}`)
   return `query($id: ID!, $after: String) {
-  node(id: $id) { ... on ${read.type} { ${connection(field, first, child.selection, ", after: $after")} } }
+  node(id: $id) { ... on ${type} { ${connection(field, first, child.selection, ", after: $after")} } }
 }`
 }
 
-/** The kinds a webhook or the reconcile sweep reads one by one, by their gid's type. */
-export type MirrorKind = "Product" | "Customer" | "Order"
-
-/** One object by its gid, as it is now, with its children (a webhook names it; this reads it). */
+/**
+ * One object by its gid, as it is now, with the first page of each of its children (a webhook names it; this reads
+ * it). A node with more children has the rest read after it (`childQuery`), so it is written whole.
+ */
 export const NODE_QUERY = `query($id: ID!) {
   node(id: $id) {
-    ... on Product {
-      ${PRODUCT_FIELDS} variants(first: 250) { edges { node { ${VARIANT_FIELDS} } } }
-      media(first: ${MEDIA_PAGE}) { edges { ${MEDIA_NODE} } }
-    }
-    ... on Customer { ${CUSTOMER_FIELDS} }
-    ... on Order { ${ORDER_FIELDS} lineItems(first: 250) { edges { node { ${LINE_FIELDS} } } } }
+${Object.entries(KINDS).map(([kind, read]) => `    ... on ${kind} { ${nodeSelection(read)} }`).join("\n")}
   }
 }`
 
-export const CHANGED_PAGE = 50
+/** How many objects a page of the reconcile sweep holds: as many as one of the import's. */
+export const changedPage = (kind: MirrorKind): number => KINDS[kind].first
 
 /** A page of what changed since a moment (the reconcile sweep), oldest change first. */
 export const changedQuery = (kind: MirrorKind): string => {
-  const field = kind === "Product" ? "products" : kind === "Customer" ? "customers" : "orders"
-  const children = kind === "Product"
-    ? `variants(first: 100) { edges { node { ${VARIANT_FIELDS} } } } media(first: ${MEDIA_PAGE}) { edges { ${MEDIA_NODE} } }`
-    : kind === "Order"
-    ? `lineItems(first: 100) { edges { node { ${LINE_FIELDS} } } }`
-    : ""
-  const fields = kind === "Product" ? PRODUCT_FIELDS : kind === "Customer" ? CUSTOMER_FIELDS : ORDER_FIELDS
+  const read = KINDS[kind]
   return `query($q: String!, $after: String) {
-  ${field}(first: ${CHANGED_PAGE}, after: $after, query: $q, sortKey: UPDATED_AT) {
+  ${read.root}(first: ${read.first}, after: $after, query: $q, sortKey: UPDATED_AT) {
     pageInfo { hasNextPage endCursor }
-    edges { node { ${fields} ${children} } }
+    edges { node { ${nodeSelection(read)} } }
   }
 }`
 }

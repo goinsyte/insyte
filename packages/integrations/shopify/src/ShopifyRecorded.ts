@@ -6,6 +6,7 @@ import {
   ShopifyThrottled,
   type ShopifyTokens
 } from "@insyte/modules/stores/domain/Ports"
+import { MAX_QUERY_COST, requestedCost } from "@insyte/modules/stores/domain/QueryCost"
 import { Effect, Layer, Redacted } from "effect"
 import { RECORDED_LINES, RECORDED_UPDATES } from "./RecordedStore.ts"
 
@@ -18,7 +19,8 @@ import { RECORDED_LINES, RECORDED_UPDATES } from "./RecordedStore.ts"
  * query asks for and offsets for cursors: the first import's pages by id (an `empty-*` shop finds nothing; a
  * `throttle-*` shop throttles its first two, a `flaky-*` shop fails a page of orders once), a node's further children,
  * single reads and the reconcile pages. An `upd-*` shop holds `RECORDED_UPDATES` on top, as a store that changed since
- * its import: every read but the import's sees them. Every webhook signed `valid` verifies.
+ * its import: every read but the import's sees them. Every webhook signed `valid` verifies. A query whose requested
+ * cost is over Shopify's 1000 points by its documented count (`QueryCost`) is refused before it runs, as Shopify does.
  * The order writes (M7.1) are taken as Shopify takes them; a `refuse-*` shop refuses each with a user error, and an
  * order has one open fulfillment order until it is fulfilled. A refund (M7.2) splits over one sale; the same
  * idempotency key answers the same refund. A return's writes (M9.3): a gift card or a discount code under a code made
@@ -679,6 +681,16 @@ const recordedQuery = (shop: string, query: string, variables: Record<string, un
 
 export const ShopifyGraphqlRecorded = Layer.succeed(ShopifyGraphql)(ShopifyGraphql.of({
   query: (shop, _token, query, variables) => {
+    // Over Shopify's cost limit, refused before it runs, as Shopify does (MAX_COST_EXCEEDED, answered with a 200).
+    const cost = requestedCost(query, variables)
+    if (cost > MAX_QUERY_COST) {
+      return Effect.fail(
+        new ShopifyRefused({
+          status: 200,
+          reason: `Query cost is ${cost}, which exceeds the single query max cost limit (${MAX_QUERY_COST}).`
+        })
+      )
+    }
     const denied = deniedFor(shop, query)
     if (denied !== undefined) return Effect.fail(denied)
     const held = query.includes("discountCodeBasicCreate(")

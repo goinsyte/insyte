@@ -8,10 +8,11 @@ import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { eraseShopper } from "../../shared/use-cases/ShopperErasure.ts"
 import { dropped, levelsOf } from "../../shared/use-cases/StockDrop.ts"
 import { throughGate } from "../domain/Gate.ts"
-import { addLine, emptyBatch, flatten, gidId, gidOf, type MirrorKind, NODE_QUERY } from "../domain/Mirror.ts"
+import { addLine, emptyBatch, gidId, gidOf, type MirrorKind, NODE_QUERY } from "../domain/Mirror.ts"
 import { ConnectionGate, IngestQueue, ShopifyAdmin, ShopifyGraphql } from "../domain/Ports.ts"
 import { ShopifyReturns } from "../ShopifyReturns.ts"
 import { applyBatch } from "./mirror.ts"
+import { wholeNode } from "./reads.ts"
 
 /*
  * Shopify's webhooks (M6.3; integrations.md §1.5, §2 "Webhooks", "Compliance"). `receive` runs before the 200: verify the
@@ -342,19 +343,22 @@ const reportedAt = (body: Record<string, unknown>) => {
   return at !== null && !Number.isNaN(Date.parse(at)) ? new Date(at).toISOString() : new Date().toISOString()
 }
 
-/** Reads one object as Shopify holds it now and writes it through the mirror; a deleted one is left as it was. */
+/**
+ * Reads one object as Shopify holds it now, with all of its children (those past the first page read after it), and
+ * writes it through the mirror in one batch; a deleted one is left as it was.
+ */
 export const mirrorOne = Effect.fn("Stores.webhooks.mirror")(
   function*(store: Pick<StoreRow, "id" | "connectionId" | "shop" | "currency">, _kind: MirrorKind, gid: string) {
     const graphql = yield* ShopifyGraphql
-    const { data } = yield* throughGate(
-      store,
-      10,
-      (token) => graphql.query(store.shop, token, NODE_QUERY, { id: gid })
-    )
+    const ask = (query: string, variables: Record<string, unknown>) =>
+      throughGate(store, 10, (token) => graphql.query(store.shop, token, query, variables))
+    const { data } = yield* ask(NODE_QUERY, { id: gid })
     const node = (data as { node?: unknown } | null)?.node
-    if (node === null || node === undefined) return
+    if (typeof node !== "object" || node === null) return
     const batch = emptyBatch()
-    for (const line of flatten(node)) addLine(batch, line, store.currency ?? "EUR")
+    for (const line of yield* wholeNode(node as Record<string, unknown>, ask)) {
+      addLine(batch, line, store.currency ?? "EUR")
+    }
     yield* applyBatch(store.id, batch)
   }
 )

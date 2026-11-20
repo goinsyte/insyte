@@ -18,11 +18,30 @@ export const ORDER_UPDATE = `mutation($input: OrderInput!) {
   orderUpdate(input: $input) { order { id } userErrors { field message } }
 }`
 
-/** The order's fulfillment orders and their lines, to fulfil those still open (all, or one supplier's lines). */
-export const FULFILLMENT_ORDERS = `query($id: ID!) {
+/**
+ * The order's fulfillment orders and their lines, to fulfil those still open (all, or one supplier's lines): five at a
+ * time from `$after`, each with its first fifty lines, so the query stays within Shopify's cost limit
+ * (`stores-query-cost.test.ts`). A fulfillment order with more has the rest read after (`FULFILLMENT_ORDER_LINES`).
+ */
+export const FULFILLMENT_ORDERS = `query($id: ID!, $after: String) {
   order(id: $id) {
-    fulfillmentOrders(first: 20) {
-      nodes { id status lineItems(first: 50) { nodes { id remainingQuantity lineItem { id } } } }
+    fulfillmentOrders(first: 5, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        id status
+        lineItems(first: 50) { pageInfo { hasNextPage endCursor } nodes { id remainingQuantity lineItem { id } } }
+      }
+    }
+  }
+}`
+
+/** A fulfillment order's lines past its first fifty, from `$after`. */
+export const FULFILLMENT_ORDER_LINES = `query($id: ID!, $after: String) {
+  node(id: $id) {
+    ... on FulfillmentOrder {
+      lineItems(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor } nodes { id remainingQuantity lineItem { id } }
+      }
     }
   }
 }`
