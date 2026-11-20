@@ -1,8 +1,9 @@
+import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import {
   addLine,
-  backfillChildQuery,
   backfillQuery,
+  childQuery,
   emptyBatch,
   flatten,
   gidId,
@@ -11,6 +12,7 @@ import {
   parseJsonl,
   toMinor
 } from "../src/stores/domain/Mirror.ts"
+import { wholeNode } from "../src/stores/use-cases/reads.ts"
 
 /*
  * The mirror's pure half (M6.3): lines become rows, children keep their parent's Shopify id, a page's nodes flatten
@@ -266,9 +268,34 @@ describe("the commerce mirror's lines", () => {
       "1"
     ]])
     expect(batch.skipped).toBe(0)
-    expect(backfillChildQuery("products", "variants")).toContain(
+    expect(childQuery("Product", "variants")).toContain(
       "... on Product { variants(first: 100, after: $after) { pageInfo"
     )
+  })
+
+  it("reads a node's children past their first page before its lines are given, so it is written whole", async () => {
+    const product = JSON.parse(JSONL.split("\n")[0]!) as Record<string, unknown>
+    const asked: Array<unknown> = []
+    // Shopify's further pages of the variants, by the product's id and where the last page ended.
+    const further = [page([3, 4], true), page([5], false)]
+    const ask = (query: string, variables: Record<string, unknown>) =>
+      Effect.sync(() => {
+        asked.push({ query, variables })
+        return { data: { node: { variants: further.shift() } } }
+      })
+    const lines = await Effect.runPromise(wholeNode({ ...product, variants: page([1, 2], true) }, ask))
+    const batch = emptyBatch()
+    for (const line of lines) addLine(batch, line, "EUR")
+    expect(batch.products.map((p) => p.shopify_id)).toEqual(["1"])
+    expect(batch.variants.map((v) => v.shopify_id)).toEqual(["1", "2", "3", "4", "5"])
+    expect(asked).toEqual([
+      { query: childQuery("Product", "variants"), variables: { id: "gid://shopify/Product/1", after: "c" } },
+      { query: childQuery("Product", "variants"), variables: { id: "gid://shopify/Product/1", after: "c" } }
+    ])
+    // Without a further page (or without `pageInfo`, as a node made in the twin answers), nothing more is asked.
+    asked.length = 0
+    await Effect.runPromise(wholeNode({ ...product, variants: { edges: [] } }, ask))
+    expect(asked).toEqual([])
   })
 
   it("puts Shopify's statuses on Insyte's lifecycle", () => {

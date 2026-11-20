@@ -217,6 +217,21 @@ describe("the Admin GraphQL adapter", () => {
   })
 })
 
+/** An order with its first `lines` lines: 3 + 2 × `lines` points by Shopify's count. */
+const orderWith = (lines: number) =>
+  `query($id: ID!) { node(id: $id) { ... on Order { id lineItems(first: ${lines}) { edges { node { id product { id } } } } } } }`
+
+describe("the recorded twin's cost limit", () => {
+  it("refuses a query over Shopify's 1000 points before it runs, and answers one under it", async () => {
+    const over = await ask("shop-1.myshopify.com", orderWith(500), { id: "gid://shopify/Order/1" })
+    expect(Exit.isFailure(over) && JSON.stringify(over.cause)).toContain(
+      "Query cost is 1003, which exceeds the single query max cost limit (1000)."
+    )
+    const under = await ask("shop-1.myshopify.com", orderWith(100), { id: "gid://shopify/Order/1" })
+    expect(Exit.isSuccess(under) && under.value.data).toMatchObject({ node: { id: "gid://shopify/Order/1" } })
+  })
+})
+
 describe("the recorded twin's return writes (M9.3)", () => {
   it("makes a gift card once under its code, and denies it to a shop that lacks the scope", async () => {
     const query = "mutation($input: GiftCardCreateInput!) { giftCardCreate(input: $input) { giftCard { id } } }"

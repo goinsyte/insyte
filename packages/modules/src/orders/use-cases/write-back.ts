@@ -11,6 +11,7 @@ import { StoreMirror } from "../../stores/Mirror.ts"
 import {
   FULFILLABLE,
   FULFILLMENT_CREATE,
+  FULFILLMENT_ORDER_LINES,
   FULFILLMENT_ORDERS,
   ORDER_CANCEL,
   ORDER_UPDATE,
@@ -30,12 +31,21 @@ import {
  * stops counting against the order; one Shopify took makes the order read refunded.
  */
 
+interface Paged<T> {
+  readonly pageInfo?: { readonly hasNextPage: boolean; readonly endCursor: string | null }
+  readonly nodes?: ReadonlyArray<T>
+}
+
+interface FulfillmentLine {
+  readonly id: string
+  readonly remainingQuantity: number
+  readonly lineItem: { readonly id: string }
+}
+
 interface FulfillmentOrder {
   readonly id: string
   readonly status: string
-  readonly lineItems?: {
-    readonly nodes: ReadonlyArray<{ id: string; remainingQuantity: number; lineItem: { id: string } }>
-  }
+  readonly lineItems?: Paged<FulfillmentLine>
 }
 
 interface Target {
@@ -63,6 +73,35 @@ const mailingAddress = (a: Record<string, string | null>) => {
     ...(a["phone"] ? { phone: a["phone"] } : {})
   }
 }
+
+/** The order's fulfillment orders, each with all of its lines: a page of them at a time, lines past a page read after. */
+const fulfillmentOrdersOf = Effect.fn("Orders.writeBack.fulfillmentOrders")(function*(target: Target, gid: string) {
+  const all: Array<{ readonly id: string; readonly status: string; readonly lines: Array<FulfillmentLine> }> = []
+  let after: string | null = null
+  do {
+    const answer: { readonly data: unknown } = yield* mutate(target, FULFILLMENT_ORDERS, { id: gid, after }, "order")
+    const page = (answer.data as { order?: { fulfillmentOrders?: Paged<FulfillmentOrder> } } | null)?.order
+      ?.fulfillmentOrders
+    for (const order of page?.nodes ?? []) {
+      const lines = [...(order.lineItems?.nodes ?? [])]
+      let more = order.lineItems?.pageInfo
+      while (more?.hasNextPage === true && more.endCursor !== null) {
+        const next: { readonly data: unknown } = yield* mutate(
+          target,
+          FULFILLMENT_ORDER_LINES,
+          { id: order.id, after: more.endCursor },
+          "node"
+        )
+        const got = (next.data as { node?: { lineItems?: Paged<FulfillmentLine> } | null } | null)?.node?.lineItems
+        lines.push(...(got?.nodes ?? []))
+        more = got?.pageInfo
+      }
+      all.push({ id: order.id, status: order.status, lines })
+    }
+    after = page?.pageInfo?.hasNextPage === true ? page.pageInfo.endCursor : null
+  } while (after !== null)
+  return all
+})
 
 const send = Effect.fn("Orders.writeBack.send")(function*(
   write: Exclude<OrderWrite, { type: "refund.requested" }>,
@@ -95,15 +134,12 @@ const send = Effect.fn("Orders.writeBack.send")(function*(
       return (yield* mutate(target, ORDER_UPDATE, { input }, "orderUpdate")).errors
     }
     case "fulfil": {
-      const { data } = yield* mutate(target, FULFILLMENT_ORDERS, { id: gid }, "order")
-      const nodes = ((data as { order?: { fulfillmentOrders?: { nodes?: ReadonlyArray<FulfillmentOrder> } } })
-        ?.order?.fulfillmentOrders?.nodes) ?? []
-      const open = nodes.filter((n) => FULFILLABLE.has(n.status))
+      const open = (yield* fulfillmentOrdersOf(target, gid)).filter((n) => FULFILLABLE.has(n.status))
       // A supplier's parcel carries only its own lines (M8.3); without lines, everything still open.
       const only = write.lines === undefined ? undefined : new Set(write.lines)
       const byOrder = open.flatMap((n) => {
         if (only === undefined) return [{ fulfillmentOrderId: n.id }]
-        const items = (n.lineItems?.nodes ?? []).filter((li) =>
+        const items = n.lines.filter((li) =>
           li.remainingQuantity > 0 && only.has(li.lineItem.id.split("/").pop() ?? "")
         )
         return items.length === 0 ? [] : [{
