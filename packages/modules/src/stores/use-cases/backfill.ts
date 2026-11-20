@@ -3,19 +3,24 @@ import { mintId } from "@insyte/domain/Ids"
 import { Config, Effect, Schema } from "effect"
 import * as Outbox from "../../shared/use-cases/Outbox.ts"
 import { throughGate } from "../domain/Gate.ts"
-import { addLine, CUSTOMERS_QUERY, emptyBatch, ordersQuery, PRODUCTS_QUERY } from "../domain/Mirror.ts"
+import { addLine, CUSTOMERS_QUERY, emptyBatch, ordersQuery, PRODUCTS_QUERY, STOCK_QUERY } from "../domain/Mirror.ts"
 import { type BulkStatus, ShopifyGraphql } from "../domain/Ports.ts"
 import { applyBatch, settleStock } from "./mirror.ts"
 
 /*
  * A store's backfill (M6.3; integrations.md §2 "Backfill"), as the steps `ShopifyBackfillWorkflow` makes durable: one
- * bulk operation per resource (products first, so lines find their variants; customers before orders, so an order
- * finds its customer), polled until Shopify has the file, then read in pages from a byte offset, each page written
+ * bulk operation per resource (products first, so lines find their variants; then the stock, so each count finds its
+ * variant; customers before orders, so an order finds its customer), polled until Shopify has the file, then read in pages from a byte offset, each page written
  * and checkpointed by the Workflow. Every step is safe to run again: the upserts are idempotent, and the counts are
  * read from the mirror, not added up. Each runs inside the store's workspace (`CurrentWorkspace`).
  */
 
-export const RESOURCES = ["products", "customers", "orders"] as const
+/**
+ * The stock is a pass of its own: Shopify's bulk queries nest connections two deep at most, and a variant's counts per
+ * location would be a third under the products. Its checkpoint is a `sync_cursors` row like the others, which the sync
+ * status leaves out (there the stock is part of the products).
+ */
+export const RESOURCES = ["products", "stock", "customers", "orders"] as const
 export type Resource = (typeof RESOURCES)[number]
 export const Resource = Schema.Literals(RESOURCES)
 
@@ -41,8 +46,19 @@ export interface MirrorCounts {
 /** Two years back: `read_all_orders`' default reach; without it Shopify answers 60 days whatever is asked. */
 const HISTORY_DAYS = 730
 
-const queryOf = (resource: Resource, since: string) =>
-  resource === "products" ? PRODUCTS_QUERY : resource === "customers" ? CUSTOMERS_QUERY : ordersQuery(since)
+/** The bulk query each resource runs. */
+export const queryOf = (resource: Resource, since: string): string => {
+  switch (resource) {
+    case "products":
+      return PRODUCTS_QUERY
+    case "stock":
+      return STOCK_QUERY
+    case "customers":
+      return CUSTOMERS_QUERY
+    case "orders":
+      return ordersQuery(since)
+  }
+}
 
 /**
  * The store is importing: `connecting` until the backfill finishes, and every resource's checkpoint cleared. `null`
@@ -134,8 +150,8 @@ export const applyPage = Effect.fn("Stores.backfill.page")(
     const batch = emptyBatch()
     for (const line of page.lines) addLine(batch, line, ctx.currency)
     const written = yield* applyBatch(ctx.storeId, batch, { live: false })
-    // The last page of products: every count Shopify holds is in, so what it no longer holds goes.
-    if (resource === "products" && page.done) yield* settleStock(ctx.storeId, ctx.startedAt)
+    // The last page of the stock: every count Shopify holds is in, so what it no longer holds goes.
+    if (resource === "stock" && page.done) yield* settleStock(ctx.storeId, ctx.startedAt)
     yield* checkpoint(ctx, resource, page.done ? { phase: "done" } : { phase: "reading", offset: page.next })
     const counts = yield* countsOf(ctx.storeId)
     return { next: page.next, done: page.done, orphans: written.orphans, counts }

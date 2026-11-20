@@ -7,6 +7,7 @@ import {
   type ShopifyTokens
 } from "@insyte/modules/stores/domain/Ports"
 import { Effect, Layer, Redacted } from "effect"
+import { bulkQueryProblem } from "./BulkLimits.ts"
 import { RECORDED_BULK, RECORDED_UPDATES } from "./RecordedBulk.ts"
 import { readLines } from "./ShopifyGraphql.ts"
 
@@ -15,8 +16,8 @@ import { readLines } from "./ShopifyGraphql.ts"
  * through it, so CI never calls Shopify. Any shop exists but `missing-*`; the code `refused` is refused, like a
  * replayed one; every callback signed `valid` verifies. The facts are what a fresh development store reports. The code
  * `short` gives a token that is already due for a refresh; a refresh token from the code `revoked` is refused, as a
- * store that uninstalled the app answers. Bulk operations finish on the second poll with `RecordedBulk`'s files
- * (an `empty-*` shop finds nothing). Single reads and the reconcile pages answer from the same files; an `upd-*` shop
+ * store that uninstalled the app answers. A bulk query past Shopify's limits (`BulkLimits`) is refused as Shopify
+ * refuses it; the rest finish on the second poll with `RecordedBulk`'s files (an `empty-*` shop finds nothing). Single reads and the reconcile pages answer from the same files; an `upd-*` shop
  * holds `RECORDED_UPDATES` on top, as a store that changed since its import. Every webhook signed `valid` verifies.
  * The order writes (M7.1) are taken as Shopify takes them; a `refuse-*` shop refuses each with a user error, and an
  * order has one open fulfillment order until it is fulfilled. A refund (M7.2) splits over one sale; the same
@@ -55,7 +56,13 @@ const issued = (code: string, lifetimeMs: number): ShopifyTokens => ({
 
 const RECORDED_HOST = "https://recorded.shopify.test/bulk/"
 const resourceOf = (query: string): keyof typeof RECORDED_BULK =>
-  query.includes("products {") ? "products" : query.includes("customers {") ? "customers" : "orders"
+  query.includes("products {")
+    ? "products"
+    : query.includes("inventoryItems {")
+    ? "stock"
+    : query.includes("customers {")
+    ? "customers"
+    : "orders"
 const polls = new Map<string, number>()
 
 /** The fixture's objects by gid, and each one's children, parsed once. */
@@ -627,11 +634,15 @@ export const ShopifyGraphqlRecorded = Layer.succeed(ShopifyGraphql)(ShopifyGraph
     }
     return Effect.succeed({ data, throttle: { maximumAvailable: 2000, currentlyAvailable: 1990, restoreRate: 100 } })
   },
-  start: (shop, _token, query) =>
-    Effect.succeed({
+  start: (shop, _token, query) => {
+    // A query past Shopify's bulk limits is refused as Shopify refuses it: HTTP 200, a user error on the start.
+    const problem = bulkQueryProblem(query)
+    if (problem !== undefined) return Effect.fail(new ShopifyRefused({ status: 200, reason: problem }))
+    return Effect.succeed({
       id: `gid://shopify/BulkOperation/${shop.startsWith("empty-") ? "empty" : resourceOf(query)}-${Date.now()}`,
       throttle: { maximumAvailable: 2000, currentlyAvailable: 1990, restoreRate: 100 }
-    }),
+    })
+  },
   status: (_shop, _token, id) => {
     const seen = (polls.get(id) ?? 0) + 1
     polls.set(id, seen)

@@ -67,13 +67,12 @@ const PRODUCT_FIELDS = `id title handle descriptionHtml status vendor productTyp
   featuredMedia { preview { image { url } } }`
 const VARIANT_FIELDS = "id title sku price compareAtPrice position inventoryItem { id tracked }"
 /**
- * A variant's stock per location, for the bulk import only: a bulk query takes a connection without `first`, a read
- * does not. Each level is its own line after its variant; it names its inventory item, so its variant is found by that
- * and not by `__parentId`. "available" is what can be sold (Shopify's own `available` field is deprecated).
+ * Stock per location, for the bulk import only (a bulk query takes a connection without `first`, a read does not): its
+ * own pass after the products, because Shopify's bulk queries nest connections two deep at most, and a variant's levels
+ * would be a third. Each level is its own line after its inventory item; it names that item, so its variant is found by
+ * it and not by `__parentId`. "available" is what can be sold (Shopify's own `available` field is deprecated).
  */
-const BULK_VARIANT_FIELDS = `id title sku price compareAtPrice position inventoryItem { id tracked
-  inventoryLevels { edges { node { id updatedAt item { id } location { id } quantities(names: ["available"]) {
-    name quantity } } } } }`
+const LEVEL_FIELDS = `id updatedAt item { id } location { id } quantities(names: ["available"]) { name quantity }`
 /** A product's photographs, in its own order; other media (video, 3D) are not mirrored. */
 const MEDIA_NODE = "node { ... on MediaImage { id image { url } } }"
 /** As many photographs as a product page shows; a bulk file holds them all. */
@@ -98,8 +97,13 @@ const LINE_FIELDS =
 
 export const PRODUCTS_QUERY = `{
   products { edges { node {
-    ${PRODUCT_FIELDS} variants { edges { node { ${BULK_VARIANT_FIELDS} } } } media { edges { ${MEDIA_NODE} } }
+    ${PRODUCT_FIELDS} variants { edges { node { ${VARIANT_FIELDS} } } } media { edges { ${MEDIA_NODE} } }
   } } }
+}`
+
+/** Every inventory item's count per location: read after the products, so each level finds its variant. */
+export const STOCK_QUERY = `{
+  inventoryItems { edges { node { id inventoryLevels { edges { node { ${LEVEL_FIELDS} } } } } } }
 }`
 
 export const CUSTOMERS_QUERY = `{

@@ -2,8 +2,8 @@
  * A development store's bulk results, as Shopify writes them (JSONL, children after their parent with `__parentId`):
  * three products with four variants, three customers, and five orders across the lifecycle (paid and open, shipped,
  * delivered, refunded, cancelled), one of them without a customer. Two products have photographs (a featured one,
- * then the rest as `MediaImage` children); the third has none. Each variant has stock, at one location or two, each
- * count an `InventoryLevel` line after its variant; none is low, so a store's import alone raises no stock-out. The
+ * then the rest as `MediaImage` children); the third has none. Each variant has stock, at one location or two, in a
+ * file of its own (the stock pass): each count an `InventoryLevel` line after its inventory item; none is low, so a store's import alone raises no stock-out. The
  * bag is made to order: Shopify does not track it, so its count of nothing is no stock-out either. The worker tests
  * read them in pages small enough that a line item lands in a later page than its order, and a variant's second count
  * in a later page than its first.
@@ -64,6 +64,9 @@ const variant = (
   __parentId: gid("Product", productId)
 })
 
+/** A variant's inventory item (its id is the variant's here), as the stock pass lists it before its counts. */
+const item = (variantId: number) => ({ id: gid("InventoryItem", variantId) })
+
 /** One location's count of a variant's inventory item, last changed before the import. */
 const level = (variantId: number, location: number, available: number) => ({
   id: `gid://shopify/InventoryLevel/${variantId}${location}?inventory_item_id=${variantId}`,
@@ -71,7 +74,7 @@ const level = (variantId: number, location: number, available: number) => ({
   item: { id: gid("InventoryItem", variantId) },
   location: { id: gid("Location", location) },
   quantities: [{ name: "available", quantity: available }],
-  __parentId: gid("ProductVariant", variantId)
+  __parentId: gid("InventoryItem", variantId)
 })
 
 const customer = (
@@ -167,20 +170,26 @@ export const RECORDED_BULK = {
   products: jsonl([
     product(1, "Linnen overhemd", "2026-09-01T00:00:00Z", LINEN[0]!, "Atelier Noord"),
     media(101, 1, LINEN[0]!),
-    // The L's two counts land in two pages (four lines each): nothing at the shop's own location, 38 at the second.
     variant(12, 1, "L", "LIN-L", "49.95", 2),
-    level(12, 900, 0),
-    level(12, 901, 38),
     variant(11, 1, "M", "LIN-M", "49.95", 1),
-    level(11, 900, 24),
     ...LINEN.slice(1).map((url, i) => media(102 + i, 1, url)),
     product(2, "Wollen trui", "2026-09-02T00:00:00Z", WOOL[0]!, "Wolhuis"),
     variant(21, 2, "Default Title", "WOL-1", "89.00", 1),
-    level(21, 900, 40),
     ...WOOL.map((url, i) => media(201 + i, 2, url)),
     product(3, "Canvas tas", "2026-09-03T00:00:00Z"),
     // Made to order: Shopify does not count it, and its count stays at nothing.
-    variant(31, 3, "Default Title", "TAS-1", "24.50", 1, false),
+    variant(31, 3, "Default Title", "TAS-1", "24.50", 1, false)
+  ]),
+  stock: jsonl([
+    item(11),
+    level(11, 900, 24),
+    // The L's two counts land in two pages (four lines each): nothing at the shop's own location, 38 at the second.
+    item(12),
+    level(12, 900, 0),
+    level(12, 901, 38),
+    item(21),
+    level(21, 900, 40),
+    item(31),
     level(31, 900, 0)
   ]),
   customers: jsonl([
