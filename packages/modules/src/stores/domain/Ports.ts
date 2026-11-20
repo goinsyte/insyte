@@ -36,6 +36,13 @@ export class ShopifyRefused extends Schema.TaggedError<ShopifyRefused>()("Shopif
   scope: Schema.optional(Schema.String)
 }) {}
 
+/**
+ * A refusal as a log line or a Workflow step's error shows it: its status and Shopify's reason (never a token), cut
+ * short. The error itself has no message, so without this a failed step says only `ShopifyRefused`.
+ */
+export const refusalMessage = (error: ShopifyRefused): string =>
+  `Shopify refused (${error.status}): ${error.reason}`.slice(0, 500)
+
 /** The access scope a refusal says the store's token lacks, where Shopify said so (`ACCESS_DENIED`). */
 export const missingScope = (error: ShopifyRefused): string | undefined =>
   error.status === 403 ? error.scope : undefined

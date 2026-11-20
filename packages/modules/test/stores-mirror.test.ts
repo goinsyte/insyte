@@ -7,6 +7,7 @@ import {
   orderStatus,
   parseJsonl,
   PRODUCTS_QUERY,
+  STOCK_QUERY,
   toMinor
 } from "../src/stores/domain/Mirror.ts"
 
@@ -106,7 +107,7 @@ const level = (location: number, quantities: ReadonlyArray<unknown>) => ({
   item: { id: "gid://shopify/InventoryItem/111" },
   location: { id: `gid://shopify/Location/${location}` },
   quantities,
-  __parentId: "gid://shopify/ProductVariant/11"
+  __parentId: "gid://shopify/InventoryItem/111"
 })
 
 describe("the commerce mirror's lines", () => {
@@ -220,7 +221,7 @@ describe("the commerce mirror's lines", () => {
     expect(batch.refunds).toMatchObject([{ shopify_id: "71", amount_minor: 1000, note: "Te klein" }])
   })
 
-  it("reads a variant's stock per location from the bulk import, by its inventory item", () => {
+  it("reads a variant's stock per location from the bulk import's stock pass, by its inventory item", () => {
     const batch = emptyBatch()
     addLine(batch, level(900, [{ name: "available", quantity: 14 }]), "EUR")
     addLine(batch, level(901, [{ name: "available", quantity: -2 }]), "EUR")
@@ -231,9 +232,10 @@ describe("the commerce mirror's lines", () => {
       { inventory_item_id: "111", location_id: "901", available: -2, reported_at: "2026-09-15T08:00:00Z" }
     ])
     expect(batch.skipped).toBe(1)
-    // Within Shopify's bulk limits: five connections at most, nested two deep.
-    expect(PRODUCTS_QUERY.match(/edges/g)).toHaveLength(4)
-    expect(PRODUCTS_QUERY).toContain("inventoryLevels { edges")
+    // The counts are their own pass (a third level under the products is past Shopify's bulk limits; the recorded
+    // twin's `BulkLimits` holds every bulk query to them).
+    expect(PRODUCTS_QUERY).not.toContain("inventoryLevels")
+    expect(STOCK_QUERY).toContain("inventoryItems { edges { node { id inventoryLevels { edges")
   })
 
   it("puts Shopify's statuses on Insyte's lifecycle", () => {

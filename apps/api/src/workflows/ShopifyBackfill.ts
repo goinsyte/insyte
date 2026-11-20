@@ -2,6 +2,7 @@ import type { JobProgress } from "@insyte/api/Frames"
 import type { WorkspaceId } from "@insyte/domain/Ids"
 import { CurrentWorkspace } from "@insyte/domain/Principal"
 import { Relay } from "@insyte/modules/shared/domain/Outbox"
+import { refusalMessage, ShopifyRefused } from "@insyte/modules/stores/domain/Ports"
 import {
   applyPage,
   type BackfillContext,
@@ -70,10 +71,12 @@ export class ShopifyBackfillWorkflow extends WorkflowEntrypoint<Cloudflare.Env, 
   async #resource(
     step: WorkflowStep,
     exec: <A>(effect: Effect.Effect<A, unknown, unknown>) => Promise<A>,
-    progress: (label: Resource, counts: MirrorCounts) => Promise<void>,
+    progress: (label: JobProgress["label"], counts: MirrorCounts) => Promise<void>,
     ctx: BackfillContext,
     resource: Resource
   ) {
+    // The stock is part of the products to whoever watches the import.
+    const label = resource === "stock" ? "products" : resource
     const bulkId = await step.do(`start ${resource}`, RETRY, () => exec(startBulk(ctx, resource)))
     let url: string | null = null
     for (let poll = 0;; poll++) {
@@ -88,16 +91,24 @@ export class ShopifyBackfillWorkflow extends WorkflowEntrypoint<Cloudflare.Env, 
     let offset = 0
     for (let page = 0;; page++) {
       const read = await step.do(`page ${resource} ${page}`, RETRY, () => exec(applyPage(ctx, resource, url, offset)))
-      await progress(resource, read.counts)
+      await progress(label, read.counts)
       if (read.done) return
       offset = read.next
     }
   }
 }
 
-/** One step's effect in the store's workspace, over a connection of its own; a refused token is not retried. */
+/**
+ * One step's effect in the store's workspace, over a connection of its own; a refused token is not retried. Shopify's
+ * refusal is logged and thrown with its status and reason, so the step's error says why, not only `ShopifyRefused`.
+ */
 const run = async <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unknown>): Promise<A> => {
   const program = withRequestDb(effect).pipe(
+    Effect.tapError((error) =>
+      error instanceof ShopifyRefused
+        ? Effect.logWarning("backfill: Shopify refused a step", { status: error.status, reason: error.reason })
+        : Effect.void
+    ),
     Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId })
   ) as Effect.Effect<A, unknown, never>
   const exit = await Telemetry.runExit(runtime, program)
@@ -106,5 +117,13 @@ const run = async <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unk
   if (failure._tag === "Some" && (failure.value as { _tag?: string })._tag === "TokenRefused") {
     throw new NonRetryableError("the store's token was refused: the operator must connect it again")
   }
+  if (failure._tag === "Some" && failure.value instanceof ShopifyRefused) throw stepError(failure.value)
   throw Cause.squash(exit.cause)
+}
+
+/** A plain error with its message as its own property: what a Workflow step records survives being passed on. */
+const stepError = (refused: ShopifyRefused): Error => {
+  const error = new Error(refusalMessage(refused))
+  error.name = "ShopifyRefused"
+  return error
 }
