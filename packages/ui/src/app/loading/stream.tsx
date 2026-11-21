@@ -6,6 +6,7 @@ import { destinationOf } from "./destination";
 import { paceFactor, useArrival, useLoading } from "./pace";
 import { COST, skeletonFor } from "./kinds";
 import { PageSkeleton } from "./page-skeletons";
+import { settle } from "./settle";
 
 /*
  * The three ways something arrives after the frame (ADR-0028).
@@ -92,16 +93,37 @@ export function RouteArrival({ persona, main, children }: { persona: Persona; ma
 	const ready = useArrival(`route:${routeId}`, COST[kind], { hold: !booted, progress: booted, marks: [`record:${pathname}`] });
 	const was = useRef(ready);
 	useLayoutEffect(() => {
-		// Opacity only: a transform on the scroll container would become the containing block for
-		// every fixed panel inside it (the plate, the detail sheet) for as long as it ran.
-		if (ready && !was.current) {
-			main.current?.animate([{ opacity: 0.001 }, { opacity: 1 }], { duration: 240, easing: "cubic-bezier(0.25, 1, 0.5, 1)" });
-		}
+		if (ready && !was.current) settle(main.current);
 		was.current = ready;
 	}, [ready, main]);
 	if (!ready) return <PageSkeleton kind={kind} title={destinationOf(pathname, persona).label} />;
 	return <>{children}</>;
 }
+
+/**
+ * The navigation line over a router that loads for real (the console): the router's own wait (the gate, a loader,
+ * a screen's code) counts toward `NavProgress`. A wait shorter than a beat counts for nothing, as a cache hit in the
+ * reference does, so moving between screens already in hand never flicks the line.
+ */
+export function RouterProgress() {
+	const loading = useRouterState({ select: (s) => s.status === "pending" });
+	useEffect(() => {
+		if (!loading) return;
+		let counted = false;
+		const t = window.setTimeout(() => {
+			counted = true;
+			useLoading.getState().begin();
+		}, BEAT_MS);
+		return () => {
+			window.clearTimeout(t);
+			if (counted) useLoading.getState().end();
+		};
+	}, [loading]);
+	return <NavProgress />;
+}
+
+/** Below this a wait is not shown: the next screen is simply there. */
+const BEAT_MS = 120;
 
 /**
  * The navigation line: two pixels of arc across the top of the work column while anything counted

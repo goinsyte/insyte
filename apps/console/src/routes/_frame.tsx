@@ -1,10 +1,10 @@
 import { useAtomValue } from "@effect/atom-react"
 import { PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
-import { createFileRoute, redirect } from "@tanstack/react-router"
+import { createFileRoute } from "@tanstack/react-router"
 import { Effect, Option } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
+import { admit } from "../auth/gate.ts"
 import { frameAtom } from "../data/frame.ts"
-import { sessionMeAtom } from "../data/session.ts"
 import { ConsoleFrame } from "../frame/console-frame.tsx"
 
 /**
@@ -13,16 +13,7 @@ import { ConsoleFrame } from "../frame/console-frame.tsx"
  * reads `Shell.frame` on the server, so the frame paints with the document.
  */
 export const Route = createFileRoute("/_frame")({
-  beforeLoad: async ({ context, location }) => {
-    const me = await Effect.runPromise(
-      AtomRegistry.getResult(context.registry, sessionMeAtom).pipe(
-        Effect.asSome,
-        Effect.catchTag("Unauthenticated", () => Effect.succeedNone)
-      )
-    )
-    if (Option.isNone(me)) throw redirect({ to: "/login", search: { redirect: location.href } })
-    if (me.value.landing !== "/dashboard") throw redirect({ href: me.value.landing })
-  },
+  beforeLoad: (options) => admit("/dashboard", options),
   loader: async ({ context }) => {
     // Mounted so the value survives until the registry is dehydrated into the document.
     context.registry.mount(frameAtom)

@@ -55,7 +55,9 @@ const atList = (pathname: string) => pathname.replace(/\/$/, "") === "/products"
 
 function Layout() {
   const asModal = useOpenedAsModal()
-  const atIndex = useRouterState({ select: (s) => atList(s.location.pathname) })
+  // From the matches on screen, not the location: the location moves on the click, the matches when the next screen
+  // has loaded, and until then this list stays up (ADR-0028).
+  const atIndex = useRouterState({ select: (s) => s.matches.some((m) => m.routeId === "/_frame/products/") })
   return (
     <>
       {atIndex || asModal ? <ProductsRoute /> : null}

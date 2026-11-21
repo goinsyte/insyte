@@ -1,9 +1,9 @@
 import { useAtomValue } from "@effect/atom-react"
 import { PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
-import { createFileRoute, redirect } from "@tanstack/react-router"
+import { createFileRoute } from "@tanstack/react-router"
 import { Effect, Option } from "effect"
 import { AsyncResult, AtomRegistry } from "effect/reactivity"
-import { sessionMeAtom } from "../data/session.ts"
+import { admit } from "../auth/gate.ts"
 import { portalMeAtom, portalOrdersAtom } from "../data/supplier-portal.ts"
 import { SupplierFrame } from "../supplier/supplier-frame.tsx"
 
@@ -13,16 +13,7 @@ import { SupplierFrame } from "../supplier/supplier-frame.tsx"
  * loader reads who they are and their orders on the server, so the frame and its panel paint with the document.
  */
 export const Route = createFileRoute("/_supplier")({
-  beforeLoad: async ({ context, location }) => {
-    const me = await Effect.runPromise(
-      AtomRegistry.getResult(context.registry, sessionMeAtom).pipe(
-        Effect.asSome,
-        Effect.catchTag("Unauthenticated", () => Effect.succeedNone)
-      )
-    )
-    if (Option.isNone(me)) throw redirect({ to: "/login", search: { redirect: location.href } })
-    if (me.value.landing !== "/supplier/dashboard") throw redirect({ href: me.value.landing })
-  },
+  beforeLoad: (options) => admit("/supplier/dashboard", options),
   loader: async ({ context }) => {
     // Mounted so the values survive until the registry is dehydrated into the document.
     context.registry.mount(portalMeAtom)

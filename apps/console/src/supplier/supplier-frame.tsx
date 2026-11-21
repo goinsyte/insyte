@@ -1,5 +1,7 @@
 import { useAtomMount, useAtomValue } from "@effect/atom-react"
 import type { SupplierMe } from "@insyte/modules/supplier-portal/domain/Portal"
+import { SettleOnArrival } from "@insyte/ui/app/loading/settle"
+import { RouterProgress } from "@insyte/ui/app/loading/stream"
 import { Frame } from "@insyte/ui/app/shell/frame"
 import { Outlet } from "@tanstack/react-router"
 import { Option } from "effect"
@@ -33,8 +35,17 @@ function Inside() {
   const main = useRef<HTMLElement>(null)
   useAtomMount(supplierRealtimeAtom)
   return (
-    <Frame persona="supplier" main={main} onAskInsyte={nothing} onOpenPalette={nothing} onOpenManage={nothing}>
-      <Outlet />
+    <Frame
+      persona="supplier"
+      main={main}
+      above={<RouterProgress />}
+      onAskInsyte={nothing}
+      onOpenPalette={nothing}
+      onOpenManage={nothing}
+    >
+      <SettleOnArrival value>
+        <Outlet />
+      </SettleOnArrival>
     </Frame>
   )
 }
