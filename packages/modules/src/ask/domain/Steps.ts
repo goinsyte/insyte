@@ -2,8 +2,9 @@ import { Schema } from "effect"
 import { ToolCall } from "./Tools.ts"
 
 /*
- * One step of Vraag Insyte's loop (ai.md §4), as the model is asked for it: what it does now (`thought`), the tools it
- * wants run, or its answer. The answer is parts: words, and figures and records by the id a tool result gave them, so a
+ * One step of Vraag Insyte's loop (ai.md §4), as the model is asked for it: a progress label for the screen (`status`),
+ * the tools it wants run, or its answer. Not `thought`: asked for its thought, a model that thinks reads the request as
+ * extracting its reasoning, and Anthropic refuses the call (`reasoning_extraction`). The answer is parts: words, and figures and records by the id a tool result gave them, so a
  * number in an answer is always one a tool computed (ai.md §6.2). A step either calls tools or answers.
  */
 
@@ -15,7 +16,7 @@ export const AnswerPart = Schema.Struct({
 export type AnswerPart = typeof AnswerPart.Type
 
 export const AskStep = Schema.Struct({
-  thought: Schema.String,
+  status: Schema.String,
   calls: Schema.Array(ToolCall),
   answer: Schema.NullOr(Schema.Struct({
     parts: Schema.Array(AnswerPart),

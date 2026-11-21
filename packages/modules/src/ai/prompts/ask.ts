@@ -70,12 +70,12 @@ const fakeAnswer = (input: StepInput): NonNullable<AskStep["answer"]> => {
 const fake = (input: StepInput): AskStep => {
   if (input.results.length === 0 && !input.final) {
     return {
-      thought: "Ik kijk welke gegevens ik nodig heb",
+      status: "Ik kijk welke gegevens ik nodig heb",
       calls: fakeCalls(input.question, input.tools.map((t) => t.name)),
       answer: null
     }
   }
-  return { thought: "Ik zet het antwoord op een rij", calls: [], answer: fakeAnswer(input) }
+  return { status: "Ik zet het antwoord op een rij", calls: [], answer: fakeAnswer(input) }
 }
 
 /**
@@ -94,7 +94,7 @@ const history = (input: StepInput) =>
 
 export const askPrompt = definePrompt<StepInput, AskStep>({
   id: "ask_step",
-  version: "1.1.0",
+  version: "1.2.0",
   purpose: "ask",
   effort: "medium",
   maxTokens: MAX_TOKENS,
@@ -105,7 +105,8 @@ the shop works by its own knowledge base. You answer only from what your tools r
 never suggest there is more than they returned.
 
 You work in steps. In each step return JSON with:
-- "thought": one short Dutch line saying what you do now, as a person would say it ("Ik lees de wachtrij").
+- "status": a short Dutch progress label the person sees while they wait, naming the step in plain words
+  ("Ik lees de wachtrij"). It is a label for the screen, not an explanation.
 - "calls": the tools to run now, each {"tool": name, "input": a JSON object as a string}; or [] when you answer.
 - "answer": null while you call tools; otherwise {"parts": [...], "followUps": [...]}.
 
