@@ -648,7 +648,7 @@ export function VideoFrame(
         onClick={onPlay}
         disabled={!onPlay}
         aria-label={playing ? "Wordt afgespeeld" : `${title || "Video"} afspelen`}
-        className="mx-auto flex size-14 items-center justify-center rounded-full bg-paper text-abyss transition-transform enabled:hover:scale-105 disabled:cursor-default"
+        className="mx-auto flex size-14 items-center justify-center rounded-full bg-mesh-ink text-abyss transition-transform enabled:hover:scale-105 disabled:cursor-default"
       >
         {playing
           ? (
@@ -895,7 +895,7 @@ function Proposal(
               <button
                 type="button"
                 onClick={() => onTake(q)}
-                className="flex h-8 items-center gap-1.5 rounded-md bg-paper px-3 font-medium text-abyss text-sm hover:bg-paper/90"
+                className="flex h-8 items-center gap-1.5 rounded-md bg-mesh-ink px-3 font-medium text-abyss text-sm hover:bg-mesh-ink/90"
               >
                 <Plus className="size-3.5" strokeWidth={2} />
                 Toevoegen

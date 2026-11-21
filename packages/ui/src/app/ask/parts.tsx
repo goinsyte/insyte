@@ -359,7 +359,7 @@ export function ProposalPlate({
 			type="button"
 			onClick={onFile}
 			className={cn(
-				"flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-paper px-3 font-medium text-abyss text-sm transition-colors hover:bg-arc-tint",
+				"flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-mesh-ink px-3 font-medium text-abyss text-sm transition-colors hover:bg-mesh-ink/90",
 				wide && "justify-center",
 			)}
 		>

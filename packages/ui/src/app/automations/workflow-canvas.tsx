@@ -389,7 +389,7 @@ function PromptBar({
           <button
             type="submit"
             disabled={text.trim().length === 0}
-            className="h-8 shrink-0 rounded-md bg-paper px-3 font-medium text-abyss text-sm transition-colors disabled:bg-mesh-ink/12 disabled:text-mesh-ink-2"
+            className="h-8 shrink-0 rounded-md bg-mesh-ink px-3 font-medium text-abyss text-sm transition-colors disabled:bg-mesh-ink/12 disabled:text-mesh-ink-2"
           >
             Opstellen
           </button>

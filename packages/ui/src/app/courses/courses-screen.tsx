@@ -748,7 +748,7 @@ function MyCourses() {
             <button
               type="button"
               onClick={() => learn(next.c.id)}
-              className="flex h-10 items-center gap-2 self-start rounded-lg bg-paper px-4 font-medium text-abyss text-base transition-colors hover:bg-paper/90 sm:self-center"
+              className="flex h-10 items-center gap-2 self-start rounded-lg bg-mesh-ink px-4 font-medium text-abyss text-base transition-colors hover:bg-mesh-ink/90 sm:self-center"
             >
               <Play className="size-4" strokeWidth={1.75} />
               {next.state === "busy" ? "Verder" : "Beginnen"}

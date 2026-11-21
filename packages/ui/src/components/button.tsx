@@ -21,7 +21,7 @@ const buttonVariants = cva(
         default: "bg-abyss text-mesh-ink hover:bg-abyss-2 active:bg-abyss",
         primary: "bg-abyss text-mesh-ink shadow-primary hover:bg-abyss-2 active:bg-abyss",
         // On a plate the ground is already dark, so the loud button is the light one.
-        "primary-mesh": "bg-paper text-abyss hover:bg-mesh-ink active:bg-paper",
+        "primary-mesh": "bg-mesh-ink text-abyss hover:bg-mesh-ink/90 active:bg-mesh-ink",
         destructive: "bg-signal-red text-paper hover:bg-signal-red/90",
         outline: "field hover:field-hover active:bg-ink/10",
         secondary: "bg-mist text-ink hover:bg-ink/8 active:bg-ink/12",

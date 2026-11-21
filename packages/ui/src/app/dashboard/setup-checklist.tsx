@@ -141,7 +141,7 @@ export function SetupPlate({
               (
                 <Link
                   to={next.to}
-                  className="flex h-9 items-center gap-1.5 rounded-md bg-paper px-3.5 font-medium text-abyss text-sm transition-colors hover:bg-paper/90"
+                  className="flex h-9 items-center gap-1.5 rounded-md bg-mesh-ink px-3.5 font-medium text-abyss text-sm transition-colors hover:bg-mesh-ink/90"
                 >
                   Verder met inrichten
                   <ArrowRight className="size-3.5" strokeWidth={2} />

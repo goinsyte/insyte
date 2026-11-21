@@ -509,7 +509,7 @@ function AiEvidencePack({
               onClick={onSubmit}
               disabled={submitBlocked !== undefined || !ready}
               title={submitBlocked}
-              className="group/btn flex h-8 items-center justify-center gap-1.5 rounded-md bg-paper px-3 font-medium text-abyss text-xs transition-colors hover:bg-arc-tint disabled:pointer-events-none disabled:opacity-45"
+              className="group/btn flex h-8 items-center justify-center gap-1.5 rounded-md bg-mesh-ink px-3 font-medium text-abyss text-xs transition-colors hover:bg-mesh-ink/90 disabled:pointer-events-none disabled:opacity-45"
             >
               Indienen bij {provider}
               <ArrowRight className="size-3.5 transition-transform group-hover/btn:translate-x-0.5" strokeWidth={2} />
@@ -520,7 +520,7 @@ function AiEvidencePack({
               type="button"
               onClick={onDraw}
               disabled={building}
-              className="flex h-8 items-center justify-center gap-1.5 rounded-md bg-paper px-3 font-medium text-abyss text-xs transition-colors hover:bg-arc-tint disabled:opacity-80"
+              className="flex h-8 items-center justify-center gap-1.5 rounded-md bg-mesh-ink px-3 font-medium text-abyss text-xs transition-colors hover:bg-mesh-ink/90 disabled:opacity-80"
             >
               {building
                 ? <Loader className="size-3.5 animate-spin" />
