@@ -1,7 +1,7 @@
 import { Effect } from "effect"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { AppInfo } from "../src/platform/Bindings.ts"
-import { issuerOf, type SigningKey, verifyAccessJwt } from "../src/transports/http/admin/AccessJwt.ts"
+import { accessKeys, issuerOf, type SigningKey, verifyAccessJwt } from "../src/transports/http/admin/AccessJwt.ts"
 import { admit, allowlistOf } from "../src/transports/http/admin/Gate.ts"
 import { devOnly } from "../src/transports/http/dev/shared.ts"
 
@@ -168,5 +168,34 @@ describe("the gate", () => {
       ok: false,
       reason: "signature"
     })
+  })
+})
+
+describe("the team's keys", () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it("are fetched with options the Workers runtime takes", async () => {
+    // The request is built as the runtime would build it: it throws a TypeError on an option it does not take (a
+    // `redirect: "error"` once refused every staff login on staging as `unknown_key`).
+    const asked: Array<Request> = []
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      asked.push(new Request(input, init))
+      return Response.json({ keys: [teamKey] })
+    })
+    const issuer = issuerOf("keys-test.cloudflareaccess.com")
+    expect(await accessKeys(issuer)(true)).toEqual([teamKey])
+    expect(asked.map((r) => r.url)).toEqual([`${issuer}/cdn-cgi/access/certs`])
+  })
+
+  it("are none when Access answers with a redirect instead of them", async () => {
+    const asked: Array<Request> = []
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      asked.push(new Request(input, init))
+      return new Response(null, { status: 302, headers: { location: "https://elsewhere.example/certs" } })
+    })
+    expect(await accessKeys(issuerOf("redirect-test.cloudflareaccess.com"))(true)).toEqual([])
+    expect(asked).toHaveLength(1)
   })
 })

@@ -128,7 +128,9 @@ let cached: { readonly issuer: string; readonly at: number; readonly keys: Reado
 export const accessKeys = (issuer: string) => async (fresh: boolean): Promise<ReadonlyArray<SigningKey>> => {
   const age = cached?.issuer === issuer ? Date.now() - cached.at : Number.POSITIVE_INFINITY
   if (age < (fresh ? FRESH_MS : KEEP_MS)) return cached!.keys
-  const response = await fetch(`${issuer}/cdn-cgi/access/certs`, { redirect: "error" })
+  // Not followed: keys from wherever a redirect points are no team's. (Workers takes no `redirect: "error"`; a 3xx
+  // under `manual` is simply not `ok`.)
+  const response = await fetch(`${issuer}/cdn-cgi/access/certs`, { redirect: "manual" })
   if (!response.ok) return cached?.issuer === issuer ? cached.keys : []
   const body = (await response.json()) as { readonly keys?: ReadonlyArray<SigningKey> }
   const keys = Array.isArray(body.keys) ? body.keys : []
