@@ -12,7 +12,7 @@ import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { Effect } from "effect"
 import type { SqlClient } from "effect/sql"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { failure, join, ok, outboxOf, pastUndo, person, relay, run } from "./journeys.ts"
 import { anotherStore, importedStore } from "./shops.ts"
 import { call, rpc, sessionMe } from "./support.ts"
@@ -718,7 +718,19 @@ describe("the affiliate programme", () => {
     ok(await rpc("Affiliates.invite", { email: invited, name: "WELKOM10", tier: "bronze" }, store.cookie))
     await pastUndo(store.workspace)
     await relay(store.workspace)
+    // Its Shopify discount is kicked onto the queue as it joins, not left for the cron's sweep (every quarter of an
+    // hour on staging).
+    const discounts = async () =>
+      (await outboxOf(store.workspace)).filter((e) => e.event === "affiliate.discount_requested").map((e) => e.id)
+    const before = new Set(await discounts())
+    const kicked = vi.spyOn(env.EVENTS, "send")
     const joined = await join(invited)
+    const asked = (await discounts()).filter((id) => !before.has(id)).map((id) => ({ id }))
+    expect(asked).toHaveLength(1)
+    expect(kicked.mock.calls.flatMap(([body]) => (body as { outboxIds: Array<string> }).outboxIds)).toContain(
+      asked[0]!.id
+    )
+    kicked.mockRestore()
     const code = ok(await rpc("AffiliateApply.me", undefined, joined)).affiliate!.code
     expect(code).toMatch(/^WELKOM10[A-Z2-9]{4}$/)
   })
