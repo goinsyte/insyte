@@ -50,7 +50,11 @@ const lock = Effect.fn("Forwarding.lock")(function*(sql: SqlClient.SqlClient, id
   const rows = yield* sql<Locked>`
     select f.id, f.order_id, f.state, f.supplier_id, f.from_supplier_id, f.via, f.since, f.error_kind, f.error_note,
            f.operator_note, f.confirmed_at, coalesce(s.paused_at is not null, false) as paused,
-           s.forward_channel as channel
+           -- Still "E-mail" with no address for orders, but someone of the supplier joined its portal: the portal.
+           case when s.forward_channel = 'email' and coalesce(s.forward_email, s.contact_email) is null
+                  and exists (select 1 from supplier_contacts c
+                              where c.supplier_id = s.id and c.revoked_at is null and c.joined_at is not null)
+                then 'portal' else s.forward_channel end as channel
     from forwarding_items f left join suppliers s on s.id = f.supplier_id
     where f.id in ${sql.in([...new Set(ids)])} and ${scope} order by f.id for update of f`
   const found = new Set(rows.map((r) => r.id))

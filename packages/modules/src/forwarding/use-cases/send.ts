@@ -11,9 +11,12 @@ import { ensureWork } from "./work.ts"
 
 /*
  * A forward's delivery (M8.2), once its undo window has passed: each leg still `sending` goes to its supplier, by its
- * custom API (signed JSON) or by mail ("Leveranciersportaal" is mail until the portal opens, M16). Each leg is its own
- * transaction, so a retry never sends one twice. A refusal is final (`send_failed` with the supplier's words); an
- * endpoint that cannot be reached fails the step, so the workflow tries again, and `abandon` records it when it gives up.
+ * custom API (signed JSON), by mail, or into its portal (M16). A portal leg is delivered once someone of the supplier
+ * has joined the portal: the work shows there (`ensureWork`), and the order mail goes to the address for orders, else to
+ * each joined contact who asked to hear of new orders. Until anyone has joined, "Leveranciersportaal" is mail. Each leg
+ * is its own transaction, so a retry never sends one twice. A refusal is final (`send_failed` with the supplier's words);
+ * an endpoint that cannot be reached fails the step, so the workflow tries again, and `abandon` records it when it gives
+ * up.
  */
 
 interface Leg {
@@ -21,6 +24,10 @@ interface Leg {
   readonly via: "portal" | "email" | "api" | null
   readonly supplierName: string
   readonly to: string | null
+  /** Someone of the supplier has joined its portal and is still there. */
+  readonly portalOn: boolean
+  /** The joined contacts who hear of new orders (`supplier_contacts.notify` holds `new_order`). */
+  readonly portalTo: ReadonlyArray<string>
   readonly confirmHours: number
   readonly webhookUrl: string | null
   readonly secretSealed: string | null
@@ -55,6 +62,12 @@ export const supplierOrderOf = (
 const lockLeg = (sql: SqlClient.SqlClient, id: string) =>
   sql<Leg>`
     select f.id, f.via, s.name as supplier_name, coalesce(s.forward_email, s.contact_email) as to,
+           exists (select 1 from supplier_contacts c
+                   where c.supplier_id = s.id and c.revoked_at is null and c.joined_at is not null) as portal_on,
+           coalesce((select array_agg(distinct lower(u.email))
+                     from supplier_contacts c join auth."user" u on u.id = c.user_id
+                     where c.supplier_id = s.id and c.revoked_at is null and c.joined_at is not null
+                       and 'new_order' = any(c.notify)), '{}') as portal_to,
            s.confirm_within_hours as confirm_hours, i.webhook_url, i.secret_sealed,
            coalesce(i.kind = 'custom' and i.enabled, false) as api_on, st.name as shop, o.number,
            o.placed_at, o.supplier_note as note, o.shipping_address as address,
@@ -120,18 +133,28 @@ const deliver = (sql: SqlClient.SqlClient, leg: Leg) =>
       )
       return
     }
-    if (leg.to === null) {
-      return yield* new SupplierApiError({ reason: "Geen e-mailadres voor bestellingen", retryable: false })
+    const inPortal = leg.via === "portal" && leg.portalOn
+    if (leg.to === null && !inPortal) {
+      return yield* new SupplierApiError({
+        reason: leg.via === "portal"
+          ? "Nog niemand van deze leverancier in het portaal en geen e-mailadres voor bestellingen"
+          : "Geen e-mailadres voor bestellingen",
+        retryable: false
+      })
     }
+    // In the portal the order is there once sent; the mail tells of it, to whoever hears of new orders (maybe no one).
+    const recipients = leg.to !== null ? [leg.to] : leg.portalTo
+    if (recipients.length === 0) return
     const slip = yield* slipOf(sql, leg, order)
-    yield* Effect.flatMap(Effect.service(Mailer), (mailer) =>
+    const mailer = yield* Effect.service(Mailer)
+    yield* Effect.forEach(recipients, (to) =>
       mailer.send({
         kind: "supplier.order",
-        to: leg.to!,
+        to,
         reference: leg.id,
         supplierOrder: { supplier: leg.supplierName, shop: leg.shop, order },
         attachments: slip === undefined ? undefined : [slip]
-      })).pipe(
+      }), { discard: true }).pipe(
         Effect.mapError((e) => new SupplierApiError({ reason: e.reason, retryable: true }))
       )
   })
