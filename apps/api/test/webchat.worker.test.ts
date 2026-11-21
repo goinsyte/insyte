@@ -521,4 +521,39 @@ describe("webchat", () => {
     expect(on.channel).toMatchObject({ status: "connected", themeUpdated: false })
     expect(recordedAppMetafields.get(refused.shop)?.get("insyte.api_origin")).toBeUndefined()
   })
+  it("drafts a ticket's reply from the chat it was made of", async () => {
+    const shop = await importedStore("chat-ticket", "webchat")
+    const origin = storefrontOf(shop.shop)
+    ok(await rpc("Channels.connect", { kind: "webchat" }, shop.cookie))
+    const body = "## Termijn\n\nJe kunt binnen 30 dagen na bezorging retourneren via ons retourportaal."
+    const chapter = ok(
+      await rpc("Knowledge.create", { title: "Retourneren", audience: "customer_agent", body: "Concept" }, shop.cookie)
+    ).article
+    ok(
+      await rpc("Knowledge.publish", {
+        id: chapter.id,
+        title: "Retourneren",
+        audience: "customer_agent",
+        body,
+        baseRevision: chapter.revision
+      }, shop.cookie)
+    )
+    // The chapter is searchable once the relay has embedded it.
+    await relay(shop.workspace)
+
+    const opened = await session(shop.shop)
+    const text = "Binnen hoeveel dagen kan ik retourneren?"
+    expect((await send(`/${shop.storeId}/messages`, { origin, token: opened.token, body: { text } })).status).toBe(200)
+    const [row] = ok(await rpc("Threads.list", { channel: "webchat" }, shop.cookie)).rows
+    // A reply still inside its undo window is not the shopper's yet, so not the draft's either.
+    ok(await rpc("Threads.reply", { threadId: row!.id, body: "Geen idee, ik vraag het na." }, shop.cookie))
+    const linked = ok(await rpc("Threads.linkTicket", { threadId: row!.id }, shop.cookie))
+
+    // The ticket's title says only where it came from; the question is in the chat, and the draft answers it from
+    // the chapter the shopper's words find.
+    const draft = ok(await rpc("Drafts.reply", { subject: { type: "ticket", id: linked.ticketId! } }, shop.cookie))
+    expect(draft.text).toContain("binnen 30 dagen na bezorging retourneren")
+    expect(draft.text).not.toContain("Geen idee")
+    expect(draft.sources?.map((source) => source.articleId)).toEqual([chapter.id])
+  })
 })

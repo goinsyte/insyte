@@ -150,8 +150,10 @@ export const threadFacts = Effect.fn("Ai.threadFacts")(function*(
 })
 
 /**
- * A ticket as a reply reads it: its title, the customer, the order it is about, and the mail with the customer on
- * it. Its description and the team's notes are the team's own and stay out.
+ * A ticket as a reply reads it: its title, the customer, the order it is about, and what was said with the customer on
+ * it: the mail of its threads and the messages of its website chats (a chat made into a ticket, "Aan ticket koppelen"),
+ * the last few of both by when they were written. A chat's system lines and a reply still inside its undo window (not
+ * yet the customer's to read) stay out. Its description and the team's notes are the team's own and stay out.
  */
 export const ticketFacts = Effect.fn("Ai.ticketFacts")(function*(sql: SqlClient.SqlClient, ticketId: string) {
   const [t] = yield* sql<{
@@ -172,22 +174,38 @@ export const ticketFacts = Effect.fn("Ai.ticketFacts")(function*(sql: SqlClient.
   const [c] = t.customerId === null ? [] : yield* sql<{ name: string }>`
     select name from customers where id = ${t.customerId}`
   const day = dayIn(tz)
-  const mail = yield* sql<{ direction: string; bodyText: string; sentAt: Date }>`
-    select m.direction, m.body_text, m.sent_at from email_messages m
+  const mail = yield* sql<{ direction: string; bodyText: string; sentAt: Date; createdAt: Date }>`
+    select m.direction, m.body_text, m.sent_at, m.created_at from email_messages m
     join email_threads th on th.id = m.thread_id
     where th.ticket_id = ${ticketId} and th.deleted_at is null and m.kind <> 'forward'
       and (m.direction = 'inbound' or m.send_state is distinct from 'failed')
     order by m.created_at desc limit ${MESSAGES}`
+  const chat = yield* sql<{ author: string; body: string; createdAt: Date }>`
+    select m.author, m.body, m.created_at from channel_messages m
+    join channel_threads th on th.id = m.thread_id
+    where th.ticket_id = ${ticketId} and th.deleted_at is null
+      and m.author in ('shopper', 'team', 'agent') and m.visible_at <= now()
+    order by m.created_at desc limit ${MESSAGES}`
+  type Said = { readonly at: number; readonly message: ReplyMessage }
+  const both: Array<Said> = [
+    ...mail.map((m): Said => ({
+      at: new Date(m.createdAt).getTime(),
+      message: { from: m.direction === "inbound" ? "klant" : "team", on: day(m.sentAt) ?? "", text: cut(m.bodyText) }
+    })),
+    ...chat.map((m): Said => ({
+      at: new Date(m.createdAt).getTime(),
+      message: { from: m.author === "shopper" ? "klant" : "team", on: day(m.createdAt) ?? "", text: cut(m.body) }
+    }))
+  ]
+  // A fresh array, sorted in place (`toSorted` is past this package's `lib`).
+  // oxlint-disable-next-line unicorn/no-array-sort
+  const said = both.sort((a, b) => b.at - a.at).slice(0, MESSAGES)
   return {
     via: "ticket",
     brand: yield* brandOf(sql, t.customerId, workspace),
     firstName: firstName(c?.name || t.orderCustomer),
     subject: t.title,
-    messages: oldestFirst(mail).map((m): ReplyMessage => ({
-      from: m.direction === "inbound" ? "klant" : "team",
-      on: day(m.sentAt) ?? "",
-      text: cut(m.bodyText)
-    })),
+    messages: oldestFirst(said).map((s) => s.message),
     orders: yield* ordersOf(sql, { orderId: t.orderId, customerId: t.customerId }, tz)
   } satisfies Omit<ReplyContext, "rewrite" | "knowledge">
 })

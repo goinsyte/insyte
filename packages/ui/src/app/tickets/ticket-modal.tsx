@@ -19,6 +19,7 @@ import {
 	Check,
 	ChevronDown,
 	Copy,
+	CornerDownLeft,
 	Hash,
 	Link2,
 	MessageSquare,
@@ -283,6 +284,22 @@ export function TicketModal({
 		onClose();
 	}
 
+	/** Where a set-aside ticket is, as its header says it; null on the board. Trash first: it hides the others. */
+	const asideAs = draft.deleted_at !== undefined
+		? "In de prullenbak"
+		: draft.spam_at !== undefined
+			? "Gemeld als spam"
+			: draft.archived_at !== undefined
+				? "Gearchiveerd"
+				: null;
+
+	/** "Nu terugzetten": out of the trash, spam or the archive, back on the board, as the list's action does. */
+	function putBack() {
+		if (!draft) return;
+		commands.bulk([draft], { putBack: true }, { label: `${draft.number} terug op het bord` });
+		onClose();
+	}
+
 	/** Trash and spam keep the ticket too, each in its own view, and Undo puts it straight back. */
 	function setAside(field: "deleted_at" | "spam_at", message: string) {
 		if (!draft) return;
@@ -403,6 +420,11 @@ export function TicketModal({
 									))}
 								</DropdownMenuContent>
 							</DropdownMenu>
+							{asideAs === null ? null : (
+								<span className="inline-flex h-5 items-center rounded-md bg-mist px-2 font-medium text-ink-2 text-sm">
+									{asideAs}
+								</span>
+							)}
 						</div>
 					</div>
 					<div className="flex shrink-0 items-center gap-1">
@@ -441,21 +463,30 @@ export function TicketModal({
 									Dupliceren
 								</DropdownMenuItem>
 								<DropdownMenuSeparator />
-								<DropdownMenuItem
-									variant="destructive"
-									onClick={archive}
-								>
-									<Archive className="size-4" strokeWidth={1.75} />
-									Archiveren
-								</DropdownMenuItem>
-								<DropdownMenuItem variant="destructive" onClick={() => setAside("spam_at", "gemeld als spam")}>
-									<AlertOctagon className="size-4" strokeWidth={1.75} />
-									Melden als spam
-								</DropdownMenuItem>
-								<DropdownMenuItem variant="destructive" onClick={() => setAside("deleted_at", "naar de prullenbak")}>
-									<Trash2 className="size-4" strokeWidth={1.75} />
-									Naar prullenbak
-								</DropdownMenuItem>
+								{asideAs !== null ? (
+									<DropdownMenuItem onClick={putBack}>
+										<CornerDownLeft className="size-4" strokeWidth={1.75} />
+										Nu terugzetten
+									</DropdownMenuItem>
+								) : (
+									<>
+										<DropdownMenuItem
+											variant="destructive"
+											onClick={archive}
+										>
+											<Archive className="size-4" strokeWidth={1.75} />
+											Archiveren
+										</DropdownMenuItem>
+										<DropdownMenuItem variant="destructive" onClick={() => setAside("spam_at", "gemeld als spam")}>
+											<AlertOctagon className="size-4" strokeWidth={1.75} />
+											Melden als spam
+										</DropdownMenuItem>
+										<DropdownMenuItem variant="destructive" onClick={() => setAside("deleted_at", "naar de prullenbak")}>
+											<Trash2 className="size-4" strokeWidth={1.75} />
+											Naar prullenbak
+										</DropdownMenuItem>
+									</>
+								)}
 							</DropdownMenuContent>
 						</DropdownMenu>
 						<button
@@ -767,12 +798,20 @@ export function TicketModal({
 									label="Uitstellen"
 									onClick={snooze}
 								/>
-								<SidebarAction
-									icon={Archive}
-									label="Archiveren"
-									destructive
-									onClick={archive}
-								/>
+								{asideAs !== null ? (
+									<SidebarAction
+										icon={CornerDownLeft}
+										label="Nu terugzetten"
+										onClick={putBack}
+									/>
+								) : (
+									<SidebarAction
+										icon={Archive}
+										label="Archiveren"
+										destructive
+										onClick={archive}
+									/>
+								)}
 							</div>
 						</SidebarBlock>
 					</aside>
