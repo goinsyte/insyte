@@ -88,7 +88,7 @@ export function FirstRun() {
           <div className="relative mt-auto flex flex-wrap gap-2 pt-1">
             <Link
               to="/ask"
-              className="flex h-8 items-center gap-1.5 rounded-md bg-paper px-3 font-medium text-abyss text-sm hover:bg-paper/90"
+              className="flex h-8 items-center gap-1.5 rounded-md bg-mesh-ink px-3 font-medium text-abyss text-sm hover:bg-mesh-ink/90"
             >
               <Sparkle className="size-3.5" strokeWidth={1.75} />
               Vraag Insyte iets

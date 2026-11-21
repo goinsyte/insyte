@@ -190,7 +190,7 @@ function PlateButton({
       className={cn(
         "group flex h-[38px] items-center gap-2 rounded-lg px-4 font-medium text-base transition-colors disabled:pointer-events-none disabled:opacity-40",
         primary
-          ? "bg-mesh-ink text-abyss hover:bg-paper"
+          ? "bg-mesh-ink text-abyss hover:bg-mesh-ink/90"
           : "bg-mesh-ink/15 text-mesh-ink hover:bg-mesh-ink/25"
       )}
       {...(props as React.ComponentProps<typeof motion.button>)}

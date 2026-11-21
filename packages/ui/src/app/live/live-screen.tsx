@@ -233,7 +233,7 @@ export function LivePage() {
                     onClick={() => setView(id)}
                     className={cn(
                       "h-7 rounded px-2.5 font-medium text-xs transition-colors",
-                      view === id ? "bg-paper text-abyss" : "text-mesh-ink-2 hover:text-mesh-ink"
+                      view === id ? "bg-mesh-ink text-abyss" : "text-mesh-ink-2 hover:text-mesh-ink"
                     )}
                   >
                     {label}

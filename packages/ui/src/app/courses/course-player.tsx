@@ -594,7 +594,7 @@ function Certificate(
           <button
             type="button"
             onClick={onBack}
-            className="flex h-9 items-center rounded-lg bg-paper px-3.5 font-medium text-abyss text-base hover:bg-paper/90"
+            className="flex h-9 items-center rounded-lg bg-mesh-ink px-3.5 font-medium text-abyss text-base hover:bg-mesh-ink/90"
           >
             Naar mijn cursussen
           </button>

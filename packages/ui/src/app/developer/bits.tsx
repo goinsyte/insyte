@@ -39,7 +39,7 @@ export function CopyButton({ value, label = "Kopiëren", className, tone = "well
 			}}
 			className={cn(
 				"flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 font-medium text-sm transition-colors disabled:pointer-events-none disabled:opacity-45",
-				tone === "mesh" ? "bg-mesh-ink text-abyss hover:bg-paper" : tone === "ghost" ? "text-ink-2 hover:bg-ink/6 hover:text-ink" : "field text-ink hover:field-hover",
+				tone === "mesh" ? "bg-mesh-ink text-abyss hover:bg-mesh-ink/90" : tone === "ghost" ? "text-ink-2 hover:bg-ink/6 hover:text-ink" : "field text-ink hover:field-hover",
 				className,
 			)}
 		>
