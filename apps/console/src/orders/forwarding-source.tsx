@@ -128,7 +128,13 @@ function useConsoleForwardingSource(list: LegList): ForwardingSource {
       options: [...new Set(all.map((r) => r.supplierId))].map((value) => ({ value, label: label(value) }))
     }],
     gates: { edit },
-    viaOf: (supplierId) => suppliers.rows.find((s) => s.id === supplierId)?.forwardChannel ?? "email",
+    viaOf: (supplierId) => {
+      const s = suppliers.rows.find((r) => r.id === supplierId)
+      if (s === undefined) return "email"
+      // As the server has it (`Forwarding.forward`): "E-mail" with no address, but someone joined the portal: the portal.
+      const noAddress = (s.forwardEmail ?? s.contactEmail) === null
+      return s.forwardChannel === "email" && noAddress && s.portal === "active" ? "portal" : s.forwardChannel
+    },
     forward: (rows, via, note) => void commands.forward(rows, via, note),
     confirm: (rows) => void commands.confirm(rows),
     rerouteOptions: (row) =>

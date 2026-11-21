@@ -1,7 +1,7 @@
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
-import { failure, mailsTo, ok, outboxOf, pastUndo, relay, run } from "./journeys.ts"
+import { failure, join, mailsTo, ok, outboxOf, pastUndo, relay, run } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"
 
@@ -223,5 +223,42 @@ describe("forwarding", () => {
     expect((await mailsTo(address)).map((m) => m.kind)).toEqual(["supplier.order"])
     expect(await mailsTo(atelierAddress)).toEqual([])
     expect(await sendsRequested()).toBe(1)
+  })
+
+  it("forwards into the portal of a supplier whose person joined it, with no address for orders", async () => {
+    const store = await importedStore("fwd-portal")
+    const atelier = await supplierNamed(store.cookie, "Atelier Noord")
+    const leg = (await legsIn(store.cookie, "to_forward")).rows[0]!
+    await using sends = await introspectWorkflow(env.FORWARD_SEND)
+
+    // Nobody of Atelier Noord in the portal yet, and no address: by the portal it cannot go either, and says why.
+    ok(await rpc("Forwarding.forward", { ids: [leg.id], via: { [atelier.id]: "portal" } }, store.cookie))
+    expect(await sent(store.workspace, sends, 1)).toMatchObject({ legs: [{ outcome: "failed" }] })
+    expect((await legsIn(store.cookie, "forward_error")).rows[0]).toMatchObject({
+      errorKind: "send_failed",
+      errorNote: "Nog niemand van deze leverancier in het portaal en geen e-mailadres voor bestellingen"
+    })
+
+    // Their person joins the portal; the supplier still has no address for orders.
+    const person = `noord-fwd-${run}@supplier.example`
+    ok(
+      await rpc("Invitations.sendSupplier", {
+        rows: [{ supplierId: atelier.id, email: person, name: "Noor", scopes: [] }]
+      }, store.cookie)
+    )
+    await pastUndo(store.workspace)
+    await relay(store.workspace)
+    const cookie = await join(person)
+    const joined = await supplierNamed(store.cookie, "Atelier Noord")
+    expect(joined).toMatchObject({ portal: "active", forwardChannel: "email", forwardEmail: null, contactEmail: null })
+
+    // Forwarded with no channel named, it goes by the portal: the order is there, and its person hears of it.
+    const going = ok(await rpc("Forwarding.forward", { ids: [leg.id] }, store.cookie))
+    expect(going.legs[0]).toMatchObject({ state: "sending", via: "portal" })
+    expect(await sent(store.workspace, sends, 2)).toMatchObject({ legs: [{ outcome: "sent" }] })
+    expect((await legsIn(store.cookie, "awaiting")).rows[0]).toMatchObject({ id: leg.id, state: "awaiting" })
+    const portal = ok(await rpc("SupplierPortal.orders.list", {}, cookie))
+    expect(portal.rows.map((r) => [r.number, r.status])).toEqual([["#1001", "to_accept"]])
+    expect((await mailsTo(person)).map((m) => m.kind).toSorted()).toEqual(["supplier.order", "team.invite"])
   })
 })
