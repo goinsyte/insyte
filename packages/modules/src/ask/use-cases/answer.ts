@@ -311,7 +311,7 @@ const run = <R>(
         if (out && correction === null) limited = true
         const step = yield* stepWith(out || correction !== null, correction)
         steps++
-        yield* think(step.thought)
+        yield* think(step.status)
         if (step.answer !== null) {
           const faults = faultsOf(step.answer.parts, ask.text, found.figures, found.records)
           if (faults.length > 0 && correction === null && steps < MAX_STEPS) {
