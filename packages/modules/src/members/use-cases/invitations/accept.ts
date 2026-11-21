@@ -55,8 +55,10 @@ export const acceptRouted = Effect.fn("Landing.acceptRouted")(function*(ref: Lan
         const hash = yield* sha256(ref.k ?? "")
         const name = (user.name ?? "").trim() || user.email.split("@")[0] || "PARTNER"
         const code = proposedCode(name)
+        // The Shopify discount it asks for (`affiliate.discount_requested`), kicked once this commits.
+        const discount = mintId("obx")
         const [joined] = yield* sql<{ affiliateId: string | null }>`
-          select affiliate_join(${ref.id}, decode(${hash}, 'hex'), ${mintId("aff")}, ${code}, ${mintId("obx")})
+          select affiliate_join(${ref.id}, decode(${hash}, 'hex'), ${mintId("aff")}, ${code}, ${discount})
             as affiliate_id`
         if (joined?.affiliateId == null) return yield* new NotAcceptable({ state: "missing" })
         yield* Audit.write(sql, found.workspaceId, { kind: "affiliate", id: joined.affiliateId }, {
@@ -71,7 +73,7 @@ export const acceptRouted = Effect.fn("Landing.acceptRouted")(function*(ref: Lan
             workspace: landing.workspace ?? "",
             landing: "/affiliate/dashboard"
           }),
-          outboxIds: []
+          outboxIds: [discount]
         }
       }
       if (!found.link && kind?.kind !== "team") {
