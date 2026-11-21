@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, ReactNode, Ref } from "react";
 import { cn } from "../lib/utils";
 
 /*
@@ -56,9 +56,22 @@ export const Figure = ({ w = 96, h = 22, plate }: { w?: number; h?: number; plat
  * The root every skeleton hangs from: one status for assistive tech ("Laden"), and the bones inside
  * it hidden from it. A screen reader hears that the screen is loading once, not forty empty spans.
  */
-export function Arriving({ label = "Laden", className, children }: { label?: string; className?: string; children: ReactNode }) {
+export function Arriving({
+	label = "Laden",
+	className,
+	children,
+	ref,
+	...data
+}: {
+	label?: string;
+	className?: string;
+	children: ReactNode;
+	ref?: Ref<HTMLDivElement>;
+	/** A page's skeleton marks itself, so whoever settles its arrival can tell it from a part's. */
+	"data-page-skeleton"?: boolean;
+}) {
 	return (
-		<div role="status" aria-live="polite" aria-busy="true" className={className}>
+		<div ref={ref} role="status" aria-live="polite" aria-busy="true" className={className} {...data}>
 			<span className="sr-only">{label}…</span>
 			{children}
 		</div>

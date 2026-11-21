@@ -1,6 +1,8 @@
+import { useContext, useLayoutEffect, useRef } from "react";
 import { cn } from "../lib/utils";
 import { Arriving, Bone, Control, Disc, Figure, Line, Lines, Pill, run } from "./bones";
 import type { SkeletonKind } from "./kinds";
+import { SettleOnArrival, settle } from "./settle";
 
 /*
  * One skeleton per KIND of screen, not per screen (ADR-0028).
@@ -13,8 +15,19 @@ import type { SkeletonKind } from "./kinds";
 
 export function PageSkeleton({ kind, title }: { kind: SkeletonKind; title?: string }) {
 	const Body = BODIES[kind];
+	const root = useRef<HTMLDivElement>(null);
+	const settles = useContext(SettleOnArrival);
+	useLayoutEffect(() => {
+		if (!settles) return;
+		const main = root.current?.closest("main");
+		// The skeleton is leaving: once the commit that took it away is in, what stands in its place settles in, unless
+		// it is another screen's skeleton (a navigation that is still on its way).
+		return () => queueMicrotask(() => {
+			if (main && !main.querySelector("[data-page-skeleton]")) settle(main);
+		});
+	}, [settles]);
 	return (
-		<Arriving label={title ? `${title} laden` : "Laden"} className="flex min-h-full min-w-0 flex-1 flex-col">
+		<Arriving ref={root} label={title ? `${title} laden` : "Laden"} className="flex min-h-full min-w-0 flex-1 flex-col" data-page-skeleton>
 			<Body title={title} />
 		</Arriving>
 	);
@@ -467,26 +480,34 @@ function AnalyticsSkeleton() {
 	);
 }
 
-function SettingsSkeleton() {
+/** `SettingsSheet` as it stands: the glacier sheet on the dot-grid margin, the page's tile and name, then its sections
+    as `SettingCard` heads them and `FieldRow` lays them out (label at 200px, the control up to 380px beside it). */
+function SettingsSkeleton({ title }: { title?: string | undefined }) {
 	return (
-		<div className="bg-dot-grid-ink min-h-full px-3 pt-5 pb-10 sm:px-5">
-			<div className="mx-auto flex max-w-[1120px] flex-col gap-8 rounded-2xl bg-paper px-5 py-8 sm:px-10">
-				<div className="flex items-center gap-3">
-					<Bone className="size-9 rounded-lg" />
-					<Bone className="h-[18px] w-32 rounded-full" />
-				</div>
+		<div className="relative isolate flex min-h-full min-w-0 shrink-0 flex-col bg-paper px-3 py-3 sm:px-5 sm:py-5">
+			<div
+				aria-hidden
+				className="pointer-events-none absolute inset-0 -z-10 bg-dot-grid-ink [mask-image:radial-gradient(ellipse_at_center,transparent_35%,black_85%)]"
+			/>
+			<div className="mx-auto flex w-full max-w-[1120px] flex-1 flex-col gap-8 rounded-2xl bg-glacier px-5 pt-6 pb-10 sm:px-10 sm:pt-8">
+				<header className="flex items-center gap-3">
+					<span aria-hidden className="size-9 shrink-0 rounded-lg bg-paper shadow-[0_1px_2px_rgb(0_0_0/0.06)]" />
+					{title ? <h1 className="font-medium text-2xl text-ink">{title}</h1> : <Bone className="h-[16px] w-32 rounded-full" />}
+				</header>
 				{[5, 2].map((rows, s) => (
-					<div key={s} className="flex flex-col gap-4">
-						<div className="flex items-center gap-2">
+					<div key={s} className="flex flex-col gap-3">
+						<div className="flex min-h-8 items-center gap-2.5">
 							<Bone className="size-4 rounded-sm" />
-							<Bone className="h-[11px] w-28 rounded-full" />
+							<Bone className="h-[10px] rounded-full" style={{ width: s === 0 ? 112 : 88 }} />
 						</div>
-						{Array.from({ length: rows }, (_, i) => (
-							<div key={i} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-0">
-								<Bone className="h-[9px] rounded-full sm:w-[232px]" style={{ width: `${88 + ((i * 29 + s) % 5) * 12}px` }} />
-								<Bone className="h-9 w-full max-w-[380px] rounded-md" />
-							</div>
-						))}
+						<div className="flex flex-col">
+							{Array.from({ length: rows }, (_, i) => (
+								<div key={i} className="grid grid-cols-1 items-start gap-x-8 gap-y-1.5 py-2 sm:grid-cols-[200px_minmax(0,380px)]">
+									<Line w={88 + ((i * 29 + s) % 5) * 12} className="sm:mt-2" />
+									<Bone className="h-9 w-full rounded-md" />
+								</div>
+							))}
+						</div>
 					</div>
 				))}
 			</div>

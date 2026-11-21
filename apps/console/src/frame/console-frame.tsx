@@ -1,6 +1,8 @@
 import type { Frame as FrameData } from "@insyte/api/rpc/ShellRpcs"
 import { AskSourceProvider } from "@insyte/ui/app/ask/ask-source"
 import { useCommandPalette } from "@insyte/ui/app/hooks/use-command-palette"
+import { SettleOnArrival } from "@insyte/ui/app/loading/settle"
+import { RouterProgress } from "@insyte/ui/app/loading/stream"
 import { MarketplaceModal } from "@insyte/ui/app/marketplace/marketplace-modal"
 import { AskInsyteContext } from "@insyte/ui/app/shell/ask-insyte-context"
 import { AskInsytePanel } from "@insyte/ui/app/shell/ask-insyte-panel"
@@ -51,12 +53,19 @@ function Inside() {
       <Frame
         persona="admin"
         main={main}
-        above={<ConsoleSupportBanner />}
+        above={
+          <>
+            <RouterProgress />
+            <ConsoleSupportBanner />
+          </>
+        }
         onAskInsyte={ask}
         onOpenPalette={() => palette.setOpen(true)}
         onOpenManage={(tab) => void navigate({ to: (tab === "people" ? "/settings/team" : "/settings/apps") as never })}
       >
-        <Outlet />
+        <SettleOnArrival value>
+          <Outlet />
+        </SettleOnArrival>
       </Frame>
       <CommandPalette open={palette.open} onOpenChange={palette.setOpen} persona="admin" onAskInsyte={ask} />
       <ShellDialogs />

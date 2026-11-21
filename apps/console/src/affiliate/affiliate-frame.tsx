@@ -2,6 +2,8 @@ import { useAtomSet } from "@effect/atom-react"
 import type { AffiliateMe } from "@insyte/modules/affiliates/domain/Affiliates"
 import { ApplicationPending } from "@insyte/ui/app/affiliate/application-pending"
 import { ApplicationRejected } from "@insyte/ui/app/affiliate/application-rejected"
+import { SettleOnArrival } from "@insyte/ui/app/loading/settle"
+import { RouterProgress } from "@insyte/ui/app/loading/stream"
 import { Frame } from "@insyte/ui/app/shell/frame"
 import { Outlet } from "@tanstack/react-router"
 import { Exit } from "effect"
@@ -61,8 +63,15 @@ function Inside({ me }: { me: AffiliateMe }) {
     )
     : null
   return (
-    <Frame persona="affiliate" main={main} onAskInsyte={nothing} onOpenPalette={nothing} onOpenManage={nothing}>
-      {gate ?? <Outlet />}
+    <Frame
+      persona="affiliate"
+      main={main}
+      above={<RouterProgress />}
+      onAskInsyte={nothing}
+      onOpenPalette={nothing}
+      onOpenManage={nothing}
+    >
+      <SettleOnArrival value>{gate ?? <Outlet />}</SettleOnArrival>
     </Frame>
   )
 }

@@ -1,3 +1,4 @@
+import { PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
 import { SheetsPage, type SheetsSearch } from "@insyte/ui/app/sheets/sheets-screen"
 import { createFileRoute } from "@tanstack/react-router"
 import { Effect } from "effect"
@@ -21,6 +22,7 @@ export const Route = createFileRoute("/_frame/sheets/")({
     context.registry.mount(sheetsAtom)
     await Effect.runPromise(Effect.ignore(AtomRegistry.getResult(context.registry, sheetsAtom)))
   },
+  pendingComponent: () => <PageSkeleton kind="cards" title="Rekenbladen" />,
   component: SheetsRoute
 })
 

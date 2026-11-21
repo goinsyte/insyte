@@ -18,7 +18,7 @@ import {
 import { useNow } from "@insyte/ui/app/hooks/use-now"
 import { authClient } from "@insyte/ui/app/lib/auth-client"
 import type { Currency } from "@insyte/ui/app/lib/types/domain"
-import { KpiStrip } from "@insyte/ui/app/loading/page-skeletons"
+import { KpiStrip, PageSkeleton } from "@insyte/ui/app/loading/page-skeletons"
 import type { HomeView } from "@insyte/ui/app/stores/home-store"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { Effect, Option, Schema } from "effect"
@@ -95,6 +95,7 @@ export const Route = createFileRoute("/_frame/dashboard")({
       ], { concurrency: "unbounded" })
     )
   },
+  pendingComponent: () => <PageSkeleton kind="dashboard" title="Dashboard" />,
   component: Start
 })
 

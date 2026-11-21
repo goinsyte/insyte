@@ -31,6 +31,7 @@ export const Route = createFileRoute("/_frame/sheets/$sheetId")({
       )
     )
   },
+  pendingComponent: () => <PageSkeleton kind="grid" title="Rekenblad" />,
   component: SheetRoute
 })
 
