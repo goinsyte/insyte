@@ -6,6 +6,7 @@ import { ACCESS } from "./access.ts"
 import { AFFILIATES } from "./affiliates.ts"
 import { AGENT_LOG, AI_BUDGETS, AUTONOMY } from "./agent.ts"
 import { ANALYTICS } from "./analytics.ts"
+import { AUTOMATIONS, RUNS } from "./automations.ts"
 import { BILLING } from "./billing.ts"
 import { CHARGEBACKS } from "./chargebacks.ts"
 import { CHAT_PAGES, chatKey, CHATS, type Typing, TYPING_MS, typingAtom } from "./chats.ts"
@@ -105,7 +106,11 @@ const REFETCH: Record<string, ReadonlyArray<string>> = {
   affiliate_conversion: AFFILIATES,
   affiliate_portal: AFFILIATES,
   // Insyte-support mag meekijken (M18): the owner's consent, a session started or ended (the frame's line).
-  support: SUPPORT
+  support: SUPPORT,
+  // Automations (M12): a flow changed; a run started, wrote a step or finished (its Workflow), was cancelled,
+  // answered or started again. The Runs tab and its drawer, and the flow's counts.
+  automation: AUTOMATIONS,
+  automation_run: [...RUNS, ...AUTOMATIONS]
 }
 // An affiliate invitation is an invitation: the list of invites reads it too.
 REFETCH["invitation"] = [...(REFETCH["invitation"] ?? []), ...AFFILIATES]
@@ -120,6 +125,9 @@ for (const kind of ["order", "store"]) REFETCH[kind] = [...(REFETCH[kind] ?? [])
 // Analyse (M14 step 2) sums orders and tickets, inside the role's stores.
 for (const kind of ["order", "ticket", "store"]) REFETCH[kind] = [...(REFETCH[kind] ?? []), ...ANALYTICS]
 const EVERYTHING = [...new Set([...Object.values(REFETCH).flat(), ...CHATS, ...CHAT_PAGES, ...SHEETS])]
+
+/** The query keys a `records.changed` frame of this kind refetches; none for a kind no screen shows yet. */
+export const refetchOf = (kind: string): ReadonlyArray<string> => REFETCH[kind] ?? []
 
 const decodeFrame = Schema.decodeUnknownOption(Schema.fromJsonString(Frame))
 const text = new TextDecoder()
@@ -147,7 +155,7 @@ const connection = (reconnected: boolean, heard: Heard) =>
         if (frame.value.type === "hello") liveSignals.emit({ type: "open" })
         if (frame.value.type === "live.visitors") liveSignals.emit({ type: "frame", frame: frame.value })
         if (frame.value.type === "notes.changed") { for (const key of [...NOTES, ...FRAME]) keys.add(key) }
-        if (frame.value.type === "records.changed") { for (const key of REFETCH[frame.value.kind] ?? []) keys.add(key) }
+        if (frame.value.type === "records.changed") { for (const key of refetchOf(frame.value.kind)) keys.add(key) }
         // A message posted or changed (M11.4): the list's previews and counts, and that conversation's page and threads.
         if (frame.value.type === "chat.message" || frame.value.type === "chat.message.updated") {
           for (const key of [...CHATS, chatKey(frame.value.conversationId)]) keys.add(key)

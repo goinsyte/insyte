@@ -1,6 +1,6 @@
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { failure, join, mailsTo, ok, outboxOf, pastUndo, relay, run } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
 import { call, rpc } from "./support.ts"
@@ -255,7 +255,18 @@ describe("forwarding", () => {
     // Forwarded with no channel named, it goes by the portal: the order is there, and its person hears of it.
     const going = ok(await rpc("Forwarding.forward", { ids: [leg.id] }, store.cookie))
     expect(going.legs[0]).toMatchObject({ state: "sending", via: "portal" })
+    const kicked = vi.spyOn(env.EVENTS, "send")
     expect(await sent(store.workspace, sends, 2)).toMatchObject({ legs: [{ outcome: "sent" }] })
+    // The portal's open tabs hear of the work as the send's step ends (`partner.changed`, kicked onto the queue), not
+    // at the cron's sweep (every quarter of an hour on staging).
+    const told = (await outboxOf(store.workspace)).filter((e) =>
+      e.event === "partner.changed" && e.payload["kind"] === "supplier_orders"
+    )
+    expect(told.map((e) => [e.payload["supplierId"], e.payload["ids"]])).toEqual([[atelier.id, [leg.orderId]]])
+    expect(kicked.mock.calls.flatMap(([body]) => (body as { outboxIds?: Array<string> }).outboxIds ?? [])).toContain(
+      told[0]!.id
+    )
+    kicked.mockRestore()
     expect((await legsIn(store.cookie, "awaiting")).rows[0]).toMatchObject({ id: leg.id, state: "awaiting" })
     const portal = ok(await rpc("SupplierPortal.orders.list", {}, cookie))
     expect(portal.rows.map((r) => [r.number, r.status])).toEqual([["#1001", "to_accept"]])

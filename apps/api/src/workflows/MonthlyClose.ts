@@ -12,8 +12,8 @@ import {
 import { Cause, Effect, Exit } from "effect"
 import { syncRuntime as runtime } from "../platform/Ingest.ts"
 import { Telemetry } from "../platform/Observability.ts"
-import { withRequestDb } from "../platform/RequestDb.ts"
 import { roomOf } from "../platform/Room.ts"
+import { withStepDb } from "../platform/StepDb.ts"
 
 /*
  * The supplier statements' monthly close (M13 step 6): started by the cron on the 1st at 03:00 UTC (`0 3 1 * *`, inside
@@ -111,7 +111,7 @@ const run = async <A>(workspaceId: string | undefined, effect: Effect.Effect<A, 
   const scoped = workspaceId === undefined
     ? effect
     : effect.pipe(Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId }))
-  const program = withRequestDb(scoped).pipe(
+  const program = withStepDb(scoped).pipe(
     // Said in the logs: a step the Workflow retries is otherwise silent.
     Effect.tapCause((cause) => Effect.logWarning("a monthly close step failed", { workspaceId, cause }))
   ) as Effect.Effect<A, unknown, never>

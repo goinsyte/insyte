@@ -5,13 +5,14 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type Workflo
 import { Cause, Effect, Exit } from "effect"
 import { syncRuntime as runtime } from "../platform/Ingest.ts"
 import { Telemetry } from "../platform/Observability.ts"
-import { withRequestDb } from "../platform/RequestDb.ts"
 import { roomOf } from "../platform/Room.ts"
+import { withStepDb } from "../platform/StepDb.ts"
 
 /*
  * A forward's delivery (M8.2), once its undo window has passed: one durable step, retried while a supplier's endpoint
  * (or the mail) cannot be reached; a leg that went is not sent again. When it gives up, what is still waiting is marked
- * `send_failed`. The workspace's open tabs hear the legs changed.
+ * `send_failed`. The workspace's open tabs hear the legs changed; a supplier with new work hears it in its portal now
+ * (`partner.changed`, kicked as its step ends: `withStepDb`), not at the next sweep.
  */
 
 export interface ForwardSendParams {
@@ -42,7 +43,7 @@ export class ForwardSendWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Forw
 
 /** One step's effect in the workspace, over a connection of its own. */
 const run = async <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unknown>): Promise<A> => {
-  const program = withRequestDb(effect).pipe(
+  const program = withStepDb(effect).pipe(
     Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId })
   ) as Effect.Effect<A, unknown, never>
   const exit = await Telemetry.runExit(runtime, program)
