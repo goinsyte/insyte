@@ -13,7 +13,8 @@ import { engine, runContext, withEngine } from "../platform/AutomationEngine.ts"
 import { syncRuntime as runtime } from "../platform/Ingest.ts"
 import { AutomationActionsLive } from "../platform/links/AutomationActions.ts"
 import { Telemetry } from "../platform/Observability.ts"
-import { withRequestDb } from "../platform/RequestDb.ts"
+import { roomOf } from "../platform/Room.ts"
+import { withStepDb } from "../platform/StepDb.ts"
 
 /*
  * A flow's run (M12 step 3): its pinned version, step by step from the trigger down. Each step is one durable
@@ -24,7 +25,8 @@ import { withRequestDb } from "../platform/RequestDb.ts"
  * the run started stops it, or fails the step for the right it no longer holds (`actOnce`). The action and its row
  * commit together, so a retried attempt does not act twice. A refusal that trying again cannot change fails the run at
  * once, the rest are retried. A step Insyte cannot run yet is skipped, with why. A run that cannot even be read closes
- * as failed rather than staying open.
+ * as failed rather than staying open. The workspace's tabs hear each change to the run (`automation_run`): it is in,
+ * a step was written, it finished.
  */
 
 export interface AutomationRunParams {
@@ -66,13 +68,17 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
     // The plan crosses the step as text: its steps' settings are any JSON, which the step's type cannot say.
     let loaded: string
     try {
-      loaded = await step.do("load", QUICK, () => planOf(workspaceId, runId))
+      loaded = await step.do("load", QUICK, async () => {
+        const read = await planOf(workspaceId, runId)
+        // The run is in (or closed): the Runs tab shows it now, not on its next load.
+        await changed(workspaceId, runId)
+        return read
+      })
     } catch {
-      await step.do(
-        "finish",
-        QUICK,
-        () => exec(withEngine((e) => e.finishRun(runId, "failed", "De run kon niet worden gelezen.")))
-      )
+      await step.do("finish", QUICK, async () => {
+        await exec(withEngine((e) => e.finishRun(runId, "failed", "De run kon niet worden gelezen.")))
+        await changed(workspaceId, runId)
+      })
       return { outcome: "failed" as const }
     }
     const plan = JSON.parse(loaded) as RunPlan | null
@@ -87,7 +93,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
         withEngine((e) =>
           e.recordStep({ runId, runAt: plan.runAt, nodeId: node.id, variant: node.variantId, attempt, ...fields })
         )
-      )
+      ).then(() => changed(workspaceId, runId))
 
     const walk = async (nodes: ReadonlyArray<Node>): Promise<End | undefined> => {
       for (const node of nodes) {
@@ -220,6 +226,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
                   await record(node, ctx.attempt, { status: "stopped", explanation: done.reason })
                   return done.reason
                 }
+                await changed(workspaceId, runId)
                 return null
               }
               const failure = Cause.squash(exit.cause)
@@ -257,12 +264,24 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
     }
 
     const end = await walk(plan.nodes)
-    await step.do(
-      "finish",
-      QUICK,
-      () => exec(withEngine((e) => e.finishRun(runId, end?.status ?? "succeeded", end?.reason ?? null)))
-    )
+    await step.do("finish", QUICK, async () => {
+      await exec(withEngine((e) => e.finishRun(runId, end?.status ?? "succeeded", end?.reason ?? null)))
+      await changed(workspaceId, runId)
+    })
     return { outcome: end?.status ?? ("succeeded" as const) }
+  }
+}
+
+/**
+ * The run's row or its steps changed (M12): the Runs tab, the run's drawer and the flow's counts refetch. Ids only, as
+ * every frame. Said inside the step that made the change, once it has committed, so a replay does not say it again; a
+ * room that cannot be reached fails no step, the tab refetching on its next frame or when it reconnects.
+ */
+const changed = async (workspaceId: string, runId: string): Promise<void> => {
+  try {
+    await roomOf(workspaceId).broadcast({ v: 1, type: "records.changed", kind: "automation_run", ids: [runId] })
+  } catch {
+    // Best effort, as above.
   }
 }
 
@@ -270,7 +289,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Au
 const Slices = Layer.mergeAll(TicketsService.layer, CustomersService.layer, AutomationActionsLive)
 
 const program = <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unknown>) =>
-  withRequestDb(effect).pipe(
+  withStepDb(effect).pipe(
     Effect.provide(Slices),
     Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId }),
     // Said in the logs: a step the Workflow retries is otherwise silent.

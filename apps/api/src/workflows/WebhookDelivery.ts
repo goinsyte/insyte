@@ -5,8 +5,8 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type Workflo
 import { Cause, Effect, Exit } from "effect"
 import { syncRuntime as runtime } from "../platform/Ingest.ts"
 import { Telemetry } from "../platform/Observability.ts"
-import { withRequestDb } from "../platform/RequestDb.ts"
 import { roomOf } from "../platform/Room.ts"
+import { withStepDb } from "../platform/StepDb.ts"
 
 /*
  * A webhook delivery's attempts (M19.4): one durable step per attempt, then a sleep until the next one the retry
@@ -66,7 +66,7 @@ export class WebhookDeliveryWorkflow extends WorkflowEntrypoint<Cloudflare.Env, 
 
 /** One step's effect in the workspace, over a connection of its own. */
 const run = async <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unknown>): Promise<A> => {
-  const program = withRequestDb(effect).pipe(
+  const program = withStepDb(effect).pipe(
     Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId })
   ) as Effect.Effect<A, unknown, never>
   const exit = await Telemetry.runExit(runtime, program)

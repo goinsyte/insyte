@@ -15,8 +15,8 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep, type Workflo
 import { Cause, Effect, Exit } from "effect"
 import { syncRuntime as runtime } from "../platform/Ingest.ts"
 import { Telemetry } from "../platform/Observability.ts"
-import { withRequestDb } from "../platform/RequestDb.ts"
 import { roomOf } from "../platform/Room.ts"
+import { withStepDb } from "../platform/StepDb.ts"
 
 /*
  * A workspace export or a shopper's access package (M17 step 5), one run per request and attempt: plan the parts and
@@ -89,7 +89,7 @@ export class PrivacyExportWorkflow extends WorkflowEntrypoint<Cloudflare.Env, Pr
 
 /** One step's effect in the workspace, over a connection of its own. */
 const run = async <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unknown>): Promise<A> => {
-  const program = withRequestDb(effect).pipe(
+  const program = withStepDb(effect).pipe(
     Effect.provideService(CurrentWorkspace, { id: workspaceId as WorkspaceId }),
     Effect.tapCause((cause) => Effect.logWarning("a privacy export step failed", { workspaceId, cause }))
   ) as Effect.Effect<A, unknown, never>

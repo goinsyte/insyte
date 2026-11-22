@@ -18,8 +18,8 @@ import { NonRetryableError } from "cloudflare:workflows"
 import { Cause, Effect, Exit } from "effect"
 import { syncRuntime as runtime } from "../platform/Ingest.ts"
 import { Telemetry } from "../platform/Observability.ts"
-import { withRequestDb } from "../platform/RequestDb.ts"
 import { roomOf } from "../platform/Room.ts"
+import { withStepDb } from "../platform/StepDb.ts"
 
 /*
  * A store's first import (M6.3; integrations.md §2 "Backfill"), as a Workflow: every step is durable, so a restart, a
@@ -97,7 +97,7 @@ export class ShopifyBackfillWorkflow extends WorkflowEntrypoint<Cloudflare.Env, 
  * refusal is logged and thrown with its status and reason, so the step's error says why, not only `ShopifyRefused`.
  */
 const run = async <A>(workspaceId: string, effect: Effect.Effect<A, unknown, unknown>): Promise<A> => {
-  const program = withRequestDb(effect).pipe(
+  const program = withStepDb(effect).pipe(
     Effect.tapError((error) =>
       error instanceof ShopifyRefused
         ? Effect.logWarning("backfill: Shopify refused a step", { status: error.status, reason: error.reason })

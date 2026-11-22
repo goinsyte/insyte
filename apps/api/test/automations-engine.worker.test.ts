@@ -2,7 +2,7 @@ import { STEPS_BY_ID } from "@insyte/domain/automations/Steps"
 import { introspectWorkflow } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { Exit } from "effect"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { actionStep, planOf } from "../src/workflows/AutomationRun.ts"
 import { consume, ok, outboxOf, relay } from "./journeys.ts"
 import { importedStore } from "./shops.ts"
@@ -205,5 +205,55 @@ describe("the automation engine", () => {
     const titles = ok(await rpc("Tickets.list", { view: "all" }, store.cookie)).rows.map((t) => t.title)
     expect(titles.filter((t) => t === "Precies één ticket")).toHaveLength(1)
     expect(titles).not.toContain("Nooit na pauze")
+  }, 180_000)
+
+  it("tells the tabs of each change to a run, and kicks what its actions wrote", async () => {
+    const store = await importedStore("engine-live")
+    const { automation } = ok(await rpc("Automations.create", { name: "Live runs" }, store.cookie))
+    const id = automation!.automation.id
+    const nodes = [TRIGGER, step("k", "action.create_ticket", { title: "Live: {{order.number}}", assignee: "" })]
+    ok(await rpc("Automations.saveDraft", { id, name: "Live runs", nodes: nodes as Json }, store.cookie))
+    ok(await rpc("Automations.publish", { id, note: "" }, store.cookie))
+
+    // A tab on the Runs tab: its socket, and every frame it hears.
+    const opened = await call("http://api.test/api/realtime", {
+      headers: { upgrade: "websocket", cookie: store.cookie }
+    })
+    expect(opened.status).toBe(101)
+    const socket = opened.webSocket!
+    const frames: Array<{ type: string; [field: string]: unknown }> = []
+    socket.addEventListener("message", (e) => frames.push(JSON.parse(String(e.data))))
+    socket.accept()
+
+    await using workflows = await introspectWorkflow(env.AUTOMATION_RUN)
+    const before = new Set((await outboxOf(store.workspace)).map((e) => e.id))
+    const kicked = vi.spyOn(env.EVENTS, "send")
+    expect((await sweep(store.workspace)).status).toBe(200)
+    await relay(store.workspace)
+    const [instance] = await workflows.get()
+    await instance!.waitForStatus("complete")
+    const run = (await runsOf(store.workspace)).runs.find((r) => r.automationId === id)!
+    expect(run.status).toBe("succeeded")
+
+    // The run's frames, its id only: one as it is in, one per step written, one as it finished. Never its contents.
+    const runFramesOf = () => frames.filter((f) => f.type === "records.changed" && f["kind"] === "automation_run")
+    for (let i = 0; i < 50 && runFramesOf().length < 4; i++) await new Promise((resolve) => setTimeout(resolve, 50))
+    const runFrames = runFramesOf()
+    // In, the trigger's step, the ticket's step, finished.
+    expect(runFrames.length).toBeGreaterThanOrEqual(4)
+    for (const f of runFrames) {
+      expect(f).toEqual({ v: 1, type: "records.changed", kind: "automation_run", ids: [run.id] })
+    }
+    expect(JSON.stringify(runFrames)).not.toContain("Live: #")
+
+    // The ticket its action made is a recorded change: kicked as the step ended, not left for the cron's sweep.
+    const ticketChanged = (await outboxOf(store.workspace)).filter((e) =>
+      !before.has(e.id) && e.event === "records.changed" && e.payload["kind"] === "ticket"
+    ).map((e) => e.id)
+    expect(ticketChanged.length).toBeGreaterThan(0)
+    const sentIds = kicked.mock.calls.flatMap(([body]) => (body as { outboxIds?: Array<string> }).outboxIds ?? [])
+    for (const outboxId of ticketChanged) expect(sentIds).toContain(outboxId)
+    kicked.mockRestore()
+    socket.close(1000, "done")
   }, 180_000)
 })
