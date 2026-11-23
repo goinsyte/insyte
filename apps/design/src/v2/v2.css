@@ -1,0 +1,182 @@
+/*
+ * `/v2`'s stylesheet: Tailwind, version 2's own tokens and its two faces, and the browser surfaces
+ * nobody draws (selection, caret, focus, scrollbars). Nothing from `@insyte/tokens` or the console's
+ * `app.css` is loaded on a `/v2` page.
+ *
+ * `source(none)` + one `@source`: only `/v2`'s own files are scanned, so the utilities the current
+ * product uses are not emitted here and the token set above is the whole vocabulary.
+ */
+@import "tailwindcss" source(none);
+@import "@fontsource-variable/mona-sans/index.css";
+@import "./tokens.css";
+
+@source "./";
+
+/*
+ * The interaction variants, widened so the kit can show a state without a pointer: an element inside
+ * `[data-force~="hover"]` (or `focus`, `active`) draws that state as if it were real; `focus-current`
+ * draws it on the selected item only (one tab of a row, not all three). Outside the kit
+ * nothing carries the attribute, so these are the plain variants. Hover keeps Tailwind's own guard
+ * (only on devices that can hover), so a tap on a phone does not leave a row lit.
+ */
+@custom-variant hover {
+  @media (hover: hover) {
+    &:hover {
+      @slot;
+    }
+  }
+  &:where([data-force~="hover"] *, [data-force~="hover"]) {
+    @slot;
+  }
+}
+@custom-variant focus-visible (&:where(:focus-visible, [data-force~="focus"] *, [data-force~="focus"], [data-force~="focus-current"] [aria-selected="true"]));
+@custom-variant active (&:where(:active, [data-force~="active"] *, [data-force~="active"]));
+
+@layer base {
+  html {
+    background: var(--color-desk);
+    color: var(--color-ink);
+    color-scheme: light;
+    scrollbar-color: var(--color-line-strong) transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-optical-sizing: auto;
+  }
+
+  /* The browser sets keys and code in its monospace; v2 has none, so they take the text face. */
+  kbd,
+  code,
+  samp,
+  pre {
+    font-family: inherit;
+  }
+
+  ::selection {
+    background: var(--color-accent-tint);
+    color: var(--color-ink);
+  }
+
+  :where(input, textarea, [contenteditable]) {
+    caret-color: var(--color-accent);
+  }
+
+  ::placeholder {
+    color: var(--color-ink-3);
+    opacity: 1;
+  }
+
+  :where(a, button, input, textarea, select, summary, [tabindex]):focus-visible,
+  :where([data-force~="focus"]) :where(a, button, input, textarea, select, summary, [role="switch"]),
+  :where([data-force~="focus-current"]) [aria-selected="true"] {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  a {
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: default;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 1ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* A strip that scrolls sideways (tabs, the kit's index) without a scrollbar painted under it. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /*
+   * A figure: amounts, times and counts in the text face's own proportional numerals. Not
+   * `tabular-nums`: Mona Sans's tabular set swaps in a dotted zero and a footed one, which reads as
+   * monospace, and there is no monospace in v2. Columns of figures align right instead.
+   */
+  .figure {
+    font-variant-numeric: proportional-nums;
+  }
+
+  /*
+   * The assistant's border: at rest a neutral 1.5px line; while the composer has focus a ring of the
+   * gradient around a white field, drawn with two backgrounds (padding-box white over border-box
+   * gradient) so the corner radius stays true. Only Magnus's composers wear it.
+   */
+  .ai-ring {
+    border: 1.5px solid transparent;
+    background:
+      linear-gradient(var(--color-canvas), var(--color-canvas)) padding-box,
+      linear-gradient(var(--color-line-strong), var(--color-line-strong)) border-box;
+  }
+
+  .ai-ring:focus-within,
+  :where([data-force~="focus"]) .ai-ring {
+    background:
+      linear-gradient(var(--color-canvas), var(--color-canvas)) padding-box,
+      var(--gradient-ai) border-box;
+  }
+
+  .ai-fill {
+    background: var(--gradient-ai);
+  }
+
+  /* Thin scrollbars inside panes, from the palette. */
+  .pane-scroll {
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+    overscroll-behavior: contain;
+  }
+}
+
+/*
+ * Variants (`variants.ts`). Outside the layers on purpose: these override the kit's own utility
+ * classes, and only while the root carries the attribute, so without a variant nothing here applies.
+ */
+
+/* Density lives in tokens (`--row-height`, `--row-head`, `--row-pad`, `--menu-row`, `tokens.css`); the kit's
+ * table, list row, menu item and dropdown item read them directly. */
+
+/* A light rail: an unread count keeps white figures on its red, as the rail's own ink turned dark. */
+:root[data-rail="licht"]:not([data-theme="dark"]) .ring-rail.bg-bad-ink {
+  color: var(--color-canvas);
+}
+
+/*
+ * The Varianten button keeps out of a toast's way: while a toast shows it moves beside the toast
+ * column on a wide screen, and steps aside on a phone, where the toasts span the width.
+ */
+body:has(ol[aria-label="Meldingen"] > li) .variants-fab[aria-expanded="false"] {
+  right: calc(1rem + 24rem + 0.75rem);
+}
+@media (max-width: 639px) {
+  body:has(ol[aria-label="Meldingen"] > li) .variants-fab[aria-expanded="false"] {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
