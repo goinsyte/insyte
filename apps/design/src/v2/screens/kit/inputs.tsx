@@ -14,11 +14,11 @@ import { Segmented, Toggle, ToggleRow } from "../../ui/toggle.tsx"
 import { KitSection, Rule, Spec, State, States } from "./frame.tsx"
 
 /** The demo's today: Monday 23 November 2026, as the fixtures have it. */
-export const DEMO_TODAY = new Date(2026, 10, 23)
+const DEMO_TODAY = new Date(2026, 10, 23)
 
 const thisWeek = PRESETS.find((p) => p.id === "vorige-week")
 
-export const DEMO_PERIOD: Period = {
+const DEMO_PERIOD: Period = {
   preset: "vorige-week",
   range: thisWeek?.range(DEMO_TODAY) ?? { from: DEMO_TODAY, to: DEMO_TODAY },
   compare: "periode"

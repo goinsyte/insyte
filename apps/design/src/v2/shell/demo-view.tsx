@@ -12,7 +12,7 @@ import type { AffiliateStaat, Rol, Staat } from "../view.ts"
  */
 
 /** The screens without the shell, as the current demo's persona menu lists them. */
-export const BARE_SCREENS: ReadonlyArray<{ readonly label: string; readonly to: string; readonly group: string }> = [
+const BARE_SCREENS: ReadonlyArray<{ readonly label: string; readonly to: string; readonly group: string }> = [
   { group: "Inloggen", label: "Inloggen", to: paths.login },
   { group: "Inloggen", label: "Tweestapsverificatie", to: paths.twoFactor },
   { group: "Inloggen", label: "Registreren", to: paths.register },

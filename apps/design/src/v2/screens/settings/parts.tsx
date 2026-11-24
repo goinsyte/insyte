@@ -254,8 +254,3 @@ export function money(n: number, cents = n % 1 !== 0): string {
 }
 
 export const figure = (n: number) => n.toLocaleString("nl-NL")
-
-/** A row of plain text links under a section: "Verder". */
-export function Lede({ children }: { readonly children: ReactNode }) {
-  return <p className="max-w-[64ch] text-sm text-pretty text-ink-2">{children}</p>
-}

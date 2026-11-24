@@ -72,7 +72,7 @@ function alignPositions(ver: number, size: number) {
 }
 
 /** The modules of a QR code for `text`, row by row (`true` is dark). */
-export function qrModules(text: string): ReadonlyArray<ReadonlyArray<boolean>> {
+function qrModules(text: string): ReadonlyArray<ReadonlyArray<boolean>> {
   const bytes = [...new TextEncoder().encode(text)]
   let ver = 1
   while (ver < 10 && 4 + (ver < 10 ? 8 : 16) + bytes.length * 8 > dataCodewords(ver) * 8) ver++

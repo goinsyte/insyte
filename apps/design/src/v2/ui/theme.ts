@@ -13,7 +13,7 @@ export type CustomerAccent = "teal" | "petrol" | "pruim" | "grafiet"
  * A palette direction's own accent (`brand/directions.ts`), for comparing directions in the
  * Varianten panel (`shell/variants.tsx`). Same mechanism, same tokens; not offered to customers.
  */
-export type DirectionAccent = "magenta" | "groen" | "geel" | "markeer" | "koraal" | "roos" | "limoen" | "zwart"
+type DirectionAccent = "magenta" | "groen" | "geel" | "markeer" | "koraal" | "roos" | "limoen" | "zwart"
 export type Accent = CustomerAccent | DirectionAccent
 export type Mode = "light" | "dark"
 
@@ -37,7 +37,7 @@ export const ACCENTS: ReadonlyArray<AccentOption & { readonly value: CustomerAcc
  * no blue or violet in the chrome. A light fill (Geel, Markeergeel, Limoen) cannot be text or a
  * ring, so its accent is the direction's ink and its wash the light colour itself.
  */
-export const DIRECTION_ACCENTS: ReadonlyArray<AccentOption> = [
+const DIRECTION_ACCENTS: ReadonlyArray<AccentOption> = [
   { value: "magenta", label: "Magenta", note: "Spectrum en Drukinkt" },
   { value: "groen", label: "Groen", note: "Primair" },
   { value: "geel", label: "Geel", note: "Primair: oker als tekst, geel als vlak" },
@@ -64,7 +64,7 @@ const CHANGE = "v2:theme"
 export type Theme = { readonly accent: Accent; readonly mode: Mode }
 
 export const isAccent = (v: unknown): v is Accent => ALL_ACCENTS.some((a) => a.value === v)
-export const isMode = (v: unknown): v is Mode => v === "light" || v === "dark"
+const isMode = (v: unknown): v is Mode => v === "light" || v === "dark"
 
 /** The theme on the root now. */
 export function readTheme(): Theme {

@@ -114,21 +114,12 @@ export function dropEntries(number: string, n: number) {
   })
 }
 
-/** Put fields back as they were, for an undo. */
-export function restoreTicket(number: string, fields: Patch) {
-  patchTicket(number, fields)
-}
-
 let nextNumber = 5151
 
 export function createTicket(t: Omit<Ticket, "number">): string {
   const number = String(nextNumber++)
   set((s) => ({ ...s, created: [{ ...t, number }, ...s.created] }))
   return number
-}
-
-export function removeCreated(number: string) {
-  set((s) => ({ ...s, created: s.created.filter((t) => t.number !== number) }))
 }
 
 export function postChat(conversationId: string, message: ChatMessage) {

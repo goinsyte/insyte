@@ -3,7 +3,7 @@ import { TableSkeleton as SharedTableSkeleton } from "../../ui/data.tsx"
 
 /* The shared record states (`ui/data.tsx`) and side column (`ui/page.tsx`), as this area uses them. */
 
-export { Figures, LoadError as PageError, RecordSkeleton } from "../../ui/data.tsx"
+export { Figures, LoadError as PageError } from "../../ui/data.tsx"
 export { Side } from "../../ui/page.tsx"
 
 /** The area's tables open with a person or a product: a round mark before the name. */

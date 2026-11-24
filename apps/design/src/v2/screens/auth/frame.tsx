@@ -38,7 +38,7 @@ import type { Exchange, Stage } from "./fill.tsx"
  */
 
 /** Insyte's name, plain: the word in the text face. */
-export function Wordmark({ size = "md" }: { readonly size?: "sm" | "md" }) {
+function Wordmark({ size = "md" }: { readonly size?: "sm" | "md" }) {
   return (
     <span className={cx("font-semibold tracking-tight", size === "sm" ? "text-md" : "text-lg")}>
       insyte

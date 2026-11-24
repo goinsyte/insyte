@@ -3,7 +3,7 @@ import type { CSSProperties, ReactNode } from "react"
 import { AGENTS } from "../../fixtures/agents.ts"
 import { channelLabel, channelService, PRIORITY, STATUS_ORDER, TICKET_STATUS } from "../../fixtures/inbox.ts"
 import type { Channel, Entry, PersonKey, Priority, Ticket, TicketStatus } from "../../fixtures/inbox.ts"
-import { ME, PEOPLE } from "../../fixtures/workspace.ts"
+import { PEOPLE } from "../../fixtures/workspace.ts"
 import { AgentAvatar, Avatar } from "../../ui/avatar.tsx"
 import { Status, Tag } from "../../ui/badge.tsx"
 import { Button } from "../../ui/button.tsx"
@@ -30,7 +30,7 @@ import { dropEntries, nowClock, patchTicket } from "./store.ts"
 /** The signed-in person's key in `PEOPLE`. */
 export const MY_KEY: PersonKey = "elena"
 
-export const firstName = (who: PersonKey) => PEOPLE[who].name.split(" ")[0] ?? PEOPLE[who].name
+const firstName = (who: PersonKey) => PEOPLE[who].name.split(" ")[0] ?? PEOPLE[who].name
 
 /* ── channels ──────────────────────────────────────────────────────────────────────────────────── */
 
@@ -85,7 +85,7 @@ export function setStatus(t: Ticket, next: TicketStatus) {
   })
 }
 
-export function assign(t: Ticket, who: PersonKey | null) {
+function assign(t: Ticket, who: PersonKey | null) {
   if (t.assignee === who) return
   const before = t.assignee
   patchTicket(t.number, { assignee: who })
@@ -99,7 +99,7 @@ export function assign(t: Ticket, who: PersonKey | null) {
   })
 }
 
-export function setPriority(t: Ticket, next: Priority) {
+function setPriority(t: Ticket, next: Priority) {
   if (t.priority === next) return
   const before = t.priority
   patchTicket(t.number, { priority: next })
@@ -219,7 +219,7 @@ export function Mentioned({ text }: { readonly text: string }) {
   )
 }
 
-export const agentName = (id: string) => AGENTS.find((a) => a.id === id)?.name ?? "Agent"
+const agentName = (id: string) => AGENTS.find((a) => a.id === id)?.name ?? "Agent"
 
 /** One line of a ticket's conversation, in the order it happened. */
 export function EntryView({ entry, customer }: { readonly entry: Entry; readonly customer: string }) {
@@ -423,21 +423,10 @@ export function ReplyBox({ t, customer, prefill, onPrefillUsed }: {
   )
 }
 
-/** A short line of type with a figure: "Wacht 6 u", in warn ink once it is long. */
-export function Waiting({ mins, long }: { readonly mins: number; readonly long: boolean }) {
-  return (
-    <span className={cx("figure whitespace-nowrap", long ? "font-medium text-warn-ink" : "text-ink-3")}>
-      {mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} u${mins % 60 === 0 ? "" : ` ${mins % 60}`}`}
-    </span>
-  )
-}
-
 /** A quiet section heading inside a pane or a side column. */
 export function Heading({ children, id }: { readonly children: ReactNode; readonly id?: string }) {
   return <h2 id={id} className="text-xs font-medium text-ink-3">{children}</h2>
 }
-
-export { ME }
 
 /**
  * List and detail side by side from `md`, one at a time below it. The kit's `Split` lets the list grow

@@ -92,7 +92,7 @@ const lineText = (o: Order, leg: Leg) =>
   linesFor(o, leg).map((l) => `${l.quantity}× ${product(l.productId)?.name ?? l.productId} · ${l.size}`).join(", ")
 
 /** Send legs to their suppliers: each waits out the window, then waits for the supplier. */
-export function forwardLegs(legs: ReadonlyArray<Leg>, via: Readonly<Record<string, Via>>, note: string) {
+function forwardLegs(legs: ReadonlyArray<Leg>, via: Readonly<Record<string, Via>>, note: string) {
   const until = Date.now() + SEND_WINDOW
   const before = changeDesk((d) => {
     let next = { ...d, legs: { ...d.legs } }

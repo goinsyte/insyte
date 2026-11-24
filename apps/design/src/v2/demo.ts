@@ -15,7 +15,7 @@ import type { ProposalState } from "./ui/proposal.tsx"
  * own and two screens cannot disagree.
  */
 
-export type Decision = { readonly state: ProposalState; readonly at: number }
+type Decision = { readonly state: ProposalState; readonly at: number }
 
 type DemoState = {
   /** Proposals the person decided, by id; an open proposal is absent. */

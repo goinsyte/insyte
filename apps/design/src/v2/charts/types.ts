@@ -34,7 +34,7 @@ export type LineData = {
   readonly focus?: number
 }
 
-export type BarItem = { readonly label: string; readonly value: number; readonly compare?: number }
+type BarItem = { readonly label: string; readonly value: number; readonly compare?: number }
 
 export type BarData = {
   readonly items: ReadonlyArray<BarItem>
@@ -48,7 +48,7 @@ export type FunnelData = {
   readonly steps: ReadonlyArray<{ readonly label: string; readonly value: number }>
 }
 
-export type Column = {
+type Column = {
   readonly key: string
   readonly label: string
   readonly format?: Format

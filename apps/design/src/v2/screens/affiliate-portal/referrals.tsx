@@ -42,7 +42,7 @@ import { changeWithUndo, getAffiliate } from "./store.ts"
 
 const ratio = (t: LinkTotals) => (t.link.clicks === 0 ? 0 : (t.conversions / t.link.clicks) * 100)
 
-export function copyLink(link: ReferralLink) {
+function copyLink(link: ReferralLink) {
   void navigator.clipboard?.writeText(`https://${link.url}`).catch(() => undefined)
   toast({ title: "Link gekopieerd", body: link.url })
 }

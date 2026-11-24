@@ -10,7 +10,7 @@ import type { Okl } from "./color.ts"
  * so its focus ring and edges take the ink. `brand-screen.tsx` computes and shows every ratio.
  */
 
-export type Hue = { readonly name: string; readonly value: Okl }
+type Hue = { readonly name: string; readonly value: Okl }
 
 /**
  * A customer theme on the neutral base. `fill` is the field (button, selection, the chart's one bar),
@@ -24,7 +24,7 @@ export type Accent = {
   readonly onFill: Okl
 }
 
-export type MarkColours = {
+type MarkColours = {
   /** Back, middle, front square. `lines`: the front square's three lines; knocked out when absent. */
   readonly insyte: { readonly squares: readonly [Okl, Okl, Okl]; readonly lines?: Okl }
   /** The six pills, clockwise from the long one at the upper left. */
@@ -35,7 +35,7 @@ export type MarkColours = {
   readonly overprint?: boolean
 }
 
-export type Hero = {
+type Hero = {
   readonly ground: Okl
   readonly ink: Okl
   readonly soft: Okl

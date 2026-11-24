@@ -15,7 +15,7 @@ export const isError = (v: Value): v is FigureError => typeof v === "object"
 const err = (error: string, why: string): FigureError => ({ error, why })
 
 /** "1.234,50" or "6,95" or "240" → a number, or null when it is text. */
-export function parseNumber(raw: string): number | null {
+function parseNumber(raw: string): number | null {
   const t = raw.trim().replace(/^€\s*/, "")
   if (!/^-?[\d.]*,?\d+%?$/.test(t)) return null
   const pct = t.endsWith("%")

@@ -35,7 +35,7 @@ import { PageError, TableSkeleton } from "./parts.tsx"
 
 export type Weergave = "actief" | "aanmeldingen" | "uitbetalingen" | "uitnodigingen"
 
-export const WEERGAVEN: ReadonlyArray<Weergave> = ["actief", "aanmeldingen", "uitbetalingen", "uitnodigingen"]
+const WEERGAVEN: ReadonlyArray<Weergave> = ["actief", "aanmeldingen", "uitbetalingen", "uitnodigingen"]
 
 export const weergaveOf = (raw: string | null): Weergave =>
   WEERGAVEN.includes(raw as Weergave) ? (raw as Weergave) : "actief"

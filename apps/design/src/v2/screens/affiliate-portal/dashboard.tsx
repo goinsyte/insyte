@@ -26,7 +26,7 @@ import { useAffiliate } from "./store.ts"
 
 const greeting = DEMO_NOW.hours < 12 ? "Goedemorgen" : DEMO_NOW.hours < 18 ? "Goedemiddag" : "Goedenavond"
 
-export function copyCode(code: string) {
+function copyCode(code: string) {
   void navigator.clipboard?.writeText(code).catch(() => undefined)
   toast({ title: `Code ${code} gekopieerd`, body: "Klanten krijgen 10% korting; de bestelling komt op jouw naam." })
 }

@@ -8,7 +8,6 @@ import type { FigureItem } from "../../ui/data.tsx"
 import { dataState, useView } from "../../view.ts"
 import { useAffiliate } from "./store.ts"
 
-export { saveFile } from "../../ui/acts.ts"
 export type { FigureItem } from "../../ui/data.tsx"
 export { FiguresSkeleton, TableSkeleton } from "../../ui/data.tsx"
 

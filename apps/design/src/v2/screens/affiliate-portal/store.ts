@@ -20,7 +20,7 @@ const listeners = new Set<() => void>()
 
 export const getAffiliate = () => state
 
-export function setAffiliate(next: (s: AffiliateState) => AffiliateState) {
+function setAffiliate(next: (s: AffiliateState) => AffiliateState) {
   state = next(state)
   for (const l of listeners) l()
 }

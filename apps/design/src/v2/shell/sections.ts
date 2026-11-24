@@ -70,7 +70,7 @@ const SECTION_AREA: Readonly<Record<string, PermArea>> = {
 }
 
 /** Whether the role in the demo view may open a rail area at all. */
-export const sectionVisible = (view: View, id: string) => {
+const sectionVisible = (view: View, id: string) => {
   const area = SECTION_AREA[id]
   return area === undefined || level(view, area) > 0
 }

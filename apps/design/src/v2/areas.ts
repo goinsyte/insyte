@@ -39,10 +39,10 @@ import type { View } from "./view.ts"
  * and its demo data lives in `fixtures/<area>.ts`, built on the shared records (`fixtures/records.ts`).
  * An area never imports another area's folder; it links to it with `paths`.
  */
-export type AreaProps = { readonly route: AreaRoute }
+type AreaProps = { readonly route: AreaRoute }
 export type MenuProps = { readonly route: AreaRoute; readonly pathname: string }
 
-export type PortalNavItem = {
+type PortalNavItem = {
   readonly id: string
   readonly label: string
   readonly href: string

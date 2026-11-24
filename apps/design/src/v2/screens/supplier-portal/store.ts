@@ -9,14 +9,14 @@ import { useView } from "../../view.ts"
  * messages sent, the check sent in, the course followed, its settings. Kept in memory; a reload starts
  * from the fixtures again, as the current demo's `useSupplierWork` does.
  */
-export type OrderWork = {
+type OrderWork = {
   readonly acceptedAt?: Date
   readonly parcel?: Parcel
   /** `null`: a problem that was there is solved. */
   readonly problem?: Problem | null
 }
 
-export type CheckSent = {
+type CheckSent = {
   readonly batch: string
   readonly note: string
   readonly files: ReadonlyArray<string>
@@ -58,7 +58,7 @@ const initial = (): SupplierState => ({
 let state: SupplierState | undefined
 const listeners = new Set<() => void>()
 
-export const getSupplier = () => {
+const getSupplier = () => {
   state ??= initial()
   return state
 }
@@ -89,7 +89,7 @@ export function changeWithUndo(title: string, next: (s: SupplierState) => Suppli
 }
 
 /** An order with what was done to it in this visit laid over it. */
-export function withWork(o: SupOrder, w: OrderWork | undefined): SupOrder {
+function withWork(o: SupOrder, w: OrderWork | undefined): SupOrder {
   if (w === undefined) return o
   const problem = w.problem === null ? undefined : (w.problem ?? o.problem)
   const acceptedAt = w.acceptedAt ?? o.acceptedAt

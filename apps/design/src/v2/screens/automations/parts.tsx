@@ -47,7 +47,7 @@ export function sentence(a: Pick<Automation, "steps">): string {
     : `Als: ${first.summary.toLowerCase()}. Dan: ${list}.`
 }
 
-export const seconds = (n: number) => `${n.toLocaleString("nl-NL", { maximumFractionDigits: 1 })} s`
+const seconds = (n: number) => `${n.toLocaleString("nl-NL", { maximumFractionDigits: 1 })} s`
 
 /** The runs of one flow or of all of them: what set it off, when, how long, how it ended. */
 export function RunsTable({ runs, flows, onOpen, showFlow = false, label }: {

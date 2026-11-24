@@ -24,7 +24,7 @@ export function MyMessage({ at, text }: { readonly at: string; readonly text: st
 }
 
 // Magnus's disc and the working line live in the library now; re-exported for the screens.
-export { MagnusAvatar, Thinking } from "../ui/assistant.tsx"
+export { Thinking } from "../ui/assistant.tsx"
 
 type MagnusTurn = Extract<Turn, { from: "magnus" }>
 

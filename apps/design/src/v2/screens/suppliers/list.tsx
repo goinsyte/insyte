@@ -21,7 +21,7 @@ import { InviteDialog, MailDialog, withUndo } from "./dialogs.tsx"
 import { PageError, TableSkeleton } from "./parts.tsx"
 
 /** The menu's cuts, as the address says them. */
-export const VIEWS: Readonly<Record<string, { readonly label: string; readonly test: (r: SupplierRow) => boolean }>> = {
+const VIEWS: Readonly<Record<string, { readonly label: string; readonly test: (r: SupplierRow) => boolean }>> = {
   vertraagd: { label: "Vertraagd", test: (r) => r.late.length > 0 },
   uitgenodigd: { label: "Uitgenodigd", test: (r) => r.portal === "uitgenodigd" },
   api: { label: "Via API", test: (r) => r.apiConnected }

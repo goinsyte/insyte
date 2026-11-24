@@ -43,16 +43,15 @@ import { dataState, useView } from "../../view.ts"
  * the step. The week's refunds sit under the head in one sentence, the way Analyse counts them.
  */
 
-export type View = "open" | "beoordelen" | "onderweg" | "afhandelen" | "gesloten"
+type View = "open" | "beoordelen" | "onderweg" | "afhandelen" | "gesloten"
 
-export const VIEWS: Readonly<Record<View, { readonly label: string; readonly statuses: ReadonlyArray<ReturnStatus> }>> =
-  {
-    open: { label: "Open", statuses: ["te-beoordelen", "wacht-op-pakket", "onderweg", "ontvangen", "klaar"] },
-    beoordelen: { label: "Te beoordelen", statuses: ["te-beoordelen"] },
-    onderweg: { label: "Wacht op pakket", statuses: ["wacht-op-pakket", "onderweg"] },
-    afhandelen: { label: "Af te handelen", statuses: ["ontvangen", "klaar"] },
-    gesloten: { label: "Afgehandeld", statuses: ["afgehandeld", "afgewezen"] }
-  }
+const VIEWS: Readonly<Record<View, { readonly label: string; readonly statuses: ReadonlyArray<ReturnStatus> }>> = {
+  open: { label: "Open", statuses: ["te-beoordelen", "wacht-op-pakket", "onderweg", "ontvangen", "klaar"] },
+  beoordelen: { label: "Te beoordelen", statuses: ["te-beoordelen"] },
+  onderweg: { label: "Wacht op pakket", statuses: ["wacht-op-pakket", "onderweg"] },
+  afhandelen: { label: "Af te handelen", statuses: ["ontvangen", "klaar"] },
+  gesloten: { label: "Afgehandeld", statuses: ["afgehandeld", "afgewezen"] }
+}
 
 const PAGE_SIZE = 50
 

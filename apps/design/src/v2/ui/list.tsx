@@ -76,16 +76,3 @@ export function GlyphTile({ children, size = 32 }: { readonly children: ReactNod
     </span>
   )
 }
-
-/** A hairline between two groups that are not rows: in a toolbar, between a list and its foot. */
-export function Separator(
-  { vertical = false, className }: { readonly vertical?: boolean; readonly className?: string }
-) {
-  return (
-    <span
-      role="separator"
-      aria-orientation={vertical ? "vertical" : "horizontal"}
-      className={cx("block shrink-0 bg-line", vertical ? "h-5 w-px" : "h-px w-full", className)}
-    />
-  )
-}

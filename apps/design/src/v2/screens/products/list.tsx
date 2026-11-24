@@ -51,7 +51,7 @@ const COLUMNS: ReadonlyArray<ColumnOption> = [
 ]
 
 /** The menu's cuts, as the address says them. */
-export const VIEWS: Readonly<Record<string, { readonly label: string; readonly test: (r: ProductRow) => boolean }>> = {
+const VIEWS: Readonly<Record<string, { readonly label: string; readonly test: (r: ProductRow) => boolean }>> = {
   actief: { label: "Actief", test: (r) => r.status === "actief" },
   concept: { label: "Concept", test: (r) => r.status === "concept" },
   gearchiveerd: { label: "Gearchiveerd", test: (r) => r.status === "gearchiveerd" },

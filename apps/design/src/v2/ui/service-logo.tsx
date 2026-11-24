@@ -85,9 +85,6 @@ const keyOf = (brand: string): string => {
 /** Whether there is a logo for the service, so a screen can fall back to its own glyph instead. */
 export const hasLogo = (brand: string): boolean => keyOf(brand) in LOGOS
 
-/** The brand's colour, for a surface drenched in it; ink when there is no logo. */
-export const brandColor = (brand: string): string => LOGOS[keyOf(brand)]?.color ?? "var(--color-ink)"
-
 const initials = (name: string): string =>
   name.split(/\s+/).map((word) => word.charAt(0)).join("").slice(0, 2).toUpperCase()
 

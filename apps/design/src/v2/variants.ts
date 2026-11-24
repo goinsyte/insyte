@@ -44,7 +44,7 @@ export type Variant = {
   readonly fill: AuthFill
 }
 
-export const DEFAULT_VARIANT: Variant = {
+const DEFAULT_VARIANT: Variant = {
   direction: "huis",
   accent: DEFAULT_ACCENT,
   mode: "light",
@@ -144,7 +144,7 @@ const isFill = isOf(FILL_OPTIONS)
 
 const MODE_WORD: Readonly<Record<Mode, string>> = { light: "licht", dark: "donker" }
 
-export function encodeVariant(v: Variant): string | null {
+function encodeVariant(v: Variant): string | null {
   if (isDefault(v)) return null
   const parts: Array<string> = [v.direction, v.accent, MODE_WORD[v.mode], v.density]
   if (v.rail !== "donker") parts.push(`iconen-${v.rail}`)
@@ -155,7 +155,7 @@ export function encodeVariant(v: Variant): string | null {
   return parts.join(".")
 }
 
-export function decodeVariant(text: string): Variant {
+function decodeVariant(text: string): Variant {
   const [direction, accent, mode, density, ...extras] = text.trim().toLowerCase().split(".")
   const extra = (prefix: string) => extras.find((e) => e.startsWith(prefix))?.slice(prefix.length)
   const rail = extra("iconen-")

@@ -43,7 +43,7 @@ export function toast(input: {
   return id
 }
 
-export function dismissToast(id: number) {
+function dismissToast(id: number) {
   items = items.filter((item) => item.id !== id)
   emit()
 }

@@ -182,7 +182,7 @@ export const paths = {
   qualityCheck: (checkId: string) => `/v2/kwaliteit/${checkId}`
 } as const
 
-export function matchRoute(pathname: string, search: string): Route {
+function matchRoute(pathname: string, search: string): Route {
   const parts = pathname.replace(/^\/v2\/?/, "").split("/").filter((part) => part !== "")
   const [section, a, b] = parts
 

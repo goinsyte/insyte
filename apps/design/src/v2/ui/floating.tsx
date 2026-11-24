@@ -46,7 +46,7 @@ function place(anchor: DOMRect, panel: DOMRect, placement: Placement): CSSProper
 }
 
 /** Positions `panel` against `anchor` while `open`, and keeps it there. */
-export function useAnchored(
+function useAnchored(
   open: boolean,
   anchor: RefObject<HTMLElement | null>,
   panel: RefObject<HTMLElement | null>,
@@ -85,7 +85,7 @@ export function useAnchored(
 }
 
 /** Closes on a press outside both the anchor and the panel, and on Escape (focus goes back to the anchor). */
-export function useDismiss(
+function useDismiss(
   open: boolean,
   onClose: () => void,
   anchor: RefObject<HTMLElement | null>,

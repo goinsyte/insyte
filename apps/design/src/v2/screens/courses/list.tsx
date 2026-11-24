@@ -21,8 +21,8 @@ import { dataState, setView, useView } from "../../view.ts"
 import { BADGE_GLYPH, mine, personName, ProgressLabel } from "./parts.tsx"
 import { answer, createCourse, useChapters, useCourses, useProgress, useQuestions, useRun } from "./store.ts"
 
-export const COURSE_VIEWS = ["mijn", "alle", "team", "vragen", "concepten", "archief"] as const
-export type CourseView = (typeof COURSE_VIEWS)[number]
+const COURSE_VIEWS = ["mijn", "alle", "team", "vragen", "concepten", "archief"] as const
+type CourseView = (typeof COURSE_VIEWS)[number]
 /** The views that change courses, for those who may. */
 const EDITOR_VIEWS: ReadonlySet<CourseView> = new Set(["team", "vragen", "concepten", "archief"])
 

@@ -47,7 +47,7 @@ export function DirectionInsyte({ direction, size, mono, dark, title }: MarkProp
   )
 }
 
-export function DirectionBlend({ direction, size, mono, dark, title }: MarkProps) {
+function DirectionBlend({ direction, size, mono, dark, title }: MarkProps) {
   return (
     <BlendedDataMark
       size={size}
@@ -58,7 +58,7 @@ export function DirectionBlend({ direction, size, mono, dark, title }: MarkProps
   )
 }
 
-export function DirectionMagnus({ direction, size, mono, dark, title }: MarkProps) {
+function DirectionMagnus({ direction, size, mono, dark, title }: MarkProps) {
   const { magnus, overprint } = direction.marks
   return (
     <MagnusFlowerMark
@@ -115,7 +115,7 @@ const ROWS = [
 export type RailTone = "dark" | "light"
 
 /** The accent as the v2 tokens a screen reads, scoped to one wrapper. */
-export function accentVars(accent: Accent, direction: Direction): CSSProperties {
+function accentVars(accent: Accent, direction: Direction): CSSProperties {
   const petals = direction.marks.magnus.petals.map(css)
   return {
     "--color-accent": css(accent.fill),

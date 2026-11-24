@@ -93,34 +93,6 @@ export function PageSection({ title, id, meta, actions, children, className }: {
   )
 }
 
-/**
- * Two panes that scroll on their own: a list and the record it opened (an inbox, a chat), or a record
- * and its side column. On a phone only one shows: `show` says which.
- */
-export function Split({ list, detail, show = "list", listWidth = "22rem" }: {
-  readonly list: ReactNode
-  readonly detail: ReactNode
-  readonly show?: "list" | "detail"
-  readonly listWidth?: string
-}) {
-  return (
-    <div className="flex min-h-0 flex-1">
-      <div
-        className={cx(
-          "min-h-0 min-w-0 flex-col bg-panel md:flex md:flex-none",
-          show === "list" ? "flex flex-1" : "hidden"
-        )}
-        style={{ flexBasis: listWidth, maxWidth: "100%" }}
-      >
-        {list}
-      </div>
-      <div className={cx("min-h-0 min-w-0 flex-1 flex-col md:flex", show === "detail" ? "flex" : "hidden")}>
-        {detail}
-      </div>
-    </div>
-  )
-}
-
 /** A side column's part on a record page: a small heading in type over its content, no box. */
 export function Side({ id, title, action, children }: {
   readonly id: string

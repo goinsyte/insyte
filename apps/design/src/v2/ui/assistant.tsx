@@ -35,7 +35,7 @@ export function Thinking({ label = `${ASSISTANT} leest mee…` }: { readonly lab
 }
 
 /** The models a workspace can choose, with what each is for. */
-export const MODELS = [
+const MODELS = [
   { id: "sonnet", label: "Claude Sonnet", hint: "standaard" },
   { id: "haiku", label: "Claude Haiku", hint: "snel, goedkoop" },
   { id: "opus", label: "Claude Opus", hint: "lastige vragen" }

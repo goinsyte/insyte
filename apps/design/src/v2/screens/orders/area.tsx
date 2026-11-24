@@ -23,7 +23,7 @@ import { OrdersList } from "./list.tsx"
 import { OrderRecord } from "./record.tsx"
 
 /** The queue of what has not gone to a supplier yet. */
-export const FORWARDING = `${paths.orders}/bij-leverancier`
+const FORWARDING = `${paths.orders}/bij-leverancier`
 
 /** Bestellingen: the list, the supplier queue and one order (`areas.ts`). */
 export const area: AreaDef = {

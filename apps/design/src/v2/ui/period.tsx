@@ -12,7 +12,7 @@ import { Popover } from "./popover.tsx"
  * with, applied together so a board never redraws half-chosen.
  */
 
-export type Range = { readonly from: Date; readonly to: Date }
+type Range = { readonly from: Date; readonly to: Date }
 
 const sameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
@@ -25,13 +25,13 @@ const short = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short" 
 const WEEKDAYS = ["ma", "di", "wo", "do", "vr", "za", "zo"] as const
 
 /** "16–22 nov", "28 okt – 3 nov", "23 nov". */
-export function formatRange({ from, to }: Range): string {
+function formatRange({ from, to }: Range): string {
   if (sameDay(from, to)) return short.format(from).replace(".", "")
   if (from.getMonth() === to.getMonth()) return `${from.getDate()}–${short.format(to).replace(".", "")}`
   return `${short.format(from).replace(".", "")} – ${short.format(to).replace(".", "")}`
 }
 
-export function Calendar({ month, onMonth, range, onPick, today }: {
+function Calendar({ month, onMonth, range, onPick, today }: {
   /** Any day in the month shown. */
   readonly month: Date
   readonly onMonth: (next: Date) => void
@@ -115,7 +115,7 @@ export function Calendar({ month, onMonth, range, onPick, today }: {
   )
 }
 
-export type Compare = "periode" | "jaar" | "geen"
+type Compare = "periode" | "jaar" | "geen"
 
 export type Period = { readonly preset: string; readonly range: Range; readonly compare: Compare }
 
@@ -155,7 +155,7 @@ const COMPARE_LABEL: Record<Compare, string> = {
 }
 
 /** The period's name for the trigger: the preset's word, or the dates when it is custom. */
-export function periodLabel(period: Period): string {
+function periodLabel(period: Period): string {
   const preset = PRESETS.find((p) => p.id === period.preset)
   return preset === undefined ? formatRange(period.range) : `${preset.label} · ${formatRange(period.range)}`
 }
