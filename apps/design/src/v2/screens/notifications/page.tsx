@@ -11,6 +11,7 @@ import { Bell, Bot, Check, Eye, EyeOff, Settings } from "../../ui/icons.tsx"
 import { GlyphTile } from "../../ui/list.tsx"
 import { Page, PageHead } from "../../ui/page.tsx"
 import { Rich } from "../../ui/rich.tsx"
+import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { Skeleton } from "../../ui/skeleton.tsx"
 import { EmptyState, ErrorState } from "../../ui/states.tsx"
 import { Tabs } from "../../ui/tabs.tsx"
@@ -297,6 +298,7 @@ function markOf(note: NoteFixture) {
       </GlyphTile>
     )
   }
+  if (note.from.service !== undefined) return <ServiceLogo service={note.from.service} size={28} />
   return (
     <GlyphTile size={28}>
       <Bell size={15} />

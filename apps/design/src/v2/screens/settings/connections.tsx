@@ -30,6 +30,7 @@ import { Field, Input, SearchField, Select } from "../../ui/input.tsx"
 import { KeyValue } from "../../ui/key-value.tsx"
 import { GlyphTile, List, ListRow } from "../../ui/list.tsx"
 import { PageSection } from "../../ui/page.tsx"
+import { hasLogo, ServiceLogo } from "../../ui/service-logo.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
 import { Tabs } from "../../ui/tabs.tsx"
@@ -94,11 +95,13 @@ export function IntegrationsScreen() {
                 <ListRow
                   key={i.key}
                   padded={false}
-                  lead={
-                    <GlyphTile>
-                      <Plug size={16} />
-                    </GlyphTile>
-                  }
+                  lead={hasLogo(i.key)
+                    ? <ServiceLogo service={i.key} name={i.name} size={32} />
+                    : (
+                      <GlyphTile>
+                        <Plug size={16} />
+                      </GlyphTile>
+                    )}
                   title={i.name}
                   meta={i.status === "connected" && i.synced !== undefined
                     ? `${i.description} · gesynchroniseerd om ${i.synced}`
@@ -194,11 +197,7 @@ export function AppsScreen() {
               <ListRow
                 key={a.id}
                 padded={false}
-                lead={
-                  <GlyphTile>
-                    <LayoutGrid size={16} />
-                  </GlyphTile>
-                }
+                lead={<ServiceLogo service={a.id} name={a.name} size={32} />}
                 title={
                   <span className="inline-flex items-center gap-2">
                     {a.name}

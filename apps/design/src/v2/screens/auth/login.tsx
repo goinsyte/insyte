@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { AUTH_ERRORS, DEMO_REFUSALS, LOGIN_LINE, SIGNED_IN_AS } from "../../fixtures/auth.ts"
+import { AUTH_ERRORS, DEMO_REFUSALS, LOGIN_LINE, SIGNED_IN_AS, WORKSPACE_FULL } from "../../fixtures/auth.ts"
 import { navigate, paths } from "../../router.tsx"
 import { Button } from "../../ui/button.tsx"
 import { Checkbox } from "../../ui/checkbox.tsx"
@@ -8,6 +8,7 @@ import { Dialog } from "../../ui/dialog.tsx"
 import { Mail } from "../../ui/icons.tsx"
 import { Field, FieldLabel, Input } from "../../ui/input.tsx"
 import { toast } from "../../ui/toast.tsx"
+import type { Stage } from "./fill.tsx"
 import {
   AuthFrame,
   FormColumn,
@@ -65,7 +66,7 @@ export function LoginScreen() {
   }
 
   return (
-    <AuthFrame line={LOGIN_LINE}>
+    <AuthFrame line={LOGIN_LINE} shell={{ crumbs: ["Inloggen"], stage: RETURNING }}>
       <FormColumn>
         <Heading title="Inloggen">Welkom terug. Ga verder waar je gebleven was.</Heading>
         <GoogleButton onClick={() => void google()} loading={busy === "google"} disabled={busy === "form"} />
@@ -127,18 +128,19 @@ export function LoginScreen() {
           </p>
           <p className="text-xs">Insyte is in private bèta en werkt op uitnodiging.</p>
         </div>
-        <DemoHint>
-          In de demo werkt elk wachtwoord. Met het wachtwoord “{DEMO_REFUSALS.wrongPassword}” zie je de foutmelding.
-        </DemoHint>
       </FormColumn>
       <ResetRequest open={resetOpen} onClose={() => setResetOpen(false)} initialEmail={email} />
     </AuthFrame>
   )
 }
 
-/** How to see the refusals in the demo, at the foot of the column. The design reference only. */
-export function DemoHint({ children }: { readonly children: string | ReadonlyArray<string> }) {
-  return <p className="mt-auto pt-6 text-center text-2xs text-pretty text-ink-3">{children}</p>
+/** What signing in opens: the demo's morning, complete. */
+export const RETURNING: Stage = {
+  phase: "analyse",
+  workspace: WORKSPACE_FULL,
+  greeting: `Welkom terug, ${SIGNED_IN_AS.name.split(" ")[0] ?? ""}`,
+  plan: "Growth",
+  store: "northwind.myshopify.com"
 }
 
 /**
@@ -274,7 +276,7 @@ export function TwoFactorScreen() {
   }
 
   return (
-    <AuthFrame line={LOGIN_LINE}>
+    <AuthFrame line={LOGIN_LINE} shell={{ crumbs: ["Inloggen", "Tweestapsverificatie"], stage: RETURNING }}>
       <FormColumn stepKey={mode}>
         <Heading title="Tweestapsverificatie">
           {mode === "totp"
@@ -321,11 +323,6 @@ export function TwoFactorScreen() {
           </TextButton>
           <TextLink to={paths.login}>Opnieuw inloggen</TextLink>
         </div>
-        <DemoHint>
-          {mode === "totp"
-            ? `In de demo werkt elke code van zes cijfers. Met ${DEMO_REFUSALS.wrongCode} zie je de foutmelding.`
-            : "In de demo werkt elke code in de vorm abcde-12345."}
-        </DemoHint>
       </FormColumn>
     </AuthFrame>
   )

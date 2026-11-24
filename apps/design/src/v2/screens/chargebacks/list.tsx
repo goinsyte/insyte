@@ -28,6 +28,7 @@ import { SelectionAction, SelectionBar } from "../../ui/filters.tsx"
 import { CreditCard, Download, XCircle } from "../../ui/icons.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead } from "../../ui/page.tsx"
+import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
 import { Tabs } from "../../ui/tabs.tsx"
@@ -250,7 +251,12 @@ export function ChargebacksList() {
                           {c.id}
                         </Link>
                       </Td>
-                      <Td muted>{CHANNEL_LABEL[c.channel]}</Td>
+                      <Td muted>
+                        <span className="flex items-center gap-2">
+                          <ServiceLogo service={c.channel} name={CHANNEL_LABEL[c.channel]} size={20} />
+                          {CHANNEL_LABEL[c.channel]}
+                        </span>
+                      </Td>
                       <Td>
                         {c.linked
                           ? (

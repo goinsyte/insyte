@@ -21,6 +21,8 @@ export type NoteFixture = {
     readonly agentId: string
   } | {
     readonly kind: "system"
+    /** The connected service it came from (Klarna, Shopify), shown by its logo instead of the bell. */
+    readonly service?: string
   }
   readonly text: string
   /** The time as people say it: "13:47", "gisteren", "20 nov". */
@@ -65,7 +67,7 @@ const SEEDS: ReadonlyArray<Seed> = [
   {
     id: "n3",
     kind: "systeem",
-    from: { kind: "system" },
+    from: { kind: "system", service: "klarna" },
     text: "Chargeback **#CB-2291** moet uiterlijk morgen 12:00 beantwoord zijn.",
     at: "11:05",
     day: "vandaag",
@@ -76,7 +78,7 @@ const SEEDS: ReadonlyArray<Seed> = [
   {
     id: "n6",
     kind: "systeem",
-    from: { kind: "system" },
+    from: { kind: "system", service: "shopify" },
     text: "**Northwind UK** is ontkoppeld van Shopify; nieuwe bestellingen komen niet binnen.",
     at: "09:12",
     day: "vandaag",

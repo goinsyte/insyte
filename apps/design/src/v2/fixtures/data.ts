@@ -154,19 +154,20 @@ export function duplicateGroups(): ReadonlyArray<DuplicateGroup> {
 export type Sync = {
   readonly id: string
   readonly name: string
-  readonly logo?: string
+  /** The service it comes from, for its logo (`ServiceLogo`). */
+  readonly service?: string
   readonly reads: string
   readonly last: string
   readonly status: "ok" | "achter" | "ontkoppeld"
   readonly note?: string
 }
 
-/** What Insyte reads from, and when each last came through. Logos only for the real integrations. */
+/** What Insyte reads from, and when each last came through. */
 export const SYNCS: ReadonlyArray<Sync> = [
   {
     id: "store_eu",
     name: "Northwind EU",
-    logo: "/logos/shopify.svg",
+    service: "shopify",
     reads: "Bestellingen, producten, klanten",
     last: "1 minuut geleden",
     status: "ok"
@@ -174,7 +175,7 @@ export const SYNCS: ReadonlyArray<Sync> = [
   {
     id: "store_us",
     name: "Northwind US",
-    logo: "/logos/shopify.svg",
+    service: "shopify",
     reads: "Bestellingen, producten, klanten",
     last: "3 minuten geleden",
     status: "ok"
@@ -182,7 +183,7 @@ export const SYNCS: ReadonlyArray<Sync> = [
   {
     id: "store_uk",
     name: "Northwind UK",
-    logo: "/logos/shopify.svg",
+    service: "shopify",
     reads: "Bestellingen",
     last: "2 okt",
     status: "ontkoppeld",
@@ -191,7 +192,7 @@ export const SYNCS: ReadonlyArray<Sync> = [
   {
     id: "stripe",
     name: "Stripe",
-    logo: "/logos/stripe.svg",
+    service: "stripe",
     reads: "Betalingen, terugbetalingen, chargebacks",
     last: "2 minuten geleden",
     status: "ok"
@@ -199,7 +200,7 @@ export const SYNCS: ReadonlyArray<Sync> = [
   {
     id: "meta",
     name: "Meta Ads",
-    logo: "/logos/meta.svg",
+    service: "meta",
     reads: "Advertentiekosten per dag",
     last: "vandaag 06:00",
     status: "achter",
@@ -208,7 +209,7 @@ export const SYNCS: ReadonlyArray<Sync> = [
   {
     id: "resend",
     name: "Resend",
-    logo: "/logos/resend.svg",
+    service: "resend",
     reads: "Bezorgd, geopend, gebounced",
     last: "5 minuten geleden",
     status: "ok"

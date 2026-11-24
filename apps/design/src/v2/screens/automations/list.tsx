@@ -19,6 +19,7 @@ import { SearchField, Textarea } from "../../ui/input.tsx"
 import { List, ListRow } from "../../ui/list.tsx"
 import { MagnusMark } from "../../ui/magnus-mark.tsx"
 import { Page, PageHead, PageSection } from "../../ui/page.tsx"
+import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { Skeleton } from "../../ui/skeleton.tsx"
 import { EmptyState, ErrorState } from "../../ui/states.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
@@ -234,7 +235,16 @@ function Flows({ flows, view }: { readonly flows: ReadonlyArray<Automation>; rea
                       <span className="truncate text-xs text-ink-3">{chain(a.steps)}</span>
                     </Link>
                   </Td>
-                  <Td muted>{["Insyte", ...viaOf(a)].join(", ")}</Td>
+                  <Td muted>
+                    <span className="flex items-center gap-2">
+                      {viaOf(a).length > 0 && (
+                        <span className="flex items-center gap-1">
+                          {viaOf(a).map((via) => <ServiceLogo key={via} service={via} name={via} size={18} />)}
+                        </span>
+                      )}
+                      {["Insyte", ...viaOf(a)].join(", ")}
+                    </span>
+                  </Td>
                   <Td>
                     <FlowStatusLabel status={a.status} />
                   </Td>

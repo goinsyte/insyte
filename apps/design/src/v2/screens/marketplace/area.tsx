@@ -9,8 +9,9 @@ import { Button, ButtonLink } from "../../ui/button.tsx"
 import { AlertDialog, Dialog, Sheet } from "../../ui/dialog.tsx"
 import { Check, Key, MessageSquare, Plug, Shield } from "../../ui/icons.tsx"
 import { Field, SearchField, Select, Textarea } from "../../ui/input.tsx"
-import { GlyphTile, List, ListRow } from "../../ui/list.tsx"
+import { List, ListRow } from "../../ui/list.tsx"
 import { Page, PageHead, PageSection } from "../../ui/page.tsx"
+import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { Skeleton } from "../../ui/skeleton.tsx"
 import { EmptyState, ErrorState } from "../../ui/states.tsx"
 import { Tabs } from "../../ui/tabs.tsx"
@@ -31,10 +32,7 @@ const useStore = () =>
     return () => listeners.delete(l)
   }, () => state)
 
-const Lead = ({ app }: { readonly app: App }) =>
-  <GlyphTile>
-    <span className="text-sm font-semibold text-ink-2">{app.name[0]}</span>
-  </GlyphTile>
+const Lead = ({ app }: { readonly app: App }) => <ServiceLogo service={app.id} name={app.name} size={32} />
 
 /**
  * Marketplace: apps and integrations from other makers. Rebuilt from `/app/marketplace` (the modal and
@@ -109,11 +107,7 @@ function MarketplaceScreen() {
               <ul className="grid gap-x-8 gap-y-1 md:grid-cols-2">
                 {OWN.map((o) => (
                   <li key={o.id} className="flex items-center gap-3 py-2">
-                    <img
-                      src={o.logo}
-                      alt=""
-                      className="size-8 shrink-0 rounded-md bg-canvas object-contain p-1 ring-1 ring-line"
-                    />
+                    <ServiceLogo service={o.id} name={o.name} size={32} />
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className="text-sm font-medium text-ink">
                         {o.name} <span className="font-normal text-ink-3">· {o.what}</span>
@@ -336,7 +330,10 @@ function AppSheet(
     >
       {app !== undefined && (
         <div className="flex flex-col gap-6">
-          <p className="text-md text-pretty text-ink">{app.tagline}</p>
+          <div className="flex items-center gap-3">
+            <ServiceLogo service={app.id} name={app.name} size={40} />
+            <p className="text-md text-pretty text-ink">{app.tagline}</p>
+          </div>
           <div className="flex flex-col gap-1">
             <h3 className="text-xs font-medium text-ink-3">Prijs</h3>
             <p className="text-sm text-ink">{app.pricing}</p>
@@ -377,6 +374,7 @@ function AppSheet(
         <Dialog
           open={consent}
           onClose={() => setConsent(false)}
+          lead={<ServiceLogo service={app.id} name={app.name} size={40} />}
           title={app.install.kind === "key" ? `Een sleutel voor ${app.name}` : `${app.name} koppelen`}
           description={app.install.kind === "key"
             ? "Met deze sleutel leest de app de onderdelen hieronder, namens Northwind."

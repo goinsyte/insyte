@@ -69,7 +69,7 @@ export function TicketDetail({ t, all, edit, back }: {
                     <span aria-hidden="true">·</span>
                     <span className="text-ink-2">{name}</span>
                     <span>via</span>
-                    <ChannelGlyph channel={t.channel} size={13} />
+                    <ChannelGlyph channel={t.channel} size={14} />
                     <span>{channelLabel(t.channel)}</span>
                     {mins !== null && (
                       <>

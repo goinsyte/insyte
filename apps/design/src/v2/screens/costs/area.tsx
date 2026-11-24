@@ -11,6 +11,7 @@ import { Dialog } from "../../ui/dialog.tsx"
 import { Edit, PiggyBank, Plus, Sheet as SheetGlyph, Trash } from "../../ui/icons.tsx"
 import { Field, Input } from "../../ui/input.tsx"
 import { Page, PageHead, PageSection } from "../../ui/page.tsx"
+import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { Skeleton } from "../../ui/skeleton.tsx"
 import { EmptyState, ErrorState } from "../../ui/states.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
@@ -21,6 +22,14 @@ import { addLine, removeLine, updateLine, useLines } from "./store.ts"
 
 /** Typed lines can be edited; the purchase price comes from the orders and Meta reports its own spend. */
 const typed = (l: CostLine) => l.source === "getypt"
+
+/** The ad platforms a line comes from, for their logo; the original logos them whether or not they are linked. */
+const AD_SERVICE: Readonly<Record<string, string>> = { meta: "meta", google: "google-ads" }
+
+function AdLogo({ line }: { readonly line: CostLine }) {
+  const service = AD_SERVICE[line.id]
+  return service === undefined ? null : <ServiceLogo service={service} name={line.name} size={24} />
+}
 
 const ORDER: ReadonlyArray<CostKind> = ["inkoop", "percentage", "per-bestelling", "vast", "advertenties"]
 
@@ -206,9 +215,12 @@ function CostTable({ lines, days, canEdit, onEdit }: {
         {lines.map((l) => (
           <Tr key={l.id}>
             <Td header>
-              <span className="flex flex-col py-1.5">
-                <span className="font-medium text-ink">{l.name}</span>
-                <span className="text-xs text-ink-3">{KIND_LABEL[l.kind]} · {basis(l)}</span>
+              <span className="flex items-center gap-2.5 py-1.5">
+                <AdLogo line={l} />
+                <span className="flex min-w-0 flex-col">
+                  <span className="font-medium text-ink">{l.name}</span>
+                  <span className="text-xs text-ink-3">{KIND_LABEL[l.kind]} · {basis(l)}</span>
+                </span>
               </span>
             </Td>
             {many && days.map((d) => <Td key={d.key} figure muted>{amount(costOn(l, d))}</Td>)}

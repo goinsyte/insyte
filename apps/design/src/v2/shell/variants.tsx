@@ -15,10 +15,12 @@ import { MODES } from "../ui/theme.ts"
 import { Segmented } from "../ui/toggle.tsx"
 import {
   accentsFor,
+  AUTH_OPTIONS,
   BAR_OPTIONS,
   DENSITY_OPTIONS,
   describeVariant,
   DIRECTION_OPTIONS,
+  FILL_OPTIONS,
   isDefault,
   LOGO_OPTIONS,
   RAIL_OPTIONS,
@@ -142,7 +144,7 @@ function Row({ label, htmlFor, children }: {
   )
 }
 
-/** The controls: what is on in one line, seven choices, and the link and the way back. */
+/** The controls: what is on in one line, eight choices, and the link and the way back. */
 export function VariantsPanel() {
   const v = useVariant()
   const id = useId()
@@ -238,6 +240,26 @@ export function VariantsPanel() {
             {LOGO_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </Select>
         </Row>
+        <Row label="Inloggen">
+          <Segmented
+            size="sm"
+            label="Inloggen en inrichten"
+            value={v.auth}
+            options={AUTH_OPTIONS}
+            onChange={(auth) => setVariant({ auth })}
+          />
+        </Row>
+        {v.auth !== "gesplitst" && (
+          <Row label="Vulling">
+            <Segmented
+              size="sm"
+              label="Vulling naast de taak"
+              value={v.fill}
+              options={FILL_OPTIONS}
+              onChange={(fill) => setVariant({ fill })}
+            />
+          </Row>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">

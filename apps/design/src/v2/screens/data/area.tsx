@@ -27,6 +27,7 @@ import { GlyphTile, List, ListRow } from "../../ui/list.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead, PageSection } from "../../ui/page.tsx"
 import { ProgressBar } from "../../ui/progress.tsx"
+import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { Skeleton } from "../../ui/skeleton.tsx"
 import { Spinner } from "../../ui/spinner.tsx"
 import { ErrorState } from "../../ui/states.tsx"
@@ -646,15 +647,9 @@ function Syncs({ canEdit }: { readonly canEdit: boolean }) {
     <ul className="flex flex-col divide-y divide-line" aria-label="Synchronisatie">
       {SYNCS.map((s) => (
         <li key={s.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
-          {s.logo === undefined
+          {s.service === undefined
             ? <GlyphTile>{s.name[0]}</GlyphTile>
-            : (
-              <img
-                src={s.logo}
-                alt=""
-                className="size-8 shrink-0 rounded-md bg-canvas object-contain p-1 ring-1 ring-line"
-              />
-            )}
+            : <ServiceLogo service={s.service} name={s.name} size={32} />}
           <div className="flex min-w-0 flex-1 flex-col">
             <span className="text-sm font-medium text-ink">{s.name}</span>
             <span className="text-xs text-ink-3">{s.reads} · {fresh.includes(s.id) ? "zojuist" : s.last}</span>

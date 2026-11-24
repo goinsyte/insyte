@@ -21,12 +21,21 @@ export type PersonKey = keyof typeof PEOPLE
 
 export type Channel = "email" | "whatsapp" | "instagram" | "winkelchat"
 
-export const CHANNELS: ReadonlyArray<{ readonly id: Channel; readonly label: string; readonly account: string }> = [
-  { id: "email", label: "E-mail", account: "support@northwind.co" },
-  { id: "whatsapp", label: "WhatsApp", account: "+31 20 808 44 11" },
-  { id: "instagram", label: "Instagram", account: "@northwindclothing" },
+export const CHANNELS: ReadonlyArray<{
+  readonly id: Channel
+  readonly label: string
+  readonly account: string
+  /** The connected service it arrives through, for its logo (`ui/service-logo.tsx`); the store chat is Insyte's own. */
+  readonly service?: string
+}> = [
+  { id: "email", label: "E-mail", account: "support@northwind.co", service: "gmail" },
+  { id: "whatsapp", label: "WhatsApp", account: "+31 20 808 44 11", service: "whatsapp" },
+  { id: "instagram", label: "Instagram", account: "@northwindclothing", service: "instagram" },
   { id: "winkelchat", label: "Winkelchat", account: "Northwind EU" }
 ]
+
+/** The service a channel arrives through (the support mailbox is Gmail), if it is not Insyte's own. */
+export const channelService = (id: Channel) => CHANNELS.find((c) => c.id === id)?.service
 
 export const channelLabel = (id: Channel) => CHANNELS.find((c) => c.id === id)?.label ?? id
 

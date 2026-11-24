@@ -38,6 +38,7 @@ import { Field, Input, Textarea } from "../../ui/input.tsx"
 import { Fact } from "../../ui/key-value.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead, PageSection } from "../../ui/page.tsx"
+import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { Stepper } from "../../ui/stepper.tsx"
 import { Timeline } from "../../ui/timeline.tsx"
@@ -428,11 +429,16 @@ export function ReturnRecordPage({ id }: { readonly id: string }) {
             </Fact>
             {r.label !== undefined && (
               <Fact label="Retourlabel">
-                {r.label.carrier} <span className="figure">{r.label.tracking}</span>
-                <span className="block text-ink-3">
-                  {r.label.sentAt === undefined
-                    ? `Gemaakt ${stamp(new Date(r.label.madeAt))}, nog niet verstuurd`
-                    : `Verstuurd ${stamp(new Date(r.label.sentAt))}`}
+                <span className="flex items-center gap-2.5">
+                  <ServiceLogo service={r.label.carrier} name={r.label.carrier} size={28} />
+                  <span className="min-w-0">
+                    {r.label.carrier} <span className="figure">{r.label.tracking}</span>
+                    <span className="block text-ink-3">
+                      {r.label.sentAt === undefined
+                        ? `Gemaakt ${stamp(new Date(r.label.madeAt))}, nog niet verstuurd`
+                        : `Verstuurd ${stamp(new Date(r.label.sentAt))}`}
+                    </span>
+                  </span>
                 </span>
               </Fact>
             )}

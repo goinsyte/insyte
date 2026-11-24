@@ -33,6 +33,7 @@ import { GlyphTile } from "../ui/list.tsx"
 import { NotificationList } from "../ui/notifications.tsx"
 import { Popover } from "../ui/popover.tsx"
 import { Rich } from "../ui/rich.tsx"
+import { ServiceLogo } from "../ui/service-logo.tsx"
 import { ThemePicker } from "../ui/theme-picker.tsx"
 import { toast } from "../ui/toast.tsx"
 import { DemoViewDialog } from "./demo-view.tsx"
@@ -178,6 +179,7 @@ function noteMark(from: (typeof NOTIFICATIONS)[number]["from"]) {
       )
       : <AgentAvatar glyph={agent.glyph} size={26} />
   }
+  if (from.service !== undefined) return <ServiceLogo service={from.service} size={26} />
   return (
     <GlyphTile size={26}>
       <Bell size={14} />

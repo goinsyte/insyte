@@ -5,6 +5,7 @@ import { Button } from "../../ui/button.tsx"
 import { cx } from "../../ui/cx.ts"
 import { Field } from "../../ui/input.tsx"
 import { AuthFrame, FormColumn, Heading, PasswordInput, pause, primaryWide } from "./frame.tsx"
+import { RETURNING } from "./login.tsx"
 
 /*
  * Where the reset link lands (`/app/reset-password`). Three states, each with a way on: the new
@@ -17,7 +18,7 @@ export function ResetPasswordScreen() {
   const [done, setDone] = useState(false)
 
   return (
-    <AuthFrame line={LOGIN_LINE}>
+    <AuthFrame line={LOGIN_LINE} shell={{ crumbs: ["Wachtwoord herstellen"], stage: RETURNING }}>
       <FormColumn stepKey={done ? "done" : (link ?? "form")}>
         {done
           ? (

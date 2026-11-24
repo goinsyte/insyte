@@ -41,14 +41,18 @@ type Option<T extends string> = { readonly value: T; readonly label: string; rea
  * A choice of a few, side by side: the agent's autonomy per action, the board's period, light or
  * dark. The current one is a white tile on the well. The arrow keys move the choice.
  */
-export function Segmented<T extends string>({ value, options, onChange, label, size = "md", disabled }: {
-  readonly value: T
-  readonly options: ReadonlyArray<Option<T>>
-  readonly onChange: (next: T) => void
-  readonly label: string
-  readonly size?: "sm" | "md"
-  readonly disabled?: boolean
-}) {
+export function Segmented<T extends string>(
+  { value, options, onChange, label, size = "md", disabled, stretch = false }: {
+    readonly value: T
+    readonly options: ReadonlyArray<Option<T>>
+    readonly onChange: (next: T) => void
+    readonly label: string
+    readonly size?: "sm" | "md"
+    readonly disabled?: boolean
+    /** The full width of its column, the options sharing it equally: a choice inside a form. */
+    readonly stretch?: boolean
+  }
+) {
   const move = (step: number) => {
     const at = options.findIndex((o) => o.value === value)
     const next = options[(at + step + options.length) % options.length]
@@ -67,7 +71,7 @@ export function Segmented<T extends string>({ value, options, onChange, label, s
         window.requestAnimationFrame(() => group.querySelector<HTMLButtonElement>("[aria-checked=true]")?.focus())
       }}
       className={cx(
-        "inline-flex shrink-0 rounded-sm bg-well p-0.5",
+        stretch ? "flex w-full rounded-md bg-well p-0.5" : "inline-flex shrink-0 rounded-sm bg-well p-0.5",
         disabled === true && "pointer-events-none opacity-45"
       )}
     >
@@ -84,7 +88,11 @@ export function Segmented<T extends string>({ value, options, onChange, label, s
             onClick={() => onChange(option.value)}
             className={cx(
               "inline-flex items-center gap-1.5 rounded-xs whitespace-nowrap transition-colors [&_svg]:size-3.5",
-              size === "sm" ? "h-6 px-2 text-2xs" : "h-7 px-2.5 text-xs",
+              stretch
+                ? "h-8 flex-1 justify-center px-3 text-sm"
+                : size === "sm"
+                ? "h-6 px-2 text-2xs"
+                : "h-7 px-2.5 text-xs",
               "pointer-coarse:h-10",
               // The chosen option carries weight and a lifted tile, not just a lighter ground.
               selected ? "bg-canvas font-semibold text-ink shadow-sm" : "font-normal text-ink-3 hover:text-ink"

@@ -32,6 +32,7 @@ import { cx } from "../../ui/cx.ts"
 import { AlertTriangle, BookOpen, Building, Mail, Plug, UserPlus, Webhook } from "../../ui/icons.tsx"
 import { GlyphTile, List, ListRow } from "../../ui/list.tsx"
 import { PageSection } from "../../ui/page.tsx"
+import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { level } from "../../view.ts"
 import { useView } from "../../view.ts"
 import type { Staat, View } from "../../view.ts"
@@ -129,6 +130,8 @@ function hintFor(slug: string, staat: Staat): string | undefined {
 type Attention = {
   readonly slug: string
   readonly glyph: Glyph
+  /** A connected service the item is about, shown by its logo instead of the glyph. */
+  readonly service?: string
   readonly title: string
   readonly meta: string
   readonly tone: Tone
@@ -188,6 +191,7 @@ function attentionFor(staat: Staat): ReadonlyArray<Attention> {
     items.push({
       slug: "koppelingen",
       glyph: Plug,
+      service: "PayPal",
       title: "PayPal vraagt om opnieuw koppelen",
       meta: "Geschillen van PayPal komen niet binnen",
       tone: "warn",
@@ -250,11 +254,13 @@ export function OverviewScreen() {
                   key={a.title}
                   padded={false}
                   href={a.href ?? paths.settings(a.slug)}
-                  lead={
-                    <GlyphTile>
-                      <G size={16} />
-                    </GlyphTile>
-                  }
+                  lead={a.service === undefined
+                    ? (
+                      <GlyphTile>
+                        <G size={16} />
+                      </GlyphTile>
+                    )
+                    : <ServiceLogo service={a.service} size={32} />}
                   title={a.title}
                   meta={a.meta}
                   trail={<Status tone={a.tone}>{a.word}</Status>}

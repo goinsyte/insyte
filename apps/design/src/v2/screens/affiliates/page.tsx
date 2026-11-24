@@ -24,6 +24,7 @@ import { Field, Select } from "../../ui/input.tsx"
 import { KeyValue } from "../../ui/key-value.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead } from "../../ui/page.tsx"
+import { hasLogo, ServiceLogo } from "../../ui/service-logo.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
 import { Tabs } from "../../ui/tabs.tsx"
@@ -419,7 +420,14 @@ function Payouts({ canEdit }: { readonly canEdit: boolean }) {
               <Td figure align="right">{euro(r.approvable)}</Td>
               <Td figure align="right" muted>{euro(r.inWindow)}</Td>
               <Td figure align="right" muted>{r.reversed > 0 ? `− ${euro(r.reversed)}` : "—"}</Td>
-              <Td muted>{r.method}</Td>
+              <Td muted>
+                <span className="flex items-center gap-2">
+                  {hasLogo(r.method)
+                    ? <ServiceLogo service={r.method} name={r.method} size={18} />
+                    : <span aria-hidden="true" className="size-[18px] shrink-0" />}
+                  {r.method}
+                </span>
+              </Td>
               <Td align="right">
                 {r.approved
                   ? <Status tone="good">Goedgekeurd</Status>

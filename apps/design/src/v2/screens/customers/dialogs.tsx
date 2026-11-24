@@ -22,6 +22,7 @@ import { cx } from "../../ui/cx.ts"
 import { AlertDialog, Dialog } from "../../ui/dialog.tsx"
 import { Check } from "../../ui/icons.tsx"
 import { Field, Input } from "../../ui/input.tsx"
+import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { toast } from "../../ui/toast.tsx"
 import { Segmented } from "../../ui/toggle.tsx"
 import { useView } from "../../view.ts"
@@ -333,6 +334,7 @@ export function KlaviyoDialog({ open, onClose, picked }: {
     <Dialog
       open={open}
       onClose={onClose}
+      lead={<ServiceLogo service="klaviyo" name="Klaviyo" size={40} />}
       title="Synchroniseren naar Klaviyo"
       description={`${counted(picked.length, "klant", "klanten")} gekozen`}
       footer={

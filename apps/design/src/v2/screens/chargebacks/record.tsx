@@ -27,6 +27,7 @@ import { Field, Textarea } from "../../ui/input.tsx"
 import { Fact } from "../../ui/key-value.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead, PageSection } from "../../ui/page.tsx"
+import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { Timeline } from "../../ui/timeline.tsx"
 import { toast } from "../../ui/toast.tsx"
@@ -172,6 +173,7 @@ export function ChargebackRecord({ id }: { readonly id: string }) {
         after={<Status tone={CASE_STATUS[c.status].tone}>{CASE_STATUS[c.status].label}</Status>}
         meta={
           <>
+            <ServiceLogo service={c.channel} name={channel} size={16} className="mr-1.5 align-text-bottom" />
             {channel} · <span className="figure">{money(c.amount)}</span> · bestelling {o !== undefined
               ? (
                 <Link to={paths.order(c.orderNumber)} className="figure text-ink-2 hover:underline">

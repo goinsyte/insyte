@@ -3,6 +3,7 @@ import { STORES } from "../fixtures/workspace.ts"
 import { Link, paths } from "../router.tsx"
 import { cx } from "../ui/cx.ts"
 import { Check, ChevronDown, Plus } from "../ui/icons.tsx"
+import { ServiceLogo } from "../ui/service-logo.tsx"
 import { VariantMark } from "./variants.tsx"
 
 /** The store's monogram: its initial on a light tile, as a Shopify store has no logo in the demo. */
@@ -14,6 +15,20 @@ function StoreTile({ name, size = 26 }: { readonly name: string; readonly size?:
       aria-hidden="true"
     >
       {name.slice(0, 1)}
+    </span>
+  )
+}
+
+/**
+ * The store's platform line ("Shopify · EUR") with the platform's mark before it: the store's letter
+ * stays its identity, the mark says where it runs.
+ */
+function PlatformLine({ detail, className }: { readonly detail: string; readonly className: string }) {
+  const platform = detail.split(" · ")[0] ?? ""
+  return (
+    <span className={cx("flex min-w-0 items-center gap-1 text-2xs", className)}>
+      <ServiceLogo service={platform} size={12} bare />
+      <span className="truncate">{detail}</span>
     </span>
   )
 }
@@ -63,7 +78,7 @@ export function StoreSwitcher({ storeId, onChange }: {
         <VariantMark fallback={<StoreTile name={store.name} />} />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-xs font-semibold">{store.name}</span>
-          <span className="truncate text-2xs text-rail-ink">{store.detail}</span>
+          <PlatformLine detail={store.detail} className="text-rail-ink" />
         </span>
         <ChevronDown size={14} className="shrink-0 text-rail-ink" />
       </button>
@@ -92,9 +107,7 @@ export function StoreSwitcher({ storeId, onChange }: {
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className="truncate text-sm text-ink">{s.name}</span>
-                      <span className={cx("truncate text-2xs", s.connected ? "text-ink-3" : "text-warn-ink")}>
-                        {s.detail}
-                      </span>
+                      <PlatformLine detail={s.detail} className={s.connected ? "text-ink-3" : "text-warn-ink"} />
                     </span>
                     {selected && <Check size={16} className="shrink-0 text-ink" />}
                   </button>

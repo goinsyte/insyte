@@ -61,6 +61,7 @@ import {
 } from "../../ui/icons.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead, PageSection } from "../../ui/page.tsx"
+import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { Stepper } from "../../ui/stepper.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
@@ -525,9 +526,14 @@ export function OrderRecord({ number }: { readonly number: string }) {
               </address>
             </Fact>
             <Fact label="Verzending">
-              {order.carrier}
-              {shipped(order.status) && <span className="figure block text-ink-3">{trackingOf(order)}</span>}
-              <span className="block text-ink-3">Beloofd op {promised.getDate()} nov</span>
+              <span className="flex items-center gap-2.5">
+                <ServiceLogo service={order.carrier} name={order.carrier} size={28} />
+                <span className="min-w-0">
+                  {order.carrier}
+                  {shipped(order.status) && <span className="figure block text-ink-3">{trackingOf(order)}</span>}
+                  <span className="block text-ink-3">Beloofd op {promised.getDate()} nov</span>
+                </span>
+              </span>
             </Fact>
             <Fact label="Betaling">
               {order.payment} · <span className="figure">{money(order.total)}</span>

@@ -15,6 +15,8 @@ import type { Accent, AccentOption, Mode } from "./ui/theme.ts"
  *   data-bar        the main bar: the menu's grey (no attribute) or inhoud, the work surface
  *   data-density    compact or ruim (no attribute: the kit's own heights)
  *   data-logo       the mark in the store switcher and the rail (no attribute: the store's letter)
+ *   data-auth       signing in and setting up: midden or gesplitst (no attribute: in the shell)
+ *   data-fill       what fills the space beside the task there: gesprek or vlak (no attribute: voorbeeld)
  *
  * Remembered in this browser and written into the address as `?v=`, so a link carries the exact
  * variant: `?v=lagune.petrol.licht.ruim`. On load the address wins over what was remembered.
@@ -25,6 +27,10 @@ export type RailTone = "donker" | "licht" | "kleur"
 export type BarTone = "menu" | "inhoud"
 export type Density = "compact" | "standaard" | "ruim"
 export type Logo = "winkel" | "insyte" | "insyte-mono" | "blend" | "magnus"
+/** The frame of signing in, setting up and joining (`screens/auth/frame.tsx`). */
+export type AuthLayout = "schil" | "midden" | "gesplitst"
+/** What fills the space beside the task in the shell and the centred frame. */
+export type AuthFill = "voorbeeld" | "gesprek" | "vlak"
 
 export type Variant = {
   readonly direction: DirectionId
@@ -34,6 +40,8 @@ export type Variant = {
   readonly bar: BarTone
   readonly density: Density
   readonly logo: Logo
+  readonly auth: AuthLayout
+  readonly fill: AuthFill
 }
 
 export const DEFAULT_VARIANT: Variant = {
@@ -43,7 +51,9 @@ export const DEFAULT_VARIANT: Variant = {
   rail: "donker",
   bar: "menu",
   density: "standaard",
-  logo: "winkel"
+  logo: "winkel",
+  auth: "schil",
+  fill: "voorbeeld"
 }
 
 /**
@@ -91,6 +101,18 @@ export const LOGO_OPTIONS: ReadonlyArray<{ readonly value: Logo; readonly label:
   { value: "magnus", label: "Magnus" }
 ]
 
+export const AUTH_OPTIONS: ReadonlyArray<{ readonly value: AuthLayout; readonly label: string }> = [
+  { value: "schil", label: "In de schil" },
+  { value: "midden", label: "Midden" },
+  { value: "gesplitst", label: "Gesplitst" }
+]
+
+export const FILL_OPTIONS: ReadonlyArray<{ readonly value: AuthFill; readonly label: string }> = [
+  { value: "voorbeeld", label: "Voorbeeld" },
+  { value: "gesprek", label: "Gesprek" },
+  { value: "vlak", label: "Vlak" }
+]
+
 /** The accents to offer under a direction: its own first, then the customer themes. */
 export function accentsFor(direction: DirectionId): ReadonlyArray<AccentOption> {
   const own = DIRECTION_ACCENT[direction]
@@ -106,13 +128,15 @@ const isRail = isOf(RAIL_OPTIONS)
 const isBar = isOf(BAR_OPTIONS)
 const isDensity = isOf(DENSITY_OPTIONS)
 const isLogo = isOf(LOGO_OPTIONS)
+const isAuth = isOf(AUTH_OPTIONS)
+const isFill = isOf(FILL_OPTIONS)
 
 /* ── the address ──────────────────────────────────────────────────────────────────────────────── */
 
 /*
  * `?v=` is four places and then extras, Dutch words throughout:
  *
- *   richting . accent . licht|donker . compact|standaard|ruim [. iconen-licht|iconen-kleur] [. balk-inhoud] [. logo-…]
+ *   richting . accent . licht|donker . compact|standaard|ruim [. iconen-licht|iconen-kleur] [. balk-inhoud] [. logo-…] [. inlog-midden|inlog-gesplitst] [. vul-gesprek|vul-vlak]
  *
  * The first four are always written, so a link reads the same way every time; the extras only when
  * they are not the default. A part that is not understood falls back to its default.
@@ -126,6 +150,8 @@ export function encodeVariant(v: Variant): string | null {
   if (v.rail !== "donker") parts.push(`iconen-${v.rail}`)
   if (v.bar !== "menu") parts.push(`balk-${v.bar}`)
   if (v.logo !== "winkel") parts.push(`logo-${v.logo}`)
+  if (v.auth !== "schil") parts.push(`inlog-${v.auth}`)
+  if (v.fill !== "voorbeeld") parts.push(`vul-${v.fill}`)
   return parts.join(".")
 }
 
@@ -135,6 +161,8 @@ export function decodeVariant(text: string): Variant {
   const rail = extra("iconen-")
   const bar = extra("balk-")
   const logo = extra("logo-")
+  const auth = extra("inlog-")
+  const fill = extra("vul-")
   return {
     direction: isDirection(direction) ? direction : DEFAULT_VARIANT.direction,
     accent: isAccent(accent) ? accent : DEFAULT_VARIANT.accent,
@@ -142,7 +170,9 @@ export function decodeVariant(text: string): Variant {
     density: isDensity(density) ? density : DEFAULT_VARIANT.density,
     rail: isRail(rail) ? rail : DEFAULT_VARIANT.rail,
     bar: isBar(bar) ? bar : DEFAULT_VARIANT.bar,
-    logo: isLogo(logo) ? logo : DEFAULT_VARIANT.logo
+    logo: isLogo(logo) ? logo : DEFAULT_VARIANT.logo,
+    auth: isAuth(auth) ? auth : DEFAULT_VARIANT.auth,
+    fill: isFill(fill) ? fill : DEFAULT_VARIANT.fill
   }
 }
 
@@ -169,7 +199,7 @@ export function syncAddress(v: Variant) {
 const KEY = "insyte:v2:varianten"
 const CHANGE = "v2:varianten"
 
-type Rest = Pick<Variant, "direction" | "rail" | "bar" | "density" | "logo">
+type Rest = Pick<Variant, "direction" | "rail" | "bar" | "density" | "logo" | "auth" | "fill">
 
 /** Writes the attributes; a default removes its attribute, so the tokens' own values stand. */
 function applyRoot(v: Rest) {
@@ -183,6 +213,8 @@ function applyRoot(v: Rest) {
   set("bar", v.bar, DEFAULT_VARIANT.bar)
   set("density", v.density, DEFAULT_VARIANT.density)
   set("logo", v.logo, DEFAULT_VARIANT.logo)
+  set("auth", v.auth, DEFAULT_VARIANT.auth)
+  set("fill", v.fill, DEFAULT_VARIANT.fill)
 }
 
 function readRoot(): Rest {
@@ -192,7 +224,9 @@ function readRoot(): Rest {
     rail: isRail(d["rail"]) ? d["rail"] : DEFAULT_VARIANT.rail,
     bar: isBar(d["bar"]) ? d["bar"] : DEFAULT_VARIANT.bar,
     density: isDensity(d["density"]) ? d["density"] : DEFAULT_VARIANT.density,
-    logo: isLogo(d["logo"]) ? d["logo"] : DEFAULT_VARIANT.logo
+    logo: isLogo(d["logo"]) ? d["logo"] : DEFAULT_VARIANT.logo,
+    auth: isAuth(d["auth"]) ? d["auth"] : DEFAULT_VARIANT.auth,
+    fill: isFill(d["fill"]) ? d["fill"] : DEFAULT_VARIANT.fill
   }
 }
 
@@ -208,7 +242,9 @@ function readStored(): Rest | null {
       rail: isRail(r["rail"]) ? r["rail"] : DEFAULT_VARIANT.rail,
       bar: isBar(r["bar"]) ? r["bar"] : DEFAULT_VARIANT.bar,
       density: isDensity(r["density"]) ? r["density"] : DEFAULT_VARIANT.density,
-      logo: isLogo(r["logo"]) ? r["logo"] : DEFAULT_VARIANT.logo
+      logo: isLogo(r["logo"]) ? r["logo"] : DEFAULT_VARIANT.logo,
+      auth: isAuth(r["auth"]) ? r["auth"] : DEFAULT_VARIANT.auth,
+      fill: isFill(r["fill"]) ? r["fill"] : DEFAULT_VARIANT.fill
     }
   } catch {
     return null
@@ -311,5 +347,7 @@ export function describeVariant(v: Variant): string {
   if (v.rail !== "donker") parts.push(v.rail === "licht" ? "iconenbalk licht" : "iconenbalk in kleur")
   if (v.bar !== "menu") parts.push("hoofdbalk als inhoud")
   if (v.logo !== "winkel") parts.push(`logo ${label(LOGO_OPTIONS, v.logo)}`)
+  if (v.auth !== "schil") parts.push(`inloggen ${v.auth}`)
+  if (v.fill !== "voorbeeld") parts.push(`vulling ${v.fill}`)
   return parts.join(" · ")
 }

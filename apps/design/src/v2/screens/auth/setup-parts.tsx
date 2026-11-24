@@ -1,12 +1,16 @@
+import { AnimatePresence, motion } from "motion/react"
 import { useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
+import type { Glyph } from "../../fixtures/agents.ts"
 import { OFFLINE_ACTIONS, OFFLINE_WINDOWS, PREPARED, PREPARED_KIND, QUESTIONS, READS } from "../../fixtures/auth.ts"
 import type { AnalysisSeed, Finding, OfflineLevel, Prediction, PreparedId, Watch } from "../../fixtures/auth.ts"
-import { Button } from "../../ui/button.tsx"
+import { buttonClass } from "../../ui/button.tsx"
 import { cx } from "../../ui/cx.ts"
-import { Bot, Check, Lock, Sheet, Store, Workflow } from "../../ui/icons.tsx"
+import { Bot, Check, Lock, Sheet, Workflow } from "../../ui/icons.tsx"
 import { FieldLabel } from "../../ui/input.tsx"
 import { MagnusMark } from "../../ui/magnus-mark.tsx"
+import { ServiceLogo } from "../../ui/service-logo.tsx"
+import { Spinner } from "../../ui/spinner.tsx"
 import { Segmented } from "../../ui/toggle.tsx"
 import { pause } from "./frame.tsx"
 
@@ -24,7 +28,7 @@ export type ChoiceOption = {
   readonly label: string
   readonly hint?: string
   readonly meta?: ReactNode
-  readonly glyph?: typeof Store
+  readonly glyph?: Glyph
 }
 
 /**
@@ -62,7 +66,17 @@ export function ChoiceList({ options, value, onChange, label, multi = false, col
               on ? "bg-accent-tint" : "bg-well hover:bg-hover"
             )}
           >
-            {G !== undefined && <G size={17} className={cx("shrink-0", on ? "text-accent-ink" : "text-ink-3")} />}
+            {G !== undefined && (
+              <span
+                aria-hidden="true"
+                className={cx(
+                  "flex size-8 shrink-0 items-center justify-center rounded-md bg-canvas shadow-xs transition-colors",
+                  on ? "text-accent-ink" : "text-ink-2"
+                )}
+              >
+                <G size={16} />
+              </span>
+            )}
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="text-sm font-medium text-ink">{option.label}</span>
               {option.hint !== undefined && <span className="text-xs text-pretty text-ink-2">{option.hint}</span>}
@@ -168,16 +182,29 @@ export function ShopifyConnect({ handle, setHandle, connected, onConnected }: {
 
   if (connected) {
     return (
-      <div className="flex animate-rise items-center gap-3 rounded-md bg-good-tint px-3.5 py-3">
-        <Store size={18} className="shrink-0 text-good-ink" />
-        <div className="flex min-w-0 flex-1 flex-col">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.97, y: 4 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 380, damping: 30 }}
+        className="flex items-center gap-3 rounded-lg bg-well p-3"
+      >
+        <ServiceLogo service="shopify" name="Shopify" size={40} />
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="truncate text-sm font-medium text-ink">{domain ?? handle}</span>
           <span className="text-xs text-pretty text-ink-2">
             Goedgekeurd. Bestellingen, producten en klanten worden nu gesynchroniseerd.
           </span>
         </div>
-        <Check size={16} strokeWidth={2.5} className="shrink-0 text-good-ink" aria-label="Gekoppeld" />
-      </div>
+        <motion.span
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ type: "spring", stiffness: 500, damping: 22, delay: 0.15 }}
+          className="flex size-6 shrink-0 items-center justify-center rounded-full bg-good text-on-accent"
+          aria-label="Gekoppeld"
+        >
+          <Check size={13} strokeWidth={2.75} />
+        </motion.span>
+      </motion.div>
     )
   }
 
@@ -198,18 +225,34 @@ export function ShopifyConnect({ handle, setHandle, connected, onConnected }: {
         />
         {error !== undefined && <p id="shop-handle-error" className="text-xs text-bad-ink">{error}</p>}
       </div>
-      <Button
-        icon={<Store size={16} />}
-        loading={working}
+      <button
+        type="button"
+        disabled={working}
+        aria-busy={working || undefined}
         onClick={() => void connect()}
-        className="min-h-10 w-full pointer-coarse:min-h-11"
+        className={cx(
+          buttonClass("secondary", "md", "w-full overflow-hidden"),
+          "min-h-11 gap-2.5 text-sm pointer-coarse:min-h-12"
+        )}
       >
-        {phase === "opening"
-          ? "Shopify wordt geopend"
-          : phase === "approving"
-          ? "Wacht op je goedkeuring"
-          : "Koppelen met Shopify"}
-      </Button>
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.span
+            key={phase}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="flex items-center gap-2.5"
+          >
+            {working ? <Spinner size={16} /> : <ServiceLogo service="shopify" name="Shopify" size={18} bare />}
+            {phase === "opening"
+              ? "Shopify wordt geopend"
+              : phase === "approving"
+              ? "Wacht op je goedkeuring in Shopify"
+              : "Koppelen met Shopify"}
+          </motion.span>
+        </AnimatePresence>
+      </button>
       <p className="text-sm text-pretty text-ink-2">
         Shopify vraagt je Insyte goed te keuren en stuurt je daarna direct terug. Of sla het over en koppel later via de
         instellingen.
@@ -261,7 +304,12 @@ function SyncRow({ label, to, delay }: { readonly label: string; readonly to: nu
 }
 
 export function SyncProgress(
-  { connected, store }: { readonly connected: boolean; readonly store: AnalysisSeed["store"] }
+  { connected, store, domain }: {
+    readonly connected: boolean
+    readonly store: AnalysisSeed["store"]
+    /** The store being read, at the head of the counts. */
+    readonly domain?: string | null
+  }
 ) {
   if (!connected) {
     return (
@@ -272,11 +320,19 @@ export function SyncProgress(
     )
   }
   return (
-    <ul className="flex flex-col gap-1.5" aria-live="polite">
-      <SyncRow label="Producten" to={store.products} delay={0} />
-      <SyncRow label="Klanten" to={store.customers} delay={250} />
-      <SyncRow label="Bestellingen" to={store.orders} delay={500} />
-    </ul>
+    <div className="flex flex-col gap-2.5">
+      {domain !== undefined && domain !== null && (
+        <p className="flex items-center gap-2 text-xs text-ink-3">
+          <ServiceLogo service="shopify" name="Shopify" size={14} bare />
+          Uit <span className="font-medium text-ink-2">{domain}</span>
+        </p>
+      )}
+      <ul className="flex flex-col gap-1.5" aria-live="polite">
+        <SyncRow label="Producten" to={store.products} delay={0} />
+        <SyncRow label="Klanten" to={store.customers} delay={250} />
+        <SyncRow label="Bestellingen" to={store.orders} delay={500} />
+      </ul>
+    </div>
   )
 }
 
@@ -424,6 +480,7 @@ function Questions({ answers, onAnswer }: {
         <div key={q.id} className="flex flex-col gap-1.5">
           <span className="text-sm text-ink-2">{q.ask}</span>
           <Segmented
+            stretch
             label={q.ask}
             value={answers[q.id] ?? q.initial}
             options={q.options}
@@ -541,6 +598,7 @@ export function OfflinePlan({ answers, window: offline, setWindow, levels, setLe
               {a.locked === undefined
                 ? (
                   <Segmented
+                    stretch
                     label={a.night}
                     value={levels[a.id] ?? a.initial}
                     onChange={(level) => setLevel(a.id, level)}

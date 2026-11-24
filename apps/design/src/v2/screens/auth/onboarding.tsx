@@ -16,16 +16,18 @@ import {
   ROLE_OPTIONS,
   STOCK_OPTIONS,
   SUPPLIER_PLATFORMS,
-  TEAM_SIZES
+  TEAM_SIZES,
+  WORKSPACE_FULL
 } from "../../fixtures/auth.ts"
 import type { OfflineLevel, Persona, PlanId, PreparedId } from "../../fixtures/auth.ts"
 import { navigate, paths, setQuery, useQuery } from "../../router.tsx"
 import { Button, IconButton } from "../../ui/button.tsx"
-import { ArrowRight, Mail, X } from "../../ui/icons.tsx"
+import { ArrowLeft, ArrowRight, Mail, Store, TrendingUp, Truck, X } from "../../ui/icons.tsx"
 import { Field, Input, Select } from "../../ui/input.tsx"
 import { toast } from "../../ui/toast.tsx"
 import { Segmented } from "../../ui/toggle.tsx"
 import { setView, useView } from "../../view.ts"
+import type { Phase } from "./fill.tsx"
 import {
   AuthFrame,
   FormColumn,
@@ -41,7 +43,6 @@ import {
   TextButton,
   TextLink
 } from "./frame.tsx"
-import { DemoHint } from "./login.tsx"
 import {
   AffixField,
   analysisCopy,
@@ -319,8 +320,45 @@ export function OnboardingScreen({ slug, register = false }: {
     ? null
     : Math.max(1, Math.round(MINUTES[persona] * (1 - Math.max(0, index - HEAD.length) / TAIL[persona].length)))
 
+  // A link straight into a later step has nothing typed yet: the demo's person and workspace stand in.
+  const named: Form = {
+    ...form,
+    name: form.name.trim() !== "" || index === 0 ? form.name : "Elena Hart",
+    workspace: form.workspace.trim() !== "" || !steps.includes("organization") || index <= steps.indexOf("organization")
+      ? form.workspace
+      : WORKSPACE_FULL
+  }
+  const shell = {
+    workspace: persona === "supplier" ? form.company : persona === "affiliate" ? form.handle : named.workspace,
+    detail: form.connected && shopDomain(form.shop) !== null
+      ? `Shopify · ${form.country === "Nederland" ? "NL" : form.country}`
+      : undefined,
+    crumbs: steps.slice(0, index + 1).map((id, i) => crumbLabel(id, named, persona, i < index)),
+    // The rail fills in from the workspace on: nothing while the account is made, all of it when ready.
+    lit: persona === null || index < HEAD.length ? 0 : (index - HEAD.length + 1) / TAIL[persona].length,
+    voice: step === "account" ? "plain" as const : "magnus" as const,
+    index,
+    total: steps.length,
+    person: named.name,
+    stage: {
+      phase: PHASE[step],
+      side: persona === "supplier"
+        ? "leverancier" as const
+        : persona === "affiliate"
+        ? "affiliate" as const
+        : "winkel" as const,
+      workspace: persona === "supplier" ? form.company : persona === "affiliate" ? form.handle : named.workspace,
+      person: named.name,
+      plan: PLANS.find((p) => p.id === form.plan)?.name,
+      store: form.connected ? (shopDomain(form.shop) ?? "je-winkel.myshopify.com") : step === "store" ? undefined : null
+    },
+    history: steps.slice(0, index).map((id) => ({ q: QUESTION[id], a: crumbLabel(id, named, persona, true) }))
+  }
+
   return (
     <AuthFrame
+      shell={shell}
+      onClose={() => navigate(paths.login)}
       line={brandLine(persona, step)}
       meta={persona === null ? undefined : `${PERSONA_LABEL[persona]} · nog ~${minutes} min`}
       foot={persona !== null && index > HEAD.length - 1 && step !== "ready" && step !== "review" && (
@@ -355,7 +393,13 @@ export function OnboardingScreen({ slug, register = false }: {
           <footer className="mt-2 flex items-center justify-between gap-3">
             {index > 0 && step !== "ready" && step !== "review"
               ? (
-                <Button variant="ghost" onClick={back} disabled={busy} className="-ml-2.5 pointer-coarse:min-h-11">
+                <Button
+                  variant="ghost"
+                  icon={<ArrowLeft size={16} />}
+                  onClick={back}
+                  disabled={busy}
+                  className="-ml-2.5 pointer-coarse:min-h-11"
+                >
                   Terug
                 </Button>
               )
@@ -382,6 +426,79 @@ export function OnboardingScreen({ slug, register = false }: {
       </FormColumn>
     </AuthFrame>
   )
+}
+
+/** Each side of the order, as the role picker draws it. */
+const ROLE_GLYPH: Readonly<Record<Persona, typeof Store>> = { admin: Store, supplier: Truck, affiliate: TrendingUp }
+
+/** How far the morning in the preview is at each step. */
+const PHASE: Readonly<Record<StepId, Phase>> = {
+  account: "leeg",
+  verify: "leeg",
+  role: "leeg",
+  organization: "naam",
+  plan: "plan",
+  store: "winkel",
+  sync: "import",
+  analysis: "analyse",
+  offline: "nacht",
+  ready: "klaar",
+  profile: "naam",
+  api: "winkel",
+  stock: "import",
+  review: "klaar"
+}
+
+/** Each step's question, short, as the conversation keeps it once answered. */
+const QUESTION: Readonly<Record<StepId, string>> = {
+  account: "Wie ben je?",
+  verify: "Is dit adres van jou?",
+  role: "Aan welke kant van de bestelling sta jij?",
+  organization: "Hoe heet je werkruimte?",
+  plan: "Welk abonnement wil je proberen?",
+  store: "Welke winkel koppel ik?",
+  sync: "Mag ik alles ophalen?",
+  analysis: "Wat zie ik in je winkel?",
+  offline: "Wat mag ik doen terwijl je slaapt?",
+  ready: "Klaar?",
+  profile: "Wie ben je als bedrijf?",
+  api: "Hoe komen bestellingen bij je binnen?",
+  stock: "Hoe geef je voorraad door?",
+  review: "Aanmelding versturen?"
+}
+
+/** A step in the werkdraad: once done, what was answered (the name, the plan, the store); else its name. */
+function crumbLabel(id: StepId, form: Form, persona: Persona | null, done: boolean): string {
+  switch (id) {
+    case "account":
+      return done && form.name.trim() !== "" ? form.name.trim().split(" ")[0] ?? "Account" : "Account"
+    case "verify":
+      return done ? "E-mail bevestigd" : "E-mail bevestigen"
+    case "role":
+      return done && persona !== null ? PERSONA_LABEL[persona] : "Jouw kant"
+    case "organization":
+      return done && form.workspace.trim() !== "" ? form.workspace.trim() : "Werkruimte"
+    case "plan":
+      return done ? (PLANS.find((p) => p.id === form.plan)?.name ?? "Abonnement") : "Abonnement"
+    case "store":
+      return done ? (form.connected ? (shopDomain(form.shop) ?? "Shopify") : "Zonder winkel") : "Shopify koppelen"
+    case "sync":
+      return done ? "Geïmporteerd" : "Importeren"
+    case "analysis":
+      return "Eerste analyse"
+    case "offline":
+      return done ? "Nachtregels" : "Terwijl je offline bent"
+    case "ready":
+      return "Klaar"
+    case "profile":
+      return done ? (form.company.trim() || form.handle.trim() || "Profiel") : "Profiel"
+    case "api":
+      return done ? form.platform : "Bestellingen"
+    case "stock":
+      return "Voorraad"
+    case "review":
+      return "Aanmelding"
+  }
 }
 
 type StepContent = {
@@ -479,11 +596,6 @@ function renderStep(a: StepArgs): StepContent {
             <p className="text-center text-sm text-ink-3">
               Heb je al een account? <TextLink to={paths.login}>Inloggen</TextLink>
             </p>
-            {a.register && (
-              <DemoHint>
-                {`In de demo werkt elk adres. Met ${DEMO_REFUSALS.notInvited} zie je hoe een adres zonder uitnodiging wordt geweigerd.`}
-              </DemoHint>
-            )}
           </>
         )
       }
@@ -516,7 +628,13 @@ function renderStep(a: StepArgs): StepContent {
                 const p = next[0] as Persona | undefined
                 if (p !== undefined) a.onRole(p)
               }}
-              options={ROLE_OPTIONS.map((r) => ({ id: r.id, label: r.label, hint: r.hint, meta: r.meta }))}
+              options={ROLE_OPTIONS.map((r) => ({
+                id: r.id,
+                label: r.label,
+                hint: r.hint,
+                meta: r.meta,
+                glyph: ROLE_GLYPH[r.id]
+              }))}
             />
             {errors.role !== undefined && <p className="text-xs text-bad-ink">{errors.role}</p>}
           </div>
@@ -652,7 +770,7 @@ function renderStep(a: StepArgs): StepContent {
               : "Dat is goed: je kunt alles inrichten en later koppelen."}
           </Heading>
         ),
-        body: <SyncProgress connected={form.connected} store={a.seed.store} />,
+        body: <SyncProgress connected={form.connected} store={a.seed.store} domain={shopDomain(form.shop)} />,
         primary: form.connected ? "Laat Insyte kijken" : "Verder"
       }
     case "analysis": {
@@ -826,6 +944,7 @@ function renderStep(a: StepArgs): StepContent {
             <div className="flex flex-col gap-1.5">
               <span className="text-xs font-medium text-ink">Bereik</span>
               <Segmented
+                stretch
                 label="Bereik"
                 value={form.reach}
                 onChange={(reach) => set({ reach })}

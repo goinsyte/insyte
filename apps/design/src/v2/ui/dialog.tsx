@@ -40,16 +40,20 @@ function useModal(open: boolean, onClose: () => void) {
 }
 
 /** The dialog's surface without the behaviour: for the kit and for a mock that shows it open. */
-export function DialogPanel({ title, description, children, footer, onClose, size = "md", titleId, descriptionId }: {
-  readonly title: string
-  readonly description?: ReactNode
-  readonly children?: ReactNode
-  readonly footer?: ReactNode
-  readonly onClose?: () => void
-  readonly size?: "sm" | "md" | "lg"
-  readonly titleId?: string
-  readonly descriptionId?: string
-}) {
+export function DialogPanel(
+  { title, lead, description, children, footer, onClose, size = "md", titleId, descriptionId }: {
+    readonly title: string
+    /** Before the title: the logo of the service the dialog is about (Klaviyo, Shopify, an app). */
+    readonly lead?: ReactNode
+    readonly description?: ReactNode
+    readonly children?: ReactNode
+    readonly footer?: ReactNode
+    readonly onClose?: () => void
+    readonly size?: "sm" | "md" | "lg"
+    readonly titleId?: string
+    readonly descriptionId?: string
+  }
+) {
   return (
     <div
       className={cx(
@@ -58,6 +62,7 @@ export function DialogPanel({ title, description, children, footer, onClose, siz
       )}
     >
       <header className="flex items-start gap-3 px-5 pt-5 pb-3">
+        {lead}
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <h2 id={titleId} className="text-md font-semibold text-ink">{title}</h2>
           {description !== undefined && (
@@ -87,10 +92,11 @@ const DIALOG =
   "m-auto w-[calc(100%-2rem)] max-w-none bg-transparent p-0 text-ink open:flex open:animate-rise open:justify-center " +
   "backdrop:bg-scrim"
 
-export function Dialog({ open, onClose, title, description, children, footer, size }: {
+export function Dialog({ open, onClose, title, lead, description, children, footer, size }: {
   readonly open: boolean
   readonly onClose: () => void
   readonly title: string
+  readonly lead?: ReactNode
   readonly description?: ReactNode
   readonly children?: ReactNode
   readonly footer?: ReactNode
@@ -111,6 +117,7 @@ export function Dialog({ open, onClose, title, description, children, footer, si
       {open && (
         <DialogPanel
           title={title}
+          lead={lead}
           description={description}
           footer={footer}
           onClose={onClose}

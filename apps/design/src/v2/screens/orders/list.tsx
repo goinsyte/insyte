@@ -48,6 +48,7 @@ import { Page, PageHead } from "../../ui/page.tsx"
 import { Pagination } from "../../ui/pagination.tsx"
 import { PeriodPicker, PRESETS } from "../../ui/period.tsx"
 import type { Period } from "../../ui/period.tsx"
+import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
 import type { Sort } from "../../ui/table.tsx"
@@ -588,7 +589,14 @@ export function OrdersList() {
                               </span>
                             </Td>
                           )}
-                          {show("carrier") && <Td muted>{o.carrier}</Td>}
+                          {show("carrier") && (
+                            <Td muted>
+                              <span className="flex items-center gap-2">
+                                <ServiceLogo service={o.carrier} name={o.carrier} size={18} />
+                                {o.carrier}
+                              </span>
+                            </Td>
+                          )}
                           {show("status") && (
                             <Td>
                               <Status tone={status.tone}>{status.label}</Status>

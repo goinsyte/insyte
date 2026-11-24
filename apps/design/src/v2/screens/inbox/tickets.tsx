@@ -375,7 +375,7 @@ function Card({ t, edit }: { readonly t: Ticket; readonly edit: boolean }) {
       </div>
       <p className="truncate text-xs text-ink-2">{customerName(t)}</p>
       <div className="flex items-center gap-2 text-xs text-ink-3">
-        <ChannelGlyph channel={t.channel} size={13} />
+        <ChannelGlyph channel={t.channel} size={14} />
         <span className="figure">#{t.number}</span>
         {t.priority === "hoog" && <PriorityTag priority={t.priority} />}
         {mins !== null && (
@@ -515,7 +515,7 @@ function TicketTable({ tickets, edit }: { readonly tickets: ReadonlyArray<Ticket
                     </Td>
                     <Td>
                       <span className="inline-flex items-center gap-1.5">
-                        <ChannelGlyph channel={t.channel} size={13} />
+                        <ChannelGlyph channel={t.channel} size={14} />
                         {channelLabel(t.channel)}
                       </span>
                     </Td>

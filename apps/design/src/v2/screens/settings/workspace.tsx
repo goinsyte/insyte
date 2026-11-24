@@ -24,12 +24,13 @@ import { Button } from "../../ui/button.tsx"
 import { RadioGroup } from "../../ui/checkbox.tsx"
 import { AlertDialog, Dialog } from "../../ui/dialog.tsx"
 import { DropdownItem, DropdownMenu, DropdownSeparator } from "../../ui/dropdown.tsx"
-import { CreditCard, Download, MoreHorizontal, Plus, Store } from "../../ui/icons.tsx"
+import { CreditCard, Download, MoreHorizontal, Plus } from "../../ui/icons.tsx"
 import { Field, Input, Select, Textarea } from "../../ui/input.tsx"
-import { GlyphTile, List, ListRow } from "../../ui/list.tsx"
+import { List, ListRow } from "../../ui/list.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { PageSection } from "../../ui/page.tsx"
 import { Meter } from "../../ui/progress.tsx"
+import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { SettingRow, SettingsSection } from "../../ui/settings.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
 import { toast } from "../../ui/toast.tsx"
@@ -68,11 +69,7 @@ export function StoresScreen() {
           <ListRow
             key={s.id}
             padded={false}
-            lead={
-              <GlyphTile>
-                <Store size={16} />
-              </GlyphTile>
-            }
+            lead={<ServiceLogo service="shopify" name="Shopify" size={32} />}
             title={
               <span className="inline-flex items-center gap-2">
                 {s.name}
@@ -235,6 +232,7 @@ function ConnectDialog({ open, store, onClose, onConnect }: {
     <Dialog
       open={open}
       onClose={onClose}
+      lead={<ServiceLogo service="shopify" name="Shopify" size={40} />}
       title={store === null ? "Winkel toevoegen" : `${store.name} opnieuw koppelen`}
       description={store === null
         ? "Koppel een Shopify-winkel. Bestellingen, producten en klanten worden binnen enkele minuten gesynchroniseerd."

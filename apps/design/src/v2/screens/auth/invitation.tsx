@@ -87,7 +87,31 @@ export function InvitationScreen({ id }: { readonly id: string }) {
   const stepKey = `${state}-${phase}`
 
   return (
-    <AuthFrame line={brandLine(inv, state)} meta={<WorkspaceChip name={inv.workspace} />}>
+    <AuthFrame
+      line={brandLine(inv, state)}
+      meta={<WorkspaceChip name={inv.workspace} />}
+      shell={{
+        // The workspace exists already: its shell stands complete, waiting for you to come in.
+        workspace: inv.workspace,
+        detail: `Uitnodiging van ${firstName(inv.inviter.name)}`,
+        crumbs: ["Uitnodiging", ...(phase === "photo" ? ["Je foto"] : phase === "notify" ? ["Meldingen"] : [])],
+        lit: 1,
+        meta: null,
+        person: name,
+        ...(steps ? { index: phase === "photo" ? 1 : phase === "notify" ? 2 : 0, total: 3 } : {}),
+        stage: {
+          phase: "analyse",
+          workspace: inv.workspace,
+          greeting: name.trim() === "" ? "Welkom" : `Welkom, ${firstName(name.trim())}`,
+          store: "northwind.myshopify.com"
+        },
+        history: phase === "photo"
+          ? [{ q: `Word je lid van ${inv.workspace}?`, a: "Ja" }]
+          : phase === "notify"
+          ? [{ q: `Word je lid van ${inv.workspace}?`, a: "Ja" }, { q: "Hoe herkent je team je?", a: "Foto gekozen" }]
+          : []
+      }}
+    >
       <FormColumn stepKey={stepKey}>
         {phase === "photo"
           ? (
@@ -806,6 +830,7 @@ function NotifyStep({ workspace, onDone, onBack }: {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs font-medium text-ink">Waar</span>
         <Segmented
+          stretch
           label="Waar"
           value={where}
           onChange={setWhere}

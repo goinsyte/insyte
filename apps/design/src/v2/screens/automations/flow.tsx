@@ -30,6 +30,7 @@ import { KeyValue } from "../../ui/key-value.tsx"
 import { List, ListRow } from "../../ui/list.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead, PageSection } from "../../ui/page.tsx"
+import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { SettingRow, SettingsSection } from "../../ui/settings.tsx"
 import { Skeleton, SkeletonText } from "../../ui/skeleton.tsx"
 import { EmptyState, ErrorState } from "../../ui/states.tsx"
@@ -394,15 +395,19 @@ function WorkflowTab({ flow, runs, test, onTest }: {
                 {(!last || access.edit) && (
                   <span aria-hidden="true" className="absolute top-7 bottom-0 left-[13.5px] w-px bg-line" />
                 )}
-                <span
-                  className={kind === "trigger"
-                    ? "relative flex size-7 items-center justify-center rounded-full bg-ink text-on-ink"
-                    : kind === "ai"
-                    ? "relative flex size-7 items-center justify-center rounded-full bg-accent-tint text-accent-ink"
-                    : "relative flex size-7 items-center justify-center rounded-full bg-well text-ink-2"}
-                >
-                  <G size={14} />
-                </span>
+                {kind === "actie" && t?.via !== undefined
+                  ? <ServiceLogo service={t.via} name={t.via} size={28} />
+                  : (
+                    <span
+                      className={kind === "trigger"
+                        ? "relative flex size-7 items-center justify-center rounded-full bg-ink text-on-ink"
+                        : kind === "ai"
+                        ? "relative flex size-7 items-center justify-center rounded-full bg-accent-tint text-accent-ink"
+                        : "relative flex size-7 items-center justify-center rounded-full bg-well text-ink-2"}
+                    >
+                      <G size={14} />
+                    </span>
+                  )}
                 <button
                   type="button"
                   onClick={() => setQuery({ stap: st.id })}
@@ -590,7 +595,15 @@ function StepSheet({ flow, step, onClose }: {
         <KeyValue
           items={[
             { label: "Nodig recht", value: scope?.label ?? "Geen" },
-            { label: "Loopt via", value: t?.via ?? "Insyte" }
+            {
+              label: "Loopt via",
+              value: t?.via === undefined ? "Insyte" : (
+                <span className="flex items-center gap-1.5">
+                  <ServiceLogo service={t.via} name={t.via} size={16} bare />
+                  {t.via}
+                </span>
+              )
+            }
           ]}
         />
         {kind === "ai" && (
@@ -659,11 +672,13 @@ function Palette({ open, trigger, onClose, onPick }: {
                   {items.map((t) => (
                     <ListRow
                       key={t.id}
-                      lead={
-                        <span className="inline-flex size-7 items-center justify-center rounded-full bg-well text-ink-2">
-                          <G size={13} />
-                        </span>
-                      }
+                      lead={t.via === undefined
+                        ? (
+                          <span className="inline-flex size-7 items-center justify-center rounded-full bg-well text-ink-2">
+                            <G size={13} />
+                          </span>
+                        )
+                        : <ServiceLogo service={t.via} name={t.via} size={28} />}
                       title={t.label}
                       meta={t.via === undefined ? t.detail : `${t.detail} · via ${t.via}`}
                       onClick={() => onPick(t.id)}

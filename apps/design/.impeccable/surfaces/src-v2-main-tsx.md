@@ -40,4 +40,16 @@ the top bar.
 **SIGNATURE.** The werkdraad: a breadcrumb of linked records that changes with the work and ends in
 "Vraag Magnus" carrying that context.
 
+**OUTSIDE THE DASHBOARD** (signing in, setting up, an invitation; developer, 2026-11-24). Default "in de schil":
+the product's own shell, still empty. The werkdraad names the steps done (the workspace's name, the plan,
+the store), the rail's areas light up as the workspace is set up, and Magnus asks the setup questions
+(mark and name above the heading). An invitation shows the workspace's shell complete. Two alternatives stay
+switchable in Varianten (`inlog-midden`, `inlog-gesplitst`) for the owner to compare. The shopper's return
+portal and the supplier's quality check carry the store's face, not this frame.
+Beside the task (developer, 2026-11-24, `fill`): default "voorbeeld", the morning being set up building
+itself on the menu's warm grey (workspace name as typed, plan, store, orders streaming in, Magnus's first
+finding, the night rules), with no demo label or hint anywhere (owner, 2026-11-24: "we dont do that"); alternatives "gesprek" (answered steps as a Magnus
+conversation) and "vlak" (white sheet on warm grey, the step's mark and line). One progress line along the
+bar; steps slide in the direction of travel (motion springs, cross-fade under reduced motion).
+
 **RISK.** A breadcrumb can read as decoration; it must always hold real, clickable records.

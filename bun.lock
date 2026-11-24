@@ -99,6 +99,7 @@
         "@fontsource-variable/mona-sans": "catalog:",
         "@insyte/ui": "workspace:*",
         "@tanstack/react-router": "catalog:",
+        "motion": "catalog:",
         "react": "catalog:",
         "react-dom": "catalog:",
         "zod": "catalog:",

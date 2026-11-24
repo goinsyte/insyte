@@ -1,7 +1,7 @@
 import { Fragment, useId, useRef, useState } from "react"
 import type { CSSProperties, ReactNode } from "react"
 import { AGENTS } from "../../fixtures/agents.ts"
-import { channelLabel, PRIORITY, STATUS_ORDER, TICKET_STATUS } from "../../fixtures/inbox.ts"
+import { channelLabel, channelService, PRIORITY, STATUS_ORDER, TICKET_STATUS } from "../../fixtures/inbox.ts"
 import type { Channel, Entry, PersonKey, Priority, Ticket, TicketStatus } from "../../fixtures/inbox.ts"
 import { ME, PEOPLE } from "../../fixtures/workspace.ts"
 import { AgentAvatar, Avatar } from "../../ui/avatar.tsx"
@@ -22,6 +22,7 @@ import {
   UserX
 } from "../../ui/icons.tsx"
 import { SEND_WINDOW_S } from "../../ui/proposal.tsx"
+import { hasLogo, ServiceLogo } from "../../ui/service-logo.tsx"
 import { Tabs } from "../../ui/tabs.tsx"
 import { toast } from "../../ui/toast.tsx"
 import { dropEntries, nowClock, patchTicket } from "./store.ts"
@@ -35,16 +36,30 @@ export const firstName = (who: PersonKey) => PEOPLE[who].name.split(" ")[0] ?? P
 
 const CHANNEL_GLYPH = { email: Mail, whatsapp: Smartphone, instagram: Image, winkelchat: MessageSquare } as const
 
-/** A channel as a quiet glyph, named for assistive tech and on hover. */
-export function ChannelGlyph({ channel, size = 14, className }: {
+/**
+ * A channel as its service's logo (the mailbox's Gmail, WhatsApp, Instagram), or for the store chat,
+ * which is Insyte's own, a quiet glyph; named for assistive tech and on hover. Bare in a line of
+ * text; `tile` puts the logo on its tile, as a list row's lead.
+ */
+export function ChannelGlyph({ channel, size = 14, tile = false, className }: {
   readonly channel: Channel
   readonly size?: number
+  readonly tile?: boolean
   readonly className?: string
 }) {
+  const label = `Via ${channelLabel(channel)}`
+  const service = channelService(channel)
+  if (service !== undefined && hasLogo(service)) {
+    return (
+      <span role="img" aria-label={label} title={label} className={cx("inline-flex shrink-0", className)}>
+        <ServiceLogo service={service} name={label} size={size} bare={!tile} />
+      </span>
+    )
+  }
   const G = CHANNEL_GLYPH[channel]
   return (
-    <span title={`Via ${channelLabel(channel)}`} className={cx("inline-flex shrink-0 text-ink-3", className)}>
-      <G size={size} aria-label={`Via ${channelLabel(channel)}`} />
+    <span title={label} className={cx("inline-flex shrink-0 text-ink-3", className)}>
+      <G size={tile ? Math.round(size * 0.67) : size} aria-label={label} />
     </span>
   )
 }

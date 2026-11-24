@@ -284,7 +284,7 @@ function ThreadRow({ t, active, search }: { readonly t: Ticket; readonly active:
         </span>
         <span className="truncate text-sm text-ink-2">{t.subject}</span>
         <span className="flex items-center gap-2 text-xs text-ink-3">
-          <ChannelGlyph channel={t.channel} size={13} />
+          <ChannelGlyph channel={t.channel} size={14} />
           <span className="figure">#{t.number}</span>
           <TicketStatusTag status={t.status} />
           <span className="ml-auto flex items-center">
@@ -369,7 +369,7 @@ function Overview({ tickets, search }: { readonly tickets: ReadonlyArray<Ticket>
                 <ListRow
                   key={t.number}
                   href={`${paths.ticket(t.number)}${search}`}
-                  lead={<ChannelGlyph channel={t.channel} size={16} className="w-7 justify-center" />}
+                  lead={<ChannelGlyph channel={t.channel} size={24} tile className="w-7 justify-center" />}
                   title={t.subject}
                   meta={`#${t.number} · ${customerName(t)}${t.deadline === undefined ? "" : ` · ${t.deadline.text}`}`}
                   trail={<TicketStatusTag status={t.status} />}

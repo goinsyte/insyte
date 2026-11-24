@@ -396,11 +396,10 @@ export const CATALOG: ReadonlyArray<App> = [
   }
 ]
 
-/** The connections Insyte makes itself (Instellingen → Koppelingen): already on, with their real marks. */
+/** The connections Insyte makes itself (Instellingen → Koppelingen): already on, shown with their real marks (`ServiceLogo`). */
 export type Own = {
   readonly id: string
   readonly name: string
-  readonly logo: string
   readonly what: string
   readonly detail: string
 }
@@ -408,28 +407,24 @@ export const OWN: ReadonlyArray<Own> = [
   {
     id: "shopify",
     name: "Shopify",
-    logo: "/logos/shopify.svg",
     what: "Winkel",
     detail: "Northwind EU en Northwind US. Bestellingen, producten en klanten."
   },
   {
     id: "stripe",
     name: "Stripe",
-    logo: "/logos/stripe.svg",
     what: "Betalingen",
     detail: "Betalingen, terugbetalingen en chargebacks."
   },
   {
     id: "meta",
     name: "Meta Ads",
-    logo: "/logos/meta.svg",
     what: "Advertenties",
     detail: "Advertentiekosten per dag, voor Kosten en de ROAS."
   },
   {
     id: "resend",
     name: "Resend",
-    logo: "/logos/resend.svg",
     what: "E-mail",
     detail: "De mails die Insyte en de automatiseringen versturen."
   }

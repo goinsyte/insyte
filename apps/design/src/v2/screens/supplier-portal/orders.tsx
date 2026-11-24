@@ -12,6 +12,7 @@ import { KeyValue } from "../../ui/key-value.tsx"
 import { Notice } from "../../ui/notice.tsx"
 import { Page, PageHead, PageSection } from "../../ui/page.tsx"
 import { Pagination } from "../../ui/pagination.tsx"
+import { ServiceLogo } from "../../ui/service-logo.tsx"
 import { EmptyState } from "../../ui/states.tsx"
 import { Table, TBody, Td, Th, THead, Tr } from "../../ui/table.tsx"
 import { Tabs } from "../../ui/tabs.tsx"
@@ -524,7 +525,15 @@ export function OrderPage({ number }: { readonly number: string }) {
               (
                 <KeyValue
                   items={[
-                    { label: "Vervoerder", value: order.parcel.carrier },
+                    {
+                      label: "Vervoerder",
+                      value: (
+                        <span className="flex items-center gap-2">
+                          <ServiceLogo service={order.parcel.carrier} name={order.parcel.carrier} size={20} />
+                          {order.parcel.carrier}
+                        </span>
+                      )
+                    },
                     { label: "Track & trace", value: order.parcel.tracking },
                     { label: "Verzonden", value: `${weekday(order.parcel.at)}, ${time(order.parcel.at)}` }
                   ]}
